@@ -1,15 +1,3 @@
-//! User-Interactive Authentication (UIA) and device sign-out.
-//!
-//! The SDK owns the protocol: the call is tried without auth, the server's
-//! 401 challenge comes from `Error::as_uiaa_response()`, and the retry
-//! carries ruma's `AuthData::Password`. Lightning only parks the pending
-//! operation between challenge and answer (like the SDK's
-//! `CrossSigningResetHandle`).
-//!
-//! The password is used once, in the retry. Scrubbing is best effort (see
-//! `scrub_string`): on success the String moves into ruma's
-//! `uiaa::Password`, which is dropped without zeroing. It is never cloned,
-//! logged or enqueued; only stage names and categories cross the FFI.
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -33,28 +21,17 @@ use serde_json::json;
 use crate::rooms::{classify_room_error, require_client};
 use crate::{enqueue, RustClient};
 
-/// The one operation the UIA layer retries. Add a variant per operation,
-/// never a second slot.
 pub(crate) enum UiaOperation {
     DeleteDevices(Vec<OwnedDeviceId>),
-    /// Cross-signing setup or (last resort) reset, parked at a password
-    /// challenge with everything its retry needs.
     CrossSigning(CrossSigningJob),
 }
 
-/// What a cross-signing job is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CrossSigningKind {
-    /// Create the identity only if the account has none. Never replaces one.
     Setup,
-    /// Replace the account's cross-signing identity. Explicit last resort.
     Reset,
 }
 
-/// Stops a running cross-signing job. Only an OAuth (MAS) approval wait can be
-/// interrupted: Setup checks the flag between its polls, and Reset forwards it
-/// to the SDK's own `CrossSigningResetHandle::cancel()`, which its `auth()`
-/// loop checks after every refused upload.
 #[derive(Clone, Default)]
 pub(crate) struct CancelToken {
     inner: Arc<CancelInner>,
@@ -71,8 +48,6 @@ impl CancelToken {
         self.inner.cancelled.load(Ordering::SeqCst)
     }
 
-    /// Mark the job cancelled. Returns the SDK reset handle that may be
-    /// polling, which the caller must `cancel()` on the runtime (it is async).
     pub(crate) fn request(&self) -> Option<Arc<CrossSigningResetHandle>> {
         self.inner.cancelled.store(true, Ordering::SeqCst);
         self.inner
@@ -82,8 +57,6 @@ impl CancelToken {
             .and_then(|guard| (*guard).clone())
     }
 
-    /// Register the reset handle before its approval polling starts; a cancel
-    /// that arrived earlier is applied to it at once.
     async fn attach(&self, handle: &Arc<CrossSigningResetHandle>) {
         if let Ok(mut guard) = self.inner.reset_handle.lock() {
             *guard = Some(Arc::clone(handle));
@@ -94,16 +67,9 @@ impl CancelToken {
     }
 }
 
-/// What the user decided before the job started about the secret storage
-/// that may already exist. Rust never infers this consent from local state.
 #[derive(Default)]
 pub(crate) struct StorageConsent {
-    /// The CURRENT recovery key (or passphrase), when the user gave it: the
-    /// new keys are then stored under it and it keeps working. Scrubbed right
-    /// after the store is opened.
     pub recovery_key: Option<String>,
-    /// The user has no recovery key and explicitly confirmed that a new one
-    /// replaces it.
     pub replace_confirmed: bool,
 }
 
@@ -117,44 +83,23 @@ impl Drop for StorageConsent {
     }
 }
 
-/// What happens to secret storage once the keys exist. Decided before any key
-/// is created or uploaded.
 pub(crate) enum StoragePlan {
-    /// No secret storage yet: `Recovery::enable()` creates it (and a backup)
-    /// and exports the keys into it. A new recovery key is shown.
     EnableRecovery,
-    /// Secret storage exists and the user gave its key: the keys are exported
-    /// into it. The recovery key does not change.
     ExportInto(SecretStore),
-    /// Secret storage exists, the user has no key and confirmed replacing it:
-    /// `Recovery::reset_key()`, which can only carry the secrets THIS session
-    /// holds (matrix-sdk recovery/mod.rs, `reset_key`).
     ReplaceRecoveryKey,
-    /// Secret storage exists and the keys did not change.
     Nothing,
 }
 
 pub(crate) struct CrossSigningJob {
     pub kind: CrossSigningKind,
-    /// The action name the UI started, echoed in `backup_action_result`.
     pub action: String,
     consent: StorageConsent,
-    /// Set by the precheck, before any key is created.
     setup_plan: Option<SetupPlan>,
     storage: Option<StoragePlan>,
-    /// Setup has called `bootstrap_cross_signing()`. From that call on the SDK
-    /// has SAVED a new private identity locally, before the server accepted
-    /// anything (matrix-sdk-crypto `OlmMachine::bootstrap_cross_signing`), so
-    /// local keys no longer say anything about the server. Every later pass,
-    /// the password retry included, is that same call with auth: it uploads
-    /// the saved identity (the SDK's documented UIA retry). Never re-planned.
     bootstrap_started: bool,
     /// Reset: the SDK's handle. Once it exists the LOCAL identity has already
     /// been replaced (`bootstrap_cross_signing(true)` saves before uploading).
     handle: Option<Arc<CrossSigningResetHandle>>,
-    /// Reset has called `reset_cross_signing()`, which saves the replacement
-    /// identity locally BEFORE uploading it: from here on, any failure must
-    /// put this session back in line with what the server holds.
     reset_started: bool,
     cancel: CancelToken,
 }
@@ -180,7 +125,6 @@ impl CrossSigningJob {
     }
 }
 
-/// UI action names that run a cross-signing job.
 pub(crate) const ACTION_SETUP_CROSS_SIGNING: &str = "setup_cross_signing";
 pub(crate) const ACTION_RESET_CROSS_SIGNING: &str = "reset_cross_signing";
 
@@ -192,16 +136,10 @@ pub(crate) fn cross_signing_kind_for_action(action: &str) -> Option<CrossSigning
     }
 }
 
-/// What the SERVER holds as this account's cross-signing identity, compared
-/// with this session's keys.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ServerIdentity {
-    /// The server has no cross-signing identity for the account.
     Absent,
-    /// The server's master key is this session's, and this session holds
-    /// every private key.
     MatchesLocalKeys,
-    /// The server has an identity this session cannot sign with.
     Other,
 }
 
@@ -229,18 +167,10 @@ pub(crate) fn server_identity_state(
     }
 }
 
-/// What `Setup` does. Pure, so the rule that decides whether an existing
-/// identity is ever touched is unit-tested.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SetupPlan {
-    /// The server's identity is this session's and every key is here.
     AlreadyComplete,
-    /// The server has no identity: create one, or upload the one an
-    /// interrupted setup left in this session.
     Bootstrap,
-    /// An identity exists on the server but this session lacks its private
-    /// keys. New keys cannot be made without replacing the identity, which
-    /// Setup never does.
     IdentityWithoutKeys,
 }
 
@@ -252,7 +182,6 @@ pub(crate) fn plan_setup(server: ServerIdentity) -> SetupPlan {
     }
 }
 
-/// The storage decision without the opened store. Pure and unit-tested.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum StorageDecision {
     EnableRecovery,
@@ -284,18 +213,13 @@ pub(crate) fn decide_storage(
     }
 }
 
-/// Outcome of one pass of a cross-signing job.
 pub(crate) enum Drive {
-    /// Finished. `Some(key)` when a new recovery key was minted.
     Done(Option<String>),
-    /// The server wants authentication; park and ask.
     Challenge { info: UiaaInfo, wrong_password: bool },
-    /// The user cancelled before the server accepted anything.
     Cancelled,
     Failed(&'static str),
 }
 
-/// Outcome of the identity half of a pass.
 enum Step {
     Ready,
     Challenge { info: UiaaInfo, wrong_password: bool },
@@ -313,16 +237,12 @@ struct OAuthParams {
 /// it; PARKED (`op` Some) can be answered or cancelled. Device deletion holds
 /// it only while parked.
 pub(crate) struct UiaPending {
-    /// The challenge id C++ replies to: the op id of the triggering call, so
-    /// stale replies are rejected by equality.
     pub uia_id: u64,
-    /// The server's UIA session, echoed on the retry.
     pub session: Option<String>,
     pub op: Option<UiaOperation>,
     pub cancel: Option<CancelToken>,
 }
 
-/// Empty the slot if it still belongs to `uia_id` and is not parked.
 fn release_slot(slot: &std::sync::Mutex<Option<UiaPending>>, uia_id: u64) {
     if let Ok(mut guard) = slot.lock() {
         if guard
@@ -334,8 +254,6 @@ fn release_slot(slot: &std::sync::Mutex<Option<UiaPending>>, uia_id: u64) {
     }
 }
 
-/// Releases a running job's slot however its task ends (panic or teardown
-/// abort included), so the one-at-a-time guard cannot stay shut for ever.
 struct SlotGuard {
     slot: Arc<std::sync::Mutex<Option<UiaPending>>>,
     uia_id: u64,
@@ -347,10 +265,6 @@ impl Drop for SlotGuard {
     }
 }
 
-/// Best-effort scrub of a secret's buffer: volatile zero writes plus a
-/// compiler fence so the stores are not eliminated, then `clear()`. Covers
-/// our copy on error paths only; on success the String is moved into ruma's
-/// `uiaa::Password`, which drops it unzeroed.
 fn scrub_string(secret: &mut String) {
     // SAFETY: writing 0x00 into every byte keeps the buffer valid UTF-8.
     unsafe {
@@ -362,8 +276,6 @@ fn scrub_string(secret: &mut String) {
     secret.clear();
 }
 
-/// Sanitized challenge event: stage names and flow shapes only, never the
-/// server's params or anything the user typed.
 fn enqueue_challenge(
     events: &crate::EventQueueRef,
     uia_id: u64,
@@ -378,8 +290,6 @@ fn enqueue_challenge(
         .collect();
     let completed: Vec<String> =
         info.completed.iter().map(|s| s.to_string()).collect();
-    // Can the password stage complete a flow (remaining stages exactly
-    // [password] or [password, dummy])? The only stage rendered today.
     let has_password_stage = info.flows.iter().any(|flow| {
         flow.stages
             .iter()
@@ -400,10 +310,6 @@ fn enqueue_challenge(
     }));
 }
 
-/// Delete one or more of the account's own devices. The first attempt has no
-/// auth (some servers allow a grace window); a UIA challenge parks the
-/// operation and emits `uia_required`; other failures are terminal. Result
-/// event: `device_delete_result { op_id, lifecycle, ok, category }`.
 pub(crate) fn delete_devices(
     bridge: &RustClient,
     device_ids: Vec<String>,
@@ -417,8 +323,6 @@ pub(crate) fn delete_devices(
     if ids.is_empty() {
         return Err("no devices given".to_owned());
     }
-    // One UIA-gated operation at a time; a second would have no UI and could
-    // cross answers. A running cross-signing job holds the slot too.
     if bridge
         .uia_pending
         .lock()
@@ -472,9 +376,6 @@ pub(crate) fn delete_devices(
     Ok(())
 }
 
-/// Answer the pending challenge with the account password and retry. A
-/// wrong password re-parks with the server's refreshed session and
-/// re-emits `uia_required` with `wrong_password`.
 pub(crate) fn uia_submit_password(
     bridge: &RustClient,
     uia_id: u64,
@@ -558,7 +459,6 @@ pub(crate) fn uia_submit_password(
             }
             Err(err) => {
                 if let Some(info) = err.as_uiaa_response() {
-                    // Wrong password (or a further stage): re-park with the refreshed session.
                     if let Ok(mut guard) = pending_slot.lock() {
                         *guard = Some(UiaPending {
                             uia_id,
@@ -583,15 +483,6 @@ pub(crate) fn uia_submit_password(
     Ok(())
 }
 
-/// Abandon the pending operation.
-///
-/// * Device deletion parked at a challenge: dropped (local only; the
-///   server's session expires).
-/// * A cross-signing job parked at a password: dropped, and its own
-///   `backup_action_result` reports what the cancel left behind.
-/// * A cross-signing job RUNNING (waiting for an OAuth approval): asked to
-///   stop; it reports itself. The UI stays busy until that result arrives,
-///   because an approval that already went through completes the job.
 pub(crate) fn uia_cancel(bridge: &RustClient, uia_id: u64) {
     let mut parked_job = None;
     let mut polling_handle = None;
@@ -611,7 +502,6 @@ pub(crate) fn uia_cancel(bridge: &RustClient, uia_id: u64) {
             Some(UiaOperation::DeleteDevices(_)) => {
                 guard.take();
             }
-            // The slot stays reserved (RUNNING) until the cancel is reported.
             Some(UiaOperation::CrossSigning(job)) => parked_job = Some(job),
             None => {}
         }
@@ -647,13 +537,6 @@ pub(crate) fn uia_cancel(bridge: &RustClient, uia_id: u64) {
     });
 }
 
-// ---------------------------------------------------------------------------
-// Cross-signing setup and reset
-// ---------------------------------------------------------------------------
-
-/// The server's master key for our own user, from a raw `/keys/query` that is
-/// NOT fed into the OlmMachine, so it can neither be confused with nor
-/// overwrite local state. `Ok(None)`: the server has no identity.
 async fn server_master_key(client: &Client) -> Result<Option<String>, &'static str> {
     use matrix_sdk::ruma::api::client::keys::get_keys;
 
@@ -693,18 +576,12 @@ async fn local_identity(client: &Client) -> (Option<String>, bool) {
     (master, complete)
 }
 
-/// The server's identity compared with this session's keys, asked fresh.
 async fn server_identity(client: &Client) -> Result<ServerIdentity, &'static str> {
     let server = server_master_key(client).await?;
     let (local, complete) = local_identity(client).await;
     Ok(server_identity_state(server.as_deref(), local.as_deref(), complete))
 }
 
-/// Everything decided before a key is created or uploaded: what Setup does,
-/// and what happens to secret storage. Refuses (with nothing changed) when an
-/// identity exists that this session cannot sign with, when secret storage
-/// cannot be read, and when replacing a recovery key was neither avoided (no
-/// current key given) nor confirmed.
 async fn precheck(client: &Client, job: &mut CrossSigningJob) -> Result<(), &'static str> {
     let mut recovery_key = job.consent.recovery_key.take();
     let result = precheck_inner(client, job, recovery_key.as_deref()).await;
@@ -733,20 +610,12 @@ async fn precheck_inner(
             return Err("keys_unavailable");
         }
     }
-    // Always store: even when the server already holds this session's keys
-    // (an unconfirmed setup), nothing says they ever reached secret storage,
-    // and without the store's key that cannot be checked.
     let keys_will_change = true;
-    // A fresh read; a failure is an error, never "no secret storage" (which
-    // would create a new store over the user's).
     let enabled = enc
         .secret_storage()
         .is_enabled()
         .await
         .map_err(|err| classify_room_error(&err.to_string()))?;
-    // `Recovery::enable()` refuses (BackupExistsOnServer) when a server-side
-    // key backup exists that this session is not using. Find that out now,
-    // not after the new keys were uploaded.
     if !enabled {
         let backups = enc.backups();
         if !backups.are_enabled().await
@@ -794,19 +663,13 @@ async fn realign_own_identity(client: &Client) -> bool {
     }
 }
 
-/// Whether the health snapshot may re-read our own keys from the server (which
-/// drops local keys the server does not hold). Not while any UIA job holds the
-/// slot: a reset waiting for its password or approval holds exactly such keys.
 pub(crate) fn health_may_realign(slot: &std::sync::Mutex<Option<UiaPending>>) -> bool {
     slot.lock().map(|guard| guard.is_none()).unwrap_or(false)
 }
 
-/// Before an authenticated Setup upload: proceed only while the server still
-/// has no identity. `None` means go ahead.
 async fn recheck_before_upload(client: &Client) -> Option<Step> {
     match server_identity(client).await {
         Ok(ServerIdentity::Absent) => None,
-        // An earlier attempt got through after all.
         Ok(ServerIdentity::MatchesLocalKeys) => Some(Step::Ready),
         Ok(ServerIdentity::Other) => {
             let _ = realign_own_identity(client).await;
@@ -816,23 +679,15 @@ async fn recheck_before_upload(client: &Client) -> Option<Step> {
     }
 }
 
-/// A failed reset has already replaced this session's local identity: put it
-/// back in line with the server, and say which way it went.
 async fn reset_failure_category(client: &Client) -> &'static str {
     let realigned = realign_own_identity(client).await;
     match server_identity(client).await {
-        // The new identity reached the server; a later step did not finish.
         Ok(ServerIdentity::MatchesLocalKeys) => "reset_incomplete",
         Ok(_) if realigned => "reset_failed",
         _ => "reset_failed_unconfirmed",
     }
 }
 
-/// The server's word on our own device, after a fresh own-keys query (one
-/// retry; its failure is reported, not discarded). When the identity is ours
-/// but the device is not cross-signed by it (a signatures upload that failed
-/// after the keys upload succeeded), sign it now, as
-/// `SecretStore::import_secrets` does, and ask again.
 async fn ensure_own_device_signed(client: &Client) -> Result<(), &'static str> {
     async fn refresh(client: &Client) -> Result<(), &'static str> {
         let own = client.user_id().map(ToOwned::to_owned).ok_or("network")?;
@@ -873,11 +728,9 @@ async fn ensure_own_device_signed(client: &Client) -> Result<(), &'static str> {
     }
 }
 
-/// How often and how long Setup polls an OAuth approval.
 const APPROVAL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
 const APPROVAL_POLLS: u32 = 240;
 
-/// The identity half: create/upload (Setup) or replace (Reset) the keys.
 async fn identity_step(
     client: &Client,
     job: &mut CrossSigningJob,
@@ -889,9 +742,6 @@ async fn identity_step(
     match job.kind {
         CrossSigningKind::Setup => {
             if job.bootstrap_started {
-                // A retry: the account may have got an identity from another
-                // session while the password prompt was open, and the
-                // password just typed would let this upload replace it.
                 if let Some(step) = recheck_before_upload(client).await {
                     return step;
                 }
@@ -913,8 +763,6 @@ async fn identity_step(
             let Some(info) = err.as_uiaa_response() else {
                 return Step::Failed(classify_room_error(&err.to_string()));
             };
-            // OAuth (MAS) asks the user to approve in a browser; poll the same
-            // upload until it passes or the user cancels.
             let Ok(Some(params)) = info.params::<OAuthParams>(&AuthType::OAuth) else {
                 return Step::Challenge { info: info.clone(), wrong_password };
             };
@@ -936,8 +784,6 @@ async fn identity_step(
                     .bootstrap_cross_signing(Some(AuthData::OAuth(oauth.clone())))
                     .await
                 {
-                    // Accepted: a cancel arriving now is too late, and the job
-                    // completes (the keys are on the server either way).
                     Ok(()) => return Step::Ready,
                     Err(e) if e.as_uiaa_response().is_some() => continue,
                     Err(e) => return Step::Failed(classify_room_error(&e.to_string())),
@@ -965,8 +811,6 @@ async fn identity_step(
                                 job.cancel.attach(&handle).await;
                                 let mut oauth = uiaa::OAuth::new();
                                 oauth.session = oauth_info.session;
-                                // The SDK polls for the approval itself, and
-                                // returns Ok for a cancel too.
                                 let polled = handle.auth(Some(AuthData::OAuth(oauth))).await;
                                 return reset_oauth_outcome(client, &job.cancel, polled).await;
                             }
@@ -986,9 +830,6 @@ async fn identity_step(
     }
 }
 
-/// `CrossSigningResetHandle::auth()` returns Ok both when the reset went
-/// through and when it was cancelled, so after a cancel the server is asked
-/// which one happened.
 async fn reset_oauth_outcome(
     client: &Client,
     cancel: &CancelToken,
@@ -999,7 +840,6 @@ async fn reset_oauth_outcome(
         Err(err) => Step::Failed(classify_room_error(&err.to_string())),
         Ok(()) if !cancel.is_cancelled() => Step::Ready,
         Ok(()) => match server_identity(client).await {
-            // The approval landed before the cancel did.
             Ok(ServerIdentity::MatchesLocalKeys) => Step::Ready,
             Ok(_) => Step::Cancelled,
             Err(_) => Step::Failed("cancel_unconfirmed"),
@@ -1007,7 +847,6 @@ async fn reset_oauth_outcome(
     }
 }
 
-/// Store the keys in secret storage as the precheck decided.
 async fn storage_step(
     client: &Client,
     job: &mut CrossSigningJob,
@@ -1038,15 +877,6 @@ async fn storage_step(
     }
 }
 
-/// One pass of a cross-signing job. `auth` is None on the first attempt and
-/// carries the user's answer on a retry. Nothing here logs a password or key.
-///
-/// Secret storage is the point: a recovery key can only verify a new session
-/// if the cross-signing private keys are in it. What happens to it is decided
-/// in the precheck, before any key exists: `recovery.enable()` when there is
-/// no secret storage, an export into the existing store when the user gave its
-/// key (the recovery key keeps working), or `Recovery::reset_key()` only when
-/// the user explicitly confirmed replacing a key they do not have.
 async fn drive_cross_signing(
     client: &Client,
     job: &mut CrossSigningJob,
@@ -1069,12 +899,6 @@ async fn drive_cross_signing(
         }
         Step::Failed(category) => return Drive::Failed(category),
     }
-    // Before signing or storing anything: the server's identity must be ours
-    // AND this session must still hold every key of it. Something may have
-    // re-read our identity while the job waited for a password or an approval,
-    // which deletes keys the server did not hold yet; the SDK's reset handle
-    // then uploads its prebuilt identity anyway, and nobody holds its keys.
-    // Reporting that as success would lose the identity silently.
     match server_identity(client).await {
         Ok(ServerIdentity::MatchesLocalKeys) => {}
         Ok(_) => {
@@ -1087,9 +911,6 @@ async fn drive_cross_signing(
         }
         Err(category) => return Drive::Failed(category),
     }
-    // The identity is the server's and ours. Our own device must carry its
-    // signature too, or this session never reads as verified and "finish
-    // setting up" would come back here for ever.
     if let Err(category) = ensure_own_device_signed(client).await {
         return Drive::Failed(category);
     }
@@ -1099,11 +920,6 @@ async fn drive_cross_signing(
     }
 }
 
-/// What a cancelled job left behind, as the result category. A cancelled
-/// RESET has already replaced this session's local identity (the SDK saves it
-/// before uploading); asking the server for our own keys makes the SDK drop
-/// the local keys that do not match what the server holds
-/// (matrix-sdk-crypto identities/manager.rs, `check_private_identity`).
 async fn cancelled_category(client: &Client, job: &CrossSigningJob) -> &'static str {
     if job.kind == CrossSigningKind::Reset && job.reset_started {
         if realign_own_identity(client).await {
@@ -1116,10 +932,6 @@ async fn cancelled_category(client: &Client, job: &CrossSigningJob) -> &'static 
     }
 }
 
-/// Run one pass and report: a result event, or a parked challenge. The result
-/// uses the `backup_action_result` shape so the one place that shows a freshly
-/// minted recovery key shows this one too. The slot is released BEFORE the
-/// result is queued, so the UI can start the next job as soon as it sees it.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_cross_signing_pass(
     client: Client,
@@ -1142,7 +954,6 @@ pub(crate) async fn run_cross_signing_pass(
         }));
     };
     let mut drive = drive_cross_signing(&client, &mut job, auth, &on_approval).await;
-    // A cancel that raced the challenge: never park a job the user abandoned.
     if matches!(drive, Drive::Challenge { .. }) && job.cancel.is_cancelled() {
         drive = Drive::Cancelled;
     }
@@ -1194,12 +1005,6 @@ fn refuse_start(recovery_key: &mut String, message: &str) -> Result<(), String> 
     Err(message.to_owned())
 }
 
-/// Start a cross-signing job (`setup_cross_signing` / `reset_cross_signing`).
-/// `recovery_key` is the user's CURRENT recovery key or passphrase (empty when
-/// not given) and `replace_recovery_key` their explicit consent to replace
-/// it; see `decide_storage`. The first attempt carries no auth; a challenge
-/// parks the job and raises `uia_required`, answered by `uia_submit_password`
-/// or `uia_cancel`. Every job ends in exactly one `backup_action_result`.
 pub(crate) fn start_cross_signing(
     bridge: &RustClient,
     action: &str,
@@ -1215,8 +1020,6 @@ pub(crate) fn start_cross_signing(
         Err(err) => return refuse_start(&mut recovery_key, &err),
     };
     let cancel = CancelToken::default();
-    // One UIA-gated operation at a time, reserved before the task starts so
-    // two quick starts cannot both pass the check.
     {
         let Ok(mut guard) = bridge.uia_pending.lock() else {
             return refuse_start(&mut recovery_key, "internal state unavailable");
@@ -1243,7 +1046,6 @@ pub(crate) fn start_cross_signing(
     let timelines = Arc::clone(&bridge.timelines);
     let pending_slot = Arc::clone(&bridge.uia_pending);
     let lifecycle = timelines.lifecycle();
-    // Frees the reservation even if the task is dropped before it runs.
     let reservation = SlotGuard { slot: Arc::clone(&pending_slot), uia_id: op_id };
     bridge.spawn_reported_action("cross_signing", async move {
         let _reservation = reservation;
@@ -1255,9 +1057,6 @@ pub(crate) fn start_cross_signing(
     Ok(())
 }
 
-/// Session end (sign-out, account switch, a new login or restore): drop the
-/// slot and stop a job that is still polling. Never on a mere sync stop: the
-/// session goes on, and a parked job must still end in its own result.
 pub(crate) fn abandon_on_teardown(
     slot: &std::sync::Mutex<Option<UiaPending>>,
 ) -> Option<Arc<CrossSigningResetHandle>> {
@@ -1272,7 +1071,6 @@ pub(crate) fn abandon_on_teardown(
 mod cross_signing_tests {
     use super::*;
 
-    // The rule that decides whether an existing identity is ever replaced.
     #[test]
     fn setup_never_replaces_an_identity_it_cannot_sign_with() {
         assert_eq!(plan_setup(ServerIdentity::Absent), SetupPlan::Bootstrap);
@@ -1280,17 +1078,12 @@ mod cross_signing_tests {
             plan_setup(ServerIdentity::MatchesLocalKeys),
             SetupPlan::AlreadyComplete
         );
-        // The server has an identity and this session cannot sign with it.
         assert_eq!(
             plan_setup(ServerIdentity::Other),
             SetupPlan::IdentityWithoutKeys
         );
     }
 
-    // An interrupted setup leaves every private key in this session (the SDK
-    // saves them before the upload's 401) and nothing on the server. That
-    // must plan a Bootstrap (which uploads the saved identity), never
-    // "already complete": LOCAL keys alone are not "set up".
     #[test]
     fn local_keys_without_the_server_identity_are_not_set_up() {
         let local = Some("MASTERKEYbase64");
@@ -1303,12 +1096,10 @@ mod cross_signing_tests {
             server_identity_state(Some("MASTERKEYbase64"), local, true),
             ServerIdentity::MatchesLocalKeys
         );
-        // Padding is not a difference.
         assert_eq!(
             server_identity_state(Some("MASTERKEYbase64="), local, true),
             ServerIdentity::MatchesLocalKeys
         );
-        // Another identity on the server, or ours with keys missing here.
         assert_eq!(
             server_identity_state(Some("SOMEONEELSE"), local, true),
             ServerIdentity::Other
@@ -1324,9 +1115,6 @@ mod cross_signing_tests {
         );
     }
 
-    // New keys must reach secret storage, and an existing secret store is
-    // never replaced without the user's explicit consent: the current key
-    // keeps it, consent replaces it, neither refuses BEFORE anything changes.
     #[test]
     fn an_existing_recovery_key_is_kept_or_replaced_only_with_consent() {
         use StorageDecision::*;
@@ -1358,11 +1146,6 @@ mod cross_signing_tests {
         }
     }
 
-    // The driver is the only code that may call the destructive SDK entry
-    // point, and only on the explicit Reset path; Setup must stay on the
-    // non-resetting bootstrap. What happens to secret storage is decided
-    // before either of them runs. A source scan, because the decision order
-    // is the property.
     #[test]
     fn only_the_reset_job_calls_reset_cross_signing() {
         let src = include_str!("uia.rs");
@@ -1393,7 +1176,6 @@ mod cross_signing_tests {
             precheck_at < identity_at,
             "secret storage must be decided before the keys change"
         );
-        // A password never reaches a log line.
         let code = src.split("#[cfg(test)]").next().expect("code");
         assert!(!code.contains("tracing::") && !code.contains("println!"));
     }
@@ -1401,8 +1183,6 @@ mod cross_signing_tests {
     #[test]
     fn the_cross_signing_ffi_is_separate_and_carries_explicit_consent() {
         let lib = include_str!("lib.rs");
-        // The generic backup action refuses the cross-signing actions, so the
-        // consent arguments cannot be skipped.
         assert!(lib.contains("uia::cross_signing_kind_for_action(&action)"));
         assert!(lib.contains(
             "uia::start_cross_signing(bridge, &action, recovery_key, replace_recovery_key != 0, op_id)"
@@ -1410,9 +1190,6 @@ mod cross_signing_tests {
     }
 }
 
-/// The cross-signing job against a loopback homeserver (`MatrixMockServer`):
-/// the password retry, the cancel of an OAuth approval, and what a cancelled
-/// reset leaves behind.
 #[cfg(test)]
 mod cross_signing_server_tests {
     use super::*;
@@ -1425,8 +1202,6 @@ mod cross_signing_server_tests {
         };
         let mut job =
             CrossSigningJob::new(kind, action, StorageConsent::default(), CancelToken::default());
-        // What the precheck decides for an account with no identity on the
-        // server and nothing to store; the storage half is not under test.
         if kind == CrossSigningKind::Setup {
             job.setup_plan = Some(SetupPlan::Bootstrap);
         }
@@ -1469,7 +1244,6 @@ mod cross_signing_server_tests {
             assert!(!wrong_password);
             assert!(info.session.is_some());
         }
-        // The hazard itself: local keys exist, the server accepted nothing.
         assert!(job.bootstrap_started);
         assert!(
             client.encryption().cross_signing_status().await.unwrap().is_complete(),
@@ -1481,7 +1255,6 @@ mod cross_signing_server_tests {
             Ok(ServerIdentity::Absent),
             "local keys alone must not read as an identity the server holds"
         );
-        // A re-plan at this point would be Bootstrap, not AlreadyComplete.
         assert_eq!(
             plan_setup(server_identity(&client).await.unwrap()),
             SetupPlan::Bootstrap
@@ -1506,9 +1279,6 @@ mod cross_signing_server_tests {
         server.verify().await;
     }
 
-    // MAJOR 2. Cancel during an OAuth approval stops the polling and reports
-    // Cancelled; nothing keeps uploading in the background. The previous
-    // driver had no cancel at all and polled on for two minutes.
     #[tokio::test]
     async fn cancel_stops_the_setup_approval_wait() {
         let server = MatrixMockServer::new().await;
@@ -1524,7 +1294,6 @@ mod cross_signing_server_tests {
         let cancel = job.cancel.clone();
         let approvals = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let seen = Arc::clone(&approvals);
-        // The user opens the page, then presses Cancel.
         let on_approval = move |_url: String| {
             seen.fetch_add(1, Ordering::SeqCst);
             let _ = cancel.request();
@@ -1547,10 +1316,6 @@ mod cross_signing_server_tests {
         assert_eq!(uploads, 1, "no upload may follow the cancel");
     }
 
-    // MAJOR 2, reset. The SDK's reset handle returns Ok for a cancel, so the
-    // driver must ask the server: here the server never accepted the new
-    // keys, so the job is Cancelled, not Ready (the previous driver went on
-    // to `reset_key()` and minted a recovery key nobody saw).
     #[tokio::test]
     async fn a_cancelled_reset_approval_is_not_a_finished_reset() {
         let server = MatrixMockServer::new().await;
@@ -1579,16 +1344,9 @@ mod cross_signing_server_tests {
             "a cancel must not read as a finished reset"
         );
         assert!(job.handle.is_some());
-        // The reset already replaced this session's identity locally; the
-        // report is built on asking the server.
         assert_eq!(cancelled_category(&client, &job).await, "cancelled_reset");
     }
 
-    /// A loopback homeserver that really keeps keys (the SDK's own crypto
-    /// preset: uploads are stored, `/keys/query` serves them back), with two
-    /// sessions of one account: "OWNER" (token TOKEN_0) and "VICTIM"
-    /// (TOKEN_1). Mocks mounted before the preset win, so a test fails one
-    /// endpoint for one session by mounting it first, matched on its token.
     async fn two_sessions(
         server: &MatrixMockServer,
     ) -> (Client, Client) {
@@ -1613,12 +1371,6 @@ mod cross_signing_server_tests {
         local_identity(client).await.1
     }
 
-    // MEDIUM A. The reset's upload fails with an ordinary error, AFTER the SDK
-    // replaced this session's identity locally. The job must put the session
-    // back on the server's identity and say the reset failed; the previous
-    // driver reported a plain failure and left the session holding keys the
-    // server never accepted, which then read as "unconfirmed" with a setup
-    // button that could only fail.
     #[tokio::test]
     async fn a_failed_reset_puts_this_session_back_on_the_servers_identity() {
         let server = MatrixMockServer::new().await;
@@ -1646,10 +1398,6 @@ mod cross_signing_server_tests {
         assert_eq!(server_master_key(&owner).await, Ok(Some(owners)));
     }
 
-    // MEDIUM A, setup side: keys an interrupted reset left in this session do
-    // not match the server's identity. The precheck refuses with
-    // keys_unavailable AND drops them, so the session reads "keys missing"
-    // (where the explicit reset is offered) instead of "unconfirmed".
     #[tokio::test]
     async fn keys_the_server_does_not_hold_are_dropped_before_keys_unavailable() {
         let server = MatrixMockServer::new().await;
@@ -1661,7 +1409,6 @@ mod cross_signing_server_tests {
             .await;
         let (owner, victim) = two_sessions(&server).await;
         owner.encryption().bootstrap_cross_signing(None).await.expect("owner identity");
-        // An interrupted reset: the SDK saved new keys, the server refused.
         assert!(victim.encryption().reset_cross_signing().await.is_err());
         assert!(keys_complete(&victim).await);
 
@@ -1675,10 +1422,6 @@ mod cross_signing_server_tests {
         assert!(!keys_complete(&victim).await, "the stale keys must be dropped");
     }
 
-    // MEDIUM B. The signing keys reached the server but the signatures upload
-    // failed, so our own device is unsigned. "Finish setting up" plans
-    // AlreadyComplete; it must sign the device, not report success for ever
-    // with the session still unverified.
     #[tokio::test]
     async fn finishing_setup_signs_a_device_the_signature_upload_missed() {
         let server = MatrixMockServer::new().await;
@@ -1690,9 +1433,6 @@ mod cross_signing_server_tests {
             .mount()
             .await;
         let (owner, _victim) = two_sessions(&server).await;
-        // An existing session: its device keys were published (unsigned)
-        // before cross-signing existed. Bootstrapping a device whose keys are
-        // not yet published would publish them already signed.
         server.mock_sync().ok_and_run(&owner, |_| {}).await;
         assert!(owner.encryption().bootstrap_cross_signing(None).await.is_err());
         assert_eq!(server_identity(&owner).await, Ok(ServerIdentity::MatchesLocalKeys));
@@ -1718,10 +1458,6 @@ mod cross_signing_server_tests {
         );
     }
 
-    // LOW 2. While the password prompt was open the account got an identity
-    // from another session. The retry carries the password, so uploading now
-    // would REPLACE that identity; it must refuse instead. The previous driver
-    // uploaded, and this server (like any) accepted it.
     #[tokio::test]
     async fn a_password_retry_never_replaces_an_identity_that_appeared_meanwhile() {
         let server = MatrixMockServer::new().await;
@@ -1759,13 +1495,6 @@ mod cross_signing_server_tests {
         assert!(!keys_complete(&victim).await);
     }
 
-    // A reset parked at its password prompt holds every new key while the
-    // server has none of them, which is the state the health snapshot used to
-    // "repair" by re-reading our identity. That deleted the keys, the password
-    // then uploaded the prebuilt identity, and the job ended Done with a
-    // recovery key while nobody held the identity's keys. The snapshot no
-    // longer re-reads while a job holds the slot, and the job refuses to
-    // finish on keys it lost.
     #[tokio::test]
     async fn a_reset_whose_keys_were_lost_while_parked_never_reports_success() {
         let server = MatrixMockServer::new().await;
@@ -1784,7 +1513,6 @@ mod cross_signing_server_tests {
         assert!(matches!(first, Drive::Challenge { .. }));
         assert!(keys_complete(&victim).await, "the parked reset holds its new keys");
 
-        // Parked: the health snapshot must leave it alone.
         let slot = std::sync::Mutex::new(Some(UiaPending {
             uia_id: 1,
             session: None,
@@ -1794,7 +1522,6 @@ mod cross_signing_server_tests {
         assert!(!health_may_realign(&slot));
         assert!(health_may_realign(&std::sync::Mutex::new(None)));
 
-        // Whatever re-reads our identity meanwhile deletes the new keys.
         assert!(realign_own_identity(&victim).await);
         assert!(!keys_complete(&victim).await);
 
@@ -1819,10 +1546,6 @@ mod cross_signing_server_tests {
         }
     }
 
-    // LOW 5. A sync stop (the reap of a finished sync thread runs the same
-    // code) is not the end of the session: a job parked at its password
-    // prompt stays parked, and a later Cancel still ends it in exactly one
-    // result. Only a session end drops it.
     #[test]
     fn a_sync_stop_keeps_a_parked_job_and_its_one_result() {
         let dir = std::env::temp_dir().join(format!(
@@ -1878,7 +1601,6 @@ mod cross_signing_server_tests {
         assert_eq!(seen[0]["category"], "cancelled");
         assert!(bridge.uia_pending.lock().unwrap().is_none());
 
-        // A session end does drop it.
         park(78);
         bridge.abandon_uia();
         assert!(bridge.uia_pending.lock().unwrap().is_none());
@@ -1887,8 +1609,6 @@ mod cross_signing_server_tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    // The slot: a running job blocks a second one and is released when it
-    // ends, a parked one survives, and teardown stops a job that is polling.
     #[test]
     fn the_slot_is_held_while_running_and_freed_at_the_end() {
         let slot = Arc::new(std::sync::Mutex::new(None));
@@ -1899,7 +1619,6 @@ mod cross_signing_server_tests {
             op: None,
             cancel: Some(cancel.clone()),
         });
-        // A different job's release never frees it.
         release_slot(&slot, 8);
         assert!(slot.lock().unwrap().is_some());
         {

@@ -1,8 +1,3 @@
-// FileBrowserModel: the folder listing behind Lightning's own file chooser
-// (FileChooserDialog.qml), shown on Linux when no portal FileChooser exists.
-//
-// Every case lists a QTemporaryDir; nothing outside it is read except the
-// home folder's path (for "~" and the places column).
 
 #include "models/FileBrowserModel.h"
 
@@ -40,14 +35,13 @@ QStringList names(const FileBrowserModel &model)
     return out;
 }
 
-} // namespace
+}
 
 class FileBrowserModelTest : public QObject
 {
     Q_OBJECT
 
 private:
-    // A folder with two subfolders, a hidden file and three files.
     void populate(const QString &root)
     {
         QVERIFY(QDir(root).mkdir(QStringLiteral("Photos")));
@@ -85,7 +79,6 @@ private Q_SLOTS:
         FileBrowserModel model;
         QVERIFY(load(model, dir.path()));
         QCOMPARE(model.error(), QString());
-        // Folders first, case-insensitive; "notes 9" before "notes 10".
         QCOMPARE(names(model), (QStringList{
                                    QStringLiteral("archive"),
                                    QStringLiteral("Photos"),
@@ -97,7 +90,6 @@ private Q_SLOTS:
         QCOMPARE(model.get(4).value(QStringLiteral("kind")).toString(),
                  QStringLiteral("pdf"));
 
-        // The toggle is a filter over the same read.
         model.setShowHidden(true);
         QCOMPARE(model.rowCount(), 6);
         QVERIFY(names(model).contains(QStringLiteral(".secret")));
@@ -118,7 +110,6 @@ private Q_SLOTS:
                                     QStringLiteral("report.pdf"),
                                     QStringLiteral("notes 10.txt")}));
         QVERIFY(bySize.mid(0, 2).contains(QStringLiteral("Photos")));
-        // An unknown field is "name", not a silent no-op.
         model.setSortField(QStringLiteral("colour"));
         QCOMPARE(model.sortField(), QStringLiteral("name"));
     }
@@ -132,7 +123,6 @@ private Q_SLOTS:
         FileBrowserModel model;
         QVERIFY(load(model, dir.path()));
         model.setNameFilters({QStringLiteral("*.pdf")});
-        // Case-insensitive, as the desktop's own dialogs match.
         QCOMPARE(names(model), (QStringList{
                                    QStringLiteral("archive"),
                                    QStringLiteral("Photos"),
@@ -153,19 +143,15 @@ private Q_SLOTS:
         populate(dir.path());
         FileBrowserModel model;
         QVERIFY(load(model, dir.path()));
-        // archive, Photos, notes 9.txt, notes 10.txt, report.pdf
         QCOMPARE(model.findPrefix(QStringLiteral("n"), -1), 2);
         QCOMPARE(model.findPrefix(QStringLiteral("n"), 2), 3);
-        QCOMPARE(model.findPrefix(QStringLiteral("n"), 3), 2); // wraps
+        QCOMPARE(model.findPrefix(QStringLiteral("n"), 3), 2);
         QCOMPARE(model.findPrefix(QStringLiteral("PH"), -1), 1);
         QCOMPARE(model.findPrefix(QStringLiteral("zz"), -1), -1);
         QCOMPARE(model.indexOfName(QStringLiteral("report.pdf")), 4);
         QCOMPARE(model.indexOfName(QStringLiteral("Report.pdf")), -1);
     }
 
-    // Windows uses this chooser since 2026-10-16: a folder on another drive
-    // starts its path bar at that drive, not at C:/ with the drive's folders
-    // spelled under it.
     void thePathBarStartsAtTheFoldersOwnDrive()
     {
         QCOMPARE(FileBrowserModel::pathRoot(QStringLiteral("D:/data/photos")),
@@ -175,17 +161,14 @@ private Q_SLOTS:
         QCOMPARE(FileBrowserModel::pathRoot(
                      QStringLiteral("//nas/media/films/2026")),
                  QStringLiteral("//nas/media/"));
-        // Neither: the platform root.
         QCOMPARE(FileBrowserModel::pathRoot(QStringLiteral("/tmp/inner")),
                  QDir::rootPath());
         QCOMPARE(FileBrowserModel::pathRoot(QStringLiteral("1:/x")),
                  QDir::rootPath());
     }
 
-    // Review M4: what the in-app chooser needs on Windows, as pure helpers.
     void windowsPathsNamesAndDrivesForTheChooser()
     {
-        // Paths read as Windows writes them, never "/C:/...".
         QCOMPARE(FileBrowserModel::displayPathFor(
                      QStringLiteral("C:/Users/six/Downloads"), true),
                  QStringLiteral("C:\\Users\\six\\Downloads"));
@@ -199,7 +182,6 @@ private Q_SLOTS:
                      QStringLiteral("/home/six/a"), false),
                  QStringLiteral("/home/six/a"));
 
-        // Names Windows refuses.
         for (const char *bad : {"a:b", "a<b", "a>b", "a\"b", "a\\b", "a|b",
                                 "a?b", "a*b", "trailing.", "trailing ",
                                 "CON", "con", "NUL.txt", "nul .tar.gz", "PRN",
@@ -215,20 +197,17 @@ private Q_SLOTS:
             QStringLiteral("COM") + QChar(0x00B9)));
         QVERIFY(!FileBrowserModel::isValidWindowsLeaf(
             QStringLiteral("tab\there")));
-        // And names it accepts, including near misses of the device names.
         for (const char *good : {"report.pdf", "CONSOLE.txt", "COM10", "LPT0",
                                  "nullable", ".hidden", "a b.c", "Ąžuolas"}) {
             QVERIFY2(FileBrowserModel::isValidWindowsLeaf(
                          QString::fromUtf8(good)),
                      good);
         }
-        // Elsewhere only a separator, NUL, "." and ".." are refused.
         QVERIFY(FileBrowserModel::isValidLeaf(QStringLiteral("a:b"), false));
         QVERIFY(FileBrowserModel::isValidLeaf(QStringLiteral("CON"), false));
         QVERIFY(!FileBrowserModel::isValidLeaf(QStringLiteral("a/b"), false));
         QVERIFY(!FileBrowserModel::isValidLeaf(QStringLiteral(".."), false));
 
-        // Drive roots become labelled places.
         const QVariantList drives = FileBrowserModel::driveEntries(
             {QStringLiteral("C:/"), QStringLiteral("D:/")});
         QCOMPARE(drives.size(), 2);
@@ -252,7 +231,7 @@ private Q_SLOTS:
         QCOMPARE(crumbs.at(0).toMap().value(QStringLiteral("kind")).toString(),
                  QStringLiteral("home"));
 
-        QTemporaryDir dir; // under /tmp, not under home on any sane host
+        QTemporaryDir dir;
         QVERIFY(dir.isValid());
         const QString path = QDir::cleanPath(dir.path());
         if (path.startsWith(home + QLatin1Char('/')))
@@ -267,7 +246,6 @@ private Q_SLOTS:
         QCOMPARE(crumbs.last().toMap().value(QStringLiteral("url")).toUrl(),
                  QUrl::fromLocalFile(path + QStringLiteral("/inner")));
         QCOMPARE(model.parentFolder(), QUrl::fromLocalFile(path));
-        // Every crumb is the folder above the next.
         for (int i = 1; i < crumbs.size(); ++i) {
             const QString child = crumbs.at(i).toMap().value(
                 QStringLiteral("url")).toUrl().toLocalFile();
@@ -345,14 +323,12 @@ private Q_SLOTS:
         QCOMPARE(model.error(), QStringLiteral("notFound"));
         QCOMPARE(model.rowCount(), 0);
 
-        // Two folders in a row: only the second one's rows may land.
         QTemporaryDir other;
         QVERIFY(other.isValid());
         touch(other.path() + QStringLiteral("/only.txt"));
         QSignalSpy listed(&model, &FileBrowserModel::listed);
         model.setFolder(QUrl::fromLocalFile(dir.path()));
         model.setFolder(QUrl::fromLocalFile(other.path()));
-        // The first folder's rows are gone at once, before any answer.
         QCOMPARE(model.rowCount(), 0);
         QVERIFY(listed.wait(5000));
         QTest::qWait(50);
@@ -417,11 +393,9 @@ private Q_SLOTS:
         QVERIFY(stuck->loading());
         QCOMPARE(FileBrowserModel::runningListings(), before + 1);
 
-        // What ~QCoreApplication waits for is not holding it.
         QCOMPARE(QThreadPool::globalInstance()->activeThreadCount(), 0);
         QVERIFY(QThreadPool::globalInstance()->waitForDone(100));
 
-        // Another folder lists at once, in another model and in this one.
         FileBrowserModel other;
         QVERIFY(load(other, QStringLiteral("/elsewhere")));
         QCOMPARE(names(other), QStringList{QStringLiteral("only.txt")});
@@ -429,13 +403,11 @@ private Q_SLOTS:
         moved.setFolder(QUrl::fromLocalFile(stalled));
         QVERIFY(load(moved, QStringLiteral("/elsewhere")));
 
-        // Destroying the model whose listing is stuck does not wait for it.
         QElapsedTimer clock;
         clock.start();
         delete stuck;
         QVERIFY2(clock.elapsed() < 500, qPrintable(QString::number(clock.elapsed())));
 
-        // The mount answers at last: nothing lands anywhere, nothing breaks.
         release.set_value();
         QTRY_COMPARE(FileBrowserModel::runningListings(), before);
         QTest::qWait(50);
@@ -443,10 +415,6 @@ private Q_SLOTS:
         QVERIFY(!moved.loading());
     }
 
-    // §18 recheck: leaked listing threads had no cap. Reopening a folder on a
-    // hung mount (a refresh, a second chooser) joins the read already stuck
-    // there, and past kMaxListingThreads a new folder answers "unavailable"
-    // without starting another thread.
     void aPathStillBeingReadIsNotReadTwiceAndThreadsAreCapped()
     {
         std::promise<void> release;
@@ -467,14 +435,11 @@ private Q_SLOTS:
         const auto restore = qScopeGuard([] {
             FileBrowserModel::setListerForTesting({});
         });
-        // Even if this case fails half-way, the stuck reads are let go.
         const auto letGo = qScopeGuard([&] {
             try { release.set_value(); } catch (const std::future_error &) {}
         });
-        // Earlier cases' reads have all finished.
         QTRY_COMPARE(FileBrowserModel::runningListings(), 0);
 
-        // One folder, asked for three times: one thread, one read so far.
         const QUrl same = QUrl::fromLocalFile(QStringLiteral("/stalled/same"));
         FileBrowserModel first;
         first.setFolder(same);
@@ -482,15 +447,12 @@ private Q_SLOTS:
         second.setFolder(same);
         first.refresh();
         QCOMPARE(FileBrowserModel::runningListings(), 1);
-        // The read happens on its thread: wait for it, then make sure no
-        // second one follows.
         QTRY_COMPARE(calls->load(), 1);
         QTest::qWait(50);
         QCOMPARE(calls->load(), 1);
         QVERIFY(first.loading());
         QVERIFY(second.loading());
 
-        // Fill the ceiling with distinct stuck folders.
         std::vector<std::unique_ptr<FileBrowserModel>> stuck;
         for (int i = 1; i < FileBrowserModel::kMaxListingThreads; ++i) {
             stuck.push_back(std::make_unique<FileBrowserModel>());
@@ -501,7 +463,6 @@ private Q_SLOTS:
                  FileBrowserModel::kMaxListingThreads);
         QTRY_COMPARE(calls->load(), FileBrowserModel::kMaxListingThreads);
 
-        // One more: refused, not a seventeenth thread.
         FileBrowserModel refused;
         QSignalSpy refusedListed(&refused, &FileBrowserModel::listed);
         refused.setFolder(QUrl::fromLocalFile(QStringLiteral("/stalled/over")));
@@ -513,8 +474,6 @@ private Q_SLOTS:
         QTest::qWait(50);
         QCOMPARE(calls->load(), FileBrowserModel::kMaxListingThreads);
 
-        // The mount answers. The two requests made while it ran get the same
-        // thread's second read of that path, not the first one's answer.
         QSignalSpy firstListed(&first, &FileBrowserModel::listed);
         QSignalSpy secondListed(&second, &FileBrowserModel::listed);
         release.set_value();
@@ -524,19 +483,13 @@ private Q_SLOTS:
         QTRY_VERIFY(!second.loading());
         QCOMPARE(names(first), QStringList{QStringLiteral("late.txt")});
         QCOMPARE(names(second), QStringList{QStringLiteral("late.txt")});
-        // first's two generations (open, refresh): only the newest applies.
         QCOMPARE(firstListed.count(), 1);
         QCOMPARE(secondListed.count(), 1);
 
-        // And with the threads back, a folder lists again.
         QVERIFY(load(refused, QStringLiteral("/elsewhere")));
         QCOMPARE(refused.error(), QString());
     }
 
-    // §18 recheck: a refresh that joins a read already under way must not be
-    // handed that read's answer, which can predate the change it is
-    // refreshing for. createFolder() refreshes; if the listing it joins
-    // started before the mkdir, the new folder must still appear.
     void aRefreshDuringAReadSeesWhatChangedSinceItBegan()
     {
         QTemporaryDir dir;
@@ -545,8 +498,6 @@ private Q_SLOTS:
         std::promise<void> release;
         const std::shared_future<void> released = release.get_future().share();
         auto calls = std::make_shared<std::atomic<int>>(0);
-        // Like a real read: it takes its snapshot of the folder first, and
-        // only the first read then stalls before answering.
         FileBrowserModel::setListerForTesting(
             [released, calls](const QString &folder) {
                 FileBrowserModel::Listing listing;
@@ -574,10 +525,10 @@ private Q_SLOTS:
 
         FileBrowserModel model;
         model.setFolder(QUrl::fromLocalFile(path));
-        QTRY_COMPARE(calls->load(), 1); // the snapshot is taken, then it stalls
+        QTRY_COMPARE(calls->load(), 1);
         const QVariantMap made = model.createFolder(QStringLiteral("Taxes"));
         QVERIFY(made.value(QStringLiteral("ok")).toBool());
-        QCOMPARE(FileBrowserModel::runningListings(), 1); // no second thread
+        QCOMPARE(FileBrowserModel::runningListings(), 1);
 
         QSignalSpy listed(&model, &FileBrowserModel::listed);
         release.set_value();
@@ -587,8 +538,6 @@ private Q_SLOTS:
         QTRY_COMPARE(FileBrowserModel::runningListings(), 0);
     }
 
-    // The same hung mount, reached by a path typed into the name or path
-    // field: stat() gives up after kStatTimeoutMs instead of freezing.
     void aHungStatAnswersTimedOutInsteadOfFreezing()
     {
         std::promise<void> release;
@@ -613,7 +562,6 @@ private Q_SLOTS:
                  qPrintable(QString::number(waited)));
         release.set_value();
 
-        // A stat that answers in time says so.
         FileBrowserModel::setStaterForTesting({});
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
@@ -632,7 +580,6 @@ private Q_SLOTS:
             model->setFolder(QUrl::fromLocalFile(dir.path()));
             delete model;
         }
-        // Any listing posted to a deleted model would run here.
         QTest::qWait(100);
     }
 };

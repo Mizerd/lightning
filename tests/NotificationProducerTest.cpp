@@ -1,10 +1,3 @@
-// The Rust backend's notification-path signals, driven through the real
-// dispatcher with hand-built bridge payloads (no FFI handle, no homeserver).
-// 2026-10-15 notification sweep, package P3. Each case names the finding it
-// pins and what the old code did instead.
-//
-// The payload shapes are hand-maintained copies of what rust/src/lib.rs and
-// rust/src/timeline.rs enqueue; they cannot see a rename on the Rust side.
 
 #include "app/SettingsManager.h"
 #include "matrix/CallSignal.h"
@@ -27,9 +20,6 @@ class NotificationProducerTest : public QObject
 private:
     static inline const QString kRoom = QStringLiteral("!r:example.org");
 
-    /// Everything the notification consumers and the timeline model would
-    /// hear, recorded by direct connections so rows never round-trip through
-    /// QVariant. Declare it before the client so the client dies first.
     struct Sink {
         QList<TimelineEvent> appended;
         QList<TimelineEvent> observed;
@@ -112,7 +102,6 @@ private:
                          });
     }
 
-    /// The inner `event` of a sync-handler `timeline_event`.
     static QJsonObject message(const QString &eventId, const QString &body)
     {
         QJsonObject event;
@@ -168,7 +157,6 @@ private:
         client.handleRustEventForTest(snapshot);
     }
 
-    /// A live-timeline item as rust/src/timeline.rs serialises one.
     static QJsonObject item(const QString &itemId, const QString &eventId,
                             const QString &body)
     {
@@ -194,7 +182,6 @@ private:
         return echo;
     }
 
-    /// Opens `kRoom`'s live timeline at generation 1 with `items`.
     static void openRoom(RustSdkMatrixClient &client, const QJsonArray &items)
     {
         client.m_timelineTracker.request(kRoom);
@@ -222,8 +209,6 @@ private:
 #endif
 
 private slots:
-    // Findings 45/127. Old code: handleTimelineEvent returned for the open
-    // room after a preview update, so a thread reply there reached nobody.
     void aThreadReplyInTheOpenRoomIsObservedAndNeverAppended()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -249,8 +234,6 @@ private slots:
         QVERIFY(sink.observed.first().mentionsMe);
         QVERIFY(client.timeline(kRoom).isEmpty());
 
-        // Control: an ordinary message in the open room is the live timeline's
-        // to announce, so neither signal fires for it here.
         client.handleRustEventForTest(envelope(
             QStringLiteral("timeline_event"),
             message(QStringLiteral("$plain"), QStringLiteral("plain"))));
@@ -280,16 +263,10 @@ private slots:
         QVERIFY2(client.timeline(kRoom).isEmpty(), "cached original would flash on reopen");
         const int announced = sink.appended.size();
 
-        // A replayed original (sliding-sync reset, room re-entering the
-        // window) must neither be announced again nor restore the unedited
-        // body. Old code: the invalidated mirror forgot it, so both happened.
         client.handleRustEventForTest(envelope(QStringLiteral("timeline_event"), original));
         QCOMPARE(sink.appended.size(), announced);
         QVERIFY2(client.timeline(kRoom).isEmpty(), "replayed original restored the unedited body");
 
-        // Some senders omit the cleartext relation on the encrypted wrapper.
-        // The relation discovered at late decryption must invalidate it too,
-        // and the same replay rule holds afterwards.
         const auto second = message(QStringLiteral("$second"), QStringLiteral("old2"));
         client.handleRustEventForTest(envelope(QStringLiteral("timeline_event"), second));
         QCOMPARE(client.timeline(kRoom).size(), 1);
@@ -303,7 +280,6 @@ private slots:
         QCOMPARE(sink.appended.size(), afterLate);
         QVERIFY(client.timeline(kRoom).isEmpty());
 
-        // Redaction of an unknown target (an edit) invalidates likewise.
         const auto third = message(QStringLiteral("$third"), QStringLiteral("old3"));
         client.handleRustEventForTest(envelope(QStringLiteral("timeline_event"), third));
         QCOMPARE(client.timeline(kRoom).size(), 1);
@@ -320,7 +296,6 @@ private slots:
 #endif
     }
 
-    // Findings 9/52, 8, 44/120: the sync payload's facts ride on the row.
     void aSyncedEditCarriesItsFactsAndAReplyResolvesItsTarget()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -356,8 +331,6 @@ private slots:
 #endif
     }
 
-    // Finding 53: a forwarded poll start notifies once and never enters the
-    // mirror as an answerless poll card.
     void aSyncedPollIsForwardedOnceAndNeverMirrored()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -379,8 +352,6 @@ private slots:
 #endif
     }
 
-    // Findings 6/46/124. Old code: nothing handled `event_decrypted`, and the
-    // mirror kept the placeholder for good.
     void aLateDecryptionIsAnnouncedOnceAndOnlyForWhatArrived()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -412,20 +383,16 @@ private slots:
         QVERIFY(decrypted.mentionsMe);
         QVERIFY(decrypted.pushHighlight);
         QVERIFY(!decrypted.backlog);
-        // The mirror no longer holds the placeholder.
         QCOMPARE(client.timeline(kRoom).size(), 1);
         QVERIFY(!client.timeline(kRoom).first().undecryptable);
-        // Never twice.
         client.handleRustEventForTest(envelope(QStringLiteral("event_decrypted"), readable));
         QCOMPARE(sink.decrypted.size(), 1);
 
-        // Never for an event this session did not see arrive undecryptable.
         QJsonObject stranger = readable;
         stranger.insert(QStringLiteral("event_id"), QStringLiteral("$stranger"));
         client.handleRustEventForTest(envelope(QStringLiteral("event_decrypted"), stranger));
         QCOMPARE(sink.decrypted.size(), 1);
 
-        // History stays history once readable.
         QJsonObject old = undecryptable(QStringLiteral("$old"));
         old.insert(QStringLiteral("backlog"), true);
         client.handleRustEventForTest(envelope(QStringLiteral("timeline_event"), old));
@@ -437,7 +404,6 @@ private slots:
 #endif
     }
 
-    // Finding 1. Old code: the Rust backend never emitted eventRedacted.
     void aRedactionIsAnnouncedWithoutGettingAheadOfTheOpenTimeline()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -462,8 +428,6 @@ private slots:
         QVERIFY(client.timeline(kRoom).first().redacted);
         QVERIFY(client.timeline(kRoom).first().body.isEmpty());
 
-        // In the open room a row is the SDK's to redact (by its own Set), but a
-        // reaction has no row and is announced at once.
         openRoom(client, QJsonArray{ item(QStringLiteral("i0"), QStringLiteral("$row"),
                                           QStringLiteral("row")) });
         redaction.insert(QStringLiteral("redacts"), QStringLiteral("$row"));
@@ -473,7 +437,6 @@ private slots:
         client.handleRustEventForTest(redaction);
         QCOMPARE(sink.redacted.last(), QStringLiteral("$reaction"));
 
-        // ... and the SDK's Set is what announces the row.
         QJsonObject gone = item(QStringLiteral("i0"), QStringLiteral("$row"), QString());
         gone.insert(QStringLiteral("redacted"), true);
         client.handleRustEventForTest(diff(QStringLiteral("set"), 0, gone));
@@ -482,9 +445,6 @@ private slots:
 #endif
     }
 
-    // Finding 151 and the open-timeline half of 6/46/124. Old code: an insert
-    // above a failed send produced only eventInsertedAt, and a Set that
-    // decrypted a row nothing at all for notifications.
     void theOpenTimelinesInsertsAndSetsReachTheNotificationPath()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -503,15 +463,12 @@ private slots:
         client.handleRustEventForTest(diff(
             QStringLiteral("insert"), 1,
             item(QStringLiteral("i1"), QStringLiteral("$new"), QStringLiteral("new"))));
-        // The model still hears it as an insert ...
         QCOMPARE(sink.insertedAt.size(), 1);
         QCOMPARE(sink.insertedAt.first().first, 1);
-        // ... and the notification path as a live arrival, never as an append.
         QVERIFY(sink.appended.isEmpty());
         QCOMPARE(sink.observed.size(), 1);
         QCOMPARE(sink.observed.first().eventId, QStringLiteral("$new"));
 
-        // An undecryptable live append, then its decryption by Set.
         QJsonObject utd = item(QStringLiteral("i2"), QStringLiteral("$utd"), QString());
         utd.insert(QStringLiteral("undecryptable"), true);
         utd.insert(QStringLiteral("is_encrypted"), true);
@@ -526,14 +483,11 @@ private slots:
         QCOMPARE(sink.decrypted.size(), 1);
         QCOMPARE(sink.decrypted.first().eventId, QStringLiteral("$utd"));
         QCOMPARE(sink.decrypted.first().roomId, kRoom);
-        // A second Set of the same readable row is not a second decryption.
         client.handleRustEventForTest(diff(QStringLiteral("set"), row, readable));
         QCOMPARE(sink.decrypted.size(), 1);
 #endif
     }
 
-    // Finding 18. Old code: a failed seed emitted an empty list, which reads
-    // as "no highlights" and was never retried.
     void aFailedSeedIsNotAnEmptySeed()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -552,13 +506,10 @@ private slots:
                       QStringLiteral("http_404_M_UNRECOGNIZED"));
         client.handleRustEventForTest(failed);
         QCOMPARE(sink.seedFailed, 1);
-        // The token reaches the consumers, so a server without the endpoint
-        // is not asked again (break-it rerun, section 10).
         QCOMPARE(sink.seedFailureCategories,
                  QStringList{ QStringLiteral("http_404_M_UNRECOGNIZED") });
         QVERIFY2(sink.seeds.isEmpty(), "a failed seed was reported as an empty one");
 
-        // Finding 17 (C++ half): the msgtype passes through.
         QJsonObject entry;
         entry.insert(QStringLiteral("event_id"), QStringLiteral("$h"));
         entry.insert(QStringLiteral("room_id"), kRoom);
@@ -576,9 +527,6 @@ private slots:
 #endif
     }
 
-    // Break-it rerun, section 3: the bell kept a declined invite until the
-    // room list's next sync. Only the server's "done" is an answer; pending
-    // and failed are not, and the room need not be in the registry.
     void anInviteAnsweredHereIsAnnouncedOnTheServersDone()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -607,8 +555,6 @@ private slots:
 #endif
     }
 
-    // Finding 70. Old code: neither outcome reached anyone, so a failed
-    // receipt was never retried.
     void aReceiptReportsItsOwnOutcome()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -634,11 +580,8 @@ private slots:
         failed.insert(QStringLiteral("reason"), QStringLiteral("transport"));
         client.handleRustEventForTest(failed);
         QCOMPARE(sink.receiptsFailed, QStringList{ QStringLiteral("$next") });
-        // Forgotten, so the same event can be sent again.
         QVERIFY(!client.m_lastReceiptSent.contains(kRoom));
 
-        // With no bridge at all the receipt fails, queued (never re-entering
-        // the caller from inside its own send).
         client.sendReadReceipt(kRoom, QStringLiteral("$offline"));
         QCOMPARE(sink.receiptsFailed.size(), 1);
         QTRY_COMPARE(sink.receiptsFailed.size(), 2);
@@ -646,8 +589,6 @@ private slots:
 #endif
     }
 
-    // Finding 75 (C++ half). Old code: notification_type and m.mentions were
-    // never read, so every announcement looked like a ring.
     void aCallAnnouncementCarriesItsTypeAndAddressees()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -674,11 +615,8 @@ private slots:
         QCOMPARE(sink.calls.first().mentionUserIds,
                  QStringList{ QStringLiteral("@me:example.org") });
         QVERIFY(!sink.calls.first().mentionsRoom);
-        // Absent: not addressed to us by Rust's whole-list check.
         QVERIFY(!sink.calls.first().mentionsMe);
 
-        // Rust's verdict on the WHOLE m.mentions list reaches the signal even
-        // when the bounded id list does not name us.
         notice.insert(QStringLiteral("event_id"), QStringLiteral("$call-me"));
         notice.insert(QStringLiteral("mentions_user_ids"), QJsonArray{});
         notice.insert(QStringLiteral("mentions_me"), true);
@@ -688,7 +626,6 @@ private slots:
         QVERIFY(sink.calls.last().mentionUserIds.isEmpty());
         notice.remove(QStringLiteral("mentions_me"));
 
-        // Outside the closed set: not stated.
         notice.insert(QStringLiteral("event_id"), QStringLiteral("$call2"));
         notice.insert(QStringLiteral("notification_type"), QStringLiteral("RING!"));
         notice.insert(QStringLiteral("mentions_room"), true);
@@ -699,7 +636,6 @@ private slots:
 #endif
     }
 
-    // Finding 156 (C++ half).
     void aReactionCarriesWhetherItsTargetIsOurs()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -725,7 +661,6 @@ private slots:
         QVERIFY(sink.reactions.first().targetIsOwn);
         QVERIFY(sink.reactions.first().backlog);
 
-        // An older bridge: not known, not history.
         reaction.remove(QStringLiteral("target_is_own"));
         reaction.remove(QStringLiteral("backlog"));
         client.handleRustEventForTest(reaction);
@@ -734,8 +669,6 @@ private slots:
 #endif
     }
 
-    // Finding 121. Old code: a highlight count rising with no event delivered
-    // told nobody anything.
     void aHighlightNobodyWasToldAboutIsReportedOnce()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -756,7 +689,6 @@ private slots:
         QCOMPARE(sink.highlightGaps.first().first, kRoom);
         QCOMPARE(sink.highlightGaps.first().second, 1);
 
-        // A rise explained by a delivered highlighted event reports nothing.
         QJsonObject mention = message(QStringLiteral("$m"), QStringLiteral("@me"));
         mention.insert(QStringLiteral("push_notify"), true);
         mention.insert(QStringLiteral("push_highlight"), true);

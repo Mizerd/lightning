@@ -12,7 +12,6 @@ Dialog {
     objectName: "policyListDialog"
 
     readonly property var policy: app.policy
-    /// The room whose rules are shown. Set by openFor().
     property string roomId: ""
     property string roomName: ""
 
@@ -25,27 +24,17 @@ Dialog {
     anchors.centerIn: parent
     width: Math.min(560, parent ? parent.width - AppTheme.spacing24 * 2 : 560)
     padding: AppTheme.spacing16
-    // Capped to the window; the content scrolls (Add a rule and Done were
-    // unreachable below the window edge).
     height: Math.min(implicitHeight, parent ? parent.height - AppTheme.spacing24 * 2
                                               : implicitHeight)
 
-    /// The entity awaiting a second, explicit Publish: a glob that matches
-    /// everything. Cleared on publish, cancel and reopen.
     property string pendingBroadEntity: ""
 
-    /// True when a rule's entity matches EVERY entity of its kind: at least
-    /// one `*`, and nothing literal besides globs and the sigils and
-    /// separators every id has (`*`, `@*:*`, `*.*`, `!*:*`). Legitimate in a
-    /// Mjolnir-style list, so it is confirmed, never refused.
     function entityMatchesEverything(entity) {
         var text = String(entity || "").trim()
         return text.indexOf("*") >= 0
             && text.replace(/[*?@!#:.]/g, "").length === 0
     }
 
-    /// Publish the typed rule. A broad entity waits for `confirmed`; returns
-    /// whether the rule went out.
     function publishRule(confirmed) {
         var entity = entityField.text.trim()
         if (entity.length === 0 || !root.policy)
@@ -82,8 +71,6 @@ Dialog {
         radius: AppTheme.radiusLg
     }
 
-    // Qt's ScrollView never scrolls a focused child into view, so Tab in a
-    // window shorter than the dialog landed on controls nobody could see.
     function ensureVisible(item) {
         var flick = scroller.contentItem
         if (!item || !flick || !flick.contentHeight)
@@ -131,7 +118,6 @@ Dialog {
             elide: Label.ElideRight
         }
 
-        // Following
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing4
@@ -141,14 +127,9 @@ Dialog {
                 CheckBox {
                     objectName: "policyFollowCheck"
                     text: qsTr("Follow this list")
-                    // The notifying list, not isSubscribed(), which is a
-                    // Q_INVOKABLE with no binding dependency.
                     checked: root.policy
                              && root.policy.subscriptions.indexOf(root.roomId)
                                 >= 0
-                    // Restore the binding: a user toggle assigns `checked` and
-                    // destroys it, and setSubscribed is asynchronous and can
-                    // fail.
                     onToggled: {
                         root.policy.setSubscribed(root.roomId, checked)
                         checked = Qt.binding(function() {
@@ -164,7 +145,6 @@ Dialog {
                 wrapMode: Text.WordWrap
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.textMeta
-                // The key sentence in this dialog.
                 text: qsTr("Following a list does not block anyone by itself. "
                            + "Lightning will tell you when someone is covered "
                            + "by a list you follow, and you decide what to do "
@@ -173,7 +153,6 @@ Dialog {
             }
         }
 
-        // The rules
         Label {
             objectName: "policyCoverageLine"
             Layout.fillWidth: true
@@ -187,11 +166,8 @@ Dialog {
                     return qsTr("Reading the room's rules…")
                 if (root.policy.lastError.length > 0)
                     return root.policy.lastError
-                // `|| 0`: a non-number plural argument is an error, and a null
-                // model during teardown is a real state.
                 var n = (root.policy.rules ? root.policy.rules.count : 0) || 0
                 if (root.policy.truncated) {
-                    // A bounded read says it was bounded.
                     return qsTr("%n rule(s) — this list is long and only the "
                                 + "first were read.", "", n)
                 }
@@ -199,8 +175,6 @@ Dialog {
             }
         }
 
-        // The list and its middle-click autoscroll, which must be a sibling
-        // of the view over the same area.
         Item {
             Layout.fillWidth: true
             Layout.preferredHeight: 220
@@ -220,14 +194,10 @@ Dialog {
                     required property string entity
                     required property bool isBan
                     required property string reason
-                    // The rule's own state key, which removal writes to.
                     required property string stateKey
 
                     width: ListView.view.width
                     height: 52
-                    // Not `enabled: false`: enabled propagates and would disable
-                    // the Remove button inside. The row has no onClicked and
-                    // suppresses its hover highlight.
                     hoverEnabled: false
                     background: null
 
@@ -239,8 +209,6 @@ Dialog {
                             spacing: 0
                             Label {
                                 Layout.fillWidth: true
-                                // Written by whoever controls the policy room:
-                                // never markup.
                                 textFormat: Text.PlainText
                                 text: ruleRow.entity
                                 color: AppTheme.textPrimary
@@ -254,8 +222,6 @@ Dialog {
                                         ? qsTr("everyone on this server")
                                         : (ruleRow.kind === "room"
                                            ? qsTr("this room") : qsTr("this user"))
-                                    // A non-ban rule is shown but marked: Lightning
-                                    // acts on none of it.
                                     var rec = ruleRow.isBan
                                         ? qsTr("ban") : qsTr("other recommendation")
                                     return ruleRow.reason.length > 0
@@ -273,13 +239,8 @@ Dialog {
                             text: qsTr("Remove")
                             kind: "ghost"
                             size: "sm"
-                            // Each button names its rule: eight identical
-                            // "Remove" are unusable with a screen reader.
                             Accessible.name: qsTr("Remove rule %1").arg(ruleRow.entity)
                             visible: root.policy && root.policy.canWrite
-                            // Tab onto a row that is scrolled out of view brings
-                            // it into view; a keyboard removal is never of a
-                            // rule nobody can see.
                             onActiveFocusChanged: if (activeFocus)
                                 ruleList.positionViewAtIndex(ruleRow.index,
                                                              ListView.Contain)
@@ -298,7 +259,6 @@ Dialog {
             }
         }
 
-        // Publishing
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing4
@@ -325,8 +285,6 @@ Dialog {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
                     placeholderText: qsTr("@someone:example.org or *.example.org")
-                    // Return publishes, as the button does (a broad entity
-                    // still waits for its explicit second confirmation).
                     onAccepted: if (text.trim().length > 0
                                     && !broadConfirm.visible)
                         root.publishRule(false)
@@ -357,7 +315,6 @@ Dialog {
                 objectName: "policyBroadConfirm"
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing4
-                // Editing the entity away from the pending one withdraws it.
                 visible: root.pendingBroadEntity.length > 0
                          && root.pendingBroadEntity === entityField.text.trim()
                 Label {

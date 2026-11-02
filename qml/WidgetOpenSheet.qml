@@ -3,12 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Consent step before opening a widget in the browser. A widget URL is room
-// state any permitted member can write, and opening it hands its origin
-// whatever the URL templates (display name, device id, room id). This says
-// exactly what this widget receives, derived from its own URL, so the notice
-// never overstates. The resolved address is shown in full, in mono, since the
-// origin is what a person can judge.
 Dialog {
     id: root
     objectName: "widgetOpenSheet"
@@ -22,18 +16,10 @@ Dialog {
     anchors.centerIn: parent
     padding: AppTheme.spacing16
 
-    /// The row from WidgetController.rowAt() and its index; the index opens it,
-    /// so QML never names an address.
     property var widget: ({})
     property int widgetRow: -1
-    /// The control that opened the sheet; it gets keyboard focus back on close
-    /// (AppButton takes none on a click, so Popup alone sends it to the composer).
     property Item returnFocusItem: null
     onClosed: {
-        // Deferred: Popup runs its own focus restore around onClosed and
-        // must not be the last writer. The item is re-read when the call
-        // runs, so an opener destroyed meanwhile (a delegate whose model
-        // reset) is simply skipped and focus falls back as before.
         Qt.callLater(function() {
             if (root.returnFocusItem && root.returnFocusItem.visible)
                 root.returnFocusItem.forceActiveFocus(Qt.PopupFocusReason)
@@ -101,7 +87,6 @@ Dialog {
                     Layout.fillWidth: true
                     wrapMode: Text.WrapAnywhere
                     textFormat: Text.PlainText
-                    // Mono for an address, where lookalike characters matter.
                     text: root.widgetUrl
                     color: AppTheme.stormTextSecondary
                     font.family: AppTheme.monoFont
@@ -153,9 +138,6 @@ Dialog {
                 kind: "primary"
                 enabled: root.widgetUrl.length > 0
                 onClicked: {
-                    // By row, never by address: no QML path can hand the
-                    // desktop a URL outside the model's validated list. The
-                    // controller re-checks it at the single desktop exit.
                     app.widgets.openWidget(root.widgetRow)
                     root.close()
                 }

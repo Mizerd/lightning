@@ -1,8 +1,3 @@
-// AppLocale through the real MatrixClient module registration (review round
-// 1, L7): the QML_SINGLETON in i18n/LocalizationManager.h is what every date
-// label binds to, and a registration that does not resolve fails every
-// component at load. LocaleFollowsLanguageTest registers the instance by hand;
-// this one goes through the module the application ships.
 
 #include "i18n/LocalizationManager.h"
 
@@ -35,7 +30,6 @@ private Q_SLOTS:
         )QML", QUrl(QStringLiteral("appLocaleProbe.qml")));
         std::unique_ptr<QObject> probe(component.create());
         QVERIFY2(probe, qPrintable(component.errorString()));
-        // One instance for C++ and every engine.
         QCOMPARE(probe->property("locale").value<QObject *>(),
                  static_cast<QObject *>(AppLocale::instance()));
         QCOMPARE(probe->property("name").toString(), QLocale().bcp47Name());

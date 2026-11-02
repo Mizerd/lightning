@@ -30,7 +30,6 @@ bool MusicActivity::eventFilter(QObject *watched, QEvent *event)
 {
     if (event->type() == QEvent::LanguageChange
         && watched == QCoreApplication::instance() && listening() && m_presence) {
-        // Rides the next keep-alive like any other change of the line.
         m_presence->setMusicActivity(musicdetect::statusTextFor(m_current));
         Q_EMIT nowPlayingChanged();
         refreshShown();
@@ -68,13 +67,10 @@ void MusicActivity::setPresence(PresenceManager *presence)
     if (m_presence) {
         connect(m_presence, &PresenceManager::sessionLiveChanged, this,
                 &MusicActivity::reconfigure);
-        // No presence backend, or a server that refuses presence: nobody can
-        // read the line, so nothing is watched.
         connect(m_presence, &PresenceManager::activeChanged, this,
                 &MusicActivity::reconfigure);
         connect(m_presence, &PresenceManager::supportedChanged, this,
                 &MusicActivity::reconfigure);
-        // A game or the user's own status can take the line, or give it back.
         connect(m_presence, &PresenceManager::ownStatusChanged, this,
                 &MusicActivity::refreshShown);
         m_presence->setMusicActivity(musicdetect::statusTextFor(m_current));
@@ -119,8 +115,6 @@ bool MusicActivity::shownAsStatus() const
 void MusicActivity::reconfigure()
 {
     if (!active()) {
-        // Off, sharing off, signed out or quitting: no source, no timers, and
-        // the line is withdrawn now, not after a grace period.
         m_settle.stop();
         m_grace.stop();
         m_pending = {};
@@ -141,7 +135,7 @@ void MusicActivity::reconfigure()
     connect(m_source.get(), &MusicSource::nowPlayingChanged, this,
             &MusicActivity::onSourceChanged);
     m_source->start();
-    onSourceChanged();   // a source may already know
+    onSourceChanged();
 }
 
 void MusicActivity::onSourceChanged()
@@ -152,20 +146,16 @@ void MusicActivity::onSourceChanged()
     if (np.showable()) {
         m_grace.stop();
         if (musicdetect::sameTrack(np, m_current)) {
-            // Resumed, or a repeat report: nothing waits any more.
             m_settle.stop();
             m_pending = {};
             return;
         }
         if (m_pending.showable() && musicdetect::sameTrack(np, m_pending))
-            return;   // already settling on this one
-        // A new track restarts the settle, so skipping through songs adopts
-        // only the one the user stays on.
+            return;
         m_pending = np;
         m_settle.start();
         return;
     }
-    // Paused, stopped, gone, or an advertisement.
     m_settle.stop();
     m_pending = {};
     if (listening() && !m_grace.isActive())

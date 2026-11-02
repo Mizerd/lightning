@@ -19,7 +19,6 @@
 
 namespace {
 
-// Short keys: the file is read on the GUI thread before the room list paints.
 constexpr auto kKeyNetwork = "n";
 constexpr auto kKeyLabel = "l";
 constexpr auto kKeyLearnedAt = "t";
@@ -60,8 +59,6 @@ bool writeFile(const QString &path, const QByteArray &bytes, quint64 seq,
     if (seq < state.written)
         return true;
     QDir().mkpath(QFileInfo(path).absolutePath());
-    // Atomic, so a crash cannot leave a truncated file that load() discards
-    // whole.
     QSaveFile out(path);
     if (!out.open(QIODevice::WriteOnly))
         return false;
@@ -73,14 +70,12 @@ bool writeFile(const QString &path, const QByteArray &bytes, quint64 seq,
     return true;
 }
 
-} // namespace
+}
 
 bool BridgeLabelStore::entryIsFresh(const Entry &entry, qint64 nowSecs)
 {
     if (entry.learnedAt <= 0)
         return false;
-    // A future timestamp means the clock moved backwards; treat the row as
-    // expired.
     if (entry.learnedAt > nowSecs)
         return false;
     const qint64 lifetime = entry.isPositive() ? kPositiveLifetimeSecs
@@ -113,8 +108,6 @@ void BridgeLabelStore::load()
         return;
     if (!file.open(QIODevice::ReadOnly))
         return;
-    // Capped: read on the GUI thread at login, and anything larger than
-    // kMaxEntries rows could produce is corruption or hostility.
     constexpr qint64 kMaxFileBytes = 4 * 1024 * 1024;
     if (file.size() > kMaxFileBytes)
         return;
@@ -123,7 +116,6 @@ void BridgeLabelStore::load()
 
     QJsonParseError error{};
     const QJsonDocument doc = QJsonDocument::fromJson(bytes, &error);
-    // A corrupt file is discarded, not repaired; everything is re-derivable.
     if (error.error != QJsonParseError::NoError || !doc.isObject())
         return;
 
@@ -197,9 +189,6 @@ void BridgeLabelStore::pruneToCap()
     byAge.reserve(static_cast<size_t>(m_entries.size()));
     for (auto it = m_entries.constBegin(); it != m_entries.constEnd(); ++it)
         byAge.emplace_back(it.value().learnedAt, it.key());
-    // Rows stamped in the future are evicted first. entryIsFresh() never
-    // believes them, so sort them to the front; clamping the key to `now` would
-    // still keep them ahead of legitimate rows.
     const qint64 now = nowSecs();
     const auto sortKey = [now](qint64 stamp) {
         return stamp > now ? std::numeric_limits<qint64>::min() : stamp;
@@ -268,7 +257,6 @@ bool BridgeLabelStore::flush()
     if (!m_dirty || !isOpen())
         return true;
     const bool ok = save();
-    // A failed write stays dirty so the next flush retries it.
     m_dirty = !ok;
     return ok;
 }
@@ -291,7 +279,6 @@ bool BridgeLabelStore::removeStore(const QString &filePath)
 {
     if (filePath.isEmpty())
         return false;
-    // Waits for a write in flight and cancels the ones still queued.
     QMutexLocker lock(&fileMutex());
     ++pathStates()[filePath].epoch;
     if (!QFile::exists(filePath))

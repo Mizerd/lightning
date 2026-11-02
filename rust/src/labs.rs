@@ -1,14 +1,3 @@
-//! Concurrent live accounts (Labs): the process switch, the per-handle
-//! profile, the event classification and the small pure pieces the background
-//! handles share (design 2026-10-15 §3.2, contract la-p1 §1 and §3).
-//!
-//! `ACTIVE` is set only by `mx_rust_labs_enable()` and never cleared in this
-//! process: the safe direction after a runtime "off". While it is false every
-//! Labs branch in the bridge is dead: no reservation, no precheck, no
-//! Background handle, no profile, no sticky slot, and `enqueue` takes today's
-//! path after one relaxed load (T-OFF-4).
-//!
-//! Nothing here reads or logs a token, a key or a message body.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
@@ -18,7 +7,6 @@ use matrix_sdk::SqliteStoreConfig;
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 
-/// Sets the process switch. Idempotent; there is no way to clear it.
 pub(crate) fn enable() {
     ACTIVE.store(true, Ordering::SeqCst);
 }
@@ -30,9 +18,6 @@ pub(crate) fn active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
 }
 
-/// The ONE gate for the store reservation and the crypto precheck (contract
-/// §1, sanctioned difference 3). DECISION 5 moves both onto the flag-off path
-/// in a later reviewed commit by changing this line alone.
 pub(crate) fn store_guards_active() -> bool {
     active()
 }
@@ -42,14 +27,9 @@ pub(crate) fn disable_for_test() {
     ACTIVE.store(false, Ordering::SeqCst);
 }
 
-/// Serialises tests that flip or depend on the process switch.
 #[cfg(test)]
 pub(crate) static LABS_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// A test's hold on the process switch: takes `LABS_TEST_LOCK` and turns the
-/// switch OFF when dropped, a panicking test included, so a failed Labs test
-/// cannot leave every later test in the run under Labs (review 2026-10-16,
-/// finding 9). `Drop::drop` runs before the lock field is released.
 #[cfg(test)]
 pub(crate) struct LabsTestGuard {
     _lock: std::sync::MutexGuard<'static, ()>,
@@ -57,14 +37,12 @@ pub(crate) struct LabsTestGuard {
 
 #[cfg(test)]
 impl LabsTestGuard {
-    /// The lock, with the switch on.
     pub(crate) fn enabled() -> Self {
         let guard = Self::off();
         enable();
         guard
     }
 
-    /// The lock, with the switch off.
     pub(crate) fn off() -> Self {
         let lock = LABS_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         disable_for_test();
@@ -81,15 +59,10 @@ impl Drop for LabsTestGuard {
 
 static NEXT_SERIAL: AtomicU64 = AtomicU64::new(1);
 
-/// A monotonic per-process handle serial, assigned at create. Never an
-/// address, so a freed handle's number is never reused (no ABA).
 pub(crate) fn next_handle_serial() -> u64 {
     NEXT_SERIAL.fetch_add(1, Ordering::Relaxed)
 }
 
-/// A handle's mode. Phase 1 has Foreground (every `mx_rust_create` handle)
-/// and Background (every `mx_rust_create_background` handle, for its life);
-/// Staging belongs to Phase 2.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub(crate) enum Mode {
@@ -109,34 +82,20 @@ impl Mode {
     }
 }
 
-// ---- Profile (contract §3.1) ------------------------------------------------
-
-/// The per-handle profile, fixed at `mx_rust_create_background`.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Profile {
-    /// Thread-name suffix: `lt-{sdk,sync,boot,op}-<slot>`. `[a-z0-9]{1,4}`.
     pub slot: String,
-    /// The recorded identity the crypto precheck requires.
     pub user_id: String,
     pub device_id: String,
-    /// Snapshot of `STRICT_DEVICE_TRUST` for this handle.
     pub strict_trust: bool,
-    /// 0 public, 1 private, 2 none.
     pub receipt_privacy: i32,
-    /// Index-all hold bits applied at create.
     pub index_all_hold: u32,
-    /// UNIX ms: notify-worthy events older than this are dropped at the source.
     pub floor_ms: u64,
-    /// The initial local-rule room set.
     pub local_rule_rooms: Vec<String>,
-    /// `max_blocking_threads` on every runtime the handle creates.
     pub max_blocking_threads: usize,
-    /// The low-memory SQLite profile.
     pub low_memory_sqlite: bool,
-    /// SDK `RequestConfig` bounds.
     pub retry_limit: usize,
     pub max_retry_time_ms: u64,
-    /// Latest-event watch cap in Background.
     pub watch_cap: usize,
 }
 
@@ -145,9 +104,6 @@ fn slot_is_valid(slot: &str) -> bool {
         && slot.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
 }
 
-/// Parse `profile_json`. Unknown keys are ignored; a missing required key, a
-/// wrong type or an out-of-range value is an error (the FFI returns NULL).
-/// `local_rule_rooms` is the one optional key (an empty set).
 pub(crate) fn parse_profile(text: &str) -> Result<Profile, String> {
     let value: serde_json::Value =
         serde_json::from_str(text).map_err(|_| "profile is not JSON".to_owned())?;
@@ -236,12 +192,10 @@ pub(crate) fn parse_profile(text: &str) -> Result<Profile, String> {
     })
 }
 
-/// `lt-<kind>-<slot>`: no PII, so `/proc/self/task` can attribute threads.
 pub(crate) fn thread_name(kind: &str, slot: &str) -> String {
     format!("lt-{kind}-{slot}")
 }
 
-/// The runtime kind a `run_async` label belongs to.
 pub(crate) fn runtime_kind(label: &str) -> &'static str {
     match label {
         "sync" => "sync",
@@ -250,8 +204,6 @@ pub(crate) fn runtime_kind(label: &str) -> &'static str {
     }
 }
 
-/// The low-memory SQLite profile for one store directory (design §3.2.11):
-/// pool 4, cache 500 KB, journal 2 MB. `false` is exactly today's config.
 pub(crate) fn sqlite_config(path: &Path, low_memory: bool) -> SqliteStoreConfig {
     let config = SqliteStoreConfig::new(path);
     if low_memory {
@@ -261,21 +213,12 @@ pub(crate) fn sqlite_config(path: &Path, low_memory: bool) -> SqliteStoreConfig 
     }
 }
 
-// ---- Store-open context ------------------------------------------------------
-
-/// What a store open must enforce for the handle that runs it. Scoped as a
-/// task-local around the one future that builds the handle's client (login,
-/// restore, OAuth restore), so a sibling handle of the same account can never
-/// reserve under this handle's serial: a path-keyed lookup could.
 #[derive(Debug, Default)]
 pub(crate) struct OpenContext {
     pub serial: u64,
-    /// `Some` for a Background handle: the crypto precheck.
     pub require_account: Option<(String, String)>,
     pub low_memory_sqlite: bool,
-    /// `Some` for a Background handle: SDK retry bounds.
     pub request_limits: Option<(usize, u64)>,
-    /// `Some` for a Background handle: its strict-trust snapshot.
     pub strict_trust: Option<bool>,
     /// The store refusal this open hit, if any (`refuse_store`). Out of band
     /// on purpose: the restore's `login_failed` is given `"stage":"store"`
@@ -286,7 +229,6 @@ pub(crate) struct OpenContext {
 }
 
 impl OpenContext {
-    /// The store refusal this open recorded, if any.
     pub(crate) fn refusal(&self) -> Option<&'static str> {
         *self.refusal.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -296,23 +238,13 @@ tokio::task_local! {
     static OPEN_CONTEXT: Arc<OpenContext>;
 }
 
-/// The context of the build in progress, if any.
 pub(crate) fn open_context() -> Option<Arc<OpenContext>> {
     OPEN_CONTEXT.try_with(Arc::clone).ok()
 }
 
-/// How long a Background handle's restore (client build with its discovery
-/// fallback, `restore_session`, the unsent-request resume) may take before it
-/// is abandoned as a `login_failed`. A runtime Labs-off and a quit both wait
-/// for a Starting host's login result, so this is what bounds them (§18 round
-/// 2, L-c). The client build alone has its own 10 s discovery budget.
 pub(crate) const BACKGROUND_RESTORE_BUDGET: std::time::Duration =
     std::time::Duration::from_secs(60);
 
-/// A restore future, bounded by [`BACKGROUND_RESTORE_BUDGET`] when
-/// `background`, else returned as it is (the foreground, and every restore
-/// with the flag off, unchanged). The bounded one is boxed so the `Either`
-/// is no larger than the bare future (see `scope_open`).
 pub(crate) fn bound_background_restore<F, T>(
     background: bool,
     future: F,
@@ -345,12 +277,6 @@ where
     }
 }
 
-/// Run `future` with `context` in scope. `None` runs it bare (today).
-///
-/// Not an `async fn`: that would hold `future` twice in its state (the
-/// argument, then the scope wrapping it), and a restore future is large
-/// enough that twice its size overflows the restore thread's stack. An
-/// `Either` is the larger of the two and nothing more.
 pub(crate) fn scope_open<F: std::future::Future>(
     context: Option<Arc<OpenContext>>,
     future: F,
@@ -366,10 +292,6 @@ pub(crate) const REFUSAL_STORE_IN_USE: &str = "store_in_use";
 pub(crate) const REFUSAL_CRYPTO_MISSING: &str = "crypto_account_missing";
 pub(crate) const REFUSAL_CRYPTO_MISMATCH: &str = "crypto_account_mismatch";
 
-/// A store refusal: recorded in the open context in scope (the restore's
-/// `login_failed` reads it from there, contract §3.3), and returned as words
-/// for a person. No marker in the text: a foreground handle shows the text
-/// as it is, and text is never what decides the stage.
 pub(crate) fn refuse_store(reason: &'static str) -> String {
     if let Some(context) = open_context() {
         *context.refusal.lock().unwrap_or_else(|e| e.into_inner()) = Some(reason);
@@ -382,13 +304,9 @@ pub(crate) fn refuse_store(reason: &'static str) -> String {
     .to_owned()
 }
 
-/// The store refusal of the open in scope, if any. `None` outside an open
-/// context (a flag-off restore, or a test calling `admit` bare).
 pub(crate) fn current_store_refusal() -> Option<&'static str> {
     open_context().and_then(|context| context.refusal())
 }
-
-// ---- Custody facts (design §3.2.7, contract §3.4) ---------------------------
 
 /// What the token task observed, for `mx_rust_take_custody`. Facts only: the
 /// tokens themselves are read live from the Client (`final_session_tokens`),
@@ -397,7 +315,6 @@ pub(crate) fn current_store_refusal() -> Option<&'static str> {
 pub(crate) struct CustodyFacts {
     generation: AtomicU64,
     revoked: AtomicBool,
-    /// 0 unknown, 1 false, 2 true.
     soft_logout: AtomicU8,
     had_refresh_token: AtomicU8,
 }
@@ -415,12 +332,10 @@ fn untri(value: u8) -> Option<bool> {
 }
 
 impl CustodyFacts {
-    /// A rotation was observed.
     pub(crate) fn note_refreshed(&self) {
         self.generation.fetch_add(1, Ordering::SeqCst);
     }
 
-    /// `UnknownToken`: sticky for the life of the handle.
     pub(crate) fn note_revoked(&self, soft_logout: bool, had_refresh_token: bool) {
         self.soft_logout.store(tri(soft_logout), Ordering::SeqCst);
         self.had_refresh_token.store(tri(had_refresh_token), Ordering::SeqCst);
@@ -465,7 +380,6 @@ impl CustodyFacts {
     }
 }
 
-/// `CustodyFacts` at one instant (`CustodyFacts::snapshot`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CustodySnapshot {
     pub generation: u64,
@@ -494,17 +408,12 @@ impl CustodySnapshot {
     }
 }
 
-// ---- Jittered backoff (design §3.2.11, contract §3.6) -----------------------
-
-/// `min(3000 * 2^attempt, 120000) * (0.8 + 0.4 * unit)`, `unit` in [0, 1].
-/// Pure; the bridge's own retry loops use it for Background handles.
 pub(crate) fn jittered_backoff_ms(attempt: u32, unit: f64) -> u64 {
     let base = 3000u64.saturating_mul(1u64 << attempt.min(16)).min(120_000);
     let unit = if unit.is_finite() { unit.clamp(0.0, 1.0) } else { 0.5 };
     (base as f64 * (0.8 + 0.4 * unit)).round() as u64
 }
 
-/// A local xorshift64* source (no new crate). Not for anything secret.
 #[derive(Debug)]
 pub(crate) struct Jitter(u64);
 
@@ -518,11 +427,9 @@ impl Jitter {
     }
 
     pub(crate) fn from_seed(seed: u64) -> Self {
-        // Never zero: xorshift stays at zero for ever.
         Self(seed | 1)
     }
 
-    /// A unit value in [0, 1).
     pub(crate) fn unit(&mut self) -> f64 {
         let mut x = self.0;
         x ^= x >> 12;
@@ -537,25 +444,14 @@ impl Jitter {
     }
 }
 
-// ---- Event classes (design §3.2.3, contract §3.5) ---------------------------
-
-/// What a Background handle does with an enqueued event of a type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EventClass {
-    /// Flows; the sticky types are also recorded in the session slot.
     Session,
-    /// Pre-filtered (`bgsession::should_forward`).
     Notify,
-    /// Op-id results of host FFIs. None flows in Phase 1 (Phase 3 adds them).
     #[allow(dead_code)]
     CommandResult,
-    /// Carries tokens: custody (`mx_rust_take_custody`) is the only path.
     Custody,
-    /// UI work; skipped at the source where it costs anything, and never
-    /// queued.
     UiOnly,
-    /// A `"type"` field that is not an FFI event (a Matrix focus or widget
-    /// type, a test fixture).
     Foreign,
 }
 
@@ -565,7 +461,6 @@ pub(crate) enum EventClass {
 const CLASSES: &[(&str, EventClass)] = {
     use EventClass::*;
     &[
-        // Session (the contract's allow-list).
         ("status", Session),
         ("login_ok", Session),
         ("login_failed", Session),
@@ -588,23 +483,16 @@ const CLASSES: &[(&str, EventClass)] = {
         ("verification_cancelled", Session),
         ("to_device_undecryptable", Session),
         ("rust_trace", Session),
-        // LIGHTNING_TOKEN_TRACE only (sessiontokens.rs): words, counts and
-        // milliseconds, never a token. Flows so the host can log a Background
-        // rotation's wait (liveacc port onto 24a485c5).
         ("token_trace", Session),
-        // Notify.
         ("timeline_event", Notify),
         ("reaction_event", Notify),
         ("event_decrypted", Notify),
         ("event_redacted", Notify),
-        // Custody.
         ("session_tokens_refreshed", Custody),
-        // Foreign: not FFI events.
         ("custom", Foreign),
         ("jitsi", Foreign),
         ("livekit", Foreign),
         ("noise", Foreign),
-        // UiOnly: everything a Background handle neither needs nor pays for.
         ("account_data_listing", UiOnly),
         ("account_pref", UiOnly),
         ("account_pref_changed", UiOnly),
@@ -690,11 +578,7 @@ const CLASSES: &[(&str, EventClass)] = {
         ("policy_subscriptions", UiOnly),
         ("presence_batch", UiOnly),
         ("presence_publish_failed", UiOnly),
-        // musicact: the server's answer to our own presence PUT (the
-        // farewell's settle); a background host publishes no presence.
         ("presence_published", UiOnly),
-        // msg48 repair: reload the open room and thread after the one-time
-        // classic cache repair; a background host has no views to reload.
         ("event_cache_repaired", UiOnly),
         ("profile_banner", UiOnly),
         ("profile_banner_set", UiOnly),
@@ -705,10 +589,6 @@ const CLASSES: &[(&str, EventClass)] = {
         ("push_rules_snapshot", UiOnly),
         ("qr_login_progress", UiOnly),
         ("room_closure_result", UiOnly),
-        // Added by the second break-it round (main 02693a52), classified at
-        // integration: the open room's posting facts answer a foreground
-        // op id, and a membership lost elsewhere retires a room the
-        // background counts table drops on its next full scan anyway.
         ("room_own_permissions", UiOnly),
         ("room_membership_lost", UiOnly),
         ("push_rules_write", UiOnly),
@@ -885,7 +765,6 @@ pub(crate) fn classify(event_type: &str) -> Option<EventClass> {
         .map(|(_, class)| *class)
 }
 
-/// Whether an event of this class may reach a Background handle's queue.
 pub(crate) fn flows_in_background(class: Option<EventClass>) -> bool {
     matches!(class, Some(EventClass::Session | EventClass::Notify))
 }
@@ -934,11 +813,9 @@ mod tests {
             value[key] = serde_json::json!([1]);
             assert!(parse_profile(&value.to_string()).is_err(), "mistyped {key} accepted");
         }
-        // The optional set is optional.
         let mut value = valid_profile();
         value.as_object_mut().unwrap().remove("local_rule_rooms");
         assert!(parse_profile(&value.to_string()).unwrap().local_rule_rooms.is_empty());
-        // Values out of range, and a slot that could carry PII.
         for (key, bad) in [
             ("slot", serde_json::json!("alice")),
             ("slot", serde_json::json!("B0")),
@@ -983,8 +860,6 @@ mod tests {
         assert!(seen_low && seen_high, "the source must cover the unit interval");
     }
 
-    // Review 2026-10-16, finding 5: the reason travels out of band, in the
-    // open context in scope, and the text a person sees carries no marker.
     #[test]
     fn a_store_refusal_is_recorded_in_its_open_context_and_not_in_its_text() {
         let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
@@ -998,7 +873,6 @@ mod tests {
             assert_eq!(seen, Some(reason));
             assert!(!text.contains(reason) && !text.contains('['), "{text}");
         }
-        // Outside a context nothing is recorded, and nothing is current.
         let _ = refuse_store(REFUSAL_STORE_IN_USE);
         assert_eq!(current_store_refusal(), None);
         let fresh = Arc::new(OpenContext::default());
@@ -1027,17 +901,10 @@ mod tests {
         assert_eq!(after["had_refresh_token"], false);
         assert_eq!(after["access_token"], "a");
         assert_eq!(after["refresh_token"], "r");
-        // A later rotation never clears the revocation.
         facts.note_refreshed();
         assert!(facts.revoked());
     }
 
-    // Review 2026-10-16, finding 1 (I4): a rotation that lands between the
-    // two reads must never pair the OLD tokens with the NEW generation. The
-    // seam is the token read itself: it installs a rotation (new pair, then
-    // the bump, in the token task's order) and returns the pair it read
-    // BEFORE that, which is the worst case. The generation returned must be
-    // the one from before the rotation, so the host re-takes custody.
     #[test]
     fn custody_never_stamps_old_tokens_with_a_newer_generation() {
         let facts = CustodyFacts::default();
@@ -1045,13 +912,12 @@ mod tests {
         let before = facts.generation();
         let custody = facts.custody_json(|| {
             let old_pair = ("old-access".to_owned(), Some("old-refresh".to_owned()));
-            facts.note_refreshed(); // the rotation lands mid-read
+            facts.note_refreshed();
             Some(old_pair)
         });
         assert_eq!(custody["access_token"], "old-access");
         assert_eq!(custody["generation"], before, "old tokens stamped with the newer generation");
         assert!(facts.generation() > before, "the host must see the generation move next time");
-        // The revocation facts are read before the tokens too.
         let facts = CustodyFacts::default();
         let custody = facts.custody_json(|| {
             facts.note_revoked(false, true);
@@ -1076,8 +942,6 @@ mod tests {
         assert!(low.contains("max_size: 4"), "{low}");
     }
 
-    /// Every `"type": "<literal>"` in `rust/src` (Matrix event types, which
-    /// carry a dot, excepted) must be classified, exactly once.
     #[test]
     fn every_type_literal_is_classified() {
         let mut seen = std::collections::BTreeSet::new();
@@ -1100,8 +964,6 @@ mod tests {
                 }
                 let text = std::fs::read_to_string(&path).unwrap();
                 for literal in type_literals(&text) {
-                    // Matrix event types carry a dot; an empty or non-identifier
-                    // string is a fixture or this file's own prose.
                     if literal.contains('.')
                         || literal.is_empty()
                         || !literal.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
@@ -1120,23 +982,15 @@ mod tests {
         assert!(unclassified.is_empty(), "unclassified event types: {unclassified:?}");
     }
 
-    /// Fixtures that exist to prove an unclassified type is refused.
     const UNCLASSIFIED_ON_PURPOSE: &[&str] = &[
         "a_type_from_the_future",
         "brand_new_crypto_event",
-        // The scanner's own fixture.
         "a_one",
         "b_two",
         "c_three",
         "d_four",
     ];
 
-    /// Every string literal written as an event's `"type"`, in the three
-    /// shapes `rust/src` uses: a json! key followed by `:`, an index
-    /// assignment `v[..] = json!(..)` or `= ..` (never `==`), and an
-    /// `insert(..to_owned(), ..into())`. A tiny scanner, so the test
-    /// needs no regex crate. (Review 2026-10-16, finding 11: only the first
-    /// shape was read, and `qr_login_progress` went unclassified.)
     fn type_literals(text: &str) -> Vec<String> {
         fn string_at(after: &str) -> Option<String> {
             let after = after.trim_start();
@@ -1193,9 +1047,6 @@ mod tests {
 mod restore_bound_tests {
     use super::*;
 
-    /// §18 round 2, L-c: a Background restore that never finishes ends as a
-    /// failure within its budget; one that finishes is passed through; the
-    /// foreground's (no budget) is the bare future.
     #[test]
     fn a_background_restore_that_never_finishes_fails_within_its_budget() {
         let runtime = tokio::runtime::Builder::new_current_thread()

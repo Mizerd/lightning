@@ -88,8 +88,6 @@ private:
     QHash<QString, QString> m_values;
 };
 
-// A recorder that starts without a microphone (VoiceOwnershipTest has the
-// full contract).
 class FakeRecorder final : public VoiceRecorder
 {
 public:
@@ -111,7 +109,6 @@ const QString kBob = QStringLiteral("@bob:two.example");
 const QString kRoomA = QStringLiteral("!a:one.example");
 const QString kRoomB = QStringLiteral("!b:one.example");
 
-// A silent 16-bit mono PCM WAV of `seconds`.
 bool writeSilentWav(const QString &path, int seconds)
 {
     const quint32 rate = 8000;
@@ -132,8 +129,6 @@ bool writeSilentWav(const QString &path, int seconds)
     return f.open(QIODevice::WriteOnly) && f.write(out) == out.size();
 }
 
-// A silent WAV carrying RIFF INFO tags (INAM title, IART artist), which the
-// media backend reports as the file's title and artist.
 bool writeTaggedWav(const QString &path, int seconds, const QByteArray &title,
                     const QByteArray &artist)
 {
@@ -215,7 +210,7 @@ TimelineEvent plainEvent(const QString &room, const QString &id,
     return e;
 }
 
-} // namespace
+}
 
 class VoicePlaybackTest : public QObject
 {
@@ -228,8 +223,6 @@ private:
     QString m_clipOne;
     QString m_clipTwo;
 
-    // Answers "mk-one"/"mk-two" with the silent files, anything else with ""
-    // (a fetch still in flight).
     void installSources(VoicePlaybackController *vp)
     {
         const QString one = QUrl::fromLocalFile(m_clipOne).toString();
@@ -281,9 +274,6 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // The tester's report: switching rooms reset a voice message to the start.
-    // The clip, its paused state and its position all survive the switch, and
-    // a clip that is PLAYING keeps playing and keeps the media key.
     void aClipSurvivesARoomSwitchWithItsPosition()
     {
         AppController app(AppController::MockBackend);
@@ -317,8 +307,6 @@ private Q_SLOTS:
                                 .arg(vp->position()).arg(before)));
         QVERIFY(!vp->playing());
 
-        // Playing through a switch: still playing, and still the audible
-        // owner so Space reaches it.
         vp->resume();
         QTRY_VERIFY(vp->playing());
         app.setCurrentRoomId(kRoomA);
@@ -328,8 +316,6 @@ private Q_SLOTS:
         vp->stop();
     }
 
-    // Auto-play next (GitHub #36). Voice messages only, in time order; rows
-    // that draw no message are skipped, any real message ends the run.
     void aFinishedVoiceMessageStartsTheNextOne()
     {
         AppController app(AppController::MockBackend);
@@ -358,10 +344,8 @@ private Q_SLOTS:
             voiceEvent(general, QStringLiteral("$v3"), QStringLiteral("mk-one")));
         Q_EMIT client->eventAppended(general,
             voiceEvent(general, QStringLiteral("$file"),
-                       QStringLiteral("mk-two"), /*voice=*/false));
+                       QStringLiteral("mk-two"),false));
 
-        // The lookup: skips the state row, stops at the text and at a plain
-        // audio file, and refuses another room.
         QCOMPARE(tl->nextVoiceMessage(general, QStringLiteral("$v1"))
                      .value(QStringLiteral("eventId")).toString(),
                  QStringLiteral("$v2"));
@@ -371,7 +355,6 @@ private Q_SLOTS:
                                      QStringLiteral("$v1")).isEmpty());
         QVERIFY(tl->nextVoiceMessage(general, QStringLiteral("$gone")).isEmpty());
 
-        // The wiring: the end of the clip starts the next one.
         vp->play(QStringLiteral("$v1"), general, QStringLiteral("mk-one"),
                  voiceMeta(QStringLiteral("A")));
         QVERIFY(vp->player());
@@ -379,15 +362,10 @@ private Q_SLOTS:
         QTRY_COMPARE(vp->eventId(), QStringLiteral("$v2"));
         QVERIFY(vp->isVoice());
 
-        // ...and the run ends at the text message: nothing starts.
         Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
         QTRY_VERIFY(!vp->active());
     }
 
-    // B111: a clip the chain started that cannot be played (here: invalid
-    // media) used to end the run silently. It is skipped, at most three in a
-    // row; a clip the READER started that fails is not, and a real message
-    // still ends the run.
     void anUnplayableClipInTheChainIsSkipped()
     {
         AppController app(AppController::MockBackend);
@@ -403,8 +381,6 @@ private Q_SLOTS:
         const auto append = [&](const TimelineEvent &e) {
             Q_EMIT client->eventAppended(general, e);
         };
-        // The resolver answers "" for any key but mk-one/mk-two: a fetch in
-        // flight, which the invalid-media report below then fails.
         append(voiceEvent(general, QStringLiteral("$v1"), QStringLiteral("mk-one")));
         append(voiceEvent(general, QStringLiteral("$bad"), QStringLiteral("mk-bad")));
         append(voiceEvent(general, QStringLiteral("$v2"), QStringLiteral("mk-two")));
@@ -431,11 +407,9 @@ private Q_SLOTS:
         QTRY_COMPARE(vp->eventId(), QStringLiteral("$bad"));
         failCurrent();
         QTRY_COMPARE(vp->eventId(), QStringLiteral("$v2"));
-        // The text message still ends the run.
         Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
         QTRY_VERIFY(!vp->active());
 
-        // The reader's own choice failing stays on screen, failed.
         vp->play(QStringLiteral("$bad"), general, QStringLiteral("mk-bad"),
                  voiceMeta(QStringLiteral("A")));
         failCurrent();
@@ -443,7 +417,6 @@ private Q_SLOTS:
         QCOMPARE(vp->eventId(), QStringLiteral("$bad"));
         QCOMPARE(vp->fetchState(), QStringLiteral("failed"));
 
-        // Bounded: three skips, then the fourth broken clip stays.
         vp->play(QStringLiteral("$w1"), general, QStringLiteral("mk-one"),
                  voiceMeta(QStringLiteral("A")));
         Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
@@ -457,9 +430,6 @@ private Q_SLOTS:
         QCOMPARE(vp->eventId(), QStringLiteral("$b4"));
         QCOMPARE(vp->fetchState(), QStringLiteral("failed"));
 
-        // A clip the chain started and the reader then stopped is the
-        // reader's when they play it again: its failure is not skipped (the
-        // chain's mark used to outlive the stop and move on to $c3).
         vp->play(QStringLiteral("$c1"), general, QStringLiteral("mk-one"),
                  voiceMeta(QStringLiteral("A")));
         Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
@@ -474,8 +444,6 @@ private Q_SLOTS:
         vp->stop();
     }
 
-    // A clip the reader paused or stopped never reaches its end, so it never
-    // advances; a finished audio FILE and a thread clip do not advance either.
     void onlyANaturalEndOfAVoiceMessageAdvances()
     {
         AppController app(AppController::MockBackend);
@@ -502,17 +470,11 @@ private Q_SLOTS:
         QTest::qWait(50);
         QVERIFY(!vp->active());
 
-        // An audio file (isVoice false) ending does not chain.
         Q_EMIT vp->clipFinished(QStringLiteral("$v1"), general, QString(), false);
-        // Nor does a clip from a thread whose run nobody knows (no thread
-        // timeline loaded, no snapshot): it is the THREAD's run, never the
-        // room's.
         Q_EMIT vp->clipFinished(QStringLiteral("$v1"), general,
                                 QStringLiteral("$root"), true);
         QVERIFY(!vp->active());
 
-        // The positive control: the same signal for a main-timeline voice clip
-        // does start $v2, so the two refusals above are not vacuous.
         Q_EMIT vp->clipFinished(QStringLiteral("$v1"), general, QString(), true);
         QCOMPARE(vp->eventId(), QStringLiteral("$v2"));
     }
@@ -545,27 +507,20 @@ private Q_SLOTS:
         vp->play(QStringLiteral("$v1"), general, QStringLiteral("mk-one"),
                  voiceMeta(QStringLiteral("A")));
         QTRY_COMPARE(app.voicePrefetchKey(), QStringLiteral("mk-two"));
-        // The last of the run has nothing to prefetch.
         vp->play(QStringLiteral("$v2"), general, QStringLiteral("mk-two"),
                  voiceMeta(QStringLiteral("A")));
         QTRY_VERIFY(app.voicePrefetchKey().isEmpty());
-        // Stop drops it.
         vp->play(QStringLiteral("$v1"), general, QStringLiteral("mk-one"),
                  voiceMeta(QStringLiteral("A")));
         QTRY_COMPARE(app.voicePrefetchKey(), QStringLiteral("mk-two"));
         vp->stop();
         QTRY_VERIFY(app.voicePrefetchKey().isEmpty());
-        // A room switch keeps it while the clip keeps playing: the run plays
-        // on from its snapshot (design-media B3), so its next clip is still
-        // the one to have ready.
         vp->play(QStringLiteral("$v1"), general, QStringLiteral("mk-one"),
                  voiceMeta(QStringLiteral("A")));
         QTRY_COMPARE(app.voicePrefetchKey(), QStringLiteral("mk-two"));
         app.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
         QTest::qWait(100);
         QCOMPARE(app.voicePrefetchKey(), QStringLiteral("mk-two"));
-        // A thread clip whose thread is not loaded prefetches nothing: its
-        // run is the thread's, never the room's.
         vp->stop();
         app.setCurrentRoomId(general);
         vp->play(QStringLiteral("$t1"), general, QStringLiteral("mk-one"),
@@ -574,10 +529,6 @@ private Q_SLOTS:
         QTest::qWait(100);
         QVERIFY(app.voicePrefetchKey().isEmpty());
 
-        // The chain advance must not drop the prefetch the next clip is about
-        // to use: play($v2) stops $v1 first (currentChanged with nothing
-        // loaded), and only then registers interest in $v2's bytes.
-        // (The room switches above reloaded the timeline: seed it again.)
         vp->stop();
         app.setCurrentRoomId(general);
         QTRY_VERIFY(app.timeline()->rowCount() > 4);
@@ -595,22 +546,17 @@ private Q_SLOTS:
         QTRY_COMPARE(app.voicePrefetchKey(), QStringLiteral("mk-two"));
         Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
         QTRY_COMPARE(vp->eventId(), QStringLiteral("$w2"));
-        // $w2 is the last of its run: nothing left to prefetch, and moving off
-        // "mk-two" was NOT a drop of anything the new clip needs.
         QTRY_VERIFY(app.voicePrefetchKey().isEmpty());
         QTest::qWait(100);
         QCOMPARE(app.voicePrefetchDropsForTest(), dropsBefore);
     }
 
-    // One clip at a time: a second one unloads the first, and the first one's
-    // fetch, landing late, cannot take the player back.
     void aSecondClipStopsTheFirst()
     {
         AppController app(AppController::MockBackend);
         auto *vp = app.voicePlayback();
         installSources(vp);
 
-        // The first clip is still fetching when the second starts.
         vp->play(QStringLiteral("$pending"), kRoomA,
                  QStringLiteral("mk-pending"), voiceMeta(QStringLiteral("A")));
         QCOMPARE(vp->fetchState(), QStringLiteral("fetching"));
@@ -627,8 +573,6 @@ private Q_SLOTS:
         QCOMPARE(vp->eventId(), QStringLiteral("$one"));
         QCOMPARE(vp->player()->source(), QUrl::fromLocalFile(m_clipOne));
 
-        // And a loaded clip is replaced, not mixed: one player, new source,
-        // new audible owner.
         vp->play(QStringLiteral("$two"), kRoomB, QStringLiteral("mk-two"),
                  voiceMeta(QStringLiteral("C")));
         QCOMPARE(vp->eventId(), QStringLiteral("$two"));
@@ -641,8 +585,6 @@ private Q_SLOTS:
         QVERIFY(app.playback()->audibleOwner().isEmpty());
     }
 
-    // Switching to another account clears the clip: its decrypted file is
-    // about to be wiped with the previous account's cache.
     void anAccountSwitchClearsTheClip()
     {
         AppController app(AppController::MockBackend);
@@ -660,8 +602,6 @@ private Q_SLOTS:
         QTRY_VERIFY(!app.accountSwitching());
     }
 
-    // A plain sign-out (no other account to fall back to, so it does not go
-    // through the account-switch path) clears the clip too.
     void aPlainSignOutClearsTheClip()
     {
         AppController app(AppController::MockBackend);
@@ -679,8 +619,6 @@ private Q_SLOTS:
         vp->play(QStringLiteral("$two"), kRoomA, QStringLiteral("mk-two"),
                  voiceMeta(QStringLiteral("Alice")));
         QVERIFY(vp->active());
-        // Paused, so the clip cannot end by itself inside the wait below and
-        // pass this for the wrong reason.
         vp->pause();
         QTRY_VERIFY(!vp->playing());
         // The mock keeps the record on logout; drop it so nothing falls back.
@@ -691,8 +629,6 @@ private Q_SLOTS:
         QVERIFY(vp->player()->source().isEmpty());
     }
 
-    // The remembered media level and speed apply to the app-owned player as
-    // they did to every card's own, and follow a change.
     void thePlayerFollowsTheRememberedVolumeAndSpeed()
     {
         AppController app(AppController::MockBackend);
@@ -710,13 +646,10 @@ private Q_SLOTS:
         app.settings()->setVoicePlaybackRate(0.75);
         QVERIFY(qAbs(vp->audioOutput()->volume() - 0.6f) < 0.001f);
         QCOMPARE(vp->player()->playbackRate(), 0.75);
-        // The shared volume control writes `userUnmuted` on its output.
         QVERIFY(vp->audioOutput()->setProperty("userUnmuted", true));
         vp->stop();
     }
 
-    // A redaction of the playing event stops it; one of another event does
-    // not.
     void aRedactionStopsTheClip()
     {
         AppController app(AppController::MockBackend);
@@ -735,14 +668,6 @@ private Q_SLOTS:
         QVERIFY(!vp->active());
     }
 
-    // The Rust backend never emits MatrixClient::eventRedacted: a redaction
-    // reaches the app only as a rewritten timeline row. Driven here through
-    // the timeline models themselves (their own redaction slot, the reload of
-    // a reopened room), never through the client signal the Rust SDK does not
-    // send:
-    //   * a row rewritten in the open room's timeline;
-    //   * a row rewritten in the open thread's timeline;
-    //   * a clip whose event was already redacted when its room is reopened.
     void aRedactionTheRustSdkOnlyShowsInATimelineStillStopsTheClip()
     {
         AppController app(AppController::MockBackend);
@@ -758,7 +683,6 @@ private Q_SLOTS:
         app.setCurrentRoomId(general);
         TimelineModel *tl = app.timeline();
         QTRY_VERIFY(tl->rowCount() > 4);
-        // Two ordinary loaded events, and the thread root.
         QStringList plain;
         QString threadRoot;
         for (int row = 0; row < tl->rowCount(); ++row) {
@@ -774,7 +698,6 @@ private Q_SLOTS:
         QCOMPARE(plain.size(), 2);
         QVERIFY(!threadRoot.isEmpty());
 
-        // 1. Rewritten in the open room's timeline.
         vp->play(plain[0], general, QStringLiteral("mk-one"),
                  voiceMeta(QStringLiteral("Alice")));
         QVERIFY(vp->active());
@@ -784,7 +707,6 @@ private Q_SLOTS:
         QVERIFY2(!vp->active(),
                  "a redaction the room timeline shows did not stop the clip");
 
-        // 2. Rewritten in the open thread's timeline.
         app.thread()->openThread(general, threadRoot);
         TimelineModel *threadModel = app.thread()->model();
         QString reply;
@@ -810,8 +732,6 @@ private Q_SLOTS:
         QVERIFY2(!vp->active(),
                  "a redaction the thread timeline shows did not stop the clip");
 
-        // 3. Already redacted when its room is reopened. The redaction lands
-        // while nothing plays it; the clip is then playing from another room.
         client->redactEvent(general, plain[1], QString());
         app.setCurrentRoomId(devs);
         vp->play(plain[1], general, QStringLiteral("mk-one"),
@@ -825,9 +745,6 @@ private Q_SLOTS:
                  "reopening the room did not notice the clip was redacted");
     }
 
-    // A call going live pauses the clip once. A clip the user resumes during
-    // the call keeps playing through the call's later state changes; the
-    // next call pauses it again.
     void aCallPausesTheClipOnlyOnItsWayIn()
     {
         AppController app(AppController::MockBackend);
@@ -847,7 +764,7 @@ private Q_SLOTS:
 
         vp->resume();
         QTRY_VERIFY(vp->playing());
-        Q_EMIT call->stateChanged(); // e.g. a reconnect within the same call
+        Q_EMIT call->stateChanged();
         QTest::qWait(150);
         QVERIFY2(vp->playing(),
                  "a clip resumed mid-call was paused again by the same call");
@@ -862,9 +779,6 @@ private Q_SLOTS:
         vp->stop();
     }
 
-    // B109: the microphone picked up a clip that kept playing through a
-    // recording. Starting one pauses the clip (not stops: it can be resumed),
-    // and a clip still fetching no longer starts by itself mid-recording.
     void startingARecordingPausesTheClip()
     {
         AppController app(AppController::MockBackend);
@@ -882,7 +796,6 @@ private Q_SLOTS:
         QCOMPARE(vp->eventId(), QStringLiteral("$one"));
         rec->cancel();
 
-        // The resolver answers "" for this key: a fetch still in flight.
         vp->play(QStringLiteral("$pending"), kRoomA,
                  QStringLiteral("mk-pending"),
                  voiceMeta(QStringLiteral("Alice")));
@@ -895,9 +808,6 @@ private Q_SLOTS:
         vp->stop();
     }
 
-    // The QML side: a row rebuilt after a room switch (a new AudioPlayerCard
-    // for the same event) shows the live clip at its position, and a row for
-    // another event shows idle.
     void aRebuiltRowShowsTheLiveClip()
     {
         QQmlApplicationEngine engine;
@@ -906,7 +816,6 @@ private Q_SLOTS:
         engine.rootContext()->setContextProperty(QStringLiteral("app"), app);
         auto *vp = app->voicePlayback();
         installSources(vp);
-        // The card's Play goes in-process only when the bridge is supported.
         auto *mock = app->findChild<MockMatrixClient *>();
         QVERIFY(mock);
         mock->setSupportsMediaBridgeForTest(true);
@@ -935,7 +844,6 @@ AudioPlayerCard { width: 360; isVoice: true; durationMs: 4000 }
         auto first = makeCard(QStringLiteral("$one"));
         QVERIFY(first);
         QVERIFY(!first->property("isCurrent").toBool());
-        // The row's own Play.
         QVERIFY(QMetaObject::invokeMethod(first.get(), "togglePlay"));
         QVERIFY(first->property("isCurrent").toBool());
         QCOMPARE(vp->senderName(), QStringLiteral("Alice"));
@@ -945,13 +853,10 @@ AudioPlayerCard { width: 360; isVoice: true; durationMs: 4000 }
         vp->seek(2000);
         QTRY_VERIFY(qAbs(vp->position() - 2000) < 100);
 
-        // The switch destroys the row; the clip lives on.
         first.reset();
         app->setCurrentRoomId(kRoomB);
         QVERIFY(vp->active());
 
-        // Back in the room, a rebuilt row for the same event is live again at
-        // the same position; a row for another event is idle.
         app->setCurrentRoomId(kRoomA);
         auto again = makeCard(QStringLiteral("$one"));
         auto other = makeCard(QStringLiteral("$other"));
@@ -964,11 +869,6 @@ AudioPlayerCard { width: 360; isVoice: true; durationMs: 4000 }
         QVERIFY(!again->property("isCurrent").toBool());
     }
 
-    // B107, then design-media P4/U5: a short waveform used to draw over only
-    // part of the row (3 px a bar, left-aligned), leaving dead space after it,
-    // and an idle row could not be seeked at all. The bars now stretch over
-    // the whole row, a tap maps over that width, and on an idle row it starts
-    // the clip at that point.
     void aWaveformFillsTheRowAndAnIdleTapStartsThere()
     {
         QQuickWindow window;
@@ -1015,13 +915,11 @@ AudioPlayerCard { width: 360; isVoice: true; durationMs: 4000
             ++bars;
             right = qMax(right, bar->x() + bar->width());
         }
-        // Slim bars across the whole width, each sampling its bucket.
         QCOMPARE(bars, int((wave->width() + 1) / 3));
         QVERIFY2(right >= wave->width() * 0.97,
                  qPrintable(QStringLiteral("20 bars end at %1 of %2 px")
                                 .arg(right).arg(wave->width())));
 
-        // A click at half the width of an idle row starts the clip there.
         auto *seek = cardItem->findChild<QQuickItem *>(
             QStringLiteral("audioWaveRow"));
         QVERIFY(seek);
@@ -1035,11 +933,6 @@ AudioPlayerCard { width: 360; isVoice: true; durationMs: 4000
         vp->stop();
     }
 
-    // The popped-out player (design-media U1/B2/U2), on the real controller:
-    // docked by default (no card), popped out it shows wherever the clip's row
-    // is not on screen (in the clip's own room too, and in Settings), and the
-    // choice and the card's place persist to the next launch; a corrupt
-    // stored place reads as "never placed".
     void thePopOutCardShowsWhereverTheRowIsNotAndPersists()
     {
         QQuickWindow window;
@@ -1086,20 +979,17 @@ Item {
         QVERIFY2(!card->isVisible(), "the card showed while docked");
 
         app->settings()->setVoicePlayerDocked(false);
-        // In the clip's own room, its row not on screen: the card (U2).
         QTRY_COMPARE(card->opacity(), 1.0);
         auto *room = card->findChild<QObject *>(
             QStringLiteral("voiceMiniPlayerRoom"));
         QVERIFY(room);
         QCOMPARE(room->property("text").toString(),
                  QStringLiteral("Voice message · Lounge"));
-        // A row that says it is on screen hides it; its going away shows it.
         {
             QObject row;
             vp->reportRowVisible(&row, QStringLiteral("$one"), true);
             QVERIFY(vp->rowOnScreen());
             QVERIFY(!host->property("wanted").toBool());
-            // Settings hides every row: the card again (B2).
             app->showSettings();
             QVERIFY(host->property("wanted").toBool());
             app->showMain();
@@ -1108,7 +998,6 @@ Item {
         QVERIFY2(!vp->rowOnScreen(), "a destroyed row still counted");
         QVERIFY(host->property("wanted").toBool());
 
-        // A drag and drop is remembered as a place relative to the window.
         const QPointF from = card->mapToScene(QPointF(14, 14));
         QTest::mousePress(&window, Qt::LeftButton, {}, from.toPoint());
         for (int step = 1; step <= 10; ++step)
@@ -1127,8 +1016,6 @@ Item {
         vp->stop();
         QTRY_VERIFY(!card->isVisible());
 
-        // The next launch reads both choices; a corrupt place is "unplaced",
-        // never off screen.
         {
             AppController next(AppController::MockBackend);
             QCOMPARE(next.settings()->voicePlayerDocked(), false);
@@ -1148,9 +1035,6 @@ Item {
         scene.reset();
     }
 
-    // design-media B3: the chain played on only while its room was open; it
-    // stopped after the first clip once the reader left. It follows the clip's
-    // own run now, wherever the reader is.
     void theChainPlaysOnAfterLeavingTheRoom()
     {
         AppController app(AppController::MockBackend);
@@ -1177,7 +1061,6 @@ Item {
                  voiceMeta(QStringLiteral("A")));
         QTRY_COMPARE(vp->upNext().size(), 2);
         QVERIFY(vp->hasNext());
-        // The reader leaves for another room straight away.
         app.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
         QTRY_COMPARE(app.timeline()->roomId(),
                      QStringLiteral("!devs:mock.local"));
@@ -1188,16 +1071,13 @@ Item {
         QTRY_COMPARE(vp->eventId(), QStringLiteral("$v2"));
         QCOMPARE(vp->roomId(), general);
         QCOMPARE(vp->upNext().size(), 1);
-        // The bar's Next skips along the same run.
         QVERIFY(vp->playNext());
         QCOMPARE(vp->eventId(), QStringLiteral("$v3"));
         QVERIFY(!vp->hasNext());
-        // ...and the run ends at the text message.
         Q_EMIT vp->player()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
         QTRY_VERIFY(!vp->active());
     }
 
-    // A redaction of a voice message still waiting in the run takes it out.
     void aRedactedClipLeavesTheRun()
     {
         AppController app(AppController::MockBackend);
@@ -1216,9 +1096,6 @@ Item {
         vp->stop();
     }
 
-    // design-media U3: a clip a call paused stayed paused after the hang-up,
-    // with no reason shown. The call's pause is marked, and its end resumes
-    // the clip, unless the reader touched it meanwhile.
     void theEndOfACallResumesTheClipItPaused()
     {
         AppController app(AppController::MockBackend);
@@ -1237,7 +1114,6 @@ Item {
         QTRY_VERIFY2(vp->playing(), "the hang-up did not resume the clip");
         QVERIFY(!vp->pausedForCall());
 
-        // Paused by the reader during the call: the hang-up leaves it alone.
         call->setCallStateForTest(SfuCallController::State::Connected);
         Q_EMIT call->stateChanged();
         QTRY_VERIFY(!vp->playing());
@@ -1253,8 +1129,6 @@ Item {
         vp->stop();
     }
 
-    // design-media U5: Space did nothing after a room switch if the clip was
-    // PAUSED at the time: only a playing clip took audibility back.
     void aPausedClipStillAnswersSpaceAfterARoomSwitch()
     {
         AppController app(AppController::MockBackend);
@@ -1269,15 +1143,11 @@ Item {
         app.setCurrentRoomId(kRoomB);
         QCoreApplication::processEvents();
         QCOMPARE(app.playback()->audibleOwner(), vp->ownerKey());
-        // Space, as Main.qml delivers it.
         app.playback()->requestTogglePlayPause();
         QTRY_VERIFY2(vp->playing(), "Space did not resume the paused clip");
         vp->stop();
     }
 
-    // design-media U3: speed is per kind. Voice messages play at the
-    // remembered voice speed; an audio file starts at 1x and its speed is
-    // its own, never written over the voice speed.
     void voiceAndFileSpeedsAreSeparate()
     {
         AppController app(AppController::MockBackend);
@@ -1297,12 +1167,10 @@ Item {
                  voiceMeta(QStringLiteral("A")));
         QCOMPARE(vp->rate(), 1.5);
         QCOMPARE(vp->player()->playbackRate(), 1.5);
-        // The next file starts at 1x again.
         vp->play(QStringLiteral("$file2"), kRoomA, QStringLiteral("mk-one"),
                  { { QStringLiteral("isVoice"), false } });
         QCOMPARE(vp->player()->playbackRate(), 1.0);
         vp->stop();
-        // An earlier shared speed carries over to voice once.
         {
             QSettings raw;
             raw.remove(QStringLiteral("media/voicePlaybackRate"));
@@ -1310,15 +1178,11 @@ Item {
             raw.sync();
             AppController fresh(AppController::MockBackend);
             QCOMPARE(fresh.settings()->voicePlaybackRate(), 1.25);
-            // A later change of the shared key no longer moves it.
             fresh.settings()->setMediaPlaybackRate(2.0);
             QCOMPARE(fresh.settings()->voicePlaybackRate(), 1.25);
         }
     }
 
-    // design-media B6: an audio file's tags (title, artist) came only from
-    // the live player, so they appeared and vanished with playback. They are
-    // remembered per file for the session (RAM) and outlive the play.
     void anAudioFilesTagsOutliveItsPlay()
     {
         const QString tagged = m_media.filePath(QStringLiteral("tagged.wav"));
@@ -1344,8 +1208,6 @@ Item {
                  QStringLiteral("The Band"));
     }
 
-    // design-media U5: a seek on an idle row starts the clip there; a seek
-    // while the file is still being fetched is kept until it opens.
     void aClipCanStartPartWayIn()
     {
         AppController app(AppController::MockBackend);
@@ -1358,7 +1220,6 @@ Item {
         QTRY_VERIFY2(qAbs(vp->position() - 2500) < 300,
                      qPrintable(QString::number(vp->position())));
         vp->stop();
-        // Still fetching ("" from the resolver): the seek waits.
         vp->play(QStringLiteral("$pending"), kRoomA,
                  QStringLiteral("mk-pending"), voiceMeta(QStringLiteral("A")));
         QCOMPARE(vp->fetchState(), QStringLiteral("fetching"));
@@ -1367,9 +1228,6 @@ Item {
         vp->stop();
     }
 
-    // Review round 1 (L3): what a session learned about its files (tags and
-    // cover art, clipInfo) went with neither a sign-out nor an account
-    // switch, so the next account's rows could show them.
     void anAccountSwitchForgetsTheFilesTags()
     {
         const QString tagged = m_media.filePath(QStringLiteral("tagged2.wav"));
@@ -1394,8 +1252,6 @@ Item {
         QTRY_VERIFY(!app.accountSwitching());
     }
 
-    // Review round 1 (L4): leaving (or being removed from) the clip's room
-    // stops the clip and drops its run, whether or not that room is open.
     void leavingTheClipsRoomStopsIt()
     {
         AppController app(AppController::MockBackend);
@@ -1409,7 +1265,6 @@ Item {
         vp->setUpNext({ QVariantMap{
             { QStringLiteral("eventId"), QStringLiteral("$two") },
             { QStringLiteral("mediaKey"), QStringLiteral("mk-two") } } });
-        // Another room going: nothing happens.
         Q_EMIT client->roomMembershipLost(QStringLiteral("!other:x"),
                                           QStringLiteral("left"), QString());
         QVERIFY(vp->active());
@@ -1419,8 +1274,6 @@ Item {
         QVERIFY(!vp->hasNext());
     }
 
-    // Review round 1 (L8): the visible row is reachable, so the window's
-    // "focus the player" shortcut can land on its play button.
     void theVisibleRowIsExposed()
     {
         AppController app(AppController::MockBackend);

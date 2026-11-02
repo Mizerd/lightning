@@ -38,50 +38,35 @@
 
 namespace {
 
-// Components that must load with nothing but `app` in context.
 constexpr const char *kComponents[] = {
-    "StickerPackEditor",     // pack CRUD dialog
-    "QrLoginDialog",         // MSC4108 sign-in-another-device
-    "AboutToolsSection",     // About: copy version, homeserver, reset cache
-    "DeveloperToolsSection", // About: developer switch, account-data browser
-    "UserClientsInfo",       // developer mode: a user's sessions, names as typed
-    "LogExportCard",         // About: log export, delete-saved-logs dialog
-    "UpdatesSettingsSection", // Settings: updates card
-    "PolicyListDialog",      // Mjolnir-style moderation lists
-    "AddWidgetDialog",       // widget kind picker
-    "MemberProfilePopover",  // carries the policy-list notice and its Connections
-    "CallPipWindow",         // the floating call window
-    // The in-call device menu (a Slider, Labels and a Layout inside a Menu)
-    // and its Settings sibling.
+    "StickerPackEditor",
+    "QrLoginDialog",
+    "AboutToolsSection",
+    "DeveloperToolsSection",
+    "UserClientsInfo",
+    "LogExportCard",
+    "UpdatesSettingsSection",
+    "PolicyListDialog",
+    "AddWidgetDialog",
+    "MemberProfilePopover",
+    "CallPipWindow",
     "CallDeviceMenu",
     "CallDeviceSettings",
-    // Quality: camera / share Auto choices and the webrtcdsp switches.
     "CallQualitySettings",
-    // Settings -> Notifications: account push rules and the troubleshooter.
     "NotificationRulesSettings",
-    // The microphone level bar both of those draw.
     "AudioLevelBar",
-    // Settings → Labs: the microphone noise suppression selector (#20).
     "NoiseSuppressionSelector",
-    // Settings → Labs: "Playing X" (GameActivitySettings).
     "GameActivitySettings",
-    // Settings → Labs: "Listening to" (MusicActivitySettings).
     "MusicActivitySettings",
-    // Screen share sound: the live application list (IconImage from
-    // QtQuick.Controls.impl), the call bar's dialog around it, and both
-    // share surfaces that host the choice.
     "ShareAudioAppList",
     "ShareAudioAppsDialog",
     "CallShareOptionsMenu",
-    // Why a video surface is empty on the software renderer.
     "SoftwareVideoNotice",
     "ScreenSharePicker",
-    "MediaBrowser",          // room media/files/links over all history
-    "ContextView",           // read-only message context (app.eventContext)
+    "MediaBrowser",
+    "ContextView",
     "ForwardSelectionDialog",
     "EmojiCompletionPopup",
-    // Long-standing surfaces with the same exposure. Cheap to cover, and
-    // each one is a file somebody will edit without running its own suite.
     "StreamInfoOverlay",
     "CallStage",
     "SettingsScreen",
@@ -93,8 +78,7 @@ constexpr const char *kComponents[] = {
     "MessageSearchDialog",
     "ThemeEditorDialog",
     "IncomingCallPrompt",
-    "EncryptionBrokenPrompt",  // B011: the undecryptable-device card
-    // The one-time "index all messages now?" card; reads app.messageSearch.
+    "EncryptionBrokenPrompt",
     "IndexAllPrompt",
     "BackgroundSyncPrompt",
     "CallHeaderBar",
@@ -104,61 +88,28 @@ constexpr const char *kComponents[] = {
     "JumpToDateDialog",
     "WidgetOpenSheet",
     "HomePane",
-    // Collapsed-embed summary row; reads only AppTheme and Icon.
     "CollapsedEmbedRow",
-    // A link's own video or large image; reads app.linkPreviews and
-    // app.mediaBridge, and every preview field defaults to empty.
     "LinkMediaCard",
-    // Space Home lobby; every input has an empty default and it reads no `app`.
     "SpaceLobby",
-    // Space kick/ban confirmation; renders app.spaceModeration.
     "SpaceMemberActionDialog",
-    // Close / server-admin delete confirmation; renders app.roomClosure.
     "RoomCloseDialog",
-    // Settings -> Account -> Change password; renders app.passwordChange.
     "ChangePasswordSection",
-    // Settings -> Privacy: photo details removed on send; guards on `app`.
     "PhotoMetadataSetting",
-    // Settings -> Appearance: emoji and sticker packs; guards on `app`.
     "StickerPacksSettings",
-    // Settings -> Privacy & security -> Export room keys; renders
-    // app.roomKeyExport and binds the native chooser.
     "RoomKeyExportSection",
-    // Room and Space topics; reads app.linkPreviews. A TextEdit, where a Text
-    // property such as lineHeight is a load-time error.
     "TopicText",
-    // The popped-out voice/audio player card; renders app.voicePlayback and
-    // app.settings.voiceMiniPlayerGeometry, and shows nothing while idle.
     "VoiceMiniPlayer",
-    // The docked "now playing" strip, its scrubber and its speed chip; all
-    // bind app.voicePlayback at load.
     "VoicePlayerBar",
     "VoiceSeekBar",
     "VoiceSpeedChip",
-    // The downloads card (app.downloads.items) and the native chooser
-    // wrapper (app.files); both bind app objects at load.
     "DownloadsCard",
-    // The pane-level fallback for downloads no file card shows; reads
-    // app.downloads.items and DownloadNotices at load.
     "PaneDownloadsCard",
     "NativeFileDialog",
-    // Lightning's own file chooser (Linux without a portal); binds app.files
-    // and a FileBrowserModel at load.
     "FileChooserDialog",
-    // The "..." menu beside the room-list search: Activity / A-Z. Reads and
-    // writes app.settings.roomListSort.
     "RoomListSortMenu",
-    // Recovery key entry shared by Settings and the first-run prompt; reads
-    // app.requestRecoverFromBackup and app.sessionTrustState.
     "RecoveryKeyEntry",
-    // Cross-signing setup/reset card; reads app.cryptoHealth and app.backup.
     "CrossSigningSetupCard",
-    // The first-run "verify this session" corner card, which hosts it inline.
     "VerifySessionPrompt",
-    // Chat backgrounds and gradient surfaces (2026-10-06). The backdrop
-    // layer, the gradient-aware surface, the room/Space/default editor, the
-    // Settings section and the theme editor's gradient block; all read
-    // app.backdrops / app.customTheme and render nothing without a room.
     "ChatBackdrop",
     "ThemedSurface",
     "ChatBackgroundEditor",
@@ -167,45 +118,29 @@ constexpr const char *kComponents[] = {
     "MediaPreviewSettings",
     "NetworkRouteSettings",
     "GradientEditor",
-    // Theme editor levels (2026-10-13): the Simple/Groups/Elements switch, the
-    // undo toast, the inheritance row and the Simple panel. Empty defaults.
     "ThemeLevelSwitch",
     "ThemeToast",
     "ThemeLinkRow",
     "ThemeSimplePanel",
-    // Theme editor, second pass (2026-10-14): the preset Keep / Replace
-    // question. Empty defaults, reads no `app`.
     "ThemePresetPrompt",
     "ThemePopover",
     "ThemeMenuPanel",
     "ThemeSharePanel",
     "ThemeReadabilityPanel",
-    // The "Chat background…" dialog the room header, the room menu and Home
-    // open; hosts ChatBackgroundEditor behind a Loader.
     "ChatBackgroundDialog",
-    // Settings structure (2026-10-13): the typed percentage beside a slider,
-    // the "Needs X" pill, the one-line hint, the nav group heading and the
-    // "On this page" outline. Each has empty defaults and reads no `app`.
     "SettingsPercentBox",
     "SettingsNeedsBadge",
     "SettingsHint",
     "SettingsChoiceRow",
     "SettingsNavGroupLabel",
     "SettingsNavOutline",
-    // Break-it round (2026-10-16): the one leave-room confirmation (B133) and
-    // the invited room's card (B037). Empty defaults, read no `app` at load.
     "LeaveRoomConfirmDialog",
     "InvitePreviewCard",
-    // Live accounts (Labs, 2026-10-16): the hidden Settings card, the badge
-    // rule and the per-account activity feed. Each reads `app` guarded and
-    // renders nothing with Labs off.
     "LabsConcurrentAccountsCard",
     "AccountActivityBadge",
     "AccountActivityFeed",
 };
 
-// Deliberately NOT loaded standalone, each with the reason. Kept here rather
-// than omitted so that "not covered" is a decision on the record.
 struct Excluded { const char *name; const char *why; };
 constexpr Excluded kNotLoadable[] = {
     { "MessageDelegate", "a timeline delegate: required properties come from "
@@ -217,7 +152,7 @@ constexpr Excluded kNotLoadable[] = {
     { "Main", "the application window; StartupSessionTest loads it" },
 };
 
-} // namespace
+}
 
 class QmlComponentLoadTest : public QObject
 {
@@ -301,8 +236,6 @@ Item {
         item->setParentItem(window.contentItem());
         window.show();
         QTest::qWait(30);
-        // Repeater delegates belong to the visual tree, which need not
-        // match QObject ownership inside ScrollView's content item.
         auto findRow = [](auto &&self, QQuickItem *node) -> QQuickItem * {
             if (node->objectName() == QStringLiteral("streamInfoRow")) return node;
             for (auto *child : node->childItems())
@@ -315,7 +248,7 @@ Item {
         QVERIFY(text.contains(QStringLiteral("<b>Alice</b>")));
         QVERIFY(text.contains(QStringLiteral("1920")));
         QVERIFY(text.contains(QStringLiteral("vp8enc")));
-        QCOMPARE(row->property("textFormat").toInt(), 0); // Text.PlainText
+        QCOMPARE(row->property("textFormat").toInt(), 0);
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
         item->setParentItem(nullptr);
     }
@@ -343,9 +276,6 @@ Item {
 
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
-        // A binding loop is a load-time fact: the component loads, but Qt
-        // abandons the binding and the property keeps whatever the aborted
-        // evaluation left behind.
         QStringList warnings;
         connect(&engine, &QQmlEngine::warnings, this,
                 [&warnings](const QList<QQmlError> &errors) {
@@ -359,8 +289,6 @@ Item {
                      qPrintable(component + QStringLiteral(
                          " never finished loading")));
 
-        // objectCreated carries a NULL object when the component failed, so
-        // THIS is the assertion — the spy having fired is not enough.
         QObject *root = createdSpy.at(0).at(0).value<QObject *>();
         QVERIFY2(root != nullptr,
                  qPrintable(component + QStringLiteral(
@@ -373,10 +301,6 @@ Item {
         }
     }
 
-    // HomePane must resolve its greeting without a binding loop. Unlike the
-    // data-driven case above, this needs a real active account id at creation:
-    // `displayName` falls back to the localpart and so reads `activeUserId`.
-    // Asserts both that no loop was reported and that the greeting resolved.
     void theHomePaneResolvesItsGreetingWithoutABindingLoop()
     {
         AppController controller(AppController::MockBackend);
@@ -386,18 +310,11 @@ Item {
                                  QStringLiteral("unused"));
         QVERIFY(loginSpy.wait(3000));
 
-        // A record with no display name, so the greeting takes the localpart
-        // fallback. It must be upserted first: `setActiveUser` refuses an id
-        // with no saved record. The secret store is detached first so
-        // `saveSession` cannot write a token to the real keyring.
         const QString uid = QStringLiteral("@alice:mock.local");
         controller.settings()->setSecretStore(nullptr);
         controller.settings()->saveSession(QStringLiteral("https://mock.local"),
                                            uid, QStringLiteral("MOCKDEV"),
                                            QString());
-        // Removed again on every exit path: this suite's QSettings file
-        // outlives the process and would change the data-driven case's next
-        // run.
         const auto forgetAccount = qScopeGuard([&controller, &uid] {
             controller.accounts()->removeAccount(uid);
         });
@@ -419,8 +336,6 @@ Item {
         QObject *root = createdSpy.at(0).at(0).value<QObject *>();
         QVERIFY(root != nullptr);
 
-        // Read first, then scan: the loop fires on lazy first-read
-        // evaluation.
         QCOMPARE(root->property("activeUserId").toString(), uid);
         QCOMPARE(root->property("displayName").toString(),
                  QStringLiteral("alice"));
@@ -432,14 +347,6 @@ Item {
         }
     }
 
-    // "Your profile in this room" and the chat background editor are for every
-    // member: anyone may set their own room profile, their own background
-    // ("Only me") and hide what others set. Both sections used to sit INSIDE
-    // roomAdminBlock, which is visible only to people who can change the join
-    // rule, alias, history visibility or guest access, so an ordinary member
-    // never saw either (found in the 2026-10-06 GUI check with a PL 0
-    // account). Neither may have that block as an ancestor. Fails on the old
-    // layout, where both did.
     void roomInfoMemberSectionsAreNotInsideTheAdminBlock()
     {
         AppController controller(AppController::MockBackend);
@@ -480,10 +387,6 @@ Item {
         QCOMPARE(checked, 2);
     }
 
-    // The room-info panel's tab strip is measured by a probe SegmentedControl;
-    // that probe used to call polish() from inside updatePolish() on every
-    // pass ("possible QQuickItem::polish() loop", logged without end). Shown
-    // at a width that fits the tabs and at one that wraps them.
     void theRoomInfoPanelDoesNotPolishLoop()
     {
         AppController controller(AppController::MockBackend);
@@ -519,7 +422,6 @@ Window {
             QScopedPointer<QObject> window(component.create());
             QVERIFY2(window, qPrintable(component.errorString()));
             QTest::qWait(300);
-            // Drag the panel through every width, as a resizable side panel is.
             for (qreal w = 520; w >= 180; w -= 3.7) {
                 window->setProperty("width", w);
                 QTest::qWait(20);
@@ -532,8 +434,6 @@ Window {
         }
     }
 
-    // The room-list "..." menu: it shows the persisted mode, writes it, and
-    // the change reaches BOTH layouts' models through the controller.
     void theRoomListSortMenuWritesTheSettingAndBothModelsFollow()
     {
         AppController controller(AppController::MockBackend);
@@ -542,7 +442,6 @@ Window {
                                  QStringLiteral("alice"),
                                  QStringLiteral("unused"));
         QVERIFY(loginSpy.wait(3000));
-        // The suite's QSettings file outlives the process.
         controller.settings()->setRoomListSort(0);
         const auto restore = qScopeGuard(
             [&controller] { controller.settings()->setRoomListSort(0); });
@@ -574,7 +473,6 @@ ApplicationWindow {
             QStringLiteral("roomSortNameItem"));
         QVERIFY2(activity && byName, "the menu lost one of its two sorts");
 
-        // Activity is the default and is the one marked.
         QVERIFY(activity->property("radioSelected").toBool());
         QVERIFY(!byName->property("radioSelected").toBool());
         QCOMPARE(controller.roomList()->sortMode(), 0);
@@ -591,7 +489,6 @@ ApplicationWindow {
         QCOMPARE(controller.roomList()->sortMode(), 0);
         QCOMPARE(controller.spaceChannels()->sortMode(), 0);
 
-        // Unread first is a fourth, selectable mode that reaches both layouts.
         auto *unread = menu->findChild<QObject *>(
             QStringLiteral("roomSortUnreadItem"));
         QVERIFY2(unread, "the menu lost its Unread first sort");
@@ -602,8 +499,6 @@ ApplicationWindow {
         QCOMPARE(controller.spaceChannels()->sortMode(), 3);
     }
 
-    // The Spaces rail's sort setting reaches the arrangement store, and the
-    // rail's context menu offers all three orders.
     void theRailSortSettingReachesTheStoreAndTheMenuOffersIt()
     {
         AppController controller(AppController::MockBackend);
@@ -626,10 +521,6 @@ ApplicationWindow {
         }
     }
 
-    // Settings' microphone test (Discord's "Let's check") and speaker test:
-    // their controls exist, are disabled with a reason while the tester
-    // cannot run, become usable when it can, and are refused again during a
-    // call. Fails on a tree without the test (no such controls).
     void theSoundSettingsMicrophoneTestSaysWhyItCannotRun()
     {
         AppController controller(AppController::MockBackend);
@@ -649,7 +540,6 @@ ApplicationWindow {
                         warnings << e.toString();
                 });
         QQmlComponent component(&engine);
-        // Not activated: no device is enumerated or opened here.
         component.setData(QByteArrayLiteral(R"(
 import QtQuick
 import QtQuick.Controls
@@ -682,21 +572,18 @@ ApplicationWindow {
         QVERIFY2(button && tone && notice && bar,
                  "the Sound & video page lost its microphone or speaker test");
 
-        // Tests never find the runtime: disabled, with the reason on screen.
         QVERIFY(!controller.audioTester()->available());
         QVERIFY(!button->property("enabled").toBool());
         QVERIFY(!tone->property("enabled").toBool());
         QVERIFY(!notice->property("text").toString().isEmpty());
 
 #ifdef HAVE_LIGHTNING_WEBRTC
-        // Usable once the runtime is known (no device is opened by this).
         controller.audioTester()->setRuntimeAvailable(true);
         QVERIFY(button->property("enabled").toBool());
         QVERIFY(tone->property("enabled").toBool());
         QVERIFY2(notice->property("text").toString().isEmpty(),
                  qPrintable(notice->property("text").toString()));
 
-        // And refused again, with a reason, during a call.
         controller.audioTester()->setCallActive(true);
         QVERIFY(!button->property("enabled").toBool());
         QVERIFY(!tone->property("enabled").toBool());
@@ -705,15 +592,12 @@ ApplicationWindow {
         controller.audioTester()->setRuntimeAvailable(false);
 #endif
 
-        // The in-call menu carries the live level row, shown only during a
-        // group call (the 1:1 lane has no meter).
         auto *menu = owner->property("menu").value<QObject *>();
         QVERIFY(menu != nullptr);
         QVERIFY(menu->findChild<QObject *>(QStringLiteral("callMenuMicLevelRow")));
         QVERIFY(menu->findChild<QObject *>(QStringLiteral("callMenuMicLevelBar")));
         QVERIFY(!menu->property("showsLevel").toBool());
 
-        // Nothing this feature reads may be undefined at load.
         for (const QString &warning : warnings) {
             const bool ours = warning.contains(QStringLiteral("audioTester"))
                 || warning.contains(QStringLiteral("AudioLevelBar"))
@@ -724,9 +608,6 @@ ApplicationWindow {
         }
     }
 
-    // ContextController::open is not Q_INVOKABLE: a QML call to it is a
-    // TypeError at click time that no load test sees. Navigation goes through
-    // app.pagination.jumpToEvent.
     void qmlNeverCallsTheNonInvokableContextOpen()
     {
         int scanned = 0;
@@ -742,10 +623,6 @@ ApplicationWindow {
         QVERIFY(scanned > 50);
     }
 
-    // `enabled` propagates to children, so `enabled: false` on a delegate
-    // root also disables every control inside it. A text scan, because these
-    // delegates are only built when a model supplies rows; the `found` guard
-    // stops it from sweeping nothing after a rename.
     void noInteractiveDelegateDisablesItself()
     {
         static constexpr const char *kFiles[] = {
@@ -759,8 +636,6 @@ ApplicationWindow {
             QFile file(QStringLiteral(QML_DIR "/") + QString::fromUtf8(name));
             if (!file.open(QIODevice::ReadOnly))
                 continue;
-            // Comments are stripped first, so an explanation of the rule does
-            // not trip the scan.
             QString src;
             const QStringList lines =
                 QString::fromUtf8(file.readAll()).split(u'\n');
@@ -772,9 +647,6 @@ ApplicationWindow {
                 src += u'\n';
             }
             ++scanned;
-            // Every delegate block, from `delegate:` to end of file: a coarse
-            // bound, enough to see whether `enabled: false` and an interactive
-            // control share one delegate.
             int at = src.indexOf(QStringLiteral("delegate:"));
             while (at >= 0) {
                 const int next =
@@ -783,8 +655,6 @@ ApplicationWindow {
                     src.mid(at, (next < 0 ? src.size() : next) - at);
                 const bool disables =
                     block.contains(QStringLiteral("enabled: false"));
-                // A CheckBox alone is the legitimate case — an indicator
-                // whose row owns the click, with no interactive descendant.
                 const bool hasControl =
                     block.contains(QStringLiteral("AppButton"))
                     || block.contains(QStringLiteral("AppTextField"))
@@ -805,8 +675,6 @@ ApplicationWindow {
                      "Offenders: %1").arg(offenders.join(u", "))));
     }
 
-    // The exclusions are a list of DECISIONS, and a decision with no reason
-    // is an omission wearing a decision's clothes.
     void everyExclusionCarriesItsReason()
     {
         for (const Excluded &e : kNotLoadable) {

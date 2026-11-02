@@ -45,42 +45,27 @@ class SpellBackend;
 class SpellChecker : public QObject
 {
     Q_OBJECT
-    // Whether at least one dictionary resolved; QML gates the feature on it.
     Q_PROPERTY(bool available READ available NOTIFY availabilityChanged)
     Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged)
-    // The first resolved dictionary as a BCP-47 tag ("en-US"); "" when none.
     Q_PROPERTY(QString language READ language NOTIFY availabilityChanged)
-    // Every resolved dictionary, in priority order.
     Q_PROPERTY(QStringList languages READ languages NOTIFY availabilityChanged)
-    // Human labels for `languages`, joined ("English (United States),
-    // Lithuanian").
     Q_PROPERTY(QString languageLabel READ languageLabel NOTIFY availabilityChanged)
     Q_PROPERTY(QString backendName READ backendName NOTIFY availabilityChanged)
-    // "" = Automatic; otherwise the BCP-47 tag the user chose.
     Q_PROPERTY(QString preferredLanguage READ preferredLanguage
                    WRITE setPreferredLanguage NOTIFY availabilityChanged)
-    // Languages checked IN ADDITION to the primary one.
     Q_PROPERTY(QStringList extraLanguages READ extraLanguages
                    WRITE setExtraLanguages NOTIFY availabilityChanged)
-    // Explicitly chosen languages (primary or extra) with no dictionary here.
     Q_PROPERTY(QStringList missingLanguages READ missingLanguages
                    NOTIFY availabilityChanged)
-    // BCP-47 tags the platform can check right now.
     Q_PROPERTY(QStringList availableLanguages READ availableLanguages
                    NOTIFY availabilityChanged)
-    // [{tag, label}] for a picker: Automatic first, then every available
-    // language sorted by label.
     Q_PROPERTY(QVariantList languageOptions READ languageOptions
                    NOTIFY availabilityChanged)
-    // Why `available` is false: "" | "no-platform" | "no-library" |
-    // "no-dictionary" (see SpellBackend.h).
     Q_PROPERTY(QString unavailableReason READ unavailableReason
                    NOTIFY availabilityChanged)
     Q_PROPERTY(bool autocorrectEnabled READ autocorrectEnabled
                    WRITE setAutocorrectEnabled NOTIFY autocorrectEnabledChanged)
-    // The platform's default (true only on macOS with its own autocorrect on).
     Q_PROPERTY(bool autocorrectDefault READ autocorrectDefault CONSTANT)
-    // The personal dictionary, sorted.
     Q_PROPERTY(QStringList personalWords READ personalWords
                    NOTIFY personalDictionaryChanged)
 
@@ -88,24 +73,16 @@ public:
     // The un-windowed underline pass runs on the GUI thread; a huge paste
     // must not freeze it.
     static constexpr int kMaxCheckedChars = 20000;
-    // With a window, only that window's words are looked up, so a far longer
-    // draft can be checked where the user is looking.
     static constexpr int kMaxScannedChars = 400000;
     static constexpr int kMaxWindowChars = 20000;
-    // Bounds the rectangles QML draws.
     static constexpr int kMaxReportedRanges = 300;
-    // Bounds the personal dictionary file.
     static constexpr int kMaxPersonalWords = 5000;
-    // Bounds the autocorrect transposition answers.
     static constexpr int kMaxTranspositionCache = 512;
 
     explicit SpellChecker(QObject *parent = nullptr);
     ~SpellChecker() override;
 
-    // Resolves the platform backends. Separate from the constructor so tests
-    // can install a fake instead.
     void initialize(const QString &preferredLanguage = QString{});
-    // All language inputs at once, resolved once.
     void configure(const QString &preferredLanguage,
                    const QStringList &extraLanguages,
                    const QString &interfaceLanguage);
@@ -121,7 +98,6 @@ public:
     void setPreferredLanguage(const QString &tag);
     QStringList extraLanguages() const { return m_extraLanguages; }
     void setExtraLanguages(const QStringList &tags);
-    // The app's UI language; joins Automatic when a dictionary exists.
     void setInterfaceLanguage(const QString &tag);
     QStringList missingLanguages() const { return m_missingLanguages; }
     QStringList availableLanguages() const { return m_languages; }
@@ -132,69 +108,35 @@ public:
     static bool autocorrectDefault();
     QStringList personalWords() const;
 
-    // Where the personal dictionary lives; loads it. "" keeps it in memory.
     void setPersonalDictionaryPath(const QString &path);
     QString personalDictionaryPath() const { return m_personalPath; }
 
-    // A picker label for a BCP-47 tag, in English ("Lithuanian",
-    // "English (United Kingdom)"); the tag itself when Qt cannot name it.
     static QString labelForTag(const QString &tag);
     // Characters after which autocorrect may act: whitespace and , ; ! ?
     // Not '.' (domains, file names) and not ':' (emoji shortcodes).
     static bool isAutocorrectBoundary(QChar c);
-    // The same predicate for QML, so the editor's pre-filter cannot drift.
     Q_INVOKABLE bool isAutocorrectBoundaryText(const QString &typed) const;
 
-    // [{start, length}, ...], the composers' mention-range shape. The word
-    // containing `cursorPosition` (-1 for none) and anything overlapping
-    // `skipRanges` is never reported. With `windowStart`/`windowEnd` (>= 0)
-    // only words overlapping [windowStart, windowEnd) are looked up.
     Q_INVOKABLE QVariantList misspelledRanges(
         const QString &text, int cursorPosition = -1,
         const QVariantList &skipRanges = QVariantList{}, int windowStart = -1,
         int windowEnd = -1) const;
-    // {word, start, length}; `word` is empty outside a checkable word.
     Q_INVOKABLE QVariantMap wordAt(const QString &text, int position) const;
-    // From every active dictionary, interleaved best-first, at most 16.
     Q_INVOKABLE QStringList suggestions(const QString &word) const;
-    // Writes Lightning's personal dictionary.
     Q_INVOKABLE void addToDictionary(const QString &word);
     Q_INVOKABLE void removeFromDictionary(const QString &word);
-    // Session-only; never persisted.
     Q_INVOKABLE void ignoreWord(const QString &word);
 
-    // The correction for the word that ends exactly at `boundary`, the
-    // position of the boundary character the user has just typed:
-    // {start, length, original, replacement}, or an empty map. Empty unless
-    // checking and autocorrect are on, the character at `boundary` is an
-    // autocorrect boundary, the draft is not a /command, the word is outside
-    // every skip rule above, EVERY active dictionary rejects it, the user has
-    // not reverted it this session, and one of these is certain enough:
-    //  1. the English typo table (only with an English dictionary active;
-    //     the replacement must itself be accepted);
-    //  2. the platform's own correction (Windows, macOS);
-    //  3. otherwise, for a 4..24-letter all-lowercase word, the ONE swap of
-    //     two neighbouring letters that the dictionaries accept ("wrold" ->
-    //     "world"); never a Capitalised word, never another kind of edit.
-    // A lone "i" (and "i'm", "i've", "i'll", "i'd") becomes "I..." only when
-    // every active language is English.
     Q_INVOKABLE QVariantMap autocorrection(
         const QString &text, int boundary,
         const QVariantList &skipRanges = QVariantList{}) const;
-    // The user undid a correction of `original`: never correct it again
-    // this session.
     Q_INVOKABLE void rejectAutocorrection(const QString &original);
 
-    // Test seams. `setBackendForTest` takes ownership; a null backend
-    // restores "unavailable". `setBackendFactoryForTest` replaces the
-    // platform factory so a language change can be observed.
     void setBackendForTest(std::unique_ptr<SpellBackend> backend);
     void setBackendsForTest(std::vector<std::unique_ptr<SpellBackend>> backends);
-    // Same shape as createPlatformSpellBackend().
     using BackendFactory = std::function<std::unique_ptr<SpellBackend>(
         const QString &, QString *, QStringList *)>;
     void setBackendFactoryForTest(BackendFactory factory);
-    // How many single-word lookups reached a backend; tests assert bounds.
     int backendLookupsForTest() const { return m_lookups; }
 
 Q_SIGNALS:
@@ -202,8 +144,6 @@ Q_SIGNALS:
     void enabledChanged();
     void autocorrectEnabledChanged();
     void personalDictionaryChanged();
-    // A word was added, removed or ignored, or the dictionary changed: every
-    // drawn underline is now stale.
     void dictionaryChanged();
 
 private:
@@ -227,9 +167,7 @@ private:
     QStringList m_missingLanguages;
     QString m_unavailableReason;
     QStringList m_languages;
-    // Bounded; the same words are re-checked on every keystroke.
     mutable QHash<QString, bool> m_cache;
-    // Autocorrect step 3 per lowercase word; "" = no correction.
     mutable QHash<QString, QString> m_transpositionCache;
     mutable int m_lookups = 0;
     QSet<QString> m_ignored;

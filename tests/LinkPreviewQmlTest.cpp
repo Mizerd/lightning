@@ -1,12 +1,3 @@
-// The link-preview consent gate, rendered from the production MessageDelegate
-// offscreen. The gate stands between a reader and a request to a third-party
-// site (previews default off). Pinned:
-//   * the gate is one band: host, notice and button share a vertical span,
-//     and the card is smaller on both axes than the state it leads to;
-//   * the privacy fact is stated before consent: the visible notice names
-//     the direct contact and the IP, and the row carries the full sentence;
-//   * only the button consents: the card's open-URL target stays disabled
-//     while the gate shows, so hovering to read the warning cannot agree.
 #include <QTextOption>
 #include <QtTest/QtTest>
 
@@ -26,14 +17,13 @@
 namespace {
 constexpr int kSignalTimeoutMs = 3000;
 
-// Vertical spans overlap: the items share a band rather than stacking.
 bool sharesBand(QQuickItem *a, QQuickItem *b)
 {
     const QRectF ra = a->mapRectToItem(nullptr, a->boundingRect());
     const QRectF rb = b->mapRectToItem(nullptr, b->boundingRect());
     return ra.bottom() > rb.top() + 1.0 && rb.bottom() > ra.top() + 1.0;
 }
-} // namespace
+}
 
 class LinkPreviewQmlTest : public QObject
 {
@@ -47,8 +37,6 @@ private:
         QStringList warnings;
     };
 
-    // A complete role map with safe defaults so the production delegate binds
-    // without undefined-property warnings.
     static QVariantMap baseFixture(AppController &controller)
     {
         QVariantMap fixture;
@@ -175,8 +163,6 @@ QtObject {
         out.root->setWidth(700);
         out.window->show();
         QCoreApplication::processEvents();
-        // The pane stand-in must be in place before the gate is staged, or the
-        // notice uses its unencrypted wording.
         QObject *host = encryptedHost(out.engine.get(), out.root);
         if (!host)
             return false;
@@ -187,7 +173,6 @@ QtObject {
     }
 
 private Q_SLOTS:
-    // One band: host, notice and Show button share a vertical span.
     void consentGateIsASingleBand()
     {
         AppController controller(AppController::MockBackend);
@@ -209,7 +194,6 @@ private Q_SLOTS:
 
         QVERIFY(sharesBand(button, host));
         QVERIFY(sharesBand(button, notice));
-        // Two text lines, not three rows: no taller than one band allows.
         auto *card = d.root->findChild<QQuickItem *>(
             QStringLiteral("linkPreviewCard"));
         QVERIFY(card != nullptr);
@@ -218,8 +202,6 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // The gate is narrower than the state the consent click leads to; it
-    // sizes to its own row rather than the 400px cap.
     void consentGateIsNarrowerThanTheStateItLeadsTo()
     {
         AppController controller(AppController::MockBackend);
@@ -234,9 +216,6 @@ private Q_SLOTS:
         QVERIFY(gateW > 0.0);
         QVERIFY(gateH > 0.0);
 
-        // The state the button dispatches into. Order matters: the card
-        // latches a monotonic reserved height, and production shows the gate
-        // first.
         QVariantMap loaded;
         loaded.insert(QStringLiteral("state"), QStringLiteral("loaded"));
         loaded.insert(QStringLiteral("host"),
@@ -250,22 +229,15 @@ private Q_SLOTS:
         d.root->setProperty("preview", QVariant::fromValue(loaded));
         QCoreApplication::processEvents();
 
-        // Width is what this can prove: the gate sizes to its contents rather
-        // than the loaded card's 400px cap.
         QVERIFY2(card->implicitWidth() > gateW,
                  qPrintable(QStringLiteral("gate %1 wide vs loaded %2 — the "
                                            "gate is not sizing to its own "
                                            "contents")
                                 .arg(gateW).arg(card->implicitWidth())));
 
-        // Height is deliberately not compared: a loaded card's height depends
-        // on content this fixture cannot supply faithfully. The gate's own
-        // height is bounded in consentGateIsASingleBand.
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // The privacy reason is on screen before consent, and the full sentence
-    // is on the row verbatim.
     void consentGateStillStatesThePrivacyFact()
     {
         AppController controller(AppController::MockBackend);
@@ -277,10 +249,6 @@ private Q_SLOTS:
         QVERIFY(notice != nullptr);
         QVERIFY(notice->isVisible());
         const QString visible = notice->property("text").toString();
-        // Previews go through the homeserver first, so the label must carry
-        // who fetches, that a direct fetch is the fallback, and that the
-        // fallback exposes the reader's address (Synapse disables server
-        // previews by default).
         QVERIFY2(visible.contains(QStringLiteral("server")),
                  qPrintable(QStringLiteral("label omits who fetches: %1")
                                 .arg(visible)));
@@ -290,8 +258,6 @@ private Q_SLOTS:
         QVERIFY2(visible.contains(QStringLiteral("IP")),
                  qPrintable(QStringLiteral("label omits what the fallback "
                                            "costs: %1").arg(visible)));
-        // Not elided on a narrow bubble. Qt::ElideNone is 3, not 0 (0 is
-        // Qt::ElideLeft), hence the enum.
         const QVariant elideValue = notice->property("elide");
         QVERIFY2(elideValue.isValid()
                      && elideValue.toInt() == int(Qt::ElideNone),
@@ -306,9 +272,6 @@ private Q_SLOTS:
             QStringLiteral("linkPreviewConsentRow"));
         QVERIFY(row != nullptr);
         const QString full = row->property("fullPrivacyText").toString();
-        // Both halves, in order: the notice must say the homeserver fetches
-        // first, and must keep the direct fallback, which is real on most
-        // servers.
         QVERIFY2(full.contains(QStringLiteral("homeserver")),
                  qPrintable(QStringLiteral(
                      "the consent notice no longer says the homeserver "
@@ -325,9 +288,6 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // Consent is the button. A contract pin: the gate row's HoverHandler and
-    // tooltip must never consent, and nothing else on the card may dispatch
-    // the request or open the URL while the gate shows.
     void onlyTheButtonConsents()
     {
         AppController controller(AppController::MockBackend);

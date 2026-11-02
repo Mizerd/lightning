@@ -1,12 +1,3 @@
-// Live accounts Phase 1: the keyring worker (contract §5.6, design §3.3.2,
-// R1-M9, R2-M6) and the pause a locked keyring puts on background starts.
-//
-// One thread, per-account FIFO, 3 s reads and 10 s writes, never the GUI
-// thread for a store that can block; a failed or late read is "locked", never
-// "no account" (CLAUDE.md §6); a late answer is discarded; a locked keyring
-// pauses starts and its readable edge resumes them.
-//
-// UNRUN when written (WP agents do not build); the lead runs it offscreen.
 #include "accounts/KeyringWorker.h"
 #include "accounts/RevocationProofs.h"
 #include "accounts/SessionPool.h"
@@ -41,8 +32,6 @@ using lightning::accounts::testing::FakeRustBridge;
 
 namespace {
 
-// A second client of the same keyring, as the worker's own libsecret
-// instance is: every call goes to the shared store.
 class ForwardingSecretStore final : public SecretStore
 {
 public:
@@ -64,17 +53,12 @@ private:
     SecretStore *m_target;
 };
 
-// Two keyrings a Flatpak's libsecret can land on (the sandbox file keyring
-// and the Secret Service), shared by every store instance in the test the way
-// the real ones are shared by every libsecret call in a process.
 struct TwoKeyrings {
     QMutex mutex;
     QHash<QString, QString> file;
     QHash<QString, QString> service;
 };
 
-// The shipped routing (TwoBackendSecretStore) over TwoKeyrings, landed on
-// `kind`. Thread-safe: the keyring worker's instance runs on its own thread.
 class TwoKeyringStore final : public TwoBackendSecretStore
 {
 public:
@@ -128,7 +112,7 @@ private:
 const QString kAlice = QStringLiteral("@alice:example.org");
 const QString kBob = QStringLiteral("@bob:example.org");
 
-} // namespace
+}
 
 class KeyringPauseTest : public QObject
 {
@@ -154,7 +138,6 @@ private Q_SLOTS:
     void aTimedOutWriteStaysInFlightUntilTheStoreReturns();
     void aHandbackAcceptsThisHostsOwnLiveWriteQueuedBeforeIt();
     void allowWritesLiftsAForbidOnlyOnceNothingOfTheOldSessionCanLand();
-    // liveacc port onto 24a485c5 (356668cb for background accounts)
     void theWorkersStoreReadsAndWritesTheRecordedBackend();
 
 private:
@@ -247,7 +230,7 @@ void KeyringPauseTest::readsNeverRunOnTheGuiThread()
     QVERIFY(!threads.isEmpty());
     for (QThread *t : threads)
         QVERIFY2(t != QCoreApplication::instance()->thread(), "a keyring read ran on the GUI thread");
-    QCOMPARE(m_store.reads(kBob), 0);   // only the account asked for
+    QCOMPARE(m_store.reads(kBob), 0);
 }
 
 void KeyringPauseTest::aFailedReadIsLockedNeverNoAccount()
@@ -283,24 +266,19 @@ void KeyringPauseTest::aReadPastItsTimeoutIsLockedAndItsLateAnswerDiscarded()
         first = r;
         ++answers;
     });
-    QTRY_COMPARE_WITH_TIMEOUT(answers, 1, 600);   // the timeout, not the store
+    QTRY_COMPARE_WITH_TIMEOUT(answers, 1, 600);
     QCOMPARE(readableAgain.size(), 0);
     QVERIFY(first.locked);
     QVERIFY(first.timedOut);
     QVERIFY(worker->wedged());
-    // While the store has not answered, a new job fails fast as locked.
     bool fast = false;
     worker->read({kBob, false, false}, [&](const KeyringWorker::ReadResult &r) {
         fast = r.locked && r.timedOut;
     });
     QTRY_VERIFY_WITH_TIMEOUT(fast, 300);
-    // The late answer is dropped, and the worker recovers.
     m_store.setReadLatencyMs(0);
     QTRY_VERIFY_WITH_TIMEOUT(!worker->wedged(), 3000);
     QCOMPARE(answers, 1);
-    // §18 round 1, MUST 4: what the wedge answered "locked" hears that the
-    // keyring answers again (a paused start retries); before, only a backend
-    // change said so. Mutation: drop the emit in finishRunning().
     QCOMPARE(readableAgain.size(), 1);
     bool readable = false;
     worker->read({kAlice, false, false}, [&](const KeyringWorker::ReadResult &r) {
@@ -314,7 +292,7 @@ void KeyringPauseTest::writesGetTheLongerTimeout()
 {
     auto worker = makeWorker(true);
     worker->setTimeoutsForTest(150, 2000);
-    m_store.setWriteLatencyMs(400);   // past the read timeout, inside the write one
+    m_store.setWriteLatencyMs(400);
     KeyringWorker::WriteResult got;
     bool done = false;
     KeyringWorker::WriteRequest request;
@@ -333,7 +311,6 @@ void KeyringPauseTest::writesGetTheLongerTimeout()
              QStringLiteral("alice-rotated-refresh"));
 }
 
-// R1-C2: the per-account FIFO serialises "handback write before next read".
 void KeyringPauseTest::aHandbackLandsBeforeTheSameAccountsNextRead()
 {
     auto worker = makeWorker(true);
@@ -359,7 +336,6 @@ void KeyringPauseTest::aHandbackLandsBeforeTheSameAccountsNextRead()
     QCOMPARE(order, (QStringList{QStringLiteral("written"), QStringLiteral("read")}));
     QCOMPARE(readBack, QStringLiteral("alice-final"));
 
-    // A handback over a keyring someone else wrote since is skipped (CAS).
     bool skipped = false;
     worker->write(handback, [&](const KeyringWorker::WriteResult &r) {
         skipped = r.outcome == KeyringWorker::WriteOutcome::Skipped
@@ -379,7 +355,6 @@ void KeyringPauseTest::cancelForDropsQueuedJobsAndDiscardsTheRunningOne()
     worker->read({kBob, false, false}, [&](const KeyringWorker::ReadResult &r) {
         bobAnswered = r.ok;
     });
-    // Let the first Alice read start on the worker, then cancel.
     QTRY_VERIFY_WITH_TIMEOUT(m_store.reads(kAlice) > 0 || !m_store.callThreads().isEmpty(), 1000);
     worker->cancelFor(kAlice);
     QTRY_VERIFY_WITH_TIMEOUT(bobAnswered, 5000);
@@ -406,7 +381,6 @@ void KeyringPauseTest::aFailedWriteIsReportedAndDeletesNothing()
     QCOMPARE(m_store.deletes(kAlice), 0);
     QCOMPARE(m_store.value(kAlice, QStringLiteral("accessToken")), QStringLiteral("alice-old-token"));
 
-    // A record naming another device is never this session's: skipped.
     m_store.setFailWrites(false);
     request.deviceId = QStringLiteral("SOMEONEELSE");
     done = false;
@@ -433,7 +407,6 @@ void KeyringPauseTest::processLocalStoresAreReadOnTheGuiThreadByAQueuedCall()
         done = r.ok;
         ranOn = QThread::currentThread();
     });
-    // Never inside the caller's own stack (a drainer tick).
     QVERIFY(!done);
     QCOMPARE(m_store.reads(kAlice), 0);
     QTRY_VERIFY_WITH_TIMEOUT(done, 2000);
@@ -471,7 +444,6 @@ void KeyringPauseTest::quitFlushesQueuedWritesWithTheLoopBlocked()
                 ++written;
         });
     }
-    // No event-loop turn: the queued pump never ran.
     QVERIFY(worker->waitForWrites(3000));
     QCOMPARE(written, 2);
     QCOMPARE(m_store.value(kAlice, QStringLiteral("accessToken")), kAlice + QStringLiteral("-quit"));
@@ -479,8 +451,6 @@ void KeyringPauseTest::quitFlushesQueuedWritesWithTheLoopBlocked()
     QCOMPARE(worker->pendingJobs(), 0);
 }
 
-// Design §6.1.6: a locked keyring pauses the start with "Keyring locked",
-// creates nothing, marks no account gone; the readable edge resumes it.
 void KeyringPauseTest::aLockedKeyringPausesStartsUntilItIsReadable()
 {
     FakeRustBridge fake;
@@ -506,8 +476,6 @@ void KeyringPauseTest::aLockedKeyringPausesStartsUntilItIsReadable()
     pool.setForegroundUserId(kAlice);
     m_store.setFailReads(true);
     pool.start();
-    // The clock is scripted: the real-time lag probe would read a jump as a
-    // suspend. And the fd limit is not under test here.
     pool.schedulerForTest()->stopProbe();
     pool.schedulerForTest()->setFdSoftLimitForTest(0);
     pool.noteForegroundInitialSyncDone();
@@ -516,7 +484,6 @@ void KeyringPauseTest::aLockedKeyringPausesStartsUntilItIsReadable()
     QCOMPARE(fake.calls(QStringLiteral("createBackground")), 0);
     QVERIFY(m_settings->hasSavedAccount(kBob));
     QCOMPARE(m_store.deletes(kBob), 0);
-    // Still locked on the next admissions: no start, and no new reads either.
     const int readsWhileLocked = m_store.reads(kBob);
     now += 5000;
     pool.admitNowForTest();
@@ -531,9 +498,6 @@ void KeyringPauseTest::aLockedKeyringPausesStartsUntilItIsReadable()
     pool.shutdownAsync([] {});
 }
 
-// Review M1: a retirement waits on its handback's callback to close the
-// store's record and free its latch, so a cancelled WRITE still answers, once,
-// and never inside cancelFor() itself. (A dropped read still never answers.)
 void KeyringPauseTest::aCancelledWriteStillAnswersExactlyOnce()
 {
     auto worker = makeWorker(true);
@@ -549,8 +513,6 @@ void KeyringPauseTest::aCancelledWriteStillAnswersExactlyOnce()
             outcomes << r.outcome;
         });
     }
-    // The first one is inside the store (its first item landed), the second
-    // is queued behind it.
     QTRY_VERIFY_WITH_TIMEOUT(m_store.writes(kAlice) > 0, 3000);
     worker->cancelFor(kAlice);
     QVERIFY(outcomes.isEmpty());
@@ -563,13 +525,6 @@ void KeyringPauseTest::aCancelledWriteStillAnswersExactlyOnce()
     QVERIFY(!worker->writeInFlightFor(kAlice));
 }
 
-// Review M2: a removal must not report the store free while a token write of
-// that account can still land: AppController deletes the secrets next, and a
-// write after that is a token at rest with no record (B044). Once forbidden,
-// a write running on the worker stops before its next item, the access token
-// (which names the pair) never lands, writeInFlightFor() stays true until the
-// store call returned, and every later write is Cancelled without reaching
-// the store.
 void KeyringPauseTest::aForbiddenAccountsWritesStopAndStayInFlightUntilTheStoreReturns()
 {
     auto worker = makeWorker(true);
@@ -585,8 +540,7 @@ void KeyringPauseTest::aForbiddenAccountsWritesStopAndStayInFlightUntilTheStoreR
         outcome = r.outcome;
         answered = true;
     });
-    QVERIFY(worker->writeInFlightFor(kAlice));   // queued
-    // On the worker now, inside its first store call (400 ms).
+    QVERIFY(worker->writeInFlightFor(kAlice));
     QTRY_VERIFY_WITH_TIMEOUT(m_factoryCalls.load() == 1, 2000);
     QTest::qWait(100);
     QCOMPARE(m_store.writes(kAlice), 0);
@@ -597,7 +551,6 @@ void KeyringPauseTest::aForbiddenAccountsWritesStopAndStayInFlightUntilTheStoreR
     QCOMPARE(outcome, KeyringWorker::WriteOutcome::Cancelled);
     QCOMPARE(m_store.value(kAlice, QStringLiteral("accessToken")),
              QStringLiteral("alice-old-token"));
-    // Later writes never reach the store.
     const int writesBefore = m_store.writes(kAlice);
     answered = false;
     worker->write(request, [&](const KeyringWorker::WriteResult &r) {
@@ -605,14 +558,13 @@ void KeyringPauseTest::aForbiddenAccountsWritesStopAndStayInFlightUntilTheStoreR
         answered = true;
     });
     QVERIFY(!worker->writeInFlightFor(kAlice));
-    QVERIFY(!answered);   // never inside write()
+    QVERIFY(!answered);
     QTRY_VERIFY_WITH_TIMEOUT(answered, 2000);
     QCOMPARE(outcome, KeyringWorker::WriteOutcome::Cancelled);
     QTest::qWait(500);
     QCOMPARE(m_store.writes(kAlice), writesBefore);
     QCOMPARE(m_store.value(kAlice, QStringLiteral("accessToken")),
              QStringLiteral("alice-old-token"));
-    // Another account is untouched.
     m_store.setWriteLatencyMs(0);
     bool bobWritten = false;
     request.userId = kBob;
@@ -624,8 +576,6 @@ void KeyringPauseTest::aForbiddenAccountsWritesStopAndStayInFlightUntilTheStoreR
     QTRY_VERIFY_WITH_TIMEOUT(bobWritten, 3000);
 }
 
-// Review round 2: a removed account signed in again may write again, but
-// never while a write of the forbidden session is still inside the store.
 void KeyringPauseTest::allowWritesLiftsAForbidOnlyOnceNothingOfTheOldSessionCanLand()
 {
     auto worker = makeWorker(true);
@@ -638,13 +588,12 @@ void KeyringPauseTest::allowWritesLiftsAForbidOnlyOnceNothingOfTheOldSessionCanL
     bool answered = false;
     worker->write(request, [&](const KeyringWorker::WriteResult &) { answered = true; });
     QTRY_VERIFY_WITH_TIMEOUT(m_factoryCalls.load() == 1, 2000);
-    QTest::qWait(100);   // inside its store call
+    QTest::qWait(100);
     worker->forbidWritesFor(kAlice);
     QVERIFY(worker->writeInFlightFor(kAlice));
-    worker->allowWritesFor(kAlice);   // refused: the old write can still land
+    worker->allowWritesFor(kAlice);
     QTRY_VERIFY_WITH_TIMEOUT(answered, 5000);
     QTRY_VERIFY_WITH_TIMEOUT(!worker->writeInFlightFor(kAlice), 5000);
-    // Still forbidden.
     KeyringWorker::WriteOutcome outcome = KeyringWorker::WriteOutcome::Written;
     answered = false;
     request.tokens = {QStringLiteral("alice-too-early"), QStringLiteral("alice-too-early-r")};
@@ -656,7 +605,6 @@ void KeyringPauseTest::allowWritesLiftsAForbidOnlyOnceNothingOfTheOldSessionCanL
     QCOMPARE(outcome, KeyringWorker::WriteOutcome::Cancelled);
     QVERIFY(m_store.value(kAlice, QStringLiteral("accessToken"))
             != QStringLiteral("alice-too-early"));
-    // Nothing in flight now: lifted, and the new session's write lands.
     m_store.setWriteLatencyMs(0);
     worker->allowWritesFor(kAlice);
     answered = false;
@@ -671,8 +619,6 @@ void KeyringPauseTest::allowWritesLiftsAForbidOnlyOnceNothingOfTheOldSessionCanL
              QStringLiteral("alice-new-session"));
 }
 
-// A write that timed out is still inside the store: it can still land, so it
-// is still in flight until the store answers.
 void KeyringPauseTest::aTimedOutWriteStaysInFlightUntilTheStoreReturns()
 {
     auto worker = makeWorker(true);
@@ -697,11 +643,6 @@ void KeyringPauseTest::aTimedOutWriteStaysInFlightUntilTheStoreReturns()
     QVERIFY(!worker->writeInFlightFor(kAlice));
 }
 
-// Review L8: a live write still queued when the host retired lands just
-// before the handback (per-account FIFO). The keyring then holds that pair,
-// not the one the handback's compare-and-swap expected, and without being
-// told it is this host's own the handback skipped the session's FINAL pair.
-// Anything else in the keyring (a foreground sign-in) still refuses it.
 void KeyringPauseTest::aHandbackAcceptsThisHostsOwnLiveWriteQueuedBeforeIt()
 {
     using lightning::accounts::custody::accessTokenDigest;
@@ -716,7 +657,6 @@ void KeyringPauseTest::aHandbackAcceptsThisHostsOwnLiveWriteQueuedBeforeIt()
     handback.deviceId = QStringLiteral("ALICEDEV");
     handback.kind = KeyringWorker::WriteKind::Handback;
     handback.tokens = {QStringLiteral("alice-final"), QStringLiteral("r2")};
-    // What the pool last saw persisted: the pair before the live write.
     handback.expectedDigest = accessTokenDigest(QStringLiteral("alice-old-token"));
     handback.acceptedDigests = {accessTokenDigest(QStringLiteral("alice-rotated-once"))};
     QList<KeyringWorker::WriteOutcome> outcomes;
@@ -727,7 +667,6 @@ void KeyringPauseTest::aHandbackAcceptsThisHostsOwnLiveWriteQueuedBeforeIt()
     QCOMPARE(outcomes.at(1), KeyringWorker::WriteOutcome::Written);
     QCOMPARE(m_store.value(kAlice, QStringLiteral("accessToken")), QStringLiteral("alice-final"));
 
-    // A pair nobody named (the foreground signed in meanwhile) still refuses.
     m_store.setValue(kAlice, QStringLiteral("accessToken"), QStringLiteral("foreground-sign-in"));
     handback.tokens = {QStringLiteral("alice-final-2"), QStringLiteral("r3")};
     bool skipped = false;
@@ -739,13 +678,6 @@ void KeyringPauseTest::aHandbackAcceptsThisHostsOwnLiveWriteQueuedBeforeIt()
              QStringLiteral("foreground-sign-in"));
 }
 
-// 356668cb for a background account: a launch whose libsecret landed on the
-// sandbox file keyring reads an account whose record says "service" in the
-// Secret Service, as the GUI's store does. Before, the worker's own store
-// (made by the factory, no lookup) read the file keyring, got a clean miss,
-// and the pool showed "Needs sign-in" for a sign-in that is there. Writes go
-// where the record says too. Mutation: drop setRecordedBackendLookup in
-// KeyringWorkerRunner::ensureStore and the read comes back empty.
 void KeyringPauseTest::theWorkersStoreReadsAndWritesTheRecordedBackend()
 {
     TwoKeyrings keyrings;
@@ -755,7 +687,6 @@ void KeyringPauseTest::theWorkersStoreReadsAndWritesTheRecordedBackend()
     const QString carol = QStringLiteral("@carol:example.org");
     settings.saveSession(QStringLiteral("https://example.org"), carol, QStringLiteral("CAROLDEV"),
                          QStringLiteral("carol-file-token"), QStringLiteral("carol-file-refresh"));
-    // Carol's sign-in was last written by a launch on the Secret Service.
     {
         QMutexLocker lock(&keyrings.mutex);
         keyrings.file.clear();
@@ -773,7 +704,6 @@ void KeyringPauseTest::theWorkersStoreReadsAndWritesTheRecordedBackend()
     }
     QCOMPARE(settings.keyringBackendFor(carol),
              QString::fromLatin1(TwoBackendSecretStore::kServiceKind));
-    // The GUI's own store already routes there (the main-side behaviour).
     QCOMPARE(settings.accessTokenFor(carol), QStringLiteral("carol-service-token"));
 
     KeyringWorker::Deps deps;
@@ -797,7 +727,6 @@ void KeyringPauseTest::theWorkersStoreReadsAndWritesTheRecordedBackend()
     QCOMPARE(got.accessToken, QStringLiteral("carol-service-token"));
     QCOMPARE(got.refreshToken, QStringLiteral("carol-service-refresh"));
 
-    // A live write of a rotation lands beside it, not in the file keyring.
     KeyringWorker::WriteRequest write;
     write.userId = carol;
     write.deviceId = QStringLiteral("CAROLDEV");

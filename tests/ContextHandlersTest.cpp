@@ -1,11 +1,3 @@
-// The Rust-lane handlers for the read-only context view, driven with real
-// payloads through the dispatcher and no FFI handle.
-//
-// Rust enqueues context_closed for the view it replaces AHEAD of the
-// replacement's own context_reset, and for a reopen of the same event (the
-// invalid-diff recovery, or close and reopen within one poll tick) both name
-// the same timeline id. The closed handler must not tear down the request the
-// reset is about to answer.
 
 #include "matrix/RustSdkMatrixClient.h"
 #include "app/SettingsManager.h"
@@ -48,14 +40,11 @@ private Q_SLOTS:
         const QString event = QStringLiteral("$e:example.org");
         const QString id = MatrixClient::contextTimelineId(room, event);
 
-        // First view adopted.
         client.m_contextTracker.request(id);
         QSignalSpy resets(&client, &MatrixClient::timelineReset);
         client.handleRustEventForTest(reset(room, event, 1));
         QCOMPARE(resets.count(), 1);
 
-        // Reopen of the same event: C++ requests anew, then the poll drains
-        // [context_closed(old), context_reset(new generation)].
         client.m_contextTracker.request(id);
         client.handleRustEventForTest(closed(room, event));
         client.handleRustEventForTest(reset(room, event, 2));
@@ -82,10 +71,6 @@ private Q_SLOTS:
         QCOMPARE(resets.count(), 0);
     }
 
-    // A redaction refused because the room's timeline is not live yet still
-    // gets its one result: a bulk deletion waits for it before sending the
-    // next, and a silent refusal stalled the run (review S1). The real room is
-    // reported, never the composite thread id.
     void aRedactionRefusedBeforeTheTimelineIsLiveStillReportsAResult()
     {
         SettingsManager settings;
@@ -107,9 +92,6 @@ private Q_SLOTS:
         QCOMPARE(finished.at(1).at(0).toString(), room);
     }
 
-    // The redaction result crosses the bridge as a category; whatever text a
-    // payload carries is never re-emitted or shown, and the user sees the
-    // translated wording for the category (review S2).
     void aRedactionResultIsACategoryAndItsTextIsNeverShown()
     {
         SettingsManager settings;
@@ -135,7 +117,6 @@ private Q_SLOTS:
                             QStringLiteral("rate_limited")));
         QVERIFY(!shown.contains(QStringLiteral("secret")));
 
-        // Success: no category, no error.
         client.handleRustEventForTest(QJsonObject{
             { QStringLiteral("type"),
               QStringLiteral("timeline_redaction_finished") },
@@ -149,10 +130,6 @@ private Q_SLOTS:
         QCOMPARE(errors.count(), 1);
     }
 
-    // GitHub #48: the classic-sync repair's "a view opened during the clear"
-    // reaches the client as a signal (AppController reopens the views on it).
-    // Lives here because this suite already drives RustSdkMatrixClient's
-    // event handler directly.
     void aRepairUnderAnOpenViewAsksForAReload()
     {
         SettingsManager settings;
@@ -164,9 +141,6 @@ private Q_SLOTS:
         QCOMPARE(repaired.count(), 1);
     }
 
-    // ...and only from the running session: a signing-out handle's events
-    // still pass the poll gate (shutdown completions), but this one reopens
-    // views and must not reach the next session (§9).
     void aRepairReloadFromASigningOutSessionIsIgnored()
     {
         SettingsManager settings;
@@ -181,7 +155,6 @@ private Q_SLOTS:
         };
         client.handleRustEvent(event, old);
         QCOMPARE(repaired.count(), 0);
-        // The running session's own request still works.
         client.handleRustEvent(event, client.m_lifecycle.beginSession());
         QCOMPARE(repaired.count(), 1);
     }

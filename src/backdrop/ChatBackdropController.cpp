@@ -44,9 +44,6 @@ QString scopeTag(const QString &scopeId)
     return matrix::e2ee::redactId(scopeId);
 }
 
-// The shared event stores dim/blur/tint as integer percentages (canonical
-// JSON has no floats); the app works in unit values. Converts a content map
-// read from a room to the app's form.
 QVariantMap contentFromWire(const QVariantMap &content)
 {
     if (content.isEmpty())
@@ -58,22 +55,13 @@ QVariantMap contentFromWire(const QVariantMap &content)
     return out;
 }
 
-// Device-and-account appearance preferences (appearanceValue).
 constexpr auto kShowSharedKey = "appearance/backdropShowShared";
 constexpr auto kDepthKey = "appearance/surfaceDepth";
-// Strictly per account: it names rooms (accountScopedValue).
 constexpr auto kPersonalKey = "backdrop/personal";
-// "Keep my backgrounds on my homeserver": a per-account MIRROR of the
-// account-wide switch in the global account data, default on.
 constexpr auto kSyncKey = "backdrop/sync";
-// A switch change ("on"/"off") this device made and has not yet written to
-// the homeserver; replayed until it lands.
 constexpr auto kSwitchPendingKey = "backdrop/syncSwitchPending";
-// The one-time notice before pictures chosen earlier are uploaded was
-// answered.
 constexpr auto kNoticeAckKey = "backdrop/syncNoticeAck";
 
-// A sync scope in logs: the default, or a redacted room id.
 QString syncTag(const QString &scope)
 {
     return scope.isEmpty() ? QStringLiteral("default")
@@ -82,11 +70,7 @@ QString syncTag(const QString &scope)
 
 constexpr auto kStagedPrefix = "image://lightning-staged/";
 constexpr int kMaxHiddenRooms = 512;
-// Decode bound for measuring: twice the sample edge, so measure() scales
-// from a real image rather than a JPEG DC-only thumbnail.
 constexpr int kMeasureDecodeEdge = backdrop::kSampleEdge * 2;
-// A personal file we wrote ourselves is far below this; anything bigger on
-// disk was not written by Lightning.
 constexpr qint64 kMaxStoredFileBytes = 32LL * 1024 * 1024;
 
 // The names Lightning gives personal pictures: sha256 of the encoded bytes.
@@ -105,9 +89,6 @@ bool isHexColour(const QString &value)
     return re.match(value).hasMatch();
 }
 
-// The id of a server copy (the ciphertext's SHA-256, unpadded base64), as a
-// record keeps it. Anything else is dropped, which makes the record
-// local-only: at worst uploaded again, never pointed at a wrong copy.
 bool isRemoteId(const QString &value)
 {
     static const QRegularExpression re(
@@ -115,8 +96,6 @@ bool isRemoteId(const QString &value)
     return re.match(value).hasMatch();
 }
 
-// One personal record as stored, cleaned: { file, color, w, h, presentation,
-// remote } or {} when unusable.
 QVariantMap cleanPersonalRecord(const QVariant &raw)
 {
     const QVariantMap record = raw.toMap();
@@ -128,29 +107,19 @@ QVariantMap cleanPersonalRecord(const QVariant &raw)
     const QString remote = record.value(QStringLiteral("remote")).toString();
     if (isRemoteId(remote)) {
         out.insert(QStringLiteral("remote"), remote);
-        // A mark set by filling an empty place, not yet confirmed by a read
-        // (review N2). Dropping it on a reload would silently confirm it, and
-        // the race it guards would be back after any restart (review F2).
         if (record.value(QStringLiteral("unconfirmed")).toBool())
             out.insert(QStringLiteral("unconfirmed"), true);
     }
-    // The SHA-256 of the file this picture was re-encoded from (a download):
-    // the same picture coming back is recognised by it.
     static const QRegularExpression sha(QStringLiteral("^[0-9a-f]{64}$"));
     const QString source = record.value(QStringLiteral("source")).toString();
     if (sha.match(source).hasMatch())
         out.insert(QStringLiteral("source"), source);
-    // A local-only picture that differs from the server's copy, waiting for
-    // the user to pick one (ChatBackdropController::resolveConflict).
     const QString conflict = record.value(QStringLiteral("conflict")).toString();
     if (isRemoteId(conflict) && !out.contains(QStringLiteral("remote"))) {
         out.insert(QStringLiteral("conflict"), conflict);
-        // The two look alike: the card pre-selects the synced one.
         if (record.value(QStringLiteral("conflictLooksSame")).toBool())
             out.insert(QStringLiteral("conflictLooksSame"), true);
     }
-    // A DORMANT mark: the server copy this picture mirrored before sync went
-    // off. Recognised again, but never a reason to delete (review R3).
     const QString was = record.value(QStringLiteral("was")).toString();
     if (isRemoteId(was) && !out.contains(QStringLiteral("remote")))
         out.insert(QStringLiteral("was"), was);
@@ -175,8 +144,6 @@ QString toJson(const QVariantMap &map)
         QJsonDocument(QJsonObject::fromVariantMap(map)).toJson(QJsonDocument::Compact));
 }
 
-// Decodes raster bytes small, for measuring. The format is pinned from the
-// magic bytes with autodetection off, so no SVG or unknown handler can run.
 QImage decodeSmall(const QByteArray &bytes, int edge)
 {
     const lightning::imagefmt::RasterFormat *format =
@@ -200,24 +167,14 @@ QImage decodeSmall(const QByteArray &bytes, int edge)
     return reader.read();
 }
 
-// Frames of a picture sampled for measuring, and what was seen on the way.
-// GIF and WebP handlers cannot jumpToImage(), so an animation is STEPPED with
-// read(); the loop runs on the GUI thread over bytes a room member chose, so it
-// is bounded three ways (frames decoded, pixels decoded, elapsed time) and is
-// attempted only for an animation within the byte and canvas bounds. Past any
-// bound the frames kept so far are used, and frame 0 alone if none were.
-constexpr int kMeasureFrames = 8;       // frames kept
-constexpr int kMaxDecodedFrames = 48;   // frames decoded, kept or not
+constexpr int kMeasureFrames = 8;
+constexpr int kMaxDecodedFrames = 48;
 constexpr qint64 kMaxDecodedPixels = 96LL * 1000 * 1000;
 constexpr int kMaxMeasureMs = 150;
 
 struct FrameSample {
     QList<QImage> frames;
     bool stepped = false;
-    // A frame the even spacing asked for was never decoded (a bound was hit
-    // first, or the file ended early), so the sample covers only part of the
-    // animation. Deterministic for the frame and pixel bounds; the time bound
-    // can only add to it.
     bool cutShort = false;
 };
 
@@ -229,7 +186,6 @@ FrameSample sampleFrames(const QByteArray &bytes, int edge)
         const QImage one = decodeSmall(bytes, edge);
         if (!one.isNull())
             sample.frames.append(one);
-        // An animation seen through its first frame alone is a cut-short one.
         sample.cutShort = sniff::isAnimation(bytes);
         return sample;
     };
@@ -258,8 +214,6 @@ FrameSample sampleFrames(const QByteArray &bytes, int edge)
     const int count = reader.imageCount();
     if (count > lightning::animsniff::kMaxSaneFrames)
         return firstOnly();
-    // Which frame indices to keep: evenly spaced over the animation; with an
-    // unknown count, the first few.
     QSet<int> keep;
     const int wanted = count > 1 ? qMin(count, kMeasureFrames) : kMeasureFrames;
     for (int k = 0; k < wanted; ++k)
@@ -287,15 +241,10 @@ FrameSample sampleFrames(const QByteArray &bytes, int edge)
     return sample;
 }
 
-// The stats of a picture's bytes: every sampled frame of an animation, the
-// one frame of a still. Unmeasured (the safe worst case) when nothing decodes.
 backdrop::ImageStats measureBytes(const QByteArray &bytes, int edge)
 {
     FrameSample sample = sampleFrames(bytes, edge);
     if (sample.cutShort && !sample.frames.isEmpty()) {
-        // Only part of the animation was seen, and a shared picture from
-        // another member cannot be refused: plan for the worst case instead,
-        // pure white and pure black both under the ink (the unmeasured floor).
         QImage white(8, 8, QImage::Format_RGB32);
         white.fill(Qt::white);
         QImage black(8, 8, QImage::Format_RGB32);
@@ -311,7 +260,7 @@ qint64 nowMs()
     return QDateTime::currentMSecsSinceEpoch();
 }
 
-} // namespace
+}
 
 ChatBackdropController::ChatBackdropController(QObject *parent)
     : QObject(parent)
@@ -328,8 +277,6 @@ void ChatBackdropController::writeTimedOut()
 {
     if (m_syncWriteOp == 0)
         return;
-    // Failed like any other write; its answer, if it ever comes, no longer
-    // matches m_syncWriteOp and is dropped. The next op may go.
     qCWarning(lcBackdrop) << "sync write op=" << m_syncWriteOp << "result=timeout";
     const SyncOp stuck = m_syncWriting;
     m_syncWriteOp = 0;
@@ -345,7 +292,6 @@ void ChatBackdropController::switchTimedOut()
 {
     if (m_enableOp == 0)
         return;
-    // Still owed (switchPending): replayed on the next start or Retry.
     qCWarning(lcBackdrop) << "sync switch write op=" << m_enableOp << "result=timeout";
     m_enableOp = 0;
     m_switchError = QStringLiteral("timeout");
@@ -353,8 +299,6 @@ void ChatBackdropController::switchTimedOut()
 }
 
 ChatBackdropController::~ChatBackdropController() = default;
-
-// ---- wiring ----------------------------------------------------------------
 
 void ChatBackdropController::setClient(MatrixClient *client)
 {
@@ -369,16 +313,12 @@ void ChatBackdropController::setClient(MatrixClient *client)
                 &ChatBackdropController::handleReceived);
         connect(m_client, &MatrixClient::roomBackgroundSet, this,
                 &ChatBackdropController::handleSet);
-        // A change observed in sync: the only way an OPEN room learns of it.
         connect(m_client, &MatrixClient::roomBackgroundChanged, this,
                 &ChatBackdropController::handleChanged);
-        // Answers belong to the account that asked.
         connect(m_client, &MatrixClient::loggedOut, this,
                 &ChatBackdropController::clearSession);
-        // A Space's children moved: the chain is recomputed on next read.
         connect(m_client, &MatrixClient::roomsChanged, this,
                 [this] { m_chainCache.clear(); });
-        // Personal backgrounds on the homeserver.
         connect(m_client, &MatrixClient::personalBackgroundsRead, this,
                 &ChatBackdropController::handleSyncRead);
         connect(m_client, &MatrixClient::personalBackgroundDownloaded, this,
@@ -389,7 +329,6 @@ void ChatBackdropController::setClient(MatrixClient *client)
                 &ChatBackdropController::handleSyncCleared);
         connect(m_client, &MatrixClient::personalBackgroundChanged, this,
                 &ChatBackdropController::handleSyncChanged);
-        // Account data is in the store once the first sync has run.
         connect(m_client, &MatrixClient::initialSyncDoneChanged, this,
                 &ChatBackdropController::startSync);
     }
@@ -407,8 +346,6 @@ void ChatBackdropController::setMediaBridge(MediaBridge *bridge)
     if (m_bridge) {
         connect(m_bridge, &MediaBridge::mediaCached, this,
                 &ChatBackdropController::handleMediaCached);
-        // Shared with starring, copying and forwarding; only the key this
-        // class asked for is consumed (handleMediaBytes).
         connect(m_bridge, &MediaBridge::mediaBytesForStar, this,
                 &ChatBackdropController::handleMediaBytes);
     }
@@ -422,8 +359,6 @@ void ChatBackdropController::setSettings(SettingsManager *settings)
         disconnect(m_settings, nullptr, this, nullptr);
     m_settings = settings;
     if (m_settings) {
-        // The personal store is account-scoped; sessionChanged fires after
-        // the active account id has moved (switch, add, sign-out).
         connect(m_settings, &SettingsManager::sessionChanged, this,
                 &ChatBackdropController::onSessionChanged);
     }
@@ -438,7 +373,6 @@ void ChatBackdropController::setSpaces(SpaceManager *spaces)
         disconnect(m_spaces, nullptr, this, nullptr);
     m_spaces = spaces;
     if (m_spaces) {
-        // The active Space picks which parent a multi-Space room inherits.
         connect(m_spaces, &SpaceManager::activeSpaceIdChanged, this, [this] {
             m_chainCache.clear();
             bump();
@@ -450,8 +384,6 @@ void ChatBackdropController::setStagedImages(StagedImageStore *store)
 {
     m_staged = store;
 }
-
-// ---- properties ------------------------------------------------------------
 
 bool ChatBackdropController::sharedAvailable() const
 {
@@ -517,8 +449,6 @@ QVariantMap ChatBackdropController::prepared() const
     out.insert(QStringLiteral("animated"), m_prepared->animated);
     return out;
 }
-
-// ---- resolution ------------------------------------------------------------
 
 QStringList ChatBackdropController::spaceChainFor(const QString &roomId) const
 {
@@ -600,13 +530,11 @@ QVariantMap ChatBackdropController::describeRecord(const QVariantMap &record,
         return out;
     const QString url = stagedUrlForFile(file);
     if (url.isEmpty())
-        return out;   // missing on disk: render nothing rather than break
+        return out;
     ensureMeasuredFile(file);
     out.insert(QStringLiteral("kind"), QStringLiteral("staged"));
     out.insert(QStringLiteral("imageUrl"), url);
     out.insert(QStringLiteral("statsKey"), QStringLiteral("file:") + file);
-    // Named by suffix: a file this class wrote as an animation. MediaBridge
-    // still checks the bytes before anything plays.
     out.insert(QStringLiteral("animated"),
                file.endsWith(QLatin1String(".gif"))
                    || file.endsWith(QLatin1String(".webp")));
@@ -615,9 +543,6 @@ QVariantMap ChatBackdropController::describeRecord(const QVariantMap &record,
 
 void ChatBackdropController::requestRoom(const QString &roomId)
 {
-    // This account's own picture for the room, once per session: the store
-    // may not hold that room's account data, and a room's own read asks the
-    // server when it does not.
     if (syncActive() && roomId.startsWith(QLatin1Char('!'))
         && !m_remote.contains(roomId) && !m_syncAsked.contains(roomId)) {
         if (m_syncAsked.size() >= 2048)
@@ -649,7 +574,7 @@ void ChatBackdropController::refreshScope(const QString &scopeId)
         return;
     for (auto it = m_inFlight.constBegin(); it != m_inFlight.constEnd(); ++it) {
         if (it.value() == scopeId)
-            return;   // one read per scope at a time
+            return;
     }
     const quint64 opId = m_nextOpId++;
     m_inFlight.insert(opId, scopeId);
@@ -659,23 +584,16 @@ void ChatBackdropController::refreshScope(const QString &scopeId)
 
 void ChatBackdropController::handleChanged(const QString &scopeId)
 {
-    // Only a scope this session shows, or asked about: the open room, or a
-    // Space one of its rooms inherits from (requestRoom asks the whole chain).
-    // A change anywhere else is read when that room opens, as before.
     if (scopeId.isEmpty()
         || (!m_shared.contains(scopeId) && !m_lastAsked.contains(scopeId)))
         return;
     for (auto it = m_inFlight.constBegin(); it != m_inFlight.constEnd(); ++it) {
         if (it.value() == scopeId) {
-            // The read in flight may have been answered before the change;
-            // read once more when it lands rather than keep a stale answer.
             m_rereadAfterAnswer.insert(scopeId);
             return;
         }
     }
     qCInfo(lcBackdrop) << "shared changed in sync scope=" << scopeTag(scopeId);
-    // Not rate-limited by kRefreshIntervalMs: that bounds re-reads on OPEN,
-    // and this is a real change. refreshScope keeps one read per scope.
     refreshScope(scopeId);
 }
 
@@ -685,7 +603,6 @@ void ChatBackdropController::handleReceived(quint64 opId, const QString &roomId,
                                             bool unsupportedVersion)
 {
     const auto it = m_inFlight.constFind(opId);
-    // Not asked by this session, or for another room: a stale answer.
     if (it == m_inFlight.constEnd() || it.value() != roomId) {
         qCDebug(lcBackdrop) << "shared read answer dropped op=" << opId
                             << "scope=" << scopeTag(roomId);
@@ -694,7 +611,6 @@ void ChatBackdropController::handleReceived(quint64 opId, const QString &roomId,
     m_inFlight.erase(it);
 
     Shared next;
-    // Only a usable mxc url makes a background; anything else is "none".
     const bool has = content.value(QStringLiteral("url")).toString()
                          .startsWith(QLatin1String("mxc://"));
     if (has)
@@ -707,7 +623,6 @@ void ChatBackdropController::handleReceived(quint64 opId, const QString &roomId,
     next.known = true;
     const Shared previous = m_shared.value(roomId);
     m_shared.insert(roomId, next);
-    // A change arrived while this read was in flight: read again.
     if (m_rereadAfterAnswer.remove(roomId))
         refreshScope(roomId);
     if (previous.known && previous.content == next.content
@@ -722,7 +637,6 @@ void ChatBackdropController::handleSet(quint64 opId, const QString &roomId,
                                        const QString &category)
 {
     if (opId != m_pendingWrite || roomId != m_pendingWriteScope) {
-        // Logged loudly: a dropped SUCCESS would leave the editor busy for good.
         qCWarning(lcBackdrop) << "shared write answer dropped op=" << opId
                               << "scope=" << scopeTag(roomId)
                               << "pending_op=" << m_pendingWrite << "ok=" << ok;
@@ -743,8 +657,6 @@ void ChatBackdropController::handleSet(quint64 opId, const QString &roomId,
                        << !content.value(QStringLiteral("url")).toString()
                                .startsWith(QLatin1String("mxc://"));
     setLastError(QString());
-    // Acknowledged by the server: authoritative without a re-read. A write
-    // implies permission, so canSet stays as it was.
     Shared next = m_shared.value(roomId);
     next.content = content.value(QStringLiteral("url")).toString()
                            .startsWith(QLatin1String("mxc://"))
@@ -753,19 +665,15 @@ void ChatBackdropController::handleSet(quint64 opId, const QString &roomId,
     next.unsupported = false;
     next.known = true;
     m_shared.insert(roomId, next);
-    // The upload copy is no longer needed; a later write prepares afresh.
     if (m_prepared)
         discardPrepared();
     bump();
 }
 
-// ---- measuring ---------------------------------------------------------------
-
 void ChatBackdropController::handleMediaCached(const QString &cacheKey)
 {
     if (!m_bridge)
         return;
-    // Only wide-image entries, and only pictures a room here actually uses.
     for (auto it = m_shared.constBegin(); it != m_shared.constEnd(); ++it) {
         const QString url = it.value().content.value(QStringLiteral("url")).toString();
         if (url.isEmpty() || MediaBridge::wideImageCacheKey(url) != cacheKey)
@@ -790,7 +698,7 @@ void ChatBackdropController::measureMxc(const QString &mxc)
         return;
     const backdrop::ImageStats measured = measureBytes(bytes, kMeasureDecodeEdge);
     if (!measured.measured)
-        return;   // unmeasured stays worst case: safe
+        return;
     const QString key = QStringLiteral("mxc:") + mxc;
     if (!m_stats.contains(key)) {
         m_statsOrder.append(key);
@@ -872,8 +780,6 @@ QStringList ChatBackdropController::depthStops(const QColor &base,
     return backdrop::depthStops(base, darkTheme);
 }
 
-// ---- shared editors ----------------------------------------------------------
-
 QVariantMap ChatBackdropController::sharedFor(const QString &scopeId) const
 {
     return m_shared.value(scopeId).content;
@@ -925,7 +831,7 @@ void ChatBackdropController::setShared(const QString &scopeId,
     content.insert(QStringLiteral("presentation"),
                    backdrop::presentationToWire(presentation));
     QString localPath;
-    const quint64 opId = m_nextOpId;   // the id this write will carry
+    const quint64 opId = m_nextOpId;
     if (m_prepared) {
         if (!m_uploadDir)
             m_uploadDir = std::make_unique<QTemporaryDir>();
@@ -968,7 +874,6 @@ void ChatBackdropController::setShared(const QString &scopeId,
             content.insert(QStringLiteral("color"),
                            m_prepared->stats.dominant.name(QColor::HexRgb).toUpper());
     } else {
-        // Presentation only: the picture stays, nothing is uploaded again.
         const QVariantMap current = m_shared.value(scopeId).content;
         const QString url = current.value(QStringLiteral("url")).toString();
         if (!url.startsWith(QLatin1String("mxc://"))) {
@@ -1005,12 +910,9 @@ void ChatBackdropController::clearShared(const QString &scopeId)
     qCInfo(lcBackdrop) << "shared write op=" << m_pendingWrite << "scope="
                        << scopeTag(scopeId) << "stage=start kind=clear";
     Q_EMIT busyChanged();
-    // No path and no url: Rust sends `{}`.
     m_client->setRoomBackground(scopeId, QString(), QStringLiteral("{}"),
                                 m_pendingWrite);
 }
-
-// ---- personal ------------------------------------------------------------------
 
 QString ChatBackdropController::storageDir() const
 {
@@ -1039,7 +941,6 @@ QVariantMap ChatBackdropController::personalStore() const
     if (!doc.isObject())
         return m_personalCache;
     const QVariantMap raw = doc.object().toVariantMap();
-    // A hand-editable file: every record is cleaned on the way in.
     const QVariantMap def = cleanPersonalRecord(raw.value(QStringLiteral("default")));
     if (!def.isEmpty())
         m_personalCache.insert(QStringLiteral("default"), def);
@@ -1063,9 +964,6 @@ QVariantMap ChatBackdropController::personalStore() const
     }
     if (!hidden.isEmpty())
         m_personalCache.insert(QStringLiteral("hidden"), hidden);
-    // Server writes still owed (a removal or a presentation change that has
-    // not reached the homeserver yet): scope ("" or a room id) -> "clear" |
-    // "presentation". Replayed on the next start (startSync).
     QVariantMap pending;
     const QVariantMap rawPending = raw.value(QStringLiteral("pending")).toMap();
     for (auto it = rawPending.constBegin(); it != rawPending.constEnd(); ++it) {
@@ -1088,7 +986,6 @@ void ChatBackdropController::savePersonalStore(const QVariantMap &store)
         m_settings->setAccountScopedValue(kPersonalKey, toJson(store));
     dropOrphanFiles(store);
     bump();
-    // Conflicts and unsaved counts are read from the store.
     Q_EMIT syncChanged();
 }
 
@@ -1105,7 +1002,6 @@ void ChatBackdropController::dropOrphanFiles(const QVariantMap &store)
         referenced.insert(it.value().toMap().value(QStringLiteral("file")).toString());
     const QStringList files = QDir(dir).entryList(QDir::Files);
     for (const QString &name : files) {
-        // Only files this class names; anything else in the folder is left.
         if (!storedNameRe().match(name).hasMatch() || referenced.contains(name))
             continue;
         QFile::remove(QDir(dir).filePath(name));
@@ -1132,7 +1028,6 @@ QString ChatBackdropController::stagedUrlForFile(const QString &fileName) const
         || file.size() > kMaxStoredFileBytes)
         return {};
     const QByteArray bytes = file.readAll();
-    // Our own file, but a disk is not a trust boundary: raster magic only.
     if (!lightning::imagefmt::sniffRaster(bytes))
         return {};
     const QString token = m_staged->add(bytes);
@@ -1174,7 +1069,6 @@ bool ChatBackdropController::setPersonal(const QString &roomId,
         const QString name = storeEncoded(*m_prepared);
         if (name.isEmpty())
             return false;
-        // A new picture: no server copy mirrors it yet (`remote` dropped).
         record.clear();
         record.insert(QStringLiteral("file"), name);
         record.insert(QStringLiteral("w"), m_prepared->width);
@@ -1193,11 +1087,6 @@ bool ChatBackdropController::setPersonal(const QString &roomId,
     }
     record.insert(QStringLiteral("presentation"),
                   backdrop::normalisePresentation(presentation));
-    // A presentation edit keeps the picture's mark (live or dormant): it is
-    // still the same picture, and the change is OWED to the server rather
-    // than turning the picture local-only, which would come back as a false
-    // conflict once sync is on again (review R4). Only a NEW picture is
-    // local-only (record.clear() above).
     const bool mirrored = record.contains(QStringLiteral("remote"));
     const bool owedWhileOff = !syncActive() && !newPicture
                               && (mirrored || record.contains(QStringLiteral("was")));
@@ -1221,22 +1110,15 @@ bool ChatBackdropController::setPersonal(const QString &roomId,
     setLastError(QString());
     savePersonalStore(store);
     if (newPicture) {
-        // An earlier upload names an earlier picture, never this one (R1),
-        // and nothing owed for the old picture applies to the new one.
         m_lastUploaded.remove(roomId);
         m_lastUploadedFile.remove(roomId);
         if (pendingFor(roomId) == QLatin1String("presentation"))
             setPending(roomId, SyncMode::Upload);
     }
     if (owedWhileOff) {
-        // Sent (with the picture's id) when sync is on again: startSync
-        // replays it.
         setPending(roomId, SyncMode::Presentation);
         return true;
     }
-    // Shown locally at once; the server copy follows. A presentation change
-    // while this picture's upload is still in flight goes after it, as a
-    // presentation write, rather than uploading the same picture twice.
     if (syncActive() && !conflicted) {
         const bool uploading = m_syncWriteOp != 0 && m_syncWriting.scope == roomId
                                && m_syncWriting.mode == SyncMode::Upload;
@@ -1279,11 +1161,6 @@ void ChatBackdropController::clearPersonal(const QString &roomId)
     const QVariantMap record = recordFor(store, roomId);
     if (record.isEmpty())
         return;
-    // The server copy goes too when this device knows of one, so another
-    // device (and the next sign-in) does not bring it back. An upload still
-    // in flight counts: it would land after the removal. A CONFLICTED local
-    // picture is not the server's: removing it leaves the other device's
-    // copy alone, and that copy is what this device shows next.
     const bool conflicted = record.contains(QStringLiteral("conflict"));
     const bool serverCopy = !conflicted
         && (record.contains(QStringLiteral("remote"))
@@ -1291,9 +1168,6 @@ void ChatBackdropController::clearPersonal(const QString &roomId)
             || syncBusyFor(roomId));
     putRecord(store, roomId, QVariantMap());
     savePersonalStore(store);
-    // After the local save: enqueueSync persists its own tombstone. While
-    // sync is off, a picture that had a server copy (a dormant mark) owes
-    // its removal too, or turning sync on again would bring it back.
     if (syncActive() && serverCopy)
         enqueueSync(roomId, SyncMode::Clear);
     else if (syncActive() && conflicted)
@@ -1332,8 +1206,6 @@ void ChatBackdropController::setRoomHidden(const QString &roomId, bool hidden)
     savePersonalStore(store);
 }
 
-// ---- picking -------------------------------------------------------------------
-
 QVariantMap ChatBackdropController::prepareImage(const QUrl &fileUrl)
 {
     QVariantMap result;
@@ -1362,8 +1234,6 @@ QVariantMap ChatBackdropController::prepareImage(const QUrl &fileUrl)
         return result;
     }
     const QByteArray bytes = file.readAll();
-    // An SVG is not refused: it is converted locally to a PNG and only that
-    // PNG enters the pipeline below (which still refuses SVG by magic bytes).
     namespace svg = lightning::svgraster;
     if (!lightning::imagefmt::sniffRaster(bytes)) {
         const bool svgz = svg::isGzip(bytes)
@@ -1430,7 +1300,7 @@ bool ChatBackdropController::encodePicture(const QByteArray &bytes,
     QImageReader reader(&buffer, QByteArray(format->qtFormat));
     reader.setAutoDetectImageFormat(false);
     reader.setDecideFormatFromContent(false);
-    reader.setAutoTransform(true);    // honour EXIF orientation
+    reader.setAutoTransform(true);
     reader.setAllocationLimit(256);
     const QSize natural = reader.size();
     if (!natural.isValid() || natural.isEmpty())
@@ -1438,7 +1308,6 @@ bool ChatBackdropController::encodePicture(const QByteArray &bytes,
     const int edge = qMin(int(kMaxEdge), int(kMaxDecodeEdge));
     if (natural.width() > edge || natural.height() > edge)
         reader.setScaledSize(natural.scaled(edge, edge, Qt::KeepAspectRatio));
-    // read() decodes the FIRST frame only: an animation becomes a still.
     QImage image = reader.read();
     if (image.isNull() || image.width() < 1 || image.height() < 1)
         return fail(QStringLiteral("undecodable"));
@@ -1487,12 +1356,6 @@ bool ChatBackdropController::encodePicture(const QByteArray &bytes,
     picture.animated = false;
     picture.stats = backdrop::measure(image);
 
-    // An animated GIF or WebP inside the bounds is kept as an animation, with
-    // the metadata the still path's re-encode drops removed by the bounded
-    // parser (comments, plain text, every application extension but the
-    // looping ones; for WebP every chunk but the animation's own). Anything it
-    // cannot walk, or that is too big to play, stays the still above. Its
-    // stats cover several frames, so the scrim holds for the worst of them.
     namespace sniff = lightning::animsniff;
     if (bytes.size() <= kMaxAnimatedBytes && sniff::isAnimation(bytes)
         && sniff::canvasWithin(bytes, sniff::kBannerMaxPixels)) {
@@ -1504,8 +1367,6 @@ bool ChatBackdropController::encodePicture(const QByteArray &bytes,
                 const FrameSample sampled = sampleFrames(stripped, kMeasureDecodeEdge);
                 const backdrop::ImageStats frames =
                     backdrop::measureFrames(sampled.frames);
-                // A flashing or endless animation stays the still above, and so
-                // does one whose scrim could only be planned from part of it.
                 if (frames.measured && sampled.stepped && !sampled.cutShort
                     && !sniff::timingTooBusy(sniff::animationTiming(stripped))) {
                     const bool gif = lightning::imagefmt::sniffRasterMime(stripped)
@@ -1584,7 +1445,7 @@ bool ChatBackdropController::ownsStagedToken(const QString &token) const
 
 void ChatBackdropController::discardPrepared()
 {
-    ++m_prepareGeneration; // an SVG still converting is no longer wanted
+    ++m_prepareGeneration;
     if (!m_prepared)
         return;
     if (m_staged && m_prepared->imageUrl.startsWith(QLatin1String(kStagedPrefix)))
@@ -1621,7 +1482,6 @@ void ChatBackdropController::handleMediaBytes(const QString &mediaKey, bool ok,
         setLastError(category.isEmpty() ? QStringLiteral("unreadable") : category);
         return;
     }
-    // Re-checked: the room may have turned encryption on meanwhile.
     if (!roomEncryptionKnown(roomId) || roomEncrypted(roomId)) {
         setLastError(QStringLiteral("encrypted_room"));
         return;
@@ -1631,16 +1491,6 @@ void ChatBackdropController::handleMediaBytes(const QString &mediaKey, bool ok,
         return;
     setPersonal(roomId, QVariantMap());
 }
-
-// ---- personal backgrounds on the homeserver ---------------------------------------
-//
-// The account-wide switch lives in the global account data (`enabled`), so
-// an opt-out on one device holds on every device: this one keeps a local
-// MIRROR (kSyncKey) for the time before the server answers, and never writes
-// anything (no upload, no change, no removal) until the server's switch is
-// known to be on this session (m_serverSwitch). A switch change this device
-// made and could not yet send is kept (kSwitchPendingKey) and replayed, and
-// the server's value does not override it meanwhile.
 
 bool ChatBackdropController::syncAvailable() const
 {
@@ -1723,9 +1573,6 @@ QVariantMap ChatBackdropController::syncStatus() const
 
 int ChatBackdropController::syncUnsaved() const
 {
-    // What a sign-out now would lose: pictures not (yet) on the homeserver
-    // and server changes still owed. Only while syncing: with it off, the
-    // user chose this device only and Settings says sign-out deletes them.
     if (!syncActive())
         return 0;
     const QVariantMap store = personalStore();
@@ -1745,9 +1592,6 @@ int ChatBackdropController::syncUnsaved() const
 
 int ChatBackdropController::syncOwedRemovals() const
 {
-    // Removals the homeserver has not taken: its copy would come back on the
-    // next sign-in. Rooms this account has left owe nothing (the write can
-    // never happen), so they do not count.
     if (!syncActive())
         return 0;
     int count = 0;
@@ -1802,9 +1646,6 @@ QVariantList ChatBackdropController::syncConflicts() const
 
 bool ChatBackdropController::migrationNoticeNeeded() const
 {
-    // Recomputed: a picture that turned into a conflict (or was uploaded,
-    // removed, or its room left) since the notice was raised no longer
-    // waits for it, and a notice with nothing behind it must not stay up.
     return m_migrationNotice && syncWritable() && !migrationCandidates().isEmpty();
 }
 
@@ -1839,11 +1680,9 @@ void ChatBackdropController::resolveConflict(const QString &scope,
         if (syncActive())
             enqueueSync(scope, SyncMode::Upload);
     } else {
-        // The synced picture replaces this one when it has downloaded; the
-        // conflict mark keeps the local one from uploading meanwhile.
         m_failedDownloadIds.remove(scope);
         requestDownload(scope, record.value(QStringLiteral("conflict")).toString(),
-                        /*replaceConflict=*/true);
+true);
     }
     Q_EMIT syncChanged();
 }
@@ -1869,14 +1708,10 @@ void ChatBackdropController::setSyncEnabled(bool on, bool removeServerCopies)
     }
     if (!syncEnabled() && !removeServerCopies && switchPending().isEmpty())
         return;
-    // Before anything forgets which rooms have a copy.
     const QStringList known = knownSyncedRooms();
     m_settings->setAccountScopedValue(kSyncKey, false);
     qCInfo(lcBackdrop) << "sync setting=off remove_server_copies="
                        << removeServerCopies;
-    // Nothing more is sent; a write already sent finishes and its answer is
-    // still recorded (handleSyncWritten). Pending removals and presentation
-    // changes stay persisted and run if sync is turned on again.
     m_serverSwitch = 0;
     m_syncQueue.clear();
     m_downloadQueue.clear();
@@ -1896,9 +1731,6 @@ void ChatBackdropController::setSyncEnabled(bool on, bool removeServerCopies)
     m_migrationNotice = false;
     setSwitchPending(QStringLiteral("off"));
     if (removeServerCopies) {
-        // Nothing local mirrors a server copy any more, nothing is owed to
-        // it, and no conflict with it is left: turning sync on again uploads
-        // these pictures afresh.
         QVariantMap store = personalStore();
         QStringList scopes{ QString() };
         scopes.append(store.value(QStringLiteral("rooms")).toMap().keys());
@@ -1928,7 +1760,7 @@ void ChatBackdropController::setSyncEnabled(bool on, bool removeServerCopies)
 void ChatBackdropController::sendSwitch(bool on)
 {
     if (!syncWatching() || m_enableOp != 0)
-        return;   // replayed by startSync / the answer in flight
+        return;
     m_enableOp = m_nextOpId++;
     m_enableTarget = on;
     m_switchWatchdog.start(m_switchTimeoutMs);
@@ -1947,7 +1779,7 @@ void ChatBackdropController::startClearAll()
         return;
     }
     m_syncClearOp = m_nextOpId++;
-    m_lastClearRooms = m_syncClearRooms;   // for retryRemoval()
+    m_lastClearRooms = m_syncClearRooms;
     qCInfo(lcBackdrop) << "sync remove-all op=" << m_syncClearOp
                        << "known_rooms=" << m_syncClearRooms.size();
     Q_EMIT syncChanged();
@@ -1963,9 +1795,7 @@ void ChatBackdropController::handleSyncCleared(quint64 opId, bool ok,
     m_syncClearOp = 0;
     m_syncClearRooms.clear();
     m_syncRemoved = cleared;
-    // Skipped scopes (a room left, a newer schema) were not removed either.
     m_syncRemoveFailed = failed + skipped;
-    // The switch went off first: that much is no longer owed.
     if (switchedOff)
         setSwitchPending(QString());
     if (ok && m_syncRemoveFailed == 0) {
@@ -1997,7 +1827,6 @@ void ChatBackdropController::retrySync()
         sendSwitch(switchPending() == QLatin1String("on"));
     for (const SyncOp &op : ops)
         enqueueSync(op.scope, op.mode, op.intoEmpty);
-    // A read decides whether the download is still wanted.
     for (const QString &scope : downloads)
         syncRead(scope);
     if (!m_syncStarted)
@@ -2011,7 +1840,6 @@ void ChatBackdropController::startSync()
 {
     if (!syncWatching() || !m_client->initialSyncDone())
         return;
-    // A switch change this device could not send yet goes first.
     const QString owed = switchPending();
     if (!owed.isEmpty() && m_enableOp == 0 && m_syncClearOp == 0)
         sendSwitch(owed == QLatin1String("on"));
@@ -2019,17 +1847,14 @@ void ChatBackdropController::startSync()
         return;
     for (auto it = m_syncReads.constBegin(); it != m_syncReads.constEnd(); ++it) {
         if (it.value() == QLatin1String("*"))
-            return;   // one full read at a time
+            return;
     }
-    // Owed removals and presentation changes from an earlier session.
     if (syncActive()) {
         const QVariantMap pending =
             personalStore().value(QStringLiteral("pending")).toMap();
         for (auto it = pending.constBegin(); it != pending.constEnd(); ++it) {
             if (syncBusyFor(it.key()))
                 continue;
-            // A room this account has left can never take the write: the
-            // debt is dropped rather than pinning the sign-out warning.
             if (!it.key().isEmpty() && !isJoinedRoom(it.key())) {
                 setPending(it.key(), SyncMode::Upload);
                 continue;
@@ -2053,13 +1878,10 @@ void ChatBackdropController::syncRead(const QString &scope)
         return;
     for (auto it = m_syncReads.constBegin(); it != m_syncReads.constEnd(); ++it) {
         if (it.value() == scope) {
-            // One read per scope at a time; one more after it, if asked.
             m_syncReadAgain.insert(scope);
             return;
         }
     }
-    // A bound on single-scope reads in flight (the start-up full read is
-    // exempt); the rest wait their turn rather than being dropped.
     if (scope != QLatin1String("*")) {
         int single = 0;
         for (const QString &inFlight : std::as_const(m_syncReads))
@@ -2089,11 +1911,8 @@ void ChatBackdropController::requestDownload(const QString &scope,
         if (it.value() == scope)
             return;
     }
-    // A picture that already failed waits for the user's retry, rather than
-    // being fetched again on every poke.
     if (m_failedDownloadIds.contains(scope) && m_failedDownloadIds.value(scope) == id)
         return;
-    // The per-room bound, before anything is downloaded.
     if (!scope.isEmpty()) {
         const QVariantMap rooms = personalStore().value(QStringLiteral("rooms")).toMap();
         if (!rooms.contains(scope) && rooms.size() >= kMaxPersonalRooms) {
@@ -2177,7 +1996,6 @@ QString ChatBackdropController::pendingFor(const QString &scope) const
 void ChatBackdropController::enqueueSync(const QString &scope, SyncMode mode,
                                          bool intoEmpty)
 {
-    // The latest intent for a scope wins over one still waiting.
     m_syncQueue.erase(std::remove_if(m_syncQueue.begin(), m_syncQueue.end(),
                                      [&scope](const SyncOp &op) {
                                          return op.scope == scope;
@@ -2191,8 +2009,6 @@ void ChatBackdropController::enqueueSync(const QString &scope, SyncMode mode,
                           m_syncFailedOps.end());
     m_failedDownloadIds.remove(scope);
     m_downloadQueue.removeAll(scope);
-    // Owed writes survive a restart (startSync replays them); an upload
-    // needs no mark, its record without `remote` is one.
     setPending(scope, mode);
     SyncOp op;
     op.scope = scope;
@@ -2205,7 +2021,6 @@ void ChatBackdropController::enqueueSync(const QString &scope, SyncMode mode,
 
 void ChatBackdropController::processSyncQueue()
 {
-    // Nothing is written before the server's switch is known to be on.
     if (m_syncWriteOp != 0 || !syncWritable())
         return;
     while (!m_syncQueue.isEmpty()) {
@@ -2214,14 +2029,13 @@ void ChatBackdropController::processSyncQueue()
         QString path;
         QVariantMap requested;
         if (!op.scope.isEmpty() && !isJoinedRoom(op.scope)) {
-            // Left meanwhile: nothing can be written there any more.
             setPending(op.scope, SyncMode::Upload);
             continue;
         }
         if (op.mode != SyncMode::Clear) {
             if (record.isEmpty()) {
-                setPending(op.scope, SyncMode::Upload);   // nothing owed
-                continue;   // removed meanwhile; its Clear (if any) follows
+                setPending(op.scope, SyncMode::Upload);
+                continue;
             }
             requested.insert(QStringLiteral("presentation"),
                              backdrop::presentationToWire(
@@ -2231,11 +2045,6 @@ void ChatBackdropController::processSyncQueue()
                 requested.insert(QStringLiteral("color"), colour);
         }
         if (op.mode == SyncMode::Presentation) {
-            // Only for the picture this device knows the server holds: the
-            // mark, the mark it had before sync went off (`was`), or this
-            // device's own upload of THIS file, still unconfirmed by a mark
-            // (a presentation change queued behind it). Never an earlier
-            // upload of another picture (review R1).
             QString expected = record.value(QStringLiteral("remote")).toString();
             if (expected.isEmpty())
                 expected = record.value(QStringLiteral("was")).toString();
@@ -2284,8 +2093,6 @@ void ChatBackdropController::processSyncQueue()
                            << syncTag(op.scope) << "mode=" << int(op.mode)
                            << "stage=start";
         Q_EMIT syncChanged();
-        // Integer percentages only: account data is kept canonical (no
-        // floats), as rust/src/bgsync.rs enforces again.
         m_client->writePersonalBackground(op.scope, int(op.mode), path,
                                           toJson(requested), m_syncWriteOp);
         break;
@@ -2329,9 +2136,6 @@ void ChatBackdropController::handleSyncWritten(quint64 opId, const QString &scop
     m_syncWriteOp = 0;
     m_syncWriting = SyncOp();
     m_writeWatchdog.stop();
-    // Anything newer queued for this scope keeps its owed mark; only a newer
-    // PICTURE (or a removal) keeps this upload from being marked as mirrored:
-    // a presentation change queued behind it is for this very picture.
     const bool removing = m_syncClearRequested || m_syncClearOp != 0;
     bool newer = removing;
     bool newerPicture = removing;
@@ -2342,30 +2146,19 @@ void ChatBackdropController::handleSyncWritten(quint64 opId, const QString &scop
         newerPicture = newerPicture || op.mode != SyncMode::Presentation;
     }
     if (!ok && category == QLatin1String("changed")) {
-        // Another device replaced (or removed) the picture this presentation
-        // change was for, or filled the place a migration upload was for.
-        // Nothing is owed any more: the read that follows decides (a new
-        // picture is downloaded; against a local-only one it is a conflict).
         qCInfo(lcBackdrop) << "sync write op=" << opId << "scope=" << syncTag(scope)
                            << "result=changed-on-server";
         if (!newer)
             setPending(scope, SyncMode::Upload);
         m_syncRereadAfterWrite.insert(scope);
     } else if (!ok && category == QLatin1String("sync_disabled")) {
-        // Turned off on another device after this device last read: stop.
         syncFailed(scope, done.mode, category, done.intoEmpty);
         m_syncRereadAfterWrite.insert(QString());
     } else if (!ok && category == QLatin1String("not_joined")) {
-        // Left the room: the write can never happen, nothing is owed.
         setPending(scope, SyncMode::Upload);
     } else if (!ok) {
         syncFailed(scope, done.mode, category, done.intoEmpty);
         if (done.mode == SyncMode::Upload) {
-            // The picture never reached the server. A presentation change
-            // queued behind it is for that picture: it rides with the
-            // upload's retry (the failed Upload above), and must not run as
-            // a presentation write against an EARLIER picture's id
-            // (review R1). Nothing of this picture is owed as a presentation.
             m_syncQueue.erase(std::remove_if(m_syncQueue.begin(), m_syncQueue.end(),
                                              [&scope](const SyncOp &op) {
                                                  return op.scope == scope
@@ -2380,34 +2173,25 @@ void ChatBackdropController::handleSyncWritten(quint64 opId, const QString &scop
     } else {
         const RemoteEntry remote = remoteFromMap(entry);
         m_remote.insert(scope, remote);
-        // A read issued before now may have been answered before this write
-        // landed: its answer for this scope is not trusted (handleSyncRead).
         m_writtenAt.insert(scope, m_nextOpId);
         if (!newer)
-            setPending(scope, SyncMode::Upload);   // nothing owed any more
+            setPending(scope, SyncMode::Upload);
         qCInfo(lcBackdrop) << "sync write op=" << opId << "scope=" << syncTag(scope)
                            << "result=ok state=" << remote.state;
         if (done.mode == SyncMode::Upload && remote.state == QLatin1String("present")) {
             m_lastUploaded.insert(scope, remote.id);
             m_lastUploadedFile.insert(scope, done.file);
         }
-        // The local record now mirrors this copy, unless a newer choice is
-        // already waiting to replace it, or the server copies are about to be
-        // removed (sync turned off while this write was in flight): a mark
-        // then would make the next "cleared" delete the local picture.
         if (done.mode != SyncMode::Clear && !newerPicture
             && remote.state == QLatin1String("present")) {
             QVariantMap store = personalStore();
             QVariantMap record = recordFor(store, scope);
-            // Only the picture this write was for: a record whose file has
-            // changed since is not this upload.
             if (!record.isEmpty()
                 && record.value(QStringLiteral("file")).toString() == done.file
                 && record.value(QStringLiteral("remote")).toString() != remote.id) {
                 record.insert(QStringLiteral("remote"), remote.id);
                 record.remove(QStringLiteral("was"));
                 record.remove(QStringLiteral("conflict"));
-                // Filled an empty place: confirmed by the next read only.
                 if (done.intoEmpty)
                     record.insert(QStringLiteral("unconfirmed"), true);
                 else
@@ -2417,7 +2201,6 @@ void ChatBackdropController::handleSyncWritten(quint64 opId, const QString &scop
             }
         }
     }
-    // Sync was turned off with removal while this write was in flight.
     if (m_syncClearRequested && m_syncClearOp == 0)
         startClearAll();
     for (const QString &again : QStringList{ scope, QString() }) {
@@ -2435,8 +2218,6 @@ void ChatBackdropController::handleSwitchWritten(bool ok, const QVariantMap &ent
     m_enableOp = 0;
     m_switchWatchdog.stop();
     if (!ok) {
-        // Kept owed (switchPending) and replayed on the next start or retry;
-        // the server's value does not override it meanwhile.
         m_switchError = category.isEmpty() ? QStringLiteral("failed") : category;
         qCWarning(lcBackdrop) << "sync switch write result=fail category="
                               << m_switchError;
@@ -2444,26 +2225,24 @@ void ChatBackdropController::handleSwitchWritten(bool ok, const QVariantMap &ent
         return;
     }
     m_switchError.clear();
-    m_switchWrittenAt = m_nextOpId;   // older reads' `enabled` is stale
+    m_switchWrittenAt = m_nextOpId;
     const QString owed = switchPending();
     const bool settled = owed == (target ? QLatin1String("on") : QLatin1String("off"));
     if (settled)
         setSwitchPending(QString());
     qCInfo(lcBackdrop) << "sync switch write result=ok on=" << target;
     if (!settled) {
-        // The user changed it again while this was in flight.
         sendSwitch(owed == QLatin1String("on"));
         Q_EMIT syncChanged();
         return;
     }
-    Q_UNUSED(entry);   // a switch write answers with no picture entry
-    applyServerSwitch(target, /*fromOwnWrite=*/true);
+    Q_UNUSED(entry);
+    applyServerSwitch(target,true);
 }
 
 void ChatBackdropController::applyServerSwitch(bool on, bool fromOwnWrite,
                                                bool restart)
 {
-    // A change this device owes the server wins over what it still says.
     if (!fromOwnWrite && (!switchPending().isEmpty() || m_enableOp != 0))
         return;
     const int before = m_serverSwitch;
@@ -2473,22 +2252,12 @@ void ChatBackdropController::applyServerSwitch(bool on, bool fromOwnWrite,
         m_settings->setAccountScopedValue(kSyncKey, on);
     }
     if (!on) {
-        // Opted out (here or on another device): nothing more is sent, and
-        // nothing on this device mirrors the server any more (review R3).
-        // Another device's "Remove server copies" turns the switch off before
-        // it clears anything; with the marks dormant here, a cleared server
-        // copy can never delete a picture this device holds, now or after
-        // sync is turned on again. `was` keeps the id only to recognise the
-        // same picture again (no false conflict, a presentation edit made
-        // while off still names it).
         m_syncQueue.clear();
         m_downloadQueue.clear();
         m_migrationNotice = false;
         m_remote.clear();
         makeMarksDormant();
     } else if (before != 1 && restart) {
-        // Turned on (here or elsewhere): read everything again. Not from
-        // inside a full read, which goes on to reconcile and migrate itself.
         m_syncStarted = false;
         startSync();
     }
@@ -2507,12 +2276,11 @@ ChatBackdropController::remoteFromMap(const QVariantMap &entry)
     const QString id = entry.value(QStringLiteral("id")).toString();
     if (out.state == QLatin1String("present")) {
         if (!isRemoteId(id)) {
-            out.state = QStringLiteral("invalid");   // unusable: changes nothing
+            out.state = QStringLiteral("invalid");
             return out;
         }
         out.id = id;
     }
-    // Wire form, normalised the same way the app reads it back.
     out.presentation = backdrop::presentationToWire(backdrop::presentationFromWire(
         entry.value(QStringLiteral("presentation")).toMap()));
     const QString colour = entry.value(QStringLiteral("color")).toString();
@@ -2546,12 +2314,6 @@ void ChatBackdropController::handleSyncRead(quint64 opId, const QString &scope,
         Q_EMIT syncChanged();
         return;
     }
-    // The account-wide switch first, from THIS read: it decides whether
-    // anything follows. A room read that answers "cleared" because another
-    // device removed the server copies carries the switch that went off
-    // before them, so the marks go dormant before the entry is looked at.
-    // ...unless this read was issued before this device's own switch write
-    // answered: it may have asked before that write landed.
     if (enabled >= 0 && opId >= m_switchWrittenAt)
         applyServerSwitch(enabled == 1, false, scope != QLatin1String("*"));
 
@@ -2563,18 +2325,11 @@ void ChatBackdropController::handleSyncRead(quint64 opId, const QString &scope,
             const QString entryScope = map.value(QStringLiteral("scope")).toString();
             if (!entryScope.isEmpty() && !entryScope.startsWith(QLatin1Char('!')))
                 continue;
-            // A room's own read answers for that room only.
             if (scope != QLatin1String("*") && entryScope != scope)
                 continue;
             const RemoteEntry remote = remoteFromMap(map);
             if (remote.state.isEmpty())
                 continue;
-            // A scope this device has written: an answer that may predate
-            // that write (issued before it answered), or a room the full read
-            // took from the store (which lags our own writes until their
-            // echo), is asked of the server again rather than acted on. A
-            // stale "cleared" would delete the picture just chosen; a stale
-            // id would download the one it replaced.
             const auto written = m_writtenAt.constFind(entryScope);
             if (written != m_writtenAt.constEnd()
                 && (opId < written.value()
@@ -2597,8 +2352,6 @@ void ChatBackdropController::handleSyncRead(quint64 opId, const QString &scope,
                                                        : syncTag(scope))
                        << "entries=" << entries.size() << "present=" << present;
     if (scope == QLatin1String("*") && syncActive()) {
-        // No global object at all: a dormant default mark has nothing to
-        // recognise any more (the picture stays, local-only).
         bool sawDefault = failed.contains(QString());
         for (const QVariant &value : entries)
             sawDefault = sawDefault
@@ -2617,8 +2370,6 @@ void ChatBackdropController::handleSyncRead(quint64 opId, const QString &scope,
     if (m_syncReadAgain.remove(scope))
         syncRead(scope);
     if (scope == QLatin1String("*")) {
-        // Notices that came in while this read was out may postdate what it
-        // read from the store.
         const QSet<QString> poked = std::exchange(m_pokedDuringFullRead, {});
         for (const QString &room : poked)
             syncRead(room);
@@ -2643,8 +2394,6 @@ void ChatBackdropController::handleSyncRead(quint64 opId, const QString &scope,
 void ChatBackdropController::reconcile(const QString &scope,
                                        const RemoteEntry &entry)
 {
-    // A write or download for this scope, or one owed from an earlier
-    // session, decides first; read again after it.
     if (syncBusyFor(scope) || !pendingFor(scope).isEmpty()) {
         m_syncRereadAfterWrite.insert(scope);
         m_remote.insert(scope, entry);
@@ -2653,13 +2402,8 @@ void ChatBackdropController::reconcile(const QString &scope,
     m_remote.insert(scope, entry);
     QVariantMap store = personalStore();
     QVariantMap record = recordFor(store, scope);
-    // A dormant mark (`was`, set when sync went off) is recognised like a
-    // mark, except that it never deletes: a cleared copy only drops it.
     const QString was = record.value(QStringLiteral("was")).toString();
     if (!was.isEmpty()) {
-        // Present: back to a mark (the same picture is followed, another one
-        // downloaded below). Cleared: dropped, the picture stays local-only.
-        // Invalid or newer: kept waiting.
         record.remove(QStringLiteral("was"));
         if (entry.state == QLatin1String("present"))
             record.insert(QStringLiteral("remote"), was);
@@ -2673,13 +2417,9 @@ void ChatBackdropController::reconcile(const QString &scope,
         }
     }
     const QString mark = record.value(QStringLiteral("remote")).toString();
-    // A mark this device set by filling an EMPTY place (a migration upload)
-    // is not trusted until a read shows the server still holds it: two
-    // devices can both find the place empty and both write it (review N2).
     const bool unconfirmed = record.value(QStringLiteral("unconfirmed")).toBool();
     if (entry.state == QLatin1String("present")) {
         if (!mark.isEmpty() && mark == entry.id) {
-            // The same picture: follow the server's presentation.
             bool changed = false;
             if (unconfirmed) {
                 record.remove(QStringLiteral("unconfirmed"));
@@ -2698,14 +2438,8 @@ void ChatBackdropController::reconcile(const QString &scope,
                 savePersonalStore(store);
             }
         } else if (record.isEmpty() || (!mark.isEmpty() && !unconfirmed)) {
-            // Set on another device (or restored after a sign-out).
             requestDownload(scope, entry.id, false);
         } else if (record.value(QStringLiteral("conflict")).toString() != entry.id) {
-            // A picture only this device has (or one whose own upload another
-            // device's then replaced), and a DIFFERENT one on the server:
-            // keep both, never download over it. The synced one is fetched
-            // to compare: the same picture adopts the server's copy, another
-            // one is a conflict the user resolves (syncConflicts).
             if (unconfirmed) {
                 qCInfo(lcBackdrop) << "sync unconfirmed mark replaced scope="
                                    << syncTag(scope);
@@ -2714,22 +2448,18 @@ void ChatBackdropController::reconcile(const QString &scope,
                 putRecord(store, scope, record);
                 savePersonalStore(store);
             }
-            requestDownload(scope, entry.id, false, /*compare=*/true);
+            requestDownload(scope, entry.id, false,true);
         }
     } else if (entry.state == QLatin1String("cleared")) {
         if (!mark.isEmpty()) {
-            // Removed on another device.
             qCInfo(lcBackdrop) << "sync removed remotely scope=" << syncTag(scope);
             putRecord(store, scope, QVariantMap());
             savePersonalStore(store);
         } else if (record.remove(QStringLiteral("conflict")) > 0) {
-            // The other device's picture is gone: this one is just local now.
             putRecord(store, scope, record);
             savePersonalStore(store);
         }
     }
-    // "invalid" and "unsupported": the server holds something this build
-    // cannot use; nothing local changes and nothing is uploaded over it.
 }
 
 ChatBackdropController::SameAs
@@ -2740,19 +2470,11 @@ ChatBackdropController::sameAsLocal(const QVariantMap &record, const QByteArray 
     const QString dir = storageDir();
     if (!storedNameRe().match(file).hasMatch() || dir.isEmpty())
         return SameAs::Different;
-    // Only IDENTITY adopts the server's copy silently: the same bytes as this
-    // device's file (named by its SHA-256), or the file this one was
-    // re-encoded from (`source`, set on download).
     const QString rawHash = QString::fromLatin1(
         QCryptographicHash::hash(raw, QCryptographicHash::Sha256).toHex());
     if (rawHash == file.section(QLatin1Char('.'), 0, 0)
         || rawHash == record.value(QStringLiteral("source")).toString())
         return SameAs::Identical;
-    // Otherwise the pixels are only a hint for the card, never a decision:
-    // at most kLookEdge px on the long side, and EVERY 16x16 tile within a
-    // few levels on average (a single average hides a different region).
-    // The local file is decoded like any other: format pinned from its magic
-    // bytes, no autodetection.
     QFile localFile(QDir(dir).filePath(file));
     if (!localFile.open(QIODevice::ReadOnly) || localFile.size() > 16LL * 1024 * 1024)
         return SameAs::Different;
@@ -2818,9 +2540,6 @@ QStringList ChatBackdropController::migrationCandidates() const
             || record.contains(QStringLiteral("was"))
             || record.contains(QStringLiteral("conflict")) || syncBusyFor(scope))
             continue;
-        // Only into an empty slot: nothing stored, or explicitly cleared. A
-        // different picture on the server is a conflict (reconcile), and an
-        // invalid or newer one is never overwritten by a migration.
         const QString state = m_remote.value(scope).state;
         if (!state.isEmpty() && state != QLatin1String("cleared"))
             continue;
@@ -2828,9 +2547,9 @@ QStringList ChatBackdropController::migrationCandidates() const
         for (const SyncOp &op : std::as_const(m_syncFailedOps))
             failedBefore = failedBefore || op.scope == scope;
         if (failedBefore)
-            continue;   // retrySync() decides, not every read
+            continue;
         if (!scope.isEmpty() && !isJoinedRoom(scope))
-            continue;   // room account data needs the room
+            continue;
         candidates.append(scope);
     }
     return candidates;
@@ -2843,8 +2562,6 @@ void ChatBackdropController::migrateLocalOnly()
     const QStringList candidates = migrationCandidates();
     if (candidates.isEmpty())
         return;
-    // Pictures chosen before this feature existed go to the server only
-    // after the user has been told once (BackgroundSyncPrompt).
     const bool told = m_settings
                       && m_settings->accountScopedValue(kNoticeAckKey, false).toBool();
     if (!told) {
@@ -2854,10 +2571,8 @@ void ChatBackdropController::migrateLocalOnly()
         Q_EMIT syncChanged();
         return;
     }
-    // Into empty places only: every device turned on again at once migrates
-    // at once, and a place another device filled first is a conflict.
     for (const QString &scope : std::as_const(candidates))
-        enqueueSync(scope, SyncMode::Upload, /*intoEmpty=*/true);
+        enqueueSync(scope, SyncMode::Upload,true);
     qCInfo(lcBackdrop) << "sync migrate local-only=" << candidates.size();
 }
 
@@ -2882,35 +2597,27 @@ void ChatBackdropController::handleSyncDownloaded(quint64 opId,
     };
     if (!syncActive())
         return finish();
-    // The user chose something here meanwhile: that choice wins.
     bool userActed = false;
     for (const SyncOp &op : std::as_const(m_syncQueue))
         userActed = userActed || op.scope == scope;
     if ((m_syncWriteOp != 0 && m_syncWriting.scope == scope) || userActed)
         return finish();
     if (!ok && category == QLatin1String("changed")) {
-        // The picture changed again since the read that asked for it: not a
-        // failure of this one, the next read decides.
         qCInfo(lcBackdrop) << "sync download op=" << opId << "scope=" << syncTag(scope)
                            << "result=changed-on-server";
         if (!reread)
-            syncRead(scope);   // (finish() reads it when already owed)
+            syncRead(scope);
         return finish();
     }
     const RemoteEntry remote = remoteFromMap(entry);
     Prepared picture;
     QString error = ok ? QString() : (category.isEmpty() ? QStringLiteral("failed") : category);
-    // The same sniff, bounds, animation keep/strip and still re-encode as a picked file:
-    // what another device uploaded is not trusted further than that.
     if (error.isEmpty() && remote.state != QLatin1String("present"))
         error = QStringLiteral("invalid");
     if (error.isEmpty() && !encodePicture(bytes, picture, error) && error.isEmpty())
         error = QStringLiteral("undecodable");
     QVariantMap store = personalStore();
     if (compare) {
-        // Only to compare with a local-only picture: nothing is stored or
-        // replaced. The same picture adopts the server's copy; anything
-        // else (or a fetch that failed) is a conflict the user resolves.
         QVariantMap record = recordFor(store, scope);
         const QString id = remote.id.isEmpty() ? wanted : remote.id;
         if (record.isEmpty() || !record.value(QStringLiteral("remote")).toString().isEmpty()
@@ -2953,15 +2660,12 @@ void ChatBackdropController::handleSyncDownloaded(quint64 opId,
             error = QStringLiteral("write_failed");
     }
     if (!error.isEmpty()) {
-        // Remembered by id: this picture is not fetched again until retry.
         m_failedDownloadIds.insert(scope, remote.id.isEmpty() ? wanted : remote.id);
         m_syncError = error;
         qCWarning(lcBackdrop) << "sync download op=" << opId << "scope="
                               << syncTag(scope) << "result=fail category=" << error;
         return finish();
     }
-    // A conflicted local picture is replaced only when the user chose the
-    // synced one; a conflict that appeared during the download stays.
     if (recordFor(store, scope).contains(QStringLiteral("conflict")) && !replaceConflict)
         return finish();
     QVariantMap record;
@@ -2978,8 +2682,6 @@ void ChatBackdropController::handleSyncDownloaded(quint64 opId,
     record.insert(QStringLiteral("presentation"),
                   backdrop::presentationFromWire(remote.presentation));
     record.insert(QStringLiteral("remote"), remote.id);
-    // What the uploader's file was (this one is a re-encode of it): the same
-    // picture coming back later is recognised, not asked about (sameAsLocal).
     record.insert(QStringLiteral("source"),
                   QString::fromLatin1(QCryptographicHash::hash(
                       bytes, QCryptographicHash::Sha256).toHex()));
@@ -3005,13 +2707,8 @@ void ChatBackdropController::handleSyncChanged(const QString &scope)
         return;
     if (!scope.isEmpty() && !scope.startsWith(QLatin1Char('!')))
         return;
-    // Room changes matter only while syncing; the default also carries the
-    // switch, which is followed even while this device is off.
     if (!scope.isEmpty() && !syncActive())
         return;
-    // Until the start-up full read has answered, a room's notice is that
-    // read's job (initial sync pokes every room at once). One that arrives
-    // while it is out is read after it.
     if (!scope.isEmpty() && !m_syncStarted) {
         for (const QString &inFlight : std::as_const(m_syncReads)) {
             if (inFlight == QLatin1String("*")) {
@@ -3074,7 +2771,6 @@ QStringList ChatBackdropController::knownSyncedRooms() const
             && !out.contains(it.key()))
             out.append(it.key());
     }
-    // Removals still owed go too.
     const QVariantMap pending = store.value(QStringLiteral("pending")).toMap();
     for (auto it = pending.constBegin(); it != pending.constEnd(); ++it) {
         if (!it.key().isEmpty() && !out.contains(it.key()))
@@ -3123,11 +2819,8 @@ void ChatBackdropController::resetSyncState()
     m_syncRemoveFailed = 0;
 }
 
-// ---- session ---------------------------------------------------------------------
-
 void ChatBackdropController::onSessionChanged()
 {
-    // Another account's personal store and staged copies.
     m_personalLoaded = false;
     m_personalCache.clear();
     for (const QString &token : std::as_const(m_stagedTokens)) {
@@ -3136,9 +2829,6 @@ void ChatBackdropController::onSessionChanged()
     }
     m_stagedTokens.clear();
     m_stagedOrder.clear();
-    // Another account's server copies and operations. sessionChanged also
-    // fires for the same account (a saved session), which must not drop an
-    // upload in flight.
     const QString user = m_settings ? m_settings->userId() : QString();
     if (user != m_syncUserId) {
         resetSyncState();

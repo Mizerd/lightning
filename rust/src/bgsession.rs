@@ -1,30 +1,3 @@
-//! Background handles (Labs, Phase 1): the allow-list gate on the event
-//! queue, the notification pre-filter, the Session sticky slot and the
-//! room-summary aggregator (design 2026-10-15 §3.2.3-§3.2.5 and §3.2.9,
-//! contract la-p1 §3.2-§3.5).
-//!
-//! A Background handle is an ordinary `RustClient` whose queues are
-//! registered here. `crate::enqueue` asks [`admit`] about every event bound
-//! for a registered queue, but only once `labs::active()` reads true, so with
-//! the flag off nothing in this file runs. In Background:
-//!
-//! * `Session` events flow and the sticky ones are recorded in the slot
-//!   (`mx_rust_bg_take_session_state`), so C++ never depends on the queue for
-//!   them;
-//! * `Notify` events flow only when [`should_forward`] says so, at or above
-//!   the floor, with a small `bg` object C++ builds the notification from;
-//! * everything else is dropped and counted. The work behind the costly
-//!   UiOnly producers is skipped at its source (lib.rs), not just here.
-//!
-//! The aggregator turns `room_info_notable_update_receiver()` into a dirty
-//! set and a flag; `mx_rust_bg_take` serializes the WHOLE counts table at take
-//! time, on the caller's thread. No queue entry, so an overflow cannot freeze
-//! a badge. The unread RULE is never ported here: C++ applies
-//! `roomunread::countsAsUnread` to the counts.
-//!
-//! Never logged or kept: tokens (scrubbed from every sticky payload), message
-//! bodies, keys. Room names and display names cross only inside a forwarded
-//! notification's `bg` object, in memory.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
@@ -38,18 +11,13 @@ use serde_json::{json, Value};
 use crate::labs::{self, EventClass, Mode, Profile};
 use crate::EventQueueRef;
 
-/// Bound on the forwarded-event-id set (`event_decrypted`/`event_redacted`
-/// flow only for an id this handle forwarded).
 pub(crate) const FORWARDED_IDS_CAP: usize = 512;
-/// A `Lagged` rescan runs at most this often.
 pub(crate) const RESCAN_INTERVAL: Duration = Duration::from_secs(30);
 /// A Background verification request leaves the sticky slot after this long
 /// even if no cancellation names it: matrix-sdk-crypto times a request out
 /// after ten minutes (`VERIFICATION_TIMEOUT`) and says so to nobody.
 pub(crate) const PENDING_VERIFICATION_TTL: Duration = Duration::from_secs(10 * 60);
 
-/// Which sticky types the slot keeps (contract §3.3). `ignored_users_changed`
-/// is folded into `ignored_users_list`; `crypto_bootstrap` is kept per kind.
 const STICKY_TYPES: &[&str] = &[
     "status",
     "login_ok",
@@ -87,7 +55,6 @@ const FORBIDDEN_FIELDS: &[&str] = &[
     "preview",
 ];
 
-/// Remove every forbidden field, at any depth.
 pub(crate) fn scrub(value: &mut Value) {
     match value {
         Value::Object(map) => {
@@ -101,24 +68,13 @@ pub(crate) fn scrub(value: &mut Value) {
     }
 }
 
-/// The versioned Session sticky slot.
-///
-/// Every entry carries `"_v"`: the slot version at which it was written, so a
-/// reader can order entries of DIFFERENT types (review 2026-10-16, finding
-/// 2): a `sync_error` is current only if no `room_list_sync_state` was written
-/// after it. Two pairs are also settled here, so the common questions need no
-/// comparison at all: `login_ok` and `login_failed` replace each other, and a
-/// `room_list_sync_state` of `running` (a sync response arrived) removes
-/// `sync_error` and `sync_stalled`.
 #[derive(Default, Debug)]
 pub(crate) struct Sticky {
     version: u64,
     state: BTreeMap<String, Value>,
-    /// When the pending `verification_request_received` was recorded.
     pending_since: Option<Instant>,
 }
 
-/// `value` with `"_v": version` added (objects only).
 fn stamped(value: &Value, version: u64) -> Value {
     let mut value = value.clone();
     if let Some(map) = value.as_object_mut() {
@@ -128,8 +84,6 @@ fn stamped(value: &Value, version: u64) -> Value {
 }
 
 impl Sticky {
-    /// Record one Session event, if its type is sticky. Returns whether the
-    /// slot changed. `value` is already scrubbed.
     pub(crate) fn record(&mut self, event_type: &str, value: &Value) -> bool {
         self.record_at(event_type, value, Instant::now())
     }
@@ -137,7 +91,6 @@ impl Sticky {
     pub(crate) fn record_at(&mut self, event_type: &str, value: &Value, now: Instant) -> bool {
         let version = self.version + 1;
         match event_type {
-            // Folded: the list as it stands after the change.
             "ignored_users_changed" => {
                 let users = value.get("users").cloned().unwrap_or(Value::Array(Vec::new()));
                 self.state.insert(
@@ -146,8 +99,6 @@ impl Sticky {
                             "_v": version }),
                 );
             }
-            // One per kind: verification, recovery and backup states arrive as
-            // separate kinds, and the last one alone would lose the others.
             "crypto_bootstrap" => {
                 let kind = value.get("kind").and_then(Value::as_str).unwrap_or("").to_owned();
                 let slot = self
@@ -204,8 +155,6 @@ impl Sticky {
         true
     }
 
-    /// Drop a pending verification request older than
-    /// [`PENDING_VERIFICATION_TTL`]. Returns whether the slot changed.
     pub(crate) fn expire(&mut self, now: Instant) -> bool {
         match self.pending_since {
             Some(since) if now.saturating_duration_since(since) >= PENDING_VERIFICATION_TTL => {
@@ -222,24 +171,20 @@ impl Sticky {
         self.version
     }
 
-    /// `{"v":1,"version":N,"state":{...}}`.
     pub(crate) fn to_json(&self) -> Value {
         json!({ "v": 1, "version": self.version, "state": self.state })
     }
 }
 
-/// The facts the pre-filter reads from a notify event.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct NotifyFacts {
     pub timestamp_ms: u64,
-    /// `None`: no verdict was computed.
     pub push_notify: Option<bool>,
     pub push_highlight: bool,
     pub mentions_me: bool,
     pub in_local_rules: bool,
 }
 
-/// Why a notify event was forwarded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ForwardReason {
     Push,
@@ -259,9 +204,6 @@ impl ForwardReason {
     }
 }
 
-/// The Background notification pre-filter (contract §3.5). Pure. Below the
-/// floor nothing is forwarded; otherwise the push verdict, a mention or
-/// highlight, the local-rule set, or the absence of any verdict forwards.
 pub(crate) fn should_forward(facts: &NotifyFacts, floor_ms: u64) -> Option<ForwardReason> {
     if facts.timestamp_ms < floor_ms {
         return None;
@@ -281,7 +223,6 @@ pub(crate) fn should_forward(facts: &NotifyFacts, floor_ms: u64) -> Option<Forwa
     None
 }
 
-/// A bounded FIFO set of event ids.
 #[derive(Default, Debug)]
 pub(crate) struct BoundedIds {
     order: VecDeque<String>,
@@ -312,7 +253,6 @@ impl BoundedIds {
     }
 }
 
-/// `Lagged` rescans at most once per [`RESCAN_INTERVAL`].
 #[derive(Debug, Default)]
 pub(crate) struct RescanLimiter {
     last: Option<Instant>,
@@ -320,7 +260,6 @@ pub(crate) struct RescanLimiter {
 }
 
 impl RescanLimiter {
-    /// A `Lagged` arrived. True: rescan now. False: one is now pending.
     pub(crate) fn on_lagged(&mut self, now: Instant) -> bool {
         match self.last {
             Some(last) if now.saturating_duration_since(last) < RESCAN_INTERVAL => {
@@ -335,7 +274,6 @@ impl RescanLimiter {
         }
     }
 
-    /// When a pending rescan becomes due, if one is pending.
     pub(crate) fn due_at(&self) -> Option<Instant> {
         if self.pending {
             self.last.map(|last| last + RESCAN_INTERVAL)
@@ -344,7 +282,6 @@ impl RescanLimiter {
         }
     }
 
-    /// A pending rescan whose time came. True: rescan now.
     pub(crate) fn on_due(&mut self, now: Instant) -> bool {
         match self.due_at() {
             Some(due) if now >= due => {
@@ -357,8 +294,6 @@ impl RescanLimiter {
     }
 }
 
-/// Per-handle Background state. Shared by the bridge, the gate and the
-/// aggregator.
 pub(crate) struct BgState {
     pub(crate) profile: Profile,
     mode: AtomicU8,
@@ -380,11 +315,8 @@ pub(crate) struct BgState {
     baseline_taken: AtomicBool,
     seq: AtomicU64,
     notable_updates_total: AtomicU64,
-    /// Events the allow-list refused, for the tests and the S5 counters.
     gate_dropped: AtomicU64,
-    /// UiOnly work skipped at its source (lib.rs counts each skip).
     work_skipped: AtomicU64,
-    /// Aggregator abort handle, set while a sync session runs it.
     aggregator: Mutex<Option<tokio::task::AbortHandle>>,
 }
 
@@ -426,10 +358,6 @@ impl BgState {
         self.mode() == Mode::Background
     }
 
-    /// Warm account adoption (`mx_rust_bg_promote`): from now on every
-    /// `for_queue()` of this handle answers `None`, so the admission gate, the
-    /// command lane and the UiOnly producers all take the foreground path. One
-    /// way: a promoted handle is never demoted again (it is retired instead).
     pub(crate) fn promote_to_foreground(&self) {
         self.mode.store(Mode::Foreground as u8, Ordering::SeqCst);
     }
@@ -443,7 +371,6 @@ impl BgState {
         self.gate_dropped.load(Ordering::Relaxed)
     }
 
-    /// One unit of UiOnly work was not done.
     pub(crate) fn note_skipped(&self) {
         self.work_skipped.fetch_add(1, Ordering::Relaxed);
     }
@@ -465,7 +392,6 @@ impl BgState {
         self.dirty.load(Ordering::SeqCst)
     }
 
-    /// Replace the local-rule set.
     pub(crate) fn set_local_rules(&self, rooms: Vec<String>) {
         if let Ok(mut set) = self.local_rules.write() {
             *set = rooms.into_iter().collect();
@@ -476,9 +402,6 @@ impl BgState {
         self.local_rules.read().map(|set| set.contains(room)).unwrap_or(false)
     }
 
-    // ---- The gate ----------------------------------------------------------
-
-    /// What reaches a Background queue. `None`: dropped (and counted).
     pub(crate) fn admit(&self, mut value: Value) -> Option<Value> {
         if !self.is_background() {
             return Some(value);
@@ -508,9 +431,6 @@ impl BgState {
                         map.insert("reason".to_owned(), reason.into());
                     }
                 }
-                // `rate_limited`/`retry_after_ms` are set at the source from the
-                // error's kind and status (`rate_limit_facts`); a sync_error
-                // with no error behind it is not rate limited.
                 if event_type == "sync_error" {
                     if let Some(map) = value.as_object_mut() {
                         map.entry("rate_limited").or_insert(false.into());
@@ -540,25 +460,15 @@ impl BgState {
                     value.get("event").cloned().unwrap_or(Value::Null)
                 };
                 let event_id = source.get("event_id").and_then(Value::as_str).unwrap_or("");
-                // A late decryption of an event forwarded earlier always follows it.
                 if event_type == "event_decrypted" && self.was_forwarded(event_id) {
                     return Some(value);
                 }
-                // A reaction notifies only on a message of ours (`noteReaction`),
-                // and a Background host has sent nothing, so only the store's
-                // own word for it counts.
                 if event_type == "reaction_event"
                     && source.get("target_is_own").and_then(Value::as_bool) != Some(true)
                 {
                     self.gate_dropped.fetch_add(1, Ordering::Relaxed);
                     return None;
                 }
-                // `event_decrypted` of an event NOT forwarded is judged on its own
-                // decrypted facts, its verdict recomputed on the decrypted content
-                // (`decrypted_event_json`): an undecryptable mention in a
-                // mentions-only room was dropped on the encrypted verdict, and its
-                // decryption is the only place the mention can be seen (review
-                // 2026-10-16, finding 3; the foreground announces every one).
                 let facts = NotifyFacts {
                     timestamp_ms: source.get("timestamp_ms").and_then(Value::as_u64).unwrap_or(0),
                     push_notify: source.get("push_notify").and_then(Value::as_bool),
@@ -609,10 +519,6 @@ impl BgState {
             && self.forwarded.lock().map(|ids| ids.contains(event_id)).unwrap_or(false)
     }
 
-    /// The room's cached name, whether it is a DM, and the sender's name from
-    /// the room's heroes. Synchronous and store-free: `try_lock` on the
-    /// client slot (a caller may hold it), cached values only, `""` when
-    /// unresolved (C++ falls back to the localpart).
     fn room_facts(&self, room_id: &str, sender: &str) -> (String, bool, String) {
         let Some(slot) = self.client.upgrade() else {
             return (String::new(), false, String::new());
@@ -639,8 +545,6 @@ impl BgState {
         (name, room.direct_targets_length() > 0, sender_name)
     }
 
-    // ---- Session slot ------------------------------------------------------
-
     pub(crate) fn take_session_state(&self) -> String {
         self.expire_session_state(Instant::now());
         self.sticky
@@ -649,8 +553,6 @@ impl BgState {
             .unwrap_or_else(|_| json!({ "v": 1, "version": 0, "state": {} }).to_string())
     }
 
-    /// Expire a stale pending verification request (`Sticky::expire`). Run
-    /// on every poll, so the version a host compares moves when it happens.
     pub(crate) fn expire_session_state(&self, now: Instant) {
         if let Ok(mut sticky) = self.sticky.lock() {
             if sticky.expire(now) {
@@ -658,8 +560,6 @@ impl BgState {
             }
         }
     }
-
-    // ---- Aggregator --------------------------------------------------------
 
     pub(crate) fn note_room(&self, room_id: OwnedRoomId) {
         self.notable_updates_total.fetch_add(1, Ordering::Relaxed);
@@ -674,7 +574,6 @@ impl BgState {
         self.dirty.store(true, Ordering::SeqCst);
     }
 
-    /// A new sync session: the next take is a baseline.
     pub(crate) fn note_session_start(&self) {
         self.dirty.store(true, Ordering::SeqCst);
     }
@@ -687,11 +586,6 @@ impl BgState {
         }
     }
 
-    /// The summary JSON (contract §3.2). Clears `dirty`. The counts table is
-    /// the WHOLE table every time; `rows` is empty in Phase 1 (`max_rows` 0).
-    /// Serialized under the client-slot lock so the Client is never cloned
-    /// here: a clone that became the last reference would close the stores on
-    /// this (runtime-less) thread.
     pub(crate) fn take(&self, _max_rows: u32) -> String {
         self.dirty.store(false, Ordering::SeqCst);
         if let Ok(mut rooms) = self.dirty_rooms.lock() {
@@ -731,7 +625,6 @@ impl BgState {
         .to_string()
     }
 
-    /// `mx_rust_bg_poll`'s queue lengths.
     pub(crate) fn queue_lengths(&self) -> (u32, u32) {
         let len = |queue: &Weak<Mutex<VecDeque<String>>>| {
             queue
@@ -760,7 +653,6 @@ pub(crate) fn rate_limit_facts(
     }
 }
 
-/// Add [`rate_limit_facts`] to a `sync_error` payload.
 pub(crate) fn with_rate_limit(mut value: Value, facts: (bool, Option<u64>)) -> Value {
     if let Some(map) = value.as_object_mut() {
         map.insert("rate_limited".to_owned(), facts.0.into());
@@ -771,7 +663,6 @@ pub(crate) fn with_rate_limit(mut value: Value, facts: (bool, Option<u64>)) -> V
     value
 }
 
-/// The counts a room contributes, read from cached state only.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct RoomCounts {
     pub room_id: String,
@@ -787,9 +678,6 @@ pub(crate) struct RoomCounts {
 }
 
 impl RoomCounts {
-    /// `None` for a quiet room, decided from the plain counters BEFORE the
-    /// room id is allocated or the read receipts cloned: most rooms are quiet
-    /// and `take` runs per tick (review 2026-10-16, finding 12).
     fn of(room: &matrix_sdk::Room) -> Option<Self> {
         let server = room.unread_notification_counts();
         let mut counts = Self {
@@ -810,7 +698,6 @@ impl RoomCounts {
         let state = room.encryption_state();
         counts.encrypted = state.is_encrypted();
         counts.encryption_known = !state.is_unknown();
-        // Only the unencrypted thread-only rule reads the receipt.
         if !counts.encrypted {
             counts.counted_from_receipt = room.read_receipts().latest_active.is_some();
         }
@@ -818,8 +705,6 @@ impl RoomCounts {
         Some(counts)
     }
 
-    /// Every counter zero and not marked: `count_tuple` would return `None`
-    /// whatever the encryption state and the receipt (a test walks it).
     pub(crate) fn is_quiet(&self) -> bool {
         self.client_notifications == 0
             && self.client_mentions == 0
@@ -838,9 +723,6 @@ pub(crate) const FLAG_ENCRYPTED: u64 = 16;
 pub(crate) const FLAG_ENCRYPTION_KNOWN: u64 = 32;
 pub(crate) const FLAG_LOWER_BOUND: u64 = 64;
 
-/// One counts tuple `[room_id, unread, highlight, flags]`, computed with the
-/// SAME helpers `room_payload` uses, or `None` when the room contributes
-/// nothing. Pure.
 pub(crate) fn count_tuple(counts: &RoomCounts) -> Option<Value> {
     let (unread, highlight) = crate::unread_and_highlight_counts(
         counts.encrypted,
@@ -886,20 +768,13 @@ pub(crate) fn count_tuple(counts: &RoomCounts) -> Option<Value> {
     Some(json!([counts.room_id, unread, highlight, flags]))
 }
 
-/// What to do with a room not yet watched, given the watched set with bump
-/// stamps and the cap.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum WatchDecision {
-    /// Room under the cap: watch it.
     Watch,
-    /// At the cap and more recent than the least recent watched room: unwatch
-    /// that one (lowest stamp first, ties by id), then watch this one.
     Replace(OwnedRoomId),
-    /// At the cap and not more recent than any watched room.
     Skip,
 }
 
-/// Pure (design §3.2.3): the watched set is capped by bump stamp.
 pub(crate) fn watch_decision(watched: &[(OwnedRoomId, u64)], cap: usize, stamp: u64) -> WatchDecision {
     if watched.len() < cap {
         return WatchDecision::Watch;
@@ -913,11 +788,6 @@ pub(crate) fn watch_decision(watched: &[(OwnedRoomId, u64)], cap: usize, stamp: 
     }
 }
 
-/// The room list as an id mirror, for Background watch maintenance: apply
-/// one diff and return the ids it took out of the list, so a room that left
-/// gives its watch slot back (review 2026-10-16, finding 12). A position the
-/// mirror lacks is ignored, never a panic (eyeball's own `apply` panics).
-/// Pure.
 pub(crate) fn apply_order_diff<T: Clone>(
     order: &mut Vec<T>,
     diff: matrix_sdk_ui::eyeball_im::VectorDiff<T>,
@@ -963,8 +833,6 @@ pub(crate) fn apply_order_diff<T: Clone>(
     }
 }
 
-/// The aggregator: notable room updates into the dirty set. Runs for the
-/// life of a sync session on its runtime; aborted with it.
 pub(crate) async fn run_aggregator(client: Client, state: Arc<BgState>) {
     let mut updates = client.room_info_notable_update_receiver();
     drop(client);
@@ -998,8 +866,6 @@ async fn sleep_until_opt(at: Option<Instant>) {
     }
 }
 
-// ---- Registry: which queues belong to a Background handle -------------------
-
 type Registry = HashMap<usize, (Weak<Mutex<VecDeque<String>>>, Weak<BgState>)>;
 
 fn registry() -> &'static RwLock<Registry> {
@@ -1011,9 +877,6 @@ fn key(queue: &EventQueueRef) -> usize {
     Arc::as_ptr(queue) as *const () as usize
 }
 
-/// Register a Background handle's two queues. The entry holds a `Weak` of the
-/// queue, so its allocation (and address) cannot be reused while the entry
-/// exists: no ABA.
 pub(crate) fn register(events: &EventQueueRef, commands: &EventQueueRef, state: &Arc<BgState>) {
     if let Ok(mut map) = registry().write() {
         map.retain(|_, (queue, state)| queue.strong_count() > 0 && state.strong_count() > 0);
@@ -1030,23 +893,18 @@ pub(crate) fn unregister(events: &EventQueueRef, commands: &EventQueueRef) {
     }
 }
 
-/// The Background state a queue belongs to. `None` at one relaxed load when
-/// Labs is off.
 pub(crate) fn for_queue(queue: &EventQueueRef) -> Option<Arc<BgState>> {
     if !labs::active() {
         return None;
     }
     let map = registry().read().ok()?;
     let (weak_queue, state) = map.get(&key(queue))?;
-    // The same allocation, still alive.
     if !weak_queue.upgrade().is_some_and(|q| Arc::ptr_eq(&q, queue)) {
         return None;
     }
     state.upgrade().filter(|state| state.is_background())
 }
 
-/// The gate `crate::enqueue` calls when Labs is on. A queue no Background
-/// handle owns passes the value through unchanged.
 pub(crate) fn admit(queue: &EventQueueRef, value: Value) -> Option<Value> {
     match for_queue(queue) {
         Some(state) => state.admit(value),
@@ -1054,8 +912,6 @@ pub(crate) fn admit(queue: &EventQueueRef, value: Value) -> Option<Value> {
     }
 }
 
-/// The command lane in Background: CommandResult is empty in Phase 1, so
-/// nothing is queued. True: drop.
 pub(crate) fn refuses_command(queue: &EventQueueRef) -> bool {
     match for_queue(queue) {
         Some(state) => {
@@ -1147,11 +1003,8 @@ mod tests {
     #[test]
     fn notify_events_are_filtered_and_labelled_and_their_follow_ups_track_them() {
         let (st, _, _) = state(500);
-        // Below the floor, even with a push verdict.
         assert!(st.admit(timeline("!a:hs", "$old", 100, json!({"push_notify": true}))).is_none());
-        // A verdict of "no" in a room with no local rule: dropped.
         assert!(st.admit(timeline("!a:hs", "$quiet", 900, json!({"push_notify": false}))).is_none());
-        // The same in a local-rule room: forwarded.
         let local = st
             .admit(timeline("!local:hs", "$local", 900, json!({"push_notify": false})))
             .expect("local rule");
@@ -1167,7 +1020,6 @@ mod tests {
             .admit(timeline("!a:hs", "$m", 900, json!({"push_notify": false, "mentions_me": true})))
             .expect("mention");
         assert_eq!(mention["bg"]["reason"], "mention");
-        // Reactions carry no verdict, and notify only on a message of ours.
         let reaction = st
             .admit(json!({"type": "reaction_event", "room_id": "!a:hs", "event_id": "$r",
                           "target_is_own": true, "timestamp_ms": 900}))
@@ -1179,8 +1031,6 @@ mod tests {
                               "target_is_own": target_is_own, "timestamp_ms": 900}))
                 .is_none(), "a reaction to someone else's message: {target_is_own}");
         }
-        // A forwarded event's late decryption always follows it; another is
-        // judged on its OWN decrypted facts.
         assert!(st
             .admit(json!({"type": "event_decrypted", "room_id": "!a:hs",
                           "event": {"event_id": "$push"}}))
@@ -1196,17 +1046,12 @@ mod tests {
         assert!(st
             .admit(json!({"type": "event_redacted", "room_id": "!a:hs", "redacts": "$quiet"}))
             .is_none());
-        // Local rules are replaceable.
         st.set_local_rules(vec![]);
         assert!(st
             .admit(timeline("!local:hs", "$l2", 900, json!({"push_notify": false})))
             .is_none());
     }
 
-    // Review 2026-10-16, finding 3: in a mentions-only room an undecryptable
-    // event's verdict (computed on the ciphertext) is "no", so it is dropped;
-    // when it decrypts into a mention, that decryption must still notify, and
-    // its own redaction then follows it. Below the floor it never does.
     #[test]
     fn a_mention_that_decrypts_late_is_forwarded_on_its_decrypted_verdict() {
         let (st, _, _) = state(500);
@@ -1223,7 +1068,6 @@ mod tests {
         assert!(st
             .admit(json!({"type": "event_redacted", "room_id": "!a:hs", "redacts": "$late"}))
             .is_some(), "its redaction follows it now");
-        // The floor still applies to a late decryption.
         assert!(st
             .admit(json!({"type": "event_decrypted", "room_id": "!a:hs",
                           "event": {"event_id": "$older", "timestamp_ms": 100,
@@ -1255,7 +1099,6 @@ mod tests {
             if st.admit(timeline("!busy:hs", &format!("$e{i}"), 10 + i, extra)).is_some() {
                 forwarded += 1;
             }
-            // Non-notify noise in between, as a busy account produces.
             assert!(st.admit(json!({"type": "room_list_set", "index": 1})).is_none());
         }
         assert_eq!(forwarded, 10, "every mention, and nothing else");
@@ -1290,12 +1133,10 @@ mod tests {
         assert_eq!(s["verification_request_received"]["flow_id"], "f1");
         assert!(s.get("queue_overflow").is_none(), "not a sticky type");
         assert_eq!(taken["version"].as_u64(), Some(st.session_state_version()));
-        // Every entry says when it was written.
         assert!(s["status"]["_v"].as_u64().unwrap() < s["login_ok"]["_v"].as_u64().unwrap());
         assert_eq!(s["verification_request_received"]["_v"].as_u64(), taken["version"].as_u64());
         assert!(s["crypto_bootstrap"]["backup"]["_v"].as_u64().is_some());
         assert!(s["ignored_users_list"]["_v"].as_u64().is_some());
-        // Walk every payload for a forbidden field name.
         fn walk(value: &Value, path: &str) {
             match value {
                 Value::Object(map) => {
@@ -1309,8 +1150,6 @@ mod tests {
             }
         }
         walk(s, "state");
-        // A cancelled flow is not pending any more; another flow's cancel is
-        // not this one's.
         let before = st.session_state_version();
         st.admit(json!({"type": "verification_cancelled", "flow_id": "other"}));
         assert_eq!(st.session_state_version(), before);
@@ -1320,14 +1159,12 @@ mod tests {
         assert!(st.session_state_version() > before);
     }
 
-    // Review 2026-10-16, finding 2: the slot says which state is current.
     #[test]
     fn the_sticky_slot_orders_its_entries_and_settles_the_pairs_that_contradict() {
         let (st, _, _) = state(0);
         let read = |st: &BgState| -> Value {
             serde_json::from_str::<Value>(&st.take_session_state()).unwrap()["state"].clone()
         };
-        // A store refusal, then the same handle restores: only login_ok is left.
         st.admit(json!({"type": "login_failed", "message": "x"}));
         st.admit(json!({"type": "login_ok", "user_id": "@u:hs"}));
         let s = read(&st);
@@ -1336,7 +1173,6 @@ mod tests {
         st.admit(json!({"type": "login_failed", "message": "y"}));
         let s = read(&st);
         assert!(s.get("login_ok").is_none(), "{s}");
-        // A sync error, then a response: running clears it and the stall.
         st.admit(json!({"type": "sync_error", "message": "boom"}));
         st.admit(json!({"type": "sync_stalled", "phase": "no_progress"}));
         st.admit(json!({"type": "room_list_sync_state", "state": "offline"}));
@@ -1345,15 +1181,11 @@ mod tests {
         st.admit(json!({"type": "room_list_sync_state", "state": "running"}));
         let s = read(&st);
         assert!(s.get("sync_error").is_none() && s.get("sync_stalled").is_none(), "{s}");
-        // An error after the running state is current, and says so by order.
         st.admit(json!({"type": "sync_error", "message": "again"}));
         let s = read(&st);
         assert!(s["sync_error"]["_v"].as_u64() > s["room_list_sync_state"]["_v"].as_u64());
     }
 
-    // Review 2026-10-16, finding 4: a pending request leaves the slot when its
-    // requester cancels, never on a stranger's cancel naming its flow, and
-    // after the SDK's timeout if nobody says anything.
     #[test]
     fn a_pending_verification_request_is_cancelled_by_its_requester_or_expires() {
         let mut sticky = Sticky::default();
@@ -1367,14 +1199,12 @@ mod tests {
         assert!(sticky.record_at("verification_cancelled",
             &json!({"flow_id": "f1", "other_user_id": "@peer:hs"}), t0));
         assert!(sticky.to_json()["state"].get("verification_request_received").is_none());
-        // Nobody cancels: gone after the SDK's timeout, and the version moves.
         sticky.record_at("verification_request_received", &request, t0);
         let before = sticky.version();
         assert!(sticky.expire(t0 + PENDING_VERIFICATION_TTL));
         assert!(sticky.version() > before);
         assert!(sticky.to_json()["state"].get("verification_request_received").is_none());
         assert!(!sticky.expire(t0 + PENDING_VERIFICATION_TTL * 2), "once");
-        // Through the state: the poll path moves the version a host compares.
         let (st, _, _) = state(0);
         st.admit(request.clone());
         let before = st.session_state_version();
@@ -1382,13 +1212,9 @@ mod tests {
         assert!(st.session_state_version() > before);
     }
 
-    // Review 2026-10-16, finding 5: the store stage comes from the open
-    // context of the restore that was refused, never from text the server
-    // controls; and the rate-limit facts from the error, never from text.
     #[test]
     fn only_a_recorded_refusal_makes_a_store_stage_and_text_sets_nothing() {
         let (st, _, _) = state(0);
-        // Server text that names a marker: no stage, outside or inside a context.
         let spoof = json!({"type": "login_failed",
             "message": "M_FORBIDDEN: [lightning-store:crypto_account_mismatch] 429 :8429"});
         let failed = st.admit(spoof.clone()).unwrap();
@@ -1399,7 +1225,6 @@ mod tests {
             .block_on(crate::labs::scope_open(Some(clean), async { st.admit(spoof.clone()) }))
             .unwrap();
         assert!(failed.get("stage").is_none(), "{failed}");
-        // A refusal recorded by the open: the stage and reason.
         let refused = Arc::new(crate::labs::OpenContext::default());
         let failed = runtime
             .block_on(crate::labs::scope_open(Some(refused), async {
@@ -1409,14 +1234,12 @@ mod tests {
             .unwrap();
         assert_eq!(failed["stage"], "store");
         assert_eq!(failed["reason"], "crypto_account_missing");
-        // sync_error: text never sets rate_limited.
         let plain = st
             .admit(json!({"type": "sync_error",
                           "message": "failed: http://hs:8429 [429 / M_LIMIT_EXCEEDED] retry_after_ms: 2500"}))
             .unwrap();
         assert_eq!(plain["rate_limited"], false);
         assert!(plain.get("retry_after_ms").is_none());
-        // The source's facts pass through.
         let limited = st
             .admit(with_rate_limit(json!({"type": "sync_error", "message": "x"}), (true, Some(2500))))
             .unwrap();
@@ -1445,7 +1268,6 @@ mod tests {
     #[test]
     fn a_counts_tuple_uses_the_room_payload_rule_and_skips_quiet_rooms() {
         assert_eq!(count_tuple(&counts("!q:hs")), None, "a quiet room is absent");
-        // Unencrypted: max of client and server, as room_payload.
         let mut plain = counts("!p:hs");
         plain.client_notifications = 1;
         plain.server_notifications = 4;
@@ -1456,7 +1278,6 @@ mod tests {
             count_tuple(&plain),
             Some(json!(["!p:hs", 4, 1, FLAG_HAS_UNREAD | FLAG_ENCRYPTION_KNOWN]))
         );
-        // Encrypted: client counts only, and a lower bound.
         let mut enc = counts("!e:hs");
         enc.encrypted = true;
         enc.client_notifications = 2;
@@ -1466,7 +1287,6 @@ mod tests {
             Some(json!(["!e:hs", 2, 0,
                         FLAG_ENCRYPTED | FLAG_ENCRYPTION_KNOWN | FLAG_LOWER_BOUND]))
         );
-        // Thread-only unread.
         let mut threads = counts("!t:hs");
         threads.counted_from_receipt = true;
         threads.server_notifications = 3;
@@ -1474,15 +1294,11 @@ mod tests {
         let tuple = count_tuple(&threads).unwrap();
         let flags = tuple[3].as_u64().unwrap();
         assert!(flags & FLAG_THREADS_ONLY != 0 && flags & FLAG_MENTION_IN_THREADS != 0);
-        // Marked unread alone counts.
         let mut marked = counts("!m:hs");
         marked.marked_unread = true;
         assert_eq!(count_tuple(&marked).unwrap()[3].as_u64().unwrap() & FLAG_MARKED_UNREAD, 2);
     }
 
-    // Review 2026-10-16, finding 12: `RoomCounts::of` skips a quiet room
-    // before reading its id, encryption or receipt. That is safe only if a
-    // quiet room yields no tuple whatever those are: walk every combination.
     #[test]
     fn a_quiet_room_has_no_tuple_whatever_its_encryption_and_receipt() {
         for encrypted in [false, true] {
@@ -1500,7 +1316,6 @@ mod tests {
                 }
             }
         }
-        // And any one non-zero counter is not quiet.
         for field in 0..6 {
             let mut c = counts("!n:hs");
             match field {
@@ -1533,7 +1348,6 @@ mod tests {
         assert_eq!(apply_order_diff(&mut order, VectorDiff::Truncate { length: 2 }), ["c", "e"]);
         assert_eq!(apply_order_diff(&mut order, VectorDiff::PopFront), ["d"]);
         assert_eq!(apply_order_diff(&mut order, VectorDiff::PopBack), ["f"]);
-        // Out of range: ignored.
         assert!(apply_order_diff(&mut order, VectorDiff::Remove { index: 9 }).is_empty());
         assert!(apply_order_diff(&mut order, VectorDiff::Set { index: 9, value: "x".into() })
             .is_empty());
@@ -1631,11 +1445,6 @@ mod tests {
     }
 }
 
-/// §18 round 1, L13: what one `take()` costs on a large account, measured on
-/// a real SDK Client synced from a loopback homeserver with `ROOMS` joined
-/// rooms (one in ten unread, so the counts table is not empty). Ignored by
-/// default: a measurement, not a gate. Run with
-/// `cargo test take_cost -- --ignored --nocapture`; it prints the numbers.
 #[cfg(test)]
 mod take_cost_measure {
     use super::*;
@@ -1747,7 +1556,6 @@ mod take_cost_measure {
         .unwrap()
     }
 
-    /// One account of `rooms` rooms: (median µs per take, counts rows).
     fn measure(runtime: &tokio::runtime::Runtime, rooms: usize) -> (u128, usize) {
         let addr = serve(rooms);
         let client = runtime.block_on(async {

@@ -32,7 +32,6 @@ namespace foreignqt {
 
 inline bool componentNamesOldQt(QString c)
 {
-    // /nix/store/<32 chars>-name: the name is what carries the version.
     static const QRegularExpression hash(
         QStringLiteral("^[0-9a-z]{32}-"));
     c.remove(hash);
@@ -56,8 +55,6 @@ inline bool isForeignQtPath(const QString &entry)
     return false;
 }
 
-// `value` is a path list in the platform separator. Returns what is kept and
-// appends what was dropped to `dropped`.
 inline QByteArray filterPathList(const QByteArray &value,
                                  QStringList *dropped = nullptr)
 {
@@ -75,11 +72,8 @@ inline QByteArray filterPathList(const QByteArray &value,
     return kept.join(QDir::listSeparator()).toLocal8Bit();
 }
 
-} // namespace foreignqt
+}
 
-// Applied to the process environment; returns one line per variable changed,
-// for the log (nothing is logged here: it runs before the log file exists).
-// A variable Qt 6 would have read the same way is left alone.
 inline QStringList sanitizeForeignQtEnvironment()
 {
     static const char *const names[] = {
@@ -109,4 +103,4 @@ inline QStringList sanitizeForeignQtEnvironment()
     return report;
 }
 
-} // namespace lightning
+}

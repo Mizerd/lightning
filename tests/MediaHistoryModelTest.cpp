@@ -1,9 +1,3 @@
-// The media browser's model: what it shows, and what it claims about how much
-// of history it has seen ("no images" after 60 events and after 40,000 are
-// different claims).
-//
-// Driven by emitting the client's own signals, as the Rust backend delivers
-// them.
 
 #include "matrix/MockMatrixClient.h"
 #include "models/MediaHistoryModel.h"
@@ -41,9 +35,6 @@ QVariantMap entry(const QString &eventId, const QString &kind,
     };
 }
 
-/// `entry()` plus the media registry key, which the Rust scanner sets to the
-/// event id. `entry()` omits it (theRegistryKeyRidesTheRow needs a row
-/// without one).
 QVariantMap keyedEntry(const QString &eventId, const QString &kind,
                        const QString &sender = QStringLiteral("@a:example.org"))
 {
@@ -59,9 +50,8 @@ bool login(MockMatrixClient &client)
                  QStringLiteral("alice"), QStringLiteral("x"));
     return spy.wait(kTimeoutMs);
 }
-} // namespace
+}
 
-/// A client that can walk history and counts the pages it is asked for.
 class WalkingClient : public MockMatrixClient
 {
 public:
@@ -84,8 +74,6 @@ class MediaHistoryModelTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    // "Nothing here" and "nothing here YET" are different answers, and the
-    // model has to be able to tell a view which one it is holding.
     void completenessIsReportedSeparatelyFromEmptiness()
     {
         MockMatrixClient client;
@@ -98,7 +86,6 @@ private Q_SLOTS:
         QVERIFY(!model.complete());
         QCOMPARE(model.scannedTotal(), 0);
 
-        // A page that found nothing in 400 events is NOT completeness.
         Q_EMIT client.mediaHistoryPage(0, QStringLiteral("!r:example.org"), {},
                                        400, 400, 0, false, false);
         QCOMPARE(model.rowCount(), 0);
@@ -108,8 +95,6 @@ private Q_SLOTS:
         QCOMPARE(model.scannedTotal(), 400);
     }
 
-    // A failed page leaves the rest of history UNKNOWN. Reporting it as
-    // complete would turn a server error into "that is everything".
     void aFailedPageIsNeverCompleteness()
     {
         MockMatrixClient client;
@@ -125,8 +110,6 @@ private Q_SLOTS:
         QCOMPARE(model.lastError(), QStringLiteral("server said no"));
     }
 
-    // Undecryptable history is a THIRD state. Without it, an encrypted room
-    // whose keys are missing just looks like a room with less media.
     void unreadableHistoryIsCountedAndSurfaced()
     {
         MockMatrixClient client;
@@ -144,9 +127,6 @@ private Q_SLOTS:
         QVERIFY(model.encryptedRoom());
     }
 
-    // Categories. "media" is the combined visual view and must NOT include
-    // files or links — the first version of the browser shipped with the
-    // model's category never set, so the Media tab listed everything.
     void theMediaCategoryIsVisualOnly()
     {
         MockMatrixClient client;
@@ -170,12 +150,10 @@ private Q_SLOTS:
         QCOMPARE(model.loadedCount(), 6);
 
         model.setCategory(QStringLiteral("media"));
-        QCOMPARE(model.rowCount(), 2);      // image + video only
+        QCOMPARE(model.rowCount(), 2);
 
-        // Audio holds recordings too: a reader looking for "that voice note"
-        // looks in Audio, not in a category of its own.
         model.setCategory(QStringLiteral("audio"));
-        QCOMPARE(model.rowCount(), 2);      // audio + voice
+        QCOMPARE(model.rowCount(), 2);
 
         model.setCategory(QStringLiteral("file"));
         QCOMPARE(model.rowCount(), 1);
@@ -185,9 +163,6 @@ private Q_SLOTS:
         QCOMPARE(model.rowCount(), 6);
     }
 
-    // A link event contributes one row PER URL, so the event id alone cannot
-    // be the identity — and pages can overlap at a boundary, so something has
-    // to stop the same row arriving twice.
     void thePairOfEventAndUrlIsTheIdentity()
     {
         MockMatrixClient client;
@@ -208,15 +183,11 @@ private Q_SLOTS:
                                        page, 1, 1, 0, false, false);
         QCOMPARE(model.loadedCount(), 2);
 
-        // The same page again — an overlapping boundary — adds nothing.
         Q_EMIT client.mediaHistoryPage(0, QStringLiteral("!r:example.org"),
                                        page, 1, 2, 0, false, false);
         QCOMPARE(model.loadedCount(), 2);
     }
 
-    // Tiles fetch through the media registry when the scanner registered a
-    // key (the only path that decrypts an encrypted thumbnail). The key rides
-    // the row as `mediaKey`; a row without one keeps the plain mxc route.
     void theRegistryKeyRidesTheRow()
     {
         MockMatrixClient client;
@@ -237,7 +208,6 @@ private Q_SLOTS:
         QVERIFY(model.data(model.index(1), MediaHistoryModel::MediaKeyRole).toString().isEmpty());
     }
 
-    // A page for a room the panel has moved away from must not land.
     void aPageForAnotherRoomIsIgnored()
     {
         MockMatrixClient client;
@@ -255,7 +225,6 @@ private Q_SLOTS:
                  "another room's completeness must not be adopted");
     }
 
-    // Filters run over what is loaded, and they compose.
     void filtersComposeOverTheLoadedSet()
     {
         MockMatrixClient client;
@@ -278,16 +247,12 @@ private Q_SLOTS:
         model.setSenderFilter(QStringLiteral("@ann:example.org"));
         QCOMPARE(model.rowCount(), 1);
 
-        // Text search looks at the filename too, and composes with sender.
         model.setQuery(QStringLiteral("$b"));
         QCOMPARE(model.rowCount(), 0);
         model.setSenderFilter(QString());
         QCOMPARE(model.rowCount(), 1);
     }
 
-    // The search placeholder promises captions: a caption is the event body of
-    // an attachment whose name travels in `filename`, and an edited caption
-    // arrives already folded into `body` by the scanner.
     void theSearchMatchesTheCaptionNotOnlyTheFilename()
     {
         MockMatrixClient client;
@@ -315,7 +280,6 @@ private Q_SLOTS:
         QCOMPARE(model.rowCount(), 1);
     }
 
-    // One account's attachments must never be listed under the next.
     void signingOutDropsTheBrowse()
     {
         MockMatrixClient client;
@@ -336,9 +300,6 @@ private Q_SLOTS:
         QVERIFY(model.roomId().isEmpty());
     }
 
-    // Clicking a picture in the Media tab opens that picture. The viewer takes
-    // the list and the index, and this model owns both so QML cannot
-    // re-derive an order that drifts from the one on screen.
     void imageEntriesCarryTheViewerShapeInViewOrder()
     {
         MockMatrixClient client;
@@ -358,8 +319,6 @@ private Q_SLOTS:
         const QVariantList images = model.imageEntries();
         QCOMPARE(images.size(), 2);
         const QVariantMap first = images.at(0).toMap();
-        // The keys ImageViewerOverlay actually binds to. A shape mismatch
-        // here is a blank viewer, not a compile error.
         for (const char *key : { "row", "mediaKey", "filename", "sender",
                                  "timestamp", "mime", "httpUrl", "isImage" })
             QVERIFY2(first.contains(QLatin1String(key)), key);
@@ -367,27 +326,18 @@ private Q_SLOTS:
                  QStringLiteral("$img1"));
         QCOMPARE(images.at(1).toMap().value(QStringLiteral("mediaKey")).toString(),
                  QStringLiteral("$img2"));
-        // The key is the media registry key, never the mxc: an encrypted
-        // room's mxc is not fetchable through the bridge at all.
         QVERIFY(!first.value(QStringLiteral("mediaKey")).toString()
                      .startsWith(QStringLiteral("mxc://")));
         QVERIFY(first.value(QStringLiteral("timestamp")).toDateTime().isValid());
 
-        // The index is by SHOWN row, and the rows between the images do not
-        // shift it. Row 2 is $img2 — the second image, index 1.
         QCOMPARE(model.imageIndexForRow(0), 0);
         QCOMPARE(model.imageIndexForRow(2), 1);
-        // A non-image row has no index into the image list, and must not be
-        // silently rounded to a neighbouring picture.
         QCOMPARE(model.imageIndexForRow(1), -1);
         QCOMPARE(model.imageIndexForRow(3), -1);
         QCOMPARE(model.imageIndexForRow(99), -1);
         QCOMPARE(model.imageIndexForRow(-1), -1);
     }
 
-    // The index follows the FILTERED view, because that is what the user is
-    // looking at. A filter that hides the first picture must not leave every
-    // click one place off.
     void theImageIndexFollowsTheFilteredView()
     {
         MockMatrixClient client;
@@ -415,13 +365,6 @@ private Q_SLOTS:
         QCOMPARE(model.imageIndexForRow(1), 1);
     }
 
-    // The reported "4 items in the 60 messages read so far, and no way to get
-    // more": a short list never scrolls, so scroll-driven paging never fired.
-    // "Show all media" must keep fetching pages by itself, to the end.
-    // The backend keeps one cursor per room for the session. A cleared model
-    // (closing and reopening Room info) must begin at the live edge, or the
-    // exhausted cursor answers "nothing older" and the grid shows 0 items.
-    // Fails on the old code: every request was restart=false.
     void reopeningARoomRestartsTheBackendWalk()
     {
         WalkingClient client;
@@ -436,7 +379,7 @@ private Q_SLOTS:
             client.lastOp, room,
             { keyedEntry(QStringLiteral("$a"), QStringLiteral("image")) },
             10, 10, 0, false, false);
-        model.loadMore(); // continues the same walk
+        model.loadMore();
         QCOMPARE(client.restarts.last(), false);
         Q_EMIT client.mediaHistoryPage(client.lastOp, room, {}, 5, 15, 0, true,
                                        false);
@@ -487,7 +430,6 @@ private Q_SLOTS:
         model.loadAll();
         model.cancelWalk();
         QVERIFY(!model.walking());
-        // The page already in flight lands, and nothing follows it.
         Q_EMIT client.mediaHistoryPage(client.lastOp, room, {}, 60, 60, 0,
                                        false, false);
         QCOMPARE(client.pagesRequested, 1);
@@ -517,8 +459,6 @@ private Q_SLOTS:
         QVERIFY(!model.complete());
     }
 
-    // A reset sends a scrolled view back to the top, so an older page must
-    // arrive as an insertion after the rows already shown.
     void anOlderPageIsAppendedNotReset()
     {
         WalkingClient client;
@@ -566,17 +506,11 @@ private Q_SLOTS:
                                                60 * (i + 1), 0, false, false);
         }
         QCOMPARE(client.pagesRequested, MediaHistoryModel::kMaxFillPages);
-        // A filter change is a new question and gets a fresh budget.
         model.setCategory(QStringLiteral("audio"));
         model.fillViewport();
         QCOMPARE(client.pagesRequested, MediaHistoryModel::kMaxFillPages + 1);
     }
 
-    // ── Date range ───────────────────────────────────────────────────────
-    //
-    // Bounds are LOCAL calendar days: From = start of its day, To = END of its
-    // day. Before this the To bound compared against the raw QDateTime, so a
-    // message at 15:00 on the "To" day was excluded.
     void theToDayIsIncludedUpToItsLastMillisecond()
     {
         MockMatrixClient client;
@@ -616,12 +550,10 @@ private Q_SLOTS:
                                      QStringLiteral("$fromStart"),
                                      QStringLiteral("$toLastMs") }));
 
-        // The same day twice is that whole day.
         QVERIFY(model.setDateRange(QStringLiteral("2026-10-07"),
                                    QStringLiteral("2026-10-07")));
         QCOMPARE(model.rowCount(), 2);
 
-        // Open-ended on either side.
         QVERIFY(model.setDateRange(QStringLiteral("2026-10-08"), QString()));
         QCOMPARE(model.rowCount(), 1);
         QVERIFY(model.setDateRange(QString(), QStringLiteral("2026-10-04")));
@@ -630,8 +562,6 @@ private Q_SLOTS:
         QCOMPARE(model.rowCount(), 5);
     }
 
-    // A bad range is refused and changes nothing, so the view never goes
-    // blank or unfiltered because of a typo.
     void anInvalidDateRangeIsRefusedAndKeepsTheLastGoodOne()
     {
         MockMatrixClient client;
@@ -650,7 +580,6 @@ private Q_SLOTS:
         QCOMPARE(model.toDate(), to);
     }
 
-    // The bound is the viewer's local day even when the value arrives in UTC.
     void aUtcValueIsReadAsItsLocalDay()
     {
         MediaHistoryModel model;
@@ -664,7 +593,6 @@ private Q_SLOTS:
                  QTime(23, 59, 59, 999));
     }
 
-    // ── GIF and sticker views ────────────────────────────────────────────
     void gifsAndStickersHaveTheirOwnViewsAndGifsStayInTheVisualOnes()
     {
         MockMatrixClient client;
@@ -689,23 +617,16 @@ private Q_SLOTS:
         QCOMPARE(model.rowCount(), 2);
         model.setCategory(QStringLiteral("sticker"));
         QCOMPARE(model.rowCount(), 1);
-        // Stickers are not "media"; GIFs are.
         model.setCategory(QStringLiteral("media"));
         QCOMPARE(model.rowCount(), 3);
         model.setCategory(QStringLiteral("image"));
         QCOMPARE(model.rowCount(), 2);
         model.setCategory(QStringLiteral("video"));
         QCOMPARE(model.rowCount(), 1);
-        // The viewer still gets the GIF image.
         model.setCategory(QStringLiteral("image"));
         QCOMPARE(model.imageEntries().size(), 2);
     }
 
-    // The grid tile chooses crop or fit from the event's declared size: an
-    // Image's own implicit size follows its fillMode, so reading that looped.
-    // A role named "width"/"height" can never reach a delegate as a required
-    // property (that name is the delegate's own geometry), so the roles carry
-    // the media prefix, as GifResultModel's "gifHeight" does.
     void theDeclaredSizeReachesADelegateByName()
     {
         MockMatrixClient client;
@@ -729,11 +650,6 @@ private Q_SLOTS:
         QCOMPARE(model.data(model.index(0), MediaHistoryModel::HeightRole).toInt(), 1000);
     }
 
-    // A QQuickDelegateModel silently builds NO delegate whose required
-    // property the model cannot supply by name, while the view's count stays
-    // right (CLAUDE.md §16, the GIF picker's blank Saved tab). So the real
-    // tile, in a real GridView, over this model: every row gets a tile, and
-    // the tile reads the declared size.
     void everyRowBuildsAGridTile()
     {
         MockMatrixClient client;
@@ -764,8 +680,6 @@ private Q_SLOTS:
         engine.rootContext()->setContextProperty(QStringLiteral("historyModel"),
                                                  &model);
         QQmlComponent component(&engine);
-        // The bridge reports itself unsupported: this case is about building
-        // the tiles, not fetching.
         component.setData(QByteArray(R"QML(
 import QtQuick
 import MatrixClient

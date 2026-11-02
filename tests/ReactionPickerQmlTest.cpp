@@ -50,8 +50,6 @@ QString rectText(const QRectF &r)
         .arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height());
 }
 
-// A breadth-first search by QML type name: the old picker gave its grid no
-// objectName, and a test that only failed for that would prove nothing.
 QQuickItem *findByClass(QQuickItem *root, const char *className)
 {
     QList<QQuickItem *> queue{ root };
@@ -64,7 +62,7 @@ QQuickItem *findByClass(QQuickItem *root, const char *className)
     }
     return nullptr;
 }
-} // namespace
+}
 
 class ReactionPickerQmlTest : public QObject
 {
@@ -131,7 +129,6 @@ class ReactionPickerQmlTest : public QObject
         return out.value<QQuickItem *>();
     }
 
-    // Loads the pane at `size` over 80 text rows.
     static bool buildScene(Scene &s, const QSize &size)
     {
         const QString roomId = loginAndRoomIdAt(s.controller, 0);
@@ -173,9 +170,6 @@ class ReactionPickerQmlTest : public QObject
         return s.picker != nullptr;
     }
 
-    // A message row whose vertical centre is nearest `fraction` of the
-    // viewport height, so a case can open the picker near the top or the
-    // bottom of the window.
     static QQuickItem *rowNear(Scene &s, double fraction, QString *eventId)
     {
         const int count = s.timeline->property("count").toInt();
@@ -205,15 +199,9 @@ class ReactionPickerQmlTest : public QObject
         return best;
     }
 
-    // Opens the picker through the delegate's own entry point, anchored to
-    // the row as the action bar and the add-reaction chip do.
     static bool openFromRow(Scene &s, QQuickItem *row)
     {
         s.row = row;
-        // The delegate's own function, anchored to the row itself as the
-        // action bar anchors to its button. The row is handed in through a
-        // child context: the context a delegate was created in is the
-        // pane's, where `root` names the pane, not the row.
         QQmlContext anchorContext(qmlContext(row));
         anchorContext.setContextProperty(QStringLiteral("testAnchorRow"), row);
         QQmlExpression open(&anchorContext, row,
@@ -229,8 +217,6 @@ class ReactionPickerQmlTest : public QObject
         }, kSignalTimeoutMs);
     }
 
-    // The visible panel: its own objectName where the picker has one, else
-    // the popup item, which the panel fills when there is no grab band.
     static QQuickItem *panelOf(QObject *picker)
     {
         if (auto *p = picker->findChild<QQuickItem *>(
@@ -241,17 +227,13 @@ class ReactionPickerQmlTest : public QObject
         return content ? content->parentItem() : nullptr;
     }
 
-    // Expands the quick bar to the grid. The pre-redesign picker opened the
-    // grid directly, so a missing expand() is not itself a failure here.
     static void expand(QObject *picker)
     {
-        // expand(initialText): a QML function's arguments are QVariants.
         QMetaObject::invokeMethod(picker, "expand",
                                   Q_ARG(QVariant, QVariant(QString())));
         QCoreApplication::processEvents();
     }
 
-    // Asserts `r` lies inside the window and next to the anchor point.
     static QString placementProblem(const QRectF &r, const QSize &win,
                                     const QPointF &anchor)
     {
@@ -259,15 +241,12 @@ class ReactionPickerQmlTest : public QObject
             || r.bottom() > win.height() + 0.5)
             return QStringLiteral("%1 is not inside the %2x%3 window")
                 .arg(rectText(r)).arg(win.width()).arg(win.height());
-        // Vertically adjacent to the anchor: its top just below it or its
-        // bottom just above it (12 px allows the gap and the border).
         const double below = std::abs(r.top() - anchor.y());
         const double above = std::abs(anchor.y() - r.bottom());
         if (std::min(below, above) > 12.0)
             return QStringLiteral("%1 is not next to its anchor y=%2 "
                                   "(gap below %3, above %4)")
                 .arg(rectText(r)).arg(anchor.y()).arg(below).arg(above);
-        // Horizontally it covers the anchor unless the window edge pushed it.
         if (anchor.x() < r.left() - 0.5 || anchor.x() > r.right() + 0.5) {
             const bool pushed = r.left() <= 12.5
                 || r.right() >= win.width() - 12.5;
@@ -286,10 +265,6 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // The composer's picker was enlarged (the shared share that turned the
-    // reaction picker into a 1000x740 board). The reaction picker must still
-    // open compact, next to its message and on screen, and expand to a
-    // compact grid.
     void reactionPickerOpensCompactNextToItsMessage_data()
     {
         QTest::addColumn<QSize>("size");
@@ -317,7 +292,6 @@ private Q_SLOTS:
 
         QQuickItem *row = rowNear(s, rowFraction, nullptr);
         QVERIFY2(row != nullptr, "no message row on screen");
-        // The point the delegate anchors to: the row's bottom centre.
         const QPointF anchor = row->mapToScene(
             QPointF(row->width() / 2, row->height()));
         QVERIFY(openFromRow(s, row));
@@ -325,7 +299,6 @@ private Q_SLOTS:
         QQuickItem *panel = panelOf(s.picker);
         QVERIFY(panel != nullptr);
         QRectF r = sceneRect(panel);
-        // Compact: a quick-reaction bar, not a board.
         QVERIFY2(r.width() <= 420 && r.height() <= 80,
                  qPrintable(QStringLiteral("the reaction picker opened at %1, "
                                            "not as a compact quick bar")
@@ -333,7 +306,6 @@ private Q_SLOTS:
         QString problem = placementProblem(r, size, anchor);
         QVERIFY2(problem.isEmpty(), qPrintable(problem));
 
-        // The bar offers quick reactions and a way to the full set.
         auto *quickBar = s.picker->findChild<QQuickItem *>(
             QStringLiteral("reactionQuickBar"));
         QVERIFY(quickBar != nullptr && quickBar->isVisible());
@@ -351,10 +323,6 @@ private Q_SLOTS:
         problem = placementProblem(r, size, anchor);
         QVERIFY2(problem.isEmpty(), qPrintable(problem));
 
-        // The grip is square and on a corner of the panel, also after the
-        // grid was re-placed on the other side of the point than the bar
-        // (the lower rows): swapping anchors there once stretched it to the
-        // panel's height and drew its arc 200 px from any corner.
         auto *grip = s.picker->findChild<QQuickItem *>(
             QStringLiteral("popupResizeGrip"));
         QVERIFY(grip != nullptr);
@@ -372,8 +340,6 @@ private Q_SLOTS:
                                 .arg(rectText(r))));
     }
 
-    // The grid packs cells of about one cell size at every picker size, so a
-    // big picker shows more columns rather than wider gaps.
     void theGridHasNoSparseGapsAtAnySize_data()
     {
         QTest::addColumn<QSize>("pickerSize");
@@ -384,7 +350,6 @@ private Q_SLOTS:
     void theGridHasNoSparseGapsAtAnySize()
     {
         QFETCH(QSize, pickerSize);
-        // Recents populated, so "Recently used" is the bucket on screen.
         Scene s;
         QVERIFY(buildScene(s, QSize(1366, 768)));
         const QStringList recents = {
@@ -430,14 +395,11 @@ private Q_SLOTS:
         const double cellHeight = grid->property("cellHeight").toDouble();
         QVERIFY(cellWidth > 0 && cellHeight > 0);
         const int columns = int(grid->width() / cellWidth);
-        // A cell no more than a third wider than it is tall: wider is empty
-        // space between emoji.
         QVERIFY2(cellWidth <= cellHeight * 1.34,
                  qPrintable(QStringLiteral("a %1 px wide grid lays out %2 "
                                            "columns of %3x%4 px cells")
                                 .arg(grid->width()).arg(columns)
                                 .arg(cellWidth).arg(cellHeight)));
-        // And the columns fill the width: no unused band on the right.
         QVERIFY2(grid->width() - columns * cellWidth < cellWidth,
                  qPrintable(QStringLiteral("%1 columns of %2 px leave %3 px "
                                            "unused in a %4 px grid")
@@ -446,13 +408,10 @@ private Q_SLOTS:
                                 .arg(grid->width())));
     }
 
-    // The free corner follows the pointer and the timeline underneath does
-    // not move. Offsets are measured from the visible panel corner under the
-    // grip, positive inside; -3 is a press just outside the drawn corner.
     void draggingTheGripResizesWithoutScrollingTheTimeline_data()
     {
         QTest::addColumn<int>("offset");
-        QTest::addColumn<int>("direction"); // +1 shrink (inwards), -1 grow
+        QTest::addColumn<int>("direction");
         QTest::newRow("on the arc, shrink") << 8 << 1;
         QTest::newRow("on the arc, grow") << 8 << -1;
         QTest::newRow("on the corner, shrink") << 1 << 1;
@@ -469,7 +428,6 @@ private Q_SLOTS:
         QQuickItem *row = rowNear(s, 0.2, nullptr);
         QVERIFY(row != nullptr);
 
-        // Park the timeline mid-history so a drag either way could move it.
         double minY = 0, maxY = 0;
         {
             QVariant a, b;
@@ -500,7 +458,6 @@ private Q_SLOTS:
         QVERIFY(panel != nullptr);
         const QRectF before = sceneRect(panel);
 
-        // The panel corner the grip sits on, and the inward direction there.
         const QPointF gripCentre = sceneRect(grip).center();
         const bool left = gripCentre.x() < before.center().x();
         const bool top = gripCentre.y() < before.center().y();
@@ -508,8 +465,6 @@ private Q_SLOTS:
                              top ? before.top() : before.bottom());
         const QPointF inward(left ? 1 : -1, top ? 1 : -1);
         const QPoint start = (corner + inward * offset).toPoint();
-        // Shrinking stays above the minimum size (324 x 320), so the corner
-        // can follow the pointer the whole way.
         const QPointF travel = inward * (direction > 0 ? 30.0 : -48.0);
 
         QTest::mousePress(&s.window, Qt::LeftButton, Qt::NoModifier, start);
@@ -534,7 +489,6 @@ private Q_SLOTS:
                  "the press meant for the resize grip dismissed the picker");
 
         const QRectF after = sceneRect(panel);
-        // The grabbed corner moved with the pointer...
         const QPointF cornerAfter(left ? after.left() : after.right(),
                                   top ? after.top() : after.bottom());
         const QPointF expected = corner + travel;
@@ -547,7 +501,6 @@ private Q_SLOTS:
                                 .arg(cornerAfter.x()).arg(cornerAfter.y())
                                 .arg(expected.x()).arg(expected.y())
                                 .arg(rectText(before), rectText(after))));
-        // ...and the opposite corner stayed put.
         const QPointF far(left ? before.right() : before.left(),
                           top ? before.bottom() : before.top());
         const QPointF farAfter(left ? after.right() : after.left(),
@@ -558,9 +511,6 @@ private Q_SLOTS:
                                 .arg(rectText(before), rectText(after))));
     }
 
-    // Each context remembers its own size: resizing the reaction picker
-    // writes the reaction key only, survives a reopen, and leaves the
-    // composer's size alone.
     void reactionAndComposerSizesArePersistedSeparately()
     {
         Scene s;
@@ -598,7 +548,6 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("the drag did not resize: %1 -> %2")
                                 .arg(before.width()).arg(dragged.width())));
 
-        // Written under the reaction key; the composer's is untouched.
         QVERIFY(s.controller.settings()->pickerWidthShare(
                     QStringLiteral("reaction")) > 0);
         QCOMPARE(s.controller.settings()->pickerWidthShare(
@@ -606,7 +555,6 @@ private Q_SLOTS:
         QCOMPARE(s.controller.settings()->pickerHeightShare(
                      QStringLiteral("picker")), 700);
 
-        // Reopened, the grid comes back at the size the user chose.
         QVERIFY(QMetaObject::invokeMethod(s.picker, "close"));
         QTRY_VERIFY(!s.picker->property("visible").toBool());
         QVERIFY(openFromRow(s, row));
@@ -616,9 +564,6 @@ private Q_SLOTS:
         QVERIFY(std::abs(sceneRect(panel).height() - dragged.height()) <= 2);
     }
 
-    // Arrows move along the quick bar and Enter reacts with the focused
-    // emoji; typing expands to the grid with the search filled in; Esc
-    // closes.
     void theQuickBarIsKeyboardOperable()
     {
         Scene s;
@@ -630,7 +575,6 @@ private Q_SLOTS:
         auto *quickBar = s.picker->findChild<QQuickItem *>(
             QStringLiteral("reactionQuickBar"));
         QVERIFY(quickBar != nullptr);
-        // The bar takes focus when it opens, so keys go to it at once.
         QTRY_COMPARE(s.window.activeFocusItem(), quickBar);
         const QStringList quick =
             quickBar->property("quickEmoji").toStringList();
@@ -644,24 +588,20 @@ private Q_SLOTS:
         QCOMPARE(chosen.at(0).at(0).toString(), quick.at(1));
         QTRY_VERIFY(!s.picker->property("visible").toBool());
 
-        // Typing opens the grid with the search already running.
         QVERIFY(openFromRow(s, row));
         QVERIFY(!s.picker->property("expanded").toBool());
         QTRY_COMPARE(s.window.activeFocusItem(), quickBar);
-        // keyClicks() has no QWindow overload.
         for (const char c : { 's', 'm', 'i' })
             QTest::keyClick(&s.window, c);
         QTRY_VERIFY(s.picker->property("expanded").toBool());
         QTRY_COMPARE(s.controller.emojiCatalog()->searchText(),
                      QStringLiteral("smi"));
         QVERIFY(s.controller.emojiCatalog()->rowCount() > 0);
-        // Down into the results and Enter picks the first match.
         QTest::keyClick(&s.window, Qt::Key_Down);
         QTest::keyClick(&s.window, Qt::Key_Return);
         QTRY_COMPARE(chosen.size(), 2);
         QTRY_VERIFY(!s.picker->property("visible").toBool());
 
-        // Esc closes from the quick bar.
         QVERIFY(openFromRow(s, row));
         QTRY_COMPARE(s.window.activeFocusItem(), quickBar);
         QTest::keyClick(&s.window, Qt::Key_Escape);
@@ -672,7 +612,6 @@ private Q_SLOTS:
 
 int main(int argc, char *argv[])
 {
-    // A private settings store: these cases write picker sizes and recents.
     QTemporaryDir configHome;
     if (!configHome.isValid())
         return 1;

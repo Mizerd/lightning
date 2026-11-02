@@ -1,16 +1,13 @@
 #include "stickers/StickerPackModel.h"
 
 namespace {
-// A subscribed pack that could not be read has no name of its own (live run
-// 2026-10-26: Settings showed a blank title over "you are not in its room").
-// Its key, else its room, still tells the user which one it is.
 QString shownName(const stickers::Pack &pack)
 {
     if (!pack.displayName.isEmpty() || pack.available)
         return pack.displayName;
     return !pack.stateKey.isEmpty() ? pack.stateKey : pack.roomId;
 }
-} // namespace
+}
 
 StickerPackModel::StickerPackModel(QObject *parent)
     : QAbstractListModel(parent)

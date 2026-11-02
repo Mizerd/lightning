@@ -9,9 +9,6 @@
 #include <QThreadPool>
 #include <QtTest>
 
-// BridgeLabelStore persists MSC2346 bridge labels across launches, so badges
-// show at startup without first opening each chat. A negative answer is also
-// stored, or every launch would re-ask every room already answered.
 class BridgeLabelStoreTest : public QObject
 {
     Q_OBJECT
@@ -63,7 +60,6 @@ void BridgeLabelStoreTest::aLearnedLabelSurvivesAReopen()
         store.remember(QStringLiteral("!room:example.org"),
                        QStringLiteral("whatsapp"), QStringLiteral("WhatsApp"));
     }
-    // A second launch: nothing carried over in memory.
     BridgeLabelStore reopened;
     QVERIFY(reopened.openFor(path()));
     const auto entry = reopened.label(QStringLiteral("!room:example.org"));
@@ -87,7 +83,6 @@ void BridgeLabelStoreTest::aNegativeAnswerIsRememberedAsAResult()
     QVERIFY2(reopened.knows(QStringLiteral("!plain:example.org")),
              "'this room advertises no bridge' was not written down, so every "
              "launch re-reads /state for every unbridged room forever");
-    // Known, but not labelled: a negative answer must never paint a badge.
     QVERIFY(!reopened.label(QStringLiteral("!plain:example.org")).has_value());
 }
 
@@ -111,8 +106,6 @@ void BridgeLabelStoreTest::anExpiredNegativeAnswerStopsCountingAsKnown()
 void BridgeLabelStoreTest::aPositiveAnswerOutlivesANegativeOne()
 {
     const qint64 now = QDateTime::currentSecsSinceEpoch();
-    // One second past the negative lifetime: a negative row is stale, a
-    // positive one is not.
     const qint64 stamp = now - BridgeLabelStore::kNegativeLifetimeSecs - 1;
 
     BridgeLabelStore::Entry positive;
@@ -182,7 +175,6 @@ void BridgeLabelStoreTest::aCorruptFileIsDiscardedRatherThanHalfRead()
     BridgeLabelStore store;
     QVERIFY(store.openFor(path()));
     QCOMPARE(store.count(), 0);
-    // Still usable: a discarded file must not close the store.
     store.remember(QStringLiteral("!b:example.org"), QStringLiteral("irc"),
                    QStringLiteral("IRC"));
     QCOMPARE(store.count(), 1);
@@ -193,7 +185,6 @@ void BridgeLabelStoreTest::theStoreIsInertWithoutAPath()
     BridgeLabelStore store;
     QVERIFY(!store.openFor(QString()));
     QVERIFY(!store.isOpen());
-    // Must be a working state rather than a crash or an invented location.
     store.remember(QStringLiteral("!x:example.org"), QStringLiteral("irc"),
                    QStringLiteral("IRC"));
     QCOMPARE(store.count(), 0);
@@ -210,20 +201,13 @@ void BridgeLabelStoreTest::removeStoreDeletesTheFile()
     QVERIFY(QFile::exists(path()));
     QVERIFY(BridgeLabelStore::removeStore(path()));
     QVERIFY(!QFile::exists(path()));
-    // Idempotent: an absent file is already gone.
     QVERIFY(BridgeLabelStore::removeStore(path()));
 }
 
-// A future-stamped row is evicted before a fresh one: after a clock moves
-// backwards `entryIsFresh` already distrusts such rows, so the cap must not
-// keep one at a real row's expense. Clamping the sort key to `now` does not
-// achieve this; the clamped row still sorts at or above every real one.
 void BridgeLabelStoreTest::theCapEvictsAFutureStampedRowBeforeAFreshOne()
 {
     const qint64 now = QDateTime::currentSecsSinceEpoch();
     QJsonObject root;
-    // One future-stamped row and kMaxEntries fresh ones: exactly one goes,
-    // the future row.
     QJsonObject ahead;
     ahead.insert(QStringLiteral("n"), QStringLiteral("irc"));
     ahead.insert(QStringLiteral("l"), QStringLiteral("IRC"));
@@ -258,7 +242,6 @@ void BridgeLabelStoreTest::theCapDropsTheOldestRowsFirst()
         QJsonObject row;
         row.insert(QStringLiteral("n"), QStringLiteral("irc"));
         row.insert(QStringLiteral("l"), QStringLiteral("IRC"));
-        // Row 0 is the oldest, and the ten oldest are the ones that must go.
         row.insert(QStringLiteral("t"), static_cast<double>(now - 100000 + i));
         root.insert(QStringLiteral("!r%1:example.org").arg(i), row);
     }
@@ -277,15 +260,12 @@ void BridgeLabelStoreTest::aDeferredAnswerTouchesTheDiskOnlyWhenFlushed()
 {
     BridgeLabelStore store;
     QVERIFY(store.openFor(path()));
-    // The first visit to every room used to rewrite and fsync the whole file
-    // on the GUI thread; a deferred answer must not create or change it.
     for (int i = 0; i < 50; ++i)
         store.rememberDeferred(QStringLiteral("!r%1:example.org").arg(i),
                                QString(), QString());
     QVERIFY(store.isDirty());
     QVERIFY2(!QFile::exists(path()),
              "a deferred answer wrote the file before flush()");
-    // Held in memory, so the app still treats the room as answered.
     QVERIFY(store.knows(QStringLiteral("!r7:example.org")));
 
     QVERIFY(store.flush());
@@ -294,7 +274,6 @@ void BridgeLabelStoreTest::aDeferredAnswerTouchesTheDiskOnlyWhenFlushed()
     BridgeLabelStore reopened;
     QVERIFY(reopened.openFor(path()));
     QCOMPARE(reopened.count(), 50);
-    // A clean store does not write again.
     QVERIFY(QFile::remove(path()));
     QVERIFY(store.flush());
     QVERIFY2(!QFile::exists(path()), "flush() of a clean store rewrote the file");
@@ -308,7 +287,7 @@ void BridgeLabelStoreTest::closingDropsDeferredAnswersSoASignOutCannotResurrectT
                            QStringLiteral("whatsapp"), QStringLiteral("WhatsApp"));
     store.close();
     QVERIFY(!store.isDirty());
-    QVERIFY(store.flush()); // nothing open, nothing to write
+    QVERIFY(store.flush());
     QVERIFY2(!QFile::exists(path()),
              "a closed store wrote pending answers, which would put a signed-out "
              "account's room list back on disk");
@@ -326,8 +305,6 @@ void BridgeLabelStoreTest::anAsyncFlushWritesOffThreadAndADeleteCancelsAQueuedOn
     QVERIFY(reopened.openFor(path()));
     QVERIFY(reopened.knows(QStringLiteral("!a:example.org")));
 
-    // Queue many writes, delete at once: whatever has not run must not
-    // resurrect the file afterwards.
     for (int i = 0; i < 200; ++i) {
         store.rememberDeferred(QStringLiteral("!r%1:example.org").arg(i), QString(), QString());
         store.flushAsync();
@@ -340,8 +317,6 @@ void BridgeLabelStoreTest::anAsyncFlushWritesOffThreadAndADeleteCancelsAQueuedOn
 
 void BridgeLabelStoreTest::removingAnotherStoreDoesNotCancelThisOnesQueuedWrite()
 {
-    // Hold the pool so the write is still queued when the other account's
-    // store is removed.
     QThreadPool *global = QThreadPool::globalInstance();
     const int saved = global->maxThreadCount();
     global->setMaxThreadCount(1);
@@ -367,7 +342,7 @@ void BridgeLabelStoreTest::aQueuedWriteForAStoreRemovedWithoutBeingOpenIsCancell
     QVERIFY(store.openFor(path()));
     store.rememberDeferred(QStringLiteral("!a:example.org"), QString(), QString());
     store.flushAsync();
-    store.close(); // as when another account became the active one
+    store.close();
     QVERIFY(BridgeLabelStore::removeStore(path()));
     global->waitForDone(10000);
     global->setMaxThreadCount(saved);

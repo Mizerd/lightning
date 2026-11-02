@@ -7,8 +7,6 @@
 namespace matrix::bridge {
 namespace {
 
-// Canonical id -> display label. The id is the localpart prefix the bridge
-// uses. Adding a bridge means adding one row.
 const QHash<QString, QString> &networkTable()
 {
     static const QHash<QString, QString> table = {
@@ -27,14 +25,11 @@ const QHash<QString, QString> &networkTable()
         { QStringLiteral("imessage"),   QStringLiteral("iMessage") },
         { QStringLiteral("linkedin"),   QStringLiteral("LinkedIn") },
         { QStringLiteral("bluesky"),    QStringLiteral("Bluesky") },
-        // Common prefix for self-hosted SMS bridges; harmless when none exists.
         { QStringLiteral("sms"),        QStringLiteral("SMS") },
     };
     return table;
 }
 
-// Pull the localpart out of "@local:server" / "#local:server". Tolerates a
-// missing sigil and a missing server part.
 QString localpartOf(const QString &identifier, QChar sigil)
 {
     if (identifier.isEmpty())
@@ -64,11 +59,9 @@ QString networkIdForLocalpart(const QString &localpartIn)
         const QString candidate = localpart.left(underscore).toLower();
         if (networkTable().contains(candidate))
             return candidate;
-        // Not a bridge (e.g. "thomas_redstone").
         return {};
     }
 
-    // No underscore: the only other accepted shape is the bridge bot.
     if (localpart.endsWith(QLatin1String("bot"), Qt::CaseInsensitive)) {
         const QString candidate =
             localpart.left(localpart.size() - 3).toLower();
@@ -78,7 +71,7 @@ QString networkIdForLocalpart(const QString &localpartIn)
     return {};
 }
 
-} // namespace
+}
 
 QString networkIdForUserId(const QString &userId)
 {
@@ -93,8 +86,6 @@ QString networkIdForAlias(const QString &alias)
 QString networkIdForRoom(const QString &directUserId,
                          const QString &canonicalAlias)
 {
-    // The DM partner names an actual remote account; an alias can be an
-    // artefact of how a portal was created.
     const QString fromUser = networkIdForUserId(directUserId);
     if (!fromUser.isEmpty())
         return fromUser;
@@ -108,8 +99,6 @@ QString labelForNetworkId(const QString &networkId)
 
 namespace {
 
-// A chip's worth of attacker-chosen bridge text. Bounded here too (Rust caps
-// it at 64) because non-Rust backends also reach this.
 constexpr int kChipChars = 24;
 
 QString chipText(const QString &raw)
@@ -130,8 +119,6 @@ QString chipText(const QString &raw)
     text = text.simplified();
     if (text.size() > kChipChars) {
         text.truncate(kChipChars - 1);
-        // size() counts UTF-16 units, so a truncate can split a surrogate pair;
-        // drop the orphan.
         if (!text.isEmpty() && text.back().isHighSurrogate())
             text.chop(1);
         text.append(QStringLiteral("\u2026"));
@@ -139,18 +126,16 @@ QString chipText(const QString &raw)
     return text;
 }
 
-} // namespace
+}
 
 AdvertisedBridgeLabel labelForAdvertisedBridge(const QString &protocolId,
                                                const QString &protocolName,
                                                const QString &networkName)
 {
     const QString id = protocolId.trimmed().toLower();
-    // 1. A known protocol always gets our label.
     const QString curated = labelForNetworkId(id);
     if (!curated.isEmpty())
         return { id, curated };
-    // 2. Otherwise the bridge may name itself, in a chip.
     QString own = chipText(protocolName);
     if (own.isEmpty())
         own = chipText(networkName);
@@ -159,9 +144,6 @@ AdvertisedBridgeLabel labelForAdvertisedBridge(const QString &protocolId,
 
 namespace {
 
-// "<network>_<remote id>" -> "<remote id>", empty when the localpart is not
-// a recognised ghost (including the bare "<network>bot" shape, which has no
-// remote id).
 QString ghostRemoteId(const QString &localpartIn)
 {
     QString localpart = localpartIn;
@@ -175,9 +157,6 @@ QString ghostRemoteId(const QString &localpartIn)
     return localpart.mid(underscore + 1);
 }
 
-// A remote id that reads as a phone number ("+447791…") is worth showing:
-// digits with an optional '+', at least seven. Anything else (usernames,
-// UUIDs, encodings) is machine identity.
 bool readsAsPhoneNumber(const QString &remoteId)
 {
     QString digits = remoteId;
@@ -192,7 +171,7 @@ bool readsAsPhoneNumber(const QString &remoteId)
     return true;
 }
 
-} // namespace
+}
 
 DmNamePresentation presentableDmName(const QString &computedName,
                                      const QString &directUserId)
@@ -203,16 +182,10 @@ DmNamePresentation presentableDmName(const QString &computedName,
 
     QString name = computedName.trimmed();
 
-    // The SDK's hero name appends an English member count ("Sim, and 2
-    // others"); in a bridged 1:1 the extras are the ghost and the bot, so strip
-    // it. Bridged DMs only: the shape is an SDK detail (matrix-sdk 0.18,
-    // exact-pinned), and in a native room the count may describe real people.
     static const QRegularExpression heroSuffix(
         QStringLiteral(",? and \\d+ others?$"));
     name.remove(heroSuffix);
 
-    // What remains is a human name (pass through) or the ghost id naming
-    // degraded to, in full "@…:server" or bare localpart form.
     const QString asGhost = networkIdForUserId(name);
     if (!asGhost.isEmpty()) {
         const QString remote = ghostRemoteId(localpartOf(name, QLatin1Char('@')));
@@ -225,4 +198,4 @@ DmNamePresentation presentableDmName(const QString &computedName,
     return { name, {} };
 }
 
-} // namespace matrix::bridge
+}

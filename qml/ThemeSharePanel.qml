@@ -3,41 +3,20 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Share and Import in one popover under the editor's top bar.
-//
-// Share: what the theme contains and one button that copies its code.
-// Import: a field for a pasted code (a dropped file lands in it too), and, as
-// soon as the text is a theme, a PREVIEW of what it would do before anything is
-// applied: a small rendered swatch, its name, its base, how much it sets and
-// how readable it is; then "Import as new theme" or "Replace current".
-//
-// It holds no theme state and validates nothing: the editor passes `preview`
-// (built from CustomThemeStore's own validation) and answers the signals.
-//
-// Painted in the invariant editor tokens (see `editorCanvas` in AppTheme.qml).
 ColumnLayout {
     id: root
 
-    // "share" or "import".
     property string mode: "share"
 
-    // Share.
     property string themeName: ""
     property int colourCount: 0
     property int gradientCount: 0
     property int problems: 0
-    // "Copied." after the code was copied; empty before.
     property string copyNote: ""
 
-    // Import: the text in the field, and what it would do:
-    // { ok, error, name, baseName, colourCount, gradientCount, problems,
-    //   atLimit, swatch: { rail, sidebar, background, surface, accent,
-    //   textPrimary, ownBubble, otherBubble } }, or null for an empty field.
     property string importText: ""
     property var preview: null
-    // The current theme's name, for the Replace button.
     property string currentName: ""
-    // The field focus lands on when the import tab opens.
     readonly property alias importField: importField
 
     signal modeRequested(string mode)
@@ -50,7 +29,6 @@ ColumnLayout {
     objectName: "themeSharePanel"
     spacing: AppTheme.spacing8
 
-    // Self-contained controls, so this file depends on no other file's parts.
     component PanelButton: Rectangle {
         id: btn
         property string text: ""
@@ -109,7 +87,6 @@ ColumnLayout {
         }
     }
 
-    // Share | Import.
     Rectangle {
         Layout.fillWidth: true
         implicitHeight: 32
@@ -180,7 +157,6 @@ ColumnLayout {
         }
     }
 
-    // ---- Share ----
     ColumnLayout {
         objectName: "themeShareSection"
         Layout.fillWidth: true
@@ -243,7 +219,6 @@ ColumnLayout {
         }
     }
 
-    // ---- Import ----
     ColumnLayout {
         objectName: "themeImportSection"
         Layout.fillWidth: true
@@ -272,8 +247,6 @@ ColumnLayout {
                 selectedTextColor: AppTheme.editorAccentInk
                 font.family: AppTheme.monoFont
                 font.pixelSize: AppTheme.textMeta
-                // Far above any real shared theme; stops holding an unrelated
-                // paste.
                 maximumLength: 24576
                 activeFocusOnTab: true
                 Accessible.role: Accessible.EditableText
@@ -293,7 +266,6 @@ ColumnLayout {
             }
         }
 
-        // Why it is not a theme, in the store's own words.
         Label {
             objectName: "themeImportError"
             Layout.fillWidth: true
@@ -306,7 +278,6 @@ ColumnLayout {
             font.pixelSize: AppTheme.textMeta
         }
 
-        // What it would do, before it does anything.
         Rectangle {
             id: card
             objectName: "themeImportPreview"
@@ -326,8 +297,6 @@ ColumnLayout {
                 anchors.margins: AppTheme.spacing12
                 spacing: AppTheme.spacing12
 
-                // A small rendered window in the incoming colours: rail,
-                // room list, conversation with two bubbles, and the composer.
                 Rectangle {
                     objectName: "themeImportSwatch"
                     Layout.alignment: Qt.AlignTop

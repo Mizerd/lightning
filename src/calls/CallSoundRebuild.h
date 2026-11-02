@@ -28,11 +28,6 @@
 
 namespace callsound {
 
-/// Replaces every effect in `effects` (sound name -> effect). `destroy` must
-/// free an effect immediately (never deleteLater()); `create(sound)` builds
-/// the new one, inserts it into `effects` and returns whether it did. All old
-/// effects are destroyed before the first create. Returns how many were
-/// created.
 template <typename Effect, typename Destroy, typename Create>
 int replaceEveryEffect(QHash<QString, Effect *> &effects,
                        const QStringList &sounds, Destroy &&destroy,
@@ -51,4 +46,4 @@ int replaceEveryEffect(QHash<QString, Effect *> &effects,
     return created;
 }
 
-} // namespace callsound
+}

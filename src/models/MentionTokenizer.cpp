@@ -36,9 +36,6 @@ bool isBoundaryBefore(QChar c)
     return c.isSpace() || c == QLatin1Char('(') || c == QLatin1Char('>');
 }
 
-// True when `atPos` (the '@') sits inside inline code (odd count of unescaped
-// backticks earlier on the same logical line) or inside a fenced ``` block
-// (odd number of fence lines strictly above the current line).
 bool insideCode(const QString &text, int atPos)
 {
     int lineStart = 0;
@@ -55,13 +52,13 @@ bool insideCode(const QString &text, int atPos)
             ++fenceCount;
     }
     if (fenceCount % 2 == 1)
-        return true; // inside a fenced code block
+        return true;
 
     int ticks = 0;
     for (int i = lineStart; i < atPos && i < text.length(); ++i) {
         const QChar c = text.at(i);
         if (c == QLatin1Char('\\')) {
-            ++i; // the next character is escaped
+            ++i;
             continue;
         }
         if (c == QLatin1Char('`'))
@@ -84,14 +81,11 @@ QString escapeLinkLabel(const QString &label)
 
 QString matrixToUrl(const QString &userId)
 {
-    // Percent-encode the whole MXID; matrix.to accepts the encoded form and
-    // Lightning's incoming sanitizer decodes it FullyDecoded, so it round-trips
-    // back to a mention pill.
     const QByteArray encoded = QUrl::toPercentEncoding(userId);
     return QLatin1String("https://matrix.to/#/") + QString::fromLatin1(encoded);
 }
 
-} // namespace
+}
 
 Token activeToken(const QString &text, int cursorPos)
 {
@@ -109,20 +103,17 @@ Token activeToken(const QString &text, int cursorPos)
             at = i;
             break;
         }
-        // At most one space: "@John Sm" is still a name, but a second space
-        // means the user is writing the sentence. Element allows none; one
-        // keeps two-word names completable.
         if (c.isSpace() && ++spaces > 1)
             return tok;
         if (!isQueryChar(c))
-            return tok; // an invalid character before the cursor: no token
+            return tok;
         if (cursorPos - i > kMaxQuery)
-            return tok; // query would exceed the cap
+            return tok;
     }
     if (at < 0)
         return tok;
     if (at > 0 && !isBoundaryBefore(text.at(at - 1)))
-        return tok; // mid-word or user@host: not a mention trigger
+        return tok;
 
     const QString query = text.mid(at + 1, cursorPos - at - 1);
     if (query.length() > kMaxQuery)
@@ -144,7 +135,7 @@ InsertResult buildInsertion(const QString &text, int tokenStart, int cursorPos,
     const int end = qBound(start, cursorPos, text.length());
     const QString label = QLatin1Char('@') + displayName;
     r.text = text.left(start) + label + QLatin1Char(' ') + text.mid(end);
-    r.cursorPos = start + label.length() + 1; // just past the trailing space
+    r.cursorPos = start + label.length() + 1;
     r.ref.userId = userId;
     r.ref.displayText = label;
     r.ref.start = start;
@@ -180,15 +171,15 @@ QList<MentionRef> shiftRefs(const QList<MentionRef> &refs, const QString &oldTex
         const int re = ref.start + ref.length;
         int newStart;
         if (re <= p)
-            newStart = rs; // fully before the edit
+            newStart = rs;
         else if (rs >= oldChangeEnd)
-            newStart = rs + delta; // fully after the edit
+            newStart = rs + delta;
         else
-            continue; // overlaps the edit: drop (fail-closed)
+            continue;
         if (newStart < 0 || newStart + ref.length > newLen)
             continue;
         if (newText.mid(newStart, ref.length) != ref.displayText)
-            continue; // slice no longer matches: drop
+            continue;
         MentionRef moved = ref;
         moved.start = newStart;
         out.append(moved);
@@ -207,7 +198,7 @@ Expansion expand(const QString &text, const QList<MentionRef> &refs)
             || ref.start + ref.length > text.length())
             continue;
         if (text.mid(ref.start, ref.length) != ref.displayText)
-            continue; // fail-closed: a degraded mention is simply not expanded
+            continue;
         valid.append(ref);
     }
     std::sort(valid.begin(), valid.end(),
@@ -250,8 +241,6 @@ Recovery recoverFromBody(const QString &body)
     while (it.hasNext()) {
         const QRegularExpressionMatch m = it.next();
 
-        // Only matrix.to USER permalinks are mentions; room/event links (and
-        // any unparseable target) stay as literal markdown.
         const QUrl url(m.captured(2));
         QString frag = url.fragment(QUrl::FullyDecoded);
         if (frag.startsWith(QLatin1Char('/')))
@@ -269,7 +258,6 @@ Recovery recoverFromBody(const QString &body)
             continue;
         }
 
-        // Unescape the label ("\]" and "\\" per escapeLinkLabel).
         QString label = m.captured(1);
         label.replace(QLatin1String("\\]"), QLatin1String("]"));
         label.replace(QLatin1String("\\\\"), QLatin1String("\\"));
@@ -295,8 +283,6 @@ QList<MentionRef> refsFromSanitizedHtml(const QString &plainBody,
     QList<MentionRef> refs;
     if (plainBody.isEmpty() || sanitizedHtml.isEmpty())
         return refs;
-    // MessageHtml::sanitize emits mention anchors as <a href="mention:@user:hs"
-    // [style="…"]>[&nbsp;][<b>]@Label[</b>][&nbsp;]</a>
     static const QRegularExpression anchor(QStringLiteral(
         "<a href=\"mention:([^\"]{1,255})\"[^>]{0,512}>(.{0,300}?)</a>"));
     int searchFrom = 0;
@@ -307,7 +293,6 @@ QList<MentionRef> refsFromSanitizedHtml(const QString &plainBody,
         if (!userId.startsWith(QLatin1Char('@'))
             || !userId.contains(QLatin1Char(':')))
             continue;
-        // Reduce the anchor's inner markup to its visible label.
         QString label = m.captured(2);
         static const QRegularExpression innerTag(QStringLiteral("<[^>]{1,64}>"));
         label.remove(innerTag);
@@ -320,11 +305,9 @@ QList<MentionRef> refsFromSanitizedHtml(const QString &plainBody,
         label = label.trimmed();
         if (label.isEmpty())
             continue;
-        // Sequential match: each anchor consumes the next occurrence, so
-        // repeated identical labels map in order.
         const int at = plainBody.indexOf(label, searchFrom);
         if (at < 0)
-            continue; // fail-closed: no ref rather than a wrong range
+            continue;
         MentionRef ref;
         ref.userId = userId;
         ref.displayText = label;
@@ -336,4 +319,4 @@ QList<MentionRef> refsFromSanitizedHtml(const QString &plainBody,
     return refs;
 }
 
-} // namespace mention
+}

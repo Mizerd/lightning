@@ -1,8 +1,3 @@
-// Rich composer: the QTextDocument -> Matrix serializer. Both wire bodies come
-// from one document walk, so these cases pin (a) every formatting type's HTML
-// shape, (b) the plain fallback derived beside it, (c) the whitelist (nothing
-// an input can carry makes the serializer emit a tag this file does not name)
-// and (d) link-target safety.
 
 #include "models/RichComposition.h"
 
@@ -23,7 +18,7 @@ QTextDocument *docWith(const QString &markdown, QObject *parent)
     return doc;
 }
 
-} // namespace
+}
 
 class RichCompositionTest : public QObject
 {
@@ -36,8 +31,6 @@ private Q_SLOTS:
         doc.setPlainText(QStringLiteral("just words"));
         const Composed c = compose(doc);
         QCOMPARE(c.plainBody, QStringLiteral("just words"));
-        // No formatting -> no formatted body, matching the markdown path's
-        // behaviour for plain text.
         QVERIFY(c.html.isEmpty());
     }
 
@@ -102,7 +95,6 @@ private Q_SLOTS:
         QVERIFY(c.html.contains(
             QStringLiteral("&lt;script&gt;alert(1)&lt;/script&gt;")));
         QVERIFY(c.html.contains(QStringLiteral("&amp;")));
-        // The plain body keeps the literal characters untouched.
         QCOMPARE(c.plainBody,
                  QStringLiteral("<script>alert(1)</script> & <b>"));
     }
@@ -155,8 +147,6 @@ private Q_SLOTS:
         link.setAnchor(true);
         link.setAnchorHref(QStringLiteral("https://example.org/a?b=1"));
         cursor.insertText(QStringLiteral("site"), link);
-        // An explicit plain format: insertText(text) without one inherits
-        // the cursor's current (anchor) format and Qt merges the fragments.
         cursor.insertText(QStringLiteral(" and "), QTextCharFormat());
         QTextCharFormat mention;
         mention.setAnchor(true);
@@ -173,9 +163,6 @@ private Q_SLOTS:
         QCOMPARE(c.plainBody, QStringLiteral("site and @Alice"));
     }
 
-    // Qt's HTML import underlines an anchor, and so does the toolbar's link
-    // toggle; neither is the user's underline, so no <u> goes inside an <a>.
-    // A real underline beside the link is untouched.
     void aLinkOrPillIsNeverWrappedInUnderline()
     {
         QTextDocument doc;
@@ -203,10 +190,6 @@ private Q_SLOTS:
                  qPrintable(compose(viaToolbar).html));
     }
 
-    // toggleFormat formats the selection or the word at the caret and does
-    // nothing otherwise; formatState reports which, so the toolbar can grey
-    // B/I/S/code/U instead of offering a button that does nothing (the empty
-    // composer is the case a user meets: "I clicked B and nothing happened").
     void formatStateReportsWhetherAnInlineFormatHasATarget()
     {
         using RichComposition::formatState;
@@ -246,7 +229,6 @@ private Q_SLOTS:
         QVERIFY(!isSafeLinkTarget(QStringLiteral("javascript:x()")));
         QVERIFY(!isSafeLinkTarget(QStringLiteral("data:text/html,x")));
         QVERIFY(!isSafeLinkTarget(QStringLiteral("file:///etc/passwd")));
-        // http with embedded credentials is a phishing shape, refused.
         QVERIFY(!isSafeLinkTarget(
             QStringLiteral("https://user:pw@example.org")));
     }
@@ -307,9 +289,6 @@ private Q_SLOTS:
 
     void pastedRichContentCannotSmuggleActiveMarkup()
     {
-        // A hostile paste after Qt ingests it: QTextDocument stores formatting,
-        // not markup, and whatever survives can only leave through the
-        // serializer's whitelist.
         QTextDocument doc;
         doc.setHtml(QStringLiteral(
             "<p onmouseover=\"evil()\">hi <b>there</b></p>"
@@ -327,9 +306,6 @@ private Q_SLOTS:
 
     void markdownRoundTripPreservesTheCommonFormats()
     {
-        // Draft-only mode switch: markdown in, document, markdown out.
-        // Qt's own converters do this half; the case pins that our chosen
-        // dialect keeps bold/italic/strike/code/lists/links intact.
         QObject owner;
         const QString source = QStringLiteral(
             "**bold** *it* ~~gone~~ `code` [l](https://example.org)");
@@ -342,10 +318,7 @@ private Q_SLOTS:
         QVERIFY(back.contains(QStringLiteral("`code`")));
         QVERIFY(back.contains(QStringLiteral("https://example.org")));
     }
-    // ── Spell checking in rich mode ─────────────────────────────────
 
-    // A document holding only structure (an empty list item) is not blank,
-    // so the placeholder must not draw under it.
     void structureWithNoTextIsNotABlankDocument()
     {
         QTextDocument empty;
@@ -356,7 +329,6 @@ private Q_SLOTS:
         tc.insertText(QStringLiteral("a"));
         QVERIFY(!RichComposition::documentIsBlank(typed));
 
-        // An ordered list with nothing typed into it: Qt draws "1.".
         QTextDocument list;
         QTextCursor lc(&list);
         lc.insertList(QTextListFormat::ListDecimal);
@@ -367,7 +339,6 @@ private Q_SLOTS:
         bc.insertList(QTextListFormat::ListDisc);
         QVERIFY(!RichComposition::documentIsBlank(bullets));
 
-        // A quote bar and a code slab draw too.
         QTextDocument quote;
         QTextCursor qc(&quote);
         QTextBlockFormat qf = qc.blockFormat();
@@ -382,8 +353,6 @@ private Q_SLOTS:
         cc.setBlockFormat(cf);
         QVERIFY(!RichComposition::documentIsBlank(code));
 
-        // Blank paragraphs are still blank: a document the user emptied by
-        // pressing Return twice must get its placeholder back.
         QTextDocument paragraphs;
         QTextCursor pc(&paragraphs);
         pc.insertBlock();
@@ -467,8 +436,6 @@ private Q_SLOTS:
         QCOMPARE(doc.toRawText(), QStringLiteral("a the end"));
     }
 
-    // QA T-3: a mode switch flattened a four-line draft to one line, because
-    // setMarkdown() reads a lone newline as a soft break.
     void everyLineOfTheBoxIsALineOfTheDocument_data()
     {
         QTest::addColumn<QString>("markdown");
@@ -496,7 +463,6 @@ private Q_SLOTS:
         QVERIFY(!composed.html.contains(QLatin1Char('~')));
     }
 
-    // What a hard break must not reach: the same document as setMarkdown().
     void structureIsNotTouchedByLineBreaks_data()
     {
         QTest::addColumn<QString>("markdown");
@@ -519,8 +485,6 @@ private Q_SLOTS:
         QCOMPARE(lines.blockCount(), plain.blockCount());
     }
 
-    // Review F3, F4: on either load route, what Qt's reader would lose or
-    // compose() could not send opens as the literal text, never blank.
     void aLoadThatWouldLoseTextOpensItLiterally_data()
     {
         QTest::addColumn<QString>("text");
@@ -558,8 +522,6 @@ private Q_SLOTS:
         QCOMPARE(compose(lines).plainBody, text);
     }
 
-    // Night QA C2: text the guard opened literally, a list applied in rich, and
-    // back: Qt's writer had escaped every marker the reader wrote.
     void aLiteralDocumentGoesBackToThePlainBoxUnescaped()
     {
         QTextDocument document;
@@ -572,8 +534,6 @@ private Q_SLOTS:
                  QStringLiteral("1. ") + text);
     }
 
-    // The padding the writer adds after an ordered marker is undone for the
-    // box, but never inside code: the spaces there are the author's.
     void markerPaddingSurvivesInsideCodeBlocks_data()
     {
         QTest::addColumn<QString>("markdown");
@@ -595,7 +555,6 @@ private Q_SLOTS:
         const QString box = RichComposition::markdownForPlainBox(document);
         QVERIFY2(box.contains(kept), qPrintable(box));
     }
-    // ...while a real list is still collapsed.
     void aRealOrderedListStillLosesItsPadding()
     {
         QTextDocument document;
@@ -608,7 +567,6 @@ private Q_SLOTS:
         QVERIFY2(!box.contains(QStringLiteral("1.  a")), qPrintable(box));
     }
 
-    // Typed in rich, the same characters stay escaped: they are not markup.
     void textTypedInRichStaysEscapedForThePlainBox()
     {
         QTextDocument document;
@@ -617,7 +575,6 @@ private Q_SLOTS:
             QStringLiteral("\\*")));
     }
 
-    // A draft is the rich mirror, and Qt's writer escapes what was typed.
     void aRestoredDraftOpensAsTyped_data()
     {
         QTest::addColumn<QString>("mirror");
@@ -636,7 +593,6 @@ private Q_SLOTS:
         QCOMPARE(document.toPlainText(), typed);
     }
 
-    // The guard must not take formatting from what loads faithfully.
     void aLoadThatKeepsEverythingStaysFormatted_data()
     {
         QTest::addColumn<QString>("text");
@@ -663,8 +619,6 @@ private Q_SLOTS:
                  qPrintable(compose(lines).html));
     }
 
-    // Review F2: to the plain box and back with one character changed; the
-    // folds of a 40-word line must not come back as lines.
     void theMirrorIsUnfoldedForThePlainBox_data()
     {
         QTest::addColumn<QString>("markdown");
@@ -698,8 +652,6 @@ private Q_SLOTS:
                  QStringLiteral("one\ntwo"));
     }
 
-    // QA T-7: a rich-mode send has a plain body, so the edit box showed plain
-    // text and saving stripped the message.
     void anEditSeedSaysExactlyWhatInlineFormattingSaid_data()
     {
         QTest::addColumn<QString>("html");
@@ -732,7 +684,6 @@ private Q_SLOTS:
         QCOMPARE(RichComposition::markdownFromSanitizedHtml(html, body), seed);
     }
 
-    // Everything the seed cannot say exactly opens the plain body.
     void anEditSeedRefusesWhatItCannotSayExactly_data()
     {
         QTest::addColumn<QString>("html");
@@ -779,11 +730,9 @@ private Q_SLOTS:
 
     void aBodyThatIsItsOwnMarkdownStaysTheSeed()
     {
-        // Sent from the markdown box: the body is the source and shows it.
         QVERIFY(RichComposition::markdownFromSanitizedHtml(
                     QStringLiteral("<strong>bold</strong>"),
                     QStringLiteral("**bold**")).isEmpty());
-        // Nothing formatted at all.
         QVERIFY(RichComposition::markdownFromSanitizedHtml(
                     QStringLiteral("plain"), QStringLiteral("plain")).isEmpty());
         QVERIFY(RichComposition::markdownFromSanitizedHtml(
@@ -791,7 +740,5 @@ private Q_SLOTS:
     }
 };
 
-// QTEST_MAIN, not GUILESS: toMarkdown() consults QFontDatabase, which
-// qFatals without a QGuiApplication (offscreen platform via CMake).
 QTEST_MAIN(RichCompositionTest)
 #include "RichCompositionTest.moc"

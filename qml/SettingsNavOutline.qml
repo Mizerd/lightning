@@ -3,20 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// "On this page": the headings of the open settings page, listed under its row
-// in the navigation column. The one the reader is looking at carries an accent
-// mark; a click asks the owner to scroll there. The owner supplies `entries`
-// ({label, anchors}) and `activeIndex` (it measures the scroll position), so
-// this item is only the picture.
 Item {
     id: outline
 
-    // [{label: string, anchors: [objectName, ...]}], in page order.
     property var entries: []
-    // Index of the heading in view, or -1.
     property int activeIndex: -1
-    // False for every row but the open section, and while a search is showing
-    // results in place of the list.
     property bool shown: false
 
     function focusEntry(index) {
@@ -26,22 +17,18 @@ Item {
     }
 
     signal entryActivated(int index)
-    // A keyboard-focused entry, so the owner can scroll it into view.
     signal entryFocused(Item entry)
-    // Left (Right under RTL) on an entry: back to the branch's own row.
     signal parentRequested()
 
     objectName: "settingsNavOutline"
     visible: shown && entries.length > 0
     Layout.fillWidth: true
-    // Indented under the row's label, clear of its caret gutter.
     Layout.leftMargin: AppTheme.spacing12
     implicitHeight: visible ? column.implicitHeight + AppTheme.spacing4 : 0
 
     Accessible.role: Accessible.List
     Accessible.name: qsTr("On this page")
 
-    // The rule the marks sit on.
     Rectangle {
         x: AppTheme.spacing12
         y: heading.height
@@ -81,8 +68,6 @@ Item {
                 readonly property bool current: outline.activeIndex === index
                 objectName: "settingsNavOutlineEntry_" + index
                 width: column.width
-                // At least the compact 28, and always the label's own height
-                // plus padding, so larger text scales never clip it.
                 implicitHeight: Math.max(28, entryLabel.implicitHeight + AppTheme.spacing8)
                 hoverEnabled: true
                 focusPolicy: Qt.TabFocus
@@ -134,12 +119,9 @@ Item {
                     text: entryRow.modelData.label
                     textFormat: Text.PlainText
                     verticalAlignment: Text.AlignVCenter
-                    // Wraps instead of eliding, so no tooltip is needed to
-                    // read a name and none can run past the column.
                     wrapMode: Text.WordWrap
                     color: entryRow.current ? AppTheme.stormText
                                             : AppTheme.stormTextSecondary
-                    // Navigation, not a hint: its own token (Part 6, 3.3).
                     font.pixelSize: AppTheme.settingsNavSubsectionSize
                     font.weight: entryRow.current ? AppTheme.weightStrong
                                                   : AppTheme.weightMedium

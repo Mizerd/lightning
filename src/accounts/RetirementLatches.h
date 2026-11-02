@@ -31,24 +31,15 @@ public:
 
     explicit RetirementLatches(RustBridgeApi *api, QObject *parent = nullptr);
 
-    // uid's host began retiring on `storePath`. Re-arming keeps the handback
-    // state already noted.
     void arm(const QString &userId, const QString &storePath);
-    // The retirement's handback settled: written, refused, or nothing to hand
-    // back. The latch still waits for any_held.
     void noteHandbackDone(const QString &userId);
     bool isArmed(const QString &userId) const;
     int armedCount() const;
 
-    // done(true) once uid's latch is free (at once, asynchronously, when it is
-    // not armed); done(false) when the budget runs out first. Never called
-    // inside await() itself.
     quint64 await(const QString &userId, int budgetMs, std::function<void(bool free)> done);
     void cancel(quint64 ticket);
-    // Forget everything and answer nobody (runtime flag-off after drain).
     void clear();
 
-    // One poll now (tests; the timer calls the same).
     void pollNow();
 
 Q_SIGNALS:
@@ -75,4 +66,4 @@ private:
     quint64 m_nextTicket = 1;
 };
 
-} // namespace lightning::accounts
+}

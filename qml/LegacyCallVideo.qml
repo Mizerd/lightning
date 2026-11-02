@@ -2,10 +2,6 @@ import QtQuick
 import QtMultimedia
 import MatrixClient
 
-// The picture of a 1:1 (`m.call.*`) video call: the peer filling the panel,
-// our own in the corner. MatrixRTC has CallStage; this lane has one peer and
-// needs none of that. The engine hands frames to the two sinks; a VideoOutput
-// lives as long as this item, so each attaches once.
 Rectangle {
     id: root
     objectName: "legacyCallVideo"

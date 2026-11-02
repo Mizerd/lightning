@@ -28,21 +28,14 @@ public:
 
     struct Badge {
         QString userId;
-        // Rendered verbatim; a short pill, not a sentence.
         QString label;
-        // Spoken instead of the bare label, which alone says nothing about the
-        // kind of claim. Part of the table, never per user.
         QString description;
     };
 
-    // "" for almost every user, rendering as nothing. Pure read; the table is
-    // immutable.
     Q_INVOKABLE QString labelFor(const QString &userId) const;
     Q_INVOKABLE QString descriptionFor(const QString &userId) const;
     Q_INVOKABLE bool hasBadge(const QString &userId) const;
-    // { label, description } in one lookup.
     Q_INVOKABLE QVariantMap badgeFor(const QString &userId) const;
 
-    // The table, for tests; unordered.
     static const QVector<Badge> &badges();
 };

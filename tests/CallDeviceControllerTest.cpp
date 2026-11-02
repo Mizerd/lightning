@@ -1,6 +1,3 @@
-// The camera choice as it leaves CallDeviceController for the media engine
-// (review M1). An unplugged chosen camera used to come out as "" ("system
-// default"), so the engine's refusal never ran and the default camera opened.
 #include <QtTest/QtTest>
 
 #include <QFile>
@@ -34,13 +31,11 @@ private Q_SLOTS:
         CallDeviceController devices;
         devices.setSettings(&settings);
 
-        // No choice: the system default, nothing missing.
         settings.setPreferredCameraId(QString());
         auto selection = devices.cameraSelection();
         QVERIFY(selection.id.isEmpty());
         QVERIFY(!selection.preferredMissing);
 
-        // A camera no machine has: chosen, and not connected.
         settings.setPreferredCameraId(
             QStringLiteral("/dev/video-lightning-test-missing"));
         selection = devices.cameraSelection();
@@ -50,15 +45,11 @@ private Q_SLOTS:
                  "engine would open the default camera");
         QVERIFY(devices.activeCameraId().isEmpty());
 
-        // Choosing "system default" again clears it.
         devices.selectCamera(QString());
         QVERIFY(!devices.cameraSelection().preferredMissing);
         QVERIFY(settings.preferredCameraDescription().isEmpty());
     }
 
-    // Final review S5: re-picking the same camera announced nothing (the id
-    // did not change), and leaving "missing" for "system default" changed no
-    // id either, so the engine kept refusing a camera nobody had chosen.
     void aRePickAndTheEndOfAMissingCameraAreAnnounced()
     {
         SettingsManager settings;
@@ -71,13 +62,13 @@ private Q_SLOTS:
         QSignalSpy selection(&devices, &CallDeviceController::selectionChanged);
         QSignalSpy active(&devices,
                           &CallDeviceController::activeDevicesChanged);
-        devices.selectCamera(gone); // the same id again
+        devices.selectCamera(gone);
         QVERIFY2(!selection.isEmpty(),
                  "re-picking the same camera announced nothing");
 
         selection.clear();
         active.clear();
-        devices.selectCamera(QString()); // back to "system default"
+        devices.selectCamera(QString());
         QVERIFY(!devices.preferredCameraMissing());
         QVERIFY(!selection.isEmpty());
         QVERIFY2(!active.isEmpty(),
@@ -85,10 +76,6 @@ private Q_SLOTS:
                  "engine was never told the camera may open again");
     }
 
-    // The same two surfaces, as source: a missing camera selects no row in
-    // either (never "System default" beside the chosen one), and each says
-    // why. Loading them needs the whole app; the rows' `chosen` comes from
-    // cameras(), which the case above exercises through the same selection.
     void aMissingCameraSelectsNoRowAndSaysSo()
     {
         const auto read = [](const char *name) {

@@ -1,11 +1,3 @@
-// Settings > Appearance > Timeline > "Collapse media and link embeds". Drives
-// the production MessageDelegate offscreen (as LinkPreviewQmlTest does),
-// since every property here is a load-time or layout fact. Covered: the
-// collapsed line replaces the attachment and the component is not even
-// instantiated (a hidden Image still downloads and decodes); the line names
-// the attachment, expands reversibly and works from the keyboard; loaded link
-// previews collapse but consent gates do not; reply quotes are not embeds;
-// and the setting is off by default.
 #include <QtTest/QtTest>
 
 #include <memory>
@@ -27,7 +19,7 @@
 
 namespace {
 constexpr int kSignalTimeoutMs = 3000;
-} // namespace
+}
 
 class CollapsedEmbedsQmlTest : public QObject
 {
@@ -41,9 +33,6 @@ private:
         QStringList warnings;
     };
 
-    // A complete role map with safe defaults, taken from the real model's
-    // roleNames so a later role arrives as a null QVariant rather than a
-    // missing property.
     static QVariantMap baseFixture(AppController &controller)
     {
         QVariantMap f;
@@ -80,9 +69,6 @@ private:
         f.insert(QStringLiteral("mediaWidth"), 0);
         f.insert(QStringLiteral("mediaHeight"), 0);
         f.insert(QStringLiteral("mediaSize"), 0);
-        // False on purpose: with no bridge source and an empty thumb URL the
-        // image resolves to no source, so the suite never touches the network
-        // or media cache.
         f.insert(QStringLiteral("mediaSourceAvailable"), false);
         f.insert(QStringLiteral("mediaThumbAvailable"), false);
         f.insert(QStringLiteral("mediaKey"), QString{});
@@ -99,8 +85,6 @@ private:
         return f;
     }
 
-    // A 1920x1080 PNG called holiday.png: the three facts the collapsed line
-    // should carry, all asserted.
     static QVariantMap imageFixture(AppController &controller)
     {
         QVariantMap f = baseFixture(controller);
@@ -114,9 +98,6 @@ private:
         return f;
     }
 
-    // The delegate reads room encryption and viewport facts from its host
-    // pane. A real QML object, not a QVariantMap: several bindings call
-    // methods on `timelineView`, which a map would turn into TypeErrors.
     static QObject *paneStandIn(QQmlEngine *engine, QObject *owner)
     {
         QQmlComponent component(engine);
@@ -184,8 +165,6 @@ QtObject {
         return d.root->findChild<QQuickItem *>(QLatin1String(name));
     }
 
-    // Let nested Loaders build and layouts polish: toggling the collapse
-    // destroys one subtree and builds another.
     static void settle()
     {
         for (int i = 0; i < 4; ++i) {
@@ -224,8 +203,6 @@ QtObject {
     QTemporaryDir m_dataHome;
 
 private Q_SLOTS:
-    // A private config root, so persisted settings flipped here never reach a
-    // real store or another suite.
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());
@@ -245,8 +222,6 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // Off by default: a default flip would reach every existing install
-    // unasked.
     void theSettingIsOffByDefault()
     {
         AppController controller(AppController::MockBackend);
@@ -262,7 +237,6 @@ private Q_SLOTS:
                  "a summary line appeared with the setting off");
     }
 
-    // The block becomes a line and the row gets shorter.
     void collapsingReplacesTheAttachmentWithOneLine()
     {
         AppController controller(AppController::MockBackend);
@@ -272,8 +246,6 @@ private Q_SLOTS:
         const qreal expandedHeight = d.root->implicitHeight();
         QVERIFY(expandedHeight > 0.0);
 
-        // Flipped live on an existing delegate, as when a reader toggles the
-        // switch with a room open.
         controller.settings()->setCollapseEmbeds(true);
         settle();
 
@@ -311,9 +283,6 @@ private Q_SLOTS:
                  "and decodes the picture");
     }
 
-    // The line names the kind and what that surface already knows, and the
-    // accessible name carries the same, since a screen reader gets nothing
-    // from the glyph.
     void theLineSaysWhatTheAttachmentIs()
     {
         AppController controller(AppController::MockBackend);
@@ -330,9 +299,6 @@ private Q_SLOTS:
         QVERIFY2(text.contains(QStringLiteral("1920")), qPrintable(text));
         QVERIFY2(text.contains(QStringLiteral("1080")), qPrintable(text));
 
-        // `Accessible.name` is attached and not readable via
-        // QObject::property(); it and the visible label both come from
-        // `summaryText`, which is asserted.
         auto *line = find(d, "collapsedEmbedRow");
         QVERIFY(line != nullptr);
         const QString summary = line->property("summaryText").toString();
@@ -343,7 +309,6 @@ private Q_SLOTS:
                                            "this attachment is")
                                 .arg(summary)));
 
-        // A GIF says GIF, not "Image".
         QVariantMap gif = imageFixture(controller);
         gif.insert(QStringLiteral("mediaMimetype"), QStringLiteral("image/gif"));
         gif.insert(QStringLiteral("mediaFilename"), QStringLiteral("cat.gif"));
@@ -357,8 +322,6 @@ private Q_SLOTS:
                  qPrintable(gifLabel->property("text").toString()));
     }
 
-    // Expansion is reversible: the line stays above the picture, so the
-    // setting keeps applying to rows the reader opened.
     void expandingRestoresTheAttachmentAndTheLineStays()
     {
         AppController controller(AppController::MockBackend);
@@ -371,7 +334,6 @@ private Q_SLOTS:
         QCOMPARE(line->property("expanded").toBool(), false);
         QCOMPARE(d.root->property("embedExpanded").toBool(), false);
 
-        // Exactly what the TapHandler does.
         QVERIFY(QMetaObject::invokeMethod(line, "toggleRequested"));
         settle();
 
@@ -384,7 +346,6 @@ private Q_SLOTS:
                  "to collapse this row again");
         QCOMPARE(stillThere->property("expanded").toBool(), true);
 
-        // And back.
         QVERIFY(QMetaObject::invokeMethod(stillThere, "toggleRequested"));
         settle();
         QCOMPARE(d.root->property("embedExpanded").toBool(), false);
@@ -392,8 +353,6 @@ private Q_SLOTS:
                  "collapsing again left the picture built");
     }
 
-    // The line is the only way to the attachment while the setting is on, so
-    // it must work without a pointer.
     void theLineIsOperableFromTheKeyboard()
     {
         AppController controller(AppController::MockBackend);
@@ -419,7 +378,6 @@ private Q_SLOTS:
         QVERIFY2(d.root->property("embedExpanded").toBool(),
                  "Return on the focused summary line did not expand it");
 
-        // Right/Left are directional: Right twice does not close it.
         QTest::keyClick(d.window.get(), Qt::Key_Right);
         settle();
         QCOMPARE(d.root->property("embedExpanded").toBool(), true);
@@ -428,8 +386,6 @@ private Q_SLOTS:
         QCOMPARE(d.root->property("embedExpanded").toBool(), false);
     }
 
-    // Each kind names itself with what it knows: a voice message its length
-    // (its filename is generated), a file its size.
     void eachKindNamesItselfWithWhatItKnows()
     {
         AppController controller(AppController::MockBackend);
@@ -499,7 +455,6 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("a dimensionless sticker carries "
                                            "no second fact: \"%1\"")
                                 .arg(stickerText)));
-        // A sticker that does know its size still leads with it.
         QVariantMap measured = sticker;
         measured.insert(QStringLiteral("mediaWidth"), 512);
         measured.insert(QStringLiteral("mediaHeight"), 512);
@@ -518,9 +473,6 @@ private Q_SLOTS:
                                 .arg(measuredText)));
     }
 
-    // A loaded link preview collapses; a consent gate is already one band and
-    // holds the reader's only control over an outbound request, so it does
-    // not.
     void aLoadedLinkPreviewCollapsesAndAConsentGateDoesNot()
     {
         AppController controller(AppController::MockBackend);
@@ -551,7 +503,6 @@ private Q_SLOTS:
                  "the loaded card is still built while collapsed");
     }
 
-    // A reply quote is conversational context, not media, and stays.
     void theReplyQuoteIsNotAnEmbed()
     {
         AppController controller(AppController::MockBackend);
@@ -578,8 +529,6 @@ private Q_SLOTS:
                  "a summary line appeared on a plain text reply");
     }
 
-    // This adds bindings to every timeline row, so load errors and binding
-    // loops (invisible to source scans) are asserted directly.
     void theDelegateLoadsCleanlyWithTheSettingOn()
     {
         AppController controller(AppController::MockBackend);
@@ -590,18 +539,12 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(find(d, "collapsedEmbedRow"),
                                           "toggleRequested"));
         settle();
-        // The loop assertion first: a binding loop leaves the component loaded
-        // and scans passing while Qt abandons an evaluation.
         for (const QString &w : std::as_const(d.warnings)) {
             QVERIFY2(!w.contains(QStringLiteral("Binding loop")), qPrintable(w));
         }
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // In Bubbles the bubble width comes from `bubbleContent.implicitWidth`, so
-    // a child reading `bubble.width` and contributing implicit width back is a
-    // cycle that Qt resolves by pinning it to one pixel. Asserted in both
-    // states after layout settles.
     void theSummaryLineSurvivesTheBubblesLayout()
     {
         AppController controller(AppController::MockBackend);

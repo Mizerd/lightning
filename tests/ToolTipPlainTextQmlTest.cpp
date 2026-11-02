@@ -1,16 +1,3 @@
-// Tooltips never render someone else's text as markup (breaker-swarm
-// integration, MASTER-2 H1 / MASTER-3 H3).
-//
-// Qt Quick Controls serves every ATTACHED ToolTip.text from one shared
-// instance per engine, and the Basic style's contentItem is a Text in
-// AutoText: a room name like `Room <img src="http://host/x.png">` was rendered
-// as StyledText and the image fetched, straight from the sender's host, the
-// moment the tooltip showed. Main.qml's SharedToolTipGuard makes the shared
-// instance plain text; an explicit ToolTip { } has its own contentItem and
-// must be a PlainToolTip (or declare plain text) when its text is not ours.
-//
-// Fails without the guard: the shared contentItem stays AutoText and the
-// listener below receives the image request.
 
 #include <QDirIterator>
 #include <QFile>
@@ -76,14 +63,11 @@ private Q_SLOTS:
         QVERIFY(content);
         QCOMPARE(content->property("textFormat").toInt(), int(Qt::PlainText));
         QCOMPARE(content->property("text").toString(), name);
-        // Nothing fetched the <img>.
         QTest::qWait(600);
         QVERIFY2(!listener.hasPendingConnections(),
                  "a tooltip fetched an image named in a room name");
     }
 
-    // A 120-character room name was one ~960 px line across the window: the
-    // shared tooltip is capped and the text wraps inside the cap.
     void aLongRoomNameWrapsInsideTheTooltipCap()
     {
         QQmlEngine engine;
@@ -119,8 +103,6 @@ private Q_SLOTS:
         QQmlExpression tipExpr(qmlContext(row), row, QStringLiteral("ToolTip.toolTip"));
         auto *tip = tipExpr.evaluate().value<QObject *>();
         QVERIFY(tip);
-        // Show, hide, show again with the same text: Popup.show() resets the
-        // width, so the cap must be re-applied on every showing.
         for (int pass = 0; pass < 3; ++pass) {
             if (pass > 0) {
                 QMetaObject::invokeMethod(root.get(), "hideTip");
@@ -138,7 +120,6 @@ private Q_SLOTS:
         }
     }
 
-    // Main.qml keeps the guard.
     void theApplicationWindowCarriesTheGuard()
     {
         QFile f(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/Main.qml"));
@@ -147,8 +128,6 @@ private Q_SLOTS:
         QVERIFY(main.contains(QRegularExpression(QStringLiteral("\\bSharedToolTipGuard\\s*\\{"))));
     }
 
-    // Every explicit ToolTip { } whose text is not a literal qsTr() draws it
-    // as plain text (PlainToolTip, or its own PlainText content).
     void everyExplicitToolTipWithForeignTextIsPlain()
     {
         static const QRegularExpression open(
@@ -195,9 +174,6 @@ private Q_SLOTS:
             }
         }
         QVERIFY2(blocks > 5, "the scan found implausibly few ToolTip blocks");
-        // Our own words only (qsTr with arguments we compute), each listed by
-        // file AND the start of its text binding, so a new foreign-text
-        // ToolTip in the same file is still caught (recheck N4).
         const QStringList allowed = {
             QStringLiteral("AccountMenu.qml text: root.activeTrustCompleted < 0 || trustChip.full"),
             QStringLiteral("AudioPlayerCard.qml text: playButton.actionLabel"),
@@ -206,7 +182,6 @@ private Q_SLOTS:
         QStringList unexpected;
         int allowedSeen = 0;
         for (const QString &o : std::as_const(offenders)) {
-            // "File.qml:LINE text: ..." -> "File.qml text: ..."
             const qsizetype colon = o.indexOf(QLatin1Char(':'));
             const qsizetype space = o.indexOf(QLatin1Char(' '), colon);
             const QString key = o.left(colon) + o.mid(space);
@@ -218,8 +193,6 @@ private Q_SLOTS:
             else
                 unexpected << o;
         }
-        // Each allowance still matches exactly one block: a stale entry is
-        // removed, not left to excuse something else.
         QCOMPARE(allowedSeen, int(allowed.size()));
         QVERIFY2(unexpected.isEmpty(), qPrintable(unexpected.join(QLatin1Char('\n'))));
     }

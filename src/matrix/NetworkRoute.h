@@ -7,24 +7,6 @@
 class SecretStore;
 class SettingsManager;
 
-// One account's network route: an explicit HTTP (CONNECT) or SOCKS5 proxy for
-// everything that account's Matrix client sends (docs/network-profiles.md,
-// rust/src/route.rs).
-//
-// Custody (CLAUDE.md §6):
-//   * kind, host, port and username are device-local settings in the
-//     account's record (SettingsManager::networkRouteRecord); never synced,
-//     never in diagnostics.
-//   * the password is a secret in the account's SecretStore beside its
-//     tokens, so clearAccountSecrets() (sign-out, removal) takes it with
-//     them. It is never logged, never handed to QML (summary() reports only
-//     whether one is stored), and leaves C++ only inside rustJson()'s bytes,
-//     which the caller scrubs.
-//
-// Fail closed: rustJson() answers "unavailable" (and the Rust side then
-// refuses to build the client) whenever a configured route cannot be used:
-// a password that cannot be read, a record that does not validate. It never
-// answers "none" for an account that has a route.
 namespace matrix::network_route {
 
 inline constexpr char kSecretName[] = "networkRoutePassword";
@@ -40,28 +22,19 @@ struct Route {
 
 enum class PasswordChange { Keep, Replace, Clear };
 
-Kind kindFromName(const QString &name);       // "http", "socks5"; else None
-QString kindName(Kind kind);                  // "none", "http", "socks5"
+Kind kindFromName(const QString &name);
+QString kindName(Kind kind);
 
-// Empty when valid, else an error code: "invalid_host", "invalid_port",
-// "invalid_username". A None route is always valid.
 QString validate(const Route &route);
 
 Route fromRecord(const QVariantMap &record);
 QVariantMap toRecord(const Route &route);
 
-// The stored route; None when the account has none (or no record).
 Route load(const SettingsManager *settings, const QString &userId);
 
-// Validates and stores. The password is written first, then the record, so a
-// failed keyring write stores nothing new. Error codes: those of validate(),
-// "no_account", "password_required" (a username with no password to keep or
-// set), "keyring_unavailable". Kind None clears both halves.
 QString save(SettingsManager *settings, SecretStore *store, const QString &userId,
              const Route &route, PasswordChange change, const QString &password);
 
-// For Settings: {kind, host, port, username, hasPassword}. hasPassword is
-// read, never the value; an unreadable keyring reports false.
 QVariantMap summary(const SettingsManager *settings, const SecretStore *store,
                     const QString &userId);
 
@@ -72,25 +45,11 @@ QVariantMap summary(const SettingsManager *settings, const SecretStore *store,
 QByteArray rustJson(const SettingsManager *settings, const SecretStore *store,
                     const QString &userId);
 
-// The route for a store-less sign-in handle (the OAuth and SSO bootstrap,
-// the whoami probe, a refused sign-in's revocation). With `userId` of a saved
-// account: that account's rustJson(). Otherwise from the server being signed
-// in to (`homeserver`, as typed or recorded): the route of the saved
-// account(s) on that server that have one, so signing a routed account in
-// again goes through its proxy, never direct. Several routed accounts on one
-// server with different routes, or one that cannot be used: "unavailable"
-// (the sign-in is refused, not sent direct). No routed account there: "none"
-// (a new account's first sign-in is direct, documented). Matching compares
-// the host[:port] of the typed value with the account's recorded homeserver
-// URL and with its user id's server name.
 QByteArray rustJsonForSignIn(const SettingsManager *settings, const SecretStore *store,
                              const QString &homeserver, const QString &userId = {});
 
-// host[:port], lower case, with no scheme, path or trailing dot/slash.
 QString serverKey(const QString &homeserverOrServerName);
 
-// The state rustJson() chose, for a log line: "none", "unavailable",
-// "http" or "socks5". Never the host, never a credential.
 QString describeJson(const QByteArray &json);
 
-} // namespace matrix::network_route
+}

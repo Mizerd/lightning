@@ -21,10 +21,6 @@
 namespace {
 Q_LOGGING_CATEGORY(lcCameraPortal, "lightning.calls.portal")
 
-/// How long a portal request may stay outstanding. Long, because the user is
-/// answering a permission dialog; it only stops an unanswered request from
-/// wedging the camera. Outside the D-Bus guard because the timer exists in
-/// every build.
 constexpr int kRequestTimeoutMs = 120000;
 
 #ifdef HAVE_QT_DBUS
@@ -33,14 +29,13 @@ constexpr auto kPath = "/org/freedesktop/portal/desktop";
 constexpr auto kCamera = "org.freedesktop.portal.Camera";
 constexpr auto kRequest = "org.freedesktop.portal.Request";
 
-/// A caller-unique, random token per request (see ScreenCastPortal).
 QString freshToken()
 {
     return QStringLiteral("lightning_%1")
         .arg(QRandomGenerator::system()->generate64(), 0, 16);
 }
 #endif
-} // namespace
+}
 
 #ifdef HAVE_QT_DBUS
 /// One step of the handshake: subscribe to the Request's `Response`, deliver
@@ -65,7 +60,6 @@ public:
     }
 
 Q_SIGNALS:
-    /// response: 0 = granted, 1 = user declined, 2 = ended some other way.
     void answered(uint response, const QVariantMap &results);
 
 private Q_SLOTS:
@@ -102,14 +96,10 @@ CameraPortal::~CameraPortal()
 bool CameraPortal::available()
 {
 #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-    // No portal: the capture element opens the device itself and the OS gates
-    // access, so the direct route applies.
     return false;
 #elif defined(HAVE_QT_DBUS)
     if (!QDBusConnection::sessionBus().isConnected())
         return false;
-    // Probe the interface version; a desktop without the Camera portal
-    // answers with an error.
     QDBusMessage probe = QDBusMessage::createMethodCall(
         kService, kPath, "org.freedesktop.DBus.Properties",
         QStringLiteral("Get"));
@@ -137,7 +127,6 @@ bool CameraPortal::cameraPresent()
     if (reply.type() != QDBusMessage::ReplyMessage
         || reply.arguments().isEmpty())
         return false;
-    // Properties.Get wraps the value in a variant.
     return reply.arguments().constFirst().value<QDBusVariant>()
         .variant().toBool();
 #else
@@ -148,8 +137,6 @@ bool CameraPortal::cameraPresent()
 QString CameraPortal::failureCategory(const QString &errorName,
                                      bool openingRemote)
 {
-    // xdg-desktop-portal answers a camera lockdown (and, at
-    // OpenPipeWireRemote, any permission other than "yes") with NotAllowed.
     if (errorName == QLatin1String("org.freedesktop.portal.Error.NotAllowed")
         || errorName == QLatin1String("org.freedesktop.portal.Error.Cancelled")
         || errorName == QLatin1String("org.freedesktop.DBus.Error.AccessDenied"))
@@ -171,8 +158,6 @@ void CameraPortal::cancel()
     ++m_generation;
     m_busy = false;
     m_requestTimeout.stop();
-    // Nothing to close: the Camera portal has no session. The fd, if any,
-    // belongs to whoever received `ready`.
 }
 
 void CameraPortal::reset()
@@ -183,14 +168,12 @@ void CameraPortal::reset()
 #if !defined(HAVE_QT_DBUS) || defined(Q_OS_WIN) || defined(Q_OS_MACOS)
 void CameraPortal::requestAccess()
 {
-    // Report rather than ignore, so the caller falls back instead of waiting.
     Q_EMIT failed(QStringLiteral("no_portal"));
 }
 #else
 void CameraPortal::requestAccess()
 {
     if (m_busy) {
-        // A second request would raise a second dialog.
         Q_EMIT failed(QStringLiteral("busy"));
         return;
     }
@@ -206,22 +189,17 @@ void CameraPortal::requestAccess()
         return generation != m_generation;
     };
 
-    // Step 1: AccessCamera, where the portal asks the user.
     const QString token = freshToken();
     const auto onAnswer = [this, stale](uint response, const QVariantMap &) {
         if (stale())
             return;
         if (response != 0) {
-            // Declined. Not an error.
             cancel();
             Q_EMIT cancelled();
             return;
         }
         openRemote();
     };
-    // Subscribed before the call: with the permission already stored there is
-    // no dialog, and the grant arrives right behind the reply. See
-    // PortalRequest.h.
     auto subscription = portal::subscribeBeforeCall<CameraPortalStep>(
         this, QDBusConnection::sessionBus().baseService(), token, onAnswer);
 
@@ -246,7 +224,7 @@ void CameraPortal::requestAccess()
                     // Error text can name the desktop and paths; the error
                     // NAME decides between a refusal and no portal at all.
                     const QString category = failureCategory(
-                        reply.error().name(), /*openingRemote=*/false);
+                        reply.error().name(),false);
                     qCWarning(lcCameraPortal)
                         << "camera AccessCamera failed error="
                         << reply.error().name() << "category=" << category;
@@ -263,9 +241,6 @@ void CameraPortal::requestAccess()
 
 void CameraPortal::openRemote()
 {
-    // OpenPipeWireRemote grants actual access to pixels; without it there is
-    // no remote containing a camera node for this process. A plain method
-    // call; the reply carries the fd.
     const quint64 generation = m_generation;
     QDBusMessage open = QDBusMessage::createMethodCall(
         kService, kPath, kCamera, QStringLiteral("OpenPipeWireRemote"));
@@ -280,7 +255,6 @@ void CameraPortal::openRemote()
                 if (generation != m_generation)
                     return;
                 if (reply.isError() || !reply.value().isValid()) {
-                    // Error name only: messages can carry a device path.
                     qCWarning(lcCameraPortal)
                         << "camera OpenPipeWireRemote failed error="
                         << (reply.isError() ? reply.error().name()
@@ -289,7 +263,7 @@ void CameraPortal::openRemote()
                     Q_EMIT failed(
                         reply.isError()
                             ? failureCategory(reply.error().name(),
-                                              /*openingRemote=*/true)
+true)
                             : QStringLiteral("no_pipewire_remote"));
                     return;
                 }

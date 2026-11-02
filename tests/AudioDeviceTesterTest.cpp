@@ -1,10 +1,3 @@
-// The Settings microphone and speaker test (AudioDeviceTester).
-//
-// The state machine (refusals, the time limits, a call taking over, teardown)
-// and, with the media engine, the pipelines it actually hands GStreamer: test
-// sources and fakesinks stand in for the devices, but the descriptions are
-// the production ones, parsed and run. A description this test composed
-// itself would prove nothing about the one the tester builds.
 
 #include <QSignalSpy>
 #include <QtTest/QtTest>
@@ -21,8 +14,6 @@
 namespace {
 
 #ifdef HAVE_LIGHTNING_WEBRTC
-// GStreamer with `level`, or the case is skipped (the engine's own suite
-// skips the same way).
 bool gstreamerWithMeter()
 {
     if (!lightning::gst::ensureInitialised())
@@ -34,11 +25,9 @@ bool gstreamerWithMeter()
     return true;
 }
 
-// The synthetic microphone the tester's test mode opens.
 const QString kTestMicrophone = QStringLiteral(
     "audiotestsrc is-live=true wave=sine freq=440 volume=0.5 name=micsrc");
 
-// Parses `description` as GStreamer would and reports its error, if any.
 QString parseError(const QString &description)
 {
     GError *error = nullptr;
@@ -57,12 +46,10 @@ QString parseError(const QString &description)
 }
 #endif
 
-} // namespace
+}
 
 #ifdef HAVE_LIGHTNING_WEBRTC
 namespace {
-/// A capture whose start blocks the thread that starts it, as one opening a
-/// sound server that does not answer does.
 struct SlowTestMic {
     GstBin parent;
 };
@@ -100,7 +87,7 @@ void slow_test_mic_class_init(SlowTestMicClass *klass)
         "Lightning");
     GST_ELEMENT_CLASS(klass)->change_state = slowTestMicChangeState;
 }
-} // namespace
+}
 #endif
 
 class AudioDeviceTesterTest : public QObject
@@ -108,8 +95,6 @@ class AudioDeviceTesterTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    // Until AppController has found the media runtime, nothing starts: tests
-    // and builds without it must never open a device.
     void nothingStartsBeforeTheRuntimeIsKnown()
     {
         AudioDeviceTester tester;
@@ -121,7 +106,6 @@ private Q_SLOTS:
         QCOMPARE(tester.mode(), AudioDeviceTester::Mode::Idle);
         QCOMPARE(modes.count(), 0);
 #ifndef HAVE_LIGHTNING_WEBRTC
-        // Without the engine no runtime can make it available.
         QVERIFY(!tester.built());
         tester.setRuntimeAvailable(true);
         QVERIFY(!tester.available());
@@ -130,8 +114,6 @@ private Q_SLOTS:
 #endif
     }
 
-    // The call owns the microphone: a test is refused while one is ringing,
-    // starting or live, and says so.
     void aTestIsRefusedDuringACall()
     {
         AudioDeviceTester tester;
@@ -150,8 +132,6 @@ private Q_SLOTS:
     }
 
 #ifdef HAVE_LIGHTNING_WEBRTC
-    // The level check runs what it describes: the call's own capture front,
-    // verbatim, into a meter and a fakesink, and the meter moves.
     void theLevelCheckRunsTheCallsOwnChainAndReportsALevel()
     {
         if (!gstreamerWithMeter())
@@ -175,14 +155,10 @@ private Q_SLOTS:
                  qPrintable(built));
         QVERIFY(built.contains(QStringLiteral("level name=testlevel")));
         QVERIFY(built.contains(QStringLiteral("volume name=testvol")));
-        // Meter only: nothing is played anywhere.
         QVERIFY(!built.contains(QStringLiteral("outsink")));
 
-        // A -6 dBFS sine (whatever the voice processing makes of it) lights
-        // the bar.
         QTRY_VERIFY_WITH_TIMEOUT(tester.level() > 0.1, 5000);
 
-        // A second of readings stays within the meter's rate.
         levels.clear();
         QTest::qWait(1000);
         QVERIFY2(levels.count()
@@ -193,13 +169,10 @@ private Q_SLOTS:
         QCOMPARE(tester.mode(), AudioDeviceTester::Mode::Idle);
         QCOMPARE(tester.level(), 0.0);
         QVERIFY(!tester.pipelineRunningForTest());
-        // A reading still in flight for the ended session changes nothing.
         tester.noteLevelForTest(-3.0, 10'000'000);
         QCOMPARE(tester.level(), 0.0);
     }
 
-    // "Let's check" plays the voice back through a bounded, leaky queue (a
-    // default queue would replay a growing echo) and stops by itself.
     void theVoicePlaybackIsBoundedAndStopsByItself()
     {
         if (!gstreamerWithMeter())
@@ -224,7 +197,6 @@ private Q_SLOTS:
         QVERIFY2(playbackQueue.contains(QStringLiteral("max-size-time=200000000")),
                  qPrintable(playbackQueue));
 
-        // The limit ends it with no error and nothing left running.
         QTRY_COMPARE_WITH_TIMEOUT(tester.mode(), AudioDeviceTester::Mode::Idle,
                                   5000);
         QVERIFY(tester.error().isEmpty());
@@ -256,8 +228,6 @@ private Q_SLOTS:
         tester.stop();
     }
 
-    // The output test is a short tone that ends by itself (EOS), without an
-    // error and without waiting for the backstop.
     void theTestToneEndsByItself()
     {
         if (!gstreamerWithMeter())
@@ -278,11 +248,9 @@ private Q_SLOTS:
                                     .arg(AudioDeviceTester::kToneBuffers)),
                  qPrintable(built));
         QVERIFY(built.contains(QStringLiteral("name=outsink")));
-        // No microphone is opened for the tone.
         QVERIFY(!built.contains(QStringLiteral("micsrc")));
     }
 
-    // A call starting ends a running test at once.
     void aCallStartingStopsARunningTest()
     {
         if (!gstreamerWithMeter())
@@ -297,12 +265,9 @@ private Q_SLOTS:
         QCOMPARE(tester.mode(), AudioDeviceTester::Mode::Idle);
         QVERIFY(!tester.pipelineRunningForTest());
         QCOMPARE(tester.level(), 0.0);
-        // Not an error: the call simply has the microphone now.
         QVERIFY(tester.error().isEmpty());
     }
 
-    // Starting another test replaces the running one; the old session's
-    // late readings are discarded.
     void aNewTestReplacesTheRunningOne()
     {
         if (!gstreamerWithMeter())
@@ -319,8 +284,6 @@ private Q_SLOTS:
                                   4000);
     }
 
-    // Destroying a tester mid-test (the application quitting) tears the
-    // pipeline down and delivers nothing to the dead object.
     void destroyingARunningTesterIsSafe()
     {
         if (!gstreamerWithMeter())
@@ -331,14 +294,9 @@ private Q_SLOTS:
         QVERIFY(tester->startMicrophoneTest(true));
         QTRY_VERIFY_WITH_TIMEOUT(tester->pipelineRunningForTest(), 8000);
         delete tester;
-        // Readings queued before the delete must find no receiver.
         QTest::qWait(300);
     }
 
-    // The issue #12 family in Settings: the microphone test's start (a
-    // capture opening a sound server that does not answer) runs on a worker
-    // thread, and a test stopped meanwhile never hears from it (generation).
-    // Here the capture's start blocks 2.5 s; the GUI thread must not.
     void aMicrophoneTestNeverWaitsOnASlowSoundServer()
     {
         if (!gstreamerWithMeter())
@@ -360,19 +318,15 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("starting and stopping waited %1 "
                                            "ms on the capture")
                                 .arg(took.elapsed())));
-        // The abandoned start finishes and is not adopted or reported.
         QTest::qWait(kSlowTestMicMs + 1000);
         QVERIFY(!tester.pipelineRunningForTest());
         QCOMPARE(tester.startsReportedForTest(), 0);
-        // A test that runs to its start is reported.
         tester.setMicrophoneSourceForTest(QString());
         QVERIFY(tester.startMicrophoneTest(false));
         QTRY_COMPARE_WITH_TIMEOUT(tester.startsReportedForTest(), 1, 8000);
         tester.stop();
     }
 
-    // The descriptions a real device produces (not the test sources) parse:
-    // the platform-default elements every package carries.
     void theRealDeviceDescriptionsParse()
     {
         if (!gstreamerWithMeter())
@@ -405,7 +359,6 @@ private Q_SLOTS:
             QVERIFY2(error.isEmpty(),
                      qPrintable(error + QStringLiteral(" in ") + description));
         }
-        // The gain reaches the volume element on the call's own scale.
         const QString loud = AudioDeviceTester::describeForTest(
             AudioDeviceTester::Mode::Meter,
             QStringLiteral("autoaudiosrc name=micsrc"), 0, QString(), 200);
@@ -416,9 +369,6 @@ private Q_SLOTS:
                  qPrintable(loud));
     }
 
-    // GitHub #20: the microphone test runs the noise suppression the call
-    // would, so "Let's check" plays back what others will hear. Before the
-    // selector the test could only ever run webrtcdsp's own suppressor.
     void theMicrophoneTestRunsTheSelectedNoiseSuppression()
     {
         if (!gstreamerWithMeter())

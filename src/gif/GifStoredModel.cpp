@@ -27,11 +27,7 @@ QJsonObject toJson(const gif::GifResult &r)
     o.insert(QStringLiteral("h"), r.gifHeight);
     o.insert(QStringLiteral("pw"), r.previewWidth);
     o.insert(QStringLiteral("ph"), r.previewHeight);
-    // Exact as a double: gifBytes is bounded by kMaxGifBytes (25 MiB).
     o.insert(QStringLiteral("bytes"), static_cast<double>(r.gifBytes));
-    // Only local saved rows carry "ext", and only when non-empty, so provider
-    // rows round-trip unchanged. GifStarredStore treats an empty local ext as
-    // "gif".
     if (!r.localExt.isEmpty())
         o.insert(QStringLiteral("ext"), r.localExt);
     return o;
@@ -52,11 +48,6 @@ gif::GifResult fromJson(const QJsonObject &o)
     r.previewWidth = o.value(QStringLiteral("pw")).toInt();
     r.previewHeight = o.value(QStringLiteral("ph")).toInt();
     r.gifBytes = static_cast<qint64>(o.value(QStringLiteral("bytes")).toDouble());
-    // Missing means "" (legacy GIF for local rows). The value later builds file
-    // paths (filePath, remove, readBytes, source), so only the closed set of
-    // suffixes is accepted; anything else, including traversal like
-    // "png/../../x", collapses to "", and openFor() drops the row if no
-    // <hash>.gif exists.
     const QString ext = o.value(QStringLiteral("ext")).toString();
     if (ext == QLatin1String("gif") || ext == QLatin1String("png")
         || ext == QLatin1String("jpg") || ext == QLatin1String("webp"))
@@ -70,7 +61,7 @@ bool valid(const gif::GifResult &r)
         && safeHttps(r.previewUrl) && safeHttps(r.stillUrl)
         && safeHttps(r.gifUrl);
 }
-} // namespace
+}
 
 GifStoredModel::GifStoredModel(QSettings *settings, QString key, int maxRows,
                                QObject *parent)
@@ -110,9 +101,6 @@ QVariant GifStoredModel::data(const QModelIndex &index, int role) const
         return (w > 0 && h > 0) ? static_cast<double>(w) / h : 1.0;
     }
     case GifResultModel::RatingRole:        return r.rating;
-    // A constant: true for favorites and locally saved rows, but false in
-    // meaning for Recents. Never use it as an "is saved" oracle; ask the
-    // collection (GifPicker.qml's isSaved() does).
     case GifResultModel::FavoriteRole:      return true;
     case GifResultModel::BytesRole:         return r.gifBytes;
     default:                                return {};
@@ -180,7 +168,6 @@ void GifStoredModel::insertFront(const gif::GifResult &r)
         return;
     const int existing = indexOf(r.provider, r.id);
     if (existing == 0) {
-        // Already newest: refresh metadata in place and persist.
         m_rows[0] = r;
         Q_EMIT dataChanged(index(0), index(0));
         save();
@@ -194,7 +181,6 @@ void GifStoredModel::insertFront(const gif::GifResult &r)
     beginInsertRows({}, 0, 0);
     m_rows.prepend(r);
     endInsertRows();
-    // Enforce the cap from the oldest end.
     while (m_rows.size() > m_maxRows) {
         const int last = m_rows.size() - 1;
         beginRemoveRows({}, last, last);
@@ -231,9 +217,6 @@ void GifStoredModel::clearAll()
 
 void GifStoredModel::reopen(QSettings *settings)
 {
-    // Drop rows without persisting: load() returns early when the new settings
-    // have no value, which must not leave the previous account's rows visible,
-    // and saving here could overwrite the same account's real data on re-login.
     if (!m_rows.isEmpty()) {
         beginResetModel();
         m_rows.clear();
@@ -255,7 +238,7 @@ void GifStoredModel::load()
         return;
     const QJsonDocument doc = QJsonDocument::fromJson(raw);
     if (!doc.isArray())
-        return; // corrupted store → start empty, never crash
+        return;
     beginResetModel();
     m_rows.clear();
     const QJsonArray arr = doc.array();

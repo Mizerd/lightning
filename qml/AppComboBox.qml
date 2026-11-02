@@ -3,12 +3,6 @@ import QtQuick.Controls
 import QtQuick.Effects
 import MatrixClient
 
-// Lightning combo box: a flat themed field with a Material Symbols chevron, a
-// themed popup and flat delegates with an accent-soft selected state. No
-// native gradient, platform arrow or default popup chrome.
-//
-// The dropdown popup is always storm, like every menu; `storm: true` also
-// styles the closed field for hosts on storm surfaces (Settings).
 ComboBox {
     id: root
 
@@ -53,20 +47,6 @@ ComboBox {
     }
     onCountChanged: if (root.syncedValue !== undefined) Qt.callLater(root._resync)
 
-    // A language change re-evaluates every qsTr() model and ComboBox answers
-    // by resetting currentIndex to 0 WITHOUT `activated`, so a combo that
-    // binds `currentIndex: app.settings.X` (nothing re-evaluates that binding:
-    // X did not change) shows row 0 while the stored value is something else.
-    // Reported on privacy controls (read receipts, notification preview) and
-    // on a keyword rule created disabled. Cover every combo here instead of
-    // in each caller: remember the index that stood at the start of an
-    // event-loop turn, and when that turn rebuilt the model with the SAME row
-    // count and left the index at 0, put the old one back. A Binding with
-    // RestoreNone writes without destroying the caller's own binding (an
-    // imperative write would, for the life of the object). Combos that use
-    // syncToValue keep their own mechanism.
-    // Set false on a combo whose model is DATA (devices, fonts, rooms): a
-    // same-size rebuild there is a real change and a reset to row 0 is meant.
     property bool restoreAfterModelReset: true
     property int _committed: -1
     property int _committedCount: -1
@@ -113,8 +93,6 @@ ComboBox {
     onCurrentIndexChanged: { root._current = currentIndex; root._openTurn() }
     Component.onCompleted: root._openTurn()
 
-    // Return and Enter open a focused, closed combo like Space does. With the
-    // popup open they stay Qt's: choose the highlighted row.
     Keys.onReturnPressed: (event) => root._openFromKey(event)
     Keys.onEnterPressed: (event) => root._openFromKey(event)
     function _openFromKey(event) {
@@ -125,7 +103,6 @@ ComboBox {
         if (!root.enabled)
             return
         if (root.popup.visible) {
-            // Explicitly Qt's: it chooses the highlighted row on release.
             event.accepted = false
             return
         }
@@ -133,11 +110,7 @@ ComboBox {
         root._swallowKeyRelease = true
         root.popup.open()
     }
-    // Qt's ComboBox closes an open popup on the RELEASE of Return/Enter, which
-    // would shut the list this very key press just opened. Eat that one release.
     property bool _swallowKeyRelease: false
-    // The release may never reach us (Tab, window deactivation, popup focus);
-    // a stale flag would eat the NEXT release, i.e. a row choice.
     onActiveFocusChanged: if (!root.activeFocus) root._swallowKeyRelease = false
     Connections {
         target: root.popup
@@ -151,16 +124,12 @@ ComboBox {
         }
     }
 
-    // PageUp/PageDown move the highlight a page of rows, like Home and End
-    // move it to the ends. Only while the list is open.
     Keys.onPressed: (event) => {
         if (!root.popup.visible
                 || (event.key !== Qt.Key_PageUp && event.key !== Qt.Key_PageDown))
             return
         var page = Math.max(1, Math.floor(comboPopup.height
                                           / AppTheme.menuItemHeight) - 1)
-        // incrementCurrentIndex/decrementCurrentIndex move the HIGHLIGHT while
-        // the popup is open (they are what Up and Down call).
         for (var i = 0; i < page; ++i) {
             if (event.key === Qt.Key_PageDown)
                 root.incrementCurrentIndex()
@@ -202,7 +171,6 @@ ComboBox {
     background: Rectangle {
         radius: AppTheme.radiusMd
         color: root.storm ? AppTheme.stormInset : AppTheme.inputBackground
-        // Integer weights only (a 1.5px border blurs at DPR 1.0).
         border.width: root.visualFocus ? 2 : 1
         border.color: {
             if (root.storm)
@@ -215,16 +183,12 @@ ComboBox {
         }
     }
 
-    // Same row height, corner and type as AppMenuItem: a dropdown row and a
-    // context-menu row are the same thing.
     delegate: ItemDelegate {
         id: entry
         required property var model
         required property int index
         width: ListView.view ? ListView.view.width : implicitWidth
         implicitHeight: AppTheme.menuItemHeight
-        // Fixed row, whatever the script: a tall fallback face (Arabic,
-        // Devanagari, Bengali) must not stretch its row or crowd the next.
         height: AppTheme.menuItemHeight
         clip: true
         hoverEnabled: true
@@ -242,7 +206,6 @@ ComboBox {
                                                      : AppTheme.stormTextSecondary
             height: entry.availableHeight
             verticalAlignment: Text.AlignVCenter
-            // Rows read from the left whatever the row's own script is.
             horizontalAlignment: Text.AlignLeft
             elide: Label.ElideRight
         }
@@ -263,9 +226,6 @@ ComboBox {
         implicitHeight: Math.min(contentItem.implicitHeight
                                  + 2 * AppTheme.menuPadding, 320)
 
-        // Elevation: the shadow is a sibling behind the panel, so the popup's
-        // measured size is untouched (as in AppMenu). Popup sizes this wrapper
-        // itself; it must not declare an implicit size derived from the panel.
         background: Item {
             MultiEffect {
                 source: comboPanel
@@ -291,8 +251,6 @@ ComboBox {
             implicitHeight: contentHeight
             model: root.popup.visible ? root.delegateModel : null
             currentIndex: root.highlightedIndex
-            // The model is attached when the popup shows; open on the row
-            // that is selected rather than at the top of the list.
             onCountChanged: if (count > 0 && root.currentIndex >= 0)
                                 positionViewAtIndex(root.currentIndex, ListView.Contain)
             ScrollBar.vertical: AppScrollBar { thin: true }

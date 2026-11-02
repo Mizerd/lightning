@@ -36,8 +36,6 @@
 namespace {
 constexpr int kSignalTimeoutMs = 5000;
 
-// Every URL any engine-owned QNetworkAccessManager was asked for. The pixmap
-// reader runs on its own thread, so the list is guarded.
 struct RequestLog {
     QMutex mutex;
     QStringList urls;
@@ -56,8 +54,6 @@ struct RequestLog {
     }
 };
 
-// Records the request and answers it locally (an empty data: URL), so nothing
-// leaves the machine whatever the code under test does.
 class RecordingNam : public QNetworkAccessManager
 {
 public:
@@ -96,8 +92,6 @@ const QString kTrackerQuestion = QStringLiteral(
 const QString kTrackerAnswer = QStringLiteral(
     "a <img src=\"http://poll-answer.invalid/ans.png\"> <b>bold</b>");
 
-// Text.PlainText is Qt::PlainText (0); Text.Wrap is
-// QTextOption::WrapAtWordBoundaryOrAnywhere (4).
 constexpr int kPlainText = 0;
 constexpr int kWrap = 4;
 
@@ -133,7 +127,7 @@ void settle(int ms = 300)
     while (t.elapsed() < ms)
         QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
 }
-} // namespace
+}
 
 class PollTextQmlTest : public QObject
 {
@@ -184,7 +178,6 @@ class PollTextQmlTest : public QObject
         f.insert(QStringLiteral("readReceipts"), QVariantList{});
         f.insert(QStringLiteral("readReceiptsTotal"), 0);
         f.insert(QStringLiteral("sentReceipt"), false);
-        // The poll itself.
         f.insert(QStringLiteral("isPoll"), true);
         f.insert(QStringLiteral("pollQuestion"), kTrackerQuestion);
         f.insert(QStringLiteral("pollKind"), QStringLiteral("disclosed"));
@@ -207,8 +200,6 @@ class PollTextQmlTest : public QObject
         return f;
     }
 
-    /// The control: the same markup in a default (AutoText) Text through the
-    /// same engine does fetch. Without it a broken harness would pass.
     static bool controlFetches(QQmlEngine *engine, RequestLog &log,
                                QQuickItem *parentItem)
     {
@@ -242,8 +233,6 @@ private Q_SLOTS:
             QStringLiteral("poll-text-qml-test"));
     }
 
-    // A remote poll's question and answers render as literal text: PlainText
-    // on every label, and no request for the <img> they carry.
     void aRemotePollsMarkupIsLiteralAndFetchesNothing()
     {
         AppController app(AppController::MockBackend);
@@ -271,7 +260,6 @@ private Q_SLOTS:
         QQuickItem *question = findVisual(root, QStringLiteral("pollQuestion"));
         QVERIFY2(question, "no pollQuestion label: the poll card did not load");
         QCOMPARE(question->property("textFormat").toInt(), kPlainText);
-        // Literal: the label holds the markup and lays it out as characters.
         QCOMPARE(question->property("text").toString(), kTrackerQuestion);
 
         QList<QQuickItem *> answers;
@@ -290,9 +278,6 @@ private Q_SLOTS:
                  "a poll answer fetched its <img> (tracker request)");
     }
 
-    // The Create poll dialog's "as sent" preview: plain text like the card,
-    // and Text.Wrap, so a long unbroken word breaks inside the preview
-    // instead of running off its edge (it was Text.WordWrap).
     void theCreatePollPreviewDrawsWhatTheTimelineWill()
     {
         AppController app(AppController::MockBackend);
@@ -355,8 +340,6 @@ private Q_SLOTS:
         QVERIFY2(!log.any(QStringLiteral("poll-answer.invalid")),
                  "the preview answer fetched its <img>");
 
-        // 300 unbroken characters: with Text.Wrap the line breaks inside the
-        // label; with WordWrap it overflowed the preview card.
         QVERIFY(field->setProperty("text", QString(300, QLatin1Char('A'))));
         settle(100);
         const qreal contentWidth = preview->property("contentWidth").toReal();
@@ -368,19 +351,12 @@ private Q_SLOTS:
                      .arg(contentWidth).arg(preview->width())));
     }
 
-    // C23-F01/F04: a second click must toggle from what the FIRST click sent,
-    // not from the model's not-yet-echoed answers; a pick beyond the cap says
-    // why nothing happened.
     void rapidClicksToggleFromThePendingSelectionAndTheCapSpeaks()
     {
         AppController app(AppController::MockBackend);
-        // Voting needs a client that supports polls; the roomless composer
-        // drops the send itself, so nothing leaves the process.
         MockMatrixClient pollClient;
         pollClient.setScreenshotDemoMode(true);
         app.composer()->setClient(&pollClient);
-        // A failed QVERIFY returns early; never leave the composer holding
-        // a pointer to the stack client.
         struct ClientGuard {
             AppController &a;
             ~ClientGuard() { a.composer()->setClient(nullptr); }
@@ -436,16 +412,13 @@ private Q_SLOTS:
         toggle("a2");
         QCOMPARE(own().size(), 2);
         QVERIFY(!hint->isVisible());
-        toggle("a3"); // beyond the cap of two
+        toggle("a3");
         QCOMPARE(own().size(), 2);
         QVERIFY2(hint->isVisible(), "a refused pick gave no explanation");
-        toggle("a1"); // retract a1 from the pending, not from the model
+        toggle("a1");
         QCOMPARE(own(), QStringList{QStringLiteral("a2")});
     }
 
-    // C23-F07: a link in a poll's fallback body must not raise a link
-    // preview under the card. The control row (same body, not a poll) proves
-    // the harness does reach the preview path.
     void aPollRowNeverRaisesALinkPreview()
     {
         struct PreviewClient : MockMatrixClient {
@@ -459,7 +432,6 @@ private Q_SLOTS:
             ~Guard() { a.linkPreviews()->setClient(nullptr); }
         } guard{app};
         QVERIFY(app.linkPreviews()->supported());
-        // The row keys its preview on the open room.
         app.setCurrentRoomId(QStringLiteral("!preview:mock.local"));
 
         auto previewState = [&](bool poll) {
@@ -526,8 +498,6 @@ private Q_SLOTS:
         }
     }
 
-    // C23-F06: a huge uncertainty printed as "1e+08" (Number.toString of a
-    // large double through %2).
     void aHugeLocationUncertaintyIsPrintedAsADigitString()
     {
         AppController app(AppController::MockBackend);
@@ -561,8 +531,6 @@ private Q_SLOTS:
         QVERIFY2(found, "no accuracy label was drawn");
     }
 
-    // C23-F03: Return must activate the focused button of the destructive
-    // confirm dialog (AbstractButton activates on Space only).
     void returnConfirmsTheFocusedDestructiveButton()
     {
         AppController app(AppController::MockBackend);

@@ -2,25 +2,14 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// Quick-react row at the top of the message context menu: 32px cells with the
-// five most recent emoji and a "more" cell that opens the shared picker. A
-// plain Item child of an AppMenu; QQuickMenu sizes every content row to its
-// width, so this only lays out its cells and never sets its own `width`. Emoji
-// literals are banned in MessageDelegate.qml/RoomDelegate.qml by IconChromeTest
-// and EmojiUiContractTest; this component is their carved-out exception.
 Item {
     id: root
 
-    // Recent emoji in MRU order (app.emojiCatalog.recentEmoji, possibly empty,
-    // in which case a default set is used). The first five are shown.
     property var emojis: []
     property int columns: 6
     signal picked(string emoji)
     signal morePressed()
 
-    // The root is a focus stop the menu's Tab/arrow navigation can reach; it
-    // forwards to the current cell. Left/Right move; Return/Space/Enter
-    // activate.
     property int focusIndex: 0
     onActiveFocusChanged: {
         if (activeFocus)
@@ -123,8 +112,6 @@ Item {
                     else if (emojiValue.length > 0) root.picked(emojiValue)
                 }
 
-                // The emphasized cell: stormSelection fill with a
-                // stormBorderStrong border.
                 Rectangle {
                     anchors.fill: parent
                     radius: AppTheme.menuItemRadius
@@ -163,9 +150,6 @@ Item {
                 Keys.onReturnPressed: cell.activate()
                 Keys.onEnterPressed: cell.activate()
                 Keys.onSpacePressed: cell.activate()
-                // Key events a cell does not accept bubble to the root's
-                // handlers above (Left/Right/Tab/Backtab/Home/End).
-                // The reaction's key can be any text a pack defines: plain.
                 PlainToolTip {
                     id: tip
                     visible: hover.hovered || cell.activeFocus
@@ -176,7 +160,6 @@ Item {
         }
     }
 
-    // 1px hairline under the row, 6px before the next menu row.
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right

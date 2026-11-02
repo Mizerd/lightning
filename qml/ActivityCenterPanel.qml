@@ -3,11 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The global Activity Center: one list, across every room, of what was
-// addressed to the user (mentions, replies, replies in their threads,
-// reactions to their messages, invites and keyword hits), with its own seen
-// state independent of read receipts, and a click that lands on the exact
-// event. Opened from the RoomsPanel header shared by both room-list layouts.
 Dialog {
     id: root
     objectName: "activityCenterDialog"
@@ -31,9 +26,6 @@ Dialog {
         var revision = activity.threadActivityRevision
         return activity.threadActivity(threadScope)
     }
-    // Opening a modal gives the popup focus, but not its keyboard-driven
-    // list. Do this on every open, including after tabbing to a control;
-    // leave the current row and the model's seen state alone.
     onOpened: {
         if (showingThreads) {
             if (activity.refreshThreadFollowing)
@@ -46,11 +38,6 @@ Dialog {
 
     onClosed: if (activity) activity.searchQuery = ""
 
-    // The keyword list is NOT edited here: it used to be a second, local list
-    // that only filtered this panel and never notified or pushed. The account's
-    // keywords are push rules, edited in Settings > Notifications. Nothing in
-    // this panel writes the model's keywords or seen marker except the
-    // explicit "Mark all seen".
     function openPanel() {
         open()
     }
@@ -99,17 +86,11 @@ Dialog {
             return i < values.length ? String(values[i]) : m
         })
     }
-    // Names are other people's text. Strip any bidi control that could close
-    // our isolate or override the direction, then isolate (FSI ... PDI) so a
-    // hostile or opposite-direction name cannot reorder its neighbours.
     function isolate(name) {
         var n = String(name === undefined || name === null ? "" : name)
         n = n.replace(/[\u202A-\u202E\u2066-\u2069]/g, "")
         return "\u2068" + n + "\u2069"
     }
-    // A reaction key is remote text. MSC2545 clients put the pack image's mxc
-    // URI there; show the shortcode if a pack this account holds knows it,
-    // else a generic label, never the raw URI (as MessageDelegate does).
     function reactionDisplay(key) {
         var k = key || ""
         if (k.indexOf("mxc://") !== 0)
@@ -164,8 +145,6 @@ Dialog {
         case "dm": return qsTr("New direct message")
         case "invite": return qsTr("Invited you")
         case "keyword": return qsTr("Keyword")
-        // The server says it's highlighted, not which rule matched; a
-        // highlight is a mention of you or one of your keywords.
         case "highlight": return qsTr("Mention or keyword")
         }
         return ""
@@ -181,9 +160,6 @@ Dialog {
         return sameDay ? Qt.formatTime(d, app.settings.clockTimeFormat)
                        : Qt.locale(AppLocale.name).toString(d, Locale.ShortFormat)
     }
-    // A sender the model could not name yet arrives as a bare Matrix ID; the
-    // localpart reads as a name ("@bob:example.org" -> "bob"), as mention
-    // pills fall back. The full ID stays in the accessible name.
     function senderLabel(senderName, senderId) {
         var n = senderName || ""
         if (n.length === 0 || n === senderId) {
@@ -258,7 +234,6 @@ Dialog {
                     y: activityOptionsButton.height + 4
                     menuWidth: 280
 
-                    // Inset like the rows below, not against the popup edge.
                     MenuSectionLabel {
                         text: qsTr("Hide read activity older than")
                         leftPadding: AppTheme.spacing12
@@ -317,7 +292,6 @@ Dialog {
                     { value: "replies", label: qsTr("Replies") },
                     { value: "threads", label: qsTr("Threads") }
                 ]
-                // Hidden while the account's reaction rule is Off.
                 if (!root.activity || root.activity.reactionsVisible !== false)
                     tabs.push({ value: "reactions", label: qsTr("Reactions") })
                 tabs.push({ value: "invites", label: qsTr("Invites") },
@@ -363,7 +337,6 @@ Dialog {
             text: qsTr("Threads found through activity in this account. Older and unrelated threads may be missing. Muted rooms are hidden. Opening this list does not mark threads read.")
         }
 
-        // Keywords are account push rules; they are edited in Settings.
         RowLayout {
             Layout.fillWidth: true
             visible: root.activity && root.activity.filter === "keywords"
@@ -389,19 +362,12 @@ Dialog {
             }
         }
 
-        // The server cannot list past highlights (no GET /notifications), so
-        // after a restart only what arrived since is here, while the room list
-        // still counts older mentions. Said once, above the rows; an empty
-        // list says it in place of "Nothing here yet". Invites and keywords do
-        // not come from that history.
         readonly property bool historyHintApplies: !!root.activity
             && root.activity.historyUnavailable
             && root.activity.filter !== "invites"
             && root.activity.filter !== "keywords"
             && !root.showingThreads
 
-        // Above the hint and the empty-state line, so the field the user is
-        // typing into never moves when they appear or vanish.
         TextField {
             id: activitySearch
             objectName: "activitySearch"
@@ -459,8 +425,6 @@ Dialog {
 
         Item {
             id: listHost
-            // Forward before a focused control's specific handlers and its
-            // built-in key handling; parent bubbling happens too late.
             Item {
                 id: dialogKeySink
                 Keys.onPressed: (event) => root.handleDialogKey(event)
@@ -484,9 +448,6 @@ Dialog {
                 Keys.onReturnPressed: listView.openCurrent()
                 Keys.onEnterPressed: listView.openCurrent()
                 Keys.onSpacePressed: listView.openCurrent()
-                // keyNavigationEnabled covers Up/Down only. Home/End/Page keys
-                // move the current row, and the view follows it, so a list that
-                // is Tab-focused while scrolled away shows its ring (C08-F03).
                 Keys.onPressed: function(event) {
                     if (listView.count === 0)
                         return
@@ -514,9 +475,6 @@ Dialog {
                         root.openEntry(listView.currentItem.entryId)
                 }
                 ScrollBar.vertical: ScrollBar { }
-                // The server seed is paged. Older highlights may belong to
-                // rooms outside the live sliding-sync window; every Activity
-                // filter needs a way to reach those pages, not only Threads.
                 footer: Item {
                     width: listView.width
                     height: root.activity && root.activity.activityHasMore
@@ -567,8 +525,6 @@ Dialog {
                         row.timestampMs)
                     Accessible.name: row.a11yName
                     Accessible.onPressAction: root.openEntry(row.entryId)
-                    // Visible keyboard focus: the current row while the list has
-                    // focus. Drawn inside the row so it is never clipped.
                     Rectangle {
                         objectName: "activityRowFocusRing"
                         anchors.fill: parent
@@ -625,8 +581,6 @@ Dialog {
                                     Layout.maximumWidth: 240
                                 }
                                 Label {
-                                    // Includes the reaction key, an arbitrary
-                                    // sender-chosen string.
                                     text: root.kindLabel(row.kind, row.reactionKey)
                                     textFormat: Text.PlainText
                                     color: AppTheme.stormTextMuted
@@ -637,7 +591,6 @@ Dialog {
                                 Label {
                                     text: root.timeLabel(row.timestampMs)
                                     color: AppTheme.stormTextMuted
-                                    // Proportional, like every other list's time.
                                     font.pixelSize: AppTheme.textMeta
                                 }
                             }

@@ -11,7 +11,6 @@ namespace matrix::preview {
 QString stripReplyFallback(const QString &body)
 {
     QString b = body;
-    // HTML body: the <mx-reply> block opens it and does not nest.
     if (b.startsWith(QLatin1String("<mx-reply>"))) {
         const int end = b.indexOf(QLatin1String("</mx-reply>"));
         if (end >= 0)
@@ -25,7 +24,7 @@ QString stripReplyFallback(const QString &body)
     for (;;) {
         const int nl = b.indexOf(QLatin1Char('\n'), pos);
         if (nl < 0)
-            return b; // quote runs to the end: not a fallback
+            return b;
         QStringView line = QStringView(b).mid(pos, nl - pos);
         if (line.endsWith(QLatin1Char('\r')))
             line.chop(1);
@@ -34,21 +33,16 @@ QString stripReplyFallback(const QString &body)
         if (line == QLatin1String(">") || line.startsWith(QLatin1String("> ")))
             pos = nl + 1;
         else
-            return b; // text before any blank line: not a fallback
+            return b;
     }
 }
 
 QString normalizePreviewText(const QString &text, int maxChars)
 {
     QString s = stripReplyFallback(text);
-    // A mention's plain-body fallback legitimately carries the matrix.to
-    // permalink in markdown form; a one-line preview shows only the label.
-    // Bounded quantifiers keep the pattern linear on adversarial input.
     static const QRegularExpression mentionLink(QStringLiteral(
         "\\[([^\\]\\n]{1,120})\\]\\(https://matrix\\.to/#/[^)\\s]{1,512}\\)"));
     s.replace(mentionLink, QStringLiteral("\\1"));
-    // Unicode line/paragraph separators break lines in QML Text like '\n'
-    // does; simplified() below only folds ASCII whitespace.
     s.replace(QChar(0x2028), QLatin1Char(' '));
     s.replace(QChar(0x2029), QLatin1Char(' '));
     s = s.simplified();
@@ -85,8 +79,6 @@ Token summaryToken(const TimelineEvent &event, const QString &actorLabel)
         return { Kind::Removed, {} };
     if (event.undecryptable)
         return { Kind::Undecryptable, {} };
-    // An MSC4274 gallery: the sender's caption, else what it holds. The row's
-    // media fields name only the primary item.
     if (event.galleryItems.size() > 1) {
         const QString caption = normalizePreviewText(event.body);
         if (!caption.isEmpty())
@@ -100,8 +92,6 @@ Token summaryToken(const TimelineEvent &event, const QString &actorLabel)
 
     switch (event.type) {
     case TimelineEvent::Location:
-        // A live location's body is the sender's description, or empty: the
-        // bridge no longer writes an English label into it.
         if (event.locationLive) {
             const QString description = normalizePreviewText(event.body);
             return description.isEmpty() ? Token{ Kind::LiveLocation, {} }
@@ -132,8 +122,6 @@ Token summaryToken(const TimelineEvent &event, const QString &actorLabel)
     case TimelineEvent::Sticker:
         return { Kind::Sticker, {} };
     case TimelineEvent::Poll: {
-        // Never the MSC3381 multi-line fallback; prefer the typed question,
-        // else the fallback's first line.
         QString question = event.pollQuestion;
         if (question.isEmpty())
             question = event.body.section(QLatin1Char('\n'), 0, 0);
@@ -142,15 +130,11 @@ Token summaryToken(const TimelineEvent &event, const QString &actorLabel)
                                     : Token{ Kind::PollQuestion, normalized };
     }
     case TimelineEvent::StateChange:
-        // A sentence the bridge sent by name: kept as a kind, so the room
-        // list words it in the current language and again after a switch.
         if (!event.stateSentence.isEmpty()) {
             const QString actor = presentable_name::presentable(
                 event.sender,
                 actorLabel.isEmpty() ? event.senderDisplayName : actorLabel,
                 event.senderNameAmbiguous);
-            // The bridge's English as the fallback for a build that does not
-            // know the name (the cache may hand this to one).
             const QString english = normalizePreviewText(actorSentence(
                 event.body, event.sender,
                 actorLabel.isEmpty() ? event.senderDisplayName : actorLabel,
@@ -163,8 +147,6 @@ Token summaryToken(const TimelineEvent &event, const QString &actorLabel)
                                            presentable_name::sanitized(event.stateTarget)),
                                        english) };
         }
-        // The room list showed "@alice:example.org updated room settings."
-        // where the person's name belongs (VM test, 2026-10-07).
         return text(normalizePreviewText(actorSentence(
             event.body, event.sender,
             actorLabel.isEmpty() ? event.senderDisplayName : actorLabel,
@@ -174,4 +156,4 @@ Token summaryToken(const TimelineEvent &event, const QString &actorLabel)
     }
 }
 
-} // namespace matrix::preview
+}

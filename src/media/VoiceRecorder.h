@@ -19,23 +19,11 @@ namespace lightning::media {
 class QtAudioGate;
 }
 
-// Microphone capture for MSC3245 voice messages. Records into a
-// session-scoped 0700 temp dir (OGG/Opus when available, the Matrix
-// convention, else AAC-in-MP4), then decodes the recording once to derive the
-// real amplitude waveform (0..=100 buckets). Nothing is fabricated: no
-// decodable audio means an empty waveform.
-//
-// Created lazily on the first mic press. File ownership transfers with
-// ready(): the SDK reads the bytes at queueing time and the consumer deletes
-// the file when the send resolves. Cancel deletes immediately; the temp dir
-// cleanup at destruction is only a backstop.
 class VoiceRecorder : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool recording READ recording NOTIFY stateChanged)
     Q_PROPERTY(bool processing READ processing NOTIFY stateChanged)
-    // A paused recording still holds the capture chain and the file, so
-    // `recording` stays true and this is a separate flag.
     Q_PROPERTY(bool paused READ paused NOTIFY stateChanged)
     Q_PROPERTY(qint64 durationMs READ durationMs NOTIFY durationChanged)
 
@@ -43,79 +31,42 @@ public:
     explicit VoiceRecorder(QObject *parent = nullptr);
     ~VoiceRecorder() override;
 
-    // An input device exists and an encoder resolved. Not a property: nothing
-    // signals device hotplug. A failed start() reports through failed().
     Q_INVOKABLE bool available();
-    // Virtual only so a test double can stand in for the capture chain
-    // (AppController::setVoiceRecorderForTest) to test the ownership rules.
     virtual bool recording() const { return m_state == State::Recording; }
     virtual bool processing() const { return m_state == State::Processing; }
     virtual bool paused() const { return m_paused; }
     qint64 durationMs() const;
 
-    // No-ops returning false unless in the matching state. Elapsed time freezes
-    // while paused.
     Q_INVOKABLE virtual bool pause();
     Q_INVOKABLE virtual bool resume();
-    // True when `path` lives in this recorder's temp dir; gates UI-initiated
-    // deletion of a previewed file.
     Q_INVOKABLE bool ownsPath(const QString &path) const;
 
-    // Returns false without failed() when not Idle (never supersedes a running
-    // or finalizing recording), and false with failed() when no device or
-    // encoder is available.
     Q_INVOKABLE virtual bool start();
-    // Discard the active recording and its file.
     Q_INVOKABLE virtual void cancel();
-    // Finalize: stops capture, derives the waveform from the recorded
-    // file, then emits ready(). No-op unless recording.
     Q_INVOKABLE void stop();
 
-    // Downsamples chunk peaks (0..=1) into at most maxBuckets values 0..=100,
-    // max-preserving.
     static QList<int> bucketsFromPeaks(const QList<float> &peaks,
                                        int maxBuckets);
 
-    // Hard cap: a forgotten live mic must not record indefinitely.
     static constexpr qint64 kMaxDurationMs = 15 * 60 * 1000;
-    // One bucket per this many ms, bounded to kMaxWaveformBuckets (MSC3245
-    // suggests 30-120; the bridge caps at 1024).
     static constexpr qint64 kBucketMs = 100;
     static constexpr int kMaxWaveformBuckets = 100;
 
-    // A start() is waiting for the audio gate (QtAudioGate.h): accepted, the
-    // microphone not open yet. stop() or cancel() drops it.
     bool startPending() const { return m_startPending; }
-    // Tests: the gate to ask before record(); production uses the process's.
     void setAudioGateForTest(lightning::media::QtAudioGate *gate);
-    // Tests: record() calls that reached Qt.
     int recordStartsForTest() const { return m_recordStarts; }
-    // Tests: the real start (device, encoder, record()) replaced, so a test
-    // never opens a microphone; and how often a start got that far.
     void setStartNowForTest(std::function<bool()> start)
     {
         m_startNowForTest = std::move(start);
     }
-    /// The input list changed: a recording whose device is gone is STOPPED,
-    /// its clip discarded and failed() emitted once (never ready(): that is
-    /// every consumer's "send it", and owners release the recorder only from
-    /// ready()/failed()).
     struct InputInfo {
         QByteArray id;
         bool isDefault = false;
     };
-    /// Whether a recording started on `id` still has its input: the id is
-    /// listed, or the recording followed the system default and some input is
-    /// the default now (a re-listed default under a new id is no disconnect).
     static bool inputStillPresent(const QByteArray &id, bool wasDefault,
                                   const QList<InputInfo> &inputs);
     void inputDevicesChanged(const QList<InputInfo> &inputs);
-    /// Test seam: creates the device watch ensureCaptureChain installs, so a
-    /// test can emit audioInputsChanged() on it.
     QMediaDevices *watchInputDevicesForTest();
-    /// Test seam: a recording on `deviceId` whose finished clip is
-    /// `activeFile`; stop() then enters Processing and finishForTest() plays
-    /// the part of the recorder's stopped edge.
     void setRecordingForTest(const QByteArray &deviceId,
                              const QString &activeFile = QString(),
                              qint64 durationMs = 0);
@@ -143,10 +94,6 @@ private:
     bool beginRecording();
     void dropPendingStart();
     void beginWaveformExtraction();
-    /// Finishes the waveform decode from the event loop: finishWithWaveform()
-    /// destroys the decoder, and deleting a QObject during its own emission is
-    /// a use-after-free. `tag` drops hops from abandoned decodes and makes two
-    /// signals from one decode deliver a single ready().
     void finishLater(quint64 tag, const QList<int> &waveform);
     void finishWithWaveform(const QList<int> &waveform);
     void discardActiveFile();
@@ -174,11 +121,8 @@ private:
     bool m_cancelRequested = false;
     bool m_paused = false;
     bool m_decodeFormatMismatch = false;
-    /// Identifies the decode in flight; bumped on start, completion and
-    /// abandonment.
     quint64 m_decodeTag = 0;
     int m_fileSerial = 0;
-    // Per-chunk absolute peaks accumulated during waveform decode.
     QList<float> m_chunkPeaks;
     float m_chunkPeak = 0.0f;
     qint64 m_chunkSamples = 0;

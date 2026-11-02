@@ -50,7 +50,7 @@ const QString kDm = QStringLiteral("!dm-bob:mock.local");
 // Not in the mock's room list: stands for a room that was left or forgotten.
 const QString kGhost = QStringLiteral("!ghost:mock.local");
 
-} // namespace
+}
 
 class MouseNavigationQmlTest : public QObject
 {
@@ -94,7 +94,6 @@ private:
         QTest::qWait(30);
     }
 
-    // A point inside the conversation pane, away from controls.
     QPoint timelinePoint() const
     {
         QQuickItem *composer = item("messageComposer");
@@ -102,7 +101,6 @@ private:
         return QPoint(c.x(), c.y() - 300);
     }
 
-    // The room-history stack as the user left it: general, devs, dm.
     void openThreeRooms()
     {
         m_controller->setCurrentRoomId(kGeneral);
@@ -152,7 +150,6 @@ private Q_SLOTS:
 
     void init()
     {
-        // Start every case with an empty history and no room.
         m_controller->openLobby();
         m_controller->clearRoomHistoryForTest();
         QVERIFY(m_controller->currentRoomId().isEmpty());
@@ -167,7 +164,6 @@ private Q_SLOTS:
         QCOMPARE(m_controller->currentRoomId(), kDevs);
         click(Qt::BackButton, at);
         QCOMPARE(m_controller->currentRoomId(), kGeneral);
-        // Nothing older: stays put.
         click(Qt::BackButton, at);
         QCOMPARE(m_controller->currentRoomId(), kGeneral);
 
@@ -188,7 +184,6 @@ private Q_SLOTS:
         QCOMPARE(m_controller->currentRoomId(), kGeneral);
         QVERIFY(!m_controller->navigateRoomForward());
         QCOMPARE(m_controller->currentRoomId(), kGeneral);
-        // Back from there is the room it was opened from.
         QVERIFY(m_controller->navigateRoomBack());
         QCOMPARE(m_controller->currentRoomId(), kDevs);
     }
@@ -226,7 +221,6 @@ private Q_SLOTS:
         openThreeRooms();
         QVERIFY(m_controller->navigateRoomBack());
         QVERIFY(m_controller->navigateRoomBack());
-        // Had the moves been recorded, Forward would be gone.
         QVERIFY(m_controller->navigateRoomForward());
         QVERIFY(m_controller->navigateRoomForward());
         QCOMPARE(m_controller->currentRoomId(), kDm);
@@ -265,8 +259,6 @@ private Q_SLOTS:
 
         click(Qt::BackButton, centerOf(composer));
         QCOMPARE(m_controller->currentRoomId(), kDevs);
-        // The navigation is queued after the release; let it and anything it
-        // schedules run before judging the focus.
         QTest::qWait(60);
         QCOMPARE(m_window->activeFocusItem(), focused);
     }
@@ -320,10 +312,6 @@ private Q_SLOTS:
         QCOMPARE(m_controller->currentRoomId(), kDevs);
     }
 
-    // A browser's Back on an open menu only closes the menu. Every AppMenu is
-    // a non-modal Menu that closes on a press outside, DURING the delivery of
-    // that press, so only a gate asked before delivery (the window filter)
-    // can tell. Fails if the filter stops asking hasOpenPopup().
     void aBackPressThatDismissesAMenuOnlyDismissesIt()
     {
         openThreeRooms();
@@ -340,14 +328,10 @@ private Q_SLOTS:
         QTest::qWait(30);
         QCOMPARE(m_controller->currentRoomId(), kDm);
 
-        // Nothing open now: the next press navigates.
         click(Qt::BackButton, timelinePoint());
         QCOMPARE(m_controller->currentRoomId(), kDevs);
     }
 
-    // A latched autoscroll ends on the Back press itself (any button ends a
-    // latch), and the room change ends it too, for the keyboard path that no
-    // press reaches (TimelinePane's onCurrentRoomIdChanged).
     void aLatchedAutoscrollDoesNotSurviveTheRoomChange()
     {
         openThreeRooms();
@@ -376,10 +360,6 @@ private Q_SLOTS:
         QCOMPARE(m_controller->currentRoomId(), kDm);
     }
 
-    // The composer's mention popup (like the emoji-completion and slash
-    // ones) is non-modal and NoAutoClose, so Qt's Shortcut context does NOT
-    // block a window shortcut under it; only the C++ gate does. Fails if the
-    // Shortcuts call navigateRoomBack() directly again.
     void altLeftDoesNotNavigateUnderAMentionPopup()
     {
         openThreeRooms();
@@ -394,7 +374,7 @@ private Q_SLOTS:
         }
         QVERIFY2(mention, "the composer's MentionPopup was not found");
         QVERIFY(!mention->property("modal").toBool());
-        constexpr int kCloseOnEscape = 0x10; // Popup.CloseOnEscape
+        constexpr int kCloseOnEscape = 0x10;
         QVERIFY2(!(mention->property("closePolicy").toInt() & kCloseOnEscape),
                  "the case needs a popup Qt's shortcut rules do not block");
         QVERIFY(QMetaObject::invokeMethod(mention, "open"));

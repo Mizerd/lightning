@@ -1,7 +1,3 @@
-// The invite preview card's keyboard contract (C83-F01): it is a Tab stop
-// followed by Accept and Decline with a visible ring, Tab can LEAVE it (no
-// keyboard trap), showing it never steals focus, and focus returns to it when
-// its buttons disable under the user.
 
 #include <QFile>
 #include <QQmlApplicationEngine>
@@ -22,9 +18,6 @@ private Q_SLOTS:
         auto *before = new QQuickItem(window.contentItem());
         before->setSize(QSizeF(10, 10));
         before->setActiveFocusOnTab(true);
-        // TimelinePane's covered timeline: earlier in the tree than the card,
-        // so Tab reaches it first unless it is disabled (the TimelinePane
-        // hunk, modelled here by setEnabled(false)).
         auto *covered = new QQuickItem(window.contentItem());
         covered->setSize(QSizeF(10, 10));
         covered->setActiveFocusOnTab(true);
@@ -48,14 +41,12 @@ private Q_SLOTS:
         auto *decline = card->findChild<QQuickItem *>(QStringLiteral("invitePreviewDecline"));
         QVERIFY(accept && decline);
 
-        // Showing the card must not steal focus from the list that opened it.
         before->forceActiveFocus();
         card->setVisible(false);
         card->setVisible(true);
         QTest::qWait(50);
         QVERIFY2(before->hasActiveFocus(), "showing the card must not take focus");
 
-        // Without the TimelinePane hunk Tab walks the covered content first.
         QTest::keyClick(&window, Qt::Key_Tab);
         QVERIFY2(covered->hasActiveFocus(), "an enabled covered item is the next Tab stop");
         before->forceActiveFocus();
@@ -77,12 +68,9 @@ private Q_SLOTS:
         QTest::keyClick(&window, Qt::Key_Backtab);
         QVERIFY2(decline->hasActiveFocus(), "Shift+Tab re-enters at Decline");
 
-        // Buttons disabling under the user must not drop focus out of the card.
         card->setProperty("pending", true);
         QTRY_VERIFY_WITH_TIMEOUT(card->hasActiveFocus(), 2000);
         card->setProperty("pending", false);
-        // Focus the user moved elsewhere must NOT be pulled back (async error,
-        // or the list's own Accept/Reject setting pending).
         before->forceActiveFocus();
         card->setProperty("errorText", QStringLiteral("nope"));
         QTest::qWait(100);
@@ -92,10 +80,6 @@ private Q_SLOTS:
         QVERIFY2(before->hasActiveFocus(), "pending set elsewhere must not steal focus");
     }
 
-    // UI-041: the preview card used to hand the invitation's avatar straight
-    // to Avatar, bypassing the account's invite_avatars choice that the room
-    // list and quick switcher honour. It asks for the picture only when told
-    // it may, and by default it may not.
     void theInviteAvatarFollowsTheAccountChoice()
     {
         QQmlApplicationEngine engine;
@@ -115,7 +99,6 @@ private Q_SLOTS:
                  QStringLiteral("mxc://evil.example/pic"));
         card->setProperty("showAvatar", false);
         QCOMPARE(avatar->property("mxc").toString(), QString());
-        // The host wires the account's fail-closed answer, not the MSC default.
         QFile pane(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/TimelinePane.qml"));
         QVERIFY(pane.open(QIODevice::ReadOnly));
         const QString src = QString::fromUtf8(pane.readAll());
@@ -123,8 +106,6 @@ private Q_SLOTS:
         QVERIFY(at > 0);
         const QString block = src.mid(at, 1500);
         QVERIFY(block.contains(QStringLiteral("app.accountPrefs.inviteAvatarsAllowed")));
-        // The room header of the open invitation used to load the picture
-        // anyway (live, 2026-10-26): both header avatars take the same gate.
         QVERIFY(src.contains(QStringLiteral("readonly property bool inviteAvatarWithheld:")));
         const int header = src.indexOf(QStringLiteral("objectName: \"roomHeaderAvatar\""));
         QVERIFY(header > 0);

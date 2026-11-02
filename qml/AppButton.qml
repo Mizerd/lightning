@@ -2,37 +2,14 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// Lightning text button. Five kinds on one geometry ladder:
-//   "secondary" (default) — flat surface with a subtle 1px border.
-//   "primary"             — accent fill with on-accent text (main actions).
-//   "danger"              — destructive, quiet: danger ink on a transparent
-//                           field with a danger-tinted border.
-//   "dangerPrimary"       — destructive, committed: solid danger fill with
-//                           dangerText. For a destructive dialog's confirm.
-//   "ghost"               — label only; no border, no resting fill. For
-//                           tertiary actions inside another surface.
-//
-// Geometry comes from the AppTheme button ladder (`size`: sm 26 / md 32 /
-// lg 40, buttonRadius, buttonPaddingH), never per-site literals.
-//
-// `storm: true` on storm surfaces. Accent and fill tokens are theme-routed
-// (Storm's accent is bolt), so only the secondary ink differs by skin.
 AbstractButton {
     id: root
 
     property string kind: "secondary"
     property bool storm: false
-    // "sm" | "md" | "lg"; see the ladder above.
     property string size: "md"
-    // Optional leading Material Symbols glyph; icon and label are centred as a
-    // unit.
     property string iconName: ""
-    // Width floor so short labels ("OK", "Save") don't make differently sized
-    // boxes. An explicit width or Layout.preferredWidth still wins.
     property int minWidth: AppTheme.buttonMinWidth
-    // A submission this button started is in flight: a small spinner leads
-    // the label. The label and geometry stay, so the row does not jump; the
-    // owner still disables the button (busy is presentation only).
     property bool busy: false
 
     readonly property bool primary: kind === "primary"
@@ -40,7 +17,6 @@ AbstractButton {
     readonly property bool dangerPrimary: kind === "dangerPrimary"
     readonly property bool ghost: kind === "ghost"
 
-    // Kinds with a solid resting fill; their focus ring is inked against it.
     readonly property bool _filled: primary || dangerPrimary
 
     readonly property int _height: size === "sm" ? AppTheme.buttonHeightSm
@@ -61,8 +37,6 @@ AbstractButton {
         return storm ? AppTheme.stormTextSecondary : AppTheme.buttonNeutralInk
     }
 
-    // Ring ink chosen against what the ring is drawn on (see the focus ring
-    // below).
     readonly property color _focusInk: {
         if (primary) return AppTheme.buttonPrimaryInk
         if (dangerPrimary) return AppTheme.buttonDangerInk
@@ -78,19 +52,13 @@ AbstractButton {
     focusPolicy: Qt.TabFocus
     Accessible.role: Accessible.Button
 
-    // Return and Enter press a focused button like Space does (Qt's
-    // AbstractButton only handles Space). Checkable buttons toggle.
     Keys.onReturnPressed: (event) => root._activateFromKey(event)
     Keys.onEnterPressed: (event) => root._activateFromKey(event)
     // An instance with its own Return behaviour turns this off: an instance's
     // Keys.onReturnPressed does NOT replace this one, both run (one Return
     // would otherwise act twice).
     property bool activateOnReturn: true
-    // A confirming button a stray key must not trigger (Leave room, Close
-    // room): Return/Enter act only while the focus ring shows (C06-F01).
     property bool keysNeedVisualFocus: false
-    // Return/Enter refused for want of a visible ring: the owner may move the
-    // focus somewhere safe, as its Space guard does.
     signal keyRefusedWithoutRing()
     function _activateFromKey(event) {
         if (!root.activateOnReturn)
@@ -108,8 +76,6 @@ AbstractButton {
             root.keyRefusedWithoutRing()
             return
         }
-        // click() takes Qt's own path: pressed/released, nextCheckState,
-        // an bound Action, then clicked(). Older Qt without it falls back.
         if (typeof root.click === "function") {
             root.click()
         } else {
@@ -129,8 +95,6 @@ AbstractButton {
             spacing: (root.iconName.length > 0 || root.busy)
                      ? AppTheme.buttonIconGap : 0
 
-            // Built only while busy: a spinner is a dozen QObjects, and this
-            // button is on every settings row and in every dialog.
             Loader {
                 active: root.busy
                 visible: active
@@ -147,8 +111,6 @@ AbstractButton {
                 objectName: "buttonIcon"
                 visible: root.iconName.length > 0 && !root.busy
                 name: root.iconName
-                // One optical step below the label's cap height, so it reads as
-                // part of the word.
                 size: root.size === "sm" ? 15 : 17
                 color: root._ink
                 anchors.verticalCenter: parent.verticalCenter
@@ -159,8 +121,6 @@ AbstractButton {
                 visible: root.text.length > 0
                 text: root.text
                 color: root._ink
-                // One face and weight for interactive labels, matching
-                // AppMenuItem.
                 font.family: root.storm ? AppTheme.menuFont : AppTheme.uiFont
                 font.pixelSize: root.size === "sm" ? AppTheme.textMeta
                                                    : AppTheme.textBody
@@ -176,11 +136,6 @@ AbstractButton {
     background: Rectangle {
         radius: root._radius
         color: {
-            // Disabled, every kind but ghost: a faint tint of the disabled ink
-            // inside the disabled edge, so the control keeps its shape on any
-            // surface. A filled kind used to take cardElevated, which is the
-            // card these buttons sit on: an unchanged Rename on the Space Home
-            // card read as stray text (button audit, 2026-10-26).
             if (!root.enabled)
                 return root.ghost ? "transparent" : AppTheme.buttonDisabledTint
             if (root.primary)
@@ -195,9 +150,6 @@ AbstractButton {
                 return root.down ? AppTheme.stormDangerBorder
                      : root.hovered ? AppTheme.stormDangerSoft
                      : "transparent"
-            // Secondary / ghost: rest, hover and press are distinct steps (a
-            // single step was indistinguishable under Storm's translucent
-            // hover).
             if (root.storm)
                 return root.down ? AppTheme.stormSelection
                      : root.hovered ? Qt.alpha(AppTheme.stormSelection, 0.55)
@@ -207,10 +159,6 @@ AbstractButton {
                 return root.down ? AppTheme.buttonGhostPressed
                      : root.hovered ? AppTheme.buttonGhostHover
                      : "transparent"
-            // Secondary: a resting tint of its own ink, so it reads as a
-            // control on whatever surface it sits on (a card, the page, a
-            // dialog) before hover. buttonNeutralFill is cardElevated and
-            // vanished on exactly the cards these buttons live on.
             return root.down ? AppTheme.buttonGhostPressed
                  : root.hovered ? AppTheme.buttonGhostHover
                  : AppTheme.buttonSecondaryFill
@@ -226,10 +174,6 @@ AbstractButton {
         }
     }
 
-    // Keyboard focus, drawn inside the control's bounds, so it can't collide
-    // with neighbours or be clipped by a container. On filled kinds the ring
-    // uses the fill's contrast-guaranteed ink (accentText / dangerText)
-    // instead of the accent.
     Rectangle {
         objectName: "focusRing"
         anchors.fill: parent

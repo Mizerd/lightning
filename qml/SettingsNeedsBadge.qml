@@ -2,23 +2,10 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// "Needs <setting>" pill for a dependent settings row. Declare it as a CHILD of
-// the control it explains; it shows only while that control is disabled, sits
-// just after the control, and takes no layout space, so switching the setting
-// it needs on or off never reflows the card.
-//
-//     CheckBox {
-//         enabled: app.settings.closeToTray
-//         SettingsNeedsBadge { needs: qsTr("Keep running in the tray") }
-//     }
-//
-// `needs` is the visible NAME of the controlling setting, as the user reads it.
 Rectangle {
     id: badge
 
-    // The controlling setting's name, translated by the caller.
     property string needs: ""
-    // The control being explained. Defaults to the parent.
     readonly property Item control: parent
 
     objectName: "settingsNeedsBadge"

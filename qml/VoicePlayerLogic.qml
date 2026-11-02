@@ -1,18 +1,11 @@
 import QtQuick
 import MatrixClient
 
-// What the "now playing" strip (VoicePlayerBar) and the popped-out card
-// (VoiceMiniPlayer) both show about the app-owned clip (app.voicePlayback),
-// and the actions they share. Not visual.
-//
-// The shown* values are copied while a clip is loaded, so a strip or card
-// fading out after a stop does not draw an empty title.
 QtObject {
     id: logic
 
     readonly property var voice: app.voicePlayback
 
-    // A clip played from a thread panel lives in that thread's timeline.
     readonly property bool fromThread:
         logic.voice.threadRootId.length > 0
         && logic.voice.threadRootId !== logic.voice.eventId
@@ -36,7 +29,6 @@ QtObject {
         return logic.voice.filename.length > 0 ? logic.voice.filename
                                                : qsTr("Audio")
     }
-    // "Voice message · Thread · Room", "Artist · Room".
     function subtitleText() {
         var parts = []
         if (logic.voice.isVoice)
@@ -69,8 +61,6 @@ QtObject {
     }
     Component.onCompleted: logic.capture()
 
-    // The status line: a failure, the call's pause, or the next clip in the
-    // last seconds; "" when there is nothing to say beyond the subtitle.
     readonly property string statusText: {
         if (!logic.voice.active)
             return ""
@@ -89,9 +79,6 @@ QtObject {
         return ""
     }
 
-    // Back to the message: its room, then the event (or its thread). As in
-    // notification routing (Main.qml), the jump waits one turn for the room
-    // switch to settle. From Settings it closes Settings first.
     function openSource() {
         var roomId = logic.voice.roomId
         var eventId = logic.voice.eventId
@@ -102,8 +89,6 @@ QtObject {
             app.showMain()
         app.openRoom(roomId)
         if (threadRootId.length > 0 && threadRootId !== eventId) {
-            // The panel, or (inline thread style) the room timeline narrowed
-            // to the thread with the message located in it.
             Qt.callLater(function() {
                 app.showThread(roomId, threadRootId)
                 if (app.timeline.threadRepliesInline === true
@@ -115,8 +100,6 @@ QtObject {
         }
     }
 
-    // The speed chip: 1x -> 1.5x -> 2x -> 1x; a speed chosen elsewhere (the
-    // row's menu) moves to the next step above it.
     readonly property var rateSteps: [1.0, 1.5, 2.0]
     function nextRate(current) {
         for (var i = 0; i < logic.rateSteps.length; ++i) {
@@ -132,13 +115,6 @@ QtObject {
         return (Math.round(rate * 100) / 100) + "×"
     }
 
-    // ── Colours (design-media P1). The floating card's surface must read as
-    // its own thing over a bubble in every theme: the stock popover surface
-    // IS the other-bubble colour in seven of the eleven themes (measured, 1:1).
-    // So a dark theme lifts it a step above the other bubble, and a light
-    // theme uses white over its tinted canvas and bubbles. Every ink on it is
-    // then guarded to 4.5:1 by construction (readable()), whatever palette,
-    // custom ones included.
     function mix(a, b, t) {
         return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t,
                        a.b + (b.b - a.b) * t, 1)
@@ -148,8 +124,6 @@ QtObject {
         var y = AppTheme.relativeLuminance(b)
         return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
     }
-    // `ink`, moved towards the primary text colour until it reads at 4.5:1
-    // on `bg` (WCAG AA for small text).
     function readable(ink, bg) {
         var c = ink
         for (var i = 0; i < 10 && logic.ratio(c, bg) < 4.5; ++i)
@@ -162,8 +136,6 @@ QtObject {
     readonly property color cardBorder:
         logic.mix(logic.cardSurface, AppTheme.textPrimary, 0.30)
 
-    // Position floors, total rounds (CLAUDE.md §16): at 25.7 s you have not
-    // reached 0:26, but a 25.7 s clip is 26 s long. As in AudioPlayerCard.
     function formatPosition(ms) {
         if (!ms || ms < 0) ms = 0
         return logic.clockText(Math.floor(ms / 1000))
@@ -178,9 +150,6 @@ QtObject {
     readonly property string clock:
         logic.formatPosition(logic.voice.position) + " / "
         + logic.formatDuration(logic.voice.duration)
-    // For assistive technology: state and title. The position is the
-    // scrubber's value (its value interface), so this does not change every
-    // second.
     readonly property string accessibleSummary:
         (logic.voice.playing ? qsTr("Playing") : qsTr("Paused")) + ", "
         + logic.shownTitle

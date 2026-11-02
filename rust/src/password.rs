@@ -43,10 +43,7 @@ use serde_json::json;
 use crate::rooms::require_client;
 use crate::{bridge, cstr_arg, enqueue, ffi_string, RustClient};
 
-/// Per request. No automatic retry: a password change is a user action and a
-/// failure is reported, never replayed behind the user's back.
 const PASSWORD_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-/// The whole probe (capabilities plus auth metadata).
 const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// An owned secret that zeroes its buffer when dropped. Also holds the
@@ -54,7 +51,6 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
 pub(crate) struct Secret(pub(crate) String);
 
 impl Secret {
-    /// Move the value out (into a ruma request); what is left is empty.
     fn take(&mut self) -> String {
         std::mem::take(&mut self.0)
     }
@@ -66,10 +62,7 @@ impl Drop for Secret {
     }
 }
 
-/// Best-effort scrub: volatile zero writes plus a compiler fence so the
-/// stores are not eliminated, then `clear()`. Same as uia.rs.
 fn scrub(secret: &mut String) {
-    // SAFETY: writing 0x00 into every byte keeps the buffer valid UTF-8.
     unsafe {
         for byte in secret.as_mut_vec().iter_mut() {
             std::ptr::write_volatile(byte, 0);
@@ -79,35 +72,23 @@ fn scrub(secret: &mut String) {
     secret.clear();
 }
 
-/// What a failed request said, reduced to what the categories need.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Failure {
-    /// No HTTP answer: DNS, TLS, connect, timeout.
     Transport,
-    /// A UIA 401.
     Uiaa {
-        /// A flow can be finished with m.login.password (plus m.login.dummy).
         password_stage: bool,
-        /// The server lists m.login.password as completed.
         password_done: bool,
     },
-    /// A standard Matrix error.
     Api { status: u16, errcode: String },
-    /// Anything else: an unreadable answer or a request that could not be built.
     Other,
 }
 
-/// What to do after the first (no-auth) attempt failed.
 #[derive(Debug, PartialEq, Eq)]
 enum Next {
     AnswerPasswordStage,
     Finish(&'static str),
 }
 
-/// Can the password stage alone complete a flow? Only m.login.password is
-/// ever answered, so a flow that also needs another stage (even
-/// m.login.dummy) is not taken: it would end in a re-challenge after the
-/// password had already been sent.
 fn password_stage_available(info: &UiaaInfo) -> bool {
     info.flows.iter().any(|flow| {
         flow.stages.iter().any(|s| matches!(s, AuthType::Password))
@@ -144,20 +125,15 @@ fn failure_of(err: &HttpError) -> Failure {
     }
 }
 
-/// A standard error's category. `password_sent`: whether this answered the
-/// request that carried the current password.
 fn api_category(status: u16, errcode: &str, password_sent: bool) -> &'static str {
     if errcode == "M_LIMIT_EXCEEDED" || status == 429 {
         "rate_limited"
-    // Synapse's password policy uses its own M_PASSWORD_* codes as well.
     } else if errcode == "M_WEAK_PASSWORD" || errcode.starts_with("M_PASSWORD_") {
         "weak_password"
     // A MAS-delegated Synapse does not serve the endpoint at all.
     } else if errcode == "M_UNRECOGNIZED" || status == 404 || status == 405 {
         "unsupported"
     } else if errcode == "M_FORBIDDEN" {
-        // Before any password was sent the server refuses the operation
-        // itself; after, it most likely refused the password.
         if password_sent { "wrong_password" } else { "unsupported" }
     } else {
         "failed"
@@ -167,7 +143,6 @@ fn api_category(status: u16, errcode: &str, password_sent: bool) -> &'static str
 fn after_first_attempt(failure: &Failure) -> Next {
     match failure {
         Failure::Uiaa { password_stage: true, .. } => Next::AnswerPasswordStage,
-        // SSO, email, captcha, MAS: nothing Lightning can answer here.
         Failure::Uiaa { password_stage: false, .. } => Next::Finish("unsupported"),
         Failure::Api { status, errcode } => Next::Finish(api_category(*status, errcode, false)),
         Failure::Transport => Next::Finish("network"),
@@ -177,9 +152,7 @@ fn after_first_attempt(failure: &Failure) -> Next {
 
 fn after_password_attempt(failure: &Failure) -> &'static str {
     match failure {
-        // Challenged again with the password stage still open: it was refused.
         Failure::Uiaa { password_done: false, .. } => "wrong_password",
-        // The password was accepted and the server wants a further stage.
         Failure::Uiaa { password_done: true, .. } => "unsupported",
         Failure::Api { status, errcode } => api_category(*status, errcode, true),
         Failure::Transport => "network",
@@ -198,7 +171,6 @@ fn change_request(
     request
 }
 
-/// Sanitized terminal event: a category, never anything the user typed.
 fn result_event(op_id: u64, lifecycle: u64, category: &str) -> serde_json::Value {
     json!({
         "type": "password_change_result",
@@ -220,14 +192,11 @@ fn probe_event(
         "op_id": op_id,
         "lifecycle": lifecycle,
         "known": can_change.is_some(),
-        // Missing means allowed, as in the spec and Element.
         "can_change": can_change.unwrap_or(true),
         "management_url": management_url,
     })
 }
 
-/// The two requests. `None`: the session ended between them and the current
-/// password was never sent.
 async fn run_change(
     client: matrix_sdk::Client,
     own_user: String,
@@ -240,13 +209,11 @@ async fn run_change(
         .disable_retry()
         .timeout(PASSWORD_REQUEST_TIMEOUT);
 
-    // 1. No auth: the UIA session and flows (and the server's policy check).
     let first = client
         .send(change_request(new.0.clone(), logout_devices, None))
         .with_request_config(config)
         .await;
     let session = match &first {
-        // The server needed no authentication (a UIA grace period).
         Ok(_) => return Some(""),
         Err(err) => {
             let failure = failure_of(err);
@@ -258,13 +225,10 @@ async fn run_change(
     };
     drop(first);
 
-    // A sign-out or account switch while the first request ran: the current
-    // password goes nowhere.
     if !still_current() {
         return None;
     }
 
-    // 2. Answer the password stage.
     let mut auth = uiaa::Password::new(
         uiaa::UserIdentifier::Matrix(uiaa::MatrixUserIdentifier::new(own_user)),
         current.take(),
@@ -284,9 +248,6 @@ async fn run_change(
     })
 }
 
-/// Start a password change. The result arrives as `password_change_result`.
-/// Refused synchronously (and scrubbed) without a session or with an empty
-/// password.
 fn change_password(
     bridge: &RustClient,
     current: Secret,
@@ -320,9 +281,6 @@ fn change_password(
     Ok(())
 }
 
-/// Ask whether the server lets this account change its password here
-/// (`m.change_password`) and where its account page is (auth metadata,
-/// OAuth/MAS servers only). Answers with `password_change_probe`.
 fn probe(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -335,7 +293,6 @@ fn probe(bridge: &RustClient, op_id: u64) -> Result<(), String> {
                 .can_change_password()
                 .await
                 .ok();
-            // The account page matters only where the form is not offered.
             let oauth = matches!(client.auth_api(), Some(matrix_sdk::AuthApi::OAuth(_)));
             if can_change == Some(true) && !oauth {
                 return (can_change, String::new());
@@ -359,12 +316,6 @@ fn probe(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     Ok(())
 }
 
-/// Change the account password: a no-auth request, then the password UIA
-/// stage with `current_password`. `logout_devices=false` is sent explicitly;
-/// true is the spec default and is omitted. Both strings are copied into
-/// `Secret`s (zeroed on drop); the copies inside the ruma requests and the
-/// SDK are not. The caller zeroes its own buffers. Result:
-/// `password_change_result`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_change_password(
     ptr: *mut c_void,
@@ -381,8 +332,6 @@ pub unsafe extern "C" fn mx_rust_change_password(
     })
 }
 
-/// Whether the account may change its password here, and its account page.
-/// Result: `password_change_probe`. Carries no secret.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_password_change_probe(
     ptr: *mut c_void,
@@ -439,7 +388,6 @@ mod tests {
         assert_eq!(first(429, ""), Next::Finish("rate_limited"));
         assert_eq!(first(404, "M_UNRECOGNIZED"), Next::Finish("unsupported"));
         assert_eq!(first(405, ""), Next::Finish("unsupported"));
-        // No password was sent yet, so a refusal is about the operation.
         assert_eq!(first(403, "M_FORBIDDEN"), Next::Finish("unsupported"));
         assert_eq!(first(500, "M_UNKNOWN"), Next::Finish("failed"));
         assert_eq!(after_first_attempt(&Failure::Transport), Next::Finish("network"));
@@ -448,11 +396,9 @@ mod tests {
 
     #[test]
     fn the_password_attempt_maps_a_refused_password() {
-        // Synapse: 401 with the flows again, password not completed.
         let refused = Failure::Uiaa { password_stage: true, password_done: false };
         assert_eq!(after_password_attempt(&refused), "wrong_password");
         assert_eq!(after_password_attempt(&api(403, "M_FORBIDDEN")), "wrong_password");
-        // Accepted, but the server wants more than a password.
         let more = Failure::Uiaa { password_stage: false, password_done: true };
         assert_eq!(after_password_attempt(&more), "unsupported");
         assert_eq!(after_password_attempt(&api(429, "M_LIMIT_EXCEEDED")), "rate_limited");
@@ -465,7 +411,6 @@ mod tests {
     fn the_password_stage_must_be_able_to_finish_a_flow() {
         let password = UiaaInfo::new(vec![AuthFlow::new(vec![AuthType::Password])]);
         assert!(password_stage_available(&password));
-        // Never answered, so never taken.
         let with_dummy =
             UiaaInfo::new(vec![AuthFlow::new(vec![AuthType::Password, AuthType::Dummy])]);
         assert!(!password_stage_available(&with_dummy));
@@ -483,12 +428,10 @@ mod tests {
 
     #[test]
     fn keeping_devices_is_explicit_on_the_wire() {
-        // The spec default is true, so "keep my devices" must be on the wire.
         let keep = body_of(change_request("n".to_owned(), false, None));
         assert_eq!(keep["logout_devices"], json!(false));
         assert!(keep.get("auth").is_none());
         let sign_out = body_of(change_request("n".to_owned(), true, None));
-        // ruma omits the default; the server's default is sign-out.
         assert_ne!(sign_out.get("logout_devices"), Some(&json!(false)));
     }
 
@@ -536,17 +479,12 @@ mod tests {
         let len = raw.len();
         scrub(&mut raw);
         assert!(raw.is_empty());
-        // clear() keeps the allocation: read the old bytes back through a
-        // pointer taken after the scrub.
         assert!(raw.capacity() >= len);
         let bytes = unsafe { std::slice::from_raw_parts(raw.as_ptr(), len) };
         assert!(bytes.iter().all(|b| *b == 0));
     }
 }
 
-/// `run_change` against a loopback homeserver: what actually goes on the wire
-/// in each of the two requests, and that nothing is sent after the session
-/// ended. Style of `delegation_tests` in lib.rs (plain TcpListener).
 #[cfg(test)]
 mod round_trip_tests {
     use std::io::{Read, Write};
@@ -566,7 +504,6 @@ mod round_trip_tests {
 
     const ME: &str = "@me:example.org";
 
-    /// How the fake server answers the password request that carries auth.
     #[derive(Clone, Copy)]
     enum Answer {
         Accept,
@@ -665,7 +602,6 @@ mod round_trip_tests {
         }
     }
 
-    /// A homeserver that records every request. Returns its address.
     fn serve(answer: Answer, log: Log) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");
@@ -707,7 +643,6 @@ mod round_trip_tests {
         client
     }
 
-    /// Run one change and return its outcome and the password request bodies.
     fn change(
         answer: Answer,
         logout_devices: bool,
@@ -746,10 +681,8 @@ mod round_trip_tests {
         let (outcome, bodies) = change(Answer::Accept, false, true);
         assert_eq!(outcome, Some(""));
         assert_eq!(bodies.len(), 2, "{bodies:?}");
-        // 1. No auth, so no password beyond the new one.
         assert!(bodies[0].get("auth").is_none());
         assert_eq!(bodies[0]["new_password"], json!("new-secret"));
-        // 2. The password stage, in the server's session, as this user.
         let auth = &bodies[1]["auth"];
         assert_eq!(auth["type"], json!("m.login.password"));
         assert_eq!(auth["session"], json!("S1"));
@@ -757,8 +690,6 @@ mod round_trip_tests {
         assert_eq!(auth["identifier"]["user"], json!(ME));
         assert_eq!(auth["password"], json!("old-secret"));
         assert_eq!(bodies[1]["new_password"], json!("new-secret"));
-        // "Keep my devices" is on the wire in BOTH requests: true is the
-        // server's default.
         for body in &bodies {
             assert_eq!(body["logout_devices"], json!(false), "{body}");
         }
@@ -788,7 +719,6 @@ mod round_trip_tests {
         assert_eq!(outcome, Some("wrong_password"));
         assert_eq!(bodies.len(), 2);
 
-        // Refused before UIA: the current password never leaves.
         let (outcome, bodies) = change(Answer::WeakPassword, false, true);
         assert_eq!(outcome, Some("weak_password"));
         assert_eq!(bodies.len(), 1);

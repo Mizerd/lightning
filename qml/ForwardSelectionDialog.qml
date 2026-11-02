@@ -3,9 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Forwarding a selection: N messages to M destinations. Unlike
-// ForwardMessageDialog it stays open through the send and reports each pair,
-// since N×M sends can partially fail.
 Dialog {
     id: root
     objectName: "forwardSelectionDialog"
@@ -18,14 +15,11 @@ Dialog {
     parent: Overlay.overlay
     anchors.centerIn: parent
     width: Math.min(520, parent ? parent.width - AppTheme.spacing24 * 2 : 520)
-    // Never taller than the window: the destination list below takes the
-    // difference, so the Forward / Cancel buttons stay on screen.
     height: Math.min(implicitHeight,
                      parent ? parent.height - AppTheme.spacing24 * 2
                             : implicitHeight)
     padding: AppTheme.spacing16
 
-    // [{roomId, name, threadRootId}]: chosen destinations.
     property var targets: []
     property string filter: ""
 
@@ -108,8 +102,6 @@ Dialog {
             Label {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
-                // Our own text, but the contract scan conservatively requires
-                // plain text everywhere.
                 textFormat: Text.PlainText
                 text: app.forward.forwardMode === "context"
                       ? qsTr("Each copy will name the original sender, this "
@@ -130,7 +122,6 @@ Dialog {
             onTextChanged: root.filter = text
         }
 
-        // ── Destinations ──
         ListView {
             id: destList
             objectName: "forwardDestinationList"
@@ -151,17 +142,12 @@ Dialog {
                 required property string membership
                 width: ListView.view.width
                 height: visible ? 38 : 0
-                // Keyboard: a visible row is a Tab stop (Space toggles it,
-                // as ItemDelegate's own click), shown by `highlighted`.
                 activeFocusOnTab: visible
                 highlighted: visualFocus
                 onActiveFocusChanged: {
                     if (activeFocus)
                         destList.positionViewAtIndex(index, ListView.Contain)
                 }
-                // A Space is not a room and can't receive a message, and an
-                // invite or knock is not somewhere a message can land (the
-                // single-message dialog lists joined rooms only).
                 visible: !isSpace && membership === "joined"
                          && (root.filter === ""
                              || name.toLowerCase().indexOf(
@@ -172,7 +158,6 @@ Dialog {
                     CheckBox {
                         objectName: "forwardDestinationCheck"
                         checked: root.isChosen(roomId)
-                        // The row owns the click; this is an indicator.
                         enabled: false
                         opacity: 1
                     }
@@ -191,7 +176,6 @@ Dialog {
             objectName: "forwardNoMatchLabel"
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
-            // Hidden rows are 0 high, so no row shown means no height.
             visible: !root.sending && !root.finished
                      && destList.contentHeight <= 0
                      && (root.filter !== "" || destList.count > 0)
@@ -200,7 +184,6 @@ Dialog {
             font.pixelSize: AppTheme.textMeta
         }
 
-        // ── Progress and results ──
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing4
@@ -221,7 +204,6 @@ Dialog {
                 color: AppTheme.textPrimary
                 wrapMode: Text.WordWrap
             }
-            // Which pair failed, not just a count, so it can be acted on.
             Repeater {
                 model: app.forward.failures
                 delegate: Label {
@@ -239,8 +221,6 @@ Dialog {
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
-            // Chosen rooms may be scrolled or filtered out of sight; the count
-            // is what Send will actually use.
             Label {
                 objectName: "forwardChosenCount"
                 visible: !root.sending && !root.finished
@@ -249,7 +229,6 @@ Dialog {
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.textMeta
             }
-            // A choice the filter hides can still be dropped from here.
             AppButton {
                 objectName: "forwardClearSelection"
                 visible: !root.sending && !root.finished
@@ -279,8 +258,6 @@ Dialog {
                 kind: "primary"
                 enabled: root.targets.length > 0
                          && app.forward.selectedCount > 0
-                // Not beginSelection(), which would reset the snapshots
-                // captured at click time by toggleSelected().
                 onClicked: app.forward.sendSelection(root.targets)
             }
         }

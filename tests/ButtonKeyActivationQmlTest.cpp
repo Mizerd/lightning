@@ -1,17 +1,3 @@
-// Return / Enter on a focused AppButton or IconButton (integration of the
-// breaker-swarm round, MASTER-1 B1/H1, MASTER-3 H2, MASTER-4 H1).
-//
-// The types handle Return themselves (C02's _activateFromKey). An instance's
-// own Keys.onReturnPressed does NOT replace that handler: both run, and one
-// Return acted twice (kick/ban sent twice, a scheduled message created twice,
-// play/pause cancelling itself). So:
-//  - one Return or Enter is exactly one clicked(), on both types;
-//  - holding the key (auto-repeat) never clicks;
-//  - a disabled or hidden button does nothing;
-//  - keysNeedVisualFocus refuses a key that reached a ring-less button;
-//  - activateOnReturn: false leaves Return to the instance;
-//  - and no QML file declares Return/Enter handlers inside an AppButton or
-//    IconButton instance any more (a source scan).
 
 #include <QDirIterator>
 #include <QFile>
@@ -75,7 +61,7 @@ void pressKey(QQuickWindow *window, Qt::Key key, bool autoRepeat)
     QCoreApplication::sendEvent(window, &release);
 }
 
-} // namespace
+}
 
 class ButtonKeyActivationQmlTest : public QObject
 {
@@ -129,7 +115,6 @@ private Q_SLOTS:
         QCOMPARE(count(counter.constData()), before + 1);
     }
 
-    // Holding Return on a focused (destructive) button must not repeat it.
     void aHeldReturnDoesNotRepeat()
     {
         QQuickItem *b = item("app");
@@ -152,8 +137,6 @@ private Q_SLOTS:
         QCOMPARE(count("appClicks"), before);
     }
 
-    // C06-F01: a confirming button a stray key must not trigger answers
-    // Return only while its focus ring shows.
     void aGuardedButtonAnswersOnlyWithItsRing()
     {
         QQuickItem *b = item("guarded");
@@ -163,7 +146,6 @@ private Q_SLOTS:
         pressKey(m_window, Qt::Key_Return, false);
         pressKey(m_window, Qt::Key_Enter, false);
         QCOMPARE(count("guardedClicks"), 0);
-        // ... and says so, so its dialog can move the focus to safety.
         QCOMPARE(count("guardedRefusals"), 2);
         item("app")->forceActiveFocus(Qt::TabFocusReason);
         b->forceActiveFocus(Qt::TabFocusReason);
@@ -181,15 +163,9 @@ private Q_SLOTS:
         QCOMPARE(count("optOutClicks"), 0);
     }
 
-    // The scan: no instance of AppButton, IconButton or a type built on them
-    // handles Return/Enter itself (Keys.onReturnPressed/onEnterPressed, or
-    // Return in Keys.onPressed): it would act twice, unless it opts out with
-    // activateOnReturn: false.
     void noInstanceDeclaresItsOwnReturnHandler()
     {
         static const QRegularExpression comment(QStringLiteral("//[^\\n]*"));
-        // Types whose root is an AppButton/IconButton inherit its Return too
-        // (recheck N4): their instances are scanned the same way.
         static const QRegularExpression rootType(
             QStringLiteral("(^|\\n)(AppButton|IconButton)\\s*\\{"));
         QStringList types = { QStringLiteral("AppButton"), QStringLiteral("IconButton") };
@@ -208,7 +184,6 @@ private Q_SLOTS:
         QVERIFY2(types.size() > 2, "no derived button type found (MediaVolumeControl is one)");
         const QRegularExpression open(
             QStringLiteral("\\b(%1)\\s*\\{").arg(types.join(QLatin1Char('|'))));
-        // Its own Return/Enter handler, or Return/Enter handled in onPressed.
         static const QRegularExpression handler(
             QStringLiteral("(^|[^.\\w])Keys\\.on(Return|Enter)Pressed\\s*:"));
         static const QRegularExpression pressedReturn(
@@ -230,7 +205,6 @@ private Q_SLOTS:
             while (m.hasNext()) {
                 const auto match = m.next();
                 ++instances;
-                // The instance body, outer level only.
                 int depth = 1;
                 qsizetype i = match.capturedEnd();
                 QString flat;

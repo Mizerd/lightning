@@ -1,17 +1,3 @@
-// Show-QR verification panel, rendered against the real SettingsScreen
-// verification card (section "sessions") with a real AppController on the
-// Rust backend. Pins:
-//   * the panel appears only while the SDK has a live code for this flow;
-//   * the QR image binds to the opaque provider URL, never a flow id;
-//   * the confirm prompt appears only after the SDK reports the scan, and
-//     its buttons are the new invocable and the existing cancel;
-//   * the panel disappears on dismissal (the SAS fallback) and on every
-//     terminal state, so no scannable code is left on screen;
-//   * the accessible name for the image is present;
-//   * loading and driving all of it produces zero QML warnings.
-//
-// Wiring and presentation only: a real phone scan, the reciprocate handshake
-// and Element interoperability are not exercised here.
 
 #include "app/AppController.h"
 #include "crypto/QrImageProvider.h"
@@ -32,10 +18,6 @@
 
 namespace {
 
-// The verification flow lives in the shared modal declared in Main.qml, so
-// this scene holds SettingsScreen (the Verify entry point) and the dialog
-// beside it, as the real shell does. The dialog opens itself off
-// AppController's verification state.
 const char *kScene = R"QML(
 import QtQuick
 import QtQuick.Controls
@@ -58,7 +40,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class VerificationQrQmlTest : public QObject
 {
@@ -81,7 +63,6 @@ private:
     static constexpr int kModules = 21;
     static QByteArray grid()
     {
-        // Synthetic geometry, never a real QR payload.
         return QByteArray(((kModules + 7) / 8) * kModules, '\x55');
     }
 #endif
@@ -114,8 +95,6 @@ private slots:
                 });
         m_engine->rootContext()->setContextProperty(QStringLiteral("app"),
                                                     m_controller);
-        // Register the same provider main.cpp does, against the same store the
-        // controller fills: grid -> store -> provider URL -> rendered image.
         m_engine->addImageProvider(QStringLiteral("lightning-qr"),
                                    new QrImageProvider(
                                        m_controller->qrCodeStore()));
@@ -145,10 +124,8 @@ private slots:
 #else
         auto *panel = item("verificationQrPanel");
         QVERIFY2(panel, "verificationQrPanel not found in SettingsScreen");
-        // Nothing in flight: the whole card is hidden, so the panel is too.
         QVERIFY(!panel->isVisible());
 
-        // A live flow without a code still shows no QR panel.
         Q_EMIT rust()->verificationRequestStarted(
             QStringLiteral("flow-qml-1"), QStringLiteral("@self:example.org"),
             true);
@@ -179,21 +156,14 @@ private slots:
         // No flow id may reach a URL — only the opaque token.
         QVERIFY2(!source.contains(QStringLiteral("flow-qml-1")),
                  qPrintable(source));
-        // A verification code must never sit in the QML image cache.
         QCOMPARE(image->property("cache").toBool(), false);
 
-        // The provider actually served a code: the Image reached Ready
-        // (Image.Ready == 1) with a real bitmap behind it.
         QTRY_COMPARE(image->property("status").toInt(), 1);
         const int rendered = image->property("implicitWidth").toInt();
         QVERIFY2(rendered > 0, "the QR provider returned no image");
-        // 21 modules + two 4-module quiet zones = 29; whole-module scaling
-        // keeps the rendered edge an exact multiple of that.
         QCOMPARE(rendered % (kModules + 8), 0);
         QCOMPARE(image->property("implicitHeight").toInt(), rendered);
 
-        // Accessible.name is an ATTACHED property, so it has to be
-        // evaluated in the item's context rather than read off the object.
         QQmlExpression expr(qmlContext(image), image,
                             QStringLiteral("Accessible.name"));
         const QString accessible = expr.evaluate().toString();
@@ -202,13 +172,10 @@ private slots:
         QVERIFY(accessible.contains(QStringLiteral("scan"),
                                     Qt::CaseInsensitive));
 
-        // Before the scan, the confirm prompt must NOT be offered: nothing
-        // may be confirmed until the SDK says the peer actually scanned.
         auto *confirm = item("verificationQrConfirmButton");
         QVERIFY2(confirm, "verificationQrConfirmButton not found");
         QVERIFY(!confirm->isVisible());
 
-        // The status line explains what to do rather than claiming progress.
         auto *status = item("verificationStatusLabel");
         QVERIFY(status);
         QVERIFY2(status->property("text").toString().contains(
@@ -231,8 +198,6 @@ private slots:
         QVERIFY(reject && reject->isVisible());
         QVERIFY(confirm->property("enabled").toBool());
 
-        // The prompt asks about the other device's report; it never claims
-        // the verification succeeded.
         auto *status = item("verificationStatusLabel");
         QVERIFY(status);
         const QString text = status->property("text").toString();
@@ -241,7 +206,6 @@ private slots:
         QVERIFY2(!text.contains(QStringLiteral("Verification complete")),
                  qPrintable(text));
 
-        // Pressing confirm is acknowledged locally but reports no success.
         QMetaObject::invokeMethod(confirm, "clicked");
         settle();
         QVERIFY(m_controller->verificationQrConfirming());
@@ -263,8 +227,6 @@ private slots:
 #endif
     }
 
-    // The "peer cannot scan" fallback as the user sees it: the QR panel
-    // disappears and the emoji presentation takes over, in one card.
     void aDismissedCodeYieldsToTheEmojiPresentation()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -300,14 +262,12 @@ private slots:
                  QStringLiteral("sas_ready"));
         QVERIFY(!panel->isVisible());
 
-        // Cancel is still the escape hatch throughout.
         m_controller->cancelVerification();
         settle();
         QVERIFY(!panel->isVisible());
 #endif
     }
 
-    // Run last: nothing above may have produced a QML warning.
     void zzzNoQmlWarningsWereProduced()
     {
         QVERIFY2(m_warnings.isEmpty(),

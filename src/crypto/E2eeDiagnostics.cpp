@@ -28,4 +28,4 @@ QString redactId(const QString &id)
     return sigil.isNull() ? token : (QString(sigil) + token);
 }
 
-} // namespace matrix::e2ee
+}

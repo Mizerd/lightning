@@ -28,10 +28,7 @@ public:
         SizeRole,
         IsEmoticonRole,
         IsStickerRole,
-        // width/height as a ratio for stable grid sizing; 1.0 when the pack
-        // declared no dimensions, which is common.
         AspectRole,
-        // The exact `images` key (identity) and whether it is grammar-valid.
         KeyRole,
         KeyValidRole,
     };
@@ -48,7 +45,6 @@ public:
     void clear();
 
     const QList<stickers::PackImage> &images() const { return m_images; }
-    // The map the send/save paths take. Same shape as the roles above.
     Q_INVOKABLE QVariantMap get(int row) const;
 
 Q_SIGNALS:

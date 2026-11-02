@@ -3,10 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Forwarding one message: the room picker. Opens itself off
-// ForwardController's `active` state (as ReportMessageDialog does off
-// ModerationController). Rooms only: there's no "forward into a thread", and
-// a Space isn't a chat target. Selections go through ForwardSelectionDialog.
 Dialog {
     id: root
     objectName: "forwardMessageDialog"
@@ -62,7 +58,6 @@ Dialog {
                 Layout.fillWidth: true
             }
             IconButton {
-                // The close-button size shared by this dialog family.
                 storm: true
                 iconName: "close"
                 iconSize: 18
@@ -73,7 +68,6 @@ Dialog {
         }
 
         Label {
-            // Remote or externally chosen text: never markup.
             textFormat: Text.PlainText
             objectName: "forwardPreviewLabel"
             Layout.fillWidth: true
@@ -115,7 +109,6 @@ Dialog {
             Accessible.name: qsTr("Search rooms")
         }
 
-        // The scroller is a sibling over the list, never inside it.
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -138,8 +131,6 @@ Dialog {
                     required property string membership
                     required property int index
 
-                    // Joined rooms only (never a Space or thread): an invite or
-                    // knock is not somewhere a message can land.
                     readonly property bool eligible:
                         !isSpace && membership === "joined"
                     readonly property string visibleName:
@@ -175,7 +166,6 @@ Dialog {
                             Layout.fillWidth: true
                             spacing: 2
                             Label {
-                                // Remote or externally chosen text: never markup.
                                 textFormat: Text.PlainText
                                 text: targetRow.visibleName
                                 color: AppTheme.stormText
@@ -185,8 +175,6 @@ Dialog {
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true
                             }
-                            // A lock in the success ink, matching the room
-                            // header's.
                             RowLayout {
                                 visible: targetRow.encrypted
                                 spacing: AppTheme.spacing4
@@ -212,8 +200,6 @@ Dialog {
                             Accessible.name: qsTr("Forward to %1")
                                             .arg(targetRow.visibleName)
                             onClicked: app.forward.forwardTo(targetRow.roomId)
-                            // Tabbing to a row below the fold must bring it
-                            // into view, or Space sends to an unseen room.
                             onActiveFocusChanged: {
                                 if (activeFocus)
                                     targetList.positionViewAtIndex(

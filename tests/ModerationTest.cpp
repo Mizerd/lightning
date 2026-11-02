@@ -1,19 +1,3 @@
-// Personal moderation: ModerationController policy (the account's
-// m.ignored_user_list cache and message reporting) against MockMatrixClient,
-// plus the pure notification guard. Pins:
-//   * ignore/unignore round-trip: the terminal signal, the cached list,
-//     isIgnored() and the bump-on-change revision;
-//   * self-ignore is refused synchronously and reports a failure;
-//   * a remote change lands through the sync push, and an identical pushed
-//     list causes no revision bump;
-//   * the report prompt opens/submits/cancels correctly, failure categories
-//     surface, and reporting is single-flight;
-//   * NotificationManager::decide short-circuits an ignored sender (before
-//     the server applies the ignore);
-//   * sign-out clears the cached list and the prompt.
-//
-// Policy and wiring only: real account-data round trips and
-// /rooms/{roomId}/report against a homeserver are not exercised here.
 
 #include "app/ModerationController.h"
 #include "matrix/MockMatrixClient.h"
@@ -49,7 +33,7 @@ TimelineEvent incomingText()
     return event;
 }
 
-} // namespace
+}
 
 class ModerationTest : public QObject
 {
@@ -88,15 +72,13 @@ private Q_SLOTS:
         QVERIFY(finished.wait(kSignalTimeoutMs));
         QCOMPARE(finished.size(), 1);
         QCOMPARE(finished.at(0).at(0).toString(), kTroll);
-        QVERIFY(finished.at(0).at(1).toBool());  // ignored
-        QVERIFY(finished.at(0).at(2).toBool());  // ok
+        QVERIFY(finished.at(0).at(1).toBool());
+        QVERIFY(finished.at(0).at(2).toBool());
         QVERIFY(!finished.at(0).at(3).toString().isEmpty());
 
         QVERIFY(ctl.ignoredUsers().contains(kTroll));
         QVERIFY(ctl.isIgnored(kTroll));
         QVERIFY(!ctl.busy());
-        // The write bumped the revision once; the authoritative sync push
-        // that follows carries the SAME list and must not bump it again.
         QTest::qWait(80);
         QCOMPARE(ctl.revision(), revBefore + 1);
     }
@@ -114,8 +96,8 @@ private Q_SLOTS:
         ctl.unignoreUser(kTroll);
         QVERIFY(finished.wait(kSignalTimeoutMs));
         QCOMPARE(finished.size(), 1);
-        QVERIFY(!finished.at(0).at(1).toBool()); // ignored == false
-        QVERIFY(finished.at(0).at(2).toBool());  // ok
+        QVERIFY(!finished.at(0).at(1).toBool());
+        QVERIFY(finished.at(0).at(2).toBool());
         QVERIFY(!ctl.isIgnored(kTroll));
         QVERIFY(ctl.ignoredUsers().isEmpty());
     }
@@ -130,11 +112,9 @@ private Q_SLOTS:
 
         QSignalSpy finished(&ctl, &ModerationController::ignoreActionFinished);
         ctl.ignoreUser(kSelf);
-        // The backend refuses with no op id, and the controller reports the
-        // failure immediately — no dispatch, no hang, no busy state.
         QCOMPARE(finished.size(), 1);
         QCOMPARE(finished.at(0).at(0).toString(), kSelf);
-        QVERIFY(!finished.at(0).at(2).toBool()); // ok == false
+        QVERIFY(!finished.at(0).at(2).toBool());
         QVERIFY(!finished.at(0).at(3).toString().isEmpty());
         QVERIFY(!ctl.busy());
         QTest::qWait(80);
@@ -149,23 +129,17 @@ private Q_SLOTS:
         ModerationController ctl;
         ctl.setClient(&client);
 
-        // Another client changed the account data: the sync push is
-        // authoritative for local AND remote changes.
         client.mockIgnoredUsers = QStringList{ kTroll, kOther };
         Q_EMIT client.ignoredUsersChanged(client.mockIgnoredUsers);
         QCOMPARE(ctl.ignoredUsers(), (QStringList{ kTroll, kOther }));
         QVERIFY(ctl.isIgnored(kOther));
         const int revAfterFirst = ctl.revision();
 
-        // The identical list pushed again is a no-op: no revision bump, no
-        // stateChanged churn for QML to re-evaluate.
         QSignalSpy state(&ctl, &ModerationController::stateChanged);
         Q_EMIT client.ignoredUsersChanged(client.mockIgnoredUsers);
         QCOMPARE(state.size(), 0);
         QCOMPARE(ctl.revision(), revAfterFirst);
 
-        // The explicit refresh path answers with the same truth — still no
-        // phantom change.
         ctl.refreshIgnoredUsers();
         QTest::qWait(80);
         QCOMPARE(ctl.ignoredUsers(), (QStringList{ kTroll, kOther }));
@@ -186,21 +160,20 @@ private Q_SLOTS:
 
         QSignalSpy finished(&ctl, &ModerationController::reportFinished);
         ctl.submitReport(QStringLiteral("spam"));
-        QVERIFY(!ctl.reportPromptActive()); // closes on submit
+        QVERIFY(!ctl.reportPromptActive());
         QVERIFY(finished.wait(kSignalTimeoutMs));
         QCOMPARE(finished.size(), 1);
-        QVERIFY(finished.at(0).at(0).toBool()); // ok
+        QVERIFY(finished.at(0).at(0).toBool());
         QVERIFY(!finished.at(0).at(1).toString().isEmpty());
         QVERIFY(!ctl.busy());
 
-        // Cancel clears the prompt without dispatching anything.
         ctl.beginReport(kRoom, kEvent);
         QVERIFY(ctl.reportPromptActive());
         ctl.cancelReport();
         QVERIFY(!ctl.reportPromptActive());
         QVERIFY(!ctl.busy());
         QTest::qWait(80);
-        QCOMPARE(finished.size(), 1); // no second outcome ever arrives
+        QCOMPARE(finished.size(), 1);
     }
 
     void reportFailureCategorySurfaces()
@@ -216,7 +189,7 @@ private Q_SLOTS:
         ctl.submitReport(QString());
         QVERIFY(finished.wait(kSignalTimeoutMs));
         QCOMPARE(finished.size(), 1);
-        QVERIFY(!finished.at(0).at(0).toBool()); // ok == false
+        QVERIFY(!finished.at(0).at(0).toBool());
         QCOMPARE(finished.at(0).at(1).toString(),
                  QStringLiteral("That message no longer exists on the "
                                 "server."));
@@ -232,20 +205,15 @@ private Q_SLOTS:
         ctl.beginReport(kRoom, kEvent);
         QSignalSpy finished(&ctl, &ModerationController::reportFinished);
         ctl.submitReport(QStringLiteral("spam"));
-        // While the submission is in flight, a second report cannot open.
         ctl.beginReport(kRoom, QStringLiteral("$ev2:mock.local"));
         QVERIFY(!ctl.reportPromptActive());
 
         QVERIFY(finished.wait(kSignalTimeoutMs));
         QCOMPARE(finished.size(), 1);
-        // Once the outcome lands, reporting is available again.
         ctl.beginReport(kRoom, QStringLiteral("$ev2:mock.local"));
         QVERIFY(ctl.reportPromptActive());
     }
 
-    // Pure policy: an ignored sender never notifies, even for an event that
-    // would otherwise notify. This is the local belt-and-braces for the race
-    // window between the ignore write and the server applying it.
     void ignoredSenderNeverNotifies()
     {
         NotificationManager::Context context;
@@ -254,7 +222,6 @@ private Q_SLOTS:
         context.previewMode = NotificationManager::SenderOnly;
         context.notificationsEnabled = true;
 
-        // Sanity: this event notifies when the sender is not ignored.
         const auto allowed =
             NotificationManager::decide(incomingText(), context);
         QVERIFY(allowed.notify);
@@ -279,7 +246,6 @@ private Q_SLOTS:
         QVERIFY(ctl.reportPromptActive());
         const int revBefore = ctl.revision();
 
-        // One account's ignore list must never bleed into another.
         client.logout();
         QVERIFY(ctl.ignoredUsers().isEmpty());
         QVERIFY(!ctl.isIgnored(kTroll));
@@ -288,15 +254,11 @@ private Q_SLOTS:
         QVERIFY(ctl.revision() > revBefore);
     }
 
-    // Every destructive action asks first: Delete, Remove edits, End poll,
-    // Set role, Remove widget and Ignore user. A role change can be one-way
-    // (Matrix refuses a change at or above your own level). Asserted per
-    // handler: the trigger routes through a confirmation.
     void everyDestructiveActionAsksBeforeItActs()
     {
         struct Case {
             const char *file;
-            const char *anchor;   // the action's own objectName or text
+            const char *anchor;
             const char *mustNotCallDirectly;
             const char *confirmation;
         };
@@ -323,9 +285,6 @@ private Q_SLOTS:
                                                "contract guards nothing")
                                     .arg(QLatin1String(c.file),
                                          QLatin1String(c.anchor))));
-            // 3000 chars: the role button's objectName and its onClicked sit
-            // about forty lines apart, with the contentItem and background
-            // between them. Still bounded to one action's own block.
             const QString body = source.mid(at, 3000);
             QVERIFY2(!body.contains(QString::fromLatin1(c.mustNotCallDirectly)),
                      qPrintable(QStringLiteral("%1: %2 still acts straight "
@@ -340,10 +299,6 @@ private Q_SLOTS:
                                          QLatin1String(c.anchor))));
         }
 
-        // Delete is routed through deleteThisMessage(), which the menu item
-        // AND the timeline.deleteMessage hotkey share. Follow it: every
-        // redactEvent in it must sit inside the callback handed to
-        // confirmDestructive, and the hotkey must use the same function.
         QFile del(QStringLiteral(QML_DIR "/MessageDelegate.qml"));
         QVERIFY2(del.open(QIODevice::ReadOnly), qPrintable(del.fileName()));
         const QString src = QString::fromUtf8(del.readAll());
@@ -366,8 +321,6 @@ private Q_SLOTS:
         QCOMPARE(fnBody.count(QStringLiteral("function() { root.timelineModel.redactEvent(")),
                  redactions);
         QCOMPARE(fnBody.count(QStringLiteral("confirmDestructive(")), redactions);
-        // In bulk selection the hotkey only toggles the row; it never redacts
-        // there, and outside it the one path is deleteThisMessage().
         QVERIFY2(src.contains(QStringLiteral(
                      "case \"timeline.deleteMessage\":\n"
                      "            if (root.bulkSelectionMode)\n"
@@ -379,10 +332,6 @@ private Q_SLOTS:
                  "the Delete hotkey redacts without asking");
     }
 
-    // A thread-reply notification must not jump to the reply on the room
-    // timeline (which hides threaded events), and must not paginate it
-    // either: a thread root can be arbitrarily old and the thread panel is
-    // already open. revealIfLoaded() takes the root only if already loaded.
     void aThreadNotificationDoesNotJumpToAnEventTheTimelineHides()
     {
         QFile file(QStringLiteral(QML_DIR "/Main.qml"));
@@ -391,7 +340,6 @@ private Q_SLOTS:
 
         const int at = source.indexOf(QStringLiteral("onNotificationOpenRequested"));
         QVERIFY2(at > 0, "the notification click handler is gone");
-        // The handler's own block, by brace matching, not a fixed window.
         const int open = source.indexOf(QLatin1Char('{'), at);
         QVERIFY2(open > at, "the handler has no body");
         int depth = 0;
@@ -406,30 +354,21 @@ private Q_SLOTS:
         }
         QVERIFY2(close > open, "the handler's body is unbalanced");
         const QString body = source.mid(open, close - open + 1);
-        // B023: the reply id must never reach the room timeline at all.
         QVERIFY2(!body.contains(QStringLiteral("jumpToEvent(target)")),
                  "the single-target form is back, so a threaded event id can "
                  "reach the room timeline's jump again — it cannot find one");
         QVERIFY2(!body.contains(QStringLiteral("revealIfLoaded(eventId)")),
                  "the reply id is handed to the room timeline, which hides "
                  "threaded events and can never hold it");
-        // The root is CONTEXT: free if loaded, never paid for.
         QVERIFY2(body.contains(QStringLiteral("revealIfLoaded(threadRootId)")),
                  "the thread root is not revealed from the loaded timeline");
         QVERIFY2(!body.contains(QStringLiteral("jumpToEvent(threadRootId)")),
                  "the thread root is still handed to jumpToEvent, which is "
                  "allowed to paginate for it: that is the runaway backward "
                  "scroll");
-        // And a NON-thread notification still goes to its own message —
-        // that one IS what the reader asked for.
         QVERIFY2(body.contains(QStringLiteral("jumpToEvent(eventId)")),
                  "an ordinary notification no longer jumps to the message it "
                  "was raised for");
-        // A text scan cannot see branch structure, so pin the shape too: the
-        // room-timeline fallback must be the else of the last `if (inThread)`,
-        // not an unconditional call after it.
-        // Inline thread style: narrow to the thread FIRST (showThread), then
-        // jump, so the target is a visible row; the branch must return.
         const int inlineAt = body.indexOf(QStringLiteral("threadRepliesInline === true"));
         QVERIFY2(inlineAt >= 0, "the inline-thread notification branch is gone");
         const int narrow = body.indexOf(QStringLiteral("app.showThread("), inlineAt);
@@ -449,10 +388,6 @@ private Q_SLOTS:
                  "jumpToEvent(eventId) is not inside that else branch");
     }
 
-    // A submitted report must tell the user what happened: submitReport
-    // clears the prompt before the server answers, so the dialog closes at
-    // once and only the reportFinished consumer in Main.qml can report the
-    // outcome. Source contract; the cases above prove the signal's payload.
     void theReportOutcomeReachesAScreen()
     {
         QFile file(QStringLiteral(QML_DIR "/Main.qml"));
@@ -464,14 +399,10 @@ private Q_SLOTS:
                  "no surface listens to ModerationController::reportFinished, "
                  "so a submitted report never tells the user whether the "
                  "server accepted it, refused it or lost it");
-        // Bounded to the handler, so an unrelated notice elsewhere in this
-        // very large file cannot satisfy the contract.
         const QString body = source.mid(handler, 400);
         QVERIFY2(body.contains(QStringLiteral("pinNotice.show")),
                  "the report outcome is received and then dropped without "
                  "being shown");
-        // Both outcomes are shown, asserted as a positive shape: listing ways
-        // to be wrong cannot cover the one nobody thought of.
         QVERIFY2(body.contains(QStringLiteral("pinNotice.show(message, !ok)")),
                  "the handler no longer passes the outcome straight through, "
                  "so it either reports one outcome only (a silent success is "

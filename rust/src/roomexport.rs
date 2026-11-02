@@ -1,51 +1,22 @@
-//! Room export: a backwards walk over a room's history, independent of the
-//! live timeline, so "Export room" can write more than Lightning has loaded
-//! without paging the reader's view.
-//!
-//! Same shape as mediahistory.rs: unfiltered `/messages` pages classified
-//! after the SDK decrypts, edits folded into the event they replace (only the
-//! ORIGINAL sender's edit counts, newest wins because the walk is
-//! newest-first), and history that is present but unreadable reported as such
-//! rather than skipped in silence.
-//!
-//! A row never carries an `mxc:` or any media URL. Attachments get an opaque
-//! handle (`export:<op>:<event id>`) registered in the timeline registry's
-//! export map, which the controlled media path resolves and decrypts exactly
-//! like a timeline row's key (rooms::media_fetch). The handle is useless
-//! outside this process and is released when the export ends.
 
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-/// Upper bound on rows in one export, whatever the range. The dialog's own
-/// number field stops at the same value.
 pub(crate) const MAX_ROWS: u64 = 100_000;
 
-/// Events requested per `/messages` page.
 pub(crate) const PAGE_SIZE: u64 = 100;
 
-/// Bounds the memory one walk can spend on edits whose original is never
-/// reached.
 const MAX_PENDING_EDITS: usize = 8192;
-/// Distinct editors remembered per event. Only the original sender's edit can
-/// apply, and the walk does not know who that is until it reaches the
-/// original, so a forger's (newer) edit must not take the only slot.
 const MAX_EDITORS_PER_EVENT: usize = 8;
 
-/// Which part of the room's history to export.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Range {
-    /// The newest `n` rows.
     Latest(u64),
-    /// Back to the start of accessible history.
     All,
-    /// Rows with `from_ms <= ts <= to_ms` (milliseconds since the epoch).
     Between { from_ms: u64, to_ms: u64 },
 }
 
 impl Range {
-    /// From the FFI's integers. `mode`: 0 latest, 1 all, 2 between.
-    /// `to_ms == 0` means "no upper bound".
     pub(crate) fn from_ffi(mode: i32, limit: u64, from_ms: u64, to_ms: u64) -> Result<Self, String> {
         match mode {
             0 => {
@@ -67,17 +38,11 @@ impl Range {
     }
 }
 
-/// Why a walk ended. Reported in the final page so the file can say whether
-/// it reaches the start of the room.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StopReason {
-    /// The start of accessible history.
     Start,
-    /// `Range::Latest` has its rows.
     Limit,
-    /// Every remaining event is older than `Range::Between`'s start.
     Date,
-    /// `MAX_ROWS`.
     Cap,
 }
 
@@ -92,24 +57,17 @@ impl StopReason {
     }
 }
 
-/// One exported row, newest-first as walked; C++ reverses the whole list.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct ExportRow {
     pub event_id: String,
     pub sender: String,
     pub ts_ms: u64,
-    /// text | notice | emote | location | image | video | audio | voice | file
-    /// | sticker | poll | redacted | undecryptable
     pub kind: String,
-    /// The CURRENT text: an edit by the original sender replaces it. For an
-    /// attachment, its caption or filename.
     pub body: String,
     /// `org.matrix.custom.html` only, and untrusted: C++ sanitizes it before
     /// it reaches a file.
     pub formatted_body: String,
-    /// Set for an `m.thread` event: the root's id.
     pub thread_root: String,
-    /// The event this replies to (not a thread's fallback reply).
     pub reply_to: String,
     pub edited: bool,
     pub filename: String,
@@ -118,7 +76,6 @@ pub(crate) struct ExportRow {
 }
 
 impl ExportRow {
-    /// Whether the row is an attachment that may have bytes to fetch.
     pub(crate) fn is_attachment(&self) -> bool {
         matches!(
             self.kind.as_str(),
@@ -148,15 +105,12 @@ impl ExportRow {
     }
 }
 
-/// The opaque handle an export registers an attachment under.
 pub(crate) fn media_handle(op_id: u64, event_id: &str) -> String {
     format!("{}{op_id}:{event_id}", EXPORT_KEY_PREFIX)
 }
 
-/// Every export handle starts with this; `media_source` routes on it.
 pub(crate) const EXPORT_KEY_PREFIX: &str = "export:";
 
-/// The prefix of every handle one export registered, for releasing them.
 pub(crate) fn handle_prefix(op_id: u64) -> String {
     format!("{}{op_id}:", EXPORT_KEY_PREFIX)
 }
@@ -168,17 +122,14 @@ struct Edit {
     formatted_body: String,
 }
 
-/// The walk's state across pages: range, counters, pending edits.
 #[derive(Debug)]
 pub(crate) struct WalkState {
     range: Range,
     pub rows: u64,
     pub scanned: u64,
     pub undecryptable: u64,
-    /// Per edited event, the newest edit by each sender met so far.
     edits: HashMap<String, Vec<Edit>>,
     pending_edits: usize,
-    /// Set when an event on the current page was older than the range's start.
     older_seen: bool,
     pub stop: Option<StopReason>,
 }
@@ -187,7 +138,6 @@ fn str_of<'a>(value: Option<&'a Value>) -> &'a str {
     value.and_then(|v| v.as_str()).unwrap_or("")
 }
 
-/// The formatted body, only when it is the one HTML format Matrix defines.
 fn formatted_of(content: &Value) -> String {
     if str_of(content.get("format")) == "org.matrix.custom.html" {
         str_of(content.get("formatted_body")).to_owned()
@@ -196,7 +146,6 @@ fn formatted_of(content: &Value) -> String {
     }
 }
 
-/// A poll's question, from whichever of the MSC3381 shapes the event uses.
 fn poll_text(content: &Value) -> String {
     for start_key in ["org.matrix.msc3381.poll.start", "m.poll.start", "m.poll"] {
         if let Some(question) = content.get(start_key).and_then(|s| s.get("question")) {
@@ -227,9 +176,6 @@ fn poll_text(content: &Value) -> String {
     String::new()
 }
 
-/// Drop a rich reply's quoted fallback ("> <@a:b> quoted\n> more\n\n") from a
-/// plain body. Only called for a real reply; a body that merely starts with
-/// "> " is kept.
 pub(crate) fn strip_reply_fallback(body: &str) -> String {
     if !body.starts_with("> ") && !body.starts_with(">\n") {
         return body.to_owned();
@@ -268,8 +214,6 @@ fn kind_for(type_str: &str, content: &Value) -> &'static str {
                     "audio"
                 }
             }
-            // m.text, and any msgtype this client does not know: its body is
-            // the spec's fallback text.
             _ => "text",
         },
     }
@@ -289,9 +233,6 @@ impl WalkState {
         }
     }
 
-    /// Classify one raw event of a backward page as the SDK hands it over:
-    /// decrypted when possible, still `m.room.encrypted` otherwise. Returns the
-    /// row to export, if any. An edit is remembered and contributes nothing.
     fn classify(&mut self, value: &Value) -> Option<ExportRow> {
         let type_str = str_of(value.get("type"));
         let event_id = str_of(value.get("event_id")).to_owned();
@@ -327,14 +268,9 @@ impl WalkState {
                 .map(|o| o.is_empty())
                 .unwrap_or(true);
         if redacted {
-            // Kept as a row ("message deleted") so the shape survives; none of
-            // the removed content does.
             return Some(ExportRow { kind: "redacted".to_owned(), ..base });
         }
         if type_str == "m.room.encrypted" {
-            // Megolm leaves `m.relates_to` in the clear. An unreadable reaction
-            // or edit is not a message of its own (and an edit of an unreadable
-            // message could not be folded anyway): not a row, not counted.
             let rel_type = str_of(
                 content
                     .and_then(|c| c.get("m.relates_to"))
@@ -343,7 +279,6 @@ impl WalkState {
             if matches!(rel_type, "m.annotation" | "m.replace") {
                 return None;
             }
-            // Present but unreadable: a row, so the file shows the hole.
             return Some(ExportRow { kind: "undecryptable".to_owned(), ..base });
         }
         let content = content?;
@@ -355,8 +290,6 @@ impl WalkState {
             if let (false, Some(new_content)) = (target.is_empty(), new_content) {
                 if self.pending_edits < MAX_PENDING_EDITS {
                     let list = self.edits.entry(target.to_owned()).or_default();
-                    // Newest first: the first edit met from a sender is that
-                    // sender's newest, so a later (older) one is not kept.
                     if list.len() < MAX_EDITORS_PER_EVENT
                         && !list.iter().any(|e| e.sender == sender)
                     {
@@ -437,8 +370,6 @@ impl WalkState {
         Some(row)
     }
 
-    /// Feed one event of a backward page (newest first). Returns the row to
-    /// export, if this event is one and the range wants it.
     pub(crate) fn consume(&mut self, value: &Value) -> Option<ExportRow> {
         if self.stop.is_some() {
             return None;
@@ -451,8 +382,6 @@ impl WalkState {
             .unwrap_or(0);
         if let Range::Between { from_ms, to_ms } = self.range {
             if ts != 0 && ts < from_ms {
-                // Ends the walk at the END of this page, not here: timestamps are
-                // sender clocks and a page can be slightly out of order.
                 self.older_seen = true;
             }
             if ts < from_ms || ts > to_ms {
@@ -475,7 +404,6 @@ impl WalkState {
         Some(row)
     }
 
-    /// After a page: `exhausted` when the server has nothing older.
     pub(crate) fn end_of_page(&mut self, exhausted: bool) {
         if self.stop.is_some() {
             return;
@@ -529,7 +457,6 @@ mod tests {
     #[test]
     fn only_the_original_senders_newest_edit_replaces_the_text() {
         let mut state = WalkState::new(Range::All);
-        // Newest first, as a backward page arrives.
         let page = vec![
             edit("$e3", "@mallory:example.org", 400, "$1", "forged"),
             edit("$e2", "@ann:example.org", 300, "$1", "second"),
@@ -540,7 +467,6 @@ mod tests {
         assert_eq!(rows.len(), 1, "an edit must never be a row of its own");
         let row = &rows[0];
         assert_eq!(row.event_id, "$1");
-        // The forger's edit was met FIRST (it is the newest) and still loses.
         assert_eq!(row.body, "second");
         assert_eq!(row.formatted_body, "<b>second</b>");
         assert!(row.edited);
@@ -636,9 +562,7 @@ mod tests {
         assert_eq!(row.filename, "holiday.png");
         assert_eq!(row.mimetype, "image/png");
         assert_eq!(row.size, 1234);
-        // The registry source exists for the same event...
         assert!(crate::mediahistory::stored_media_from_event(&event).is_some());
-        // ...and the row the C++ side sees names it only by an opaque handle.
         let handle = media_handle(42, &row.event_id);
         assert!(handle.starts_with(&handle_prefix(42)));
         let serialized = row.to_json("Ann", &handle).to_string();
@@ -700,7 +624,6 @@ mod tests {
         let ids: Vec<&str> = rows.iter().map(|r| r.event_id.as_str()).collect();
         assert_eq!(ids, vec!["$1", "$2"], "relations used up the latest-N budget");
         assert_eq!(state.undecryptable, 0);
-        // An unreadable thread reply IS a message: still a counted row.
         let mut state = WalkState::new(Range::All);
         let rows = rows_of(&mut state, &[encrypted("$t", "m.thread")]);
         assert_eq!(rows[0].kind, "undecryptable");
@@ -733,7 +656,6 @@ mod tests {
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].event_id, "$0", "the NEWEST rows are kept");
         assert_eq!(state.stop, Some(StopReason::Limit));
-        // Nothing more is taken once stopped.
         assert!(state.consume(&text("$x", "@a:b", 1, "late")).is_none());
         state.end_of_page(true);
         assert_eq!(state.stop, Some(StopReason::Limit));
@@ -747,7 +669,6 @@ mod tests {
             text("$in1", "@a:b", 200, "edge"),
             text("$in2", "@a:b", 150, "middle"),
             text("$old", "@a:b", 99, "too old"),
-            // Out of order within the page: still inside the range, still kept.
             text("$skew", "@a:b", 120, "skewed clock"),
         ]);
         let ids: Vec<&str> = rows.iter().map(|r| r.event_id.as_str()).collect();

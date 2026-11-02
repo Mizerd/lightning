@@ -93,7 +93,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class MemberProfilePopoverContractTest : public QObject
 {
@@ -143,17 +143,11 @@ private slots:
         delete m_controller;
     }
 
-    // Opening a member card scopes Room Information to the current room, so
-    // the card's moderation controls (gated on that scope, since power levels
-    // belong to the scoped room) appear however the card was opened. Driven
-    // through the real openFor().
     void openingAMemberCardScopesRoomInformationToTheCurrentRoom()
     {
         const QString roomId = QStringLiteral("!general:mock.local");
         m_controller->setCurrentRoomId(roomId);
         QCOMPARE(m_controller->currentRoomId(), roomId);
-        // The state a timeline avatar click finds: Room Information never
-        // opened for this room.
         m_controller->roomInfo()->setRoomId(QString{});
         QVERIFY(m_controller->roomInfo()->roomId().isEmpty());
 
@@ -179,7 +173,6 @@ private slots:
         QCOMPARE(popover->property("modal").toBool(), false);
     }
 
-    // Anchored placement. The scene window is 500 x 600.
     void anAnchoredCardOpensBesideItsAnchorAndStaysInsideTheWindow()
     {
         auto *popover = find(QStringLiteral("popover"));
@@ -202,7 +195,6 @@ private slots:
             QTRY_VERIFY(!popover->property("visible").toBool());
         };
 
-        // Room on the right: beside it, 8 px off, top-aligned (clamped).
         open(20, 100, 40, 20);
         QRectF r = rect();
         QCOMPARE(r.x(), 68.0);
@@ -212,7 +204,6 @@ private slots:
         QVERIFY(qAbs(r.y() - 100) < 1.0 || r.bottom() >= m_window->height() - 9);
         close();
 
-        // No room on the right: flips to the left of the anchor.
         open(440, 100, 40, 20);
         r = rect();
         QVERIFY2(r.right() <= 440 - 8 + 0.5,
@@ -220,8 +211,6 @@ private slots:
         QVERIFY(r.x() >= 8);
         close();
 
-        // Neither side fits (500 px window, 340 px card): centred on the
-        // anchor, then clamped to the margin.
         open(200, 580, 100, 20);
         r = rect();
         QVERIFY(r.x() >= 8 && r.right() <= m_window->width() - 8 + 0.5);
@@ -230,8 +219,6 @@ private slots:
                                 .arg(r.y()).arg(r.bottom())));
         close();
 
-        // Anchored at the top-left corner: clamps to the margin, never
-        // negative.
         open(0, 0, 4, 4);
         r = rect();
         QVERIFY(r.x() >= 8 && r.y() >= 8);
@@ -250,7 +237,6 @@ private slots:
         const qreal firstY = popover->property("y").toReal();
         QCOMPARE(popover->property("userId").toString(),
                  QStringLiteral("@bob:mock.local"));
-        // The same single instance is re-aimed at another person and place.
         QVERIFY(QMetaObject::invokeMethod(
             m_root, "openAt", Q_ARG(QVariant, QStringLiteral("@carol:mock.local")),
             Q_ARG(QVariant, 20), Q_ARG(QVariant, 200), Q_ARG(QVariant, 40),
@@ -283,7 +269,6 @@ private slots:
                      "Escape did not close the anchored card");
 
         open();
-        // A press well outside the card (it spans x 68..408 here).
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
                           QPoint(10, m_window->height() - 10));
         QTRY_VERIFY2(!popover->property("visible").toBool(),
@@ -292,22 +277,14 @@ private slots:
 
     void omittedAffordancesNeverRenderAsPlaceholders()
     {
-        // Icon literals of omitted actions never appear (they do not collide
-        // with prose).
         QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString content = QString::fromUtf8(file.readAll());
         QVERIFY(!content.contains(QStringLiteral("\"call\"")));
         QVERIFY(!content.contains(QStringLiteral("\"videocam\"")));
-        // Not banned here: "more_horiz" (a real overflow menu with real
-        // actions, deliberately without "Set Nickname"), "block" (the real ban
-        // action) and presence (the shared PresenceDot, so the popover paints
-        // no presence colours of its own).
         QVERIFY(content.contains(QStringLiteral("PresenceDot")));
         QVERIFY(!content.contains(QStringLiteral("presenceOnline")));
 
-        // No user-facing qsTr() string mentions the omitted affordances;
-        // comments documenting the omission are fine.
         QRegularExpression qsTrCall(QStringLiteral("qsTr\\(\"([^\"]*)\""));
         auto it = qsTrCall.globalMatch(content);
         while (it.hasNext()) {
@@ -316,7 +293,6 @@ private slots:
             QVERIFY2(!text.contains(QStringLiteral("SHARED")), qPrintable(text));
             QVERIFY2(!text.contains(QStringLiteral("View full profile")),
                      qPrintable(text));
-            // Ignore is a real m.ignored_user_list action now.
             QVERIFY2(!text.contains(QStringLiteral("Set Nickname")),
                      qPrintable(text));
             QVERIFY2(!text.contains(QStringLiteral("Mutual Rooms")),
@@ -324,9 +300,6 @@ private slots:
         }
     }
 
-    // The bio is remote free text rendered as plain text only: MSC4440's own
-    // example embeds <img src="mxc://…">, which a rich renderer would fetch
-    // for everyone opening the card.
     void theBioIsRenderedAsPlainTextAndNothingElse()
     {
         QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
@@ -334,15 +307,11 @@ private slots:
         const QString content = QString::fromUtf8(file.readAll());
         QVERIFY(content.contains(QStringLiteral("profileBioText")));
         QVERIFY(content.contains(QStringLiteral("app.bio.bioFor")));
-        // The request is a side effect of opening, never inside a binding.
         QVERIFY(content.contains(QStringLiteral("app.bio.request")));
         QVERIFY(!content.contains(QStringLiteral("Text.StyledText")));
         QVERIFY(!content.contains(QStringLiteral("Text.RichText")));
         QVERIFY(!content.contains(QStringLiteral("Text.MarkdownText")));
         QVERIFY(!content.contains(QStringLiteral("linkActivated")));
-        // Every Text/Label rendering the bio names PlainText explicitly.
-        // Anchored on expressions at both ends rather than a fixed window,
-        // which comments inside the block would defeat.
         const int bioAt = content.indexOf(
             QStringLiteral("objectName: \"profileBioText\""));
         QVERIFY2(bioAt > 0, "the bio Text was not found");
@@ -350,14 +319,10 @@ private slots:
             QStringLiteral("Accessible.name: qsTr(\"Bio\")"), bioAt);
         QVERIFY2(bioEnd > bioAt, "the bio block's end anchor was not found");
         const QString bioBlock = content.mid(bioAt, bioEnd - bioAt);
-        // The scan must bracket the item that renders the bio.
         QVERIFY2(bioBlock.contains(QStringLiteral("text: root.bioText")),
                  "the anchors do not bracket the item that renders the bio");
         QVERIFY2(bioBlock.contains(QStringLiteral("textFormat: Text.PlainText")),
                  qPrintable(bioBlock.left(400)));
-        // Reported: nothing on the room information panel or its siblings could
-        // be selected or copied. The bio is a read-only TextEdit that selects,
-        // still plain text (the checks above).
         QVERIFY2(bioBlock.contains(QStringLiteral("readOnly: true")),
                  qPrintable(bioBlock.left(600)));
         QVERIFY2(bioBlock.contains(QStringLiteral("selectByMouse: true")),
@@ -366,8 +331,6 @@ private slots:
                  "the bio cannot be selected with the keyboard");
     }
 
-    // Presence wording lives only in PresenceDot; a second copy here would
-    // drift.
     void thePresenceSentenceLivesOnlyInTheSharedDot()
     {
         QFile popover(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
@@ -385,14 +348,11 @@ private slots:
         QVERIFY(dotSrc.contains(QStringLiteral("ToolTip.text")));
     }
 
-    // A decorative badge never borrows trust or moderation vocabulary: it uses
-    // the holder's identity ink, with no shield, check, lock or trust palette.
     void theBadgeNeverBorrowsATrustOrModerationSignal()
     {
         QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString content = QString::fromUtf8(file.readAll());
-        // Anchored on expressions at both ends, not a fixed window.
         const int at = content.indexOf(QStringLiteral("root.badgeLabel.length > 0"));
         QVERIFY2(at > 0, "the badge Loader was not found");
         const int end = content.indexOf(QStringLiteral("root.bioText.length > 0"), at);
@@ -404,15 +364,11 @@ private slots:
         QVERIFY2(!block.contains(QStringLiteral("\"check\"")), "badge check");
         QVERIFY2(!block.contains(QStringLiteral("\"lock\"")), "badge lock");
         QVERIFY2(!block.contains(QStringLiteral("trust")), "badge trust palette");
-        // ...and it explains itself.
         QVERIFY(block.contains(QStringLiteral("root.badgeDescription")));
     }
 
     void dmReuseMechanicsArePreserved()
     {
-        // The DM-reuse call sequence (checkExistingDm -> existingDms ->
-        // openRoom, else startDirectMessage) is intact, never a bare room
-        // create.
         QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString content = QString::fromUtf8(file.readAll());
@@ -449,14 +405,13 @@ private slots:
         };
         const QString live = popover->property("liveRole").toString();
         if (live.isEmpty())
-            QVERIFY(adminChipShown()); // no live level: the snapshot shows
+            QVERIFY(adminChipShown());
         popover->setProperty("liveRole", QStringLiteral("administrator"));
         QVERIFY(adminChipShown());
         popover->setProperty("liveRole", QStringLiteral("member"));
         QVERIFY(!adminChipShown());
         popover->setProperty("liveRole", live);
 
-        // "(you)" only for the own-account member.
         QMetaObject::invokeMethod(m_root, "openFor",
                                   Q_ARG(QVariant, QStringLiteral("@alice:mock.local")),
                                   Q_ARG(QVariant, QStringLiteral("Alice")),
@@ -464,8 +419,6 @@ private slots:
                                   Q_ARG(QVariant, QStringLiteral("")),
                                   Q_ARG(QVariant, true));
         QVERIFY(popover->property("isOwn").toBool());
-        // The own-account card never shows Message (there is no self-DM
-        // action).
         QObject *messageButton = nullptr;
         for (QObject *candidate : popover->findChildren<QObject *>()) {
             if (candidate->property("text").toString() == QStringLiteral("Message")) {
@@ -478,9 +431,6 @@ private slots:
         popover->setProperty("visible", false);
     }
 
-    // Opening a card with only a user id (e.g. from a mention) resolves the
-    // display name and avatar itself, instead of relying on every call site
-    // to pass them.
     void openingWithOnlyAUserIdResolvesTheNameAndTheFace()
     {
         auto *mock = m_controller->findChild<MockMatrixClient *>();
@@ -512,15 +462,11 @@ private slots:
                  QStringLiteral("Bob Mockworth"));
         QCOMPARE(popover->property("avatarMxc").toString(),
                  QStringLiteral("mxc://mock.local/bob-face"));
-        // ...and the card renders the display name, not the id it was handed.
         QCOMPARE(popover->property("visibleName").toString(),
                  QStringLiteral("Bob Mockworth"));
         popover->setProperty("visible", false);
     }
 
-    // The chip row (a Flow in a ColumnLayout) occupies real space: a
-    // positioner whose height depends on a width not yet assigned can settle
-    // at zero while everything reads visible. Measures geometry.
     void theChipRowActuallyOccupiesSpace()
     {
         auto *popover = find(QStringLiteral("popover"));
@@ -548,13 +494,10 @@ private slots:
                  qPrintable(QStringLiteral("overflow chip collapsed: %1x%2")
                                 .arg(overflow->width())
                                 .arg(overflow->height())));
-        // ...and the row itself has real height.
         auto *row = qobject_cast<QQuickItem *>(share->parentItem());
         QVERIFY(row);
         QVERIFY2(row->height() > 0, "the chip row collapsed to zero height");
 
-        // Share copies the public matrix.to profile link, and the notice names
-        // what went to the clipboard.
         QGuiApplication::clipboard()->clear();
         QMetaObject::invokeMethod(share, "clicked");
         QCOMPARE(QGuiApplication::clipboard()->text(),
@@ -562,8 +505,6 @@ private slots:
         popover->setProperty("visible", false);
     }
 
-    // The badge is actually rendered (it lives behind a Loader, so a table
-    // row is not evidence).
     void theBadgeHoldersCardActuallyRendersTheBadge()
     {
         auto *popover = find(QStringLiteral("popover"));
@@ -587,8 +528,6 @@ private slots:
         }
         QVERIFY2(rendered, "the badge pill never reached the card");
 
-        // An ordinary user's card shows no badge. Loader destruction is
-        // deferred, so assert that nothing with that text is visible.
         QMetaObject::invokeMethod(m_root, "openFromMentionLink",
                                   Q_ARG(QVariant,
                                         QStringLiteral("@bob:mock.local")));
@@ -607,9 +546,6 @@ private slots:
         popover->setProperty("visible", false);
     }
 
-    // Nothing is invented for a user the roster does not hold (left the room,
-    // members not fetched): the localpart fallback, and no avatar rather than
-    // a wrong one.
     void aUserTheRosterDoesNotHoldIsNeverFabricated()
     {
         auto *popover = find(QStringLiteral("popover"));
@@ -645,8 +581,6 @@ private slots:
                  QStringLiteral("@dave:mock.local"));
     }
 
-    // The chip row shares one vertical centre, measured on laid-out items: a
-    // Flow top-aligns its children, and the two chip kinds differ in height.
     void theChipRowSharesOneVerticalCentre()
     {
         QMetaObject::invokeMethod(m_root, "openFor",
@@ -681,8 +615,6 @@ private slots:
                                 + report.join(QLatin1String("; "))));
         }
 
-        // The content inside each button is centred too: a Control forced
-        // taller than its contentItem leaves the content where it was.
         for (const QString &name : { QStringLiteral("profileShareButton"),
                                      QStringLiteral("profileOverflowButton") }) {
             auto *item = qobject_cast<QQuickItem *>(find(name));
@@ -701,9 +633,6 @@ private slots:
                              .arg(content->y()).arg(content->height())
                              .arg(contentCentre)));
 
-            // Horizontally, measured on the painted children (icon and
-            // label): a Control stretches its contentItem to full width, so
-            // comparing that centre would always pass.
             qreal minX = std::numeric_limits<qreal>::max();
             qreal maxX = std::numeric_limits<qreal>::lowest();
             const auto kids = content->childItems();
@@ -727,9 +656,6 @@ private slots:
         }
     }
 
-    // The bolt watermark stands in for a missing banner, so it yields once a
-    // real banner image is ready (tied to image readiness, not the mxc
-    // string, so it does not vanish early).
     void theBoltWatermarkYieldsToARealBanner()
     {
         QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
@@ -745,9 +671,6 @@ private slots:
                  "the bolt is painted over a user's own banner");
     }
 
-    // A banner that failed to fetch recovers: wideImageSource() answers ""
-    // while a transient failure mark stands, so both cache completion and
-    // mark expiry must bump the re-resolve counter (as Avatar.qml does).
     void aBannerRecoversFromATransientMediaFailure()
     {
         QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
@@ -755,8 +678,6 @@ private slots:
         const QString src = QString::fromUtf8(file.readAll());
         const int at = src.indexOf(QStringLiteral("id: bannerImage"));
         QVERIFY2(at > 0, "the banner Image is gone");
-        // Bounded to the banner's own block (up to the next `id: `), so
-        // handlers elsewhere in the file cannot satisfy the check.
         const int nextId = src.indexOf(QStringLiteral("id: "), at + 20);
         const QString block =
             nextId > at ? src.mid(at, nextId - at) : src.mid(at, 3000);
@@ -764,15 +685,10 @@ private slots:
                  "the banner no longer re-resolves when its bytes land");
         QVERIFY2(block.contains(QStringLiteral("function onMediaRetryable(")),
                  "a banner whose fetch failed once stays absent all session");
-        // Still a counter, never an assignment to `source`, which would
-        // destroy the binding.
         QVERIFY2(!block.contains(QStringLiteral("bannerImage.source =")),
                  "the banner binding is destroyed by an imperative assignment");
     }
 
-    // Rooms in common are absent, not shown empty, until some are known: the
-    // list reads only membership the store already holds (asking would cost a
-    // /state per room), so an empty section would claim too much.
     void mutualRoomsAreAbsentUntilAnyAreKnown()
     {
         QMetaObject::invokeMethod(m_root, "openFor",
@@ -793,7 +709,6 @@ private slots:
         QVERIFY2(find(QStringLiteral("profileMutualRoom")) == nullptr,
                  "a mutual-room row exists with no mutual rooms");
 
-        // Opening the overflow must ask, or the list never populates.
         QFile popoverSrc(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
         QVERIFY(popoverSrc.open(QIODevice::ReadOnly));
         const QString src = QString::fromUtf8(popoverSrc.readAll());
@@ -802,18 +717,15 @@ private slots:
                  "the overflow never asks for the rooms it means to list");
     }
 
-    // A display name made only of invisible characters is a real name on the
-    // wire, and drew an empty title line: the card falls back to the
-    // localpart as for an absent name, and the rendered label says so.
     void anInvisibleDisplayNameFallsBackToTheLocalpart()
     {
         auto *popover = find(QStringLiteral("popover"));
         QVERIFY(popover);
         const QStringList invisible{
-            QStringLiteral("ㅤ"),               // Hangul filler
-            QStringLiteral("⠀⠀"),         // Braille blank
-            QStringLiteral(" ​‍️ "), // spaces and format chars
-            QString::fromUcs4(U"\U000E0020\U000E0041"), // tag characters
+            QStringLiteral("ㅤ"),
+            QStringLiteral("⠀⠀"),
+            QStringLiteral(" ​‍️ "),
+            QString::fromUcs4(U"\U000E0020\U000E0041"),
         };
         for (const QString &name : invisible) {
             QMetaObject::invokeMethod(
@@ -831,7 +743,6 @@ private slots:
             QTRY_VERIFY(!popover->property("opened").toBool());
         }
 
-        // A name with any visible character is kept as written.
         QMetaObject::invokeMethod(
             m_root, "openFor",
             Q_ARG(QVariant, QStringLiteral("@bram:mock.local")),
@@ -844,8 +755,6 @@ private slots:
         popover->setProperty("visible", false);
     }
 
-    // The People list's right-click menu reaches the card's own confirm step,
-    // so a room kick is two clicks from the list and still confirmed.
     void openForActionLandsOnTheConfirmStepOnlyWhenAllowed()
     {
         auto *popover = find(QStringLiteral("popover"));
@@ -872,15 +781,11 @@ private slots:
         const int at = src.indexOf(QStringLiteral("function openForAction("));
         QVERIFY2(at > 0, "openForAction was not found");
         const QString body = src.mid(at, src.indexOf(QLatin1Char('}'), at) - at);
-        // Each op is gated on its own offer flag.
         QVERIFY(body.contains(QStringLiteral("op === \"kick\" && showKick")));
         QVERIFY(body.contains(QStringLiteral("op === \"ban\" && showBan")));
         QVERIFY(body.contains(QStringLiteral("op === \"unban\" && showUnban")));
     }
 
-    // Lowering your own role cannot be undone by you, just like granting
-    // someone your own level; the confirmation says so. Driven on the real
-    // dialog's properties.
     void loweringYourOwnRoleIsWarned()
     {
         auto *popover = find(QStringLiteral("popover"));
@@ -900,7 +805,6 @@ private slots:
         QVERIFY(warning->property("text").toString()
                     .contains(QStringLiteral("raise it back")));
 
-        // Someone else: the grant warning, not this one.
         popover->setProperty("isOwn", false);
         QCOMPARE(confirm->property("selfDemotion").toBool(), false);
         confirm->setProperty("pendingLevel", own);
@@ -920,9 +824,6 @@ private slots:
             QStringLiteral("app.roomInfo.ownPowerLevel < 9007199254740992")));
     }
 
-    // B106: a banned or departed user is offered Unban / Invite, never a
-    // promotion. The guard must sit BEFORE the options are built, and the
-    // behaviour is asserted on the real component.
     void aBannedMemberIsOfferedNoRoleButtons()
     {
         auto *popover = find(QStringLiteral("popover"));
@@ -951,9 +852,6 @@ private slots:
         QVERIFY(guard > 0 && build > 0 && guard < build);
     }
 
-    // C35-F06/F10: the role chips follow the live power level, not the
-    // snapshot a caller passed at openFor(). Old code: no badgeRole property,
-    // so the first QCOMPARE reads an invalid QVariant and fails.
     void theRoleChipFollowsTheLivePowerLevel()
     {
         auto *popover = find(QStringLiteral("popover"));
@@ -969,9 +867,6 @@ private slots:
         popover->setProperty("liveRole", QString());
     }
 
-    // The power-level -> chip mapping, driven on the real component. Custom
-    // levels follow the roster's rule (>=100 admin, >=50 moderator), so a 75
-    // does not lose a chip the roster showed.
     void theLiveRoleMappingMatchesTheRosterTiers()
     {
         auto *popover = find(QStringLiteral("popover"));
@@ -993,9 +888,6 @@ private slots:
         QVERIFY(src.contains(QStringLiteral("liveRole = _roleForLevel(current)")));
     }
 
-    // C35-F01/F03: every action button of the card draws a focus ring and
-    // answers Return/Enter, and the dialogs' buttons and the reason field do
-    // too. Source scan: the failing shape is an absent binding.
     void theCardsButtonsShowFocusAndAnswerEnter()
     {
         QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
@@ -1006,14 +898,10 @@ private slots:
             QVERIFY2(src.contains(name + QStringLiteral(".visualFocus")),
                      qPrintable(name + QStringLiteral(" draws no focus ring")));
         }
-        // Per button, not in aggregate: each anchor must carry BOTH handlers
-        // within its own block.
         for (const char *anchor : { "id: roleButton", "id: modButton" }) {
             const QString a = QString::fromLatin1(anchor);
             const int at = src.indexOf(a);
             QVERIFY2(at > 0, qPrintable(a + QStringLiteral(" not found")));
-            // The anchor's own element, brace-balanced (the blocks grew
-            // past any fixed window as focus rings and labels landed).
             int open = at, depth = 0;
             while (open > 0) {
                 --open;
@@ -1034,9 +922,6 @@ private slots:
                          && block.contains(QStringLiteral("Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }")),
                      qPrintable(a + QStringLiteral(" does not activate on Return/Enter")));
         }
-        // The kick/ban confirm is an AppButton: Return and Enter activate it
-        // at the type (C02), and a handler of its own would fire it twice
-        // (MASTER-1 H1). ButtonKeyActivationQmlTest covers the type.
         {
             const int at = src.indexOf(QStringLiteral("id: modConfirmButton"));
             QVERIFY(at > 0);
@@ -1048,9 +933,6 @@ private slots:
             QVERIFY2(!own.contains(QStringLiteral("Keys.onReturnPressed")),
                      "modConfirmButton has its own Return handler");
         }
-        // The ignore and role confirms are AppButtons (recheck N2): Return
-        // and Enter at the type, a held Return never repeats a click
-        // (ButtonKeyActivationQmlTest), and no handler of their own.
         for (const char *name : { "profileIgnoreConfirmCancel", "profileIgnoreConfirmAccept",
                                   "profileRoleConfirmCancel", "profileRoleConfirmAccept" }) {
             const QString a = QStringLiteral("objectName: \"%1\"").arg(QLatin1String(name));
@@ -1061,15 +943,12 @@ private slots:
             const int next = src.indexOf(QStringLiteral("Button {"), at);
             QVERIFY2(!src.mid(at, next - at).contains(QStringLiteral("Keys.onReturnPressed")), name);
         }
-        // Chip, Message and the modal Cancel share the file-wide floor.
         QVERIFY(src.count(QStringLiteral("Keys.onReturnPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }")) >= 4);
         QVERIFY(src.count(QStringLiteral("Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }")) >= 4);
         QVERIFY(src.contains(QStringLiteral("onAccepted: if (modConfirmButton.enabled) modConfirmButton.clicked()")));
-        // F02: the open edge drops focus from the previously used button.
         QVERIFY(src.contains(QStringLiteral("contentItem.forceActiveFocus()")));
     }
 
-    // C35-F02, behaviour: a freshly opened card holds no focused button.
     void aReopenedCardHoldsNoFocusedButton()
     {
         auto *popover = find(QStringLiteral("popover"));
@@ -1090,9 +969,6 @@ private slots:
                          && !QString::fromLatin1(focus->metaObject()->className())
                                 .contains(QStringLiteral("Button")),
                      "a button holds focus on open");
-            // Leave a button focused, as a keyboard user would, then reopen.
-            // The share chip is visible on every card, so the setup must take;
-            // assert it, or a silently failed setup passes without the fix.
             auto *btn = popover->findChild<QQuickItem *>(
                 QStringLiteral("profileShareButton"));
             QVERIFY(btn);
@@ -1104,9 +980,6 @@ private slots:
         }
     }
 
-    // Escape closes the card, however it was opened. A popup handles
-    // CloseOnEscape only while it holds active focus, and nothing on the card
-    // takes focus by itself (live, 2026-09-30: Escape left it open).
     void escapeClosesTheCard()
     {
         auto *popover = find(QStringLiteral("popover"));
@@ -1131,9 +1004,6 @@ private slots:
                                   "Escape left the member card open", 2000);
     }
 
-    // The same when the tap that opened the card also reached a TapHandler
-    // above it that takes focus (the timeline's, live 2026-09-30: a card opened
-    // from a Space Home chip or a sender name kept ignoring Escape).
     void escapeClosesACardOpenedByATapAFocusTakerAlsoSaw()
     {
         auto *popover = find(QStringLiteral("popover"));

@@ -4,23 +4,9 @@ import QtQuick.Layouts
 import QtMultimedia
 import MatrixClient
 
-// One screen share on the call stage. A share is a tile, not a mode: every
-// live share is an ordinary grid tile, so the grid is a complete index and
-// dismissing the spotlight can't strand a share. A person sharing with their
-// camera on occupies two tiles (this and their CallParticipantTile), one per
-// track.
-//
-// SfuVideoRouter holds one screen sink per participant identity: the last
-// attach owns it, and a release names the sink, so a superseded surface gives
-// up nothing. That matters because Qt builds a newly activated Loader's
-// content synchronously but destroys the old one with deleteLater(), so
-// surfaces overlap for one event-loop turn during layout changes.
 Item {
     id: root
 
-    /// True under Qt Quick's software renderer, which can't draw video even
-    /// though frames arrive. The tile then keeps its placeholder and CallStage
-    /// explains why. `app` is looked up defensively for standalone tests.
     readonly property bool softwareRendererHidesVideo:
         typeof app !== "undefined" && app && app.softwareRenderer === true
 
@@ -28,19 +14,12 @@ Item {
     /// sid, or "local:<n>" for ours. A restarted share is a new track and a new
     /// id, so it can never arrive already dismissed.
     property string shareId: ""
-    /// The sharer's SFU identity; the screen sink is keyed on it.
     property string ownerIdentity: ""
     property string ownerDisplayName: ""
-    /// Watched so the sink is re-attached when it arrives: an attach under an
-    /// empty key never receives a frame. A local share exists before the SFU
-    /// names its track.
     property string trackKey: ""
-    /// Our own share, routed through the engine's self-view tee.
     property bool local: false
 
-    /// Compact form, for the strip beside the spotlight.
     property bool compact: false
-    /// This tile is the spotlight.
     property bool focused: false
 
     signal activated()
@@ -76,10 +55,7 @@ Item {
         id: surface
         anchors.fill: parent
         radius: AppTheme.radiusTile
-        // Always a panel, never the bare-avatar shape.
         color: AppTheme.stormInset
-        // While the picture shows, its own frame (below) is the only edge. The
-        // focus ring still draws on the tile.
         readonly property bool pictureFramed:
             videoLoader.visible && videoLoader.item
             && videoLoader.item.pictureFramed === true
@@ -98,7 +74,6 @@ Item {
             visible: active && item && item.hasFrame
                      && !root.softwareRendererHidesVideo
             sourceComponent: Item {
-                /// Keeps the placeholder until the first frame arrives.
                 readonly property bool hasFrame:
                     output.videoSink && output.videoSink.videoSize.width > 0
                 readonly property bool pictureFramed: videoFrame.visible
@@ -106,14 +81,8 @@ Item {
                 VideoOutput {
                     id: output
                     anchors.fill: parent
-                    // Shares are fitted, never cropped: the edges usually hold
-                    // the sharer's toolbars and tabs.
                     fillMode: VideoOutput.PreserveAspectFit
                 }
-                // A frame around the painted picture rather than the tile, so
-                // the fitted video doesn't look loose on a large surface.
-                // Computed from the frame size: VideoOutput's contentRect
-                // didn't describe it.
                 Rectangle {
                     id: videoFrame
                     objectName: "callShareVideoFrame"
@@ -135,7 +104,6 @@ Item {
                     color: "transparent"
                     radius: AppTheme.radiusSm
                     border.width: 2
-                    // Carries the spotlight accent.
                     border.color: root.focused ? AppTheme.accentBorder
                                                : Qt.rgba(1, 1, 1, 0.34)
                 }
@@ -155,17 +123,11 @@ Item {
                 Component.onCompleted: attach()
                 Component.onDestruction: detach()
 
-                // No periodic re-arm (see CallParticipantTile);
-                // onTrackKeyChanged covers late keys.
             }
         }
 
-        // Placeholder while the first frame is in flight; not a claim the share
-        // is unviewable.
         ColumnLayout {
             anchors.centerIn: parent
-            // A width so the text below can elide; otherwise the column takes
-            // the line's full width and the clipping tile cuts it off.
             width: parent.width - AppTheme.spacing16
             spacing: 6
             visible: !videoLoader.visible
@@ -176,10 +138,7 @@ Item {
                 color: AppTheme.stormTextSecondary
             }
             Loader {
-                // Filling, not centre-aligned, so the text has a width to elide
-                // against; the label centres itself.
                 Layout.fillWidth: true
-                // Behind a Loader: an empty Text keeps ItemObservesViewport.
                 active: !root.compact && root._label.length > 0
                 visible: active
                 sourceComponent: Text {
@@ -192,10 +151,6 @@ Item {
             }
         }
 
-        // Nameplate: bottom-left pill with the share glyph ahead of the name.
-        // On a large surface it covers the picture, so it fades out 3 s after
-        // the tile appears or the pointer last moved; small grid tiles keep it
-        // as their label.
         readonly property bool plateAutoHides: root.width >= 480
         property int plateIdleTicks: 0
         property bool plateIdle: false
@@ -207,7 +162,7 @@ Item {
             running: surface.plateAutoHides && !surface.plateIdle
             onTriggered: {
                 surface.plateIdleTicks += 1
-                if (surface.plateIdleTicks >= 6) // 3 s
+                if (surface.plateIdleTicks >= 6)
                     surface.plateIdle = true
             }
         }
@@ -244,14 +199,11 @@ Item {
                                     surface.width - (root.compact ? 12 : 16))
             implicitHeight: plate.implicitHeight + 6
             radius: AppTheme.radiusPill
-            // Its own dark field, legible over bright video.
             color: Qt.rgba(0, 0, 0, 0.55)
 
             RowLayout {
                 id: plate
                 objectName: "callShareNameplateRow"
-                // Anchored to the plate's edges so the label can elide (see
-                // CallParticipantTile).
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.left: parent.left
                 anchors.right: parent.right
@@ -265,12 +217,9 @@ Item {
                     color: AppTheme.success
                 }
                 Text {
-                    // Remote or externally chosen text: never markup.
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
                     text: root._label
-                    // A fixed light ink: the plate paints its own field over
-                    // video.
                     color: "#FFFFFF"
                     font.pixelSize: root.compact ? 11 : 12
                     font.weight: Font.Medium
@@ -292,12 +241,6 @@ Item {
             cursorShape: Qt.PointingHandCursor
         }
     }
-    // ── The share's own volume ──
-    // Separate from the sharer's microphone (separate tracks; the engine keys
-    // receive volume per track). Offered only when the share carries sound.
-    // shareHasAudio() is a plain call with no notify, so participantsChanged
-    // (emitted when participants are rebuilt from SFU track state) drives a
-    // revision, since share audio can be toggled mid-share.
     property int shareAudioRevision: 0
     Connections {
         target: app.groupCall
@@ -330,11 +273,8 @@ Item {
             shareVolumePopup.open()
     }
 
-    // Right-click opens it, as on the participant tile, and only when the share
-    // has sound, so it never swallows a press the stage wanted.
     TapHandler {
         enabled: root.shareAudioOffered
-        // Touch has no buttons, so a tap would fire this too.
         acceptedButtons: Qt.RightButton
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onTapped: root.openShareVolume()
@@ -404,7 +344,6 @@ Item {
                 snapMode: Slider.SnapAlways
                 Accessible.name: qsTr("Screen share volume")
                 onMoved: root.applyShareVolume(value)
-                // One write on release; the live effect follows every step.
                 onPressedChanged: if (app.settings.holdWritesWhileDragging)
                     app.settings.holdWritesWhileDragging(pressed)
                 Component.onDestruction: if (pressed

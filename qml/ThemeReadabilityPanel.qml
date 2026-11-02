@@ -3,29 +3,13 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The readability report as the contents of a popover under the editor's
-// readability pill: every colour pair the theme fails, each a row that jumps to
-// the element and a "Make readable" that nudges it, plus what could not be
-// checked (said, so "all passed" is not confused with "all we could check
-// passed").
-//
-// It holds no theme state. The editor passes the findings (CustomThemeStore's
-// audit rows: { role, fg, bg, label, kind, value, minimum }) and the palette
-// they were graded on, and answers the signals.
-//
-// Painted in the invariant editor tokens (see `editorCanvas` in AppTheme.qml).
 ColumnLayout {
     id: root
 
-    // The failing rows, as audit() returns them.
     property var report: []
-    // The throttled palette the rows were graded on, for the colour pair swatch.
     property var gradedPalette: ({})
     property int problems: 0
-    // True once the theme has colours of its own (wording only).
     property bool edited: false
-    // Colours that could not be graded because they are see-through, and
-    // checks this build could not make at all.
     property int translucent: 0
     property int missing: 0
 
@@ -36,11 +20,6 @@ ColumnLayout {
     objectName: "themeReadabilityPanel"
     spacing: AppTheme.spacing8
 
-    // The popover sits outside the dialog's focus chain, so the panel keeps
-    // the keyboard inside itself. The first stop is the first Fix (else the
-    // close button), the last is the last Fix, and Tab / Shift+Tab wrap
-    // between them. Looked up when used, never bound: a Repeater's items are
-    // not observable, and a stale answer here strands the keyboard.
     function firstStop() {
         var n = problemRepeater.count
         var row = n > 0 ? problemRepeater.itemAt(0) : null
@@ -54,11 +33,7 @@ ColumnLayout {
     function takeFocus() {
         root.firstStop().forceActiveFocus()
     }
-    // Set by a Fix; the model rebuilds every row and the keyboard would be
-    // dropped with the one that had it.
     property bool refocusAfterRebuild: false
-    // A declined Fix produces no report change, so the flag must not wait for
-    // one for ever: an unrelated change later would pull focus into the panel.
     Timer {
         id: refocusExpiry
         interval: 600
@@ -168,7 +143,6 @@ ColumnLayout {
         font.pixelSize: AppTheme.textMeta
     }
 
-    // What was not checked, stated.
     Label {
         objectName: "themeReadabilityUnchecked"
         visible: root.translucent > 0
@@ -185,8 +159,6 @@ ColumnLayout {
         font.pixelSize: AppTheme.textMeta
     }
 
-    // The readability table names a palette key this build does not return,
-    // which is our bug; a suite keeps it unreachable.
     Label {
         objectName: "themeReadabilityMissing"
         visible: root.missing > 0
@@ -201,8 +173,6 @@ ColumnLayout {
     }
 
     Flickable {
-        // Named so a focused row can scroll itself into view; this list often
-        // overflows.
         id: problemScroll
         objectName: "themeReadabilityScroll"
         Layout.fillWidth: true
@@ -215,7 +185,6 @@ ColumnLayout {
         contentHeight: problemColumn.implicitHeight
         boundsBehavior: Flickable.StopAtBounds
 
-        // A bar only when the list scrolls.
         ScrollBar.vertical: ScrollBar {
             policy: problemScroll.contentHeight > problemScroll.height + 1
                     ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
@@ -231,14 +200,11 @@ ColumnLayout {
             width: parent.width
             spacing: 2
 
-            // Rows are a font-derived constant height: a wrapping Label feeding
-            // its own row height is a layout loop waiting to happen.
             FontMetrics {
                 id: reportMetrics
                 font.family: AppTheme.uiFont
                 font.pixelSize: AppTheme.textMeta
             }
-            // Ceiling per line, as Qt lays each out at an integral height.
             readonly property int rowTextHeight:
                 2 * Math.ceil(reportMetrics.lineSpacing)
             readonly property int rowHeight:
@@ -250,7 +216,6 @@ ColumnLayout {
                 delegate: Rectangle {
                     id: problemRow
                     required property var modelData
-                    // The row's Fix button, for the panel's first focus stop.
                     readonly property Item fixItem: fixButton
                     objectName: "themeReadabilityRow"
                     Layout.fillWidth: true
@@ -293,7 +258,6 @@ ColumnLayout {
                         z: 1
                     }
 
-                    // Behind the content, so the buttons on top still win.
                     MouseArea {
                         id: problemHover
                         anchors.fill: parent
@@ -308,8 +272,6 @@ ColumnLayout {
                         anchors.rightMargin: AppTheme.spacing8
                         spacing: AppTheme.spacing8
 
-                        // The two failing colours, one on the other, at the
-                        // size they fail at.
                         Rectangle {
                             implicitWidth: 30
                             implicitHeight: 30
@@ -341,8 +303,6 @@ ColumnLayout {
                                 id: problemText
                                 objectName: "themeReadabilityRowLabel"
                                 Layout.fillWidth: true
-                                // Pinned to two lines so the ratio sits at the
-                                // same height in every row.
                                 Layout.preferredHeight: problemColumn.rowTextHeight
                                 verticalAlignment: Text.AlignVCenter
                                 wrapMode: Text.WordWrap
@@ -370,8 +330,6 @@ ColumnLayout {
                             }
                         }
 
-                        // Nudges the colour of this row's element to the
-                        // nearest one that clears every bar it fails.
                         Rectangle {
                             id: fixButton
                             objectName: "themeReadabilityFix"

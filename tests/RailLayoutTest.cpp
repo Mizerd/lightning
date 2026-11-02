@@ -1,13 +1,3 @@
-// The Spaces rail's own arrangement: drag order, folders, and the drag model.
-//
-// The store half is pure over a model snapshot: a new Space does not barge
-// into a hand-made order, a folder emptied by a write goes away with it
-// (RailFolderLifecycleTest covers the rest), deleting a folder puts its Spaces
-// back where it was, and pseudo rows cannot be dragged or filed.
-//
-// The gesture half lives in RailEntryModel: preview reorder, reorder versus
-// group, and what a release writes are model operations. The view's half
-// (pointer bands, auto-scroll) is covered by RailDragQmlTest, not here.
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
@@ -35,7 +25,6 @@ QVariantMap space(const QString &id, const QString &name, int unread = 0,
     return entry;
 }
 
-// The model always leads with the two pseudo rows.
 QVariantList withPseudo(const QVariantList &spaces)
 {
     QVariantList out;
@@ -60,8 +49,6 @@ QStringList idsOf(const QVariantList &arranged)
     return out;
 }
 
-// A client answering with whatever rooms a case hands it: RailEntryModel
-// needs a real SpaceManager for subspace rows, and that needs a client.
 class FakeClient final : public MatrixClient
 {
     Q_OBJECT
@@ -128,7 +115,7 @@ QStringList modelIds(const RailEntryModel &model)
     return out;
 }
 
-} // namespace
+}
 
 class RailLayoutTest : public QObject
 {
@@ -176,8 +163,6 @@ private Q_SLOTS:
         QCOMPARE(idsOf(arranged).mid(2),
                  (QStringList{ QStringLiteral("!b:x"), QStringLiteral("!a:x") }));
 
-        // A Space joined later does not land in the middle of a hand-made
-        // arrangement.
         arranged = store.arrange(withPseudo({
             space(QStringLiteral("!a:x"), QStringLiteral("A")),
             space(QStringLiteral("!b:x"), QStringLiteral("B")),
@@ -187,8 +172,6 @@ private Q_SLOTS:
                  (QStringList{ QStringLiteral("!b:x"), QStringLiteral("!a:x"),
                                QStringLiteral("!c:x") }));
 
-        // A left Space stops appearing; its stored slot is kept, since the
-        // account may just not have synced yet.
         arranged = store.arrange(withPseudo({
             space(QStringLiteral("!a:x"), QStringLiteral("A")),
         }));
@@ -202,7 +185,6 @@ private Q_SLOTS:
         const QString folder = store.createFolder(QStringLiteral("Work"));
         QVERIFY(!folder.isEmpty());
 
-        // "All rooms" and "Other rooms" are views of everything, not Spaces.
         store.setSpaceFolder(QString(), folder);
         store.setSpaceFolder(QStringLiteral("@orphans"), folder);
         store.setTopLevelOrder({ QStringLiteral("@orphans"), QString(),
@@ -212,7 +194,6 @@ private Q_SLOTS:
         const QVariantList arranged = store.arrange(withPseudo({
             space(QStringLiteral("!a:x"), QStringLiteral("A")),
         }));
-        // Both keep their place at the top, ahead of everything arrangeable.
         QCOMPARE(idsOf(arranged).mid(0, 2),
                  (QStringList{ QString(), QStringLiteral("@orphans") }));
     }
@@ -230,7 +211,6 @@ private Q_SLOTS:
             space(QStringLiteral("!b:x"), QStringLiteral("B"), 4),
             space(QStringLiteral("!c:x"), QStringLiteral("C")),
         }));
-        // Open: the folder, then its members, then everything else.
         QCOMPARE(idsOf(arranged).mid(2),
                  (QStringList{ QStringLiteral("[Work]"), QStringLiteral("!a:x"),
                                QStringLiteral("!b:x"), QStringLiteral("!c:x") }));
@@ -238,8 +218,6 @@ private Q_SLOTS:
         QCOMPARE(folderRow.value(QStringLiteral("kind")).toString(),
                  QStringLiteral("folder"));
         QCOMPARE(folderRow.value(QStringLiteral("childCount")).toInt(), 2);
-        // A collapsed folder carries what it hides, so it cannot hide unread
-        // messages.
         QCOMPARE(folderRow.value(QStringLiteral("unreadTotal")).toInt(), 7);
 
         store.setFolderCollapsed(folder, true);
@@ -252,8 +230,6 @@ private Q_SLOTS:
                  (QStringList{ QStringLiteral("[Work]"), QStringLiteral("!c:x") }));
     }
 
-    // A Space is in at most one folder, and a folder emptied by a write is
-    // removed.
     void aSpaceIsInAtMostOneFolderAndAnEmptiedFolderGoes()
     {
         SettingsManager settings;
@@ -263,13 +239,9 @@ private Q_SLOTS:
         store.setSpaceFolder(QStringLiteral("!a:x"), work);
         QCOMPARE(store.folderOf(QStringLiteral("!a:x")), work);
 
-        // Moving it leaves the old folder as part of joining the new one.
         store.setSpaceFolder(QStringLiteral("!a:x"), play);
         QCOMPARE(store.folderOf(QStringLiteral("!a:x")), play);
 
-        // Work held a Space and now holds none, so it is gone. A folder created
-        // empty and never filled stays ("New folder…" makes one to drag Spaces
-        // into).
         const QVariantList arranged = store.arrange(withPseudo({
             space(QStringLiteral("!a:x"), QStringLiteral("A")),
         }));
@@ -285,12 +257,10 @@ private Q_SLOTS:
         const QString folder = store.createFolder(QStringLiteral("Work"));
         store.setSpaceFolder(QStringLiteral("!b:x"), folder);
         store.setSpaceFolder(QStringLiteral("!c:x"), folder);
-        // Put the folder between two loose Spaces.
         store.setTopLevelOrder({ QStringLiteral("!a:x"), folder,
                                  QStringLiteral("!d:x") });
 
         store.deleteFolder(folder);
-        // Deleting undoes the grouping in place, not at the bottom.
         const QVariantList arranged = store.arrange(withPseudo({
             space(QStringLiteral("!a:x"), QStringLiteral("A")),
             space(QStringLiteral("!b:x"), QStringLiteral("B")),
@@ -338,7 +308,6 @@ private Q_SLOTS:
         QCOMPARE(changed.count(), 3);
         store.setFolderCollapsed(folder, true);
         QCOMPARE(changed.count(), 4);
-        // A no-op write must not churn the rail.
         store.setFolderCollapsed(folder, true);
         store.renameFolder(folder, QStringLiteral("Home"));
         store.setSpaceFolder(QStringLiteral("!a:x"), folder);
@@ -347,15 +316,10 @@ private Q_SLOTS:
         QCOMPARE(changed.count(), 5);
     }
 
-    // The stored format.
-
-    // A layout written before the "expanded" key existed loads with its
-    // folders and order intact; the missing key is a default, not a migration.
     void anOlderStoredLayoutKeepsItsFoldersAndOrder()
     {
         SettingsManager settings;
         {
-            // The older stored shape.
             RailLayoutStore writer(&settings);
             const QString folder = writer.createFolder(QStringLiteral("Work"));
             writer.setSpaceFolder(QStringLiteral("!a:x"), folder);
@@ -363,12 +327,10 @@ private Q_SLOTS:
             writer.setFolderCollapsed(folder, true);
             writer.setTopLevelOrder({ QStringLiteral("!c:x"), folder });
         }
-        // Strip the key newer builds add.
         QSettings raw;
         const QString key = QStringLiteral("appearance/shell/railLayout");
         QString json = raw.value(key).toString();
         if (json.isEmpty()) {
-            // The value is account-scoped with a global fallback; find it.
             for (const QString &candidate : raw.allKeys()) {
                 if (candidate.endsWith(QStringLiteral("shell/railLayout"))) {
                     json = raw.value(candidate).toString();
@@ -388,8 +350,6 @@ private Q_SLOTS:
                  (QStringList{ QStringLiteral("!a:x"), QStringLiteral("!b:x") }));
         QCOMPARE(folder.value(QStringLiteral("collapsed")).toBool(), true);
         QCOMPARE(reopened.order().first(), QStringLiteral("!c:x"));
-        // The new state defaults to nothing expanded, which is what an older
-        // layout meant.
         QVERIFY(reopened.expandedSpaceIds().isEmpty());
     }
 
@@ -408,12 +368,9 @@ private Q_SLOTS:
             QVERIFY(!store.spaceExpanded(QStringLiteral("!a:x")));
             store.toggleSpaceExpanded(QStringLiteral("!a:x"));
         }
-        // Expansion is persisted, as Element does for its Space panel.
         RailLayoutStore reopened(&settings);
         QVERIFY(reopened.spaceExpanded(QStringLiteral("!a:x")));
     }
-
-    // The atomic arrangement write.
 
     void oneArrangementWriteReplacesTheWholePicture()
     {
@@ -425,11 +382,10 @@ private Q_SLOTS:
         store.setTopLevelOrder({ work, QStringLiteral("!c:x") });
 
         QSignalSpy changed(&store, &RailLayoutStore::layoutChanged);
-        // b leaves the folder and lands after c; a stays.
         store.applyArrangement({ work, QStringLiteral("!c:x"),
                                  QStringLiteral("!b:x") },
                                { { work, QStringList{ QStringLiteral("!a:x") } } });
-        QCOMPARE(changed.count(), 1);   // ONE write, not three
+        QCOMPARE(changed.count(), 1);
         QCOMPARE(store.folderMembers(work),
                  QStringList{ QStringLiteral("!a:x") });
         QCOMPARE(store.order(), (QStringList{ work, QStringLiteral("!c:x"),
@@ -439,9 +395,6 @@ private Q_SLOTS:
 
     void aCollapsedFolderIsNotEmptiedByADragThatNeverShowedIt()
     {
-        // The rail only renders an open folder's members, so a collapsed
-        // folder left out of the call keeps what it holds rather than being
-        // emptied.
         SettingsManager settings;
         RailLayoutStore store(&settings);
         const QString shut = store.createFolder(QStringLiteral("Shut"));
@@ -453,7 +406,6 @@ private Q_SLOTS:
         QCOMPARE(store.folderMembers(shut),
                  (QStringList{ QStringLiteral("!a:x"), QStringLiteral("!b:x") }));
 
-        // ...but a member the call placed elsewhere leaves it.
         store.applyArrangement({ shut, QStringLiteral("!a:x") }, {});
         QCOMPARE(store.folderMembers(shut),
                  QStringList{ QStringLiteral("!b:x") });
@@ -480,15 +432,12 @@ private Q_SLOTS:
         QCOMPARE(preview.size(), 3);
         QCOMPARE(preview.at(0).toMap().value(QStringLiteral("name")).toString(),
                  QStringLiteral("Alpha"));
-        // A collapsed folder is identified by its contents (the preview).
         QCOMPARE(preview.at(2).toMap().value(QStringLiteral("spaceId")).toString(),
                  QStringLiteral("!c:x"));
     }
 
     void anOpenFoldersLastMemberKnowsItIsTheLast()
     {
-        // The last member of an open folder carries the rounded bottom of the
-        // container drawn behind the rows.
         SettingsManager settings;
         RailLayoutStore store(&settings);
         const QString folder = store.createFolder(QStringLiteral("Work"));
@@ -506,8 +455,6 @@ private Q_SLOTS:
 
     void everySpaceIsOrderedForTheChannelsLayoutEvenInsideAShutFolder()
     {
-        // orderedSpaceIds answers an ordering question, so a collapsed folder
-        // keeps its Spaces in the answer (unlike arrange()).
         SettingsManager settings;
         RailLayoutStore store(&settings);
         const QString folder = store.createFolder(QStringLiteral("Work"));
@@ -524,13 +471,9 @@ private Q_SLOTS:
         QCOMPARE(store.orderedSpaceIds(spaces),
                  (QStringList{ QStringLiteral("!c:x"), QStringLiteral("!b:x"),
                                QStringLiteral("!a:x") }));
-        // And no pseudo row leaks into it.
         QVERIFY(!store.orderedSpaceIds(spaces).contains(QString()));
     }
 
-    // "Other rooms" is offered only when it narrows something: in Channels,
-    // Home already lists exactly the rooms no Space does. Driven through the
-    // property the rail binds; the model knows nothing of layouts.
     void otherRoomsIsOfferedOnlyWhenItNarrowsSomething()
     {
         FakeClient client;
@@ -550,7 +493,6 @@ private Q_SLOTS:
         RailEntryModel model;
         model.setSources(&spaces, &store);
 
-        // Classic is the default, and the tile is shown there.
         QVERIFY2(model.orphansEntryVisible(),
                  "the tile defaults to hidden, so Classic loses it");
         QVERIFY2(modelIds(model).contains(SpaceManager::orphansId()),
@@ -559,7 +501,6 @@ private Q_SLOTS:
         model.setOrphansEntryVisible(false);
         QVERIFY2(!modelIds(model).contains(SpaceManager::orphansId()),
                  "Channels still offers a tile that opens Home");
-        // Nothing else moved.
         QVERIFY(modelIds(model).contains(SpaceManager::allRoomsId()));
         QVERIFY(modelIds(model).contains(QStringLiteral("!a:x")));
 
@@ -568,10 +509,6 @@ private Q_SLOTS:
                  "switching back to Classic did not restore the tile");
     }
 
-    // A Space whose direct children are rooms (no subspaces) can be expanded:
-    // the chevron is the only expansion trigger. Using the transitive
-    // `childCount` instead would let an umbrella that owns nothing directly
-    // expand into nothing, so a separate count is asserted both ways.
     void aSpaceWithRoomsButNoSubspacesCanStillBeExpanded()
     {
         RoomInfo channel;
@@ -582,10 +519,8 @@ private Q_SLOTS:
 
         FakeClient client;
         client.roomList = {
-            // A leaf category: one room, no subspaces.
             spaceRoom(QStringLiteral("!cat:x"), QStringLiteral("Category"),
                       { QStringLiteral("!chan:x") }),
-            // An umbrella with neither rooms nor subspaces of its own.
             spaceRoom(QStringLiteral("!empty:x"), QStringLiteral("Empty")),
             channel,
         };
@@ -617,10 +552,6 @@ private Q_SLOTS:
                  "nothing");
     }
 
-    // A bridged three-level tree (category > server > category > channels):
-    // each channel appears only under the category that owns it directly, and
-    // those categories are expandable. One fixture, because two accessors can
-    // each be right while the composed tree is wrong.
     void duskTreeListsEachChannelOnlyUnderItsOwnCategory()
     {
         auto room = [](const QString &id, const QString &name) {
@@ -670,13 +601,10 @@ private Q_SLOTS:
             return out;
         };
 
-        // Neither the umbrella nor either server owns a channel directly, so
-        // the rail reveals none under them.
         QCOMPARE(directIds(QStringLiteral("!umbrella:x")), QStringList{});
         QCOMPARE(directIds(QStringLiteral("!server1:x")), QStringList{});
         QCOMPARE(directIds(QStringLiteral("!server2:x")), QStringList{});
 
-        // Each channel appears under exactly the category that owns it.
         QCOMPARE(directIds(QStringLiteral("!cat1:x")),
                  (QStringList{ QStringLiteral("!chanA:x"),
                                QStringLiteral("!chanB:x") }));
@@ -685,14 +613,11 @@ private Q_SLOTS:
         QCOMPARE(directIds(QStringLiteral("!cat3:x")),
                  QStringList{ QStringLiteral("!chanD:x") });
 
-        // The categories (rooms, no subspaces) are openable.
         SettingsManager settings;
         RailLayoutStore store(&settings);
         RailEntryModel model;
         model.setSources(&spaces, &store);
 
-        // Reports "absent" separately from "not expandable": nested rows only
-        // exist while their ancestors are expanded.
         auto rowOf = [&model](const QString &id) {
             for (int row = 0; row < model.rowCount(); ++row) {
                 if (model.data(model.index(row, 0),
@@ -714,8 +639,6 @@ private Q_SLOTS:
         QVERIFY2(expandableOf(QStringLiteral("!umbrella:x")),
                  "the umbrella has subspaces and cannot be opened");
 
-        // Nested rows exist only once their ancestors are open; walk down one
-        // chevron at a time.
         QVERIFY2(rowOf(QStringLiteral("!server1:x")) < 0,
                  "a subspace is listed while its parent is collapsed");
         store.setSpaceExpanded(QStringLiteral("!umbrella:x"), true);
@@ -731,8 +654,6 @@ private Q_SLOTS:
                  "a category holding channels cannot be opened, so those "
                  "channels are unreachable from the rail");
 
-        // The transitive accessor is unchanged; the Channels column and the
-        // Classic filter depend on it.
         QStringList transitive;
         const QVariantList all =
             spaces.childRoomsDetailed(QStringLiteral("!umbrella:x"));
@@ -745,8 +666,6 @@ private Q_SLOTS:
                                QStringLiteral("!chanC:x"),
                                QStringLiteral("!chanD:x") }));
     }
-
-    // The gesture.
 
     void aPreviewDragMovesRowsWithoutWritingAnything()
     {
@@ -771,8 +690,6 @@ private Q_SLOTS:
         QSignalSpy written(&store, &RailLayoutStore::layoutChanged);
         QVERIFY(model.beginDrag(QStringLiteral("!a:x")));
         model.hoverGap(cRow + 1);
-        // The neighbours have already moved, as a real rowsMoved the view can
-        // animate.
         QVERIFY2(moves.count() >= 1, "the preview reorder was a reset, so the "
                                      "rows cannot animate and the delegate "
                                      "holding the gesture was destroyed");
@@ -833,8 +750,6 @@ private Q_SLOTS:
             store.folders().first().toMap().value(QStringLiteral("id")).toString();
         QCOMPARE(store.folderMembers(folder),
                  (QStringList{ QStringLiteral("!a:x"), QStringLiteral("!c:x") }));
-        // The folder takes the target's position, so the gesture reads as a
-        // merge.
         QCOMPARE(store.order().indexOf(folder), 0);
     }
 
@@ -856,7 +771,7 @@ private Q_SLOTS:
         QVERIFY(model.beginDrag(QStringLiteral("!c:x")));
         model.hoverGroup(model.rowForEntry(QStringLiteral("!a:x")));
         model.endDrag(true);
-        QCOMPARE(store.folders().size(), 1);   // no second, nested folder
+        QCOMPARE(store.folders().size(), 1);
         QCOMPARE(store.folderMembers(folder),
                  (QStringList{ QStringLiteral("!a:x"), QStringLiteral("!c:x") }));
     }
@@ -900,20 +815,16 @@ private Q_SLOTS:
         store.setTopLevelOrder({ folder, QStringLiteral("!z:x") });
         RailEntryModel model;
         model.setSources(&spaces, &store);
-        // [All rooms][folder][a][b][z]: no rooms outside a Space here, so no
-        // orphans row.
         QCOMPARE(modelIds(model).mid(1),
                  (QStringList{ folder, QStringLiteral("!a:x"),
                                QStringLiteral("!b:x"), QStringLiteral("!z:x") }));
 
-        // Reorder inside the folder: b above a.
         QVERIFY(model.beginDrag(QStringLiteral("!b:x")));
         model.hoverGap(model.rowForEntry(QStringLiteral("!a:x")));
         model.endDrag(true);
         QCOMPARE(store.folderMembers(folder),
                  (QStringList{ QStringLiteral("!b:x"), QStringLiteral("!a:x") }));
 
-        // Drag one back out, to the end of the rail.
         QVERIFY(model.beginDrag(QStringLiteral("!a:x")));
         model.hoverGap(model.rowCount());
         model.endDrag(true);
@@ -945,7 +856,6 @@ private Q_SLOTS:
                  (QStringList{ work, QStringLiteral("!a:x"), play,
                                QStringLiteral("!b:x"), QStringLiteral("!z:x") }));
 
-        // Drag Work to the end; its member travels with it.
         QVERIFY(model.beginDrag(work));
         model.hoverGap(model.rowCount());
         const QStringList preview = modelIds(model).mid(1);
@@ -957,7 +867,6 @@ private Q_SLOTS:
                  QStringList{ QStringLiteral("!a:x") });
         QCOMPARE(store.folderMembers(play),
                  QStringList{ QStringLiteral("!b:x") });
-        // Folders do not nest.
         QVERIFY(!store.folderMembers(play).contains(work));
         QVERIFY(store.order().contains(work));
     }
@@ -987,9 +896,6 @@ private Q_SLOTS:
         QCOMPARE(store.folders().size(), 2);
     }
 
-    // A subspace reorder is remembered under its parent's key and does not
-    // go through applyArrangement, which would rewrite the top-level order as
-    // a side effect.
     void reorderingASubspaceIsRememberedAndTouchesNothingElse()
     {
         FakeClient client;
@@ -1031,7 +937,6 @@ private Q_SLOTS:
                                        QStringLiteral("!c:x") }));
         const QStringList topBefore = store.order();
 
-        // Drag C to the front of its own run.
         const int aRow = model.rowForEntry(QStringLiteral("!a:x"));
         QVERIFY(model.beginDrag(QStringLiteral("!c:x")));
         model.hoverGap(aRow);
@@ -1047,7 +952,6 @@ private Q_SLOTS:
                  (QStringList{ QStringLiteral("!c:x"), QStringLiteral("!a:x"),
                                QStringLiteral("!b:x") }));
 
-        // It survives a fresh store over the same settings.
         RailLayoutStore reloaded(&settings);
         QCOMPARE(reloaded.orderedChildren(
                      QStringLiteral("!parent:x"),
@@ -1057,7 +961,6 @@ private Q_SLOTS:
                  (QStringList{ QStringLiteral("!c:x"), QStringLiteral("!a:x"),
                                QStringLiteral("!b:x") }));
 
-        // A child that appears later joins the end, as at the top level.
         QCOMPARE(reloaded.orderedChildren(
                      QStringLiteral("!parent:x"),
                      (QStringList{ QStringLiteral("!a:x"),
@@ -1068,13 +971,9 @@ private Q_SLOTS:
                                QStringLiteral("!b:x"),
                                QStringLiteral("!new:x") }));
 
-        // The top level is untouched.
         QCOMPARE(store.order(), topBefore);
     }
 
-    // Pseudo rows cannot be dragged; a subspace can, but only among its
-    // siblings. Reparenting needs power in a Space the user may not own, and a
-    // folder is a top-level grouping, so a subspace cannot be filed either.
     void aPseudoRowCannotBeDraggedAndASubspaceOnlyAmongItsSiblings()
     {
         FakeClient client;
@@ -1083,7 +982,6 @@ private Q_SLOTS:
                       { QStringLiteral("!child:x") }),
             spaceRoom(QStringLiteral("!child:x"), QStringLiteral("Child"), {},
                       { QStringLiteral("!parent:x") }),
-            // A room, so the orphans pseudo row exists.
             [] {
                 RoomInfo info;
                 info.id = QStringLiteral("!loose:x");
@@ -1105,15 +1003,12 @@ private Q_SLOTS:
         QVERIFY2(!model.beginDrag(QStringLiteral("@orphans")),
                  "the Other rooms pseudo row is draggable");
 
-        // The subspace is shown (its parent is expanded) and draggable.
         const int childRow = model.rowForEntry(QStringLiteral("!child:x"));
         QVERIFY(childRow >= 0);
         QVERIFY2(model.beginDrag(QStringLiteral("!child:x")),
                  "a subspace refuses to be dragged, so the rail still "
                  "arranges its top level and nothing under it");
 
-        // It cannot leave its parent: every gap resolves to a slot inside the
-        // parent's own run.
         for (int gap = 0; gap <= model.rowCount() + 2; ++gap) {
             const int legal = model.legalGapForTest(gap);
             QVERIFY2(legal >= childRow && legal <= childRow + 1,
@@ -1125,7 +1020,6 @@ private Q_SLOTS:
                          .arg(childRow + 1)));
         }
 
-        // It cannot be filed into a rail folder.
         model.hoverGroup(model.rowForEntry(QStringLiteral("!parent:x")));
         QVERIFY2(model.dropTargetId().isEmpty(),
                  "a subspace offers to group into a folder, which would "
@@ -1134,10 +1028,6 @@ private Q_SLOTS:
         model.endDrag(false);
     }
 
-    // A top-level entry may not land between a parent and its children; the
-    // refusal resolves to the nearer end of that run, not always the top. A
-    // release in the top half lands above the run, in the bottom half below
-    // it.
     void aTopLevelDropInsideASubspaceRunTakesTheNearerBoundary()
     {
         FakeClient client;
@@ -1163,14 +1053,12 @@ private Q_SLOTS:
         RailEntryModel model;
         model.setSources(&spaces, &store);
 
-        // Real row indices: the pseudo rows at the top are what `firstMovable`
-        // counts.
         const int ownerRow = model.rowForEntry(QStringLiteral("!owner:x"));
         const int runStart = ownerRow + 1;
         QVERIFY(ownerRow > 0);
         QCOMPARE(model.rowForEntry(QStringLiteral("!c1:x")), runStart);
         QCOMPARE(model.rowForEntry(QStringLiteral("!c4:x")), runStart + 3);
-        const int runEnd = runStart + 4;   // the gap PAST the whole run
+        const int runEnd = runStart + 4;
         QCOMPARE(model.rowCount(), runEnd);
 
         QVERIFY(model.beginDrag(QStringLiteral("!drag:x")));
@@ -1179,14 +1067,12 @@ private Q_SLOTS:
         int landedAbove = 0;
         for (int gap = runStart; gap < runEnd; ++gap) {
             const int legal = model.legalGapForTest(gap);
-            // (1) The refusal holds: nothing resolves strictly inside the run.
             QVERIFY2(legal == ownerRow || legal == runEnd,
                      qPrintable(QStringLiteral(
                          "a gap at %1 resolves to %2, which is inside the "
                          "subspace run %3..%4 — a top-level entry would land "
                          "between a parent and its own children")
                          .arg(gap).arg(legal).arg(runStart).arg(runEnd)));
-            // (2) It is the nearer end.
             const int other = legal == ownerRow ? runEnd : ownerRow;
             QVERIFY2(qAbs(legal - gap) <= qAbs(other - gap),
                      qPrintable(QStringLiteral(
@@ -1202,14 +1088,10 @@ private Q_SLOTS:
             else
                 ++landedAbove;
         }
-        // The counts: a rule that always answered `runEnd` would pass (1) and
-        // (2) at the bottom of the run. Four gaps, split 2/2.
         QCOMPARE(landedAbove, 2);
         QCOMPARE(landedBelow, 2);
 
-        // What the release writes: hoverGap() must move the block to the
-        // resolved slot.
-        model.hoverGap(runEnd - 1);   // the last gap inside the run
+        model.hoverGap(runEnd - 1);
         const QStringList ids = modelIds(model);
         const int draggedNow = ids.indexOf(QStringLiteral("!drag:x"));
         const int c4Now = ids.indexOf(QStringLiteral("!c4:x"));
@@ -1222,8 +1104,6 @@ private Q_SLOTS:
                      .arg(ids.join(QLatin1Char(',')))));
         model.endDrag(false);
     }
-
-    // Matrix subspaces in the rail.
 
     void onlyRootSpacesSitAtTheTopLevelAndSubspacesNestWhenExpanded()
     {
@@ -1244,8 +1124,6 @@ private Q_SLOTS:
         RailEntryModel model;
         model.setSources(&spaces, &store);
 
-        // Collapsed: only the root. A subspace is reached by opening its
-        // parent, as in Element.
         QStringList ids = modelIds(model);
         QVERIFY(ids.contains(QStringLiteral("!root:x")));
         QVERIFY2(!ids.contains(QStringLiteral("!mid:x")),
@@ -1256,7 +1134,6 @@ private Q_SLOTS:
         ids = modelIds(model);
         QCOMPARE(ids.indexOf(QStringLiteral("!mid:x")),
                  ids.indexOf(QStringLiteral("!root:x")) + 1);
-        // Real depth, not a two-level approximation.
         const int mid = model.rowForEntry(QStringLiteral("!mid:x"));
         QCOMPARE(model.data(model.index(mid, 0),
                             RailEntryModel::LevelRole).toInt(), 1);
@@ -1274,10 +1151,6 @@ private Q_SLOTS:
                             RailEntryModel::ExpandableRole).toBool());
     }
 
-    // `folderLast` marks the last row of a folder's run, including nested
-    // rows of an expanded last member, not the last member itself. The view
-    // reads it for the container's rounded bottom. With every member collapsed
-    // the two coincide, so the fixture expands the last member.
     void folderLastMarksTheLastRowOfTheRunNotTheLastMember()
     {
         FakeClient client;
@@ -1292,8 +1165,6 @@ private Q_SLOTS:
         spaces.setClient(&client);
         SettingsManager settings;
         RailLayoutStore store(&settings);
-        // P is the last member and is expanded, so its child is the run's
-        // last row.
         const QString folder = store.createFolderWithSpaces(
             { QStringLiteral("!q:x"), QStringLiteral("!p:x") }, -1,
             QStringLiteral("Work"));
@@ -1331,16 +1202,6 @@ private Q_SLOTS:
                  "below it");
     }
 
-    // The group field's bounds come from the rows' level sequence, not the
-    // Space graph, so they follow a drag preview. The comparison is `<`, not
-    // `<=`: siblings must not close a region. Fixture:
-    //
-    //   Root
-    //   ├── A            A, B and C are adjacent siblings, so the region under
-    //   ├── B            Root runs through all five rows and closes at C1a.
-    //   └── C
-    //       └── C1
-    //           └── C1a
     void theGroupFieldFollowsTheRowsRatherThanTheGraph()
     {
         FakeClient client;
@@ -1348,8 +1209,6 @@ private Q_SLOTS:
             spaceRoom(QStringLiteral("!root:x"), QStringLiteral("Root"),
                       { QStringLiteral("!a:x"), QStringLiteral("!b:x"),
                         QStringLiteral("!c:x") }),
-            // Leaves: two adjacent siblings are the only arrangement where `<`
-            // and `<=` disagree.
             spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A"), {},
                       { QStringLiteral("!root:x") }),
             spaceRoom(QStringLiteral("!b:x"), QStringLiteral("B"), {},
@@ -1360,9 +1219,6 @@ private Q_SLOTS:
             spaceRoom(QStringLiteral("!c1:x"), QStringLiteral("C1"),
                       { QStringLiteral("!c1a:x") },
                       { QStringLiteral("!c:x") }),
-            // The third level: C1a closes a run deeper than the one above it,
-            // proving the bottom is read from the next row, and stacks three
-            // layers.
             spaceRoom(QStringLiteral("!c1a:x"), QStringLiteral("C1a"), {},
                       { QStringLiteral("!c1:x") }),
         };
@@ -1378,8 +1234,6 @@ private Q_SLOTS:
             store.setSpaceExpanded(id, true);
         }
 
-        // What the view asks per layer: the region at depth `d` opens when the
-        // row above is shallower than d and closes when the row below is.
         const auto bandAt = [&model](const QString &id, int depth) {
             const int row = model.rowForEntry(id);
             const int prev = model.data(model.index(row, 0),
@@ -1396,7 +1250,6 @@ private Q_SLOTS:
                                          RailEntryModel::LevelRole).toInt());
         };
 
-        // The fixture has the shape described above.
         const int rootRow = model.rowForEntry(QStringLiteral("!root:x"));
         QCOMPARE(model.rowForEntry(QStringLiteral("!a:x")), rootRow + 1);
         QCOMPARE(model.rowForEntry(QStringLiteral("!b:x")), rootRow + 2);
@@ -1404,13 +1257,10 @@ private Q_SLOTS:
         QCOMPARE(model.rowForEntry(QStringLiteral("!c1:x")), rootRow + 4);
         QCOMPARE(model.rowForEntry(QStringLiteral("!c1a:x")), rootRow + 5);
 
-        // A opens the run under Root.
         QVERIFY2(bandOf(QStringLiteral("!a:x")).first,
                  "the region does not open at A, so Root's children sit on "
                  "bare rail");
 
-        // A is followed by its sibling and must not close; B is preceded by one
-        // and must not open. `<=` would make each child its own pill.
         QVERIFY2(!bandOf(QStringLiteral("!a:x")).second,
                  "A closes the region although B is its sibling — a Space's "
                  "children are one group, not one pill each");
@@ -1422,15 +1272,12 @@ private Q_SLOTS:
         QVERIFY2(!bandOf(QStringLiteral("!c:x")).second,
                  "C closes the region although C1 is nested inside it");
 
-        // The bottom is read from the row below: C1 has C1a under it.
         QVERIFY2(!bandOf(QStringLiteral("!c1:x")).second,
                  "C1 closes its region although C1a is deeper");
         QVERIFY2(bandOf(QStringLiteral("!c1a:x")).second,
                  "the deepest row does not close its region, so the field "
                  "runs off the end of the tree");
 
-        // The layers nest: each row draws one region per ancestor, so the
-        // outer region stays open across deeper rows.
         QVERIFY2(!bandAt(QStringLiteral("!c:x"), 1).second,
                  "the depth-1 region closes at C although C1 is inside it — "
                  "a parent's region must run behind its descendants");
@@ -1441,7 +1288,6 @@ private Q_SLOTS:
         QVERIFY2(bandAt(QStringLiteral("!c1a:x"), 1).second,
                  "the depth-1 region does not close at the last row inside "
                  "it");
-        // The inner region is bounded by its own depth.
         QVERIFY2(bandAt(QStringLiteral("!c1:x"), 2).first,
                  "the depth-2 region does not open at C1");
         QVERIFY2(!bandAt(QStringLiteral("!c1:x"), 2).second,
@@ -1453,8 +1299,6 @@ private Q_SLOTS:
 
     void aCyclicHierarchyKeepsEverySpaceReachableAndTerminates()
     {
-        // A -> B -> A is legal: the walk must terminate and keep every joined
-        // Space.
         FakeClient client;
         client.roomList = {
             spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A"),
@@ -1474,7 +1318,6 @@ private Q_SLOTS:
         const QStringList ids = modelIds(model);
         QVERIFY2(ids.contains(QStringLiteral("!a:x")), "a cycle lost a Space");
         QVERIFY2(ids.contains(QStringLiteral("!b:x")), "a cycle lost a Space");
-        // Each Space appears exactly once, however the cycle is entered.
         QCOMPARE(ids.count(QStringLiteral("!a:x")), 1);
         QCOMPARE(ids.count(QStringLiteral("!b:x")), 1);
     }
@@ -1501,15 +1344,11 @@ private Q_SLOTS:
 
         const QStringList ids = modelIds(model);
         QCOMPARE(ids.count(QStringLiteral("!shared:x")), 1);
-        // The choice is stable across rebuilds.
         const int first = ids.indexOf(QStringLiteral("!shared:x"));
         client.announce();
         QCOMPARE(modelIds(model).indexOf(QStringLiteral("!shared:x")), first);
     }
 
-    // The flat (Classic) rail lists top-level Spaces only, with the nested
-    // rows absent from the model rather than hidden, since drag, bands and
-    // drop targets all index into this list.
     void aFlatRailListsTopLevelSpacesAndNothingUnderThem()
     {
         FakeClient client;
@@ -1532,7 +1371,6 @@ private Q_SLOTS:
         RailEntryModel model;
         model.setSources(&spaces, &store);
 
-        // Regions: the whole chain is listed.
         const QStringList nested = modelIds(model);
         QVERIFY2(nested.contains(QStringLiteral("!mid:x")), "mid is missing "
                                                             "from the nested rail");
@@ -1550,8 +1388,6 @@ private Q_SLOTS:
         QVERIFY2(!flat.contains(QStringLiteral("!deep:x")),
                  "a deep subspace is still listed on the flat rail");
 
-        // Nothing expands: `expandable` draws a chevron, and `expanded` is read
-        // by the region code.
         for (int i = 0; i < model.rowCount(); ++i) {
             const QModelIndex idx = model.index(i, 0);
             const QString id =
@@ -1569,14 +1405,10 @@ private Q_SLOTS:
             QCOMPARE(model.data(idx, RailEntryModel::LevelRole).toInt(), 0);
         }
 
-        // The round trip is lossless: Classic ignores the expansion state
-        // rather than clearing it.
         model.setFlat(false);
         QCOMPARE(modelIds(model), nested);
     }
 
-    // A drag on the flat rail moves one tile over the shorter row list and
-    // stores the top-level order.
     void aDragOnTheFlatRailMovesOneTileAndStoresTheTopLevelOrder()
     {
         FakeClient client;
@@ -1591,7 +1423,6 @@ private Q_SLOTS:
         spaces.setClient(&client);
         SettingsManager settings;
         RailLayoutStore store(&settings);
-        // Expanded, and it stays expanded: the drag must not disturb it.
         store.setSpaceExpanded(QStringLiteral("!p:x"), true);
         RailEntryModel model;
         model.setSources(&spaces, &store);
@@ -1601,8 +1432,6 @@ private Q_SLOTS:
                  (QStringList{ QStringLiteral("!p:x"),
                                QStringLiteral("!z:x") }));
 
-        // The subspace is not in the list, so the drag carries one tile;
-        // `hoverGap(rowCount())` is the end of the shorter list.
         QVERIFY(model.beginDrag(QStringLiteral("!p:x")));
         model.hoverGap(model.rowCount());
         QCOMPARE(modelIds(model).mid(1),
@@ -1615,15 +1444,12 @@ private Q_SLOTS:
                  "a flat-rail drag cleared the expansion state it is only "
                  "supposed to be ignoring");
 
-        // The stored order is what Regions then draws, unscrambled.
         model.setFlat(false);
         QCOMPARE(modelIds(model).mid(1),
                  (QStringList{ QStringLiteral("!z:x"), QStringLiteral("!p:x"),
                                QStringLiteral("!c:x") }));
     }
 
-    // The flat rail keeps folders and all their members: folders are the
-    // user's grouping of top-level Spaces, not Matrix hierarchy.
     void theFlatRailKeepsFoldersAndEveryOneOfTheirMembers()
     {
         FakeClient client;
@@ -1651,13 +1477,10 @@ private Q_SLOTS:
                                     .arg(QLatin1String(id),
                                          ids.join(QLatin1Char(',')))));
         }
-        // `modelIds` reads EntryIdRole, the id createFolder returned
-        // ("[Work]" is store.arrange()'s spelling).
         QVERIFY2(ids.contains(folder),
                  qPrintable(QStringLiteral("the folder itself vanished: %1")
                                 .arg(ids.join(QLatin1Char(',')))));
 
-        // A collapsed folder still hides its members in Classic.
         store.setFolderCollapsed(folder, true);
         model.refresh();
         const QStringList collapsed = modelIds(model);
@@ -1669,8 +1492,6 @@ private Q_SLOTS:
 
     void draggingASpaceCarriesItsExpandedSubspacesWithIt()
     {
-        // Those rows are Matrix's arrangement under this Space; moving the
-        // header alone would strand them.
         FakeClient client;
         client.roomList = {
             spaceRoom(QStringLiteral("!p:x"), QStringLiteral("Parent"),
@@ -1697,7 +1518,6 @@ private Q_SLOTS:
                  (QStringList{ QStringLiteral("!z:x"), QStringLiteral("!p:x"),
                                QStringLiteral("!c:x") }));
         model.endDrag(true);
-        // The subspace is not a top-level entry, so only the parent is stored.
         QCOMPARE(store.order(), (QStringList{ QStringLiteral("!z:x"),
                                               QStringLiteral("!p:x") }));
         QCOMPARE(modelIds(model).mid(1),
@@ -1707,8 +1527,6 @@ private Q_SLOTS:
 
     void thePreviewSaysExactlyWhatTheReleaseWillDo()
     {
-        // A Space dragged out of a folder stops claiming its folderId at once,
-        // so the preview matches what the release will produce.
         FakeClient client;
         client.roomList = { spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A")),
                             spaceRoom(QStringLiteral("!b:x"), QStringLiteral("B")),
@@ -1740,7 +1558,6 @@ private Q_SLOTS:
         QVERIFY(lastAt(QStringLiteral("!b:x")));
         QVERIFY(!lastAt(QStringLiteral("!a:x")));
 
-        // Drag b past Z: it leaves the folder and A becomes the run's last.
         QVERIFY(model.beginDrag(QStringLiteral("!b:x")));
         model.hoverGap(model.rowCount());
         QVERIFY2(folderIdAt(QStringLiteral("!b:x")).isEmpty(),
@@ -1754,9 +1571,6 @@ private Q_SLOTS:
         QVERIFY(store.folderOf(QStringLiteral("!b:x")).isEmpty());
     }
 
-    // Three exclusive verbs: `hoverGroup(row)` (on a tile: arm, move
-    // nothing), `hoverGap(gap)` (between tiles: disarm, move) and
-    // `clearDropTarget()` (over the dragged block's own slot: neither).
     void restingOnATileClearsTheTargetWithoutMovingAnything()
     {
         FakeClient client;
@@ -1796,7 +1610,6 @@ private Q_SLOTS:
         QVERIFY2(model.dragging(),
                  "clearing the target ended the gesture");
 
-        // Still groupable afterwards.
         model.hoverGroup(model.rowForEntry(QStringLiteral("!b:x")));
         QVERIFY(model.grouping());
         QCOMPARE(model.dropTargetId(), QStringLiteral("!b:x"));
@@ -1806,8 +1619,6 @@ private Q_SLOTS:
 
     void aRefreshDuringADragIsDeferredRatherThanApplied()
     {
-        // Rebuilding under the pointer would destroy the delegate holding the
-        // gesture.
         FakeClient client;
         client.roomList = { spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A")),
                             spaceRoom(QStringLiteral("!b:x"), QStringLiteral("B")) };
@@ -1821,7 +1632,6 @@ private Q_SLOTS:
         QVERIFY(model.beginDrag(QStringLiteral("!a:x")));
         model.hoverGap(model.rowForEntry(QStringLiteral("!b:x")) + 1);
         QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
-        // A new Space arrives mid-gesture.
         client.roomList.append(spaceRoom(QStringLiteral("!c:x"),
                                          QStringLiteral("C")));
         client.announce();
@@ -1833,8 +1643,6 @@ private Q_SLOTS:
         QVERIFY2(model.rowForEntry(QStringLiteral("!c:x")) >= 0,
                  "the deferred refresh never happened, so the rail is stale");
     }
-
-    // --- Rail sort: Manual / A-Z / Recent activity -----------------------
 
     void aZSortsTheRailByNameAndManualRestoresTheDraggedOrder()
     {
@@ -1854,12 +1662,10 @@ private Q_SLOTS:
         QSignalSpy changed(&store, &RailLayoutStore::layoutChanged);
         store.setSortMode(conversation::RailSortName);
         QCOMPARE(changed.count(), 1);
-        // Case-insensitive, and the pseudo rows stay on top.
         QCOMPARE(idsOf(store.arrange(spaces)),
                  (QStringList{ QString(), QStringLiteral("@orphans"),
                                QStringLiteral("!a:x"), QStringLiteral("!m:x"),
                                QStringLiteral("!z:x") }));
-        // Sorting is read-time only: the stored arrangement is untouched.
         QCOMPARE(store.order(), manual);
 
         store.setSortMode(conversation::RailSortManual);
@@ -1877,7 +1683,6 @@ private Q_SLOTS:
             space(QStringLiteral("!c:x"), QStringLiteral("C"), 0, 300),
             space(QStringLiteral("!d:x"), QStringLiteral("D"), 0, 300),
         });
-        // Equal stamps fall back to name; never-active (0) is last.
         QCOMPARE(idsOf(store.arrange(spaces)).mid(2),
                  (QStringList{ QStringLiteral("!c:x"), QStringLiteral("!d:x"),
                                QStringLiteral("!a:x"), QStringLiteral("!b:x") }));
@@ -1898,18 +1703,15 @@ private Q_SLOTS:
             space(QStringLiteral("!z:x"), QStringLiteral("Zed"), 0, 2),
         });
         store.setSortMode(conversation::RailSortName);
-        // Apple, [Kitchen] (members Bean, Yam), Zed
         QCOMPARE(idsOf(store.arrange(spaces)).mid(2),
                  (QStringList{ QStringLiteral("!a:x"), QStringLiteral("[Kitchen]"),
                                QStringLiteral("!b:x"), QStringLiteral("!y:x"),
                                QStringLiteral("!z:x") }));
         store.setSortMode(conversation::RailSortActivity);
-        // The folder's activity is its newest member's (50): first.
         QCOMPARE(idsOf(store.arrange(spaces)).mid(2),
                  (QStringList{ QStringLiteral("[Kitchen]"), QStringLiteral("!y:x"),
                                QStringLiteral("!b:x"), QStringLiteral("!z:x"),
                                QStringLiteral("!a:x") }));
-        // The Channels layout's Space order follows the same mode.
         QCOMPARE(store.orderedSpaceIds(spaces),
                  (QStringList{ QStringLiteral("!y:x"), QStringLiteral("!b:x"),
                                QStringLiteral("!z:x"), QStringLiteral("!a:x") }));
@@ -1946,7 +1748,6 @@ private Q_SLOTS:
         RailEntryModel model;
         model.setSources(&spaces, &store);
 
-        // Manual: the model's own order, draggable.
         QVERIFY(model.beginDrag(QStringLiteral("!b:x")));
         model.endDrag(false);
 
@@ -2028,13 +1829,9 @@ private Q_SLOTS:
         QCOMPARE(b, qint64(0));
     }
 
-    // B058: the "Add existing" picker lists joined Spaces, but never the
-    // Space itself nor one of its own ancestors (that would close a cycle),
-    // and marks a Space that is already a child.
     void theAddPickerOffersSpacesButNeverACycle()
     {
         FakeClient client;
-        // Top > Mid > Leaf, plus an unrelated Other and a room.
         client.roomList = {
             spaceRoom(QStringLiteral("!top:x"), QStringLiteral("Top"),
                       { QStringLiteral("!mid:x") }),
@@ -2049,7 +1846,7 @@ private Q_SLOTS:
         spaces.setClient(&client);
 
         auto offered = [&](const QString &into) {
-            QHash<QString, bool> out; // id -> alreadyChild
+            QHash<QString, bool> out;
             for (const QVariant &v : spaces.addableRooms(into, QString())) {
                 const QVariantMap m = v.toMap();
                 out.insert(m.value(QStringLiteral("roomId")).toString(),
@@ -2057,15 +1854,12 @@ private Q_SLOTS:
             }
             return out;
         };
-        // Into Mid: Other is offered; Mid itself and its ancestor Top are not
-        // (Top > Mid > Top is a cycle); Leaf is offered but already a child.
         const auto intoMid = offered(QStringLiteral("!mid:x"));
         QVERIFY(intoMid.contains(QStringLiteral("!other:x")));
         QVERIFY(!intoMid.value(QStringLiteral("!other:x")));
         QVERIFY(!intoMid.contains(QStringLiteral("!mid:x")));
         QVERIFY(!intoMid.contains(QStringLiteral("!top:x")));
         QVERIFY(intoMid.value(QStringLiteral("!leaf:x")));
-        // Into Leaf: every ancestor is excluded, the unrelated Space is not.
         const auto intoLeaf = offered(QStringLiteral("!leaf:x"));
         QVERIFY(!intoLeaf.contains(QStringLiteral("!leaf:x")));
         QVERIFY(!intoLeaf.contains(QStringLiteral("!mid:x")));
@@ -2073,9 +1867,6 @@ private Q_SLOTS:
         QVERIFY(intoLeaf.contains(QStringLiteral("!other:x")));
     }
 
-    // B057: an unnamed folder is stored unnamed ("Folder" is localised where
-    // it is shown), so a drag-made folder's tooltip cannot read "Folder:
-    // Folder". A named one keeps its name.
     void anUnnamedFolderIsStoredWithAnEmptyName()
     {
         SettingsManager settings;

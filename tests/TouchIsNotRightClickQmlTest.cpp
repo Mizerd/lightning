@@ -48,10 +48,10 @@ ApplicationWindow {
 }
 )QML";
 
-const QString kRoom = QStringLiteral("!dm-bob:mock.local"); // a DM: shown at Home in both layouts
+const QString kRoom = QStringLiteral("!dm-bob:mock.local");
 const QString kOther = QStringLiteral("!devs:mock.local");
 
-} // namespace
+}
 
 class TouchIsNotRightClickQmlTest : public QObject
 {
@@ -65,8 +65,6 @@ private:
     QQuickWindow *m_window = nullptr;
     QPointingDevice *m_touch = nullptr;
 
-    // The visible room-list row for `roomId`: a ChannelDelegate (has
-    // channelName) or a RoomDelegate (has showGroupDivider).
     QQuickItem *row(const QString &roomId) const
     {
         QList<QQuickItem *> stack{ m_window->contentItem() };
@@ -91,10 +89,6 @@ private:
             .toPoint();
     }
 
-    // Classic declares one menu per row, Channels loads one on first use;
-    // either way the popup is a QObject child of something in its row.
-    // QObject::findChildren from the window cannot reach view delegates, so
-    // walk the item tree and look at each item's own children.
     QList<QObject *> roomMenus() const
     {
         QList<QObject *> menus;
@@ -107,7 +101,6 @@ private:
                 if (name == QStringLiteral("roomContextMenu")
                     || name == QStringLiteral("channelContextMenu"))
                     menus << o;
-                // Both menus sit inside a Loader, built on first use.
                 menus << o->findChildren<QObject *>(
                     QStringLiteral("roomContextMenu"));
                 menus << o->findChildren<QObject *>(
@@ -115,7 +108,6 @@ private:
             }
             stack.append(it->childItems());
         }
-        // A menu is reachable both as a child and through its parent's walk.
         const QSet<QObject *> unique(menus.cbegin(), menus.cend());
         return QList<QObject *>(unique.cbegin(), unique.cend());
     }
@@ -138,10 +130,9 @@ private:
             if (o->property("opened").toBool())
                 QMetaObject::invokeMethod(o, "close");
         }
-        QTest::qWait(250); // past the menu's exit transition
+        QTest::qWait(250);
     }
 
-    // Another room open, every menu closed: the start of every case.
     void reset(int layout)
     {
         m_controller->settings()->setRoomNavigationLayout(layout);
@@ -160,18 +151,11 @@ private:
         QTest::newRow("classic") << 0;
     }
 
-    // Every TapHandler whose acceptedButtons leaves the left button out must
-    // declare acceptedDevices without TouchScreen. TapHandler checks buttons
-    // for mouse events only, so a finger fires every such handler: a
-    // right-button one pops a menu, and a Back/Forward-only one (mouse room
-    // history, D2) would navigate on every tap. Direct properties only:
-    // nested blocks are blanked before the check, so a child's
-    // acceptedDevices cannot satisfy its parent.
     struct TapHandlerSweep
     {
-        int rightOnly = 0; // non-left handlers naming the right button
-        int otherOnly = 0; // non-left handlers without it: Back, Forward, ...
-        QList<int> offendingLines; // 1-based
+        int rightOnly = 0;
+        int otherOnly = 0;
+        QList<int> offendingLines;
     };
     static TapHandlerSweep sweepTapHandlers(const QString &src)
     {
@@ -181,7 +165,6 @@ private:
             QStringLiteral("acceptedButtons\\s*:\\s*([^\\n]+)"));
         static const QRegularExpression devices(
             QStringLiteral("acceptedDevices\\s*:\\s*([^\\n]+)"));
-        // Every button but the left one (AllButtons includes it).
         static const QRegularExpression nonLeft(QStringLiteral(
             "\\b(RightButton|MiddleButton|MidButton|BackButton|ForwardButton"
             "|XButton[12]|ExtraButton\\d+|TaskButton)\\b"));
@@ -273,8 +256,6 @@ private Q_SLOTS:
         QTest::qWait(200);
 
         QCOMPARE(m_controller->currentRoomId(), kRoom);
-        // Both layouts build a menu only when it opens, so a tap leaves none;
-        // the long-press case below proves this walk can find an open one.
         QVERIFY2(openRoomMenus() == 0,
                  "a touch tap on a room row also opened the room menu");
     }
@@ -335,10 +316,6 @@ private Q_SLOTS:
                                  .arg(line);
             }
         }
-        // Twelve right-button handlers when this was written; a sweep that
-        // finds none is broken. Back/Forward ones may legitimately be none
-        // (mouse history is a C++ event filter); the sweep is proven able to
-        // see them by theSweepSeesEveryNonLeftButton below.
         qInfo() << "non-left TapHandlers: right" << rightOnly << "other" << otherOnly;
         QVERIFY2(rightOnly >= 10, qPrintable(QStringLiteral("only %1 found").arg(rightOnly)));
         QVERIFY2(offenders.isEmpty(),
@@ -347,10 +324,6 @@ private Q_SLOTS:
                             + offenders.join(QStringLiteral(", "))));
     }
 
-    // The sweep's own rule, on handlers the tree may not contain today. It
-    // checked only right-button handlers before, so a Back/Forward-only
-    // TapHandler with no acceptedDevices passed it while every finger tap
-    // fired it.
     void theSweepSeesEveryNonLeftButton_data()
     {
         QTest::addColumn<QString>("handler");

@@ -38,8 +38,6 @@ void MockMatrixClient::login(const QString &homeserver,
                              const QString &password)
 {
     setState(Connecting);
-    // Like the Rust backend, starting a login releases the previous session, so
-    // the client is logged out while the attempt is in flight.
     m_loggedIn = false;
     m_homeserver = homeserver.isEmpty()
         ? QStringLiteral("https://mock.local") : homeserver;
@@ -60,14 +58,11 @@ void MockMatrixClient::login(const QString &homeserver,
     }
 
     m_userId = QStringLiteral("@%1:%2").arg(localpart, host);
-    // Demo mode: point the live dataset at this account's scene before sync.
     if (m_screenshotDemoMode)
         activateDemoAccount(m_userId);
     QTimer::singleShot(120, this, [this] {
         m_loggedIn = true;
         Q_EMIT loginSucceeded(m_userId);
-        // loginSucceeded synchronously set Syncing via startSync(). The demo
-        // stays "Connected" for clean screenshots; otherwise drop to idle.
         setState(m_screenshotDemoMode ? Syncing : Disconnected);
     });
 }
@@ -83,8 +78,6 @@ void MockMatrixClient::logout()
 
 bool MockMatrixClient::restoreSession()
 {
-    // Restore the active account from the persisted registry so account
-    // switching is exercisable without a network backend.
     if (!m_settings)
         return false;
     const QString uid = m_settings->userId();
@@ -108,14 +101,11 @@ bool MockMatrixClient::restoreSession()
     }
     m_homeserver = m_settings->homeserverUrl();
     m_userId = uid;
-    // Demo mode: swap to this account's scene before the async loginSucceeded,
-    // preserving the previous account's local mutations.
     if (m_screenshotDemoMode)
         activateDemoAccount(uid);
     answer([this] {
         m_loggedIn = true;
         Q_EMIT loginSucceeded(m_userId);
-        // Demo presents as "Connected" (see login()); other backends idle.
         setState(m_screenshotDemoMode ? Syncing : Disconnected);
     });
     return true;
@@ -150,7 +140,6 @@ void MockMatrixClient::stopSync()
 QList<RoomInfo> MockMatrixClient::rooms() const
 {
     if (m_screenshotDemoMode && m_demoHideUnread) {
-        // Panel "hide unread badges": a read-time filter, fully reversible.
         QList<RoomInfo> out = m_rooms;
         for (RoomInfo &r : out) {
             r.unreadCount = 0;
@@ -165,10 +154,6 @@ QList<RoomInfo> MockMatrixClient::rooms() const
 
 QList<TimelineEvent> MockMatrixClient::timeline(const QString &roomId) const
 {
-    // The screenshot demo shows a room's main timeline as the Rust backend
-    // does (TimelineFocus::Live { hide_threaded_events: true }): a true
-    // m.thread reply appears only in its thread (CLAUDE.md §8). The replies
-    // stay in m_timelines, which the thread timeline is rebuilt from.
     if (m_screenshotDemoMode && !m_threadRepliesInLive
         && !isThreadTimelineId(roomId)) {
         QList<TimelineEvent> main;
@@ -178,9 +163,6 @@ QList<TimelineEvent> MockMatrixClient::timeline(const QString &roomId) const
         }
         return main;
     }
-    // Inline thread style: the demo's thread replies are seeded after the
-    // room's own rows; a live timeline interleaves them by time, as the SDK
-    // does with hide_threaded_events = false.
     if (m_screenshotDemoMode && m_threadRepliesInLive
         && !isThreadTimelineId(roomId)) {
         QList<TimelineEvent> all = m_timelines.value(roomId);
@@ -220,7 +202,7 @@ QString MockMatrixClient::avatarMxcFor(const QString &roomId,
 QStringList MockMatrixClient::typingUsersFor(const QString &roomId) const
 {
     if (m_screenshotDemoMode && m_demoTypingSuppressed)
-        return {};   // panel "hide typing indicators"
+        return {};
     for (const auto &r : m_rooms)
         if (r.id == roomId)
             return r.typingUserIds;
@@ -239,10 +221,6 @@ QUrl MockMatrixClient::mediaThumbnailUrl(const QString &mxcUrl,
     return matrix::media::thumbnailUrl(m_homeserver, mxcUrl, width, height, crop);
 }
 
-// ── Development-only screenshot-demo media bridge ────────────────────────
-// Resolves a demo media key ("coast", "avatar-alex", …) to bundled fixture
-// bytes, present only in a LIGHTNING_ENABLE_SCREENSHOT_DEMO build. A miss
-// returns false and the caller reports the fetch unavailable.
 bool MockMatrixClient::loadDemoFixture(const QString &key, QByteArray *bytes,
                                        QString *mime)
 {
@@ -257,8 +235,6 @@ bool MockMatrixClient::loadDemoFixture(const QString &key, QByteArray *bytes,
         file = QStringLiteral("release-notes.txt");
         mimeType = QStringLiteral("text/plain");
     } else {
-        // Avatars ("avatar-<name>") and images ("coast"/"portrait"/… and the
-        // video poster "timelapse") are all PNG fixtures named by their key.
         file = key + QStringLiteral(".png");
     }
     QFile f(QStringLiteral(
@@ -281,11 +257,9 @@ quint64 MockMatrixClient::fetchMedia(const QString &mediaKey, int kind,
     QByteArray bytes;
     QString mime;
     if (!loadDemoFixture(mediaKey, &bytes, &mime))
-        return 0;   // unknown key → MediaBridge marks a transient "unavailable"
+        return 0;
     const quint64 op = ++m_mediaOpCounter;
     const QString filename = mediaKey;
-    // Deliver on the event loop: the bridge records the op only after
-    // fetchMedia returns.
     QTimer::singleShot(0, this, [this, op, mediaKey, kind, bytes, mime, filename] {
         Q_EMIT mediaReady(op, mediaKey, kind, bytes, mime, filename);
     });
@@ -298,9 +272,6 @@ quint64 MockMatrixClient::fetchMxcThumbnail(const QString &mxc, int width,
     Q_UNUSED(width);
     Q_UNUSED(height);
     if (!m_screenshotDemoMode) {
-        // Test-only avatar bytes: resolve a registered mxc through the same
-        // async op-id contract as the Rust backend. Unregistered keys stay
-        // unsupported.
         const auto it = m_avatarBytesForTest.constFind(mxc);
         if (!m_mediaBridgeSupportedForTest
             || it == m_avatarBytesForTest.constEnd())
@@ -313,7 +284,6 @@ quint64 MockMatrixClient::fetchMxcThumbnail(const QString &mxc, int width,
         });
         return op;
     }
-    // The avatar key is the mxc's last path segment ("avatar-alex").
     const QString key = mxc.section(QLatin1Char('/'), -1);
     QByteArray bytes;
     QString mime;
@@ -321,7 +291,6 @@ quint64 MockMatrixClient::fetchMxcThumbnail(const QString &mxc, int width,
         return 0;
     const quint64 op = ++m_mediaOpCounter;
     QTimer::singleShot(0, this, [this, op, mxc, bytes, mime] {
-        // kind 2 == mxc thumbnail; only the op id is matched by the bridge.
         Q_EMIT mediaReady(op, mxc, 2, bytes, mime, mxc);
     });
     return op;
@@ -335,8 +304,6 @@ void MockMatrixClient::finalizeDemoMedia(DemoAccount &acct)
                 || e.type == TimelineEvent::Video
                 || e.type == TimelineEvent::Sticker;
             const QString key = e.mediaMxcUrl.section(QLatin1Char('/'), -1);
-            // The bundled release-notes fixture also exercises download/save
-            // dialogs on a real file card, without network or account data.
             const bool fileFixture = e.type == TimelineEvent::File
                                      && key == QLatin1String("relnotes");
             if ((!imageLike && !fileFixture) || e.mediaMxcUrl.isEmpty())
@@ -461,8 +428,6 @@ void MockMatrixClient::sendThreadReply(const QString &roomId,
     m_lastThreadSendReplyTo.clear();
     ++m_threadTextSends;
     m_timelines[roomId].append(ev);
-    // The demo shows the main timeline without thread replies (timeline())
-    // unless the inline thread style asked for them.
     if (!m_screenshotDemoMode || m_threadRepliesInLive)
         Q_EMIT eventAppended(roomId, ev);
     ackAfter(150, roomId, ev.eventId);
@@ -515,8 +480,6 @@ void MockMatrixClient::sendThreadReplyTo(const QString &roomId,
         ev.replyToPreview = matrix::media::previewSnippet(target->body, matrix::preview::kReplyPreviewMaxChars);
     }
     m_timelines[roomId].append(ev);
-    // The demo shows the main timeline without thread replies (timeline())
-    // unless the inline thread style asked for them.
     if (!m_screenshotDemoMode || m_threadRepliesInLive)
         Q_EMIT eventAppended(roomId, ev);
     ackAfter(150, roomId, ev.eventId);
@@ -533,8 +496,6 @@ void MockMatrixClient::sendThreadReplyTo(const QString &roomId,
         emitThreadList(roomId);
 }
 
-// Outgoing @-mentions: record what the composer delivered for the composer
-// tests, then reuse the existing send paths.
 void MockMatrixClient::sendTextMessage(const QString &roomId,
                                        const QString &body,
                                        const QStringList &mentionUserIds)
@@ -599,8 +560,6 @@ quint64 MockMatrixClient::requestRoomMembers(const QString &roomId)
     QVariantMap snapshot;
     snapshot.insert(QStringLiteral("ok"), true);
     snapshot.insert(QStringLiteral("members"), members);
-    // Asynchronous like the real backend, so the model stores the op id before
-    // the snapshot arrives.
     QTimer::singleShot(0, this, [this, op, roomId, snapshot] {
         Q_EMIT roomMembersReceived(op, roomId, snapshot);
     });
@@ -652,7 +611,7 @@ quint64 MockMatrixClient::appendThreadAttachment(const QString &roomId,
         return 0;
     if (m_failNextThreadAttachment) {
         m_failNextThreadAttachment = false;
-        return 0;   // queue rejection
+        return 0;
     }
     ++m_threadAttachmentCalls;
     m_lastAttachmentReplyTo = replyToEventId;
@@ -672,8 +631,6 @@ quint64 MockMatrixClient::appendThreadAttachment(const QString &roomId,
     ev.threadRootId      = rootEventId;
     ev.replyToEventId    = replyToEventId;
     m_timelines[roomId].append(ev);
-    // The demo shows the main timeline without thread replies (timeline())
-    // unless the inline thread style asked for them.
     if (!m_screenshotDemoMode || m_threadRepliesInLive)
         Q_EMIT eventAppended(roomId, ev);
     ackAfter(150, roomId, ev.eventId);
@@ -689,7 +646,6 @@ quint64 MockMatrixClient::appendThreadAttachment(const QString &roomId,
     if (m_openThreadListRoom == roomId)
         emitThreadList(roomId);
 
-    // The SDK send queue reports acceptance asynchronously; mirror that.
     QTimer::singleShot(50, this, [this, opId, roomId] {
         Q_EMIT attachmentQueueFinished(opId, roomId, true, QString());
     });
@@ -810,8 +766,6 @@ quint64 MockMatrixClient::sendAttachmentBytes(const QString &roomId,
     return appendRoomAttachment(roomId, filename, mime, replyToEventId);
 }
 
-// ── Mock thread timelines ───────────────────────────────────────────────
-
 void MockMatrixClient::rebuildOpenThreadTimeline()
 {
     if (m_openThreadTimelineId.isEmpty())
@@ -825,7 +779,7 @@ void MockMatrixClient::rebuildOpenThreadTimeline()
         TimelineEvent copy = event;
         copy.roomId = m_openThreadTimelineId;
         if (event.eventId == rootId)
-            thread.prepend(copy);      // root pinned first, never duplicated
+            thread.prepend(copy);
         else
             thread.append(copy);
     }
@@ -863,8 +817,6 @@ void MockMatrixClient::closeThread()
     m_openThreadTimelineId.clear();
 }
 
-// ── Mock event context view ──────────────────────────────────────────────
-
 void MockMatrixClient::openEventContext(const QString &roomId,
                                         const QString &eventId)
 {
@@ -872,7 +824,7 @@ void MockMatrixClient::openEventContext(const QString &roomId,
     const bool hadOpen = !m_openContextTimelineId.isEmpty();
     closeEventContext();
     if (hadOpen)
-        --m_eventContextCloses; // a replace is not a user-visible close
+        --m_eventContextCloses;
     const auto &roomTimeline = m_timelines.value(roomId);
     int hit = -1;
     for (int i = 0; i < roomTimeline.size(); ++i) {
@@ -941,8 +893,6 @@ void MockMatrixClient::paginateEventContext(const QString &roomId,
                                   QStringLiteral("idle"), true);
 }
 
-// ── Mock thread list + follow state ──────────────────────────────────────
-
 void MockMatrixClient::emitThreadList(const QString &roomId)
 {
     QVariantList threads;
@@ -981,8 +931,8 @@ void MockMatrixClient::emitThreadList(const QString &roomId)
     }
     for (const auto &rootId : order)
         threads.append(byRoot.value(rootId));
-    Q_EMIT threadListUpdated(roomId, threads, /*endReached=*/true,
-                             /*failed=*/false);
+    Q_EMIT threadListUpdated(roomId, threads,true,
+false);
 }
 
 void MockMatrixClient::openThreadList(const QString &roomId)
@@ -1002,7 +952,6 @@ void MockMatrixClient::closeThreadList()
 
 void MockMatrixClient::paginateThreadList(const QString &roomId)
 {
-    // One deterministic page; end is always reached.
     if (roomId == m_openThreadListRoom)
         emitThreadList(roomId);
 }
@@ -1011,9 +960,9 @@ void MockMatrixClient::queryThreadSubscription(const QString &roomId,
                                                const QString &rootEventId)
 {
     const QString key = roomId + QChar(0x1f) + rootEventId;
-    Q_EMIT threadSubscriptionState(roomId, rootEventId, /*supported=*/true,
+    Q_EMIT threadSubscriptionState(roomId, rootEventId,true,
                                    m_threadSubscriptions.value(key, false),
-                                   /*automatic=*/false);
+false);
 }
 
 void MockMatrixClient::setThreadSubscribed(const QString &roomId,
@@ -1111,7 +1060,6 @@ void MockMatrixClient::sendTyping(const QString &roomId, bool isTyping, int)
 {
     Q_UNUSED(roomId);
     Q_UNUSED(isTyping);
-    // Mock: no-op.
 }
 
 void MockMatrixClient::sendReadReceipt(const QString &roomId, const QString &eventId)
@@ -1214,8 +1162,6 @@ void MockMatrixClient::loadOlderMessages(const QString &roomId)
             Q_EMIT paginationStateChanged(roomId);
             return;
         }
-        // A fully filtered page: the cursor advanced, nothing was added, and
-        // the start is not reached. See setFilteredPaginationPagesForTest.
         if (m_filteredPaginationPages > 0) {
             --m_filteredPaginationPages;
             remaining -= 1;
@@ -1228,8 +1174,6 @@ void MockMatrixClient::loadOlderMessages(const QString &roomId)
             return;
         }
         m_lastPaginationFiltered.remove(roomId);
-        // Prepend synthetic older events, or the staged test chunk so hydration
-        // tests control exactly what arrives.
         const auto &existing = m_timelines[roomId];
         QDateTime start = existing.isEmpty()
             ? QDateTime::currentDateTimeUtc().addSecs(-3600)
@@ -1331,8 +1275,6 @@ void MockMatrixClient::seedMockData()
                       member(QStringLiteral("@bob:mock.local"),
                              QStringLiteral("Bob")));
 
-    // One Space grouping general + devs; `dm` stays outside any Space so QML
-    // can render an "Other rooms" row.
     RoomInfo team;
     team.id                 = QStringLiteral("!space-team:mock.local");
     team.name               = QStringLiteral("Team");
@@ -1369,22 +1311,18 @@ void MockMatrixClient::seedMockData()
                          QStringLiteral("Everything you see here is fake."), 540);
     auto ev3 = makeEvent(general.id, QStringLiteral("@carol:mock.local"), "Carol",
                          QStringLiteral("Real Matrix arrives in v0.2."), 480);
-    // A reply
     auto ev4 = makeEvent(general.id, QStringLiteral("@bob:mock.local"), "Bob",
                          QStringLiteral("Nice — replies show up as threaded previews."),
                          420);
     ev4.replyToEventId = ev1.eventId;
     ev4.replyToSender  = QStringLiteral("Alice");
     ev4.replyToPreview = QStringLiteral("Welcome to the mock backend!");
-    // An edited message
     auto ev5 = makeEvent(general.id, QStringLiteral("@alice:mock.local"), "Alice",
                          QStringLiteral("This message was edited (v0.3)."), 360);
     ev5.edited = true;
-    // A redacted message
     auto ev6 = makeEvent(general.id, QStringLiteral("@carol:mock.local"), "Carol",
                          QStringLiteral(""), 300);
     ev6.redacted = true;
-    // An image
     auto ev7 = makeEvent(general.id, QStringLiteral("@alice:mock.local"), "Alice",
                          QStringLiteral("cat.png"), 240);
     ev7.type          = TimelineEvent::Image;
@@ -1392,7 +1330,6 @@ void MockMatrixClient::seedMockData()
     ev7.mediaMimetype = QStringLiteral("image/png");
     ev7.mediaFilename = QStringLiteral("cat.png");
     ev7.mediaSize     = 45123;
-    // A file
     auto ev8 = makeEvent(general.id, QStringLiteral("@bob:mock.local"), "Bob",
                          QStringLiteral("notes.pdf"), 180);
     ev8.type          = TimelineEvent::File;
@@ -1400,7 +1337,6 @@ void MockMatrixClient::seedMockData()
     ev8.mediaMimetype = QStringLiteral("application/pdf");
     ev8.mediaFilename = QStringLiteral("notes.pdf");
     ev8.mediaSize     = 82344;
-    // Reactions on ev2
     Reaction rx1; rx1.key = QStringLiteral("👍"); rx1.count = 2;
     Reaction rx2; rx2.key = QStringLiteral("❤️"); rx2.count = 1;
     ev2.reactions = { rx1, rx2 };
@@ -1413,12 +1349,6 @@ void MockMatrixClient::seedMockData()
     auto evThreadReply2 = makeEvent(general.id, QStringLiteral("@bob:mock.local"), "Bob",
                                     QStringLiteral("I'll take the afternoon slot."), 160);
     evThreadReply2.threadRootId = evThreadRoot.eventId;
-    // ── Long-message scrolling fixtures ─────────────────────────────────
-    // Deterministic bodies that exercise wheel motion while the viewport is
-    // inside one tall delegate, framed by short messages.
-    //
-    // 1. Exactly 3,764 characters with no hard line break, so wrapping alone
-    //    produces a body far taller than the viewport.
     const QString longSentence = QStringLiteral(
         "This deterministic long-message fixture exists so wheel scrolling "
         "can be exercised while the viewport sits entirely inside one tall "
@@ -1433,13 +1363,10 @@ void MockMatrixClient::seedMockData()
     auto evLongWrapped = makeEvent(
         general.id, QStringLiteral("@carol:mock.local"), "Carol",
         longWrappedBody, 150);
-    // 2. A many-line body substantially taller than any realistic viewport.
     auto evVeryTall = makeEvent(
         general.id, QStringLiteral("@alice:mock.local"), "Alice",
         QStringLiteral("Tall fixture line for scroll continuity checks.\n")
             .repeated(80).trimmed(), 140);
-    // 3. A multiline body with links (link-preview and rich-text layout in a
-    //    tall delegate).
     auto evMultilineLinks = makeEvent(
         general.id, QStringLiteral("@bob:mock.local"), "Bob",
         QStringLiteral("Reading list for the scroll test:\n"
@@ -1450,7 +1377,6 @@ void MockMatrixClient::seedMockData()
         general.id, QStringLiteral("@carol:mock.local"), "Carol",
         QStringLiteral("Short message after the long fixture."), 120);
 
-    // Latest message
     auto ev9 = makeEvent(general.id, QStringLiteral("@alice:mock.local"), "Alice",
                          QStringLiteral("Type something below and press Send."), 60);
 
@@ -1459,9 +1385,6 @@ void MockMatrixClient::seedMockData()
                                 evShortBeforeLong, evLongWrapped, evVeryTall,
                                 evMultilineLinks, evShortAfterLong, ev9 };
 
-    // Two consecutive state-change events after the last message, as the Rust
-    // bridge produces for membership/profile/settings changes, so the compact
-    // Expand/Collapse UI can be exercised without a server.
     auto stateEvent = [this, &now](const QString &roomId, const QString &stateKind,
                                     const QString &body, int secondsAgo) {
         TimelineEvent e;
@@ -1512,8 +1435,6 @@ void MockMatrixClient::seedMockData()
     longDecrypted.isEncrypted = true;
     longDecrypted.isDecrypted = true;
 
-    // An encrypted thread (decrypted root, one decrypted and one undecryptable
-    // reply) so encrypted-thread handling is testable without a homeserver.
     auto encThreadRoot = makeEvent(
         devs.id, QStringLiteral("@dave:mock.local"), "Dave",
         QStringLiteral("Encrypted thread root fixture."), 450);
@@ -1568,8 +1489,6 @@ void MockMatrixClient::setScreenshotDemoMode(bool on)
 }
 
 namespace {
-// A fictional demo participant. `avatarMxc` is a stable opaque id resolved to a
-// bundled fixture by the demo media path; empty until an avatar is assigned.
 struct DemoPerson {
     QString id;
     QString name;
@@ -1589,21 +1508,15 @@ QString demoAvatar(const QString &localpart)
 }
 }
 
-// Development-only: three deterministic fictional accounts for promotional
-// screenshots. Each owns a complete scene; the active one is mirrored into
-// m_rooms/m_timelines. Not called by tests, so the shared fixtures are
-// unchanged. Everything is fixed so screenshots are reproducible.
 void MockMatrixClient::seedScreenshotDemoData()
 {
     m_demoAccounts.clear();
     m_demoAccountOrder.clear();
     auto add = [&](DemoAccount a) {
-        finalizeDemoMedia(a);   // tag media rows for the demo bridge
+        finalizeDemoMedia(a);
         // No back-pagination in the demo, so scrolling up never reveals the
         // mock's "Older message #N" filler.
         a.paginationRemaining.clear();
-        // The account's own profile, so the switcher record and the rail
-        // avatar keep the demo name and picture instead of the localpart.
         mockDisplayNames.insert(a.userId, a.displayName);
         mockAvatarUrls.insert(a.userId, a.avatarMxc);
         m_demoAccountOrder << a.userId;
@@ -1612,8 +1525,6 @@ void MockMatrixClient::seedScreenshotDemoData()
     add(buildDemoAccountAlex());
     add(buildDemoAccountTaylor());
     add(buildDemoAccountNova());
-    // Activate the primary account so tests that enable demo mode without
-    // logging in still see Alex's scene.
     m_activeDemoUser.clear();
     activateDemoAccount(QStringLiteral("@alex:lightning.example"));
 }
@@ -1657,7 +1568,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
         return e;
     };
 
-    // ── Spaces ──────────────────────────────────────────────────────────
     RoomInfo friends;
     friends.id = QStringLiteral("!space-friends:lightning.example");
     friends.name = QStringLiteral("Friends");
@@ -1682,10 +1592,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
     community.isSpace = true;
     community.lastActivity = base.addSecs(-30 * 60);
 
-    // ── Design Lounge — the main polished group chat ────────────────────
-    // The hero conversation: a photo, a reply quoting it, reactions, a
-    // mention, an edit, a thread with its summary card, read receipts and
-    // someone typing — everything a first screenshot should show at once.
     RoomInfo design;
     design.id = QStringLiteral("!design-lounge:lightning.example");
     design.name = QStringLiteral("Design Lounge");
@@ -1703,8 +1609,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
     design.typingUserIds << maya.id;
 
     {
-        // Order chosen so a 1000x700 window still shows the whole picture,
-        // the reply quoting it, the thread card and the mention.
         auto eA = text(design.id, alex, QStringLiteral("Morning everyone! 👋"), 63);
         auto e0 = text(design.id, priya, QStringLiteral(
             "Festival brief is in the shared folder: posters, socials and the programme."), 58);
@@ -1739,7 +1643,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
         e4.replyToKind = QStringLiteral("image");
         e4.replyToMediaKey = QStringLiteral("lake");
 
-        // A thread root: the poster copy is discussed off the main line.
         auto root = text(design.id, aisha, QStringLiteral(
             "Starting a thread for the poster copy so it doesn't get lost 👇"), 22);
         const QString designThread = root.eventId;
@@ -1777,7 +1680,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
     }
     acct.paginationRemaining[design.id] = 2;
 
-    // ── Weekend Plans — a light casual group chat ───────────────────────
     RoomInfo weekend;
     weekend.id = QStringLiteral("!weekend:lightning.example");
     weekend.name = QStringLiteral("Weekend Plans");
@@ -1833,7 +1735,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
     }
     acct.paginationRemaining[weekend.id] = 0;
 
-    // ── Maya Chen — encrypted direct message ────────────────────────────
     RoomInfo dmMaya;
     dmMaya.id = QStringLiteral("!dm-maya:lightning.example");
     dmMaya.name = maya.name;
@@ -1883,7 +1784,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
     }
     acct.paginationRemaining[dmMaya.id] = 0;
 
-    // ── Jordan Lee — a plain (unencrypted) direct message ───────────────
     RoomInfo dmJordan;
     dmJordan.id = QStringLiteral("!dm-jordan:lightning.example");
     dmJordan.name = jordan.name;
@@ -1904,7 +1804,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
     }
     acct.paginationRemaining[dmJordan.id] = 0;
 
-    // ── Lightning Development — code, file, and a thread ────────────────
     RoomInfo dev;
     dev.id = QStringLiteral("!dev:lightning.example");
     dev.name = QStringLiteral("Lightning Development");
@@ -1938,7 +1837,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
         c5.mediaFilename = QStringLiteral("release-notes-0.10.1.md");
         c5.mediaMxcUrl = QStringLiteral("mxc://lightning.example/relnotes");
         c5.mediaSize = 4210;
-        // A thread root with replies.
         auto root = text(dev.id, leo, QStringLiteral(
             "Should we backport the scroll fix to 0.10.x or hold it for 0.11?"), 64);
         threadRootId = root.eventId;
@@ -1956,9 +1854,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
             { QStringLiteral("🚀"), 4, true, eid() },
             { QStringLiteral("🎉"), 2, false, QString() },
         };
-        // Thread replies live in the room timeline with threadRootId set: the
-        // model hides them from the main view and openThread() rebuilds the
-        // panel.
         auto tr = [&](const DemoPerson &p, const QString &body, int minsAgo) {
             TimelineEvent e = text(dev.id, p, body, minsAgo);
             e.threadRootId = threadRootId;
@@ -1974,7 +1869,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
     }
     acct.paginationRemaining[dev.id] = 1;
 
-    // ── Product Feedback — a poll ───────────────────────────────────────
     RoomInfo feedback;
     feedback.id = QStringLiteral("!feedback:lightning.example");
     feedback.name = QStringLiteral("Product Feedback");
@@ -2004,7 +1898,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
     }
     acct.paginationRemaining[feedback.id] = 0;
 
-    // ── Photography — a media-heavy room (landscape/portrait/square/…) ──
     RoomInfo photo;
     photo.id = QStringLiteral("!photography:lightning.example");
     photo.name = QStringLiteral("Photography");
@@ -2033,8 +1926,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
                            QStringLiteral("portrait"), 800, 1200, 190);
         auto square = ph(aisha, QStringLiteral("Album cover crop"),
                          QStringLiteral("square"), 1000, 1000, 185);
-        // A GIF, video, audio clip and document so every media row type
-        // renders.
         auto artwork = ph(aisha, QStringLiteral("New wallpaper artwork"),
                           QStringLiteral("artwork"), 1200, 1200, 178);
         artwork.mediaMimetype = QStringLiteral("image/png");
@@ -2076,7 +1967,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
     }
     acct.paginationRemaining[photo.id] = 0;
 
-    // ── Release Announcements — announcement room ───────────────────────
     RoomInfo announce;
     announce.id = QStringLiteral("!announce:lightning.example");
     announce.name = QStringLiteral("Release Announcements");
@@ -2095,7 +1985,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
     }
     acct.paginationRemaining[announce.id] = 0;
 
-    // ── Music Discovery — favourite room ────────────────────────────────
     RoomInfo music;
     music.id = QStringLiteral("!music:lightning.example");
     music.name = QStringLiteral("Music Discovery");
@@ -2111,7 +2000,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
     };
     acct.paginationRemaining[music.id] = 0;
 
-    // ── An invite ───────────────────────────────────────────────────────
     RoomInfo invite;
     invite.id = QStringLiteral("!invite-founders:lightning.example");
     invite.name = QStringLiteral("Founders Lounge");
@@ -2121,12 +2009,10 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountAlex()
     invite.inviterDisplayName = sam.name;
     invite.lastActivity = base.addSecs(-9 * 60 * 60);
 
-    // Space membership.
     friends.childRoomIds   = { dmMaya.id, dmJordan.id, music.id, weekend.id };
     studio.childRoomIds    = { design.id, photo.id };
     community.childRoomIds  = { dev.id, feedback.id, announce.id };
 
-    // Room-list order: Spaces first, then rooms by recency, DMs, invite.
     acct.rooms = { friends, studio, community,
                    design, dev, weekend, dmMaya, dmJordan, feedback,
                    photo, announce, music, invite };
@@ -2169,7 +2055,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountTaylor()
         return e;
     };
 
-    // ── Spaces ──────────────────────────────────────────────────────────
     RoomInfo product;
     product.id = QStringLiteral("!space-product:workplace.example");
     product.name = QStringLiteral("Product");
@@ -2191,7 +2076,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountTaylor()
     companySpace.isSpace = true;
     companySpace.lastActivity = base.addSecs(-45 * 60);
 
-    // ── Project Aurora — the main professional conversation ─────────────
     RoomInfo aurora;
     aurora.id = QStringLiteral("!aurora:workplace.example");
     aurora.name = QStringLiteral("Project Aurora");
@@ -2225,7 +2109,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountTaylor()
     }
     acct.paginationRemaining[aurora.id] = 2;
 
-    // ── Product Design — technical/design room with an image ────────────
     RoomInfo productDesign;
     productDesign.id = QStringLiteral("!product-design:workplace.example");
     productDesign.name = QStringLiteral("Product Design");
@@ -2250,7 +2133,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountTaylor()
     }
     acct.paginationRemaining[productDesign.id] = 0;
 
-    // ── Engineering — technical room with a code block ──────────────────
     RoomInfo eng;
     eng.id = QStringLiteral("!engineering:workplace.example");
     eng.name = QStringLiteral("Engineering");
@@ -2278,7 +2160,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountTaylor()
     }
     acct.paginationRemaining[eng.id] = 1;
 
-    // ── Release Planning — favourite-style room ─────────────────────────
     RoomInfo releasePlanning;
     releasePlanning.id = QStringLiteral("!release-planning:workplace.example");
     releasePlanning.name = QStringLiteral("Release Planning");
@@ -2293,7 +2174,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountTaylor()
     };
     acct.paginationRemaining[releasePlanning.id] = 0;
 
-    // ── Company Announcements — announcement room ───────────────────────
     RoomInfo companyAnnounce;
     companyAnnounce.id = QStringLiteral("!company-announce:workplace.example");
     companyAnnounce.name = QStringLiteral("Company Announcements");
@@ -2310,7 +2190,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountTaylor()
     }
     acct.paginationRemaining[companyAnnounce.id] = 0;
 
-    // ── Team Lounge — muted, quiet room ─────────────────────────────────
     RoomInfo teamLounge;
     teamLounge.id = QStringLiteral("!team-lounge:workplace.example");
     teamLounge.name = QStringLiteral("Team Lounge");
@@ -2324,7 +2203,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountTaylor()
     };
     acct.paginationRemaining[teamLounge.id] = 0;
 
-    // ── Sam Rivera — an encrypted 1:1 DM (with a mention) ───────────────
     RoomInfo dmSam;
     dmSam.id = QStringLiteral("!dm-sam:workplace.example");
     dmSam.name = sam.name;
@@ -2351,7 +2229,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountTaylor()
     }
     acct.paginationRemaining[dmSam.id] = 0;
 
-    // ── Incident Review — technical incident room ───────────────────────
     RoomInfo incident;
     incident.id = QStringLiteral("!incident-review:workplace.example");
     incident.name = QStringLiteral("Incident Review");
@@ -2367,7 +2244,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountTaylor()
     };
     acct.paginationRemaining[incident.id] = 0;
 
-    // ── An invite ───────────────────────────────────────────────────────
     RoomInfo invite;
     invite.id = QStringLiteral("!invite-leadership:workplace.example");
     invite.name = QStringLiteral("Leadership Sync");
@@ -2423,7 +2299,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountNova()
         return e;
     };
 
-    // ── Spaces ──────────────────────────────────────────────────────────
     RoomInfo openSource;
     openSource.id = QStringLiteral("!space-oss:community.example");
     openSource.name = QStringLiteral("Open Source");
@@ -2445,7 +2320,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountNova()
     supportSpace.isSpace = true;
     supportSpace.lastActivity = base.addSecs(-20 * 60);
 
-    // ── General — the main public room ──────────────────────────────────
     RoomInfo general;
     general.id = QStringLiteral("!general:community.example");
     general.name = QStringLiteral("General");
@@ -2474,7 +2348,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountNova()
     }
     acct.paginationRemaining[general.id] = 2;
 
-    // ── Development — thread-heavy technical room ───────────────────────
     RoomInfo devel;
     devel.id = QStringLiteral("!development:community.example");
     devel.name = QStringLiteral("Development");
@@ -2521,7 +2394,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountNova()
     }
     acct.paginationRemaining[devel.id] = 1;
 
-    // ── Feature Requests — a poll ───────────────────────────────────────
     RoomInfo features;
     features.id = QStringLiteral("!feature-requests:community.example");
     features.name = QStringLiteral("Feature Requests");
@@ -2550,7 +2422,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountNova()
     }
     acct.paginationRemaining[features.id] = 0;
 
-    // ── Support — a support question room ───────────────────────────────
     RoomInfo support;
     support.id = QStringLiteral("!support:community.example");
     support.name = QStringLiteral("Support");
@@ -2576,7 +2447,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountNova()
     }
     acct.paginationRemaining[support.id] = 0;
 
-    // ── Showcase — a media showcase room ────────────────────────────────
     RoomInfo showcase;
     showcase.id = QStringLiteral("!showcase:community.example");
     showcase.name = QStringLiteral("Showcase");
@@ -2607,7 +2477,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountNova()
     }
     acct.paginationRemaining[showcase.id] = 0;
 
-    // ── Off Topic — quiet casual room ───────────────────────────────────
     RoomInfo offTopic;
     offTopic.id = QStringLiteral("!off-topic:community.example");
     offTopic.name = QStringLiteral("Off Topic");
@@ -2621,7 +2490,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountNova()
     };
     acct.paginationRemaining[offTopic.id] = 0;
 
-    // ── Priya Shah — a direct message ───────────────────────────────────
     RoomInfo dmPriya;
     dmPriya.id = QStringLiteral("!dm-priya:community.example");
     dmPriya.name = priya.name;
@@ -2641,7 +2509,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountNova()
     }
     acct.paginationRemaining[dmPriya.id] = 0;
 
-    // ── Maintainers — private maintainer room ───────────────────────────
     RoomInfo maintainers;
     maintainers.id = QStringLiteral("!maintainers:community.example");
     maintainers.name = QStringLiteral("Maintainers");
@@ -2657,7 +2524,6 @@ MockMatrixClient::DemoAccount MockMatrixClient::buildDemoAccountNova()
     };
     acct.paginationRemaining[maintainers.id] = 0;
 
-    // ── An invite ───────────────────────────────────────────────────────
     RoomInfo invite;
     invite.id = QStringLiteral("!invite-translators:community.example");
     invite.name = QStringLiteral("Translators");
@@ -2701,7 +2567,6 @@ void MockMatrixClient::loadDemoAccountIntoWorkingSet(const DemoAccount &acct)
     m_rooms = acct.rooms;
     m_timelines = acct.timelines;
     m_paginationRemaining = acct.paginationRemaining;
-    // Anything that pointed into the previous account's timelines is invalid.
     m_openThreadTimelineId.clear();
     m_openThreadListRoom.clear();
     m_paginating.clear();
@@ -2718,7 +2583,7 @@ void MockMatrixClient::activateDemoAccount(const QString &userId)
         return;
     if (m_activeDemoUser == userId)
         return;
-    snapshotWorkingSetToActiveDemoAccount();  // preserve local mutations
+    snapshotWorkingSetToActiveDemoAccount();
     loadDemoAccountIntoWorkingSet(it.value());
     m_activeDemoUser = userId;
 }
@@ -2728,7 +2593,7 @@ void MockMatrixClient::resetDemoData()
     if (!m_screenshotDemoMode)
         return;
     const QString active = m_activeDemoUser;
-    seedScreenshotDemoData();          // rebuilds all three, activates Alex
+    seedScreenshotDemoData();
     m_activeDemoUser.clear();
     activateDemoAccount(active.isEmpty()
                             ? QStringLiteral("@alex:lightning.example")
@@ -2791,8 +2656,6 @@ void MockMatrixClient::setDemoUnreadHidden(bool hidden)
     Q_EMIT roomsChanged();
 }
 
-// ── Development-only local interactions ──────────────────────────────────
-
 void MockMatrixClient::sendPollResponse(const QString &roomId,
                                         const QString &threadRootId,
                                         const QString &pollStartEventId,
@@ -2808,8 +2671,6 @@ void MockMatrixClient::sendPollResponse(const QString &roomId,
         TimelineEvent &e = (*it)[i];
         if (e.eventId != pollStartEventId || e.type != TimelineEvent::Poll)
             continue;
-        // Move the local vote: decrement the previously-selected answer(s),
-        // increment the newly-selected. An empty answerIds retracts the vote.
         for (PollAnswer &a : e.pollAnswers) {
             const bool nowSelected = answerIds.contains(a.id);
             if (nowSelected && !a.byMe) { a.count += 1; a.byMe = true; }
@@ -2880,9 +2741,6 @@ void MockMatrixClient::setRoomFavourite(const QString &roomId, bool favourite)
             return;
         r.isFavourite = favourite;
         if (favourite) r.lowPriority = false;
-        // roomsChanged, not roomUpdated: favouriting moves the row to another
-        // section, and roomUpdated only starts RoomListModel's coalescing
-        // timer. A click response should land on the same frame.
         Q_EMIT roomsChanged();
         return;
     }
@@ -2923,8 +2781,6 @@ QString MockMatrixClient::nextTxnId()
     return QStringLiteral("mock-txn-%1").arg(++m_txnCounter);
 }
 
-// ── Timeline-hydration test hooks ──────────────────────────────────────
-
 void MockMatrixClient::resetTimelineForTest(const QString &roomId,
                                             const QList<TimelineEvent> &events,
                                             int paginationPages)
@@ -2948,8 +2804,6 @@ void MockMatrixClient::resetTimelineForTest(const QString &roomId,
 void MockMatrixClient::setRoomMemberForTest(const QString &roomId,
                                             const MemberInfo &member)
 {
-    // Mirror the Rust backend's merge: never clobber known data with empty
-    // fields, then emit membersChanged so member-derived surfaces re-resolve.
     for (auto &r : m_rooms) {
         if (r.id != roomId)
             continue;
@@ -2988,8 +2842,6 @@ void MockMatrixClient::appendEventForTest(const QString &roomId,
     Q_EMIT eventAppended(roomId, stamped);
 }
 
-// ── Discover / Join, search, UIA, moderation ────────────────────────────
-
 quint64 MockMatrixClient::resolveRoomTarget(const QString &input)
 {
     if (input.trimmed().isEmpty())
@@ -3011,8 +2863,6 @@ quint64 MockMatrixClient::searchPublicRooms(const QString &, const QString &,
 {
     const quint64 op = ++m_opCounter;
     const QVariantList rooms = mockPublicRooms;
-    // A next-page request answers with the same rows unless the test
-    // rescripts them; the token clears so pagination terminates.
     const QString nextBatch = since.isEmpty() ? mockPublicRoomsNextBatch
                                               : QString();
     QTimer::singleShot(0, this, [this, op, rooms, nextBatch] {
@@ -3036,7 +2886,6 @@ quint64 MockMatrixClient::joinRoomByIdOrAlias(const QString &target,
             Q_EMIT roomJoinFinished(op, false, QString(), category);
             return;
         }
-        // Materialize the membership as sync would, so wait-for-room completes.
         QString roomId = target;
         bool exists = false;
         for (auto &room : m_rooms) {
@@ -3051,8 +2900,6 @@ quint64 MockMatrixClient::joinRoomByIdOrAlias(const QString &target,
             room.id = roomId;
             room.name = QStringLiteral("Joined room");
             room.membership = RoomInfo::Joined;
-            // A freshly joined room's encryption state has not synced yet, the
-            // window in which the draft policy must fail closed.
             room.encryptionKnown = false;
             m_rooms.append(room);
         }
@@ -3210,8 +3057,6 @@ quint64 MockMatrixClient::localSearch(const QString &query,
                 continue;
             if (event.body.isEmpty())
                 continue;
-            // Case-insensitive substring, the same shape the trigram index
-            // gives.
             if (!event.body.contains(needle, Qt::CaseInsensitive)
                 && !event.senderDisplayName.contains(needle, Qt::CaseInsensitive)) {
                 continue;
@@ -3220,8 +3065,6 @@ quint64 MockMatrixClient::localSearch(const QString &query,
                 { QStringLiteral("eventId"), event.eventId },
                 { QStringLiteral("roomId"), it.key() },
                 { QStringLiteral("sender"), event.sender },
-                // senderDisplayName: the key MessageSearchController reads and
-                // the Rust backend emits.
                 { QStringLiteral("senderDisplayName"), event.senderDisplayName },
                 { QStringLiteral("body"), event.body },
                 { QStringLiteral("msgtype"), QStringLiteral("m.text") },
@@ -3230,7 +3073,6 @@ quint64 MockMatrixClient::localSearch(const QString &query,
             });
         }
     }
-    // Newest first, like the real index.
     std::sort(hits.begin(), hits.end(),
               [](const QVariant &a, const QVariant &b) {
         return a.toMap().value(QStringLiteral("timestampMs")).toLongLong()
@@ -3426,17 +3268,15 @@ QVariantMap mockIndexAllStatus(const QString &state, qint64 total)
     status.insert(QStringLiteral("written"), qint64(0));
     return status;
 }
-} // namespace
+}
 
 quint64 MockMatrixClient::indexAllRooms(bool resumeOnly)
 {
     const quint64 op = ++m_opCounter;
     indexAllStarts.append(resumeOnly);
-    // Like the bridge: a resume with nothing interrupted only reports.
     const bool starts = !resumeOnly || mockIndexAllPending;
     if (starts)
         mockIndexAllPending = true;
-    // At least one room, so a paused or interrupted pass reads resumable.
     const qint64 total = qMax<qint64>(1, m_timelines.size());
     QTimer::singleShot(0, this, [this, op, starts, total] {
         Q_EMIT searchIndexAllProgress(
@@ -3451,7 +3291,6 @@ quint64 MockMatrixClient::pauseIndexAll()
 {
     const quint64 op = ++m_opCounter;
     ++indexAllPauses;
-    // At least one room, so a paused or interrupted pass reads resumable.
     const qint64 total = qMax<qint64>(1, m_timelines.size());
     QTimer::singleShot(0, this, [this, op, total] {
         Q_EMIT searchIndexAllProgress(
@@ -3476,7 +3315,6 @@ quint64 MockMatrixClient::requestIndexAllStatus()
 {
     const quint64 op = ++m_opCounter;
     const bool pending = mockIndexAllPending;
-    // At least one room, so a paused or interrupted pass reads resumable.
     const qint64 total = qMax<qint64>(1, m_timelines.size());
     QTimer::singleShot(0, this, [this, op, pending, total] {
         Q_EMIT searchIndexAllProgress(
@@ -3549,7 +3387,6 @@ quint64 MockMatrixClient::setUserIgnored(const QString &userId, bool ignored)
 {
     if (userId.trimmed().isEmpty())
         return 0;
-    // Self-ignore is refused synchronously, like the Rust bridge.
     if (userId == m_userId)
         return 0;
     const quint64 op = ++m_opCounter;
@@ -3670,8 +3507,6 @@ quint64 MockMatrixClient::reportMessage(const QString &roomId,
     return op;
 }
 
-// ── Own profile ─────────────────────────────────────────────────────────
-
 quint64 MockMatrixClient::fetchUserProfile(const QString &userId)
 {
     if (userId.isEmpty())
@@ -3680,8 +3515,6 @@ quint64 MockMatrixClient::fetchUserProfile(const QString &userId)
     const bool known = userId == m_userId || mockDisplayNames.contains(userId);
     QString name;
     if (mockDisplayNames.contains(userId)) {
-        // Present-but-empty is a cleared name, not an unknown one; reading it
-        // back as the localpart would make a successful clear look failed.
         name = mockDisplayNames.value(userId);
     } else if (userId == m_userId) {
         const qsizetype colon = userId.indexOf(QLatin1Char(':'));
@@ -3719,7 +3552,6 @@ void MockMatrixClient::setOwnDisplayName(const QString &name, quint64 opId)
             Q_EMIT ownDisplayNameChanged(opId, false, failure);
             return;
         }
-        // Only a confirmed write updates the stored profile.
         mockDisplayNames.insert(userId, name);
         Q_EMIT ownDisplayNameChanged(opId, true, QString());
     });
@@ -3731,8 +3563,6 @@ quint64 MockMatrixClient::writeRoomWidget(const QString &roomId,
 {
     widgetWrites.append({ roomId, widgetId, contentJson });
     const quint64 opId = ++m_mockWidgetWriteOp;
-    // Answered asynchronously like the real backend, so a controller that
-    // acted before the answer would be caught here too.
     QTimer::singleShot(0, this, [this, opId, roomId] {
         Q_EMIT roomWidgetWritten(opId, roomId, true, QString());
     });

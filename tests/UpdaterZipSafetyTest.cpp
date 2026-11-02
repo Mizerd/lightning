@@ -1,15 +1,3 @@
-// lightning-updater: archive path safety and the hardened ZIP reader.
-//
-// One accepted traversal entry writes attacker-chosen bytes to an
-// attacker-chosen path, so the pure verdict function is run against an
-// exhaustive hostile matrix and the reader against archives built
-// byte-by-byte here.
-//
-// Path, symlink, cap and CRC refusals use stored entries, so they hold
-// without zlib. The deflate half builds real method-8 members (what `zip -X`
-// produces) to exercise the inflate loop, per-chunk caps, the ratio guard,
-// truncated/corrupt streams and the CRC over inflated output; those cases
-// QSKIP without zlib.
 
 #include "updater/SafeArchive.h"
 
@@ -69,13 +57,6 @@ void appendU32(QByteArray &out, quint32 value)
     out.append(static_cast<char>((value >> 24) & 0xFF));
 }
 
-// Raw DEFLATE: no zlib header, no adler32 trailer. A ZIP member carries the
-// bare stream, which is why SafeArchive inflates with a negative windowBits —
-// so the fixture has to produce it the same way. compress2() would emit a
-// zlib-wrapped stream and prove nothing about the real path.
-//
-// Returns an empty array when this build has no zlib; every deflate case
-// skips in that configuration rather than passing vacuously.
 QByteArray deflateRaw(const QByteArray &plain)
 {
 #if defined(LIGHTNING_UPDATER_HAVE_ZLIB)
@@ -107,9 +88,6 @@ QByteArray deflateRaw(const QByteArray &plain)
 #endif
 }
 
-// Deterministic, compressible bytes: one pseudo-random block repeated. The
-// LCG keeps the achieved compressed size (two tests derive limits from it)
-// stable across platforms.
 QByteArray compressibleBlob(int blockSize, int repeats, quint32 seed)
 {
     QByteArray block(blockSize, '\0');
@@ -128,17 +106,11 @@ QByteArray compressibleBlob(int blockSize, int repeats, quint32 seed)
 struct ZipEntry {
     QByteArray name;
     QByteArray contents;
-    quint16 versionMadeBy = 0x0300;   // Unix
-    quint32 externalAttributes = 0;   // high 16 bits = unix mode
+    quint16 versionMadeBy = 0x0300;
+    quint32 externalAttributes = 0;
     bool corruptCrc = false;
-    // 0 = stored, 8 = deflate. Anything else is rejected by the writer: the
-    // fixture only builds what a real portable ZIP contains.
     quint16 method = 0;
-    // The size the headers DECLARE. -1 means the truthful one; a smaller
-    // value is how a hostile archive claims to be smaller than it inflates to.
     qint64 declaredUncompressedSize = -1;
-    // Applied to the compressed payload after compression and before the
-    // sizes are taken, so truncation and corruption stay self-consistent.
     std::function<void(QByteArray &)> mutatePayload;
 };
 
@@ -153,7 +125,6 @@ ZipEntry regularFile(const char *name, const QByteArray &contents,
     return entry;
 }
 
-// The same regular file, carried as a real method-8 member.
 ZipEntry deflatedFile(const char *name, const QByteArray &contents,
                       quint16 unixMode = 0644)
 {
@@ -171,9 +142,6 @@ ZipEntry symlinkEntry(const char *name, const QByteArray &target)
     return entry;
 }
 
-// Writes a real, minimal, valid ZIP. Members are stored unless the entry asks
-// for deflate. The CRC always covers the original bytes, so a truncated entry
-// still declares the checksum the complete one would have had.
 bool writeZip(const QString &path, const QList<ZipEntry> &entries)
 {
     QByteArray body;
@@ -192,7 +160,7 @@ bool writeZip(const QString &path, const QList<ZipEntry> &entries)
         } else if (entry.method == 8) {
             payload = deflateRaw(entry.contents);
             if (payload.isEmpty())
-                return false; // no zlib in this build, or deflate failed
+                return false;
         } else {
             return false;
         }
@@ -204,39 +172,37 @@ bool writeZip(const QString &path, const QList<ZipEntry> &entries)
             entry.declaredUncompressedSize >= 0 ? entry.declaredUncompressedSize
                                                 : entry.contents.size());
 
-        // Bit 11 declares a UTF-8 entry name, which is what real packaging
-        // tools set and what makes the non-ASCII cases below meaningful.
         constexpr quint16 kUtf8NameFlag = 0x0800;
 
         body.append("PK\x03\x04", 4);
-        appendU16(body, 20);   // version needed
+        appendU16(body, 20);
         appendU16(body, kUtf8NameFlag);
         appendU16(body, entry.method);
-        appendU16(body, 0);    // mod time
-        appendU16(body, 0);    // mod date
+        appendU16(body, 0);
+        appendU16(body, 0);
         appendU32(body, crc);
         appendU32(body, compressed);
-        appendU32(body, size); // uncompressed
+        appendU32(body, size);
         appendU16(body, static_cast<quint16>(entry.name.size()));
-        appendU16(body, 0);    // extra length
+        appendU16(body, 0);
         body.append(entry.name);
         body.append(payload);
 
         central.append("PK\x01\x02", 4);
         appendU16(central, entry.versionMadeBy);
-        appendU16(central, 20);            // version needed
-        appendU16(central, kUtf8NameFlag); // flags
+        appendU16(central, 20);
+        appendU16(central, kUtf8NameFlag);
         appendU16(central, entry.method);
-        appendU16(central, 0);             // mod time
-        appendU16(central, 0);             // mod date
+        appendU16(central, 0);
+        appendU16(central, 0);
         appendU32(central, crc);
         appendU32(central, compressed);
         appendU32(central, size);
         appendU16(central, static_cast<quint16>(entry.name.size()));
         appendU16(central, 0);
         appendU16(central, 0);
-        appendU16(central, 0);  // disk number start
-        appendU16(central, 0);  // internal attributes
+        appendU16(central, 0);
+        appendU16(central, 0);
         appendU32(central, entry.externalAttributes);
         appendU32(central, offset);
         central.append(entry.name);
@@ -261,7 +227,7 @@ bool writeZip(const QString &path, const QList<ZipEntry> &entries)
     return file.write(archive) == archive.size();
 }
 
-} // namespace
+}
 
 class UpdaterZipSafetyTest : public QObject
 {
@@ -271,7 +237,6 @@ private slots:
     void init();
     void cleanup();
 
-    // --- the pure verdict function ---
     void hostileEntryNamesAreRejected_data();
     void hostileEntryNamesAreRejected();
     void benignEntryNamesAreAccepted_data();
@@ -281,7 +246,6 @@ private slots:
     void resolvedDestinationIsEmptyForUnsafeNames();
     void pathTraversingASymlinkIsDetected();
 
-    // --- the reader ---
     void extractsAStoredArchive();
     void preservesTheExecutableBit();
     void refusesATraversalEntry();
@@ -297,7 +261,6 @@ private slots:
     void enforcesThePerEntrySizeCap();
     void listingAppliesTheSameVerdicts();
 
-    // --- the reader, deflated (method 8) entries ---
     void extractsADeflatedArchive();
     void extractsAMixedStoredAndDeflatedArchive();
     void extractsADeflatedEmptyEntry();
@@ -312,8 +275,6 @@ private slots:
     void refusesADeflatedSymlinkEntry();
 
 private:
-    // Every file anywhere under the staging root. A refusal must leave none
-    // of them behind: neither the entry itself nor a QSaveFile temporary.
     QStringList filesUnderStaging() const;
     void resetStaging();
 
@@ -354,10 +315,6 @@ void UpdaterZipSafetyTest::resetStaging()
     QVERIFY(QDir(m_staging).removeRecursively());
     QVERIFY(QDir().mkpath(m_staging));
 }
-
-// ---------------------------------------------------------------------------
-// The pure verdict function
-// ---------------------------------------------------------------------------
 
 void UpdaterZipSafetyTest::hostileEntryNamesAreRejected_data()
 {
@@ -447,7 +404,6 @@ void UpdaterZipSafetyTest::hostileEntryNamesAreRejected()
     const ArchivePathVerdict actual = checkArchivePath(name, m_staging);
     QCOMPARE(int(actual), verdict);
     QVERIFY(!isSafeArchivePath(name, m_staging));
-    // Whatever the specific verdict, the destination must never be produced.
     QVERIFY(resolvedArchiveDestination(name, m_staging).isEmpty());
 }
 
@@ -493,9 +449,6 @@ void UpdaterZipSafetyTest::symlinkedStagingRootStillContains()
 #ifdef Q_OS_WIN
     QSKIP("symlink creation requires elevation on Windows");
 #else
-    // A staging root reached through a symlink must still contain its
-    // entries: the containment check canonicalises the ROOT, so the prefix
-    // comparison is made against real paths on both sides.
     const QString link = QDir(m_dir.path()).absoluteFilePath(QStringLiteral("link"));
     QFile::remove(link);
     QVERIFY(QFile::link(m_staging, link));
@@ -530,14 +483,9 @@ void UpdaterZipSafetyTest::pathTraversingASymlinkIsDetected()
                                  root.absoluteFilePath(QStringLiteral("linkdir/x"))));
     QVERIFY(!pathTraversesSymlink(m_staging,
                                   root.absoluteFilePath(QStringLiteral("real/x"))));
-    // Anything outside the root is unsafe by definition.
     QVERIFY(pathTraversesSymlink(m_staging, QStringLiteral("/etc/passwd")));
 #endif
 }
-
-// ---------------------------------------------------------------------------
-// The reader
-// ---------------------------------------------------------------------------
 
 void UpdaterZipSafetyTest::extractsAStoredArchive()
 {
@@ -592,7 +540,6 @@ void UpdaterZipSafetyTest::refusesATraversalEntry()
     const ArchiveResult result = extractZipSafely(m_zip, m_staging);
     QVERIFY(!result.ok());
     QCOMPARE(result.error, ArchiveError::UnsafeEntryPath);
-    // The entry would have landed one level above the staging root.
     QVERIFY(!QFileInfo::exists(
         QDir(m_dir.path()).absoluteFilePath(QStringLiteral("pwned.txt"))));
 }
@@ -616,9 +563,6 @@ void UpdaterZipSafetyTest::refusesADriveLetterEntry()
 
 void UpdaterZipSafetyTest::refusesASymlinkEntry()
 {
-    // The name is perfectly safe; only the unix mode marks it a symlink, and
-    // its contents would be the link target. Following it would let an
-    // archive point anywhere on the filesystem.
     QVERIFY(writeZip(m_zip, {
         regularFile("Lightning.exe", QByteArray("ok")),
         symlinkEntry("config", QByteArray("/etc/shadow")),
@@ -658,7 +602,7 @@ void UpdaterZipSafetyTest::refusesATruncatedArchive()
     QVERIFY(writeZip(m_zip, {regularFile("a.txt", QByteArray(512, 'z'))}));
     QFile file(m_zip);
     QVERIFY(file.open(QIODevice::ReadWrite));
-    QVERIFY(file.resize(file.size() - 8)); // clip the end-of-central-directory
+    QVERIFY(file.resize(file.size() - 8));
     file.close();
 
     const ArchiveResult result = extractZipSafely(m_zip, m_staging);
@@ -732,7 +676,6 @@ void UpdaterZipSafetyTest::listingAppliesTheSameVerdicts()
     QVERIFY2(listed.ok(), archiveErrorName(listed.error));
     QCOMPARE(names, QStringList({QStringLiteral("Lightning.exe"),
                                  QStringLiteral("data/x.txt")}));
-    // Listing writes nothing.
     QVERIFY(QDir(m_staging).entryList(QDir::AllEntries | QDir::NoDotAndDotDot)
                 .isEmpty());
 
@@ -744,15 +687,6 @@ void UpdaterZipSafetyTest::listingAppliesTheSameVerdicts()
     QCOMPARE(listed.error, ArchiveError::UnsafeEntryPath);
 }
 
-// ---------------------------------------------------------------------------
-// The reader, deflated (method 8) entries: the shape of the shipped portable
-// ZIP. These drive the inflate loop, its per-chunk output cap, the
-// compression-ratio refusal, and the CRC-32 over inflated bytes.
-// ---------------------------------------------------------------------------
-
-// Skips, rather than passing vacuously, when either this test binary or
-// SafeArchive.cpp itself was built without zlib. Both must agree: the test
-// compresses the fixture, the library inflates it.
 #define SKIP_WITHOUT_DEFLATE()                                                 \
     do {                                                                       \
         if (!kTestBuildHasZlib || !deflateSupportAvailable())                  \
@@ -763,19 +697,15 @@ void UpdaterZipSafetyTest::extractsADeflatedArchive()
 {
     SKIP_WITHOUT_DEFLATE();
 
-    // Realistic sizes: each payload is several inflate chunks long (the reader
-    // works in 64 KiB steps), so the streaming loop really iterates.
-    const QByteArray exe = compressibleBlob(4096, 32, 0x5EEDu);        // 128 KiB
-    const QByteArray dll = compressibleBlob(1024, 200, 0xBEEFu);       // 200 KiB
-    QByteArray text;                                                   // ~90 KiB
+    const QByteArray exe = compressibleBlob(4096, 32, 0x5EEDu);
+    const QByteArray dll = compressibleBlob(1024, 200, 0xBEEFu);
+    QByteArray text;
     for (int line = 0; line < 2000; ++line) {
         text += QStringLiteral("ąčę %1 Lightning portable build line\n")
                     .arg(line, 8, 10, QLatin1Char('0'))
                     .toUtf8();
     }
 
-    // Every payload here must be ordinary content, not a bomb, or the ratio
-    // guard would refuse it and nothing about the inflate path is tested.
     const auto isOrdinarilyCompressible = [](const QByteArray &plain) {
         const QByteArray compressed = deflateRaw(plain);
         return !compressed.isEmpty()
@@ -792,8 +722,6 @@ void UpdaterZipSafetyTest::extractsADeflatedArchive()
         deflatedFile("share/ištekliai/readme.txt", text),
     }));
 
-    // The fixture must actually be compressed, or this proves nothing about
-    // the inflate path.
     QVERIFY(QFileInfo(m_zip).size()
             < exe.size() + dll.size() + text.size());
 
@@ -814,7 +742,6 @@ void UpdaterZipSafetyTest::extractsADeflatedArchive()
     QCOMPARE(readBack(QStringLiteral("plugins/platforms/qwindows.dll")), dll);
     QCOMPARE(readBack(QStringLiteral("share/ištekliai/readme.txt")), text);
 
-    // Nesting was created by the reader, not by the fixture.
     QVERIFY(QFileInfo(root.absoluteFilePath(QStringLiteral("plugins/platforms")))
                 .isDir());
     QCOMPARE(filesUnderStaging().size(), qsizetype(3));
@@ -824,11 +751,8 @@ void UpdaterZipSafetyTest::extractsAMixedStoredAndDeflatedArchive()
 {
     SKIP_WITHOUT_DEFLATE();
 
-    // A real `zip -X` archive stores what does not shrink and deflates what
-    // does, so both members must work in one pass — and the reader must pick
-    // the branch per entry, from the central directory's method field.
     const QByteArray stored = QByteArray("incompressible-enough\n");
-    const QByteArray deflated = compressibleBlob(2048, 64, 0xA11CEu); // 128 KiB
+    const QByteArray deflated = compressibleBlob(2048, 64, 0xA11CEu);
 
     QVERIFY(writeZip(m_zip, {
         regularFile("stored.txt", stored),
@@ -858,9 +782,6 @@ void UpdaterZipSafetyTest::extractsADeflatedEmptyEntry()
 {
     SKIP_WITHOUT_DEFLATE();
 
-    // An empty member is still a real deflate stream (one empty final block),
-    // so compressedSize is non-zero while uncompressedSize is 0. The reader
-    // must inflate it, produce nothing, and match the CRC of no bytes.
     QVERIFY(writeZip(m_zip, {deflatedFile("empty.txt", QByteArray())}));
 
     const ArchiveResult result = extractZipSafely(m_zip, m_staging);
@@ -877,18 +798,13 @@ void UpdaterZipSafetyTest::refusesDeflateOutputBeyondTheDeclaredSize()
 {
     SKIP_WITHOUT_DEFLATE();
 
-    // The ratio guard sees only declared sizes, so an archive understating
-    // uncompressedSize passes it; the streaming per-chunk cap must stop the
-    // write mid-stream.
-    const QByteArray real = compressibleBlob(4096, 64, 0xD0D0u); // 256 KiB
-    const qint64 lie = 96 * 1024;                                // < one quarter
+    const QByteArray real = compressibleBlob(4096, 64, 0xD0D0u);
+    const qint64 lie = 96 * 1024;
 
     ZipEntry entry = deflatedFile("payload.bin", real);
     entry.declaredUncompressedSize = lie;
     QVERIFY(writeZip(m_zip, {entry}));
 
-    // The lie is small enough that the declared ratio is unremarkable, which
-    // is the point: metadata validation cannot catch this one.
     const ArchiveResult result = extractZipSafely(m_zip, m_staging);
     QCOMPARE(result.error, ArchiveError::EntrySizeExceeded);
     QVERIFY2(filesUnderStaging().isEmpty(),
@@ -900,14 +816,10 @@ void UpdaterZipSafetyTest::refusesAnInvalidDeflateBlockType()
 {
     SKIP_WITHOUT_DEFLATE();
 
-    // BTYPE 3 is reserved and can never appear in a valid stream, so this
-    // pins the typed error exactly: inflate must fail, not merely disagree
-    // about the length or the checksum.
     ZipEntry entry = deflatedFile("payload.bin", compressibleBlob(1024, 32, 1u));
     entry.mutatePayload = [](QByteArray &payload) {
         if (payload.isEmpty())
             return;
-        // bit 0 = BFINAL, bits 1-2 = BTYPE; 0b11 is the reserved value.
         payload[0] = static_cast<char>((static_cast<quint8>(payload.at(0)) & 0xF8u)
                                        | 0x06u);
     };
@@ -922,11 +834,6 @@ void UpdaterZipSafetyTest::refusesACorruptDeflateStream()
 {
     SKIP_WITHOUT_DEFLATE();
 
-    // Bit rot in the middle of the payload. Which refusal it lands on depends
-    // on where the damage falls — a broken Huffman code, a stream that ends
-    // early, or output that no longer matches the CRC — so the assertion is
-    // that it is refused with one of those typed errors and nothing is left
-    // on disk, never that it is one specific code.
     ZipEntry entry = deflatedFile("payload.bin", compressibleBlob(4096, 32, 0x1234u));
     entry.mutatePayload = [](QByteArray &payload) {
         const qsizetype start = payload.size() / 2;
@@ -950,10 +857,6 @@ void UpdaterZipSafetyTest::refusesATruncatedDeflateStream()
 {
     SKIP_WITHOUT_DEFLATE();
 
-    // The payload is cut short AND compressedSize is adjusted to match, so the
-    // archive is internally consistent and the local-header range check cannot
-    // catch it. Only the inflate loop can: it runs out of input without ever
-    // reaching Z_STREAM_END.
     ZipEntry entry = deflatedFile("payload.bin", compressibleBlob(4096, 32, 0x9E37u));
     entry.mutatePayload = [](QByteArray &payload) {
         payload.chop(qMax<qsizetype>(1, payload.size() / 4));
@@ -969,9 +872,6 @@ void UpdaterZipSafetyTest::refusesABadCrcOverInflatedOutput()
 {
     SKIP_WITHOUT_DEFLATE();
 
-    // The stream is valid and inflates to exactly the declared length; only
-    // the checksum disagrees. This is the one case that proves the CRC is
-    // computed over the INFLATED bytes rather than over the compressed ones.
     ZipEntry entry = deflatedFile("payload.bin", compressibleBlob(2048, 40, 0x77u));
     entry.corruptCrc = true;
     QVERIFY(writeZip(m_zip, {entry}));
@@ -986,8 +886,6 @@ void UpdaterZipSafetyTest::refusesADeflateBombAtTheDefaultRatioCap()
 {
     SKIP_WITHOUT_DEFLATE();
 
-    // 2 MiB of zeros. The fixture is asserted to exceed the shipped
-    // maxCompressionRatio first, so the refusal comes from the default limit.
     const ArchiveLimits defaults;
     const QByteArray bomb(2 * 1024 * 1024, '\0');
     const QByteArray compressed = deflateRaw(bomb);
@@ -1003,7 +901,6 @@ void UpdaterZipSafetyTest::refusesADeflateBombAtTheDefaultRatioCap()
 
     const ArchiveResult result = extractZipSafely(m_zip, m_staging);
     QCOMPARE(result.error, ArchiveError::CompressionRatioExceeded);
-    // Refused on the declared metadata alone: not one byte was inflated.
     QCOMPARE(result.bytesWritten, qint64(0));
     QVERIFY(filesUnderStaging().isEmpty());
 }
@@ -1012,17 +909,12 @@ void UpdaterZipSafetyTest::acceptsAnEntryAtTheCompressionRatioCap()
 {
     SKIP_WITHOUT_DEFLATE();
 
-    // The guard refuses when uncompressed > compressed * maxCompressionRatio,
-    // so the smallest cap that still accepts this entry is ceil(u / c). Both
-    // sides of that boundary are derived from the payload the fixture really
-    // produces rather than from a number that would drift.
-    const QByteArray plain = compressibleBlob(1024, 300, 0xC0FFEEu); // 300 KiB
+    const QByteArray plain = compressibleBlob(1024, 300, 0xC0FFEEu);
     const QByteArray compressed = deflateRaw(plain);
     QVERIFY(!compressed.isEmpty());
     const int exactRatio = static_cast<int>(
         (qint64(plain.size()) + compressed.size() - 1) / compressed.size());
     QVERIFY(exactRatio > 1);
-    // Realistic content: the shipped cap would accept it too.
     QVERIFY(exactRatio <= ArchiveLimits().maxCompressionRatio);
 
     QVERIFY(writeZip(m_zip, {deflatedFile("data.bin", plain)}));
@@ -1036,7 +928,6 @@ void UpdaterZipSafetyTest::acceptsAnEntryAtTheCompressionRatioCap()
     QCOMPARE(out.readAll(), plain);
     out.close();
 
-    // One step tighter and the very same archive is refused.
     resetStaging();
     limits.maxCompressionRatio = exactRatio - 1;
     result = extractZipSafely(m_zip, m_staging, limits);
@@ -1048,8 +939,6 @@ void UpdaterZipSafetyTest::refusesADeflatedTraversalEntry()
 {
     SKIP_WITHOUT_DEFLATE();
 
-    // The path verdict must be reached before the method is ever consulted:
-    // compression is not a way around the traversal check.
     QVERIFY(writeZip(m_zip, {
         deflatedFile("../escape.txt", compressibleBlob(1024, 16, 0x2Bu)),
     }));
@@ -1060,7 +949,6 @@ void UpdaterZipSafetyTest::refusesADeflatedTraversalEntry()
     QVERIFY(!QFileInfo::exists(
         QDir(m_dir.path()).absoluteFilePath(QStringLiteral("escape.txt"))));
 
-    // Listing refuses it on the same verdict, and still writes nothing.
     QStringList names;
     const ArchiveResult listed = listZipEntries(m_zip, m_staging, &names);
     QCOMPARE(listed.error, ArchiveError::UnsafeEntryPath);
@@ -1071,8 +959,6 @@ void UpdaterZipSafetyTest::refusesADeflatedSymlinkEntry()
 {
     SKIP_WITHOUT_DEFLATE();
 
-    // The link target is the member's content, so a symlink entry can be
-    // deflated like any other. The unix mode still decides.
     ZipEntry entry = symlinkEntry("config", QByteArray("/etc/shadow"));
     entry.method = 8;
     QVERIFY(writeZip(m_zip, {entry}));

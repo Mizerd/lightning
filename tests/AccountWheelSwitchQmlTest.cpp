@@ -1,8 +1,3 @@
-// Mouse wheel over the account tile cycles accounts (GitHub #54): wheel up =
-// previous, down = next, wrapping; one switch per notch; nothing while a switch
-// runs; touchpad deltas accumulate to one notch; accounts needing a sign-in
-// are skipped. Real AccountWheelSwitch through the "MatrixClient" module, real
-// wheel events through a window.
 
 #include <QtTest/QtTest>
 
@@ -53,7 +48,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class AccountWheelSwitchQmlTest : public QObject
 {
@@ -75,7 +70,6 @@ class AccountWheelSwitchQmlTest : public QObject
         m_root->setProperty("requests", QVariantList());
         m_root->setProperty("active", active);
         m_root->setProperty("busy", false);
-        // Let any lock from the previous case expire.
         QTest::qWait(120);
     }
     void wheel(int angleY, Qt::ScrollPhase phase = Qt::NoScrollPhase,
@@ -106,17 +100,17 @@ private Q_SLOTS:
         wheel(-120);
         QCOMPARE(requests(), QStringList{QStringLiteral("@b:x")});
         QTest::qWait(100);
-        wheel(-120);   // @c needs a sign-in: skipped
+        wheel(-120);
         QCOMPARE(requests(), (QStringList{QStringLiteral("@b:x"),
                                           QStringLiteral("@d:x")}));
     }
     void wheelUpIsPreviousAndWraps()
     {
         reset();
-        wheel(120);   // before the first is the last usable one
+        wheel(120);
         QCOMPARE(requests(), QStringList{QStringLiteral("@d:x")});
         QTest::qWait(100);
-        wheel(-120);  // and next from the last wraps to the first
+        wheel(-120);
         QCOMPARE(requests(), (QStringList{QStringLiteral("@d:x"),
                                           QStringLiteral("@a:x")}));
     }
@@ -144,7 +138,6 @@ private Q_SLOTS:
         QVERIFY2(requests().isEmpty(), "100 units is not a notch yet");
         wheel(-20, Qt::ScrollUpdate, QPoint(0, -3));
         QCOMPARE(requests().size(), 1);
-        // The tail of the same swipe is held back by the lock.
         for (int i = 0; i < 12; ++i)
             wheel(-20, Qt::ScrollUpdate, QPoint(0, -3));
         QCOMPARE(requests().size(), 1);

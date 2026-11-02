@@ -1,18 +1,3 @@
-// One end of a real legacy 1:1 call, driven line by line on stdin, for the
-// scenario scripts behind docs/live-validation.md: a real homeserver, the real
-// Rust SDK and E2EE, the real CallController and the real engine in test-tone
-// mode (a sine and a moving pattern, so no devices). It prints one JSON line a
-// second, with what actually arrived, so a script can tell a call that looks
-// connected from one that carries media.
-//
-// Built only with -DLIGHTNING_BUILD_LEGACY_CALL_PEER=ON. Never run by CTest.
-//
-//   LIGHTNING_LIVE_HOMESERVER=http://127.0.0.1:18008
-//   LIGHTNING_LIVE_USER=@someone:…   LIGHTNING_LIVE_PASSWORD=…
-//   LIGHTNING_LIVE_ROOM=!room:…      LIGHTNING_LIVE_STORE=/scratch/dir
-//
-// Commands: room <id>, call voice|video, answer [audio], decline, hangup, mute 0|1,
-// deafen 0|1, camera 0|1, quit. The password is never logged.
 #include "app/SettingsManager.h"
 #include "calls/CallController.h"
 #include "calls/GstCallMediaBackend.h"
@@ -34,7 +19,7 @@ QString env(const char *name)
 {
     return QString::fromLocal8Bit(qgetenv(name));
 }
-} // namespace
+}
 
 int main(int argc, char **argv)
 {
@@ -49,7 +34,6 @@ int main(int argc, char **argv)
     SettingsManager settings;
     RustSdkMatrixClient client(&settings);
     CallController calls;
-    // Initialises GStreamer, as AppController's probe does.
     if (!GstCallMediaBackend::runtimeAvailable())
         return 3;
     GstCallMediaBackend engine;
@@ -92,7 +76,6 @@ int main(int argc, char **argv)
                      [&] { report(QStringLiteral("video")); });
     QObject::connect(&client, &MatrixClient::loginSucceeded, &app, [&] {
         client.startSync();
-        // The app lowers the backlog gate once sync is live.
         QTimer::singleShot(8000, &app, [&] {
             calls.setBacklogSuppressed(false);
             report(QStringLiteral("ready"));

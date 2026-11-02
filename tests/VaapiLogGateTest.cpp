@@ -2,10 +2,6 @@
 
 #include <QtTest>
 
-// The VAAPI warning gate: Qt's FFmpeg backend can emit
-// "vaExportSurfaceHandle failed" / "failed to get textures for frame" once
-// per frame. The gate passes the first occurrences, then drops the storm with
-// periodic summaries, and never touches other messages.
 class VaapiLogGateTest : public QObject
 {
     Q_OBJECT
@@ -45,7 +41,7 @@ private Q_SLOTS:
             }
         }
         QCOMPARE(printed, int(VaapiLogGate::kPassThrough));
-        QCOMPARE(summaries, 2); // occurrences 500 and 1000
+        QCOMPARE(summaries, 2);
         QCOMPARE(dropped, 1200 - printed - summaries);
         QCOMPARE(gate.seen(), Q_INT64_C(1200));
         QVERIFY(gate.summaryLine().contains(QStringLiteral("1200")));

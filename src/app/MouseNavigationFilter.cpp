@@ -14,11 +14,11 @@ MouseNavigationFilter::Direction
 MouseNavigationFilter::directionFor(Qt::MouseButton button)
 {
     switch (button) {
-    case Qt::BackButton:     // == Qt::ExtraButton1 (XButton1, BTN_SIDE)
-    case Qt::ExtraButton4:   // BTN_BACK on QtWayland
+    case Qt::BackButton:
+    case Qt::ExtraButton4:
         return Direction::Back;
-    case Qt::ForwardButton:  // == Qt::ExtraButton2 (XButton2, BTN_EXTRA)
-    case Qt::ExtraButton3:   // BTN_FORWARD on QtWayland
+    case Qt::ForwardButton:
+    case Qt::ExtraButton3:
         return Direction::Forward;
     default:
         return Direction::None;
@@ -33,8 +33,6 @@ bool MouseNavigationFilter::windowHasOpenPopup(const QQuickWindow *window)
     for (QQuickItem *child : top) {
         if (!child->inherits("QQuickOverlay"))
             continue;
-        // As AppController::dismissPopupForEscape(): a popup's item is a
-        // child of the overlay and its QObject parent is the QQuickPopup.
         const auto items = child->childItems();
         for (QQuickItem *item : items) {
             QObject *popup = item->parent();
@@ -87,21 +85,16 @@ bool MouseNavigationFilter::eventFilter(QObject *watched, QEvent *event)
     const auto *mouse = static_cast<QMouseEvent *>(event);
     const Direction direction = directionFor(mouse->button());
     if (direction == Direction::None) {
-        // Another button going down while Back/Forward is held makes it a
-        // chord, not a tap: as browsers do, it navigates nowhere.
         if (type == QEvent::MouseButtonPress)
             m_pressed = Direction::None;
         return false;
     }
-    // Only a mouse or touchpad has these buttons; anything synthesized from
-    // a touchscreen or a stylus is not a Back press.
     const QInputDevice *device = mouse->device();
     if (device && device->type() != QInputDevice::DeviceType::Mouse
         && device->type() != QInputDevice::DeviceType::TouchPad)
         return false;
 
     if (type == QEvent::MouseButtonPress) {
-        // Pressed while another button is held: a chord, ignored as well.
         if (mouse->buttons() & ~Qt::MouseButtons(mouse->button())) {
             m_pressed = Direction::None;
             return false;
@@ -114,7 +107,6 @@ bool MouseNavigationFilter::eventFilter(QObject *watched, QEvent *event)
         return false;
     }
 
-    // Release.
     if (direction != m_pressed)
         return false;
     m_pressed = Direction::None;
@@ -124,9 +116,6 @@ bool MouseNavigationFilter::eventFilter(QObject *watched, QEvent *event)
         (mouse->scenePosition() - m_pressPos).manhattanLength();
     if (moved > QGuiApplication::styleHints()->startDragDistance())
         return false;
-    // Queued: the release is still to be delivered to whatever grabbed the
-    // press, and opening a room rebuilds the scene under it. Asked again when
-    // it runs: nothing may have opened, and no sign-out begun, meanwhile.
     QMetaObject::invokeMethod(this, [this, direction] {
         if (mayNavigate() && m_navigate)
             m_navigate(direction);
@@ -134,4 +123,4 @@ bool MouseNavigationFilter::eventFilter(QObject *watched, QEvent *event)
     return false;
 }
 
-} // namespace lightning
+}

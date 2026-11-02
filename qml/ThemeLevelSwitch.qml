@@ -3,16 +3,9 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Simple / Groups / Elements: how much structure the theme editor shows. One
-// editor, three amounts of detail; nothing is removed at a lower level, a click
-// on the sample window always reaches the element it landed on.
-//
-// Painted in the invariant editor tokens (see `editorCanvas` in AppTheme.qml):
-// a theme being edited must not be able to hide its own editor.
 Rectangle {
     id: root
 
-    // 0 Simple, 1 Groups, 2 Elements.
     property int level: 0
     signal levelRequested(int level)
 
@@ -30,9 +23,6 @@ Rectangle {
     color: AppTheme.editorInset
     border.width: 1
     border.color: AppTheme.editorBorderStrong
-    // The group holds the focus (one tab stop), so it is what a screen reader
-    // lands on: focusable, and it announces the checked segment itself because
-    // the segments cannot be focused individually.
     Accessible.role: Accessible.Grouping
     Accessible.focusable: true
     Accessible.name: qsTr("Detail level")
@@ -102,8 +92,6 @@ Rectangle {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        // Mouse and keyboard are one control: a click leaves the
-                        // switch focused so the arrows work straight away.
                         root.forceActiveFocus(Qt.MouseFocusReason)
                         root.levelRequested(seg.index)
                     }

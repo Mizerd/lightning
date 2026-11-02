@@ -18,7 +18,7 @@ namespace {
 /// it while the stored value is absent). Behaves as Space order inside a real
 /// Space and as Activity everywhere else; any explicit mode replaces it.
 constexpr int kSortUnset = -1;
-} // namespace
+}
 
 RoomListModel::RoomListModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -34,8 +34,6 @@ RoomListModel::RoomListModel(QObject *parent)
         m_hold.release();
         reconcileRooms();
     });
-    // Per-room update signals (roomUpdated per event, membersChanged per
-    // roster) coalesce onto one zero-timer reconcile per event-loop turn.
     m_reconcileCoalesce.setSingleShot(true);
     m_reconcileCoalesce.setInterval(0);
     connect(&m_reconcileCoalesce, &QTimer::timeout,
@@ -43,14 +41,10 @@ RoomListModel::RoomListModel(QObject *parent)
 
     setDirectAvatarResolver(nullptr);
 
-    // A held order is never allowed to go stale for ever.
     m_holdCap.setSingleShot(true);
     m_holdCap.setInterval(kHoldCapMs);
     connect(&m_holdCap, &QTimer::timeout, this, &RoomListModel::releaseOrder);
 
-    // The favourites boundary derives from the current rows, and the model
-    // mutates through many entry points; hooking its own change signals covers
-    // all of them.
     const auto boundary = [this] {
         updateFavouritesBoundary();
         updateUnreadTotals();
@@ -85,7 +79,6 @@ void RoomListModel::setClient(MatrixClient *client)
     if (m_client)
         m_client->disconnect(this);
     m_client = client;
-    // Another client's rooms are not these rooms: nothing to hold.
     m_hold.release();
     m_directAvatars->setClient(m_client);
     clearAdvertisedBridges();
@@ -118,8 +111,6 @@ void RoomListModel::setClient(MatrixClient *client)
                 [this](const QString &roomId) { m_pendingMarkRead.remove(roomId); });
     }
     m_pendingMarkRead.clear();
-    // The capability belongs to the backend, so it can only change when the
-    // client is swapped.
     Q_EMIT roomFavouritesSupportedChanged();
     refresh();
 }
@@ -127,7 +118,6 @@ void RoomListModel::setClient(MatrixClient *client)
 void RoomListModel::clearProfileCaches()
 {
     m_directAvatars->clear();
-    // Bridge answers are keyed by room id and belong to the previous account.
     clearAdvertisedBridges();
     m_hold.release();
     refresh();
@@ -144,14 +134,11 @@ void RoomListModel::setSpaceManager(SpaceManager *spaces)
         connect(m_spaces, &SpaceManager::activeSpaceIdChanged, this, [this] {
             ++m_filterGeneration;
             Q_EMIT filterGenerationChanged();
-            // A different Space is a different list: order it fresh.
             m_hold.release();
             reconcileRooms();
         });
         connect(m_spaces, &SpaceManager::spacesChanged,
                 this, &RoomListModel::refresh);
-        // A Space roster changes which DMs the People scope admits. Only the
-        // active Space affects the filter.
         connect(m_spaces, &SpaceManager::spaceRosterChanged, this,
                 [this](const QString &spaceId) {
             if (!m_spaces || spaceId != m_spaces->activeSpaceId())
@@ -172,7 +159,6 @@ int RoomListModel::rowCount(const QModelIndex &parent) const
 }
 
 namespace {
-// The MembershipRole / findRoom() spelling of a room's own membership.
 QString membershipName(RoomInfo::Membership membership)
 {
     switch (membership) {
@@ -183,7 +169,7 @@ QString membershipName(RoomInfo::Membership membership)
     }
     return QStringLiteral("joined");
 }
-} // namespace
+}
 
 QVariant RoomListModel::data(const QModelIndex &index, int role) const
 {
@@ -193,9 +179,6 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     switch (role) {
     case RoomIdRole:             return r.id;
     case NameRole: {
-        // Bridged DMs only: repair the ghost-localpart degradation and the
-        // hero arithmetic (see BridgeNetwork::presentableDmName). A native
-        // room's directUserId yields no network and passes through as-is.
         if (r.isDirect && !r.directUserId.isEmpty()) {
             const auto dm =
                 matrix::bridge::presentableDmName(r.name, r.directUserId);
@@ -239,8 +222,6 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case SuccessorRoomIdRole:    return r.successorRoomId;
     case SupersededByAccessibleSuccessorRole:
         return m_supersededRoomIds.contains(r.id);
-    // Both roles are synchronous and fetch nothing; the MSC2346 read that fills
-    // the hash is user-driven (see setAdvertisedBridge).
     case NetworkRole:            return badgeFor(r).networkId;
     case NetworkLabelRole:       return badgeFor(r).label;
     default:                     return {};
@@ -297,8 +278,6 @@ QStringList RoomListModel::roomIdsBetween(int first, int last) const
 
 QVariantMap RoomListModel::findRoom(const QString &roomId) const
 {
-    // Search the client's full room set so lookups ignore the active Space
-    // filter.
     if (!m_client)
         return {};
     for (const auto &r : m_client->rooms()) {
@@ -310,27 +289,15 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
                 { QStringLiteral("topic"),     r.topic },
                 { QStringLiteral("avatarUrl"), effectiveAvatarUrl(r) },
                 { QStringLiteral("encrypted"), r.encrypted },
-                // Whether `encrypted` is a synced fact; the find bar's History
-                // offer fails closed on false.
                 { QStringLiteral("encryptionKnown"), r.encryptionKnown },
                 { QStringLiteral("unreadCount"), shownUnread(r) },
                 { QStringLiteral("isSpace"),   r.isSpace },
-                // The invite dialog's room header prefers the canonical alias.
                 { QStringLiteral("canonicalAlias"), r.canonicalAlias },
-                // The room header uses isDirect for circular avatars, and the
-                // composer for the DM bubble layout.
                 { QStringLiteral("isDirect"),  r.isDirect },
-                // Every m.direct target; the legacy call lane needs to know
-                // whether "direct" means exactly one other person.
                 { QStringLiteral("directUserIds"), r.directUserIds },
-                // One fallback-colour policy everywhere (see RoomInfo.h).
                 { QStringLiteral("identityColorKey"), identityColorKey(r) },
-                // The bridge badge the row shows, so the room info panel agrees
-                // with it.
                 { QStringLiteral("bridgeNetwork"), badge.networkId },
                 { QStringLiteral("bridgeLabel"),   badge.label },
-                // An invited room shows the invite card instead of a timeline
-                // (TimelinePane.invitePreview); same strings as the roles.
                 { QStringLiteral("membership"), membershipName(r.membership) },
                 { QStringLiteral("inviter"), r.inviterDisplayName.isEmpty()
                       ? r.inviterUserId : r.inviterDisplayName },
@@ -338,9 +305,6 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
                 { QStringLiteral("invitePending"), r.invitePending },
                 { QStringLiteral("inviteError"),   r.inviteError },
             };
-            // Head counts and the join rule only when the SDK reported them,
-            // so the leave dialog's "only member" wording never rests on a
-            // default (absent = unknown there).
             if (r.joinedMemberCount > 0) {
                 found.insert(QStringLiteral("joinedMemberCount"), r.joinedMemberCount);
                 if (r.activeMemberCount >= r.joinedMemberCount)
@@ -357,14 +321,9 @@ QVariantMap RoomListModel::findRoom(const QString &roomId) const
 
 QVariantList RoomListModel::recentRooms(int max) const
 {
-    // Immune to the mode filter so a chip never reshapes Home's "jump back in"
-    // strip: the client's list with scope filters (space + search) only,
-    // re-sorted by activity.
     QList<RoomInfo> pool;
     if (m_client) {
         for (const auto &r : m_client->rooms()) {
-            // Spaces belong to the rail; invites and left rooms are not
-            // somewhere to "jump back in".
             if (r.isSpace || r.membership != RoomInfo::Joined)
                 continue;
             if (!passesScopeFilter(r))
@@ -387,13 +346,9 @@ QVariantList RoomListModel::recentRooms(int max) const
             { QStringLiteral("name"),        r.name },
             { QStringLiteral("avatarUrl"),   effectiveAvatarUrl(r) },
             { QStringLiteral("isDirect"),    r.isDirect },
-            // The shared rule, so a marked-unread, thread-only or mention room
-            // reads unread here exactly as in the room list, and a muted one
-            // does not.
             { QStringLiteral("hasUnread"),
               roomunread::countsAsUnread(r, notificationModeOf(r.id)) },
             { QStringLiteral("unreadCount"), shownUnread(r) },
-            // Home: activity recency and the mention badge.
             { QStringLiteral("lastActivity"), r.lastActivity },
             { QStringLiteral("highlightCount"), r.membership == RoomInfo::Joined
                   ? roomunread::mentionCount(r, notificationModeOf(r.id))
@@ -406,10 +361,6 @@ QVariantList RoomListModel::recentRooms(int max) const
 
 QVariantList RoomListModel::spacesSummary(int max) const
 {
-    // Home's Spaces strip: joined Spaces in list order, presentation fields
-    // only; the rail remains the authoritative navigation. Iterates the client,
-    // not `m_rooms`, because passesScopeFilter() drops joined Spaces from
-    // `m_rooms`.
     QVariantList out;
     if (!m_client)
         return out;
@@ -429,19 +380,12 @@ QVariantList RoomListModel::spacesSummary(int max) const
 
 QString RoomListModel::effectiveAvatarUrl(const RoomInfo &room) const
 {
-    // Derived by DirectAvatarResolver, shared with the Channels column so the
-    // two agree.
     return m_directAvatars->avatarFor(room);
 }
 
-// Scope filters only (space-room exclusion, search, Space membership),
-// shared by the list filter and mode-immune surfaces like Home's recent
-// strip.
 bool RoomListModel::passesScopeFilter(const RoomInfo &r) const
 {
-    // Space rooms themselves belong to the rail, not the room list.
     if (r.isSpace && r.membership == RoomInfo::Joined) return false;
-    // Accent- and case-insensitive, like the local message search.
     if (!m_searchQuery.isEmpty()) {
         const QString needle = textfold::fold(m_searchQuery);
         if (!textfold::fold(r.name).contains(needle)
@@ -450,20 +394,10 @@ bool RoomListModel::passesScopeFilter(const RoomInfo &r) const
     }
     if (!m_spaces) return true;
     const QString active = m_spaces->activeSpaceId();
-    if (active.isEmpty()) return true; // "All rooms"
-    // A DM is never a Space's child, so it is scoped by the Space's people:
-    // whether the other person is in this Space (SpaceManager::directScope), as
-    // Element does.
-    //
-    // This is a removal filter over rows already shown, so an unknown roster
-    // (unfetched, in flight, truncated, failed) fails open and every DM stays.
-    // Applying it in the scope predicate keeps All equal to People plus Rooms.
-    // Real Spaces only; "@orphans" and "@people" show every DM.
+    if (active.isEmpty()) return true;
     if (r.isDirect) {
         if (!SpaceManager::isRealSpaceId(active))
             return true;
-        // directUserIds is the authoritative m.direct list; the singular field
-        // is the fallback for backends that only fill it.
         QStringList peers = r.directUserIds;
         if (peers.isEmpty() && !r.directUserId.isEmpty())
             peers.append(r.directUserId);
@@ -476,25 +410,18 @@ bool RoomListModel::passesFilter(const RoomInfo &r) const
 {
     if (!passesScopeFilter(r))
         return false;
-    // Element-style mode filter. Invites always pass (they need action), and in
-    // Unreads mode the pinned (open) room stays so reading it does not remove
-    // the selected row.
     if (m_filterMode != 0 && r.membership != RoomInfo::Invited) {
         switch (m_filterMode) {
-        case 1: // People
+        case 1:
             if (!r.isDirect) return false;
             break;
-        case 2: // Rooms
+        case 2:
             if (r.isDirect) return false;
             break;
-        case 4: // Favourites
+        case 4:
             if (!r.isFavourite) return false;
             break;
-        case 3: // Unreads
-            // The shared rule, plus a muted room the user marked unread (its
-            // row draws that grey dot): a room unread only in a thread has no
-            // receipt flag and no highlight, only a count, and SpaceChannelModel's
-            // Unreads chip lists it.
+        case 3:
             if (!roomunread::listsAsUnread(r, notificationModeOf(r.id))) {
                 if (r.id != m_pinnedRoomId)
                     return false;
@@ -509,16 +436,12 @@ bool RoomListModel::passesFilter(const RoomInfo &r) const
 
 void RoomListModel::setFilterMode(int mode)
 {
-    // As in SettingsManager: an unknown value falls back to All rather than the
-    // nearest edge.
     const int clamped = (mode < 0 || mode > 4) ? 0 : mode;
     if (clamped == m_filterMode)
         return;
     m_filterMode = clamped;
-    // Same sequence as the search and Space filter changes.
     ++m_filterGeneration;
     Q_EMIT filterGenerationChanged();
-    // A different tab is a different list: order it fresh.
     m_hold.release();
     reconcileRooms();
     Q_EMIT filterModeChanged();
@@ -529,8 +452,6 @@ void RoomListModel::setPinnedRoomId(const QString &roomId)
     if (roomId == m_pinnedRoomId)
         return;
     m_pinnedRoomId = roomId;
-    // Opening a room must not move it for a stamp that predates the open (see
-    // RecencyHold). The baseline is what the room sorts by right now.
     QDateTime liveNow;
     if (m_client && !roomId.isEmpty()) {
         for (const RoomInfo &r : m_client->rooms()) {
@@ -540,8 +461,6 @@ void RoomListModel::setPinnedRoomId(const QString &roomId)
             }
         }
     }
-    // Moving to another room is the user looking away from the list, which is
-    // when a held order is applied (Element does the same).
     const bool hadHold = m_hold.enabled();
     m_hold.release();
     m_hold.setOpenRoom(roomId, liveNow);
@@ -559,21 +478,16 @@ void RoomListModel::setDeferReordering(bool defer)
         return;
     m_hold.setEnabled(defer);
     Q_EMIT deferReorderingChanged();
-    // On: take the snapshot of the order on screen. Off: back to live now.
     reconcileRooms();
 }
 
 void RoomListModel::setSortMode(int mode)
 {
-    // kSortUnset ("the user never chose a sort") is its own state, not an
-    // unknown value: normalizedSortMode() would fold it into Activity and a
-    // Space's list would then disagree with its lobby until the menu was used.
     const int valid = mode == kSortUnset ? kSortUnset
                                          : conversation::normalizedSortMode(mode);
     if (valid == m_sortMode)
         return;
     m_sortMode = valid;
-    // A held order belongs to the old mode; drop it so the new one shows now.
     m_hold.release();
     reconcileRooms();
     Q_EMIT sortModeChanged();
@@ -593,7 +507,6 @@ void RoomListModel::setHoldCapMs(int ms)
 void RoomListModel::setOrderHeld(bool held)
 {
     if (held) {
-        // Armed once per stale spell, not restarted by every message.
         if (m_holdCap.interval() > 0 && !m_holdCap.isActive())
             m_holdCap.start();
     } else {
@@ -626,16 +539,12 @@ QSet<QString> RoomListModel::computeSupersededRoomIds() const
         if (room.successorRoomId.isEmpty())
             continue;
         const RoomInfo *successor = byId.value(room.successorRoomId, nullptr);
-        // Unknown successor: no evidence the user can reach it, so do not
-        // de-emphasize the row.
         if (!successor)
             continue;
         if (successor->membership != RoomInfo::Joined
             && successor->membership != RoomInfo::Invited) {
             continue;
         }
-        // The successor must point back at this room; otherwise a bad tombstone
-        // could bury a live room.
         if (successor->predecessorRoomId != room.id)
             continue;
         superseded.insert(room.id);
@@ -658,9 +567,6 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
         }
         m_hold.retainOnly(everyId);
         if (m_sortMode == conversation::SortByName) {
-            // Same ranks, same demotion of a superseded room; only the order
-            // inside a rank changes. Nothing here depends on activity, so
-            // there is nothing to hold and no pending re-sort.
             const QCollator collator = conversation::makeNameCollator();
             std::stable_sort(
                 desired.begin(), desired.end(),
@@ -678,9 +584,6 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
                 });
             return desired;
         }
-        // The stamp each room is ordered by (held, when holding) and the one
-        // it would have if nothing were held. Only the order is held: the
-        // rows written below carry the live RoomInfo.
         QHash<QString, QDateTime> key;
         QHash<QString, QDateTime> target;
         key.reserve(desired.size());
@@ -689,29 +592,11 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
             key.insert(r.id, m_hold.keyFor(r.id, r.lastActivity));
             target.insert(r.id, m_hold.target(r.id, r.lastActivity));
         }
-        // Invitations first, then favourites under their own header, then one
-        // activity feed of DMs and rooms interleaved by recency, then low
-        // priority rooms under theirs. Within each rank the order is recency.
-        //
-        // A room whose successor the user can reach sorts below every live room
-        // of its rank: a demotion, not a filter, so the old room stays
-        // openable. Applied before recency so a superseded room cannot outrank
-        // a live one.
-        // In Space order mode, inside a real Space, the Space defines the order
-        // of its rooms, as its lobby lists them; conversations it does not contain (a DM with one
-        // of its people) follow, by recency.
-        // Only in Space order mode; every other mode is activity here.
-        // With no explicit choice (kSortUnset) a real Space follows its own
-        // order too, so the sidebar and the lobby agree out of the box;
-        // childOrder() is empty for Home and every pseudo selection, which
-        // keeps those on Activity.
         const QHash<QString, int> spaceOrder =
             m_spaces && (m_sortMode == conversation::SortBySpaceOrder
                          || m_sortMode == kSortUnset)
                 ? m_spaces->childOrder(m_spaces->activeSpaceId())
                 : QHash<QString, int>();
-        // Unread first: inside a rank, rooms with something to read lead.
-        // The room's own notification mode applies (a muted room is silent).
         QSet<QString> unreadIds;
         if (m_sortMode == conversation::SortByUnread) {
             for (const auto &r : desired) {
@@ -751,8 +636,6 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
             };
         };
         std::stable_sort(desired.begin(), desired.end(), order(key));
-        // Held differs from live exactly when sorting by the live stamps would
-        // move something.
         m_sortPending =
             !std::is_sorted(desired.begin(), desired.end(), order(target));
     }
@@ -761,8 +644,6 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
 
 void RoomListModel::refresh()
 {
-    // Structural change (roomsChanged/login): reconcile now and drop the
-    // pending coalesced pass.
     m_reconcileCoalesce.stop();
     reconcileRooms();
 }
@@ -788,12 +669,9 @@ void RoomListModel::resolveMissingDirectAvatars()
 
 RoomListModel::BridgeBadge RoomListModel::badgeFor(const RoomInfo &r) const
 {
-    // What the bridge advertises wins over inference, which only works for DMs
-    // and portal aliases.
     const auto it = m_advertisedBridges.constFind(r.id);
     if (it != m_advertisedBridges.constEnd() && !it->label.isEmpty())
         return *it;
-    // No usable advertisement: fall back to the inference.
     const QString inferred =
         matrix::bridge::networkIdForRoom(r.directUserId, r.canonicalAlias);
     return { inferred, matrix::bridge::labelForNetworkId(inferred) };
@@ -808,9 +686,6 @@ void RoomListModel::setAdvertisedBridge(const QString &roomId,
     const auto existing = m_advertisedBridges.constFind(roomId);
     const bool had = existing != m_advertisedBridges.constEnd();
     if (label.isEmpty()) {
-        // "Advertises no bridge" must not erase a still-correct DM inference,
-        // so it is stored as no entry. Belt-and-braces with badgeFor()'s own
-        // empty-label check: the cache and the reader are guarded separately.
         if (!had)
             return;
         m_advertisedBridges.remove(roomId);
@@ -845,8 +720,6 @@ void RoomListModel::reconcileRooms()
     // carries the new value; data() reads this cache to stay linear.
     const QSet<QString> previousSuperseded = m_supersededRoomIds;
     m_supersededRoomIds = computeSupersededRoomIds();
-    // Passed in rather than recomputed: rooms() materialises a fresh list per
-    // call.
     const auto desired = desiredRooms(m_supersededRoomIds);
     QSet<QString> wanted;
     for (const auto &room : desired) wanted.insert(room.id);
@@ -871,9 +744,6 @@ void RoomListModel::reconcileRooms()
     }
     truncate(desired.size());
 
-    // Superseded state can flip without the room's own RoomInfo changing (the
-    // successor is joined or its predecessor link arrives), which replaceRoom
-    // would not notice. Notify the difference explicitly.
     if (previousSuperseded != m_supersededRoomIds) {
         for (int i = 0; i < m_rooms.size(); ++i) {
             const QString &id = m_rooms.at(i).id;
@@ -925,8 +795,6 @@ bool RoomListModel::replaceRoom(int row, const RoomInfo &room)
 {
     if (row < 0 || row >= m_rooms.size() || room.id.isEmpty()) return false;
     if (m_rooms.at(row).id != room.id) return false;
-    // Unchanged rows emit nothing: this runs for every row on every room
-    // update.
     if (m_rooms.at(row) == room) return true;
     m_rooms[row] = room; Q_EMIT dataChanged(index(row), index(row)); return true;
 }
@@ -969,8 +837,6 @@ int RoomListModel::markAllRoomsRead()
 {
     if (!m_client)
         return 0;
-    // Collect first, then mark: markRoomRead() may make the backend republish
-    // the room list we are iterating.
     QStringList targets;
     for (const RoomInfo &room : m_client->rooms()) {
         if (room.membership != RoomInfo::Joined || room.isSpace
@@ -991,8 +857,6 @@ int RoomListModel::markAllRoomsRead()
 void RoomListModel::markRoomRead(const QString &roomId)
 {
     if (!m_client || roomId.isEmpty()) return;
-    // Prefer the backend that can resolve the latest event without a loaded
-    // timeline; the fallback only works for the open room on the Rust backend.
     if (m_client->supportsMarkRoomRead()) {
         // Asynchronous, and the FFI can reject it: announce only once the
         // server accepted (onReadMarkerAdvanced), never on the request.
@@ -1014,27 +878,17 @@ void RoomListModel::markRoomRead(const QString &roomId)
     }
 }
 
-
 void RoomListModel::markRoomUnread(const QString &roomId)
 {
     if (m_client) m_client->setRoomMarkedUnread(roomId, true);
 }
 
-// Where a row sits in the list's top-level order; the only classification in
-// this file. The category role derives from it, so the sort and the section
-// headers cannot disagree (RoomsPanel opens one header per contiguous run of
-// `category`).
 int RoomListModel::orderRankOf(const RoomInfo &room)
 {
-    // Invitations first: they need action, and cannot carry tags yet.
     if (room.membership == RoomInfo::Invited)
         return 0;
-    // Favourites next, under their own header (Element's shape).
     if (room.isFavourite)
         return 1;
-    // Low priority (m.lowpriority) last, under its own header, as Element
-    // does. A room tagged both reads as a favourite: the SDK drops the other
-    // tag when either is set.
     if (room.lowPriority)
         return 3;
     return 2;
@@ -1045,9 +899,6 @@ bool RoomListModel::isCallRoom(const QString &roomId) const
     return !m_callRoomId.isEmpty() && roomId == m_callRoomId;
 }
 
-// The rank the list is sorted by: the room of the ongoing call leads every
-// other rank (it is its own "call" section), so activity elsewhere never moves
-// it. Everything else keeps orderRankOf().
 int RoomListModel::sortRankOf(const RoomInfo &room) const
 {
     if (isCallRoom(room.id) && room.membership == RoomInfo::Joined)
@@ -1062,8 +913,6 @@ void RoomListModel::setCallRoomId(const QString &roomId)
     const QString previous = m_callRoomId;
     m_callRoomId = roomId;
     reconcileRooms();
-    // The section header is derived from the id, so a row that did not move
-    // (already first) still needs its category re-read.
     for (int i = 0; i < m_rooms.size(); ++i) {
         const QString &id = m_rooms.at(i).id;
         if (id == previous || id == roomId) {
@@ -1076,9 +925,6 @@ void RoomListModel::setCallRoomId(const QString &roomId)
 
 QString RoomListModel::categoryOf(const RoomInfo &room)
 {
-    // Four ranks, four values. "conversation" covers DMs and rooms alike
-    // since they interleave by recency. The presenter chooses the visible label
-    // from the active filter.
     switch (orderRankOf(room)) {
     case 0: return QStringLiteral("invite");
     case 1: return QStringLiteral("favourite");
@@ -1128,34 +974,26 @@ int RoomListModel::notificationModeOf(const QString &roomId) const
 void RoomListModel::notificationModeChanged()
 {
     updateUnreadTotals();
-    // The count a row may show depends on the mode.
     if (!m_rooms.isEmpty())
         Q_EMIT dataChanged(index(0, 0), index(int(m_rooms.size()) - 1, 0),
                            { UnreadCountRole, ThreadUnreadKindRole });
-    // The Unreads filter reads the same rule.
     if (m_filterMode == 3)
         reconcileRooms();
 }
 
 void RoomListModel::updateUnreadTotals()
 {
-    // The whole account, not the current view: a filter does not change how
-    // many conversations are waiting. Counts hasUnreadMessages, markedUnread or
-    // a count, since notification_count can be 0 for a genuinely unread room.
     int unread = 0;
     int highlight = 0;
     if (m_client) {
         for (const RoomInfo &room : m_client->rooms()) {
             if (room.membership == RoomInfo::Invited) {
-                // An invitation needs action: one highlight-level entry, as
-                // Element counts it in the title and the tray.
                 ++unread;
                 ++highlight;
                 continue;
             }
             if (room.isSpace || room.membership != RoomInfo::Joined)
                 continue;
-            // The shared rule: a muted room is neither unread nor a mention.
             if (!roomunread::rawUnread(room))
                 continue;
             const int mode = notificationModeOf(room.id);
@@ -1175,8 +1013,6 @@ void RoomListModel::updateUnreadTotals()
 
 void RoomListModel::updateFavouritesBoundary()
 {
-    // Retired: favourites have their own section header now, so no divider is
-    // drawn. Kept as a no-op so the bound property keeps working.
     if (m_favouritesBoundaryRoomId.isEmpty())
         return;
     m_favouritesBoundaryRoomId.clear();
@@ -1201,23 +1037,17 @@ bool RoomListModel::isRoomFavourite(const QString &roomId) const
 
 void RoomListModel::setRoomFavourite(const QString &roomId, bool favourite)
 {
-    // No local write: the flag is account state and the row shows what the
-    // account holds until the backend confirms, so a refused write leaves it
-    // put.
     if (m_client) m_client->setRoomFavourite(roomId, favourite);
 }
 
 void RoomListModel::setRoomLowPriority(const QString &roomId, bool lowPriority)
 {
-    // The SDK is authoritative; a failed tag write does not move the row.
     if (m_client) m_client->setRoomLowPriority(roomId, lowPriority);
 }
 
 QString RoomListModel::roomPermalink(const QString &roomId,
                                      const QString &canonicalAlias)
 {
-    // Prefer the canonical alias, with TimelineModel::messagePermalink's
-    // percent-encoding (! $ : @ excluded) so room and message links match.
     const QString target = !canonicalAlias.isEmpty() ? canonicalAlias : roomId;
     if (target.isEmpty())
         return {};

@@ -23,14 +23,13 @@ QtAudioGate::QtAudioGate(Mode mode, Probes probes, QObject *parent)
 {
     m_timer.setSingleShot(false);
     connect(&m_timer, &QTimer::timeout, this, &QtAudioGate::poll);
-    // No debounce for the first answer: there was no outage to recover from.
     m_ready = probeNow(true);
     schedule();
 }
 
 namespace {
 QtAudioGate *g_installed = nullptr;
-} // namespace
+}
 
 QtAudioGate *QtAudioGate::current()
 {
@@ -153,7 +152,7 @@ void QtAudioGate::play(QObject *player)
 {
     if (!player)
         return;
-    cancel(player); // the newest request wins
+    cancel(player);
     QPointer<QObject> target(player);
     whenReady(
         player,
@@ -174,7 +173,6 @@ void QtAudioGate::poll()
         schedule();
         return;
     }
-    // Taken out first: a callback may start another wait.
     std::vector<Pending> due;
     for (auto it = m_pending.begin(); it != m_pending.end();) {
         const bool gone = it->hadContext && !it->context;
@@ -207,9 +205,6 @@ void QtAudioGate::poll()
 
 void QtAudioGate::schedule()
 {
-    // Polled only while a start waits: otherwise every answer is asked for on
-    // demand (checkNow(), whenReady(), play()), so an idle process pays
-    // nothing, and `ready` is the last answer given.
     if (m_mode == Mode::Ungated || m_pending.empty()) {
         m_timer.stop();
         return;
@@ -225,4 +220,4 @@ void QtAudioGate::setTimingForTest(int pollMs, int liveMs)
     schedule();
 }
 
-} // namespace lightning::media
+}

@@ -47,8 +47,6 @@ private Q_SLOTS:
         QSettings s; s.clear(); s.sync();
     }
 
-    // The Channels scenarios must actually switch the layout; otherwise all
-    // three would photograph the same Classic list.
     void theChannelsScenariosSelectTheChannelsLayoutAndDistinctViews()
     {
         QFile file(QStringLiteral(
@@ -57,9 +55,6 @@ private Q_SLOTS:
                  "the demo controller is not where this test looks for it");
         const QString source = QString::fromUtf8(file.readAll());
 
-        // The layout is applied at all, and BEFORE the room is opened —
-        // Channels resolves its view from the scope, so a later write would
-        // photograph one frame of the wrong column.
         const int applyAt = source.indexOf(
             QStringLiteral("setRoomNavigationLayout(s.navLayout)"));
         QVERIFY2(applyAt > 0, "the scenario's navigation layout is never "
@@ -72,7 +67,6 @@ private Q_SLOTS:
                      QStringLiteral("setScopeSpaceId(s.channelsScope)")),
                  "the scenario's Channels view is never selected");
 
-        // And the three views are genuinely different scopes.
         for (const char *scope : { "\"@home\"", "\"@people\"",
                                    "!space-studio" }) {
             QVERIFY2(source.contains(QLatin1String(scope)),
@@ -98,7 +92,6 @@ private Q_SLOTS:
         QVERIFY2(end > 0 && start > 0 && end < start,
                  "the empty-call branch does not come first, so a scenario "
                  "with no call may not clear one");
-        // And it must be staged only in a build that has the seam at all.
         QFile controller(QStringLiteral(
             SOURCE_DIR "/src/calls/SfuCallController.h"));
         QVERIFY(controller.open(QIODevice::ReadOnly | QIODevice::Text));
@@ -119,9 +112,7 @@ private Q_SLOTS:
             QStringLiteral("account-switching"), QStringLiteral("security"),
             QStringLiteral("invite"), QStringLiteral("work-overview"),
             QStringLiteral("community-overview"), QStringLiteral("responsive-chat"),
-            // Menu/popup/dialog surface scenarios.
             QStringLiteral("menu-message"), QStringLiteral("menu-room"),
-            // The floating find-in-room card.
             QStringLiteral("find-in-room"),
             QStringLiteral("quick-switcher"), QStringLiteral("quick-switcher-command"),
             QStringLiteral("emoji-picker"), QStringLiteral("gif-picker"),
@@ -129,16 +120,12 @@ private Q_SLOTS:
             QStringLiteral("trust-card"), QStringLiteral("new-conversation"),
             QStringLiteral("settings-search"), QStringLiteral("invite-people"),
             QStringLiteral("create-poll"),
-            // The three Channels views, plus Classic stated explicitly so a
-            // pair can be shot regardless of the demo profile's last layout.
             QStringLiteral("channels-home"), QStringLiteral("channels-space"),
             QStringLiteral("channels-people"), QStringLiteral("classic-home"),
             QStringLiteral("call-grid"), QStringLiteral("call-screen-share"),
-            // The store screenshots (docs/screenshot-demo.md).
             QStringLiteral("theme-editor"), QStringLiteral("store-hero"),
             QStringLiteral("store-thread"), QStringLiteral("settings-sound"),
             QStringLiteral("verification"),
-            // Find in history and the room-widget panel.
             QStringLiteral("find-in-room-history"), QStringLiteral("room-widgets"),
         };
         for (const QString &r : required)
@@ -153,7 +140,6 @@ private Q_SLOTS:
         QTRY_COMPARE(app.currentScreen(), AppController::MainScreen);
         auto *d = demo(app);
         QVERIFY(d);
-        // The launch handler auto-activates home-overview → Design Lounge.
         QTRY_COMPARE(app.currentRoomId(),
                      QStringLiteral("!design-lounge:lightning.example"));
         QCOMPARE(app.accounts()->activeUserId(),
@@ -169,9 +155,6 @@ private Q_SLOTS:
         QVERIFY(d);
 
         struct Case { const char *id; const char *room; const char *account; int theme; int w; int h; };
-        // Storm (11) is the demo default; only the two scenarios that show a
-        // different theme keep their own (settings-themes 9,
-        // quick-switcher-command 10).
         const Case cases[] = {
             { "main-chat", "!design-lounge:lightning.example", "@alex:lightning.example", 11, 1440, 900 },
             { "direct-message", "!dm-maya:lightning.example", "@alex:lightning.example", 11, 1280, 800 },
@@ -205,7 +188,6 @@ private Q_SLOTS:
         d->activateScenario(QStringLiteral("settings-themes"));
         QTRY_COMPARE(app.currentScreen(), AppController::SettingsScreen);
 
-        // Back to a chat scenario returns to the main screen.
         d->activateScenario(QStringLiteral("main-chat"));
         QTRY_COMPARE(app.currentScreen(), AppController::MainScreen);
     }
@@ -234,8 +216,6 @@ private Q_SLOTS:
         QVERIFY(!app.thread()->rootEventId().isEmpty());
     }
 
-    // ── Menu/popup/dialog surface scenarios ──────────────────────────────
-
     void menuScenariosNavigateAndEmitTheirContextMenuSignal()
     {
         AppController app(AppController::MockBackend, true);
@@ -253,8 +233,6 @@ private Q_SLOTS:
         d->activateScenario(QStringLiteral("menu-room"));
         QTRY_COMPARE(app.currentRoomId(), QStringLiteral("!design-lounge:lightning.example"));
         QTRY_VERIFY(roomSpy.count() >= 1);
-        // Only the room-menu signal fires for this scenario, never the
-        // message-menu one (each row maps to exactly one popup).
         QCOMPARE(messageSpy.count(), 1);
     }
 
@@ -290,31 +268,20 @@ private Q_SLOTS:
         QTRY_VERIFY(spy.count() >= 1);
         QTRY_COMPARE(app.currentRoomId(), QStringLiteral("!design-lounge:lightning.example"));
 
-        // Deterministic, most-recent-first order — the same 5 fictional
-        // emoji every time, no real Matrix/provider data involved.
         const QStringList expected = {
             QStringLiteral("❤️"), QStringLiteral("\U0001F44D"),
             QStringLiteral("\U0001F602"), QStringLiteral("\U0001F525"),
             QStringLiteral("\U0001F389"),
         };
         QCOMPARE(app.settings()->recentEmoji(), expected);
-        // Also assert through EmojiCatalog::recentEmoji(), which the picker
-        // and quick-react strip bind to: seeding must go through
-        // EmojiCatalog::recordUse(), since SettingsManager alone leaves it
-        // stale.
         QVERIFY(app.emojiCatalog());
         QCOMPARE(app.emojiCatalog()->recentEmoji(), expected);
 
-        // Re-activating (panel re-click / reset) does not duplicate or
-        // reorder entries — recordRecentEmoji is idempotent for a fixed
-        // call sequence.
         d->activateScenario(QStringLiteral("emoji-picker"));
         QCOMPARE(app.settings()->recentEmoji(), expected);
         QCOMPARE(app.emojiCatalog()->recentEmoji(), expected);
     }
 
-    // The GIF picker scenario seeds a browsable catalogue of bundled animated
-    // fixtures plus a locally saved GIF for the Saved tab.
     void gifPickerScenarioSeedsABrowsableLocalCatalogue()
     {
         AppController app(AppController::MockBackend, true);
@@ -329,7 +296,6 @@ private Q_SLOTS:
         QTRY_COMPARE(app.currentRoomId(), QStringLiteral("!weekend:lightning.example"));
         QCOMPARE(int(app.settings()->theme()), 11);
 
-        // The picker must report itself usable, or its overlay covers the grid.
         QVERIFY(app.gif()->demoCatalogueActive());
         QVERIFY(app.gif()->available());
         QVERIFY(app.gif()->providerConfigured(QStringLiteral("giphy")));
@@ -342,8 +308,6 @@ private Q_SLOTS:
         QVERIFY2(count >= 12, "catalogue must overfill one screenful so the "
                               "bottom grid row photographs too");
 
-        // Every tile points at a bundled resource, never a provider CDN, and
-        // both providers appear.
         bool sawGiphy = false, sawKlipy = false;
         for (int i = 0; i < count; ++i) {
             const QVariantMap row = results->get(i);
@@ -356,20 +320,15 @@ private Q_SLOTS:
             const QString provider = row.value(QStringLiteral("provider")).toString();
             sawGiphy = sawGiphy || provider == QStringLiteral("giphy");
             sawKlipy = sawKlipy || provider == QStringLiteral("klipy");
-            // A real byte size, so the tile's size badge is not blank.
             QVERIFY(row.value(QStringLiteral("gifBytes")).toLongLong() > 0);
         }
         QVERIFY(sawGiphy);
         QVERIFY(sawKlipy);
 
-        // Re-activating a scenario must be idempotent — the panel re-clicks it
-        // and resetScenario runs it again.
         d->activateScenario(QStringLiteral("gif-picker"));
         QCOMPARE(results->count(), count);
         QVERIFY(app.gif()->demoCatalogueActive());
 
-        // Closing the picker calls reset(); the grid must not be left empty for
-        // the next open.
         app.gif()->reset();
         QCOMPARE(results->count(), count);
         QCOMPARE(app.gif()->state(), int(GifSearchController::Ready));
@@ -404,8 +363,6 @@ private Q_SLOTS:
         QTRY_COMPARE(app.currentScreen(), AppController::SettingsScreen);
         QTRY_VERIFY(spy.count() >= 1);
 
-        // Back to a chat scenario returns to the main screen (same contract
-        // as settingsScenariosOpenRealSettingsScreen() above).
         d->activateScenario(QStringLiteral("main-chat"));
         QTRY_COMPARE(app.currentScreen(), AppController::MainScreen);
     }
@@ -457,7 +414,6 @@ private Q_SLOTS:
         QCOMPARE(w, 760); QCOMPARE(h, 900);
         QVERIFY(ScreenshotDemoController::sizeForPreset(QStringLiteral("wide"), &w, &h));
         QCOMPARE(w, 1720); QCOMPARE(h, 960);
-        // Freeform WxH within bounds is accepted; absurd/unsafe is rejected.
         QVERIFY(ScreenshotDemoController::sizeForPreset(QStringLiteral("1360x850"), &w, &h));
         QVERIFY(!ScreenshotDemoController::sizeForPreset(QStringLiteral("50x50"), &w, &h));
         QVERIFY(!ScreenshotDemoController::sizeForPreset(QStringLiteral("99999x1"), &w, &h));
@@ -486,19 +442,14 @@ private Q_SLOTS:
         QTRY_COMPARE(app.currentScreen(), AppController::MainScreen);
         auto *d = demo(app);
 
-        // Go to Taylor (wait for the switch to fully settle — activeUserId is
-        // set synchronously, but a second switch is dropped while one is in
-        // flight, exactly as the real switcher guards it) and its default room.
         d->activateScenario(QStringLiteral("work-overview"));
         QTRY_VERIFY(!app.accountSwitching());
         QTRY_COMPARE(app.currentRoomId(),
                      QStringLiteral("!aurora:workplace.example"));
-        // Navigate to a specific room; this is remembered for Taylor.
         d->setRoom(QStringLiteral("!engineering:workplace.example"));
         QCOMPARE(app.currentRoomId(),
                  QStringLiteral("!engineering:workplace.example"));
 
-        // Switch to Nova, then back to Taylor via the (real) switch path.
         d->setAccount(QStringLiteral("@nova:community.example"));
         QTRY_VERIFY(!app.accountSwitching());
         QCOMPARE(app.accounts()->activeUserId(),
@@ -507,7 +458,6 @@ private Q_SLOTS:
         QTRY_VERIFY(!app.accountSwitching());
         QCOMPARE(app.accounts()->activeUserId(),
                  QStringLiteral("@taylor:workplace.example"));
-        // Taylor's last room is restored, not reset.
         QTRY_COMPARE(app.currentRoomId(),
                      QStringLiteral("!engineering:workplace.example"));
     }
@@ -524,7 +474,6 @@ private Q_SLOTS:
         d->setUnreadBadgesEnabled(false);
         QVERIFY(!d->unreadBadgesEnabled());
 
-        // Reset all restores the defaults and returns to home-overview.
         d->resetAllDemoState();
         QVERIFY(d->typingEnabled());
         QVERIFY(d->unreadBadgesEnabled());

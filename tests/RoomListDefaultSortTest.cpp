@@ -1,10 +1,3 @@
-// The room list's default sort (Rokas, 2026-10-20: "the order of rooms for a
-// space in the left sidebar differs from the order in the space's lobby").
-//
-// While the user has NEVER chosen a sort the host hands the model -1
-// (kSortUnset): a real Space then lists its rooms in its own m.space.child
-// order, as its lobby does, and Home / pseudo-selections stay on Activity. Any
-// explicit choice, Activity included, applies everywhere as before.
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
@@ -46,12 +39,8 @@ public:
     using MatrixClient::MatrixClient;
 
     QList<RoomInfo> mirror;
-    /// Every roster asked for, in order, and the op it was given.
     QStringList memberRequests;
     quint64 nextOp = 0;
-    /// 0 = "this backend cannot answer", which is what a real client returns
-    /// before it has an SDK handle. The manager must not mark such a Space as
-    /// asked, or its People list is unscoped for the whole session.
     bool memberRequestsSupported = true;
 
     quint64 requestRoomMembers(const QString &roomId) override
@@ -62,7 +51,6 @@ public:
         return ++nextOp;
     }
 
-    /// One member snapshot, shaped exactly like the bridge's.
     void deliverRoster(quint64 op, const QString &roomId,
                        const QStringList &joined, bool partial = false,
                        bool truncated = false, bool ok = true)
@@ -87,7 +75,6 @@ public:
 
     bool supportsMarkRoomRead() const override { return true; }
     QStringList markReadAsked;
-    /// A rejected FFI call announces failure from inside the call itself.
     bool rejectMarkRead = false;
     void markRoomRead(const QString &roomId) override
     {
@@ -104,8 +91,6 @@ public:
         }
         return nullptr;
     }
-    /// A message arrives: the sort key moves, the preview changes, a badge
-    /// appears. Announced the way the Rust bridge announces it.
     void message(const QString &id, const QDateTime &when,
                  const QString &preview)
     {
@@ -153,8 +138,6 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-
-
 QStringList idsOf(const RoomListModel &model)
 {
     QStringList out;
@@ -165,7 +148,6 @@ QStringList idsOf(const RoomListModel &model)
     return out;
 }
 
-/// Work lists r3, r1, r2 (activity r1, r2, r3). Other lists r2, r3, r1.
 QList<RoomInfo> twoSpaces()
 {
     RoomInfo work = room(kWork, QStringLiteral("Work"), 500);
@@ -179,7 +161,7 @@ QList<RoomInfo> twoSpaces()
              room(kR3, QStringLiteral("charlie"), 120) };
 }
 
-} // namespace
+}
 
 class RoomListDefaultSortTest : public QObject
 {
@@ -210,9 +192,6 @@ private Q_SLOTS:
         qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
     }
 
-    // Q3: the off-screen attention locator asks the model for the nearest
-    // row needing attention in a direction. Unread rows count, a mention is
-    // found separately, and quiet rows are passed over.
     void theAttentionLocatorFindsTheNearestUnreadAndMentionRows()
     {
         FakeClient client;
@@ -250,12 +229,6 @@ private Q_SLOTS:
         QCOMPARE(model.attentionRowFrom(0, 0), -1);
     }
 
-    // End to end through SettingsManager (MASTER-1 H2): nothing stored is
-    // "never chosen" (-1, the Space's order inside a Space); an explicit
-    // Activity is stored even though it equals the default and stays
-    // Activity inside the Space. Old code: roomListSort() normalised the
-    // absent value to Activity and setRoomListSort(Activity) stored nothing,
-    // so a Space listed r1, r2, r3 from the start.
     void theSettingHandsTheModelsNeverChosenUntilAChoice()
     {
         QSettings().remove(QStringLiteral("shell/roomListSort"));
@@ -278,14 +251,12 @@ private Q_SLOTS:
         c.model.setSortMode(settings.roomListSortForModels());
         QCOMPARE(idsOf(c.model), (QStringList{ kR1, kR2, kR3 }));
 
-        // Remembered as a choice by the next session.
         SettingsManager next;
         QVERIFY(next.roomListSortChosen());
         QCOMPARE(next.roomListSortForModels(), int(conversation::SortByActivity));
         QSettings().remove(QStringLiteral("shell/roomListSort"));
     }
 
-    // Old code: -1 normalises to Activity, so the Space lists r1, r2, r3.
     void personalRoomArrangementOverridesSharedDefault()
     {
         Classic c;
@@ -308,13 +279,11 @@ private Q_SLOTS:
         c.spaces.setActiveSpaceId(kWork);
         QCOMPARE(idsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
 
-        // The ranking IS SpaceManager::childOrder, whatever it holds.
         const QHash<QString, int> order = c.spaces.childOrder(kWork);
         QCOMPARE(order.value(kR3), 0);
         QCOMPARE(order.value(kR1), 1);
         QCOMPARE(order.value(kR2), 2);
 
-        // A message does not move a room the Space has placed.
         c.client.message(kR2, minutesAgo(0), QStringLiteral("ping"));
         c.client.announce();
         QCOMPARE(idsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
@@ -342,7 +311,6 @@ private Q_SLOTS:
         QCOMPARE(idsOf(c.model), (QStringList{ kR1, kR2, kR3 }));
     }
 
-    // An explicit Activity is a choice and applies inside a Space too.
     void anExplicitActivityStaysActivityInsideASpace()
     {
         Classic c;
@@ -352,7 +320,6 @@ private Q_SLOTS:
         QCOMPARE(idsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
         c.model.setSortMode(conversation::SortByActivity);
         QCOMPARE(idsOf(c.model), (QStringList{ kR1, kR2, kR3 }));
-        // ...and going back to "never chosen" is a state of its own.
         c.model.setSortMode(-1);
         QCOMPARE(idsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
     }

@@ -34,7 +34,6 @@ public:
     explicit MatrixClient(QObject *parent = nullptr) : QObject(parent) {}
     ~MatrixClient() override = default;
 
-    // Session lifecycle
     virtual void login(const QString &homeserver,
                        const QString &user,
                        const QString &password) = 0;
@@ -45,13 +44,6 @@ public:
     // account's store, tokens or metadata. restoreSession() then activates the
     // account the settings select. Returns false when unsupported.
     virtual bool detachSession() { return false; }
-    // Warm account adoption (live accounts, Labs; master prompt Part 4 §4):
-    // take over a session a background host was running, without opening its
-    // store or reading the keyring again. On true, the client owns the
-    // ticket's handle and reports loginSucceeded() asynchronously, exactly as
-    // after restoreSession(). On false the client has retired the handle
-    // through its own normal release (tokens handed back), and the caller
-    // falls back to restoreSession(). Backends without live accounts refuse.
     virtual bool adoptLiveSession(const lightning::accounts::LiveSessionTicket &ticket)
     {
         Q_UNUSED(ticket);
@@ -62,35 +54,16 @@ public:
     // cannot adopt never has a live handle handed to it.
     virtual bool supportsLiveAdoption() const { return false; }
 
-    // --- OAuth 2.0 / OIDC browser sign-in -----------------------------------
-    // Only RustSdkMatrixClient implements these; other backends report that
-    // they cannot.
-    //
-    // Whether this backend can perform a browser sign-in at all, independent of
-    // whether a given homeserver offers one (that is discovery).
     virtual bool supportsOAuthLogin() const { return false; }
-    // Ask the homeserver which authentication methods it offers. Answers
-    // asynchronously through authMethodsDiscovered().
     virtual void discoverAuthMethods(const QString &homeserver) { Q_UNUSED(homeserver); }
     // Start a browser sign-in. Emits oauthBrowserUrlReady(), then
     // loginSucceeded()/loginFailed(). The user id is unknown until this
     // completes, so no account store is opened before then.
     virtual void beginOAuthLogin(const QString &homeserver) { Q_UNUSED(homeserver); }
-    // The same browser flow, asking the server's page to create an account
-    // (prompt=create). Only offered when discovery reported oauthCanCreate.
     virtual void beginOAuthSignUp(const QString &homeserver) { Q_UNUSED(homeserver); }
-    // User cancelled or the wait timed out. Safe when nothing is in flight;
-    // must leave the UI resolved, never in "Signing in".
     virtual void cancelOAuthLogin() {}
 
-    // --- Legacy Matrix SSO (m.login.sso) --------------------------------
-    // Distinct from OAuth: the homeserver redirects back with a single-use
-    // `loginToken` exchanged through /login. Only the loopback listener is
-    // shared.
     virtual bool supportsSsoLogin() const { return false; }
-    // Identity providers the server advertises for SSO, answered on
-    // ssoProvidersReceived(). No providers is normal and means one unnamed
-    // flow.
     virtual void requestSsoProviders(const QString &homeserver) { Q_UNUSED(homeserver); }
     // Start an SSO sign-in; an empty `idpId` selects the default flow. Emits
     // ssoBrowserUrlReady(), then the normal session path. No store is opened
@@ -100,7 +73,6 @@ public:
         Q_UNUSED(homeserver);
         Q_UNUSED(idpId);
     }
-    // Safe when nothing is in flight. Must leave the UI resolved.
     virtual void cancelSsoLogin() {}
 
     virtual bool isLoggedIn() const = 0;
@@ -110,22 +82,14 @@ public:
     virtual QString currentDeviceId() const { return {}; }
     virtual QString homeserverUrl() const = 0;
 
-    // Sync
     virtual void startSync() = 0;
     virtual void stopSync() = 0;
     virtual ConnectionState connectionState() const = 0;
 
-    // True once at least one /sync response has been processed for the current
-    // session. Backends that synthesise state immediately (Mock) return true.
-    // Lets QML tell "still loading rooms" from "no rooms".
     virtual bool initialSyncDone() const { return true; }
     virtual QString syncMode() const { return QStringLiteral("classic_fallback"); }
 
-    // Room + timeline queries
     virtual QList<RoomInfo> rooms() const = 0;
-    // Single-room lookup. The default deep-copies rooms(); backends with a
-    // native index should override. Returns a default RoomInfo for an unknown
-    // room.
     virtual RoomInfo roomInfo(const QString &roomId) const
     {
         const auto all = rooms();
@@ -137,27 +101,20 @@ public:
     }
     virtual QList<TimelineEvent> timeline(const QString &roomId) const = 0;
 
-    // Member lookup: display name and avatar mxc. Fallback = MXID / empty.
     virtual QString displayNameFor(const QString &roomId, const QString &userId) const = 0;
     virtual QString avatarMxcFor(const QString &roomId, const QString &userId) const = 0;
     virtual QStringList typingUsersFor(const QString &roomId) const = 0;
 
-    // Media URL helpers. These return authenticated HTTP URLs suitable for
-    // <img src="..."> or QDesktopServices::openUrl.
     virtual QUrl mediaDownloadUrl(const QString &mxcUrl) const = 0;
     virtual QUrl mediaThumbnailUrl(const QString &mxcUrl,
                                    int width, int height,
                                    bool crop = false) const = 0;
 
-    // Sending
     virtual void sendTextMessage(const QString &roomId, const QString &body) = 0;
     virtual void sendReply(const QString &roomId,
                            const QString &replyToEventId,
                            const QString &body) = 0;
 
-    // Outgoing @-mentions. `mentionUserIds` are full MXIDs for m.mentions; the
-    // body already carries the matrix.to links. The defaults drop the mentions
-    // and forward to the plain overloads; the Rust backend attaches m.mentions.
     virtual void sendTextMessage(const QString &roomId, const QString &body,
                                  const QStringList &mentionUserIds)
     {
@@ -173,16 +130,6 @@ public:
         sendReply(roomId, replyToEventId, body);
     }
 
-    // ---- Formatted sends.
-    //
-    // `bodySpec` selects how the body is interpreted:
-    //   {"format": "markdown"|"plain"|"html", "html": "…",
-    //    "msgtype": "text"|"emote"}
-    // An empty map means markdown. "plain" sends the body verbatim (/shrug);
-    // "html" carries a Matrix-subset formatted body generated from the same
-    // document as the plain body; msgtype "emote" is /me. The defaults drop the
-    // spec; the Rust backend refuses rather than silently degrading a spec it
-    // cannot honour.
     virtual void sendTextMessage(const QString &roomId, const QString &body,
                                  const QStringList &mentionUserIds,
                                  const QVariantMap &bodySpec)
@@ -200,22 +147,12 @@ public:
         sendReply(roomId, replyToEventId, body, mentionUserIds);
     }
 
-    // Reply into a thread rooted at `threadRootEventId`. The default falls back
-    // to sendReply; backends may override to attach an `m.thread` relation.
     virtual void sendThreadReply(const QString &roomId,
                                  const QString &threadRootEventId,
                                  const QString &body)
     {
         sendReply(roomId, threadRootEventId, body);
     }
-    // ---- SDK-backed thread timelines.
-    //
-    // A thread timeline is addressed by a composite id so it flows through the
-    // same diff signals and model code as a room timeline. The id embeds a unit
-    // separator, which never appears in Matrix ids, so it cannot collide with a
-    // real room id.
-    /// Translated text for a redactionFinished() failure category. Unknown
-    /// categories get the generic wording.
     static QString redactionFailureText(const QString &category);
 
     static QString threadTimelineId(const QString &roomId,
@@ -238,11 +175,6 @@ public:
         return sep < 0 ? QString{} : timelineId.mid(sep + 1);
     }
 
-    // ---- Read-only event context view.
-    //
-    // A separate event-focused timeline (/context) addressed by its own
-    // composite id so it flows through the same diff signals as a room
-    // timeline without ever touching the room's live one.
     static QString contextTimelineId(const QString &roomId,
                                      const QString &eventId)
     {
@@ -252,18 +184,13 @@ public:
     {
         return timelineId.contains(QStringLiteral("\x1f" "ctx" "\x1f"));
     }
-    // True when the backend can open event-focused context views.
     virtual bool supportsEventContext() const { return false; }
-    // Success is timelineReset(contextTimelineId(...)); failure is
-    // eventContextFailed(). A room switch or sign-out closes it.
     virtual void openEventContext(const QString &roomId, const QString &eventId)
     {
         Q_UNUSED(roomId);
         Q_UNUSED(eventId);
     }
     virtual void closeEventContext() {}
-    // One bounded batch at the older (forward=false) or newer edge. Answered
-    // by eventContextPagination().
     virtual void paginateEventContext(const QString &roomId,
                                       const QString &eventId, bool forward)
     {
@@ -272,47 +199,24 @@ public:
         Q_UNUSED(forward);
     }
 
-    // True when the backend can open live thread timelines; otherwise the
-    // thread UI stays hidden.
     virtual bool supportsThreadTimelines() const { return false; }
-    // Open (or replace) the single live thread timeline. The backend
-    // responds with timelineReset(threadTimelineId(...)) on success or
-    // threadTimelineFailed(...) on failure. A room switch closes it.
     virtual void openThread(const QString &roomId, const QString &rootEventId)
     {
         Q_UNUSED(roomId);
         Q_UNUSED(rootEventId);
     }
     virtual void closeThread() {}
-    // Thread style "Inline" (Nheko-like): when true, true m.thread replies stay
-    // in the room's live timeline (TimelineFocus::Live with
-    // hide_threaded_events = false) instead of only in their thread. Applies
-    // to the next live timeline the backend builds; the caller reopens the
-    // current room. Default false keeps CLAUDE.md §8's panel behaviour.
     virtual void setThreadRepliesInLiveTimeline(bool inLive) { Q_UNUSED(inLive); }
-    // Whether the automatic read receipt is unthreaded rather than on the
-    // main thread. AppController sets it only while the inline thread style
-    // shows the room with every thread reply visible: narrowed to one thread,
-    // or with replies hidden, an unthreaded receipt would mark replies the
-    // reader never saw as read.
     virtual void setUnthreadedReadReceipts(bool on) { Q_UNUSED(on); }
     // Manual decryption retry for a room's unable-to-decrypt events against key
     // material that has arrived since. No-op without a crypto machine. Never
     // resets any store.
     virtual void retryDecryption(const QString &roomId) { Q_UNUSED(roomId); }
 
-    // ---- Thread list, follow state, threaded read.
-    //
-    // The Threads view lists a room's threads (server /threads pagination, kept
-    // live by the backend). Follow state is MSC4306 thread subscription where
-    // supported. markThreadRead sends a threaded receipt for the open thread
-    // panel only, never a room-wide one.
     virtual bool supportsThreadList() const { return false; }
     virtual void openThreadList(const QString &roomId) { Q_UNUSED(roomId); }
     virtual void closeThreadList() {}
     virtual void paginateThreadList(const QString &roomId) { Q_UNUSED(roomId); }
-    // `opId` is the caller's request id; the answer echoes it, because
-    // receipts for one thread can complete out of order.
     virtual void markThreadRead(const QString &roomId,
                                 const QString &rootEventId, quint64 opId)
     {
@@ -336,9 +240,6 @@ public:
         Q_UNUSED(subscribed);
     }
 
-    // Rich reply to a specific event WITHIN the thread. Backends without a
-    // dedicated path fall back to a plain thread reply (the message still
-    // lands in the correct thread).
     virtual void sendThreadReplyTo(const QString &roomId,
                                    const QString &threadRootEventId,
                                    const QString &inReplyToEventId,
@@ -348,8 +249,6 @@ public:
         sendThreadReply(roomId, threadRootEventId, body);
     }
 
-    // Outgoing @-mentions inside a thread. An empty `inReplyToEventId` is a
-    // plain thread reply, otherwise a rich reply within the thread.
     virtual void sendThreadReplyTo(const QString &roomId,
                                    const QString &threadRootEventId,
                                    const QString &inReplyToEventId,
@@ -360,7 +259,6 @@ public:
         sendThreadReplyTo(roomId, threadRootEventId, inReplyToEventId, body);
     }
 
-    // Formatted thread sends; see the room-level bodySpec overloads.
     virtual void sendThreadReplyTo(const QString &roomId,
                                    const QString &threadRootEventId,
                                    const QString &inReplyToEventId,
@@ -377,7 +275,6 @@ public:
                              const QString &targetEventId,
                              const QString &newBody) = 0;
 
-    // Outgoing @-mentions on an edit.
     virtual void editMessage(const QString &roomId,
                              const QString &targetEventId,
                              const QString &newBody,
@@ -387,7 +284,6 @@ public:
         editMessage(roomId, targetEventId, newBody);
     }
 
-    // Formatted edits; see the bodySpec send overloads.
     virtual void editMessage(const QString &roomId,
                              const QString &targetEventId,
                              const QString &newBody,
@@ -404,9 +300,6 @@ public:
                                 const QString &targetEventId,
                                 const QString &key) = 0;
 
-    // "Remove edits": redact the user's own m.replace events on a message so it
-    // returns to its original text. Matrix has no unedit primitive; a backend
-    // that cannot reach the relations reports it as unsupported.
     virtual bool supportsRemovingEdits() const { return false; }
     virtual void removeMessageEdits(const QString &roomId,
                                     const QString &eventId)
@@ -415,9 +308,6 @@ public:
         Q_UNUSED(eventId);
     }
 
-    // MSC3381 polls (Rust backend only; elsewhere the actions stay hidden). An
-    // empty threadRootId targets the room timeline, otherwise that thread.
-    // Empty answerIds retracts the vote.
     virtual bool supportsPolls() const { return false; }
     virtual void sendPollResponse(const QString &roomId,
                                   const QString &threadRootId,
@@ -456,29 +346,17 @@ public:
                             int timeoutMs = 20000) = 0;
     virtual void sendReadReceipt(const QString &roomId,
                                  const QString &eventId) = 0;
-    /// Move the room's `m.fully_read` marker (the "New messages" divider every
-    /// client draws) to `eventId`. Separate from sendReadReceipt, which no
-    /// longer moves it: the divider must survive a visit, so the marker
-    /// advances only when the user leaves the room. Backends without it leave
-    /// this inert.
     virtual void setFullyReadMarker(const QString &roomId, const QString &eventId)
     {
         Q_UNUSED(roomId);
         Q_UNUSED(eventId);
     }
-    /// Who learns that this account read a message: 0 public, 1 private
-    /// (`m.read.private`), 2 nobody. Applies to later receipts only; a sent
-    /// receipt cannot be retracted.
     virtual void setReadReceiptPrivacy(int mode) { Q_UNUSED(mode); }
     virtual void setRoomMarkedUnread(const QString &roomId, bool unread)
     {
         Q_UNUSED(roomId);
         Q_UNUSED(unread);
     }
-    // Favourites use the Matrix `m.favourite` room tag so they are shared with
-    // other clients. Backends without tag support report false and the action
-    // is not offered. Never optimistic: the flag comes from the backend's room
-    // payload after the write lands.
     virtual bool supportsRoomFavourites() const { return false; }
     virtual void setRoomFavourite(const QString &roomId, bool favourite)
     {
@@ -490,36 +368,19 @@ public:
         Q_UNUSED(roomId);
         Q_UNUSED(lowPriority);
     }
-    // Mark a room read without opening it. sendReadReceipt can only target an
-    // event in the loaded timeline, so it cannot do this for a closed room.
-    // Backends that cannot resolve a closed room's latest event leave this
-    // inert.
     virtual bool supportsMarkRoomRead() const { return false; }
     virtual void markRoomRead(const QString &roomId) { Q_UNUSED(roomId); }
-    // Server-synchronized per-room notification mode (account push rules owned
-    // by the SDK). Modes match NotificationManager::RoomMode: 0 all messages, 1
-    // mentions & keywords, 2 mute. Without support the mode stays device-local.
-    // Mode 3 (account default) is the absence of an override and goes through
-    // clearRoomNotificationMode(). requestRoomNotificationMode answers via
-    // roomNotificationModeChanged, and is skipped while a write for the room is
-    // queued or in flight (that write's own report is authoritative).
     virtual bool supportsServerNotificationModes() const { return false; }
     virtual void setRoomNotificationMode(const QString &roomId, int mode)
     {
         Q_UNUSED(roomId);
         Q_UNUSED(mode);
     }
-    // A thread's participants (facepile), answered via
-    // threadParticipantsReceived. Cache-first on the Rust side. Backends
-    // without thread support never answer.
     virtual void requestThreadParticipants(const QString &roomId,
                                            const QString &rootEventId)
     {
         Q_UNUSED(roomId); Q_UNUSED(rootEventId);
     }
-    // Matrix presence. Sliding Sync delivers no presence events, so
-    // PresenceManager polls in bounded batches for the users on screen. Answers
-    // via presenceReceived; backends without presence never answer.
     virtual bool supportsPresence() const { return false; }
     // Whether this backend keeps a room's read state (unreadCount,
     // highlightCount, hasUnreadMessages, markedUnread) current across devices.
@@ -533,72 +394,51 @@ public:
     {
         Q_UNUSED(userIds); Q_UNUSED(opId);
     }
-    // Publish the user's own presence (0 online, 1 unavailable, 2 offline).
-    // Fire-and-forget.
     virtual void publishPresence(int state) { Q_UNUSED(state); }
-    // Publish with `m.presence` status_msg; empty clears it.
     virtual void publishPresence(int state, const QString &statusMsg)
     { Q_UNUSED(statusMsg); publishPresence(state); }
-    // Profile banners (MSC4427 over MSC4133). False when extended profile
-    // fields are unreadable; the banner is then absent.
     virtual bool supportsProfileBanners() const { return false; }
     virtual void fetchProfileBanner(const QString &userId, quint64 opId)
     {
         Q_UNUSED(userId); Q_UNUSED(opId);
     }
-    // An EMPTY path clears the banner. Reports on profileBannerSet.
     virtual void setProfileBanner(const QString &localPath, quint64 opId)
     {
         Q_UNUSED(localPath); Q_UNUSED(opId);
     }
-    // User-chosen display-name colour in their profile
-    // (org.lightning.name_color, MSC4133). Same rules as banners.
     virtual bool supportsNameColors() const { return false; }
     virtual void fetchNameColor(const QString &userId, quint64 opId)
     {
         Q_UNUSED(userId); Q_UNUSED(opId);
     }
-    // An EMPTY value clears it. Reports on nameColorSet.
     virtual void setNameColor(const QString &value, quint64 opId)
     {
         Q_UNUSED(value); Q_UNUSED(opId);
     }
-    // Profile bios (MSC4440 over MSC4133), gated like banners.
     virtual bool supportsProfileBios() const { return false; }
     virtual void fetchProfileBio(const QString &userId, quint64 opId)
     {
         Q_UNUSED(userId); Q_UNUSED(opId);
     }
-    // Empty or whitespace-only text clears the bio. Reports on profileBioSet.
-    // Plain text, never HTML; see rust/src/bio.rs.
     virtual void setProfileBio(const QString &text, quint64 opId)
     {
         Q_UNUSED(text); Q_UNUSED(opId);
     }
-    // Room / Space banners use Lightning's own state event (Matrix has none);
-    // backends that cannot send arbitrary state do not offer them.
     virtual bool supportsRoomBanners() const { return false; }
     virtual void fetchRoomBanner(const QString &roomId, quint64 opId)
     {
         Q_UNUSED(roomId); Q_UNUSED(opId);
     }
-    // An EMPTY path clears it. Reports on roomBannerSet.
     virtual void setRoomBanner(const QString &roomId, const QString &localPath,
                                quint64 opId)
     {
         Q_UNUSED(roomId); Q_UNUSED(localPath); Q_UNUSED(opId);
     }
-    // Shared chat backgrounds: Lightning's own state event
-    // (org.lightning_matrix.room.background), one per room or Space; see
-    // rust/src/backdrop.rs. Answers on roomBackgroundReceived.
     virtual bool supportsRoomBackgrounds() const { return false; }
     virtual void fetchRoomBackground(const QString &roomId, quint64 opId)
     {
         Q_UNUSED(roomId); Q_UNUSED(opId);
     }
-    // A non-empty path is uploaded; otherwise a `url` inside `contentJson` is
-    // re-sent (presentation change); neither clears. Reports on
-    // roomBackgroundSet.
     virtual void setRoomBackground(const QString &roomId,
                                    const QString &localPath,
                                    const QString &contentJson, quint64 opId)
@@ -606,45 +446,24 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(localPath); Q_UNUSED(contentJson);
         Q_UNUSED(opId);
     }
-    // Preferences kept on the homeserver (account data; rust/src/settingsync.rs
-    // and src/settings/SettingsPortable.*). The backend is a transport: it
-    // reads the blob and the account-wide switch from the SERVER (never the
-    // store) and writes them; what is in them is decided in C++.
     virtual bool supportsSettingsSync() const { return false; }
-    // Answers on syncedSettingsRead.
     virtual void readSyncedSettings(quint64 opId) { Q_UNUSED(opId); }
-    // kind: 0 the blob (the backend re-reads the switch first and stops with
-    // category "sync_disabled" when it is off), 1 the switch ({"enabled":bool}),
-    // 2 clear the blob. Answers on syncedSettingsWritten.
     virtual void writeSyncedSettings(int kind, const QString &contentJson,
                                      quint64 opId)
     {
         Q_UNUSED(kind); Q_UNUSED(contentJson); Q_UNUSED(opId);
     }
-    // Personal chat backgrounds kept on the homeserver (account data; see
-    // rust/src/bgsync.rs). Scope "" is the every-room default, a room id is
-    // that room; "*" (read only) is the default and every joined room. The
-    // picture's key never leaves the backend: answers carry a scope, an `id`
-    // naming the upload, and the presentation.
     virtual bool supportsPersonalBackgroundSync() const { return false; }
-    // Answers on personalBackgroundsRead.
     virtual void readPersonalBackgrounds(const QString &scope, quint64 opId)
     {
         Q_UNUSED(scope); Q_UNUSED(opId);
     }
-    // Downloads and decrypts the picture `expectedId` names (another one
-    // answers category "changed"); answers on personalBackgroundDownloaded.
     virtual void downloadPersonalBackground(const QString &scope,
                                             const QString &expectedId,
                                             quint64 opId)
     {
         Q_UNUSED(scope); Q_UNUSED(expectedId); Q_UNUSED(opId);
     }
-    // mode: 0 upload `localPath` (encrypted), 1 new presentation for the
-    // current picture (requestedJson carries "expected_id"; a different
-    // picture on the server answers category "changed"), 2 clear, 3 set the
-    // account-wide switch ("enabled", scope "" only). Answers on
-    // personalBackgroundWritten.
     virtual void writePersonalBackground(const QString &scope, int mode,
                                          const QString &localPath,
                                          const QString &requestedJson,
@@ -653,31 +472,18 @@ public:
         Q_UNUSED(scope); Q_UNUSED(mode); Q_UNUSED(localPath);
         Q_UNUSED(requestedJson); Q_UNUSED(opId);
     }
-    // Removes every server copy (the account data) and turns the
-    // account-wide switch off. Answers on personalBackgroundsCleared.
     virtual void clearAllPersonalBackgrounds(const QStringList &knownRooms,
                                              quint64 opId)
     {
         Q_UNUSED(knownRooms); Q_UNUSED(opId);
     }
 
-    // ---- Stickers and custom emoji: MSC2545 image packs ----------------
-    //
-    // Needs global account data and arbitrary room state; without them the
-    // sticker button is not offered rather than showing an empty picker.
     virtual bool supportsStickerPacks() const { return false; }
-    // Read every pack available to this account. With an empty `roomId`, the
-    // active room's packs are excluded. `deep` allows one (cached) full room
-    // state read, for when a pack surface was opened; navigation passes false.
-    // Answers on stickerPacksReceived.
     virtual void fetchStickerPacks(const QString &roomId, quint64 opId,
                                    bool deep)
     {
         Q_UNUSED(roomId); Q_UNUSED(opId); Q_UNUSED(deep);
     }
-    // Upload a local image into a room pack (its dialect `ns`), or add the
-    // already-uploaded `reuseUrl` instead. Reports on stickerPackAddFinished
-    // and stickerPackUploaded (the mxc, for a retry that reuses it).
     virtual void uploadStickerToRoomPack(const QString &roomId,
                                          const QString &stateKey,
                                          const QString &ns,
@@ -689,17 +495,10 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(ns); Q_UNUSED(shortcode);
         Q_UNUSED(body); Q_UNUSED(localPath); Q_UNUSED(reuseUrl); Q_UNUSED(opId);
     }
-    // Copy the legacy personal pack into standard packs in the account's
-    // private pack-home room and subscribe to them. Reports on
-    // stickerPackMigrated.
-    // `startNew`: create a new pack room even though the recorded one is no
-    // longer joined (only after the user chose it; see home_unavailable).
     virtual void migrateUserStickerPack(quint64 opId, bool startNew)
     {
         Q_UNUSED(opId); Q_UNUSED(startNew);
     }
-    // Create a new, empty stable room pack (m.room.image_pack) under
-    // `stateKey`. Reports on stickerPackEditFinished (shortcode = state key).
     virtual void createStickerRoomPack(const QString &roomId,
                                        const QString &stateKey,
                                        const QString &name,
@@ -708,8 +507,6 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(name); Q_UNUSED(usage);
         Q_UNUSED(opId);
     }
-    // Send one m.sticker. An empty rootId targets the room timeline; otherwise
-    // it is an m.thread reply built by the SDK. `url` must be a plain mxc://.
     virtual void sendSticker(const QString &roomId, const QString &rootId,
                              const QString &url, const QString &body,
                              const QString &mimetype, quint64 width,
@@ -718,11 +515,6 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(rootId); Q_UNUSED(url); Q_UNUSED(body);
         Q_UNUSED(mimetype); Q_UNUSED(width); Q_UNUSED(height); Q_UNUSED(size);
     }
-    // Add one image to a room's im.ponies.room_emotes pack. Room state, so
-    // gated in Rust on the room's power level (category "forbidden"). Reports
-    // on stickerPackAddFinished.
-    // `ns` is the pack's dialect, "stable" or "legacy": it is written back in
-    // that dialect.
     virtual void addStickerToRoomPack(const QString &roomId,
                                       const QString &stateKey,
                                       const QString &ns,
@@ -736,8 +528,6 @@ public:
         Q_UNUSED(url); Q_UNUSED(body); Q_UNUSED(mimetype); Q_UNUSED(width);
         Q_UNUSED(height); Q_UNUSED(size); Q_UNUSED(opId);
     }
-    // Enable a room pack everywhere via im.ponies.emote_rooms. Account data, so
-    // no power level is involved. Reports on stickerPackRoomsSet.
     virtual void setStickerRoomPackEnabled(const QString &roomId,
                                            const QString &stateKey,
                                            const QString &ns,
@@ -746,9 +536,6 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(ns); Q_UNUSED(enabled);
         Q_UNUSED(opId);
     }
-    // Upload a local image into this account's own pack; the only way to create
-    // a pack from nothing. Reports on stickerPackAddFinished.
-    // `usage` is "sticker", "emoticon" (custom emoji) or "both".
     virtual void uploadStickerToUserPack(const QString &shortcode,
                                          const QString &body,
                                          const QString &localPath,
@@ -758,8 +545,6 @@ public:
         Q_UNUSED(shortcode); Q_UNUSED(body); Q_UNUSED(localPath);
         Q_UNUSED(usage); Q_UNUSED(opId);
     }
-    // Add one image to this account's own im.ponies.user_emotes pack.
-    // Reports on stickerPackAddFinished.
     virtual void addStickerToUserPack(const QString &shortcode,
                                       const QString &url, const QString &body,
                                       const QString &mimetype, quint64 width,
@@ -770,24 +555,11 @@ public:
         Q_UNUSED(mimetype); Q_UNUSED(width); Q_UNUSED(height);
         Q_UNUSED(size); Q_UNUSED(usage); Q_UNUSED(opId);
     }
-    // ── Policy lists, Mjolnir-style ─────────────────────────────────────
-    //
-    // `m.policy.rule.*` room state. Reading needs a raw /state fetch because
-    // the SDK store is empty for uncommon types; writing is power-level gated;
-    // the subscription list is account data.
-    //
-    // Nothing here acts on a match: hiding people on someone else's list,
-    // invisibly, is a different feature from showing that a list covers them.
     virtual bool supportsPolicyLists() const { return false; }
     virtual void fetchPolicyRules(const QString &roomId, quint64 opId)
     {
         Q_UNUSED(roomId); Q_UNUSED(opId);
     }
-    /// `recommendation` empty removes the rule. `stateKey` empty derives
-    /// `rule:<entity>`, which is right for a new rule. A removal must pass the
-    /// rule's own key as read back: a rule written by another tool may use a
-    /// different key, and removing by the derived key would report success
-    /// while the rule stays.
     virtual void writePolicyRule(const QString &roomId, const QString &kind,
                                  const QString &entity,
                                  const QString &stateKey,
@@ -810,14 +582,6 @@ public:
         Q_UNUSED(kind); Q_UNUSED(entity); Q_UNUSED(opId);
     }
 
-    // ── MSC4108: sign another device in from this one ──────────────────
-    //
-    // Only the already-signed-in side: show a QR for a new device to scan, or
-    // take the text of one it shows. Signing this device in from a code needs
-    // the OAuth device-code grant, which rust/src/oauth.rs does not request.
-    //
-    // `qrLoginGenerate`/`qrLoginScan` return the flow's generation, or 0 when
-    // refused. Everything after that arrives on qrLoginProgress.
     virtual bool supportsQrLogin() const { return false; }
     virtual quint64 qrLoginGenerate() { return 0; }
     virtual quint64 qrLoginScan(const QString &payload)
@@ -831,17 +595,6 @@ public:
     }
     virtual void qrLoginCancel() {}
 
-    // MSC2545 pack management: remove one image, rename its shortcode, rename
-    // the pack, or empty it.
-    //
-    // An empty `roomId` means this account's own pack (account data); otherwise
-    // the room pack under `stateKey`, power-level gated like adding. `action`
-    // is "remove_image", "rename_image", "set_name" or "delete_pack"; argA/argB
-    // are its operands. One verb because all four are the same
-    // read-modify-write.
-    //
-    // Reports on stickerPackEditFinished. Nothing is applied optimistically;
-    // the caller re-reads the authoritative pack.
     virtual void editStickerPack(const QString &roomId,
                                  const QString &stateKey, const QString &ns,
                                  const QString &action, const QString &argA,
@@ -850,9 +603,6 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(stateKey); Q_UNUSED(ns); Q_UNUSED(action);
         Q_UNUSED(argA); Q_UNUSED(argB); Q_UNUSED(opId);
     }
-    // "Follow account default": drop the room's user-defined push rules.
-    // Success reports on roomNotificationModeCleared, not
-    // roomNotificationModeChanged, since the outcome is the absence of a rule.
     virtual void clearRoomNotificationMode(const QString &roomId)
     {
         Q_UNUSED(roomId);
@@ -861,51 +611,35 @@ public:
     {
         Q_UNUSED(roomId);
     }
-    // Reports (roomNotificationModeChanged) every joined room that has a
-    // user-defined push rule, including rooms muted from another client that
-    // this device has never recorded.
     virtual void requestAllRoomNotificationModes() {}
     virtual void acceptInvite(const QString &roomId) { Q_UNUSED(roomId); }
     virtual void rejectInvite(const QString &roomId) { Q_UNUSED(roomId); }
     virtual void sendImage(const QString &roomId, const QString &localPath) = 0;
     virtual void sendFile(const QString &roomId, const QString &localPath) = 0;
 
-    // Pagination
     virtual void loadOlderMessages(const QString &roomId) = 0;
     virtual bool canPaginate(const QString &roomId) const = 0;
     virtual bool paginationReady(const QString &roomId) const
     { return canPaginate(roomId) || paginating(roomId) || paginationFailed(roomId); }
     virtual bool paginating(const QString &roomId) const = 0;
 
-    // True when the last backward pagination for this room failed and can be
-    // retried.
     virtual bool paginationFailed(const QString &roomId) const
     {
         Q_UNUSED(roomId);
         return false;
     }
-    // True only when the current pagination failure is safe to retry without
-    // user intervention (for example a temporary network failure or a live
-    // timeline readiness race). Permission and invalid-room failures must
-    // remain false so the controller exposes manual Retry immediately.
     virtual bool paginationFailureTransient(const QString &roomId) const
     {
         Q_UNUSED(roomId);
         return false;
     }
 
-    /// Did the last completed back-pagination produce no rows because the
-    /// timeline filter dropped every event? The controller otherwise waits 250
-    /// ms for rows still in flight over the bridge; when the filter ate the
-    /// page nothing is coming. False is always safe; it only keeps the wait.
     virtual bool lastPaginationFullyFiltered(const QString &roomId) const
     {
         Q_UNUSED(roomId);
         return false;
     }
 
-    // Retry a failed outgoing message by send-queue transaction id. Rust
-    // backend only (SDK local echoes).
     virtual void retryFailedSend(const QString &roomId,
                                  const QString &transactionId)
     {
@@ -913,10 +647,6 @@ public:
         Q_UNUSED(transactionId);
     }
 
-    // Discard a queued outgoing message, including an in-flight upload, by
-    // send-queue transaction id (SDK SendHandle::abort). An event already on
-    // the server is not aborted and its row stays. Backends without a send
-    // queue report false and the action is not offered.
     virtual bool supportsCancelSend() const { return false; }
     virtual void cancelSend(const QString &roomId,
                             const QString &transactionId)
@@ -925,42 +655,22 @@ public:
         Q_UNUSED(transactionId);
     }
 
-    // ---- Conversation creation, membership, room editing, media.
-    //
-    // Commands return an operation id (> 0) echoed on the matching *Finished
-    // signal, or 0 when unsupported. The UI hides unsupported actions via
-    // supportsRoomManagement / supportsAttachmentSend.
     virtual bool supportsRoomManagement() const { return false; }
     virtual bool supportsAttachmentSend() const { return false; }
     virtual bool supportsMediaBridge() const { return false; }
 
     virtual quint64 searchUsers(const QString &query, int limit)
     { Q_UNUSED(query); Q_UNUSED(limit); return 0; }
-    // Exact profile lookup for one full user id; confirms a bare-localpart
-    // candidate the directory may not list.
     virtual quint64 fetchUserProfile(const QString &userId)
     { Q_UNUSED(userId); return 0; }
-    // Editing the account's own display name. Unsupported backends never offer
-    // it, since a call with no answer would leave the editor spinning.
     virtual bool supportsOwnProfileEditing() const { return false; }
-    // Set, or with an empty `name` clear, the own display name. The op id is
-    // the caller's, so it can be recorded before any answer. Answers exactly
-    // once on ownDisplayNameChanged, including for a synchronous refusal.
     virtual void setOwnDisplayName(const QString &name, quint64 opId)
     { Q_UNUSED(name); Q_UNUSED(opId); }
-    // Set the own avatar from a local file, or clear it. Same contract as
-    // setOwnDisplayName; answers once on ownAvatarChanged. Rust sniffs the MIME
-    // from the bytes.
     virtual void setOwnAvatar(const QString &localPath, quint64 opId)
     { Q_UNUSED(localPath); Q_UNUSED(opId); }
     virtual void clearOwnAvatar(quint64 opId) { Q_UNUSED(opId); }
-    // Rooms this account and `userId` are both joined to, from cached
-    // membership only (no request), so unsynced rooms are omitted. 0 when
-    // unsupported.
     virtual quint64 fetchMutualRooms(const QString &userId)
     { Q_UNUSED(userId); return 0; }
-    // Client-side URL preview; Rust validates and fetches the target. 0 when
-    // unsupported.
     virtual bool supportsUrlPreview() const { return false; }
     virtual quint64 fetchUrlPreview(const QString &url)
     { Q_UNUSED(url); return 0; }
@@ -970,28 +680,18 @@ public:
     virtual bool supportsGifProvider() const { return false; }
     virtual quint64 gifGet(const QString &url)
     { Q_UNUSED(url); return 0; }
-    // Download and validate a provider GIF (gifDownloadFinished carries the
-    // bytes). The URL must be a provider-CDN https .gif; Rust re-validates the
-    // host and GIF magic bytes.
     virtual quint64 gifDownload(const QString &url)
     { Q_UNUSED(url); return 0; }
-    // Existing joined DM rooms for a user, from authoritative m.direct.
-    // Each entry: {roomId, name}. Synchronous store lookup.
     virtual QVariantList existingDirectRooms(const QString &userId) const
     { Q_UNUSED(userId); return {}; }
     virtual quint64 createDirectChat(const QString &userId)
     { Q_UNUSED(userId); return 0; }
-    // options: name, topic, public(bool), encrypted(bool), alias,
-    // invites(QStringList), spaceId.
     virtual quint64 createRoom(const QVariantMap &options)
     { Q_UNUSED(options); return 0; }
     virtual quint64 inviteUsers(const QString &roomId, const QStringList &userIds)
     { Q_UNUSED(roomId); Q_UNUSED(userIds); return 0; }
     virtual quint64 requestRoomMembers(const QString &roomId)
     { Q_UNUSED(roomId); return 0; }
-    // The open room's own posting facts from local state (no request): see
-    // roomOwnPermissionsReceived. 0 when the backend cannot answer, which
-    // leaves the facts unknown.
     virtual quint64 requestRoomOwnPermissions(const QString &roomId)
     { Q_UNUSED(roomId); return 0; }
     virtual quint64 setRoomName(const QString &roomId, const QString &name)
@@ -1004,9 +704,6 @@ public:
     { Q_UNUSED(roomId); return 0; }
     virtual quint64 leaveRoom(const QString &roomId)
     { Q_UNUSED(roomId); return 0; }
-    // Moderation: kick, ban or unban one user (SDK-owned power-level
-    // semantics; the server enforces, the client only surfaces the
-    // result). `reason` may be empty. 0 = unsupported on this backend.
     virtual quint64 kickUser(const QString &roomId, const QString &userId,
                              const QString &reason)
     { Q_UNUSED(roomId); Q_UNUSED(userId); Q_UNUSED(reason); return 0; }
@@ -1016,26 +713,13 @@ public:
     virtual quint64 unbanUser(const QString &roomId, const QString &userId,
                               const QString &reason)
     { Q_UNUSED(roomId); Q_UNUSED(userId); Q_UNUSED(reason); return 0; }
-    // For each of `roomIds`, whether kick / ban / unban (`op`) of `userId`
-    // would be offered there, from the SDK's view of both members' levels and
-    // the room's thresholds. Sends nothing. Answers on moderationPlanReceived;
-    // 0 = unsupported on this backend.
     virtual quint64 requestModerationPlan(const QStringList &roomIds,
                                           const QString &userId,
                                           const QString &op)
     { Q_UNUSED(roomIds); Q_UNUSED(userId); Q_UNUSED(op); return 0; }
-    // Closing a room (Matrix has no client-side delete). For each of
-    // `roomIds`, whether the viewer can make it invite-only and whom closing
-    // would remove. Sends nothing. Answers on roomClosurePlanReceived.
-    // `parentIds` are read only for whether the viewer may change their
-    // children (rows with reason "parent", never offered).
     virtual quint64 requestRoomClosurePlan(const QStringList &roomIds,
                                            const QStringList &parentIds)
     { Q_UNUSED(roomIds); Q_UNUSED(parentIds); return 0; }
-    // Close one room: invite-only, unlisted from the directory and from
-    // `unlistFromSpaceIds`, every member the viewer outranks removed with
-    // `reason`, then left when `leave` and every step succeeded. Answers on
-    // roomClosureProgress / roomClosureFinished.
     virtual quint64 closeRoom(const QString &roomId, const QString &reason,
                               bool leave, const QStringList &unlistFromSpaceIds)
     {
@@ -1043,39 +727,19 @@ public:
         Q_UNUSED(unlistFromSpaceIds);
         return 0;
     }
-    // Whether the account is a homeserver administrator. Asked only when a
-    // delete surface opens. Answers on serverAdminStatusReceived.
     virtual quint64 requestServerAdminStatus() { return 0; }
-    // Delete a room from this homeserver (server administrators, Synapse
-    // admin API). Answers on adminRoomDeleteProgress / Finished.
     virtual quint64 adminDeleteRoom(const QString &roomId, bool block)
     { Q_UNUSED(roomId); Q_UNUSED(block); return 0; }
-    // Set one member's power level; the SDK preserves every other level.
-    // Answers on powerLevelChangeFinished. The server enforces permission.
     virtual quint64 setMemberPowerLevel(const QString &roomId,
                                         const QString &userId,
                                         qlonglong level)
     { Q_UNUSED(roomId); Q_UNUSED(userId); Q_UNUSED(level); return 0; }
-    // Set one threshold in m.room.power_levels. `key` is one of
-    // RoomInfoController's powerLevelKeys(); Rust refuses anything else, so
-    // this is not a generic event-level writer. Answers on
-    // roomPowerMatrixFinished.
     virtual quint64 setRoomPowerLevelKey(const QString &roomId,
                                          const QString &key, qlonglong level)
     { Q_UNUSED(roomId); Q_UNUSED(key); Q_UNUSED(level); return 0; }
 
-    // "invite" | "public" | "knock". Answers on roomEditFinished with field
-    // "join_rule".
     virtual quint64 setRoomJoinRule(const QString &roomId, const QString &rule)
     { Q_UNUSED(roomId); Q_UNUSED(rule); return 0; }
-    // Room access. "restricted" | "knock_restricted" with allowed room (Space)
-    // ids; the default forwards to the plain setter, which refuses them.
-    // historyVisibility: invited | joined | shared | world_readable (field
-    // "history_visibility"); guestAccess: can_join | forbidden
-    // ("guest_access"); directory visibility is read via
-    // roomDirectoryVisibilityReceived and written as published/private
-    // ("directory_visibility"); altAliases replaces the whole list
-    // ("alt_aliases"). 0 = unsupported.
     virtual quint64 setRoomJoinRule(const QString &roomId, const QString &rule,
                                     const QStringList &allowedRoomIds)
     { Q_UNUSED(allowedRoomIds); return setRoomJoinRule(roomId, rule); }
@@ -1093,31 +757,9 @@ public:
     virtual quint64 setRoomAltAliases(const QString &roomId,
                                       const QStringList &aliases)
     { Q_UNUSED(roomId); Q_UNUSED(aliases); return 0; }
-    // Room upgrade: supported versions (roomVersionsReceived) and /upgrade,
-    // answering on roomUpgradeFinished with the replacement room id.
-    // 0 = unsupported.
     virtual void requestRoomVersions() {}
     virtual quint64 upgradeRoom(const QString &roomId, const QString &newVersion)
     { Q_UNUSED(roomId); Q_UNUSED(newVersion); return 0; }
-    // Device and backup management. renameDevice answers on deviceRenamed;
-    // backupAction ("enable" | "create_backup" | "reset_key" |
-    // "disable_and_delete" | "disable_recovery") and crossSigningAction
-    // ("setup_cross_signing" | "reset_cross_signing") on backupActionFinished,
-    // whose recoveryKey is set once when a new recovery key was minted and
-    // must be shown and then dropped, never logged or persisted.
-    // crossSigningAction carries the user's explicit decision about an
-    // existing recovery key: `recoveryKey` is the CURRENT one (the new keys are
-    // stored under it and it keeps working; scrubbed after use), and
-    // `replaceRecoveryKeyConfirmed` is true only after the user confirmed that
-    // a new recovery key replaces one they do not have. With neither, an
-    // account that has secret storage fails with "recovery_key_required"
-    // before anything changes. It may first raise uiaRequired (answered with
-    // uiaSubmitPassword / uiaCancel, keyed by the same op id) or
-    // crossSigningApprovalRequired (an OAuth account approves in a browser);
-    // uiaCancel never ends it silently: a backupActionFinished reports what
-    // the cancel left behind (category "cancelled", "cancelled_reset", ...),
-    // or the real result if the approval had already gone through.
-    // requestBackupProgress answers on backupProgress. 0 = unsupported.
     virtual quint64 renameDevice(const QString &deviceId, const QString &name)
     { Q_UNUSED(deviceId); Q_UNUSED(name); return 0; }
     virtual quint64 backupAction(const QString &action)
@@ -1130,29 +772,10 @@ public:
         Q_UNUSED(replaceRecoveryKeyConfirmed);
         return 0;
     }
-    // Returns the id the answer will carry (backupProgress.requestId), so a
-    // late answer to an earlier request is told apart. 0 for a client that
-    // does not number them.
     virtual quint64 requestBackupProgress() { return 0; }
-    // The user has been SHOWN a "setup_interrupted" report (op 0): the backend
-    // may drop the marker it was reported from. Never on mere receipt, so a
-    // report queued behind an operation and lost to a sign-out is made again.
     virtual void acknowledgeInterruptedSetup() {}
 
-    // Allow-listed account-data types: standard preferences and Lightning's
-    // metadata-only saved-message references. readAccountPref answers on
-    // accountPrefRead (server-fetched for saved references and fail-closed
-    // policy types); writeAccountPref (a JSON object, bounded)
-    // answers on accountPrefWritten. A change made elsewhere arrives as
-    // accountPrefChanged, after which the caller re-reads.
-    // Whether this backend keeps account-data preferences at all. One that
-    // does not has, by definition, no stored choice: the preference gates
-    // treat it as answered with the MSC defaults from the start.
     virtual bool supportsAccountPrefs() const { return false; }
-    // A backend without account data holds no preference: it answers
-    // "absent" (on the next event-loop turn, like a real read), so the
-    // fail-closed media and invite-avatar gates open on the MSC defaults
-    // instead of waiting for an answer that never comes.
     virtual void readAccountPref(const QString &prefType)
     {
         QMetaObject::invokeMethod(this, [this, prefType] {
@@ -1162,159 +785,64 @@ public:
     virtual void writeAccountPref(const QString &prefType,
                                   const QVariantMap &content)
     { Q_UNUSED(prefType); Q_UNUSED(content); }
-    // What the homeserver advertises for the incoming-invite policy (spec
-    // v1.18 m.invite_permission_config / MSC4380), answered on
-    // invitePolicySupportReceived. A backend without it never answers, and
-    // the setting stays "unknown" (never offered as working).
     virtual void requestInvitePolicySupport() {}
-    // Edit history and event source, answered on editHistoryReceived /
-    // eventSourceReceived. Display data held only while a dialog is open; never
-    // cached.
     virtual void requestEditHistory(const QString &roomId, const QString &eventId)
     { Q_UNUSED(roomId); Q_UNUSED(eventId); }
     virtual void requestEventSource(const QString &roomId, const QString &eventId)
     { Q_UNUSED(roomId); Q_UNUSED(eventId); }
-    // Jump to date (MSC3030). Searches forward from the stamp, so a day lands
-    // on its first message. Answers on eventAtTimestampReceived. 0 means this
-    // backend is unsupported; an unsupported server answers ok=false with
-    // category "not_found".
     virtual quint64 eventAtTimestamp(const QString &roomId, qint64 timestampMs)
     { Q_UNUSED(roomId); Q_UNUSED(timestampMs); return 0; }
 
-    // ── Local message search ─────────────────────────────────────────────
-    //
-    // Server search cannot read encrypted rooms; this searches the index the
-    // client builds from plaintext it already holds. 0 means this backend has
-    // no local index, which must stay distinguishable from "no results".
     virtual quint64 localSearch(const QString &query, const QString &roomId,
                                 int limit, int offset)
     { Q_UNUSED(query); Q_UNUSED(roomId); Q_UNUSED(limit); Q_UNUSED(offset);
       return 0; }
-    /// Remove the media this account keeps on disk between sessions. Answers
-    /// on storedMediaCleared. 0 means this backend keeps none.
     virtual quint64 clearStoredMedia() { return 0; }
-    /// Clear the SDK's event cache (never the crypto store, never the
-    /// credentials). Answers on eventCacheCleared. 0 means this backend has
-    /// none.
     virtual quint64 clearEventCache() { return 0; }
-    /// True when a successful clearStoredMedia()/clearEventCache() is followed
-    /// by a cacheCompacted report for the same op id.
     virtual bool reportsCacheCompaction() const { return false; }
-    /// What the homeserver says about itself (About page). Answers on
-    /// homeserverInfoReceived. 0 means this backend cannot ask.
     virtual quint64 requestHomeserverInfo() { return 0; }
-    /// Read-only account-data listing, global when `roomId` is empty. Secret
-    /// types arrive already redacted to their type name. Answers on
-    /// accountDataListed. 0 means this backend cannot list.
     virtual quint64 requestAccountDataListing(const QString &roomId)
     { Q_UNUSED(roomId); return 0; }
-    /// The sessions (device id and the name its owner gave it) this device's
-    /// crypto store knows for `userId`. Answers on userClientsListed. 0 means
-    /// this backend cannot ask.
     virtual quint64 requestUserClients(const QString &userId)
     { Q_UNUSED(userId); return 0; }
-    /// Whether media opened this session is kept between sessions, and why
-    /// not: "kept", "keptExceptEncrypted" (the key is not in a secure
-    /// keyring), "keptExceptEncryptedPendingUpload" (this session only, the
-    /// old plaintext store kept for an unsent attachment), "notKeptNewSignIn" (an account's
-    /// first session: its key is made at the next start), "notKeptKeyring"
-    /// (the keyring is locked or unavailable, or the key could not be read),
-    /// "notKeptStore" (a key, but the store did not open), or empty when no
-    /// session tells (signed out, or a backend that keeps nothing). Changes
-    /// with mediaKeepStateChanged. Never a path or a key.
     virtual QString mediaKeepState() const { return {}; }
-    /// What the index holds, so a surface can say what search covers.
     virtual quint64 searchIndexStats() { return 0; }
-    /// Sweep cached events into the index. Bounded per call.
     virtual quint64 sweepSearchIndex() { return 0; }
-    /// Page one room backwards and index what arrives ("index this room's
-    /// history").
     virtual quint64 deepenSearchIndex(const QString &roomId)
     { Q_UNUSED(roomId); return 0; }
-    /// A redacted message must not stay findable by its own text.
     virtual void forgetIndexedEvent(const QString &eventId) { Q_UNUSED(eventId); }
     virtual void forgetIndexedRoom(const QString &roomId) { Q_UNUSED(roomId); }
-    /// True when the index was cleared; false when nothing was (no index, no
-    /// session, or the clear failed).
     virtual bool clearSearchIndex() { return false; }
-    /// "Index all rooms": every encrypted joined room's history, one room at a time,
-    /// with the same bounded walk as deepenSearchIndex. Persisted per
-    /// account, so a restart continues. `resumeOnly` continues a run the last
-    /// session left unfinished and unpaused, and otherwise only reports.
-    /// Answers (and keeps answering while it runs) on searchIndexAllProgress.
-    /// 0 means this backend has no local index.
     virtual quint64 indexAllRooms(bool resumeOnly)
     { Q_UNUSED(resumeOnly); return 0; }
     virtual quint64 pauseIndexAll() { return 0; }
     virtual quint64 cancelIndexAll() { return 0; }
     virtual quint64 requestIndexAllStatus() { return 0; }
-    /// Automatic holds (IndexAllHold bits): a held run waits between pages.
     enum IndexAllHold : unsigned {
         IndexAllHoldCall = 1,
         IndexAllHoldScroll = 2,
     };
     virtual void setIndexAllHold(unsigned bits) { Q_UNUSED(bits); }
-    /// Whether this backend can search locally at all, so a surface can be
-    /// absent rather than dead.
     virtual bool supportsLocalSearch() const { return false; }
 
-    // ── Widgets ──────────────────────────────────────────────────────────
-    //
-    // Widgets are listed and opened in the user's browser, not embedded; see
-    // docs/widgets.md for why. `theme` and `language` are template variables
-    // the widget URL may carry.
     virtual quint64 roomWidgets(const QString &roomId, const QString &theme,
                                 const QString &language)
     { Q_UNUSED(roomId); Q_UNUSED(theme); Q_UNUSED(language); return 0; }
     virtual bool supportsWidgets() const { return false; }
-    /// Add or remove a widget by writing `contentJson` as the room's
-    /// `im.vector.modular.widgets` state under `widgetId`; an empty object
-    /// removes it. Power-level gated in Rust, which also refuses a non-https
-    /// `url`. Answers on roomWidgetWritten; 0 when unsupported.
     virtual quint64 writeRoomWidget(const QString &roomId,
                                     const QString &widgetId,
                                     const QString &contentJson)
     { Q_UNUSED(roomId); Q_UNUSED(widgetId); Q_UNUSED(contentJson); return 0; }
 
-    // ── Bridges (MSC2346) ────────────────────────────────────────────────
-    //
-    // Which network a room is bridged to, as the bridge says. The heuristic in
-    // matrix::bridge::networkIdForRoom only works for DMs and portal aliases.
-    //
-    // `allowNetwork` permits the /state fallback: sliding sync does not carry
-    // this state type, so the store-only read finds nothing. It is a budget
-    // control: the room list must never trigger it; a surface the user opened
-    // may.
-    //
-    // Answers on roomBridgesReceived; 0 when unsupported.
     virtual quint64 roomBridges(const QString &roomId, bool allowNetwork)
     { Q_UNUSED(roomId); Q_UNUSED(allowNetwork); return 0; }
     virtual bool supportsRoomBridges() const { return false; }
 
-    // ── Room media history ───────────────────────────────────────────────
-    //
-    // Walked independently of the live timeline, so Room Information can browse
-    // attachments to the start of history without moving the reader. One page
-    // per call from where the walk left off; `restart` begins again at the live
-    // edge. Answers on mediaHistoryPage / mediaHistoryFailed.
-    //
-    // Deliberately unfiltered: the server's EventsWithUrl filter would hide
-    // encrypted events and messages that merely contain links. See
-    // rust/src/mediahistory.rs.
     virtual quint64 requestMediaHistoryPage(const QString &roomId, int limit,
                                             bool restart)
     { Q_UNUSED(roomId); Q_UNUSED(limit); Q_UNUSED(restart); return 0; }
     virtual bool supportsMediaHistory() const { return false; }
 
-    // ── Room export history walk ─────────────────────────────────────────
-    //
-    // Walks a room's history backwards, independently of the live timeline,
-    // for "Export room" (rust/src/roomexport.rs). `mode`: 0 the newest
-    // `limit` messages, 1 the whole room, 2 messages whose timestamp is in
-    // [fromMs, toMs] (toMs 0 = no upper bound). Pages arrive on
-    // roomExportPage until `done`, or roomExportFailed. Attachment rows carry
-    // an opaque `mediaKey` for fetchMedia, valid until cancelRoomExport.
-    // Returns the op id, 0 when unsupported.
     virtual quint64 startRoomExport(const QString &roomId, int mode,
                                     qint64 limit, qint64 fromMs, qint64 toMs)
     {
@@ -1322,17 +850,9 @@ public:
         Q_UNUSED(toMs);
         return 0;
     }
-    // Abort the walk and release its attachment handles. Idempotent; called
-    // when an export finishes, fails or is cancelled.
     virtual void cancelRoomExport(quint64 opId) { Q_UNUSED(opId); }
     virtual bool supportsRoomExportWalk() const { return false; }
 
-    // ── Per-room profile ─────────────────────────────────────────────────
-    //
-    // Display name and avatar this account shows in one room, overriding the
-    // global profile; empty clears. Both live in the user's m.room.member
-    // event, and the avatar path edits the raw event so nothing else is lost
-    // (see rust/src/profile.rs).
     virtual quint64 setRoomDisplayName(const QString &roomId,
                                        const QString &name)
     { Q_UNUSED(roomId); Q_UNUSED(name); return 0; }
@@ -1340,11 +860,6 @@ public:
                                         const QString &mxc)
     { Q_UNUSED(roomId); Q_UNUSED(mxc); return 0; }
     virtual bool supportsRoomProfiles() const { return false; }
-    // Scheduled send, server side (MSC4140 delayed events). probeDelayedEvents
-    // answers on delayedEventsSupportReceived; scheduleMessage on
-    // scheduledSendFinished (with the delayId; category "encrypted_unsupported"
-    // for encrypted rooms, see rooms.rs); updateScheduled ("cancel" | "send" |
-    // "restart") on scheduledUpdateFinished. 0 = unsupported.
     virtual void probeDelayedEvents() {}
     virtual quint64 scheduleMessage(const QString &roomId, const QString &body,
                                     const QVariantMap &bodySpec,
@@ -1355,10 +870,6 @@ public:
     virtual quint64 updateScheduledMessage(const QString &delayId,
                                            const QString &action)
     { Q_UNUSED(delayId); Q_UNUSED(action); return 0; }
-    // Room-level send for any joined room (the timeline sends need the live
-    // timeline open), answering on roomSendFinished. Empty reply/thread ids
-    // send a plain message. 0 = unsupported; the scheduler then uses the
-    // timeline sends.
     virtual quint64 sendRoomMessage(const QString &roomId, const QString &body,
                                     const QVariantMap &bodySpec,
                                     const QStringList &mentionUserIds,
@@ -1367,43 +878,22 @@ public:
     { Q_UNUSED(roomId); Q_UNUSED(body); Q_UNUSED(bodySpec);
       Q_UNUSED(mentionUserIds); Q_UNUSED(replyToEventId);
       Q_UNUSED(threadRootEventId); return 0; }
-    // Activity Center seed: the server's highlight notifications
-    // (GET /notifications?only=highlight), bounded to `limit`. Answers on
-    // activitySeedReceived with [{eventId, roomId, senderId, timestampMs, read,
-    // encrypted, preview, threadRootId, msgtype}], or activitySeedFailed;
-    // never ciphertext.
     virtual void requestActivitySeed(int limit) { Q_UNUSED(limit); }
     virtual void requestActivitySeedPage(const QString &from, int limit)
     { Q_UNUSED(from); Q_UNUSED(limit); }
-    // An empty alias clears the canonical alias. Answers on
-    // roomEditFinished with field "canonical_alias".
     virtual quint64 setRoomCanonicalAlias(const QString &roomId,
                                           const QString &alias)
     { Q_UNUSED(roomId); Q_UNUSED(alias); return 0; }
-    // Pinned messages (m.room.pinned_events). Without support the UI offers no
-    // pin actions or pinned surface.
     virtual bool supportsPinnedMessages() const { return false; }
-    // Read the pinned list and resolve each id into a row. `allowRemote`
-    // permits the /state fallback when the room has no pinned-events state at
-    // all. Answers on pinnedReceived.
     virtual quint64 requestPinnedMessages(const QString &roomId,
                                           bool allowRemote)
     { Q_UNUSED(roomId); Q_UNUSED(allowRemote); return 0; }
     virtual quint64 setEventPinned(const QString &roomId,
                                    const QString &eventId, bool pin)
     { Q_UNUSED(roomId); Q_UNUSED(eventId); Q_UNUSED(pin); return 0; }
-    // Room discovery / join / knock. Without support there is no Discover
-    // surface.
     virtual bool supportsRoomDiscovery() const { return false; }
-    // Resolve user input (#alias, !roomid, matrix: URI, matrix.to permalink)
-    // into a join target and preview it where allowed. Answers on
-    // roomTargetResolved. A refused preview still returns the target so Join
-    // can be offered.
     virtual quint64 resolveRoomTarget(const QString &input)
     { Q_UNUSED(input); return 0; }
-    // One page of the public room directory. `server` optionally targets
-    // another homeserver's directory ("" = own); `since` is the pagination
-    // token from the previous page. Answers on publicRoomsReceived.
     virtual quint64 searchPublicRooms(const QString &query,
                                       const QString &server,
                                       const QString &since, int limit)
@@ -1411,33 +901,20 @@ public:
         Q_UNUSED(query); Q_UNUSED(server); Q_UNUSED(since); Q_UNUSED(limit);
         return 0;
     }
-    // Join by room id or alias, optionally routed via the given servers.
-    // Answers on roomJoinFinished.
     virtual quint64 joinRoomByIdOrAlias(const QString &target,
                                         const QStringList &via)
     { Q_UNUSED(target); Q_UNUSED(via); return 0; }
-    // Knock (request access) with an optional reason. Only offered when
-    // the join rule allows knocking; answers on roomKnockFinished.
     virtual quint64 knockRoom(const QString &target, const QStringList &via,
                               const QString &reason)
     { Q_UNUSED(target); Q_UNUSED(via); Q_UNUSED(reason); return 0; }
-    // Withdraw a pending knock (leaves the Knocked room). Answers on
-    // knockCancelFinished.
     virtual quint64 cancelKnock(const QString &roomId)
     { Q_UNUSED(roomId); return 0; }
-    // List a Space's children — joined AND unjoined — through the server's
-    // /hierarchy. Bounded; answers on spaceChildrenReceived.
     virtual quint64 requestSpaceChildren(const QString &spaceId)
     { Q_UNUSED(spaceId); return 0; }
-    // Personal moderation. Ignore state is m.ignored_user_list account data
-    // (SDK read-modify-write); reporting is the /v3 event report.
     virtual bool supportsIgnoredUsers() const { return false; }
     virtual quint64 setUserIgnored(const QString &userId, bool ignored)
     { Q_UNUSED(userId); Q_UNUSED(ignored); return 0; }
     virtual quint64 requestIgnoredUsers() { return 0; }
-    // The notification settings page: the account's push rules. Both answer
-    // on pushRulesReceived (the write also on pushRuleWriteFinished first);
-    // `kind`, `key` and `value` are the command grammar of rust/src/pushrules.rs.
     virtual bool supportsPushRules() const { return false; }
     virtual quint64 requestPushRules() { return 0; }
     virtual quint64 writePushRule(const QString &kind, const QString &key,
@@ -1452,9 +929,6 @@ public:
     // m.rtc.notification/decline). SDP strings are opaque inputs from the media
     // backend, never logged or echoed. Non-capable backends return 0.
     virtual bool supportsCallSignaling() const { return false; }
-    // The account's traffic follows a network route (an explicit proxy,
-    // docs/network-profiles.md). Calls are not carried by one, so they are
-    // refused rather than made directly from the address the route hides.
     virtual bool networkRouteActive() const { return false; }
     virtual quint64 callInvite(const QString &roomId, const QString &callId,
                                const QString &partyId,
@@ -1477,7 +951,6 @@ public:
         Q_UNUSED(answerType); Q_UNUSED(answerSdp);
         Q_UNUSED(streamMetadataJson); return 0;
     }
-    // m.call.negotiate on an established call; `type` is "offer" or "answer".
     virtual quint64 callNegotiate(const QString &roomId, const QString &callId,
                                   const QString &partyId, const QString &type,
                                   const QString &sdp, quint64 lifetimeMs,
@@ -1487,7 +960,6 @@ public:
         Q_UNUSED(sdp); Q_UNUSED(lifetimeMs); Q_UNUSED(streamMetadataJson);
         return 0;
     }
-    // m.call.sdp_stream_metadata_changed: a mute changed.
     virtual quint64 callStreamMetadata(const QString &roomId,
                                        const QString &callId,
                                        const QString &partyId,
@@ -1522,8 +994,6 @@ public:
     virtual void setCallMediaCapable(bool capable) { Q_UNUSED(capable); }
     virtual QString takeCallSessionDescription(const QString &eventId)
     { Q_UNUSED(eventId); return {}; }
-    // Trickle our locally gathered ICE candidates (media engine present
-    // only). `candidates` entries: {candidate, sdpMid, sdpMLineIndex}.
     virtual quint64 callCandidates(const QString &roomId,
                                    const QString &callId,
                                    const QString &partyId,
@@ -1532,25 +1002,13 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(callId); Q_UNUSED(partyId);
         Q_UNUSED(candidates); return 0;
     }
-    // Homeserver TURN credentials for the engine's ICE config.
     virtual quint64 requestCallTurnServers() { return 0; }
 
-    // MatrixRTC (MSC4143) group calling.
     virtual bool supportsMatrixRtc() const { return false; }
-    // Read one room's session; answers on rtcSessionReceived.
-    //
-    // `preferServer` reads the room's state from the homeserver as well as the
-    // local store. It costs a /state request, so it is only for a caller with
-    // evidence the store is incomplete (e.g. an SFU participant no membership
-    // accounts for).
     virtual quint64 rtcSession(const QString &roomId, bool preferServer = false)
     { Q_UNUSED(roomId); Q_UNUSED(preferServer); return 0; }
-    // Discover usable transports for this account; `roomId` may be empty
-    // and, when given, adds the focus the room's participants advertise.
-    // Answers on rtcTransportsReceived.
     virtual quint64 rtcTransports(const QString &roomId)
     { Q_UNUSED(roomId); return 0; }
-    // Publish or refresh our own membership; answers rtcMembershipPublished.
     virtual quint64 rtcPublishMembership(const QString &roomId,
                                          const QString &focusUrl,
                                          const QString &intent,
@@ -1559,10 +1017,8 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(focusUrl); Q_UNUSED(intent);
         Q_UNUSED(multiSfu); return 0;
     }
-    /// Restart the server-side delayed retraction so it does not fire.
     virtual quint64 rtcRestartDelayedLeave(const QString &delayId)
     { Q_UNUSED(delayId); return 0; }
-    /// Retract our membership and cancel the pending delayed retraction.
     virtual quint64 rtcRetractMembership(const QString &roomId,
                                          const QString &delayId)
     { Q_UNUSED(roomId); Q_UNUSED(delayId); return 0; }
@@ -1576,7 +1032,6 @@ public:
         Q_UNUSED(targetsJson); return 0;
     }
 
-    // ── LiveKit SFU signalling ──
     virtual bool supportsSfu() const { return false; }
     virtual quint64 sfuConnect(const QString &serviceUrl,
                                const QString &roomId)
@@ -1594,8 +1049,6 @@ public:
                                       const QString &candidateInit)
     { Q_UNUSED(generation); Q_UNUSED(connectionId); Q_UNUSED(target);
       Q_UNUSED(candidateInit); }
-    /// `target` is "publisher" (our tracks) or "subscriber" (everyone
-    /// else's) — LiveKit runs two peer connections.
     virtual void sfuLocalDescription(const QString &kind,
                                      const QString &target,
                                      const QString &sdp)
@@ -1603,10 +1056,6 @@ public:
     virtual void sfuLocalCandidate(const QString &target,
                                    const QString &candidateInit)
     { Q_UNUSED(target); Q_UNUSED(candidateInit); }
-    /// Declare a track to the SFU before negotiating it. `encrypted` tells
-    /// LiveKit the frames carry E2EE (Encryption::GCM), which is how receivers
-    /// decide to decrypt. `width`/`height` are the video size (0 for audio);
-    /// without them the SFU assumes three-layer simulcast.
     virtual void sfuAddTrack(const QString &cid, const QString &name,
                              int kind, int width, int height,
                              bool screenShare, bool encrypted)
@@ -1623,7 +1072,6 @@ public:
         Q_UNUSED(generation); Q_UNUSED(connectionId);
         sfuAddTrack(cid, name, kind, width, height, screenShare, encrypted);
     }
-    /// Declare two codec senders as one encrypted screen-share publication.
     virtual void sfuAddShareWithBackupFor(quint64 generation, const QString &cid,
                                           const QString &backupCid,
                                           int width, int height, bool encrypted)
@@ -1647,12 +1095,6 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(notificationType); Q_UNUSED(intent);
         Q_UNUSED(lifetimeMs); Q_UNUSED(membershipEventId); return 0;
     }
-    // Raised hands, in element-call's own wire format: raising sends an
-    // `m.reaction` annotating the sender's own `m.call.member` state event
-    // with the raised-hand emoji, lowering REDACTS that reaction.
-    // `membershipEventId` is required to raise, `reactionEventId` to lower.
-    // Answers on rtcHandResult; a successful raise carries the reaction id the
-    // eventual lower must redact.
     virtual quint64 rtcSetHandRaised(const QString &roomId,
                                      const QString &membershipEventId,
                                      const QString &reactionEventId,
@@ -1661,10 +1103,6 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(membershipEventId);
         Q_UNUSED(reactionEventId); Q_UNUSED(raised); return 0;
     }
-    // element-call's transient call reaction: `io.element.call.reaction`
-    // referencing the sender's own call membership. Never redacted; it expires
-    // on its own. `emoji` and `name` must be a pair element-call knows; the
-    // bridge refuses unknown ones. Answers on rtcSendFinished.
     virtual quint64 rtcSendCallReaction(const QString &roomId,
                                         const QString &membershipEventId,
                                         const QString &emoji,
@@ -1673,34 +1111,16 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(membershipEventId);
         Q_UNUSED(emoji); Q_UNUSED(name); return 0;
     }
-    // Hands already raised when we joined; an earlier raise produces no sync
-    // event for us. Answers on rtcHandsReceived.
     virtual quint64 rtcReadRaisedHands(const QString &roomId)
     { Q_UNUSED(roomId); return 0; }
-    // Device sign-out through reusable UIA: deleteDevices -> (challenge ->
-    // uiaRequired) -> uiaSubmitPassword / uiaCancel -> deviceDeleteFinished.
-    // Credentials pass through transiently and are scrubbed; never stored,
-    // logged or echoed.
     virtual bool supportsDeviceDeletion() const { return false; }
     virtual quint64 deleteDevices(const QStringList &deviceIds)
     { Q_UNUSED(deviceIds); return 0; }
     virtual bool uiaSubmitPassword(quint64 uiaId, const QString &password)
     { Q_UNUSED(uiaId); Q_UNUSED(password); return false; }
     virtual void uiaCancel(quint64 uiaId) { Q_UNUSED(uiaId); }
-    // MAS/OAuth accounts manage sessions in the account web console instead of
-    // password UIA. An empty deviceId opens the sessions list, otherwise that
-    // device's page. Answers on oauthManagementUrlReceived.
     virtual quint64 requestOAuthManagementUrl(const QString &deviceId)
     { Q_UNUSED(deviceId); return 0; }
-    // Account password change: a no-auth attempt, then the password UIA
-    // stage with the current password. logoutDevices=false is sent
-    // explicitly; true is the spec default and is omitted. The passwords are
-    // never stored, logged or echoed. Lightning's own copies are zeroed (the
-    // C++ UTF-8 buffers, the Rust Secret); the copies inside the ruma request,
-    // the SDK's retry clone and the serialized HTTP body are freed without
-    // zeroing. Answers on passwordChangeFinished with a category:
-    // wrong_password, weak_password, rate_limited, unsupported, network or
-    // failed ("" when ok).
     virtual bool supportsPasswordChange() const { return false; }
     virtual quint64 changePassword(const QString &currentPassword,
                                    const QString &newPassword,
@@ -1709,27 +1129,13 @@ public:
         Q_UNUSED(currentPassword); Q_UNUSED(newPassword);
         Q_UNUSED(logoutDevices); return 0;
     }
-    // Whether the server allows it (m.change_password) and the account page
-    // from its auth metadata (OAuth/MAS). Answers on passwordChangeProbed.
     virtual quint64 probePasswordChange() { return 0; }
-    // Room-key export: matrix-sdk's own Encryption::export_room_keys writes
-    // every room key this session holds to `filePath`, encrypted with
-    // `passphrase` in the standard key-export format Element imports. The
-    // passphrase is never stored, logged or echoed; Lightning's UTF-8 copy is
-    // zeroed and Rust scrubs its own. Returns 0 when it cannot be asked at
-    // all (no session, empty passphrase or path); otherwise the op id, and
-    // the answer, a refusal included, arrives later on roomKeyExportProgress
-    // / roomKeyExportFinished with a count and a category, never the path or
-    // any key material.
     virtual bool supportsRoomKeyExport() const { return false; }
     virtual quint64 exportRoomKeys(const QString &filePath,
                                    const QString &passphrase)
     {
         Q_UNUSED(filePath); Q_UNUSED(passphrase); return 0;
     }
-    // Server-side message search. Unencrypted rooms only (the server cannot
-    // search ciphertext), and every UI surface must say so. Empty `roomId`
-    // means all rooms; `nextBatch` pages. Answers on messageSearchFinished.
     virtual bool supportsMessageSearch() const { return false; }
     virtual quint64 searchMessages(const QString &term, const QString &roomId,
                                    const QString &nextBatch, int limit,
@@ -1741,13 +1147,9 @@ public:
     }
     virtual quint64 addRoomToSpace(const QString &spaceId, const QString &roomId)
     { Q_UNUSED(spaceId); Q_UNUSED(roomId); return 0; }
-    // MSC1772 child removal (empty-via m.space.child). Never leaves or deletes
-    // the child room.
     virtual quint64 removeRoomFromSpace(const QString &spaceId,
                                         const QString &roomId)
     { Q_UNUSED(spaceId); Q_UNUSED(roomId); return 0; }
-    // Toggle the MSC1772 `suggested` flag on an existing child, preserving via
-    // and order. A non-child is refused, never promoted to a child.
     virtual quint64 setSpaceChildOrder(const QString &spaceId, const QStringList &roomIds)
     { Q_UNUSED(spaceId); Q_UNUSED(roomIds); return 0; }
     virtual quint64 setSpaceChildSuggested(const QString &spaceId,
@@ -1755,17 +1157,6 @@ public:
                                            bool suggested)
     { Q_UNUSED(spaceId); Q_UNUSED(roomId); Q_UNUSED(suggested); return 0; }
 
-    // Attachment sending (Rust: SDK send queue with local echo). The caller
-    // detects `mime` from file content. `durationMs` is the clip length for
-    // timed media, 0 when unknown; zero is sent as absent, never as a literal
-    // zero.
-    //
-    // EVERY attachment send below takes `replyToEventId`, the event the
-    // composer is replying to ("" for a plain send). It is deliberately NOT
-    // defaulted: a caller that forgets it silently sends the attachment as a
-    // non-reply, which is the bug this parameter exists to close. In a thread
-    // the target is the thread message being replied to (the SDK keeps the
-    // m.thread relation); "" is a plain thread message.
     virtual quint64 sendAttachment(const QString &roomId,
                                    const QString &localPath,
                                    const QString &mime,
@@ -1779,9 +1170,6 @@ public:
         Q_UNUSED(animated); Q_UNUSED(durationMs); Q_UNUSED(replyToEventId);
         return 0;
     }
-    // Video send with a caller-extracted poster. An empty `thumbnail` is not an
-    // error; the video goes out without one. The SDK uploads (and encrypts) the
-    // poster. The default degrades to the plain attachment send.
     virtual quint64 sendVideo(const QString &roomId,
                               const QString &localPath,
                               const QString &mime,
@@ -1796,9 +1184,6 @@ public:
         return sendAttachment(roomId, localPath, mime, caption, width, height,
                               false, 0, replyToEventId);
     }
-    // Still image with a caller-rendered raster thumbnail (an SVG's preview).
-    // An empty `thumbnail` is not an error. The default degrades to the plain
-    // attachment send.
     virtual quint64 sendImageWithThumbnail(const QString &roomId,
                                            const QString &localPath,
                                            const QString &mime,
@@ -1814,7 +1199,6 @@ public:
         return sendAttachment(roomId, localPath, mime, caption, width, height,
                               false, 0, replyToEventId);
     }
-    // Clipboard images: bytes transfer directly, no temporary file.
     virtual quint64 sendAttachmentBytes(const QString &roomId,
                                         const QByteArray &bytes,
                                         const QString &filename,
@@ -1827,9 +1211,6 @@ public:
         Q_UNUSED(replyToEventId);
         return 0;
     }
-    // Same payload for a room whose live timeline is not open (e.g.
-    // forwarding). The variant above goes through the open timeline and refuses
-    // other rooms. The SDK still encrypts for encrypted targets.
     virtual bool supportsRoomScopedAttachmentSend() const { return false; }
     virtual quint64 sendAttachmentBytesToRoom(const QString &roomId,
                                               const QByteArray &bytes,
@@ -1841,9 +1222,6 @@ public:
         Q_UNUSED(mime); Q_UNUSED(width); Q_UNUSED(height);
         return 0;
     }
-    // MSC3245 voice message: duration and waveform (0..=100 amplitudes, may be
-    // empty) through the normal encrypting attachment path. Answers on
-    // attachmentQueueFinished.
     virtual quint64 sendVoiceMessage(const QString &roomId,
                                      const QString &localPath,
                                      const QString &mime,
@@ -1890,8 +1268,6 @@ public:
         Q_UNUSED(replyToEventId);
         return 0;
     }
-    // Thread twin of sendImageWithThumbnail; the default falls back to the
-    // plain thread attachment, never to a room send.
     virtual quint64 sendThreadImageWithThumbnail(const QString &roomId,
                                                  const QString &rootEventId,
                                                  const QString &localPath,
@@ -1909,8 +1285,6 @@ public:
                                     caption, width, height, false, 0,
                                     replyToEventId);
     }
-    // Thread twin of sendVideo; without poster support it falls back to the
-    // plain thread attachment.
     virtual quint64 sendThreadVideo(const QString &roomId,
                                     const QString &rootEventId,
                                     const QString &localPath,
@@ -1941,20 +1315,11 @@ public:
         return 0;
     }
 
-    // Fetch (and decrypt, inside the SDK) media bytes for a timeline media key.
-    // kind: 0 full, 1 thumbnail. timeoutClass: 0 standard, 1 playable
-    // materialization, 2 explicit Save As; the backend bounds the fetch
-    // accordingly.
     virtual quint64 fetchMedia(const QString &mediaKey, int kind,
                                int timeoutClass = 0)
     { Q_UNUSED(mediaKey); Q_UNUSED(kind); Q_UNUSED(timeoutClass); return 0; }
-    // Server-side thumbnail of a plain mxc URI (avatars).
     virtual quint64 fetchMxcThumbnail(const QString &mxc, int width, int height)
     { Q_UNUSED(mxc); Q_UNUSED(width); Q_UNUSED(height); return 0; }
-    // A link's own media (a direct image or video URL), for MediaBridge key
-    // `linkKey`. Answers with mediaReady/mediaFailed under that key, kind 0.
-    // expect: 0 image, 1 video; timeoutClass as fetchMedia. The URL is never
-    // logged. 0 when unsupported or refused.
     virtual quint64 fetchLinkMedia(const QString &url, const QString &linkKey,
                                    int expect, int timeoutClass = 0)
     {
@@ -1962,38 +1327,21 @@ public:
         Q_UNUSED(timeoutClass);
         return 0;
     }
-    // Cancel an in-flight media fetch. Best-effort and idempotent; no
-    // mediaReady/mediaFailed follows a cancelled op.
     virtual void cancelMediaFetch(quint64 opId) { Q_UNUSED(opId); }
 
-    // Server upload limit in bytes; 0 while unknown.
     virtual qint64 maxUploadSize() const { return 0; }
 
 Q_SIGNALS:
     void loginSucceeded(const QString &userId);
     void loginFailed(const QString &reason);
     void loggedOut();
-    // Authentication methods this homeserver offers: password, OAuth 2.0 (the
-    // server's own sign-in page) and legacy Matrix SSO (see rust/src/sso.rs).
     void authMethodsDiscovered(const QString &homeserver,
                                bool password,
                                bool oauth,
                                bool sso);
-    // Emitted just before authMethodsDiscovered() for the same homeserver:
-    //   reachable            bool, false when the server could not be asked
-    //   resolvedHomeserver   the client API base URL the SDK resolved
-    //   oauthCanCreate       the server's page can create accounts
-    //   accountManagementUrl its account page (https), or empty
     void authDiscoveryDetails(const QString &homeserver, const QVariantMap &details);
-    // Authorization URL for the system browser. No credentials, but single-use,
-    // so not logged.
     void oauthBrowserUrlReady(const QString &url);
-    // The homeserver's SSO redirect URL for the system browser. No credentials,
-    // but single-use, so not logged.
     void ssoBrowserUrlReady(const QString &url);
-    // The system browser could not be launched (OAuth or SSO). The flow stays
-    // alive (timeout and Cancel still apply); this lets the UI say why nothing
-    // appeared.
     void browserLaunchFailed();
     // m.login.sso providers as {id, name, icon} maps; empty with sso true means
     // one unnamed flow. `icon` is an mxc: URI or empty, never http, so the
@@ -2002,31 +1350,20 @@ Q_SIGNALS:
                               const QVariantList &providers);
 
     void connectionStateChanged(ConnectionState state);
-    /// The homeserver answered a sync again after an outage (and on the
-    /// first answer of a session): an edge, never repeated while it keeps
-    /// answering. Unlike connectionStateChanged(Syncing), which a backend may
-    /// also report while it is only RETRYING, this means a request got
-    /// through, so writes owed from the outage can be sent now.
     void homeserverReachable();
     void initialSyncDoneChanged();
     void syncModeChanged();
     void roomsChanged();
     void roomUpdated(const QString &roomId);
     void timelineReset(const QString &roomId);
-    // Opening a thread timeline failed. Success is
-    // timelineReset(threadTimelineId(...)).
     void threadTimelineFailed(const QString &roomId,
                               const QString &rootEventId,
                               const QString &category);
     void eventContextFailed(const QString &roomId, const QString &eventId,
                             const QString &category);
-    // state: "loading", "idle" or "failed". reachedEdge is meaningful on idle.
     void eventContextPagination(const QString &roomId, const QString &eventId,
                                 bool forward, const QString &state,
                                 bool reachedEdge);
-    // Each thread entry: rootEventId, rootSender, rootSenderName, rootPreview,
-    // rootTimestamp, replyCount, latestSender, latestSenderName, latestPreview,
-    // latestTimestamp. Bounded to the pages fetched so far.
     void threadListUpdated(const QString &roomId, const QVariantList &threads,
                            bool endReached, bool failed);
     void threadSubscriptionState(const QString &roomId,
@@ -2036,30 +1373,8 @@ Q_SIGNALS:
                                   const QString &rootEventId, bool ok,
                                   bool subscribed);
     void eventAppended(const QString &roomId, const TimelineEvent &event);
-    /// A live remote event that did NOT go out on eventAppended, for the
-    /// notification and Activity Center consumers ONLY. Never connect a
-    /// timeline model to it: the event is either not a main-timeline row at all
-    /// (a thread reply in the open room, which its live timeline hides) or has
-    /// already been delivered to the model as an insert (a message landing
-    /// above a pending or failed send). `roomId` is always the real room id,
-    /// never a composite timeline id; a thread reply carries threadRootId.
-    /// Consumers de-duplicate thread events by event id, as they already do
-    /// for eventAppended.
     void liveEventObserved(const QString &roomId, const TimelineEvent &event);
-    /// An event first seen undecryptable became readable (keys arrived late,
-    /// CLAUDE.md section 9). Emitted at most once per event id per session,
-    /// and only for an event this session saw arrive: never for history that
-    /// decrypts when a room is opened. `event` is the decrypted event with the
-    /// verdict computed on the decrypted content when the bridge knows it
-    /// (unknown otherwise), its thread root, mentions, and `backlog` set when
-    /// the undecryptable copy was itself history. Notification and Activity
-    /// Center consumers only; timeline models are updated by their own diffs.
     void eventDecrypted(const QString &roomId, const TimelineEvent &event);
-    /// A room's highlight count rose by `count` without a highlighted event
-    /// being delivered for it (the room list sends one event per room per
-    /// response, so a mention followed by another message is never seen).
-    /// Never raised before the initial sync, for a room's first count, or for
-    /// a rise that came with history (a catch-up).
     void roomHighlightsUnnotified(const QString &roomId, int count);
     void eventStatusChanged(const QString &roomId,
                             const QString &eventId,
@@ -2069,13 +1384,8 @@ Q_SIGNALS:
                        const QString &oldEventId,
                        const TimelineEvent &newEvent);
 
-    // Index-based diffs for backends whose timeline mirrors an SDK vector.
-    // Indices refer to timeline(roomId) after the op was applied; TimelineModel
-    // re-validates them.
     void eventInsertedAt(const QString &roomId, int index,
                          const TimelineEvent &event);
-    // A contiguous run of SDK inserts applied as one model transaction, so
-    // back-pagination (many one-item Inserts) is laid out once, not per item.
     void eventsInsertedAt(const QString &roomId, int index,
                           const QList<TimelineEvent> &events);
     void eventChangedAt(const QString &roomId, int index,
@@ -2084,11 +1394,6 @@ Q_SIGNALS:
     void eventsTruncatedTo(const QString &roomId, int length);
     void eventEdited(const QString &roomId, const QString &eventId);
     void eventRedacted(const QString &roomId, const QString &eventId);
-    // Result of a redaction request, separate from the later timeline diff.
-    // `category` is empty on success and otherwise one of a fixed vocabulary
-    // (rate_limited, forbidden, not_found, invalid, unrecognized, network,
-    // not_ready, rejected), never server or SDK error text; the UI shows
-    // redactionFailureText(category).
     void redactionFinished(const QString &roomId, const QString &eventId,
                            bool ok, const QString &category);
     void reactionsChanged(const QString &roomId, const QString &eventId);
@@ -2096,102 +1401,44 @@ Q_SIGNALS:
     void paginationStateChanged(const QString &roomId);
     void typingChanged(const QString &roomId);
     void membersChanged(const QString &roomId);
-    // A sync m.room.member event was seen (membership, display name or avatar
-    // change). Distinct from membersChanged, which drives presentation
-    // refreshes of every loaded row; this can fire per event in busy rooms and
-    // only reaches roster-refetch consumers.
     void roomMemberEventSeen(const QString &roomId);
-    // The server confirmed we are no longer in a room the store held as
-    // joined: `loss` is "left" (our own leave from another session),
-    // "kicked", "banned" or "gone" (out, how unknown). Raised once per room,
-    // alongside the room leaving the list; `roomName` is the name it had,
-    // possibly empty. rust/src/membership_lost.rs.
     void roomMembershipLost(const QString &roomId, const QString &loss,
                             const QString &roomName);
-    // A direct chat's peer (an m.direct target) has a new member event in
-    // that room: the avatar it carries now, empty when it has none. From sync
-    // room state, so a DM row can follow a changed face without asking the
-    // profile again.
     void directPeerAvatarChanged(const QString &roomId, const QString &userId,
                                  const QString &avatarUrl);
 
-    // Server-reported per-room mode (0/1/2 as above). userDefined is true for
-    // an explicit room rule, false for the resolved account default. Mode and
-    // room id only; never push-rule JSON.
     void roomNotificationModeChanged(const QString &roomId, int mode,
                                      bool userDefined);
-    // A push-rule write failed: the device-local mode is kept and the UI must
-    // not claim it was saved to the account. Room id only.
     void roomNotificationModeWriteFailed(const QString &roomId);
-    // A read receipt / mark-as-read the homeserver accepted, or one that failed
-    // (mark-as-read only). Room id only. markRoomRead() is asynchronous and its
-    // FFI call can be rejected, so nothing downstream may assume it landed.
     void readMarkerAdvanced(const QString &roomId);
     void markRoomReadFailed(const QString &roomId);
-    /// The outcome of one sendReadReceipt: the homeserver accepted the receipt
-    /// for `eventId`, or it was not delivered (refused by the bridge, or the
-    /// request failed; it is not retried by the backend). A receipt superseded
-    /// by a newer one for the same room before it was sent reports nothing;
-    /// the newer one reports. Room and event ids only.
     void readReceiptAccepted(const QString &roomId, const QString &eventId);
     void readReceiptFailed(const QString &roomId, const QString &eventId);
-    // The same pair for a THREAD's own receipt (markThreadRead): accepted by
-    // the homeserver, or failed. Room id and thread root id only.
-    // Both carry the `opId` markThreadRead() was given.
     void threadReadMarkerAdvanced(const QString &roomId,
                                   const QString &rootEventId, quint64 opId);
     void threadMarkReadFailed(const QString &roomId, const QString &rootEventId,
                               quint64 opId);
-    // The account's push rules changed (this device or another), debounced:
-    // room notification modes may have moved.
     void pushRulesChanged();
-    // The room's user-defined push rules were removed; it follows the account
-    // default. Separate from roomNotificationModeChanged because this is the
-    // absence of a rule; it acknowledges a "follow account default" write.
     void roomNotificationModeCleared(const QString &roomId);
 
     void errorOccurred(const QString &message);
 
-    // ---- Async command results. Payloads are non-secret: coarse categories
-    // ("network", "forbidden", "rate_limited", ...), never bodies, tokens, keys
-    // or local paths.
     void userSearchFinished(quint64 opId, bool ok,
                             const QVariantList &results, bool limited,
                             const QString &category);
-    // Exact profile lookup. ok=false with "not_found" means the server does not
-    // know the user; other categories are transient.
     void userProfileFinished(quint64 opId, bool ok, const QString &userId,
                              const QString &displayName,
                              const QString &avatarUrl,
                              const QString &category);
-    // Terminal answer for setOwnDisplayName(), by op id. `error` is the
-    // server's sanitized sentence, or empty when there was none (timeout,
-    // transport failure, synchronous refusal) and the UI supplies the wording.
-    // The name is not echoed.
     void ownDisplayNameChanged(quint64 opId, bool ok, const QString &error);
-    // Terminal answer for setOwnAvatar()/clearOwnAvatar(), same conventions.
-    // The path is never echoed: it contains the user's name.
     void ownAvatarChanged(quint64 opId, bool ok, const QString &error);
-    // Answer to fetchMutualRooms. `rooms` carries maps of
-    // roomId/name/avatarUrl/isDirect — presentation-safe values only.
     void mutualRoomsReceived(quint64 opId, const QString &userId,
                              const QVariantList &rooms);
-    // URL preview. `fields` carries whitelisted OpenGraph values only (title,
-    // description, siteName, imageMxc, imageMime, imageWidth, imageHeight,
-    // imageSize; videoMime, videoSize and mediaTooLarge for a direct video or
-    // large image), never the URL. httpStatus/redirectCount are sanitized failure
-    // diagnostics (0 when not applicable).
     void urlPreviewFinished(quint64 opId, bool ok, const QVariantMap &fields,
                             const QString &category, int httpStatus = 0,
                             int redirectCount = 0);
-    // One GIF-provider response. `body` is bounded JSON for the GIF controller
-    // (never surfaced to QML); empty on failure. `category` is a coarse state
-    // (ok/rate_limited/provider_error/timeout/network/too_large/blocked). The
-    // request URL carries the provider key and is never emitted or logged.
     void gifResponse(quint64 opId, bool ok, int httpStatus,
                      const QByteArray &body, const QString &category);
-    // A validated GIF download: the bytes on success, else a coarse category
-    // (blocked/not_a_gif/too_large/invalid_media/timeout/network/provider_error).
     void gifDownloadFinished(quint64 opId, bool ok, const QByteArray &bytes,
                              const QString &mime, int width, int height,
                              qint64 size, const QString &category);
@@ -2204,85 +1451,44 @@ Q_SIGNALS:
                             const QString &category);
     void inviteBatchFinished(quint64 opId, const QString &roomId,
                              int okCount, int failCount);
-    // snapshot: ok, truncated, joinedCount, invitedCount, canInvite,
-    // canEditName, canEditTopic, canEditAvatar, members(QVariantList of
-    // maps: userId, displayName, avatarUrl, membership, role, ambiguous,
-    // isOwn).
     void roomMembersReceived(quint64 opId, const QString &roomId,
                              const QVariantMap &snapshot);
-    // facts: ownMembership ("joined", "invited", "left", "knocked",
-    // "banned"; empty when unknown), and canSendMessages / canRedactOthers /
-    // canKick / canBan / canUnban / canInvite / canEditTopic / canEditName
-    // only when the SDK answered (an absent key is unknown).
     void roomOwnPermissionsReceived(quint64 opId, const QString &roomId,
                                     const QVariantMap &facts);
-    // Thread participants for the facepile: user-id-deduplicated maps (userId,
-    // displayName, avatarUrl), root sender first. `distinct` counts distinct
-    // senders (not replies); `truncated` means more exist. A failed lookup has
-    // an empty list and distinct 0 and means "unknown", never "nobody".
     void threadParticipantsReceived(const QString &roomId,
                                     const QString &rootEventId,
                                     const QVariantList &participants,
                                     int distinct, bool truncated);
-    // "Remove edits" result, counts only: `removed` redacted, `failed` refused,
-    // `truncated` when one pass could not remove the whole chain. ok means
-    // nothing failed; a message with no edits reports ok with removed 0.
     void messageEditsRemoved(const QString &roomId, const QString &eventId,
                              bool ok, int removed, int failed,
                              bool truncated);
-    // One presence polling round. Each entry: userId, ok, state ("online" /
-    // "unavailable" / "offline" / "unknown"), currentlyActive, lastActiveAgoMs
-    // (-1 when none), category (ok=false only). ok=false means unknown, never
-    // offline.
     void presenceReceived(quint64 opId, const QVariantList &entries);
-    // A user's profile banner. `supported` false means the homeserver lacks
-    // extended profile fields, which renders as nothing rather than "no
-    // banner".
     void profileBannerReceived(quint64 opId, const QString &userId,
                                const QString &mxc, bool supported);
     void profileBannerSet(quint64 opId, bool ok, const QString &mxc,
                           const QString &category);
-    // Chosen display-name colour as `#rrggbb`, or empty. `supported` false
-    // means the homeserver lacks extended profile fields.
     void nameColorReceived(quint64 opId, const QString &userId,
                            const QString &color, bool supported);
     void nameColorSet(quint64 opId, bool ok, const QString &color,
                       const QString &category);
-    // A user's bio as plain text. `supported` false means the homeserver lacks
-    // extended profile fields, so an absent bio is never an error.
     void profileBioReceived(quint64 opId, const QString &userId,
                             const QString &bio, bool supported);
     void profileBioSet(quint64 opId, bool ok, const QString &bio,
                        const QString &category);
-    // A room's banner, and whether this account may change it (per the SDK's
-    // power levels).
     void roomBannerReceived(quint64 opId, const QString &roomId,
                             const QString &mxc, bool canSet);
     void roomBannerSet(quint64 opId, const QString &roomId, bool ok,
                        const QString &mxc, const QString &category);
-    // A room's shared background as canonical content (empty map = none),
-    // whether this account may change it, and whether the event uses a schema
-    // newer than this build reads (then `content` is empty).
     void roomBackgroundReceived(quint64 opId, const QString &roomId,
                                 const QVariantMap &content, bool canSet,
                                 bool unsupportedVersion);
     void roomBackgroundSet(quint64 opId, const QString &roomId, bool ok,
                            const QVariantMap &content,
                            const QString &category);
-    // A room's (or Space's) shared background changed in sync, set or
-    // cleared by anyone. No content: the consumer re-reads it through
-    // fetchRoomBackground, so one parser decides what it holds.
     void roomBackgroundChanged(const QString &roomId);
-    // Personal backgrounds in account data. `entries` are maps { scope,
-    // state: "present"|"cleared"|"invalid"|"unsupported", id, info, color,
-    // presentation }. A scope with no account data is absent from them, and
-    // one that could not be read is in `failed`. `enabled` is the
-    // account-wide switch as the backend read it with these entries: 1 on,
-    // 0 off, -1 unknown. Apply it before any entry.
     void personalBackgroundsRead(quint64 opId, const QString &scope,
                                  const QVariantList &entries,
                                  const QStringList &failed, int enabled);
-    // The decrypted picture for `scope` (empty unless ok) and its entry.
     void personalBackgroundDownloaded(quint64 opId, const QString &scope,
                                       bool ok, const QVariantMap &entry,
                                       const QByteArray &bytes,
@@ -2290,40 +1496,18 @@ Q_SIGNALS:
     void personalBackgroundWritten(quint64 opId, const QString &scope,
                                    bool ok, const QVariantMap &entry,
                                    const QString &category);
-    // `skipped` counts scopes the pass could not attempt (a room left, a
-    // newer schema); `switchedOff` says the switch went off first (nothing
-    // else is attempted without it). ok is false whenever failed or skipped
-    // is non-zero or the switch did not go off.
     void personalBackgroundsCleared(quint64 opId, bool ok, int cleared,
                                     int failed, int skipped, bool switchedOff);
-    // The settings blob and the switch as the SERVER holds them. blobState is
-    // "absent", "present" or "unreadable"; switchState 1 on, 0 off, -1 unknown.
-    // ok is false when either could not be asked (category says why).
     void syncedSettingsRead(quint64 opId, bool ok, const QString &category,
                             const QString &blobState, const QString &blobJson,
                             int switchState);
     void syncedSettingsWritten(quint64 opId, int kind, bool ok,
                                const QString &category);
-    // The blob or the switch changed in sync (another device, or our own
-    // write coming back). No content: the consumer re-reads.
     void syncedSettingsChanged();
-    // A scope's account data changed in sync (another device, or our own
-    // write coming back). No content: the consumer re-reads it.
     void personalBackgroundChanged(const QString &scope);
-    // One MSC2545 snapshot of every usable pack, validated and bounded in Rust;
-    // see StickerPackModel for the row shape. An empty list means "no packs".
-    // `roomCanManage` is whether this account may write `im.ponies.room_emotes`
-    // in `roomId`, reported per room so a first pack can be created. Unknown
-    // permission is reported as false.
     void stickerPacksReceived(quint64 opId, const QString &roomId,
                               bool roomCanManage, const QVariantList &packs);
-    // Emitted immediately BEFORE the stickerPacksReceived of the same op:
-    // what the snapshot knows about its own sources. Keys: roomCanManageLegacy
-    // (bool), roomScanFailed (bool), subscriptionsSource ("stable" | "legacy"
-    // | "none"), stableSubscriptionsUnreadable (bool), legacyOnlySubscriptions
-    // (int).
     void stickerPackSnapshotMeta(quint64 opId, const QVariantMap &meta);
-    /// One policy room's rules. `truncated` says the read hit its bound.
     void policyRulesReceived(quint64 opId, bool ok, const QString &roomId,
                              bool canWrite, bool truncated,
                              const QVariantList &rules);
@@ -2331,152 +1515,73 @@ Q_SIGNALS:
     void policySubscriptionsReceived(quint64 opId, bool ok,
                                      const QString &category,
                                      const QStringList &rooms);
-    /// Whether the subscribed lists cover an entity. `detail` carries
-    /// roomId, ruleEntity, ruleKind and reason when matched.
     void policyCheckFinished(quint64 opId, const QString &entity, bool matched,
                              const QVariantMap &detail);
-    /// One step of an MSC4108 sign-in-another-device flow.
-    ///
-    /// `step`: "starting", "qr_ready", "check_code_needed", "check_code_shown",
-    /// "waiting_for_auth", "syncing_secrets", "done", "failed". `detail`
-    /// carries that step's payload: qr_ready -> qrSize (int), qrBits (base64),
-    /// qrText; check_code_shown -> checkCode (int); waiting_for_auth ->
-    /// verificationUri; failed -> category.
-    ///
-    /// A step naming an old `generation` belongs to an abandoned flow and must
-    /// be ignored.
     void qrLoginProgress(quint64 generation, const QString &step,
                          const QVariantMap &detail);
-    /// Result of editStickerPack. `shortcode` is the code actually stored by a
-    /// rename, which is sanitized and may differ from what was typed.
     void stickerPackEditFinished(quint64 opId, bool ok, const QString &category,
                                  const QString &shortcode);
-    // A room-pack upload's media landed (whatever happened to the pack write).
     void stickerPackUploaded(quint64 opId, const QString &mxcUrl);
-    // Result of adding a sticker to a pack. `category` is "duplicate",
-    // "pack_full", or a coarse room-error class.
     void stickerPackAddFinished(quint64 opId, bool ok, const QString &category,
                                 const QString &shortcode);
-    // The result of turning a room's pack on or off globally. `mirror` is the
-    // legacy-document mirror's outcome for a legacy pack: "ok", "failed" or
-    // "none" (not attempted). A failed mirror never makes `ok` false.
     void stickerPackRoomsSet(quint64 opId, bool ok, const QString &category,
                              const QString &roomId, const QString &stateKey,
                              bool enabled, const QString &mirror);
-    // The legacy personal pack migration's outcome. `detail`: roomId, created,
-    // duplicates, packs, invalid, subscribed (each step's real result).
     void stickerPackMigrated(quint64 opId, bool ok, const QString &category,
                              const QVariantMap &detail);
-    // Packs or subscriptions changed in sync. Empty `roomId`: account data.
     void stickerPacksChanged(const QString &roomId);
-    // Publishing the user's own presence failed (coarse category); diagnostics
-    // only.
-    /// `retryAfterMs` is the server's M_LIMIT_EXCEEDED hint, or 0. The receiver
-    /// bounds it before acting.
     void presencePublishFailed(const QString &category, qint64 retryAfterMs);
-    // The server accepted an own-presence PUT. Only the Rust backend reports
-    // it; PresenceManager uses it to end a bounded sign-out/quit wait early.
     void presencePublished();
     void roomEditFinished(quint64 opId, const QString &roomId,
                           const QString &field, bool ok,
                           const QString &category);
-    // Answer to requestRoomDirectoryVisibility; `published` is meaningful only
-    // when ok.
     void roomDirectoryVisibilityReceived(const QString &roomId, bool ok,
                                          bool published);
-    // Room upgrade. `available` is [{version, stable}] in display order;
-    // `defaultVersion` is what the server creates rooms with.
     void roomVersionsReceived(bool ok, const QString &defaultVersion,
                               const QVariantList &available);
     void roomUpgradeFinished(quint64 opId, const QString &roomId, bool ok,
                              const QString &replacementRoomId,
                              const QString &category);
-    // Device and backup management.
     void deviceRenamed(quint64 opId, bool ok, const QString &category);
     // SENSITIVE: recoveryKey is real secret material when non-empty.
     // Consumers display it once and clear it; nothing may log it.
     void backupActionFinished(quint64 opId, const QString &action, bool ok,
                               const QString &recoveryKey,
                               const QString &category);
-    // An OAuth (MAS) account must approve new cross-signing keys at `url`, a
-    // plain web page (not authenticated media); the operation keeps polling.
     void crossSigningApprovalRequired(quint64 opId, const QString &url);
     void backupProgress(const QString &backupState, const QString &uploadState,
                         qint64 backedUp, qint64 total, quint64 requestId = 0);
-    // `present` is false when the account holds no such data (not the same as
-    // an empty object).
     void accountPrefRead(const QString &prefType, bool present,
                          const QVariantMap &content);
     void accountPrefChanged(const QString &prefType);
-    // A read that must come from the server (the incoming-invite policy)
-    // did not answer: the type's value is UNKNOWN, not absent.
     void accountPrefReadFailed(const QString &prefType, const QString &category);
     void accountPrefWritten(const QString &prefType, bool ok,
                             const QString &category);
     void roomActionFailed(const QString &action, const QString &roomId);
-    // `ok` false: /versions could not be read (offline), not "unsupported".
     void invitePolicySupportReceived(bool ok, bool stable, bool unstable);
-    // `revisions` is [{eventId, sender, timestamp(QDateTime), body,
-    // formattedBody, redacted, undecryptable, isOriginal, isLatest}] in
-    // chronological order; `encryption` is {encrypted, senderKey, senderDevice,
-    // algorithm, verification}. Both can carry decrypted text: memory-only,
-    // never logged or cached.
-    //
-    // `partial` is true when this is not the whole history (the event cache
-    // answered, or the server had more than one page). The missing rows are the
-    // oldest, and the UI must say so.
     void editHistoryReceived(const QString &roomId, const QString &eventId,
                              bool ok, bool partial,
                              const QVariantList &revisions);
     void eventSourceReceived(const QString &roomId, const QString &eventId,
                              bool ok, const QString &json,
                              const QVariantMap &encryption);
-    /// Jump to date. `eventId` is empty when not ok; `category` is a sanitized
-    /// shape ("not_found" when the server lacks the endpoint), never server
-    /// prose.
     void eventAtTimestampReceived(quint64 opId, const QString &roomId, bool ok,
                                   const QString &eventId, qint64 timestampMs,
                                   const QString &category);
-    /// Local search results: maps of eventId, roomId, sender, senderName, body,
-    /// msgtype, timestampMs. `category` "too_short" means the query cannot
-    /// match the trigram tokenizer, which differs from "no results".
-    ///
-    /// PRIVACY: bodies may be decrypted plaintext. They live in the receiving
-    /// model's memory only: never persisted, logged or sent anywhere.
     void localSearchFinished(quint64 opId, bool ok, const QString &category,
                              int minChars, const QVariantList &results);
-    /// A room's widgets: id, creator, kind, name, url, refusal, discloses.
-    /// `url` is resolved and validated; when empty, `refusal` says why it
-    /// cannot open. `canManage` is whether this account may write the room's
-    /// widget state, so Add and Remove are offered only when they can work.
     void roomWidgetsReceived(quint64 opId, const QString &roomId, bool ok,
                              bool canManage, const QVariantList &widgets);
-    /// A widget write finished. `category` is empty on success and a coarse
-    /// room-error class otherwise ("forbidden", "unknown_room", ...).
     void roomWidgetWritten(quint64 opId, const QString &roomId, bool ok,
                            const QString &category);
-    /// A room's advertised bridges (MSC2346): protocol, protocolName, network,
-    /// sanitised in Rust because any sufficiently powered member can write
-    /// them. `bridgebot` and `creator` are omitted: admin-chosen mxids that
-    /// would read as unverifiable provenance. An empty list is a fact; `ok` is
-    /// false only when the read failed.
     void roomBridgesReceived(quint64 opId, const QString &roomId, bool ok,
                              const QVariantList &bridges);
-    /// One page of a room's media-history walk. `scanned` counts events
-    /// examined, not matched, so the panel never claims "all media"
-    /// prematurely. `complete` is the start of accessible history.
-    /// `undecryptable` counts history that is present but unreadable.
     void mediaHistoryPage(quint64 opId, const QString &roomId,
                           const QVariantList &entries, qint64 scanned,
                           qint64 scannedTotal, qint64 undecryptable,
                           bool complete, bool encryptedRoom);
     void mediaHistoryFailed(quint64 opId, const QString &roomId,
                             const QString &message);
-    /// One page of a room-export walk, newest-first. `rows` are maps with
-    /// eventId, sender, senderName, timestampMs, kind, body, formattedBody
-    /// (untrusted HTML), threadRoot, replyTo, edited, filename, mimetype,
-    /// size and mediaKey. `stopReason` is set once `done`: "start", "limit",
-    /// "date" or "cap".
     void roomExportPage(quint64 opId, const QString &roomId,
                         const QVariantList &rows, qint64 rowsTotal,
                         qint64 scannedTotal, qint64 undecryptableTotal,
@@ -2484,14 +1589,9 @@ Q_SIGNALS:
                         bool encryptedRoom);
     void roomExportFailed(quint64 opId, const QString &roomId,
                           const QString &message);
-    /// A per-room profile write finished. `field` is "displayname" or
-    /// "avatar_url"; they are separate requests and can fail independently.
     void roomProfileResult(quint64 opId, const QString &roomId,
                            const QString &field, bool ok,
                            const QString &error);
-    /// clearStoredMedia finished. `files`/`bytes` count the large kept files
-    /// only; the SDK media store reports no count. `ok` false: part of it
-    /// could not be removed.
     void storedMediaCleared(quint64 opId, bool ok, qint64 files, qint64 bytes);
     void mediaKeepStateChanged();
     void searchIndexStatsReceived(quint64 opId, qint64 messages, qint64 rooms);
@@ -2500,14 +1600,7 @@ Q_SIGNALS:
     void searchIndexDeepened(quint64 opId, bool ok, const QString &roomId,
                              int pages, bool reachedStart, int written,
                              qint64 messages, const QString &category);
-    /// "Index all rooms" progress. Keys: state ("idle" | "running" | "held" |
-    /// "backoff" | "paused" | "done" | "cancelled" | "stopped"), total,
-    /// position, currentRoomId, written, skipped, undecryptable,
-    /// undecryptableRooms, failedRooms, completeRooms, retryInMs, elapsedMs,
-    /// and — only when present — messages and indexedRooms (index totals).
-    /// Room ids and counters only, never message text.
     void searchIndexAllProgress(quint64 opId, const QVariantMap &status);
-    // Scheduled send.
     void delayedEventsSupportReceived(bool supported, bool advertised);
     void scheduledSendFinished(quint64 opId, const QString &roomId, bool ok,
                                const QString &delayId, const QString &category);
@@ -2516,11 +1609,6 @@ Q_SIGNALS:
                                  const QString &category);
     void roomSendFinished(quint64 opId, const QString &roomId, bool ok,
                           const QString &category);
-    // A reaction seen over sync in any room. Only ids, sender and the bounded
-    // key cross. `targetIsOwn` is true only when the backend confirmed from its
-    // own store that the reacted-to event is the user's (false means "not
-    // known", never "not ours"); `backlog` marks a reaction that is history
-    // (initial sync, catch-up) rather than an arrival.
     void reactionEventReceived(const QString &roomId, const QString &reactionEventId,
                                const QString &targetEventId, const QString &senderId,
                                const QString &key, qint64 timestampMs,
@@ -2530,103 +1618,48 @@ Q_SIGNALS:
     void activitySeedPageReceived(const QVariantList &entries,
                                   const QString &nextToken);
     void activitySeedPageFailed(const QString &category);
-    // requestActivitySeed failed: nothing was fetched. Distinct from an empty
-    // seed, which means the server has no highlights. `category` is the fixed
-    // failure token ("http_404_M_UNRECOGNIZED", "timeout", ...; empty when
-    // unknown), never server text: a server without the endpoint is told
-    // apart from a dropped connection by it
-    // (ActivityModel::seedFailureIsPermanent).
     void activitySeedFailed(const QString &category = QString());
-    // This client's accept or decline of the invite to `roomId` completed on
-    // the server. The room list may still list the invite until the sync that
-    // carries the new membership, so whatever shows the invite stops now
-    // rather than then.
     void inviteAnswered(const QString &roomId, bool accepted);
     void roomLeaveFinished(quint64 opId, const QString &roomId, bool ok,
                            const QString &category);
-    // op is "kick" or "ban"; category is a sanitized error class on failure.
     void moderationFinished(quint64 opId, const QString &roomId,
                             const QString &userId, const QString &op,
                             bool ok, const QString &category);
-    // Answer to requestModerationPlan. Each row is { roomId, name, isSpace,
-    // membership, ownLevel, targetLevel, reason }; an empty reason means the
-    // action is offered in that room. `truncated`: rooms past the backend's
-    // cap were not assessed.
     void moderationPlanReceived(quint64 opId, const QString &userId,
                                 const QString &op, bool truncated,
                                 const QVariantList &rooms);
-    // Answer to requestRoomClosurePlan. Each row is { roomId, name, isSpace,
-    // reason, joinRule, canKick, canEditChildren, worldReadable, removable,
-    // staying, stayingNames }; an empty reason means closing is offered.
     void roomClosurePlanReceived(quint64 opId, bool truncated,
                                  const QVariantList &rooms);
     void roomClosureProgress(quint64 opId, const QString &roomId, int done,
                              int total);
-    // `result`: { outcome ("closed" | "partial" | "failed"), joinRule,
-    // directory, unlisted, unlistFailed, removed, removeFailed, notAttempted,
-    // staying, membersRead, canKick, left, category }.
     void roomClosureFinished(quint64 opId, const QString &roomId,
                              const QVariantMap &result);
-    // `info`: { ok, address, versions[], features[{name, enabled}],
-    // softwareName, softwareVersion, category }.
     void homeserverInfoReceived(quint64 opId, const QVariantMap &info);
-    // `listing`: { ok, roomId, truncated, entries[{type, redacted, json,
-    // cut}], category }.
     void accountDataListed(quint64 opId, const QVariantMap &listing);
-    // `result`: { ok, userId, devices[{deviceId, name}] }. `name` is whatever
-    // the owner typed, or empty.
     void userClientsListed(quint64 opId, const QVariantMap &result);
     void eventCacheCleared(quint64 opId, bool ok);
-    /// A cache reset step's compaction finished, reported after (never
-    /// instead of) that step's own completion signal, and only after a clear
-    /// that succeeded. `store` is "event_cache" or "media_store"; `outcome` is
-    /// "compacted", "unchanged", "not_applicable" (no SQLite store: absent is
-    /// not failed), "failed" or "timed_out" (still running; `bytesAfter` is
-    /// then unknown). The sizes are the database's footprint on disk.
     void cacheCompacted(quint64 opId, const QString &store,
                         const QString &outcome, qint64 bytesBefore,
                         qint64 bytesAfter);
-    // `detail`: "" (admin), "not_admin" or "unavailable".
     void serverAdminStatusReceived(quint64 opId, bool admin,
                                    const QString &detail);
     void adminRoomDeleteProgress(quint64 opId, const QString &roomId,
                                  const QString &status);
-    // `result`: { status, ok, removed, failedToRemove, category }; status
-    // "following" means the server had not finished when Lightning stopped
-    // following it.
     void adminRoomDeleteFinished(quint64 opId, const QString &roomId,
                                  const QVariantMap &result);
-    // One member's power-level write completed. `level` echoes the request; the
-    // authoritative value comes from the roster refresh that follows.
     void powerLevelChangeFinished(quint64 opId, const QString &roomId,
                                   const QString &userId, qlonglong level,
                                   bool ok, const QString &category);
-    // One m.room.power_levels threshold write completed. `level` echoes the
-    // request; the roster refresh that follows is authoritative.
     void roomPowerMatrixFinished(quint64 opId, const QString &roomId,
                                  const QString &key, qlonglong level,
                                  bool ok, const QString &category);
-    // One resolved pinned snapshot: ok, canPin, total, truncated and entries
-    // (eventId, available, and when available sender, senderDisplayName,
-    // senderAvatarUrl, timestampMs, kind, preview). Previews may be decrypted
-    // text: memory only, never CacheStore.
     void pinnedReceived(quint64 opId, const QString &roomId,
                         const QVariantMap &snapshot);
-    // A pin/unpin write completed. `changed` is false for a no-op, which is
-    // reported as such.
     void pinChangeFinished(quint64 opId, const QString &roomId,
                            const QString &eventId, bool pin, bool ok,
                            bool changed, const QString &category);
-    // m.room.pinned_events changed in this room. No payload; consumers re-read
-    // through requestPinnedMessages.
     void pinnedEventsChanged(const QString &roomId);
-    // Discovery. `result` carries ok / category and, when ok: target, via
-    // (QStringList), eventId, previewOk and, when previewed, roomId, alias,
-    // name, topic, avatarUrl, members, joinRule, membership, isSpace (else
-    // previewCategory).
     void roomTargetResolved(quint64 opId, const QVariantMap &result);
-    // One directory page. Each row: roomId, name, alias, topic, avatarUrl,
-    // members, joinRule, membership, worldReadable, guestCanJoin, isSpace.
     void publicRoomsReceived(quint64 opId, bool ok, const QVariantList &rooms,
                              const QString &nextBatch, quint64 totalEstimate,
                              const QString &category);
@@ -2636,19 +1669,11 @@ Q_SIGNALS:
                            const QString &category);
     void knockCancelFinished(quint64 opId, bool ok, const QString &roomId,
                              const QString &category);
-    // Personal moderation results. `ignored` echoes the requested direction;
-    // ignoredUsersChanged is the sync push for local and remote changes.
     void ignoreUserFinished(quint64 opId, const QString &userId, bool ignored,
                             bool ok, const QString &category);
     void ignoredUsersReceived(quint64 opId, bool ok, const QStringList &users);
     void ignoredUsersChanged(const QStringList &users);
-    // GitHub #48: the classic-sync event-cache repair (rust/src/lib.rs
-    // repair_classic_event_cache_once) emptied room caches while a timeline
-    // view was open; the open room and thread must be reopened, as after
-    // About -> Reset local cache.
     void eventCacheRepaired();
-    // Push-rule settings. `snapshot` is normalised (see PushRulesSnapshot):
-    // a level is -1 (the server has no such rule), 0 Off, 1 Notify, 2 Loud.
     void pushRulesReceived(quint64 opId, bool ok, const QVariantMap &snapshot,
                            const QString &category);
     void pushRuleWriteFinished(quint64 opId, const QString &kind, bool ok,
@@ -2656,13 +1681,9 @@ Q_SIGNALS:
     void reportMessageFinished(quint64 opId, const QString &roomId,
                                const QString &eventId, bool ok,
                                const QString &category);
-    // Voice-call signaling: one inbound observation (SDP-free, see
-    // CallSignal.h) and one terminal send result per dispatched op.
     void callSignalReceived(const CallSignal &signal);
     void callSendFinished(quint64 opId, bool ok, const QString &category,
                           const QString &callId, const QString &eventId);
-    // Remote trickled ICE (media-capable mode only). Transport data for the
-    // engine; never logged or rendered.
     void callCandidatesReceived(const QString &roomId, const QString &callId,
                                 const QString &partyId, const QString &sender,
                                 bool own,
@@ -2674,54 +1695,30 @@ Q_SIGNALS:
                                  const QStringList &uris, qint64 ttlSeconds,
                                  const QString &category);
 
-    // MatrixRTC observation. `rtcSessionChanged` is a payload-free poke to
-    // re-read the session, so remote and local changes share one parse path.
-    // `rtcSessionReceived` answers a read.
     void rtcSessionReceived(quint64 opId, const RtcSessionData &session);
     void rtcSessionChanged(const QString &roomId);
-    // Discovery. `serverAnswered` false with a category distinguishes "no
-    // MatrixRTC here" from "the request failed". URLs are opaque; never render
-    // them raw.
     void rtcTransportsReceived(quint64 opId, bool serverAnswered,
                                const QString &category,
                                const QStringList &serverServiceUrls,
                                const QString &participantFocusUrl);
     void rtcSendFinished(quint64 opId, bool ok, const QString &category,
                          const QString &eventId);
-    /// A raise or lower completed. After a raise, `eventId` is the reaction a
-    /// later lower must redact.
     void rtcHandResult(quint64 opId, bool ok, bool raised,
                        const QString &category, const QString &eventId);
-    /// A hand went up or down (sync). A raise carries `membershipEventId`; a
-    /// lower carries only the redacted reaction id, which the receiver matches
-    /// against the ids it tracks.
     void rtcHandChanged(const QString &roomId, const QString &sender,
                         const QString &membershipEventId,
                         const QString &reactionEventId, bool raised);
-    /// A transient call reaction (sync), attributed through the referenced
-    /// membership so a sender who does not own it can be refused.
     void rtcCallReactionReceived(const QString &roomId, const QString &sender,
                                  const QString &membershipEventId,
                                  const QString &emoji);
-    /// The join-time sweep. Each entry:
-    /// {userId, deviceId, rtcIdentity, membershipEventId, reactionEventId}.
     void rtcHandsReceived(quint64 opId, const QString &roomId,
                           const QVariantList &hands);
-    /// Our membership was published. An empty `delayId` means no delayed
-    /// retraction was armed, so cleanup relies on the membership's `expires`.
-    /// `delayedCategory` is sticky, not per-answer: it is also empty when no
-    /// arm was attempted (rtc.rs skips it once the refusal is latched).
-    /// `unrecognized`/`not_found`/`no_delay_id` mean the endpoint is absent
-    /// (the latched cases); `rate_limited`/`forbidden`/`invalid`/`network` are
-    /// transient or room-specific and the next publish retries.
     void rtcMembershipPublished(quint64 opId, bool ok, const QString &category,
                                 const QString &eventId,
                                 const QString &delayId,
                                 const QString &delayedCategory);
     void rtcMembershipRetracted(quint64 opId, bool ok,
                                 const QString &category);
-    /// `undelivered`: `{user_id, device_id}` maps for every target the key
-    /// did NOT reach (a partial delivery is still `ok`). Public ids only.
     void rtcMediaKeySent(quint64 opId, bool ok, const QString &category,
                          int delivered, int keyIndex,
                          const QVariantList &undelivered = {});
@@ -2732,15 +1729,7 @@ Q_SIGNALS:
                              const QString &claimedDeviceId, int keyIndex,
                              const QString &keyBase64);
 
-    // ── SFU signalling ──
-    /// Closed-set lifecycle: authorized / signalling / reconnecting / ended /
-    /// closed / failed. `category` explains a failure and is safe to log.
-    /// "reconnecting": a joined session was lost in a way the call survives
-    /// (the SFU asked us back, or the signalling socket died); "ended": the
-    /// SFU removed us for good. Only reports of the live session arrive.
     void sfuStateChanged(const QString &state, const QString &category);
-    /// Connection-aware event, with generation and id verified by the Rust
-    /// wrapper. SDP/ICE are media-only and must stay inside the controller.
     void sfuConnectionEvent(const QVariantMap &event);
     /// LiveKit's per-room server-injected-frame trailer
     /// (`JoinResponse.sif_trailer`): at most 64 raw bytes, empty when absent.
@@ -2753,37 +1742,24 @@ Q_SIGNALS:
     void sfuTrackPublished(const QString &cid, const QString &sid);
     void sfuSpeakersChanged(const QVariantList &speakers);
     void sfuConnectionQuality(const QVariantList &updates);
-    /// Media transport only; never logged, never exposed to QML.
     void sfuRemoteDescription(const QString &kind, const QString &target,
                               const QString &sdp);
     void sfuRemoteCandidate(const QString &target,
                             const QString &candidateInit);
-    // The server requires interactive auth to complete the pending operation.
-    // `stages` lists flow stage names for the "unsupported stage" display; only
-    // the password stage is renderable. wrongPassword means a previous answer
-    // was rejected.
     void uiaRequired(quint64 uiaId, bool hasPasswordStage,
                      bool wrongPassword, const QStringList &stages);
     void deviceDeleteFinished(quint64 opId, bool ok, const QString &category);
     void oauthManagementUrlReceived(quint64 opId, bool ok, const QString &url);
-    // known=false: the server could not be asked (the form stays offered).
     void passwordChangeProbed(quint64 opId, bool known, bool canChange,
                               const QString &managementUrl);
     void passwordChangeFinished(quint64 opId, bool ok, const QString &category);
-    // Room-key export: sessions gathered so far, then the outcome. category
-    // is "" when ok (see RoomKeyExportController::describe).
     void roomKeyExportProgress(quint64 opId, int collected);
     void roomKeyExportFinished(quint64 opId, bool ok, int exported,
                                const QString &category);
-    // One server-search page. Each row: roomId, eventId, sender,
-    // senderDisplayName, senderAvatarUrl, timestampMs, msgtype, body.
     void messageSearchFinished(quint64 opId, bool ok,
                                const QVariantList &results,
                                const QString &nextBatch, quint64 count,
                                const QString &category);
-    // Space children incl. unjoined rows. Each row: roomId, name, alias,
-    // topic, avatarUrl, members, joinRule, membership, isSpace,
-    // childrenCount, suggested, via (QStringList).
     void spaceChildrenReceived(quint64 opId, const QString &spaceId, bool ok,
                                const QVariantList &rooms, bool truncated,
                                const QString &category);
@@ -2795,8 +1771,6 @@ Q_SIGNALS:
     void spaceChildSuggestedFinished(quint64 opId, const QString &spaceId,
                                      const QString &roomId, bool suggested,
                                      bool ok);
-    // Queue acceptance only; delivery state flows through the item's send
-    // state.
     void attachmentQueueFinished(quint64 opId, const QString &roomId,
                                  bool ok, const QString &category);
     void mediaReady(quint64 opId, const QString &mediaKey, int kind,

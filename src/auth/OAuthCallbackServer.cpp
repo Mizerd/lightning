@@ -15,7 +15,6 @@ Q_LOGGING_CATEGORY(lcOAuthCb, "matrix.oauth")
 constexpr auto kCallbackPath = "/callback";
 constexpr auto kDeadlineName = "lightningRequestDeadline";
 
-// Index just past the blank line that ends the request head, or -1.
 qsizetype endOfRequestHead(const QByteArray &bytes)
 {
     const qsizetype crlf = bytes.indexOf("\r\n\r\n");
@@ -25,11 +24,6 @@ qsizetype endOfRequestHead(const QByteArray &bytes)
     return lf >= 0 ? lf + 2 : -1;
 }
 
-// Stops a connection's own "speak in time" deadline. Every path that ends a
-// connection stops it first: the timer lives as long as the socket, which
-// deleteLater() keeps until the next event-loop pass, and a deadline firing in
-// that window counted a connection already counted elsewhere as silent too, or,
-// after stop() and a new listen(), as one of the next attempt's.
 void stopDeadline(QTcpSocket *socket)
 {
     if (!socket)
@@ -39,8 +33,6 @@ void stopDeadline(QTcpSocket *socket)
         deadline->stop();
 }
 
-// An OAuth error code is a fixed protocol token, but it arrives in a URL
-// anyone can send, so only a token-shaped value reaches the log.
 QString loggableErrorCode(const QString &error)
 {
     if (error.isEmpty() || error.size() > 40)
@@ -51,7 +43,7 @@ QString loggableErrorCode(const QString &error)
     }
     return error;
 }
-} // namespace
+}
 
 OAuthCallbackServer::OAuthCallbackServer(QObject *parent)
     : QObject(parent)
@@ -59,7 +51,6 @@ OAuthCallbackServer::OAuthCallbackServer(QObject *parent)
     m_timer.setSingleShot(true);
     connect(&m_timer, &QTimer::timeout, this, [this] {
         m_outcome = "timed-out";
-        // stop() first so a callback arriving during delivery is refused.
         stop();
         Q_EMIT timedOut();
     });
@@ -104,7 +95,6 @@ bool OAuthCallbackServer::listen()
     m_connections = m_strangers = m_refused = m_silentClosed = 0;
     connect(m_server, &QTcpServer::newConnection, this, &OAuthCallbackServer::onConnection);
     m_timer.start(m_timeout);
-    // The port is not secret; callback contents are never logged.
     qCInfo(lcOAuthCb) << "sign-in callback listening on loopback port"
                       << m_server->serverPort();
     return true;
@@ -143,7 +133,6 @@ void OAuthCallbackServer::stop()
         socket->deleteLater();
     }
     if (m_server) {
-        // Whether the browser reached us at all, without anything it sent.
         qCInfo(lcOAuthCb) << "sign-in callback listener closed outcome=" << m_outcome
                           << "connections=" << m_connections
                           << "not-the-callback=" << m_strangers
@@ -154,7 +143,6 @@ void OAuthCallbackServer::stop()
         m_server = nullptr;
     }
     m_redirectUri.clear();
-    // A stale secret would let an abandoned sign-in's late answer be accepted.
     m_callbackPath.clear();
     m_callbackNonce.clear();
 }
@@ -172,10 +160,7 @@ void OAuthCallbackServer::onConnection()
         return;
     while (QTcpSocket *socket = m_server->nextPendingConnection()) {
         ++m_connections;
-        forget(nullptr);   // drop entries whose socket is gone
-        // Every connection is served on its own: a browser may open a spare
-        // connection that never speaks and send the request on another, and
-        // serving only the first reset the real callback (Vivaldi, Chromium).
+        forget(nullptr);
         if (m_consumed || m_pending.size() >= kMaxPendingConnections) {
             ++m_refused;
             socket->abort();
@@ -185,8 +170,6 @@ void OAuthCallbackServer::onConnection()
         m_pending.append(socket);
         connect(socket, &QTcpSocket::readyRead, this, [this, socket] { onReadyRead(socket); });
         connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
-        // A connection that never sends a request must not stay open for the
-        // whole attempt.
         auto *deadline = new QTimer(socket);
         deadline->setObjectName(QLatin1String(kDeadlineName));
         deadline->setSingleShot(true);
@@ -215,7 +198,6 @@ void OAuthCallbackServer::onReadyRead(QTcpSocket *socket)
         return;
 
     if (socket->bytesAvailable() > kMaxRequestBytes) {
-        // Not a redirect callback; drop it unread.
         ++m_strangers;
         stopDeadline(socket);
         forget(socket);
@@ -224,13 +206,10 @@ void OAuthCallbackServer::onReadyRead(QTcpSocket *socket)
         return;
     }
 
-    // Wait for the whole request head, so the answer is not followed by a
-    // reset for unread bytes, which can cost the browser the page.
     const qsizetype headEnd = endOfRequestHead(socket->peek(kMaxRequestBytes));
     if (headEnd < 0)
         return;
     const QByteArray head = socket->read(headEnd);
-    // It spoke in time; from here the answer decides what happens to it.
     stopDeadline(socket);
     const qsizetype lineEnd = head.indexOf('\n');
     const QList<QByteArray> parts = head.left(lineEnd).simplified().split(' ');
@@ -244,8 +223,6 @@ void OAuthCallbackServer::onReadyRead(QTcpSocket *socket)
 
 void OAuthCallbackServer::answerStranger(QTcpSocket *socket, const char *why)
 {
-    // A favicon, a probe or a POST: answer it and keep waiting. It does not
-    // consume the single shot.
     ++m_strangers;
     qCInfo(lcOAuthCb) << "sign-in callback: answered a request that is not the callback:"
                       << why;
@@ -255,9 +232,7 @@ void OAuthCallbackServer::answerStranger(QTcpSocket *socket, const char *why)
 
 void OAuthCallbackServer::finishWithSocket(QTcpSocket *socket, const QString &requestTarget)
 {
-    // Parse only enough to route; the SDK validates code and state.
     const QUrl target(requestTarget, QUrl::StrictMode);
-    // The path must carry this attempt's secret.
     if (!target.isValid() || m_callbackPath.isEmpty()
         || target.path() != m_callbackPath) {
         answerStranger(socket, !target.isValid() ? "unparsable target"
@@ -281,14 +256,11 @@ void OAuthCallbackServer::finishWithSocket(QTcpSocket *socket, const QString &re
         respond(socket,
                 tr("Sign-in cancelled"),
                 tr("You can close this window and return to Lightning."));
-        // The error code is a fixed protocol token. error_description is
-        // dropped: it is attacker-influenced remote text.
         Q_EMIT callbackFailed(error);
         stop();
         return;
     }
 
-    // An empty credential counts as absent.
     const QString required = m_flow == Flow::Sso ? QStringLiteral("loginToken")
                                                  : QStringLiteral("code");
     const QString credential = query.queryItemValue(required);
@@ -303,9 +275,6 @@ void OAuthCallbackServer::finishWithSocket(QTcpSocket *socket, const QString &re
     }
 
     m_outcome = "callback";
-    // OAuth: the absolute redirect URL, which finish_login() parses and
-    // validates. SSO: the login token alone. Both are credentials. Built
-    // before answering: a closed socket no longer knows its port.
     const QString payload =
         m_flow == Flow::Sso
             ? credential
@@ -313,13 +282,10 @@ void OAuthCallbackServer::finishWithSocket(QTcpSocket *socket, const QString &re
                   .arg(m_server ? m_server->serverPort() : socket->localPort())
                   .arg(requestTarget);
 
-    // Nothing has been checked yet: the SDK still has to redeem the
-    // credential, and that can fail. The page must not claim success.
     respond(socket,
             tr("Finishing sign-in"),
             tr("You can close this window and return to Lightning."));
 
-    // Emit before stop(), which deletes the listener and its sockets.
     Q_EMIT callbackReceived(payload);
     stop();
 }
@@ -329,7 +295,6 @@ void OAuthCallbackServer::respond(QTcpSocket *socket, const QString &title, cons
     if (!socket || socket->state() != QAbstractSocket::ConnectedState)
         return;
 
-    // Self-contained, no scripts, and nothing reflected from the request.
     const QString html = QStringLiteral(
                              "<!doctype html><html><head><meta charset=\"utf-8\">"
                              "<title>%1</title></head><body>"

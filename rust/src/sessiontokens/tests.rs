@@ -1,20 +1,3 @@
-//! The rotation contract against a homeserver whose authorization server
-//! follows MAS's refresh-token rules, plus the ledger's own bounds.
-//!
-//! The fixture implements `refresh_token_grant` from MAS
-//! (`crates/handlers/src/oauth2/token.rs`): a refresh rotates both tokens and
-//! revokes the previous access token; a consumed refresh token is accepted
-//! again only while its replacement is unconsumed AND the access token issued
-//! with that replacement has never been used, which then revokes the
-//! replacement pair; anything else is `invalid_grant`. "Used" here means a
-//! `whoami` carried it: the fixture answers every other client API request
-//! without looking at the token, so matrix-sdk's own E2EE initialization
-//! requests neither refresh nor count, and the order under test is the one
-//! between our probe's retry and the keyring write.
-//!
-//! A std thread stands in for C++: every `drain_every` it notes a drain,
-//! empties the command lane, writes each `session_tokens_refreshed` pair to a
-//! fake keyring and answers the ledger, as `RustSdkMatrixClient` does.
 
 use super::*;
 
@@ -27,8 +10,6 @@ use std::thread;
 use matrix_sdk::authentication::oauth::{ClientId, OAuthSession, UserSession};
 use matrix_sdk::ruma::{OwnedDeviceId, OwnedUserId};
 use matrix_sdk::SessionMeta;
-
-// ---- the MAS-rule fixture -------------------------------------------------
 
 struct RefreshRec {
     access: String,
@@ -55,7 +36,6 @@ struct Mas {
 struct Fixture {
     base: String,
     mas: Arc<Mutex<Mas>>,
-    /// One clock for the server's "first used" and the keyring's "written".
     seq: Arc<AtomicU64>,
 }
 
@@ -71,7 +51,6 @@ impl Fixture {
     }
 }
 
-/// Request line + headers, and the body.
 fn read_request(stream: &mut TcpStream) -> (String, String) {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
@@ -131,7 +110,6 @@ fn form_value(body: &str, key: &str) -> Option<String> {
     })
 }
 
-/// MAS's `refresh_token_grant`, reduced to the token states.
 fn refresh_grant(mas: &mut Mas, presented: &str) -> Result<(String, String), &'static str> {
     mas.presented.push(presented.to_owned());
     let Some(rec) = mas.refresh.get(presented) else { return Err("not found") };
@@ -148,7 +126,6 @@ fn refresh_grant(mas: &mut Mas, presented: &str) -> Result<(String, String), &'s
         if mas.access.get(&next_access).is_some_and(|a| a.used_at.is_some()) {
             return Err("replay: the successor's access token was used");
         }
-        // A lost response: revoke the unused pair and reissue.
         if let Some(a) = mas.access.get_mut(&next_access) {
             a.revoked = true;
         }
@@ -178,7 +155,6 @@ fn serve() -> Fixture {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
     let base = format!("http://{}", listener.local_addr().expect("addr"));
     let mut mas = Mas::default();
-    // The pair in the keyring at the start: its access token has expired.
     mas.access.insert("access-0".to_owned(), AccessRec { used_at: None, revoked: true });
     mas.refresh.insert(
         "refresh-0".to_owned(),
@@ -243,22 +219,16 @@ fn serve() -> Fixture {
     Fixture { base, mas, seq }
 }
 
-// ---- the stand-in for C++ -------------------------------------------------
-
 #[derive(Default)]
 struct Keyring {
     access: String,
     refresh: String,
-    /// Fixture clock value when each refresh token was written.
     written_at: HashMap<String, u64>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Gui {
-    /// Writes each rotation and answers, like RustSdkMatrixClient.
     Persist,
-    /// Drains (so no stall is seen) and never answers: the process dies in
-    /// the middle of the keyring write.
     DiesBeforeTheWrite,
 }
 
@@ -330,8 +300,6 @@ impl Drop for GuiThread {
     }
 }
 
-// ---- helpers ----------------------------------------------------------------
-
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -375,8 +343,6 @@ fn session(access: &str, refresh: &str) -> OAuthSession {
     }
 }
 
-/// `mx_rust_oauth_restore`'s client: the production restore with the handle's
-/// sink installed before `restore_session()`.
 async fn restore(fixture: &Fixture, store: &std::path::Path, sink: &Sink, access: &str, refresh: &str)
     -> Client
 {
@@ -387,8 +353,6 @@ async fn restore(fixture: &Fixture, store: &std::path::Path, sink: &Sink, access
     .expect("restore");
     client
 }
-
-// ---- the ledger's bounds ------------------------------------------------------
 
 fn tokens(n: u32) -> SessionTokens {
     SessionTokens { access_token: format!("a{n}"), refresh_token: Some(format!("r{n}")) }
@@ -409,8 +373,6 @@ fn an_answer_ends_the_wait_and_says_whether_the_keyring_took_it() {
     let refused = ledger.record(tokens(2));
     ledger.answer(refused, false);
     assert_eq!(ledger.wait_for_answer(refused), WaitOutcome::NotSaved);
-    // An answer for a later pair answers an earlier one: the keyring then
-    // holds something at least as new.
     let older = ledger.record(tokens(3));
     let newer = ledger.record(tokens(4));
     ledger.answer(newer, true);
@@ -468,8 +430,6 @@ fn shutdown_and_detached_ledgers_never_hold_a_refresh() {
 
 #[test]
 fn a_current_thread_runtime_waits_for_the_answer_like_any_other() {
-    // The sync loop's runtime is current-thread (lib.rs run_async), and the
-    // answer needs nothing from it.
     let ledger = TokenLedger::with_bounds(true, Duration::from_secs(10), Duration::from_secs(10));
     let generation = ledger.record(tokens(1));
     let answering = Arc::clone(&ledger);
@@ -507,17 +467,11 @@ fn a_new_client_starts_with_no_pair_and_counts_its_own_rotations() {
     assert_eq!(ledger.latest(), None);
     let stats = ledger.stats();
     assert_eq!((stats.rotations, stats.unsaved_rotation, stats.since_rotation_ms), (0, false, None));
-    // Generations keep counting, so an answer about the previous client can
-    // never satisfy this one.
     assert_eq!(ledger.record(tokens(3)), 3);
 }
 
 // ---- against the MAS-rule server -----------------------------------------------
 
-/// The ordering MAS needs: the request whose 401 caused a refresh is retried
-/// with the new access token only after the new pair is in the keyring.
-/// Without the save callback's wait the retry goes out at once and the stand-in
-/// GUI writes up to 100 ms later, so "first use" precedes "written".
 #[test]
 fn the_retried_request_waits_until_the_rotated_pair_is_in_the_keyring() {
     let fixture = serve();
@@ -534,16 +488,12 @@ fn the_retried_request_waits_until_the_rotated_pair_is_in_the_keyring() {
     assert!(used.is_some(), "the retried whoami never carried the new access token");
     assert!(written < used,
             "access-1 was used (t={used:?}) before refresh-1 was written (t={written:?})");
-    // Announced on the command lane, not behind the bulk lane's diffs.
     let bulk: Vec<String> = sink.events.lock().unwrap().iter().cloned().collect();
     assert!(bulk.iter().all(|e| !e.contains("session_tokens_refreshed")), "{bulk:?}");
     drop(gui);
     let _ = std::fs::remove_dir_all(&store);
 }
 
-/// The same ordering when the 401 comes from a request made on a
-/// current-thread runtime, as the sync loop's are (lib.rs `run_async`), on a
-/// client built on the handle's multi-thread runtime.
 #[test]
 fn the_sync_loops_runtime_also_waits_for_the_keyring() {
     let fixture = serve();
@@ -601,7 +551,6 @@ fn a_crash_before_the_keyring_write_leaves_the_old_refresh_token_usable() {
         let _ = client.whoami().await;
     });
     assert!(gui.wait_seen(1, Duration::from_secs(20)), "the rotation was never announced");
-    // The process dies here. What the keyring holds is all the next start has.
     let ring = gui.keyring.lock().unwrap();
     let (access, refresh) = (ring.access.clone(), ring.refresh.clone());
     drop(ring);
@@ -625,8 +574,6 @@ fn a_crash_before_the_keyring_write_leaves_the_old_refresh_token_usable() {
     let _ = std::fs::remove_dir_all(&restart_store);
 }
 
-/// The normal path: rotations are written, the next start uses the newest
-/// pair, and no refresh token is ever presented twice.
 #[test]
 fn a_persisted_rotation_restarts_without_presenting_a_used_refresh_token() {
     let fixture = serve();
@@ -636,8 +583,6 @@ fn a_persisted_rotation_restarts_without_presenting_a_used_refresh_token() {
     runtime().block_on(async {
         let client = restore(&fixture, &store, &sink, "access-0", "refresh-0").await;
         client.whoami().await.expect("whoami");
-        // A second rotation in the same session (the access token expired
-        // again), driven directly.
         client.refresh_access_token().await.expect("second refresh");
     });
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -654,7 +599,6 @@ fn a_persisted_rotation_restarts_without_presenting_a_used_refresh_token() {
     let restart = new_sink(TokenLedger::detached());
     runtime().block_on(async {
         let client = restore(&fixture, &restart_store, &restart, &access, &refresh).await;
-        // access-2 is live: no refresh is needed at all.
         client.whoami().await.expect("restart");
         client.refresh_access_token().await.expect("restart refresh");
     });
@@ -668,16 +612,11 @@ fn a_persisted_rotation_restarts_without_presenting_a_used_refresh_token() {
     let _ = std::fs::remove_dir_all(&restart_store);
 }
 
-/// The retirement hole: matrix-sdk's own tasks can refresh after Lightning's
-/// broadcast watcher is aborted and after the final tokens were read. The
-/// save callback records every rotation in the ledger, which outlives the
-/// client, so the worker's read after the runtime is gone has the newest pair.
 #[test]
 fn a_rotation_nobody_watches_is_still_in_the_ledger_after_the_client_is_gone() {
     let fixture = serve();
     let store = store_dir("retire");
     let sink = new_sink(TokenLedger::new());
-    // Nothing drains or answers: shutdown has begun.
     let rt = runtime();
     let latest_seen_by_client = rt.block_on(async {
         let client = restore(&fixture, &store, &sink, "access-0", "refresh-0").await;

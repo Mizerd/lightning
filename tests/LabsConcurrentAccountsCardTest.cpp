@@ -1,20 +1,3 @@
-// Live accounts (Labs), Phase 1: Settings -> Labs -> "Run several accounts at
-// once" (LabsConcurrentAccountsCard.qml).
-//
-// - Offered by default and OFF (lead decision 2026-10-20, replacing DECISION
-//   1's "hidden until Phase 2"): the card is visible with its switch off and
-//   says where the "always signed in" choice is; Settings indexes it for
-//   search. It hides only when LIGHTNING_LABS_LIVE_ACCOUNTS forces Labs off
-//   (a test override), and then even a stored true runs nothing.
-// - The master switch writes the setting, the status line, the "Always
-//   signed in" heading and the per-account rows follow, and a refused pin is
-//   said under its own row and changes nothing.
-// - The rows (AccountListModel::rowsSnapshot) and the per-account activity
-//   (AccountActivityModel::activityFor) are Q_INVOKABLEs and are read only by
-//   handlers, never inside a binding, in every file that reads them.
-//
-// Mutations that make each case fail are in the WP1-Q notes
-// (Tasks/2026-10-16-la1-Q.md).
 
 #include <QtTest/QtTest>
 
@@ -89,7 +72,7 @@ QString readQml(const QString &name)
     return QString::fromUtf8(f.readAll());
 }
 
-} // namespace
+}
 
 class LabsConcurrentAccountsCardTest : public QObject
 {
@@ -140,12 +123,6 @@ private:
         return n;
     }
 
-    // A pin makes the pool schedule a start, and what that start does is
-    // WP1-S's business (here, with InertRustBridge, a failed create and a
-    // backoff; elsewhere a host that starts or pauses). Every state it passes
-    // through is a rowsChanged and a rebuilt row. So this waits for the rows
-    // to go QUIET — no rowsChanged for 250 ms — rather than for any
-    // particular state, and the case holds no row pointer across it.
     void settleRows()
     {
         AccountListModel *rows = m_controller->accountList();
@@ -163,14 +140,12 @@ private:
         }
     }
 
-    // AppSwitch never writes its own state; a click is its toggled() signal.
     static void click(QQuickItem *appSwitch)
     {
         QVERIFY(appSwitch);
         QVERIFY(QMetaObject::invokeMethod(appSwitch, "toggled"));
     }
 
-    // Labs on, through the card's own switch.
     void turnLabsOn()
     {
         auto *master = item(QStringLiteral("labsConcurrentAccountsSwitch"));
@@ -196,8 +171,6 @@ private slots:
 
     void cleanup()
     {
-        // Labs off first: the pool is shut down asynchronously, never by a
-        // destructor.
         if (m_controller && m_controller->liveAccountsActive()) {
             m_controller->settings()->setLabsConcurrentAccounts(false);
             QTRY_VERIFY(!m_controller->liveAccountsActive());
@@ -213,10 +186,6 @@ private slots:
         QSettings().clear();
     }
 
-    // The default: offered and off. Nothing runs, the switch is reachable,
-    // and the card says this is where the always-signed-in accounts are
-    // chosen. Mutation: `visible: root.available && <anything off by
-    // default>` hides it again.
     void theCardIsOfferedAndOffByDefault()
     {
         load(true, 2);
@@ -236,8 +205,6 @@ private slots:
         QCOMPARE(rowCount(), 0);
     }
 
-    // The test override forces Labs off: a stored `true` shows nothing and
-    // runs nothing, and the card is gone.
     void theCardHidesOnlyWhenForcedOff()
     {
         load(false, 2);
@@ -256,8 +223,6 @@ private slots:
         QVERIFY(!master->isVisible());
         QCOMPARE(rowCount(), 0);
 
-        // Settings places it once, without overriding its visibility, and
-        // indexes it for search on the master switch.
         const QString settings = readQml(QStringLiteral("SettingsScreen.qml"));
         QVERIFY(settings.size() > 100000);
         QCOMPARE(settings.count(QStringLiteral("LabsConcurrentAccountsCard {")), 1);
@@ -265,8 +230,6 @@ private slots:
         QCOMPARE(settings.count(QStringLiteral("anchor: \"labsConcurrentAccountsSwitch\"")), 1);
     }
 
-    // With the hidden switch: the master switch writes the setting, Labs
-    // comes on, and the status line and the rows follow; off takes them away.
     void theSwitchWritesTheSettingAndTheRowsFollow()
     {
         load(true, 3);
@@ -275,7 +238,6 @@ private slots:
         QVERIFY(m_controller->liveAccountsLabsAvailable());
         QVERIFY(card()->isVisible());
 
-        // Off: no rows, no status, no off note.
         QVERIFY(!item(QStringLiteral("labsConcurrentAccountsStatus"))->isVisible());
         QVERIFY(!item(QStringLiteral("labsConcurrentAccountsOffNote"))->isVisible());
         QCOMPARE(rowCount(), 0);
@@ -295,12 +257,10 @@ private slots:
                          .arg(m_controller->maxLiveAccounts()));
         QVERIFY(item(QStringLiteral("labsConcurrentAccountsOffNote"))->isVisible());
         QVERIFY(!item(QStringLiteral("labsConcurrentAccountsUnavailable"))->isVisible());
-        // The picker, under its own heading and plain words.
         QTRY_VERIFY(item(QStringLiteral("labsAlwaysSignedInHeading"))->isVisible());
         QVERIFY(item(QStringLiteral("labsAlwaysSignedInIntro"))->isVisible());
         QVERIFY(!item(QStringLiteral("labsAlwaysSignedInHint"))->isVisible());
 
-        // One row per saved account, in the model's order; names are plain.
         QTRY_COMPARE(rowCount(), 3);
         QCOMPARE(m_controller->accountList()->rowsSnapshot().size(), 3);
         for (int i = 0; i < 3; ++i) {
@@ -316,7 +276,6 @@ private slots:
             QVERIFY(!pin->property("checked").toBool());
         }
 
-        // Off again, through the same switch.
         click(item(QStringLiteral("labsConcurrentAccountsSwitch")));
         QVERIFY(!m_controller->settings()->labsConcurrentAccounts());
         QTRY_VERIFY(!m_controller->liveAccountsActive());
@@ -324,8 +283,6 @@ private slots:
         QTRY_VERIFY(!status->isVisible());
     }
 
-    // Four pins fit; the fifth is refused, the refusal is said under that
-    // row only, and nothing changes. Turning one off clears it.
     void aRefusedPinIsSaidUnderItsRowAndChangesNothing()
     {
         load(true, 5);
@@ -353,8 +310,6 @@ private slots:
             settleRows();
             if (QTest::currentTestFailed())
                 return;
-            // The rows are re-read on rowsChanged, so the delegate may be
-            // new: every lookup below is fresh.
             QTRY_VERIFY(pinOf(uid) && pinOf(uid)->property("checked").toBool());
             QVERIFY(refusalOf(uid) && !refusalOf(uid)->isVisible());
         }
@@ -370,12 +325,10 @@ private slots:
                  QStringLiteral("Up to %1 accounts can keep running. Turn one off first.")
                      .arg(cap));
         QVERIFY(pinOf(fifth) && !pinOf(fifth)->property("checked").toBool());
-        // Said under that row only.
         for (int i = 0; i < cap; ++i)
             QVERIFY(refusalOf(kAccounts.at(i))
                     && !refusalOf(kAccounts.at(i))->isVisible());
 
-        // Turning one off succeeds and clears the refusal.
         click(pinOf(kAccounts.at(1)));
         QVERIFY(!m_controller->settings()->keepRunningFor(kAccounts.at(1)));
         settleRows();
@@ -386,11 +339,6 @@ private slots:
                     && !pinOf(kAccounts.at(1))->property("checked").toBool());
     }
 
-    // C54-F01: a refusal is about the pin COUNT it was made at. When the count
-    // moves by any route other than this card's own switch (a sign-out, a
-    // removal, the account menu), the refusal goes. Old code kept it until the
-    // card's own switch next succeeded: `refusalText` stayed set and the row
-    // still said "Turn one off first" with three pinned.
     void aRefusalGoesWhenThePinCountMovesElsewhere()
     {
         load(true, 5);
@@ -418,7 +366,6 @@ private slots:
         };
         QTRY_VERIFY(refusal() && refusal()->isVisible());
 
-        // Not through the card.
         QVERIFY(m_controller->setAccountKeepRunning(kAccounts.at(0), false).isEmpty());
         settleRows();
         if (QTest::currentTestFailed())
@@ -426,13 +373,6 @@ private slots:
         QTRY_VERIFY(refusal() && !refusal()->isVisible());
     }
 
-    // C54-D04/D05/F04: a delegate keeps its identity across a refresh (so
-    // keyboard focus stays on the same account's switch), the order is the
-    // order the card first showed (the model's running-first sort does not
-    // move a row under the pointer), and every row reserves its state line so
-    // a state appearing moves nothing. Old code: the whole array was replaced
-    // on every rowsChanged (every delegate re-created), the order followed the
-    // model, and the state label was `visible: text.length > 0`.
     void rowsKeepTheirIdentityOrderAndHeight()
     {
         load(true, 5);
@@ -446,10 +386,7 @@ private slots:
         auto rowOf = [this](const QString &uid) {
             return item(QStringLiteral("labsAccountRow_") + uid);
         };
-        // The rows' uids top to bottom, checking on the way that every row
-        // has the same height and reserves its state line.
         auto checkGeometry = [&](QStringList *order) {
-            // Layout settles on the next polish.
             QTest::qWait(150);
             QList<QPair<qreal, QString>> byY;
             qreal height = -1;
@@ -482,7 +419,6 @@ private slots:
         const QPointer<QQuickItem> secondPin =
             item(QStringLiteral("labsKeepRunning_") + second);
         QVERIFY(secondRow && secondPin);
-        // Pin the LAST row: the model may sort it up; the card must not.
         QVERIFY(m_controller->setAccountKeepRunning(last, true).isEmpty());
         settleRows();
         if (QTest::currentTestFailed())
@@ -496,9 +432,6 @@ private slots:
             return;
         QCOMPARE(after, before);
 
-        // The model's running-first sort cannot be provoked here (nothing
-        // reaches Running over the inert bridge), so hand the card a snapshot
-        // in the REVERSED order: it must keep the order it first showed.
         QVariantList reversed;
         for (int i = kAccounts.size() - 1; i >= 0; --i) {
             QVariantMap row;
@@ -518,8 +451,6 @@ private slots:
         QCOMPARE(rowOf(second), secondRow.data());
     }
 
-    // Feeds the card a snapshot the model cannot produce offscreen (a revoked
-    // or locked account), through the card's own syncRowModel().
     void feed(const QList<int> &states)
     {
         QVariantList snapshot;
@@ -547,11 +478,6 @@ private slots:
         return o ? o->property("c").value<QColor>() : QColor();
     }
 
-    // C54-D02/D07: an unhealthy state is said in the danger ink and a sign-in
-    // that is gone offers the way back in place; a locked keyring is not a
-    // missing sign-in (CLAUDE.md s.6) and offers none; a healthy row has
-    // neither; and a state never changes a row's height. Real delegates fed a
-    // snapshot per state. Old code: muted ink for every state, no button.
     void anUnhealthyStateIsDangerInkWithASignInOnlyWhereItHelps()
     {
         load(true, 5);
@@ -592,8 +518,6 @@ private slots:
         }
     }
 
-    // C54-D04: after a keyboard toggle the same account's switch still has
-    // focus (the delegate is not re-created), so Space can toggle it back.
     void keyboardFocusStaysOnTheSwitchAfterAToggle()
     {
         load(true, 3);
@@ -619,15 +543,10 @@ private slots:
         QVERIFY(after->hasActiveFocus());
     }
 
-    // The two Q_INVOKABLE reads happen only in handler functions
-    // (refresh*() / _read()), never in a binding or in a function a binding
-    // calls. Counted per file, so a sweep that silently reads one file fewer
-    // fails.
     void rowsAndActivityAreReadOnlyByHandlers()
     {
         static const QRegularExpression functionDecl(
             QStringLiteral("\\bfunction\\s+(\\w+)\\s*\\("));
-        // A property binding or an assignment-free `name: value` line.
         static const QRegularExpression bindingLine(
             QStringLiteral("^\\s*(?:readonly\\s+)?(?:property\\s+[\\w.<>]+\\s+)?"
                            "[A-Za-z_][\\w.]*\\s*:(?!:)"));
@@ -641,7 +560,6 @@ private slots:
             { "LoginScreen.qml", "rowsSnapshot(", 1 },
             { "LabsConcurrentAccountsCard.qml", "rowsSnapshot(", 1 },
             { "AccountActivityFeed.qml", "activityFor(", 1 },
-            // Read nowhere else among the account surfaces.
             { "AccountMenu.qml", "activityFor(", 0 },
             { "QuickSwitcher.qml", "activityFor(", 0 },
             { "IdentityCard.qml", "activityFor(", 0 },
@@ -665,7 +583,6 @@ private slots:
                 if (!line.contains(QLatin1String(e.call)))
                     continue;
                 ++found;
-                // Walk back to whatever this expression belongs to.
                 QString owner;
                 for (int j = i; j >= 0; --j) {
                     const QString l = lines.at(j);

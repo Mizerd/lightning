@@ -21,24 +21,13 @@ import MatrixClient
 AnchoredPopup {
     id: picker
 
-    // "room" or "thread": routes the send and decides which composer gets focus
-    // back. The active target closes the other picker.
     property string target: "room"
     signal gifChosen(var result)
-    // ── One window, two kinds ── This picker and StickerPicker carry the same
-    // GIFs/Stickers strip; choosing the other segment asks the host to swap
-    // them. They stay separate components (packs have owners, attribution and
-    // failure states the GIF grid doesn't), but share the anchor, chrome and
-    // remembered size (`sizeSettingsKey: "picker"`) and have no transitions, so
-    // the swap reads as one window.
     signal kindRequested(string kind)
-    // Whether to offer the strip; cleared when the other kind is unavailable.
     property bool offerKindTabs: false
 
     readonly property var gif: app.gif
 
-    // The selected tab: a provider id from gif.providerIds ("giphy"/"klipy") or
-    // one of the local lists, "saved"/"recent".
     property string tab: "giphy"
     // A provider tab searches, paginates and shows attribution; a local list
     // does none of those and never issues a request.
@@ -49,9 +38,6 @@ AnchoredPopup {
         : tab === "recent" ? gif.recent
         : gif.results
 
-    // Attribution for the local lists, which can hold rows from either
-    // provider: every provider's credit. Per-GIF attribution comes from each
-    // tile's tag.
     readonly property string allProviderAttribution: {
         var rev = cfgRevision
         return gif.providerIds.map(function(id) {
@@ -59,7 +45,6 @@ AnchoredPopup {
         }).join(" · ")
     }
 
-    // Human-readable byte size for the size overlay ("" hides it).
     function formatBytes(n) {
         if (!n || n <= 0) return ""
         if (n < 1024) return n + " B"
@@ -67,8 +52,6 @@ AnchoredPopup {
         return Number(n / (1024 * 1024)).toLocaleString(Qt.locale(AppLocale.name), "f", 1) + " MB"
     }
 
-    // The tile's source tag. "local" is a GIF saved from a chat, on this device
-    // only.
     function sourceLabel(provider) {
         if (provider === "local")
             return qsTr("Local")
@@ -86,13 +69,8 @@ AnchoredPopup {
         return "GIF"
     }
 
-    // Sized as a share of the composer's width and the room above it. The
-    // minimum keeps three grid columns and the footer legible.
-    // `sizeSettingsKey` matches the emoji picker's, so resizing one resizes
-    // both.
     widthFraction: 0.38
     heightFraction: 0.64
-    // Plus the grab band, which is not content.
     minWidth: 300 + gripGrab
     minHeight: 320 + gripGrab
     sizeSettingsKey: "picker"
@@ -106,8 +84,6 @@ AnchoredPopup {
     // popup. The bottom-right corner is pinned to the composer, so it gets no
     // band.
     readonly property real gripGrab: 8
-    // The anchor card is only ~300 px wide in a window a quarter of a screen;
-    // below this the tab rows use their dense, fitted form and the badge goes.
     readonly property bool narrow: width < 380
     leftInset: gripGrab
     topInset: gripGrab
@@ -147,11 +123,6 @@ AnchoredPopup {
         close()
     }
 
-    // Whether this GIF is saved, asked of the stores and never of a row's
-    // FavoriteRole (GifStoredModel answers that with a constant `true`, which
-    // would make every Recent tile claim to be saved). A "local" row exists
-    // only in the local-saved store and is never recorded into Recents
-    // (GifSendController::startLocal), so it is always saved.
     function isSaved(provider, gifId) {
         if (!provider || !gifId)
             return false
@@ -160,8 +131,6 @@ AnchoredPopup {
         return gif.favorites.isFavorite(provider, gifId)
     }
 
-    // isSaved() is a function call, so bindings on it don't track the stores;
-    // bumping this on each collection change re-evaluates the tiles.
     property int savedRevision: 0
     Connections {
         target: picker.gif.favorites
@@ -172,16 +141,10 @@ AnchoredPopup {
         function onCountChanged() { picker.savedRevision++ }
     }
 
-    // Availability re-resolves on every open; providerConfigurationChanged
-    // bumps cfgRevision to re-evaluate providerConfigured() bindings.
     property int cfgRevision: 0
     Connections {
         target: picker.gif
         function onProviderConfigurationChanged() { picker.cfgRevision++ }
-        // The room and thread composers each own a picker bound to this one
-        // controller. Two can be open at once (e.g. opened by keyboard),
-        // sharing one results grid, so whichever opens last wins and the others
-        // close.
         function onPickerOpenRequested(target) {
             if (target !== picker.target && picker.opened)
                 picker.close()
@@ -190,8 +153,6 @@ AnchoredPopup {
     onAboutToShow: {
         gif.notifyPickerOpening(picker.target)
         gif.refreshProviderKeys()
-        // AnchoredPopup handles placement in its own Connections, not
-        // onAboutToShow, so this handler doesn't override it.
         tab = gif.providerId
         grid.currentIndex = -1
         activated = false
@@ -201,36 +162,23 @@ AnchoredPopup {
     }
     onClosed: {
         gif.reset()
-        // The controller's query is gone; the field must agree on reopen
-        // (C40-F10). textChanged is synchronous, so the guard keeps the
-        // clear from reaching setQueryText -> showTrending, which would start
-        // a provider request on the controller that was just reset.
         picker.clearingField = true
         searchField.clear()
         picker.clearingField = false
     }
     onTabChanged: grid.currentIndex = -1
 
-    // Select a provider id or a local list id. Only a provider id may reach
-    // setActiveProvider(), the one network-triggering call here; local lists
-    // return early and stay offline.
     function selectTab(value) {
         picker.tab = value
         if (value === "saved" || value === "recent")
             return
         picker.gif.setActiveProvider(value)
-        // setActiveProvider() early-returns for an unchanged provider, so the
-        // grid may be empty here. Don't start trending while a search or
-        // category is pending: setActiveProvider() re-issues it and the results
-        // haven't arrived.
         if (picker.gif.results.count === 0
                 && picker.gif.mode !== GifSearchController.Search
                 && picker.gif.mode !== GifSearchController.Category)
             picker.gif.showTrending()
     }
 
-    // Focus hand-off into the grid. Local lists have no search field, so Down
-    // on the tab strip is their entry point.
     function focusGridFromTabs() {
         if (picker.providerTab)
             return
@@ -239,9 +187,6 @@ AnchoredPopup {
             grid.currentIndex = 0
     }
 
-    // Toggle saved state for the tile's own snapshot, never a re-resolved row.
-    // "local" rows are byte copies in GifStarredStore; everything else is a
-    // provider bookmark in GifFavoritesModel (whose C++ names say "favorite").
     function toggleSaved(result) {
         if (!result || !result.provider || !result.gifId)
             return
@@ -252,7 +197,6 @@ AnchoredPopup {
         gif.toggleFavorite(result)
     }
 
-    // A heavier frame and wider corner, so the concentric resize ornament fits.
     background: Item {
         Rectangle {
             id: pickerPanel
@@ -263,25 +207,13 @@ AnchoredPopup {
             border.width: 2
             radius: AppTheme.radiusLg + 6
 
-            // Press barrier: a Popup doesn't consume presses on itself, so
-            // presses on the header, tab strips, chips, footer or padding would
-            // reach items behind (e.g. the message context menu). It sits below
-            // contentItem, so real controls still get the press first.
             MouseArea {
                 anchors.fill: parent
-                // Extend over the inset band, which is inside the popup but
-                // outside this Rectangle.
                 anchors.leftMargin: -picker.leftInset
                 anchors.topMargin: -picker.topInset
-                // Left and right only: the context menus this barrier guards
-                // against open on those. Middle (autoscroll, which refuses to
-                // start over a MouseArea that takes it) and Back/Forward
-                // (room history) pass through (C40-F02, F07).
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
             }
         }
-        // Popover shadow. Effect and source must be siblings, hence the Item
-        // wrapper.
         MultiEffect {
             source: pickerPanel
             anchors.fill: pickerPanel
@@ -299,16 +231,12 @@ AnchoredPopup {
     ColumnLayout {
         id: pickerColumn
         anchors.fill: parent
-        // Reserve the footer's real height (its ↵ keycap is taller than a
-        // caption line), or it paints over the bottom row of tiles.
         anchors.bottomMargin: footerRow.implicitHeight + AppTheme.spacing4 * 2
         spacing: AppTheme.spacingS
 
-        // ── Row 0: which kind of media this window shows ──
         SegmentedControl {
             objectName: "pickerKindTabs"
             visible: picker.offerKindTabs
-            // Explicit left alignment, matching the rows below.
             Layout.alignment: Qt.AlignLeft
             Layout.fillWidth: false
             storm: true
@@ -323,13 +251,10 @@ AnchoredPopup {
             }
         }
 
-        // ── Row 1: search (provider tabs) or list title + "GIF" badge + close
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacingXS
 
-            // Local lists have no search field: a query would hit a provider
-            // whose results the grid isn't showing.
             Label {
                 objectName: "gifListTitle"
                 visible: !picker.providerTab
@@ -337,7 +262,6 @@ AnchoredPopup {
                 text: picker.tab === "saved" ? qsTr("Saved GIFs")
                                              : qsTr("Recently sent")
                 color: AppTheme.stormText
-                // The pane title, in the UI face on the type scale.
                 font.family: AppTheme.uiFont
                 font.pixelSize: AppTheme.textTitle
                 font.weight: AppTheme.weightStrong
@@ -364,9 +288,6 @@ AnchoredPopup {
                         grid.currentIndex = 0
                 }
                 Keys.onReturnPressed: {
-                    // Never send from here: the query is debounced, so Enter
-                    // right after typing would pick from the previous results.
-                    // Flush the query and move focus to the grid instead.
                     picker.gif.searchNow(searchField.text)
                     grid.forceActiveFocus()
                     if (grid.currentIndex < 0 && grid.count > 0)
@@ -374,7 +295,6 @@ AnchoredPopup {
                 }
             }
 
-            // The picker's inline "GIF" badge.
             Rectangle {
                 objectName: "gifPickerHeaderBadge"
                 visible: !picker.narrow
@@ -397,7 +317,6 @@ AnchoredPopup {
 
             IconButton {
                 storm: true
-                // The shared composer-row size rung.
                 size: "md"
                 iconName: "close"
                 Accessible.name: qsTr("Close GIF picker")
@@ -405,12 +324,6 @@ AnchoredPopup {
             }
         }
 
-        // ── The single nav row: sources at the left, then your own lists,
-        // pushed to the right edge behind a divider. Two SegmentedControls
-        // bound to the same `picker.tab`, so a divider can sit between them.
-        // Neither fills (fillWidth defaults to true for Layout-derived
-        // children, and SegmentedControl is a RowLayout); one filler takes the
-        // surplus so the lists stay flush right at any width.
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -422,8 +335,6 @@ AnchoredPopup {
                 dense: picker.narrow
                 fitWidth: true
                 Layout.fillWidth: false
-                // cfgRevision re-evaluates enabled/tip after a key refresh.
-                // Unavailable providers are disabled with an explanation.
                 model: {
                     var rev = picker.cfgRevision
                     return picker.gif.providerIds.map(function(id) {
@@ -441,7 +352,6 @@ AnchoredPopup {
                 onActivated: (value) => picker.selectTab(value)
             }
 
-            // The only filler: everything after it is flush right.
             Item {
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
@@ -461,8 +371,6 @@ AnchoredPopup {
                 dense: picker.narrow
                 fitWidth: true
                 Layout.fillWidth: false
-                // Neither list needs a key or network, so both are always
-                // enabled.
                 model: [
                     {
                         label: qsTr("Saved"),
@@ -482,12 +390,9 @@ AnchoredPopup {
                 onActivated: (value) => picker.selectTab(value)
             }
 
-            // Down on the nav row enters the grid on a local list (searchField
-            // does this on provider tabs).
             Keys.onDownPressed: picker.focusGridFromTabs()
         }
 
-        // ── Category chips (client-side search shortcuts) ───────────
         Flow {
             objectName: "gifCategoryChips"
             Layout.fillWidth: true
@@ -500,9 +405,6 @@ AnchoredPopup {
                     id: categoryChip
                     required property string modelData
                     text: modelData
-                    // The selected chip toggles off back to trending; otherwise
-                    // a session has no route back to trending once a category
-                    // is open.
                     readonly property bool selected:
                         picker.gif.mode === GifSearchController.Category
                         && picker.gif.query === modelData
@@ -511,7 +413,6 @@ AnchoredPopup {
                     implicitHeight: AppTheme.buttonHeightSm
                     hoverEnabled: true
                     focusPolicy: Qt.TabFocus
-                    // CheckBox, not RadioButton: the chips can all be off.
                     Accessible.role: Accessible.CheckBox
                     Accessible.name: qsTr("Category %1").arg(modelData)
                     Accessible.checked: categoryChip.selected
@@ -521,7 +422,6 @@ AnchoredPopup {
                         else
                             picker.gif.openCategory(modelData)
                     }
-                    // Words, not keycaps: UI face on the type scale.
                     contentItem: Label {
                         id: chipLabel
                         text: categoryChip.text
@@ -535,7 +435,6 @@ AnchoredPopup {
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
-                    // The solid chip reserved for "current selection".
                     background: Rectangle {
                         color: categoryChip.selected ? AppTheme.chipBoltFill
                              : categoryChip.hovered ? AppTheme.stormSelection
@@ -557,42 +456,27 @@ AnchoredPopup {
             }
         }
 
-        // ── Result grid: 3 columns sized off the picker's width ──
         GridView {
             id: grid
             objectName: "gifResultGrid"
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            // The attached scrollbar sits inside the view's right edge, so the
-            // gutter is reserved INSIDE it: three columns fit left of the bar
-            // and a click on the bar never reaches a tile (C40-F01, D03).
             cellWidth: Math.floor((width - AppTheme.scrollbarWidth) / 3)
             cellHeight: cellWidth
-            cacheBuffer: cellWidth * 2   // bounded off-screen retention
+            cacheBuffer: cellWidth * 2
             model: picker.activeModel
-            // Scroll position indicator for the paginating grid.
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-            // Same wheel/touchpad feel as the timeline and emoji grid (see
-            // SmoothWheelArea.qml).
             SmoothWheelArea {}
             currentIndex: -1
             keyNavigationEnabled: true
             boundsBehavior: Flickable.StopAtBounds
-            // Local lists hide searchField (the focus hand-off on provider
-            // tabs), so the grid takes Tab focus there. Focus-gain seeds
-            // currentIndex like the Down/Return hand-offs.
             activeFocusOnTab: !picker.providerTab
             onActiveFocusChanged: {
                 if (activeFocus && currentIndex < 0 && count > 0)
                     currentIndex = 0
             }
 
-            // A highlighted/keyboard-selected row is just an int that Qt
-            // doesn't remap. Drop it on a model reset or any insert/remove/move
-            // at or before it, so Return can't resolve it against different
-            // content. Pagination only appends after the end, so it keeps the
-            // highlight.
             Connections {
                 target: picker.activeModel
                 function onModelReset() { grid.currentIndex = -1 }
@@ -610,8 +494,6 @@ AnchoredPopup {
                 }
             }
 
-            // Infinite scroll on provider tabs only; Saved and Recent are
-            // complete.
             onContentYChanged: {
                 if (!picker.providerTab || contentHeight <= 0)
                     return
@@ -636,29 +518,18 @@ AnchoredPopup {
                 required property int previewWidth
                 required property int previewHeight
                 required property bool favorite
-                // Sendable-variant byte size (0 = unknown).
                 required property real gifBytes
                 readonly property bool current: GridView.isCurrentItem
-                // Saved state from the stores (see picker.isSaved());
-                // savedRevision makes it re-evaluate.
                 readonly property bool saved: {
                     var rev = picker.savedRevision
                     return picker.isSaved(tile.provider, tile.gifId)
                 }
-                // Local rows have no CDN URL; the source is re-validated by
-                // content hash on every evaluation, never trusted from the
-                // persisted index.
                 readonly property string localSource:
                     tile.provider === "local"
                         ? picker.gif.starredStore.source(tile.gifId) : ""
-                // On-disk format of a local tile ("gif"/"png"/"jpg"/"webp"),
-                // re-derived like localSource. "" for provider tiles.
                 readonly property string localExt:
                     tile.provider === "local"
                         ? picker.gif.starredStore.sourceExt(tile.gifId) : ""
-                // Provider tiles: validated local copies from
-                // app.gif.previews, "" until downloaded. The revision
-                // re-evaluates them as copies arrive.
                 readonly property string stillSource: {
                     var rev = picker.gif.previews.revision
                     return tile.provider === "local" ? ""
@@ -669,15 +540,11 @@ AnchoredPopup {
                     return tile.provider === "local" ? ""
                         : picker.gif.previews.source(tile.previewUrl, false)
                 }
-                // Keeps this tile's copies cached while it exists.
                 readonly property var heldUrls: tile.provider === "local"
                     ? [] : [tile.stillUrl, tile.previewUrl]
                 onHeldUrlsChanged: picker.gif.previews.hold(tile, heldUrls)
                 Component.onCompleted: picker.gif.previews.hold(tile, heldUrls)
 
-                // The record this delegate is rendering, from its own
-                // properties rather than re-queried by index, so a click sends
-                // exactly what is on screen.
                 function snapshot() {
                     return {
                         provider: tile.provider,
@@ -705,17 +572,9 @@ AnchoredPopup {
                     border.color: AppTheme.bolt
                     clip: true
 
-                    // The still (fetched first; GIF stills only) shows until
-                    // the animation is decoded, which then plays on top only
-                    // while the picker is visible. Local
-                    // PNG/JPEG/WebP tiles never reach AnimatedImage Ready, so
-                    // this Image remains their renderer.
                     Image {
                         id: still
                         anchors.fill: parent
-                        // Under Don't play the animation is never decoded, so
-                        // a provider tile with no still (KLIPY) draws the
-                        // preview's first frame here instead.
                         source: tile.provider === "local"
                                 ? tile.localSource
                                 : (tile.stillSource.length > 0
@@ -726,8 +585,6 @@ AnchoredPopup {
                         cache: true
                         visible: anim.status !== AnimatedImage.Ready
                         Accessible.role: Accessible.Button
-                        // Local stills announce their real format; every other
-                        // tile rendering through this still announces as a GIF.
                         Accessible.name:
                             (tile.provider === "local" && tile.localExt.length > 0
                              && tile.localExt !== "gif")
@@ -741,9 +598,6 @@ AnchoredPopup {
                     AnimatedImage {
                         id: anim
                         anchors.fill: parent
-                        // Local stills never feed the movie backend. Legacy
-                        // rows with an empty ext are GIFs.
-                        // No source under Don't play: nothing is decoded.
                         source: !MotionPolicy.allowed ? ""
                                 : tile.provider === "local"
                                 ? (tile.localExt.length === 0
@@ -753,9 +607,6 @@ AnchoredPopup {
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
-                        // MotionPolicy: plays while the picker is visible, on
-                        // its own or under the pointer; Don't play shows the
-                        // first frame. Paused while Lightning is unfocused.
                         playing: picker.visible
                                  && MotionPolicy.plays(tileHover.hovered)
                                  && !MotionPolicy.suspended
@@ -764,8 +615,6 @@ AnchoredPopup {
                             ? qsTr("GIF: %1").arg(tile.title) : qsTr("GIF")
                     }
 
-                    // Placeholder while a provider tile has nothing to show
-                    // yet (a KLIPY still is never fetched).
                     Icon {
                         objectName: "gifTilePlaceholder"
                         anchors.centerIn: parent
@@ -777,9 +626,6 @@ AnchoredPopup {
                         color: AppTheme.textMuted
                     }
 
-                    // The tile body sends; right-click or the star
-                    // saves/unsaves without sending. Both use the tile's own
-                    // snapshot.
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
@@ -793,9 +639,6 @@ AnchoredPopup {
                         }
                     }
 
-                    // Source tag, top-left: GIPHY / KLIPY / Local.
-                    // Distinguishes provider bookmarks from on-device copies in
-                    // the merged Saved list and keeps attribution on each tile.
                     Rectangle {
                         id: sourceBadge
                         objectName: "gifTileSourceBadge"
@@ -818,7 +661,6 @@ AnchoredPopup {
                         }
                     }
 
-                    // Format tag beside the source badge, local tiles only.
                     Rectangle {
                         objectName: "gifTileFormatBadge"
                         visible: tile.provider === "local" && tile.localExt.length > 0
@@ -841,7 +683,6 @@ AnchoredPopup {
                         }
                     }
 
-                    // Size overlay, bottom-left, only when known.
                     Rectangle {
                         visible: picker.formatBytes(tile.gifBytes).length > 0
                         anchors.bottom: parent.bottom
@@ -862,16 +703,11 @@ AnchoredPopup {
                         }
                     }
 
-                    // Saved state is a fill, not just a tint: the bundled
-                    // Material Symbols subset has no filled star. Bolt fill +
-                    // boltInk matches MessageDelegate.qml's chat star.
                     ToolButton {
                         id: saveButton
                         objectName: "gifTileSaveButton"
                         anchors.top: parent.top
                         anchors.right: parent.right
-                        // Inset like the badges so the focus ring isn't
-                        // clipped.
                         anchors.margins: 4
                         width: 24; height: 24
                         contentItem: Icon {
@@ -880,10 +716,6 @@ AnchoredPopup {
                             color: tile.saved ? AppTheme.boltInk
                                               : AppTheme.scrimInk
                         }
-                        // Revealed on hover, grid selection or keyboard focus;
-                        // never at rest (on the Saved tab every tile would
-                        // carry one). Tab is the keyboard route, since
-                        // Return/Enter/Space on the grid send.
                         opacity: tileHover.hovered || tile.current
                                  || saveButton.visualFocus ? 1 : 0
                         Accessible.name: tile.saved
@@ -905,9 +737,6 @@ AnchoredPopup {
                             visible: saveButton.visualFocus
                         }
                     }
-                    // The keyboard-current ring, above the media: the border
-                    // on the panel itself is covered by the still and the
-                    // animation (C40-F06).
                     Rectangle {
                         objectName: "gifTileCurrentRing"
                         anchors.fill: parent
@@ -925,7 +754,6 @@ AnchoredPopup {
             Keys.onReturnPressed: if (currentIndex >= 0) picker.choose(currentIndex)
             Keys.onEnterPressed: if (currentIndex >= 0) picker.choose(currentIndex)
             Keys.onSpacePressed: if (currentIndex >= 0) picker.choose(currentIndex)
-            // QQuickGridView binds arrows only (C40-F06, D02).
             Keys.onPressed: (event) => {
                 if (count <= 0)
                     return
@@ -952,8 +780,6 @@ AnchoredPopup {
         }
     }
 
-    // Middle-click autoscroll over the grid, a sibling of the view like the
-    // timeline's and the room list's (C40-F02).
     MiddleClickScroller {
         objectName: "gifGridMiddleClickScroller"
         x: grid.x
@@ -964,8 +790,6 @@ AnchoredPopup {
         view: grid
     }
 
-    // ── State overlay, covering exactly the grid area (pickerColumn
-    // fills this contentItem at 0,0, so the grid's geometry applies) ──
     Item {
         objectName: "gifStateOverlay"
         x: grid.x
@@ -974,7 +798,6 @@ AnchoredPopup {
         height: grid.height
         visible: overlayText.text.length > 0 || busy.running
 
-        // The shared spinner, inked in the accent so loading reads as active.
         AppBusyIndicator {
             id: busy
             objectName: "gifStateOverlayBusy"
@@ -983,10 +806,6 @@ AnchoredPopup {
             running: picker.providerTab
                      && picker.gif.state === GifSearchController.Loading
                      && picker.gif.results.count === 0
-            // AppBusyIndicator leaves visibility to its host, and a stopped
-            // spinner would otherwise paint over the empty/error text.
-            // `running` and every overlay string are mutually exclusive, so
-            // hiding is safe.
             visible: busy.running
         }
         Label {
@@ -999,11 +818,9 @@ AnchoredPopup {
             color: AppTheme.stormTextMuted
             font.family: AppTheme.uiFont
             font.pixelSize: AppTheme.textBody
-            // Wrapping text needs explicit leading (see AppTheme's lineHeight).
             lineHeight: AppTheme.lineHeightBody
             lineHeightMode: Text.ProportionalHeight
             text: {
-                // The local lists don't depend on gif.available.
                 if (picker.tab === "saved")
                     return picker.gif.saved.count === 0
                         ? qsTr("No saved GIFs yet. Press the star on any GIF — "
@@ -1031,7 +848,6 @@ AnchoredPopup {
         }
     }
 
-    // ── Footer: real provider attribution + a "return to send" hint ─
     RowLayout {
         id: footerRow
         anchors.bottom: parent.bottom
@@ -1041,17 +857,13 @@ AnchoredPopup {
         spacing: AppTheme.spacing6
 
         Label {
-            // Remote or externally chosen text: never markup.
             textFormat: Text.PlainText
             id: attributionLabel
             Layout.fillWidth: true
             color: AppTheme.stormTextMuted
-            // A required provider credit, at the scale's smallest step.
             font.family: AppTheme.uiFont
             font.pixelSize: AppTheme.textMicro
             elide: Text.ElideRight
-            // The privacy note lives in a tooltip. A local list credits every
-            // provider since it can hold rows from either.
             text: picker.providerTab ? picker.gif.attribution
                                      : picker.allProviderAttribution
             Accessible.name: attributionLabel.text
@@ -1076,11 +888,8 @@ AnchoredPopup {
         }
     }
 
-    // Resize ornament, seated on the popup item's corner via negative margins
-    // so its grab band covers the inset strip.
     PopupResizeGrip {
         popup: picker
-        // arcCentre is measured from the panel corner, `gripGrab` inside.
         grabMargin: picker.gripGrab
         arcCentre: AppTheme.radiusLg + 6
         outerRadius: AppTheme.radiusLg + 2
@@ -1090,5 +899,5 @@ AnchoredPopup {
         anchors.topMargin: -picker.topPadding
     }
 
-    } // contentItem Item
+    }
 }

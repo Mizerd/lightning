@@ -21,23 +21,16 @@
 namespace {
 
 struct Role {
-    const char *key;     // must match a key in AppTheme.qml's palette objects
-    const char *group;   // editor section
-    const char *label;   // what the user sees
-    const char *hint;    // where on screen this colour actually lands
+    const char *key;
+    const char *group;
+    const char *label;
+    const char *hint;
 };
 
-// The editable roles: curated rather than exhaustive, since AppTheme carries
-// hundreds of mostly derived tokens. Each key must exist in AppTheme's
-// palette objects, which this map is merged over; `sanitize()` is the gate and
-// `customThemeRolesMatchAppTheme` keeps the two in sync.
 constexpr Role kRoles[] = {
-    // ---- the four shell regions the user actually named ----
     { "rail",          QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Spaces rail"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The narrow strip of Spaces down the far edge") },
-    // Groups since 2026-10-13: each element they used to paint has its own
-    // role below, which follows the group until it is given a colour.
     { "sidebar",       QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Side columns"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The room list, the room header and the side panel take this until they have their own") },
@@ -48,7 +41,6 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "Panels and cards"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The search field, the message box, menus and dialogs") },
 
-    // ---- per-element shell surfaces (2026-10-13) ----
     { "roomList", QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Room list"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The column of rooms and people") },
@@ -80,7 +72,6 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "Text fields"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The inside of text fields in dialogs and panels") },
 
-    // ---- row states ----
     { "hover",         QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Hover"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The general hover colour. Rows, menu items and quiet buttons follow it until they have their own") },
@@ -134,7 +125,6 @@ constexpr Role kRoles[] = {
     { "paletteHighlight", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Selection in system controls"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The highlight Qt draws in standard controls") },
-    // ---- messages ----
     { "ownBubble",     QT_TRANSLATE_NOOP("CustomThemeStore", "Messages"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Your messages"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The bubble behind messages you sent") },
@@ -151,7 +141,6 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "Mentions"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The colour that marks a message naming you") },
 
-    // ---- accent ----
     { "accent",        QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Primary buttons, focus rings, the checked state") },
@@ -178,7 +167,6 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "Soft accent outline"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The edge of those tinted chips") },
 
-    // ---- text ----
     { "textPrimary",   QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Main text"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Message bodies, room names, headings") },
@@ -201,7 +189,6 @@ constexpr Role kRoles[] = {
     { "placeholderInk", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Placeholder text"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The hint inside an empty field") },
-    // ---- lines ----
     { "border",        QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Hairlines"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The 1px line around every panel — the eye follows these") },
@@ -209,7 +196,6 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "Strong lines"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Field outlines and the scrollbar handle") },
 
-    // ---- status ----
     { "success", QT_TRANSLATE_NOOP("CustomThemeStore", "Status"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Success"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Verified marks, success messages and chips") },
@@ -226,15 +212,6 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "Error tint"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Behind destructive menu rows and the danger chip") },
 
-    // ---- per-element roles (2026-10-13) --------------------------------
-    // One role per element the editor's preview draws, so a click there
-    // edits that element alone. Each follows the shared role the element
-    // used to read (kRoleFollows) until it is given a colour of its own, and
-    // the editor lists it under that group. Stored sparsely like every role,
-    // so an older build drops the key and paints the element in its group's
-    // colour.
-
-    // Lines.
     { "headerDivider", QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Header divider"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The line under the room list, room and side-panel headers") },
@@ -265,13 +242,10 @@ constexpr Role kRoles[] = {
     { "menuBorder", QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Menu outline"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The edge of context menus and pop-up menus") },
-    // No group: dark themes draw it as a hairline and light ones as a strong
-    // line, which is no single role's colour.
     { "reactionBorder", QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Reaction pill outline"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The edge of someone else's reaction") },
 
-    // States.
     { "railTile", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Spaces rail tile"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Home, People and folder tiles on the Spaces rail") },
@@ -294,7 +268,6 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "Space unread dot"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The dot on a Space with something new in it") },
 
-    // Accent.
     { "railTileActive", QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Open Space tile"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The wash behind the Space you are in") },
@@ -326,16 +299,13 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "Send button icon"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The arrow on the send button") },
 
-    // Messages.
     { "roomMentionBadge", QT_TRANSLATE_NOOP("CustomThemeStore", "Messages"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Room mention count"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The count on a room where someone named you") },
-    // No group: the stock ink is a white literal, like `ownBubbleText`.
     { "mentionBadgeText", QT_TRANSLATE_NOOP("CustomThemeStore", "Messages"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Mention count number"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The number on a mention count") },
 
-    // Text.
     { "otherBubbleText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Message text"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The words of messages, except on your own bubbles") },
@@ -424,7 +394,6 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "Disabled button label"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The words on a button that cannot be used right now") },
 
-    // Status.
     { "presenceDot", QT_TRANSLATE_NOOP("CustomThemeStore", "Status"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Online dot on people"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The dot on someone's picture while they are online") },
@@ -445,136 +414,96 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "Delete, Leave and other menu entries that cannot be undone") },
 };
 
-// ---- the readability table -------------------------------------------------
-//
-// Keys are the names AppTheme.paletteForTheme() returns (e.g.
-// `inputBackground`, not the store's `inputBg`); the role columns carry the
-// editable name back to the UI.
-//
-// `worst` is the tightest margin across the eleven shipped presets,
-// re-asserted by the suite. Bars sit under these so no stock theme warns.
-//
-// Deliberately not checked (the preset that rules each out):
-//   * `selected` vs `sidebar`: Moss Light paints them the same (ΔL* 0.12)
-//     and distinguishes by label, so `selectedText`/`selected` is checked.
-//   * `hover` vs `sidebar` (Warm, ΔL* 2.61), `cardElevated` vs `surface`
-//     (Moss Light, 1.85): floors too low for a useful bar.
-//   * `accent` vs `background` at 3:1 (Indigo Night, 2.86) and `link` vs
-//     `background` at 4.5 (Moss Light, 4.47); `link`/`surface` is checked.
-//   * `textDisabled`: low contrast by design.
-//   * `selectedText` vs `selectedHover` at 4.5: Nordic is 4.31. The bar is
-//     not lowered to admit a preset; `selectedText`/`selected` covers the role.
-//   * The base `mentionBadge` and `roomUnreadBadge` under their numbers: no
-//     badge paints them (2026-10-20). The numbers are graded on what is
-//     painted, the DERIVED fill and ink (kDerivedKeys below).
 struct ReadabilityCheck {
-    const char *fg;      // palette key of the ink, or of the upper surface
-    const char *fgRole;  // editable role behind it, or nullptr
-    const char *bg;      // palette key it sits on
-    const char *bgRole;  // editable role behind it, or nullptr
-    // Each check carries its own sentence: composing "%1 on %2" from role
-    // labels doubles prepositions ("Text on accent on Accent") and is wrong
-    // for edge checks, which compare surfaces rather than stack them.
+    const char *fg;
+    const char *fgRole;
+    const char *bg;
+    const char *bgRole;
     const char *phrase;
-    double minimum;      // WCAG ratio for Ink, ΔL* for Edge
-    bool edge;           // false = WCAG contrast, true = CIE L* separation
+    double minimum;
+    bool edge;
 };
 
-// Name for a foreground with no editable role: AppTheme pins `ownBubbleText`
-// to white, so a failure there is fixed by moving the bubble.
 constexpr auto kOwnBubbleInk =
     QT_TRANSLATE_NOOP("CustomThemeStore", "Text on your messages");
 
 constexpr ReadabilityCheck kReadability[] = {
-    // Since the per-element split (2026-10-13) a check names the element
-    // that is actually drawn (`timelineBackground`, not the `background`
-    // group), so an element given its own colour is graded and a click opens
-    // that element. On every preset an element resolves to its group, so the
-    // margins below are the groups' and did not move.
-    //
-    // ---- ink on a surface: WCAG 4.5:1 -------------------- worst preset ----
     { "textPrimary", "textPrimary", "timelineBackground", "timelineBackground",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text on the conversation background"),
-      4.5, false }, //  9.13 Warm
+      4.5, false },
     { "roomNameUnread", "roomNameUnread", "roomList", "roomList",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text in the room list"),
-      4.5, false }, // 10.04 Warm
+      4.5, false },
     { "textPrimary", "textPrimary", "surface", "surface",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text on panels and cards"),
-      4.5, false }, //  8.73 Nordic
+      4.5, false },
     { "otherBubbleText", "otherBubbleText", "otherBubble", "otherBubble",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text on their messages"),
-      4.5, false }, //  8.10 Nordic
+      4.5, false },
     { "fieldText", "fieldText", "inputBackground", "inputBg",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text inside a text field"),
-      4.5, false }, // 10.24 Lightning Dark
+      4.5, false },
     { "codeText", "codeText", "codeBlock", "codeBlock",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text inside a code block"),
-      4.5, false }, //  8.92 Warm
+      4.5, false },
     { "textPrimary", "textPrimary", "hover", "hover",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text on a hovered row"),
-      4.5, false }, //  6.40 Nordic
+      4.5, false },
     { "textPrimary", "textPrimary", "cardElevated", "cardElevated",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text on a raised chip"),
-      4.5, false }, //  7.35 Nordic
-    // The ink reaction pills actually use.
+      4.5, false },
     { "reactionInk", "reactionInk", "reactionBackground", "reaction",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Reaction text on a reaction pill"),
-      // Guarded by `everyReadabilityCheckPassesOnEveryShippedPreset`.
       4.5, false },
     { "textSecondary", "textSecondary", "timelineBackground", "timelineBackground",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Secondary text on the conversation background"),
-      4.5, false }, //  5.05 Warm
+      4.5, false },
     { "roomName", "roomName", "roomList", "roomList",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Room names in the room list"),
-      4.5, false }, //  5.55 Warm
+      4.5, false },
     { "textSecondary", "textSecondary", "surface", "surface",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Secondary text on panels and cards"),
-      4.5, false }, //  5.37 Indigo Night
+      4.5, false },
     { "textSecondary", "textSecondary", "inputBackground", "inputBg",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Secondary text inside a text field"),
-      4.5, false }, //  5.81 Warm
+      4.5, false },
     { "textMuted", "textMuted", "timelineBackground", "timelineBackground",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Timestamps on the conversation background"),
-      4.5, false }, //  4.59 Warm
+      4.5, false },
     { "roomPreview", "roomPreview", "roomList", "roomList",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Message previews in the room list"),
-      4.5, false }, //  5.05 Warm
+      4.5, false },
     { "textMuted", "textMuted", "surface", "surface",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Timestamps on panels and cards"),
-      4.5, false }, //  4.59 Deep Teal
+      4.5, false },
     { "roomSelectedName", "roomSelectedName", "roomSelected", "roomSelected",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "The open room's name in the room list"),
-      4.5, false }, //  5.40 Nordic
+      4.5, false },
     { "link", "link", "surface", "surface",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Links on panels and cards"),
-      4.5, false }, //  5.02 Storm
-    // The ink has its own editable role since 2026-10-06 (it used to be a
-    // white literal and the report sent the click to the bubble).
+      4.5, false },
     { "ownBubbleText", "ownBubbleText", "ownBubble", "ownBubble",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Text on your own messages"),
-      4.5, false }, //  6.22 Moss Light
-    // Element pairs added with the split: each is a group pair above on every
-    // preset (or, for the embed card and the menu, Storm's own panel).
+      4.5, false },
     { "roomHeaderTitle", "roomHeaderTitle", "roomHeader", "roomHeader",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "The room's name in the room header"),
@@ -591,25 +520,18 @@ constexpr ReadabilityCheck kReadability[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "A link preview's title on its card"),
       4.5, false },
-    // 3:1 is a calibration choice, not WCAG large text (these labels are
-    // body sized). AppTheme pins white-on-accent at 3:1, capping the accent's
-    // luminance, and shipped presets sit below 4.5 (Nordic 4.03, Purple Dusk
-    // 3.62).
     { "accentText", "accentText", "accent", "accent",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "A button's label on the accent"),
-      3.0, false }, //  3.62 Purple Dusk
-    // The same button's hover and pressed states, at the same bar: at 4.5
-    // the hover pair fails on Purple Dusk (3.18), Nordic (3.35) and Graphite
-    // (3.77).
+      3.0, false },
     { "buttonPrimaryInk", "buttonPrimaryInk", "accentHover", "accentHover",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "A button's label while the pointer is on it"),
-      3.0, false }, //  3.18 Purple Dusk
+      3.0, false },
     { "buttonPrimaryInk", "buttonPrimaryInk", "accentPressed", "accentPressed",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "A button's label while it is held down"),
-      3.0, false }, //  4.73 Purple Dusk
+      3.0, false },
     { "buttonPrimaryInk", "buttonPrimaryInk", "buttonPrimaryFill", "buttonPrimaryFill",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "A primary button's label"),
@@ -618,48 +540,36 @@ constexpr ReadabilityCheck kReadability[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "The send button's arrow"),
       3.0, false },
-    // The badges as painted (2026-10-20): AppTheme derives each count's fill
-    // and ink from the editable roles named here (kDerivedKeys), to 4.5:1 by
-    // construction, so a failure here means the derivation could not reach it.
     { "unreadCountInk", "unreadBadgeText", "unreadCountFill", "roomUnreadBadge",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "The number on a room's unread count"),
-      4.5, false }, //  4.62 Graphite
+      4.5, false },
     { "mentionBadgeInk", "mentionBadgeText", "roomMentionBadge", "roomMentionBadge",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "The number on a mention count"),
-      4.5, false }, //  4.61 Moss Light
-    // ---- surface against surface: CIE L* separation -------------------------
+      4.5, false },
     { "border", "border", "surface", "surface",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Hairlines against panels and cards"),
-      3.0, true  }, //  5.57 Nordic
+      3.0, true  },
     { "borderStrong", "borderStrong", "inputBackground", "inputBg",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "A field's outline against its inside"),
-      6.0, true  }, // 20.30 Warm
+      6.0, true  },
     { "surface", "surface", "timelineBackground", "timelineBackground",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Panels against the conversation background"),
-      2.5, true  }, //  6.34 Nordic
+      2.5, true  },
     { "rail", "rail", "roomList", "roomList",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "The Spaces rail against the room list"),
-      2.0, true  }, //  4.23 Nordic
-    // The mention badge against the room list it sits on. An edge check,
-    // since the badge is a filled pill. Graded on the fill every mention
-    // badge paints (the Spaces rail's, Home's, the room row's until set),
-    // derived from the `mention` role.
+      2.0, true  },
     { "mentionBadgeFill", "mention", "roomList", "roomList",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "A mention badge against the room list"),
-      6.0, true  }, // 30.02 Nordic
+      6.0, true  },
 };
 
-// Palette keys AppTheme DERIVES (paletteForTheme() returns them; nothing
-// edits them directly) -> the editable role each is derived from, which is
-// where a click on a failing check goes. AppTheme.qml's badge section is the
-// rule; tests/support/BadgeColourRules.h its fixture copy.
 struct DerivedKey {
     const char *paletteKey;
     const char *role;
@@ -672,7 +582,6 @@ constexpr DerivedKey kDerivedKeys[] = {
     { "unreadCountFill",  "roomUnreadBadge" },
 };
 
-// Store role -> palette key, for the three roles whose spellings differ.
 struct RoleAlias {
     const char *role;
     const char *paletteKey;
@@ -684,27 +593,11 @@ constexpr RoleAlias kRoleAliases[] = {
     { "mention",  "mentionBadge" },
 };
 
-// Roles that may carry a gradient: the large surfaces. Ink, states and bubbles
-// stay flat (a bubble gradient would put every message's text over two
-// colours; see the 2026-10-06 backdrop note for why that waits).
-//
-// The element surfaces split out of `background` and `sidebar` take gradients
-// too. `timelineBackground` and `roomList` show their group's gradient until
-// they have a colour or gradient of their own (AppTheme.gradientGroups), so a
-// theme saved before the split paints exactly as it did; `sidePanel` never
-// painted one and only shows its own.
 constexpr const char *kGradientRoles[] = {
     "background", "sidebar", "rail", "surface", "settingsPage", "settingsNav",
     "timelineBackground", "roomList", "sidePanel",
 };
 
-// Role -> the editable role it falls back to while it is unset: the same
-// fallback AppTheme's live property and paletteForTheme() take for theme 12
-// (`everyFollowingRoleFallsBackToTheRoleItNames` checks the live side). The
-// editor uses it to show that editing the parent also recolours the child,
-// and outlines both. A base preset that sets the child itself breaks the
-// link; the editor checks that against the raw base palette, so this table is
-// the declared shape, not a claim about every preset.
 struct RoleFollows {
     const char *role;
     const char *parent;
@@ -736,12 +629,6 @@ constexpr RoleFollows kRoleFollows[] = {
     { "presenceOnline",             "success" },
     { "dangerTint",                 "mention" },
 
-    // Per-element roles (2026-10-13). The parent is the shared role whose
-    // live token the element read before it had a role of its own, as it
-    // resolves for a custom theme (never Storm, so storm* tokens are their
-    // plain twins). AppTheme.qml's `elementGroups` is the same table for the
-    // resolver; `everyElementRoleFollowsItsGroupOnEveryBase` (settings-shell
-    // QML suite) checks both sides on all eleven bases.
     { "roomList",                   "sidebar" },
     { "roomHeader",                 "sidebar" },
     { "sidePanel",                  "sidebar" },
@@ -813,21 +700,14 @@ constexpr RoleFollows kRoleFollows[] = {
     { "menuDangerText",             "danger" },
 };
 
-// Bound on the editor's undo history: one step is two small colour maps.
 constexpr int kMaxUndoSteps = 200;
 
-// The collection, and which of its entries theme id 12 renders.
 constexpr auto kListKey   = "appearance/customThemeList";
 constexpr auto kActiveKey = "appearance/customThemeActive";
-// Pre-collection keys, kept so an existing custom theme survives the upgrade.
-// Migrated into the list on first load, then the colours key is cleared so
-// the migration cannot run twice.
 constexpr auto kColorsKey = "appearance/customThemeColors";
 constexpr auto kBaseKey   = "appearance/customThemeBase";
 constexpr auto kNameKey   = "appearance/customThemeName";
 
-// The marker on a shared theme. Bumped only if the shape changes in a way an
-// older build could not read safely.
 constexpr int kShareFormat = 1;
 constexpr auto kShareKey = "lightning_theme";
 
@@ -871,10 +751,6 @@ QColor asColor(const QVariant &value)
 double lstarOf(const QColor &c);
 double contrastOf(const QColor &a, const QColor &b);
 
-// WCAG 2.x: sRGB -> linear with the 0.03928 knee, then the
-// 0.2126/0.7152/0.0722 luminance weights. Also duplicated in AppTheme.qml and
-// src/theme/IdentityColors.cpp; it is a published constant, pinned by
-// `contrastMatchesPublishedReferenceValues`.
 double channelLinear(double c)
 {
     return c <= 0.03928 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
@@ -897,11 +773,10 @@ double contrastOf(const QColor &a, const QColor &b)
 double lstarOf(const QColor &c)
 {
     const double y = luminance(c);
-    // The CIE break is at (6/29)^3; below it L* is linear in Y.
     return y > 0.008856 ? 116.0 * std::cbrt(y) - 16.0 : 903.3 * y;
 }
 
-} // namespace
+}
 
 CustomThemeStore::CustomThemeStore(SettingsManager *settings, QObject *parent)
     : QObject(parent)
@@ -912,8 +787,6 @@ CustomThemeStore::CustomThemeStore(SettingsManager *settings, QObject *parent)
         // after the active account id has moved.
         connect(m_settings, &SettingsManager::sessionChanged, this,
                 &CustomThemeStore::invalidate);
-        // roles() labels come from tr(), which engine.retranslate() does not
-        // reach once they are data, so announce a new role list.
         connect(m_settings, &SettingsManager::languageChanged, this,
                 &CustomThemeStore::rolesChanged);
     }
@@ -921,14 +794,10 @@ CustomThemeStore::CustomThemeStore(SettingsManager *settings, QObject *parent)
 
 void CustomThemeStore::invalidate()
 {
-    // Unconditional: the next read must consult the account active now.
     m_loaded = false;
     m_cache.clear();
     m_activeId.clear();
-    // The history belongs to the outgoing account's theme.
     clearHistory();
-    // Re-entry is bounded: load() can only write the one-time legacy
-    // migration, whose save() sets m_loaded.
     Q_EMIT customThemeChanged();
 }
 
@@ -964,7 +833,6 @@ QVariantMap CustomThemeStore::sanitize(const QVariantMap &raw)
         const QString value = it.value().toString();
         if (!colorIsValid(value))
             continue;
-        // Normalised so comparisons with palette values ignore case.
         out.insert(it.key(), value.toUpper());
     }
     return out;
@@ -998,8 +866,6 @@ QVariantMap CustomThemeStore::sanitizeGradient(const QVariant &raw)
     QStringList stops;
     for (const QVariant &stop : rawStops) {
         const QString hex = stop.toString();
-        // Opaque only, as for flat colours: a translucent stop composites
-        // over whatever is behind it and cannot be graded.
         if (!colorIsValid(hex))
             return {};
         stops << hex.toUpper();
@@ -1020,10 +886,6 @@ QVariantMap CustomThemeStore::sanitizeGradient(const QVariant &raw)
                                            : QStringLiteral("linear"));
     out.insert(QStringLiteral("angle"), angle);
     out.insert(QStringLiteral("stops"), stops);
-    // Optional, additive: where each stop sits along the gradient (0..1).
-    // Kept only when it differs from an even spread, so every theme saved or
-    // shared before the gradient bar existed round-trips byte for byte, and a
-    // client that does not know the key paints the stops evenly.
     const QVariantList positions = sanitizeGradientPositions(
         spec.value(QStringLiteral("positions")), int(stops.size()));
     if (!positions.isEmpty())
@@ -1041,7 +903,6 @@ QVariantList CustomThemeStore::sanitizeGradientPositions(const QVariant &raw,
     double previous = 0.0;
     bool even = true;
     for (int i = 0; i < stopCount; ++i) {
-        // A string is not a number here, as for the angle.
         if (list.at(i).typeId() == QMetaType::QString)
             return {};
         bool ok = false;
@@ -1049,7 +910,6 @@ QVariantList CustomThemeStore::sanitizeGradientPositions(const QVariant &raw,
         if (!ok || !std::isfinite(p) || p < 0.0 || p > 1.0 || p < previous)
             return {};
         previous = p;
-        // Two decimals are all a bar can show, and keep the file small.
         const double rounded = std::round(p * 100.0) / 100.0;
         out.append(rounded);
         if (std::abs(rounded - double(i) / double(stopCount - 1)) > 0.005)
@@ -1070,8 +930,6 @@ QVariantMap CustomThemeStore::sanitizeGradients(const QVariantMap &raw)
     }
     return out;
 }
-
-// ---- readability -----------------------------------------------------------
 
 double CustomThemeStore::contrast(const QString &a, const QString &b)
 {
@@ -1107,9 +965,6 @@ QString CustomThemeStore::nudgeToPass(const QString &hex, const QString &against
 
     float h = 0, s = 0, l = 0, a = 0;
     from.getHslF(&h, &s, &l, &a);
-    // Lightness moves away from `against` first: that is the direction that
-    // can reach the bar with the smallest change. The other direction is the
-    // fallback (a mid-grey ground can be passed from either side).
     const bool lighterFirst = lstarOf(from) >= lstarOf(other);
     const double step = 0.005;
     QString best;
@@ -1129,8 +984,6 @@ QString CustomThemeStore::nudgeToPass(const QString &hex, const QString &against
             }
             break;
         }
-        // The first direction that reaches the bar is the nearest one that
-        // moves away from the ground; do not search the other.
         if (!best.isEmpty())
             break;
     }
@@ -1223,15 +1076,12 @@ double CustomThemeStore::lightness(const QString &hex) const
 
 namespace {
 
-// What one pass over the table is being asked for.
 enum class GradeMode {
-    FailuresOnly,  // the report: what is wrong
-    All,           // the live readout: every number, passes included
-    SkippedOnly,   // what could not be graded at all
+    FailuresOnly,
+    All,
+    SkippedOnly,
 };
 
-// Grades the table. FailuresOnly feeds the summary, All the live readout (so
-// a number is seen climbing), SkippedOnly `auditSkipped`.
 QVariantList gradePalette(const QVariantMap &palette, const QString &onlyRole,
                           GradeMode mode)
 {
@@ -1247,10 +1097,7 @@ QVariantList gradePalette(const QVariantMap &palette, const QString &onlyRole,
         const QVariant bgValue = palette.value(QLatin1String(check.bg));
         const QColor fg = asColor(fgValue);
         const QColor bg = asColor(bgValue);
-        // A missing key (our bug) or a translucent colour is neither a
-        // failure nor a pass; it is reported by SkippedOnly.
         const bool graded = fg.isValid() && bg.isValid();
-        // Explicit, so a future fourth mode is not silently "wants graded".
         const bool wantGraded = mode != GradeMode::SkippedOnly;
         if (graded != wantGraded)
             continue;
@@ -1267,9 +1114,6 @@ QVariantList gradePalette(const QVariantMap &palette, const QString &onlyRole,
 
         QVariantMap entry;
         if (!graded) {
-            // "missing" wins over "translucent": a renamed-away key is our
-            // bug and must not be reported as the user's colour. Keyed on the
-            // key being absent or empty, not on the parse failing.
             const auto absent = [&palette](const char *key) {
                 const QString name = QLatin1String(key);
                 return !palette.contains(name)
@@ -1280,8 +1124,6 @@ QVariantList gradePalette(const QVariantMap &palette, const QString &onlyRole,
                              ? QStringLiteral("missing")
                              : QStringLiteral("translucent"));
         }
-        // Opened on click: the foreground when editable, otherwise the
-        // background (a literal white ink is fixed by moving what is under it).
         entry.insert(QStringLiteral("role"),
                      fgRole.isEmpty() ? bgRole : fgRole);
         entry.insert(QStringLiteral("fg"), QLatin1String(check.fg));
@@ -1297,8 +1139,6 @@ QVariantList gradePalette(const QVariantMap &palette, const QString &onlyRole,
         entry.insert(QStringLiteral("kind"),
                      check.edge ? QStringLiteral("edge") : QStringLiteral("ink"));
         entry.insert(QStringLiteral("minimum"), check.minimum);
-        // A skipped row carries no value and no verdict; 0/false would read
-        // as a severe failure.
         if (graded) {
             entry.insert(QStringLiteral("value"), value);
             entry.insert(QStringLiteral("passes"), passes);
@@ -1308,7 +1148,7 @@ QVariantList gradePalette(const QVariantMap &palette, const QString &onlyRole,
     return out;
 }
 
-} // namespace
+}
 
 QVariantList CustomThemeStore::audit(const QVariantMap &palette) const
 {
@@ -1330,8 +1170,6 @@ QVariantList CustomThemeStore::auditSkipped(const QVariantMap &palette,
 QVariantList CustomThemeStore::auditWithGradients(
     const QVariantMap &palette, const QVariantMap &gradients) const
 {
-    // Palette key -> stops. Gradients are keyed by store role; three roles
-    // spell their palette key differently.
     QHash<QString, QStringList> stopsByKey;
     const QVariantMap clean = sanitizeGradients(gradients);
     for (auto it = clean.constBegin(); it != clean.constEnd(); ++it) {
@@ -1342,14 +1180,6 @@ QVariantList CustomThemeStore::auditWithGradients(
     if (stopsByKey.isEmpty())
         return audit(palette);
 
-    // An element that has no colour of its own paints its group's gradient
-    // (AppTheme.gradientGroups / inheritedGradient). The table names the
-    // element that is drawn, so without this a dark stop on `background`
-    // would grade nothing: no check has `background` as its surface any more.
-    // The audit sees only the resolved palette, not which roles were
-    // overridden, so "has no colour of its own" is read as "resolves to the
-    // group's colour"; an element painted a different colour keeps its flat
-    // grade, which is what it draws.
     struct GradientFollow {
         const char *element;
         const char *group;
@@ -1377,7 +1207,6 @@ QVariantList CustomThemeStore::auditWithGradients(
         const QVariant fgFlat = palette.value(fgKey);
         const QVariant bgFlat = palette.value(bgKey);
 
-        // The (fg, bg) pairs actually drawn.
         QList<QPair<QVariant, QVariant>> pairs;
         if (!fgStops.isEmpty() && !bgStops.isEmpty()) {
             const qsizetype n = std::max(fgStops.size(), bgStops.size());
@@ -1419,7 +1248,7 @@ QVariantList CustomThemeStore::auditWithGradients(
             }
         }
         if (worstStop < 0)
-            continue;   // ungradable (missing/translucent): auditSkipped's job
+            continue;
         if (worst.value(QStringLiteral("passes")).toBool())
             continue;
         worst.insert(QStringLiteral("stop"), worstStop);
@@ -1446,7 +1275,6 @@ QVariantList CustomThemeStore::roles() const
         entry.insert(QStringLiteral("group"), tr(r.group));
         entry.insert(QStringLiteral("label"), tr(r.label));
         entry.insert(QStringLiteral("hint"), tr(r.hint));
-        // Empty when the role follows nothing; see kRoleFollows.
         entry.insert(QStringLiteral("follows"), roleFollows(QLatin1String(r.key)));
         out.append(entry);
     }
@@ -1491,8 +1319,6 @@ const QList<CustomThemeStore::Theme> &CustomThemeStore::load() const
         }
     }
 
-    // One-time migration from the single-theme keys. Runs only when the list
-    // is genuinely empty, so it cannot resurrect a theme the user deleted.
     if (m_cache.isEmpty()) {
         const QString legacyJson =
             m_settings->appearanceValue(kColorsKey, QString()).toString();
@@ -1526,8 +1352,6 @@ const QList<CustomThemeStore::Theme> &CustomThemeStore::load() const
             break;
         }
     }
-    // A missing or deleted active id resolves to the first theme, so theme
-    // id 12 always renders something while a theme exists.
     if (!known)
         m_activeId = m_cache.isEmpty() ? QString() : m_cache.first().id;
     return m_cache;
@@ -1546,11 +1370,8 @@ CustomThemeStore::Theme CustomThemeStore::fromJson(const QJsonObject &object)
         theme.baseTheme = SettingsManager::StormTheme;
     theme.colors =
         sanitize(object.value(QStringLiteral("colors")).toObject().toVariantMap());
-    // Optional and additive: a file from before gradients has no key.
     theme.gradients = sanitizeGradients(
         object.value(QStringLiteral("gradients")).toObject().toVariantMap());
-    // Optional and additive, like gradients: a theme from before user colour
-    // groups has none. Repaired, never trusted (normalizeColorGroups).
     theme.groups = object.value(QStringLiteral("groups")).toArray().toVariantList();
     normalizeColorGroups(&theme.groups, &theme.colors, theme.gradients);
     return theme;
@@ -1592,8 +1413,6 @@ void CustomThemeStore::save(const QList<Theme> &themes, const QString &activeId)
 
 QString CustomThemeStore::makeId(const QList<Theme> &existing)
 {
-    // Small monotonic ids keep the stored JSON readable; on collision, try
-    // the next number.
     for (int candidate = 1; candidate <= kMaxThemes * 4; ++candidate) {
         const QString id = QString::number(candidate);
         bool taken = false;
@@ -1664,10 +1483,6 @@ QString CustomThemeStore::createTheme(const QString &name)
     if (theme.name.isEmpty())
         theme.name = tr("My theme");
     if (themes.isEmpty()) {
-        // The first theme starts from the palette the user is looking at, so
-        // the editor opens on what they see and not on Storm. System resolves
-        // to a palette per OS appearance and Custom is no palette, so both
-        // keep the old default.
         const int shown = m_settings ? int(m_settings->theme()) : 0;
         theme.baseTheme = (shown >= SettingsManager::LightTheme
                            && shown <= SettingsManager::StormTheme)
@@ -1726,13 +1541,9 @@ QString CustomThemeStore::exportTheme(const QString &id) const
         object.insert(QStringLiteral("base"), theme.baseTheme);
         object.insert(QStringLiteral("colors"),
                       QJsonObject::fromVariantMap(theme.colors));
-        // Additive: an older build ignores the key and shows flat colours.
         if (!theme.gradients.isEmpty())
             object.insert(QStringLiteral("gradients"),
                           QJsonObject::fromVariantMap(theme.gradients));
-        // Additive too, and safe for an older build: the members' colours are
-        // already in `colors`, so it renders the same theme, only without
-        // the editable link.
         if (!theme.groups.isEmpty())
             object.insert(QStringLiteral("groups"),
                           QJsonArray::fromVariantList(theme.groups));
@@ -1767,15 +1578,10 @@ bool CustomThemeStore::parseShared(const QString &payload, Theme *out,
     if (theme.baseTheme < SettingsManager::LightTheme
         || theme.baseTheme > SettingsManager::StormTheme)
         theme.baseTheme = SettingsManager::StormTheme;
-    // Untrusted input: anything but a known role with an opaque #RRGGBB is
-    // dropped here.
     theme.colors =
         sanitize(object.value(QStringLiteral("colors")).toObject().toVariantMap());
-    // Same gate as a loaded file: unknown roles and bad stops are dropped.
     theme.gradients = sanitizeGradients(
         object.value(QStringLiteral("gradients")).toObject().toVariantMap());
-    // Untrusted: a bounded parse that repairs or drops, never refuses the
-    // whole theme for a bad group (valid unrelated content is kept).
     const QJsonValue groupsValue = object.value(QStringLiteral("groups"));
     if (groupsValue.isArray()) {
         QJsonArray array = groupsValue.toArray();
@@ -1851,8 +1657,6 @@ QString CustomThemeStore::replaceActiveTheme(const QString &payload)
     themes[index].gradients = incoming.gradients;
     themes[index].groups = incoming.groups;
     save(themes, themes.at(index).id);
-    // One step, named; the name is not replaced, so nothing outside the
-    // history changes.
     m_undoSealed = true;
     recordStep(idBefore, baseBefore, colorsBefore, gradientsBefore, groupsBefore,
                QString(), tr("Replace with the imported theme"));
@@ -1883,8 +1687,6 @@ void CustomThemeStore::store(const QVariantMap &colors)
     QList<Theme> themes = load();
     int index = activeIndex();
     if (index < 0) {
-        // Editing before anything exists creates the first theme, so the edit
-        // is not discarded.
         Theme theme;
         theme.id = makeId(themes);
         theme.name = tr("My theme");
@@ -1908,8 +1710,6 @@ int CustomThemeStore::baseTheme() const
 
 void CustomThemeStore::setBaseTheme(int themeId)
 {
-    // A base must be a real palette: the custom theme itself would be a cycle
-    // and System is a resolution mode, not a palette.
     if (themeId < SettingsManager::LightTheme || themeId > SettingsManager::StormTheme)
         return;
     QList<Theme> themes = load();
@@ -1945,7 +1745,6 @@ void CustomThemeStore::setName(const QString &name)
     const int index = activeIndex();
     if (index < 0)
         return;
-    // Bounded: this lands in a theme picker row, not in a document.
     const QString clean = name.left(kMaxNameLength);
     if (themes.at(index).name == clean)
         return;
@@ -1967,7 +1766,6 @@ bool CustomThemeStore::setColor(const QString &role, const QString &hex)
 {
     if (!roleIsEditable(role) || !colorIsValid(hex))
         return false;
-    // A linked member's ordinary picker edits its whole group (UI-003).
     const QString group = groupOfRole(role);
     if (!group.isEmpty())
         return setGroupColor(group, hex);
@@ -1978,8 +1776,6 @@ bool CustomThemeStore::setColor(const QString &role, const QString &hex)
     QVariantMap next = before;
     next.insert(role, hex.toUpper());
     store(next);
-    // Successive samples of one role (a drag) are one step until the editor
-    // seals it; see sealUndoStep().
     recordStep(idBefore, baseBefore, before, gradientsBefore, role,
                tr("Change %1 colour").arg(roleLabel(role)));
     return true;
@@ -1987,9 +1783,6 @@ bool CustomThemeStore::setColor(const QString &role, const QString &hex)
 
 void CustomThemeStore::resetColor(const QString &role)
 {
-    // A grouped member's reset is explicitly "leave the group and follow the
-    // base again", one step: resetting the colour alone would be repaired
-    // straight back to the group's by the invariant.
     if (!groupOfRole(role).isEmpty()) {
         editActive([&](Theme &t) {
             for (int i = 0; i < t.groups.size(); ++i) {
@@ -2037,9 +1830,6 @@ bool CustomThemeStore::applyToGroup(const QString &role, const QString &hex)
         return false;
     const QStringList members = groupMembers(group);
 
-    // The gradient half first: the role's own
-    // gradient becomes the group's when the group can carry one, and every
-    // member's own gradient goes, so they all show the group's.
     const QVariantMap gradientsBefore = gradients();
     const QVariantMap ownGradient = gradientsBefore.value(role).toMap();
     QVariantMap nextGradients = gradientsBefore;
@@ -2056,9 +1846,6 @@ bool CustomThemeStore::applyToGroup(const QString &role, const QString &hex)
     for (const QString &member : members)
         next.remove(member);
 
-    // The built-in group's members drop their own colours and the group
-    // role takes one: any of them in a USER group leaves it in the same step
-    // (otherwise the invariant would repaint them with the user group's).
     const QVariantList groupsBefore = groupsRaw();
     QStringList touched = members;
     touched << group;
@@ -2100,8 +1887,6 @@ void CustomThemeStore::resetAll()
     const QString idBefore = activeThemeId();
     const int baseBefore = baseTheme();
     const QVariantMap gradientsBefore = gradients();
-    // Gradients and colour groups go with "Reset all" too, and are in the
-    // undo history.
     {
         QList<Theme> themes = load();
         const int index = activeIndex();
@@ -2137,7 +1922,6 @@ bool CustomThemeStore::setGradient(const QString &role, const QVariantMap &spec)
     QList<Theme> themes = load();
     int index = activeIndex();
     if (index < 0) {
-        // As store(): editing before anything exists creates the first theme.
         Theme theme;
         theme.id = makeId(themes);
         theme.name = tr("My theme");
@@ -2149,8 +1933,6 @@ bool CustomThemeStore::setGradient(const QString &role, const QVariantMap &spec)
         return true;
     const QVariantList groupsBefore = themes.at(index).groups;
     themes[index].gradients.insert(role, clean);
-    // A member never carries a gradient: giving one leaves the group (the
-    // normaliser drops it), in this same step.
     normalizeColorGroups(&themes[index].groups, &themes[index].colors,
                          themes[index].gradients);
     save(themes, themes.at(index).id);
@@ -2161,8 +1943,6 @@ bool CustomThemeStore::setGradient(const QString &role, const QVariantMap &spec)
                    tr("Change %1 gradient").arg(roleLabel(role)));
         return true;
     }
-    // Stops dragged in the bar or the picker are one step per role until the
-    // editor seals it, as for a colour.
     recordStep(idBefore, baseBefore, colorsBefore, gradientsBefore,
                QStringLiteral("gradient:") + role,
                tr("Change %1 gradient").arg(roleLabel(role)));
@@ -2189,8 +1969,6 @@ bool CustomThemeStore::isGradientRole(const QString &role) const
 {
     return roleTakesGradient(role);
 }
-
-// ---- undo ------------------------------------------------------------------
 
 bool CustomThemeStore::canUndo() const
 {
@@ -2225,7 +2003,6 @@ void CustomThemeStore::nameNextStep(const QString &label)
 void CustomThemeStore::beginUndoGroup(const QString &label)
 {
     if (m_groupDepth == 0) {
-        // A group is a step of its own, never a continuation of a drag.
         m_undoSealed = true;
         m_groupLabel = label.left(120);
     }
@@ -2248,7 +2025,6 @@ void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
                                   const QString &coalesceKey,
                                   const QString &defaultLabel)
 {
-    // An edit that cannot touch the groups: their "before" is what they are.
     recordStep(themeIdBefore, baseBefore, colorsBefore, gradientsBefore,
                groupsRaw(), coalesceKey, defaultLabel);
 }
@@ -2263,8 +2039,6 @@ void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
     const QString id = activeThemeId();
     const QString pending = m_pendingLabel;
     m_pendingLabel.clear();
-    // An edit that had to create the theme first, or that landed on another
-    // theme, has no "before" on this theme to return to.
     if (themeIdBefore.isEmpty() || id != themeIdBefore) {
         clearHistory();
         return;
@@ -2277,7 +2051,6 @@ void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
         && gradientsAfter == gradientsBefore && groupsAfter == groupsBefore)
         return;
 
-    // Inside a group every edit merges into the group's one step.
     const bool grouped = m_groupDepth > 0;
     const QString coalesce = grouped ? QStringLiteral("@group") : coalesceKey;
     const QString label = grouped ? m_groupLabel
@@ -2293,7 +2066,6 @@ void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
         last.colorsAfter = colorsAfter;
         last.gradientsAfter = gradientsAfter;
         last.groupsAfter = groupsAfter;
-        // A drag that came back to where it started is no step at all.
         if (last.baseAfter == last.baseBefore
             && last.colorsAfter == last.colorsBefore
             && last.gradientsAfter == last.gradientsBefore
@@ -2316,7 +2088,6 @@ void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
         while (m_undo.size() > kMaxUndoSteps)
             m_undo.removeFirst();
     }
-    // Only a colour edit stays open for the next sample of the same role.
     m_undoSealed = coalesce.isEmpty();
     m_redo.clear();
     Q_EMIT historyChanged();
@@ -2353,7 +2124,6 @@ bool CustomThemeStore::undo()
 {
     if (m_undo.isEmpty())
         return false;
-    // The history is per theme; switching clears it, so this is a guard.
     if (m_undo.last().themeId != activeThemeId()) {
         clearHistory();
         return false;
@@ -2404,8 +2174,6 @@ bool CustomThemeStore::isEditableRole(const QString &role) const
     return roleIsEditable(role);
 }
 
-// ---- user colour groups ----------------------------------------------------
-
 namespace {
 
 constexpr int kMaxGroupIdLength = 16;
@@ -2438,7 +2206,7 @@ QString nextGroupId(const QVariantList &groups)
     return {};
 }
 
-} // namespace
+}
 
 int CustomThemeStore::normalizeColorGroups(QVariantList *groups,
                                            QVariantMap *colors,
@@ -2482,8 +2250,6 @@ int CustomThemeStore::normalizeColorGroups(QVariantList *groups,
                 ++repairs;
                 break;
             }
-            // Unknown, already claimed (by this group or an earlier one), or
-            // carrying a gradient: dropped, deterministically, first wins.
             if (!roleIsEditable(role) || claimed.contains(role)
                 || gradients.contains(role)) {
                 ++repairs;
@@ -2493,7 +2259,6 @@ int CustomThemeStore::normalizeColorGroups(QVariantList *groups,
             claimed.insert(role);
         }
         if (members.size() < 2) {
-            // A group of one is no relationship; its colour stays.
             for (const QString &role : std::as_const(members))
                 claimed.remove(role);
             ++repairs;
@@ -2611,7 +2376,6 @@ QVariantMap CustomThemeStore::createColorGroup(const QString &name,
         cleanName = tr("Colour group");
     QString newId;
     const bool ok = editActive([&](Theme &t) {
-        // The move out of other groups is part of this one step.
         for (int i = 0; i < t.groups.size(); ++i) {
             QVariantMap g = t.groups.at(i).toMap();
             QStringList m = g.value(QStringLiteral("members")).toStringList();
@@ -2646,8 +2410,6 @@ bool CustomThemeStore::setGroupColor(const QString &groupId, const QString &hex)
     }
     if (name.isEmpty())
         return false;
-    // Drag samples coalesce into one step per group until sealUndoStep().
-    // An unchanged colour is a successful no-op.
     editActive([&](Theme &t) {
         for (int i = 0; i < t.groups.size(); ++i) {
             QVariantMap g = t.groups.at(i).toMap();
@@ -2655,7 +2417,7 @@ bool CustomThemeStore::setGroupColor(const QString &groupId, const QString &hex)
                 continue;
             g.insert(QStringLiteral("color"), hex.toUpper());
             t.groups[i] = g;
-            return true;   // the normaliser materialises every member
+            return true;
         }
         return false;
     }, QStringLiteral("group:") + groupId,
@@ -2737,8 +2499,6 @@ bool CustomThemeStore::detachFromColorGroup(const QString &role)
 {
     if (groupOfRole(role).isEmpty())
         return false;
-    // The colour it shows now stays as its own override: colors[role]
-    // already holds it (the invariant), so only the membership goes.
     return editActive([&](Theme &t) {
         for (int i = 0; i < t.groups.size(); ++i) {
             QVariantMap g = t.groups.at(i).toMap();
@@ -2789,7 +2549,6 @@ QVariantMap CustomThemeStore::colorGroupImpact(const QStringList &roles) const
         const QString key = QLatin1String(r.key);
         if (members.contains(key) || own.contains(key))
             continue;
-        // Walk the follow chain until a role with its own colour or a member.
         QString parent = roleFollows(key);
         int guard = 0;
         while (!parent.isEmpty() && ++guard < 8) {

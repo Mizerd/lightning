@@ -1,15 +1,3 @@
-// A rail tile's unread badge must count exactly what that tile's view lists.
-//
-//   A. The Direct Messages tile (a pseudo row synthesised in RailEntryModel)
-//      must carry an unreadTotal.
-//   B. Home counts only what the Channels Home view lists.
-//   C. The "Other rooms" tile counts the unparented rooms it lists.
-//   D. Activity (hasUnread, mentionCount): an unread room lights its tiles
-//      whether or not it notifies, a muted one does not, mentions are the
-//      count, and a folder counts a room once.
-//
-// The rule is layout-aware: Classic has no People tab, so Classic's Home
-// still counts everything.
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
@@ -106,9 +94,6 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-/// One Space holding one room, one room in no Space at all, and one DM. Every
-/// case below moves the unread onto exactly one of those three and asks which
-/// tile is allowed to show it.
 QList<RoomInfo> workspace(int spaceRoomUnread, int looseUnread, int dmUnread,
                           int dmHighlight = 0)
 {
@@ -120,9 +105,6 @@ QList<RoomInfo> workspace(int spaceRoomUnread, int looseUnread, int dmUnread,
     };
 }
 
-/// The rail as the user sees it: entryId -> unreadTotal, straight off
-/// RailEntryModel, which SpacesRail.qml binds its badge to (the People tile's
-/// total does not exist at the SpaceManager layer).
 QHash<QString, int> railUnread(const RailEntryModel &rail)
 {
     QHash<QString, int> out;
@@ -145,7 +127,6 @@ QHash<QString, int> railHighlight(const RailEntryModel &rail)
     return out;
 }
 
-/// One role for every row, keyed by entryId.
 QHash<QString, QVariant> railRole(const RailEntryModel &rail, int role)
 {
     QHash<QString, QVariant> out;
@@ -169,7 +150,6 @@ int railMentions(const RailEntryModel &rail, const QString &entryId)
         .value(entryId).toInt();
 }
 
-/// The entryId of the only folder row, or "".
 QString onlyFolderEntry(const RailEntryModel &rail)
 {
     QString found;
@@ -186,9 +166,6 @@ QString onlyFolderEntry(const RailEntryModel &rail)
     return found;
 }
 
-/// Every room id the Channels column actually renders for a selection. This is
-/// the other half of every assertion here: a badge is only correct if the view
-/// behind it can show what it counted.
 QStringList channelRoomIds(SpaceChannelModel &channels, const QString &selection)
 {
     channels.setScopeSpaceId(selection);
@@ -203,7 +180,7 @@ QStringList channelRoomIds(SpaceChannelModel &channels, const QString &selection
     return out;
 }
 
-} // namespace
+}
 
 class UnreadBadgeAttributionTest : public QObject
 {
@@ -242,9 +219,6 @@ private:
     RailEntryModel *m_rail = nullptr;
     SpaceChannelModel *m_channels = nullptr;
 
-    /// Wire the real objects together the way AppController does, then load
-    /// `rooms`. `channels` selects whether the Direct Messages tile exists,
-    /// which is exactly what the Channels layout decides in SpacesRail.qml.
     void load(const QList<RoomInfo> &rooms, bool channels);
 };
 
@@ -279,8 +253,6 @@ void UnreadBadgeAttributionTest::load(const QList<RoomInfo> &rooms,
     m_spaces->setClient(m_client);
     m_rail->setSources(m_spaces, m_layout);
     m_rail->setRoomSources(m_client, m_settings);
-    // The Direct Messages tab is Channels-only; this is the same value
-    // SpacesRail.qml binds from roomNavigationLayout === 1.
     m_rail->setPeopleEntryVisible(channels);
     m_spaces->setDirectMessagesHaveOwnTile(channels);
     m_channels->setSources(m_client, m_spaces, m_layout);
@@ -288,42 +260,31 @@ void UnreadBadgeAttributionTest::load(const QList<RoomInfo> &rooms,
     m_client->announce();
 }
 
-// ── A. the defect that cost real messages ────────────────────────────────
-
 void UnreadBadgeAttributionTest::directMessageUnreadReachesTheDirectMessagesTile()
 {
-    load(workspace(/*space*/ 0, /*loose*/ 0, /*dm*/ 3), /*channels*/ true);
+    load(workspace( 0, 0, 3), true);
 
     const QHash<QString, int> unread = railUnread(*m_rail);
     QVERIFY2(unread.contains(SpaceManager::peopleId()),
              "the Direct Messages tile is missing from the rail entirely");
     QCOMPARE(unread.value(SpaceManager::peopleId()), 3);
 
-    // And the tile it points at really does list that DM, so the badge is
-    // actionable rather than merely non-zero.
     QVERIFY(channelRoomIds(*m_channels, SpaceManager::peopleId())
                 .contains(kDm));
 }
 
 void UnreadBadgeAttributionTest::directMessageHighlightReachesTheDirectMessagesTile()
 {
-    load(workspace(0, 0, /*dm unread*/ 2, /*dm highlight*/ 2),
-         /*channels*/ true);
+    load(workspace(0, 0, 2, 2),
+ true);
 
-    // A highlight is a mention. It drives the badge's COLOUR, so a tile that
-    // reports the count and drops the highlight shows a mention as ordinary
-    // traffic — quieter than the thing deserves.
     QCOMPARE(railHighlight(*m_rail).value(SpaceManager::peopleId()), 2);
 }
 
-// ── B. Home counted what Home cannot show ────────────────────────────────
-
 void UnreadBadgeAttributionTest::homeCountsTheDirectMessagesItListsAgain()
 {
-    load(workspace(0, 0, /*dm*/ 3), /*channels*/ true);
+    load(workspace(0, 0, 3), true);
 
-    // Home lists the joined DMs (a Direct Messages group after Rooms), so its
-    // badge counts them; a room in two views is counted by both tiles.
     QCOMPARE(railUnread(*m_rail).value(SpaceManager::allRoomsId()), 3);
     QVERIFY(channelRoomIds(*m_channels, SpaceManager::allRoomsId())
                 .contains(kDm));
@@ -332,7 +293,7 @@ void UnreadBadgeAttributionTest::homeCountsTheDirectMessagesItListsAgain()
 
 void UnreadBadgeAttributionTest::homeStopsCountingRoomsThatBelongToASpace()
 {
-    load(workspace(/*space room*/ 4, 0, 0), /*channels*/ true);
+    load(workspace( 4, 0, 0), true);
 
     QCOMPARE(railUnread(*m_rail).value(SpaceManager::allRoomsId()), 0);
     QCOMPARE(railUnread(*m_rail).value(kWork), 4);
@@ -343,20 +304,16 @@ void UnreadBadgeAttributionTest::homeStopsCountingRoomsThatBelongToASpace()
 
 void UnreadBadgeAttributionTest::classicHomeStillCountsEverythingBecauseItListsEverything()
 {
-    // Classic reaches DMs through a filter chip over one list, so Home is
-    // where an unread DM is found and counts it.
-    load(workspace(/*space room*/ 4, /*loose*/ 2, /*dm*/ 3),
-         /*channels*/ false);
+    load(workspace( 4, 2, 3),
+ false);
 
     QCOMPARE(railUnread(*m_rail).value(SpaceManager::allRoomsId()), 9);
     QVERIFY(!railUnread(*m_rail).contains(SpaceManager::peopleId()));
 }
 
-// ── C. the tile that always read zero ────────────────────────────────────
-
 void UnreadBadgeAttributionTest::otherRoomsTileCountsTheRoomsItLists()
 {
-    load(workspace(0, /*loose*/ 5, 0), /*channels*/ true);
+    load(workspace(0, 5, 0), true);
 
     const QHash<QString, int> unread = railUnread(*m_rail);
     QVERIFY2(unread.contains(SpaceManager::orphansId()),
@@ -367,21 +324,17 @@ void UnreadBadgeAttributionTest::otherRoomsTileCountsTheRoomsItLists()
                 .contains(kLoose));
 }
 
-// ── the whole point, stated once ─────────────────────────────────────────
-
 void UnreadBadgeAttributionTest::everyUnreadIsReachableFromSomeTile()
 {
-    // One unread of each kind: for every one there must be a tile that both
-    // counts it and lists it.
-    load(workspace(/*space room*/ 1, /*loose*/ 1, /*dm*/ 1),
-         /*channels*/ true);
+    load(workspace( 1, 1, 1),
+ true);
 
     const QHash<QString, int> unread = railUnread(*m_rail);
     const struct { QString room; QString tile; } expected[] = {
         { kGeneral, kWork },
         { kLoose,   SpaceManager::orphansId() },
         { kDm,      SpaceManager::peopleId() },
-        { kDm,      SpaceManager::allRoomsId() }, // listed at Home too
+        { kDm,      SpaceManager::allRoomsId() },
     };
 
     for (const auto &pair : expected) {
@@ -394,8 +347,6 @@ void UnreadBadgeAttributionTest::everyUnreadIsReachableFromSomeTile()
                                 .arg(pair.tile, pair.room)));
     }
 
-    // Nothing is counted into a tile that cannot show it: Home keeps the loose
-    // room and the DM and drops the Space's room.
     QCOMPARE(unread.value(SpaceManager::allRoomsId()), 2);
     const QStringList home =
         channelRoomIds(*m_channels, SpaceManager::allRoomsId());
@@ -404,21 +355,16 @@ void UnreadBadgeAttributionTest::everyUnreadIsReachableFromSomeTile()
     QVERIFY(!home.contains(kGeneral));
 }
 
-// ── D. activity: a dot for unread, a count for mentions ──────────────────
-
 void UnreadBadgeAttributionTest::aSpaceLightsForAnUnreadRoomThatDoesNotNotify()
 {
-    // notification_count is 0 where push rules do not notify, so the count
-    // badge never appeared for this room.
     QList<RoomInfo> rooms = workspace(0, 0, 0);
     rooms[1].hasUnreadMessages = true;
-    load(rooms, /*channels*/ true);
+    load(rooms, true);
 
     QCOMPARE(railUnread(*m_rail).value(kWork), 0);
     QVERIFY(railHasUnread(*m_rail, kWork));
     QCOMPARE(railMentions(*m_rail, kWork), 0);
     QVERIFY(channelRoomIds(*m_channels, kWork).contains(kGeneral));
-    // Home in Channels does not list a Space's room, so it stays dark.
     QVERIFY(!railHasUnread(*m_rail, SpaceManager::allRoomsId()));
 }
 
@@ -426,7 +372,7 @@ void UnreadBadgeAttributionTest::aMarkedUnreadRoomLightsItsSpace()
 {
     QList<RoomInfo> rooms = workspace(0, 0, 0);
     rooms[1].markedUnread = true;
-    load(rooms, /*channels*/ true);
+    load(rooms, true);
 
     QVERIFY(railHasUnread(*m_rail, kWork));
     QCOMPARE(railMentions(*m_rail, kWork), 0);
@@ -449,9 +395,8 @@ void UnreadBadgeAttributionTest::unreadInANestedSubspaceLightsEveryAncestorRow()
         room(calm, QStringLiteral("calm")),
     };
     m_layout->setSpaceExpanded(org, true);
-    load(rooms, /*channels*/ true);
+    load(rooms, true);
 
-    // The subspace rows exist, so each row answers for itself.
     QVERIFY(m_rail->rowForEntry(team) >= 0);
     QVERIFY(m_rail->rowForEntry(quiet) >= 0);
     QVERIFY(railHasUnread(*m_rail, org));
@@ -460,7 +405,6 @@ void UnreadBadgeAttributionTest::unreadInANestedSubspaceLightsEveryAncestorRow()
     QCOMPARE(railMentions(*m_rail, org), 1);
     QCOMPARE(railMentions(*m_rail, team), 1);
     QCOMPARE(railMentions(*m_rail, quiet), 0);
-    // The root's view reaches the room through its subspace section.
     QVERIFY(m_spaces->roomsInSpace(org).contains(deep));
     m_layout->setSpaceExpanded(org, false);
 }
@@ -476,12 +420,10 @@ void UnreadBadgeAttributionTest::aMutedRoomIsSilentMentionsIncluded()
         mutedRoom,
     };
     m_settings->setRoomNotificationMode(muted, 2);
-    load(onlyMuted, /*channels*/ true);
+    load(onlyMuted, true);
     QVERIFY(!railHasUnread(*m_rail, kWork));
     QCOMPARE(railMentions(*m_rail, kWork), 0);
 
-    // A muted room is fully silent, a mention included (Element's rule); the
-    // "Mentions & keywords" mode is where a mention shows.
     RoomInfo mentioned = room(noisy, QStringLiteral("noisy"), 1, 1);
     mentioned.hasUnreadMessages = true;
     m_settings->setRoomNotificationMode(noisy, 2);
@@ -505,17 +447,14 @@ void UnreadBadgeAttributionTest::aMutedRoomIsSilentMentionsIncluded()
 
 void UnreadBadgeAttributionTest::unmutingARoomRelightsItsSpace()
 {
-    // A mode change is not a room change: nothing from the client announces
-    // it, so the rail must listen to the setting itself.
     const QString muted = QStringLiteral("!muted-b:x");
     RoomInfo mutedRoom = room(muted, QStringLiteral("muted"), 0, 0);
     mutedRoom.hasUnreadMessages = true;
     m_settings->setRoomNotificationMode(muted, 2);
     load({ spaceRoom(kWork, QStringLiteral("Work"), { muted }), mutedRoom },
-         /*channels*/ true);
+ true);
     QVERIFY(!railHasUnread(*m_rail, kWork));
 
-    // 3 = follow the account default, what "Unmute space" writes.
     m_settings->setRoomNotificationMode(muted, 3);
     QTRY_VERIFY(railHasUnread(*m_rail, kWork));
     m_settings->setRoomNotificationMode(muted, 0);
@@ -530,13 +469,11 @@ void UnreadBadgeAttributionTest::mentionsAreTheCountAndPlainUnreadIsOnlyADot()
     busy.hasUnreadMessages = true;
     load({ spaceRoom(kWork, QStringLiteral("Work"), { kGeneral, chatter }),
            mentioned, busy },
-         /*channels*/ true);
+ true);
 
-    // Two mentions, not the eight notifications around them.
     QCOMPARE(railMentions(*m_rail, kWork), 2);
     QVERIFY(railHasUnread(*m_rail, kWork));
 
-    // Without the mention, the Space is a dot and no number.
     mentioned.highlightCount = 0;
     m_client->mirror = { spaceRoom(kWork, QStringLiteral("Work"),
                                    { kGeneral, chatter }),
@@ -556,17 +493,15 @@ void UnreadBadgeAttributionTest::aRoomInTwoSpacesIsCountedOnceByTheirFolder()
     load({ spaceRoom(alpha, QStringLiteral("Alpha"), { shared }),
            spaceRoom(beta, QStringLiteral("Beta"), { shared }),
            sharedRoom },
-         /*channels*/ true);
+ true);
     QVERIFY(!m_layout->createFolderWithSpaces({ alpha, beta }, 0,
                                               QStringLiteral("Both"))
                  .isEmpty());
 
     const QString folder = onlyFolderEntry(*m_rail);
     QVERIFY(!folder.isEmpty());
-    // Each Space lists the room, so each counts it.
     QCOMPARE(railMentions(*m_rail, alpha), 1);
     QCOMPARE(railMentions(*m_rail, beta), 1);
-    // The folder is one place holding one mention.
     QCOMPARE(railMentions(*m_rail, folder), 1);
     QVERIFY(railHasUnread(*m_rail, folder));
     m_layout->deleteFolder(folder);
@@ -578,60 +513,44 @@ void UnreadBadgeAttributionTest::directMessagesCountLikeMentionsUnlessMuted()
     RoomInfo quiet = dm(quietDm, QStringLiteral("Bo"),
                         QStringLiteral("@bo:x"), 4, 0);
     quiet.hasUnreadMessages = true;
-    QList<RoomInfo> rooms = workspace(0, 0, /*dm*/ 3);
+    QList<RoomInfo> rooms = workspace(0, 0, 3);
     rooms[3].hasUnreadMessages = true;
     rooms.append(quiet);
     m_settings->setRoomNotificationMode(quietDm, 2);
-    load(rooms, /*channels*/ true);
+    load(rooms, true);
 
-    // Every notifying message in a DM is addressed to the user; the muted
-    // DM adds nothing.
     QCOMPARE(railMentions(*m_rail, SpaceManager::peopleId()), 3);
     QVERIFY(railHasUnread(*m_rail, SpaceManager::peopleId()));
-    // Channels' Home lists the DMs too.
     QCOMPARE(railMentions(*m_rail, SpaceManager::allRoomsId()), 3);
     QCOMPARE(railMentions(*m_rail, kWork), 0);
     QVERIFY(!railHasUnread(*m_rail, kWork));
     m_settings->setRoomNotificationMode(quietDm, 0);
 }
 
-// Regression: a DM set to "Mentions & keywords only" (mode 1) is not the
-// same as an unmuted DM. The rail used to treat every unmuted DM's ordinary
-// unreadCount as a mention (kNotificationModeMute is the only mode it ever
-// checked), so a Mentions-only DM's five plain messages surfaced as five
-// "mentions" in the rail rollup exactly like an All-messages DM would.
 void UnreadBadgeAttributionTest::aMentionsOnlyDirectMessageCountsOnlyItsRealMentions()
 {
     const QString quietDm = QStringLiteral("!dm-mentions-only:x");
     RoomInfo mentionsOnly = dm(quietDm, QStringLiteral("Cy"),
-                              QStringLiteral("@cy:x"), /*unread*/ 5,
-                              /*highlight*/ 1);
+                              QStringLiteral("@cy:x"), 5,
+ 1);
     mentionsOnly.hasUnreadMessages = true;
-    QList<RoomInfo> rooms = workspace(0, 0, /*dm*/ 3);
+    QList<RoomInfo> rooms = workspace(0, 0, 3);
     rooms[3].hasUnreadMessages = true;
     rooms.append(mentionsOnly);
     m_settings->setRoomNotificationMode(quietDm, 1);
-    load(rooms, /*channels*/ true);
+    load(rooms, true);
 
-    // The workspace DM's 3 notifying messages (mode 0, unchanged) plus the
-    // Mentions-only DM's ONE real mention — never its other 4 plain
-    // messages, which the old code folded in via std::max(unreadCount,
-    // highlightCount) regardless of mode.
     QCOMPARE(railMentions(*m_rail, SpaceManager::peopleId()), 3 + 1);
     QVERIFY(railHasUnread(*m_rail, SpaceManager::peopleId()));
-    // Channels' Home lists the DMs too.
     QCOMPARE(railMentions(*m_rail, SpaceManager::allRoomsId()), 3 + 1);
     m_settings->setRoomNotificationMode(quietDm, 0);
 }
 
-// CLAUDE.md section 8: the server count of a room unread only in threads is
-// thread events. The DM max() rule must not turn it into a "mention" number,
-// and the rollups must not add it; the tile still lights.
 void UnreadBadgeAttributionTest::aThreadOnlyDirectMessageShowsNoNumberAnywhereOnTheRail()
 {
-    QList<RoomInfo> rooms = workspace(0, 0, /*dm*/ 5);
+    QList<RoomInfo> rooms = workspace(0, 0, 5);
     rooms[3].unreadThreadsOnly = true;
-    load(rooms, /*channels*/ true);
+    load(rooms, true);
 
     QCOMPARE(railMentions(*m_rail, SpaceManager::peopleId()), 0);
     QCOMPARE(railUnread(*m_rail).value(SpaceManager::peopleId()), 0);
@@ -639,9 +558,6 @@ void UnreadBadgeAttributionTest::aThreadOnlyDirectMessageShowsNoNumberAnywhereOn
     QVERIFY(railHasUnread(*m_rail, SpaceManager::peopleId()));
 }
 
-// The inline room reveal under an expanded Space reads the same rule as the
-// Space tile: a muted mention paints nothing, a marked-unread room paints a
-// dot, a thread-only room carries no number.
 void UnreadBadgeAttributionTest::theRailRevealFollowsMuteAndMarkedUnread()
 {
     const QString muted = QStringLiteral("!muted:x");
@@ -657,8 +573,7 @@ void UnreadBadgeAttributionTest::theRailRevealFollowsMuteAndMarkedUnread()
     rooms[2].markedUnread = true;
     rooms[3].unreadThreadsOnly = true;
     m_settings->setRoomNotificationMode(muted, 2);
-    load(rooms, /*channels*/ true);
-    // As AppController wires it; load() leaves SpaceManager on All messages.
+    load(rooms, true);
     m_spaces->setNotificationModeSource([this](const QString &id) {
         return m_settings->roomNotificationMode(id);
     });

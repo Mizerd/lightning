@@ -45,21 +45,11 @@
 #include "spaces/SpaceManager.h"
 
 namespace {
-// Every QTRY here waits for a state that must eventually hold, so this is a
-// starvation budget for parallel ctest runs, not a latency assertion. Keep it
-// well below PaginationController's 30 s stall watchdog: a failing case stacks
-// several waits, and the watchdog firing mid-test adds an unrelated failure.
 constexpr int kSignalTimeoutMs = 4000;
-// How long the anchor's row may take to be built (ReverseListProxyModel paces
-// its reveal). Generous because it ends as soon as the row exists, and a slow
-// machine must not look like a compensation defect.
 constexpr int kAnchorRowRevealTimeoutMs = 30000;
 }
 
 namespace {
-// Keeps a scroll session open across an asynchronous wait, as a reader who
-// keeps swiping does: restarts the 250 ms settle timer periodically until
-// destroyed. Restarting once and then waiting races the timer.
 class GestureHold
 {
 public:
@@ -70,9 +60,6 @@ public:
                          [settleTimer] {
                              QMetaObject::invokeMethod(settleTimer, "restart");
                          });
-        // 20 ms leaves enough margin against the 250 ms settle timer under
-        // parallel-run CPU contention; at 50 ms the timer occasionally fired
-        // mid-run.
         m_ticker.start(20);
     }
     ~GestureHold() { m_ticker.stop(); }
@@ -81,9 +68,6 @@ private:
     QTimer m_ticker;
 };
 
-// Captures every message logged while alive, to check the
-// LIGHTNING_SCROLL_TRACE lines: QML console.info() is not otherwise
-// observable from a test.
 class LogCapture
 {
 public:
@@ -102,7 +86,7 @@ private:
     QtMessageHandler m_previous = nullptr;
     inline static QStringList s_messages;
 };
-} // namespace
+}
 
 class TimelinePaneQmlTest : public QObject
 {
@@ -119,8 +103,6 @@ private:
                                   QStringLiteral("unused"));
         if (!loginSpy.wait(kSignalTimeoutMs))
             return {};
-        // startSync() populates the room list synchronously; poll briefly as a
-        // safety margin only.
         for (int i = 0; i < 50 && controller.roomList()->rowCount() <= row; ++i)
             QTest::qWait(20);
         if (controller.roomList()->rowCount() <= row)
@@ -146,8 +128,6 @@ private:
         return {};
     }
 
-    // The first stateGroupId belonging to a group leader in the currently
-    // loaded timeline, or empty if none.
     static QString firstStateGroupId(TimelineModel *timeline)
     {
         for (int i = 0; i < timeline->rowCount(); ++i) {
@@ -158,9 +138,6 @@ private:
         return {};
     }
 
-    // A Repeater reparents its delegates with setParentItem() only, so they
-    // are not QObject-tree descendants and findChildren() cannot see them.
-    // Walks childItems() instead; only needed for Repeater-created content.
     static QList<QQuickItem *> findVisualChildren(QQuickItem *parent,
                                                   const QString &name)
     {
@@ -176,14 +153,6 @@ private:
         return result;
     }
 
-    // Row addressing on the rotated Flickable + Column timeline: every loaded
-    // row is instantiated and the row API is view-row based (view row 0 = the
-    // newest message, at content y 0). ListView's positionViewAtIndex /
-    // itemAtIndex do not exist here. Model (source) row 0 is the oldest
-    // message; these helpers take source rows and convert in one place.
-
-    // Source row -> view row, through the pane's own mapping (anchored on the
-    // model total, not `count`, which lags while a page is still draining).
     static int viewRowForSourceRow(QQuickItem *timeline, int sourceRow)
     {
         QVariant out;
@@ -194,11 +163,6 @@ private:
         return out.toInt();
     }
 
-    // The fixture must stop growing before an anchor is captured:
-    // ReverseListProxyModel keeps revealing rows after pagination reports
-    // idle, so an anchor captured then picks a different row run to run. Ask
-    // the proxy (`revealIdle()`, the condition it stops its own timer on)
-    // rather than polling contentHeight, since the reveal interval is adaptive.
     static bool waitForRowsToStopArriving(AppController &controller)
     {
         auto *view = qobject_cast<ReverseListProxyModel *>(
@@ -209,19 +173,6 @@ private:
                                kAnchorRowRevealTimeoutMs);
     }
 
-    // Waits for the anchor's row to be built, then reads its offset once with
-    // no grace period. Two reasons for "not yet" (row not built vs. reader
-    // moved) are separated so a failure says which one it was, and only
-    // construction is waited for, keeping "compensation is immediate" strict.
-    //
-    // These prepend cases guard the geometric identity that a backfill
-    // prepend lands beyond the reader (older rows sit at higher y on the
-    // rotated view); they do not exercise anchor compensation, which the diag*
-    // cases cover.
-    //
-    // One layout flush is allowed: the Column assigns `y` in a polish pass, so
-    // a freshly created delegate can briefly read y 0. `neededFlush` is
-    // reported so routine reliance on it shows up.
     struct AnchorSettle {
         bool sawRow = false;
         bool neededFlush = false;
@@ -259,10 +210,6 @@ private:
                 .arg(counters);
         }
     };
-    // Checks the delegate's event id too: a view row is `count - 1 -
-    // sourceRow - rowWindowSkip`, so a momentary count disagreement resolves
-    // to another row's delegate, which would be misreported as the reader
-    // moving.
     static AnchorSettle anchorOffsetOnceItsRowExists(QQuickItem *timeline,
                                                      int rowAfter,
                                                      double offsetBefore,
@@ -293,23 +240,15 @@ private:
                 settle.measuredId = out.toString();
             settle.rightRow = settle.measuredId == anchorId;
         };
-        // On failure, report the anchor counters a further anchor fix would
-        // need, instead of leaving the next reader to reproduce it.
         const auto snapshot = [&] {
             static const char *kNames[] = {
-                // Did the machinery correct anything?
                 "diagAnchorCorrections", "diagGrowthCorrections",
-                // Did it run and take an early return?
                 "diagNoAnchorReturns", "diagStickToBottomReturns",
-                // The prepend branch, which these cases exercise.
                 "diagPrependFirings", "diagPrependOriginShiftSum",
                 "diagPrependMaxAbsOriginShift",
-                // The displaced/materialized branches and their magnitudes.
                 "diagDisplacedFirings", "diagMaterializedFirings",
                 "diagMaterializedMaxAbsDelta", "diagActiveDeferrals",
                 "diagUnresolvedIdFallbacks", "diagEvictedNoInsertFallbacks",
-                // originY tells "the row moved within the content" apart from
-                // "the content origin moved under a stationary contentY".
                 "originY", "contentY", "contentHeight", "rowWindowSkip",
             };
             QStringList parts;
@@ -325,7 +264,6 @@ private:
                 else
                     missing << QString::fromLatin1(name);
             }
-            // A renamed property reads as UNREADABLE, not a silent zero.
             if (!missing.isEmpty())
                 parts << QStringLiteral("UNREADABLE[%1]")
                              .arg(missing.join(QLatin1Char(',')));
@@ -348,7 +286,6 @@ private:
         return settle;
     }
 
-    // The instantiated delegate for a SOURCE row, or nullptr.
     static QQuickItem *itemForSourceRow(QQuickItem *timeline, int sourceRow)
     {
         const int viewRow = viewRowForSourceRow(timeline, sourceRow);
@@ -362,7 +299,6 @@ private:
         return out.value<QQuickItem *>();
     }
 
-    // The delegate at a VIEW row (0 = newest), or nullptr.
     static QQuickItem *itemAtViewRow(QQuickItem *timeline, int viewRow)
     {
         QVariant out;
@@ -373,7 +309,6 @@ private:
         return out.value<QQuickItem *>();
     }
 
-    // The first message row near the live edge that has an action key.
     static QQuickItem *onScreenMessageRow(QQuickItem *timeline,
                                           QString *actionKey)
     {
@@ -390,9 +325,6 @@ private:
         return nullptr;
     }
 
-    // Rows on screen (drawn, and overlapping the viewport) whose delegate is
-    // outside the media band, so their pictures would not be fetched; empty
-    // when there are none. View rows ascend in content y.
     static QString onScreenRowsOutsideTheMediaBand(QQuickItem *timeline)
     {
         const double top = timeline->property("contentY").toDouble();
@@ -424,7 +356,6 @@ private:
             .arg(count).arg(top).arg(outside.join(QStringLiteral(", ")));
     }
 
-    // The highest view row with drawn height overlapping the viewport, or -1.
     static int lastViewRowOnScreen(QQuickItem *timeline)
     {
         const double top = timeline->property("contentY").toDouble();
@@ -443,7 +374,6 @@ private:
         return last;
     }
 
-    // The first drawn view row whose top lies beyond content y `y`, or -1.
     static int firstViewRowBeyond(QQuickItem *timeline, double y)
     {
         const int count = timeline->property("count").toInt();
@@ -455,7 +385,6 @@ private:
         return -1;
     }
 
-    // Park a source row at the viewport's physical top.
     static bool positionAtSourceRow(QQuickItem *timeline, int sourceRow)
     {
         const int viewRow = viewRowForSourceRow(timeline, sourceRow);
@@ -466,10 +395,6 @@ private:
                                          Q_ARG(QVariant, QVariant(false)));
     }
 
-    // Park the reader at the top edge (the oldest loaded row, where near-top
-    // backfill fires). On the rotated view that is wheelMaxY(). A direct
-    // contentY write rather than goToEarliestLoaded(), which also re-runs
-    // pagination and restarts the settle timer.
     static bool positionAtTopEdge(QQuickItem *timeline)
     {
         QVariant maxY;
@@ -479,9 +404,6 @@ private:
         return timeline->setProperty("contentY", maxY.toDouble());
     }
 
-    // The pane's own wheelMinY()/wheelMaxY(). A hand-rolled range narrower
-    // than production's would clamp simulated glides against a floor the app
-    // does not have.
     static bool wheelBounds(QQuickItem *timeline, double *minY, double *maxY)
     {
         QVariant minV, maxV;
@@ -539,8 +461,6 @@ private:
         return out;
     }
 
-    // Shared fixture: the real pane over `roomId` with an explicit event list
-    // and pagination budget (for short, tall and zero-page rooms).
     static QQuickItem *paneWithEvents(AppController &controller,
                                       QQmlApplicationEngine &engine,
                                       QQuickWindow &window,
@@ -569,8 +489,6 @@ private:
         root->setParentItem(window.contentItem());
         root->setSize(QSizeF(window.width(), window.height()));
         window.show();
-        // Exposure and activation, so window-context Shortcuts are delivered.
-        // Not asserted: the offscreen platform may decline.
         QTest::qWaitForWindowExposed(&window, 2000);
         window.requestActivate();
         QCoreApplication::processEvents();
@@ -590,8 +508,6 @@ private:
         return root;
     }
 
-    // The pane root that owns `item`: the last QQuickItem ancestor (the top
-    // QObject parent is the engine).
     static QQuickItem *paneRootOf(QQuickItem *item)
     {
         QQuickItem *root = item;
@@ -681,8 +597,6 @@ QtObject {
             qWarning("fakePresenceService: %s", qPrintable(component.errorString()));
             return nullptr;
         }
-        // Outlives the pane: the engine deletes its root objects before its
-        // children, so the dots' destruction handlers still find it.
         QQmlEngine::setObjectOwnership(fake, QQmlEngine::CppOwnership);
         fake->setParent(&engine);
         return fake;
@@ -701,8 +615,6 @@ QtObject {
         QCoreApplication::processEvents();
     }
 
-    // QQmlProperty::write, so the dot's default binding to app.presence is
-    // removed rather than left to overwrite the fake.
     static bool injectPresence(QQuickItem *dot, QObject *fake)
     {
         const bool ok = QQmlProperty::write(dot, QStringLiteral("presenceService"),
@@ -724,9 +636,6 @@ QtObject {
         return expr.evaluate().value<QColor>();
     }
 
-    // "" when the dot sits at the avatar's bottom-right corner (its centre in
-    // the bottom-right quadrant, flush with both edges), wholly inside the
-    // avatar and inside `container`; otherwise what is wrong.
     static QString presenceDotPlacement(QQuickItem *dot, QQuickItem *avatar,
                                         QQuickItem *container)
     {
@@ -766,7 +675,6 @@ QtObject {
         return QQmlProperty::read(item, name, qmlContext(item));
     }
 
-    // A QML-side signal by name (pointer handlers have no public header).
     static QMetaMethod signalNamed(QObject *object, const char *name)
     {
         const QMetaObject *mo = object->metaObject();
@@ -778,14 +686,12 @@ QtObject {
         return {};
     }
 
-    // Hidden room activity between two runs of messages: rows the Column does
-    // not lay out, whose y is stale (0 when never shown). Oldest to newest.
     static QList<TimelineEvent> hiddenActivitySandwich(const QString &roomId,
                                                        bool withMarker)
     {
         QList<TimelineEvent> events =
             textFixture(roomId, 20, QStringLiteral("vpold"),
-                        QStringLiteral("older message"), /*baseSecondsAgo=*/40000);
+                        QStringLiteral("older message"),40000);
         for (int i = 0; i < 10; ++i) {
             TimelineEvent e;
             e.eventId = QStringLiteral("$vphidden%1").arg(i);
@@ -807,20 +713,16 @@ QtObject {
         }
         events.append(textFixture(roomId, 25, QStringLiteral("vpnew"),
                                   QStringLiteral("newer message"),
-                                  /*baseSecondsAgo=*/7200));
+7200));
         return events;
     }
 
-    // The row really at a content y: the last laid-out row starting at or
-    // before it.
-    // A linear walk, the reference the pane's binary search must agree with.
     static int laidOutRowAt(QQuickItem *timeline, qreal y)
     {
         const int count = timeline->property("count").toInt();
         int best = -1;
         for (int row = 0; row < count; ++row) {
             QQuickItem *item = itemAtViewRow(timeline, row);
-            // What a Column lays out: visible, with a width and a height.
             if (item && item->isVisible() && item->width() > 0
                 && item->height() > 0 && item->y() <= y)
                 best = row;
@@ -829,8 +731,6 @@ QtObject {
     }
 
 private Q_SLOTS:
-    // The room-activity component materializes typed child rows, not just an
-    // expansion flag.
     void roomActivityComponentExpandsVisibleTypedEntries()
     {
         QQmlApplicationEngine engine;
@@ -905,8 +805,6 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // The pane instantiates with no room open without a ReferenceError for
-    // PaginationController (the header binding evaluates on load).
     void timelinePaneInstantiatesWithoutReferenceError()
     {
         AppController controller(AppController::MockBackend);
@@ -922,7 +820,6 @@ private Q_SLOTS:
         QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
         engine.loadFromModule(QStringLiteral("MatrixClient"),
                               QStringLiteral("TimelinePane"));
-        // loadFromModule() may complete synchronously; only wait if needed.
         if (createdSpy.isEmpty())
             QVERIFY(createdSpy.wait(kSignalTimeoutMs));
         QVERIFY(!createdSpy.isEmpty());
@@ -935,18 +832,15 @@ private Q_SLOTS:
         auto *header = root->findChild<QQuickItem *>(
             QStringLiteral("paginationHeader"));
         QVERIFY(header != nullptr);
-        // Hidden state: no room open, so the pagination header collapses.
         QCOMPARE(header->height(), 0.0);
     }
 
-    // With no room selected the Home surface shows and the composer is
-    // hidden; selecting a room reverses both.
     void homeSurfaceShownWithNoRoomAndComposerHidden()
     {
         AppController controller(AppController::MockBackend);
-        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        const QString roomId = loginAndRoomIdAt(controller,0);
         QVERIFY(!roomId.isEmpty());
-        controller.setCurrentRoomId(QString()); // no room selected
+        controller.setCurrentRoomId(QString());
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -971,10 +865,9 @@ private Q_SLOTS:
             root->findChild<QQuickItem *>(QStringLiteral("composerCard"));
         QVERIFY(home != nullptr);
         QVERIFY(composer != nullptr);
-        QVERIFY(home->isVisible());       // Home replaces the empty state
-        QVERIFY(!composer->isVisible());  // composer hidden with no room
+        QVERIFY(home->isVisible());
+        QVERIFY(!composer->isVisible());
 
-        // Selecting a room flips both.
         controller.setCurrentRoomId(roomId);
         QCoreApplication::processEvents();
         QVERIFY(!home->isVisible());
@@ -982,12 +875,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // The pagination header expands while loading and collapses once the
-    // batch completes, through the real object graph.
     void loadingStateExpandsHeaderThenCollapses()
     {
         AppController controller(AppController::MockBackend);
-        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        const QString roomId = loginAndRoomIdAt(controller,0);
         QVERIFY(!roomId.isEmpty());
         // "!general:mock.local" is seeded with 2 pages remaining, so the
         // request is accepted.
@@ -1016,9 +907,6 @@ private Q_SLOTS:
             QStringLiteral("paginationHeader"));
         QVERIFY(header != nullptr);
 
-        // The pane may already be Loading on creation (it fills the viewport
-        // for a short room), so assert the header tracks whichever state that
-        // leaves.
         auto expectedHeight = [&] {
             return controller.pagination()->presentationState()
                            == PaginationController::Loading
@@ -1040,12 +928,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // The reader-list opener lives on the Flickable (`timelineView`), the only
-    // pane object delegates can reach.
     void receiptListOpenerIsReachableFromDelegatesAndOpens()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
         QQmlApplicationEngine engine;
@@ -1058,7 +944,6 @@ private Q_SLOTS:
         auto *root = qobject_cast<QQuickItem *>(
             createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY(root != nullptr);
-        // A Popup needs a real window/overlay to open.
         QQuickWindow window;
         window.resize(680, 480);
         root->setParentItem(window.contentItem());
@@ -1068,15 +953,10 @@ private Q_SLOTS:
             QStringLiteral("timelineListView"));
         QVERIFY(timeline != nullptr);
 
-        // The opener exists on the view the delegates hold...
         const QVariant opener = timeline->property("openReceiptList");
         QVERIFY(opener.isValid());
         QVERIFY(qvariant_cast<QJSValue>(opener).isCallable());
 
-        // ...and invoking it as the delegate does opens the shared popover.
-        // First-open case: rows materialize after placement. With thirty
-        // readers and a point at the bottom edge, the card must grow, cap at
-        // half the window, scroll inside and stay within the window.
         auto *popover =
             root->findChild<QObject *>(QStringLiteral("receiptListPopover"));
         QVERIFY(popover != nullptr);
@@ -1094,8 +974,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(popover->property("visible").toBool(), 5000);
         QCOMPARE(popover->property("totalOthers").toInt(), 30);
         const qreal placedHeight = popover->property("height").toReal();
-        // Grow in place after placement, as the first desktop open does; the
-        // fixture materializes synchronously, so drive the growth explicitly.
         QQmlExpression grow(
             qmlContext(timeline), timeline,
             QStringLiteral(
@@ -1114,17 +992,14 @@ private Q_SLOTS:
         auto *readerList = popover->findChild<QQuickItem *>(
             QStringLiteral("receiptReaderList"));
         QVERIFY(readerList != nullptr);
-        // Capped: the rows overflow and scroll inside.
         QTRY_VERIFY_WITH_TIMEOUT(
             readerList->property("contentHeight").toReal()
                 > readerList->height() + 1.0, 5000);
-        // Fully inside the window even though it grew after placement.
         QTRY_VERIFY_WITH_TIMEOUT(
             popover->property("y").toReal()
                     + popover->property("height").toReal()
                 <= window.height() + 0.5, 5000);
 
-        // Reopened with one reader, the card hugs its single row (<140).
         QQmlExpression closeCall(qmlContext(timeline), timeline,
                                  QStringLiteral("receiptListPopover.close()"));
         closeCall.evaluate();
@@ -1145,14 +1020,10 @@ private Q_SLOTS:
             popover->property("height").toReal() < 140, 5000);
     }
 
-    // A QQuickText is created with ItemObservesViewport and clears it only
-    // after laying out non-empty text, so an empty Label observes the viewport
-    // forever and makes every contentY change walk the whole item tree. The
-    // timeline's rows must contain no such observers.
     void timelineRowsCarryNoPermanentViewportObservers()
     {
         AppController controller(AppController::MockBackend);
-        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        const QString roomId = loginAndRoomIdAt(controller,0);
         QVERIFY(!roomId.isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
@@ -1174,8 +1045,6 @@ private Q_SLOTS:
         root->setSize(QSizeF(window.width(), window.height()));
         window.show();
 
-        // A mixed timeline covering every row kind that had an empty-text
-        // Label: plain, own (meta label), date divider and read marker.
         const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-3600);
         QList<TimelineEvent> events;
         for (int i = 0; i < 40; ++i) {
@@ -1191,8 +1060,6 @@ private Q_SLOTS:
             e.timestamp = base.addSecs(i * 60);
             events.append(e);
         }
-        // A live thread card with no latest timestamp: its timeLabel() is ""
-        // in exactly that state, inside an active Loader.
         TimelineEvent threadRoot;
         threadRoot.eventId = QStringLiteral("$vp-threadroot");
         threadRoot.itemId = QStringLiteral("uid-vp-threadroot");
@@ -1203,10 +1070,7 @@ private Q_SLOTS:
         threadRoot.timestamp = base.addSecs(2500);
         threadRoot.isThreadRoot = true;
         threadRoot.threadReplyCount = 3;
-        // threadLatestTimestamp deliberately left invalid.
         events.append(threadRoot);
-        // An edited row and an ambiguous-name row, so the meta label and the
-        // disambiguator are walked materialized.
         TimelineEvent editedRow;
         editedRow.eventId = QStringLiteral("$vp-edited");
         editedRow.itemId = QStringLiteral("uid-vp-edited");
@@ -1238,7 +1102,7 @@ private Q_SLOTS:
         marker.roomId = roomId;
         marker.type = TimelineEvent::ReadMarker;
         events.append(marker);
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+        mock->resetTimelineForTest(roomId, events,0);
 
         auto *timeline = root->findChild<QQuickItem *>(
             QStringLiteral("timelineListView"));
@@ -1276,8 +1140,6 @@ private Q_SLOTS:
         };
         walk(timeline);
 
-        // The Labels became Loaders; prove they still materialize, or "zero
-        // observers" could be satisfied by deleting the UI.
         const auto names =
             findVisualChildren(timeline, QStringLiteral("senderName"));
         QVERIFY2(!names.isEmpty(), "no senderName Label was created at all");
@@ -1289,7 +1151,6 @@ private Q_SLOTS:
         }
         QVERIFY2(visibleNamed > 0,
                  "the identity header Loader produced no visible sender name");
-        // ...and the identity header is a real, sized item.
         const auto headers =
             findVisualChildren(timeline, QStringLiteral("senderIdentityHeader"));
         QVERIFY(!headers.isEmpty());
@@ -1308,25 +1169,15 @@ private Q_SLOTS:
                                 .arg(observers.join(QStringLiteral("\n")))));
     }
 
-    // The download notice beside a file card is the one per-row object that
-    // exists only on demand. With fx2's first version it was built in EVERY
-    // row and carried two empty Texts each (its status label, and the empty
-    // leading Icon AppButton always builds): 90 observers in the case above.
-    // Here ONE file-card row has a live download: that row alone builds the
-    // notice, it adds no observer either (the case above cannot see a notice
-    // that only exists with a download), and when the row stops showing it
-    // the item goes back to the pane card, the row itself staying alive.
     void aDownloadingFileRowAloneBuildsItsNoticeAndObservesNothing()
     {
         QTemporaryDir folder;
         QVERIFY(folder.isValid());
         AppController controller(AppController::MockBackend);
-        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        const QString roomId = loginAndRoomIdAt(controller,0);
         QVERIFY(!roomId.isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
-        // Straight into a scratch folder, never a dialog; restored after, as
-        // every case here shares one settings file.
         SettingsManager *settings = controller.settings();
         const bool askedBefore = settings->alwaysAskWhereToSave();
         const QString folderBefore = settings->downloadFolder();
@@ -1360,8 +1211,6 @@ private Q_SLOTS:
         root->setSize(QSizeF(window.width(), window.height()));
         window.show();
 
-        // Plain rows, two of them FILE CARDS, and the newest file card is
-        // the one downloading: a file card without a download builds nothing.
         const QString key = QStringLiteral("mxc-probe-downloading");
         const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-3600);
         QList<TimelineEvent> events;
@@ -1397,7 +1246,7 @@ private Q_SLOTS:
                               QStringLiteral("mxc-probe-idle"), 40));
         events.append(fileRow(QStringLiteral("dl-busy"), key, 41));
         const int busyIndex = int(events.size()) - 1;
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+        mock->resetTimelineForTest(roomId, events,0);
 
         auto *timeline = root->findChild<QQuickItem *>(
             QStringLiteral("timelineListView"));
@@ -1410,13 +1259,11 @@ private Q_SLOTS:
             findVisualChildren(timeline, QStringLiteral("fileCard")).size(),
             qsizetype(2), 5000);
         const QString notice = QStringLiteral("attachmentDownloadNotice");
-        // Both file cards are built and neither has a notice: no download yet.
         QCOMPARE(findVisualChildren(timeline, notice).size(), qsizetype(0));
 
         controller.downloads()->download(key, QStringLiteral("probe.pdf"),
                                          QStringLiteral("application/pdf"));
         QCOMPARE(controller.downloads()->items().size(), qsizetype(1));
-        // Exactly one notice, in the downloading row.
         QTRY_COMPARE_WITH_TIMEOUT(findVisualChildren(timeline, notice).size(),
                                   qsizetype(1), 5000);
         QPointer<QQuickItem> built = findVisualChildren(timeline, notice).first();
@@ -1434,7 +1281,6 @@ private Q_SLOTS:
                                  QStringLiteral("items.length"));
             return count.evaluate().toInt();
         };
-        // Shown in exactly one place, wherever the row's geometry put it.
         QTRY_COMPARE_WITH_TIMEOUT(int(built->isVisible()) + paneCount(), 1,
                                   5000);
 
@@ -1464,8 +1310,6 @@ private Q_SLOTS:
             walk(top);
             return found;
         };
-        // The notice is really built (its own Texts exist), and still no row,
-        // this one included, carries a viewport observer.
         QVERIFY(!findVisualChildren(built, QStringLiteral("downloadNoticeStatus"))
                      .isEmpty());
         QVERIFY(!findVisualChildren(built, QStringLiteral("downloadDismissButton"))
@@ -1482,11 +1326,6 @@ private Q_SLOTS:
                                 .arg(observers.size())
                                 .arg(observers.join(QLatin1Char('\n')))));
 
-        // Scrolled just past the downloading row: off screen, but still inside
-        // the pane's activation range (rowOnScreen has a viewport of slack on
-        // each side). The download must go to the pane card, not stay in a
-        // notice nobody can see (seen live, 2026-10-20: shown nowhere). And
-        // scrolled back, it returns beside its card.
         QQmlExpression indexOf(qmlContext(row), row, QStringLiteral("index"));
         const int rowIndex = indexOf.evaluate().toInt();
         QVERIFY(!indexOf.hasError());
@@ -1494,9 +1333,6 @@ private Q_SLOTS:
                             QStringLiteral("wheelMinY()"));
         const qreal bottomY = minY.evaluate().toReal();
         QVERIFY(!minY.hasError());
-        // The published viewport rows settle a layout pass after the reset
-        // (measured: 31..31 with the Column's first, estimated geometry,
-        // then 0..14): sample only once they name this on-screen row.
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("viewportNewestRow").toInt() <= rowIndex
                 && timeline->property("viewportOldestRow").toInt() >= rowIndex,
@@ -1522,10 +1358,6 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(built->isVisible(), besideBefore, 5000);
         QTRY_COMPARE_WITH_TIMEOUT(paneCount(), besideBefore ? 0 : 1, 5000);
 
-        // The row stops being one that shows a download (its media key goes):
-        // the Loader unloads the notice, its claim is released, and the pane
-        // card shows the item. The row itself is the same object throughout,
-        // so this is the Loader letting go, not the row being rebuilt.
         TimelineEvent changed = events.at(busyIndex);
         changed.mediaKey.clear();
         mock->changeEventAtForTest(roomId, busyIndex, changed);
@@ -1540,16 +1372,6 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // viewportNewestRow/viewportOldestRow are the rows really on screen. Rows
-    // hidden by the room-activity setting are not laid out and keep a stale y
-    // (0 here, never shown), and the binary search behind both used to land
-    // on them: seen live, viewportOldestRow 34 for a physical top on row 23,
-    // so a row a viewport away counted as on screen.
-    // Two shapes of a row the Column does not lay out. Room activity OFF:
-    // the ten state rows are invisible. ON (the live failure, 2026-10-20):
-    // they collapse into one group whose leader (the oldest, view row 34) is
-    // laid out and whose nine members are VISIBLE with height 0 and y 0, so a
-    // search that skips only invisible rows still lands on them.
     void viewportRowsIgnoreHiddenRoomActivity_data()
     {
         QTest::addColumn<bool>("roomActivity");
@@ -1562,7 +1384,7 @@ private Q_SLOTS:
         QFETCH(bool, roomActivity);
         QFETCH(int, notLaidOut);
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const bool activityBefore = controller.settings()->showRoomActivity();
         const auto restore = qScopeGuard([&] {
             controller.settings()->setShowRoomActivity(activityBefore);
@@ -1574,14 +1396,11 @@ private Q_SLOTS:
         QQuickItem *timeline = nullptr;
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId,
-            hiddenActivitySandwich(roomId, /*withMarker=*/false),
-            /*paginationPages=*/0, /*viewportHeight=*/420, &timeline);
+            hiddenActivitySandwich(roomId,false),
+0,420, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
 
-        // View rows: 0-24 the newer messages, 25-34 the activity, 35-54 the
-        // older messages. Proof the fixture has the shape it names: rows not
-        // laid out, and for the collapsed group, visible ones at y 0.
         int hidden = 0;
         int visibleZero = 0;
         for (int row = 25; row < 35; ++row) {
@@ -1596,8 +1415,6 @@ private Q_SLOTS:
         if (roomActivity)
             QCOMPARE(visibleZero, notLaidOut);
 
-        // At the live edge, and parked with the physical top inside the newer
-        // run: both ends must name the laid-out row that holds them.
         const qreal height = timeline->property("height").toReal();
         const qreal topMargin = timeline->property("topMargin").toReal();
         const auto check = [&](const char *where) {
@@ -1629,9 +1446,6 @@ private Q_SLOTS:
         check("parked");
     }
 
-    // The first-unread pill's "marker is on screen" reads viewportOldestRow.
-    // A marker just above the viewport, with hidden room activity above it,
-    // is NOT on screen (the pill must offer the jump); scrolled to, it is.
     void firstUnreadAboveHiddenRoomActivityIsNotOnScreen_data()
     {
         QTest::addColumn<bool>("roomActivity");
@@ -1642,7 +1456,7 @@ private Q_SLOTS:
     {
         QFETCH(bool, roomActivity);
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const bool activityBefore = controller.settings()->showRoomActivity();
         const auto restore = qScopeGuard([&] {
             controller.settings()->setShowRoomActivity(activityBefore);
@@ -1654,17 +1468,14 @@ private Q_SLOTS:
         QQuickItem *timeline = nullptr;
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId,
-            hiddenActivitySandwich(roomId, /*withMarker=*/true),
-            /*paginationPages=*/0, /*viewportHeight=*/420, &timeline);
+            hiddenActivitySandwich(roomId,true),
+0,420, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
         QCOMPARE(controller.timeline()->readMarkerRow(), 30);
-        // View row of the marker: after the 25 newer messages.
         QCOMPARE(timeline->property("firstUnreadViewRow").toInt(), 25);
         QVERIFY(timeline->property("stickToBottom").toBool());
 
-        // Premise: 25 messages are taller than the viewport, so at the live
-        // edge the marker is above it.
         QQuickItem *markerRow = itemAtViewRow(timeline, 25);
         QVERIFY(markerRow != nullptr);
         const qreal height = timeline->property("height").toReal();
@@ -1681,19 +1492,16 @@ private Q_SLOTS:
                                          .toInt())));
         QVERIFY(!timeline->property("firstUnreadBelow").toBool());
 
-        // Scrolled so the marker is mid-viewport: on screen.
         QVERIFY(timeline->setProperty("stickToBottom", false));
         timeline->setProperty("contentY", markerRow->y() - height / 2);
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("firstUnreadOnScreen").toBool(), 3000);
     }
 
-    // Jump-to-latest glides from nearby (motion engine engaged, follow-latest
-    // arrival pending) and lands immediately from far away.
     void jumpToLatestGlidesFromNearbyAndJumpsFromFar()
     {
         AppController controller(AppController::MockBackend);
-        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        const QString roomId = loginAndRoomIdAt(controller,0);
         QVERIFY(!roomId.isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
@@ -1715,7 +1523,6 @@ private Q_SLOTS:
         root->setSize(QSizeF(window.width(), window.height()));
         window.show();
 
-        // Enough rows that the content is many viewports tall.
         const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-9000);
         QList<TimelineEvent> events;
         for (int i = 0; i < 220; ++i) {
@@ -1729,7 +1536,7 @@ private Q_SLOTS:
             e.timestamp = base.addSecs(i * 30);
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+        mock->resetTimelineForTest(roomId, events,0);
 
         auto *timeline = root->findChild<QQuickItem *>(
             QStringLiteral("timelineListView"));
@@ -1752,16 +1559,12 @@ private Q_SLOTS:
                             QStringLiteral("wheelMaxY()"));
         const qreal topY = maxY.evaluate().toReal();
         QVERIFY(!maxY.hasError());
-        // The content must be taller than the smooth threshold, or the "far"
-        // half is vacuous.
         QVERIFY2(topY - bottomY > viewportHeight * (smoothViewports + 1),
                  qPrintable(QStringLiteral("content only %1px for a %2px "
                                            "threshold")
                                 .arg(topY - bottomY)
                                 .arg(viewportHeight * smoothViewports)));
 
-        // Near: one viewport up. Leave follow-latest first, or the bottom pin
-        // undoes the position before goToLatest() reads it.
         QVERIFY(timeline->setProperty("stickToBottom", false));
         timeline->setProperty("contentY", bottomY + viewportHeight);
         QCoreApplication::processEvents();
@@ -1774,14 +1577,12 @@ private Q_SLOTS:
                  jumpNear.error().toString().toUtf8().constData());
         QVERIFY(controller.timelineScroll()->motionActive());
         QVERIFY(timeline->property("followLatestOnArrival").toBool());
-        // ...and it arrives and re-pins without a teleport.
         QTRY_VERIFY_WITH_TIMEOUT(
             !controller.timelineScroll()->motionActive(), 5000);
         QTRY_VERIFY_WITH_TIMEOUT(timeline->property("stickToBottom").toBool(),
                                  5000);
         QVERIFY(!timeline->property("followLatestOnArrival").toBool());
 
-        // Far: beyond the threshold, no glide.
         QVERIFY(timeline->setProperty("stickToBottom", false));
         timeline->setProperty(
             "contentY",
@@ -1805,11 +1606,6 @@ private Q_SLOTS:
         QVERIFY(timeline->property("stickToBottom").toBool());
     }
 
-    // The row window bounds instantiated rows around the reader; releasing
-    // rows must never move the message the reader is looking at.
-    //
-    // Builds a pane over `rows` plain rows with the reader parked deep in
-    // history. Returns the timeline item; the caller owns the lifetimes.
     static QQuickItem *deepHistoryPane(AppController &controller,
                                        QQmlApplicationEngine &engine,
                                        QQuickWindow &window,
@@ -1817,7 +1613,7 @@ private Q_SLOTS:
                                        double parkFraction,
                                        int viewportHeight = 420)
     {
-        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        const QString roomId = loginAndRoomIdAt(controller,0);
         if (roomId.isEmpty())
             return nullptr;
         auto *mock = controller.findChild<MockMatrixClient *>();
@@ -1853,7 +1649,7 @@ private Q_SLOTS:
             e.timestamp = base.addSecs(i * 30);
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+        mock->resetTimelineForTest(roomId, events,0);
 
         auto *timeline = root->findChild<QQuickItem *>(
             QStringLiteral("timelineListView"));
@@ -1875,13 +1671,6 @@ private Q_SLOTS:
         return timeline;
     }
 
-    // Qt Quick delivers every pointer event by walking the item tree, and
-    // only skips a subtree that is invisible or clips and misses the point.
-    // The rows are all instantiated, so before off-screen rows were clipped
-    // the cost of one wheel or hover event grew with the number of loaded
-    // rows (a reader deep in history froze for seconds). Cost per event, in
-    // microseconds, for N rows; the wheel path asserts the 2000-row cost
-    // stays near the 500-row cost.
     double pointerEventMicros(int rows, bool hover)
     {
         AppController controller(AppController::MockBackend);
@@ -1891,7 +1680,6 @@ private Q_SLOTS:
             deepHistoryPane(controller, engine, window, rows, 0.5);
         if (!timeline)
             return -1;
-        // Let the visible-row range settle.
         QTest::qWait(300);
         const QPointF pos(window.width() / 2.0, window.height() / 2.0);
         const int events = 400;
@@ -1925,8 +1713,6 @@ private Q_SLOTS:
                   "2000 rows %.1f", hover ? "hover" : "wheel", n500, n1000,
                   n2000);
             QVERIFY(n500 > 0 && n2000 > 0);
-            // Hover is reported, not asserted: Qt's hover walk ignores
-            // disabled rows and still grows with the row count.
             if (hover)
                 continue;
             QVERIFY2(n2000 < n500 * 2.5 + 40,
@@ -1937,9 +1723,6 @@ private Q_SLOTS:
         }
     }
 
-    // Opt-in (LIGHTNING_RENDER_BENCH=1, on a GL platform such as xcb): the
-    // cost of rendering one frame at N rows. Measured to show that a per-row
-    // clip (the other way to prune pointer delivery) doubles it.
     void renderCostWithOffscreenRowClipping()
     {
         if (qEnvironmentVariableIsEmpty("LIGHTNING_RENDER_BENCH"))
@@ -1969,7 +1752,7 @@ private Q_SLOTS:
     void rowWindowBoundsRowsWithoutMovingTheReadersMessage()
     {
         AppController controller(AppController::MockBackend);
-        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        const QString roomId = loginAndRoomIdAt(controller,0);
         QVERIFY(!roomId.isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
@@ -1991,7 +1774,6 @@ private Q_SLOTS:
         root->setSize(QSizeF(window.width(), window.height()));
         window.show();
 
-        // More rows than the window keeps, so a release is required.
         const QDateTime base = QDateTime::currentDateTimeUtc().addSecs(-40000);
         QList<TimelineEvent> events;
         for (int i = 0; i < 900; ++i) {
@@ -2005,7 +1787,7 @@ private Q_SLOTS:
             e.timestamp = base.addSecs(i * 30);
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+        mock->resetTimelineForTest(roomId, events,0);
 
         auto *timeline = root->findChild<QQuickItem *>(
             QStringLiteral("timelineListView"));
@@ -2016,7 +1798,6 @@ private Q_SLOTS:
                                  5000);
         const int rowsBefore = timeline->property("count").toInt();
 
-        // Park the reader deep in history.
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QQmlExpression maxY(qmlContext(timeline), timeline,
                             QStringLiteral("wheelMaxY()"));
@@ -2024,9 +1805,6 @@ private Q_SLOTS:
         QVERIFY(!maxY.hasError());
         timeline->setProperty("contentY", topY * 0.6);
         QCoreApplication::processEvents();
-
-        // The reader's message and its screen position. The probe recomputes
-        // the visible range itself, since the pane's update is timer-driven.
 
         QQmlExpression probe(
             qmlContext(timeline), timeline,
@@ -2047,7 +1825,6 @@ private Q_SLOTS:
         QSignalSpy inserted(controller.timelineView(),
                             &QAbstractItemModel::rowsInserted);
 
-        // Apply the window as the settle timer does.
         QQmlExpression apply(qmlContext(timeline), timeline,
                              QStringLiteral("applyRowWindow()"));
         apply.evaluate();
@@ -2057,9 +1834,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("pendingWindowSkip").toInt() < 0, 10000);
 
-        // (1) Rows are bounded.
-        // A trim now advances by at most eight rows at either end per turn.
-        // Wait for the producer, not for a single model notification.
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("pendingWindowSkip").toInt() < 0, 10000);
         const int rowsAfter = timeline->property("count").toInt();
@@ -2094,7 +1868,6 @@ private Q_SLOTS:
                      "a trim inserted more than one frame's row budget");
         }
 
-        // (2) The reader's message did not move on screen.
         QQmlExpression after(
             qmlContext(timeline), timeline,
             QStringLiteral("(function(id){ var r = viewRowForStableId(id);"
@@ -2109,8 +1882,6 @@ private Q_SLOTS:
                                 .arg(afterOffset - anchorOffset)
                                 .arg(anchorOffset).arg(afterOffset)));
 
-        // (3) A window hiding the live edge never claims "at bottom", or
-        //     follow-latest would latch to a false newest message.
         const int skipAfter = timeline->property("rowWindowSkip").toInt();
         QVERIFY2(skipAfter > 0,
                  "the window only trimmed the oldest end — the skip path, "
@@ -2120,8 +1891,6 @@ private Q_SLOTS:
         QCOMPARE(atBottom.evaluate().toBool(), false);
         QVERIFY(!timeline->property("stickToBottom").toBool());
 
-        // (4) Restore direction: move toward the live edge and re-apply. The
-        //     skip comes down and the reader still does not move.
         QQmlExpression probe2(
             qmlContext(timeline), timeline,
             QStringLiteral("(function(){ contentY = wheelMinY() + 40;"
@@ -2165,9 +1934,6 @@ private Q_SLOTS:
                                            "(%2 -> %3)")
                                 .arg(after2Offset - backOffset)
                                 .arg(backOffset).arg(after2Offset)));
-        // The offscreen harness lays restored rows out before this reads
-        // them, so it cannot reproduce the unmeasured-row hazard the flush in
-        // applyRowWindow() guards against; a pass here does not prove absence.
         QCOMPARE(timeline->property("diagWindowUnmeasuredRows").toInt(), 0);
     }
 
@@ -2218,24 +1984,16 @@ private Q_SLOTS:
         QVERIFY(qAbs(offset - before.at(1).toReal()) <= 2.0);
     }
 
-    // Trimming the oldest end shrinks wheelMaxY() and so moves the reader's
-    // measured distance from the top without any visible movement. The trim
-    // must not leave the reader inside the near-top band, or the follow-up
-    // checkNearTopEdge() refetches exactly what was released.
     void rowWindowTrimNeverFeedsTheNearTopPaginationBand()
     {
         AppController controller(AppController::MockBackend);
         QQmlApplicationEngine engine;
         QQuickWindow window;
-        // A tall viewport on purpose: the window's kept margin is a fixed
-        // ~4020 px while the enter band is 2.5 viewports, so the guard is only
-        // reachable above ~1600 px. 2160 approximates a 4K fullscreen window.
         QQuickItem *timeline =
             deepHistoryPane(controller, engine, window, 900, 0.6, 2160);
         QVERIFY(timeline != nullptr);
         const int rowsBefore = timeline->property("count").toInt();
 
-        // Arm the latch so a dispatch is possible.
         QVERIFY(timeline->setProperty("nearTopArmed", true));
         QQmlExpression apply(qmlContext(timeline), timeline,
                              QStringLiteral("applyRowWindow()"));
@@ -2248,8 +2006,6 @@ private Q_SLOTS:
 
         QVERIFY2(timeline->property("count").toInt() < rowsBefore,
                  "nothing was released, so the hazard was never exercised");
-        // A trim proceeds only if it leaves the reader outside the enter band;
-        // the exit distance (3.25 viewports) is wider than enter (2.5).
         QQmlExpression fromTop(
             qmlContext(timeline), timeline,
             QStringLiteral("[distanceFromTop(), nearTopEnterDistance]"));
@@ -2261,12 +2017,8 @@ private Q_SLOTS:
                                            "near-top band: %1 <= %2")
                                 .arg(d.value(0).toReal())
                                 .arg(d.value(1).toReal())));
-        // Not asserting on nearTopArmed: the dispatch is coalesced to the next
-        // turn and the latch reads true with or without the guard.
     }
 
-    // With a window active, jump-to-latest restores the live edge first rather
-    // than landing on the window's synthetic newest row.
     void jumpToLatestRestoresTheLiveEdgeWhenAWindowIsActive()
     {
         AppController controller(AppController::MockBackend);
@@ -2308,9 +2060,6 @@ private Q_SLOTS:
         QCOMPARE(landed.value(1).toBool(), true);
     }
 
-    // A row whose height settles late after a window restore (link previews,
-    // media without dimensions) is absorbed by the contentHeight anchor
-    // mechanism the window hands off to.
     void lateHeightChangeAfterAWindowRestoreIsAbsorbedByTheAnchor()
     {
         AppController controller(AppController::MockBackend);
@@ -2330,8 +2079,6 @@ private Q_SLOTS:
             timeline->property("pendingWindowSkip").toInt() < 0, 10000);
         QVERIFY(timeline->property("rowWindowSkip").toInt() > 0);
 
-        // The reader's position, and a newer row (physically below) whose
-        // growth pushes the reader's row.
         QQmlExpression probe(
             qmlContext(timeline), timeline,
             QStringLiteral("(function(){ updateVisibleRowRange();"
@@ -2363,13 +2110,10 @@ private Q_SLOTS:
                            " var it = itemAtViewRow(r);"
                            " return it ? it.y - contentY : 1e9; })('")
                 + anchorId + QStringLiteral("')"));
-        // The correction is coalesced on a timer.
         QTRY_VERIFY_WITH_TIMEOUT(
             qAbs(after.evaluate().toReal() - anchorOffset) <= 2.0, 3000);
     }
 
-    // At the window's oldest exposed row, the pane re-exposes rows it already
-    // holds instead of asking the homeserver for older history.
     void reachingTheWindowsOldEdgeExposesLocalRowsInsteadOfAskingTheServer()
     {
         AppController controller(AppController::MockBackend);
@@ -2399,8 +2143,6 @@ private Q_SLOTS:
                      "this test is about does not exist here")
                                 .arg(skip).arg(exposed).arg(sourceTotal)));
 
-        // Drive the reader to the window's oldest row and run the near-top
-        // check as a gesture does.
         QQmlExpression toEdge(
             qmlContext(timeline), timeline,
             QStringLiteral("(function(){ contentY = wheelMaxY();"
@@ -2411,18 +2153,12 @@ private Q_SLOTS:
         QVERIFY2(!toEdge.hasError(),
                  toEdge.error().toString().toUtf8().constData());
 
-        // Paced reveal. The source total must not change: no server page was
-        // consumed.
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("count").toInt() > exposed, 4000);
         QCOMPARE(controller.timeline()->rowCount(), sourceTotal);
-        // The newest end must not move: this path does no contentY correction.
         QCOMPARE(timeline->property("rowWindowSkip").toInt(), skip);
     }
 
-    // End to end through the real trigger: real wheel notches deep into
-    // history, then nothing. The settle timer, fed by the pane's own
-    // visible-row tracking, must apply the window by itself.
     void wheelScrollingIntoHistoryEventuallyBoundsRowsThroughTheSettleTimer()
     {
         AppController controller(AppController::MockBackend);
@@ -2444,8 +2180,6 @@ private Q_SLOTS:
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
         }
-        // Delivery is fast now, so the notches finish long before the
-        // wheel animation does: wait for the glide to travel.
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("contentY").toReal() > startY + 2000, 5000);
         const qreal deepY = timeline->property("contentY").toReal();
@@ -2455,7 +2189,6 @@ private Q_SLOTS:
                      "(contentY %1 -> %2); this test proves nothing")
                                 .arg(startY).arg(deepY)));
 
-        // Do nothing; the settle timer is 250 ms.
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("rowWindowSkip").toInt() > 0, 5000);
         QVERIFY2(timeline->property("count").toInt() < rowsBefore,
@@ -2464,13 +2197,10 @@ private Q_SLOTS:
                                 .arg(timeline->property("count").toInt())));
     }
 
-    // `speculativeMediaAllowed` is false while the reader's input owns the
-    // viewport and true again once it settles, so rows sweeping past do not
-    // arm full-payload prefetches. Thumbnails are not gated.
     void speculativeMediaIsBlockedDuringAGestureAndResumesOnSettle()
     {
         AppController controller(AppController::MockBackend);
-        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        const QString roomId = loginAndRoomIdAt(controller,0);
         QVERIFY(!roomId.isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
@@ -2505,7 +2235,7 @@ private Q_SLOTS:
             e.timestamp = base.addSecs(i * 30);
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+        mock->resetTimelineForTest(roomId, events,0);
 
         auto *timeline = root->findChild<QQuickItem *>(
             QStringLiteral("timelineListView"));
@@ -2515,12 +2245,9 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() > 100,
                                  5000);
 
-        // Settled: speculative media is allowed.
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("speculativeMediaAllowed").toBool(), 5000);
 
-        // During real wheel notches the gate is shut: a row sweeping past is
-        // not worth a full-payload prefetch.
         const QPointF pos(window.width() / 2.0, window.height() / 2.0);
         bool blockedDuringGesture = false;
         for (int i = 0; i < 12; ++i) {
@@ -2536,55 +2263,42 @@ private Q_SLOTS:
         QVERIFY2(blockedDuringGesture,
                  "speculative media was never gated during a wheel gesture");
 
-        // ...and it reopens, or rows the reader stops on never get media.
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("speculativeMediaAllowed").toBool(), 5000);
     }
 
-    // The history trim's refusal policy, every clause. The trim itself (an
-    // explicit jump-to-live that rebuilds at the live edge, like Element's)
-    // is only reachable on the Rust backend and is not covered offline.
     void historyTrimPolicyRefusesEveryUnsafeCombination()
     {
         const int rows = 500;
         const int threshold = 400;
-        // The one combination that may proceed.
         QVERIFY(AppController::historyTrimAllowed(
-            /*rustBackend=*/true, /*roomOpen=*/true, /*paginationBusy=*/false,
-            /*threadOpen=*/false, rows, threshold));
-        // ...and each clause on its own must veto it.
+true,true,false,
+false, rows, threshold));
         QVERIFY(!AppController::historyTrimAllowed(false, true, false, false,
                                                   rows, threshold));
         QVERIFY(!AppController::historyTrimAllowed(true, false, false, false,
                                                   rows, threshold));
         QVERIFY(!AppController::historyTrimAllowed(true, true, true, false,
                                                   rows, threshold));
-        // An open thread panel holds its own event-cache subscriber; the SDK
-        // could not shrink and the reload would break that subscription.
         QVERIFY(!AppController::historyTrimAllowed(true, true, false, true,
                                                   rows, threshold));
-        // The threshold is exclusive: exactly-at is not "more than".
         QVERIFY(!AppController::historyTrimAllowed(true, true, false, false,
                                                   threshold, threshold));
         QVERIFY(AppController::historyTrimAllowed(true, true, false, false,
                                                  threshold + 1, threshold));
-        // A short timeline is never worth a reset.
         QVERIFY(!AppController::historyTrimAllowed(true, true, false, false,
                                                   12, threshold));
     }
 
-    // On a backend with no event cache the trim refuses, and a refused trim is
-    // a complete no-op: the far jump still lands at the newest row.
     void jumpToLiveTrimIsRefusedByABackendWithNoEventCacheAndIsThenANoOp()
     {
         AppController controller(AppController::MockBackend);
-        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        const QString roomId = loginAndRoomIdAt(controller,0);
         QVERIFY(!roomId.isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         controller.setCurrentRoomId(roomId);
 
-        // One value, read by both QML and this test.
         QVERIFY(controller.historyTrimRowThreshold() > 0);
 
         QQmlApplicationEngine engine;
@@ -2616,7 +2330,7 @@ private Q_SLOTS:
             e.timestamp = base.addSecs(i * 30);
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+        mock->resetTimelineForTest(roomId, events,0);
 
         auto *timeline = root->findChild<QQuickItem *>(
             QStringLiteral("timelineListView"));
@@ -2628,9 +2342,6 @@ private Q_SLOTS:
         const int rowsBefore = controller.timeline()->rowCount();
         QVERIFY(rowsBefore > 200);
 
-        // Refuses on a backend with no event cache. The no-room call refuses
-        // for the same reason here; it only pins that a missing room never
-        // dispatches.
         QVERIFY(!controller.trimHistoryAndJumpToLive());
         const QString openRoom = controller.currentRoomId();
         controller.setCurrentRoomId(QString());
@@ -2639,8 +2350,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(
             controller.timeline()->rowCount() > 0, 5000);
 
-        // A refused trim leaves the timeline untouched, and the far jump still
-        // lands at the newest row.
         const int smoothViewports =
             timeline->property("smoothJumpViewports").toInt();
         const qreal viewportHeight = timeline->property("height").toReal();
@@ -2662,14 +2371,10 @@ private Q_SLOTS:
         QCOMPARE(controller.timeline()->rowCount(), rowsBefore);
     }
 
-    // Header height changes move contentHeight; viewport-fill checks triggered
-    // from that geometry must be queued and coalesced, settling through
-    // initial fill, loading, reached-start and resizes without a binding loop
-    // or a request storm. Failed/Retry are covered by PaginationControllerTest.
     void paginationGeometryChangesAreQueuedAndBounded()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
@@ -2718,8 +2423,6 @@ private Q_SLOTS:
         controller.pagination()->retry();
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(), 5000);
         QVERIFY(!controller.pagination()->failed());
-        // Request the second page explicitly: headless delegates are not
-        // polished, so contentHeight never asks for it on its own.
         controller.pagination()->requestNearTop();
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(), 5000);
         QTRY_VERIFY_WITH_TIMEOUT(controller.pagination()->reachedStart(), 5000);
@@ -2732,16 +2435,14 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // A transient first viewport-fill failure retries internally through the
-    // real pane/controller path, without calling retry() from the test.
     void transientInitialHistoryFailureRetriesWithoutUserAction()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
-        mock->failNextPaginationForTest(/*transient=*/true);
+        mock->failNextPaginationForTest(true);
         controller.pagination()->setAutomaticRetryPolicyForTest(3, 1);
 
         QQmlApplicationEngine engine;
@@ -2768,13 +2469,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // A populated encrypted timeline with a long (>4K) decrypted body stays
-    // responsive through resize and room switches: a delegate created at a
-    // transient 1 px text width grew huge and churned the view forever.
     void populatedEncryptedTimelineRemainsResponsive()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString encryptedId = QStringLiteral("!devs:mock.local");
         controller.setCurrentRoomId(encryptedId);
 
@@ -2827,9 +2525,6 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // The offscreen QPA does not polish list delegates, so create the real
-    // MessageDelegate directly with the real role schema. Completion happens
-    // at width zero, the phase that measured the long body at 1 px.
     void longEncryptedMessageDelegateUsesBoundedStartupWidth()
     {
         AppController controller(AppController::MockBackend);
@@ -2896,9 +2591,6 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Reaction chips share one height regardless of the emoji they hold: the
-    // labels are pinned to a fixed content height so glyphs with divergent
-    // font metrics cannot grow a chip. Compares sibling chips, not a constant.
     void reactionChipsShareOneHeightAcrossDifferentEmoji()
     {
         AppController controller(AppController::MockBackend);
@@ -2929,8 +2621,6 @@ private Q_SLOTS:
         fixture.insert(QStringLiteral("redacted"), false);
         fixture.insert(QStringLiteral("isImage"), false);
         fixture.insert(QStringLiteral("isFile"), false);
-        // Emoji shapes whose font metrics tend to diverge: single codepoint,
-        // base+VS16, ZWJ sequence, skin-tone modifier, keycap and flag.
         fixture.insert(QStringLiteral("reactions"), QVariantList{
             QVariantMap{ { QStringLiteral("key"), QStringLiteral("👍") },
                         { QStringLiteral("count"), 1 },
@@ -2979,10 +2669,8 @@ private Q_SLOTS:
         window.show();
         QCoreApplication::processEvents();
 
-        // findChildren() cannot see Repeater delegates; walk the item tree.
         const auto chips = findVisualChildren(root, QStringLiteral("reactionChip"));
         QCOMPARE(chips.size(), 6);
-        // 20 px floor, matching Element's pill.
         QVERIFY2(chips.at(0)->height() >= 20.0,
                  "chip height below the 20px design floor");
         for (int i = 1; i < chips.size(); ++i) {
@@ -2996,16 +2684,13 @@ private Q_SLOTS:
                                     .arg(chips.at(0)->height())));
         }
 
-        // Vertical glyph alignment is not covered: this environment's fonts
-        // give identical metrics for all six keys, so an assertion would pass
-        // on broken code. The fixed line box needs checking on a real desktop.
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     void rightClickMenuSnapshotsStableEventAndClosesOnRoomSwitch()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
 
         int messageRow = -1;
@@ -3093,13 +2778,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // resetForReuse() scrubs every transient, non-model field so a pooled
-    // delegate never carries a stale popup target or dialog body to the next
-    // message.
     void pooledDelegateReuseScrubsTransientState()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
 
         int messageRow = -1;
@@ -3139,26 +2821,22 @@ private Q_SLOTS:
             createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY(root != nullptr);
 
-        // Stale transient state as if the previous row had an open context
-        // menu and an inspected details payload.
         QVERIFY(root->setProperty("menuEventId",
                                   QStringLiteral("$stale-menu:mock.local")));
         QCOMPARE(root->property("menuEventId").toString(),
                  QStringLiteral("$stale-menu:mock.local"));
         QVERIFY(!root->property("reactionEventId").isValid());
 
-        // Simulate the pool handing this delegate to a new row.
         QVERIFY(QMetaObject::invokeMethod(root, "resetForReuse"));
 
         QCOMPARE(root->property("menuEventId").toString(), QString{});
-        // No warnings: resetForReuse() resolved every id it touches.
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
     void roomActivitySettingCollapsesOnlyActivityDelegates()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
         controller.settings()->setShowRoomActivity(true);
 
@@ -3174,9 +2852,6 @@ private Q_SLOTS:
         QVERIFY(activityRow >= 0);
         const int underlyingCount = controller.timeline()->rowCount();
 
-        // A snapshot of the row's roles, re-taken after each setting change
-        // the way the live model re-emits them: the group's filtered entries
-        // are what decides whether the row draws.
         const auto snapshot = [&controller, activityRow] {
             QVariantMap fixture;
             const auto roles = controller.timeline()->roleNames();
@@ -3214,7 +2889,6 @@ private Q_SLOTS:
         window.show();
         QCoreApplication::processEvents();
         QVERIFY(activity->isVisible());
-        // Delegate layout completes asynchronously offscreen; wait for it.
         QTRY_VERIFY_WITH_TIMEOUT(activity->implicitHeight() > 0.0,
                                  kSignalTimeoutMs);
 
@@ -3271,14 +2945,11 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // The Settings wheel-speed control reflects and updates the persisted
-    // value, and the setting drives the shared TimelineScrollController.
     void settingsControlTracksWheelSpeedPreference()
     {
         AppController controller(AppController::MockBackend);
         auto *scroll = controller.timelineScroll();
         QVERIFY(scroll != nullptr);
-        // QSettings persists across runs, so normalise to the default (Fast).
         controller.settings()->setTimelineWheelSpeed(1);
         QCOMPARE(controller.settings()->timelineWheelSpeed(), 1);
         QCOMPARE(scroll->wheelSpeed(), TimelineScrollController::Fast);
@@ -3301,24 +2972,19 @@ private Q_SLOTS:
         QObject *combo = root->findChild<QObject *>(
             QStringLiteral("timelineWheelSpeedCombo"));
         QVERIFY(combo != nullptr);
-        // Fast (value 1) is index 1; the ComboBox resolves its index on
-        // completion.
         QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentValue").toInt(), 1,
                                   kSignalTimeoutMs);
 
-        // Changing the setting updates the control …
-        controller.settings()->setTimelineWheelSpeed(2);       // Very fast
+        controller.settings()->setTimelineWheelSpeed(2);
         QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentValue").toInt(), 2,
                                   kSignalTimeoutMs);
-        // … and drives the controller immediately (no timeline restart).
         QCOMPARE(scroll->wheelSpeed(), TimelineScrollController::VeryFast);
 
-        controller.settings()->setTimelineWheelSpeed(0);       // Standard
+        controller.settings()->setTimelineWheelSpeed(0);
         QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentValue").toInt(), 0,
                                   kSignalTimeoutMs);
         QCOMPARE(scroll->wheelSpeed(), TimelineScrollController::Standard);
         QCOMPARE(realWarnings(warnings), QStringList{});
-        // Restore the persisted default for other runs.
         controller.settings()->setTimelineWheelSpeed(1);
     }
 
@@ -3398,7 +3064,7 @@ private Q_SLOTS:
     void jumpToLatestPreservesReaderUntilExplicitClick()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
 
@@ -3443,12 +3109,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // The timeline wheel handler exists, is scoped to the timeline view, and
-    // reaches the shared TimelineScrollController without warnings.
     void wheelHandlerIsPresentAndScopedToTimeline()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
         QQmlApplicationEngine engine;
@@ -3469,19 +3133,16 @@ private Q_SLOTS:
         QObject *timeline = root->findChild<QObject *>(
             QStringLiteral("timelineListView"));
         QVERIFY(timeline != nullptr);
-        // The handler lives inside the timeline's own subtree, so wheel input
-        // elsewhere cannot move the timeline.
         QObject *handler = timeline->findChild<QObject *>(
             QStringLiteral("timelineWheelHandler"));
         QVERIFY(handler != nullptr);
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Upward wheel motion via beginWheelTo() leaves follow-latest at once.
     void wheelUpwardLeavesFollowLatest()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
         QQmlApplicationEngine engine;
@@ -3505,19 +3166,16 @@ private Q_SLOTS:
 
         QVERIFY(timeline->setProperty("stickToBottom", true));
         const double startY = timeline->property("contentY").toDouble();
-        // Physically upward (older history) increases contentY on the rotated
-        // timeline, as keyboardPage() does.
         QVERIFY(QMetaObject::invokeMethod(timeline, "beginWheelTo",
                                           Q_ARG(QVariant, startY + 200.0)));
         QCOMPARE(timeline->property("stickToBottom").toBool(), false);
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Jump to latest cancels an in-flight coalesced wheel motion.
     void jumpToLatestCancelsWheelMotion()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
         auto *scroll = controller.timelineScroll();
         QVERIFY(scroll != nullptr);
@@ -3547,7 +3205,6 @@ private Q_SLOTS:
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QTRY_COMPARE_WITH_TIMEOUT(jump->property("visible").toBool(), true,
                                   kSignalTimeoutMs);
-        // Put the shared controller into an active coalesced-motion state.
         scroll->wheelTargetY(120.0, 5000.0, 0.0, 10000.0, 900.0);
         QVERIFY(scroll->motionActive());
 
@@ -3558,11 +3215,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Switching rooms cancels the previous room's wheel motion.
     void roomSwitchCancelsWheelMotion()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
         auto *scroll = controller.timelineScroll();
         QVERIFY(scroll != nullptr);
@@ -3596,13 +3252,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // A real discrete wheel event over the pane is routed through the
-    // timeline WheelHandler into TimelineScrollController. Asserts the side
-    // effects (motion engaged, follow-latest left), not pixel distances.
     void realWheelEventEngagesControllerAndLeavesFollowLatest()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
         auto *scroll = controller.timelineScroll();
         QVERIFY(scroll != nullptr);
@@ -3638,13 +3291,11 @@ private Q_SLOTS:
         QVERIFY(timeline->setProperty("stickToBottom", true));
         QVERIFY(!scroll->motionActive());
 
-        // One +120 notch upward over the viewport centre, resent until it
-        // registers (offscreen wheel delivery is not guaranteed in one pass).
         const QPointF pos(320, 300);
         auto sendNotch = [&] {
             QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
                               QPoint(0, 0), QPoint(0, 120), Qt::NoButton,
-                              Qt::NoModifier, Qt::NoScrollPhase, /*inverted=*/false);
+                              Qt::NoModifier, Qt::NoScrollPhase,false);
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
         };
@@ -3656,7 +3307,6 @@ private Q_SLOTS:
                 QTest::qWait(10);
         }
 
-        // The handler ran, engaged the controller, and left follow-latest.
         QVERIFY2(engaged, "a mouse-wheel notch must engage the motion engine");
         QCOMPARE(timeline->property("stickToBottom").toBool(), false);
         // Ignore the benign mock.local DNS warning from image rows.
@@ -3666,13 +3316,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // A touchpad (pixelDelta) upward scroll leaves follow-latest like the
-    // mouse wheel does; otherwise the next content-height change snaps the
-    // reader back to the newest message.
     void touchpadWheelUpwardLeavesFollowLatest()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
         QQmlApplicationEngine engine;
@@ -3704,13 +3351,11 @@ private Q_SLOTS:
 
         QVERIFY(timeline->setProperty("stickToBottom", true));
 
-        // Touchpad: pixelDelta upward, no angle notch, scroll phase set.
-        // Resent until it registers (offscreen delivery is not guaranteed).
         const QPointF pos(320, 300);
         auto sendUp = [&] {
             QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
                               QPoint(0, 48), QPoint(0, 0), Qt::NoButton,
-                              Qt::NoModifier, Qt::ScrollUpdate, /*inverted=*/false);
+                              Qt::NoModifier, Qt::ScrollUpdate,false);
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
         };
@@ -3724,18 +3369,13 @@ private Q_SLOTS:
         QVERIFY2(left, "an upward touchpad delta must leave follow-latest");
     }
 
-    // Slow Wayland touchpad swipes are mostly `pixelDelta 0, angleDelta ±1,
-    // ScrollUpdate` frames (Qt rounds to whole pixels). Those must move
-    // nothing and never take the notch branch, while a phase-less notch (a
-    // real mouse wheel, also labelled TouchPad on Wayland) keeps its glide.
-    // The branch is read from the trace counters.
     void touchpadZeroPixelFramesNeverEngageTheNotchGlide()
     {
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
         struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
 
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
@@ -3766,7 +3406,7 @@ private Q_SLOTS:
         auto send = [&](QPoint pixel, QPoint angle, Qt::ScrollPhase phase) {
             QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()), pixel,
                               angle, Qt::NoButton, Qt::NoModifier, phase,
-                              /*inverted=*/false);
+false);
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
         };
@@ -3774,7 +3414,6 @@ private Q_SLOTS:
             return timeline->property(name).toInt();
         };
 
-        // Zero-pixel frames of a phased (continuous) gesture, both directions.
         const double before = timeline->property("contentY").toDouble();
         for (int attempt = 0; attempt < 50 && counter("diagEvents") < 6;
              ++attempt) {
@@ -3790,8 +3429,6 @@ private Q_SLOTS:
         QCOMPARE(controller.timelineScroll()->motionActive(), false);
         QCOMPARE(timeline->property("contentY").toDouble(), before);
 
-        // Control: a phase-less notch still takes the notch branch, so the
-        // assertions above are not vacuous.
         const int anglesBefore = counter("diagAngleEvents");
         for (int attempt = 0;
              attempt < 50 && counter("diagAngleEvents") == anglesBefore;
@@ -3804,20 +3441,13 @@ private Q_SLOTS:
                  "a phase-less wheel notch must still take the notch branch");
     }
 
-    // A touchpad gesture opens a scroll session (userScrollActive) that gates
-    // the absolute anchor restore, and the session clears ~250 ms after input
-    // stops. QML's WheelEvent has no phase or device type, so the session is
-    // inferred from the settle timer. Relative growth corrections still run
-    // mid-gesture (see the growth tests).
     void touchpadGestureOpensScrollSessionThatGatesCorrections()
     {
-        // Enable the per-gesture diagnostics (read at controller construction)
-        // so diagAnchorCorrections, the absolute-restore count, is observable.
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
         struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
 
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
@@ -3848,18 +3478,15 @@ private Q_SLOTS:
         window.show();
         QCoreApplication::processEvents();
 
-        // Reader browsing history: not pinned to the bottom, no input yet.
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QCoreApplication::processEvents();
         QCOMPARE(timeline->property("userScrollActive").toBool(), false);
 
-        // Touchpad pixel deltas as KDE Wayland delivers them, resent until the
-        // session opens.
         const QPointF pos(320, 300);
         auto sendDelta = [&] {
             QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
                               QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
-                              Qt::NoModifier, Qt::ScrollUpdate, /*inverted=*/false);
+                              Qt::NoModifier, Qt::ScrollUpdate,false);
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
         };
@@ -3872,40 +3499,26 @@ private Q_SLOTS:
         }
         QVERIFY2(opened, "a touchpad delta must open the scroll session");
 
-        // No anchor captured yet, so maintainViewAnchor() returns early and
-        // contentY is untouched. Mid-gesture growth correction is covered by
-        // maintainViewAnchorDefersGrowthDeltaMidGestureWithoutGlide.
         const double before = timeline->property("contentY").toDouble();
         QMetaObject::invokeMethod(timeline, "maintainViewAnchor");
         QCOMPARE(timeline->property("contentY").toDouble(), before);
 
-        // More deltas keep the session open while hydration churns
-        // contentHeight.
         for (int i = 0; i < 5; ++i)
             sendDelta();
         QVERIFY(timeline->property("userScrollActive").toBool());
 
-        // Upward intent left follow-latest.
         QCOMPARE(timeline->property("stickToBottom").toBool(), false);
 
-        // The session clears once input stops, so deferred anchor maintenance
-        // can resume.
         QTRY_VERIFY_WITH_TIMEOUT(
             !timeline->property("userScrollActive").toBool(), 3000);
 
-        // No absolute restore while the gesture owned the view (relative
-        // corrections are counted separately in diagGrowthCorrections). No
-        // warning check: scrolling through incubating delegates can log
-        // transient offscreen binding warnings.
         QCOMPARE(timeline->property("diagAnchorCorrections").toInt(), 0);
     }
 
-    // After scrolling up, content growth (appends and late delegate heights)
-    // never re-pins to the bottom: follow-latest is latched to user intent.
     void contentGrowthWhileBrowsingDoesNotResnap()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
 
@@ -3930,15 +3543,12 @@ private Q_SLOTS:
         QVERIFY(timeline != nullptr);
         QVERIFY(jump != nullptr);
 
-        // Reader browses history: disengaged from the bottom.
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QTRY_COMPARE_WITH_TIMEOUT(jump->property("visible").toBool(), true,
                                   kSignalTimeoutMs);
 
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
-        // Several appends exercise onCountChanged and the coalesced
-        // onContentHeightChanged; none may re-pin the reader.
         for (int i = 0; i < 4; ++i) {
             const int before = controller.timeline()->rowCount();
             mock->sendTextMessage(
@@ -3952,12 +3562,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Keyboard navigation. Delegate incubation does not run offscreen, so
-    // these assert key routing and follow-latest/motion side effects.
     void keyboardEndKeyReturnsToLatest()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
         QQmlApplicationEngine engine;
@@ -3997,12 +3605,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Page Up, Home, Space and Shift+Space route to the timeline and start
-    // scroll motion (wheelAnimating) when the timeline holds focus.
     void keyboardNavigationKeysStartTimelineMotion()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
         QQmlApplicationEngine engine;
@@ -4049,17 +3655,12 @@ private Q_SLOTS:
                      "navigation key did not start timeline motion");
         }
 
-        // Home is programmatic navigation like End: it bypasses the motion
-        // engine and lands on the earliest loaded position.
         QVERIFY(QMetaObject::invokeMethod(timeline, "cancelWheelMotion"));
         timeline->forceActiveFocus();
         QTRY_VERIFY_WITH_TIMEOUT(timeline->hasActiveFocus(), kSignalTimeoutMs);
         QTest::keyClick(&window, Qt::Key_Home, Qt::NoModifier);
         QVERIFY2(!timeline->property("wheelAnimating").toBool(),
                  "Home must jump instantly, not start wheel motion");
-        // The earliest end is wheelMaxY() on the rotated timeline. Pagination
-        // may move it asynchronously, so repeat the jump and read contentY and
-        // wheelMaxY in the same event-loop turn.
         QVERIFY(QMetaObject::invokeMethod(timeline, "goToEarliestLoaded"));
         QVariant maxY;
         QVERIFY(QMetaObject::invokeMethod(timeline, "wheelMaxY",
@@ -4068,12 +3669,10 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(timeline, "cancelWheelMotion"));
     }
 
-    // A focused composer keeps its caret keys (Home/End, PgUp/PgDn while the
-    // caret can move); the paging keys of the timeline otherwise reach it.
     void composerFocusKeepsItsCaretKeysAndForwardsThePagingKeys()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
         QQmlApplicationEngine engine;
@@ -4110,14 +3709,10 @@ private Q_SLOTS:
         composer->forceActiveFocus();
         QTRY_VERIFY_WITH_TIMEOUT(composer->hasActiveFocus(), kSignalTimeoutMs);
 
-        // With the composer focused, Home/End are the caret's keys: End must
-        // not resume follow-latest and no motion may start.
         QTest::keyClick(&window, Qt::Key_End);
         QCOMPARE(timeline->property("stickToBottom").toBool(), false);
         QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
 
-        // PgUp/PgDn (GitHub #38) page the timeline from the composer while its
-        // caret cannot move that way: an empty, single-line draft here.
         QTest::keyClick(&window, Qt::Key_PageUp);
         QCoreApplication::processEvents();
         QVERIFY2(timeline->property("wheelAnimating").toBool(),
@@ -4125,15 +3720,12 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(timeline, "cancelWheelMotion"));
         QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
 
-        // A multi-line draft with the caret on its first line keeps PgDn: the
-        // caret can still move down, so the key is the editor's.
         QVERIFY(composer->setProperty("text", QStringLiteral("a\nb\nc\nd")));
         QVERIFY(composer->setProperty("cursorPosition", 0));
         QCoreApplication::processEvents();
         QTest::keyClick(&window, Qt::Key_PageDown);
         QCoreApplication::processEvents();
         QCOMPARE(timeline->property("wheelAnimating").toBool(), false);
-        // On the last line the same key falls through to the timeline.
         QVERIFY(composer->setProperty("cursorPosition",
                                       composer->property("length").toInt()));
         QCoreApplication::processEvents();
@@ -4143,8 +3735,6 @@ private Q_SLOTS:
                  "PgDn on the draft's last line must page the timeline");
         QVERIFY(QMetaObject::invokeMethod(timeline, "cancelWheelMotion"));
 
-        // Ctrl+Down (jump to latest) has no caret meaning and always forwards;
-        // Ctrl+Up goes to the earliest loaded row.
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QTest::keyClick(&window, Qt::Key_Up, Qt::ControlModifier);
         QCoreApplication::processEvents();
@@ -4155,15 +3745,12 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Ctrl+G / Ctrl+Shift+G (GitHub #38) step the open find bar's results from
-    // anywhere in the window, through the registry's rows. Ctrl+Shift+G is also
-    // the GIF picker's key: while a find is active it must be find-previous.
     void ctrlGStepsTheFindResultsAndCtrlShiftGGoesBack()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
-        QCOMPARE(int(controller.currentScreen()), 1); // Shortcuts are gated on it
+        QCOMPARE(int(controller.currentScreen()), 1);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -4206,22 +3793,15 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
         QCOMPARE(model->searchCurrentPosition(), first);
 
-        // Closed find: the keys do nothing here (Ctrl+Shift+G is the GIF
-        // picker's again).
         QVERIFY(QMetaObject::invokeMethod(root, "closeFind"));
         QVERIFY(!model->searchActive());
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // The find bar is a detached floating card but stays a Layout child, so
-    // opening or closing it only resizes the timeline and never moves the
-    // composer. Kept next to the other window-showing test: placing one
-    // directly before keyboardNavigationKeysStartTimelineMotion() triggers an
-    // offscreen-QPA flake.
     void findBarIsDetachedAndNeverMovesTheComposer()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
         QQmlApplicationEngine engine;
@@ -4262,7 +3842,6 @@ private Q_SLOTS:
         QVERIFY(findBar != nullptr);
         QTRY_VERIFY_WITH_TIMEOUT(findBar->isVisible(), kSignalTimeoutMs);
 
-        // Inset from both pane edges.
         const QPointF findBarTopLeft = findBar->mapToScene(QPointF(0, 0));
         const QPointF findBarTopRight =
             findBar->mapToScene(QPointF(findBar->width(), 0));
@@ -4271,7 +3850,6 @@ private Q_SLOTS:
         QVERIFY2(findBarTopRight.x() < root->width(),
                  "find bar must not touch the pane's right edge");
 
-        // Opening find shrinks only the timeline; the composer does not move.
         QCOMPARE(composer->mapToScene(QPointF(0, 0)).y(), composerYBeforeOpen);
 
         auto *findField = root->findChild<QQuickItem *>(
@@ -4283,7 +3861,6 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
         QTRY_VERIFY_WITH_TIMEOUT(!findBar->isVisible(), kSignalTimeoutMs);
         QCOMPARE(composer->mapToScene(QPointF(0, 0)).y(), composerYBeforeOpen);
-        // closeFind() hands focus back to the timeline explicitly.
         auto *timeline = root->findChild<QQuickItem *>(
             QStringLiteral("timelineListView"));
         QVERIFY(timeline != nullptr);
@@ -4292,11 +3869,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Switching rooms does not leak the previous room's presentation state.
     void roomSwitchResetsPresentationState()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
 
         const QString generalId = QStringLiteral("!general:mock.local");
         const QString dmId = QStringLiteral("!dm-bob:mock.local");
@@ -4306,7 +3882,6 @@ private Q_SLOTS:
         QCOMPARE(controller.pagination()->presentationState(),
                  PaginationController::Loading);
 
-        // Switching away mid-request must not leave the new room "busy".
         controller.setCurrentRoomId(dmId);
         QCOMPARE(controller.pagination()->roomId(), dmId);
         QCOMPARE(controller.pagination()->presentationState(),
@@ -4321,7 +3896,7 @@ private Q_SLOTS:
     void stateGroupExpansionTogglesAndResetsOnRoomSwitch()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         // "!devs:mock.local" has two consecutive state events forming one
         // group.
         const QString devsId = QStringLiteral("!devs:mock.local");
@@ -4372,19 +3947,16 @@ private Q_SLOTS:
         toggle();
         QVERIFY(isExpanded());
 
-        // A room switch resets expandedStateGroups (onModelReset).
         controller.setCurrentRoomId(generalId);
         QVERIFY(!isExpanded());
 
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Thread panel: controller-driven state, visibility, composer send path
-    // and narrow layout on the real pane (no reply geometry offscreen).
     void threadPanelOpensAndClosesWithController()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
         QQmlApplicationEngine engine;
@@ -4415,7 +3987,6 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(panel->property("visible").toBool(), true,
                                   kSignalTimeoutMs);
 
-        // The panel's pinned root header resolves the fixture root.
         QObject *rootHeader = root->findChild<QObject *>(
             QStringLiteral("threadRootHeader"));
         QVERIFY(rootHeader != nullptr);
@@ -4423,7 +3994,6 @@ private Q_SLOTS:
         QCOMPARE(rootInfo.value(QStringLiteral("loaded")).toBool(), true);
         QCOMPARE(rootInfo.value(QStringLiteral("eventId")).toString(), rootId);
 
-        // The close button closes through the controller.
         QObject *closeButton = root->findChild<QObject *>(
             QStringLiteral("threadCloseButton"));
         QVERIFY(closeButton != nullptr);
@@ -4438,7 +4008,7 @@ private Q_SLOTS:
     void roomSwitchClosesThreadPanel()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
         QQmlApplicationEngine engine;
@@ -4472,12 +4042,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // The panel composer sends through ThreadController.sendText: the reply
-    // lands in the thread model and never as an ordinary room message.
     void threadComposerSendsThreadReply()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
         QQmlApplicationEngine engine;
@@ -4526,14 +4094,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // While the thread panel (the shared "Side panel width", floor 260) and
-    // the 320 px timeline do not fit side by side, the open panel takes the
-    // whole pane and the room column hides: below a 581 px pane. From 581 up
-    // the thread is a side panel at the setting's width (default 320).
     void narrowWindowThreadPanelReplacesRoomColumn()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
         QQmlApplicationEngine engine;
@@ -4551,7 +4115,7 @@ private Q_SLOTS:
         auto *root = qobject_cast<QQuickItem *>(
             createdSpy.at(0).at(0).value<QObject *>());
         QVERIFY(root != nullptr);
-        root->setWidth(560);   // narrow
+        root->setWidth(560);
         root->setHeight(480);
         QObject *roomColumn = root->findChild<QObject *>(
             QStringLiteral("roomColumn"));
@@ -4573,8 +4137,6 @@ private Q_SLOTS:
 
         auto *panelItem = qobject_cast<QQuickItem *>(panel);
         QVERIFY(panelItem);
-        // The boundary: a 580 px pane still gives the thread the whole pane,
-        // 581 puts it beside the 320 px timeline at the 260 px floor.
         root->setWidth(580);
         QTRY_COMPARE_WITH_TIMEOUT(roomColumn->property("visible").toBool(),
                                   false, kSignalTimeoutMs);
@@ -4588,13 +4150,10 @@ private Q_SLOTS:
                                   QStringLiteral("Layout.preferredWidth"));
         QCOMPARE(widthAt581.evaluate().toReal(), 260.0);
 
-        // Wide again: side by side at the default setting, 320 px.
         root->setWidth(800);
         QTRY_COMPARE_WITH_TIMEOUT(roomColumn->property("visible").toBool(),
                                   true, kSignalTimeoutMs);
         QCOMPARE(panel->property("visible").toBool(), true);
-        // Offscreen items get no layout polish, so read the preferred width
-        // the RowLayout would apply.
         QQmlExpression widthAt800(qmlContext(panelItem), panelItem,
                                   QStringLiteral("Layout.preferredWidth"));
         QCOMPARE(widthAt800.evaluate().toReal(), 320.0);
@@ -4610,13 +4169,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // The right side is member panel XOR thread panel (rightPanelState).
-    // Closing the thread collapses it to "none"; it never restores Room
-    // Information or People.
     void threadPanelIsExclusiveWithMemberPanel()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
         QQmlApplicationEngine engine;
@@ -4643,7 +4199,6 @@ private Q_SLOTS:
             QStringLiteral("roomInfoPanel"));
         QVERIFY(forumButton && infoPanel);
 
-        // Member panel showing (simulated at the state level).
         QVERIFY(infoPanel->setProperty("section", QStringLiteral("people")));
         QVERIFY(root->setProperty("infoOpen", true));
         QCOMPARE(root->property("infoOpen").toBool(), true);
@@ -4653,8 +4208,6 @@ private Q_SLOTS:
         QCOMPARE(groupButton->property("active").toBool(), true);
         QCOMPARE(forumButton->property("active").toBool(), false);
 
-        // Opening a thread replaces the member panel and flips the header
-        // chips.
         const QString rootId = fixtureThreadRootId(controller);
         controller.thread()->openThread(QStringLiteral("!general:mock.local"),
                                         rootId);
@@ -4664,13 +4217,11 @@ private Q_SLOTS:
                                   kSignalTimeoutMs);
         QCOMPARE(forumButton->property("active").toBool(), true);
         QCOMPARE(groupButton->property("active").toBool(), false);
-        // The room timeline stays instantiated and visible next to it.
         QObject *roomColumn = root->findChild<QObject *>(
             QStringLiteral("roomColumn"));
         QVERIFY(roomColumn);
         QCOMPARE(roomColumn->property("visible").toBool(), true);
 
-        // Thread and main drafts are isolated.
         QObject *threadInput = root->findChild<QObject *>(
             QStringLiteral("threadComposerInput"));
         QVERIFY(threadInput);
@@ -4682,7 +4233,6 @@ private Q_SLOTS:
                  QStringLiteral("thread draft"));
         controller.composer()->setText(QString{});
 
-        // Reopening the member panel closes the thread.
         QVERIFY(root->setProperty("infoOpen", true));
         QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
                                   ThreadController::Closed, kSignalTimeoutMs);
@@ -4690,8 +4240,6 @@ private Q_SLOTS:
         QCOMPARE(groupButton->property("active").toBool(), true);
         QCOMPARE(forumButton->property("active").toBool(), false);
 
-        // Reopen the thread and close with X: the right side collapses to
-        // none and both header chips go inactive.
         controller.thread()->openThread(QStringLiteral("!general:mock.local"),
                                         rootId);
         QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
@@ -4716,9 +4264,6 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Message layouts on the production delegate: Compact drops the avatar
-    // gutter; Bubbles colours DM rows only and right-aligns own messages; the
-    // text-size setting scales the body font.
     void messageLayoutModesReshapeTheDelegate()
     {
         AppController controller(AppController::MockBackend);
@@ -4779,26 +4324,22 @@ private Q_SLOTS:
             QStringLiteral("messageBody"));
         QVERIFY(content && avatar && body);
 
-        // Modern: 40px gutter, visible avatar, transparent row.
         QCOMPARE(controller.settings()->messageLayout(), 0);
         QCOMPARE(root->property("avatarGutterWidth").toReal(), 40.0);
         QVERIFY(avatar->isVisible());
         QCOMPARE(content->property("color").value<QColor>().alpha(), 0);
 
-        // Compact: gutter collapses, avatar hides, body tightens.
         controller.settings()->setMessageLayout(2);
         QCoreApplication::processEvents();
         QCOMPARE(root->property("avatarGutterWidth").toReal(), 8.0);
         QVERIFY(!avatar->isVisible());
         QCOMPARE(body->property("font").value<QFont>().pixelSize(), 13);
 
-        // Bubbles in an ordinary room: NO bubble background.
         controller.settings()->setMessageLayout(1);
         QCoreApplication::processEvents();
         QVERIFY(!root->property("bubbleMode").toBool());
         QCOMPARE(content->property("color").value<QColor>().alpha(), 0);
 
-        // Bubbles in a DM: incoming rows take the neutral bubble...
         root->setProperty("isDirectRoom", true);
         QCoreApplication::processEvents();
         QVERIFY(root->property("bubbleMode").toBool());
@@ -4808,7 +4349,6 @@ private Q_SLOTS:
                  otherExpr.evaluate().value<QColor>());
         const qreal incomingX = content->x();
 
-        // ...and own rows right-align in the accent-dark bubble.
         fixture.insert(QStringLiteral("isOwn"), true);
         engine.rootContext()->setContextProperty("model", fixture);
         QCoreApplication::processEvents();
@@ -4819,8 +4359,6 @@ private Q_SLOTS:
         QVERIFY(content->x() > incomingX);
         QVERIFY(content->x() + content->width() <= 640.0 + 1.0);
 
-        // Text scale reaches the body font. Main.qml binds AppTheme.textScale
-        // in production; here the singleton is driven directly.
         controller.settings()->setMessageLayout(0);
         QQmlExpression setScale(qmlContext(root), root,
                                 QStringLiteral("AppTheme.textScale = 1.4"));
@@ -4835,8 +4373,6 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // The room header band grows with its scaled text instead of spilling its
-    // content (and action icons) under the timeline, which paints on top.
     void theRoomHeaderKeepsItsContentInsideItsOwnBandAtEveryTextScale()
     {
         AppController controller(AppController::MockBackend);
@@ -4867,14 +4403,12 @@ private Q_SLOTS:
 
         QVERIFY2(actionsBottomInBand() <= band->height() + 0.5, report(1.0));
 
-        // The text-size slider's top end, with no font optical factor.
         for (const double scale : { 1.4, 1.8, 2.0 }) {
             QQmlExpression set(qmlContext(root), root,
                                QStringLiteral("AppTheme.textScale = %1").arg(scale));
             set.evaluate();
             QCoreApplication::processEvents();
             QVERIFY2(actionsBottomInBand() <= band->height() + 0.5, report(scale));
-            // The band grows rather than clipping or spilling.
             QVERIFY2(band->height() >= 60.0, report(scale));
         }
         QQmlExpression reset(qmlContext(root), root,
@@ -4882,16 +4416,11 @@ private Q_SLOTS:
         reset.evaluate();
         QCoreApplication::processEvents();
 
-        // A room topic containing newlines (server text; Label breaks on them
-        // regardless of elide). `currentRoom` is set as MainScreen does, or
-        // the header would be empty.
         const auto setRoom = [&](const QString &topic) {
             QVariantMap room;
             room.insert(QStringLiteral("name"), QStringLiteral("Minecraft"));
             room.insert(QStringLiteral("topic"), topic);
             root->setProperty("currentRoom", room);
-            // Layouts settle on the polish pass, which an offscreen window
-            // runs only when it updates.
             QTest::qWait(60);
             QCoreApplication::processEvents();
         };
@@ -4911,7 +4440,6 @@ private Q_SLOTS:
                      "to %1px inside a %2px band: the icons are drawn over the "
                      "message list").arg(actionsBottomInBand()).arg(band->height())));
 
-        // A shorter viewport must not squeeze the band below its content.
         for (const int h : { 520, 400, 300, 240, 180 }) {
             root->setSize(QSizeF(700, h));
             QCoreApplication::processEvents();
@@ -4923,17 +4451,12 @@ private Q_SLOTS:
         }
         root->setSize(QSizeF(700, 700));
         QCoreApplication::processEvents();
-        // No warning assertion: waiting for real polish passes lets the host
-        // audio stack log unrelated noise into the same sink.
     }
 
-    // A 1:1 DM's header avatar, and Room Information's, carry the peer's
-    // presence dot at the bottom-right, coloured and worded from presence and
-    // following it live.
     void aDmHeaderAvatarCarriesThePeersPresenceDot()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString dmId = QStringLiteral("!dm-bob:mock.local");
         const QString bob = QStringLiteral("@bob:mock.local");
         QQmlApplicationEngine engine;
@@ -4961,7 +4484,6 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
         QVERIFY2(watchedBy(fake).contains(bob), "the header dot watches nobody");
 
-        // Unknown presence renders nothing.
         QVERIFY(!dot->isVisible());
 
         reportPresence(fake, bob, QStringLiteral("online"), 0);
@@ -4979,7 +4501,6 @@ private Q_SLOTS:
                  QStringLiteral("Online"));
         QVERIFY(!attached(dot, QStringLiteral("Accessible.ignored")).toBool());
 
-        // Hover shows the sentence.
         const QPointF centre = dot->mapToScene(
             QPointF(dot->width() / 2.0, dot->height() / 2.0));
         QTest::mouseMove(&window, centre.toPoint());
@@ -4989,7 +4510,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(
             !attached(dot, QStringLiteral("ToolTip.visible")).toBool(), 2000);
 
-        // Live: a later answer recolours and rewords the same dot.
         reportPresence(fake, bob, QStringLiteral("unavailable"), 0);
         QCOMPARE(disc->property("color").value<QColor>(),
                  themeColor(root, QStringLiteral("presenceAway")));
@@ -5007,7 +4527,6 @@ private Q_SLOTS:
         QCOMPARE(attached(dot, QStringLiteral("ToolTip.text")).toString(),
                  QStringLiteral("Offline \u2014 active 5 min ago"));
 
-        // Room Information shows the same dot on its large avatar.
         auto *panel = root->findChild<QQuickItem *>(QStringLiteral("roomInfoPanel"));
         QVERIFY(panel);
         QVERIFY(QMetaObject::invokeMethod(panel, "openForRoom",
@@ -5037,18 +4556,15 @@ private Q_SLOTS:
         QCOMPARE(attached(infoDot, QStringLiteral("ToolTip.text")).toString(),
                  QStringLiteral("Online"));
 
-        // Closing the panel releases its watch.
         QVERIFY(root->setProperty("infoOpen", false));
         QTRY_COMPARE_WITH_TIMEOUT(infoDot->property("userId").toString(),
                                   QString(), 2000);
     }
 
-    // A group room, and a DM with more than one other person, carry no
-    // presence dot and watch nobody, even when presence is known for everyone.
     void aGroupRoomHeaderAvatarHasNoPresenceDot()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString generalId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -5073,8 +4589,6 @@ private Q_SLOTS:
         QVERIFY2(!dot->isVisible(), "a group room shows a presence dot");
         QCOMPARE(watchedBy(fake), QStringList{});
 
-        // A DM with two others: identityColorKey is the room id, so there is
-        // no single peer to show.
         QVariantMap trio;
         trio.insert(QStringLiteral("name"), QStringLiteral("Trio"));
         trio.insert(QStringLiteral("isDirect"), true);
@@ -5089,7 +4603,6 @@ private Q_SLOTS:
         QVERIFY2(!dot->isVisible(), "a group DM shows a presence dot");
         QCOMPARE(watchedBy(fake), QStringList{});
 
-        // Room Information on the group room: no dot either.
         auto *panel = root->findChild<QQuickItem *>(QStringLiteral("roomInfoPanel"));
         QVERIFY(panel);
         QVERIFY(QMetaObject::invokeMethod(panel, "openForRoom",
@@ -5106,14 +4619,10 @@ private Q_SLOTS:
         QCOMPARE(watchedBy(fake), QStringList{});
     }
 
-    // A 1:1 DM's header avatar and name each open the peer's profile card,
-    // and a tap on the name does not also reach the identity column's Room
-    // Information handler. In a group room neither opens a profile and the
-    // name still belongs to that handler.
     void aDmHeaderAvatarAndNameOpenThePeersProfile()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString dmId = QStringLiteral("!dm-bob:mock.local");
         const QString bob = QStringLiteral("@bob:mock.local");
         QQmlApplicationEngine engine;
@@ -5150,12 +4659,10 @@ private Q_SLOTS:
             QTRY_VERIFY_WITH_TIMEOUT(!profile->property("visible").toBool(), 2000);
         };
 
-        // Announced as a button in a DM.
         QCOMPARE(attached(avatar, QStringLiteral("Accessible.name")).toString(),
                  QStringLiteral("View profile"));
         QVERIFY(!attached(avatar, QStringLiteral("Accessible.ignored")).toBool());
 
-        // The avatar opens Bob's card.
         QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(avatar));
         QTRY_VERIFY2_WITH_TIMEOUT(profile->property("opened").toBool(),
                                   "a tap on a DM's header avatar opened no profile",
@@ -5171,7 +4678,6 @@ private Q_SLOTS:
         QVERIFY(tapped.isValid());
         QSignalSpy columnTaps(columnTap, tapped);
 
-        // The name opens the same card, and only the card.
         QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(title));
         QTRY_VERIFY2_WITH_TIMEOUT(profile->property("opened").toBool(),
                                   "a tap on a DM's header name opened no profile",
@@ -5180,8 +4686,6 @@ private Q_SLOTS:
         QCOMPARE(columnTaps.count(), 0);
         closeProfile();
 
-        // Control: below the name (the topic line) the column's handler is
-        // reached, so its silence above means something.
         const QPoint belowName = identity->mapToScene(
             QPointF(2, identity->height() - 2)).toPoint();
         QVERIFY2(!title->contains(title->mapFromScene(belowName)),
@@ -5190,8 +4694,6 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(columnTaps.count(), 1, 2000);
         QVERIFY(!profile->property("opened").toBool());
 
-        // A group DM: no single peer, so no profile from either, and the name
-        // is Room Information's again.
         QVariantMap trio;
         trio.insert(QStringLiteral("name"), QStringLiteral("Trio"));
         trio.insert(QStringLiteral("isDirect"), true);
@@ -5209,16 +4711,10 @@ private Q_SLOTS:
                  "a group room's header opened a profile");
     }
 
-    // The header card is one click target: anywhere on it that is not an icon
-    // button opens Room Information (a DM's NAME is the one exception and
-    // opens the peer's profile). The identity column used to be only as tall
-    // as its text, centred in the 60px band, so in a room with NO topic the
-    // target was a ~22px strip and a click above or below the name, or in the
-    // empty run to its right, did nothing. A public room with a topic hid it.
     void theWholeHeaderCardOpensRoomInformationWithOrWithoutATopic()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         QQmlApplicationEngine engine;
         QQuickWindow window;
         QQuickItem *timeline = nullptr;
@@ -5320,8 +4816,6 @@ private Q_SLOTS:
                                          QLatin1String(pr.where));
             }
 
-            // The name: a group room's belongs to Room Information, a DM's to
-            // the peer's profile (and then must not also toggle the panel).
             const int before = taps();
             QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier,
                               title->mapToScene(QPointF(title->width() / 2.0,
@@ -5348,10 +4842,6 @@ private Q_SLOTS:
         QVERIFY2(failures.isEmpty(), qPrintable(failures.join(QLatin1Char('\n'))));
     }
 
-    // The room title outranks the header icon row: the row yields (folding
-    // into an overflow menu) before the title elides below its floor, and an
-    // elided title never sits beside an empty spacer. Measured geometrically,
-    // since elision is invisible to a source scan.
     void theRoomTitleOutranksTheHeaderIconRowAtEveryWidth()
     {
         AppController controller(AppController::MockBackend);
@@ -5377,14 +4867,11 @@ private Q_SLOTS:
         auto *header = identity->parentItem();
         QVERIFY(header);
 
-        // The floor is in the title's own font, capped by the text's natural
-        // width so a short name that fits is never a failure.
         QQmlExpression titlePxExpr(qmlContext(root), root,
                                    QStringLiteral(
                                        "AppTheme.scaled(AppTheme.textTitle)"));
         const double titlePx = titlePxExpr.evaluate().toDouble();
         QVERIFY2(titlePx > 0, "the title's scaled font size did not evaluate");
-        // Fifteen characters at ~0.53 x pixel size each for this bold face.
         const double inkFloor = 15.0 * 0.53 * titlePx;
 
         struct Variant { const char *label; bool topic; bool lock; };
@@ -5392,7 +4879,6 @@ private Q_SLOTS:
             { "topic+lock", true, true },
             { "no topic, no lock", false, false },
         };
-        // IconButton's "lg" rung: one overflow control.
         const double kOneIconSlot = 34.0;
         QStringList failures;
         int measured = 0;
@@ -5400,8 +4886,6 @@ private Q_SLOTS:
         int sawStarved = 0;
         double worstInk = -1.0;
 
-        // Both ends of the text-size slider: icons are a constant 34 px while
-        // the title floor grows with the font, so 1.4 is the tighter case.
         for (const double scale : { 1.0, 1.4 }) {
         QQmlExpression setScale(qmlContext(root), root,
                                 QStringLiteral("AppTheme.textScale = %1")
@@ -5414,7 +4898,6 @@ private Q_SLOTS:
 
         for (const Variant &v : variants) {
             QVariantMap room;
-            // Longer than any header here, so the title can always elide.
             room.insert(QStringLiteral("name"),
                         QStringLiteral("Lightning development and release chat"));
             room.insert(QStringLiteral("topic"),
@@ -5422,7 +4905,6 @@ private Q_SLOTS:
                                 : QString());
             room.insert(QStringLiteral("encrypted"), v.lock);
             root->setProperty("currentRoom", room);
-            // Layouts settle on the polish pass.
             QTest::qWait(60);
             QCoreApplication::processEvents();
 
@@ -5442,9 +4924,6 @@ private Q_SLOTS:
                 if (worstInk < 0.0 || ink < worstInk)
                     worstInk = ink;
 
-                // Invariant 1: the icon row yields before the title does. A
-                // short title is acceptable only once the row is down to one
-                // control.
                 const bool titleStarved =
                     ink + 0.5 < std::min(scaledInkFloor, natural);
                 if (titleStarved && actions->width() > kOneIconSlot + 0.5)
@@ -5463,7 +4942,6 @@ private Q_SLOTS:
                 if (titleStarved)
                     ++sawStarved;
 
-                // Invariant 2: an elided title means the spacer is empty.
                 if (truncated && spacer->width() > 0.5)
                     failures.append(QStringLiteral(
                         "at text scale %9: %1 at pane %2 (header %3): the "
@@ -5489,7 +4967,6 @@ private Q_SLOTS:
               "title font %.0f px at scale 1.0, floor %.0f px, narrowest "
               "title %.0f px",
               measured, sawTruncated, sawStarved, titlePx, inkFloor, worstInk);
-        // A sweep in which the title never elided proves neither invariant.
         QVERIFY2(sawTruncated > 0,
                  "no width in this sweep elided the room title, so neither "
                  "invariant was actually exercised");
@@ -5500,9 +4977,6 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
     }
 
-    // Every action folded out of the header row is still reachable in the
-    // overflow menu, which costs the row a single slot. A forward contract,
-    // not a regression proof.
     void everyFoldedHeaderActionIsStillReachable()
     {
         AppController controller(AppController::MockBackend);
@@ -5527,9 +5001,6 @@ private Q_SLOTS:
         QTest::qWait(60);
         QCoreApplication::processEvents();
 
-        // Wide: nothing folds, and the More button is still there, because it
-        // carries the room's own options (chat background, room settings) and
-        // those must be in one place at every width.
         root->setSize(QSizeF(1200, 700));
         QTest::qWait(60);
         QCoreApplication::processEvents();
@@ -5563,8 +5034,6 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
         }
 
-        // Narrowest supported pane: every folded action has a menu row, and no
-        // menu row duplicates a visible icon.
         root->setSize(QSizeF(320, 700));
         QTest::qWait(60);
         QCoreApplication::processEvents();
@@ -5580,8 +5049,6 @@ private Q_SLOTS:
         auto *menu = root->findChild<QObject *>(
             QStringLiteral("roomHeaderOverflowMenu"));
         QVERIFY(menu);
-        // Open the menu first: `visible` is effective visibility, so every row
-        // of a closed popup reads false.
         QMetaObject::invokeMethod(menu, "open");
         QTRY_VERIFY(menu->property("opened").toBool());
         QCoreApplication::processEvents();
@@ -5621,7 +5088,6 @@ private Q_SLOTS:
         QVERIFY2(unreachable.isEmpty(),
                  qPrintable(unreachable.join(QStringLiteral("\n  "))));
 
-        // A folded action runs the button's own handler.
         auto *searchRow = menu->findChild<QObject *>(
             QStringLiteral("overflowSearch"));
         QVERIFY(searchRow);
@@ -5642,13 +5108,8 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
     }
 
-    // Read-receipt chips: an empty list adds no footprint; a populated one
-    // renders at most 3 avatar chips plus a "+N" chip and one summary line.
-    // Two separate engine loads: swapping the "model" context property after
-    // load instantiates the Repeater mid-cascade, where ids do not resolve.
     void readReceiptChipsRenderBoundedAndCollapseWhenEmpty()
     {
-        // Repeater delegates are not QObject children; walk childItems().
         const auto visualChildrenByName =
             [](QQuickItem *root, const QString &name) {
                 QList<QQuickItem *> out;
@@ -5723,8 +5184,6 @@ private Q_SLOTS:
             return root;
         };
 
-        // No receipts: invisible strip, no chips, empty summary. An invisible
-        // child adds no ColumnLayout height.
         {
             QQmlApplicationEngine engine;
             QVariantMap empty = fixture;
@@ -5742,9 +5201,6 @@ private Q_SLOTS:
             QVERIFY(root->implicitHeight() > 0.0);
         }
 
-        // Six readers: 4 chips + "+2", newest first, one summary line. Loaded
-        // wide (1400 px) so the right-edge rail placement is a real
-        // assertion.
         QVariantList receipts;
         const QStringList names = {
             QStringLiteral("Alice"), QStringLiteral("Bob"),
@@ -5799,8 +5255,6 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral(
                          "receiptBottom=%1 messageBottom=%2")
                          .arg(receiptBottom).arg(messageBottom)));
-            // The chip stack rides the strip's right edge (see
-            // readReceiptChipsRideTheRightEdgeRail).
             const qreal stripRight =
                 strip->mapToScene(QPointF(strip->width(), 0)).x();
             const qreal chipsRight =
@@ -5814,12 +5268,8 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Read-receipt chips ride one fixed right-edge rail (the strip's right
-    // edge) on every row, however wide the body or sender header renders.
     void readReceiptChipsRideTheRightEdgeRail()
     {
-        // Delegate-level fixture: the full-pane rows never hydrate offscreen.
-        // Three row shapes that once placed chips differently must agree.
         AppController controller(AppController::MockBackend);
         QVariantMap fixture;
         const auto roles = controller.timeline()->roleNames();
@@ -5884,8 +5334,6 @@ private Q_SLOTS:
             return root;
         };
 
-        // Short body + short name, a wide unbroken body near the column cap,
-        // and a header wider than a two-word body.
         struct Shape {
             const char *sender;
             const char *name;
@@ -5925,19 +5373,16 @@ private Q_SLOTS:
                 strip->mapToScene(QPointF(strip->width(), 0)).x();
             const qreal chipsRight =
                 chipRow->mapToScene(QPointF(chipRow->width(), 0)).x();
-            // Chips ride the strip's right edge regardless of content width.
             QVERIFY2(qAbs(chipsRight - stripRight) < 1.5,
                      qPrintable(QStringLiteral(
                          "chips must ride the right-edge rail: sender=%1 "
                          "chipsRight=%2 stripRight=%3")
                          .arg(QString::fromLatin1(shape.sender))
                          .arg(chipsRight).arg(stripRight)));
-            // The avatar-gutter floor survives the rail contract.
             QVERIFY(chipRow->x() >= root->property("avatarGutterWidth")
                                         .toReal() - 0.5);
             railOffsets.append(stripRight - chipsRight);
         }
-        // One rail: every shape has the same offset from the strip edge.
         QCOMPARE(railOffsets.size(), 3);
         QVERIFY2(qAbs(railOffsets[0] - railOffsets[1]) < 1.0
                      && qAbs(railOffsets[1] - railOffsets[2]) < 1.0,
@@ -5949,15 +5394,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Receipt chip avatars load through the real chain: member cache ->
-    // delegate projection -> Avatar -> MediaBridge -> MediaImageProvider.
-    // Carol's avatar is cached before the room opens and must reach "ready";
-    // Dave's arrives after the receipt renders, so his chip shows initials and
-    // then promotes when membersChanged re-announces ReadReceiptsRole.
     void readReceiptChipAvatarsLoadThroughRealProviderPath()
     {
         AppController controller(AppController::MockBackend);
-        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        const QString roomId = loginAndRoomIdAt(controller,0);
         QVERIFY(!roomId.isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
@@ -5980,7 +5420,6 @@ private Q_SLOTS:
         mock->setAvatarBytesForTest(daveMxc, pngBytes(QColor(40, 40, 200)),
                                     QStringLiteral("image/png"));
 
-        // Carol: avatar known before the room opens.
         mock->setRoomMemberForTest(
             roomId, { QStringLiteral("@carol:mock.local"),
                       QStringLiteral("Carol"), carolMxc });
@@ -6011,7 +5450,7 @@ private Q_SLOTS:
         readByDave.readByTotal = 1;
 
         mock->resetTimelineForTest(roomId, { readByCarol, readByDave },
-                                   /*paginationPages=*/0);
+0);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -6019,7 +5458,6 @@ private Q_SLOTS:
                 [&warnings](const QList<QQmlError> &errors) {
                     for (const auto &e : errors) warnings << e.toString();
                 });
-        // The real image provider, as main.cpp registers it.
         engine.addImageProvider(
             QStringLiteral("lightning-media"),
             new MediaImageProvider(controller.mediaBridge()));
@@ -6049,8 +5487,6 @@ private Q_SLOTS:
         QMetaObject::invokeMethod(timeline, "forceLayout");
         QCoreApplication::processEvents();
 
-        // The chip's Avatar root: the item inside readReceiptChip carrying the
-        // avatarImage child.
         const auto chipAvatar = [](QQuickItem *rowItem) -> QQuickItem * {
             const auto chips = findVisualChildren(
                 rowItem, QStringLiteral("readReceiptChip"));
@@ -6063,7 +5499,6 @@ private Q_SLOTS:
             return images.first()->parentItem();
         };
 
-        // Carol: the chip reaches the decoded bitmap.
         QQuickItem *carolRow = nullptr;
         QTRY_VERIFY_WITH_TIMEOUT(
             (((carolRow = itemForSourceRow(timeline, 0)) != nullptr),
@@ -6090,8 +5525,6 @@ private Q_SLOTS:
             QVERIFY(images.first()->isVisible());
         }
 
-        // Dave: initials first, then member-cache hydration alone promotes
-        // the chip.
         QQuickItem *daveRow = nullptr;
         QTRY_VERIFY_WITH_TIMEOUT(
             (((daveRow = itemForSourceRow(timeline, 1)) != nullptr),
@@ -6108,8 +5541,6 @@ private Q_SLOTS:
             roomId, { QStringLiteral("@dave:mock.local"),
                       QStringLiteral("Dave"), daveMxc });
 
-        // Hydration rebuilds the chip; re-resolve the Avatar under the same
-        // row.
         QTRY_VERIFY_WITH_TIMEOUT(
             (daveAvatar = chipAvatar(daveRow)) != nullptr
                 && daveAvatar->property("mxc").toString() == daveMxc,
@@ -6121,15 +5552,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // The "New messages" divider stays for the whole visit, pinned or not:
-    // m.fully_read now moves only when the reader leaves the room
-    // (ReadReceiptCoordinator), so the own-receipt ack cycle no longer bounces
-    // it, and hiding it while pinned lost the reader's place in a room opened
-    // at the bottom. Its height does not change with following, either.
     void newMessagesDividerStaysWhilePinnedToBottom()
     {
         AppController controller(AppController::MockBackend);
-        const QString roomId = loginAndRoomIdAt(controller, /*row=*/0);
+        const QString roomId = loginAndRoomIdAt(controller,0);
         QVERIFY(!roomId.isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
@@ -6157,7 +5583,6 @@ private Q_SLOTS:
         root->setSize(QSizeF(window.width(), window.height()));
         window.show();
 
-        // A short timeline with the read marker before one unread message.
         const QDateTime base =
             QDateTime::currentDateTimeUtc().addSecs(-600);
         QList<TimelineEvent> events;
@@ -6184,7 +5609,7 @@ private Q_SLOTS:
         unread.body = QStringLiteral("the unread one");
         unread.timestamp = base.addSecs(300);
         events.append(unread);
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/0);
+        mock->resetTimelineForTest(roomId, events,0);
 
         auto *timeline = root->findChild<QQuickItem *>(
             QStringLiteral("timelineListView"));
@@ -6202,12 +5627,10 @@ private Q_SLOTS:
             QStringLiteral("unreadDivider"));
         QVERIFY(divider != nullptr);
 
-        // Pinned to the bottom: the divider is shown.
         QTRY_VERIFY_WITH_TIMEOUT(divider->isVisible(), 2000);
         const qreal pinnedHeight = markerItem->implicitHeight();
         QVERIFY(pinnedHeight >= 28.0);
 
-        // Scrolled up and back: still shown, and the row keeps its height.
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QTest::qWait(50);
         QVERIFY(divider->isVisible());
@@ -6223,7 +5646,7 @@ private Q_SLOTS:
     void threadScrollMotionIsIsolatedFromRoomTimeline()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
         auto *roomScroll = controller.timelineScroll();
         auto *threadScroll = controller.threadScroll();
@@ -6231,8 +5654,7 @@ private Q_SLOTS:
         QVERIFY(threadScroll != nullptr);
         QVERIFY(roomScroll != threadScroll);
 
-        // Both follow the persisted wheel-speed setting.
-        controller.settings()->setTimelineWheelSpeed(2);   // Very fast
+        controller.settings()->setTimelineWheelSpeed(2);
         QCOMPARE(roomScroll->wheelSpeed(), TimelineScrollController::VeryFast);
         QCOMPARE(threadScroll->wheelSpeed(),
                  TimelineScrollController::VeryFast);
@@ -6259,19 +5681,16 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(controller.thread()->state(),
                                   ThreadController::Ready, kSignalTimeoutMs);
 
-        // Thread wheel motion engages ONLY the thread engine.
         threadScroll->wheelNotch(-120.0, 100.0, 0.0, 5000.0, 600.0);
         QVERIFY(threadScroll->motionActive());
         QVERIFY(!roomScroll->motionActive());
 
-        // Room wheel motion engages ONLY the room engine.
         roomScroll->wheelNotch(-120.0, 100.0, 0.0, 5000.0, 600.0);
         QVERIFY(roomScroll->motionActive());
         threadScroll->cancel();
-        QVERIFY(roomScroll->motionActive());   // untouched by the other panel
+        QVERIFY(roomScroll->motionActive());
         roomScroll->cancel();
 
-        // Closing the thread cancels the panel's in-flight wheel motion.
         threadScroll->wheelNotch(-120.0, 100.0, 0.0, 5000.0, 600.0);
         QVERIFY(threadScroll->motionActive());
         controller.thread()->close();
@@ -6280,14 +5699,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // A backward-pagination prepend is handled by the persistent view anchor.
-    // A prepend landing while the reader keeps scrolling must not touch
-    // contentY at all while the gesture is live, so the user's own motion is
-    // preserved.
     void paginationPrependPreservesConcurrentScroll()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
@@ -6306,8 +5721,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        // Two pages: the startup viewport fill consumes one.
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/2);
+        mock->resetTimelineForTest(roomId, events,2);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -6340,8 +5754,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        // Row 5 leaves headroom above; deeper rows land at wheelMinY() on the
-        // un-virtualized layout and the clamp would cap the simulated scroll.
         const int anchorRow = 5;
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, anchorRow));
@@ -6355,9 +5767,6 @@ private Q_SLOTS:
         controller.pagination()->requestNearTop();
         QCoreApplication::processEvents();
 
-        // The reader keeps scrolling during the request: a contentY write plus
-        // a settle-timer restart, as the pixelDelta branch does. The restart
-        // makes userScrollActive true.
         const double capturedContentY = timeline->property("contentY").toDouble();
         const double anchorLastY =
             timeline->property("viewAnchorLastY").toDouble();
@@ -6384,8 +5793,6 @@ private Q_SLOTS:
              anchorItem != nullptr),
             kSignalTimeoutMs);
 
-        // anchorItem resolving shows the anchor delegate survived the prepend,
-        // so the "materialized" no-write branch is the one that ran.
         Q_UNUSED(anchorItem);
         Q_UNUSED(anchorLastY);
         double actual = 0;
@@ -6407,12 +5814,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // An in-flight wheel glide is translated, not cancelled, across a real
-    // pagination completion.
     void paginationPrependPreservesWheelGlide()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
@@ -6431,7 +5836,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/2);
+        mock->resetTimelineForTest(roomId, events,2);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -6464,7 +5869,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        // Row 5 leaves headroom (see paginationPrependPreservesConcurrentScroll).
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, 5));
         QCoreApplication::processEvents();
@@ -6479,7 +5883,6 @@ private Q_SLOTS:
         auto *scroll = controller.timelineScroll();
         QVERIFY(scroll != nullptr);
         const double glideStartY = timeline->property("contentY").toDouble();
-        // The real bounds (see wheelBounds()).
         double minY = 0, maxY = 0;
         QVERIFY(wheelBounds(timeline, &minY, &maxY));
         for (int notch = 0; notch < 6; ++notch)
@@ -6509,15 +5912,9 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // A prepend at the top edge with a gesture in flight keeps the reader's
-    // row at the same viewport offset. At the top edge a prepend pushes the
-    // reader's row beyond cacheBuffer and destroys its delegate; mid-list the
-    // expected delta is zero and a test there proves nothing.
     void topEdgePrependKeepsReaderOnTheSameRowMidGesture()
     {
     {
-        // The diag* counters only increment with LIGHTNING_SCROLL_TRACE, which
-        // is read once at controller construction.
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
     }
     struct TraceGuard { ~TraceGuard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } traceGuard;
@@ -6526,7 +5923,7 @@ private Q_SLOTS:
         QVERIFY2(controller.timelineScroll()->scrollTraceEnabled(),
                  "the diag counters are gated on this — without it the "
                  "snapshot below can only ever print zeros");
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
@@ -6545,7 +5942,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/2);
+        mock->resetTimelineForTest(roomId, events,2);
         // A production-sized batch (20 rows): the default 3-row mock page
         // stays inside cacheBuffer (800) and the test would not discriminate.
         QList<TimelineEvent> chunk;
@@ -6553,8 +5950,6 @@ private Q_SLOTS:
             TimelineEvent e;
             e.sender = QStringLiteral("@carol:mock.local");
             e.senderDisplayName = QStringLiteral("Carol");
-            // Long enough to wrap: 20 one-line rows sit right at the
-            // cacheBuffer boundary.
             e.body = QStringLiteral(
                 "older backfilled message %1 — this body is deliberately "
                 "long so the row wraps to several lines and the prepended "
@@ -6600,7 +5995,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        // Put the reader at the top edge, where near-top backfill fires.
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY2(waitForRowsToStopArriving(controller),
                  "the proxy never finished revealing, so the anchor would be "
@@ -6611,7 +6005,6 @@ private Q_SLOTS:
         const QString anchorId = timeline->property("viewAnchorId").toString();
         QVERIFY2(!anchorId.isEmpty(), "the fixture must yield a live anchor");
 
-        // The reader's row and where it sits in the viewport right now.
         const int rowBefore = controller.timeline()->rowForStableId(anchorId);
         QVERIFY(rowBefore >= 0);
         QQuickItem *itemBefore = nullptr;
@@ -6620,7 +6013,6 @@ private Q_SLOTS:
         const double offsetBefore =
             itemBefore->y() - timeline->property("contentY").toDouble();
 
-        // A gesture is in flight.
         auto *settleTimer = timeline->findChild<QObject *>(
             QStringLiteral("scrollSettleTimer"));
         QVERIFY(settleTimer != nullptr);
@@ -6638,8 +6030,6 @@ private Q_SLOTS:
         QVERIFY2(completedSpy.constFirst().at(0).toInt() > 0,
                  "fixture assumption: the near-top page must insert rows");
 
-        // Enforce the premise: the batch must displace the anchor beyond the
-        // cache buffer, or the test goes vacuous if metrics change.
         const double cacheBufferPx = 800.0;
         double heightGrowth = 0;
         QTRY_VERIFY_WITH_TIMEOUT(
@@ -6654,7 +6044,6 @@ private Q_SLOTS:
                      "broken code")
                      .arg(heightGrowth).arg(cacheBufferPx + timeline->height())));
 
-        // The reader's row must still sit at the same place in the viewport.
         const int rowAfter = controller.timeline()->rowForStableId(anchorId);
         QVERIFY2(rowAfter > rowBefore,
                  "fixture assumption: the prepend must shift the row index");
@@ -6669,14 +6058,9 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Controller-driven near-top batches (requestNearTop() per batch,
-    // bypassing the QML edge latch) are each compensated immediately on
-    // completion, and a productive batch ends the run rather than chaining.
     void nearTopControllerDrivenBatchesCompensateImmediatelyNotChained()
     {
     {
-        // The diag* counters only increment with LIGHTNING_SCROLL_TRACE, which
-        // is read once at controller construction.
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
     }
     struct TraceGuard { ~TraceGuard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } traceGuard;
@@ -6685,7 +6069,7 @@ private Q_SLOTS:
         QVERIFY2(controller.timelineScroll()->scrollTraceEnabled(),
                  "the diag counters are gated on this — without it the "
                  "snapshot below can only ever print zeros");
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
@@ -6704,13 +6088,9 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        // One page for the initial fill, one spare, then the batches driven
-        // here while a gesture is held.
         constexpr int kBatches = 3;
-        // Generous page supply on purpose: this measures anchor compensation,
-        // not the near-top continuation bound, and must not depend on it.
         mock->resetTimelineForTest(roomId, events,
-                                   /*paginationPages=*/2 + kBatches
+2 + kBatches
                                        + PaginationController::
                                              kMaxNearTopEmptyStrikes);
         QList<TimelineEvent> chunk;
@@ -6803,7 +6183,6 @@ private Q_SLOTS:
             QTRY_VERIFY_WITH_TIMEOUT(!completedSpy.isEmpty(), kSignalTimeoutMs);
             QVERIFY2(completedSpy.constFirst().at(0).toInt() > 0,
                      "fixture assumption: each near-top page must insert rows");
-            // One productive batch ends the run.
             QVERIFY2(!controller.pagination()->nearTopRunActive(),
                      "a productive batch must end the run immediately, not "
                      "leave a continuation scheduled");
@@ -6826,8 +6205,6 @@ private Q_SLOTS:
             QVERIFY2(rowAfter > rowBefore,
                      "fixture assumption: the prepend must shift the row index");
 
-            // Sample right after this batch settles, before the next request:
-            // compensation must be immediate.
             const AnchorSettle settle =
                 anchorOffsetOnceItsRowExists(timeline, rowAfter, offsetBefore,
                                          anchorId);
@@ -6845,14 +6222,9 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // The same immediate per-batch compensation, driven through
-    // ViewportFill rather than NearTop: several consecutive batches with a
-    // gesture held, never touching requestNearTop() or nearTopArmed.
     void viewportFillRunCompensatesEveryBatchImmediately()
     {
     {
-        // The diag* counters only increment with LIGHTNING_SCROLL_TRACE, which
-        // is read once at controller construction.
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
     }
     struct TraceGuard { ~TraceGuard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } traceGuard;
@@ -6861,7 +6233,7 @@ private Q_SLOTS:
         QVERIFY2(controller.timelineScroll()->scrollTraceEnabled(),
                  "the diag counters are gated on this — without it the "
                  "snapshot below can only ever print zeros");
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
@@ -6881,10 +6253,8 @@ private Q_SLOTS:
             events.append(e);
         }
         constexpr int kBatches = 3;
-        // One page for the initial fill, then kBatches driven explicitly via
-        // requestViewportFill().
         mock->resetTimelineForTest(roomId, events,
-                                   /*paginationPages=*/1 + kBatches);
+1 + kBatches);
         QList<TimelineEvent> chunk;
         for (int i = 0; i < 30; ++i) {
             TimelineEvent e;
@@ -6937,13 +6307,8 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
-        // The proxy paces newly loaded rows, so release them as every real
-        // navigation path does; delegates appear on the next event-loop turn.
         QVERIFY(QMetaObject::invokeMethod(timeline, "releasePendingRows"));
         QCoreApplication::processEvents();
-        // Not the exact top: reaching atYBeginning dispatches its own
-        // requestNearTop() and would contaminate the premise. Row 8 is near
-        // enough for a big prepend to displace it past the cache buffer.
         QVERIFY2(waitForRowsToStopArriving(controller),
                  "the proxy never finished revealing, so the anchor would be "
                  "captured on whichever row happened to be there");
@@ -7005,7 +6370,6 @@ private Q_SLOTS:
                      "fixture assumption: the prepend must shift the row "
                      "index");
 
-            // Sample right after this batch settles: must be immediate.
             const AnchorSettle settle =
                 anchorOffsetOnceItsRowExists(timeline, rowAfter, offsetBefore,
                                          anchorId);
@@ -7024,19 +6388,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Near-top proximity is measured from the top of loaded history
-    // (distanceFromTop()), never raw contentY: originY moves as history loads,
-    // so contentY is not a distance. The dispatch gate refuses downward
-    // samples and must still dispatch on continued upward progress.
-    // QmlBindingContractTest's text scan is the primary guard for the
-    // mechanism; this checks geometry and behaviour agree.
-    // A reader holding the scroll bar handle at the top keeps getting older
-    // history: the handle does not move while a page lands, so nothing but the
-    // hold timer asks again. Without it the drag stalls after the first page.
     void scrollBarHandleHeldAtTheTopKeepsLoadingHistory()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
@@ -7054,7 +6409,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/8);
+        mock->resetTimelineForTest(roomId, events,8);
         QList<TimelineEvent> chunk;
         for (int i = 0; i < 20; ++i) {
             TimelineEvent e;
@@ -7100,8 +6455,6 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
         QTRY_VERIFY_WITH_TIMEOUT(bar->isVisible(), kSignalTimeoutMs);
 
-        // Grab the handle where it is (bottom of the track: the live edge),
-        // drag it to the top and hold.
         const double size = bar->property("size").toDouble();
         const double position = bar->property("position").toDouble();
         const QPointF handleLocal(bar->width() / 2,
@@ -7115,7 +6468,6 @@ private Q_SLOTS:
                              grab + (top - grab) * i / 10);
         QTest::qWait(50);
         QVERIFY2(bar->property("pressed").toBool(), "the handle was not grabbed");
-        // Hold still. Three pages (60 rows) must land without moving the mouse.
         QTRY_VERIFY2_WITH_TIMEOUT(
             timeline->property("count").toInt() >= before + 60,
             qPrintable(QStringLiteral("only %1 of 60 rows loaded while the "
@@ -7128,7 +6480,7 @@ private Q_SLOTS:
     void nearTopProximityIsMeasuredFromLoadedHistoryNotAbsoluteContentY()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
@@ -7146,9 +6498,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/6);
-        // A production-sized page of wrapping rows, so the batch moves originY
-        // by much more than the band width.
+        mock->resetTimelineForTest(roomId, events,6);
         QList<TimelineEvent> chunk;
         for (int i = 0; i < 20; ++i) {
             TimelineEvent e;
@@ -7197,8 +6547,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        // The top of loaded history is wheelMaxY() on the rotated view (what
-        // distanceFromTop() measures from), read from the Flickable directly.
         const auto topmostY = [timeline] {
             const double maxY = timeline->property("originY").toDouble()
                 + timeline->property("contentHeight").toDouble()
@@ -7211,8 +6559,6 @@ private Q_SLOTS:
         const auto bandWidth = [timeline] {
             return timeline->property("nearTopEnterDistance").toDouble();
         };
-        // Wrapped rows can keep nudging content height after insertion; read
-        // topmostY() only once it stops moving.
         const auto settledTopmostY = [&timeline, &topmostY] {
             double stable = topmostY();
             for (int attempt = 0; attempt < 30; ++attempt) {
@@ -7224,7 +6570,6 @@ private Q_SLOTS:
             }
             return stable;
         };
-        // Sets contentY the given distance below the SETTLED top.
         const auto setContentYAtDistanceFromTop =
             [timeline, &settledTopmostY](double distance) {
             const double target = settledTopmostY() - distance;
@@ -7237,7 +6582,6 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
         const double topBefore = topmostY();
 
-        // At the top of loaded history the edge latches exactly once.
         QVERIFY(timeline->setProperty("nearTopArmed", true));
         QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
                                           Q_ARG(QVariant, QVariant(true))));
@@ -7246,7 +6590,7 @@ private Q_SLOTS:
 
         QSignalSpy completedSpy(controller.pagination(),
                                &PaginationController::paginationCompleted);
-        controller.pagination()->requestNearTop(/*userInitiated=*/true);
+        controller.pagination()->requestNearTop(true);
         QTRY_VERIFY_WITH_TIMEOUT(!completedSpy.isEmpty(), kSignalTimeoutMs);
         QTRY_VERIFY_WITH_TIMEOUT(
             topmostY() - timeline->property("contentY").toDouble()
@@ -7259,7 +6603,6 @@ private Q_SLOTS:
               "distance %g, band %g",
               topBefore, topmostY(), contentY, fromTop, bandWidth());
 
-        // A whole batch now sits above the reader: not near the top.
         QVERIFY2(fromTop > bandWidth(),
                  qPrintable(QStringLiteral(
                      "a landed batch left the reader classified 'near the top' "
@@ -7275,16 +6618,11 @@ private Q_SLOTS:
                      "distanceFromTop() (%1) must agree with Qt's own geometry "
                      "(%2)").arg(reportedDistance).arg(fromTop)));
 
-        // The progress gate lives at the dispatch site (checkNearTopEdge());
-        // the settle re-arm is unconditional within the band. No page may land
-        // during this phase (it would move the top), but pages stay available.
         mock->setPaginationDelayForTest(60000);
         QVERIFY2(!controller.pagination()->reachedStart(),
                  "premise: backfill must still be available");
         QVERIFY(positionAtTopEdge(timeline));
         setContentYAtDistanceFromTop(0.0);
-        // Every probe stays inside the band (~232 px here), including the
-        // +40 downward excursion.
         const double probeBase = 120;
         const double probeStep = 40;
         QVERIFY2(probeBase + probeStep < bandWidth(),
@@ -7296,8 +6634,6 @@ private Q_SLOTS:
         auto *settleTimer = timeline->findChild<QObject *>(
             QStringLiteral("scrollSettleTimer"));
         QVERIFY(settleTimer != nullptr);
-        // checkNearTopEdge() returns early while stickToBottom is true, which
-        // would make every "did not consume" check vacuous; assert it.
         const auto notFollowingBottom = [timeline] {
             return !timeline->property("stickToBottom").toBool();
         };
@@ -7308,12 +6644,9 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
             QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
                                       Q_ARG(QVariant, QVariant(true)));
-            // Consumed means dispatched; still armed means the gate refused.
             return !timeline->property("nearTopArmed").toBool();
         };
 
-        // A first approach with no baseline consumes the latch and records
-        // its distance.
         QVERIFY(timeline->setProperty("nearTopRequestDistance",
                                       std::numeric_limits<double>::infinity()));
         QVERIFY2(armAndCheck(), "a fresh approach must dispatch");
@@ -7326,15 +6659,12 @@ private Q_SLOTS:
                               .toDouble())
                      .arg(probeBase)));
 
-        // Downward, still inside the band: the settle re-arms, but the
-        // dispatch must refuse.
         setContentYAtDistanceFromTop(probeBase + probeStep);
         QVERIFY(QMetaObject::invokeMethod(settleTimer, "restart"));
         QTRY_VERIFY_WITH_TIMEOUT(!settleTimer->property("running").toBool(),
                                  kSignalTimeoutMs);
         QVERIFY2(timeline->property("nearTopArmed").toBool(),
                  "the settle re-arm is deliberately unconditional in the band");
-        // The settle may have flipped stickToBottom; re-assert it.
         QVERIFY2(notFollowingBottom(),
                  "the settle re-pinned follow-latest; the refusal check below "
                  "would pass vacuously");
@@ -7342,7 +6672,6 @@ private Q_SLOTS:
                  "a DOWNWARD sample inside the band consumed the latch and "
                  "fetched a page — history loads while scrolling down");
 
-        // Continuing upward past the last request dispatches again.
         setContentYAtDistanceFromTop(probeBase - probeStep);
         QVERIFY2(armAndCheck(), "continued upward progress must still dispatch");
         QVERIFY2(qAbs(timeline->property("nearTopRequestDistance").toDouble()
@@ -7354,9 +6683,6 @@ private Q_SLOTS:
                               .toDouble())
                      .arg(probeBase - probeStep)));
 
-        // Pinned at the exact top with the baseline already there: "came
-        // closer" is unsatisfiable, so the pinned-at-top clause must still
-        // allow loading. The controller's strike bound throttles from here.
         setContentYAtDistanceFromTop(0.0);
         QVariant atTopDistance;
         QVERIFY(QMetaObject::invokeMethod(timeline, "distanceFromTop",
@@ -7366,8 +6692,6 @@ private Q_SLOTS:
                      "premise: the probe must be pinned at the top (distance %1)")
                      .arg(atTopDistance.toDouble())));
         QVERIFY(timeline->setProperty("nearTopRequestDistance", 0.0));
-        // Re-pin right at the call site: this probe has zero tolerance, and a
-        // dispatch can run queued work that nudges contentY.
         timeline->setProperty("contentY", topmostY());
         QVERIFY(timeline->setProperty("nearTopArmed", true));
         QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
@@ -7376,12 +6700,9 @@ private Q_SLOTS:
                  "a reader pinned at the exact top could not dispatch — history "
                  "is unreachable at the one place they most want it");
 
-        // The baseline ratchets to the closest approach, including samples
-        // that did not dispatch. Otherwise a downward gesture after a deep
-        // upward one fetches.
         const double entry = 200;
         const double deep = 40;
-        const double backOff = 45;   // closer than `entry`, farther than `deep`
+        const double backOff = 45;
         QVERIFY2(entry < bandWidth(),
                  "fixture: the entry probe must sit inside the band");
         QVERIFY(timeline->setProperty("nearTopRequestDistance",
@@ -7389,8 +6710,6 @@ private Q_SLOTS:
         setContentYAtDistanceFromTop(entry);
         QVERIFY2(armAndCheck(), "band entry must dispatch");
 
-        // The same gesture continues up: no dispatch (latch spent), but the
-        // baseline must drop.
         setContentYAtDistanceFromTop(deep);
         QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
                                           Q_ARG(QVariant, QVariant(true))));
@@ -7403,8 +6722,6 @@ private Q_SLOTS:
                      "last dispatch stays unpaid, so a later downward sample "
                      "fetches").arg(ratcheted).arg(deep)));
 
-        // Downward: closer than the last dispatch (200) but farther than the
-        // closest approach (40), so it must refuse.
         setContentYAtDistanceFromTop(backOff);
         QVERIFY2(!armAndCheck(),
                  "a downward sample inside the region already traversed "
@@ -7413,23 +6730,15 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // One approach to the top loads a bounded amount, not the whole room. The
-    // anchor keeps a top-edge reader at distanceFromTop() ~0 while history
-    // piles up, the `fromTop <= 1` clause bypasses the ratchet, and each page
-    // re-arms the latch; nearTopApproachRowBudget ends that chain. The
-    // request is suppressed via the pane's own re-entrancy guard, so only the
-    // dispatch decision is counted.
     void oneApproachToTheTopDoesNotPaginateToTheStartOfTheRoom()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
 
-        // Tall, wrapping rows, so the reader can genuinely leave the exit band
-        // (3.25 viewports).
         QList<TimelineEvent> events;
         for (int i = 0; i < 60; ++i) {
             TimelineEvent e;
@@ -7445,7 +6754,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/6);
+        mock->resetTimelineForTest(roomId, events,6);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -7504,8 +6813,6 @@ private Q_SLOTS:
             timeline->property("nearTopApproachRowBudget").toInt();
         QVERIFY2(budget > 0, "the approach row budget must be a real bound");
 
-        // Hold the re-entrancy guard so maybeRequestNearTop() schedules
-        // nothing; the latch, ratchet and budget run as in the app.
         QVERIFY(timeline->setProperty("nearTopCheckScheduled", true));
         QVERIFY(timeline->setProperty("stickToBottom", false));
 
@@ -7513,18 +6820,14 @@ private Q_SLOTS:
         const int kPages = 40;
         const int kRowsPerPage = 20;
         for (int page = 0; page < kPages; ++page) {
-            // The reader stays pinned at the top, as maintainViewAnchor keeps a
-            // reader whose row does not move.
             QVERIFY(positionAtTopEdge(timeline));
             QCoreApplication::processEvents();
             QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
                                               Q_ARG(QVariant, QVariant(true))));
             if (!timeline->property("nearTopArmed").toBool())
                 ++dispatches;
-            // The page lands; production's handler re-arms the latch and spends
-            // the budget.
             emit controller.pagination()->paginationCompleted(
-                kRowsPerPage, /*reachedStart=*/false, /*willContinue=*/false);
+                kRowsPerPage,false,false);
             QCoreApplication::processEvents();
         }
 
@@ -7545,8 +6848,6 @@ private Q_SLOTS:
                  "the approach did not actually spend its budget, so the "
                  "bound above was not what stopped the chain");
 
-        // The budget bounds one approach: leaving the band and returning
-        // earns a fresh one.
         timeline->setProperty("contentY", wheelMaxY() - (exitBand + 60.0));
         QCoreApplication::processEvents();
         QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
@@ -7564,7 +6865,6 @@ private Q_SLOTS:
                  "the budget bounds the automatic chain, it does not stop a "
                  "reader who keeps scrolling into history");
 
-        // Returning to the live edge also resets it.
         QVERIFY(timeline->setProperty("stickToBottom", true));
         QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
                                           Q_ARG(QVariant, QVariant(false))));
@@ -7573,21 +6873,16 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // A filtered run (pages that insert nothing, e.g. MatrixRTC membership
-    // churn dropped by the event filter) must not end the automatic fill
-    // while real history is further back: the viewport ends up full. Pins the
-    // user-visible outcome, not a specific budget.
     void aFilteredHistoryRunStillFillsTheViewport()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
         mock->setPaginationDelayForTest(1);
 
-        // One message on screen, not an empty room.
         QList<TimelineEvent> seed;
         {
             TimelineEvent e;
@@ -7600,8 +6895,6 @@ private Q_SLOTS:
             seed.append(e);
         }
 
-        // 20 filtered pages without reaching the start: longer than the old
-        // budget (8), shorter than the current one (60).
         constexpr int kFilteredPages = 20;
         QList<TimelineEvent> realChunk;
         for (int i = 0; i < 25; ++i) {
@@ -7621,7 +6914,7 @@ private Q_SLOTS:
         mock->setPaginationChunkForTest(realChunk);
         mock->setFilteredPaginationPagesForTest(kFilteredPages);
         mock->resetTimelineForTest(roomId, seed,
-                                   /*paginationPages=*/kFilteredPages + 6);
+kFilteredPages + 6);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -7650,8 +6943,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
 
-        // Nothing is touched after this line: only the pane's automatic fill
-        // may produce the result.
         const qreal viewportHeight = timeline->property("height").toReal();
         QVERIFY2(viewportHeight > 0, "the fixture never laid the pane out");
 
@@ -7670,12 +6961,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // A filtered run that never ends still stops: the budget is larger, not
-    // absent, and the controller's strike bound still applies.
     void anEndlessFilteredRunStillStopsTheAutomaticFill()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
@@ -7693,10 +6982,8 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             seed.append(e);
         }
-        // More filtered pages than any budget allows and a start that is never
-        // reached, so only a bound can end the run.
         mock->setFilteredPaginationPagesForTest(5000);
-        mock->resetTimelineForTest(roomId, seed, /*paginationPages=*/5000);
+        mock->resetTimelineForTest(roomId, seed,5000);
 
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
@@ -7720,19 +7007,15 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
 
-        // Either the controller's strike bound or the pane's empty-page budget
-        // must stop it.
         QTRY_VERIFY_WITH_TIMEOUT(controller.pagination()->fillStopped(), 30000);
         QVERIFY2(controller.pagination()->fillStopped(),
                  "an unending filtered run must still stop the automatic fill");
     }
 
-    // Empty pages still cost a request and the row budget cannot see them,
-    // so one approach is also bounded by a request budget.
     void anApproachThatKeepsGettingEmptyPagesStillStops()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
@@ -7750,7 +7033,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/6);
+        mock->resetTimelineForTest(roomId, events,6);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -7785,7 +7068,6 @@ private Q_SLOTS:
             timeline->property("nearTopApproachRequestBudget").toInt();
         QVERIFY2(requestBudget > 0, "the request budget must be a real bound");
 
-        // Re-entrancy guard held, so only the dispatch decision is measured.
         QVERIFY(timeline->setProperty("nearTopCheckScheduled", true));
         QVERIFY(timeline->setProperty("stickToBottom", false));
 
@@ -7797,8 +7079,6 @@ private Q_SLOTS:
                                               Q_ARG(QVariant, QVariant(true))));
             if (!timeline->property("nearTopArmed").toBool())
                 ++dispatches;
-            // An empty page: the row budget cannot charge for it, yet a
-            // filtered run re-arms the latch just the same.
             QVERIFY(timeline->setProperty("nearTopArmed", true));
             QCoreApplication::processEvents();
         }
@@ -7811,7 +7091,6 @@ private Q_SLOTS:
                      "row budget cannot bound an empty page")
                      .arg(dispatches).arg(requestBudget)));
 
-        // A genuine departure still starts a new approach.
         QVERIFY(timeline->setProperty("stickToBottom", true));
         QVERIFY(QMetaObject::invokeMethod(timeline, "checkNearTopEdge",
                                           Q_ARG(QVariant, QVariant(false))));
@@ -7819,14 +7098,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // Back-to-back prepends are each compensated exactly once. Anchored
-    // mid-list, where positions do not move, so this asserts "no spurious
-    // write"; topEdgePrependKeepsReaderOnTheSameRowMidGesture proves the
-    // compensation itself.
     void consecutivePaginationBatchesEachCompensateWithoutDoubleCounting()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
@@ -7845,8 +7120,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        // Three pages: startup fill, then this test's two requests.
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/3);
+        mock->resetTimelineForTest(roomId, events,3);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -7879,7 +7153,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        // The per-batch capture bookkeeping no longer exists.
         QVERIFY(!timeline->property("anchorStableId").isValid());
 
         QVERIFY(timeline->setProperty("stickToBottom", false));
@@ -7925,16 +7198,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-
-    // Growth above the anchor during a live gesture is measured but not
-    // written: contentY stays put and the measurement is re-based. Simulated
-    // by biasing viewAnchorLastY below the row's real y (the offscreen QPA
-    // does not reliably resize delegates). Writing mid-gesture pulled the
-    // reader in both directions.
     void maintainViewAnchorDefersGrowthDeltaMidGestureWithoutGlide()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
         auto *mock = controller.findChild<MockMatrixClient *>();
@@ -7952,7 +7219,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+        mock->resetTimelineForTest(roomId, events,1);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -7999,15 +7266,13 @@ private Q_SLOTS:
         QVERIFY(anchorItem != nullptr);
         const double realItemY = anchorItem->y();
 
-        // Open a touchpad session (pixelDelta; never engages the wheel engine)
-        // without letting it settle.
         const QPointF pos(320, 300);
         bool opened = false;
         for (int attempt = 0; attempt < 50 && !opened; ++attempt) {
             QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
                               QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
                               Qt::NoModifier, Qt::ScrollUpdate,
-                              /*inverted=*/false);
+false);
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
             opened = timeline->property("userScrollActive").toBool();
@@ -8018,7 +7283,6 @@ private Q_SLOTS:
         QVERIFY2(!controller.timelineScroll()->motionActive(),
                  "the pixel path must never engage the wheel engine");
 
-        // Bias the baseline as 270 px of growth above the anchor would.
         constexpr double simulatedGrowth = 270.0;
         QVERIFY(timeline->setProperty("viewAnchorLastY",
                                       realItemY - simulatedGrowth));
@@ -8027,16 +7291,12 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
 
         const double afterY = timeline->property("contentY").toDouble();
-        // No write while the gesture is live.
         QVERIFY2(qAbs(afterY - beforeY) < 1.0,
                  qPrintable(QStringLiteral(
                      "growth above the anchor was written into contentY "
                      "during an active gesture, which the deliberate "
                      "no-write design forbids: before=%1 after=%2")
                      .arg(beforeY).arg(afterY)));
-        // The branch re-bases via captureViewAnchor(): check for a fresh
-        // anchor id rather than an exact y, since it re-derives from whatever
-        // row is at the physical top.
         QVERIFY2(!timeline->property("viewAnchorId").toString().isEmpty(),
                  "the branch must leave a resolved anchor behind, not a "
                  "stale/empty one, even though it performs no write");
@@ -8045,13 +7305,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // An in-flight wheel glide is left completely undisturbed by a growth
-    // measurement landing mid-flight: same position, coalesced target and
-    // remaining distance, still moving.
     void maintainViewAnchorTranslatesActiveGlideWhenGrowthLandsMidFlight()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
         auto *mock = controller.findChild<MockMatrixClient *>();
@@ -8069,7 +7326,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+        mock->resetTimelineForTest(roomId, events,1);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -8102,8 +7359,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
 
-        // Row 5 and the real bounds (see wheelBounds()), so the glide has
-        // headroom.
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(positionAtSourceRow(timeline, 5));
         QCoreApplication::processEvents();
@@ -8147,8 +7402,6 @@ private Q_SLOTS:
         QVERIFY2(scroll->motionActive(),
                  "an in-flight glide must survive a growth correction");
         const double afterY = timeline->property("contentY").toDouble();
-        // No write while the glide is live: contentY, target and remaining
-        // distance are unchanged.
         QVERIFY2(qAbs(afterY - beforeY) < 1.0,
                  qPrintable(QStringLiteral(
                      "contentY moved during an active glide, which the "
@@ -8164,13 +7417,10 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // During a native drag (Flickable owns contentY) nothing writes contentY,
-    // and the anchor is still re-derived from live geometry, exactly as on the
-    // self-driven path.
     void growthDeltaIsDeferredWhileFlickableOwnsTheDrag()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
         auto *mock = controller.findChild<MockMatrixClient *>();
@@ -8188,7 +7438,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+        mock->resetTimelineForTest(roomId, events,1);
 
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
@@ -8220,8 +7470,6 @@ private Q_SLOTS:
         QVERIFY(positionAtSourceRow(timeline, 15));
         QCoreApplication::processEvents();
 
-        // Preconditions, so a geometry change fails here rather than
-        // confusingly below.
         QVERIFY(!controller.pagination()->busy());
 
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
@@ -8234,7 +7482,6 @@ private Q_SLOTS:
         QVERIFY(anchorItem != nullptr);
         const double realItemY = anchorItem->y();
 
-        // A real native drag, so Flickable's `moving` turns true.
         QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier,
                           QPoint(360, 400));
         for (int step = 1; step <= 8; ++step) {
@@ -8258,35 +7505,22 @@ private Q_SLOTS:
         const double afterY = timeline->property("contentY").toDouble();
         const double baselineAfter =
             timeline->property("viewAnchorLastY").toDouble();
-        // Release before asserting, so a failure does not leave the button
-        // pressed for later tests.
         QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier,
                             QPoint(360, 512));
 
         Q_UNUSED(baselineAfter);
-        // contentY does not move during the drag.
         QCOMPARE(afterY, beforeY);
-        // The anchor is re-derived, not stale or empty. The drag moved the
-        // viewport, so a different row may legitimately be at the top.
         QVERIFY2(!timeline->property("viewAnchorId").toString().isEmpty(),
                  "the drag path must leave a resolved anchor behind, not a "
                  "stale/empty one");
     }
 
-    // Per-branch scroll-trace instrumentation for maintainViewAnchor(). These
-    // pin only the trace plumbing (each counter increments on its own branch,
-    // the line renders every field, tracing off costs nothing), not scroll
-    // behaviour. Counters carry across a flush so post-settle reconciles
-    // appear on the next line.
-
-    // With LIGHTNING_SCROLL_TRACE unset, the same growth scenario moves no
-    // counter and emits no line.
     void scrollTraceDisabledAddsNoDiagnosticCost()
     {
         qunsetenv("LIGHTNING_SCROLL_TRACE");
 
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         QVERIFY(!controller.timelineScroll()->scrollTraceEnabled());
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
@@ -8305,7 +7539,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+        mock->resetTimelineForTest(roomId, events,1);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -8351,7 +7585,7 @@ private Q_SLOTS:
             QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
                               QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
                               Qt::NoModifier, Qt::ScrollUpdate,
-                              /*inverted=*/false);
+false);
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
             if (timeline->property("userScrollActive").toBool())
@@ -8407,15 +7641,13 @@ private Q_SLOTS:
         }
     }
 
-    // The emitted trace line contains every per-branch field; values are
-    // covered by the per-branch tests.
     void scrollTraceLineIncludesAllPerBranchFields()
     {
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
         struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
 
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
@@ -8457,7 +7689,7 @@ private Q_SLOTS:
             QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
                               QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
                               Qt::NoModifier, Qt::ScrollUpdate,
-                              /*inverted=*/false);
+false);
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
             opened = timeline->property("userScrollActive").toBool();
@@ -8500,8 +7732,6 @@ private Q_SLOTS:
             QStringLiteral("displacedMaxAbsOriginShiftRows="),
             QStringLiteral("materializedFirings="),
             QStringLiteral("materializedMaxAbsDelta="),
-            // No "materializedApplied=": the branch no longer writes, so it
-            // would always read 0; the magnitude is materializedMaxAbsDelta.
             QStringLiteral("unresolvedId="),
             QStringLiteral("evictedNoInsert="),
             QStringLiteral("dragDeferrals="),
@@ -8523,16 +7753,13 @@ private Q_SLOTS:
         }
     }
 
-    // The materialized (self-driven) branch's counters: it only measures
-    // (diagMaterializedFirings, diagMaterializedMaxAbsDelta) and never
-    // applies, so diagMaterializedAppliedSum stays unchanged.
     void diagMaterializedCountersTrackTheSelfDrivenGrowthBranch()
     {
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
         struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
 
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
@@ -8551,7 +7778,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+        mock->resetTimelineForTest(roomId, events,1);
 
         QQmlApplicationEngine engine;
         QStringList warnings;
@@ -8596,8 +7823,6 @@ private Q_SLOTS:
         QQuickItem *anchorItem = nullptr;
         QVERIFY(((anchorItem = itemForSourceRow(timeline, anchorRow)) != nullptr));
         QVERIFY(anchorItem != nullptr);
-        // maintainViewAnchor() measures against anchorPositionForItem(), i.e.
-        // y + height (the rotated view's physical top edge), not y alone.
         const double realAnchorY = anchorItem->y() + anchorItem->height();
 
         const QPointF pos(320, 300);
@@ -8606,7 +7831,7 @@ private Q_SLOTS:
             QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
                               QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
                               Qt::NoModifier, Qt::ScrollUpdate,
-                              /*inverted=*/false);
+false);
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
             opened = timeline->property("userScrollActive").toBool();
@@ -8615,9 +7840,6 @@ private Q_SLOTS:
         }
         QVERIFY2(opened, "a touchpad delta must open the scroll session");
         QVERIFY(timeline->property("diagActive").toBool());
-        // Baseline rather than zero: under heavy load one extra firing has
-        // been seen during setup (cause not identified). The assertions stay
-        // exact in the quiescent case.
         const int baseFirings =
             timeline->property("diagMaterializedFirings").toInt();
         const double baseApplied =
@@ -8635,11 +7857,8 @@ private Q_SLOTS:
 
         QCOMPARE(timeline->property("diagMaterializedFirings").toInt(),
                  baseFirings + 1);
-        // The branch performs no write, so the applied sum stays at baseline.
         QCOMPARE(timeline->property("diagMaterializedAppliedSum").toDouble(),
                  baseApplied);
-        // Exact when quiescent; with an earlier baseline firing it is only a
-        // lower bound (the field keeps the largest |delta|).
         const double maxAbs =
             qAbs(timeline->property("diagMaterializedMaxAbsDelta").toDouble());
         if (baseFirings == 0) {
@@ -8657,16 +7876,13 @@ private Q_SLOTS:
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // diagDragDeferrals counts a native drag engaging the defer path. A pure
-    // drag never opens the diag session, so one touchpad delta opens it
-    // first, then a real drag follows.
     void diagDragDeferralsCountsNativeDragEngagements()
     {
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
         struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
 
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
@@ -8685,7 +7901,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+        mock->resetTimelineForTest(roomId, events,1);
 
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
@@ -8726,14 +7942,13 @@ private Q_SLOTS:
         QVERIFY(anchorItem != nullptr);
         const double realItemY = anchorItem->y();
 
-        // Open the diag session (a pure drag does not).
         const QPointF pos(320, 300);
         bool opened = false;
         for (int attempt = 0; attempt < 50 && !opened; ++attempt) {
             QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
                               QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
                               Qt::NoModifier, Qt::ScrollUpdate,
-                              /*inverted=*/false);
+false);
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
             opened = timeline->property("userScrollActive").toBool();
@@ -8743,7 +7958,6 @@ private Q_SLOTS:
         QVERIFY2(opened, "a touchpad delta must open the scroll session");
         QVERIFY(timeline->property("diagActive").toBool());
 
-        // Then a real native drag, so Flickable's `moving` turns true.
         QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier,
                           QPoint(360, 400));
         for (int step = 1; step <= 8; ++step) {
@@ -8755,9 +7969,6 @@ private Q_SLOTS:
         QVERIFY2(!timeline->property("selfDrivenScrollActive").toBool(),
                  "a drag is NOT a self-driven (Lightning-owned) scroll");
 
-        // Baselines captured right before the driven call: the touchpad
-        // session and the drag can each run this branch under load, and
-        // diagDragDeferrals increments inside diagMaterializedFirings' branch.
         const int baseFirings =
             timeline->property("diagMaterializedFirings").toInt();
         const int baseDragDeferrals =
@@ -8782,16 +7993,13 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
     }
 
-    // A stable id that resolves to no row increments diagUnresolvedIdFallbacks,
-    // not diagEvictedNoInsertFallbacks: "the id is gone" and "the delegate was
-    // evicted" are different causes.
     void diagUnresolvedIdFallbackCountsGenuinelyUnresolvableAnchor()
     {
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
         struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
 
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
@@ -8810,7 +8018,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+        mock->resetTimelineForTest(roomId, events,1);
 
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
@@ -8842,14 +8050,13 @@ private Q_SLOTS:
         QVERIFY(positionAtSourceRow(timeline, 15));
         QCoreApplication::processEvents();
 
-        // Open the diag session.
         const QPointF pos(320, 300);
         bool opened = false;
         for (int attempt = 0; attempt < 50 && !opened; ++attempt) {
             QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
                               QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
                               Qt::NoModifier, Qt::ScrollUpdate,
-                              /*inverted=*/false);
+false);
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
             opened = timeline->property("userScrollActive").toBool();
@@ -8860,13 +8067,9 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(), 0);
         QCOMPARE(timeline->property("diagEvictedNoInsertFallbacks").toInt(), 0);
 
-        // A stable id that resolves to no row cannot enter the displaced
-        // branch (it needs row >= 0) and falls to the capture fallback.
         QVERIFY(timeline->setProperty(
             "viewAnchorId", QStringLiteral("$this-event-id-does-not-exist")));
 
-        // Baseline the other counters right before the call: setup can
-        // legitimately fire the materialized branch, so assert deltas.
         const int baseEvicted =
             timeline->property("diagEvictedNoInsertFallbacks").toInt();
         const int baseDisplaced =
@@ -8889,17 +8092,13 @@ private Q_SLOTS:
                  baseDragDeferrals);
     }
 
-    // The un-virtualized Column never evicts a delegate, so an anchor whose
-    // event is loaded always resolves and never takes the evicted-no-insert
-    // or unresolved-id fallback. If delegate eviction returns, this fails;
-    // the pre-8f84d18 eviction fixtures are the starting point for re-porting.
     void anchorDelegateSurvivesDistantScrollNeverEvictedFallback()
     {
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
         struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
 
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
@@ -8921,7 +8120,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+        mock->resetTimelineForTest(roomId, events,1);
 
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
@@ -8958,7 +8157,6 @@ private Q_SLOTS:
         const int anchorRow = controller.timeline()->rowForStableId(anchorId);
         QVERIFY(anchorRow >= 0);
 
-        // Jump far away; the anchor delegate must survive.
         QVERIFY(positionAtSourceRow(timeline, 50));
         QCoreApplication::processEvents();
         QVERIFY2(itemForSourceRow(timeline, anchorRow) != nullptr,
@@ -8966,8 +8164,6 @@ private Q_SLOTS:
                  "delegate alive — eviction has been reintroduced");
         QVERIFY2(!timeline->property("moving").toBool(),
                  "programmatic positioning must not leave Flickable.moving");
-        // Pin the id back in case a queued maintainViewAnchorCoalesced()
-        // re-captured another row.
         QVERIFY(timeline->setProperty("viewAnchorId", anchorId));
 
         const QPointF pos(320, 300);
@@ -8976,7 +8172,7 @@ private Q_SLOTS:
             QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
                               QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
                               Qt::NoModifier, Qt::ScrollUpdate,
-                              /*inverted=*/false);
+false);
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
             opened = timeline->property("userScrollActive").toBool();
@@ -8984,12 +8180,9 @@ private Q_SLOTS:
                 QTest::qWait(10);
         }
         QVERIFY2(opened, "a touchpad delta must open the scroll session");
-        // A coalesced re-capture may have moved the anchor; re-pin it and
-        // confirm its delegate is alive right before the driven call.
         QVERIFY(timeline->setProperty("viewAnchorId", anchorId));
         QVERIFY2(itemForSourceRow(timeline, anchorRow) != nullptr,
                  "the anchor's delegate must be alive for this invariant");
-        // Setup can drive counters; assert no increase across the call.
         const int baseEvicted =
             timeline->property("diagEvictedNoInsertFallbacks").toInt();
         const int baseUnresolved =
@@ -9005,8 +8198,6 @@ private Q_SLOTS:
                  baseEvicted);
         QCOMPARE(timeline->property("diagUnresolvedIdFallbacks").toInt(),
                  baseUnresolved);
-        // With the delegate alive and input active, the materialized branch
-        // handles this. A coalesced call may fire alongside, so assert growth.
         QVERIFY2(timeline->property("diagMaterializedFirings").toInt()
                      > baseMaterialized,
                  "the driven call must take the materialized branch");
@@ -9014,17 +8205,13 @@ private Q_SLOTS:
                  baseDisplaced);
     }
 
-    // With no eviction, the displaced branch's `!it` precondition can never
-    // hold for a loaded row. Even when the bookkeeping claims rows were
-    // inserted above the reader, a live delegate routes the correction
-    // through the idle absolute restore.
     void displacedBranchDoesNotFireWhileAnchorDelegateAlive()
     {
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
         struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
 
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
         const QString roomId = QStringLiteral("!general:mock.local");
         controller.setCurrentRoomId(roomId);
@@ -9045,7 +8232,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/1);
+        mock->resetTimelineForTest(roomId, events,1);
 
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
@@ -9081,8 +8268,6 @@ private Q_SLOTS:
         QVERIFY2(!anchorId.isEmpty(), "the fixture must yield a live anchor");
         const int sourceRow = controller.timeline()->rowForStableId(anchorId);
         QVERIFY(sourceRow >= 0);
-        // Ask the pane for the view row: the paced proxy can make a
-        // hand-computed mapping wrong while rows are releasing.
         QVariant viewRowOut;
         QVERIFY(QMetaObject::invokeMethod(
             timeline, "viewRowForStableId", Q_RETURN_ARG(QVariant, viewRowOut),
@@ -9099,9 +8284,6 @@ private Q_SLOTS:
         const int basePrepend =
             timeline->property("diagPrependFirings").toInt();
 
-        // Inject the displaced branch's bookkeeping: the recorded row three
-        // below the real one, with a matching content-height delta. Idle with
-        // the delegate alive, the displaced arithmetic must not run.
         constexpr double injectedContentDelta = -3582.0;
         constexpr int injectedInsertedRows = 3;
         const double contentHeightNow =
@@ -9116,14 +8298,11 @@ private Q_SLOTS:
 
         QCOMPARE(timeline->property("diagDisplacedFirings").toInt(),
                  baseDisplaced);
-        // The prepend diagnostic still records the firing, attributed to the
-        // idle path.
         QCOMPARE(timeline->property("diagPrependFirings").toInt(),
                  basePrepend + 1);
         QCOMPARE(timeline->property(
                      "diagPrependMaxAbsOriginShiftPath").toString(),
                  QStringLiteral("idle"));
-        // The idle branch re-based the recorded row to the real view row.
         QVERIFY(QMetaObject::invokeMethod(
             timeline, "viewRowForStableId", Q_RETURN_ARG(QVariant, viewRowOut),
             Q_ARG(QVariant, anchorId)));
@@ -9131,17 +8310,13 @@ private Q_SLOTS:
                  viewRowOut.toInt());
     }
 
-
-    // diagNoAnchorReturns increments on the early return (empty viewAnchorId
-    // or stickToBottom), so "never engaged" is distinguishable from "nothing
-    // to correct".
     void diagNoAnchorReturnsCountsTheEarlyReturn()
     {
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
         struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
 
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
@@ -9167,8 +8342,6 @@ private Q_SLOTS:
         window.show();
         QCoreApplication::processEvents();
 
-        // stickToBottom forces the early return; viewAnchorId also starts
-        // empty on a fresh room.
         QVERIFY(timeline->setProperty("stickToBottom", true));
         QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 0);
 
@@ -9178,8 +8351,6 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
         QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 2);
 
-        // Nothing else ran. An empty viewAnchorId takes precedence over
-        // stickToBottom, so the sibling counter stays 0.
         QCOMPARE(timeline->property("diagStickToBottomReturns").toInt(), 0);
         QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
         QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
@@ -9189,16 +8360,13 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("diagAnchorCorrections").toInt(), 0);
     }
 
-    // diagStickToBottomReturns: a correction dropped because the reader
-    // returned to the bottom. Needs a non-empty viewAnchorId, since the empty
-    // arm takes precedence.
     void diagStickToBottomReturnsCountsTheDroppedCorrection()
     {
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
         struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
 
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
@@ -9224,7 +8392,6 @@ private Q_SLOTS:
         window.show();
         QCoreApplication::processEvents();
 
-        // A real anchor first, then the reader lands back at the bottom.
         QVERIFY(timeline->setProperty("stickToBottom", false));
         QVERIFY(QMetaObject::invokeMethod(timeline, "captureViewAnchor"));
         QVERIFY(!timeline->property("viewAnchorId").toString().isEmpty());
@@ -9239,22 +8406,18 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("diagStickToBottomReturns").toInt(), 2);
         QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 0);
 
-        // No correction path ran.
         QCOMPARE(timeline->property("diagDisplacedFirings").toInt(), 0);
         QCOMPARE(timeline->property("diagMaterializedFirings").toInt(), 0);
         QCOMPARE(timeline->property("diagAnchorCorrections").toInt(), 0);
     }
 
-    // Outcome counters incremented while no gesture session is open (a
-    // reconcile landing after the settle flush) survive to the next printed
-    // line. Driven directly for determinism.
     void diagOutcomeCountersSurviveAcrossAFlushBoundary()
     {
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
         struct Guard { ~Guard() { qunsetenv("LIGHTNING_SCROLL_TRACE"); } } guard;
 
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         QVERIFY(controller.timelineScroll()->scrollTraceEnabled());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
@@ -9285,23 +8448,19 @@ private Q_SLOTS:
         window.show();
         QCoreApplication::processEvents();
 
-        // Two early returns before any session opens.
         QVERIFY(timeline->setProperty("stickToBottom", true));
         QCOMPARE(timeline->property("diagActive").toBool(), false);
         QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
         QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
         QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 2);
 
-        // Opening a gesture resets only the gesture-local event group, not
-        // the carried outcome count. viewAnchorId stays empty, so this delta
-        // triggers no further outcome.
         const QPointF pos(320, 300);
         bool opened = false;
         for (int attempt = 0; attempt < 50 && !opened; ++attempt) {
             QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
                               QPoint(0, 24), QPoint(0, 0), Qt::NoButton,
                               Qt::NoModifier, Qt::ScrollUpdate,
-                              /*inverted=*/false);
+false);
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
             opened = timeline->property("userScrollActive").toBool();
@@ -9328,16 +8487,12 @@ private Q_SLOTS:
                      "the pre-gesture outcome count was not carried into "
                      "the flushed line: %1").arg(line)));
 
-        // Drained at print: the next early return starts from 1.
         QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 0);
         QVERIFY(QMetaObject::invokeMethod(timeline, "maintainViewAnchor"));
         QCOMPARE(timeline->property("diagNoAnchorReturns").toInt(), 1);
         QCOMPARE(realWarnings(warnings), QStringList{});
     }
 
-    // With a row window active, real wheel notches toward the newest end
-    // reach the true live edge: the window must shrink during motion, and a
-    // skip under the 40-row hysteresis must still close to zero.
     void wheelMotionIntoHistoryAndBackReachesTheTrueLiveEdge()
     {
         AppController controller(AppController::MockBackend);
@@ -9349,7 +8504,6 @@ private Q_SLOTS:
         QQuickItem *root = paneRootOf(timeline);
         QVERIFY(root != nullptr);
 
-        // Establish a window as the settle timer does.
         QQmlExpression apply(qmlContext(timeline), timeline,
                              QStringLiteral("applyRowWindow()"));
         apply.evaluate();
@@ -9363,18 +8517,11 @@ private Q_SLOTS:
                  "no window was established, so the synthetic newest edge "
                  "this test is about does not exist here");
 
-        // Scroll down using only the wheel.
         const QPointF pos(window.width() / 2.0, window.height() / 2.0);
-        // Notch until follow-latest engages, which implies skip == 0
-        // (atBottomEdge() is false while a window hides the live edge).
-        // skip == 0 alone is not enough: the reader can still be a screen
-        // above the newest message. Generous budget: each extension adds
-        // runway to traverse.
         for (int i = 0; i < 6000; ++i) {
-            sendWheelNotch(window, pos, -120, /*inverted=*/false);
+            sendWheelNotch(window, pos, -120,false);
             if (timeline->property("stickToBottom").toBool())
                 break;
-            // Delivery is fast, the wheel glide runs on real time: let it.
             if (i % 10 == 9)
                 QTest::qWait(16);
         }
@@ -9393,8 +8540,6 @@ private Q_SLOTS:
                  "still demanding a press");
     }
 
-    // A window whose skip is smaller than the hysteresis step still closes to
-    // the live edge.
     void rowWindowWithASmallSkipStillClosesToTheLiveEdge()
     {
         AppController controller(AppController::MockBackend);
@@ -9404,8 +8549,6 @@ private Q_SLOTS:
             deepHistoryPane(controller, engine, window, 900, 0.55);
         QVERIFY(timeline != nullptr);
 
-        // Small skip and an exposed count near windowMinRows: both hysteresis
-        // terms under 40.
         QQmlExpression setWindow(
             qmlContext(timeline), timeline,
             QStringLiteral("(function(){ app.timelineView.setWindow(12, 330);"
@@ -9434,13 +8577,10 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("rowWindowSkip").toInt(), 0);
     }
 
-    // In a room too short to scroll, a wheel event is a no-op and must leave
-    // follow-latest engaged (a jump pill there could never be cleared).
-    // WheelEvent::inverted is ignored, so both states behave the same.
     void clampedNoOpWheelEventLeavesFollowLatestEngaged()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -9449,7 +8589,7 @@ private Q_SLOTS:
             controller, engine, window, roomId,
             textFixture(roomId, 3, QStringLiteral("short"),
                         QStringLiteral("tiny")),
-            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+0,600, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
 
@@ -9478,7 +8618,6 @@ private Q_SLOTS:
             QVERIFY(!pill->isVisible());
         }
 
-        // Downward at the live edge, in both inverted states.
         for (bool inverted : { false, true }) {
             QVERIFY(timeline->setProperty("stickToBottom", true));
             sendWheelNotch(window, pos, -120, inverted);
@@ -9487,20 +8626,14 @@ private Q_SLOTS:
         }
     }
 
-    // Turning smooth scrolling off must not reverse the wheel: both settings
-    // move the reader the same way for the same notch. A comparison rather
-    // than an absolute direction, which depends on the view's rotation.
     void turningSmoothScrollingOffKeepsTheWheelDirection()
     {
-        // Measure first, assert after: this binary shares one QSettings file,
-        // and a failure while the setting is flipped would leave it flipped
-        // on disk for later cases.
         double moved[2] = { 0.0, 0.0 };
         const bool wanted[2] = { true, false };
         bool previous = true;
         for (int i = 0; i < 2; ++i) {
             AppController controller(AppController::MockBackend);
-            QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+            QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
             const QString roomId = QStringLiteral("!general:mock.local");
             QQmlApplicationEngine engine;
             QQuickWindow window;
@@ -9509,7 +8642,7 @@ private Q_SLOTS:
                 controller, engine, window, roomId,
                 textFixture(roomId, 60, QStringLiteral("line"),
                             QStringLiteral("body")),
-                /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+0,600, &timeline);
             QVERIFY(root != nullptr);
             QVERIFY(timeline != nullptr);
             if (i == 0)
@@ -9521,16 +8654,14 @@ private Q_SLOTS:
             QVERIFY(wheelBounds(timeline, &minY, &maxY));
             QVERIFY2(maxY > minY + 1.0, "fixture is not scrollable");
 
-            // Park in the middle so no edge clamp swallows the notch.
             const double start = (minY + maxY) / 2.0;
             QVERIFY(timeline->setProperty("contentY", start));
             QVERIFY(timeline->setProperty("stickToBottom", false));
             QTest::qWait(60);
 
             const QPointF pos(window.width() / 2.0, window.height() / 2.0);
-            // One notch up (toward older messages).
-            sendWheelNotch(window, pos, 120, /*inverted=*/false);
-            QTest::qWait(400);   // let a glide, if any, settle
+            sendWheelNotch(window, pos, 120,false);
+            QTest::qWait(400);
             moved[i] = timeline->property("contentY").toDouble() - start;
 
             controller.settings()->setSmoothScrolling(previous);
@@ -9541,24 +8672,18 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("smooth=%1 moved nothing")
                                     .arg(wanted[i])));
         }
-        // Both settings move the same way.
         QCOMPARE(moved[1] > 0 ? 1 : -1, moved[0] > 0 ? 1 : -1);
     }
 
-    // The jump pill lands the reader on the first unread message (the SDK's
-    // read marker row), driven through the real pill and landing machinery.
     void thePillLandsTheReaderOnTheFirstUnreadMessage()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
         QQuickItem *timeline = nullptr;
 
-        // 60 messages with the marker near the oldest end, so it is well
-        // above the viewport at the live edge (a marker on screen offers no
-        // pill) and landing is a real move.
         QList<TimelineEvent> events =
             textFixture(roomId, 60, QStringLiteral("u"), QStringLiteral("body"));
         TimelineEvent marker;
@@ -9567,12 +8692,11 @@ private Q_SLOTS:
         events.insert(10, marker);
 
         QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
-                                          events, /*paginationPages=*/0,
-                                          /*viewportHeight=*/600, &timeline);
+                                          events,0,
+600, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
 
-        // The model found the marker, so the pill is offered.
         QCOMPARE(controller.timeline()->readMarkerRow(), 10);
         auto *pill = root->findChild<QQuickItem *>(
             QStringLiteral("jumpToFirstUnreadButton"));
@@ -9580,28 +8704,20 @@ private Q_SLOTS:
         QVERIFY2(pill->isVisible(),
                  "the marker is loaded and the pill is still hidden");
 
-        // Start at the live edge.
         QVERIFY(timeline->setProperty("stickToBottom", true));
         QMetaObject::invokeMethod(timeline, "goToLatest");
         QTest::qWait(120);
         const double before = timeline->property("contentY").toDouble();
 
         QMetaObject::invokeMethod(pill, "click");
-        // The landing may wait for the Column to lay the row out.
         QVERIFY2(QTest::qWaitFor([&] {
                      return timeline->property("navigationPendingRow").toInt() < 0
                          && timeline->property("contentY").toDouble() > before + 1.0;
                  }, 4000),
                  "the pill did not move the reader toward the marker");
 
-        // The marker is above the live edge: the reader moved into history
-        // and stopped following the bottom.
         QVERIFY(!timeline->property("stickToBottom").toBool());
         QCOMPARE(timeline->property("diagNavigationUnresolved").toInt(), 0);
-        // And the divider is ON SCREEN. Moving "toward" it is not landing on
-        // it: the old offset put it a quarter viewport below the bottom edge,
-        // showing only older messages (break-it B060), and passed every
-        // assertion above.
         QTRY_VERIFY2_WITH_TIMEOUT(
             timeline->property("firstUnreadOnScreen").toBool(),
             qPrintable(QStringLiteral(
@@ -9611,17 +8727,13 @@ private Q_SLOTS:
                 .arg(timeline->property("viewportNewestRow").toInt())
                 .arg(timeline->property("viewportOldestRow").toInt())),
             2000);
-        // On screen, it needs no pill.
         QTRY_VERIFY_WITH_TIMEOUT(!pill->isVisible(), 2000);
     }
 
-    // The room was opened with unread messages but the marker lies above the
-    // loaded rows: the pill is still offered, and its hunt is bounded, so
-    // with nothing to find it withdraws instead of promising for ever.
     void thePillIsOfferedWhenTheMarkerIsAboveTheLoadedRows()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QVERIFY2(controller.roomList()->findRoom(roomId)
                          .value(QStringLiteral("unreadCount")).toInt() > 0,
@@ -9632,7 +8744,7 @@ private Q_SLOTS:
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId,
             textFixture(roomId, 20, QStringLiteral("d"), QStringLiteral("body")),
-            /*paginationPages=*/3, /*viewportHeight=*/600, &timeline);
+3,600, &timeline);
         QVERIFY(root != nullptr);
         QCOMPARE(controller.timeline()->readMarkerRow(), -1);
         auto *pill = root->findChild<QQuickItem *>(
@@ -9649,13 +8761,10 @@ private Q_SLOTS:
         QCOMPARE(controller.timeline()->readMarkerRow(), -1);
     }
 
-    // C13-F02: a hunt that gives up must say so. The pill used to vanish after
-    // a click that moved nothing. Fails on the old code: no item named
-    // firstUnreadFailedNote exists there.
     void aFailedFirstUnreadHuntSaysSo()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -9663,7 +8772,7 @@ private Q_SLOTS:
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId,
             textFixture(roomId, 20, QStringLiteral("n"), QStringLiteral("body")),
-            /*paginationPages=*/3, /*viewportHeight=*/600, &timeline);
+3,600, &timeline);
         QVERIFY(root != nullptr);
         auto *pill = root->findChild<QQuickItem *>(
             QStringLiteral("jumpToFirstUnreadButton"));
@@ -9674,12 +8783,8 @@ private Q_SLOTS:
         QVERIFY(!note->isVisible());
         QTRY_VERIFY_WITH_TIMEOUT(pill->isVisible(), 2000);
         QMetaObject::invokeMethod(pill, "click");
-        // The pill hides when the last page lands; the failed flag is set only
-        // when the retry timer later fires, so wait for the note itself.
         QTRY_VERIFY2_WITH_TIMEOUT(note->isVisible(), "the pill vanished and nothing told the reader why", 8000);
         QVERIFY(!pill->isVisible());
-        // At the room start the centred "Beginning of conversation" label
-        // owns the centre; the note must not cover it.
         if (controller.pagination()->reachedStart()) {
             const QPointF left = note->parentItem()->mapToItem(
                 root, QPointF(note->x(), 0));
@@ -9689,14 +8794,10 @@ private Q_SLOTS:
         }
     }
 
-    // C13-F08: once the room's true start is loaded the "Beginning of
-    // conversation" label is centred at the top; the first-unread pill must
-    // not sit over that centre. Fails on the old code, where the pill is
-    // always horizontally centred.
     void theFirstUnreadPillLeavesTheStartLabelAloneAtTheRoomStart()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -9708,8 +8809,8 @@ private Q_SLOTS:
         marker.type = TimelineEvent::ReadMarker;
         events.insert(10, marker);
         QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
-                                          events, /*paginationPages=*/1,
-                                          /*viewportHeight=*/600, &timeline);
+                                          events,1,
+600, &timeline);
         QVERIFY(root != nullptr);
         auto *pill = root->findChild<QQuickItem *>(
             QStringLiteral("jumpToFirstUnreadButton"));
@@ -9729,17 +8830,10 @@ private Q_SLOTS:
                                 .arg(pillMid.x()).arg(centre)));
     }
 
-    // A read-marker row that was loaded and then goes away takes the pill with
-    // it. The "opened with unread" snapshot stands in only for a marker the
-    // reader has not seen loaded; once the row was there, its removal (the
-    // coordinator writing m.fully_read on window deactivation, or another
-    // device moving it) must not bring the pill back as a jump the bounded
-    // hunt cannot land. History is left unexhausted on purpose, so the only
-    // thing that can hide the pill is the marker going away.
     void aReadMarkerThatGoesAwayTakesThePillWithIt()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QVERIFY2(controller.roomList()->findRoom(roomId)
                          .value(QStringLiteral("unreadCount")).toInt() > 0,
@@ -9748,8 +8842,6 @@ private Q_SLOTS:
         QQuickWindow window;
         QQuickItem *timeline = nullptr;
 
-        // The marker well above the viewport at the live edge: a marker on
-        // screen offers no pill, which is not what this case is about.
         const QList<TimelineEvent> plain =
             textFixture(roomId, 60, QStringLiteral("g"), QStringLiteral("body"));
         QList<TimelineEvent> withMarker = plain;
@@ -9759,8 +8851,8 @@ private Q_SLOTS:
         withMarker.insert(5, marker);
 
         QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
-                                          withMarker, /*paginationPages=*/3,
-                                          /*viewportHeight=*/600, &timeline);
+                                          withMarker,3,
+600, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(controller.timeline()->readMarkerRow() >= 0);
         auto *pill = root->findChild<QQuickItem *>(
@@ -9770,15 +8862,13 @@ private Q_SLOTS:
                                   "the marker is loaded and the pill is hidden",
                                   2000);
 
-        // The SDK drops the marker row (the same rows, minus the marker).
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
-        mock->resetTimelineForTest(roomId, plain, /*paginationPages=*/3);
+        mock->resetTimelineForTest(roomId, plain,3);
         QTRY_COMPARE_WITH_TIMEOUT(controller.timeline()->readMarkerRow(), -1,
                                   3000);
         QTRY_VERIFY_WITH_TIMEOUT(controller.timeline()->eventCount() > 0,
                                  3000);
-        // The pill's other gate is still open: history is not exhausted.
         QVERIFY2(!controller.pagination()->reachedStart(),
                  "the fixture reached the start, so it cannot tell the two "
                  "reasons for hiding the pill apart");
@@ -9786,22 +8876,14 @@ private Q_SLOTS:
         QTRY_VERIFY2_WITH_TIMEOUT(!pill->isVisible(),
                                   "the marker went away and the pill still "
                                   "offers a jump to it", 2000);
-        // And it stays hidden: nothing re-arms the snapshot this visit.
         QTest::qWait(200);
         QVERIFY(!pill->isVisible());
     }
 
-    // The deep-marker pill (no marker row loaded, room opened with unread)
-    // withdraws when Lightning itself writes m.fully_read for the room: the
-    // window lost focus with the reader at the bottom, so nothing unread is
-    // left above the loaded rows and a hunt could not land. A write for
-    // ANOTHER room changes nothing. The coordinator's emission is covered by
-    // ReadReceiptCoordinatorTest::windowDeactivationMovesTheFullyReadMarker;
-    // this case drives the pane's half through the real signal.
     void theDeepMarkerPillWithdrawsWhenTheFullyReadMarkerIsWritten()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QVERIFY2(controller.roomList()->findRoom(roomId)
                          .value(QStringLiteral("unreadCount")).toInt() > 0,
@@ -9812,7 +8894,7 @@ private Q_SLOTS:
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId,
             textFixture(roomId, 20, QStringLiteral("w"), QStringLiteral("body")),
-            /*paginationPages=*/3, /*viewportHeight=*/600, &timeline);
+3,600, &timeline);
         QVERIFY(root != nullptr);
         QCOMPARE(controller.timeline()->readMarkerRow(), -1);
         auto *pill = root->findChild<QQuickItem *>(
@@ -9824,7 +8906,6 @@ private Q_SLOTS:
         ReadReceiptCoordinator *receipts = controller.readReceipts();
         QVERIFY(receipts != nullptr);
 
-        // Another room's write leaves this room's pill alone.
         QVERIFY(QMetaObject::invokeMethod(
             receipts, "fullyReadMarkerMoved",
             Q_ARG(QString, QStringLiteral("!elsewhere:mock.local")),
@@ -9843,11 +8924,10 @@ private Q_SLOTS:
                                   "and the pill still offers a jump", 2000);
     }
 
-    // No marker, no pill.
     void noReadMarkerMeansNoPill()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -9855,7 +8935,7 @@ private Q_SLOTS:
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId,
             textFixture(roomId, 20, QStringLiteral("q"), QStringLiteral("body")),
-            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+0,600, &timeline);
         QVERIFY(root != nullptr);
         QCOMPARE(controller.timeline()->readMarkerRow(), -1);
         auto *pill = root->findChild<QQuickItem *>(
@@ -9870,13 +8950,10 @@ private Q_SLOTS:
                      .arg(controller.pagination()->reachedStart())));
     }
 
-    // The find bar's History segment searches the local index (which covers
-    // encrypted rooms), driven through the real bar: open Find, switch to
-    // History, type, read the rows.
     void theFindBarSearchesTheLocalIndex()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -9884,12 +8961,11 @@ private Q_SLOTS:
 
         QList<TimelineEvent> events =
             textFixture(roomId, 12, QStringLiteral("s"), QStringLiteral("body"));
-        // A distinctive needle, and a decoy that must NOT match it.
         events[3].body = QStringLiteral("the zephyrine protocol landed today");
         events[7].body = QStringLiteral("nothing to do with that word");
         QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
-                                          events, /*paginationPages=*/0,
-                                          /*viewportHeight=*/700, &timeline);
+                                          events,0,
+700, &timeline);
         QVERIFY(root != nullptr);
 
         auto *search = controller.messageSearch();
@@ -9898,7 +8974,6 @@ private Q_SLOTS:
                  "the backend reports no local index, so the bar cannot be "
                  "exercised at all");
 
-        // Open Find and switch to History through the real controls.
         QMetaObject::invokeMethod(root, "openFind");
         QTest::qWait(60);
         auto *toggle = root->findChild<QQuickItem *>(
@@ -9925,15 +9000,11 @@ private Q_SLOTS:
         QCOMPARE(search->rowAt(0).value(QStringLiteral("body")).toString(),
                  QStringLiteral("the zephyrine protocol landed today"));
 
-        // The coverage line says what is being searched, so "no results" is
-        // not read as "never said".
         auto *coverage = root->findChild<QQuickItem *>(
             QStringLiteral("findLocalCoverage"));
         QVERIFY2(coverage != nullptr, "the coverage line is gone");
         QVERIFY(coverage->isVisible());
 
-        // A query below the tokenizer minimum is its own state, not an error
-        // or "no results".
         field->setProperty("text", QStringLiteral("ze"));
         QVERIFY2(QTest::qWaitFor([&] {
                      return search->state() == QLatin1String("too_short");
@@ -9942,20 +9013,16 @@ private Q_SLOTS:
                                 .arg(search->state())));
         QVERIFY(search->minLocalChars() >= 3);
 
-        // A needle nobody said returns nothing.
         field->setProperty("text", QStringLiteral("borogoves"));
         QVERIFY(QTest::qWaitFor([&] {
             return search->state() == QLatin1String("no_results");
         }, 4000));
     }
 
-    // The room-header search panel offers the same Indexed/Server choice as
-    // the find bar: local by default, the toggle switches source and re-runs
-    // the query, and the hint says which source is being searched.
     void theSearchPanelHasASourceToggle()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -9964,14 +9031,12 @@ private Q_SLOTS:
             textFixture(roomId, 12, QStringLiteral("s"), QStringLiteral("body"));
         events[3].body = QStringLiteral("the zephyrine protocol landed today");
         QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
-                                          events, /*paginationPages=*/0,
-                                          /*viewportHeight=*/700, &timeline);
+                                          events,0,
+700, &timeline);
         QVERIFY(root != nullptr);
         auto *search = controller.messageSearch();
         QVERIFY(search->localAvailable());
 
-        // Start from the OLD default so a panel that leaves the source alone
-        // is caught.
         search->setSource(QStringLiteral("server"));
         QCOMPARE(search->source(), QStringLiteral("server"));
 
@@ -10015,11 +9080,10 @@ private Q_SLOTS:
         QCOMPARE(hint->property("text").toString(), localHint);
     }
 
-    // "Index this room" beside the coverage line reaches the backend.
     void indexingThisRoomReachesTheBackend()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -10027,7 +9091,7 @@ private Q_SLOTS:
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId,
             textFixture(roomId, 6, QStringLiteral("d"), QStringLiteral("body")),
-            /*paginationPages=*/0, /*viewportHeight=*/700, &timeline);
+0,700, &timeline);
         QVERIFY(root != nullptr);
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
@@ -10054,25 +9118,17 @@ private Q_SLOTS:
         QCOMPARE(mock->deepIndexedRooms.last(), roomId);
     }
 
-    // A fresh short room becomes scrollable without a resize. A batch of rows
-    // the timeline does not render (hidden room activity) changes the model
-    // but not contentHeight, so no geometry signal re-runs the level-triggered
-    // viewport fill.
     void freshShortRoomBecomesScrollableWithoutAResize()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.settings()->setShowRoomActivity(false);
-        // Enough fill budget for the retries; this is about the loop being fed,
-        // not its ceiling.
         controller.pagination()->setMaxViewportFillRequests(24);
 
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
 
-        // Every page until told otherwise is routine room activity: real rows,
-        // zero rendered height.
         QList<TimelineEvent> hidden;
         for (int i = 0; i < 3; ++i) {
             TimelineEvent e;
@@ -10092,27 +9148,23 @@ private Q_SLOTS:
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId,
             textFixture(roomId, 2, QStringLiteral("seed"),
-                        QStringLiteral("seed"), /*baseSecondsAgo=*/7200),
-            /*paginationPages=*/24, /*viewportHeight=*/420, &timeline);
+                        QStringLiteral("seed"),7200),
+24,420, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
 
-        // Precondition: the invisible page landed and the viewport is still
-        // not filled.
         QTRY_VERIFY_WITH_TIMEOUT(controller.timeline()->rowCount() > 2, 4000);
         QVERIFY2(timeline->property("contentHeight").toReal()
                      < timeline->property("height").toReal(),
                  "the hidden page rendered after all; the deadlock this test "
                  "is about does not exist here");
 
-        // From here the timeline can fill, but only if something asks again.
-        // Nothing is resized, scrolled or clicked below.
         mock->setPaginationChunkForTest(textFixture(
             roomId, 4, QStringLiteral("older"),
             QStringLiteral("a deliberately long older message body so that "
                            "each page adds several wrapped lines of real "
                            "rendered height to the column"),
-            /*baseSecondsAgo=*/20000));
+20000));
 
         QTRY_VERIFY_WITH_TIMEOUT(
             [&] {
@@ -10122,25 +9174,18 @@ private Q_SLOTS:
             }(), 8000);
     }
 
-    // Reported 2026-09-29: opening a room left the pictures on screen as grey
-    // placeholders until the first scroll. The media band was derived while
-    // the content was shorter than its far edge, so it ended at the last row
-    // loaded then; the history fill's rows landed after it, at the live edge
-    // nothing moved contentY, and no settle ever re-derived the band.
     void rowsTheFillLandsAfterOpenAreInsideTheMediaBandWithoutAGesture()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
 
-        // One history page that lands well after the open has settled (the
-        // pane's presentation guard is 2.5 s) and reaches far past the band.
         mock->setPaginationDelayForTest(5000);
         mock->setPaginationChunkForTest(textFixture(
             roomId, 150, QStringLiteral("older"),
-            QStringLiteral("older history"), /*baseSecondsAgo=*/20000));
+            QStringLiteral("older history"),20000));
 
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -10148,13 +9193,11 @@ private Q_SLOTS:
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId,
             textFixture(roomId, 2, QStringLiteral("seed"),
-                        QStringLiteral("seed"), /*baseSecondsAgo=*/7200),
-            /*paginationPages=*/1, /*viewportHeight=*/420, &timeline);
+                        QStringLiteral("seed"),7200),
+1,420, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
 
-        // Premise, the reported state: the band was derived on the short
-        // content and ends at its last row while the page is in flight.
         QTRY_VERIFY_WITH_TIMEOUT(
             [&] {
                 const int count = timeline->property("count").toInt();
@@ -10169,8 +9212,6 @@ private Q_SLOTS:
                  "premise: the seed rows must not fill the viewport");
         const int seededRows = timeline->property("count").toInt();
 
-        // The page lands and is revealed. Nothing is scrolled, clicked or
-        // resized from here on.
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("count").toInt() > seededRows + 50, 15000);
         QVERIFY(waitForRowsToStopArriving(controller));
@@ -10184,8 +9225,6 @@ private Q_SLOTS:
             qPrintable(onScreenRowsOutsideTheMediaBand(timeline)),
             kSignalTimeoutMs);
 
-        // And the band still closes: history far past it waits, or every
-        // picture in the loaded history would fetch on open.
         const double far = timeline->property("contentY").toDouble()
             + 4.0 * qMax(timeline->property("height").toDouble(), 400.0);
         const int beyond = firstViewRowBeyond(timeline, far);
@@ -10199,17 +9238,10 @@ private Q_SLOTS:
                      .arg(timeline->property("mediaBandLastRow").toInt())));
     }
 
-    // The same 2026-09-29 defect through a side door: with room activity off
-    // the OLDEST loaded rows can be hidden (never laid out), so the last row
-    // the band's search can name is below count - 1 even though the band's
-    // far edge lies past all the content. Openness read from that row
-    // index said "closed", growth stopped re-deriving the band, and the
-    // history fill's pictures stayed grey until a gesture. Openness is a
-    // geometry fact now (far edge >= contentHeight).
     void aBandWhoseOldestRowsAreHiddenStaysOpenForTheHistoryFill()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const bool activityBefore = controller.settings()->showRoomActivity();
         const auto restore = qScopeGuard([&] {
             controller.settings()->setShowRoomActivity(activityBefore);
@@ -10219,7 +9251,6 @@ private Q_SLOTS:
         QVERIFY(mock != nullptr);
         const QString roomId = QStringLiteral("!general:mock.local");
 
-        // Oldest first: three hidden state rows, then two messages.
         QList<TimelineEvent> seed;
         for (int i = 0; i < 3; ++i) {
             TimelineEvent e;
@@ -10235,13 +9266,11 @@ private Q_SLOTS:
             seed.append(e);
         }
         seed.append(textFixture(roomId, 2, QStringLiteral("bandseed"),
-                                QStringLiteral("seed"), /*baseSecondsAgo=*/7200));
+                                QStringLiteral("seed"),7200));
 
-        // One history page, landing after the open has settled, with a
-        // picture among a few messages: all of it within the band's reach.
         QList<TimelineEvent> page =
             textFixture(roomId, 6, QStringLiteral("bandolder"),
-                        QStringLiteral("older history"), /*baseSecondsAgo=*/30000);
+                        QStringLiteral("older history"),30000);
         TimelineEvent image;
         image.eventId = QStringLiteral("$bandimage");
         image.itemId = QStringLiteral("uid-bandimage");
@@ -10259,7 +9288,7 @@ private Q_SLOTS:
         page.append(image);
         page.append(textFixture(roomId, 3, QStringLiteral("bandnewer"),
                                 QStringLiteral("older history"),
-                                /*baseSecondsAgo=*/24000));
+24000));
         mock->setPaginationDelayForTest(5000);
         mock->setPaginationChunkForTest(page);
 
@@ -10268,12 +9297,10 @@ private Q_SLOTS:
         QQuickItem *timeline = nullptr;
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId, seed,
-            /*paginationPages=*/1, /*viewportHeight=*/420, &timeline);
+1,420, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
 
-        // Premise: the oldest loaded rows are not laid out, the content is
-        // shorter than the viewport, and the page is still in flight.
         QTRY_COMPARE_WITH_TIMEOUT(timeline->property("count").toInt(), 5,
                                   kSignalTimeoutMs);
         for (int row = 2; row < 5; ++row) {
@@ -10287,12 +9314,9 @@ private Q_SLOTS:
                  "premise: the seed must not fill the viewport");
         QVERIFY2(controller.pagination()->busy(),
                  "premise: the history page landed before the band settled");
-        // Let the band settle on the short content (not asserted here: the
-        // observable is the picture below).
         QTest::qWait(400);
         const bool openBefore = timeline->property("mediaBandOpen").toBool();
 
-        // The page lands. Nothing is scrolled, clicked or resized.
         QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 15,
                                  15000);
         QVERIFY(waitForRowsToStopArriving(controller));
@@ -10318,22 +9342,10 @@ private Q_SLOTS:
             kSignalTimeoutMs);
     }
 
-    // Browser autoscroll: a quick middle click latches. The next click ends
-    // it and never reaches the row under it; idle, rows keep their clicks and
-    // hover. (The left-click swallow on the pane's own controls is in the next
-    // case.)
-    // Rows slide under a resting pointer while the viewport moves, and every
-    // change of hovered row flips visibility on a row's highlight and action
-    // bar. Qt answers each such flip by walking the whole window's item tree
-    // on the next frame (QQuickWindowPrivate::updateChildWindowStackingOrder),
-    // so a scroll frame cost grew with the history loaded (live: 70-75% of
-    // the GUI thread while scrolling with the pointer over the timeline). Row
-    // hover is suspended while the viewport moves, and handed back to the row
-    // under the still pointer when it stops, with no mouse move.
     void rowHoverIsSuspendedWhileTheViewportMovesAndReturnsWhenItStops()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -10342,7 +9354,7 @@ private Q_SLOTS:
             controller, engine, window, roomId,
             textFixture(roomId, 60, QStringLiteral("hov"),
                         QStringLiteral("hover suspension probe")),
-            /*paginationPages=*/0, /*viewportHeight=*/420, &timeline);
+0,420, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
         auto *scroll = controller.timelineScroll();
@@ -10362,8 +9374,6 @@ private Q_SLOTS:
             QStringLiteral("messageRowHover"));
         QVERIFY2(rowHover != nullptr, "the row has no messageRowHover handler");
 
-        // Premise: idle (no suspension), the row under the pointer is hovered
-        // and owns the bar.
         QTRY_VERIFY2_WITH_TIMEOUT(
             !timeline->property("rowHoverSuspended").toBool(),
             qPrintable(QStringLiteral("row hover stayed suspended at idle: ")
@@ -10378,15 +9388,12 @@ private Q_SLOTS:
             2000);
         QVERIFY(rowHover->property("hovered").toBool());
 
-        // A glide toward older history (increasing contentY on the rotated
-        // view) with the pointer resting where it is.
         QVERIFY(timeline->setProperty("stickToBottom", false));
         const qreal startY = timeline->property("contentY").toReal();
         QVERIFY(QMetaObject::invokeMethod(timeline, "beginWheelTo",
                                           Q_ARG(QVariant, startY + 400.0)));
         QVERIFY2(scroll->motionActive(), "premise: no glide started");
 
-        // Frame after frame of the glide: no row hovered, no bar claimed.
         int checks = 0;
         while (scroll->motionActive() && checks < 400) {
             QVERIFY2(timeline->property("hoveredActionsKey").toString()
@@ -10404,8 +9411,6 @@ private Q_SLOTS:
         QVERIFY2(timeline->property("contentY").toReal() > startY + 20,
                  "premise: the glide did not move the view");
 
-        // Stopped: the row now under the resting pointer gets hover back
-        // without any mouse move.
         QQuickItem *underPointer = nullptr;
         const int rows = timeline->property("count").toInt();
         for (int r = 0; r < rows && !underPointer; ++r) {
@@ -10431,7 +9436,7 @@ private Q_SLOTS:
     void quickMiddleClickLatchesAndTheExitClickNeverReachesARow()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -10440,7 +9445,7 @@ private Q_SLOTS:
             controller, engine, window, roomId,
             textFixture(roomId, 40, QStringLiteral("mid"),
                         QStringLiteral("middle click probe")),
-            /*paginationPages=*/0, /*viewportHeight=*/420, &timeline);
+0,420, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
 
@@ -10464,17 +9469,10 @@ private Q_SLOTS:
                               .toPoint();
         QVERIFY2(scroller->contains(scroller->mapFromScene(QPointF(at))),
                  "premise: the row is not under the scroller");
-        // The row's own observable: its context menu (the body text takes a
-        // left press itself, so a left click has none).
         auto menuOpen = [&] {
             return !messageRow->property("menuEventId").toString().isEmpty();
         };
 
-        // Idle, the row gets hover. Idle means row hover is not suspended:
-        // the pane's own settle after load can still be moving the view, and
-        // hover is withheld while it does (TimelinePane rowHoverSuspended).
-        // A suspension that never clears at idle is a defect, so this waits
-        // for it rather than for the hover alone.
         auto *rowHover = messageRow->findChild<QObject *>(
             QStringLiteral("messageRowHover"));
         QVERIFY2(rowHover != nullptr, "the row has no messageRowHover handler");
@@ -10483,9 +9481,6 @@ private Q_SLOTS:
             qPrintable(QStringLiteral("row hover stayed suspended at idle: ")
                        + rowHoverState(timeline, rowHover)),
             kSignalTimeoutMs);
-        // Qt drops a move to the position the cursor already has, and the
-        // case before this one can leave it exactly at `at` (same fixture,
-        // same geometry): step off first so the move below is a real one.
         QTest::mouseMove(&window, at + QPoint(0, 3));
         QTest::mouseMove(&window, at);
         QTRY_VERIFY2_WITH_TIMEOUT(
@@ -10495,7 +9490,6 @@ private Q_SLOTS:
                        + rowHoverState(timeline, rowHover)),
             2000);
 
-        // Latched, a left click ends it.
         QTest::mouseClick(&window, Qt::MiddleButton, Qt::NoModifier, at);
         QCoreApplication::processEvents();
         QVERIFY2(scroller->property("latched").toBool(),
@@ -10507,7 +9501,6 @@ private Q_SLOTS:
                  "a left click did not end the latched autoscroll");
         QVERIFY(!marker->isVisible());
 
-        // Latched, a right click ends it and opens no menu.
         QTest::mouseClick(&window, Qt::MiddleButton, Qt::NoModifier, at);
         QCoreApplication::processEvents();
         QVERIFY(scroller->property("latched").toBool());
@@ -10517,18 +9510,15 @@ private Q_SLOTS:
         QVERIFY2(!menuOpen(),
                  "the right click that ended the latch opened the row's menu");
 
-        // Idle, the right click reaches the row.
         QTest::mouseClick(&window, Qt::RightButton, Qt::NoModifier, at);
         QTRY_VERIFY2_WITH_TIMEOUT(menuOpen(), "idle right click opened no menu",
                                   2000);
     }
 
-    // A latched timeline autoscroll keeps the rotated view's direction and
-    // ends on Escape, programmatic navigation and a room switch.
     void aLatchedTimelineAutoscrollEndsOnEscapeNavigationAndRoomSwitch()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -10537,7 +9527,7 @@ private Q_SLOTS:
             controller, engine, window, roomId,
             textFixture(roomId, 60, QStringLiteral("latch"),
                         QStringLiteral("latch probe")),
-            /*paginationPages=*/0, /*viewportHeight=*/420, &timeline);
+0,420, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
         auto *scroller = root->findChild<QQuickItem *>(
@@ -10555,7 +9545,6 @@ private Q_SLOTS:
             return scroller->property("latched").toBool();
         };
 
-        // Up the screen is older history: contentY grows on the rotated view.
         QVERIFY(latch());
         const qreal start = timeline->property("contentY").toReal();
         QTest::mouseMove(&window,
@@ -10565,8 +9554,6 @@ private Q_SLOTS:
             timeline->property("contentY").toReal() > start + 20,
             "moving up did not scroll toward older messages", 4000);
 
-        // The exit click is swallowed over the pills too: a click on "Jump to
-        // latest" while latched only ends the latch.
         scroller->setProperty("maxSpeed", 0);
         auto *jump = root->findChild<QQuickItem *>(
             QStringLiteral("jumpToLatestButton"));
@@ -10589,21 +9576,17 @@ private Q_SLOTS:
         QVERIFY(jump->isVisible());
         QTest::mouseMove(&window, anchor);
 
-        // 1. Escape.
         QTest::keyClick(&window, Qt::Key_Escape);
         QCoreApplication::processEvents();
         QVERIFY2(!scroller->property("active").toBool(),
                  "Escape did not end a latched autoscroll");
 
-        // 2. Jump to latest.
         QVERIFY(latch());
         QVERIFY(QMetaObject::invokeMethod(timeline, "goToLatest"));
         QCoreApplication::processEvents();
         QVERIFY2(!scroller->property("active").toBool(),
                  "jump to latest did not end a latched autoscroll");
 
-        // 3. Room switch, once the trip home has landed and nothing else
-        //    would end it.
         QTest::qWait(600);
         QVERIFY(latch());
         QTest::qWait(100);
@@ -10614,12 +9597,10 @@ private Q_SLOTS:
                  "a room switch did not end a latched autoscroll");
     }
 
-    // Middle click on a link in a message is the link's: no autoscroll, held
-    // or latched, starts there.
     void aMiddleClickOnAMessageLinkStartsNothing()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QList<TimelineEvent> events = textFixture(
             roomId, 40, QStringLiteral("lnk"), QStringLiteral("link probe"));
@@ -10633,8 +9614,8 @@ private Q_SLOTS:
         QQuickWindow window;
         QQuickItem *timeline = nullptr;
         QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
-                                          events, /*paginationPages=*/0,
-                                          /*viewportHeight=*/420, &timeline);
+                                          events,0,
+420, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
         auto *scroller = root->findChild<QQuickItem *>(
@@ -10649,7 +9630,6 @@ private Q_SLOTS:
             QStringLiteral("messageBody"));
         QVERIFY(body != nullptr);
         QTRY_VERIFY_WITH_TIMEOUT(body->width() > 20, 2000);
-        // A point on the link, found by asking the text itself.
         QPointF onLink(-1, -1);
         const qreal y = qMin(body->height() / 2.0, 10.0);
         for (qreal x = 2; x < body->width() && onLink.x() < 0; x += 4) {
@@ -10674,12 +9654,10 @@ private Q_SLOTS:
                  "a middle click on a link latched autoscroll");
     }
 
-    // An active middle-drag scroll writes contentY directly, so Escape,
-    // programmatic navigation and a room switch must each end it.
     void activeMiddleDragIsCancelledByEscapeRoomSwitchAndNavigation()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -10688,7 +9666,7 @@ private Q_SLOTS:
             controller, engine, window, roomId,
             textFixture(roomId, 60, QStringLiteral("drag"),
                         QStringLiteral("drag probe")),
-            /*paginationPages=*/0, /*viewportHeight=*/420, &timeline);
+0,420, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
         auto *scroller = root->findChild<QQuickItem *>(
@@ -10715,7 +9693,6 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
         };
 
-        // 1. Escape.
         QVERIFY(beginDrag());
         QTest::keyClick(&window, Qt::Key_Escape);
         QCoreApplication::processEvents();
@@ -10723,8 +9700,6 @@ private Q_SLOTS:
                  "Escape did not end an active autoscroll");
         endDrag();
 
-        // 2. Programmatic navigation: jump to latest owns contentY from the
-        //    moment it is pressed.
         QVERIFY(beginDrag());
         QVERIFY(QMetaObject::invokeMethod(timeline, "goToLatest"));
         QCoreApplication::processEvents();
@@ -10732,7 +9707,6 @@ private Q_SLOTS:
                  "jump to latest did not end an active autoscroll");
         endDrag();
 
-        // 3. Room switch (the scroller also hides itself on a switch).
         QVERIFY(beginDrag());
         controller.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
         QCoreApplication::processEvents();
@@ -10740,13 +9714,10 @@ private Q_SLOTS:
         endDrag();
     }
 
-    // One owner of transient row interaction: opening the reaction picker's
-    // skin-tone popup clears the pinned/hovered action keys (the bar is gone,
-    // not covered), and hover cannot reclaim while an owner is set.
     void tonePopupOwnsRowInteractionSoNoActionBarShows()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -10755,13 +9726,11 @@ private Q_SLOTS:
             controller, engine, window, roomId,
             textFixture(roomId, 12, QStringLiteral("tone"),
                         QStringLiteral("tone probe")),
-            /*paginationPages=*/0, /*viewportHeight=*/420, &timeline);
+0,420, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
         QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() > 0, 4000);
 
-        // The newest view row may be virtual (date divider, read marker) with
-        // no actionKey; find the first real message row.
         QQuickItem *messageRow = nullptr;
         QString actionKey;
         for (int row = 0; row < 8 && actionKey.isEmpty(); ++row) {
@@ -10781,7 +9750,6 @@ private Q_SLOTS:
         }
         QVERIFY2(messageRow != nullptr, "no real message row was instantiated");
 
-        // A pinned row shows its bar.
         QVERIFY(timeline->setProperty("pinnedActionsKey", actionKey));
         QTRY_VERIFY_WITH_TIMEOUT(
             messageRow->property("actionsVisible").toBool(), 2000);
@@ -10815,20 +9783,15 @@ private Q_SLOTS:
             timeline->property("transientInteractionOwner").toString(),
             QStringLiteral("tone"), 2000);
 
-        // Both keys are cleared and no row draws a bar.
         QCOMPARE(timeline->property("pinnedActionsKey").toString(), QString());
         QCOMPARE(timeline->property("hoveredActionsKey").toString(), QString());
         QVERIFY2(!messageRow->property("actionsVisible").toBool(),
                  "a row still showed its action bar under the tone popup");
 
-        // Hover cannot reclaim while an owner is set (the HoverHandler's
-        // write).
         QVERIFY(timeline->setProperty("hoveredActionsKey", actionKey));
         QCOMPARE(timeline->property("hoveredActionsKey").toString(), QString());
         QVERIFY(!messageRow->property("actionsVisible").toBool());
 
-        // Closing the tone popup returns ownership to the picker, which is
-        // still open.
         QVERIFY(QMetaObject::invokeMethod(tonePopup, "close"));
         QTRY_COMPARE_WITH_TIMEOUT(
             timeline->property("transientInteractionOwner").toString(),
@@ -10838,14 +9801,10 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(
             timeline->property("transientInteractionOwner").toString(),
             QString(), 2000);
-        // Ownership released: ordinary hover works again.
         QVERIFY(timeline->setProperty("hoveredActionsKey", actionKey));
         QCOMPARE(timeline->property("hoveredActionsKey").toString(), actionKey);
     }
 
-    // Reply navigation to a target outside the exposed window positions the
-    // view once real geometry exists; released rows have no positioned
-    // delegates until the Column re-lays out.
     void replyNavigationToAnUnexposedTargetActuallyPositionsTheView()
     {
         AppController controller(AppController::MockBackend);
@@ -10866,7 +9825,6 @@ private Q_SLOTS:
         QVERIFY2(timeline->property("rowWindowSkip").toInt() > 0,
                  "no window established");
 
-        // An old event, outside the window's exposed range.
         const QString targetId = QStringLiteral("$win50");
         QQmlExpression exposed(
             qmlContext(timeline), timeline,
@@ -10874,17 +9832,12 @@ private Q_SLOTS:
                 + QStringLiteral("')"));
         QCOMPARE(exposed.evaluate().toInt(), -1);
 
-        // Stretch the highlight timer so a loaded machine cannot expire it
-        // before the geometry assertion below.
         controller.pagination()->setHighlightDurationForTest(120000);
         controller.pagination()->jumpToEvent(targetId);
-        // Locating the target needs a real pagination round trip; wait for
-        // the contract. The delegate's highlight source is the view.
         QTRY_COMPARE_WITH_TIMEOUT(
             timeline->property("navigationHighlightEventId").toString(),
             targetId, 10000);
 
-        // The row ends up on screen, comfortably inside the edges.
         QQmlExpression onScreen(
             qmlContext(timeline), timeline,
             QStringLiteral("(function(id){ var r = viewRowForStableId(id);"
@@ -10903,8 +9856,6 @@ private Q_SLOTS:
                    && offset <= timeline->property("height").toReal();
         }, 5000);
         const double height = timeline->property("height").toReal();
-        // Report geometry on failure: offset 1e9 means the row never resolved;
-        // a large negative offset means the view landed at the wrong end.
         QVERIFY2(landed, qPrintable(QStringLiteral(
                      "reply target never reached the viewport "
                      "(offset %1, viewport %2, landings %3, unresolved %4)")
@@ -10926,14 +9877,9 @@ private Q_SLOTS:
                      "reply target landed flush against a viewport edge "
                      "(offset %1 of %2)").arg(offset).arg(height)));
         QCOMPARE(timeline->property("diagNavigationUnresolved").toInt(), 0);
-        // Exactly one write: the landing waits for geometry and positions
-        // once. A land-then-correct loop would fight the anchor machinery.
         QCOMPARE(timeline->property("diagNavigationLandings").toInt(), 1);
     }
 
-    // A pending jump must not fire later mid-gesture. Its retry budget is
-    // re-armed whenever the view's shape changes, which during scrolling is
-    // always. A wheel notch abandons the jump.
     void aWheelNotchAbandonsAJumpThatHasNotLandedYet()
     {
         AppController controller(AppController::MockBackend);
@@ -10952,13 +9898,11 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("pendingWindowSkip").toInt() < 0, 10000);
 
-        // The precondition is only that the target is not exposed.
         QQmlExpression exposed(
             qmlContext(timeline), timeline,
             QStringLiteral("viewRowForStableId('$win50')"));
         QCOMPARE(exposed.evaluate().toInt(), -1);
 
-        // Source row 50 is deep history, so the landing stays pending.
         QQmlExpression arm(
             qmlContext(timeline), timeline,
             QStringLiteral("beginNavigationLanding(50, 0, false)"));
@@ -10971,7 +9915,6 @@ private Q_SLOTS:
                  "vacuously");
         const qreal parked = timeline->property("contentY").toReal();
 
-        // The reader takes the view.
         sendWheelNotch(window, QPointF(350, 200), 120, false);
 
         QCOMPARE(timeline->property("navigationPendingId").toString(),
@@ -10979,7 +9922,6 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("navigationPendingRow").toInt(), -1);
         QCOMPARE(timeline->property("diagNavigationAbandoned").toInt(), 1);
 
-        // And it stays abandoned while the event loop runs.
         QTest::qWait(400);
         QCoreApplication::processEvents();
         QCOMPARE(timeline->property("diagNavigationLandings").toInt(), 0);
@@ -10989,12 +9931,6 @@ private Q_SLOTS:
                  "to `parked` could not be distinguished from doing nothing");
     }
 
-    // The P0 deferred-navigation race (master prompt Part 3, SC34/SC35):
-    // onTargetLocated checked reader control when it QUEUED the landing, and
-    // the queued closure armed it without checking again. A wheel notch
-    // delivered in between was overruled one turn later by the landing it
-    // had already cancelled. The located target is deep history, so a
-    // landing that wrongly survives moves the view a long way.
     void inputBetweenALocateAndItsQueuedLandingWins()
     {
         AppController controller(AppController::MockBackend);
@@ -11014,13 +9950,9 @@ private Q_SLOTS:
 
         const int abandoned0 =
             timeline->property("diagNavigationAbandoned").toInt();
-        // The controller locates an explicit (highlighted) jump target; the
-        // pane queues its landing for the next turn.
         QVERIFY(QMetaObject::invokeMethod(
             controller.pagination(), "targetLocated",
             Q_ARG(int, 50), Q_ARG(qreal, 0.0), Q_ARG(bool, true)));
-        // The reader scrolls before that turn runs. sendWheelNotch delivers
-        // synchronously, then spins the loop (which runs the queued step).
         sendWheelNotch(window, QPointF(350, 200), 120, false);
         QTest::qWait(400);
         QCoreApplication::processEvents();
@@ -11031,8 +9963,6 @@ private Q_SLOTS:
                      > abandoned0,
                  "the obsolete landing was neither landed nor counted");
 
-        // SC35: cancellation is not permanent. A new explicit jump after the
-        // gesture lands normally.
         QVERIFY(QMetaObject::invokeMethod(
             controller.pagination(), "targetLocated",
             Q_ARG(int, 50), Q_ARG(qreal, 0.0), Q_ARG(bool, true)));
@@ -11040,9 +9970,6 @@ private Q_SLOTS:
             timeline->property("diagNavigationLandings").toInt(), 1, 5000);
     }
 
-    // SC09: pressing the scroll bar's handle without moving it is the reader
-    // taking the view. Only movement used to cancel a pending landing, so a
-    // jump could still land under a handle held still.
     void aScrollBarPressWithoutMovementAbandonsAPendingLanding()
     {
         AppController controller(AppController::MockBackend);
@@ -11055,7 +9982,6 @@ private Q_SLOTS:
                              QStringLiteral("applyRowWindow()"));
         apply.evaluate();
         QCoreApplication::processEvents();
-        // The trim moves a few rows per frame; let it finish first.
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("pendingWindowSkip").toInt() < 0, 10000);
         QQuickItem *pane = timeline;
@@ -11089,11 +10015,6 @@ private Q_SLOTS:
         QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, grab);
     }
 
-    // The opt-in incident recorder sees the main timeline's position writes
-    // with their writer: an untagged snap from deep in the view to the oldest
-    // loaded edge is reported (the user's "teleport to the top" shape),
-    // while a row-window trim, which moves contentY a long way on purpose,
-    // is not.
     void theScrollRecorderReportsAnUnattributedSnapToTheOldestEdgeOnly()
     {
         AppController controller(AppController::MockBackend);
@@ -11119,7 +10040,6 @@ private Q_SLOTS:
                             + controller.timelineScroll()
                                   ->lastScrollIncidentDump()));
 
-        // Park the view low, then an untagged write to the oldest edge.
         QQmlExpression park(qmlContext(timeline), timeline,
                             QStringLiteral("contentY = wheelMinY()"));
         park.evaluate();
@@ -11144,11 +10064,6 @@ private Q_SLOTS:
         QVERIFY(!dump.contains(QStringLiteral("$win")));
     }
 
-    // A jump names a model ROW, and the landing starts one event-loop turn
-    // later. A history page arriving in between renumbers every row, so
-    // reading the id from the row at landing time named an older message: "the
-    // link jumps to a random message way up". The id is read when the
-    // controller locates the target.
     void aLocatedTargetKeepsItsIdWhenRowsShiftBeforeTheLanding()
     {
         AppController controller(AppController::MockBackend);
@@ -11190,11 +10105,9 @@ private Q_SLOTS:
         const int row = controller.timeline()->rowForStableId(
             QStringLiteral("$win50"));
         QVERIFY(row >= 0);
-        // Located: the controller names row `row` for $win50 ...
         QVERIFY(QMetaObject::invokeMethod(
             controller.pagination(), "targetLocated",
             Q_ARG(int, row), Q_ARG(qreal, 0.0), Q_ARG(bool, true)));
-        // ... and before the deferred landing runs, rows are prepended.
         mock->resetTimelineForTest(roomId, shifted, 0);
         QVERIFY(controller.timeline()->rowForStableId(
                     QStringLiteral("$win50")) != row);
@@ -11203,8 +10116,6 @@ private Q_SLOTS:
                 || timeline->property("diagNavigationUnresolved").toInt() > 0,
             10000);
         QCOMPARE(timeline->property("diagNavigationUnresolved").toInt(), 0);
-        // The reader is on the message the controller named, not on the one
-        // that now sits at its old row.
         QQmlExpression onScreen(
             qmlContext(timeline), timeline,
             QStringLiteral("(function(id){ var r = viewRowForStableId(id);"
@@ -11217,9 +10128,6 @@ private Q_SLOTS:
                  "the jump landed away from the located message");
     }
 
-    // A continuation row's hover timestamp lives in a fixed-width gutter. At
-    // a large text scale the string outgrew it and was drawn off the row's
-    // left edge. Geometry, at 100% as the control and at the reported scales.
     void theContinuationTimestampStaysInsideItsGutter_data()
     {
         QTest::addColumn<double>("scale");
@@ -11246,7 +10154,6 @@ private Q_SLOTS:
                  setScale.error().toString().toUtf8().constData());
         QTest::qWait(200);
 
-        // Hover rows near the middle until one shows its gutter timestamp.
         QQuickItem *label = nullptr;
         QQuickItem *rowItem = nullptr;
         const std::function<QQuickItem *(QQuickItem *)> find =
@@ -11273,18 +10180,14 @@ private Q_SLOTS:
                                 "timestamp text %1 wider than its slot %2")
                                 .arg(label->property("contentWidth").toReal())
                                 .arg(label->width())));
-        // Its slot starts inside the window, and the text's left edge too.
         const QPointF topLeft = label->mapToScene(QPointF(0, 0));
         const qreal textLeft = topLeft.x() + label->width()
             - label->property("contentWidth").toReal();
         QVERIFY2(textLeft >= 0.0, qPrintable(QStringLiteral(
             "timestamp drawn at x=%1, outside the row").arg(textLeft)));
-        // And the slot is a real one, not a collapsed zero-width item.
         QVERIFY(label->width() > 10.0);
     }
 
-    // A landing whose view keeps changing shape gives up after a bounded
-    // number of retries instead of waiting forever.
     void aLandingWhoseViewNeverStopsChangingGivesUpInsteadOfWaitingForever()
     {
         AppController controller(AppController::MockBackend);
@@ -11298,7 +10201,6 @@ private Q_SLOTS:
                              QStringLiteral("applyRowWindow()"));
         apply.evaluate();
         QCoreApplication::processEvents();
-        // The trim moves a few rows per frame; let it finish first.
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("pendingWindowSkip").toInt() < 0, 10000);
 
@@ -11310,13 +10212,8 @@ private Q_SLOTS:
                  arm.error().toString().toUtf8().constData());
         QVERIFY(!timeline->property("navigationPendingId").toString().isEmpty());
 
-        // Retry by hand with the shape changing every time, as a live scroll
-        // does. layoutRowsAtLastPass is a plain property, so moving it
-        // reproduces the churn without a gesture.
         QQmlExpression retry(qmlContext(timeline), timeline,
                              QStringLiteral("tryLandNavigationTarget()"));
-        // A fixed, generous count rather than reading the ceiling property:
-        // still pending after 400 attempts means it would wait forever.
         for (int i = 0; i < 400; ++i) {
             timeline->setProperty("layoutRowsAtLastPass", i + 1);
             retry.evaluate();
@@ -11326,7 +10223,6 @@ private Q_SLOTS:
                 break;
         }
 
-        // It gave up, and said so, rather than landing on a stale target.
         QCOMPARE(timeline->property("navigationPendingId").toString(),
                  QString());
         QCOMPARE(timeline->property("navigationPendingRow").toInt(), -1);
@@ -11334,35 +10230,22 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("diagNavigationLandings").toInt(), 0);
     }
 
-    // A notification click jumps to the newest message, and that landing
-    // clamps to the live edge: the reader is still following it, so returning
-    // to the window reads the room. The landing used to force follow-latest
-    // off, which kept read receipts off until the reader scrolled, and the
-    // unread divider it revealed pushed the new message under the bottom edge
-    // (reported 2026-09-29 as "not shown as read until they scroll up and
-    // down").
     void aJumpToTheNewestMessageKeepsFollowingSoTheRoomIsRead()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         ReadReceiptCoordinator *receipts = controller.readReceipts();
         QVERIFY(receipts != nullptr);
-        // The window is away while the message arrives, and activation is
-        // driven by hand: the offscreen platform may activate the test window.
         QObject::disconnect(qGuiApp,
                             SIGNAL(applicationStateChanged(Qt::ApplicationState)),
                             &controller, nullptr);
-        // Focus changes re-derive the main window's activity too (finding
-        // 69), and showing this case's window moves focus.
         QObject::disconnect(qGuiApp, SIGNAL(focusWindowChanged(QWindow*)),
                             &controller, nullptr);
         receipts->setWindowActive(false);
         receipts->setDebounceMs(10);
         QSignalSpy sent(receipts, &ReadReceiptCoordinator::receiptSent);
 
-        // A room taller than the viewport, the SDK's read marker, then one
-        // new message from someone else.
         QList<TimelineEvent> events =
             textFixture(roomId, 30, QStringLiteral("n"), QStringLiteral("body"));
         TimelineEvent marker;
@@ -11386,8 +10269,8 @@ private Q_SLOTS:
         QQuickWindow window;
         QQuickItem *timeline = nullptr;
         QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
-                                          events, /*paginationPages=*/0,
-                                          /*viewportHeight=*/600, &timeline);
+                                          events,0,
+600, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
         QVERIFY(timeline->property("stickToBottom").toBool());
@@ -11395,11 +10278,9 @@ private Q_SLOTS:
                  "a receipt went out before the jump, so this case cannot "
                  "tell a landing that keeps following from one that does not");
 
-        // What Main.qml does for a notification click.
         controller.pagination()->jumpToEvent(QStringLiteral("$n-latest"));
         QTRY_COMPARE_WITH_TIMEOUT(
             timeline->property("diagNavigationLandings").toInt(), 1, 5000);
-        // Let the divider's visibility and the Column settle.
         QTest::qWait(300);
 
         double minY = 0.0;
@@ -11411,7 +10292,6 @@ private Q_SLOTS:
                      "the landing at the live edge left follow-latest off "
                      "(contentY %1, live edge %2)").arg(contentY).arg(minY)));
         QVERIFY(receipts->nearBottom());
-        // The new message is on screen, not under the bottom edge.
         QQmlExpression below(
             qmlContext(timeline), timeline,
             QStringLiteral("(function(id){ var r = viewRowForStableId(id);"
@@ -11426,27 +10306,15 @@ private Q_SLOTS:
                      "the new message is %1 px under the bottom edge")
                      .arg(hidden)));
 
-        // The reader comes back to the window: the room is read.
         receipts->setWindowActive(true);
         QTRY_VERIFY_WITH_TIMEOUT(!sent.isEmpty(), 3000);
         QCOMPARE(sent.last().at(1).toString(), QStringLiteral("$n-latest"));
     }
 
-    // Regression for TimelinePane.qml:4317 "recomputePresentationReady is
-    // not a function", logged on every session end. app.timeline's
-    // onModelReset() ends with a settle step that used to queue
-    // Qt.callLater(function() { timeline.presentationResetPending = false;
-    // timeline.recomputePresentationReady() }). A queued Qt.callLater is
-    // engine-global state, not owned by the item it references: destroying
-    // the pane (window close, logout, app quit) before the engine flushes
-    // its call-later queue leaves that closure calling a method on a
-    // QObject that no longer exists. A child Timer, by contrast, is
-    // destroyed together with its parent and cannot fire afterwards — the
-    // same reasoning already documented on visibleRowRangeTimer above.
     void teardownDuringAPendingResetSettleLogsNoWarning()
     {
         AppController controller(AppController::MockBackend);
-        const QString roomA = loginAndRoomIdAt(controller, /*row=*/0);
+        const QString roomA = loginAndRoomIdAt(controller,0);
         QVERIFY(!roomA.isEmpty());
         QVERIFY(controller.roomList()->rowCount() > 1);
         const QString roomB = controller.roomList()
@@ -11461,20 +10329,14 @@ private Q_SLOTS:
         QQuickItem *timeline = nullptr;
         QQuickItem *root = paneWithEvents(controller, engine, window, roomA,
                                           textFixture(roomA, 5, "a", "hello"),
-                                          /*paginationPages=*/0,
-                                          /*viewportHeight=*/400, &timeline);
+0,
+400, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
 
         LogCapture capture;
-        // A real room switch: TimelineModel::modelReset() fires, running
-        // onModelReset() and queuing its settle step.
         controller.setCurrentRoomId(roomB);
 
-        // Teardown before the engine gets a turn to flush anything queued —
-        // exactly the shape of a window close or app quit racing the settle
-        // step. `timeline` (and, on the fixed tree, its child
-        // presentationResetSettledTimer) is destroyed here.
         delete root;
         QCoreApplication::sendPostedEvents();
         QCoreApplication::processEvents();
@@ -11487,8 +10349,6 @@ private Q_SLOTS:
         }
     }
 
-    // The parent offer loads its own metadata, preserves routing and plain
-    // text, and remembers dismissal for each room separately.
     void canonicalParentIsOfferedWithoutOpeningTheInfoPanel()
     {
         struct ParentClient : MockMatrixClient {
@@ -11576,9 +10436,6 @@ private Q_SLOTS:
         QCOMPARE(managed.joinedVia, QStringList{QStringLiteral("example.org")});
         QVERIFY(!join->isEnabled());
         QCOMPARE(join->property("text").toString(), QStringLiteral("Joining…"));
-        // Live 2026-11-01: a click on Join space showed nothing either way.
-        // A failure reads on the banner; the dialog with the error line is
-        // shut. Success opens the Space (AppController).
         Q_EMIT controller.discovery()->joinFailed(QStringLiteral("!parent:example.org"),
                                                   QStringLiteral("nope"));
         QTRY_VERIFY(label->property("text").toString().contains(QStringLiteral("nope")));
@@ -11589,12 +10446,10 @@ private Q_SLOTS:
         QVERIFY(controller.roomInfo()->canonicalSpaceParent().isEmpty());
     }
 
-    // When nothing in the room matches, the find bar offers the wider search
-    // with the same keyword; a click closes it and hands the keyword up.
     void findBarOffersAllRoomsWhenNothingMatches()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
 
         QQmlApplicationEngine engine;
@@ -11630,7 +10485,6 @@ private Q_SLOTS:
         auto *row = root->findChild<QQuickItem *>(
             QStringLiteral("findNoMatchesRow"));
         QVERIFY2(row != nullptr, "the no-matches row does not exist");
-        // Nothing typed: nothing to offer.
         QVERIFY(!row->isVisible());
 
         QVERIFY(field->setProperty("text",
@@ -11654,13 +10508,9 @@ private Q_SLOTS:
         QCOMPARE(allRooms.count(), 1);
         QCOMPARE(allRooms.at(0).at(0).toString(),
                  QStringLiteral("zzzqqq-no-such-text"));
-        // The find session ended so the wider search owns the query.
         QCOMPARE(root->property("findOpen").toBool(), false);
     }
 
-    // The member panel is the one right-side surface that follows the reader:
-    // left open it reopens in the next room, closed it stays closed, and the
-    // choice is a persisted setting. A room switch alone never writes it.
     void memberPanelStaysOpenAcrossRoomSwitches()
     {
         struct ManagedClient : MockMatrixClient {
@@ -11668,7 +10518,7 @@ private Q_SLOTS:
         };
         ManagedClient managed;
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         auto *original = controller.findChild<MockMatrixClient *>();
         QVERIFY(original != nullptr);
         struct Restore {
@@ -11711,7 +10561,6 @@ private Q_SLOTS:
             QStringLiteral("roomInfoPanel"));
         QVERIFY(panel != nullptr);
 
-        // Not asked for: a room switch leaves the panel shut, as before.
         controller.setCurrentRoomId(dm);
         QCoreApplication::processEvents();
         QCOMPARE(root->property("infoOpen").toBool(), false);
@@ -11730,11 +10579,9 @@ private Q_SLOTS:
         QCOMPARE(panel->property("section").toString(),
                  QStringLiteral("people"));
         QCOMPARE(controller.roomInfo()->roomId(), dm);
-        // The switch itself did not rewrite the choice.
         QCOMPARE(controller.settings()->property("memberPanelOpen").toBool(),
                  true);
 
-        // Closing it is a decision: it stays closed in the next room.
         QVERIFY(QMetaObject::invokeMethod(root, "toggleMemberPanel"));
         QCOMPARE(root->property("infoOpen").toBool(), false);
         QCOMPARE(controller.settings()->property("memberPanelOpen").toBool(),
@@ -11744,24 +10591,15 @@ private Q_SLOTS:
         QCOMPARE(root->property("infoOpen").toBool(), false);
     }
 
-    // ── break-it round 2026-10-16: timeline navigation and Space Home ──────
-
-    // A marker on screen needs no jump. Scrolled above it, the pill comes back
-    // pointing DOWN at it. Back at the live edge after it has been on screen,
-    // the reader has passed their place and the pill stays away even once
-    // live messages push the divider out of view (break-it B060: the pill
-    // showed over the divider, after Jump to latest and at the bottom of a
-    // read room; its chevron always pointed up).
     void theFirstUnreadPillFollowsWhereTheMarkerIs()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
         QQuickItem *timeline = nullptr;
 
-        // The marker two rows from the newest: on screen at the live edge.
         QList<TimelineEvent> events =
             textFixture(roomId, 60, QStringLiteral("s"), QStringLiteral("body"));
         TimelineEvent marker;
@@ -11769,8 +10607,8 @@ private Q_SLOTS:
         marker.type = TimelineEvent::ReadMarker;
         events.insert(58, marker);
         QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
-                                          events, /*paginationPages=*/0,
-                                          /*viewportHeight=*/600, &timeline);
+                                          events,0,
+600, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
         QCOMPARE(controller.timeline()->readMarkerRow(), 58);
@@ -11789,7 +10627,6 @@ private Q_SLOTS:
                  "the divider is on screen and the pill still offers a jump "
                  "to it");
 
-        // Above the marker: it lies below the viewport.
         double minY = 0.0;
         double maxY = 0.0;
         QVERIFY(wheelBounds(timeline, &minY, &maxY));
@@ -11804,8 +10641,6 @@ private Q_SLOTS:
         QCOMPARE(icon->property("name").toString(),
                  QStringLiteral("expand_more"));
 
-        // Back at the live edge, then live messages push the marker above the
-        // viewport while following.
         QVERIFY(QMetaObject::invokeMethod(timeline, "goToLatest"));
         QTRY_VERIFY_WITH_TIMEOUT(timeline->property("stickToBottom").toBool(),
                                  3000);
@@ -11813,7 +10648,7 @@ private Q_SLOTS:
         QVERIFY(mock != nullptr);
         const QList<TimelineEvent> live =
             textFixture(roomId, 40, QStringLiteral("slive"),
-                        QStringLiteral("live"), /*baseSecondsAgo=*/1300);
+                        QStringLiteral("live"),1300);
         for (const TimelineEvent &e : live)
             mock->appendEventForTest(roomId, e);
         QTRY_VERIFY2_WITH_TIMEOUT(
@@ -11828,14 +10663,10 @@ private Q_SLOTS:
                  "the pill still offers to go back to it");
     }
 
-    // A reader deep in history has the marker in the newest rows the row
-    // window withholds. The pill must bring them back and land, not spend its
-    // attempt budget on a row that does not exist and log "target unresolved"
-    // (break-it B033, logged twice in the tester's run).
     void theFirstUnreadPillReachesAMarkerTheRowWindowWithholds()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -11847,27 +10678,22 @@ private Q_SLOTS:
         marker.type = TimelineEvent::ReadMarker;
         events.insert(880, marker);
         QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
-                                          events, /*paginationPages=*/0,
-                                          /*viewportHeight=*/420, &timeline);
+                                          events,0,
+420, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
         QCOMPARE(controller.timeline()->readMarkerRow(), 880);
         QTRY_COMPARE_WITH_TIMEOUT(timeline->property("count").toInt(), 901,
                                   10000);
-        // applyRowWindow() does nothing until the timeline has presented
-        // (as deepHistoryPane waits for).
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("presentationReady").toBool(), 5000);
 
-        // Deep in history, with the window applied as the settle timer does.
         QVERIFY(timeline->setProperty("stickToBottom", false));
         double minY = 0.0;
         double maxY = 0.0;
         QVERIFY(wheelBounds(timeline, &minY, &maxY));
         QVERIFY(timeline->setProperty("contentY", maxY * 0.6));
         QCoreApplication::processEvents();
-        // ...and not while a viewport motion is still settling, nor while
-        // the pagination the park's near-top band asks for is in flight.
         QTRY_VERIFY_WITH_TIMEOUT(
             !timeline->property("viewportMotionActive").toBool(), 5000);
         QQmlExpression idle(qmlContext(timeline), timeline, QStringLiteral(
@@ -11881,7 +10707,6 @@ private Q_SLOTS:
         apply.evaluate();
         QVERIFY2(!apply.hasError(),
                  apply.error().toString().toUtf8().constData());
-        // The trim moves a few rows per frame; read the skip it settles on.
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("pendingWindowSkip").toInt() < 0, 10000);
         QQmlExpression settled(qmlContext(timeline), timeline, QStringLiteral(
@@ -11913,11 +10738,6 @@ private Q_SLOTS:
             "the pill did not bring the divider on screen", 3000);
     }
 
-    // The jump pill stays up whenever the row window withholds the newest
-    // rows, whatever follow-latest says: the bottom of the view is not the
-    // newest message then. A dispatched jump-to-live trim sets stickToBottom
-    // before its reset restores the live edge, and nothing else would show
-    // that the view is not at the end (break-it B020, secondary half).
     void theJumpPillStaysWhileTheWindowWithholdsTheNewestRows()
     {
         AppController controller(AppController::MockBackend);
@@ -11951,11 +10771,6 @@ private Q_SLOTS:
                  "pill hid on follow-latest alone");
     }
 
-    // A find match among the rows the window withholds lands ON SCREEN. The
-    // old jump released the window and positioned in the same turn, against
-    // rows the Column had not positioned yet (y == 0), so it clamped to the
-    // newest edge and the match was nowhere in view (break-it B021,
-    // secondary half).
     void aFindMatchBehindTheRowWindowLandsOnScreen()
     {
         AppController controller(AppController::MockBackend);
@@ -11980,9 +10795,6 @@ private Q_SLOTS:
                      "window skip %1 is too small to put a match far enough "
                      "from the live edge").arg(skip)));
 
-        // Half way into the withheld rows: far enough from the newest end
-        // that landing at the bottom cannot pass for landing on it. Three
-        // digits, so the body is unique among 900 rows.
         const int target = 899 - skip / 2;
         QVERIFY(target >= 100);
         const QString eventId = QStringLiteral("$win%1").arg(target);
@@ -12023,14 +10835,10 @@ private Q_SLOTS:
                      .arg(at.value(2).toInt())));
     }
 
-    // While Find is open, the model re-emits searchChanged whenever the match
-    // count moves (here a live message that also matches), keeping the
-    // selection by event id. The view must not land on the match again: the
-    // reader scrolled away on purpose (break-it B092, the QML half).
     void aMatchCountChangeDoesNotPullTheReaderBackToTheMatch()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -12040,8 +10848,8 @@ private Q_SLOTS:
         events[10].body = QStringLiteral("needle one");
         events[40].body = QStringLiteral("needle two");
         QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
-                                          events, /*paginationPages=*/0,
-                                          /*viewportHeight=*/600, &timeline);
+                                          events,0,
+600, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
         auto *mock = controller.findChild<MockMatrixClient *>();
@@ -12059,7 +10867,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(
             timeline->property("navigationPendingRow").toInt() < 0, 3000);
 
-        // The reader scrolls away, to the oldest loaded rows.
         QVERIFY(QMetaObject::invokeMethod(timeline, "goToEarliestLoaded"));
         QTest::qWait(100);
         QQmlExpression top(qmlContext(timeline), timeline,
@@ -12073,7 +10880,7 @@ private Q_SLOTS:
 
         TimelineEvent live =
             textFixture(roomId, 1, QStringLiteral("rslive"),
-                        QStringLiteral("needle three"), /*baseSecondsAgo=*/100)
+                        QStringLiteral("needle three"),100)
                 .first();
         mock->appendEventForTest(roomId, live);
         QTRY_COMPARE_WITH_TIMEOUT(
@@ -12082,16 +10889,6 @@ private Q_SLOTS:
         QCOMPARE(controller.timeline()->property("searchCurrentEventId")
                      .toString(), QStringLiteral("$rs40"));
         QTest::qWait(300);
-        // Not pulled back to the match. Measured with the B092 handler
-        // reverted: the top lands on $rs36, 35 rows from where the reader
-        // parked. With the fix it moves $rs1 -> $rs3. The same fixture WITHOUT
-        // Find, under LIGHTNING_SCROLL_TRACE=1, moves $rs0 -> $rs1 on base
-        // 0b168b9d and on this tree alike: contentY stays 1443 while wheelMaxY
-        // grows 1443 -> 1499 (the appended 56 px), anchorCorrections=0,
-        // growthCorrections=0, displacedApplied=0, materializedMaxAbsDelta=56.
-        // So a live append while parked at the oldest clamp shifts the top by
-        // the appended height on base too (docs/open-items.md, 2026-10-16), and
-        // the bound here is a few rows, not equality.
         const auto rowOf = [](const QString &id) {
             return id.mid(QStringLiteral("$rs").size()).toInt();
         };
@@ -12101,7 +10898,6 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("the reader was moved from %1 to %2")
                                 .arg(topBefore, topAfter)));
 
-        // An explicit step still lands, on the next match.
         QVERIFY(QMetaObject::invokeMethod(root, "stepFind",
                                           Q_ARG(QVariant, true)));
         QCOMPARE(controller.timeline()->property("searchCurrentEventId")
@@ -12110,12 +10906,10 @@ private Q_SLOTS:
             top.evaluate().toString() != topBefore, 3000);
     }
 
-    // Whitespace is not a query: the model trims it and searches nothing,
-    // so the counter must not claim "No matches" (break-it B103).
     void whitespaceIsNotAFindQuery()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -12123,7 +10917,7 @@ private Q_SLOTS:
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId,
             textFixture(roomId, 20, QStringLiteral("ws"), QStringLiteral("body")),
-            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+0,600, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(QMetaObject::invokeMethod(root, "openFind"));
         auto *field = root->findChild<QQuickItem *>(
@@ -12139,20 +10933,16 @@ private Q_SLOTS:
                  0);
         QCOMPARE(counter->property("text").toString(), QString());
 
-        // A real miss still says so.
         QVERIFY(field->setProperty("text", QStringLiteral("zzzq-none")));
         QCoreApplication::processEvents();
         QCOMPARE(counter->property("text").toString(),
                  QStringLiteral("No matches"));
     }
 
-    // "Jump to latest" in the context view lands the LIVE timeline on the
-    // newest message. latestRequested had no consumer, so closing the overlay
-    // uncovered the timeline wherever it had been left (break-it B120).
     void contextViewJumpToLatestSettlesTheLiveTimeline()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -12160,7 +10950,7 @@ private Q_SLOTS:
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId,
             textFixture(roomId, 80, QStringLiteral("cx"), QStringLiteral("body")),
-            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+0,600, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
         double minY = 0.0;
@@ -12178,8 +10968,6 @@ private Q_SLOTS:
         ContextController *context = controller.eventContext();
         QVERIFY(context != nullptr);
         QVERIFY(!context->active());
-        // ContextController::jumpToLatest() closes the view and emits this
-        // (ContextControllerTest covers that half).
         QVERIFY(QMetaObject::invokeMethod(context, "latestRequested"));
         QTRY_VERIFY_WITH_TIMEOUT(timeline->property("stickToBottom").toBool(),
                                  2000);
@@ -12189,12 +10977,10 @@ private Q_SLOTS:
         QVERIFY(!pill->isVisible());
     }
 
-    // QA T-6: a reader scrolled up in history sends a message and is left
-    // where they were, with their message out of sight below.
     void sendingYourOwnMessageReturnsToTheNewest()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -12202,7 +10988,7 @@ private Q_SLOTS:
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId,
             textFixture(roomId, 80, QStringLiteral("own"), QStringLiteral("body")),
-            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+0,600, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
         double minY = 0.0;
@@ -12213,7 +10999,6 @@ private Q_SLOTS:
         QVERIFY(timeline->setProperty("contentY", maxY));
         QCoreApplication::processEvents();
 
-        // Someone else's message does not move the reader.
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         int before = controller.timeline()->rowCount();
@@ -12234,12 +11019,10 @@ private Q_SLOTS:
             qAbs(timeline->property("contentY").toDouble() - minY) < 1.0, 2000);
     }
 
-    // QA T-8: both pills are centred at the top of the timeline, and the
-    // loading chip ended up behind First unread.
     void theLoadingChipSitsBelowTheFirstUnreadPill()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -12247,7 +11030,7 @@ private Q_SLOTS:
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId,
             textFixture(roomId, 30, QStringLiteral("chip"), QStringLiteral("body")),
-            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+0,600, &timeline);
         QVERIFY(root != nullptr);
         auto *chip = root->findChild<QQuickItem *>(
             QStringLiteral("paginationHeader"));
@@ -12264,12 +11047,10 @@ private Q_SLOTS:
         QTRY_COMPARE(chip->y(), 0.0);
     }
 
-    // QA SP-8: a row cut by the top of the timeline drew its hover bar half
-    // under the room header, at the row's own corner.
     void theActionBarOfACutRowStaysInsideTheTimeline()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -12278,14 +11059,13 @@ private Q_SLOTS:
             controller, engine, window, roomId,
             textFixture(roomId, 40, QStringLiteral("bar"),
                         QStringLiteral("one\ntwo\nthree\nfour\nfive")),
-            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+0,600, &timeline);
         QVERIFY(root != nullptr);
         QVERIFY(timeline != nullptr);
         QVERIFY(timeline->setProperty("stickToBottom", false));
         const qreal viewTop = timeline->mapRectToScene(
             QRectF(0, 0, timeline->width(), timeline->height())).top();
 
-        // Walk the content until one row stands a little over the top edge.
         QQuickItem *loader = nullptr;
         QQuickItem *row = nullptr;
         double minY = 0.0;
@@ -12342,7 +11122,7 @@ private Q_SLOTS:
     {
         QFETCH(int, messageCount);
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         auto events = textFixture(roomId, messageCount,
                                   QStringLiteral("end"), QStringLiteral("body"));
@@ -12381,7 +11161,7 @@ private Q_SLOTS:
                           load->mapToScene(QPointF(load->width() / 2,
                                                   load->height() / 2)).toPoint());
         QTRY_COMPARE(context->state(), ContextController::Closed);
-        QVERIFY(!overlay->isVisible()); // no banner or forward footer
+        QVERIFY(!overlay->isVisible());
         QVERIFY(composer->isVisible());
         QTRY_VERIFY_WITH_TIMEOUT(timeline->property("stickToBottom").toBool(), 2000);
         QVERIFY(wheelBounds(timeline, &minY, &maxY));
@@ -12390,15 +11170,10 @@ private Q_SLOTS:
         QCOMPARE(mock->eventContextPaginateCount(), 1);
     }
 
-    // A pending invite opened as the current room (from Activity) shows the
-    // invite card with Accept / Decline instead of a timeline and a composer
-    // that cannot send before joining (break-it B037). The room's membership
-    // reaches the pane through the room list's record (findRoom); it is
-    // injected here so the pane's half stands on its own.
     void aPendingInviteShowsTheInviteCardInsteadOfTheComposer()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString roomId = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -12406,7 +11181,7 @@ private Q_SLOTS:
         QQuickItem *root = paneWithEvents(
             controller, engine, window, roomId,
             textFixture(roomId, 20, QStringLiteral("iv"), QStringLiteral("body")),
-            /*paginationPages=*/0, /*viewportHeight=*/600, &timeline);
+0,600, &timeline);
         QVERIFY(root != nullptr);
         auto *card = root->findChild<QQuickItem *>(
             QStringLiteral("invitePreviewCard"));
@@ -12438,20 +11213,17 @@ private Q_SLOTS:
         QVERIFY(decline != nullptr);
         QCOMPARE(inviter->property("text").toString(),
                  QStringLiteral("Sam <b>x</b> invited you to join"));
-        // Remote text is never markup.
         QCOMPARE(inviter->property("textFormat").toInt(),
                  static_cast<int>(Qt::PlainText));
         QVERIFY(accept->isVisible() && accept->isEnabled());
         QVERIFY(decline->isVisible() && decline->isEnabled());
 
-        // An accept in flight: both wait.
         room.insert(QStringLiteral("invitePending"), true);
         QVERIFY(root->setProperty("currentRoom", room));
         QCoreApplication::processEvents();
         QVERIFY(!accept->isEnabled());
         QVERIFY(!decline->isEnabled());
 
-        // Joined: the ordinary room again.
         room.insert(QStringLiteral("membership"), QStringLiteral("joined"));
         room.insert(QStringLiteral("invitePending"), false);
         QVERIFY(root->setProperty("currentRoom", room));
@@ -12460,8 +11232,6 @@ private Q_SLOTS:
         QVERIFY(composer->isVisible());
     }
 
-    // Space Home inside the pane, as MainScreen shows it: no open room and a
-    // real active Space.
     static QQuickItem *spaceHomeRoot(AppController &controller,
                                      QQmlApplicationEngine &engine,
                                      QQuickWindow &window,
@@ -12481,7 +11251,6 @@ private Q_SLOTS:
         root->setParentItem(window.contentItem());
         root->setSize(QSizeF(window.width(), window.height()));
         window.show();
-        // Not asserted: the offscreen platform may decline.
         (void)QTest::qWaitForWindowExposed(&window, 2000);
         controller.openSpaceHome(spaceId);
         if (!QTest::qWaitFor([&] {
@@ -12493,14 +11262,10 @@ private Q_SLOTS:
         return root;
     }
 
-    // Create room here and Add existing room both end in an m.space.child
-    // write. A member without the power to send it was offered both: Add
-    // failed after the click, and Create made the room and then failed to
-    // place it, leaving a stray top-level room (break-it B006).
     void spaceHomeOffersNoChildPlacementWithoutThePower()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString spaceId = QStringLiteral("!space-team:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -12524,14 +11289,10 @@ private Q_SLOTS:
                  "room");
     }
 
-    // "Room added — waiting for the server to confirm." is a pending state:
-    // it clears once the Space lists the room. Adding a room the Space already
-    // lists is a no-op success, so the notice must clear at once; it used to
-    // stay until the reader switched Space (break-it B052).
     void spaceHomeClearsTheWaitingNoticeOnceTheChildIsListed()
     {
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString spaceId = QStringLiteral("!space-team:mock.local");
         const QString child = QStringLiteral("!general:mock.local");
         QQmlApplicationEngine engine;
@@ -12552,7 +11313,6 @@ private Q_SLOTS:
                                            "notice still reads \"%1\"")
                                 .arg(notice->property("text").toString())));
 
-        // A failure still says so, and stays.
         QVERIFY(QMetaObject::invokeMethod(
             controller.spaces(), "childAddFinished", Q_ARG(QString, spaceId),
             Q_ARG(QString, QStringLiteral("!nope:mock.local")),
@@ -12563,23 +11323,18 @@ private Q_SLOTS:
                  QStringLiteral("The room could not be added to this Space."));
     }
 
-    // A hierarchy answer queued just before the reader leaves Space Home must
-    // not call into the destroyed pane ("scheduleRebuild is not a function",
-    // "attempted to evaluate a function in an invalid context"; break-it
-    // B055). The queued work lives in child Timers that die with the pane.
     void leavingSpaceHomeLeavesNoQueuedCallIntoIt()
     {
         QTest::failOnWarning(QRegularExpression(
             QStringLiteral("is not a function|invalid context")));
         AppController controller(AppController::MockBackend);
-        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QVERIFY(!loginAndRoomIdAt(controller,0).isEmpty());
         const QString spaceId = QStringLiteral("!space-team:mock.local");
         QQmlApplicationEngine engine;
         QQuickWindow window;
         QQuickItem *root = spaceHomeRoot(controller, engine, window, spaceId);
         QVERIFY2(root != nullptr, "Space Home did not open");
 
-        // The hierarchy changes, and in the same turn the reader opens a room.
         QVERIFY(QMetaObject::invokeMethod(controller.discovery(),
                                           "spaceChildrenChanged",
                                           Q_ARG(QString, spaceId)));
@@ -12589,17 +11344,13 @@ private Q_SLOTS:
             root->findChild<QQuickItem *>(QStringLiteral("spaceHomePane"))
                 == nullptr, 2000);
     }
-    // A follow-the-latest request queued by a count change must not call into
-    // the pane once it is gone ("Property 'positionViewAtLatest' of object
-    // QQuickFlickable is not a function", seen on sign-out). The queued work
-    // lives in a child Timer that dies with the pane.
     void signingOutLeavesNoQueuedFollowLatestCall()
     {
         QTest::failOnWarning(QRegularExpression(
             QStringLiteral("is not a function|invalid context|"
                            "delayed function evaluation")));
         AppController controller(AppController::MockBackend);
-        const QString room = loginAndRoomIdAt(controller, /*row=*/0);
+        const QString room = loginAndRoomIdAt(controller,0);
         QVERIFY(!room.isEmpty());
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -12620,23 +11371,15 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(controller.timeline()->rowCount() > 0, 3000);
         QTest::qWait(300);
 
-        // A reset in the same turn the pane is torn down.
         controller.setCurrentRoomId(QString());
         controller.setCurrentRoomId(room);
         delete root;
         QTest::qWait(200);
     }
 
-    // A19: a MatrixRTC call in the 320 px pane of a 640 px window laid its
-    // stage out wider than the pane (the collapse button, hang-up and the
-    // software-video banner clipped at the right edge) because the controls
-    // cell asked for its full width as a MINIMUM once cramped. Measured on the
-    // real stage with the call controls drawn: nothing may end past the stage.
     void theCallStageFitsTheNarrowPane_data()
     {
         QTest::addColumn<int>("width");
-        // Narrower than the compact controls' own width: the stage must still
-        // end inside the pane (the minimum made it grow instead).
         QTest::newRow("narrower than the controls") << 260;
         QTest::newRow("640 window pane") << 320;
         QTest::newRow("760 window pane") << 380;
@@ -12664,7 +11407,6 @@ private Q_SLOTS:
         auto *controls = stage->findChild<QQuickItem *>(
             QStringLiteral("callStageControls"));
         QVERIFY2(controls, "the call controls were not loaded");
-        // Draw the controls without a live call.
         QVERIFY(controls->setProperty("previewMode", true));
         QTest::qWait(300);
         auto *row = stage->findChild<QQuickItem *>(
@@ -12674,7 +11416,6 @@ private Q_SLOTS:
         QVERIFY2(end.x() <= width + 0.5,
                  qPrintable(QStringLiteral("header row ends at %1 in a %2 px stage")
                                 .arg(end.x()).arg(width)));
-        // Every direct child of the stage's column ends inside the stage.
         const auto kids = row->parentItem()->childItems();
         for (QQuickItem *kid : kids) {
             if (!kid->isVisible() || kid->width() <= 0)
@@ -12690,7 +11431,6 @@ private Q_SLOTS:
 
 int main(int argc, char *argv[])
 {
-    // Qt Quick item creation needs a QGuiApplication, as in main.cpp.
     QGuiApplication app(argc, argv);
     TimelinePaneQmlTest testObject;
     return QTest::qExec(&testObject, argc, argv);

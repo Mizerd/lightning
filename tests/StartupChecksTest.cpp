@@ -4,53 +4,39 @@
 
 using lightning::startup::shouldRejectForNoDisplay;
 
-// The DISPLAY / WAYLAND_DISPLAY preflight fires only on X11/Wayland platforms
-// (Unix, excluding macOS), only when no display is reachable and the caller
-// has not forced a QPA platform. On Windows and macOS the native plugin needs
-// neither variable, so startup is never rejected there.
 class StartupChecksTest : public QObject
 {
     Q_OBJECT
 private slots:
-    // --- Unix-like, non-macOS (X11/Wayland) ---------------------------------
     void linuxNoDisplayNoForce_rejected()
     {
-        // Linux, DISPLAY & WAYLAND_DISPLAY unset, QT_QPA_PLATFORM unset.
-        QVERIFY(shouldRejectForNoDisplay(/*requires*/ true,
-                                         /*hasDisplay*/ false,
-                                         /*platformForced*/ false));
+        QVERIFY(shouldRejectForNoDisplay( true,
+ false,
+ false));
     }
 
     void linuxWithX11Display_accepted()
     {
-        // Linux, DISPLAY present.
         QVERIFY(!shouldRejectForNoDisplay(true, true, false));
     }
 
     void linuxWithWaylandDisplay_accepted()
     {
-        // hasDisplay already folds DISPLAY || WAYLAND_DISPLAY, so a Wayland
-        // session is represented the same way.
         QVERIFY(!shouldRejectForNoDisplay(true, true, false));
     }
 
     void linuxOffscreenForced_accepted()
     {
-        // Linux headless smoke test: QT_QPA_PLATFORM=offscreen, no display.
         QVERIFY(!shouldRejectForNoDisplay(true, false, true));
     }
 
-    // --- Windows / macOS (native plugin, no display server concept) ---------
     void windowsNoDisplay_accepted()
     {
-        // Windows: DISPLAY / WAYLAND_DISPLAY absent (the normal case) must be
-        // accepted.
-        QVERIFY(!shouldRejectForNoDisplay(/*requires*/ false, false, false));
+        QVERIFY(!shouldRejectForNoDisplay( false, false, false));
     }
 
     void windowsWithForcedPlatform_accepted()
     {
-        // e.g. QT_QPA_PLATFORM=windows explicitly set — still accepted.
         QVERIFY(!shouldRejectForNoDisplay(false, false, true));
     }
 
@@ -68,8 +54,6 @@ private slots:
     {
         QFETCH(bool, hasDisplay);
         QFETCH(bool, platformForced);
-        // Whatever the env, a platform that does not require a display server
-        // (Windows/macOS) must never be rejected.
         QVERIFY(!shouldRejectForNoDisplay(false, hasDisplay, platformForced));
     }
 };

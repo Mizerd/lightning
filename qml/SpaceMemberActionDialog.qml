@@ -3,13 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Confirms a kick, ban or unban from a Space and shows what happened.
-//
-// The flow lives in app.spaceModeration (SpaceModerationController); this
-// view only renders it. The consequence text, the cascade label and every
-// per-room outcome come from there, so what the user reads is what the tests
-// check. Rooms the backend's plan does not offer are listed with the reason
-// and cannot be selected: a partial power set is stated, not hidden.
 AppDialog {
     id: root
     objectName: "spaceMemberActionDialog"
@@ -28,17 +21,13 @@ AppDialog {
     // every one has answered so no outcome goes unreported.
     closePolicy: running ? Popup.NoAutoClose : Popup.CloseOnEscape
 
-    // `op` is "kick", "ban" or "unban". The names are shown, never trusted.
-    // While an earlier flow is still running the controller refuses the new
-    // one and sets its notice; the dialog opens on the running flow so the
-    // refusal is seen.
     function openFor(spaceId, spaceName, userId, displayName, op) {
         if (!ctl)
             return
         if (ctl.begin(spaceId, spaceName, userId, displayName, op))
             reasonField.text = ""
         else if (ctl.phase === "idle")
-            return // refused with nothing to show
+            return
         open()
     }
 
@@ -47,8 +36,6 @@ AppDialog {
             ctl.reset()
     }
 
-    // The Space's roster changes with the action; re-read it when it is the
-    // one on screen.
     Connections {
         target: root.ctl
         function onFinished(spaceId, userId, op, succeeded, failed) {
@@ -105,7 +92,6 @@ AppDialog {
             font.pixelSize: AppTheme.textMeta
         }
 
-        // The Space's own step, first.
         RowLayout {
             objectName: "spaceMemberActionSpaceRow"
             Layout.fillWidth: true
@@ -130,7 +116,6 @@ AppDialog {
             StepOutcome { row: parent.row }
         }
 
-        // Cascade choice.
         RowLayout {
             objectName: "spaceMemberActionCascade"
             Layout.fillWidth: true
@@ -161,14 +146,10 @@ AppDialog {
             }
         }
 
-        // Every room beneath the Space: offered ones selectable, the rest
-        // with the reason they are not offered.
         ListView {
             id: roomList
             objectName: "spaceMemberActionRooms"
             Layout.fillWidth: true
-            // From the row height, not contentHeight: that is not known
-            // when this binds.
             readonly property int rowHeight: 34
             Layout.preferredHeight: Math.min(count * rowHeight, 240)
             visible: count > 0 && root.phase !== "planning"
@@ -197,7 +178,6 @@ AppDialog {
                 contentItem: RowLayout {
                     spacing: AppTheme.spacing8
                     CheckBox {
-                        // The row owns the click; this is an indicator.
                         visible: roomRow.eligible && root.phase === "ready"
                         checked: roomRow.modelData.selected === true
                                  && root.ctl.cascade
@@ -285,8 +265,6 @@ AppDialog {
         }
     }
 
-    // One row's outcome: before confirming, why it is not offered; after,
-    // what happened to it.
     component StepOutcome: RowLayout {
         id: outcome
         property var row: ({})

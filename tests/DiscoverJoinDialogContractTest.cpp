@@ -1,6 +1,3 @@
-// Source-contract guards for the C12 round (Discover / New conversation).
-// These read the QML text, so they pin the shape of each fix; they are not a
-// substitute for a live Tab/click pass.
 
 #include <QtTest/QtTest>
 
@@ -15,8 +12,6 @@ QString read(const QString &name)
                                           : QString{};
 }
 
-// Text of the block that starts at `marker` and ends at the first line that
-// is exactly `closer` after it.
 QString block(const QString &src, const QString &marker, const QString &closer)
 {
     const int a = src.indexOf(marker);
@@ -26,14 +21,13 @@ QString block(const QString &src, const QString &marker, const QString &closer)
     return b < 0 ? QString{} : src.mid(a, b - a);
 }
 
-} // namespace
+}
 
 class DiscoverJoinDialogContractTest : public QObject
 {
     Q_OBJECT
 
 private slots:
-    // C12-F05: a reopened dialog showed the previous query, server and rows.
     void resetAllClearsTheBrowseState()
     {
         const QString src = read(QStringLiteral("DiscoverJoinDialog.qml"));
@@ -48,13 +42,9 @@ private slots:
         const int clearAt = body.indexOf(
             QStringLiteral("app.discovery.directory.clear()"));
         QVERIFY2(clearAt > 0, "stale rows must be dropped");
-        // clear() stops the debounce the two setters above start, so it must
-        // come after them or a refresh fires into the closed dialog.
         QVERIFY(clearAt > body.indexOf(QStringLiteral("directory.server = \"\"")));
     }
 
-    // C12-F03: knockSent was consumed only to clear a flag; the button stayed
-    // enabled and nothing said the request went out.
     void aKnockIsTrackedAndCannotBeRepeated()
     {
         const QString src = read(QStringLiteral("DiscoverJoinDialog.qml"));
@@ -68,15 +58,11 @@ private slots:
         QVERIFY2(src.contains(QStringLiteral("|| root.addressKnockSent")),
                  "the preview must read Request pending after a sent knock");
         QVERIFY(src.contains(QStringLiteral("|| root.knockedRoomIds[roomId] === true")));
-        // An error must release the in-flight state too, or one failure
-        // disables the button for good.
         const QString err = block(src, QStringLiteral("function onErrorMessageChanged()"),
                                   QStringLiteral("root.revealForLink"));
         QVERIFY(err.contains(QStringLiteral("root.knockInFlight = false")));
     }
 
-    // C12-F04: Join/Open inside the ListView delegate were not reachable by
-    // Tab. The row is the stop and Enter/Space acts.
     void aBrowseRowIsAKeyboardStopThatActs()
     {
         const QString src = read(QStringLiteral("DiscoverJoinDialog.qml"));
@@ -90,19 +76,13 @@ private slots:
         QVERIFY(row.contains(QStringLiteral("visible: directoryRow.activeFocus")));
     }
 
-    // C12-F02: choosing a DM user hides the search field that owned focus.
     void pickingADmUserMovesFocusToAShownControl()
     {
         const QString src = read(QStringLiteral("NewConversationDialog.qml"));
         const int at = src.indexOf(QStringLiteral("onUserSelected:"));
         QVERIFY(at >= 0);
-        // The handler body ends where the picker's own block ends; the focus
-        // call must live between here and the unknown-target panel.
         const QString h = src.mid(at, 2400);
         QVERIFY(h.contains(QStringLiteral("root.contentItem.forceActiveFocus")));
-        // Neither the X (reflexive Enter discards the choice) nor a primary
-        // action (the unknown-user warning is asynchronous, so Enter could start
-        // a DM before it is read, and the button hides when the panel shows).
         const int cb = h.indexOf(QStringLiteral("Qt.callLater"));
         QVERIFY(cb >= 0);
         const QString cl = h.mid(cb, 300);
@@ -114,8 +94,6 @@ private slots:
         QVERIFY(src.contains(QStringLiteral("id: dmStartAnywayButton")));
     }
 
-    // C12 review item 2: knock() returns silently when unsupported / busy, so
-    // the in-flight flag must never be raised speculatively.
     void theKnockFlagIsOnlyRaisedWhenAKnockCanStart()
     {
         const QString src = read(QStringLiteral("DiscoverJoinDialog.qml"));
@@ -128,13 +106,10 @@ private slots:
                 < fn.indexOf(QStringLiteral("knockInFlight = true")));
         QVERIFY2(src.contains(QStringLiteral("id: knockGuard")),
                  "a bounded timer must release a flag whose answer never comes");
-        // No call site may set the flag itself or call knock() directly.
         QVERIFY(src.count(QStringLiteral("app.discovery.knock(")) == 1);
         QVERIFY(src.count(QStringLiteral("knockInFlight = true")) == 1);
     }
 
-    // C12 review item 3: a focused row must be scrolled into view.
-    // C12-F07: the icon-only close X gave no hint of what it does.
     void theCloseButtonsHaveATooltip()
     {
         for (const QString &name : {QStringLiteral("DiscoverJoinDialog.qml"),

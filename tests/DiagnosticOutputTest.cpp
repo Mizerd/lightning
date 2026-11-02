@@ -1,14 +1,3 @@
-// --log-file / --console contract, asserted against the real binary
-// (LIGHTNING_BINARY, injected by CMake as in ScreenshotDemoExclusionTest).
-// A process test, not a source scan, because main.cpp cannot be linked into
-// a test and both behaviours are about what the binary does with argv:
-//  1. --log-file is honoured wherever it stands, including after a flag that
-//     exits in preflight (a single left-to-right walk used to return first).
-//  2. Status commands print to stdout, not through the message handler, so
-//     their output must be teed into the log file; on a GUI-subsystem Windows
-//     binary stdout may reach nobody.
-// Every case runs a preflight path, so no QGuiApplication or display is
-// needed.
 #include <QtTest/QtTest>
 
 #include <QFile>
@@ -38,8 +27,6 @@ class DiagnosticOutputTest : public QObject
     {
         Run r;
         QProcess p;
-        // Force offscreen anyway, so a missing display cannot turn a clean exit
-        // into a platform abort.
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
         env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
         p.setProcessEnvironment(env);
@@ -69,7 +56,6 @@ private Q_SLOTS:
                  qUtf8Printable("binary not found: " + binary()));
     }
 
-    // --log-file after a flag that exits still creates the file.
     void aLogFileFollowingATerminatingFlagIsStillOpened()
     {
         QTemporaryDir dir;
@@ -88,9 +74,6 @@ private Q_SLOTS:
                          "so installLogFile() got an empty path.").arg(path)));
     }
 
-    // Every cheap terminating flag, so a new one cannot reintroduce the
-    // problem for itself. --call-media-status has its own case because it
-    // also reaches a probe.
     void everyTerminatingFlagStillOpensTheLogFile()
     {
         const QStringList terminating = {
@@ -112,7 +95,6 @@ private Q_SLOTS:
         }
     }
 
-    // The --log-file=PATH spelling survives a terminating flag too.
     void theEqualsSpellingAlsoSurvivesATerminatingFlag()
     {
         QTemporaryDir dir;
@@ -125,8 +107,6 @@ private Q_SLOTS:
         QVERIFY2(QFile::exists(path), "--log-file=PATH after --version: no file");
     }
 
-    // The file contains the diagnostic, not only its header: --version prints
-    // through QTextStream(stdout), never the message handler.
     void printedOutputReachesTheLogFileAndNotOnlyTheHeader()
     {
         QTemporaryDir dir;
@@ -138,7 +118,6 @@ private Q_SLOTS:
         QVERIFY2(r.started, "the binary did not run");
         QCOMPARE(r.exitCode, 0);
 
-        // Compare against what was actually printed, not a hardcoded version.
         const QString printed = r.out.trimmed();
         QVERIFY2(printed.startsWith(QStringLiteral("Lightning ")),
                  qUtf8Printable("unexpected --version output: " + r.out));
@@ -151,8 +130,6 @@ private Q_SLOTS:
                      "'%1' in the log; got:\n%2").arg(printed, log)));
     }
 
-    // --call-media-status is captured by a --log-file that follows it, in the
-    // order people type them.
     void callMediaStatusIsCapturedByALogFileThatFollowsIt()
     {
         QTemporaryDir dir;
@@ -165,8 +142,6 @@ private Q_SLOTS:
         QVERIFY2(QFile::exists(path),
                  "--call-media-status --log-file PATH created no file");
 
-        // The first line the command prints in both builds ("...: yes" with the
-        // engine, "...: no" without).
         const QString log = readAll(path);
         QVERIFY2(log.contains(QStringLiteral("call media engine built in")),
                  qUtf8Printable(QStringLiteral(
@@ -174,8 +149,6 @@ private Q_SLOTS:
                      "got:\n%1").arg(log)));
     }
 
-    // --log-file first still works and does not stop the main loop from seeing
-    // the rest.
     void aLogFileBeforeATerminatingFlagStillWorks()
     {
         QTemporaryDir dir;
@@ -189,13 +162,10 @@ private Q_SLOTS:
                  qUtf8Printable("--build-info printed nothing useful:\n" + r.out));
     }
 
-    // The first pass steps over --log-file's value, so a path that spells a
-    // flag is not read as one.
     void theLogFilePathIsNotItselfParsedAsAFlag()
     {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
-        // A file literally named "--console" in the temp dir.
         const QString path = dir.filePath(QStringLiteral("--console"));
         const Run r = run({ QStringLiteral("--log-file"), path,
                             QStringLiteral("--version") });
@@ -204,8 +174,6 @@ private Q_SLOTS:
                  "a --log-file path that looks like a flag was not honoured");
     }
 
-    // --console is accepted after a terminating flag on every platform (a
-    // no-op off Windows); it must parse.
     void consoleIsAcceptedAfterATerminatingFlag()
     {
         const Run r = run({ QStringLiteral("--version"),
@@ -217,8 +185,6 @@ private Q_SLOTS:
                  qUtf8Printable("--console was rejected:\n" + r.err));
     }
 
-    // The first pass only records, so the main loop still diagnoses malformed
-    // values: a trailing --log-file with no path is an error.
     void aLogFileWithNoPathIsStillAnError()
     {
         const Run r = run({ QStringLiteral("--log-file") });
@@ -235,8 +201,6 @@ private Q_SLOTS:
                  qUtf8Printable("got:\n" + r.err));
     }
 
-    // Preflight errors reach the log file too: on Windows stderr is as
-    // unreachable as stdout.
     void preflightErrorsAreCapturedByTheLogFile()
     {
         QTemporaryDir dir;

@@ -3,30 +3,18 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings → Labs: which ONE noise suppressor runs on the microphone in calls
-// (GitHub #20). A radio list, not toggles: the modes are mutually exclusive by
-// construction. A mode this build or system cannot run is shown disabled with
-// the reason, never hidden, so its absence explains itself.
 ColumnLayout {
     id: root
     objectName: "noiseSuppressionSelector"
     spacing: AppTheme.spacing8
 
-    /// [{key, available, reason}] in display order; from
-    /// SfuCallController::noiseSuppressionChoices(). Injectable for tests.
     property var choices: []
-    /// The selected mode key.
     property string selected: "webrtc"
-    /// The mode key that failed to start in the running call, or "".
     property string failedMode: ""
-    /// With failedMode: WebRTC suppression runs in its place.
     property bool fellBackToWebrtc: false
 
     signal chosen(string key)
 
-    // What each engine does first, its name second; the same titles as the
-    // call's microphone menu (CallDeviceMenu.noiseTitle), so the Labs list,
-    // the Sound & video summary row and the menu name a mode one way.
     function titleFor(key) {
         if (key === "off") return qsTr("Off")
         if (key === "webrtc") return qsTr("Standard (WebRTC)")
@@ -61,8 +49,6 @@ ColumnLayout {
         return ""
     }
 
-    // Index of the option that holds the group's single tab stop: the chosen
-    // one when it can run, else the first that can.
     readonly property int tabStopIndex: {
         let first = -1
         for (let i = 0; i < choices.length; ++i) {
@@ -76,8 +62,6 @@ ColumnLayout {
         return first
     }
 
-    // Arrow keys move among the options that can run and choose the one
-    // reached, as a radio group does.
     function step(from, delta) {
         const n = optionRepeater.count
         for (let k = 1; k <= n; ++k) {
@@ -103,7 +87,6 @@ ColumnLayout {
             Layout.fillWidth: true
             enabled: modelData.available
             hoverEnabled: true
-            // One tab stop for the whole list; arrows move within it.
             focusPolicy: index === root.tabStopIndex ? Qt.StrongFocus
                                                      : Qt.ClickFocus
             padding: AppTheme.spacing12
@@ -128,9 +111,6 @@ ColumnLayout {
                 color: option.current ? AppTheme.stormSelection
                        : (option.enabled && (option.hovered || option.activeFocus)
                           ? AppTheme.hover : AppTheme.stormInset)
-                // The chosen card keeps its own ring; focus is a SEPARATE
-                // outer ring, so a focused card that is not chosen never
-                // looks chosen.
                 border.width: option.current ? 2 : 0
                 border.color: AppTheme.bolt
 
@@ -150,7 +130,6 @@ ColumnLayout {
                 id: optionBody
                 spacing: AppTheme.spacing12
 
-                // Radio: a ring, filled when chosen.
                 Rectangle {
                     Layout.alignment: Qt.AlignTop
                     Layout.topMargin: AppTheme.spacing4
@@ -204,8 +183,6 @@ ColumnLayout {
                         text: root.reasonText(option.modelData.reason)
                         textFormat: Text.PlainText
                         wrapMode: Text.WordWrap
-                        // Muted, not textDisabled: the reason is the one line
-                        // the user needs to read here.
                         color: AppTheme.stormTextMuted
                         font.pixelSize: AppTheme.textMeta
                         font.italic: true

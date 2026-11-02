@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// One icon-sized row shared by the Classic and Channels compact presenters.
 ItemDelegate {
     id: root
     objectName: "compactRoomRow"

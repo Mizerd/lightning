@@ -1,14 +1,3 @@
-// The Activity Center panel, loaded offscreen against a STUB `app` (a real QML
-// object, so a call the panel makes that the stub lacks is a TypeError the
-// suite sees). Covers: an entry opens from the keyboard (Return, Enter and
-// Space on the focused list) and from the screen-reader press action; the
-// accessible name is built in ONE pass, so a reaction key or name containing
-// a place-marker cannot rewrite it; unseen state and time are in the name; a
-// custom-emoji (mxc) reaction never shows the raw URI; interpolated names are
-// bidi-isolated; the panel has no keyword editor of its own; and a server
-// that cannot list past highlights is said so, never "Nothing here yet".
-//
-// Run offscreen only (QT_QPA_PLATFORM=offscreen), never bare.
 #include <QtTest/QtTest>
 
 #include <memory>
@@ -181,7 +170,6 @@ ApplicationWindow {
         int n = 0;
         for (QQuickItem *c : content->childItems()) {
             if (c->objectName() == QLatin1String("activityRow")) {
-                // children are not ordered by index; match the role.
                 if (c->property("index").toInt() == i)
                     return c;
                 ++n;
@@ -217,8 +205,6 @@ private Q_SLOTS:
         QCOMPARE(f.activity->property("searchQuery").toString(), QString());
     }
 
-    // The field sat between the empty-state line and the list, so a search
-    // with no match moved it 30 px under the typist's hands.
     void searchFieldStaysPutWhenNothingMatches()
     {
         Fixture f;
@@ -229,7 +215,6 @@ private Q_SLOTS:
         f.activity->setProperty("searchQuery", QStringLiteral("zzzzqqq-no-match"));
         settle();
         QCOMPARE(field->mapToScene(QPointF(0, 0)).y(), before);
-        // Structurally: above the lines that appear and vanish, not below.
         for (const char *name : {"activityEmptyState", "activityHistoryUnavailable"}) {
             auto *line = f.panel->findChild<QQuickItem *>(QString::fromLatin1(name));
             QVERIFY(line);
@@ -258,8 +243,6 @@ private Q_SLOTS:
     {
         Fixture f;
         QVERIFY(make(f));
-        // No older page: this case is about the dialog's own keys, and a
-        // "Load older" footer would be a Tab stop inside the list.
         QVERIFY(f.activity->setProperty("activityHasMore", false));
         QCoreApplication::processEvents();
         auto *w = qobject_cast<QQuickWindow *>(f.window);
@@ -402,8 +385,6 @@ private Q_SLOTS:
     {
         Fixture f;
         QVERIFY(make(f, false));
-        // No older page: this case is about the dialog's own keys, and a
-        // "Load older" footer would be a Tab stop inside the list.
         QVERIFY(f.activity->setProperty("activityHasMore", false));
         QCoreApplication::processEvents();
         auto *w = qobject_cast<QQuickWindow *>(f.window);
@@ -415,8 +396,6 @@ private Q_SLOTS:
         QTest::keyClick(w, Qt::Key_Down);
         QCOMPARE(f.list->property("currentIndex").toInt(), 1);
 
-        // Tab still reaches the dialog's controls; reopening must not leave
-        // arrows on whichever control had focus when the dialog was closed.
         QTest::keyClick(w, Qt::Key_Tab);
         QVERIFY(!f.list->hasActiveFocus());
         QTest::keyClick(w, Qt::Key_Escape);
@@ -489,7 +468,6 @@ private Q_SLOTS:
     {
         Fixture f;
         QVERIFY(make(f));
-        // Accessible.onPressAction calls this same function.
         QVERIFY(QMetaObject::invokeMethod(
             f.panel, "openEntry", Q_ARG(QVariant, QStringLiteral("e2"))));
         QCOMPARE(f.activity->property("lastOpened").toString(),
@@ -506,9 +484,6 @@ private Q_SLOTS:
         QVERIFY2(v.isValid(), "the row exposes no accessible name text");
         const QString name = v.toString();
         QCOMPARE(name.count(QStringLiteral("Ops-Room")), 1);
-        // Kept literally where the panel puts it: in the kind label
-        // ("Reacted %2 to your message") and as the row's body. Never
-        // substituted: the room name above appears once.
         QVERIFY2(name.contains(QStringLiteral("Reacted %2 to your message")),
                  qPrintable(name));
         QCOMPARE(name.count(QStringLiteral("%2")), 2);
@@ -524,7 +499,6 @@ private Q_SLOTS:
         QVERIFY2(unseen != seen, "seen and unseen rows read the same");
         QVERIFY2(unseen.startsWith(QStringLiteral("Unread")), qPrintable(unseen));
         QVERIFY2(!seen.startsWith(QStringLiteral("Unread")), qPrintable(seen));
-        // The time is in the name: a clock time "hh:mm" for today's entry.
         QVERIFY2(QRegularExpression(QStringLiteral("\\d\\d:\\d\\d")).match(seen).hasMatch(),
                  qPrintable(seen));
     }
@@ -576,9 +550,6 @@ private Q_SLOTS:
                  QStringLiteral("notifications"));
     }
 
-    // C08-F03: Home/End/PageUp/PageDown moved nothing (keyNavigationEnabled
-    // covers Up/Down) and a Tab-focused list did not follow its current row.
-    // Old code: currentIndex stays 0 after End.
     void homeEndAndPageKeysMoveTheCurrentRow()
     {
         Fixture f;
@@ -607,13 +578,10 @@ private Q_SLOTS:
         QVERIFY(make(f));
         QVERIFY(f.list->property("contentHeight").toReal()
                 > f.list->height());
-        // The panel now focuses the list on opening. Move focus away first
-        // so this test still exercises a later focus transition.
         auto *control = f.panel->findChild<QQuickItem *>(QStringLiteral("activityMarkAllSeen"));
         QVERIFY(control);
         control->forceActiveFocus();
         QVERIFY(!f.list->hasActiveFocus());
-        // Scroll away from row 0, then give the list focus.
         QMetaObject::invokeMethod(f.list, "positionViewAtEnd");
         settle();
         QVERIFY(f.list->property("contentY").toReal() > 100);
@@ -624,7 +592,6 @@ private Q_SLOTS:
                  "the focused list must show its current row");
     }
 
-    // C08-F02: middle-click autoscroll exists on the Activity list.
     void theActivityListHasAMiddleClickScroller()
     {
         Fixture f;
@@ -633,10 +600,6 @@ private Q_SLOTS:
             QStringLiteral("activityMiddleClickScroller")));
     }
 
-    // Break-it rerun, section 10: after a restart on a server without
-    // GET /notifications the list said "Nothing here yet" while the room list
-    // showed @2/@3/@5. Old code: neither label existed.
-    // The cutoff for old read rows is set from the panel's own menu.
     void theOptionsMenuSetsTheReadHorizon()
     {
         Fixture f;
@@ -647,9 +610,6 @@ private Q_SLOTS:
         QObject *menu = f.panel->findChild<QObject *>(
             QStringLiteral("activityOptionsMenu"));
         QVERIFY(menu);
-        // Menu rows are popup content, not QObject children of the panel:
-        // reach them by position. Row 0 is the section label, then the eight
-        // choices in the order 7, 14, 30, 60, 90, 180, 365, never.
         auto rowAt = [menu](int i) {
             QQuickItem *item = nullptr;
             QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *, item),
@@ -663,7 +623,6 @@ private Q_SLOTS:
         QCOMPARE(d7->objectName(), QStringLiteral("activityHorizon7"));
         QCOMPARE(d60->objectName(), QStringLiteral("activityHorizon60"));
         QCOMPARE(never->objectName(), QStringLiteral("activityHorizon0"));
-        // The current choice is the one marked.
         QVERIFY(d60->property("radioSelected").toBool());
         QVERIFY(!d7->property("radioSelected").toBool());
         QVERIFY(QMetaObject::invokeMethod(d7, "triggered"));
@@ -685,16 +644,13 @@ private Q_SLOTS:
             QStringLiteral("activityEmptyState"));
         QVERIFY(hint);
         QVERIFY(empty);
-        // History available: no hint over the rows.
         QVERIFY(!hint->property("visible").toBool());
 
         f.activity->setProperty("historyUnavailable", true);
         settle();
-        // Rows present: one line above them.
         QVERIFY(hint->property("visible").toBool());
         QVERIFY(!empty->property("visible").toBool());
 
-        // Nothing listed: the empty state says why, not "Nothing here yet".
         QMetaObject::invokeMethod(f.activity, "clear");
         settle();
         QVERIFY(empty->property("visible").toBool());
@@ -704,7 +660,6 @@ private Q_SLOTS:
                  qPrintable(text));
         QVERIFY(!text.contains(QStringLiteral("Nothing here yet")));
 
-        // Invites do not come from that history.
         f.activity->setProperty("filter", QStringLiteral("invites"));
         settle();
         QCOMPARE(empty->property("text").toString(),

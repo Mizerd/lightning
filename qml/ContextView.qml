@@ -3,12 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Read-only context view: one message and the messages around it, fetched with
-// /context when a search result or reply target is not in the loaded timeline.
-// Backed by app.eventContext (ContextController); its rows are an ordinary
-// TimelineModel rendered by MessageDelegate with the read-only contract
-// (`readOnlyContext`): no hover actions, no reactions, no reply, no menu.
-// It sits over the timeline area and never touches the live timeline.
 Rectangle {
     id: view
     objectName: "contextView"
@@ -23,11 +17,8 @@ Rectangle {
         onWheel: (wheel) => wheel.accepted = true
     }
 
-    // Media entry points and room facts supplied by TimelinePane.
     property var openImage: function(mediaKey, httpUrl) {}
     property var openArtwork: function(source, title) {}
-    // (mediaKey, filename, mimetype, ask): ask = "Save as…", otherwise
-    // Download (app.downloads).
     property var saveMedia: function(mediaKey, filename, mime, ask) {}
     property var currentRoom: ({})
 
@@ -60,7 +51,6 @@ Rectangle {
             }
         }
         function onTargetLocated(row) {
-            // The ListView needs a turn to build delegates for the new model.
             Qt.callLater(function() { view.placeTarget(row) })
         }
     }
@@ -77,18 +67,11 @@ Rectangle {
     Connections {
         target: app.eventContext.model
         function onOlderPrepended(count) {
-            // Keep the reader on the row they were on: the new rows are above.
             Qt.callLater(function() {
                 list.positionViewAtIndex(count, ListView.Beginning)
             })
         }
     }
-    // Take keyboard focus when the list can hold it: the live timeline
-    // underneath stays in the Tab chain, so without this a keyboard user
-    // tabbed through all of it and never reached the list or "Jump to latest".
-    // The list is invisible until the state is Ready, and forceActiveFocus on
-    // an invisible item is a no-op, so the visible edge alone is not enough:
-    // the Ready edge takes focus too.
     function takeFocus() {
         if (view.visible && app.eventContext.state === ContextController.Ready)
             list.forceActiveFocus(Qt.TabFocusReason)
@@ -108,7 +91,6 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // Top bar
         Rectangle {
             objectName: "contextTopBar"
             Layout.fillWidth: true
@@ -174,9 +156,6 @@ Rectangle {
                 rightMargin: AppTheme.spacing12
                 boundsBehavior: Flickable.StopAtBounds
 
-                // Keyboard scrolling: a Flickable has no key handling of its
-                // own. Arrows step, Page keys move a viewport, Home and End
-                // go to the oldest and newest loaded rows.
                 activeFocusOnTab: true
                 Keys.onPressed: (event) => {
                     var step = 48
@@ -198,8 +177,6 @@ Rectangle {
                     else if (event.key === Qt.Key_End) go(bottom)
                 }
 
-                // MessageDelegate view contract (see ThreadPanel). Read-only:
-                // the delegate hides its action bar, reactions, reply and menu.
                 property var timelineModel: app.eventContext.model
                 property bool readOnlyContext: true
                 property string suppressRootEventId: ""
@@ -221,15 +198,10 @@ Rectangle {
                 property var openImage: view.openImage
                 property var openArtwork: view.openArtwork
                 property var saveMedia: view.saveMedia
-                // Which surface a download started here belongs to; the notice
-                // is shown once, on the surface the click came from.
                 property string downloadSurface: "context"
                 property var openReactionPicker: function(eventId, point, expanded) {}
                 property var openSenderProfile: function(member) {}
                 property string navigationHighlightEventId: view.highlightEventId
-                // A reply quote inside the view jumps within it when loaded;
-                // otherwise it re-routes through the one navigation path,
-                // which reopens the view on that message.
                 property var navigateToEvent: function(eventId) {
                     if (!eventId)
                         return
@@ -239,8 +211,6 @@ Rectangle {
                         highlightTimer.restart()
                         list.positionViewAtIndex(row, ListView.Center)
                     } else {
-                        // The single navigation path: it replaces this view
-                        // with one on the new target (or falls back).
                         app.pagination.jumpToEvent(eventId)
                     }
                 }

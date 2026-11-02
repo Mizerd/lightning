@@ -1,23 +1,3 @@
-//! Legacy Matrix SSO (`m.login.sso`) on matrix-sdk 0.18's
-//! `Client::matrix_auth()`.
-//!
-//! Not OAuth (`crate::oauth`): the homeserver redirects back with a
-//! single-use `loginToken`, exchanged at `/login` (`m.login.token`) for a
-//! normal Matrix session.
-//!
-//! `MatrixAuth::login_sso()` needs the `sso-login` feature (`axum`, not
-//! vendored), but its primitives are ungated:
-//! `MatrixAuth::get_sso_login_url(redirect_url, idp_id)` and
-//! `MatrixAuth::login_token(token)`. The redirect is received by the same
-//! loopback listener OAuth uses (`src/auth/OAuthCallbackServer`).
-//!
-//! Same two phases as OAuth: the user id is unknown until the token
-//! exchange, so Phase A uses an in-memory bootstrap client that must never
-//! sync, and Phase B (C++) opens the account's store and restores through
-//! `mx_rust_restore_client`.
-//!
-//! The login token is a credential: never logged, never put in an error
-//! message (SDK errors can quote the request), never returned across the FFI.
 
 use std::ffi::{c_char, c_void};
 use std::sync::Arc;
@@ -29,7 +9,6 @@ use url::Url;
 use crate::oauth::sdk_failure_reason;
 use crate::{bridge, cstr_arg, enqueue, ffi_string, run_async_on};
 
-/// Device name shown to the homeserver, as for the other login paths.
 const DEVICE_DISPLAY_NAME: &str = "Lightning";
 
 /// Reject any non-loopback redirect. The C++ listener binds 127.0.0.1 only;
@@ -41,17 +20,6 @@ fn require_loopback(redirect: &Url) -> Result<(), String> {
     }
 }
 
-/// List the identity providers a homeserver advertises for `m.login.sso`.
-/// Enqueues:
-///
-/// ```json
-/// { "type": "sso_providers", "homeserver": "...", "sso": true,
-///   "providers": [ { "id": "oidc-google", "name": "Google", "icon": "mxc://…" } ] }
-/// ```
-///
-/// No providers is common (one unnamed flow). Names come from the server.
-/// `icon` passes only as an `mxc:` URI, so the login screen never fetches
-/// from a host the server chose. `brand` is the MSC2858 brand token, or "".
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sso_providers(
     ptr: *mut c_void,
@@ -97,9 +65,6 @@ pub unsafe extern "C" fn mx_rust_sso_providers(
                                     .map(|uri| uri.to_string())
                                     .filter(|uri| uri.starts_with("mxc://"))
                                     .unwrap_or_default();
-                                // MSC2858 brand ("google", "github", ...): the
-                                // login screen picks a bundled logo by it, so
-                                // only a short lowercase token passes.
                                 let brand = idp
                                     .brand
                                     .as_ref()
@@ -143,11 +108,6 @@ pub unsafe extern "C" fn mx_rust_sso_providers(
     })
 }
 
-/// Begin an SSO login by asking the homeserver for its redirect URL. Empty
-/// `idp_id` means the default flow. The bootstrap Client is parked in the
-/// client slot because `mx_rust_sso_finish` must use the same instance.
-/// Enqueues `{"type": "sso_url", "url": "..."}` or
-/// `{"type": "sso_failed", "message": "..."}`; the URL holds no credentials.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sso_begin(
     ptr: *mut c_void,
@@ -194,8 +154,6 @@ pub unsafe extern "C" fn mx_rust_sso_begin(
                         enqueue(&events, json!({ "type": "sso_url", "url": url }));
                     }
                     Err(err) => {
-                        // Not formatted: the SDK error can quote the request. Only its
-                        // category travels, for the log.
                         drop(client);
                         enqueue(
                             &events,
@@ -216,15 +174,6 @@ pub unsafe extern "C" fn mx_rust_sso_begin(
     })
 }
 
-/// Complete an SSO login by exchanging the `loginToken` from the browser.
-/// The token never leaves this module. On success enqueues the same
-/// identity and session material as `oauth_ok`, so C++ Phase B shares one
-/// path:
-///
-/// ```json
-/// { "type": "sso_ok", "user_id": "@u:s", "device_id": "ABC",
-///   "access_token": "…", "refresh_token": "…" }
-/// ```
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sso_finish(
     ptr: *mut c_void,
@@ -234,7 +183,6 @@ pub unsafe extern "C" fn mx_rust_sso_finish(
         let bridge = unsafe { bridge(ptr)? };
         let login_token = unsafe { cstr_arg(login_token) }?;
         if login_token.trim().is_empty() {
-            // Does not quote the input.
             return Err("empty SSO login token".to_owned());
         }
 
@@ -266,9 +214,6 @@ pub unsafe extern "C" fn mx_rust_sso_finish(
                     .initial_device_display_name(DEVICE_DISPLAY_NAME)
                     .await;
                 if let Err(err) = outcome {
-                    // Used, expired or forged tokens land here. The SDK error is not included:
-                    // it can quote the request body, which is the token. Only its category
-                    // travels: an HTTP status and errcode, or the transport class.
                     let reason = sdk_failure_reason(&err);
                     drop(client);
                     enqueue(
@@ -314,7 +259,6 @@ pub unsafe extern "C" fn mx_rust_sso_finish(
                     }),
                 );
 
-                // Phase A is over: drop the bootstrap client and its in-memory tokens.
                 drop(client);
             });
         });
@@ -323,8 +267,6 @@ pub unsafe extern "C" fn mx_rust_sso_finish(
     })
 }
 
-/// Abort an SSO login in progress, releasing the bootstrap client so a late
-/// callback cannot complete an abandoned sign-in.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sso_abort(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -352,7 +294,6 @@ mod tests {
                 "should accept {good}"
             );
         }
-        // A login token must never be delivered off-box.
         for bad in [
             "http://example.org/callback",
             "https://127.0.0.1.evil.example/x",

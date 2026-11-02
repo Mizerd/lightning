@@ -1,11 +1,3 @@
-// Which picture the image viewer opens, and which list it pages through.
-// Driven through the real component in a real window:
-//
-//   1. A caller with a list and an index (`openAt`, the Media tab) gets
-//      exactly that item and pages within exactly that list.
-//   2. A lookup by key that misses the loaded timeline (`openFor`) opens what
-//      was asked for, alone, never a neighbour. Media history reaches media
-//      the timeline has not loaded, so a miss is expected there.
 
 #include <QtTest/QtTest>
 
@@ -121,7 +113,6 @@ ApplicationWindow {
 
 QVariantMap historyEntry(const QString &key)
 {
-    // The exact shape MediaHistoryModel::imageEntries() produces.
     return QVariantMap{
         { QStringLiteral("row"), 0 },
         { QStringLiteral("mediaKey"), key },
@@ -146,7 +137,7 @@ QVariantList manyEntries(int n)
     return list;
 }
 
-} // namespace
+}
 
 class MediaViewerNavigationQmlTest : public QObject
 {
@@ -219,14 +210,8 @@ private Q_SLOTS:
 
     void cleanup() { QMetaObject::invokeMethod(m_root, "close"); }
 
-    // Opening on the last of an overflowing set must show that thumbnail.
-    // MUST stay the first case that opens the viewer: the popup keeps its size
-    // after the first open, and it is the FIRST open, where the strip is still
-    // zero-width when the index is set, that used to leave it at the start.
     void theStripStartsWhereTheCurrentThumbnailIs()
     {
-        // The reported geometry: a 700x700 window, resized BEFORE the popup
-        // is first opened, so the strip is width-limited and must overflow.
         QVERIFY(QMetaObject::invokeMethod(
             m_root, "resizeTo", Q_ARG(QVariant, QVariant(700)),
             Q_ARG(QVariant, QVariant(700))));
@@ -244,15 +229,12 @@ private Q_SLOTS:
         QVERIFY2(strip->property("contentWidth").toReal()
                      > strip->width() + 1,
                  "the fixture set does not overflow the strip");
-        // Index 39's cell must lie inside the visible span.
         QVERIFY2(cx + strip->width() >= 39 * cell + 48 - 1,
                  qPrintable(QStringLiteral(
                      "strip left at the start (contentX=%1) with the "
                      "current thumbnail off to the right").arg(cx)));
     }
 
-    // The Media tab's call: the viewer opens the given index in the given list
-    // and pages inside that list, never the loaded timeline.
     void openingAtAnExplicitIndexOpensThatItemAndPagesThatList()
     {
         const QVariantList history = { historyEntry(QStringLiteral("$a")),
@@ -266,26 +248,20 @@ private Q_SLOTS:
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$b"));
         QCOMPARE(call("entryCount").toInt(), 3);
 
-        // Next/previous stay inside the handed-over list.
         QMetaObject::invokeMethod(m_root, "showAt", Q_ARG(QVariant, QVariant(2)));
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$c"));
         QMetaObject::invokeMethod(m_root, "showAt", Q_ARG(QVariant, QVariant(0)));
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$a"));
-        // Navigation wraps. Index 3 on three entries lands on index 0, which
-        // was also the start, so the next checks go past that coincidence.
         QMetaObject::invokeMethod(m_root, "showAt", Q_ARG(QVariant, QVariant(3)));
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$a"));
         QMetaObject::invokeMethod(m_root, "showAt", Q_ARG(QVariant, QVariant(4)));
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$b"));
-        // Backwards past the first wraps to the last. JS `%` keeps the
-        // dividend's sign (-1 % 3 is -1), which is why showAt normalises twice.
         QMetaObject::invokeMethod(m_root, "showAt", Q_ARG(QVariant, QVariant(0)));
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$a"));
         QMetaObject::invokeMethod(m_root, "showAt", Q_ARG(QVariant, QVariant(-1)));
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$c"));
     }
 
-    // An index the list cannot hold opens nothing, never something nearby.
     void anImpossibleIndexOpensNothing()
     {
         const QVariantList history = { historyEntry(QStringLiteral("$only")) };
@@ -299,12 +275,8 @@ private Q_SLOTS:
         QVERIFY(!call("isOpen").toBool());
     }
 
-    // The timeline's call on a miss: the room has loaded images, the key is
-    // not among them, and the viewer opens that key and nothing else.
     void aKeyThatIsNotInTheLoadedTimelineNeverOpensADifferentPicture()
     {
-        // The fixture must hold images, or a substituting fallback could not
-        // show itself.
         const QVariantList loaded = m_controller->timeline()->imageEntries();
         QVERIFY2(loaded.size() >= 2,
                  "the fixture room has too few images for the old fallback to "
@@ -315,13 +287,9 @@ private Q_SLOTS:
             Q_ARG(QVariant, QVariant(QUrl())));
         QVERIFY(call("isOpen").toBool());
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$never-loaded"));
-        // Nothing to page to: the truthful state for a key the loaded list
-        // does not contain.
         QCOMPARE(call("entryCount").toInt(), 1);
     }
 
-    // On a hit, the key opens inside the timeline's list, so previous/next
-    // still walk the room.
     void aKeyThatIsInTheLoadedTimelineStillOpensInsideThatList()
     {
         const QVariantList loaded = m_controller->timeline()->imageEntries();
@@ -329,17 +297,12 @@ private Q_SLOTS:
         const QVariantMap first = loaded.first().toMap();
         const QString key = first.value(QStringLiteral("mediaKey")).toString();
         const QUrl url = first.value(QStringLiteral("httpUrl")).toUrl();
-        // Seeded rows may be addressed by key or URL; openFor accepts either,
-        // as the delegate calls it.
         QMetaObject::invokeMethod(m_root, "openFor", Q_ARG(QVariant, key),
                                   Q_ARG(QVariant, QVariant(url)));
         QVERIFY(call("isOpen").toBool());
         QCOMPARE(call("entryCount").toInt(), int(loaded.size()));
     }
 
-    // The viewer's keys (Left/Right, Up/Down/Space, +/-/0/F, Escape) reach it:
-    // the Popup must set `focus: true` (it defaults to false, and a
-    // FocusScope inside a popup without active focus never gets it).
     void theViewersKeyboardReachesIt()
     {
         const QVariantList history = { historyEntry(QStringLiteral("$a")),
@@ -357,14 +320,12 @@ private Q_SLOTS:
                  "no key the viewer declares can reach it");
         QTest::keyClick(m_window, Qt::Key_Left);
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$b"));
-        // Down and Space are "next", Up is "previous".
         QTest::keyClick(m_window, Qt::Key_Down);
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$c"));
         QTest::keyClick(m_window, Qt::Key_Up);
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$b"));
         QTest::keyClick(m_window, Qt::Key_Space);
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$c"));
-        // ...and it wraps at the end as at the start.
         QTest::keyClick(m_window, Qt::Key_Right);
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$a"));
         QTest::keyClick(m_window, Qt::Key_Left);
@@ -376,8 +337,6 @@ private Q_SLOTS:
                  "click-to-close off the picture rests on it");
     }
 
-    // Home and End jump to the first and last picture; Page Up/Down move a
-    // strip's worth and stop at the ends. They used to do nothing at all.
     void homeEndAndPageKeysNavigate()
     {
         QVERIFY(QMetaObject::invokeMethod(
@@ -393,7 +352,6 @@ private Q_SLOTS:
         QVERIFY2(afterPage > 1, "Page Down did not move");
         QTest::keyClick(m_window, Qt::Key_PageUp);
         QCOMPARE(call("currentIndex").toInt(), 0);
-        // Stops at the first picture instead of wrapping to the last.
         QTest::keyClick(m_window, Qt::Key_PageUp);
         QCOMPARE(call("currentIndex").toInt(), 0);
         QTest::keyClick(m_window, Qt::Key_End);
@@ -401,7 +359,6 @@ private Q_SLOTS:
         QCOMPARE(call("currentIndex").toInt(), 25);
     }
 
-    // Menu and Shift+F10 open the same menu a right-click does.
     void theContextMenuOpensFromTheKeyboard()
     {
         QVERIFY(QMetaObject::invokeMethod(
@@ -422,8 +379,6 @@ private Q_SLOTS:
         QTRY_VERIFY(!call("menuOpened").toBool());
     }
 
-    // The wheel over the strip scrolls the strip, and does not zoom or pan
-    // the picture behind it.
     void theWheelOverTheStripScrollsTheStrip()
     {
         QVERIFY(QMetaObject::invokeMethod(
@@ -439,7 +394,6 @@ private Q_SLOTS:
         const qreal zoom0 = call("zoomNow").toReal();
         const QPointF at = strip->mapToScene(
             QPointF(strip->width() / 2, strip->height() / 2));
-        // One notch down (vertical, as a plain mouse wheel sends).
         QTest::wheelEvent(m_window, at, QPoint(0, -120));
         QCoreApplication::processEvents();
         QTRY_COMPARE(strip->property("contentX").toReal(), x0 + cell);
@@ -449,8 +403,6 @@ private Q_SLOTS:
         QTRY_COMPARE(strip->property("contentX").toReal(), x0);
     }
 
-    // A touchpad's pixel deltas accumulate to whole cells: a 20 px swipe is
-    // less than a cell and must not leave a tile sliced by the clip.
     void touchpadPixelDeltasMoveTheStripByWholeCells()
     {
         QVERIFY(QMetaObject::invokeMethod(
@@ -471,11 +423,9 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("contentX=%1 is not a whole "
                                                "number of cells").arg(x)));
         }
-        // 7 * 20 = 140 px -> two whole cells (104), 36 px carried.
         QCOMPARE(strip->property("contentX").toReal(), 2 * cell);
     }
 
-    // Ctrl+wheel over the strip still zooms the picture.
     void ctrlWheelOverTheStripStillZooms()
     {
         QVERIFY(QMetaObject::invokeMethod(
@@ -496,7 +446,6 @@ private Q_SLOTS:
         QCOMPARE(strip->property("contentX").toReal(), x0);
     }
 
-    // A resize must not throw away where the reader scrolled the strip to.
     void aResizeKeepsAScrolledStripPosition()
     {
         QVERIFY(QMetaObject::invokeMethod(
@@ -517,8 +466,6 @@ private Q_SLOTS:
             QTest::wheelEvent(m_window, at, QPoint(0, -120));
         QCoreApplication::processEvents();
         QTRY_COMPARE(strip->property("contentX").toReal(), 5 * cell);
-        // Wheel handler writes contentX directly: no flick is running, but
-        // the strip is still "moving" only while an animation runs.
         QTRY_VERIFY(!strip->property("moving").toBool());
         QVERIFY(QMetaObject::invokeMethod(
             m_root, "resizeTo", Q_ARG(QVariant, QVariant(700)),
@@ -530,13 +477,11 @@ private Q_SLOTS:
         QCOMPARE(strip->property("contentX").toReal(), 5 * cell);
     }
 
-    // With no sideways overflow, Shift+wheel still pans vertically.
     void shiftWheelFallsBackToVerticalWhenThereIsNoSidewaysOverflow()
     {
         QVERIFY(QMetaObject::invokeMethod(
             m_root, "openAt", Q_ARG(QVariant, QVariant(manyEntries(2))),
             Q_ARG(QVariant, QVariant(0))));
-        // Tall and narrow: overflows vertically only.
         QVERIFY(QMetaObject::invokeMethod(
             m_root, "fitTo", Q_ARG(QVariant, QVariant(200)),
             Q_ARG(QVariant, QVariant(8000))));
@@ -556,7 +501,6 @@ private Q_SLOTS:
         QTRY_VERIFY(call("contentY").toReal() != y0);
     }
 
-    // Shift + the vertical wheel pans sideways where there is room to.
     void shiftWheelPansHorizontally()
     {
         QVERIFY(QMetaObject::invokeMethod(
@@ -581,10 +525,6 @@ private Q_SLOTS:
         QCOMPARE(call("contentY").toReal(), y0);
     }
 
-    // A thumbnail click selects rather than closing the viewer: a TapHandler
-    // on the default DragThreshold policy takes no exclusive grab, so the
-    // scrim's close handler would fire on the same press. The strip's handlers
-    // use WithinBounds.
     void clickingAThumbnailSelectsItRatherThanClosingTheViewer()
     {
         const QVariantList history = { historyEntry(QStringLiteral("$a")),
@@ -600,14 +540,10 @@ private Q_SLOTS:
             QStringLiteral("viewerThumbnailStrip"));
         QVERIFY2(strip, "the thumbnail strip is gone, so this case is "
                         "testing nothing");
-        // The strip fades in (180 ms) with `visible: opacity > 0`; wait for it,
-        // or the click lands on the scrim.
         QTRY_VERIFY(strip->isVisible());
         QTRY_VERIFY(strip->opacity() > 0.99);
         auto *content = strip->property("contentItem").value<QQuickItem *>();
         QVERIFY(content);
-        // The strip's delegates are built on its next polish, after the
-        // fade-in; wait for the third rather than reading the first frame.
         const auto findThird = [content]() -> QQuickItem * {
             const auto thumbs = content->childItems();
             for (QQuickItem *thumb : thumbs) {
@@ -620,7 +556,6 @@ private Q_SLOTS:
         QQuickItem *third = nullptr;
         QTRY_VERIFY2((third = findThird()) != nullptr,
                      "no delegate for the third thumbnail");
-        // Its real geometry, mapped to the window.
         const QPointF centre = third->mapToScene(
             QPointF(third->width() / 2, third->height() / 2));
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
@@ -640,12 +575,6 @@ private Q_SLOTS:
         QCOMPARE(key, QStringLiteral("$c"));
     }
 
-    // A tap on the picture zooms and does not close: `imageTap` uses
-    // `gesturePolicy: WithinBounds` and takes the exclusive grab, so the
-    // scrim's close handler never sees it. A text scan cannot show that.
-    // QA T-9: 600x1600 at fit ran under the strip and the zoom bar, hiding the
-    // bottom of the picture. Centred in the window, so the bottom edge is
-    // half its height below the middle.
     void aTallImageAtFitClearsTheStripAndTheToolbar()
     {
         const QVariantList history = { historyEntry(QStringLiteral("$a")),
@@ -682,8 +611,6 @@ private Q_SLOTS:
             m_root, "openAt", Q_ARG(QVariant, QVariant(history)),
             Q_ARG(QVariant, QVariant(0))));
         QVERIFY(call("isOpen").toBool());
-        // A picture with a real drawn size, so the tap lands inside the band
-        // `imageTap` checks rather than on the margin (where closing is right).
         QVERIFY(QMetaObject::invokeMethod(
             m_root, "fitTo", Q_ARG(QVariant, QVariant(4000)),
             Q_ARG(QVariant, QVariant(4000))));
@@ -704,15 +631,12 @@ private Q_SLOTS:
                  "click-to-zoom gesture cannot work at all");
         QTRY_VERIFY2(call("zoomNow").toReal() > 1.0,
                      "clicking the picture did not zoom it");
-        // ...and clicking again returns to fit rather than closing.
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, centre);
         QCoreApplication::processEvents();
         QVERIFY(call("isOpen").toBool());
         QTRY_COMPARE(call("zoomNow").toReal(), 1.0);
     }
 
-    // A miss between two 48 px thumbnails does nothing: the strip's own
-    // swallow surface takes the press rather than letting the scrim close.
     void aMissBetweenTwoThumbnailsDoesNothingRatherThanClosing()
     {
         const QVariantList history = { historyEntry(QStringLiteral("$a")),
@@ -742,7 +666,6 @@ private Q_SLOTS:
                 second = thumb;
         }
         QVERIFY(first && second);
-        // The real gap between two delegates.
         const QPointF a = first->mapToScene(
             QPointF(first->width(), first->height() / 2));
         const QPointF b = second->mapToScene(QPointF(0, second->height() / 2));
@@ -755,18 +678,9 @@ private Q_SLOTS:
         QVERIFY2(call("isOpen").toBool(),
                  "a click in the gap between two thumbnails closed the "
                  "viewer");
-        // ...and it selected nothing.
         QCOMPARE(call("currentKey").toString(), QStringLiteral("$a"));
     }
 
-
-    // One diagonal wheel event (both deltas) moves each axis exactly once. A
-    // second WheelHandler for the horizontal axis would move each axis twice;
-    // a zoomed picture's interactive Flickable already handles horizontal-only
-    // events. That horizontal behaviour is not asserted here: a synthesized
-    // click on `imageTap` leaves its exclusive grab behind after the popup
-    // closes, and later wheel events in this process never reach the
-    // Flickable.
     void oneWheelEventMovesEachAxisExactlyOnce()
     {
         const QVariantList history = { historyEntry(QStringLiteral("$a")),
@@ -776,8 +690,6 @@ private Q_SLOTS:
             Q_ARG(QVariant, QVariant(0))));
         QVERIFY(call("isOpen").toBool());
 
-        // A picture larger than the viewport both ways, parked mid-range so a
-        // move either way is observable.
         QVERIFY(QMetaObject::invokeMethod(
             m_root, "fitTo", Q_ARG(QVariant, QVariant(4000)),
             Q_ARG(QVariant, QVariant(4000))));
@@ -794,7 +706,6 @@ private Q_SLOTS:
                              m_window->height() / 2.0);
         const qreal x0 = call("contentX").toReal();
         const qreal y0 = call("contentY").toReal();
-        // pixelDelta on both axes, as a trackpad sends in one event.
         QTest::wheelEvent(m_window, centre, QPoint(0, 0), QPoint(-40, -40));
         QCoreApplication::processEvents();
         QTRY_COMPARE(call("contentX").toReal(), x0 + 40.0);

@@ -4,7 +4,6 @@ namespace lightning::desktop_entry {
 
 QString quoteExecArgument(const QString &path)
 {
-    // Layer 1: the Exec rule.
     QString exec;
     exec.reserve(path.size() + 8);
     for (const QChar c : path) {
@@ -31,4 +30,4 @@ QString quoteExecArgument(const QString &path)
     return out;
 }
 
-} // namespace lightning::desktop_entry
+}

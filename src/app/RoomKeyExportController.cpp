@@ -23,7 +23,7 @@ void RoomKeyExportController::setClient(MatrixClient *client)
     if (m_client)
         m_client->disconnect(this);
     m_client = client;
-    onSessionChanged(); // nothing of the previous client survives
+    onSessionChanged();
     if (m_client) {
         connect(m_client, &MatrixClient::roomKeyExportProgress, this,
                 &RoomKeyExportController::onProgress);
@@ -43,7 +43,6 @@ bool RoomKeyExportController::available() const
 
 QString RoomKeyExportController::suggestedFileName() const
 {
-    // Element's own default is element-keys.txt; any name imports.
     return QStringLiteral("lightning-keys.txt");
 }
 
@@ -57,7 +56,6 @@ bool RoomKeyExportController::exportKeys(const QUrl &fileUrl,
     }
     if (busy())
         return false;
-    // Refused here, before anything reaches the backend.
     const QString problem = localProblem(passphrase, confirmation);
     if (!problem.isEmpty()) {
         setResult(false, describe(problem, 0));
@@ -96,18 +94,14 @@ void RoomKeyExportController::clearResult()
 }
 
 namespace {
-// Characters, not UTF-16 units, and without copying the passphrase.
 qsizetype characterCount(const QString &text)
 {
     return std::count_if(text.cbegin(), text.cend(),
                          [](QChar c) { return !c.isLowSurrogate(); });
 }
-} // namespace
+}
 
 namespace {
-// Things a guesser tries first. Matched case-insensitively as substrings and
-// each counted as nothing: "password123" is two common pieces, not 11
-// characters of entropy.
 const QStringList &commonWords()
 {
     static const QStringList words{
@@ -128,11 +122,6 @@ const QStringList &commonWords()
     return words;
 }
 
-// The part of a passphrase that actually carries information: a passphrase
-// that is a block repeated counts the block once, a common word counts for
-// nothing, and a run of three or more consecutive letters or digits
-// ("abc", "4321") counts for nothing. Deterministic and dictionary-light on
-// purpose; it is a floor, not zxcvbn.
 QString informativePart(const QString &passphrase)
 {
     QString text = passphrase;
@@ -149,7 +138,7 @@ QString informativePart(const QString &passphrase)
     }
     QString low = text.toLower();
     if (low.size() != text.size())
-        low = text; // case mapping changed the length; stay index-aligned
+        low = text;
     QString kept;
     for (qsizetype i = 0; i < low.size();) {
         bool skipped = false;
@@ -187,7 +176,7 @@ QString informativePart(const QString &passphrase)
     }
     return kept;
 }
-} // namespace
+}
 
 QString RoomKeyExportController::localProblem(const QString &passphrase,
                                               const QString &confirmation)
@@ -198,7 +187,6 @@ QString RoomKeyExportController::localProblem(const QString &passphrase,
         return QStringLiteral("mismatch");
     if (characterCount(passphrase) < kMinimumLength)
         return QStringLiteral("too_short");
-    // As Element: a weak passphrase blocks the export, it does not just warn.
     if (strengthOf(passphrase) < kRequiredStrength)
         return QStringLiteral("too_weak");
     return {};
@@ -206,22 +194,10 @@ QString RoomKeyExportController::localProblem(const QString &passphrase,
 
 int RoomKeyExportController::strengthOf(const QString &passphrase)
 {
-    // The change-password hint's scale (ChangePasswordSection): length and
-    // character variety, 0 empty, 1 too short, 2 weak, 3 fair, 4 strong.
-    // Element blocks a key export below zxcvbn score 3 ("safely
-    // unguessable"); zxcvbn is not in this tree, so kRequiredStrength puts
-    // that bar at rung 3 of this scale: 12 characters, or 10 mixing three of
-    // lower case, upper case, digits and symbols. One guard zxcvbn has and
-    // length alone does not: a passphrase of a few characters repeated
-    // ("abababababab") is weak however long. What it cannot see is a
-    // dictionary phrase or a keyboard run, which zxcvbn would mark down;
-    // the hint says the bar is a minimum, not a guarantee.
     if (passphrase.isEmpty())
         return 0;
     if (characterCount(passphrase) < kMinimumLength)
         return 1;
-    // Strength is judged on what is left once repetition, common words and
-    // sequences are taken out ("password123password123" leaves nothing).
     const QString effective = informativePart(passphrase);
     const qsizetype chars = characterCount(effective);
     if (chars < kMinimumLength)
@@ -316,7 +292,6 @@ void RoomKeyExportController::onFinished(quint64 opId, bool ok, int exported,
         return;
     m_op = 0;
     m_collected = 0;
-    // A success the backend reports with a category is not a success.
     const bool success = ok && category.isEmpty();
     qCInfo(lcKeyExport) << "export finished ok=" << success
                         << "exported=" << (success ? exported : 0)

@@ -3,38 +3,28 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Compact thread summary under a thread root in the main timeline: icon, latest
-// reply's sender and safe preview, reply count, optional timestamp and unread
-// indicator. Presentation only: every value is a safe semantic field from the
-// TimelineModel thread-summary roles; nothing parses event JSON, ciphertext or
-// media URLs. activated() on click or Enter/Space; the caller opens the thread
-// with the real room and root ids.
 Item {
     id: card
 
-    // Inputs, bound from the delegate's model roles
-    property int replyCount: -1                 // SDK num_replies, -1 unknown
-    property string latestSender: ""            // already-resolved display name
-    property string latestSenderId: ""          // MXID for the stable fallback colour
-    property string latestPreview: ""           // sanitized latest-reply preview
-    property string latestKind: "text"          // semantic kind for the label
-    property string latestAvatarMxc: ""         // mxc:// via the safe avatar path
-    property var latestTimestamp: undefined      // QDateTime or undefined
+    property int replyCount: -1
+    property string latestSender: ""
+    property string latestSenderId: ""
+    property string latestPreview: ""
+    property string latestKind: "text"
+    property string latestAvatarMxc: ""
+    property var latestTimestamp: undefined
     property bool unread: false
 
     // Facepile: ordered, MXID-deduplicated participants ({userId, displayName,
     // avatarUrl}) from ThreadManager. Empty means unknown, never "nobody": the
     // card falls back to the latest sender's avatar.
     property var participants: []
-    // A small stack; more is not more legible.
     readonly property int maxFaces: 4
     readonly property int faceSize: 18
     readonly property int faceOverlap: 6
 
     signal activated()
 
-    // Shown once the SDK reports thread activity: the count or any latest-reply
-    // metadata, without inventing a number.
     readonly property bool hasReplies:
         replyCount > 0 || latestPreview.length > 0 || latestSender.length > 0
 
@@ -45,7 +35,6 @@ Item {
     readonly property int hPad: AppTheme.spacing8
     readonly property int vPad: AppTheme.spacing6
 
-    // Safe label helpers
     function previewLabel() {
         switch (latestKind) {
         case "image":     return qsTr("Image")
@@ -60,13 +49,11 @@ Item {
         case "poll":      return qsTr("Poll")
         case "unsupported": return qsTr("New reply")
         default:
-            // The sanitized preview, or a neutral fallback.
             return latestPreview.length > 0 ? latestPreview : qsTr("New reply")
         }
     }
 
     function countLabel() {
-        // Only the SDK's count is shown as a number.
         return replyCount > 0 ? qsTr("%n reply(s)", "", replyCount)
                               : qsTr("Replies")
     }
@@ -77,15 +64,12 @@ Item {
         var d = latestTimestamp
         if (isNaN(d.getTime && d.getTime()))
             return ""
-        // The app-wide clock format (Settings -> Appearance).
         return Qt.formatDateTime(d, app.settings.clockTimeFormat)
     }
 
     Accessible.role: Accessible.Button
     Accessible.focusable: true
     Accessible.name: {
-        // Each augmentation is its own template, never concatenated, so
-        // translators can move the clause (and RTL punctuation is right).
         var base = qsTr("Open thread")
         if (replyCount > 0)
             base = qsTr("%1, %n reply(s)", "thread card, reply count",
@@ -109,8 +93,6 @@ Item {
         id: surface
         anchors.fill: parent
         radius: AppTheme.radiusMd
-        // Panel-tier background with a 1px border that warms toward the accent
-        // on hover; keyboard focus gets the accent stroke.
         color: AppTheme.sidebar
         border.width: card.activeFocus ? 2 : 1
         border.color: card.activeFocus ? AppTheme.accent
@@ -127,7 +109,6 @@ Item {
             anchors.bottomMargin: card.vPad
             spacing: AppTheme.spacing8
 
-            // Thread glyph (Material Symbols "forum").
             Icon {
                 Layout.alignment: Qt.AlignVCenter
                 name: "forum"
@@ -135,10 +116,6 @@ Item {
                 color: card.unread ? AppTheme.accent : AppTheme.textMuted
             }
 
-            // Participant facepile (root sender first, then first appearance,
-            // deduplicated in Rust), falling back to the latest reply's sender
-            // while unknown. Geometry depends only on the count, so avatar
-            // images loading later never move anything.
             Item {
                 id: facepile
                 readonly property var people: card.participants
@@ -160,13 +137,10 @@ Item {
                     model: facepile.shown
                     delegate: Item {
                         required property int index
-                        // Leftmost face on top, so it reads as a stack.
                         z: facepile.shown - index
                         x: index * facepile.step
                         width: card.faceSize
                         height: card.faceSize
-                        // Guarded: a surviving delegate can re-evaluate before
-                        // the model shrinks.
                         readonly property var person:
                             index >= 0 && index < facepile.people.length
                                 ? facepile.people[index] : null
@@ -177,8 +151,6 @@ Item {
                             name: parent.person ? parent.person.displayName : ""
                             colorKey: parent.person ? parent.person.userId : ""
                         }
-                        // An inner ring in the card's colour separates
-                        // overlapping faces.
                         Rectangle {
                             anchors.fill: parent
                             radius: width / 2
@@ -190,7 +162,6 @@ Item {
                     }
                 }
 
-                // Fallback before participants are known.
                 Avatar {
                     id: fallbackAvatar
                     visible: facepile.hasFallback
@@ -211,7 +182,6 @@ Item {
                 Layout.alignment: Qt.AlignVCenter
             }
 
-            // "Sender: preview", single line, elided.
             Label {
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignVCenter
@@ -225,9 +195,6 @@ Item {
                       : card.previewLabel()
             }
 
-            // A Loader: timeLabel() returns "" without a timestamp, and a Text
-            // holding "" from creation stays a viewport observer (see
-            // MessageDelegate.qml).
             Loader {
                 active: card.timeLabel().length > 0
                 visible: active

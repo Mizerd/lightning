@@ -42,7 +42,7 @@ void CryptoHealthModel::applySnapshot(const QVariantMap &snapshot,
                                       quint64 generation)
 {
     if (generation != m_generation)
-        return;   // stale: answered for a previous account/session epoch
+        return;
 
     auto triState = [&](const QString &key) {
         return snapshot.value(key).toBool() ? Yes : No;
@@ -76,15 +76,11 @@ void CryptoHealthModel::applySnapshot(const QVariantMap &snapshot,
     m_backupState = snapshot.value(QStringLiteral("backup_state")).toString();
     if (m_backupState.isEmpty())
         m_backupState = QStringLiteral("unknown");
-    // An absent or null field means the server could not be asked; only an
-    // explicit boolean is an answer.
     const QVariant backupExists =
         snapshot.value(QStringLiteral("backup_exists_on_server"));
     m_backupAvailable = !backupExists.isValid() || backupExists.isNull()
         ? Unknown
         : (backupExists.toBool() ? Yes : No);
-    // Usable means the SDK actively uses this backup; an existing but
-    // unconnected one is only "available".
     m_backupUsable = m_backupState == QLatin1String("enabled");
     m_recoveryState =
         snapshot.value(QStringLiteral("recovery_state")).toString();
@@ -142,13 +138,6 @@ QString CryptoHealthModel::crossSigningSetup() const
 {
     if (!m_supported || !m_lastRefreshed.isValid())
         return QStringLiteral("unknown");
-    // "complete" is the SDK's own verification state, never the local key
-    // flags alone: matrix-sdk saves a new identity's private keys (and a
-    // public copy it marks verified) BEFORE the server accepts the upload, so
-    // an interrupted setup holds every key while the server has nothing. Our
-    // device being cross-signed by its owner (what
-    // Encryption::verification_state() reports) is a signature the server
-    // returned, so it is the server's word.
     if (m_crossSigningReady && m_deviceVerified == Yes && m_ownIdentityVerified == Yes)
         return QStringLiteral("complete");
     if (m_crossSigningReady)

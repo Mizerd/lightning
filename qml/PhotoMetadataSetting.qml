@@ -3,12 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings -> Privacy: what is removed from a photo before it is uploaded.
-//
-// Stored by SettingsManager::imageMetadataMode as "location" (default), "all"
-// or "keep" and pushed into the composer by Main.qml. Applies to every image
-// that leaves the attachment tray (picker, paste, drag and drop), in encrypted
-// rooms too; GIFs from the GIF picker are provider media and are not touched.
 ColumnLayout {
     id: section
     objectName: "photoMetadataSetting"
@@ -22,8 +16,6 @@ ColumnLayout {
         objectName: "imageMetadataCombo"
         storm: true
         Layout.fillWidth: true
-        // A combo's implicit width is its widest option; a zero minimum lets
-        // a narrow settings column shrink it instead of overflowing the card.
         Layout.minimumWidth: 0
         textRole: "label"
         valueRole: "value"

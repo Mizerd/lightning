@@ -3,19 +3,10 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The one update-available dialog (UPDATE-SPEC.md v1). "Update now" only starts
-// the download; Settings -> Updates (UpdatesSettingsSection.qml) is the one
-// place that shows download, verify, install and restart states, so progress is
-// never duplicated. Release notes are untrusted remote text from the manifest:
-// rendered in a read-only TextArea forced to TextEdit.PlainText (never
-// AutoText, StyledText, RichText or MarkdownText). release_notes_url is shown
-// as plain, non-interactive text, never a link, so nothing in the manifest can
-// trigger navigation or a command.
 Dialog {
     id: root
     objectName: "updateAvailableDialog"
     modal: true
-    // The shared modal scrim.
     Overlay.modal: Rectangle { color: AppTheme.modalScrim }
     focus: true
     standardButtons: Dialog.NoButton
@@ -32,10 +23,6 @@ Dialog {
         root.um ? (root.um.canInstallAutomatically === true) : false
     readonly property string installType: root.um ? root.um.installType : ""
 
-    // Not self-opening: the corner card (UpdateAvailablePrompt) announces an
-    // update without blocking, and its "Update" opens this dialog, which holds
-    // the release notes and "Update now". It still closes itself when the
-    // download starts or the version is dismissed.
     readonly property bool shouldBeOpen:
         root.um !== null && root.um !== undefined
         && root.um.state === UpdateManager.UpdateAvailable
@@ -46,9 +33,6 @@ Dialog {
     }
     onOpenedChanged: if (!opened) root.managedHelpRevealed = false
 
-    // Set only from UpdateManager::managedUpdateHelpRequested; nothing here
-    // builds a command. Shown inline so it can be read and copied before
-    // "Later".
     property string managedHelpCommand: ""
     property string managedHelpExplanation: ""
     property bool managedHelpRevealed: false
@@ -143,7 +127,6 @@ Dialog {
                 objectName: "updateReleaseNotesText"
                 readOnly: true
                 wrapMode: TextArea.Wrap
-                // Forced plain text; see the file header.
                 textFormat: TextEdit.PlainText
                 text: root.um ? root.um.releaseNotes : ""
                 color: AppTheme.stormTextSecondary
@@ -156,8 +139,6 @@ Dialog {
                 Accessible.name: qsTr("Release notes")
             }
         }
-        // release_notes_url as plain, non-interactive text; selectable for
-        // copying.
         Label {
             objectName: "updateReleaseNotesUrlLabel"
             visible: root.um && root.um.releaseNotesUrl
@@ -172,8 +153,6 @@ Dialog {
                   ? root.um.releaseNotesUrl.toString() : ""
         }
 
-        // Package-managed installs (Flatpak/Snap/dnf): no self-download, as in
-        // Settings -> Updates.
         Label {
             objectName: "updateDialogManagedMessage"
             visible: root.packageManaged
@@ -193,8 +172,6 @@ Dialog {
                             ? qsTr("Updates for this installation are managed by dnf.")
                             : ""
         }
-        // The exact command and explanation from UpdateManager, revealed after
-        // "Get update instructions".
         ColumnLayout {
             objectName: "updateDialogManagedCommandBlock"
             visible: root.packageManaged && root.managedHelpRevealed
@@ -257,7 +234,6 @@ Dialog {
                 objectName: "updateDialogManagedHelpButton"
                 visible: root.packageManaged
                 text: qsTr("Get update instructions")
-                // Does not close: the command is shown inline to read or copy.
                 onClicked: if (root.um) root.um.openManagedUpdateHelp()
             }
             AppButton {

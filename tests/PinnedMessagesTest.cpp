@@ -1,19 +1,3 @@
-// Pinned messages (`m.room.pinned_events`): PinnedMessagesController policy.
-// Pins:
-//   * snapshot ingestion (entries / ids / total / truncated / canPin) and the
-//     complete-id-list contract that answers isPinned();
-//   * a failed read keeps the last known list rather than erasing it;
-//   * canTogglePin offers exactly the action that applies, and nothing at all
-//     without the room's pin permission or while a write is in flight;
-//   * a pin/unpin is never applied optimistically: the list is re-read after
-//     the write, on success and on failure;
-//   * a remote pin change re-reads rather than trusting a pushed payload;
-//   * room switch and sign-out drop the list, and answers for the previous
-//     room can never repaint the current one;
-//   * the /state fallback probe is spent once per room, not once per refresh.
-//
-// Policy and wiring only: real round trips, out-of-window event resolution
-// and Element interoperability are not exercised here.
 
 #include "app/PinnedMessagesController.h"
 #include "matrix/MatrixClient.h"
@@ -41,7 +25,6 @@ public:
     quint64 lastFetchOp = 0;
     quint64 lastWriteOp = 0;
 
-    // MatrixClient pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -137,14 +120,13 @@ const QString kOther = QStringLiteral("!other:example.org");
 const QString kEventA = QStringLiteral("$a:example.org");
 const QString kEventB = QStringLiteral("$b:example.org");
 
-} // namespace
+}
 
 class PinnedMessagesTest : public QObject
 {
     Q_OBJECT
 
 private:
-    // Bring a controller up on `room` with one pinned event ($a).
     static void seed(PinnedMessagesController &ctl, FakeClient &client,
                      bool canPin = true)
     {
@@ -164,12 +146,10 @@ private Q_SLOTS:
         ctl.setRoomId(kRoom);
 
         QSignalSpy changed(&ctl, &PinnedMessagesController::stateChanged);
-        // total (5) deliberately exceeds the resolved entries (1): the bridge
-        // caps RESOLUTION, and the UI must be able to say so.
         Q_EMIT client.pinnedReceived(
             client.lastFetchOp, kRoom,
             snapshot(true, { kEventA, kEventB }, { entry(kEventA) },
-                     /*total=*/5, /*truncated=*/true));
+5,true));
 
         QVERIFY(!changed.isEmpty());
         QCOMPARE(ctl.entries().size(), 1);
@@ -177,8 +157,6 @@ private Q_SLOTS:
         QVERIFY(ctl.truncated());
         QVERIFY(ctl.canPin());
         QVERIFY(!ctl.loading());
-        // isPinned answers from the COMPLETE id list, not from the capped
-        // entries — an unresolved pin is still pinned.
         QVERIFY(ctl.isPinned(kEventA));
         QVERIFY(ctl.isPinned(kEventB));
         QVERIFY(!ctl.isPinned(QStringLiteral("$nope:example.org")));
@@ -196,10 +174,8 @@ private Q_SLOTS:
         ctl.refresh();
         Q_EMIT client.pinnedReceived(
             client.lastFetchOp, kRoom,
-            snapshot(true, {}, {}, 0, false, /*ok=*/false));
+            snapshot(true, {}, {}, 0, false,false));
 
-        // Erasing here would make a flaky connection look like "nothing is
-        // pinned any more".
         QCOMPARE(ctl.entries().size(), 1);
         QVERIFY(ctl.isPinned(kEventA));
         QVERIFY(!ctl.loading());
@@ -212,13 +188,10 @@ private Q_SLOTS:
         ctl.setClient(&client);
         seed(ctl, client);
 
-        // $a is pinned: unpin applies, pin does not.
         QVERIFY(!ctl.canTogglePin(kEventA, true));
         QVERIFY(ctl.canTogglePin(kEventA, false));
-        // $b is not pinned: the mirror image.
         QVERIFY(ctl.canTogglePin(kEventB, true));
         QVERIFY(!ctl.canTogglePin(kEventB, false));
-        // No event id is never an action.
         QVERIFY(!ctl.canTogglePin(QString(), true));
     }
 
@@ -227,14 +200,12 @@ private Q_SLOTS:
         FakeClient client;
         PinnedMessagesController ctl;
         ctl.setClient(&client);
-        seed(ctl, client, /*canPin=*/false);
+        seed(ctl, client,false);
 
         QVERIFY(!ctl.canPin());
         QVERIFY(!ctl.canTogglePin(kEventB, true));
         QVERIFY(!ctl.canTogglePin(kEventA, false));
 
-        // And the dispatch re-checks: a state event known to be
-        // unauthorized must never leave the client.
         ctl.pin(kEventB);
         ctl.unpin(kEventA);
         QCOMPARE(client.writeCalls, 0);
@@ -246,8 +217,6 @@ private Q_SLOTS:
         PinnedMessagesController ctl;
         ctl.setClient(&client);
         ctl.setRoomId(kRoom);
-        // No snapshot yet: canPin is false, so the menu offers nothing —
-        // it must fail closed rather than optimistically offering Pin.
         QVERIFY(!ctl.canPin());
         QVERIFY(!ctl.canTogglePin(kEventB, true));
         ctl.pin(kEventB);
@@ -269,10 +238,7 @@ private Q_SLOTS:
         QCOMPARE(client.lastWriteEvent, kEventB);
         QVERIFY(client.lastWritePin);
         QVERIFY(ctl.pending());
-        // The list has NOT changed yet: nothing is applied before the room
-        // state says so.
         QVERIFY(!ctl.isPinned(kEventB));
-        // And while a write is in flight no second action is offered.
         QVERIFY(!ctl.canTogglePin(kEventA, false));
 
         Q_EMIT client.pinChangeFinished(client.lastWriteOp, kRoom, kEventB,
@@ -281,7 +247,6 @@ private Q_SLOTS:
         QCOMPARE(finished.size(), 1);
         QVERIFY(finished.at(0).at(3).toBool());
         QCOMPARE(ctl.error(), QString());
-        // Authoritative re-read, rather than a local mutation.
         QCOMPARE(client.fetchCalls, fetchesBefore + 1);
     }
 
@@ -303,7 +268,6 @@ private Q_SLOTS:
         QCOMPARE(finished.size(), 1);
         QVERIFY(!finished.at(0).at(3).toBool());
         QVERIFY(!ctl.error().isEmpty());
-        // Never leaves the UI showing a state the room does not have.
         QVERIFY(!ctl.isPinned(kEventB));
         QCOMPARE(client.fetchCalls, fetchesBefore + 1);
     }
@@ -333,32 +297,25 @@ private Q_SLOTS:
         seed(ctl, client);
         const int before = client.fetchCalls;
 
-        // Another client changed the pins. Only the room id crosses; the
-        // controller re-reads rather than trusting a pushed payload.
         Q_EMIT client.pinnedEventsChanged(kRoom);
         QCOMPARE(client.fetchCalls, before + 1);
 
-        // A poke for a DIFFERENT room is not this room's business.
         const int after = client.fetchCalls;
         Q_EMIT client.pinnedEventsChanged(kOther);
         QCOMPARE(client.fetchCalls, after);
     }
 
-    // B024/B130: canPin is a power-level answer. A member-event poke (own
-    // membership arriving late, or a power-level grant) must re-read it.
     void memberPokeReReadsCanPinForTheCurrentRoomOnly()
     {
         FakeClient client;
         PinnedMessagesController ctl;
         ctl.setClient(&client);
         ctl.setRoomId(kRoom);
-        // First snapshot raced the own member row: canPin=false.
         Q_EMIT client.pinnedReceived(client.lastFetchOp, kRoom,
                                      snapshot(false, {}, {}));
         QVERIFY(!ctl.canPin());
         const int before = client.fetchCalls;
 
-        // A burst coalesces into one re-read, with no /state fallback.
         Q_EMIT client.roomMemberEventSeen(kRoom);
         Q_EMIT client.roomMemberEventSeen(kRoom);
         Q_EMIT client.roomMemberEventSeen(kRoom);
@@ -369,7 +326,6 @@ private Q_SLOTS:
         QVERIFY(ctl.canPin());
         QVERIFY(ctl.canTogglePin(kEventA, true));
 
-        // Another room's poke is not this room's business.
         const int after = client.fetchCalls;
         Q_EMIT client.roomMemberEventSeen(kOther);
         QTest::qWait(700);
@@ -388,8 +344,6 @@ private Q_SLOTS:
         QCOMPARE(ctl.entries().size(), 0);
         QVERIFY(!ctl.canPin());
 
-        // The previous room's answer arrives late. It must not repaint the
-        // current room — matched on BOTH op id and room.
         Q_EMIT client.pinnedReceived(
             staleOp, kRoom, snapshot(true, { kEventA }, { entry(kEventA) }));
         QCOMPARE(ctl.entries().size(), 0);
@@ -424,14 +378,10 @@ private Q_SLOTS:
         Q_EMIT client.pinnedReceived(client.lastFetchOp, kRoom,
                                      snapshot(true, {}, {}));
 
-        // Every later refresh in the same room reads what sync delivered;
-        // without this a room with no pins would spend one 404-able GET on
-        // every poke.
         ctl.refresh();
         QCOMPARE(client.fetchAllowRemote.size(), 2);
         QVERIFY(!client.fetchAllowRemote.at(1));
 
-        // A different room gets its own single probe.
         ctl.setRoomId(kOther);
         QCOMPARE(client.fetchAllowRemote.size(), 3);
         QVERIFY(client.fetchAllowRemote.at(2));
@@ -445,7 +395,6 @@ private Q_SLOTS:
         ctl.setRoomId(kRoom);
         QCOMPARE(client.fetchCalls, 1);
 
-        // A second read would only race the first to the same answer.
         ctl.refresh();
         ctl.refresh();
         QCOMPARE(client.fetchCalls, 1);
@@ -463,20 +412,15 @@ private Q_SLOTS:
         ctl.setClient(&client);
         seed(ctl, client);
 
-        // A read is in flight (say, a sync poke landed)...
         Q_EMIT client.pinnedEventsChanged(kRoom);
         QCOMPARE(client.fetchCalls, 2);
         const quint64 inFlight = client.lastFetchOp;
 
-        // ...and while it runs, a write completes. Its refresh is answering
-        // a NEWER question than the in-flight read can, so it must not be
-        // dropped just because a read happens to be running.
         ctl.pin(kEventB);
         Q_EMIT client.pinChangeFinished(client.lastWriteOp, kRoom, kEventB,
                                         true, true, true, QString());
-        QCOMPARE(client.fetchCalls, 2); // still coalesced behind the in-flight one
+        QCOMPARE(client.fetchCalls, 2);
 
-        // When the in-flight read lands, the owed refresh goes out.
         Q_EMIT client.pinnedReceived(inFlight, kRoom,
                                      snapshot(true, { kEventA },
                                               { entry(kEventA) }));
@@ -497,10 +441,8 @@ private Q_SLOTS:
                                         true, true, true, QString());
         QCOMPARE(client.fetchCalls, 2);
 
-        // The in-flight read FAILS. The owed refresh must still go out —
-        // a failed answer is the least reason to stop asking.
         Q_EMIT client.pinnedReceived(
-            inFlight, kRoom, snapshot(true, {}, {}, 0, false, /*ok=*/false));
+            inFlight, kRoom, snapshot(true, {}, {}, 0, false,false));
         QCOMPARE(client.fetchCalls, 3);
     }
 

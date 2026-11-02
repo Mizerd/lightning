@@ -1,6 +1,3 @@
-// C09 round 2: behaviour of the quick switcher keyboard reach in a real
-// offscreen window: the Tab wrap-around scrolls its row into view, PageUp/
-// PageDown move the selection by a page, Ctrl+Home/End jump to the ends.
 
 #include <QtTest/QtTest>
 
@@ -40,7 +37,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class QuickSwitcherKeyboardQmlTest : public QObject
 {
@@ -71,9 +68,6 @@ private:
             QStringLiteral("quickSwitcherCommandList"));
         if (!list)
             return nullptr;
-        // Offscreen popups may never get a polish pass scheduled for a
-        // list that became fillable after open — force the layout so
-        // delegates actually materialize before lookup.
         QMetaObject::invokeMethod(list, "forceLayout");
         QQuickItem *item = nullptr;
         QMetaObject::invokeMethod(list, "itemAtIndex",
@@ -89,8 +83,6 @@ private:
         return list ? list->property("count").toInt() : -1;
     }
 
-    // Full action-list titles from the model property (the ListView only
-    // instantiates the viewport, so delegate-walking would miss the tail).
     QStringList commandTitles() const
     {
         QStringList titles;
@@ -152,7 +144,6 @@ private slots:
         return m_root->findChild<QQuickItem *>(QStringLiteral("quickSwitcherList"));
     }
 
-    // Is the row for currentIndex inside the viewport?
     bool currentRowVisible() const
     {
         QQuickItem *list = resultList();
@@ -309,7 +300,6 @@ private slots:
         const int count = list->property("count").toInt();
         const qreal viewH = list->height();
         qInfo() << "rows" << count << "viewport" << viewH;
-        // The fixture must overflow, or nothing can scroll.
         QVERIFY2(count * 48 > viewH * 1.5, "mock list does not overflow the viewport");
 
         QMetaObject::invokeMethod(switcher(), "selectRow", Q_ARG(QVariant, count - 1));
@@ -317,7 +307,6 @@ private slots:
         QTRY_VERIFY(currentRowVisible());
         QVERIFY(list->property("contentY").toReal() > list->property("originY").toReal());
 
-        // Tab from the last section wraps to the first row.
         QTest::keyClick(m_window, Qt::Key_Tab);
         QTRY_COMPARE(list->property("currentIndex").toInt(), 0);
         QTRY_COMPARE(list->property("contentY").toReal(),

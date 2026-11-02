@@ -41,7 +41,6 @@ struct AudioQueue {
 - (void)stream:(SCStream *)stream didStopWithError:(NSError *)error
 {
     (void)stream;
-    // System errors may contain local paths or other machine metadata.
     NSLog(@"Lightning system audio stopped (code=%ld)", (long)error.code);
     std::lock_guard lock(audioQueue->mutex);
     audioQueue->failed = true;
@@ -65,7 +64,6 @@ struct AudioQueue {
         audioQueue->ready.notify_all();
         return;
     }
-    // ScreenCaptureKit supplies planar float PCM; accept interleaved PCM too.
     size_t size = 0;
     CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
         sample, &size, nullptr, 0, nullptr, nullptr, 0, nullptr);
@@ -159,7 +157,6 @@ gboolean start(GstBaseSrc *base)
         config.excludesCurrentProcessAudio = YES;
         config.sampleRate = 48000;
         config.channelCount = 2;
-        // Only attach an audio output. No screen images leave this stream.
         config.width = 2; config.height = 2;
         config.minimumFrameInterval = CMTimeMake(1, 60);
         config.queueDepth = 3;
@@ -180,8 +177,6 @@ gboolean start(GstBaseSrc *base)
         auto cancelled = std::make_shared<std::atomic_bool>(false);
         SCStream *stream = session->stream;
         [stream startCaptureWithCompletionHandler:^(NSError *error) {
-            // A timed-out start can still succeed later. Stop it from this
-            // completion too, so capture cannot outlive the failed publish.
             if (cancelled->load())
                 [stream stopCaptureWithCompletionHandler:^(NSError *) {}];
             startError = error; dispatch_semaphore_signal(started);
@@ -318,7 +313,6 @@ void registerSource()
 int captureDiagnostic()
 {
     GError *error = nullptr;
-    // Exercise the actual share track's Opus/RTP chain, then decode locally.
     const QString description = lightning::shareaudio::encodedTrackDescription(
         QStringLiteral("lightningmacsystemaudiosrc name=sharesrc"), 12345)
         + QStringLiteral(" ! clocksync ! rtpopusdepay ! opusdec ! audioconvert "
@@ -328,7 +322,6 @@ int captureDiagnostic()
     if (!pipeline || error) { if (error) g_error_free(error); if (pipeline) gst_object_unref(pipeline); return 1; }
     GstElement *sink = gst_bin_get_by_name(GST_BIN(pipeline), "captured");
     const bool started = gst_element_set_state(pipeline, GST_STATE_PLAYING) != GST_STATE_CHANGE_FAILURE;
-    // Optional same-process playback verifies the exclusion used by real calls.
     GstElement *playback = nullptr;
     bool playbackStarted = false;
     const bool selfTest = g_getenv("LIGHTNING_TEST_MAC_PLAYBACK") != nullptr;

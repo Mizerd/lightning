@@ -1,22 +1,3 @@
-// The HTML room export and the controller that runs an export.
-//
-// Writer (pure, into a buffer):
-//   * the page carries the strict CSP first in <head> and no <script> at all;
-//   * a plain body is escaped, a formatted body goes through the timeline's
-//     sanitizer and loses remote images, event handlers and non-http links;
-//   * an image is embedded as a data: URI only when its bytes are a raster
-//     format, SVG never (by type, by name or by content);
-//   * the size-limit, failure and not-included placeholders say what happened;
-//   * an encrypted room without the opt-in withholds bodies AND attachments;
-//   * the chunked writer produces exactly what the one-shot writer does.
-//
-// Controller (against a scripted client):
-//   * walk rows become events, reversed into time order, with the thread,
-//     deleted and undecryptable markers and the opaque media handle;
-//   * a full HTML export fetches attachments through fetchMedia by handle,
-//     honours the budget, commits the file and releases the handles;
-//   * cancel stops the walk, leaves no file and ignores a late page;
-//   * an encrypted room without the opt-in never fetches an attachment.
 
 #include "matrix/MatrixClient.h"
 #include "models/RoomExport.h"
@@ -71,8 +52,6 @@ roomexport::Options plainRoom()
     return o;
 }
 
-// The smallest thing every sniffer accepts as a PNG: the signature plus a
-// little more.
 QByteArray pngBytes()
 {
     QByteArray b("\x89PNG\r\n\x1a\n", 8);
@@ -100,7 +79,6 @@ roomexport::Attachment embedded(const QByteArray &bytes)
     return a;
 }
 
-// A client that records what the controller asks for and answers on command.
 class FakeClient final : public MatrixClient
 {
     Q_OBJECT
@@ -154,7 +132,6 @@ public:
         Q_EMIT mediaReady(op, QString(), 0, bytes, QString(), QString());
     }
 
-    // Pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -185,9 +162,6 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-// Every entry in `dir`, hidden ones included: QSaveFile writes to a sibling
-// temporary file, and a cancelled export must leave that gone too, not only
-// the target absent.
 QStringList leftovers(const QTemporaryDir &dir)
 {
     return QDir(dir.path()).entryList(QDir::AllEntries | QDir::Hidden
@@ -231,14 +205,13 @@ RoomExportController::Job htmlJob(const QString &path)
     return job;
 }
 
-} // namespace
+}
 
 class RoomExportHtmlTest : public QObject
 {
     Q_OBJECT
 
 private Q_SLOTS:
-    // ── The page cannot reach out or run anything ────────────────────────
     void thePageCarriesTheStrictPolicyFirstAndNoScript()
     {
         const QString page = html(
@@ -246,7 +219,6 @@ private Q_SLOTS:
             plainRoom());
         const qsizetype head = page.indexOf(QStringLiteral("<head>"));
         QVERIFY(head >= 0);
-        // The first element after <head> is the policy.
         const QString afterHead =
             page.mid(head + 6).trimmed().left(80);
         QVERIFY2(afterHead.startsWith(QStringLiteral(
@@ -311,18 +283,14 @@ private Q_SLOTS:
         QVERIFY(!page.contains(QStringLiteral("alert(3)")));
         QVERIFY(page.contains(QStringLiteral("<b>bold</b>")));
         QVERIFY(page.contains(QStringLiteral("<a href=\"https://example.org/\"")));
-        // The mention is text in a file: no internal mention: scheme.
         QVERIFY(!page.contains(QStringLiteral("mention:")));
-        // No <img> of any kind outside an embedded data: URI.
         QVERIFY(!page.contains(QStringLiteral("<img")));
     }
 
-    // ── Attachments ──────────────────────────────────────────────────────
     void anImageIsEmbeddedAsADataUriFromItsBytes()
     {
         const TimelineEvent img = image(QStringLiteral("$img"),
                                         QStringLiteral("photo.png"),
-                                        // A lying type: the bytes decide.
                                         QStringLiteral("application/x-evil"),
                                         1000);
         const QByteArray bytes = pngBytes();
@@ -331,19 +299,16 @@ private Q_SLOTS:
         const QString expected = QStringLiteral("src=\"data:image/png;base64,")
             + QString::fromLatin1(bytes.toBase64()) + QStringLiteral("\"");
         QVERIFY2(page.contains(expected), qPrintable(page.right(600)));
-        // Never the handle, never an mxc.
         QVERIFY(!page.contains(QStringLiteral("export:1:")));
         QVERIFY(!page.contains(QStringLiteral("mxc://")));
     }
 
     void svgIsNeverEmbeddedByTypeNameOrContent()
     {
-        // Declared SVG.
         const TimelineEvent declared = image(QStringLiteral("$s1"),
                                              QStringLiteral("logo.svg"),
                                              QStringLiteral("image/svg+xml"),
                                              1000);
-        // Declared PNG, bytes are SVG.
         const TimelineEvent disguised = image(QStringLiteral("$s2"),
                                               QStringLiteral("cat.png"),
                                               QStringLiteral("image/png"),
@@ -417,12 +382,10 @@ private Q_SLOTS:
         QVERIFY(!page.contains(QStringLiteral("secret-photo")));
         QVERIFY(!page.contains(QStringLiteral("base64,")));
         QVERIFY(!page.contains(QString::fromLatin1(bytes.toBase64())));
-        // The shape survives: who and when.
         QVERIFY(page.contains(QStringLiteral("Ann")));
         QCOMPARE(page.count(QStringLiteral("message withheld")), 2);
         QVERIFY(page.contains(QStringLiteral("ENCRYPTED")));
 
-        // With the opt-in, both are written.
         o.allowEncryptedPlaintext = true;
         const QString allowed = html({ text, img }, o,
                                      { { img.eventId, embedded(bytes) } });
@@ -451,7 +414,6 @@ private Q_SLOTS:
         QVERIFY(page.contains(QStringLiteral(
             "Messages that could not be decrypted: 1")));
 
-        // The text format says the same things.
         const QString text = roomexport::renderPlainText(
             { deleted, utd, threaded }, o);
         QVERIFY(text.contains(QStringLiteral("[message deleted]")));
@@ -464,7 +426,6 @@ private Q_SLOTS:
                                         QStringLiteral("photo.png"),
                                         QStringLiteral("image/png"), 1000);
         QByteArray bytes = pngBytes();
-        // Not a multiple of the chunk or of 3.
         bytes.append(QByteArray(10007, 'z'));
         const roomexport::Attachment a = embedded(bytes);
 
@@ -507,7 +468,6 @@ private Q_SLOTS:
                     .endsWith(QStringLiteral(".html")));
     }
 
-    // ── Controller ───────────────────────────────────────────────────────
     void aWalkRowBecomesAnEventWithItsMarkers()
     {
         QVariantMap row = walkImageRow(QStringLiteral("$i"), 5000, 42);
@@ -558,13 +518,10 @@ private Q_SLOTS:
         QCOMPARE(client.walkMode, 0);
         QCOMPARE(client.walkLimit, qint64(10));
 
-        // A foreign page is ignored.
         client.page(client.walkOp + 77,
                     { walkRow(QStringLiteral("$x"), QStringLiteral("text"), 1,
                               QStringLiteral("FOREIGN")) },
                     true);
-        // Newest first, as the walk sends them. "$big" declares more than the
-        // budget and must not be fetched at all.
         client.page(client.walkOp,
                     { walkRow(QStringLiteral("$3"), QStringLiteral("text"),
                               3000, QStringLiteral("third")),
@@ -584,14 +541,12 @@ private Q_SLOTS:
         QTRY_COMPARE(finished.size(), 1);
         QCOMPARE(finished.first().at(0).toBool(), true);
         QVERIFY(!controller.busy());
-        // The walk's handles were released.
         QVERIFY(client.cancelledExports.contains(500));
 
         QFile file(path);
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString page = QString::fromUtf8(file.readAll());
         QVERIFY(!page.contains(QStringLiteral("FOREIGN")));
-        // Time order, oldest first.
         const qsizetype first = page.indexOf(QStringLiteral("first"));
         const qsizetype third = page.indexOf(QStringLiteral("third"));
         QVERIFY(first > 0 && third > first);
@@ -602,8 +557,6 @@ private Q_SLOTS:
         QVERIFY(page.contains(QStringLiteral("reaches the start")));
     }
 
-    // A payload the writer refuses (SVG behind an image's name) is never
-    // embedded, so it must not use up the size limit either.
     void aRefusedSvgIsNotChargedToTheSizeLimit()
     {
         QTemporaryDir dir;
@@ -613,8 +566,6 @@ private Q_SLOTS:
         controller.setClient(&client);
         QSignalSpy finished(&controller, &RoomExportController::finished);
         RoomExportController::Job job = htmlJob(path);
-        // Room for both if nothing is wasted, but not for the PNG once the
-        // SVG has been charged: fails on code that charges a refused payload.
         job.options.attachmentBudgetBytes =
             pngBytes().size() + svgBytes().size() - 1;
         QCOMPARE(controller.start(job), QString());
@@ -622,7 +573,6 @@ private Q_SLOTS:
                     { walkImageRow(QStringLiteral("$png"), 2000, 0),
                       walkImageRow(QStringLiteral("$svg"), 1000, 0) },
                     true);
-        // Oldest first: the SVG-bearing row is fetched first.
         QTRY_COMPARE(client.fetchOps.size(), 1);
         QCOMPARE(client.fetchedKeys.first(), QStringLiteral("export:500:$svg"));
         client.ready(client.fetchOps.at(0), svgBytes());
@@ -656,7 +606,6 @@ private Q_SLOTS:
         QCOMPARE(finished.size(), 1);
         QCOMPARE(finished.first().at(0).toBool(), false);
 
-        // A page that was already on its way is dropped.
         client.page(op, { walkRow(QStringLiteral("$1"), QStringLiteral("text"),
                                   1, QStringLiteral("late")) },
                     true);
@@ -678,15 +627,10 @@ private Q_SLOTS:
         client.page(client.walkOp,
                     { walkImageRow(QStringLiteral("$img"), 2000, 40) }, true);
         QTRY_COMPARE(client.fetchOps.size(), 1);
-        // No assertion that the partial file is visible here: on Linux
-        // QSaveFile writes an unnamed O_TMPFILE, so nothing is listed while
-        // writing; where it falls back to a named temporary, the checks
-        // below are what catch a leftover.
         controller.cancel();
         QVERIFY(client.cancelledFetches.contains(client.fetchOps.first()));
         QVERIFY2(leftovers(dir).isEmpty(),
                  qPrintable(leftovers(dir).join(QLatin1Char(' '))));
-        // A late answer for the cancelled fetch changes nothing.
         client.ready(client.fetchOps.first(), pngBytes());
         QTest::qWait(50);
         QVERIFY2(leftovers(dir).isEmpty(),
@@ -745,7 +689,6 @@ private Q_SLOTS:
         QVERIFY(text.contains(QStringLiteral("hello")));
         QVERIFY(text.contains(QStringLiteral("had loaded")));
 
-        // And a walk range is refused, not silently downgraded, without one.
         job.range = RoomExportController::Range::All;
         QVERIFY(!controller.start(job).isEmpty());
         QVERIFY(!controller.busy());

@@ -8,9 +8,6 @@
 
 #include "theme/IdentityColors.h"
 
-// QML wrapper over lightning::theme, so AppTheme.qml and the notification
-// painter share one implementation. Kept separate from IdentityColors.h,
-// which the QML-free notification path includes.
 class IdentityPalette : public QObject
 {
     Q_OBJECT

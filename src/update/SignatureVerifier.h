@@ -45,7 +45,7 @@ QString signatureErrorText(SignatureError error);
 struct SignatureEnvelope {
     QString algorithm;
     QString keyId;
-    QByteArray signature; // raw 64 bytes
+    QByteArray signature;
 };
 
 struct SignatureResult {
@@ -55,22 +55,16 @@ struct SignatureResult {
     QString message;
 };
 
-// Maximum accepted `.sig` document size (spec §2: bounded, <= 4 KiB).
 constexpr qint64 kMaxSignatureEnvelopeBytes = 4 * 1024;
 
-// Parses and validates the envelope only — no verification happens here.
 std::optional<SignatureEnvelope> parseSignatureEnvelope(const QByteArray &bytes,
                                                         SignatureError *error);
 
-// Raw Ed25519 verification. `publicKey` is the raw 32-byte key, `signature`
-// the raw 64-byte detached signature over `payload` exactly as given.
 bool verifyEd25519(const QByteArray &payload, const QByteArray &signature,
                    const QByteArray &publicKey);
 
-// Full path: parse the envelope, resolve the key id in `trust`, verify over
-// the RAW payload bytes. Nothing in `payload` is parsed or trusted here.
 SignatureResult verifyDetachedSignature(const QByteArray &payload,
                                         const QByteArray &envelopeBytes,
                                         const TrustStore &trust);
 
-} // namespace lightning::update
+}

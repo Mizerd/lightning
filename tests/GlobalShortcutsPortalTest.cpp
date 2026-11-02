@@ -1,14 +1,3 @@
-// GlobalShortcutsPortal against a fake xdg-desktop-portal on a private session
-// bus (GitHub #47): the CreateSession / BindShortcuts calls as the portal
-// receives them, the Activated / Deactivated signals routed to the app, the
-// session's lifecycle, and the desktops with no portal at all.
-//
-// A private `dbus-daemon`, as NotificationDbusTest: the fake must own
-// org.freedesktop.portal.Desktop, which a real desktop already owns. The fake
-// runs on its own thread so it can answer a caller that waits.
-//
-// Not covered (needs a real compositor): that KDE/GNOME/Hyprland actually grab
-// the key, and what their permission dialog looks like.
 
 #include "app/GlobalShortcutsPortal.h"
 #include "app/SettingsManager.h"
@@ -47,7 +36,6 @@ const auto kSessionInterface = QStringLiteral("org.freedesktop.portal.Session");
 const auto kSessionHandle =
     QStringLiteral("/org/freedesktop/portal/desktop/session/test/lightning");
 
-/// The test's own view of one BindShortcuts entry, `(sa{sv})`.
 struct BoundShortcut
 {
     QString id;
@@ -70,7 +58,7 @@ const QDBusArgument &operator>>(const QDBusArgument &arg, BoundShortcut &s)
     return arg;
 }
 
-} // namespace
+}
 
 Q_DECLARE_METATYPE(BoundShortcut)
 Q_DECLARE_METATYPE(QList<BoundShortcut>)
@@ -81,17 +69,11 @@ class FakePortal : public QDBusVirtualObject
 {
 public:
     enum class Mode {
-        /// Answers everything, version 2.
         Answer,
-        /// Has the service but not the GlobalShortcuts interface.
         NoInterface,
-        /// The user declines the bind dialog (Response 1).
         Decline,
-        /// Replies to each request and holds back its Response signal.
         HoldResponses,
-        /// Grants the bind but reports no shortcut bound.
         BindNothing,
-        /// Answers, and has no org.freedesktop.host.portal.Registry.
         NoRegistry,
     };
 
@@ -142,7 +124,6 @@ public:
             if (create) {
                 results.insert("session_handle", kSessionHandle);
             } else {
-                // What the portal really bound: echo the request, or nothing.
                 QList<BoundShortcut> bound;
                 if (m_mode != Mode::BindNothing)
                     bound = qdbus_cast<QList<BoundShortcut>>(
@@ -183,7 +164,6 @@ public:
             n += call.member() == member ? 1 : 0;
         return n;
     }
-    /// Position of the first call to `member` in arrival order, or -1.
     int firstIndex(const QString &member) const
     {
         QMutexLocker lock(&m_mutex);
@@ -245,7 +225,7 @@ private:
     QList<Held> m_held;
 };
 
-} // namespace
+}
 
 class GlobalShortcutsPortalTest : public QObject
 {
@@ -279,7 +259,6 @@ private Q_SLOTS:
     void configureNeedsPortalVersionTwo();
 
 private:
-    /// A portal with the fake's answers, Active.
     void enableAndWait(GlobalShortcutsPortal &portal);
 
     QProcess m_daemon;
@@ -303,13 +282,6 @@ void GlobalShortcutsPortalTest::initTestCase()
         QSKIP("dbus-daemon not found; this suite needs a private bus");
     QStringList args{QStringLiteral("--nofork"),
                      QStringLiteral("--print-address=1")};
-    // Our own configuration, with NO service directories. The packaged
-    // session.conf carries <standard_session_servicedirs/>, so a call to the
-    // absent portal makes the daemon try to ACTIVATE the host's real
-    // xdg-desktop-portal on this private bus and wait for it: the caller then
-    // sees nothing for its whole timeout, and the "no portal" cases stall in
-    // Connecting. A missing name must fail at once, as it does on a desktop
-    // with no portal installed.
     QVERIFY(m_configDir.isValid());
     QFile config(m_configDir.filePath(QStringLiteral("bus.conf")));
     QVERIFY(config.open(QIODevice::WriteOnly));
@@ -330,7 +302,6 @@ void GlobalShortcutsPortalTest::initTestCase()
     const QByteArray address = m_daemon.readLine().trimmed();
     QVERIFY(!address.isEmpty());
 
-    // Read by QDBusConnection::sessionBus() on first use, which is later.
     qputenv("DBUS_SESSION_BUS_ADDRESS", address);
     QVERIFY(QDBusConnection::sessionBus().isConnected());
 
@@ -341,7 +312,6 @@ void GlobalShortcutsPortalTest::initTestCase()
     m_fakeThread.start();
     m_fake = new FakePortal(fakeBus);
     m_fake->moveToThread(&m_fakeThread);
-    // SubPath: Request and Session objects live below the portal's path.
     QVERIFY(fakeBus.registerVirtualObject(kPath, m_fake,
                                           QDBusConnection::SubPath));
 }
@@ -368,8 +338,6 @@ void GlobalShortcutsPortalTest::init()
     QDBusConnection fakeBus(QStringLiteral("fake-portal"));
     if (!fakeBus.interface()->isServiceRegistered(kService))
         fakeBus.registerService(kService);
-    // A previous case's portal closes its session as it is destroyed; let
-    // that arrive before the counts are cleared.
     QTest::qWait(150);
     m_fake->reset(FakePortal::Mode::Answer);
 }
@@ -389,8 +357,6 @@ void GlobalShortcutsPortalTest::portalTriggerFollowsTheShortcutsSpec()
              QStringLiteral("CTRL+ALT+A"));
     QCOMPARE(GlobalShortcutsPortal::portalTrigger(QStringLiteral("Meta+F5")),
              QStringLiteral("LOGO+F5"));
-    // A chord of two keys has no representation; the desktop proposes
-    // nothing rather than something wrong.
     QCOMPARE(GlobalShortcutsPortal::portalTrigger(QStringLiteral("Ctrl+K, Ctrl+C")),
              QString());
     QCOMPARE(GlobalShortcutsPortal::portalTrigger(QString()), QString());
@@ -409,7 +375,6 @@ void GlobalShortcutsPortalTest::portalTriggerNamesNonLetterKeysAsKeysyms()
     QCOMPARE(t("Ctrl+F12"), QStringLiteral("CTRL+F12"));
     QCOMPARE(t("Ctrl+1"), QStringLiteral("CTRL+1"));
     QCOMPARE(t("Ctrl+Backspace"), QStringLiteral("CTRL+BackSpace"));
-    // Not expressible: no trigger is better than a name the portal rejects.
     QCOMPARE(t("Media Play"), QString());
     QCOMPARE(t("Ctrl+Volume Up"), QString());
 }
@@ -440,10 +405,6 @@ void GlobalShortcutsPortalTest::theSettingPersistsAndSignalsOnlyOnChange()
 
 void GlobalShortcutsPortalTest::appControllerDrivesThePortalFromTheSetting()
 {
-    // AppController is too heavy to build here, so read its source: the
-    // portal is created, enabled from the stored value at construction, and
-    // enabled again on every change. Dropping either call, or the connect,
-    // changes the normalised text below.
     QFile file(QStringLiteral(LIGHTNING_SOURCE_DIR "/src/app/AppController.cpp"));
     QVERIFY(file.open(QIODevice::ReadOnly));
     QString text = QString::fromUtf8(file.readAll());
@@ -481,10 +442,8 @@ void GlobalShortcutsPortalTest::aPortalWithoutTheRegistryStillWorks()
     ShortcutRegistry registry(&settings);
     GlobalShortcutsPortal portal(&registry);
     enableAndWait(portal);
-    // Attempted, refused, and the session was made regardless.
     QCOMPARE(m_fake->count(QStringLiteral("Register")), 1);
     QCOMPARE(m_fake->count(QStringLiteral("CreateSession")), 1);
-    // With no app id to give there is nothing to register at all.
     QGuiApplication::setDesktopFileName(QString());
     m_fake->reset(FakePortal::Mode::Answer);
     GlobalShortcutsPortal bare(&registry);
@@ -501,7 +460,6 @@ void GlobalShortcutsPortalTest::aRestartedPortalIsNoticedAndTheSessionIsMadeAgai
     GlobalShortcutsPortal portal(&registry);
     enableAndWait(portal);
     QDBusConnection fakeBus(QStringLiteral("fake-portal"));
-    // A portal restart ends every session without a Session.Closed.
     QVERIFY(fakeBus.unregisterService(kService));
     QTRY_COMPARE_WITH_TIMEOUT(portal.state(),
                               GlobalShortcutsPortal::Unavailable, 5000);
@@ -547,13 +505,11 @@ void GlobalShortcutsPortalTest::destroyingAnActivePortalEmitsNothing()
     QSignalSpy states(portal, &GlobalShortcutsPortal::stateChanged);
     delete portal;
     QCOMPARE(states.count(), 0);
-    // It still closes the session it owned.
     QTRY_COMPARE_WITH_TIMEOUT(m_fake->count(QStringLiteral("Close")), 1, 5000);
 }
 
 void GlobalShortcutsPortalTest::itIsOffAndTouchesNoBusUntilEnabled()
 {
-    // Opt-in: a fresh install must not talk to the portal at all.
     SettingsManager settings;
     ShortcutRegistry registry(&settings);
     GlobalShortcutsPortal portal(&registry);
@@ -593,8 +549,6 @@ void GlobalShortcutsPortalTest::enablingBindsTheCallActionsWithTheRegistrysLabel
     QStringList ids;
     for (const BoundShortcut &s : shortcuts) {
         ids << s.id;
-        // The desktop's list shows the registry's own label, and proposes
-        // the registry's own key.
         QCOMPARE(s.properties.value("description").toString(),
                  registry.descriptionFor(s.id));
         QVERIFY(!s.properties.value("description").toString().isEmpty());
@@ -625,10 +579,6 @@ void GlobalShortcutsPortalTest::aPressedActionIsRoutedAndAnotherSessionsIsNot()
     QCOMPARE(activated.at(0).at(0).toString(),
              QStringLiteral("call.toggleMute"));
 
-    // The broadcast reaches every client; a key of another app's session, or
-    // an id we never registered, is none of our business. Signals arrive in
-    // order, so once the last genuine press is in, anything the filter let
-    // through is in too: assert the exact list, not a count to wait for.
     m_fake->emitKey(QStringLiteral("Activated"),
                     QStringLiteral("/org/freedesktop/portal/desktop/session/other/x"),
                     QStringLiteral("call.leave"));
@@ -677,7 +627,6 @@ void GlobalShortcutsPortalTest::disablingClosesTheSessionAndStopsRouting()
     QTest::qWait(300);
     QCOMPARE(activated.count(), 0);
 
-    // And it can be turned on again, with a fresh session.
     enableAndWait(portal);
     QCOMPARE(m_fake->count(QStringLiteral("CreateSession")), 2);
 }
@@ -692,8 +641,6 @@ void GlobalShortcutsPortalTest::turningItOffWhileTheSessionIsBeingMadeClosesIt()
     QTRY_COMPARE_WITH_TIMEOUT(m_fake->count(QStringLiteral("CreateSession")), 1,
                               5000);
     portal.setEnabled(false);
-    // The portal answers late: the session it made must not be left open and
-    // must not be bound.
     m_fake->releaseHeld();
     QTRY_COMPARE_WITH_TIMEOUT(m_fake->count(QStringLiteral("Close")), 1, 5000);
     QCOMPARE(m_fake->last(QStringLiteral("Close")).path(), kSessionHandle);
@@ -755,7 +702,6 @@ void GlobalShortcutsPortalTest::aSessionTheDesktopEndsIsFailed()
     m_fake->emitClosed(kSessionHandle);
     QTRY_COMPARE_WITH_TIMEOUT(portal.state(), GlobalShortcutsPortal::Failed,
                               5000);
-    // The handle is dead, so there is nothing for us to close.
     QCOMPARE(m_fake->count(QStringLiteral("Close")), 0);
 }
 

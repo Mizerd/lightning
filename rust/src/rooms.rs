@@ -1,13 +1,3 @@
-//! Room management, user search and the media bridge.
-//!
-//! Each function backs a thin `extern "C"` wrapper in `lib.rs`: it validates
-//! synchronously, then runs network work as a managed task
-//! (`spawn_room_action`) on the shared runtime so sign-out joins it. Results
-//! carry the lifecycle generation and an op id; C++ rejects stale ones.
-//!
-//! Never puts key material, tokens, raw events, local paths or media bytes
-//! into the JSON event queue; media bytes use the take/free bridge in
-//! `lib.rs`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -44,12 +34,8 @@ use serde_json::json;
 
 use crate::{enqueue, RustClient};
 
-/// Upper bound on one member-snapshot payload; larger rooms are truncated
-/// (flagged in the event).
 const MEMBER_SNAPSHOT_CAP: usize = 500;
 
-/// Avatar uploads are small; refuse anything larger before reading it.
-/// Shared with the own-avatar path in `profile.rs`.
 pub(crate) const MAX_AVATAR_BYTES: u64 = 8 * 1024 * 1024;
 
 pub(crate) fn require_client(bridge: &RustClient) -> Result<matrix_sdk::Client, String> {
@@ -72,8 +58,6 @@ pub(crate) fn joined_room(
         .ok_or_else(|| "unknown or not-joined room".to_owned())
 }
 
-/// Coarse, non-secret categories for room-management failures; raw SDK
-/// error text may embed server detail. Pure and unit-tested.
 pub(crate) fn classify_room_error(message: &str) -> &'static str {
     let lc = message.to_lowercase();
     if lc.contains("m_limit_exceeded") || lc.contains("limit exceeded") || lc.contains("429") {
@@ -96,13 +80,6 @@ pub(crate) fn classify_room_error(message: &str) -> &'static str {
     }
 }
 
-/// Sniff a raster-image MIME type from magic bytes, so a mislabelled
-/// extension cannot spoof the type. Pure and unit-tested.
-///
-/// This identifies; it does not promise the GUI can decode it (Qt image
-/// formats are per-platform plugins; e.g. JPEG XL decodes only on Linux).
-/// That is `lightning::imagefmt::canDecode` in C++; this table is mirrored
-/// in `src/media/ImageFormatSupport.h`.
 pub(crate) fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
     if bytes.len() < 12 {
         return None;
@@ -115,13 +92,6 @@ pub(crate) fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
         Some("image/gif")
     } else if bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
         Some("image/webp")
-    // JPEG XL, both shapes (verified against `cjxl` output):
-    //   ISOBMFF container: 00 00 00 0C "JXL " 0D 0A 87 0A, then "ftypjxl "
-    //   bare codestream:   FF 0A
-    // The 12-byte container test comes first. bytes[4..8] is "JXL ", not
-    // "ftyp", so it cannot be mistaken for MP4. The two-byte codestream
-    // signature is weak, but a false positive only yields a payload a decoder
-    // refuses.
     } else if bytes.starts_with(&[0x00, 0x00, 0x00, 0x0C, b'J', b'X', b'L', b' ', 0x0D, 0x0A, 0x87, 0x0A])
     {
         Some("image/jxl")
@@ -133,10 +103,6 @@ pub(crate) fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
         None
     }
 }
-
-// ---------------------------------------------------------------------------
-// User search
-// ---------------------------------------------------------------------------
 
 pub(crate) fn search_users(
     bridge: &RustClient,
@@ -194,14 +160,8 @@ pub(crate) fn search_users(
     Ok(())
 }
 
-/// Profile lookups are decoration, and every room action is joined on the
-/// GUI thread at teardown, so they are bounded (like the presence batch).
 const PROFILE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// Exact profile lookup for one user id (GET /profile/{userId}). Backs the
-/// bare-localpart invite search, since the directory may not list local
-/// users. Only display name and avatar mxc cross; a missing user is ok=false
-/// with category "not_found".
 pub(crate) fn fetch_user_profile(
     bridge: &RustClient,
     user_id: String,
@@ -280,19 +240,12 @@ pub(crate) fn fetch_user_profile(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Client-side URL previews
-// ---------------------------------------------------------------------------
-
 const MAX_HTML_BYTES: usize = 2 * 1_048_576;
 pub(crate) const MAX_IMAGE_BYTES: usize = 5 * 1_048_576;
 const MAX_IMAGE_PIXELS: u64 = 25_000_000;
 const MAX_REDIRECTS: usize = 4;
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
-/// How much of the first response a preview reads before deciding what it is.
-/// A video, or an image too large to inline, is described from this head and
-/// the rest is never downloaded.
 const PREVIEW_HEAD_BYTES: usize = 64 * 1024;
 
 pub(crate) fn public_ip(ip: std::net::IpAddr) -> bool {
@@ -315,13 +268,9 @@ pub(crate) fn public_ip(ip: std::net::IpAddr) -> bool {
             if v.segments()[0] == 0x0064 && v.segments()[1] == 0xff9b {
                 return false;
             }
-            // `to_ipv4()` also matches the compatible form (::a.b.c.d); judge it as the
-            // embedded IPv4 address.
             if let Some(v4) = v.to_ipv4() {
                 return public_ip(std::net::IpAddr::V4(v4));
             }
-            // 6to4 (2002::/16) and Teredo (2001::/32) embed an IPv4 destination
-            // too, and site-local fec0::/10 is deprecated private space.
             let s = v.segments();
             !(v.is_loopback() || v.is_unspecified()
                 || v.is_multicast() || (s[0] & 0xfe00) == 0xfc00
@@ -334,8 +283,6 @@ pub(crate) fn public_ip(ip: std::net::IpAddr) -> bool {
 }
 
 pub(crate) struct SafeResponse { pub status: reqwest::StatusCode, pub mime: String, pub location: Option<String>, pub bytes: Vec<u8> }
-// Default Accept for HTML/image previews. GIF downloads and provider JSON
-// pass their own so a `.gif` is never negotiated into webp.
 pub(crate) const PREVIEW_ACCEPT: &str =
     "text/html,image/jpeg,image/png,image/webp,image/gif";
 
@@ -357,16 +304,12 @@ async fn safe_get(url: &url::Url, limit: usize, accept: &str)
     Ok(SafeResponse { status, mime, location, bytes })
 }
 
-/// The Content-Type without parameters, lowercased; "" when absent.
 pub(crate) fn response_mime(response: &reqwest::Response) -> String {
     response.headers().get(reqwest::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok()).unwrap_or("").split(';').next().unwrap_or("")
         .trim().to_ascii_lowercase()
 }
 
-/// Every check `safe_get` makes, with the body left unread: https only, no
-/// credentials, public DNS answers pinned, no proxy, no redirect following.
-/// `timeout` bounds the whole exchange, including reading the body later.
 pub(crate) async fn safe_open(url: &url::Url, accept: &str,
                               timeout: std::time::Duration)
     -> Result<reqwest::Response, &'static str> {
@@ -394,9 +337,6 @@ pub(crate) async fn safe_open(url: &url::Url, accept: &str,
         .map_err(|_| "request_failure")?;
     client.get(url.clone())
         .header(reqwest::header::ACCEPT, accept)
-        // Some CDN/WAF layers treat requests without standard browser headers
-        // (Accept-Language especially) as bots. Accept-Encoding comes from
-        // reqwest's gzip/deflate features.
         .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
         .send().await.map_err(|e|
         if e.is_timeout() { "timeout" } else { "request_failure" })
@@ -406,8 +346,6 @@ fn body_error(e: reqwest::Error) -> &'static str {
     if e.is_timeout() { "timeout" } else { "request_failure" }
 }
 
-/// Reads from a `safe_open` body until at least `want` bytes are held or the
-/// body ends. May hold up to one chunk more than `want`.
 pub(crate) async fn read_head(response: &mut reqwest::Response, want: usize)
     -> Result<Vec<u8>, &'static str> {
     let mut bytes = Vec::new();
@@ -420,8 +358,6 @@ pub(crate) async fn read_head(response: &mut reqwest::Response, want: usize)
     Ok(bytes)
 }
 
-/// Reads the rest of a `safe_open` body onto `bytes`, failing with
-/// "response_too_large" as soon as the total would pass `limit`.
 pub(crate) async fn read_rest(response: &mut reqwest::Response, bytes: &mut Vec<u8>,
                               limit: usize) -> Result<(), &'static str> {
     if bytes.len() > limit { return Err("response_too_large"); }
@@ -465,9 +401,6 @@ fn html_fields(input: &str) -> (std::collections::HashMap<String,String>, String
 fn pick(fields: &std::collections::HashMap<String,String>, keys: &[&str]) -> String {
     keys.iter().find_map(|k| fields.get(*k).cloned()).unwrap_or_default()
 }
-// Sanitized failure detail for one preview attempt, enough to tell a code
-// regression from a site's own bot/WAF policy, never the URL, query or
-// body. `status` is None when no HTTP response arrived.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PreviewFailure {
     pub category: &'static str,
@@ -480,9 +413,6 @@ impl From<&'static str> for PreviewFailure {
     }
 }
 
-// Follow redirects manually so every hop gets the same DNS/IP policy,
-// pinning, scheme check, timeout and size bound. reqwest's own redirect
-// following stays disabled in safe_get().
 pub(crate) async fn safe_get_following_redirects(
     mut url: url::Url,
     limit: usize,
@@ -525,9 +455,6 @@ pub(crate) async fn safe_get_following_redirects(
     })
 }
 
-/// `safe_get_following_redirects` with the final body left unread, for a
-/// caller that decides from the head whether to read the rest. Every hop gets
-/// `safe_open`'s checks; a redirect's own body is never read.
 pub(crate) async fn safe_open_following_redirects(
     mut url: url::Url,
     accept: &str,
@@ -566,10 +493,6 @@ pub(crate) async fn safe_open_following_redirects(
     })
 }
 
-// Some CDNs mislabel images as application/octet-stream or text/html, so
-// classification checks both the declared MIME and the bytes. A declared
-// image must match its magic; a generic label may be promoted only when the
-// bytes prove a supported raster. HTML stays HTML; SVG never matches.
 pub(crate) fn classify_preview_payload(
     declared_mime: &str,
     bytes: &[u8],
@@ -594,8 +517,6 @@ pub(crate) fn classify_preview_payload(
     Err("unsupported_mime")
 }
 
-// The first fetch cannot know whether it gets HTML or an image, so it uses
-// the larger limit; MAX_HTML_BYTES would cap direct-image previews.
 const MAX_INITIAL_FETCH_BYTES: usize = MAX_IMAGE_BYTES;
 
 async fn preview(page: url::Url) -> Result<serde_json::Value, PreviewFailure> {
@@ -622,8 +543,6 @@ async fn preview(page: url::Url) -> Result<serde_json::Value, PreviewFailure> {
     let declared = response_mime(&response);
     let declared_len = response.content_length();
     let mut bytes = read_head(&mut response, PREVIEW_HEAD_BYTES).await.map_err(fail)?;
-    // A video, or an image too large to inline, is described from its head
-    // and the rest is never read; the player or viewer fetches it on request.
     use crate::linkmedia::{judge_head, HeadVerdict};
     let head_image = match judge_head(&declared, &bytes, declared_len) {
         HeadVerdict::Video(mime) => {
@@ -637,7 +556,6 @@ async fn preview(page: url::Url) -> Result<serde_json::Value, PreviewFailure> {
     };
     match read_rest(&mut response, &mut bytes, MAX_INITIAL_FETCH_BYTES).await {
         Ok(()) => {}
-        // No declared length, and the image did not fit.
         Err("response_too_large") if head_image.is_some() => {
             return Ok(crate::linkmedia::large_image_fields(
                 head_image.unwrap_or_default(), &bytes, declared_len.unwrap_or(0)));
@@ -684,8 +602,6 @@ async fn preview(page: url::Url) -> Result<serde_json::Value, PreviewFailure> {
                 "image_height": 0, "image_size": 0
             });
             if let Some(image) = image {
-                // A failing thumbnail must not sink a preview that already has a title or
-                // description; image errors are swallowed and the fields stay empty.
                 if let Ok((fetched, _, _)) =
                     safe_get_following_redirects(image, MAX_IMAGE_BYTES, PREVIEW_ACCEPT).await
                 {
@@ -729,8 +645,6 @@ pub(crate) fn image_dimensions(mime: &str, b: &[u8]) -> Option<(u32,u32)> {
     }
     if mime == "image/webp" && b.len() >= 16 && &b[..4] == b"RIFF" && &b[8..12] == b"WEBP" {
         let chunk = &b[12..16];
-        // Accept the simple lossy ("VP8 ") and lossless ("VP8L") chunks as well
-        // as extended "VP8X", which most direct WebP links do not use.
         if chunk == b"VP8X" && b.len() >= 30 {
             let n = |i| 1 + u32::from_le_bytes([b[i],b[i+1],b[i+2],0]);
             return Some((n(24),n(27)));
@@ -752,16 +666,6 @@ pub(crate) fn image_dimensions(mime: &str, b: &[u8]) -> Option<(u32,u32)> {
     }} None
 }
 
-/// The homeserver's own preview of a page, or None if it cannot supply one.
-///
-/// Tried first because a client-side fetch hands the linked site the
-/// user's IP; via the server the site sees only the server, and the
-/// thumbnail is an `mxc://` on the authenticated media path. The server does
-/// learn the URL: in an unencrypted room it already saw the message, and
-/// encrypted rooms still require an explicit per-message gesture.
-///
-/// Returns Ok(None), not an error, when previews are disabled or the
-/// endpoint is unrecognised, so the caller falls back.
 async fn server_preview(
     client: &matrix_sdk::Client,
     page: &url::Url,
@@ -774,10 +678,6 @@ async fn server_preview(
     server_preview_fields(&data)
 }
 
-/// Synapse's description for a direct image is the Content-Disposition
-/// filename, and a filename may contain spaces ("my holiday photo.jpg"). A
-/// body summary of a titleless page also has spaces, so a name qualifies by
-/// how it ENDS: a raster image extension, on a single line.
 fn looks_like_image_file_name(description: &str) -> bool {
     if description.len() > 255 || description.chars().any(char::is_control) {
         return false;
@@ -790,28 +690,15 @@ fn looks_like_image_file_name(description: &str) -> bool {
     plain || image_ext
 }
 
-/// Reshape a server's OpenGraph object into our field set, or None when it
-/// says nothing. Separate so a test can drive it.
 pub(crate) fn server_preview_fields(data: &serde_json::Value) -> Option<serde_json::Value> {
     let obj = data.as_object()?;
-    // A server that could not fetch the URL still returns 200 with an empty
-    // object; no title and no description counts as no answer, so the caller
-    // falls back instead of drawing an empty card.
     let text = |k: &str| -> String {
         obj.get(k).and_then(|v| v.as_str()).unwrap_or_default().to_owned()
     };
     let title = text("og:title");
     let description = text("og:description");
-    // Same field set as the client path. `og:image` is an mxc:// URI here,
-    // resolved by the media bridge, so the thumbnail needs no direct contact.
     let image_source = text("og:image");
     let image_mime = text("og:image:type");
-    // A direct image link: the server fetched the image itself and answers
-    // with its mxc and type alone (Synapse's media branch; the description is
-    // only a Content-Disposition filename). Taken as media, so the client does
-    // not fall back to contacting the site. Raster types only: SVG stays out.
-    // A page without a title still has a body summary (spaces) or a site name,
-    // so neither is read as a bare image.
     let file_name_only = description.is_empty() || looks_like_image_file_name(&description);
     let direct_image = title.is_empty()
         && file_name_only
@@ -849,7 +736,6 @@ pub(crate) fn fetch_url_preview(
     url: String,
     op_id: u64,
 ) -> Result<(), String> {
-    // The client that runs the server-side attempt below: one session.
     let sdk = require_client(bridge)?;
     let parsed = url::Url::parse(url.trim()).map_err(|_| "invalid URL".to_owned())?;
     if parsed.scheme() != "https" || !parsed.username().is_empty() || parsed.password().is_some() {
@@ -860,13 +746,6 @@ pub(crate) fn fetch_url_preview(
     let lifecycle = timelines.lifecycle();
     let routed = crate::route::routed(&bridge.store_path);
     bridge.spawn_room_action(async move {
-        // Server first, client only if it cannot, so the site does not see the
-        // user's IP. Whether a direct fetch is allowed is the caller's decision;
-        // `preview_route` tells the UI which path produced the card.
-        //
-        // An account with a network route (route.rs) never takes the client
-        // path: it pins a validated public address and sends no proxy, so it
-        // would reach the site directly from the address the route hides.
         let mut result = match server_preview(&sdk, &parsed).await {
             Some(fields) => Ok(fields),
             None if routed => Err(PreviewFailure {
@@ -876,8 +755,6 @@ pub(crate) fn fetch_url_preview(
             }),
             None => preview(parsed.clone()).await,
         };
-        // Anything the client path produced took the direct route. Stamped here,
-        // in one place.
         if let Ok(ref mut fields) = result {
             if fields.get("preview_route").is_none() {
                 fields["preview_route"] = "client".into();
@@ -913,15 +790,6 @@ pub(crate) fn fetch_url_preview(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Direct messages
-// ---------------------------------------------------------------------------
-
-/// The room-list payload's `is_direct`. A joined room answers from m.direct
-/// (`direct_targets`). An INVITED room has no m.direct entry yet (the SDK
-/// writes it on join), so it asks `Room::is_direct`, which reads the
-/// `is_direct` flag of our own stripped invite member event. Without this every
-/// DM invitation was labelled a room invitation.
 pub(crate) async fn payload_is_direct(room: &matrix_sdk::Room, has_direct_targets: bool) -> bool {
     if has_direct_targets {
         return true;
@@ -929,8 +797,6 @@ pub(crate) async fn payload_is_direct(room: &matrix_sdk::Room, has_direct_target
     room.state() == RoomState::Invited && room.is_direct().await.unwrap_or(false)
 }
 
-/// Existing joined DM rooms with `user_id`, from the SDK's m.direct
-/// projection. Synchronous store lookup.
 pub(crate) fn get_dm_rooms(bridge: &RustClient, user_id: &str) -> Result<String, String> {
     let client = require_client(bridge)?;
     let uid = UserId::parse(user_id).map_err(|_| "invalid Matrix user id".to_owned())?;
@@ -947,24 +813,14 @@ pub(crate) fn get_dm_rooms(bridge: &RustClient, user_id: &str) -> Result<String,
         .map_err(|_| "serialization failed".to_owned())
 }
 
-/// How long one create request may take. Longer than the UI's own 60 s guard
-/// (ConversationController) so that guard, not a transport error, is what the
-/// user meets first and its per-person block against a second create is armed
-/// while this request is still running. A hung federated invite is the
-/// reason this is long at all.
 const CREATE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
-/// The request config for `/createRoom`. matrix-sdk's DEFAULT is a 30 s
-/// timeout per attempt and an unlimited-attempt retry of 5xx/429 with backoff
-/// for up to 15 minutes. `/createRoom` is not idempotent: a retried 5xx makes
-/// one more room per attempt. So: exactly one attempt, no retry.
 pub(crate) fn create_request_config() -> matrix_sdk::config::RequestConfig {
     matrix_sdk::config::RequestConfig::new()
         .disable_retry()
         .timeout(CREATE_REQUEST_TIMEOUT)
 }
 
-/// Send a `/createRoom` once (see `create_request_config`).
 async fn send_create_room(
     client: &matrix_sdk::Client,
     request: create_room::v3::Request,
@@ -976,19 +832,6 @@ async fn send_create_room(
         .map(|r| r.room_id)
 }
 
-/// The power-level override every room that can host a call is created with.
-///
-/// `m.call.member` is lowered to 0 so an ordinary member can publish their
-/// call membership (see `build_create_room_request`). BUT the homeserver
-/// merges `power_level_content_override` SHALLOWLY (Synapse's
-/// `handlers/room.py`: `power_level_content.update(override)`), so an
-/// `events` object REPLACES the stock map instead of adding to it. Sending only
-/// the call entries dropped `m.room.power_levels`, history visibility, server
-/// ACL, encryption and tombstone to `state_default` (50): any moderator could
-/// then rewrite power levels or tombstone the room. So the stock map is sent in
-/// full with the call entries added. `state_default` is not sent, so it stays
-/// the server's. The tombstone level is 150 on room versions that explicitly
-/// privilege creators (MSC4289, v12), 100 before.
 pub(crate) fn call_membership_power_levels(creator_power: bool) -> serde_json::Value {
     let mut events = serde_json::Map::new();
     for (ev, level) in [
@@ -1009,14 +852,8 @@ pub(crate) fn call_membership_power_levels(creator_power: bool) -> serde_json::V
     json!({ "events": serde_json::Value::Object(events) })
 }
 
-/// How long the room-version probe may delay a create. On a cold cache the
-/// SDK's capabilities fetch retries on its own long schedule, and a sick server
-/// would otherwise hold `/createRoom` past the UI's 60 s guard, so the create
-/// could fire after sign-out or make a second room.
 const ROOM_VERSION_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
-/// Runs `probe` for at most `limit`; a timeout counts as `false` (the pre-v12
-/// stock level).
 async fn privileges_creators_within<F>(probe: F, limit: std::time::Duration) -> bool
 where
     F: std::future::Future<Output = bool>,
@@ -1024,8 +861,6 @@ where
     tokio::time::timeout(limit, probe).await.unwrap_or(false)
 }
 
-/// Whether the room version this server defaults to gives creators infinite
-/// power (MSC4289). An unreadable or slow answer counts as no.
 async fn default_room_version_privileges_creators(client: &matrix_sdk::Client) -> bool {
     privileges_creators_within(
         async {
@@ -1043,12 +878,10 @@ async fn default_room_version_privileges_creators(client: &matrix_sdk::Client) -
     .await
 }
 
-/// `request` with the call-membership override for the given room version rule.
 fn with_call_override(
     mut request: create_room::v3::Request,
     creator_power: bool,
 ) -> create_room::v3::Request {
-    // cast_unchecked: the value is built here from literals.
     request.power_level_content_override =
         Raw::new(&call_membership_power_levels(creator_power))
             .ok()
@@ -1056,11 +889,6 @@ fn with_call_override(
     request
 }
 
-/// The request `Client::create_dm` builds (TrustedPrivateChat preset,
-/// `is_direct`, the invite, recommended encryption), sent by us so that the
-/// retry policy is ours. A DM hosts calls too, so it carries the same
-/// call-membership override (the invitee joins at level 0 and would otherwise
-/// be refused when publishing their membership).
 pub(crate) fn dm_create_request(
     uid: &UserId,
     creator_power: bool,
@@ -1080,9 +908,6 @@ pub(crate) fn dm_create_request(
     )
 }
 
-/// Per-bridge record of DM creates: how many are in flight and which room ids
-/// successful ones returned. An orphan sweep consults it so a failed request
-/// can never remove the room of a retry that is running or has succeeded.
 #[derive(Default)]
 pub(crate) struct DmCreateRegistry {
     state: std::sync::Mutex<DmCreateState>,
@@ -1092,13 +917,9 @@ pub(crate) struct DmCreateRegistry {
 struct DmCreateState {
     in_flight: usize,
     created: std::collections::HashSet<OwnedRoomId>,
-    /// End times (ms) of creates that ended WITHOUT a Matrix answer: the
-    /// server may still be federating their invite, so each counts as in
-    /// flight for `UNANSWERED_BUSY_MS`. Newest last, bounded.
     unanswered_ends: Vec<u64>,
 }
 
-/// How long a create that ended without a Matrix answer keeps blocking sweeps.
 const UNANSWERED_BUSY_MS: u64 = 10 * 60 * 1000;
 
 /// Counts one in-flight create until dropped (including on task abort).
@@ -1133,9 +954,6 @@ impl DmCreateRegistry {
             }
         }
     }
-    /// Whether anything that may still be running server-side exists: a create
-    /// in flight, or one that ended unanswered within the last ten minutes. A
-    /// poisoned lock reads as busy: never sweep on a guess.
     pub(crate) fn busy(&self, now_ms: u64) -> bool {
         self.state.lock().map_or(true, |st| {
             st.in_flight > 0
@@ -1154,10 +972,6 @@ impl DmCreateRegistry {
     }
 }
 
-/// Create an encrypted DM with `user_id`. Same request as
-/// `Client::create_dm`, sent once without retry; the `m.direct` follow-up the
-/// SDK would do (`Account::mark_as_dm`) is done here, and the room is picked
-/// up from sync.
 pub(crate) fn create_dm(bridge: &RustClient, user_id: String, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
     let uid: OwnedUserId =
@@ -1170,7 +984,6 @@ pub(crate) fn create_dm(bridge: &RustClient, user_id: String, op_id: u64) -> Res
     let registry = Arc::clone(&bridge.dm_creates);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        // Rooms known before the request, and when it started.
         let before: std::collections::HashSet<OwnedRoomId> =
             client.rooms().iter().map(|r| r.room_id().to_owned()).collect();
         let started_ms = now_ms();
@@ -1200,11 +1013,7 @@ pub(crate) fn create_dm(bridge: &RustClient, user_id: String, op_id: u64) -> Res
         if !answered {
             registry.record_unanswered_end(ended_ms);
         }
-        // This request is over: it must not count against its own sweep.
         drop(guard);
-        // Filing the room as a DM only writes the user's own account data, so
-        // it is done even if the session ended meanwhile (bounded), and before
-        // the lifecycle check: skipping it would leave a working room unfiled.
         if let Ok(room_id) = &result {
             let _ = tokio::time::timeout(
                 std::time::Duration::from_secs(15),
@@ -1224,7 +1033,6 @@ pub(crate) fn create_dm(bridge: &RustClient, user_id: String, op_id: u64) -> Res
                     "ok": true,
                     "room_id": room_id.to_string(),
                 }));
-                // The room arrives by sync; list it as soon as it has.
                 let echo = tokio::time::timeout(
                     std::time::Duration::from_secs(10),
                     client.await_room_remote_echo(&room_id),
@@ -1262,42 +1070,20 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Categories that mean the server refused the request outright, so no room
-/// exists to clean up.
 pub(crate) fn refused_before_creation(category: &str) -> bool {
     matches!(category, "forbidden" | "rate_limited" | "invalid" | "unrecognized" | "not_found")
 }
 
-/// Whether a failed create may be followed by an orphan sweep: the HOMESERVER
-/// answered with its own Matrix error body (`errcode`/`error`), it was not a
-/// plain refusal, and the status is not one a proxy or timeout produces
-/// (408, 499, 502, 503, 504). A 5xx without a Matrix body comes from something
-/// in front of Synapse, which may still be finishing the request. Timeouts
-/// and transport errors carry no status and never qualify.
-///
-/// UNVERIFIED: what status and body Synapse returns for a failed REMOTE invite
-/// inside /createRoom (the room exists afterwards). That needs a live capture;
-/// until then a sweep after such a failure happens only if it answers with a
-/// standard Matrix body.
 pub(crate) fn sweep_allowed(status: Option<u16>, standard_body: bool, category: &str) -> bool {
     matrix_answered(status, standard_body) && !refused_before_creation(category)
 }
 
-/// Whether the homeserver itself ANSWERED (a status with its own Matrix error
-/// body, not one a proxy or timeout produces). Anything else leaves the
-/// request's fate on the server unknown.
 pub(crate) fn matrix_answered(status: Option<u16>, standard_body: bool) -> bool {
     status.is_some_and(|s| standard_body && !matches!(s, 408 | 499 | 502 | 503 | 504))
 }
 
-/// How far the server's clock may differ from ours when comparing a room's
-/// creation time with the request's window.
 const CREATE_CLOCK_SKEW_MS: u64 = 30_000;
 
-/// Whether a room's `m.room.create` `origin_server_ts` falls inside THIS
-/// request's window: not before it started and not after it ended (each with
-/// skew). A room created later belongs to a later request. A room with no
-/// readable timestamp is NOT inside.
 pub(crate) fn created_in_window(create_ts_ms: Option<u64>, started_ms: u64, ended_ms: u64) -> bool {
     create_ts_ms.is_some_and(|ts| {
         ts >= started_ms.saturating_sub(CREATE_CLOCK_SKEW_MS)
@@ -1305,8 +1091,6 @@ pub(crate) fn created_in_window(create_ts_ms: Option<u64>, started_ms: u64, ende
     })
 }
 
-/// What the store can say about a room, for deciding whether it is the empty
-/// room a failed `create_dm` left behind.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct DmOrphanProbe {
     pub joined: bool,
@@ -1317,22 +1101,12 @@ pub(crate) struct DmOrphanProbe {
     pub known_before_request: bool,
     pub created_by_us: bool,
     pub marked_direct: bool,
-    /// `create_dm`'s initial state: encrypted, join rule `invite`.
     pub encrypted: bool,
     pub join_rule_invite: bool,
     pub created_in_window: bool,
-    /// A successful create returned this room id.
     pub returned_by_a_create: bool,
 }
 
-/// True only for a room this failed request demonstrably created: new since
-/// the request, created inside its window, ours, joined, ALONE in it with NO
-/// invite delivered (an `invited == 1` membership means the invite landed, i.e.
-/// the create succeeded and only its response was lost, so it is a working
-/// DM), unnamed, encrypted with join rule `invite` exactly as `create_dm`
-/// makes it, not already filed as a DM, not a Space and not the product of a
-/// create that succeeded. Every clause guards a room the user meant to keep;
-/// whatever the store cannot answer counts as NOT a match.
 pub(crate) fn is_failed_dm_orphan(p: &DmOrphanProbe) -> bool {
     p.joined
         && !p.known_before_request
@@ -1348,7 +1122,6 @@ pub(crate) fn is_failed_dm_orphan(p: &DmOrphanProbe) -> bool {
         && p.join_rule_invite
 }
 
-/// `origin_server_ts` of the room's `m.room.create`, if the store has it.
 async fn create_ts_ms(room: &matrix_sdk::Room) -> Option<u64> {
     use matrix_sdk::ruma::events::room::create::RoomCreateEventContent;
     match room.get_state_event_static::<RoomCreateEventContent>().await.ok()??.deserialize().ok()? {
@@ -1359,8 +1132,6 @@ async fn create_ts_ms(room: &matrix_sdk::Room) -> Option<u64> {
     }
 }
 
-/// Sleep `secs`, waking each second to stop at once when the session ends, so
-/// sign-out never waits on this task (it runs on the tracked pool).
 async fn sleep_while_current(
     secs: u64,
     timelines: &Arc<crate::timeline::TimelineRegistry>,
@@ -1375,11 +1146,6 @@ async fn sleep_while_current(
     timelines.lifecycle_current(lifecycle)
 }
 
-/// After a server-answered DM create failure, look for the room it left and
-/// leave + forget it. The room arrives by sync, possibly after the error, so
-/// look a few times. Never touches a room that does not satisfy
-/// `is_failed_dm_orphan`, and does nothing at all while any other DM create is
-/// in flight.
 async fn sweep_failed_dm_orphans(
     client: &matrix_sdk::Client,
     before: &std::collections::HashSet<OwnedRoomId>,
@@ -1394,7 +1160,6 @@ async fn sweep_failed_dm_orphans(
         if !sleep_while_current(delay, timelines, lifecycle).await {
             return;
         }
-        // A retry is running (or just ran): its room is not this request's.
         if registry.busy(now_ms()) {
             continue;
         }
@@ -1436,10 +1201,6 @@ async fn sweep_failed_dm_orphans(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Room creation
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Default, Deserialize, PartialEq)]
 pub(crate) struct CreateRoomOptions {
     #[serde(default)]
@@ -1456,13 +1217,10 @@ pub(crate) struct CreateRoomOptions {
     pub invites: Vec<String>,
     #[serde(default)]
     pub space_id: String,
-    /// Create a Matrix Space (m.space) instead of an ordinary room.
     #[serde(default)]
     pub is_space: bool,
 }
 
-/// Build the ruma create-room request from validated options. The server
-/// chooses the room id and version.
 pub(crate) fn build_create_room_request(
     opts: &CreateRoomOptions,
 ) -> Result<create_room::v3::Request, String> {
@@ -1477,7 +1235,6 @@ pub(crate) fn build_create_room_request(
             invites.push(uid);
         }
     }
-    // A Space is never an encrypted timeline, so no encryption state for it.
     let initial_state = if opts.encrypted && !opts.is_space {
         vec![InitialStateEvent::with_empty_state_key(
             RoomEncryptionEventContent::with_recommended_defaults(),
@@ -1495,9 +1252,6 @@ pub(crate) fn build_create_room_request(
     let power_level_content_override = if opts.is_space {
         None
     } else {
-        // cast_unchecked: the value is built here from literals. The room
-        // version is not known here; `create_room` re-applies the override
-        // once the server's default version has been read.
         Some(
             Raw::new(&call_membership_power_levels(false))
                 .map_err(|e| format!("power level override: {e}"))?
@@ -1545,9 +1299,6 @@ pub(crate) fn create_room(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        // Sent once, without retry, with a timeout longer than the UI's 60 s
-        // guard (see `create_request_config`): a retried 5xx would make a
-        // second named room.
         if !is_space {
             let creator_power = default_room_version_privileges_creators(&client).await;
             request = with_call_override(request, creator_power);
@@ -1560,8 +1311,6 @@ pub(crate) fn create_room(
         }
         match result {
             Ok(room_id) => {
-                // Optional Space placement. A failure there is reported as a warning, not
-                // a failed room creation.
                 let mut warning = String::new();
                 if !opts.space_id.is_empty() {
                     let placed = add_space_child(&client, &opts.space_id, room_id.as_str())
@@ -1579,7 +1328,6 @@ pub(crate) fn create_room(
                     "room_id": room_id.to_string(),
                     "warning": warning,
                 }));
-                // The room arrives by sync; list it as soon as it has.
                 let echo = tokio::time::timeout(
                     std::time::Duration::from_secs(10),
                     client.await_room_remote_echo(&room_id),
@@ -1627,10 +1375,6 @@ async fn add_space_child(
         .map_err(|err| classify_room_error(&err.to_string()).to_owned())
 }
 
-/// Child removal: an `m.space.child` with content `{}`, as matrix-sdk-ui's
-/// remove_child sends. `{"via": []}` is also "not a child" per spec, but the
-/// SDK's space graph still counts it as an edge. Never leaves or deletes
-/// the room itself.
 async fn remove_space_child(
     client: &matrix_sdk::Client,
     space_id: &str,
@@ -1703,8 +1447,6 @@ pub(crate) fn add_room_to_space(
     Ok(())
 }
 
-// Preserve the original JSON, including extension fields; normalise only the
-// order key. Validation through Ruma must still reject invalid routing.
 fn ordered_child_content(mut content: serde_json::Value, position: usize) -> Result<serde_json::Value, String> {
     let mut check = content.clone();
     check.as_object_mut().ok_or_else(|| "invalid child".to_owned())?.remove("order");
@@ -1722,9 +1464,7 @@ mod default_order_tests {
     fn one_unwritable_child_means_an_empty_plan() {
         let ids: Vec<String> = ["!a:x", "!b:x", "!parentonly:x"].map(String::from).to_vec();
         let ok = || Some(json!({"via": ["x"]}));
-        // A parent-only child has no m.space.child event at all.
         assert!(plan_child_orders(&ids, vec![ok(), ok(), None]).is_err());
-        // Or one whose routing is unusable.
         assert!(plan_child_orders(&ids, vec![ok(), Some(json!({"via": []})), ok()]).is_err());
         let plan = plan_child_orders(&ids, vec![ok(), ok(), ok()]).unwrap();
         assert_eq!(plan.len(), 3);
@@ -1754,9 +1494,6 @@ pub(crate) async fn set_space_child_order_inner(
         .and_then(|id| client.get_room(&id))
         .filter(|r| r.state() == RoomState::Joined && r.is_space())
         .ok_or_else(|| "unknown space".to_owned())?;
-    // Read and validate EVERY child before the first write: an id that cannot
-    // be written (for example a child linked only by its m.space.parent) must
-    // mean zero writes, never a half-rewritten order.
     let mut contents = Vec::with_capacity(ids.len());
     for id in ids {
         if !current() { return Err("cancelled".into()); }
@@ -1771,7 +1508,6 @@ pub(crate) async fn set_space_child_order_inner(
         }));
     }
     for (id, content) in plan_child_orders(ids, contents)? {
-        // Every send remains pinned to the originating session.
         if !current() { return Err("cancelled".into()); }
         space.send_state_event_raw("m.space.child", &id, content).await
             .map_err(|_| "order write failed".to_owned())?;
@@ -1779,8 +1515,6 @@ pub(crate) async fn set_space_child_order_inner(
     Ok(())
 }
 
-/// The complete write plan, or an error before any write exists. `contents[i]`
-/// is the current m.space.child content of `ids[i]`, None when there is none.
 fn plan_child_orders(
     ids: &[String],
     contents: Vec<Option<serde_json::Value>>,
@@ -1818,9 +1552,6 @@ pub(crate) fn set_space_child_order(
     Ok(())
 }
 
-/// Toggle the MSC1772 `suggested` flag on an existing m.space.child,
-/// preserving `via` and `order` (a blind rewrite would clobber routing). A
-/// room that is not a child is refused, never made one as a side effect.
 async fn set_space_child_suggested_inner(
     client: &matrix_sdk::Client,
     space_id: &str,
@@ -1888,11 +1619,6 @@ pub(crate) fn set_space_child_suggested(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Invites to existing rooms
-// ---------------------------------------------------------------------------
-
-/// A federated invite can hang; the dialog must always get an answer.
 const INVITE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(40);
 
 pub(crate) fn invite_users(
@@ -1972,24 +1698,8 @@ pub(crate) fn invite_users(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Thread participants (facepiles)
-// ---------------------------------------------------------------------------
-
-/// Participants crossing the FFI. The facepile shows 2-4; a small surplus
-/// lets the UI choose without another request.
 const THREAD_PARTICIPANT_CAP: usize = 8;
 
-/// The real participants of a thread, for the summary-card facepile.
-///
-/// matrix-sdk-ui 0.18's `ThreadSummary` / `ThreadListItem` carry only the
-/// root and latest senders and a reply count, so participants come from
-/// `Room::load_or_fetch_event_with_relations` (cache-first; fetched
-/// relations are cached).
-///
-/// Order: root sender first, then others by first appearance, deduplicated
-/// by user id. Only user id, display name and avatar mxc cross, never
-/// content. `truncated` says whether more participants exist.
 pub(crate) fn thread_participants(
     bridge: &RustClient,
     room_id: String,
@@ -2013,10 +1723,9 @@ pub(crate) fn thread_participants(
             )
             .await;
         if !timelines.lifecycle_current(lifecycle) {
-            return;   // account/session moved on: never touch the next one
+            return;
         }
         let Ok((root_event, replies)) = loaded else {
-            // Report a failure as such; the card keeps what it had.
             enqueue(&events, json!({
                 "type": "thread_participants",
                 "lifecycle": lifecycle,
@@ -2027,7 +1736,6 @@ pub(crate) fn thread_participants(
             return;
         };
 
-        // Root sender first, then first-appearance order among the replies.
         let mut ordered: Vec<OwnedUserId> = Vec::new();
         let mut seen: std::collections::HashSet<OwnedUserId> =
             std::collections::HashSet::new();
@@ -2051,8 +1759,6 @@ pub(crate) fn thread_participants(
         let truncated = distinct > THREAD_PARTICIPANT_CAP;
         let mut rows: Vec<serde_json::Value> = Vec::new();
         for user_id in ordered.into_iter().take(THREAD_PARTICIPANT_CAP) {
-            // Profile from synced member state, no request per face. Missing fields
-            // stay empty and C++ falls back to localpart and colour avatar.
             let member = room.get_member_no_sync(&user_id).await.ok().flatten();
             rows.push(json!({
                 "user_id": user_id.to_string(),
@@ -2080,20 +1786,8 @@ pub(crate) fn thread_participants(
     Ok(())
 }
 
-/// Max edit events one "remove edits" pass redacts. The report gives the
-/// count, so a longer chain needs a second pass instead of an unbounded
-/// burst.
 const EDIT_REDACTION_CAP: usize = 50;
 
-/// Remove a message's edits, restoring its original text.
-///
-/// Matrix has no "unedit": an edit is a separate `m.replace` event and can
-/// only be taken back by redaction. The replacements are collected via
-/// `Room::load_or_fetch_event_with_relations` (cache-first) and redacted,
-/// which also drops the "edited" marker (derived from their presence).
-///
-/// Only the caller's own edits are touched; redacting others' edits needs
-/// the redact power level and is not what this action means. Counts only.
 pub(crate) fn remove_message_edits(
     bridge: &RustClient,
     room_id: String,
@@ -2121,7 +1815,7 @@ pub(crate) fn remove_message_edits(
             )
             .await;
         if !timelines.lifecycle_current(lifecycle) {
-            return; // the account moved on
+            return;
         }
         let Ok((_original, relations)) = loaded else {
             enqueue(&events, json!({
@@ -2137,7 +1831,6 @@ pub(crate) fn remove_message_edits(
             return;
         };
 
-        // Own replacement events only; all of them go. The original is never here.
         let mut edit_ids: Vec<matrix_sdk::ruma::OwnedEventId> = Vec::new();
         for related in &relations {
             let Ok(parsed) = related.raw().deserialize() else {
@@ -2148,7 +1841,7 @@ pub(crate) fn remove_message_edits(
             }
             let id = parsed.event_id().to_owned();
             if id == target {
-                continue; // never redact the message itself
+                continue;
             }
             edit_ids.push(id);
         }
@@ -2172,7 +1865,6 @@ pub(crate) fn remove_message_edits(
             "lifecycle": lifecycle,
             "room_id": room_id,
             "event_id": target_event_id,
-            // The lookup succeeded; `removed`/`failed` say what happened.
             "ok": failed == 0,
             "removed": removed,
             "failed": failed,
@@ -2182,65 +1874,19 @@ pub(crate) fn remove_message_edits(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Member roster freshness
-// ---------------------------------------------------------------------------
-//
-// Under simplified sliding sync the SDK takes room state from `required_state`
-// only and ignores state events in the timeline (matrix-sdk-base 0.18.0,
-// response_processors/room/msc4186/mod.rs, "Don't read state events from the
-// `timeline` field"). Lightning asks for m.room.member as `$LAZY` and `$ME`.
-// Whether that brings another member's join, kick, ban, unban or profile
-// change into the store is up to the SERVER: measured 2026-10-16 against the
-// local Continuwuity 26.9.1, `$LAZY`/`$ME` returned no m.room.member at all,
-// not even our own, for any of those changes (a `*` control returned every
-// one). Such a change reaches the timeline ("X removed Y") but never the
-// member store. `Room::members()` asks the server only while the room is NOT
-// marked members-synced, and the SDK clears that mark on a limited response
-// and on a NEW room subscription, which a warm room never gets again in a
-// session. That is why the People list, its count and the mention roster
-// stayed stale until a restart.
-//
-// So a member read compares the store with the member events the timeline has
-// shown since the last check (newest per user), and refetches /members only
-// when they DISAGREE. A server that already puts those members in
-// `required_state` therefore costs nothing extra. The refetch uses the SDK's
-// own lever, `mark_members_missing()` (it uses it after an invite).
-//
-// The cost of that lever: while a room is marked missing, matrix-sdk makes an
-// ENCRYPTED send fetch /members first (room/futures.rs,
-// `ensure_room_encryption_ready`), and the SDK has no public way to set the
-// mark back. So a forced refetch is gap-limited (more so in an encrypted
-// room), a failed one is retried only after a backoff, and a read never waits
-// out a gap: it is answered from the store and the refetch runs later, with a
-// `room_members_changed` poke if it changed anything. A failed refetch leaves
-// the room as unsynced as every subscribed room is at the start of a session,
-// which is the state that send path was written for.
-
-/// Each active member adds this much to the minimum gap between two forced
-/// refetches of one room, up to MEMBER_REFRESH_GAP_MAX: a 3-member room
-/// refetches at once, a 6,000-member one at most once a minute (/members is
-/// the whole roster every time).
 const MEMBER_REFRESH_GAP_PER_MEMBER: std::time::Duration =
     std::time::Duration::from_millis(10);
 const MEMBER_REFRESH_GAP_MAX: std::time::Duration = std::time::Duration::from_secs(60);
-/// The same for an encrypted room, where an encrypted send waits for a
-/// running refetch: at least 5 s apart, 15 s at 500 members, 3 min at 6,000.
 const MEMBER_REFRESH_GAP_ENCRYPTED_MIN: std::time::Duration =
     std::time::Duration::from_secs(5);
 const MEMBER_REFRESH_GAP_ENCRYPTED_PER_MEMBER: std::time::Duration =
     std::time::Duration::from_millis(30);
 const MEMBER_REFRESH_GAP_ENCRYPTED_MAX: std::time::Duration =
     std::time::Duration::from_secs(300);
-/// After a failed forced refetch the next one waits at least this long (or
-/// the gap, if longer), doubling with each further failure up to the max.
 const MEMBER_REFRESH_BACKOFF_MIN: std::time::Duration = std::time::Duration::from_secs(30);
 const MEMBER_REFRESH_BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(600);
-/// How far back through the in-memory timeline one check walks at most.
 const MEMBER_SCAN_LIMIT: usize = 2_000;
 
-/// The minimum gap between two forced refetches of a room with `active`
-/// joined and invited members. Pure.
 fn member_refresh_gap(active: u64, encrypted: bool) -> std::time::Duration {
     let active = u32::try_from(active).unwrap_or(u32::MAX);
     if encrypted {
@@ -2254,7 +1900,6 @@ fn member_refresh_gap(active: u64, encrypted: bool) -> std::time::Duration {
     }
 }
 
-/// How long to wait after the `failures`-th failed refetch in a row. Pure.
 fn member_refresh_backoff(failures: u32, gap: std::time::Duration) -> std::time::Duration {
     let doublings = failures.saturating_sub(1).min(16);
     gap.max(MEMBER_REFRESH_BACKOFF_MIN)
@@ -2262,8 +1907,6 @@ fn member_refresh_backoff(failures: u32, gap: std::time::Duration) -> std::time:
         .min(MEMBER_REFRESH_BACKOFF_MAX)
 }
 
-/// One member as a member event states it, or as the store holds it, in the
-/// fields the roster shows. Missing fields are empty.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct MemberFacts {
     membership: String,
@@ -2290,14 +1933,10 @@ impl MemberFacts {
     }
 }
 
-/// Whether the store already reflects the newest member event the timeline
-/// showed for that user. Pure.
 fn store_agrees(stored: Option<&MemberFacts>, seen: &MemberFacts) -> bool {
     match stored {
-        // Never loaded: right only for someone the roster would not show.
         None => matches!(seen.membership.as_str(), "leave" | "knock"),
         Some(stored) if stored.membership != seen.membership => false,
-        // Only a joined or invited row shows a name and a picture.
         Some(stored) => {
             !matches!(seen.membership.as_str(), "join" | "invite")
                 || (stored.display_name == seen.display_name
@@ -2306,19 +1945,12 @@ fn store_agrees(stored: Option<&MemberFacts>, seen: &MemberFacts) -> bool {
     }
 }
 
-/// What a check found in the timeline since the last one.
 #[derive(Debug, Default)]
 struct MemberScan {
-    /// The newest member event walked; `None` when there was nothing newer
-    /// than the last check.
     newest: Option<matrix_sdk::ruma::OwnedEventId>,
-    /// Users whose newest member event the store does not reflect.
     stale: usize,
 }
 
-/// Walk the room's in-memory timeline back to `since` (the newest member
-/// event of the last check) and compare each user's newest member event with
-/// the store. Local reads only.
 async fn scan_member_events(
     room: &matrix_sdk::Room,
     since: Option<&EventId>,
@@ -2347,7 +1979,7 @@ async fn scan_member_events(
             }
             let id = event.event_id();
             if id.is_some() && id.as_deref() == since {
-                return Some(()); // checked last time, and so is all before it
+                return Some(());
             }
             if newest.is_none() {
                 newest = id;
@@ -2386,31 +2018,17 @@ async fn scan_member_events(
 
 #[derive(Default)]
 struct MemberRefreshState {
-    /// The bridge's timeline registry. Held weakly: while an entry exists, no
-    /// later bridge can be allocated at the address in the key, and an entry
-    /// whose bridge is gone is pruned.
     owner: std::sync::Weak<crate::timeline::TimelineRegistry>,
-    /// When the last forced refetch started (the gap is measured from it).
     started: Option<std::time::Instant>,
-    /// A forced refetch is running.
     in_flight: bool,
-    /// The newest member event the last check covered.
     watermark: Option<matrix_sdk::ruma::OwnedEventId>,
-    /// Failed forced refetches in a row, and when the next may start.
     failures: u32,
     retry_after: Option<std::time::Instant>,
-    /// A failed forced refetch left the room marked members-missing.
     left_missing: bool,
-    /// A later refetch is scheduled (one per room).
     deferred: bool,
-    /// A read was answered from the store while a refetch ran: poke when it
-    /// ends if it changed anything.
     poke_owed: bool,
 }
 
-/// One bridge (by the address of its timeline registry, kept unique by the
-/// entry's weak owner), one lifecycle, one room. Entries of an older
-/// lifecycle are dropped as soon as a newer one writes.
 type MemberRefreshKey = (usize, u64, OwnedRoomId);
 
 type MemberRefreshRegistry = std::collections::HashMap<MemberRefreshKey, MemberRefreshState>;
@@ -2421,7 +2039,6 @@ fn member_refresh_registry() -> &'static std::sync::Mutex<MemberRefreshRegistry>
     REGISTRY.get_or_init(Default::default)
 }
 
-/// The entry for `key`, created with its owner; prunes dead and stale ones.
 fn member_refresh_entry<'a>(
     registry: &'a mut MemberRefreshRegistry,
     key: &MemberRefreshKey,
@@ -2437,25 +2054,15 @@ fn member_refresh_entry<'a>(
     })
 }
 
-/// What a check decided. Pure (see `member_step`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MemberStep {
-    /// The store agrees with every member event since the last check.
     Skip,
-    /// The room is unsynced for the SDK's own reasons (a new subscription, a
-    /// limited sync): its own fetch, exactly as before this round.
     SdkSync,
-    /// A forced refetch is running: answer from the store, poke when it ends.
     ServeWhileRunning,
-    /// Stale, but inside the gap or a failure backoff: answer from the store
-    /// and refetch at this instant.
     Defer(std::time::Instant),
-    /// Refetch now.
     Refresh,
 }
 
-/// `synced`: the room is members-synced now. `stale`: the store disagrees
-/// with a member event since the last check. Pure.
 fn member_step(
     state: &MemberRefreshState,
     now: std::time::Instant,
@@ -2466,7 +2073,6 @@ fn member_step(
     if state.in_flight {
         return MemberStep::ServeWhileRunning;
     }
-    // Synced again (an encrypted send fetched it, say): that failure is paid.
     let left_missing = state.left_missing && !synced;
     if !synced && !left_missing {
         return MemberStep::SdkSync;
@@ -2484,27 +2090,15 @@ fn member_step(
     if at > now { MemberStep::Defer(at) } else { MemberStep::Refresh }
 }
 
-/// What a member read found before building its snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MemberFreshness {
-    /// Nothing suggests the store is stale; `members()` as before.
     Store,
-    /// Answer from the store without asking the server (a refetch is running
-    /// or scheduled, or a failed one is backing off).
     StoreNoSync,
-    /// The store was refetched from the server by this read.
     Refreshed,
-    /// The forced refetch failed; the store was complete before it.
     FailedUseStore,
-    /// The SDK's own fetch of a store that was never complete failed.
     Failed(&'static str),
 }
 
-/// Opt-in (LIGHTNING_MEMBERS_TRACE=1): one line per refetch decision that
-/// asks or defers, counts only, the room as a short hash. `stale` is how many
-/// users' timeline member events the store did not reflect; `changed` how
-/// many members the refetch altered. Together they say whether the server
-/// left the store stale.
 fn members_trace_enabled() -> bool {
     std::env::var_os("LIGHTNING_MEMBERS_TRACE").is_some()
 }
@@ -2530,7 +2124,6 @@ fn count_changed_members(
     changed
 }
 
-/// Everything a check needs besides the room.
 #[derive(Clone)]
 struct MemberRefreshCtx {
     timelines: Arc<crate::timeline::TimelineRegistry>,
@@ -2567,8 +2160,6 @@ impl MemberRefreshCtx {
     }
 }
 
-/// Check the store against the timeline and decide, recording the decision.
-/// `deferred`: the scheduled later refetch is the one asking.
 async fn decide_member_step(
     room: &matrix_sdk::Room,
     ctx: &MemberRefreshCtx,
@@ -2587,7 +2178,6 @@ async fn decide_member_step(
     );
     let mut registry = member_refresh_registry().lock().unwrap();
     let state = member_refresh_entry(&mut registry, &key, &ctx.timelines);
-    // Read under the lock, so a refetch that starts after it is seen.
     let synced = room.are_members_synced();
     if synced {
         state.left_missing = false;
@@ -2602,15 +2192,12 @@ async fn decide_member_step(
         }
         MemberStep::ServeWhileRunning => state.poke_owed = true,
         MemberStep::Defer(_) => {
-            // One scheduled refetch per room; the scheduled one keeps its own.
             schedule = !state.deferred && !deferred;
             if schedule {
                 state.deferred = true;
             }
         }
         MemberStep::Refresh => {
-            // Marked missing under the lock, before anyone can see in_flight,
-            // so no reader takes the still-synced store for a fresh one.
             state.started = Some(std::time::Instant::now());
             state.in_flight = true;
             room.mark_members_missing();
@@ -2620,8 +2207,6 @@ async fn decide_member_step(
     (step, scan, gap, schedule)
 }
 
-/// Run the forced refetch `decide_member_step` started. Returns whether it
-/// succeeded and how many members it changed.
 async fn forced_member_refresh(
     room: &matrix_sdk::Room,
     ctx: &MemberRefreshCtx,
@@ -2630,7 +2215,6 @@ async fn forced_member_refresh(
     origin: &str,
 ) -> (bool, usize) {
     let key = ctx.key(room);
-    // Clears the in-flight mark however this future ends.
     struct InFlight(MemberRefreshKey);
     impl Drop for InFlight {
         fn drop(&mut self) {
@@ -2674,8 +2258,6 @@ async fn forced_member_refresh(
                     state.failures = 0;
                     state.retry_after = None;
                     state.left_missing = false;
-                    // The id read BEFORE the request: a member event that
-                    // lands during it is checked by the next read.
                     if let Some(newest) = &scan.newest {
                         state.watermark = Some(newest.clone());
                     }
@@ -2705,12 +2287,6 @@ async fn forced_member_refresh(
     (ok, changed)
 }
 
-/// The later refetch a read inside the gap scheduled. It runs in that read's
-/// own tracked room action, after the answer was emitted, so sign-out's task
-/// shutdown waits for it or aborts it like any other room action (an
-/// untracked task could send /members, and trigger a token refresh, after
-/// the final tokens were handed back). Dropped unrun, or however `run` ends,
-/// it clears the room's scheduled mark, so a later read schedules again.
 struct DeferredMemberRefresh {
     key: MemberRefreshKey,
     at: std::time::Instant,
@@ -2727,13 +2303,9 @@ impl Drop for DeferredMemberRefresh {
 }
 
 impl DeferredMemberRefresh {
-    /// Wait for `at`, decide again, refetch if still owed, and poke readers
-    /// if it changed anything.
     async fn run(self, room: &matrix_sdk::Room, ctx: &MemberRefreshCtx) {
         let mut at = self.at;
-        // Bounded: each pass either ends or waits for a later instant.
         for _ in 0..4 {
-            // In slices, so a sign-out is not held for the whole gap.
             while std::time::Instant::now() < at {
                 if !ctx.timelines.lifecycle_current(ctx.lifecycle) {
                     return;
@@ -2748,32 +2320,19 @@ impl DeferredMemberRefresh {
             match step {
                 MemberStep::Defer(next) => at = next,
                 MemberStep::Refresh => {
-                    // Once: a failure is retried by the next read after the
-                    // backoff, not by this task.
                     forced_member_refresh(room, ctx, &scan, gap, "deferred").await;
                     return;
                 }
-                // Unsynced again: readers fetch through the SDK on their next
-                // read, so tell them to read.
                 MemberStep::SdkSync => {
                     ctx.poke(room);
                     return;
                 }
-                // Nothing owed, or the running refetch pokes.
                 MemberStep::Skip | MemberStep::ServeWhileRunning => return,
             }
         }
     }
 }
 
-/// Bring the room's member store up to date with the server when it is
-/// demonstrably stale, single-flight per room, gap-limited and backing off
-/// after a failure. Never waits out a gap: such a read is answered from the
-/// store and the refetch is scheduled: the caller runs the returned
-/// `DeferredMemberRefresh` in its own task once it has answered. Touches the
-/// state store only, through the SDK's own /members path, as on every first
-/// open (it also refreshes the users the crypto layer tracks, exactly as that
-/// path always has).
 async fn ensure_fresh_members(
     room: &matrix_sdk::Room,
     ctx: &MemberRefreshCtx,
@@ -2782,7 +2341,6 @@ async fn ensure_fresh_members(
         return (MemberFreshness::Store, None);
     }
     let (step, scan, gap, schedule) = decide_member_step(room, ctx, false).await;
-    // Built at once, so the scheduled mark is cleared however this read ends.
     let deferred = match step {
         MemberStep::Defer(at) if schedule => Some(DeferredMemberRefresh { key: ctx.key(room), at }),
         _ => None,
@@ -2820,8 +2378,6 @@ async fn ensure_fresh_members(
     (freshness, deferred)
 }
 
-/// This account's membership of `room` as the SDK holds it, in the words the
-/// member snapshot uses.
 fn own_membership_str(state: RoomState) -> &'static str {
     match state {
         RoomState::Joined => "joined",
@@ -2832,18 +2388,6 @@ fn own_membership_str(state: RoomState) -> &'static str {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Member snapshot + permissions
-// ---------------------------------------------------------------------------
-
-/// Whether this account may post an ordinary message in `room`, and remove
-/// other people's events there: the SDK's checks against the room's real
-/// levels (`events_default`, a per-event `events` entry, `redact`, and our
-/// own level). An encrypted room's messages are m.room.encrypted on the wire,
-/// so both types must be allowed. `None` when our own member is not in the
-/// store yet: unknown, which the composer treats as allowed and moderator
-/// Delete as not granted. Shared by the member snapshot and the open-room
-/// query, so the two can never disagree about the same store.
 fn own_send_and_redact(
     room: &matrix_sdk::Room,
     own_member: Option<&matrix_sdk::room::RoomMember>,
@@ -2858,12 +2402,6 @@ fn own_send_and_redact(
     (can_send_message, can_redact_other)
 }
 
-/// Whether this account may kick, ban, unban, invite and edit the topic and
-/// name in `room`, from the SDK's power-level checks against the room's real
-/// levels (unban is the SDK's own max(ban, kick) rule). `None` for each when
-/// our own member is not in the store yet: unknown, which the slash-command
-/// hints treat as offered. Shared with nothing else on purpose: the member
-/// snapshot keeps its own bool-valued copies for the info panel.
 fn own_moderation_facts(
     own_member: Option<&matrix_sdk::room::RoomMember>,
 ) -> [Option<bool>; 6] {
@@ -2877,14 +2415,6 @@ fn own_moderation_facts(
     ]
 }
 
-/// The open room's own posting facts, for the composer's posting block and
-/// moderator Delete, independent of which room the info panel inspects.
-///
-/// Local state only: the room's membership, our own member event and
-/// m.room.power_levels as the store holds them. No request is made, so it
-/// is cheap enough to ask on every room open and every member or
-/// power-level poke. A room we are not joined to answers its membership
-/// with both permissions null (the membership is the reason).
 pub(crate) fn room_own_permissions(
     bridge: &RustClient,
     room_id: String,
@@ -2912,7 +2442,6 @@ pub(crate) fn room_own_permissions(
     Ok(())
 }
 
-/// The facts `room_own_permissions` reports, from the store alone.
 async fn own_permissions_payload(
     room: &matrix_sdk::Room,
     own_id: Option<&matrix_sdk::ruma::UserId>,
@@ -2966,9 +2495,6 @@ pub(crate) fn room_members(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     if room.state() != RoomState::Joined {
-        // A room this account was removed from, left, or is only invited to:
-        // no roster, but say what the membership is, so the composer can say
-        // why it cannot send instead of failing at the server.
         let own_membership = own_membership_str(room.state());
         bridge.spawn_room_action(async move {
             if timelines.lifecycle_current(lifecycle) {
@@ -2992,10 +2518,6 @@ pub(crate) fn room_members(
         events: Arc::clone(&events),
     };
     bridge.spawn_room_action(async move {
-        // Cache-first: emit a partial snapshot from the state store so the People
-        // list renders immediately, then the full synced roster under the same op
-        // with partial=false. An empty cache emits nothing (it would read as
-        // "nobody").
         if let Ok(cached) = room
             .members_no_sync(RoomMemberships::ACTIVE | RoomMemberships::BAN)
             .await
@@ -3003,38 +2525,26 @@ pub(crate) fn room_members(
             if !cached.is_empty() && timelines.lifecycle_current(lifecycle) {
                 let snapshot = members_snapshot_json(
                     &room, &cached, own_id.as_deref(), &room_id, op_id,
-                    lifecycle, /*partial=*/ true,
+                    lifecycle, true,
                 )
                 .await;
-                // Re-check after the builder's await; the guard sits right before the emit.
                 if timelines.lifecycle_current(lifecycle) {
                     enqueue(&events, snapshot);
                 }
             }
         }
 
-        // Refetch first when the store disagrees with the timeline (see
-        // "Member roster freshness" above): sliding sync applies another
-        // member's change only if the server puts it in required_state.
         let (freshness, deferred) = ensure_fresh_members(&room, &refresh_ctx).await;
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
 
-        // Active (join+invite) plus banned: banned members must be visible for
-        // unban. They are excluded from counts and mention suggestions downstream.
         let wanted = RoomMemberships::ACTIVE | RoomMemberships::BAN;
         let read = match freshness {
-            // Nothing forced: as before, the SDK fetches only an unsynced room.
             MemberFreshness::Store => room.members(wanted).await,
-            // Fresh, a failed refetch of a store that was complete before it,
-            // or a refetch running or scheduled: the store, without asking
-            // the server (again).
             MemberFreshness::Refreshed
             | MemberFreshness::FailedUseStore
             | MemberFreshness::StoreNoSync => room.members_no_sync(wanted).await,
-            // A store that was never complete: what `members()` reported here
-            // before, without repeating the request that just failed.
             MemberFreshness::Failed(category) => {
                 if timelines.lifecycle_current(lifecycle) {
                     enqueue(&events, json!({
@@ -3070,15 +2580,12 @@ pub(crate) fn room_members(
         }
         let snapshot = members_snapshot_json(
             &room, &members, own_id.as_deref(), &room_id, op_id, lifecycle,
-            /*partial=*/ false,
+ false,
         )
         .await;
-        // Guard right before the emit; the builder awaits a store read.
         if timelines.lifecycle_current(lifecycle) {
             enqueue(&events, snapshot);
         }
-        // Answered: now the refetch this read scheduled, in this same tracked
-        // task. An early return above drops it unrun (and clears its mark).
         if let Some(deferred) = deferred {
             deferred.run(&room, &refresh_ctx).await;
         }
@@ -3086,7 +2593,6 @@ pub(crate) fn room_members(
     Ok(())
 }
 
-// One snapshot shape for the partial and full emits.
 async fn members_snapshot_json(
     room: &matrix_sdk::Room,
     members: &[matrix_sdk::room::RoomMember],
@@ -3100,7 +2606,6 @@ async fn members_snapshot_json(
         let mut sorted: Vec<&matrix_sdk::room::RoomMember> = members.iter().collect();
         sorted.sort_by(|a, b| {
             use matrix_sdk::ruma::events::room::member::MembershipState;
-            // Joined first, then invited, banned last.
             let rank = |m: &matrix_sdk::room::RoomMember| match m.membership() {
                 MembershipState::Join => 0,
                 MembershipState::Invite => 1,
@@ -3150,8 +2655,6 @@ async fn members_snapshot_json(
                         _ => "other",
                     },
                     "role": role,
-                    // Raw power level so the UI can hide actions against peers at or above the
-                    // viewer's level; the server enforces regardless.
                     "power_level": power_level_int(member.power_level()),
                     "ambiguous": member.name_ambiguous(),
                     "is_own": Some(member.user_id()) == own_id,
@@ -3159,8 +2662,6 @@ async fn members_snapshot_json(
             })
             .collect();
 
-        // Own permissions from the SDK's power-level helpers, never guessed from
-        // role labels.
         let own_member = match own_id {
             Some(own) => room.get_member_no_sync(own).await.ok().flatten(),
             None => None,
@@ -3175,8 +2676,6 @@ async fn members_snapshot_json(
         let can_edit_avatar = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::RoomAvatar));
-        // @room: the room's own required level (notifications.room), asked of the
-        // SDK.
         let can_notify_room = own_member.as_ref().is_some_and(|m| {
             m.can_do(PowerLevelAction::TriggerNotification(
                 NotificationPowerLevelType::Room,
@@ -3184,8 +2683,6 @@ async fn members_snapshot_json(
         });
         let can_kick = own_member.as_ref().is_some_and(|m| m.can_kick());
         let can_ban = own_member.as_ref().is_some_and(|m| m.can_ban());
-        // Unban requires max(ban, kick) (ruma PowerLevelAction::Unban), not the ban
-        // level alone; ask the SDK.
         let can_unban = own_member
             .as_ref()
             .is_some_and(|m| m.can_do(PowerLevelAction::Unban));
@@ -3193,8 +2690,6 @@ async fn members_snapshot_json(
             .as_ref()
             .map(|m| power_level_int(m.power_level()))
             .unwrap_or(0);
-        // Each is the SDK's check against the room's real required level for that
-        // state event; nothing assumes "admin only".
         let can_change_power_levels = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::RoomPowerLevels));
@@ -3207,18 +2702,9 @@ async fn members_snapshot_json(
         let can_change_alias = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::RoomCanonicalAlias));
-        // Space child management (add/remove/suggest all use m.space.child).
         let can_manage_space_children = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::SpaceChild));
-        // The room's real m.room.power_levels thresholds, for the Permissions
-        // matrix.
-        //
-        // Only integers under a fixed set of keys cross: the `events` map is keyed
-        // by sender-chosen event type strings, which must never reach the bridge,
-        // so rows are looked up by typed `StateEventType` and emitted under our own
-        // keys. Each row is the effective level (explicit entry or
-        // `state_default`), which is what the server enforces.
         let power_levels = room.power_levels_or_default().await;
         let state_level = |ty: StateEventType| -> i64 {
             power_levels
@@ -3227,32 +2713,17 @@ async fn members_snapshot_json(
                 .map(|value| i64::from(*value))
                 .unwrap_or_else(|| i64::from(power_levels.state_default))
         };
-        // The room's default user level, so the UI can tell "at default" from
-        // "pinned to the same number" (`update_power_levels` treats setting the
-        // default as a removal).
         let users_default: i64 = i64::from(power_levels.users_default);
-        // From `Room::version()`; empty while state has not settled, rendered as
-        // nothing rather than a fabricated "1".
         let room_version = room
             .version()
             .map(|version| version.to_string())
             .unwrap_or_default();
-        // Whether this account may send m.room.tombstone (the upgrade level).
-        // Reported separately; it gates only a disclosure.
         let can_upgrade = own_member
             .as_ref()
             .is_some_and(|m| m.can_send_state(StateEventType::RoomTombstone));
-        // Whether this account may publish a call membership, i.e. whether Join
-        // can work. Checked with the string we actually send
-        // (`rtc::EV_MEMBER_LEGACY`), not a typed ruma enum, whose aliasing could
-        // govern a different wire string. Default power levels put state at 50.
-        // `None` (null on the wire) when our own member is not in the store
-        // yet: unknown, which the call gate treats as permitted, not refused.
         let can_publish_rtc_membership: Option<bool> = own_member.as_ref().map(|m| {
             m.can_send_state(StateEventType::from(crate::rtc::EV_MEMBER_LEGACY))
         });
-        // Posting and removing other people's events: one computation with
-        // the open-room query (`own_send_and_redact`).
         let (can_send_message, can_redact_other) =
             own_send_and_redact(&room, own_member.as_ref());
         let join_rule = join_rule_str(room.join_rule().as_ref());
@@ -3261,10 +2732,6 @@ async fn members_snapshot_json(
             .map(|a| a.to_string())
             .unwrap_or_default();
         let canonical_space_parent = canonical_space_parent_json(&room.client(), room).await;
-        // The restricted allow list as room ids, so a configuration another client
-        // wrote can be shown and edited without loss; unknown allow-rule kinds are
-        // carried as an opaque marker the editor must preserve (see
-        // set_room_join_rule).
         let (restricted_allow, restricted_has_unknown) = {
             use matrix_sdk::ruma::room::{AllowRule, JoinRule};
             match room.join_rule() {
@@ -3323,7 +2790,6 @@ async fn members_snapshot_json(
                 state_level(StateEventType::RoomHistoryVisibility),
             "m.room.guest_access": state_level(StateEventType::RoomGuestAccess),
         });
-        // Outside the snapshot for the same macro-recursion reason.
         let access_json = json!({
             "history_visibility": history_visibility,
             "guest_access": guest_access,
@@ -3340,7 +2806,6 @@ async fn members_snapshot_json(
             "lifecycle": lifecycle,
             "room_id": room_id,
             "ok": true,
-            // A partial snapshot keeps the op open in C++ until the full roster lands.
             "partial": partial,
             "truncated": truncated,
             "joined_count": joined_count,
@@ -3364,11 +2829,8 @@ async fn members_snapshot_json(
             "own_can_publish_rtc_membership": can_publish_rtc_membership,
             "own_can_send_message": can_send_message,
             "own_can_redact_other": can_redact_other,
-            // From the room's own state, not the member list: "joined" here.
             "own_membership": own_membership_str(room.state()),
             "room_version": room_version,
-            // Every key here is chosen by this file (see above); C++ mirrors them into
-            // the Permissions matrix.
             "power_levels": power_levels_json,
             "join_rule": join_rule,
             "canonical_alias": canonical_alias,
@@ -3379,10 +2841,6 @@ async fn members_snapshot_json(
     }
 }
 
-/// The room's canonical `m.space.parent` (MSC1772) as bridge JSON, or null.
-/// Only a parent that carries `via` and `canonical: true` counts: an empty
-/// content is how a parent link is removed. `joined` is the SDK's own state
-/// for that Space, so the UI can offer to join one the user has not.
 pub(crate) async fn canonical_space_parent_json(
     client: &matrix_sdk::Client,
     room: &matrix_sdk::Room,
@@ -3412,17 +2870,12 @@ pub(crate) async fn canonical_space_parent_json(
     serde_json::Value::Null
 }
 
-// ---------------------------------------------------------------------------
-// Moderation (kick / ban)
-// ---------------------------------------------------------------------------
-
 /// The bridge integer for an MSC4289 creator ("Infinite"): 2^53, one above
 /// the largest finite level (a canonical-JSON integer is at most 2^53 - 1),
 /// and exactly representable in the JSON f64 hop. C++ mirrors it as
 /// kCreatorPowerLevel in RoomInfoController.cpp.
 pub(crate) const CREATOR_POWER_LEVEL: i64 = 1 << 53;
 
-// UserPowerLevel -> bridge integer; C++ reads it as a 64-bit integer.
 fn power_level_int(
     level: matrix_sdk::ruma::events::room::power_levels::UserPowerLevel,
 ) -> i64 {
@@ -3430,14 +2883,10 @@ fn power_level_int(
     match level {
         UserPowerLevel::Infinite => CREATOR_POWER_LEVEL,
         UserPowerLevel::Int(v) => v.into(),
-        // Non-exhaustive enum: an unknown variant reads as an ordinary member.
         _ => 0,
     }
 }
 
-// Kick, ban or unban one user (`op`: 0 kick, 1 ban, 2 unban) through the
-// SDK. The server enforces power levels. Empty reason means none. Result
-// event: room_moderation_result { op_id, room_id, user_id, op, ok, category }.
 pub(crate) fn moderate_member(
     bridge: &RustClient,
     room_id: String,
@@ -3492,27 +2941,16 @@ pub(crate) fn moderate_member(
     Ok(())
 }
 
-/// Rooms one moderation plan may cover: the Space plus its rooms. A larger
-/// Space is truncated and the event says so.
 const MODERATION_PLAN_CAP: usize = 100;
 
-/// Bound on reading one room's member list for a plan, so one slow room
-/// cannot hold the dialog.
 const MODERATION_PLAN_MEMBER_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(15);
 
-/// Bound on a whole plan. A room not assessed by then is reported as
-/// `not_checked` and is never offered.
 pub(crate) const MODERATION_PLAN_BUDGET: std::time::Duration =
     std::time::Duration::from_secs(25);
 
-/// Rooms assessed at once. Store reads are cheap; this bounds how many
-/// member-list fetches run together.
 pub(crate) const MODERATION_PLAN_CONCURRENCY: usize = 6;
 
-/// Runs `assess` over `items`, at most `concurrency` at a time, keeping
-/// order, and stops waiting at `deadline`: an item with no answer by then
-/// gets `late(item)` instead. Nothing here retries.
 pub(crate) async fn assess_within_budget<T, R, F, Fut, L>(
     items: Vec<T>,
     concurrency: usize,
@@ -3541,13 +2979,6 @@ where
         .collect()
 }
 
-/// Whether `op` (0 kick, 1 ban, 2 unban) against a target is worth
-/// offering in one room: "" when it is, otherwise the reason it is not.
-///
-/// Mirrors Element's space-member filters: the target must have a membership
-/// the action applies to, the viewer must hold the room's own threshold for
-/// it (`can_act`, from the SDK), and the target must be strictly below the
-/// viewer. The server enforces regardless. Pure and unit-tested.
 fn moderation_verdict(
     op: u8,
     target: Option<&matrix_sdk::ruma::events::room::member::MembershipState>,
@@ -3604,13 +3035,6 @@ fn membership_label(
     }
 }
 
-// For each room in `room_ids_json` (a JSON array, the Space first), whether a
-// kick / ban / unban (`op` as in moderate_member) of `user_id` is worth
-// offering there, and why not otherwise. Reads the store first; a room whose
-// member list was never loaded is fetched once, bounded. Sends nothing.
-// Result event: moderation_plan { op_id, user_id, op, truncated, rooms: [
-// { room_id, name, is_space, membership, own_level, target_level, reason } ] }
-// where an empty reason means the action is offered.
 pub(crate) fn moderation_plan(
     bridge: &RustClient,
     room_ids_json: String,
@@ -3657,7 +3081,6 @@ pub(crate) fn moderation_plan(
             deadline,
             assess,
             |room_id: &String| {
-                // Out of time: say so, and never offer it.
                 let room = RoomId::parse(room_id).ok().and_then(|id| client.get_room(&id));
                 json!({
                     "room_id": room_id,
@@ -3689,7 +3112,6 @@ pub(crate) fn moderation_plan(
     Ok(())
 }
 
-/// One room's row of a moderation plan (see `moderation_plan`).
 async fn moderation_plan_row(
     client: &matrix_sdk::Client,
     room_id: String,
@@ -3715,8 +3137,6 @@ async fn moderation_plan_row(
         .map(|n| n.to_string())
         .unwrap_or_default();
     let own = room.get_member_no_sync(own_id).await.ok().flatten();
-    // The store first; a room whose members were never loaded is fetched
-    // once (get_member syncs only when not synced yet).
     let target = match room.get_member_no_sync(uid).await {
         Ok(Some(member)) => Ok(Some(member)),
         _ => match tokio::time::timeout(MODERATION_PLAN_MEMBER_TIMEOUT, room.get_member(uid))
@@ -3767,36 +3187,16 @@ async fn moderation_plan_row(
     })
 }
 
-// ---------------------------------------------------------------------------
-// Closing a room (the honest stand-in for deleting one)
-// ---------------------------------------------------------------------------
-//
-// Matrix has no client-side room deletion. Closing a room makes it
-// invite-only, takes it out of the public directory and out of the Spaces the
-// caller names, removes every member the viewer outranks, and then leaves.
-// History stays on every server that took part, and anyone the viewer does
-// not outrank stays in the room and can reopen it.
-
-/// Rooms one closure plan may cover, like `MODERATION_PLAN_CAP`.
 const CLOSURE_PLAN_CAP: usize = 100;
 
-/// Members one close removes at most. A larger room is left partly closed,
-/// is not left, and can be closed again.
 pub(crate) const CLOSURE_KICK_CAP: usize = 1000;
 
-/// Bound on one request of a close (join rule, directory, one kick, leave).
-/// The SDK itself retries a rate-limited request within it.
 const CLOSURE_STEP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// Bound on loading a room's member list for a close.
 const CLOSURE_MEMBERS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Staying members named in a plan row, for the confirmation.
 const CLOSURE_STAYING_NAMES: usize = 3;
 
-/// Whether closing a room is offered: "" when it is, otherwise why not.
-/// Setting the join rule is what makes a close a close; without it the room
-/// would stay open to anyone who finds it. Pure and unit-tested.
 fn closure_verdict(
     joined: bool,
     own_known: bool,
@@ -3815,16 +3215,10 @@ fn closure_verdict(
     ""
 }
 
-/// Whether one other member is removed by a close: the viewer may kick and
-/// the member is strictly below them, as the server requires. Pure.
 fn closure_removes(can_kick: bool, own_level: i64, member_level: i64) -> bool {
     can_kick && member_level < own_level
 }
 
-/// What a close did, as one word for the UI: "closed" only when the join
-/// rule is invite-only and every other step succeeded (the directory, the
-/// Spaces, every removal). Anything less is "partial" and the viewer stays,
-/// so it can be run again. Pure and unit-tested.
 fn closure_outcome(
     join_rule_ok: bool,
     members_read: bool,
@@ -3840,9 +3234,6 @@ fn closure_outcome(
     }
 }
 
-/// Members of `room` other than `own_id` that a close would consider:
-/// joined, invited and knocking. Store first; fetched once, bounded, when
-/// the list was never loaded.
 async fn closure_members(
     room: &matrix_sdk::Room,
     timeout: std::time::Duration,
@@ -3857,8 +3248,6 @@ async fn closure_members(
         .and_then(|r| r.ok())
 }
 
-/// A parent Space's row of a closure plan: only whether the viewer may add
-/// or remove its children. Never offered for closing ("parent").
 async fn closure_parent_row(
     client: &matrix_sdk::Client,
     room_id: String,
@@ -3891,7 +3280,6 @@ async fn closure_parent_row(
     })
 }
 
-/// One room's row of a closure plan (see `closure_plan`).
 async fn closure_plan_row(
     client: &matrix_sdk::Client,
     room_id: String,
@@ -3942,8 +3330,6 @@ async fn closure_plan_row(
             }
         }
     }
-    // Whether the viewer may add or remove this Space's children; read for
-    // the parents of a room being closed.
     let can_edit_children = own
         .as_ref()
         .map(|m| m.can_send_state(StateEventType::SpaceChild))
@@ -3967,13 +3353,6 @@ async fn closure_plan_row(
     })
 }
 
-// For each room in `room_ids_json` (a JSON array), whether the viewer can
-// close it and what closing would do; for each Space in `parent_ids_json`
-// not already listed, a "parent" row with only `can_edit_children`. Sends
-// nothing. Result event:
-// room_closure_plan { op_id, truncated, rooms: [ { room_id, name, is_space,
-// reason, join_rule, can_kick, can_edit_children, world_readable, removable,
-// staying, staying_names } ] } where an empty reason means closing is offered.
 pub(crate) fn closure_plan(
     bridge: &RustClient,
     room_ids_json: String,
@@ -3995,8 +3374,6 @@ pub(crate) fn closure_plan(
     }
     let truncated = room_ids.len() > CLOSURE_PLAN_CAP;
     room_ids.truncate(CLOSURE_PLAN_CAP);
-    // Parents are read only for whether the viewer may change their
-    // children: store reads, no member load.
     let parents: Vec<String> = serde_json::from_str::<Vec<String>>(&parent_ids_json)
         .map_err(|_| "invalid parent list".to_owned())?
         .into_iter()
@@ -4051,16 +3428,6 @@ pub(crate) fn closure_plan(
     Ok(())
 }
 
-// Close one room: invite-only first (a failure stops here, having changed
-// nothing), then out of the public directory and out of `unlist_from_json`'s
-// Spaces, then remove every member the viewer outranks, one at a time. With
-// `leave`, the viewer leaves only when every step succeeded, so a partial
-// close can be run again. `reason` (may be empty) goes on each removal.
-// Result events: room_closure_progress { op_id, room_id, done, total } while
-// removing, then room_closure_result { op_id, room_id, outcome, join_rule,
-// directory, unlisted, unlist_failed, removed, remove_failed, not_attempted,
-// staying, members_read, can_kick, left, category }. Progress comes after
-// every removal.
 pub(crate) fn close_room(
     bridge: &RustClient,
     room_id: String,
@@ -4092,8 +3459,6 @@ pub(crate) fn close_room(
                 enqueue(&events, outcome);
             }
         };
-        // After each step, and after every removal: the UI's step watchdog
-        // restarts on each. `total` 0 means removals have not started.
         let progress = |done: usize, total: usize| {
             if timelines.lifecycle_current(lifecycle) {
                 enqueue(&events, json!({
@@ -4116,7 +3481,6 @@ pub(crate) fn close_room(
             return;
         }
 
-        // 1. Invite-only. Nothing else happens without it.
         let join_rule = if matches!(room.join_rule(), Some(JoinRule::Invite)) {
             "already"
         } else {
@@ -4147,7 +3511,6 @@ pub(crate) fn close_room(
 
         progress(0, 0);
 
-        // 2. Out of the public directory, when listed there.
         let directory = match tokio::time::timeout(
             CLOSURE_STEP_TIMEOUT,
             room.privacy_settings().get_room_visibility(),
@@ -4169,7 +3532,6 @@ pub(crate) fn close_room(
 
         progress(0, 0);
 
-        // 3. Out of the Spaces the caller named.
         let mut unlisted = 0usize;
         let mut unlist_failed = 0usize;
         for space_id in &unlist_from {
@@ -4188,7 +3550,6 @@ pub(crate) fn close_room(
             progress(0, 0);
         }
 
-        // 4. Everyone the viewer outranks, one at a time.
         let can_kick = own.can_kick();
         let own_level = power_level_int(own.power_level());
         let members = closure_members(&room, CLOSURE_MEMBERS_TIMEOUT).await;
@@ -4224,7 +3585,6 @@ pub(crate) fn close_room(
             progress(index + 1, total);
         }
 
-        // 5. Leave, only when the close is complete.
         let other_failures = remove_failed
             + unlist_failed
             + usize::from(directory == "failed" || directory == "unknown");
@@ -4260,12 +3620,6 @@ pub(crate) fn close_room(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Room administration: member power levels, join rule, alias
-// ---------------------------------------------------------------------------
-
-/// Coarse join-rule label. `restricted` / `knock_restricted` are reported so
-/// the UI can display them.
 pub(crate) fn join_rule_str(rule: Option<&matrix_sdk::ruma::room::JoinRule>) -> &'static str {
     use matrix_sdk::ruma::room::JoinRule;
     match rule {
@@ -4275,16 +3629,10 @@ pub(crate) fn join_rule_str(rule: Option<&matrix_sdk::ruma::room::JoinRule>) -> 
         Some(JoinRule::Private) => "private",
         Some(JoinRule::Restricted(_)) => "restricted",
         Some(JoinRule::KnockRestricted(_)) => "knock_restricted",
-        // Unknown or not yet synced: the UI renders nothing.
         _ => "",
     }
 }
 
-/// Set one member's power level via the SDK's `update_power_levels`, which
-/// reads the real `m.room.power_levels`, changes only this user, and keeps
-/// every other level. A level equal to `users_default` is removed from the
-/// users map. The server enforces permission. Result event:
-/// room_power_level_result.
 pub(crate) fn set_member_power_level(
     bridge: &RustClient,
     room_id: String,
@@ -4297,7 +3645,6 @@ pub(crate) fn set_member_power_level(
     let client = require_client(bridge)?;
     let room = joined_room(&client, &room_id)?;
     let uid = UserId::parse(&user_id).map_err(|_| "invalid user id".to_owned())?;
-    // Refuse out-of-range before spawning: `Int` is the JSON-safe range.
     let target_level =
         Int::try_from(level).map_err(|_| "power level out of range".to_owned())?;
     let events = Arc::clone(&bridge.events);
@@ -4327,25 +3674,6 @@ pub(crate) fn set_member_power_level(
     Ok(())
 }
 
-/// Set one threshold in `m.room.power_levels` (the Permissions matrix).
-/// `key` must be in a fixed allowlist, so this is never a generic "set any
-/// event type's level" primitive.
-///
-/// Both paths read-modify-send the whole content (the event has no partial
-/// update):
-///   * scalar thresholds and name/avatar/topic/space_child go through the
-///     SDK's `apply_power_level_changes`, which leaves other fields alone,
-///     including per-event entries equal to the new default (removing them
-///     would grant unintended privileges);
-///   * other per-event rows, which `RoomPowerLevelChanges` cannot express,
-///     are edited in `events` by hand.
-///
-/// Event types are always typed `StateEventType`, never `key` as a wire
-/// string: ruma's aliasing could make a hand-built type govern an event
-/// nobody sends. `m.call.member` is not in the allowlist (ruma aliases the
-/// stable name onto the unstable one we send, and Spaces host no calls).
-///
-/// The server enforces permission. Result event: room_power_matrix_result.
 pub(crate) fn set_room_power_level_key(
     bridge: &RustClient,
     room_id: String,
@@ -4359,7 +3687,6 @@ pub(crate) fn set_room_power_level_key(
 
     let client = require_client(bridge)?;
     let room = joined_room(&client, &room_id)?;
-    // Refuse out-of-range before spawning: `Int` is the JSON-safe range.
     let target_level =
         Int::try_from(level).map_err(|_| "power level out of range".to_owned())?;
 
@@ -4452,10 +3779,6 @@ pub(crate) fn set_room_power_level_key(
     Ok(())
 }
 
-/// Set the room's join rule. `restricted` and `knock_restricted` take
-/// `allowed_room_ids` (each an `m.room_membership` allow rule). Unknown
-/// allow-rule kinds already present are preserved verbatim. An empty allow
-/// list is refused: it would silently make the room invite-only.
 pub(crate) fn set_room_join_rule(
     bridge: &RustClient,
     room_id: String,
@@ -4475,7 +3798,6 @@ pub(crate) fn set_room_join_rule(
                 .map_err(|_| "invalid allowed room id".to_owned())?;
             allow.push(AllowRule::room_membership(room_id));
         }
-        // Carry through every rule of a kind this client does not render.
         if let Some(JoinRule::Restricted(current))
         | Some(JoinRule::KnockRestricted(current)) = room.join_rule()
         {
@@ -4547,13 +3869,10 @@ pub(crate) fn set_room_canonical_alias(
     let room_id_for_task = room_id.clone();
     bridge.spawn_room_action(async move {
         let result = async {
-            // Keep existing alternative aliases; this promotes one alias only.
             let alt_aliases = room.alt_aliases();
             if let Some(alias) = parsed.as_deref() {
                 let already_here = match client.resolve_room_alias(alias).await {
                     Ok(response) => response.room_id.as_str() == room_id_for_task,
-                    // Not resolvable yet: publish it below. Other failures also fall through;
-                    // the create attempt's error is reported.
                     Err(_) => false,
                 };
                 if !already_here {
@@ -4584,12 +3903,6 @@ pub(crate) fn set_room_canonical_alias(
     });
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Room access: history visibility, guest access, directory visibility,
-// alternative aliases. Every write is the SDK's own request; the client only
-// chooses values and reports the server's answer.
-// ---------------------------------------------------------------------------
 
 pub(crate) fn set_room_history_visibility(
     bridge: &RustClient,
@@ -4659,8 +3972,6 @@ pub(crate) fn set_room_guest_access(
     Ok(())
 }
 
-/// Directory visibility is not room state (it lives on the server's public
-/// room list), so it is fetched on demand as its own poll event.
 pub(crate) fn request_room_directory_visibility(
     bridge: &RustClient,
     room_id: String,
@@ -4734,9 +4045,6 @@ pub(crate) fn set_room_directory_visibility(
     Ok(())
 }
 
-/// Replace the alternative-alias list. As with the canonical alias, aliases
-/// not yet resolving here are published first. The canonical alias is
-/// untouched, and removed aliases keep their directory mapping.
 pub(crate) fn set_room_alt_aliases(
     bridge: &RustClient,
     room_id: String,
@@ -4794,12 +4102,6 @@ pub(crate) fn set_room_alt_aliases(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Room upgrade. Versions come from /capabilities, the upgrade uses the
-// standard /upgrade endpoint, and the server carries state, power levels
-// and aliases into the replacement.
-// ---------------------------------------------------------------------------
-
 pub(crate) fn request_room_versions(bridge: &RustClient) -> Result<(), String> {
     use matrix_sdk::ruma::api::client::discovery::get_capabilities::v3::RoomVersionStability;
     let client = require_client(bridge)?;
@@ -4823,8 +4125,6 @@ pub(crate) fn request_room_versions(bridge: &RustClient) -> Result<(), String> {
                         })
                     })
                     .collect();
-                // Numeric ids first, in order, then others lexically, so the picker is
-                // ordered and the recommendation deterministic.
                 available.sort_by(|a, b| {
                     let key = |v: &serde_json::Value| {
                         let s = v["version"].as_str().unwrap_or_default();
@@ -4909,15 +4209,6 @@ pub(crate) fn upgrade_room(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Message edit history and event source.
-//
-// The history is the original plus its m.replace relations, from the event
-// cache or /relations; the SDK decrypts on the way, and an undecryptable
-// event is reported, not dropped. Bodies cross for display only; C++ keeps
-// them in memory for the open dialog and never caches them.
-// ---------------------------------------------------------------------------
-
 pub(crate) fn request_edit_history(
     bridge: &RustClient,
     room_id: String,
@@ -4935,9 +4226,6 @@ pub(crate) fn request_edit_history(
     bridge.spawn_room_action(async move {
         use matrix_sdk::room::{IncludeRelations, RelationsOptions};
         use matrix_sdk::ruma::UInt;
-        // Replacements are asked of the server first (/relations): the event cache
-        // holds only edits that arrived over sync, so cache-first could show a
-        // partial history. The cache is the fallback, and the answer says so.
         let loaded = room.load_or_fetch_event(&target, None).await;
         let Ok(original) = loaded else {
             if timelines.lifecycle_current(lifecycle) {
@@ -4954,9 +4242,6 @@ pub(crate) fn request_edit_history(
             IncludeRelations::RelationsOfType(RelationType::Replacement);
         options.limit = Some(UInt::from(200u32));
         let (relations, partial) = match room.relations(target.to_owned(), options).await {
-            // A next_batch_token means more existed than the page. Relations default
-            // to backwards, so the missing ones are the oldest; flagged partial like
-            // the cache fallback.
             Ok(answer) => {
                 let truncated = answer.next_batch_token.is_some();
                 (answer.chunk, truncated)
@@ -4977,8 +4262,6 @@ pub(crate) fn request_edit_history(
             return;
         }
 
-        // One revision row. Replacements carry the text in m.new_content; the
-        // original at the top level.
         let revision = |raw: &matrix_sdk::ruma::serde::Raw<AnySyncTimelineEvent>,
                         is_original: bool|
          -> Option<serde_json::Value> {
@@ -5013,7 +4296,6 @@ pub(crate) fn request_edit_history(
         if let Some(row) = revision(original.raw(), true) {
             rows.push(row);
         } else {
-            // An unreadable original is a failure, not an empty history.
             enqueue(&events, json!({
                 "type": "message_edit_history", "lifecycle": lifecycle,
                 "room_id": room_id, "event_id": event_id, "ok": false,
@@ -5024,7 +4306,6 @@ pub(crate) fn request_edit_history(
         let mut edits: Vec<serde_json::Value> = relations
             .iter()
             .filter_map(|related| {
-                // Only replacements from the original sender count, as every client does.
                 let parsed: AnySyncTimelineEvent = related.raw().deserialize().ok()?;
                 let sender_ok = match (&parsed, rows.first()) {
                     (AnySyncTimelineEvent::MessageLike(_), Some(first)) => {
@@ -5053,16 +4334,6 @@ pub(crate) fn request_edit_history(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Jump to date (MSC3030 `timestamp_to_event`, stable since Matrix 1.6).
-//
-// The server answers in one request; there is no client-side fallback
-// (paginating until the dates match would be unbounded). A server without it
-// answers 404/unrecognised and the client says so. Searches forward from the
-// start of the chosen day, so it lands on that day's first message, or the
-// next one after an empty day.
-// ---------------------------------------------------------------------------
-
 pub(crate) fn event_at_timestamp(
     bridge: &RustClient,
     room_id: String,
@@ -5076,8 +4347,6 @@ pub(crate) fn event_at_timestamp(
     let client = require_client(bridge)?;
     let room = joined_room(&client, &room_id)?;
     let parsed_room = room.room_id().to_owned();
-    // Negative or absurd stamps are caller error. ruma's UInt is limited to the
-    // JavaScript safe-integer range, so larger stamps cannot be serialized.
     let ts = MilliSecondsSinceUnixEpoch::from_system_time(
         std::time::SystemTime::UNIX_EPOCH
             + std::time::Duration::from_millis(
@@ -5102,7 +4371,6 @@ pub(crate) fn event_at_timestamp(
                 "event_id": response.event_id.to_string(),
                 "timestamp_ms": u64::from(response.origin_server_ts.0),
             })),
-            // Sanitized category, never the server's prose.
             Err(error) => enqueue(&events, json!({
                 "type": "timestamp_event", "lifecycle": lifecycle,
                 "op_id": op_id, "room_id": room_id, "ok": false,
@@ -5162,19 +4430,6 @@ pub(crate) fn request_event_source(
     });
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Scheduled send: MSC4140 delayed message events.
-//
-// Uses the delayed-event endpoint the RTC lane relies on, with content from
-// the same composed_content as an ordinary send. Protocol limits: the delay
-// is a relative timeout, the server caps it, pending delayed events cannot
-// be listed (the client must remember delay ids), and the server stores the
-// content as given, so an encrypted room would need it encrypted now, which
-// matrix-sdk 0.18 cannot do outside the send path. Encrypted rooms are
-// therefore refused ("encrypted_unsupported") and use the client-side
-// queue instead.
-// ---------------------------------------------------------------------------
 
 pub(crate) fn probe_delayed_events(bridge: &RustClient) -> Result<(), String> {
     use matrix_sdk::ruma::api::FeatureFlag;
@@ -5275,7 +4530,6 @@ pub(crate) fn schedule_message(
     Ok(())
 }
 
-/// cancel | send | restart on a delay id this client remembered.
 pub(crate) fn update_scheduled(
     bridge: &RustClient,
     delay_id: String,
@@ -5317,10 +4571,6 @@ pub(crate) fn update_scheduled(
     });
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Room profile editing + leave
-// ---------------------------------------------------------------------------
 
 fn emit_edit_result(
     events: &crate::EventQueueRef,
@@ -5460,10 +4710,6 @@ pub(crate) fn remove_room_avatar(
     Ok(())
 }
 
-/// Rooms "Leave room" may act on: joined ones, and pending invitations and
-/// knocks, where leaving is rejecting or withdrawing (GitHub #28: the row menu
-/// is the only invite action in the Channels layout, and a joined-only gate
-/// made it do nothing at all).
 pub(crate) fn leavable_room(
     client: &matrix_sdk::Client,
     room_id: &str,
@@ -5488,8 +4734,6 @@ pub(crate) fn leave_room(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        // A pending invitation the server already dropped (rejected on
-        // another device) is retired locally when the server confirms it.
         let result = crate::invites::leave_or_retire(&room, || {
             crate::invites::fetch_server_invites(&client)
         })
@@ -5513,12 +4757,6 @@ pub(crate) fn leave_room(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Attachment sending
-// ---------------------------------------------------------------------------
-
-/// Image metadata for the media event: dimensions from C++ (bounded
-/// decode), size from the filesystem.
 fn image_info(width: u64, height: u64, size: u64, animated: bool) -> Option<AttachmentInfo> {
     if width == 0 && height == 0 {
         return None;
@@ -5532,16 +4770,6 @@ fn image_info(width: u64, height: u64, size: u64, animated: bool) -> Option<Atta
     }))
 }
 
-/// Typed attachment metadata for every send. The size is authoritative;
-/// dimensions and duration are best-effort and omitted when unknown, never
-/// fabricated. Without declared metadata, receivers (including Lightning's
-/// own prefetch and poster logic) cannot show videos properly.
-///
-/// `duration_ms` of 0 means unknown and is omitted, since a literal 0 would
-/// render "0:00" beside a playable file.
-///
-/// Not a voice message: `AttachmentInfo::Audio` carries only the duration;
-/// `voice_info` is the MSC3245 shape and would mark music as a recording.
 pub(crate) fn attachment_info(
     mime: &str,
     width: u64,
@@ -5575,19 +4803,12 @@ pub(crate) fn attachment_info(
     }))
 }
 
-/// A send-side video poster from C++ (a frame Lightning decoded from the
-/// picked file). Re-validated by magic sniffing: `into_thumbnail` refuses
-/// non-rasters, oversized data and nonsense dimensions, degrading to no
-/// thumbnail. The event's content type is the sniffed one; no mime crosses
-/// the FFI.
 pub(crate) struct PosterBytes {
     pub data: Vec<u8>,
     pub width: u64,
     pub height: u64,
 }
 
-/// A poster is a small cover (VideoPosterExtractor emits a 640px JPEG);
-/// anything larger is refused.
 const MAX_POSTER_BYTES: usize = 2 * 1024 * 1024;
 
 impl PosterBytes {
@@ -5598,7 +4819,6 @@ impl PosterBytes {
         if self.width == 0 || self.height == 0 {
             return None;
         }
-        // The bytes decide the type; SVG and other non-rasters are refused.
         let sniffed = sniff_image_mime(&self.data)?;
         let content_type: mime::Mime = sniffed.parse().ok()?;
         let size = UInt::new(self.data.len() as u64)?;
@@ -5612,9 +4832,6 @@ impl PosterBytes {
     }
 }
 
-/// Video metadata for an outgoing video: like `attachment_info`'s video arm,
-/// plus the duration learned while decoding the poster. Unknown values are
-/// omitted.
 fn video_info(
     width: u64,
     height: u64,
@@ -5631,11 +4848,6 @@ fn video_info(
     })
 }
 
-/// MSC3245 voice-message metadata. The SDK turns AttachmentInfo::Voice into
-/// the `org.matrix.msc3245.voice` marker plus `org.matrix.msc1767.audio`
-/// (duration and 0..=1 waveform) and sends it like any audio file. `waveform`
-/// is 0..=100 amplitudes and may be empty; the SDK emits the audio block
-/// only when both duration and waveform are present.
 pub(crate) fn voice_info(
     duration_ms: u64,
     size: u64,
@@ -5658,8 +4870,6 @@ pub(crate) fn voice_info(
     })
 }
 
-/// Send a recorded voice message; like send_attachment_path but with
-/// voice_info. A zero-length recording is a caller bug.
 pub(crate) fn send_voice_path(
     bridge: &RustClient,
     room_id: String,
@@ -5695,9 +4905,6 @@ pub(crate) fn send_voice_path(
     )
 }
 
-/// Thread twin of `send_voice_path`: identical validation and MSC3245
-/// metadata, routed through the thread-focused timeline so the event gets a
-/// real `m.thread` relation. No fallback to a room send.
 pub(crate) fn send_thread_voice_path(
     bridge: &RustClient,
     room_id: String,
@@ -5724,11 +4931,6 @@ pub(crate) fn send_thread_voice_path(
     let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
         return Err("Rust SDK session is not logged in.".to_owned());
     };
-    // Read the recording now rather than passing a path: the SDK reads
-    // AttachmentSource::File inside the spawned task, after building the
-    // thread timeline, and C++ deletes thread recordings when the panel closes.
-    // The file could be gone by then and the failure suppressed as stale. A
-    // voice message is small (mono 32 kbps Opus, 15-minute cap).
     let bytes = std::fs::read(&path)
         .map_err(|_| "voice file is not readable".to_owned())?;
     if bytes.is_empty() {
@@ -5747,16 +4949,12 @@ pub(crate) fn send_thread_voice_path(
         mime,
         None,
         info,
-        None,   // a voice message has no thumbnail
+        None,
         in_reply_to,
         op_id,
     )
 }
 
-/// Send a video with a poster thumbnail. Same validation and routing as
-/// `send_attachment_path`, plus duration and the `Thumbnail`; the SDK
-/// uploads and encrypts the poster and fills the thumbnail fields. An
-/// invalid poster is dropped and the video still sends.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_video_path(
     bridge: &RustClient,
@@ -5795,7 +4993,6 @@ pub(crate) fn send_video_path(
     )
 }
 
-/// Thread twin of `send_video_path`, via the thread-focused timeline.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_thread_video_path(
     bridge: &RustClient,
@@ -5862,8 +5059,6 @@ pub(crate) fn send_attachment_path(
     if metadata.len() == 0 {
         return Err("attachment file is empty".to_owned());
     }
-    // `animated` is only a caller hint; attachment_info re-derives it from the
-    // mime.
     let _ = animated;
     let info = attachment_info(&mime, width, height, metadata.len(), duration_ms);
     let caption = if caption.trim().is_empty() { None } else { Some(caption) };
@@ -5880,8 +5075,6 @@ pub(crate) fn send_attachment_path(
     )
 }
 
-/// Clipboard image: bytes are passed directly (bounded by C++), so no
-/// temporary file exists on disk.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_attachment_bytes(
     bridge: &RustClient,
@@ -5897,12 +5090,10 @@ pub(crate) fn send_attachment_bytes(
     if bytes.is_empty() {
         return Err("attachment data is empty".to_owned());
     }
-    // Never trust the caller's label alone for raster images.
     if mime.starts_with("image/") && sniff_image_mime(&bytes).is_none() {
         return Err("clipboard data is not a supported image".to_owned());
     }
     let size = bytes.len() as u64;
-    // Clipboard bytes: an image, never a timed medium.
     let info = attachment_info(&mime, width, height, size, 0);
     bridge.timelines.send_attachment(
         &bridge.runtime,
@@ -5917,11 +5108,6 @@ pub(crate) fn send_attachment_bytes(
     )
 }
 
-/// Send an attachment to a room whose timeline is not open (forwarding).
-/// `send_attachment_bytes` routes through the open timeline, so it refuses
-/// every real forward; this uses `Room::send_attachment`, which still
-/// encrypts for encrypted rooms. Same byte validation: an `image/*` payload
-/// whose magic disagrees is refused.
 pub(crate) fn send_attachment_bytes_to_room(
     bridge: &RustClient,
     room_id: String,
@@ -5942,7 +5128,6 @@ pub(crate) fn send_attachment_bytes_to_room(
         .parse()
         .map_err(|_| "attachment mime is not valid".to_owned())?;
     let size = bytes.len() as u64;
-    // Clipboard bytes: an image, never a timed medium.
     let info = attachment_info(&mime, width, height, size, 0);
     let room = joined_room(
         &require_client(bridge)?,
@@ -5963,7 +5148,6 @@ pub(crate) fn send_attachment_bytes_to_room(
                 "type": "attachment_send_result",
                 "op_id": op_id,
                 "room_id": room_id,
-                // Coarse category only; SDK errors may embed server detail.
                 "ok": result.is_ok(),
                 "category": if result.is_ok() { "" } else { "rejected" },
             }),
@@ -5972,9 +5156,6 @@ pub(crate) fn send_attachment_bytes_to_room(
     Ok(())
 }
 
-/// Thread attachment (file): same validation and info as the room path,
-/// routed through the thread-focused timeline so the SDK adds the m.thread
-/// relation and encrypts.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_thread_attachment_path(
     bridge: &RustClient,
@@ -5998,8 +5179,6 @@ pub(crate) fn send_thread_attachment_path(
     if metadata.len() == 0 {
         return Err("attachment file is empty".to_owned());
     }
-    // `animated` is only a caller hint; attachment_info re-derives it from the
-    // mime.
     let _ = animated;
     let info = attachment_info(&mime, width, height, metadata.len(), duration_ms);
     let caption = if caption.trim().is_empty() { None } else { Some(caption) };
@@ -6021,8 +5200,6 @@ pub(crate) fn send_thread_attachment_path(
     )
 }
 
-/// Thread attachment (clipboard bytes), via the thread-focused timeline; no
-/// temporary file.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_thread_attachment_bytes(
     bridge: &RustClient,
@@ -6043,7 +5220,6 @@ pub(crate) fn send_thread_attachment_bytes(
         return Err("clipboard data is not a supported image".to_owned());
     }
     let size = bytes.len() as u64;
-    // Clipboard bytes: an image, never a timed medium.
     let info = attachment_info(&mime, width, height, size, 0);
     let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
         return Err("Rust SDK session is not logged in.".to_owned());
@@ -6063,14 +5239,6 @@ pub(crate) fn send_thread_attachment_bytes(
     )
 }
 
-// ---------------------------------------------------------------------------
-// Media retrieval (the download half of the media bridge)
-// ---------------------------------------------------------------------------
-
-/// Media fetch timeout per class, each strictly below the C++ watchdog for
-/// the same operation (40 < 45 s, 90 < 100 s, 270 < 300 s), so Rust emits
-/// the terminal event. 0 = standard (thumbnails, avatars, viewer images),
-/// 1 = playable video/audio, 2 = explicit Save As.
 pub(crate) fn media_timeout_secs(class: u32) -> u64 {
     match class {
         2 => 270,
@@ -6079,27 +5247,16 @@ pub(crate) fn media_timeout_secs(class: u32) -> u64 {
     }
 }
 
-/// Size cap for full-payload fetches. matrix-sdk 0.18 buffers media whole
-/// (no streaming), so these bound what Lightning accepts and parks, not the
-/// SDK's own peak memory. Save As is generous.
 pub(crate) fn media_size_cap(timeout_class: u32) -> u64 {
     match timeout_class {
-        2 => 2 * 1024 * 1024 * 1024, // Save As: 2 GiB
-        _ => 512 * 1024 * 1024,      // inline/viewer/playable: 512 MiB
+        2 => 2 * 1024 * 1024 * 1024,
+        _ => 512 * 1024 * 1024,
     }
 }
 
-/// A motion probe (an animated avatar or banner, MediaBridge's "motion:" key)
-/// asks for the original file with width 0 and this height, which keeps the
-/// FFI signature. Must match MediaBridge::kMotionProbeHeight.
 pub(crate) const MOTION_PROBE_HEIGHT: u64 = 1;
-/// Nothing larger can play (MediaBridge::kMotionMaxBytes, the avatar and
-/// banner upload caps), so it is dropped here instead of being parked and
-/// copied across the FFI. The download itself is not bounded: matrix-sdk
-/// buffers media whole.
 pub(crate) const MOTION_PROBE_MAX_BYTES: u64 = 8 * 1024 * 1024;
 
-/// Size cap for an mxc fetch: the motion-probe class, or the standard one.
 pub(crate) fn mxc_fetch_cap(width: u64, height: u64) -> u64 {
     if width == 0 && height == MOTION_PROBE_HEIGHT {
         MOTION_PROBE_MAX_BYTES
@@ -6108,83 +5265,31 @@ pub(crate) fn mxc_fetch_cap(width: u64, height: u64) -> u64 {
     }
 }
 
-/// Largest payload, as DOWNLOADED (plaintext), the SDK media store keeps:
-/// about 100 MB, so a typical phone video from an ENCRYPTED room is kept too
-/// (Rokas, 2026-10-01; it was 24 MiB, and encrypted-room media cannot become
-/// a kept file). Above it, an unencrypted-room file is a kept file instead
-/// (media_persistence), so the two meet exactly here and no size falls
-/// between them; encrypted-room media above it is downloaded again each
-/// session. Applied by Lightning itself before the write
-/// (mediafetch::cache_put), because the SDK's own limit is on a different
-/// quantity: see MEDIA_STORE_ENCODED_MAX_BYTES.
-///
-/// What the size costs: matrix-sdk buffers media whole, and a keyed write
-/// holds the payload, its ciphertext and the encoded row at once (~3.5x the
-/// payload, transiently), as a read does the row, the decoded ciphertext and
-/// the plaintext. One such INSERT also holds the store's single write
-/// connection while it runs.
 pub(crate) const MEDIA_STORE_MAX_FILE_BYTES: u64 = 100 * 1024 * 1024;
 
-/// The SDK policy's `max_file_size`. matrix-sdk-sqlite 0.18 compares it with
-/// the ENCODED row (`add_media_content_inner`: `encode_value` first, then
-/// `exceeds_max_file_size(data.len())`, and its cleanup measures
-/// `length(data)` the same way), and the keyed store encodes a payload as a
-/// msgpack `EncryptedValue` whose `ciphertext` is a `Vec<u8>` serialized as an
-/// ARRAY of integers: a byte under 0x80 costs one byte, any other two.
-/// Ciphertext is uniformly random, so that is 1.5 bytes per byte, MEASURED
-/// 1.5000x through the keyed store (`the_keyed_store_keeps_a_large_payload`,
-/// which also asserts this bound against the measured ratio), with a spread
-/// of about 0.5 * sqrt(n) bytes, 5 KiB at the cap. Until 2026-10-01 this
-/// limit WAS the 24 MiB plaintext cap, which let through about 16 MiB of
-/// media, and an unencrypted-room file between the two was kept nowhere
-/// (measured on a Fedora VM: kept at 14.2 MiB, refused at 17.9). The 1 MiB
-/// slack is ~200 times that spread plus the fixed envelope (tag, nonce, field
-/// names). The plaintext store (Legacy) encodes nothing; Lightning's own gate
-/// holds the cap there.
 pub(crate) const MEDIA_STORE_ENCODED_MAX_BYTES: u64 =
     MEDIA_STORE_MAX_FILE_BYTES / 2 * 3 + 1024 * 1024;
 
-/// The SDK media store's total size (`max_cache_size`, on-disk ENCODED bytes
-/// like `max_file_size`): 1 GiB, up from the SDK's 400 MiB default with the
-/// per-file cap (Rokas, 2026-10-01). About 680 MiB of media in the keyed store.
 pub(crate) const MEDIA_STORE_MAX_CACHE_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// The SDK media store's retention policy: set in build_client, and put back
-/// after `clear_kept_media` empties the store. SDK defaults otherwise (60 days
-/// since last access, daily cleanup).
 pub(crate) fn media_retention_policy() -> matrix_sdk::media::MediaRetentionPolicy {
     matrix_sdk::media::MediaRetentionPolicy::new()
         .with_max_cache_size(Some(MEDIA_STORE_MAX_CACHE_BYTES))
         .with_max_file_size(Some(MEDIA_STORE_ENCODED_MAX_BYTES))
 }
 
-/// Settings -> Privacy & security -> "Keep media on this device".
-/// Process-wide and read on every fetch, so a change applies to the next one.
-/// On by default: the SDK media store has always kept unencrypted media.
 static KEEP_MEDIA: AtomicBool = AtomicBool::new(true);
 
 pub(crate) fn set_keep_media(enabled: bool) {
     KEEP_MEDIA.store(enabled, Ordering::SeqCst);
 }
 
-/// Where one fetched payload may be kept between sessions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MediaPersistence {
-    /// The SDK media store (`use_cache`).
     pub sdk_store: bool,
-    /// A kept file (mediafiles.rs), for what the SDK store refuses by size.
     pub kept_file: bool,
 }
 
-/// Decide where a fetch may keep its bytes, given the media store this
-/// session opened (mediastore.rs).
-///
-/// An encrypted source is kept only in the ENCRYPTED store, and only when its
-/// key is held by a secure keyring (`Active::admits_encrypted`): a fetch keeps
-/// the DECRYPTED bytes, which CLAUDE.md §6 forbids at rest unencrypted.
-/// Nothing from an encrypted room becomes a kept file, which is plain on disk,
-/// even a file that was sent there unencrypted (`room_encrypted`; unknown
-/// counts as encrypted). An in-memory store keeps nothing.
 pub(crate) fn media_persistence(
     source_encrypted: bool,
     room_encrypted: bool,
@@ -6198,19 +5303,11 @@ pub(crate) fn media_persistence(
     }
     let over_store_cap = declared_size.map_or(true, |s| s > MEDIA_STORE_MAX_FILE_BYTES);
     MediaPersistence {
-        // A declared-oversize full payload would take the store's single
-        // write connection twice for nothing.
         sdk_store: kind != 0 || declared_size.map_or(true, |s| s <= MEDIA_STORE_MAX_FILE_BYTES),
-        // An unknown size is looked up too: the store refuses a payload by its
-        // real size only after the download.
         kept_file: !source_encrypted && !room_encrypted && kind == 0 && over_store_cap,
     }
 }
 
-/// Whether media under `key` may come from an encrypted room. The media-history
-/// walk marks the keys it registers for such a room; every other key belongs
-/// to the open room, which is asked. Unsure counts as encrypted: the cost is a
-/// download, not plaintext on disk.
 fn media_may_be_from_encrypted_room(
     client: &matrix_sdk::Client,
     timelines: &crate::timeline::TimelineRegistry,
@@ -6231,11 +5328,6 @@ fn media_may_be_from_encrypted_room(
     })
 }
 
-/// Empty what `media_fetch` kept: the kept-file directory, and everything in
-/// the SDK media store that its policy may drop (a zero-size policy, one
-/// cleanup, then the normal policy back). The SDK keeps what its send queue
-/// pins until an upload finishes. Returns the kept files removed as
-/// (files, bytes), or None when either half failed.
 pub(crate) async fn clear_kept_media(
     client: &matrix_sdk::Client,
     kept_dir: Option<std::path::PathBuf>,
@@ -6253,7 +5345,6 @@ pub(crate) async fn clear_kept_media(
         .with_max_file_size(Some(0));
     let cleaned = media.set_media_retention_policy(empty).await.is_ok()
         && media.clean().await.is_ok();
-    // Always put the normal policy back, or nothing would be cached again.
     let restored = media
         .set_media_retention_policy(media_retention_policy())
         .await
@@ -6284,11 +5375,6 @@ fn emit_media_failed(
     }));
 }
 
-/// Fetch (and decrypt, in encrypted rooms) media for a timeline item whose
-/// source the serializer captured. `kind`: 0 full, 1 timeline thumbnail
-/// (with full fallback), 2 compact list thumbnail (never falls back to an
-/// encrypted full payload). Bytes are parked for `mx_rust_media_take`,
-/// never in the JSON queue.
 pub(crate) fn media_fetch(
     bridge: &RustClient,
     key: String,
@@ -6308,8 +5394,6 @@ pub(crate) fn media_fetch(
     let results = Arc::clone(&bridge.media_results);
     let lifecycle = timelines.lifecycle();
     let cap = media_size_cap(timeout_class);
-    // A declared SVG without a sender thumbnail has no thumbnail to show:
-    // refused before any request (CLAUDE.md §6).
     if crate::imagesend::svg_thumbnail_unavailable(
         kind, has_embedded_thumbnail, mimetype.as_deref(),
     ) {
@@ -6318,8 +5402,6 @@ pub(crate) fn media_fetch(
         );
         return Ok(());
     }
-    // Refuse a full fetch whose metadata declares an over-cap size; the SDK
-    // would buffer it whole.
     if kind == 0 {
         if let Some(declared) = declared_size {
             if declared > cap {
@@ -6353,7 +5435,6 @@ pub(crate) fn media_fetch(
         MediaSource::Plain(uri)
             if persistence.kept_file && !bridge.store_path.as_os_str().is_empty() =>
         {
-            // Where cachelayout.rs placed the kept files this session.
             crate::cachelayout::kept_files_dir(&bridge.store_path)
                 .map(|dir| (dir, uri.to_string()))
         }
@@ -6362,9 +5443,6 @@ pub(crate) fn media_fetch(
     if kind == 2 && !has_embedded_thumbnail
         && matches!(&source, MediaSource::Encrypted(_))
     {
-        // A server cannot thumbnail ciphertext, and downloading the full decrypted
-        // file for a 40px list preview breaks the list's contract. Encrypted
-        // thumbnails still take the decrypt path above.
         emit_media_failed(
             &terminal, &results, op_id, lifecycle, &key, kind, "unavailable",
         );
@@ -6386,8 +5464,6 @@ pub(crate) fn media_fetch(
             MediaFormat::File
         };
         let request = MediaRequestParameters { source, format };
-        // A kept file answers without a request. Read off the runtime: it can be
-        // hundreds of MiB.
         let kept = match kept_file.clone() {
             Some((dir, uri)) => tokio::task::spawn_blocking(move || {
                 crate::mediafiles::read(&dir, &uri, cap)
@@ -6398,14 +5474,9 @@ pub(crate) fn media_fetch(
             None => None,
         };
         let from_kept_file = kept.is_some();
-        // Bounded: matrix-sdk 0.18 disables its HTTP timeout for media. The timeout
-        // consumes the future, so exactly one terminal event is emitted per op.
         let outcome = match kept {
             Some(bytes) => Ok(Ok(bytes)),
             None => {
-                // Bounded twice: the overall timeout below, and per request
-                // (one attempt, mediafetch.rs) so a 5xx is a failure now and
-                // not a retry loop that holds a MediaBridge slot until it.
                 let limit = std::time::Duration::from_secs(media_timeout_secs(timeout_class));
                 tokio::time::timeout(
                     limit,
@@ -6424,7 +5495,6 @@ pub(crate) fn media_fetch(
         }
         match outcome {
             Err(_elapsed) => {
-                // Not a kept-file read (those cannot time out): the server.
                 if !from_kept_file {
                     crate::mediahealth::record_timeout(&health_identity);
                 }
@@ -6436,17 +5506,12 @@ pub(crate) fn media_fetch(
             Ok(Ok(bytes)) => {
                 let size = bytes.len() as u64;
                 if size > cap {
-                    // The metadata lied or was absent: reject rather than park an unbounded
-                    // payload.
                     emit_media_failed(
                         &terminal, &results, op_id, lifecycle, &key, kind,
                         "too_large",
                     );
                     return;
                 }
-                // Keep what the SDK store refused by size. Written before the bytes
-                // are parked, so there is one copy in memory, not two; a failed
-                // write only costs the next session a download.
                 let bytes = match kept_file {
                     Some((dir, uri))
                         if !from_kept_file && size > MEDIA_STORE_MAX_FILE_BYTES =>
@@ -6504,8 +5569,6 @@ pub(crate) fn media_fetch(
     Ok(())
 }
 
-/// Fetch a server-side thumbnail for a plain (unencrypted) mxc URI: room,
-/// user and space avatars. Encrypted media never comes here.
 pub(crate) fn media_fetch_mxc(
     bridge: &RustClient,
     mxc: String,
@@ -6524,8 +5587,6 @@ pub(crate) fn media_fetch_mxc(
     let lifecycle = timelines.lifecycle();
     let aborts = Arc::clone(&bridge.media_fetch_aborts);
     let size_cap = mxc_fetch_cap(width, height);
-    // An in-memory media store keeps nothing between sessions; asking it to
-    // cache would only hold avatars in RAM a second time beside MediaBridge.
     let use_cache = crate::mediastore::active(&bridge.store_path).persists();
     let health_identity = crate::mediahealth::identify(&uri);
     bridge.spawn_media_fetch(op_id, async move {
@@ -6607,10 +5668,6 @@ pub(crate) fn media_fetch_mxc(
     Ok(())
 }
 
-/// Server upload limit (m.upload.size), fetched once per session by C++.
-/// `bytes: 0` means unknown (none advertised, or lookup failed); C++ then
-/// skips preflight and the server decides. An invented ceiling would refuse
-/// files the server accepts.
 pub(crate) fn fetch_upload_limit(bridge: &RustClient) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -6638,8 +5695,6 @@ pub(crate) fn fetch_upload_limit(bridge: &RustClient) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    // Each Rust timeout stays strictly below the C++ watchdog for the same
-    // class, so Rust is the normal terminal emitter.
     #[test]
     fn media_timeout_classes_stay_below_watchdog() {
         assert_eq!(media_timeout_secs(0), 40);
@@ -6648,15 +5703,12 @@ mod tests {
         assert!(media_timeout_secs(0) < 45);
         assert!(media_timeout_secs(1) < 100);
         assert!(media_timeout_secs(2) < 300);
-        // Unknown classes fall back to the strictest bound.
         assert_eq!(media_timeout_secs(99), 40);
     }
 
     #[test]
     fn a_motion_probe_has_its_own_size_class() {
-        // Width 0 / height 1: the original, capped at what can ever play.
         assert_eq!(mxc_fetch_cap(0, MOTION_PROBE_HEIGHT), 8 * 1024 * 1024);
-        // Everything else keeps the standard class.
         assert_eq!(mxc_fetch_cap(0, 0), media_size_cap(0));
         assert_eq!(mxc_fetch_cap(224, 224), media_size_cap(0));
         assert_eq!(mxc_fetch_cap(1, 1), media_size_cap(0));
@@ -6668,8 +5720,6 @@ mod tests {
     const INSECURE: Active = Active::Encrypted { admits_encrypted: false };
     const NOTHING: MediaPersistence = MediaPersistence { sdk_store: false, kept_file: false };
 
-    // Yannik's report: a video over the SDK store's cap was downloaded again
-    // every session. Before the kept-file path, nothing kept these at all.
     #[test]
     fn a_large_unencrypted_video_is_kept_as_a_file() {
         let big = Some(MEDIA_STORE_MAX_FILE_BYTES + 1);
@@ -6678,17 +5728,14 @@ mod tests {
                 media_persistence(false, false, 0, big, true, store),
                 MediaPersistence { sdk_store: false, kept_file: true },
             );
-            // Unknown size: the store may refuse it after the download, so both.
             assert_eq!(
                 media_persistence(false, false, 0, None, true, store),
                 MediaPersistence { sdk_store: true, kept_file: true },
             );
-            // Within the store's cap the SDK store alone keeps it, as before.
             assert_eq!(
                 media_persistence(false, false, 0, Some(MEDIA_STORE_MAX_FILE_BYTES), true, store),
                 MediaPersistence { sdk_store: true, kept_file: false },
             );
-            // Thumbnails never become kept files.
             assert_eq!(
                 media_persistence(false, false, 1, big, true, store),
                 MediaPersistence { sdk_store: true, kept_file: false },
@@ -6696,8 +5743,6 @@ mod tests {
         }
     }
 
-    // Option B: encrypted-room media is kept, in the store encrypted with a
-    // key held by a secure keyring, and only there. Before it, never.
     #[test]
     fn encrypted_media_is_kept_only_in_the_encrypted_store() {
         let big = Some(MEDIA_STORE_MAX_FILE_BYTES + 1);
@@ -6709,14 +5754,10 @@ mod tests {
             media_persistence(true, true, 1, None, true, SECURE),
             MediaPersistence { sdk_store: true, kept_file: false },
         );
-        // Never as a kept file: those are plain on disk.
         assert_eq!(media_persistence(true, true, 0, big, true, SECURE), NOTHING);
         assert!(!media_persistence(true, true, 0, None, true, SECURE).kept_file);
     }
 
-    // §6: the old plaintext store, a key in an insecure store (macOS's
-    // QSettings fallback, a portable folder) and memory never hold
-    // encrypted-room media.
     #[test]
     fn encrypted_media_is_never_kept_anywhere_else() {
         for store in [INSECURE, Active::Legacy, Active::Memory] {
@@ -6732,8 +5773,6 @@ mod tests {
         }
     }
 
-    // Keyring unavailable: the in-memory store keeps nothing, not even the
-    // unencrypted media that is otherwise kept, and no kept file is written.
     #[test]
     fn an_in_memory_store_keeps_nothing() {
         for encrypted in [false, true] {
@@ -6748,9 +5787,6 @@ mod tests {
         }
     }
 
-    // Review MINOR: nothing from an encrypted room becomes a plain kept file,
-    // even a file sent there unencrypted; the encrypted store may still hold
-    // it. Before, the kept-file rule looked at the source alone.
     #[test]
     fn a_plain_file_in_an_encrypted_room_is_never_a_kept_file() {
         let big = Some(MEDIA_STORE_MAX_FILE_BYTES + 1);
@@ -6759,7 +5795,6 @@ mod tests {
             assert!(!media_persistence(false, true, 0, None, true, store).kept_file);
             assert!(media_persistence(false, true, 0, Some(10), true, store).sdk_store);
         }
-        // The same file in an unencrypted room is kept.
         assert!(media_persistence(false, false, 0, big, true, SECURE).kept_file);
     }
 
@@ -6782,15 +5817,11 @@ mod tests {
     #[test]
     fn the_store_policy_keeps_its_file_cap() {
         let policy = media_retention_policy();
-        // The SDK measures the encoded row; the plaintext cap is Lightning's.
         assert_eq!(policy.max_file_size, Some(MEDIA_STORE_ENCODED_MAX_BYTES));
         assert!(MEDIA_STORE_ENCODED_MAX_BYTES > MEDIA_STORE_MAX_FILE_BYTES / 2 * 3);
-        // A 40 MB phone video from an encrypted room fits (Rokas, 2026-10-01).
         assert!(MEDIA_STORE_MAX_FILE_BYTES >= 100 * 1024 * 1024);
         assert_eq!(policy.max_cache_size, Some(MEDIA_STORE_MAX_CACHE_BYTES));
-        // The total never becomes the binding per-file limit.
         assert_eq!(policy.computed_max_file_size(), Some(MEDIA_STORE_ENCODED_MAX_BYTES));
-        // SDK defaults for the rest, the same values build_client always used.
         let defaults = matrix_sdk::media::MediaRetentionPolicy::new();
         assert_eq!(policy.last_access_expiry, defaults.last_access_expiry);
     }
@@ -6802,7 +5833,6 @@ mod tests {
         assert_eq!(media_size_cap(2), 2 * 1024 * 1024 * 1024);
     }
 
-    // Attached audio must carry its duration (receivers drew "0:00").
     #[test]
     fn a_timed_attachment_carries_its_duration() {
         match attachment_info("audio/mpeg", 0, 0, 4096, 185_000) {
@@ -6812,7 +5842,6 @@ mod tests {
                     Some(std::time::Duration::from_millis(185_000)),
                     "an audio attachment lost the duration the sender decoded"
                 );
-                // Not a voice message: that shape would mark songs as recordings.
                 assert!(info.waveform.is_none());
             }
             other => panic!("expected audio info, got {other:?}"),
@@ -6828,8 +5857,6 @@ mod tests {
         }
     }
 
-    // Unknown is not zero: a duration of 0 is omitted, since receivers render
-    // a literal 0 as 0:00.
     #[test]
     fn an_unknown_duration_is_omitted_rather_than_sent_as_zero() {
         match attachment_info("audio/ogg", 0, 0, 10, 0) {
@@ -6840,15 +5867,12 @@ mod tests {
             Some(AttachmentInfo::Video(info)) => assert!(info.duration.is_none()),
             other => panic!("expected video info, got {other:?}"),
         }
-        // A duration on an untimed medium is ignored.
         match attachment_info("image/png", 2, 2, 10, 999) {
             Some(AttachmentInfo::Image(_)) => {}
             other => panic!("expected image info, got {other:?}"),
         }
     }
 
-    // Every send carries typed metadata with at least the size; receivers'
-    // prefetch and poster logic need a declared size.
     #[test]
     fn attachment_info_declares_size_for_every_type() {
         match attachment_info("video/mp4", 1280, 720, 1000, 0) {
@@ -6859,7 +5883,6 @@ mod tests {
             }
             other => panic!("expected video info, got {other:?}"),
         }
-        // Unknown dimensions are omitted, never sent as zero.
         match attachment_info("video/webm", 0, 0, 42, 0) {
             Some(AttachmentInfo::Video(info)) => {
                 assert_eq!(info.size, UInt::new(42));
@@ -6880,7 +5903,6 @@ mod tests {
             }
             other => panic!("expected file info, got {other:?}"),
         }
-        // Images keep the existing contract: no dimensions, no info.
         assert!(attachment_info("image/png", 0, 0, 5, 0).is_none());
         match attachment_info("image/gif", 100, 100, 5, 0) {
             Some(AttachmentInfo::Image(info)) => {
@@ -6890,8 +5912,6 @@ mod tests {
         }
     }
 
-    // An outgoing video declares its duration with geometry and size, and
-    // omits an unknown duration.
     #[test]
     fn video_info_carries_duration_and_geometry() {
         match video_info(1920, 1080, 5000, 4200) {
@@ -6927,8 +5947,6 @@ mod tests {
         bytes
     }
 
-    // The poster's type comes from its bytes, never the caller; a non-raster
-    // is refused, which means "no thumbnail".
     #[test]
     fn poster_is_validated_by_magic_not_by_claim() {
         let thumb = poster(jpeg_bytes(64), 320, 180)
@@ -6939,7 +5957,6 @@ mod tests {
         assert_eq!(thumb.height, UInt::new(180).unwrap());
         assert_eq!(thumb.size, UInt::new(64).unwrap());
 
-        // Not a raster at all (an SVG document, plain text, truncated).
         assert!(poster(b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>".to_vec(),
                        320, 180)
             .into_thumbnail()
@@ -6950,7 +5967,6 @@ mod tests {
         assert!(poster(vec![0xFF, 0xD8], 320, 180).into_thumbnail().is_none());
     }
 
-    // Bounds and nonsense geometry degrade to "no thumbnail".
     #[test]
     fn poster_bounds_and_geometry_are_enforced() {
         assert!(poster(Vec::new(), 320, 180).into_thumbnail().is_none());
@@ -6964,8 +5980,6 @@ mod tests {
             .is_some());
     }
 
-    // Exactly one outcome: a never-completing fetch resolves to Elapsed, a fast
-    // one passes through.
     #[tokio::test]
     async fn media_timeout_wrapper_yields_single_outcome() {
         let hung: Result<(), tokio::time::error::Elapsed> = tokio::time::timeout(
@@ -6983,10 +5997,6 @@ mod tests {
         assert_eq!(quick, Ok(7));
     }
 
-    // Break-it s04: a DM invitation read "Room invitation" because the payload's
-    // is_direct came from m.direct alone, which an invited room does not have.
-    // The invite's own `is_direct` flag must count; a plain room invite and a
-    // flag of false must not.
     #[test]
     fn an_invitation_marked_is_direct_is_a_direct_message() {
         use matrix_sdk::ruma::{api::client::sync::sync_events::v5, room_id};
@@ -7030,17 +6040,12 @@ mod tests {
         assert!(dm_room.direct_targets().is_empty(), "no m.direct before join");
         assert!(rt.block_on(payload_is_direct(&dm_room, false)));
         assert!(!rt.block_on(payload_is_direct(&plain_room, false)));
-        // m.direct still decides for a joined room.
         assert!(rt.block_on(payload_is_direct(&plain_room, true)));
         drop(client);
         drop(server);
         drop(rt);
     }
 
-    // GitHub #28: "Leave room" on an invitation (the only invite action in the
-    // Channels layout) did nothing: the joined-only gate refused it before any
-    // request, the FFI returned an error, and C++ dropped op id 0 silently. It
-    // must reject the invitation through the SDK and report success.
     #[test]
     fn leave_room_rejects_a_pending_invitation() {
         use matrix_sdk::ruma::{api::client::sync::sync_events::v5, room_id};
@@ -7095,7 +6100,6 @@ mod tests {
         };
         assert_eq!(result["op_id"], json!(41), "{result}");
         assert_eq!(result["ok"], json!(true), "{result}");
-        // Rejected and forgotten by the SDK: no longer a pending invitation.
         assert!(!matches!(
             client.get_room(room).map(|r| r.state()),
             Some(RoomState::Invited)
@@ -7105,10 +6109,6 @@ mod tests {
         drop(rt);
     }
 
-    // A server answer is usable only if it says something: Synapse returns 200
-    // with an empty object for a URL it could not fetch, and accepting that
-    // would draw a blank card and skip the client fallback. Calls the real
-    // function.
     #[test]
     fn server_preview_answer_is_usable_only_with_title_or_description() {
         use super::server_preview_fields as f;
@@ -7124,12 +6124,10 @@ mod tests {
         let only_title = f(&json!({ "og:title": "Example" }))
             .expect("a title alone is a usable preview");
         assert_eq!(only_title["title"], "Example");
-        // The route label lets the UI drop the IP warning.
         assert_eq!(only_title["preview_route"], "server");
         let only_desc = f(&json!({ "og:description": "Some page" }))
             .expect("a description alone is a usable preview");
         assert_eq!(only_desc["description"], "Some page");
-        // A server preview's mxc:// og:image must reach image_source.
         let with_image = f(&json!({
             "og:title": "T",
             "og:image": "mxc://example.org/abc",
@@ -7141,8 +6139,6 @@ mod tests {
         assert_eq!(with_image["preview_kind"], "metadata");
     }
 
-    // A direct image link the server fetched answers with the image alone.
-    // Falling back would fetch it from the site and hand it the reader's IP.
     #[test]
     fn a_server_answer_for_a_direct_image_is_media_not_a_fallback() {
         use super::server_preview_fields as f;
@@ -7159,7 +6155,6 @@ mod tests {
         assert_eq!(answer["image_source"], "mxc://example.org/img");
         assert_eq!(answer["image_mime"], "image/png");
         assert_eq!(answer["image_width"], 640);
-        // Synapse's description here is the Content-Disposition filename.
         let named = f(&json!({
             "og:description": "photo.jpg",
             "og:image": "mxc://example.org/img",
@@ -7167,12 +6162,10 @@ mod tests {
         }))
         .expect("usable");
         assert_eq!(named["preview_kind"], "direct_media");
-        // SVG is never media, and a non-mxc image is not the server's copy.
         assert!(f(&json!({ "og:image": "mxc://example.org/s",
                             "og:image:type": "image/svg+xml" })).is_none());
         assert!(f(&json!({ "og:image": "https://example.org/a.png",
                             "og:image:type": "image/png" })).is_none());
-        // A filename with spaces is still a filename.
         let spaced = f(&json!({
             "og:description": "my holiday photo.JPG",
             "og:image": "mxc://example.org/img",
@@ -7180,7 +6173,6 @@ mod tests {
         }))
         .expect("usable");
         assert_eq!(spaced["preview_kind"], "direct_media");
-        // A sentence that merely ends in a full stop is a page summary.
         let sentence = f(&json!({
             "og:description": "A few words about the page.",
             "og:image": "mxc://example.org/img",
@@ -7188,8 +6180,6 @@ mod tests {
         }))
         .expect("usable");
         assert_eq!(sentence["preview_kind"], "metadata");
-        // A titleless PAGE keeps its card: a body summary has spaces, and a
-        // site name marks a page.
         let page = f(&json!({
             "og:description": "Some words from the page body.",
             "og:image": "mxc://example.org/img",
@@ -7220,21 +6210,15 @@ mod tests {
         assert!(public_ip("93.184.216.34".parse().unwrap()));
         assert!(public_ip("2606:2800:220:1:248:1893:25c8:1946".parse().unwrap()));
 
-        // IPv4-mapped v6 addresses must be judged by their embedded IPv4, or an
-        // AAAA record could aim a preview at loopback or private space.
         assert!(!public_ip("::ffff:127.0.0.1".parse().unwrap()));
         assert!(!public_ip("::ffff:10.0.0.1".parse().unwrap()));
         assert!(!public_ip("::ffff:192.168.1.1".parse().unwrap()));
         assert!(!public_ip("::ffff:169.254.169.254".parse().unwrap()));
         assert!(!public_ip("::ffff:100.64.0.1".parse().unwrap()));
         assert!(!public_ip("::ffff:0.0.0.0".parse().unwrap()));
-        // NAT64 and the v4-compatible form embed a destination too.
         assert!(!public_ip("64:ff9b::7f00:1".parse().unwrap()));
         assert!(!public_ip("::127.0.0.1".parse().unwrap()));
-        // A mapped public address stays public.
         assert!(public_ip("::ffff:93.184.216.34".parse().unwrap()));
-        // 6to4 and Teredo carry an IPv4 destination inside; site-local is
-        // private. The neighbouring real prefixes stay public.
         assert!(!public_ip("2002:7f00:1::1".parse().unwrap()));
         assert!(!public_ip("2002:c0a8:101::1".parse().unwrap()));
         assert!(!public_ip("2001:0:4136:e378:8000:63bf:3fff:fdd2".parse().unwrap()));
@@ -7287,11 +6271,9 @@ mod tests {
         assert_eq!(classify_preview_payload("image/gif", &gif), Ok(Some("image/gif")));
         assert_eq!(classify_preview_payload("image/jpeg", &jpeg), Ok(Some("image/jpeg")));
         assert_eq!(classify_preview_payload("image/webp", webp), Ok(Some("image/webp")));
-        // Recognised bytes may recover a generic or mislabelled CDN response.
         assert_eq!(classify_preview_payload("application/octet-stream", &gif),
                    Ok(Some("image/gif")));
         assert_eq!(classify_preview_payload("text/html", &gif), Ok(Some("image/gif")));
-        // A .gif-looking URL that returned HTML stays metadata.
         assert_eq!(classify_preview_payload("text/html", b"<html><title>Giphy</title></html>"),
                    Ok(None));
         assert_eq!(classify_preview_payload("image/gif", b"<html>not gif</html>"),
@@ -7300,38 +6282,30 @@ mod tests {
                    Err("unsupported_mime"));
     }
 
-    // Direct WebP links mostly use the simple "VP8 " or lossless "VP8L" chunk,
-    // not only extended "VP8X".
     #[test]
     fn preview_webp_dimensions_cover_all_three_chunk_types() {
-        // VP8X (extended): chunk size(4) + flags(4) + width-1 24-bit LE(3)
-        // + height-1 24-bit LE(3).
         let mut vp8x = b"RIFF\x00\x00\x00\x00WEBPVP8X".to_vec();
-        vp8x.extend_from_slice(&0u32.to_le_bytes()); // chunk size (unused)
-        vp8x.extend_from_slice(&[0u8; 4]); // flags
-        vp8x.extend_from_slice(&[99, 0, 0]); // width-1 = 99 -> 100
-        vp8x.extend_from_slice(&[49, 0, 0]); // height-1 = 49 -> 50
+        vp8x.extend_from_slice(&0u32.to_le_bytes());
+        vp8x.extend_from_slice(&[0u8; 4]);
+        vp8x.extend_from_slice(&[99, 0, 0]);
+        vp8x.extend_from_slice(&[49, 0, 0]);
         assert_eq!(image_dimensions("image/webp", &vp8x), Some((100, 50)));
 
-        // VP8L (lossless): signature 0x2f + 14-bit width-1 | 14-bit height-1 (LE u32).
-        let bits: u32 = (99) | ((49) << 14); // width-1=99, height-1=49
+        let bits: u32 = (99) | ((49) << 14);
         let mut vp8l = b"RIFF\x00\x00\x00\x00WEBPVP8L".to_vec();
-        vp8l.extend_from_slice(&0u32.to_le_bytes()); // chunk size (unused)
+        vp8l.extend_from_slice(&0u32.to_le_bytes());
         vp8l.push(0x2f);
         vp8l.extend_from_slice(&bits.to_le_bytes());
         assert_eq!(image_dimensions("image/webp", &vp8l), Some((100, 50)));
 
-        // VP8 (simple lossy): 3-byte frame tag + 3-byte sync (9d 01 2a) +
-        // 14-bit width LE + 14-bit height LE.
         let mut vp8 = b"RIFF\x00\x00\x00\x00WEBPVP8 ".to_vec();
-        vp8.extend_from_slice(&0u32.to_le_bytes()); // chunk size (unused)
-        vp8.extend_from_slice(&[0, 0, 0]); // frame tag (unused by parser)
+        vp8.extend_from_slice(&0u32.to_le_bytes());
+        vp8.extend_from_slice(&[0, 0, 0]);
         vp8.extend_from_slice(&[0x9d, 0x01, 0x2a]);
         vp8.extend_from_slice(&100u16.to_le_bytes());
         vp8.extend_from_slice(&50u16.to_le_bytes());
         assert_eq!(image_dimensions("image/webp", &vp8), Some((100, 50)));
 
-        // A VP8 chunk missing the sync code is not a valid keyframe.
         let mut bad_vp8 = b"RIFF\x00\x00\x00\x00WEBPVP8 ".to_vec();
         bad_vp8.extend_from_slice(&[0u8; 10]);
         assert_eq!(image_dimensions("image/webp", &bad_vp8), None);
@@ -7347,15 +6321,12 @@ mod tests {
 
     #[test]
     fn preview_initial_fetch_limit_accommodates_direct_images() {
-        // The shared first fetch must use the larger (image) limit.
         assert_eq!(MAX_INITIAL_FETCH_BYTES, MAX_IMAGE_BYTES);
         assert!(MAX_INITIAL_FETCH_BYTES >= MAX_HTML_BYTES);
     }
 
     #[test]
     fn preview_image_fields_rejects_unsupported_mime_like_svg() {
-        // SVG is active content and never previewable; image_fields() is the final
-        // gate.
         assert!(image_fields("image/svg+xml".to_owned(), b"<svg></svg>".to_vec()).is_err());
     }
 
@@ -7381,9 +6352,6 @@ mod tests {
         assert!(is_failed_dm_orphan(&orphan_probe()));
     }
 
-    // invited == 1 means the invite was DELIVERED: the create succeeded and
-    // only its response was lost, so this is a working DM and must never be
-    // removed.
     #[test]
     fn a_delivered_invite_is_a_working_dm_not_an_orphan() {
         assert!(!is_failed_dm_orphan(&DmOrphanProbe { invited_members: 1, ..orphan_probe() }));
@@ -7403,7 +6371,6 @@ mod tests {
         assert!(!is_failed_dm_orphan(&DmOrphanProbe { encrypted: false, ..p }));
         assert!(!is_failed_dm_orphan(&DmOrphanProbe { join_rule_invite: false, ..p }));
         assert!(!is_failed_dm_orphan(&DmOrphanProbe { created_in_window: false, ..p }));
-        // The room a successful retry returned.
         assert!(!is_failed_dm_orphan(&DmOrphanProbe { returned_by_a_create: true, ..p }));
     }
 
@@ -7415,20 +6382,17 @@ mod tests {
         assert!(created_in_window(Some(start - CREATE_CLOCK_SKEW_MS), start, end));
         assert!(created_in_window(Some(end + CREATE_CLOCK_SKEW_MS), start, end));
         assert!(!created_in_window(Some(start - CREATE_CLOCK_SKEW_MS - 1), start, end));
-        // A later retry's room is past this request's end.
         assert!(!created_in_window(Some(end + CREATE_CLOCK_SKEW_MS + 1), start, end));
         assert!(!created_in_window(None, start, end));
         assert!(created_in_window(Some(0), 5, 10));
     }
 
-    // Only the homeserver's own Matrix error can justify a sweep.
     #[test]
     fn only_a_matrix_error_body_may_sweep() {
         assert!(!sweep_allowed(None, false, "network"));
         assert!(!sweep_allowed(None, true, "network"));
         assert!(sweep_allowed(Some(500), true, "network"));
         assert!(sweep_allowed(Some(400), true, "network"));
-        // A 5xx with no Matrix body is a proxy, not Synapse.
         assert!(!sweep_allowed(Some(500), false, "network"));
         for transient in [408, 499, 502, 503, 504] {
             assert!(!sweep_allowed(Some(transient), true, "network"), "{transient}");
@@ -7439,8 +6403,6 @@ mod tests {
         }
     }
 
-    // A failed request must not sweep while a retry runs, nor remove the room
-    // a successful create returned.
     #[test]
     fn the_registry_tracks_in_flight_creates_and_returned_rooms() {
         let reg = Arc::new(DmCreateRegistry::default());
@@ -7458,9 +6420,6 @@ mod tests {
         assert_eq!(reg.in_flight(), 0);
     }
 
-    // A retry that ended with no Matrix answer may still be federating its
-    // invite: it blocks every sweep for ten minutes, so it cannot lose its
-    // room to the first request's sweep.
     #[test]
     fn an_unanswered_create_keeps_blocking_sweeps_for_ten_minutes() {
         let reg = Arc::new(DmCreateRegistry::default());
@@ -7470,12 +6429,10 @@ mod tests {
         assert!(reg.busy(t0 + 1));
         assert!(reg.busy(t0 + UNANSWERED_BUSY_MS - 1));
         assert!(!reg.busy(t0 + UNANSWERED_BUSY_MS));
-        // In flight still blocks on its own.
         let g = reg.begin();
         assert!(reg.busy(t0 + UNANSWERED_BUSY_MS * 2));
         drop(g);
         assert!(!reg.busy(t0 + UNANSWERED_BUSY_MS * 2));
-        // The record is bounded.
         for i in 0..100 {
             reg.record_unanswered_end(i);
         }
@@ -7491,8 +6448,6 @@ mod tests {
         assert!(!matrix_answered(Some(502), true));
     }
 
-    // /createRoom is not idempotent: the SDK default would retry a 5xx for up
-    // to 15 minutes and give up a hung request at 30 s, before the UI guard.
     #[test]
     fn creates_are_sent_once_with_a_timeout_past_the_ui_guard() {
         let default = format!("{:?}", matrix_sdk::config::RequestConfig::default());
@@ -7502,7 +6457,6 @@ mod tests {
         assert!(CREATE_REQUEST_TIMEOUT > std::time::Duration::from_secs(60));
     }
 
-    // The request is the one Client::create_dm builds.
     #[test]
     fn the_dm_request_is_what_create_dm_builds() {
         let uid = UserId::parse("@peer:example.org").unwrap();
@@ -7513,9 +6467,6 @@ mod tests {
         assert_eq!(req.initial_state.len(), 1);
     }
 
-    /// The homeserver merges the override SHALLOWLY, so `events` must carry the
-    /// whole stock map as well as the call entries, or the stock entries fall to
-    /// `state_default` (50).
     fn assert_stock_events_kept(events: &serde_json::Map<String, serde_json::Value>) {
         for ev in [crate::rtc::EV_MEMBER_LEGACY, crate::rtc::EV_MEMBER_STICKY] {
             assert_eq!(events.get(ev).and_then(|x| x.as_u64()), Some(0), "{ev}");
@@ -7534,8 +6485,6 @@ mod tests {
         }
     }
 
-    /// A sick server must not hold `/createRoom`: a probe slower than its
-    /// limit counts as "no" instead of waiting.
     #[tokio::test]
     async fn a_slow_room_version_probe_is_cut_off_and_counts_as_no() {
         let slow = async {
@@ -7549,8 +6498,6 @@ mod tests {
         assert!(privileges_creators_within(fast, std::time::Duration::from_secs(1)).await);
     }
 
-    /// Room versions that explicitly privilege creators (v12) put the
-    /// tombstone at 150, everything else at 100.
     #[test]
     fn the_tombstone_level_follows_the_room_version_rules() {
         let tombstone = |creator_power: bool| {
@@ -7565,9 +6512,6 @@ mod tests {
         assert!(v12.authorization.explicitly_privilege_room_creators);
     }
 
-    /// A DM hosts calls: the invitee joins at level 0 and must be able to
-    /// publish `m.call.member` (a DM created without the override refused the
-    /// invitee's membership, "You don't have permission to join calls").
     #[test]
     fn a_created_dm_lets_the_invitee_publish_call_membership() {
         let uid = UserId::parse("@peer:example.org").unwrap();
@@ -7587,8 +6531,6 @@ mod tests {
         assert_eq!(classify_room_error("M_ROOM_IN_USE: alias taken"), "alias_taken");
         assert_eq!(classify_room_error("M_INVALID_PARAM: bad alias"), "invalid");
         assert_eq!(classify_room_error("M_NOT_FOUND"), "not_found");
-        // Synapse answers an unimplemented endpoint with 404 M_UNRECOGNIZED, so
-        // this must outrank the 404 branch; asserted with the 404 present.
         assert_eq!(
             classify_room_error("the server returned an error: [404 / M_UNRECOGNIZED] Unrecognized request"),
             "unrecognized");
@@ -7613,8 +6555,6 @@ mod tests {
         webp.extend_from_slice(&[0; 4]);
         assert_eq!(sniff_image_mime(&webp), Some("image/webp"));
 
-        // JPEG XL: the first bytes `cjxl` (libjxl 0.11) emits for the container and
-        // bare codestream forms.
         let mut jxl_box =
             b"\x00\x00\x00\x0cJXL \x0d\x0a\x87\x0a\x00\x00\x00\x14ftypjxl ".to_vec();
         jxl_box.extend_from_slice(&[0; 4]);
@@ -7624,7 +6564,6 @@ mod tests {
         jxl_stream.extend_from_slice(&[0; 8]);
         assert_eq!(sniff_image_mime(&jxl_stream), Some("image/jxl"));
 
-        // JPEG and JPEG XL codestream share only their first byte.
         let mut not_jxl = vec![0xFF, 0xD8, 0xFF, 0x0A];
         not_jxl.extend_from_slice(&[0; 8]);
         assert_eq!(sniff_image_mime(&not_jxl), Some("image/jpeg"));
@@ -7644,9 +6583,6 @@ mod tests {
     }
 
     #[test]
-    /// A room Lightning creates must let members publish call membership: with
-    /// stock power levels (`state_default` 50) only moderators can, and an
-    /// ordinary member's call is silently one-way.
     #[test]
     fn a_created_room_lets_ordinary_members_publish_call_membership() {
         let opts = CreateRoomOptions {
@@ -7660,13 +6596,10 @@ mod tests {
         let v: serde_json::Value = raw.deserialize_as_unchecked().unwrap();
         let events = v.get("events").and_then(|e| e.as_object()).unwrap();
         assert_stock_events_kept(events);
-        // Nothing else moves: `state_default` stays, only these two types are
-        // lowered.
         assert!(v.get("state_default").is_none(),
                 "state_default must be left at the server default");
     }
 
-    /// A Space holds no calls, so its permissions are not widened.
     #[test]
     fn a_space_gets_no_power_level_override() {
         let opts = CreateRoomOptions {
@@ -7690,11 +6623,9 @@ mod tests {
         assert_eq!(request.name.as_deref(), Some("Secret"));
         assert_eq!(request.preset, Some(RoomPreset::PrivateChat));
         assert_eq!(request.visibility, Visibility::Private);
-        // Encryption initial state present; duplicate invites deduplicated.
         assert_eq!(request.initial_state.len(), 1);
         assert_eq!(request.invite.len(), 1);
         assert!(!request.is_direct);
-        // The server chooses the room version.
         assert!(request.room_version.is_none());
     }
 
@@ -7721,15 +6652,12 @@ mod tests {
             name: "Team".to_owned(),
             topic: "Our team".to_owned(),
             is_space: true,
-            // Even if encryption were requested, a Space is never encrypted.
             encrypted: true,
             ..Default::default()
         };
         let request = build_create_room_request(&opts).unwrap();
         assert_eq!(request.name.as_deref(), Some("Team"));
-        // No encryption initial-state for a Space.
         assert!(request.initial_state.is_empty());
-        // creation_content carries room_type: m.space.
         let raw = request.creation_content.expect("creation_content present");
         let cc = raw.deserialize().expect("valid creation content");
         assert_eq!(cc.room_type, Some(RoomType::Space));
@@ -7755,8 +6683,6 @@ mod tests {
         assert!(build_create_room_request(&opts).is_err());
     }
 
-    // A Space cascade offers a room only where the membership fits the action,
-    // the viewer holds that room's threshold, and the target is below them.
     #[test]
     fn moderation_plan_offers_only_actions_that_can_succeed() {
         use matrix_sdk::ruma::events::room::member::MembershipState as M;
@@ -7765,37 +6691,28 @@ mod tests {
         let ban = M::Ban;
         let leave = M::Leave;
 
-        // Kick: joined or invited targets only.
         assert_eq!(moderation_verdict(0, Some(&join), true, 50, 0), "");
         assert_eq!(moderation_verdict(0, Some(&invite), true, 50, 0), "");
         assert_eq!(moderation_verdict(0, Some(&leave), true, 50, 0), "not_a_member");
         assert_eq!(moderation_verdict(0, Some(&ban), true, 50, 0), "already_banned");
         assert_eq!(moderation_verdict(0, None, true, 50, 0), "not_a_member");
 
-        // Ban: anyone with a membership record who is not already banned.
         assert_eq!(moderation_verdict(1, Some(&leave), true, 50, 0), "");
         assert_eq!(moderation_verdict(1, Some(&ban), true, 50, 0), "already_banned");
 
-        // Unban: banned targets only.
         assert_eq!(moderation_verdict(2, Some(&ban), true, 50, 0), "");
         assert_eq!(moderation_verdict(2, Some(&join), true, 50, 0), "not_banned");
 
-        // The room's own threshold, from the SDK.
         assert_eq!(moderation_verdict(0, Some(&join), false, 100, 0), "no_permission");
 
-        // Strictly below the viewer: an equal level is refused, as the server
-        // would refuse it.
         assert_eq!(moderation_verdict(1, Some(&join), true, 50, 50), "outranked");
         assert_eq!(moderation_verdict(1, Some(&join), true, 50, 100), "outranked");
         assert_eq!(moderation_verdict(1, Some(&join), true, 50, 49), "");
-        // Negative levels are real (Element's "Restricted" is -1).
         assert_eq!(moderation_verdict(0, Some(&join), true, 0, -1), "");
 
         assert_eq!(moderation_verdict(9, Some(&join), true, 100, 0), "invalid");
     }
 
-    // A plan answers within its budget: a room that has not answered by the
-    // deadline is reported late, in order, and the others keep their answers.
     #[tokio::test]
     async fn a_plan_stops_waiting_at_its_deadline() {
         let start = tokio::time::Instant::now();
@@ -7817,7 +6734,6 @@ mod tests {
         assert!(start.elapsed() < std::time::Duration::from_secs(5));
     }
 
-    // At most `concurrency` rooms are assessed at once.
     #[tokio::test]
     async fn a_plan_bounds_how_many_rooms_it_reads_at_once() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -7847,8 +6763,6 @@ mod tests {
         assert!(peak.load(Ordering::SeqCst) >= 2);
     }
 
-    // Closing is offered only where the viewer can make the room invite-only;
-    // without that it would stay open to anyone who finds it.
     #[test]
     fn closing_needs_the_join_rule_and_a_known_roster() {
         assert_eq!(closure_verdict(true, true, true, true), "");
@@ -7858,8 +6772,6 @@ mod tests {
         assert_eq!(closure_verdict(true, true, true, false), "no_permission");
     }
 
-    // A close removes only members strictly below the viewer, and only with
-    // the kick permission; everyone else stays and is counted as staying.
     #[test]
     fn closing_removes_only_members_below_the_viewer() {
         assert!(closure_removes(true, 100, 50));
@@ -7868,16 +6780,13 @@ mod tests {
         assert!(!closure_removes(true, 100, 100));
         assert!(!closure_removes(true, 50, 100));
         assert!(!closure_removes(false, 100, 0));
-        // A creator (MSC4289) outranks every finite level.
         assert!(!closure_removes(true, 100, CREATOR_POWER_LEVEL));
-        // The largest finite level still ranks below a creator, both ways.
         let max_finite: i64 = (1 << 53) - 1;
         assert!(closure_removes(true, CREATOR_POWER_LEVEL, max_finite));
         assert!(!closure_removes(true, max_finite, CREATOR_POWER_LEVEL));
         assert_eq!(CREATOR_POWER_LEVEL as f64 as i64, CREATOR_POWER_LEVEL);
     }
 
-    // "closed" only when everything succeeded; the viewer leaves only then.
     #[test]
     fn a_close_is_complete_only_when_every_step_succeeded() {
         assert_eq!(closure_outcome(true, true, 0, 0), "closed");
@@ -7889,12 +6798,6 @@ mod tests {
     }
 
 }
-
-// ---------------------------------------------------------------------------
-// Scheduled send: a room-level send. The timeline sends need the room's
-// live timeline open, which a scheduled message's room usually is not.
-// `Room::send` reaches any joined room and encrypts like the timeline path.
-// ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_room_message(
@@ -7921,9 +6824,6 @@ pub(crate) fn send_room_message(
         .transpose()?;
     let mut content = crate::timeline::outgoing_content(&body, &spec, mention_user_ids);
     content.relates_to = match (root_id, reply_id) {
-        // In a thread: an explicit in-thread reply target if given, otherwise the
-        // spec fallback (in_reply_to = root, marked falling-back so thread-aware
-        // clients show no quote).
         (Some(root), Some(reply)) => Some(Relation::Thread(Thread::reply(root, reply))),
         (Some(root), None) => Some(Relation::Thread(Thread::plain(root.clone(), root))),
         (None, Some(reply)) => Some(Relation::Reply(Reply::new(InReplyTo::new(reply)))),
@@ -7954,22 +6854,6 @@ pub(crate) fn send_room_message(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Activity Center seed: a fresh session has seen no sync, so ask the
-// server's notification list (`only=highlight`: mentions and keywords).
-// Bounded, once per session. Encrypted events cross without a body; the
-// event id is enough to navigate.
-// ---------------------------------------------------------------------------
-
-/// One Activity seed row from a `/notifications` event, or `None` for one the
-/// bell does not show (no id, no sender, our own).
-///
-/// `body` is what a live row's preview is built from, so it gets the same
-/// treatment (finding 17): the legacy reply fallback is stripped — a reply
-/// read "> <@alice:…> what Alice said" after a restart — and an edit shows
-/// its `m.new_content` rather than the "* …" fallback. `msgtype` lets C++ map
-/// media to the same glyphs a live row gets instead of showing a filename:
-/// the `m.room.message` msgtype, `m.sticker` for a sticker, else empty.
 pub(crate) fn activity_seed_entry(
     value: &serde_json::Value,
     room_id: &str,
@@ -8049,8 +6933,6 @@ pub(crate) fn request_activity_seed_page(
         let response = match answer {
             Ok(response) => response,
             Err(err) => {
-                // A fixed token (HTTP status + errcode, or the transport
-                // class), so the C++ warning says why without any server text.
                 enqueue(&events, json!({
                     "type": if from.is_some() { "activity_seed_page" } else { "activity_seed" },
                     "lifecycle": lifecycle, "ok": false, "entries": [],
@@ -8085,9 +6967,6 @@ pub(crate) fn request_activity_seed_page(
 
 #[cfg(test)]
 mod activity_seed_tests {
-    //! Finding 17: seeded Activity rows took `content.body` raw, so after a
-    //! restart a reply showed the quoted text it replied to and a media
-    //! highlight showed a filename where a live row shows a glyph.
     use super::activity_seed_entry;
     use serde_json::json;
 
@@ -8163,11 +7042,6 @@ mod activity_seed_tests {
 
 #[cfg(test)]
 mod member_freshness_tests {
-    //! Break-it B016, B026, B029, B031, B063: another member's join, kick,
-    //! ban, unban or profile change reached the timeline but never the People
-    //! list, its count or the mention roster, until a restart. Simplified
-    //! sliding sync applies state from `required_state` only, and
-    //! `Room::members()` refetches only an unsynced room.
     use super::*;
     use matrix_sdk::ruma::{api::client::sync::sync_events::v5, room_id};
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
@@ -8185,7 +7059,6 @@ mod member_freshness_tests {
         })
     }
 
-    /// The same event as /members returns it: a full event, with its room.
     fn in_room(mut event: serde_json::Value, room: &RoomId) -> Raw<matrix_sdk::ruma::events::room::member::RoomMemberEvent> {
         event["room_id"] = json!(room.as_str());
         raw(event)
@@ -8209,8 +7082,6 @@ mod member_freshness_tests {
             .expect("sync processed");
     }
 
-    /// The room_members answer for `op_id` that ends the op (not the
-    /// cache-first partial one).
     fn final_snapshot(bridge: &crate::RustClient, op_id: u64) -> serde_json::Value {
         let started = std::time::Instant::now();
         loop {
@@ -8257,8 +7128,6 @@ mod member_freshness_tests {
         }
     }
 
-    /// Inviting into a Space is the same `/invite` as into a room: a joined
-    /// Space (its `m.room.create` carries `type: m.space`) must reach it.
     #[test]
     fn inviting_into_a_space_sends_the_invite() {
         let space = room_id!("!space:example.org");
@@ -8293,9 +7162,6 @@ mod member_freshness_tests {
         drop(rt);
     }
 
-    /// The canonical parent Space is read from the room's own state: only a
-    /// parent that is `canonical` and carries `via` counts, and `joined`
-    /// follows the SDK's state for that Space.
     #[test]
     fn the_canonical_space_parent_is_read_from_room_state() {
         let room = room_id!("!child:example.org");
@@ -8332,12 +7198,10 @@ mod member_freshness_tests {
         assert_eq!(found["via"], json!(["example.org"]));
         assert_eq!(found["joined"], json!(false), "the Space is not one we are in");
 
-        // Once we are in that Space the same answer says so.
         rt.block_on(sync(&client, canon, "pos-2", vec![], vec![]));
         let found = rt.block_on(canonical_space_parent_json(&client, &joined_room));
         assert_eq!(found["joined"], json!(true), "{found}");
 
-        // A room with no canonical parent has none.
         rt.block_on(sync(&client, other, "pos-3", vec![], vec![]));
         let none = rt.block_on(canonical_space_parent_json(&client, &client.get_room(other).unwrap()));
         assert!(none.is_null());
@@ -8357,7 +7221,6 @@ mod member_freshness_tests {
             let client = server.client_builder().build().await;
             client.event_cache().subscribe().expect("event cache");
             let me = client.user_id().unwrap().to_string();
-            // What the server says on the first /members, then after the changes.
             server
                 .mock_get_members()
                 .ok(vec![
@@ -8404,8 +7267,6 @@ mod member_freshness_tests {
         assert_eq!(first["ok"], json!(true), "{first}");
         assert_eq!(first["joined_count"], json!(3), "{first}");
 
-        // A rename, a ban and a join, in the TIMELINE only, as sliding sync
-        // delivers another member's change ($LAZY covers timeline senders).
         rt.block_on(async {
             let ban = json!({
                 "type": "m.room.member", "state_key": bob, "sender": alice,
@@ -8424,8 +7285,6 @@ mod member_freshness_tests {
                 ],
             )
             .await;
-            // The event cache appends asynchronously; wait until it holds the
-            // last change, as it does long before a poke reaches C++ and back.
             let joined = client.get_room(room).unwrap();
             let started = std::time::Instant::now();
             while scan_member_events(&joined, None).await.newest.as_deref().map(|e| e.as_str())
@@ -8444,7 +7303,6 @@ mod member_freshness_tests {
         assert_eq!(row(&second, carol).map(|r| r["membership"].clone()), Some(json!("joined")));
         assert_eq!(row(&second, alice).map(|r| r["display_name"].clone()), Some(json!("Alicia")));
 
-        // Nothing new since: the next read is the store, with no third request.
         room_members(&bridge, room.to_string(), 3).expect("joined room");
         let third = final_snapshot(&bridge, 3);
         assert_eq!(third["joined_count"], json!(3), "{third}");
@@ -8478,8 +7336,6 @@ mod member_freshness_tests {
                 .ok(vec![in_room(member(&me, "join", "Me", "$m0"), room)])
                 .mount()
                 .await;
-            // Messages need 50, redacting others needs 0 (and a redaction event
-            // 0): the two answers differ, so a swapped key cannot pass.
             let levels = json!({
                 "type": "m.room.power_levels", "state_key": "", "sender": me,
                 "event_id": "$pl", "origin_server_ts": 1_700_000_000_000u64,
@@ -8528,7 +7384,6 @@ mod member_freshness_tests {
         assert_eq!(joined["own_can_send_message"], json!(false), "{joined}");
         assert_eq!(joined["own_can_redact_other"], json!(true), "{joined}");
 
-        // An invitation has no roster to read, but its answer says why.
         room_members(&bridge, invited.to_string(), 8).expect("an invited room answers");
         let pending = final_snapshot(&bridge, 8);
         assert_eq!(pending["ok"], json!(false), "{pending}");
@@ -8539,7 +7394,6 @@ mod member_freshness_tests {
         drop(rt);
     }
 
-    /// The `room_own_permissions` answer for `op_id`.
     fn own_permissions_answer(bridge: &crate::RustClient, op_id: u64) -> serde_json::Value {
         let started = std::time::Instant::now();
         loop {
@@ -8556,14 +7410,6 @@ mod member_freshness_tests {
         }
     }
 
-    /// The open room's own posting facts come from the store alone, through
-    /// the same SDK checks as the member snapshot: `events_default`, a
-    /// per-event `m.room.message` entry in either direction, the encrypted
-    /// event type in an encrypted room, the `redact` level against our own
-    /// level at and one below the threshold (and from `users_default` alone),
-    /// `state_default` not gating messages, and a membership that is not
-    /// "joined". Every joined room's two answers are chosen so that a swapped
-    /// key, a dropped override or an ignored threshold fails.
     #[test]
     fn the_open_room_permissions_come_from_local_power_levels_and_membership() {
         let gated = room_id!("!gated:example.org");
@@ -8596,24 +7442,18 @@ mod member_freshness_tests {
             let joined = |content: serde_json::Value| {
                 vec![create.clone(), member(&me, "join", "Me", "$m0"), levels(content)]
             };
-            // Messages at 50, redacting others at 0: may not post, may redact.
             sync(&client, gated, "p1", joined(json!({
                 "events_default": 50, "redact": 0, "users_default": 0,
                 "events": { "m.room.redaction": 0 },
             })), vec![]).await;
-            // A per-event entry LOWERS m.room.message below events_default:
-            // may post; redact stays at 50 above our 0.
             sync(&client, lowered, "p2", joined(json!({
                 "events_default": 50, "redact": 50, "users_default": 0,
                 "events": { "m.room.message": 0 },
             })), vec![]).await;
-            // A per-event entry RAISES m.room.message above events_default.
             sync(&client, raised, "p3", joined(json!({
                 "events_default": 0, "redact": 50, "users_default": 0,
                 "events": { "m.room.message": 100 },
             })), vec![]).await;
-            // Encrypted: m.room.message is lowered but m.room.encrypted, what
-            // actually goes on the wire, stays at events_default.
             let mut state = joined(json!({
                 "events_default": 50, "redact": 50, "users_default": 0,
                 "events": { "m.room.message": 0 },
@@ -8624,7 +7464,6 @@ mod member_freshness_tests {
                 "content": { "algorithm": "m.megolm.v1.aes-sha2" },
             }));
             sync(&client, encrypted, "p4", state, vec![]).await;
-            // Our own level one below, then exactly at, both thresholds.
             sync(&client, below, "p5", joined(json!({
                 "events_default": 50, "redact": 50, "users_default": 0,
                 "users": { me.clone(): 49 },
@@ -8633,18 +7472,13 @@ mod member_freshness_tests {
                 "events_default": 50, "redact": 50, "users_default": 0,
                 "users": { me.clone(): 50 },
             })), vec![]).await;
-            // No `users` entry at all: our level is `users_default`, which
-            // meets both thresholds.
             sync(&client, by_default, "p6a", joined(json!({
                 "events_default": 50, "redact": 50, "users_default": 50,
             })), vec![]).await;
-            // `state_default` governs state events only: at 100 it must not
-            // gate an ordinary message, which `events_default` (0) does.
             sync(&client, state_only, "p6b", joined(json!({
                 "events_default": 0, "state_default": 100, "redact": 50,
                 "users_default": 0,
             })), vec![]).await;
-            // A room we left: the membership answers, no permission does.
             sync(&client, left, "p7", vec![
                 create.clone(),
                 member(&me, "leave", "Me", "$m1"),
@@ -8715,22 +7549,14 @@ mod member_freshness_tests {
             (json!("invited"), json!(null), json!(null)),
             "{pending}"
         );
-        // A room the store has never heard of answers nothing, synchronously.
         assert!(room_own_permissions(&bridge, "!nowhere:example.org".to_owned(), 9).is_err());
 
-        // No request: the whole answer is the store.
         assert_eq!(requests(), requests_before, "the open-room facts made a request");
         drop(bridge);
         drop(server);
         drop(rt);
     }
 
-    /// The open-room answer also carries the slash-command facts, from the
-    /// SDK's checks: kick, ban, unban (max of the two), invite, topic and
-    /// name, each against its own level. Every room is chosen so that a swapped
-    /// key or a collapsed level fails: kick 50 / ban 100, invite above kick,
-    /// topic and name at different levels, our level at and one below a
-    /// threshold. A room we are not joined to answers all six null.
     #[test]
     fn the_open_room_answer_carries_the_moderation_facts() {
         let mixed = room_id!("!mixed:example.org");
@@ -8753,8 +7579,6 @@ mod member_freshness_tests {
                     "content": content,
                 })
             };
-            // At 50: kick (50) yes, ban (100) no, unban needs max(ban, kick)
-            // = 100 so no, invite (60) no, topic (50) yes, name (51) no.
             sync(&client, mixed, "q1", vec![
                 create.clone(),
                 member(&me, "join", "Me", "$m0"),
@@ -8764,7 +7588,6 @@ mod member_freshness_tests {
                     "events": { "m.room.topic": 50, "m.room.name": 51 },
                 })),
             ], vec![]).await;
-            // Nothing granted at level 0 against raised thresholds.
             sync(&client, none, "q2", vec![
                 create.clone(),
                 member(&me, "join", "Me", "$m0"),
@@ -8808,8 +7631,6 @@ mod member_freshness_tests {
         drop(rt);
     }
 
-    /// A server that already puts the changed member in `required_state`
-    /// (as a server is free to under `$LAZY`) leaves nothing to refetch.
     #[test]
     fn a_member_change_the_server_already_applied_costs_no_request() {
         let room = room_id!("!applied:example.org");
@@ -8860,7 +7681,6 @@ mod member_freshness_tests {
                 "content": { "membership": "ban", "displayname": "Bob" },
             });
             let rename = member(alice, "join", "Alicia", "$a1");
-            // The same events in both places: the store is current already.
             sync(
                 &client,
                 room,
@@ -8899,10 +7719,6 @@ mod member_freshness_tests {
         drop(rt);
     }
 
-    /// A failed refetch leaves the room marked members-missing. The reads
-    /// after it are answered from the store and do not ask again until the
-    /// backoff has passed (each would otherwise send /members, and so would
-    /// every encrypted send in the room).
     #[test]
     fn a_failed_refetch_is_not_retried_on_every_read() {
         let room = room_id!("!failing:example.org");
@@ -8924,7 +7740,6 @@ mod member_freshness_tests {
                 .up_to_n_times(1)
                 .mount()
                 .await;
-            // Then the server refuses (a 4xx, which the SDK does not retry).
             server.mock_get_members().error_unrecognized().mount().await;
             sync(
                 &client,
@@ -8965,14 +7780,12 @@ mod member_freshness_tests {
             }
         });
 
-        // The refetch fails: the store as it was, not an error.
         room_members(&bridge, room.to_string(), 2).expect("joined room");
         let second = final_snapshot(&bridge, 2);
         assert_eq!(second["ok"], json!(true), "{second}");
         assert_eq!(row(&second, bob).map(|r| r["membership"].clone()), Some(json!("joined")));
         assert!(!client.get_room(room).unwrap().are_members_synced());
 
-        // Well past the 30 ms gap of a 3-member room, inside the backoff.
         std::thread::sleep(std::time::Duration::from_millis(150));
         for op in 3..6 {
             room_members(&bridge, room.to_string(), op).expect("joined room");
@@ -8995,9 +7808,6 @@ mod member_freshness_tests {
         drop(rt);
     }
 
-    /// A read inside the gap is answered from the store at once (the panel is
-    /// not held on "loading"), and the refetch it scheduled pokes readers
-    /// when it lands. An encrypted room, whose gap is at least 5 s.
     #[test]
     fn a_read_inside_the_gap_answers_at_once_and_the_later_refetch_pokes() {
         let room = room_id!("!deferred:example.org");
@@ -9067,12 +7877,10 @@ mod member_freshness_tests {
 
         room_members(&bridge, room.to_string(), 1).expect("joined room");
         assert_eq!(name_of(&final_snapshot(&bridge, 1)), Some(json!("Alice")));
-        // First change: refetched at once (no refetch has started yet).
         rename("Alicia", "$a1");
         room_members(&bridge, room.to_string(), 2).expect("joined room");
         assert_eq!(name_of(&final_snapshot(&bridge, 2)), Some(json!("Alicia")));
 
-        // Second change, inside the gap: the store, at once.
         rename("Alix", "$a2");
         let asked = std::time::Instant::now();
         room_members(&bridge, room.to_string(), 3).expect("joined room");
@@ -9080,7 +7888,6 @@ mod member_freshness_tests {
         assert!(asked.elapsed() < std::time::Duration::from_secs(2), "held for the gap");
         assert_eq!(name_of(&third), Some(json!("Alicia")), "{third}");
 
-        // The scheduled refetch lands after the gap and pokes.
         let started = std::time::Instant::now();
         loop {
             let poked = bridge.events.lock().unwrap().iter().any(|raw| {
@@ -9101,10 +7908,6 @@ mod member_freshness_tests {
         drop(rt);
     }
 
-    /// Review N1: the scheduled refetch is part of the read's own room action,
-    /// so sign-out's task shutdown owns it. It must still be running after the
-    /// answer (an untracked task would have let the action finish), and it
-    /// must leave cooperatively, inside the join budget, once the session ends.
     #[test]
     fn a_deferred_refetch_is_a_tracked_room_action_that_ends_with_the_session() {
         let room = room_id!("!deferred-shutdown:example.org");
@@ -9185,7 +7988,6 @@ mod member_freshness_tests {
         rename("Alicia", "$a1");
         room_members(&bridge, room.to_string(), 2).expect("joined room");
         final_snapshot(&bridge, 2);
-        // Inside the encrypted room's gap: answered, and a refetch scheduled.
         rename("Alix", "$a2");
         room_members(&bridge, room.to_string(), 3).expect("joined room");
         final_snapshot(&bridge, 3);
@@ -9214,8 +8016,6 @@ mod member_freshness_tests {
         drop(rt);
     }
 
-    /// Review N1: a refetch decided just before sign-out sends nothing once the
-    /// session has ended; the decision and the request are separate awaits.
     #[test]
     fn a_refetch_decided_before_sign_out_sends_nothing_after_it() {
         let room = room_id!("!signout:example.org");
@@ -9305,9 +8105,7 @@ mod member_freshness_tests {
         assert!(!store_agrees(Some(&bob), &facts("join", "Bob", "mxc://x/new")));
         assert!(!store_agrees(Some(&bob), &facts("ban", "Bob", "mxc://x/b")));
         assert!(!store_agrees(Some(&bob), &facts("leave", "", "")));
-        // A left or banned row shows no name, so a name change there is not stale.
         assert!(store_agrees(Some(&facts("ban", "Bob", "")), &facts("ban", "", "")));
-        // Never loaded: stale for anyone the roster shows, fine for anyone it does not.
         assert!(!store_agrees(None, &facts("join", "Carol", "")));
         assert!(!store_agrees(None, &facts("invite", "Carol", "")));
         assert!(!store_agrees(None, &facts("ban", "Carol", "")));
@@ -9320,20 +8118,15 @@ mod member_freshness_tests {
         let now = std::time::Instant::now();
         let gap = std::time::Duration::from_secs(5);
         let fresh = MemberRefreshState::default();
-        // Not stale: nothing. Unsynced for the SDK's own reasons: its own fetch.
         assert_eq!(member_step(&fresh, now, true, false, gap), MemberStep::Skip);
         assert_eq!(member_step(&fresh, now, false, true, gap), MemberStep::SdkSync);
         assert_eq!(member_step(&fresh, now, true, true, gap), MemberStep::Refresh);
-        // Running: answer from the store.
         let running = MemberRefreshState { in_flight: true, ..Default::default() };
         assert_eq!(member_step(&running, now, false, true, gap), MemberStep::ServeWhileRunning);
-        // Inside the gap: later, not now.
         let recent = MemberRefreshState { started: Some(now), ..Default::default() };
         assert_eq!(member_step(&recent, now, true, true, gap), MemberStep::Defer(now + gap));
         assert_eq!(member_step(&recent, now, true, false, gap), MemberStep::Skip);
         assert_eq!(member_step(&recent, now + gap, true, true, gap), MemberStep::Refresh);
-        // A failure left the room unsynced: no SDK fetch per read, a retry
-        // after the backoff, even with nothing new in the timeline.
         let failed = MemberRefreshState {
             started: Some(now),
             left_missing: true,
@@ -9349,7 +8142,6 @@ mod member_freshness_tests {
             member_step(&failed, now + std::time::Duration::from_secs(30), false, false, gap),
             MemberStep::Refresh
         );
-        // Synced again meanwhile (an encrypted send fetched it): paid.
         assert_eq!(member_step(&failed, now + gap, true, false, gap), MemberStep::Skip);
     }
 
@@ -9361,7 +8153,6 @@ mod member_freshness_tests {
         assert_eq!(member_refresh_gap(1_000, false), Duration::from_secs(10));
         assert_eq!(member_refresh_gap(6_000, false), MEMBER_REFRESH_GAP_MAX);
         assert_eq!(member_refresh_gap(u64::MAX, false), MEMBER_REFRESH_GAP_MAX);
-        // Encrypted: a floor, a steeper slope, a higher cap.
         assert_eq!(member_refresh_gap(3, true), MEMBER_REFRESH_GAP_ENCRYPTED_MIN);
         assert_eq!(member_refresh_gap(500, true), Duration::from_secs(15));
         assert_eq!(member_refresh_gap(6_000, true), Duration::from_secs(180));
@@ -9376,7 +8167,6 @@ mod member_freshness_tests {
         assert_eq!(member_refresh_backoff(2, gap), Duration::from_secs(60));
         assert_eq!(member_refresh_backoff(3, gap), Duration::from_secs(120));
         assert_eq!(member_refresh_backoff(50, gap), MEMBER_REFRESH_BACKOFF_MAX);
-        // Never sooner than the room's own gap.
         assert_eq!(member_refresh_backoff(1, Duration::from_secs(45)), Duration::from_secs(45));
     }
 }

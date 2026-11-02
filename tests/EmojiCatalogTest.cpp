@@ -31,10 +31,6 @@ private Q_SLOTS:
         QCoreApplication::setApplicationName(QStringLiteral("catalogue"));
     }
 
-    // Category switching swaps a precomputed bucket: constant time, never a
-    // full-catalogue rescan per click. The bound is generous to avoid flakes:
-    // 200 switches must finish well inside a second, each landing on a
-    // populated, consistent bucket.
     void categorySwitchingIsBucketSwapFast()
     {
         EmojiCatalog catalog(nullptr);
@@ -62,7 +58,6 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("%1 category switches took %2 ms")
                                 .arg(switches).arg(elapsed)));
     }
-
 
     void completeAndUnique()
     {
@@ -136,8 +131,6 @@ private Q_SLOTS:
         QCOMPARE(catalog.preferredTone(), QStringLiteral("medium"));
     }
 
-    // Big-emoji detection: one user-perceived sequence counts once, any
-    // non-whitespace text disables it, and the count saturates at 4.
     void emojiOnlySequenceCount_data()
     {
         QTest::addColumn<QString>("text");
@@ -181,15 +174,9 @@ private Q_SLOTS:
         QCOMPARE(catalog.emojiOnlySequenceCount(text), expected);
     }
 
-    // ── Colon-shortcode completion (":thumbs" -> 👍) ─────────────────────
-    //
-    // On the pre-feature code neither method exists and this file fails to
-    // compile at all, which is the sharpest possible regression signal for a
-    // method that a future edit could otherwise delete unnoticed.
     void completionsRankThumbsUpFirst()
     {
         SettingsManager settings;
-        // Earlier cases persist a skin tone; these expect the plain glyph.
         settings.setPreferredEmojiTone(QString());
         EmojiCatalog catalog(&settings);
         const QVariantList rows = catalog.completionsForPrefix(
@@ -203,9 +190,6 @@ private Q_SLOTS:
         QVERIFY2(rows.size() <= 12, "must respect the requested limit");
     }
 
-    // Gemoji-style aliases already ship in the TSV's own column (no separate
-    // alias table needed): "+1"/"thumbsup" -> 👍, "heart" -> ❤️, "joy" -> 😂,
-    // "fire" -> 🔥, matching what Slack/Discord/GitHub users expect.
     void aliasesFromTheCatalogueResolveExactly_data()
     {
         QTest::addColumn<QString>("code");
@@ -224,7 +208,6 @@ private Q_SLOTS:
         QFETCH(QString, code);
         QFETCH(QString, expected);
         SettingsManager settings;
-        // Earlier cases persist a skin tone; these expect the plain glyph.
         settings.setPreferredEmojiTone(QString());
         EmojiCatalog catalog(&settings);
         QCOMPARE(catalog.emojiForShortcode(code), expected);
@@ -238,9 +221,6 @@ private Q_SLOTS:
         QVERIFY(catalog.emojiForShortcode(QString()).isEmpty());
     }
 
-    // Preferred tone applies to both the exact-alias resolver and the
-    // fuzzy-search results, so a shortcode and a search result never
-    // disagree about which variant the user gets.
     void toneAppliesToShortcodeAndSearchAlike()
     {
         SettingsManager settings;
@@ -254,20 +234,12 @@ private Q_SLOTS:
                  QStringLiteral("👍🏽"));
     }
 
-    // Recently used emoji are boosted within their own ranking tier, but a
-    // tier match still beats a non-matching recent, and non-recent ties keep
-    // catalogue order.
     void recentlyUsedIsBoostedWithinItsTier()
     {
         SettingsManager settings;
         EmojiCatalog catalog(&settings);
-        // "party" matches no name or alias exactly, so only tier and recents
-        // order it (an exact match leads ahead of both since B066; see
-        // EmojiCatalogExactMatchTest).
         QVariantList rows = catalog.completionsForPrefix(QStringLiteral("party"), 12);
         QVERIFY2(rows.size() >= 2, "expected multiple name/alias-prefix party emoji");
-        // Unboosted: catalogue order among the tier-0 "party" matches, 🥳
-        // ("partying face") sorting ahead of 🎉 ("party popper").
         QCOMPARE(rows.first().toMap().value(QStringLiteral("emoji")).toString(),
                  QStringLiteral("\U0001F973"));
         int popperIndex = -1;
@@ -281,7 +253,6 @@ private Q_SLOTS:
         rows = catalog.completionsForPrefix(QStringLiteral("party"), 12);
         QCOMPARE(rows.first().toMap().value(QStringLiteral("emoji")).toString(),
                  QStringLiteral("\U0001F389"));
-        // The non-recent tie (🥳 vs the others) is unaffected by the boost.
         QCOMPARE(rows.at(1).toMap().value(QStringLiteral("emoji")).toString(),
                  QStringLiteral("\U0001F973"));
     }
@@ -300,7 +271,6 @@ private Q_SLOTS:
     {
         SettingsManager settings;
         EmojiCatalog catalog(&settings);
-        // Other cases record uses into the same persisted list.
         catalog.clearRecent();
         catalog.recordUse(QStringLiteral("😀"));
         catalog.recordUse(QStringLiteral("❤️"));

@@ -194,8 +194,6 @@ void BulkRedactionController::start(const QString &reason)
 {
     if (!m_selecting || m_running || m_ids.isEmpty() || !m_model || !m_client)
         return;
-    // A power-level change or a redaction by another client may have landed
-    // since selection. The server is the final authority on each request.
     m_queue = m_ids;
     m_total = m_queue.size();
     m_completed = m_failed = 0;
@@ -221,8 +219,6 @@ void BulkRedactionController::sendNext()
     // to a refusal) must not hold the run and its "running" state for ever.
     // Armed before the call, which may answer synchronously and stop it.
     m_requestTimer.start(m_requestTimeoutMs);
-    // The selected model knows whether this is a thread; MatrixClient's
-    // redaction path translates the composite id before the SDK call.
     m_client->redactEvent(m_timelineId, m_inFlight, m_reason);
 }
 
@@ -230,9 +226,7 @@ void BulkRedactionController::onRequestTimeout()
 {
     if (!m_running || m_inFlight.isEmpty())
         return;
-    // The request may still land; its result must not be counted twice or
-    // finish a later batch, so it is abandoned like a cancelled one.
-    abandon(requestKey(m_roomId, m_inFlight), /*alreadyCounted=*/true);
+    abandon(requestKey(m_roomId, m_inFlight),true);
     m_inFlight.clear();
     ++m_completed;
     ++m_failed;
@@ -274,9 +268,6 @@ void BulkRedactionController::onResult(const QString &roomId,
     if (!ok) {
         ++m_failed;
         m_error = MatrixClient::redactionFailureText(category);
-        // Do not continue flooding a room after a 429. A retry belongs to a
-        // later, deliberate batch once the homeserver's limit has passed.
-        // Keyed on the category, never on error text (review S2).
         if (category == QLatin1String("rate_limited")) {
             m_cancelled = true;
             m_queue.clear();
@@ -308,7 +299,7 @@ void BulkRedactionController::cancel()
         m_cancelled = true;
         m_queue.clear();
         if (!m_inFlight.isEmpty()) {
-            abandon(requestKey(m_roomId, m_inFlight), /*alreadyCounted=*/false);
+            abandon(requestKey(m_roomId, m_inFlight),false);
             m_error = tr("One redaction was already in progress; its result is unknown.");
         }
         finish();

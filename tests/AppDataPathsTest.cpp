@@ -47,15 +47,11 @@ void AppDataPathsTest::initTestCase()
 {
     QVERIFY(m_dataHome.isValid());
     qputenv("XDG_DATA_HOME", m_dataHome.path().toUtf8());
-    // Isolate every other variable resolveAppDataBase() can read too, so no
-    // case can write into a real data directory.
     qputenv("HOME", m_dataHome.path().toUtf8());
     qputenv("LOCALAPPDATA", m_dataHome.path().toUtf8() + "/AppData/Local");
     qputenv("USERPROFILE", m_dataHome.path().toUtf8());
     qunsetenv("LIGHTNING_PORTABLE");
 
-    // Pin installed mode: primaryRoot() consults lightning::portable, and a
-    // stray portable.marker in the build tree would move every path.
     lightning::portable::setPortableOverrideForTest(false, QString());
     QVERIFY(!lightning::portable::isPortable());
 }
@@ -67,16 +63,12 @@ void AppDataPathsTest::cleanupTestCase()
 
 void AppDataPathsTest::resolveAppDataBasePortableRootWins()
 {
-    // The portable root is an override, not a fallback: an inherited
-    // environment cannot steer a portable copy back into AppData.
-    // PortableModeTest covers the full precedence; this pins the signature.
     QCOMPARE(matrix::app_data::resolveAppDataBase(
                  true, QStringLiteral("D:/xdg"),
                  QStringLiteral("C:/Users/X/AppData/Local"),
                  QStringLiteral("C:/Users/X"), QStringLiteral("/home/x"),
                  QStringLiteral("E:/Lightning/data")),
              QStringLiteral("E:/Lightning/data"));
-    // Omitting it keeps the five-argument behaviour exactly.
     QCOMPARE(matrix::app_data::resolveAppDataBase(
                  true, QString(), QStringLiteral("C:/Users/X/AppData/Local"),
                  QStringLiteral("C:/Users/X"), QStringLiteral("/home/x")),
@@ -89,22 +81,18 @@ void AppDataPathsTest::composeAppDataRoot_data()
     QTest::addColumn<bool>("portable");
     QTest::addColumn<QString>("expected");
 
-    // Installed: unchanged, so an MSI/Setup install keeps reading its data.
     QTest::newRow("installed-linux")
         << QStringLiteral("/home/x/.local/share") << false
         << QStringLiteral("/home/x/.local/share/MatrixClient/matrix-client");
     QTest::newRow("installed-windows")
         << QStringLiteral("C:/Users/X/AppData/Local") << false
         << QStringLiteral("C:/Users/X/AppData/Local/MatrixClient/matrix-client");
-    // Portable: no vendor/app segments; <program dir>/data is already
-    // Lightning's.
     QTest::newRow("portable")
         << QStringLiteral("E:/Lightning/data") << true
         << QStringLiteral("E:/Lightning/data/matrix");
     QTest::newRow("portable-spaces")
         << QStringLiteral("E:/Portable Apps/Lightning/data") << true
         << QStringLiteral("E:/Portable Apps/Lightning/data/matrix");
-    // No resolvable base means empty, never a bogus root, in either mode.
     QTest::newRow("empty-installed") << QString() << false << QString();
     QTest::newRow("empty-portable") << QString() << true << QString();
 }
@@ -126,7 +114,6 @@ void AppDataPathsTest::resolveAppDataBase_data()
     QTest::addColumn<QString>("home");
     QTest::addColumn<QString>("expected");
 
-    // XDG_DATA_HOME always wins, on either platform.
     QTest::newRow("xdg-wins-linux")
         << false << QStringLiteral("/xdg/data") << QString() << QString()
         << QStringLiteral("/home/x") << QStringLiteral("/xdg/data");
@@ -134,8 +121,6 @@ void AppDataPathsTest::resolveAppDataBase_data()
         << true << QStringLiteral("D:/xdg") << QStringLiteral("C:/Users/X/AppData/Local")
         << QString() << QString() << QStringLiteral("D:/xdg");
 
-    // Windows: LOCALAPPDATA, then USERPROFILE\AppData\Local. Drive letters,
-    // spaces and Unicode profile names must survive.
     QTest::newRow("win-localappdata")
         << true << QString() << QStringLiteral("C:/Users/Test/AppData/Local")
         << QStringLiteral("C:/Users/Test") << QStringLiteral("/ignored")
@@ -149,18 +134,15 @@ void AppDataPathsTest::resolveAppDataBase_data()
         << QStringLiteral("C:/Users/Žmogus") << QString()
         << QStringLiteral("C:/Users/Žmogus/AppData/Local");
 
-    // The Windows variables are ignored off Windows even when set.
     QTest::newRow("linux-ignores-localappdata")
         << false << QString() << QStringLiteral("C:/Users/X/AppData/Local")
         << QString() << QStringLiteral("/home/y")
         << QStringLiteral("/home/y/.local/share");
 
-    // POSIX HOME fallback.
     QTest::newRow("linux-home")
         << false << QString() << QString() << QString()
         << QStringLiteral("/home/z") << QStringLiteral("/home/z/.local/share");
 
-    // Nothing resolvable means empty, never a bogus root.
     QTest::newRow("nothing-linux")
         << false << QString() << QString() << QString() << QString() << QString();
     QTest::newRow("nothing-windows")
@@ -197,12 +179,6 @@ void AppDataPathsTest::canonicalIdentity_data()
         << QStringLiteral("test")
         << QStringLiteral("https://matrix.smetonis.net")
         << QStringLiteral("@test:matrix.smetonis.net");
-    // The server name is lowercased; the localpart is not. Uppercase
-    // localparts are legal, so folding would alias two accounts onto one SDK
-    // store. Typed-vs-canonical differences are handled by
-    // SettingsManager::canonicalUserIdForTypedIdentity and by recording the
-    // store location (bindStoreSlug / storeSlugFor), never by mangling ids or
-    // moving stores.
     QTest::newRow("uppercase-localpart-preserved")
         << QStringLiteral("https://matrix.smetonis.net")
         << QStringLiteral("@Mizerd:Matrix.Smetonis.Net")
@@ -315,11 +291,6 @@ void AppDataPathsTest::removesOnlySelectedRustState()
     QVERIFY(QFileInfo::exists(other.rustStorePath + QStringLiteral("/crypto.db")));
 }
 
-// Message content is stored decrypted on disk (docs/privacy.md), and removing
-// the account deletes it, so this names every store that holds message text:
-// the SDK event cache, its state store and Lightning's search index,
-// including SQLite WAL/SHM sidecars, which can hold plaintext the main
-// database does not yet.
 void AppDataPathsTest::removalTakesEveryStoreThatHoldsMessageText()
 {
     matrix::app_data::AccountIdentity identity;
@@ -337,9 +308,6 @@ void AppDataPathsTest::removalTakesEveryStoreThatHoldsMessageText()
         QStringLiteral("lightning-search.sqlite3"),
         QStringLiteral("lightning-search.sqlite3-wal"),
         QStringLiteral("matrix-sdk-crypto.sqlite3"),
-        // The split layout (rust/src/cachelayout.rs): the throwaway caches
-        // live in cache/ INSIDE the recorded store directory, so sign-out and
-        // removal take them with no path of their own.
         QStringLiteral("cache/matrix-sdk-event-cache.sqlite3"),
         QStringLiteral("cache/matrix-sdk-event-cache.sqlite3-wal"),
         QStringLiteral("cache/lightning-media-store/matrix-sdk-media.sqlite3"),
@@ -359,8 +327,6 @@ void AppDataPathsTest::removalTakesEveryStoreThatHoldsMessageText()
         QVERIFY2(!QFileInfo::exists(path), qPrintable(path));
     }
 
-        // ...and nothing under the account root still contains the body, which
-        // also catches stores this test does not know by name.
     QDirIterator it(identity.accountRoot, QDir::Files,
                     QDirIterator::Subdirectories);
     while (it.hasNext()) {
@@ -437,11 +403,6 @@ void AppDataPathsTest::reportsPartialRemovalFailure()
 }
 
 namespace {
-// Stands in for Windows refusing to delete a file another handle has open
-// (matrix-sdk opens its SQLite files without FILE_SHARE_DELETE): the first
-// `refusals` removals delete one file each and report failure, as
-// QDir::removeRecursively() does on a partly locked tree; later ones remove
-// the directory for real.
 struct HeldOpen {
     int refusals = 0;
     int calls = 0;
@@ -459,13 +420,10 @@ bool heldOpenRemove(const QString &path, void *ctx)
     }
     return QDir(path).removeRecursively();
 }
-} // namespace
+}
 
 void AppDataPathsTest::removalRetriesAStoreThatIsStillOpen()
 {
-    // Sign-out on Windows reported "cleanup_incomplete" because the store was
-    // deleted while a retiring client still had it open. A handle that closes
-    // a moment later must not fail the removal.
     matrix::app_data::AccountIdentity identity;
     QVERIFY(matrix::app_data::resolveAccountIdentity(
         QStringLiteral("https://heldopen.example"), QStringLiteral("alice"),
@@ -488,8 +446,6 @@ void AppDataPathsTest::removalRetriesAStoreThatIsStillOpen()
 
 void AppDataPathsTest::aStoreThatStaysOpenIsReportedFailedNeverRemoved()
 {
-    // CLAUDE.md §6: a cleanup that did not remove the store must not report
-    // success, even though some files inside it were deleted.
     matrix::app_data::AccountIdentity identity;
     QVERIFY(matrix::app_data::resolveAccountIdentity(
         QStringLiteral("https://stillopen.example"), QStringLiteral("alice"),
@@ -514,10 +470,6 @@ void AppDataPathsTest::aStoreThatStaysOpenIsReportedFailedNeverRemoved()
 
 void AppDataPathsTest::retriesShareOneBudgetAcrossEveryDirectory()
 {
-    // The removal runs on the GUI thread: a store and its quarantined siblings
-    // that all stay locked must not each get the full retry ladder. Six tries
-    // 20 ms apart is a 100 ms budget for the whole removal; per directory it
-    // would be twelve calls here.
     matrix::app_data::AccountIdentity identity;
     QVERIFY(matrix::app_data::resolveAccountIdentity(
         QStringLiteral("https://budget.example"), QStringLiteral("alice"),
@@ -537,15 +489,11 @@ void AppDataPathsTest::retriesShareOneBudgetAcrossEveryDirectory()
              qPrintable(QStringLiteral("%1 removal calls: the retry budget is "
                                        "per directory, not per removal")
                             .arg(held.calls)));
-    QVERIFY(held.calls >= 2); // the store itself was retried at least once
+    QVERIFY(held.calls >= 2);
     QVERIFY(QDir(identity.rustStorePath).removeRecursively());
     QVERIFY(QDir(sibling).removeRecursively());
 }
 
-// VM test 2026-10-07: sign-out deleted the store and left the account's
-// directory, empty and named after the account. The helper removes it only
-// when nothing is in it and only as a direct child of primaryRoot(), and
-// every outcome is distinct (absent is not deleted).
 void AppDataPathsTest::anAccountRootGoesOnlyWhenEmpty()
 {
     using matrix::app_data::EmptyDirRemoval;
@@ -557,16 +505,13 @@ void AppDataPathsTest::anAccountRootGoesOnlyWhenEmpty()
         &carol));
     QDir(carol.accountRoot).removeRecursively();
 
-    // Sign-out removed the store; the directory that held it is empty now.
     QVERIFY(writeFile(carol.rustStorePath + QStringLiteral("/crypto.db")));
     QVERIFY(matrix::app_data::removeAccountRustState(carol).removedAnything());
     QVERIFY(QDir(carol.accountRoot).exists());
     QCOMPARE(removeAccountRootIfEmpty(carol.accountRoot), EmptyDirRemoval::Deleted);
     QVERIFY(!QFileInfo::exists(carol.accountRoot));
-    // Nothing there is "absent", never "deleted".
     QCOMPARE(removeAccountRootIfEmpty(carol.accountRoot), EmptyDirRemoval::Absent);
 
-    // Anything left in it, hidden files included, keeps it and its contents.
     QVERIFY(writeFile(carol.accountRoot + QStringLiteral("/backgrounds/keep.jpg")));
     QCOMPARE(removeAccountRootIfEmpty(carol.accountRoot), EmptyDirRemoval::NotEmpty);
     QVERIFY(QFileInfo::exists(carol.accountRoot + QStringLiteral("/backgrounds/keep.jpg")));
@@ -576,7 +521,6 @@ void AppDataPathsTest::anAccountRootGoesOnlyWhenEmpty()
     QVERIFY(QFileInfo::exists(carol.accountRoot + QStringLiteral("/.hidden")));
     QVERIFY(QDir(carol.accountRoot).removeRecursively());
 
-    // Never the root itself, nothing deeper than one level, nothing outside.
     const QString primary = matrix::app_data::primaryRoot();
     QVERIFY(QDir().mkpath(primary + QStringLiteral("/nested/empty")));
     QCOMPARE(removeAccountRootIfEmpty(primary + QStringLiteral("/nested/empty")),
@@ -588,14 +532,12 @@ void AppDataPathsTest::anAccountRootGoesOnlyWhenEmpty()
     QCOMPARE(removeAccountRootIfEmpty(outside.path()), EmptyDirRemoval::Refused);
     QVERIFY(QDir(outside.path()).exists());
     QCOMPARE(removeAccountRootIfEmpty(QString()), EmptyDirRemoval::Refused);
-    // A file is not a directory to remove.
     QVERIFY(writeFile(primary + QStringLiteral("/a-file")));
     QCOMPARE(removeAccountRootIfEmpty(primary + QStringLiteral("/a-file")),
              EmptyDirRemoval::Refused);
     QVERIFY(QFile::remove(primary + QStringLiteral("/a-file")));
 
 #ifdef Q_OS_UNIX
-    // A symlink is never followed or removed, even to an empty directory.
     QTemporaryDir target;
     QVERIFY(target.isValid());
     const QString link = primary + QStringLiteral("/linked-account");
@@ -608,13 +550,6 @@ void AppDataPathsTest::anAccountRootGoesOnlyWhenEmpty()
 #endif
 }
 
-// Personal chat backgrounds are files under the account directory, and the
-// sign-out cleanup is never recursive, so they kept the account directory (and
-// the pictures) on disk after every sign-out. They go first now, under the
-// RECORDED root (where the store lived) and the canonical one (where the
-// controller writes), and then the empty account directory can go. A
-// recording that differs from the canonical slug is exactly the case where a
-// cleanup keyed on the user id alone would miss one of the two.
 void AppDataPathsTest::personalBackgroundsGoSoTheRecordedRootCanGo()
 {
     using matrix::app_data::EmptyDirRemoval;
@@ -638,7 +573,6 @@ void AppDataPathsTest::personalBackgroundsGoSoTheRecordedRootCanGo()
         personalBackgroundsDir(canonicalRoot) + QStringLiteral("/b.png");
     QVERIFY(writeFile(recordedPicture));
     QVERIFY(writeFile(canonicalPicture));
-    // What the old sign-out did: the backgrounds keep both directories.
     QCOMPARE(removeAccountRootIfEmpty(erin.accountRoot), EmptyDirRemoval::NotEmpty);
     QCOMPARE(removeAccountRootIfEmpty(canonicalRoot), EmptyDirRemoval::NotEmpty);
 
@@ -650,14 +584,11 @@ void AppDataPathsTest::personalBackgroundsGoSoTheRecordedRootCanGo()
     QCOMPARE(removeAccountRootIfEmpty(erin.accountRoot), EmptyDirRemoval::Deleted);
     QCOMPARE(removeAccountRootIfEmpty(canonicalRoot), EmptyDirRemoval::Deleted);
 
-    // Nothing there is "missing", never "deleted".
     const auto again = removePersonalBackgrounds(erin);
     QCOMPARE(again.deleted, 0);
     QCOMPARE(again.missing, 2);
     QVERIFY(!again.removedAnything());
 
-    // The client's sign-out calls it with the recorded identity BEFORE the
-    // empty-directory check, or that check still sees the pictures.
     QFile source(QStringLiteral(LIGHTNING_SOURCE_DIR "/src/matrix/RustSdkMatrixClient.cpp"));
     QVERIFY(source.open(QIODevice::ReadOnly | QIODevice::Text));
     const QString text = QString::fromUtf8(source.readAll());
@@ -672,11 +603,6 @@ void AppDataPathsTest::personalBackgroundsGoSoTheRecordedRootCanGo()
              "personal backgrounds must go before the account directory check");
 }
 
-// B043: a failed sign-in removed its store and left the directory that held
-// it, empty and named after the typed username, for good. The rollback now
-// takes that directory too, but only when nothing else is in it: a quarantined
-// store from before the attempt (which may hold the only copy of room keys)
-// keeps it, and itself.
 void AppDataPathsTest::aFailedAttemptLeavesNoEmptyAccountDirectory()
 {
     matrix::app_data::AccountIdentity typed;
@@ -691,7 +617,6 @@ void AppDataPathsTest::aFailedAttemptLeavesNoEmptyAccountDirectory()
     QVERIFY2(!QFileInfo::exists(typed.accountRoot),
              "the attempt's empty account directory was left behind");
 
-    // A quarantined sibling keeps the directory and is never touched.
     const QString quarantined =
         typed.rustStorePath + QStringLiteral(".orphaned-20261016-000000000");
     QVERIFY(writeFile(quarantined + QStringLiteral("/matrix-sdk-crypto.sqlite3")));

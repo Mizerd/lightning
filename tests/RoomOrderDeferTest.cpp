@@ -1,18 +1,3 @@
-// Holding the room list's ORDER still while it is being used.
-//
-// The tester's report: "when you click on something it moves it to the top,
-// because the room order is sorted by time", and Element "only updates room
-// order when you click away from it". Only the ORDER is held: a new message
-// still updates its row's preview and badge at once, rooms still appear and
-// disappear live, and a Space, tab or search change, a release, or the cap
-// applies the held order.
-//
-// Covers BOTH layouts (RoomListModel and SpaceChannelModel), which must agree,
-// and the open-room rule that applies with the hold off as well: a stamp that
-// predates opening a room must not send it to the top.
-//
-// Every case drives the real triggers: the client announcing rooms, the rail's
-// selection, the filter chips, the search box.
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
@@ -59,7 +44,6 @@ public:
     using MatrixClient::MatrixClient;
 
     QList<RoomInfo> mirror;
-    /// Every roster asked for, in order, and the op it was given.
     QStringList memberRequests;
     quint64 nextOp = 0;
     /// 0 = "this backend cannot answer", which is what a real client returns
@@ -75,7 +59,6 @@ public:
         return ++nextOp;
     }
 
-    /// One member snapshot, shaped exactly like the bridge's.
     void deliverRoster(quint64 op, const QString &roomId,
                        const QStringList &joined, bool partial = false,
                        bool truncated = false, bool ok = true)
@@ -100,7 +83,6 @@ public:
 
     bool supportsMarkRoomRead() const override { return true; }
     QStringList markReadAsked;
-    /// A rejected FFI call announces failure from inside the call itself.
     bool rejectMarkRead = false;
     void markRoomRead(const QString &roomId) override
     {
@@ -117,8 +99,6 @@ public:
         }
         return nullptr;
     }
-    /// A message arrives: the sort key moves, the preview changes, a badge
-    /// appears. Announced the way the Rust bridge announces it.
     void message(const QString &id, const QDateTime &when,
                  const QString &preview)
     {
@@ -166,8 +146,6 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-
-/// Three rooms, newest first: r1, r2, r3.
 QList<RoomInfo> rooms3()
 {
     return {
@@ -200,7 +178,6 @@ int rowOf(const RoomListModel &model, const QString &id)
     return idsOf(model).indexOf(id);
 }
 
-/// Room rows only (no headers, no command rows), in display order.
 QStringList roomIdsOf(const SpaceChannelModel &model)
 {
     QStringList out;
@@ -215,8 +192,6 @@ QStringList roomIdsOf(const SpaceChannelModel &model)
     return out;
 }
 
-// The sort fixtures: names chosen so that binary, case-insensitive and
-// activity order all differ ("Bravo" < "alpha" in code points).
 const auto kInvite = QStringLiteral("!invite:x");
 const auto kFavY = QStringLiteral("!favy:x");
 const auto kFavD = QStringLiteral("!favd:x");
@@ -238,15 +213,13 @@ QList<RoomInfo> sortRooms()
     return out;
 }
 
-// Classic: invitation, favourites, then the one feed. Only the order INSIDE a
-// group depends on the sort.
 const QStringList kSortActivity{ kInvite, kFavY, kFavD, kR1, kR4, kR2, kR3 };
 const QStringList kSortByName{ kInvite, kFavD, kFavY, kR2, kR4, kR3, kR1 };
 
-const QStringList kLive{ kR2, kR1, kR3 };     // r2 raised above r1
-const QStringList kStill{ kR1, kR2, kR3 };    // what a held list keeps
+const QStringList kLive{ kR2, kR1, kR3 };
+const QStringList kStill{ kR1, kR2, kR3 };
 
-} // namespace
+}
 
 class RoomOrderDeferTest : public QObject
 {
@@ -283,7 +256,6 @@ private:
             model.setSources(&client, &spaces, &layout);
             model.setDeferReordering(defer);
         }
-        /// The model rebuilds on a zero timer after the client announces.
         void settle() { QTest::qWait(20); }
     };
 
@@ -305,10 +277,6 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // -- Classic ----------------------------------------------------------
-
-    // Old code: there is no hold, so r2 jumps above r1 on the message and the
-    // list reads {r2, r1, r3}.
     void classicAHeldOrderKeepsRowsStillWhileTheRowUpdatesInPlace()
     {
         Classic c;
@@ -321,7 +289,6 @@ private Q_SLOTS:
 
         QCOMPARE(idsOf(c.model), kStill);
         QVERIFY(c.model.orderHeld());
-        // The row itself is live: preview, badge and time all moved.
         const int row = rowOf(c.model, kR2);
         QCOMPARE(c.model.data(c.model.index(row),
                               RoomListModel::LastMessagePreviewRole).toString(),
@@ -348,7 +315,6 @@ private Q_SLOTS:
         QCOMPARE(idsOf(c.model), kLive);
         QVERIFY(!c.model.orderHeld());
         QCOMPARE(held.count(), 2);
-        // And it holds again from the new order.
         c.client.message(kR3, minutesAgo(0), QStringLiteral("pong"));
         c.client.announce();
         QCOMPARE(idsOf(c.model), kLive);
@@ -363,7 +329,7 @@ private Q_SLOTS:
         c.client.announce();
         QCOMPARE(idsOf(c.model), kStill);
 
-        c.model.setFilterMode(2);   // Rooms: all three still qualify
+        c.model.setFilterMode(2);
 
         QCOMPARE(idsOf(c.model), kLive);
         QVERIFY(!c.model.orderHeld());
@@ -377,7 +343,7 @@ private Q_SLOTS:
         c.client.announce();
         QCOMPARE(idsOf(c.model), kStill);
 
-        c.model.setSearchQuery(QStringLiteral("a"));   // debounced 200 ms
+        c.model.setSearchQuery(QStringLiteral("a"));
 
         QTRY_COMPARE_WITH_TIMEOUT(idsOf(c.model), kLive, 2000);
     }
@@ -409,12 +375,10 @@ private Q_SLOTS:
         c.client.announce();
         QCOMPARE(idsOf(c.model), kStill);
 
-        // A room joined just now enters where its own activity puts it.
         c.client.mirror.append(room(kR4, QStringLiteral("delta"), 1));
         c.client.announce();
         QCOMPARE(idsOf(c.model), (QStringList{ kR4, kR1, kR2, kR3 }));
 
-        // A room left disappears at once, and the rest keep their places.
         c.client.mirror.removeIf([](const RoomInfo &r) { return r.id == kR1; });
         c.client.announce();
         QCOMPARE(idsOf(c.model), (QStringList{ kR4, kR2, kR3 }));
@@ -458,9 +422,6 @@ private Q_SLOTS:
         QVERIFY(!c.model.orderHeld());
     }
 
-    // Old code: the stamp lands on the open room and it climbs to the top.
-    // Clicking another room is looking away from the list: the held order
-    // applies then, as in Element.
     void classicSwitchingRoomsAppliesTheHeldOrder()
     {
         Classic c;
@@ -478,11 +439,10 @@ private Q_SLOTS:
     void classicOpeningARoomDoesNotMoveItOnAStaleStamp()
     {
         Classic c;
-        c.build(false);                       // the guard applies either way
-        c.model.setPinnedRoomId(kR3);         // the user opens r3
+        c.build(false);
+        c.model.setPinnedRoomId(kR3);
         QCOMPARE(idsOf(c.model), kStill);
 
-        // The SDK catches up a message r3 already had before it was opened.
         c.client.find(kR3)->raiseActivity(minutesAgo(30));
         c.client.announce();
 
@@ -499,10 +459,6 @@ private Q_SLOTS:
         QCOMPARE(idsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
     }
 
-    // -- The ongoing call's room (GitHub #44) -------------------------------
-
-    // Old code: there is no call room, so the message lifts r2 over r3 and the
-    // list reads {r2, r1, r3}; the call's row has no section of its own.
     void classicTheCallRoomLeadsAndStaysPutWhileOthersGetActivity()
     {
         Classic c;
@@ -518,7 +474,6 @@ private Q_SLOTS:
         c.client.announce();
         QCOMPARE(idsOf(c.model), (QStringList{ kR3, kR2, kR1 }));
 
-        // The call ends: normal ordering resumes, and the section goes.
         c.model.setCallRoomId(QString());
         QCOMPARE(idsOf(c.model), (QStringList{ kR2, kR1, kR3 }));
         QCOMPARE(c.model.data(c.model.index(2), RoomListModel::CategoryRole)
@@ -556,7 +511,6 @@ private Q_SLOTS:
         QCOMPARE(roomIdsOf(c.model), (QStringList{ kR2, kR1, kR3 }));
     }
 
-    // Both lanes feed the models, and the Classic presenter names the section.
     void theAppControllerFeedsBothModelsAndThePresenterLabelsTheSection()
     {
         const QString app = readFile(QStringLiteral(SRC_DIR "/app/AppController.cpp"));
@@ -565,8 +519,6 @@ private Q_SLOTS:
         const QString pres = readFile(QStringLiteral(QML_DIR "/RoomListClassicPresenter.qml"));
         QVERIFY(pres.contains(QStringLiteral("section === \"call\"")));
     }
-
-    // -- Channels ---------------------------------------------------------
 
     void channelsAHeldOrderKeepsRowsStillWhileTheRowUpdatesInPlace()
     {
@@ -581,7 +533,6 @@ private Q_SLOTS:
 
         QCOMPARE(roomIdsOf(c.model), kStill);
         QVERIFY(c.model.orderHeld());
-        // The badge is live.
         const int row = [&] {
             for (int i = 0; i < c.model.rowCount(); ++i) {
                 if (c.model.data(c.model.index(i, 0),
@@ -642,8 +593,8 @@ private Q_SLOTS:
         c.settle();
         QCOMPARE(roomIdsOf(c.model), (QStringList{ kR1, kR2 }));
 
-        c.model.setScopeSpaceId(QString());   // Home
-        c.model.setScopeSpaceId(kWork);       // and back: a fresh ordering
+        c.model.setScopeSpaceId(QString());
+        c.model.setScopeSpaceId(kWork);
 
         QCOMPARE(roomIdsOf(c.model), (QStringList{ kR2, kR1 }));
     }
@@ -708,18 +659,12 @@ private Q_SLOTS:
         c.settle();
         QCOMPARE(roomIdsOf(c.model), kStill);
 
-        // A message sent after the open is real and moves it.
         c.client.message(kR3, minutesAgo(0), QStringLiteral("now"));
         c.client.announce();
         c.settle();
         QCOMPARE(roomIdsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
     }
 
-    // -- The setting and its wiring ----------------------------------------
-
-    // The bell must not clear on a REQUEST: markRoomRead is asynchronous and
-    // its FFI call can be rejected. Old code emitted roomMarkedRead before the
-    // action ran, whatever became of it.
     void aMarkReadAnnouncesOnlyOnceTheServerAcceptedIt()
     {
         Classic c;
@@ -728,13 +673,13 @@ private Q_SLOTS:
 
         c.model.markRoomRead(kR1);
         QCOMPARE(c.client.markReadAsked, (QStringList{ kR1 }));
-        QCOMPARE(marked.count(), 0);                  // asked, not yet done
-        Q_EMIT c.client.readMarkerAdvanced(kR2);      // someone else's receipt
+        QCOMPARE(marked.count(), 0);
+        Q_EMIT c.client.readMarkerAdvanced(kR2);
         QCOMPARE(marked.count(), 0);
         Q_EMIT c.client.readMarkerAdvanced(kR1);
         QCOMPARE(marked.count(), 1);
         QCOMPARE(marked.first().first().toString(), kR1);
-        Q_EMIT c.client.readMarkerAdvanced(kR1);      // an ordinary receipt after
+        Q_EMIT c.client.readMarkerAdvanced(kR1);
         QCOMPARE(marked.count(), 1);
     }
 
@@ -744,21 +689,18 @@ private Q_SLOTS:
         c.build(false, rooms3());
         QSignalSpy marked(&c.model, &RoomListModel::roomMarkedRead);
 
-        c.client.rejectMarkRead = true;               // FFI refused the command
+        c.client.rejectMarkRead = true;
         c.model.markRoomRead(kR1);
-        Q_EMIT c.client.readMarkerAdvanced(kR1);      // a later in-room receipt
+        Q_EMIT c.client.readMarkerAdvanced(kR1);
         QCOMPARE(marked.count(), 0);
 
-        c.client.rejectMarkRead = false;              // accepted, failed async
+        c.client.rejectMarkRead = false;
         c.model.markRoomRead(kR2);
         Q_EMIT c.client.markRoomReadFailed(kR2);
         Q_EMIT c.client.readMarkerAdvanced(kR2);
         QCOMPARE(marked.count(), 0);
     }
 
-    // An account switch keeps the client object; the retired handle is never
-    // polled again, so a mark-read pending at sign-out must not survive to be
-    // popped by the next account's own receipt for the same room.
     void aMarkReadPendingAtSignOutNeverReachesTheNextAccount()
     {
         Classic c;
@@ -771,8 +713,6 @@ private Q_SLOTS:
         QCOMPARE(marked.count(), 0);
     }
 
-    // The room list's own badges follow the one rule: a muted room with a
-    // highlight is neither unread nor a mention; "Mentions & keywords" shows.
     void classicBadgesAndUnreadsFilterAreSilentForAMutedRoom()
     {
         QList<RoomInfo> rooms = rooms3();
@@ -794,11 +734,6 @@ private Q_SLOTS:
         QVERIFY(idsOf(c.model).contains(kR1));
     }
 
-    // -- A Space's own order (as its lobby lists it) -------------------------
-
-    /// Space order: r3, r1, r2 (m.space.child), against activity r1, r2, r3 and
-    /// A-Z alpha(r1), bravo(r2), charlie(r3). A DM with nobody in the Space and
-    /// a favourite are the other two things the sidebar must place.
     static QList<RoomInfo> spaceRooms()
     {
         RoomInfo work = room(kWork, QStringLiteral("Work"), 500);
@@ -809,8 +744,6 @@ private Q_SLOTS:
                  room(kR3, QStringLiteral("charlie"), 120) };
     }
 
-    // Seikm: the sidebar's channels followed activity while the Space lobby
-    // followed m.space.child order. Old code: {r1, r2, r3}.
     void classicASpacesRoomsFollowTheSpacesOwnOrderInSpaceOrderMode()
     {
         Classic c;
@@ -819,13 +752,11 @@ private Q_SLOTS:
         c.spaces.setActiveSpaceId(kWork);
         QCOMPARE(idsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
 
-        // A message does not move a room the Space has placed.
         c.client.message(kR2, minutesAgo(0), QStringLiteral("ping"));
         c.client.announce();
         QCOMPARE(idsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
         QVERIFY(!c.model.orderHeld());
 
-        // A-Z still sorts by name.
         c.model.setSortMode(conversation::SortByName);
         QCOMPARE(idsOf(c.model), (QStringList{ kR1, kR2, kR3 }));
     }
@@ -849,7 +780,6 @@ private Q_SLOTS:
         QCOMPARE(roomIdsOf(c.model), (QStringList{ kR1, kR2, kR3 }));
     }
 
-    // Outside a real Space (Home) Space order is activity.
     void classicHomeInSpaceOrderModeIsActivity()
     {
         Classic c;
@@ -859,8 +789,6 @@ private Q_SLOTS:
         QCOMPARE(idsOf(c.model), (QStringList{ kR1, kR2, kR3 }));
     }
 
-    // The default is untouched: Activity inside a Space is still recency, in
-    // both layouts, however the Space lists its children.
     void activityInsideASpaceIsUnchangedInBothLayouts()
     {
         Classic c;
@@ -875,8 +803,6 @@ private Q_SLOTS:
         ch.settle();
         QCOMPARE(roomIdsOf(ch.model), (QStringList{ kR1, kR2, kR3 }));
     }
-
-    // -- Sort mode (Activity / A-Z) ----------------------------------------
 
     void classicAZOrdersByNameWithinGroupsAndActivityRestoresTheRest()
     {
@@ -893,8 +819,6 @@ private Q_SLOTS:
         QCOMPARE(changed.count(), 2);
         QCOMPARE(idsOf(c.model), kSortActivity);
     }
-
-    // --- Unread first ------------------------------------------------------
 
     static QList<RoomInfo> unreadRooms()
     {
@@ -916,8 +840,6 @@ private Q_SLOTS:
         QSignalSpy changed(&c.model, &RoomListModel::sortModeChanged);
         c.model.setSortMode(conversation::SortByUnread);
         QCOMPARE(changed.count(), 1);
-        // Invitation and favourites keep their groups; inside the feed the
-        // two unread rooms lead (newer first), then the read ones.
         QCOMPARE(idsOf(c.model),
                  (QStringList{ kInvite, kFavY, kFavD, kR2, kR3, kR1, kR4 }));
         c.model.setSortMode(conversation::SortByActivity);
@@ -963,7 +885,6 @@ private Q_SLOTS:
         Classic c;
         c.build(false, sortRooms());
         c.model.setSortMode(conversation::SortByName);
-        // Not std::clamp: 7 would land on A-Z.
         c.model.setSortMode(7);
         QCOMPARE(c.model.sortMode(), int(conversation::SortByActivity));
         QCOMPARE(idsOf(c.model), kSortActivity);
@@ -971,14 +892,12 @@ private Q_SLOTS:
                  int(conversation::SortByActivity));
     }
 
-    // A held order is moot under A-Z, and toggling applies at once either way.
     void classicTogglingTheSortAppliesAtOnceAndDoesNotFightTheHeldOrder()
     {
         Classic c;
         c.build(true, sortRooms());
         c.client.message(kR3, minutesAgo(1), QStringLiteral("ping"));
         c.client.announce();
-        // Held: mike has the newest message and has not moved.
         QCOMPARE(idsOf(c.model), kSortActivity);
         QVERIFY(c.model.orderHeld());
 
@@ -987,14 +906,11 @@ private Q_SLOTS:
         QVERIFY2(!c.model.orderHeld(),
                  "A-Z reports a held order that cannot exist");
 
-        // A message under A-Z moves nothing and holds nothing.
         c.client.message(kR1, minutesAgo(0), QStringLiteral("pong"));
         c.client.announce();
         QCOMPARE(idsOf(c.model), kSortByName);
         QVERIFY(!c.model.orderHeld());
 
-        // Back on Activity: the LIVE order, immediately (not the stale one
-        // held before the switch). zulu's message is the newest, mike's next.
         c.model.setSortMode(conversation::SortByActivity);
         const QStringList live{ kInvite, kFavY, kFavD, kR1, kR3, kR4, kR2 };
         QCOMPARE(idsOf(c.model), live);
@@ -1003,8 +919,6 @@ private Q_SLOTS:
     void classicAZKeepsASupersededRoomBelowTheLiveOnes()
     {
         QList<RoomInfo> rooms = sortRooms();
-        // "alpha" was upgraded to "zulu"'s slot: it must sort under every live
-        // room of its rank whatever its name says.
         rooms[1].successorRoomId = kR1;
         rooms[0].predecessorRoomId = kR2;
         Classic c;
@@ -1020,7 +934,6 @@ private Q_SLOTS:
         c.build(false, sortRooms());
         c.settle();
         const QStringList activity = roomIdsOf(c.model);
-        // Favourites lead the group in both modes.
         QCOMPARE(activity,
                  (QStringList{ kInvite, kFavY, kFavD, kR1, kR4, kR2, kR3 }));
 
@@ -1066,26 +979,21 @@ private Q_SLOTS:
         fresh.setRoomListSort(conversation::SortByName);
         QCOMPARE(spy.count(), 1);
 
-        // Remembered by the next session.
         SettingsManager next;
         QCOMPARE(next.roomListSort(), int(conversation::SortByName));
 
-        // Space order is a real mode and survives a round trip.
         QSettings raw;
         raw.setValue(QStringLiteral("shell/roomListSort"),
                      int(conversation::SortBySpaceOrder));
         raw.sync();
         QCOMPARE(SettingsManager().roomListSort(),
                  int(conversation::SortBySpaceOrder));
-        // A value from a newer build, or a hand edit, is Activity, not the
-        // nearest mode (std::clamp would have said Unread first for 4).
         for (const int unknown : { 4, 7, -1 }) {
             raw.setValue(QStringLiteral("shell/roomListSort"), unknown);
             raw.sync();
             SettingsManager reader;
             QCOMPARE(reader.roomListSort(), int(conversation::SortByActivity));
         }
-        // An unknown write is a change from A-Z to the default.
         SettingsManager writer;
         writer.setRoomListSort(conversation::SortByName);
         QSignalSpy writerSpy(&writer, &SettingsManager::roomListSortChanged);
@@ -1096,7 +1004,6 @@ private Q_SLOTS:
         raw.sync();
     }
 
-    // Element's behaviour is the default, and the choice survives a restart.
     void theSettingIsOnByDefaultAndIsRemembered()
     {
         {
@@ -1107,16 +1014,13 @@ private Q_SLOTS:
             settings.setKeepRoomListOrderStill(false);
             QVERIFY(!settings.keepRoomListOrderStill());
             QCOMPARE(changed.count(), 1);
-            settings.setKeepRoomListOrderStill(false);   // no-op
+            settings.setKeepRoomListOrderStill(false);
             QCOMPARE(changed.count(), 1);
         }
         SettingsManager again;
         QVERIFY(!again.keepRoomListOrderStill());
     }
 
-    // The other ways out of a held order live in QML (the models cannot see
-    // the window or the scroll position), and a source scan is the only thing
-    // that can tell a dropped trigger from a working one here.
     void theHostReleasesOnFocusAndWhenTheListIsAtRest()
     {
         const QString host = readFile(QStringLiteral(QML_DIR "/RoomsPanel.qml"));
@@ -1126,8 +1030,6 @@ private Q_SLOTS:
                      QStringLiteral(" "));
         QVERIFY2(flat.contains(QStringLiteral("Qt.application.state === Qt.ApplicationActive")),
                  "returning to the window no longer releases a held order");
-        // Nothing may reorder the list on its own while the user looks at it:
-        // live, an idle-at-top release fired while the reader was in the chat.
         QVERIFY2(!flat.contains(QStringLiteral("roomOrderIdleTimer")),
                  "an idle timer releases the held order while the list is on screen");
         QVERIFY2(flat.contains(QStringLiteral("app.roomList.releaseOrder()"))

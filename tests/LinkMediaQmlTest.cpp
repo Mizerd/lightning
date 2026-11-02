@@ -1,19 +1,3 @@
-// A link that is itself an image or a video, rendered from the production
-// MessageDelegate and ImageViewerOverlay offscreen. Pinned:
-//   * a link's own image opens the in-app viewer, not the browser;
-//   * a video link fetches nothing until Play, and Play puts the player in
-//     the card's own box;
-//   * over the cap (known up front, or found by the fetch) it says so and
-//     offers no player;
-//   * with "Show images and videos from links inline" off it is a plain card
-//     that says what the link is;
-//   * collapsed embeds name the kind and build no media;
-//   * no Image in any of these ever gets a remote URL: only the media
-//     bridge's image provider or a local file;
-//   * the viewer shows a link's image from the bridge and offers the
-//     browser.
-// app.media.openWebUrl would open the desktop's browser, so the test installs
-// QDesktopServices URL handlers that only record, and asserts on them.
 #include <QtTest/QtTest>
 
 #include <QDesktopServices>
@@ -46,7 +30,6 @@ constexpr int kSignalTimeoutMs = 3000;
 const QString kImageUrl = QStringLiteral("https://img.example.org/pics/cat.png");
 const QString kVideoUrl = QStringLiteral("https://cdn.example.org/v/clip.mp4");
 
-// URL previews only; the rest is inert.
 class FakePreviewClient final : public MatrixClient
 {
     Q_OBJECT
@@ -112,7 +95,6 @@ const QString kBigVideoUrl = QStringLiteral("https://cdn.example.org/v/film.mp4"
 const QString kOtherImageUrl = QStringLiteral("https://img.example.org/pics/dog.png");
 const QString kRoomId = QStringLiteral("!links:mock.local");
 
-// What Rust answers for each kind (RustSdkMatrixClient's field names).
 QVariantMap imageFields()
 {
     return {
@@ -136,8 +118,6 @@ QVariantMap videoFields(bool tooLarge = false)
     };
 }
 
-// A row's preview exactly as production builds it: dispatched through the
-// real controller, answered, and read back with previewForEvent().
 QVariantMap rowState(LinkPreviewController *previews, FakePreviewClient &fake,
                      const QString &url, const QVariantMap &fields,
                      const QString &eventId = QStringLiteral("$row"),
@@ -151,14 +131,12 @@ QVariantMap rowState(LinkPreviewController *previews, FakePreviewClient &fake,
     return previews->previewForEvent(roomId, eventId, url, encrypted);
 }
 
-// Points the controller's previews at `fake`, with automatic loading on.
 void usePreviews(AppController &controller, FakePreviewClient &fake)
 {
     controller.linkPreviews()->setClient(&fake);
     controller.linkPreviews()->setAutoLoadUnencrypted(true);
 }
 
-// Stands in for the browser: QDesktopServices hands it every http(s) URL.
 class UrlSink : public QObject
 {
     Q_OBJECT
@@ -168,9 +146,6 @@ public Q_SLOTS:
     void open(const QUrl &url) { opened << url.toString(); }
 };
 
-// Every Image and AnimatedImage under `root`. By inheritance, not class name:
-// an Image that declares a property of its own is a generated subclass
-// ("QQuickImage_QML_12"), which an exact name match silently skips.
 QList<QQuickItem *> imagesUnder(QQuickItem *root)
 {
     QList<QQuickItem *> out;
@@ -181,15 +156,12 @@ QList<QQuickItem *> imagesUnder(QQuickItem *root)
     return out;
 }
 
-// The URL form MediaBridge::previewImageSource() hands out for a preview's
-// own bytes: its cache key "preview-image:<sha256>" behind the provider,
-// percent-encoded ("image://lightning-media/preview-image%3A...").
 bool drawsPreviewBytes(QQuickItem *image)
 {
     return image->property("source").toUrl().toString(QUrl::FullyEncoded)
         .startsWith(QStringLiteral("image://lightning-media/preview-image"));
 }
-} // namespace
+}
 
 class LinkMediaQmlTest : public QObject
 {
@@ -250,7 +222,6 @@ private:
         return fixture;
     }
 
-    // The host pane stand-in records what the delegate asks the viewer for.
     static QObject *host(QQmlEngine *engine, QObject *owner)
     {
         QQmlComponent component(engine);
@@ -284,10 +255,6 @@ QtObject {
         return object;
     }
 
-    // `preview` supplies the body's URL and, with setPreview, the row state.
-    // Without setPreview the delegate asks the controller itself, as in the
-    // app. The host goes in as an initial property, so the delegate's first
-    // previewForEvent() already sees the room's encryption.
     bool createDelegate(AppController &controller, const QVariantMap &preview,
                         Delegate &out, bool roomEncrypted = false,
                         bool setPreview = true)
@@ -339,11 +306,6 @@ QtObject {
         return d.root->findChild<QQuickItem *>(name);
     }
 
-    // Polishes the window's layouts and renders a frame first. A click sent
-    // while the row was still in its pre-layout geometry (a 56 px row around a
-    // 120 px picture) reached no item at all: no grab, no press. Whether the
-    // polish had run first depended on load and on the cases before, which
-    // made aClickAfterEvictionOpensTheBrowser flaky.
     static void settle(Delegate &d)
     {
         QCoreApplication::processEvents();
@@ -363,8 +325,6 @@ QtObject {
         return true;
     }
 
-    // Every picture in the preview's area draws from the bridge's provider or
-    // a local scratch file, never from the network.
     static QString remoteSource(Delegate &d)
     {
         {
@@ -376,7 +336,7 @@ QtObject {
                     continue;
                 if (src.startsWith(QStringLiteral("qrc:"))
                     || src.startsWith(QStringLiteral("image://")))
-                    continue; // theme assets and other local providers
+                    continue;
                 return src;
             }
         }
@@ -402,8 +362,6 @@ private Q_SLOTS:
 
     void init() { m_browser.opened.clear(); }
 
-    // Every retained preview has a MediaBridge connection. An unrelated
-    // media completion must not invalidate all of their image-source bindings.
     void unrelatedMediaCompletionDoesNotReevaluateLoadedPreviews()
     {
         FakePreviewClient fake;
@@ -460,8 +418,6 @@ private Q_SLOTS:
         QCOMPARE(articleCard->property("previewTick").toInt(), 1);
     }
 
-    // Akira's question: a link's image must open in Lightning, not send the
-    // reader to the browser.
     void aLinkImageOpensTheInAppViewer()
     {
         FakePreviewClient fake;
@@ -479,24 +435,19 @@ private Q_SLOTS:
         QCOMPARE(d.host->property("openedKey").toString(),
                  LinkPreviewController::mediaKeyForUrl(kImageUrl));
         QCOMPARE(m_browser.opened, QStringList{});
-        // The scan below and in the plain-card case can see the picture: here
-        // it is drawn from the preview's own bytes.
         bool sawPreviewBytes = false;
         for (QQuickItem *image : imagesUnder(d.root))
             sawPreviewBytes = sawPreviewBytes || drawsPreviewBytes(image);
         QVERIFY2(sawPreviewBytes,
                  "no Image carries the preview-bytes source: the image scan is blind");
-        // The browser stays one explicit button away.
         QQuickItem *open = find(d, QStringLiteral("directMediaOpenInBrowser"));
         QVERIFY(open);
         QCOMPARE(remoteSource(d), QString());
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // A video link is a cover until Play: no player and no fetch before it.
     void aVideoLinkFetchesNothingUntilPlay()
     {
-        // Declared first: the connections below must never outlive it.
         QStringList outcomes;
         FakePreviewClient fake;
         AppController controller(AppController::MockBackend);
@@ -505,7 +456,6 @@ private Q_SLOTS:
         QVERIFY(mock);
         mock->setSupportsMediaBridgeForTest(true);
         const QString key = LinkPreviewController::mediaKeyForUrl(kVideoUrl);
-        // Every fetch outcome for this video's key, and nothing else.
         connect(controller.mediaBridge(), &MediaBridge::mediaFetchFailed,
                 controller.mediaBridge(),
                 [&outcomes, key](const QString &cacheKey, const QString &category) {
@@ -554,8 +504,6 @@ private Q_SLOTS:
         QCOMPARE(remoteSource(d), QString());
     }
 
-    // Over the cap: said plainly, no play affordance, no player. Found up
-    // front (declared size) or by the fetch itself.
     void anOverCapVideoSaysSoAndOffersNoPlayer()
     {
         FakePreviewClient fake;
@@ -570,7 +518,6 @@ private Q_SLOTS:
                 d));
             QVERIFY(find(d, QStringLiteral("linkMediaTooLarge"))->isVisible());
             QVERIFY(!find(d, QStringLiteral("linkMediaPlayAffordance"))->isVisible());
-            // Its one action is the browser.
             QVERIFY(click(d, find(d, QStringLiteral("linkMediaActivate"))));
             QCOMPARE(m_browser.opened, QStringList{ kBigVideoUrl });
             QVERIFY(!find(d, QStringLiteral("videoPlayerCard")));
@@ -590,8 +537,6 @@ private Q_SLOTS:
         QVERIFY(!find(d, QStringLiteral("linkMediaPlayAffordance"))->isVisible());
     }
 
-    // "Show images and videos from links inline" off: a plain card that says
-    // what the link is, and no media component at all.
     void inlineMediaOffIsAPlainCardThatNamesTheKind()
     {
         FakePreviewClient fake;
@@ -620,7 +565,6 @@ private Q_SLOTS:
                          && text.contains(preview.value(QStringLiteral("fileName"))
                                               .toString()),
                      qPrintable(text));
-            // The link's picture is not drawn here, or even decoded.
             const QList<QQuickItem *> images = imagesUnder(d.root);
             QVERIFY(!images.isEmpty());
             for (QQuickItem *image : images)
@@ -633,14 +577,12 @@ private Q_SLOTS:
         }
     }
 
-    // Collapsed embeds: one line naming the kind; the media is not built.
     void collapsedEmbedsNameTheKindAndBuildNoMedia()
     {
         FakePreviewClient fake;
         AppController controller(AppController::MockBackend);
         usePreviews(controller, fake);
         controller.settings()->setCollapseEmbeds(true);
-        // Restored however the case ends, or the next run starts collapsed.
         const auto restore = qScopeGuard(
             [&controller] { controller.settings()->setCollapseEmbeds(false); });
         Delegate d;
@@ -656,9 +598,6 @@ private Q_SLOTS:
         QVERIFY(!find(d, QStringLiteral("linkMediaCard")));
     }
 
-    // The cache can drop a preview (its byte budget) while its row is still
-    // drawn. The click then opens the browser, as it did before inline media;
-    // it must never do nothing.
     void aClickAfterEvictionOpensTheBrowser()
     {
         FakePreviewClient fake;
@@ -670,7 +609,6 @@ private Q_SLOTS:
                                rowState(previews, fake, kImageUrl, imageFields()),
                                d));
         QVERIFY(find(d, QStringLiteral("directMediaPreview")));
-        // A second picture over a tiny budget evicts the first.
         previews->setHeldBytesBudget(1);
         rowState(previews, fake, kOtherImageUrl, imageFields(),
                  QStringLiteral("$other"));
@@ -681,10 +619,6 @@ private Q_SLOTS:
         QCOMPARE(m_browser.opened, QStringList{ kImageUrl });
     }
 
-    // A card another room loaded, in a row that has not allowed previews:
-    // it says the site will see the IP before the press that plays it, and
-    // that press records consent on THIS row (the delegate's own room and
-    // key, as the app computes them).
     void aCardFromAnotherRoomSaysWhatPlayCosts()
     {
         FakePreviewClient fake;
@@ -692,7 +626,6 @@ private Q_SLOTS:
         usePreviews(controller, fake);
         LinkPreviewController *previews = controller.linkPreviews();
         previews->setAllowEncrypted(false);
-        // Another room loads the link first; that row says nothing extra.
         const QVariantMap openRow = rowState(previews, fake, kVideoUrl,
                                              videoFields(), QStringLiteral("$open"));
         {
@@ -703,13 +636,11 @@ private Q_SLOTS:
         }
         const QString secretRoom = QStringLiteral("!secret:mock.local");
         controller.setCurrentRoomId(secretRoom);
-        // The delegate's own identity: previewRoomId is app.currentRoomId and
-        // actionKey is the fixture's itemId.
         const QString rowKey = QStringLiteral("fixture-item");
         Delegate d;
         QVERIFY(createDelegate(controller,
                                { { QStringLiteral("url"), kVideoUrl } }, d,
-                               /*roomEncrypted=*/true, /*setPreview=*/false));
+true,false));
         const QVariantMap own =
             previews->previewForEvent(secretRoom, rowKey, kVideoUrl, true);
         QCOMPARE(own.value(QStringLiteral("state")).toString(),
@@ -722,10 +653,8 @@ private Q_SLOTS:
         QVERIFY2(text.contains(QStringLiteral("cdn.example.org"))
                      && text.contains(QStringLiteral("IP")),
                  qPrintable(text));
-        // Only the other room's preview request reached the site.
         QCOMPARE(fake.requestedUrls, QStringList{ kVideoUrl });
 
-        // The press plays and is the consent, recorded on this row.
         QVERIFY(click(d, find(d, QStringLiteral("linkMediaActivate"))));
         QTRY_VERIFY(find(d, QStringLiteral("videoPlayerCard")));
         QVERIFY2(previews->previewForEvent(secretRoom, rowKey, kVideoUrl, true)
@@ -735,10 +664,6 @@ private Q_SLOTS:
         QCOMPARE(m_browser.opened, QStringList{});
     }
 
-    // End to end below the delegate: a loaded link image opens in the viewer
-    // from the bridge's own copy of the preview bytes, with the site named
-    // and the browser offered, and the link is fetched by nobody but the
-    // preview.
     void theViewerShowsALinkImageFromTheBridge()
     {
         FakePreviewClient fake;
@@ -820,7 +745,6 @@ ApplicationWindow {
                  qPrintable(call("staticSource").toString()));
         QCOMPARE(call("subtitle").toString(), QStringLiteral("img.example.org"));
         QVERIFY(call("browserOffered").toBool());
-        // Opening the viewer asked the site for nothing more.
         QCOMPARE(fake.requestedUrls.size(), 1);
         previews->setClient(nullptr);
     }

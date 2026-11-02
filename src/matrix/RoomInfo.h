@@ -25,16 +25,10 @@ struct RoomInfo {
     QString name;
     QString topic;
     QString avatarUrl;
-    // The words the room list shows, in the UI language they were written in.
-    // When previewKind is not Text they are render(previewKind, previewArg)
-    // and retranslatePreview() writes them again after a language switch.
-    // Backends write the three through setPreviewText()/setPreview() so they
-    // can never disagree.
     QString lastMessagePreview;
     matrix::preview::Kind previewKind = matrix::preview::Kind::Text;
     QString previewArg;
 
-    // Free text: a message body, a file name. Never re-worded.
     void setPreviewText(const QString &text)
     {
         lastMessagePreview = text;
@@ -51,8 +45,6 @@ struct RoomInfo {
         previewArg = arg;
         lastMessagePreview = matrix::preview::render(kind, arg);
     }
-    // Words the preview again in the current UI language; true when that
-    // changed what the room list shows.
     bool retranslatePreview()
     {
         if (previewKind == matrix::preview::Kind::Text)
@@ -63,14 +55,8 @@ struct RoomInfo {
         lastMessagePreview = now;
         return true;
     }
-    // The room list's sort key. Write it only through raiseActivity().
     QDateTime lastActivity;
 
-    // Moves lastActivity forward, never backwards; returns true when it moved.
-    // Events only get newer, so a decrease is an artefact (a lagging summary,
-    // or state events from a timeline that was loaded and unloaded) and would
-    // make the room jump. The one genuine decrease, redacting the newest
-    // message, just leaves the room in place.
     bool raiseActivity(const QDateTime &when)
     {
         if (!when.isValid())
@@ -82,19 +68,9 @@ struct RoomInfo {
     }
     int unreadCount = 0;
     int highlightCount = 0;
-    // Local wall-clock ms (QDateTime::currentMSecsSinceEpoch) at which the
-    // Rust room payload last wrote this room's counters; 0 when no payload has.
-    // Lets a consumer tell counters that already reflect a row it holds from
-    // stale ones that predate it. Deliberately NOT part of operator==: it
-    // moves on every payload, and replaceRoom would then announce a change for
-    // every room on every room-list diff.
     qint64 countsWrittenAtMs = 0;
     bool markedUnread = false;
     bool hasUnreadMessages = false;
-    // The room's REMAINING unread is explained by threads alone (main timeline
-    // read, server count still above it), and whether that includes a mention.
-    // A conservative hint from the bridge: never a per-thread count, and never
-    // set for an encrypted room (no honest signal there).
     bool unreadThreadsOnly = false;
     bool mentionInThreads = false;
     bool encrypted = false;
@@ -104,28 +80,13 @@ struct RoomInfo {
     // (draft persistence, server-search offers) must fail closed while false.
     bool encryptionKnown = true;
     bool isSpace = false;
-    // Favourites backed by the Matrix `m.favourite` room tag; Lightning keeps
-    // no list of its own. False on backends without tags.
     bool isFavourite = false;
-    // The Matrix `m.lowpriority` room tag, from the SDK. False on backends
-    // without tags.
     bool lowPriority = false;
     bool isDirect = false;
     QString directUserId;
-    // Every target user this room's m.direct mapping lists; authoritative for
-    // "is this an unambiguous 1:1 DM". A group DM or ambiguous mapping lists
-    // more than one and must not take an arbitrary member's avatar. Empty on
-    // backends that only provide directUserId.
     QStringList directUserIds;
-    // Joined plus invited members, as matrix-sdk counts "active" members
-    // (DmRoomDefinition::TwoMembers). 0 = not reported (Mock/HTTP backends).
     int activeMemberCount = 0;
-    // Joined members alone, from the SDK's room summary
-    // (Room::joined_members_count). 0 = not reported. Unlike `members`, which
-    // holds only the member events seen so far, this is a head count.
     int joinedMemberCount = 0;
-    // m.room.join_rules ("public", "invite", "knock", "private", "restricted",
-    // "knock_restricted"), "" while unknown.
     QString joinRule;
     QString canonicalAlias;
     QString inviterUserId;
@@ -136,36 +97,18 @@ struct RoomInfo {
     QString inviteError;
     QString spaceId;
 
-    // Pagination token from the most recent /sync for backfill via
-    // GET /rooms/{id}/messages?dir=b. Empty means "unknown / never seen".
     QString prevBatchToken;
     bool paginationExhausted = false;
 
-    // Per-room member cache: display names can be room-specific.
     QHash<QString, MemberInfo> members;
 
-    // Users currently typing, from the ephemeral m.typing event.
     QStringList typingUserIds;
 
-    // The direct children of this Space (rooms and subspaces) in the Space's
-    // own m.space.child order (order key, then room id). Only set when isSpace.
-    // Direct, not transitive: the rail's nesting and the Channels layout depend
-    // on it. SpaceManager::rebuild() derives transitive membership; nothing
-    // else should assume it. A room may be in several Spaces; SpaceManager
-    // picks one primary parent for display.
     QStringList childRoomIds;
-    // The subset of childRoomIds with a real m.space.child event (the only
-    // ones whose order can be written). Meaningful only when childOrderKnown;
-    // backends that cannot tell leave it false and every child counts.
     QStringList orderedChildIds;
     bool childOrderKnown = false;
     QStringList parentSpaceIds;
 
-    // Room upgrades. Both are room ids from the SDK's typed successor_room() /
-    // predecessor_room(), never free text; empty means not upgraded / replaces
-    // nothing. The tombstone body is deliberately absent: it is attacker-chosen
-    // text for a banner the user is invited to click, so it never crosses the
-    // bridge.
     QString successorRoomId;
     QString predecessorRoomId;
 };
@@ -176,8 +119,6 @@ inline bool operator==(const MemberInfo &a, const MemberInfo &b)
         && a.avatarMxcUrl == b.avatarMxcUrl;
 }
 
-// Full-field equality so RoomListModel::replaceRoom can skip dataChanged for
-// an unchanged room. Cheap: unchanged copies share d-pointers.
 inline bool operator==(const RoomInfo &a, const RoomInfo &b)
 {
     return a.id == b.id && a.name == b.name && a.topic == b.topic
@@ -198,7 +139,6 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
         // skips dataChanged, and the row moves section while reporting its old
         // category.
         && a.isFavourite == b.isFavourite
-        // Same reason as isFavourite: the row sorts by it.
         && a.lowPriority == b.lowPriority
         && a.isDirect == b.isDirect && a.directUserId == b.directUserId
         && a.directUserIds == b.directUserIds
@@ -218,8 +158,6 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
         && a.orderedChildIds == b.orderedChildIds
         && a.childOrderKnown == b.childOrderKnown
         && a.parentSpaceIds == b.parentSpaceIds
-        // Without these a newly tombstoned room compares equal and the upgrade
-        // banner does not appear until something else changes.
         && a.successorRoomId == b.successorRoomId
         && a.predecessorRoomId == b.predecessorRoomId;
 }
@@ -229,10 +167,6 @@ inline bool operator!=(const RoomInfo &a, const RoomInfo &b)
     return !(a == b);
 }
 
-// The identity key a room's fallback-avatar colour hashes from, matching
-// effectiveAvatarUrl: an unambiguous 1:1 DM is coloured as the person (their
-// MXID, like every user-keyed surface), everything else as the room. A group
-// DM or ambiguous m.direct mapping must not adopt a member's identity.
 inline QString identityColorKey(const RoomInfo &r)
 {
     if (r.isDirect && r.directUserIds.size() <= 1 && !r.directUserId.isEmpty())

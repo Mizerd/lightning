@@ -17,12 +17,11 @@ void useHermeticDataHome()
 {
     if (qEnvironmentVariableIntValue("LIGHTNING_TEST_KEEP_DATA_HOME") == 1)
         return;
-    // Function-local static: removed by its destructor after main returns.
     static QTemporaryDir dataHome(QDir::tempPath()
                                   + QStringLiteral("/lightning-test-data-XXXXXX"));
     if (dataHome.isValid())
         qputenv("XDG_DATA_HOME", QFile::encodeName(dataHome.path()));
 }
-} // namespace
+}
 
 Q_CONSTRUCTOR_FUNCTION(useHermeticDataHome)

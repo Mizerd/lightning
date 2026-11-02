@@ -1,17 +1,3 @@
-// Profile bios (MSC4440 over MSC4133) and the decorative badge table.
-//
-// The wire format and sanitizing are covered in rust/src/bio.rs. This is the
-// policy half:
-//
-//   * "no bio", "not asked yet" and "this homeserver does not implement
-//     extended profile fields" all render as nothing, and only the third
-//     stops the client asking;
-//   * an absent field is M_NOT_FOUND, a correct answer: never an error, a
-//     latch or a placeholder;
-//   * nothing is optimistic: `ownBio` changes only once the server accepts
-//     the write, and takes the bounded text the write path reports;
-//   * a badge is a fixed local table lookup with no session, network or
-//     Matrix state behind it.
 
 #include "matrix/MockMatrixClient.h"
 #include "profile/ProfileBadges.h"
@@ -53,7 +39,7 @@ public:
 
 const QString kAlice = QStringLiteral("@alice:example.org");
 
-} // namespace
+}
 
 class ProfileBioBadgeTest : public QObject
 {
@@ -67,13 +53,10 @@ private Q_SLOTS:
         bios.setClient(&client);
         QVERIFY(bios.available());
 
-        // Not asked yet is not "no bio"; both are "".
         QCOMPARE(bios.bioFor(kAlice), QString());
 
         bios.request(kAlice);
         QCOMPARE(client.fetches.size(), 1);
-        // A profile card that opens, closes and opens again must not cost a
-        // second request.
         bios.request(kAlice);
         bios.request(kAlice);
         QCOMPARE(client.fetches.size(), 1);
@@ -101,7 +84,6 @@ private Q_SLOTS:
         QCOMPARE(bios.bioFor(kAlice), QString());
         QVERIFY(bios.supported());
         QCOMPARE(supported.count(), 0);
-        // ...and the client keeps asking about OTHER users.
         bios.request(QStringLiteral("@bob:example.org"));
         QCOMPARE(client.fetches.size(), 2);
     }
@@ -119,15 +101,11 @@ private Q_SLOTS:
         QVERIFY(!bios.supported());
         QCOMPARE(supported.count(), 1);
 
-        // Latched: every further request would ask the same question and get
-        // the same answer.
         bios.request(QStringLiteral("@bob:example.org"));
         bios.refresh(kAlice);
         QCOMPARE(client.fetches.size(), 1);
     }
 
-    // A stale answer belongs to a session that is gone. It must not populate
-    // the next account's cards.
     void anAnswerForAnUnknownOpIsDropped()
     {
         FakeBioClient client;
@@ -138,8 +116,6 @@ private Q_SLOTS:
         Q_EMIT client.profileBioReceived(9999, kAlice,
                                          QStringLiteral("ghost"), true);
         QCOMPARE(bios.bioFor(kAlice), QString());
-        // ...and a real answer for the same op is still delivered exactly
-        // once — the drop above must not have consumed the in-flight record.
         Q_EMIT client.profileBioReceived(client.fetches.first().opId, kAlice,
                                          QStringLiteral("real"), true);
         QCOMPARE(bios.bioFor(kAlice), QStringLiteral("real"));
@@ -154,14 +130,10 @@ private Q_SLOTS:
         bios.setOwnBio(QStringLiteral("  typed  "));
         QCOMPARE(client.writes.size(), 1);
         QVERIFY(bios.busy());
-        // NOT applied yet: the server has not accepted anything.
         QCOMPARE(bios.ownBio(), QString());
-        // ...and a second write cannot be started on top of the first.
         bios.setOwnBio(QStringLiteral("again"));
         QCOMPARE(client.writes.size(), 1);
 
-        // The cached value is what the write path reports stored (bounded and
-        // sanitized), not what was typed.
         Q_EMIT client.profileBioSet(client.lastWriteOp, true,
                                     QStringLiteral("typed"), QString());
         QVERIFY(!bios.busy());
@@ -183,21 +155,16 @@ private Q_SLOTS:
         bios.setOwnBio(QStringLiteral("second"));
         Q_EMIT client.profileBioSet(client.lastWriteOp, false, QString(),
                                     QStringLiteral("forbidden"));
-        // The stored value is untouched, and the failure is disclosed.
         QCOMPARE(bios.ownBio(), QStringLiteral("first"));
         QCOMPARE(bios.lastError(), QStringLiteral("forbidden"));
         QVERIFY(bios.supported());
 
-        // A write that came back UNRECOGNISED settles the capability
-        // question the same way a read does, so the account is not invited
-        // to fail at the same write for the rest of the session.
         bios.setOwnBio(QStringLiteral("third"));
         Q_EMIT client.profileBioSet(client.lastWriteOp, false, QString(),
                                     QStringLiteral("unsupported"));
         QVERIFY(!bios.supported());
     }
 
-    // A bio belongs to the account that fetched it.
     void signingOutDropsEveryAnswer()
     {
         FakeBioClient client;
@@ -210,7 +177,6 @@ private Q_SLOTS:
 
         Q_EMIT client.loggedOut();
         QCOMPARE(bios.bioFor(kAlice), QString());
-        // ...and the same user is asked about again for the new session.
         bios.request(kAlice);
         QCOMPARE(client.fetches.size(), 2);
     }
@@ -229,8 +195,6 @@ private Q_SLOTS:
         QCOMPARE(client.writes.size(), 0);
     }
 
-    // --- the badge table ------------------------------------------------
-
     void theBadgeIsATableAndAlmostEveryUserHasNone()
     {
         ProfileBadges badges;
@@ -240,8 +204,6 @@ private Q_SLOTS:
             QVERIFY2(badge.userId.startsWith(QLatin1Char('@')),
                      qPrintable(badge.userId));
             QVERIFY2(!badge.label.isEmpty(), qPrintable(badge.userId));
-            // Spoken instead of the bare label: a decorative tag beside a
-            // name is exactly what a reader assumes is a permission.
             QVERIFY2(!badge.description.isEmpty(), qPrintable(badge.userId));
             QVERIFY(badges.hasBadge(badge.userId));
             QCOMPARE(badges.labelFor(badge.userId), badge.label);
@@ -252,7 +214,6 @@ private Q_SLOTS:
                      badge.description);
         }
 
-        // The ordinary answer, and it must be empty rather than a placeholder.
         QVERIFY(!badges.hasBadge(kAlice));
         QCOMPARE(badges.labelFor(kAlice), QString());
         QCOMPARE(badges.descriptionFor(kAlice), QString());
@@ -260,8 +221,6 @@ private Q_SLOTS:
         QCOMPARE(badges.labelFor(QString()), QString());
     }
 
-    // Matrix localparts are case-sensitive. Guessing at equivalence between
-    // two ids is how the wrong person gets somebody else's badge.
     void aBadgeIsNeverGivenToASimilarLookingId()
     {
         ProfileBadges badges;
@@ -270,14 +229,12 @@ private Q_SLOTS:
         QVERIFY(!badges.hasBadge(holder.toUpper()));
         QVERIFY(!badges.hasBadge(holder + QStringLiteral("x")));
         QVERIFY(!badges.hasBadge(holder.mid(1)));
-        // A different server, same localpart, is a different person.
         const int colon = holder.indexOf(QLatin1Char(':'));
         QVERIFY(colon > 0);
         QVERIFY(!badges.hasBadge(holder.left(colon)
                                  + QStringLiteral(":elsewhere.example")));
     }
 
-    // The recorded badge is the one that was awarded.
     void theRecordedBadgeIsTheOneThatWasAwarded()
     {
         ProfileBadges badges;
@@ -286,14 +243,9 @@ private Q_SLOTS:
                  QStringLiteral("idea master"));
     }
 
-    // A badge is decoration. Nothing in its description may claim a
-    // permission, a role or a verification state.
     void noBadgeDescriptionClaimsAPermissionOrAVerification()
     {
         for (const ProfileBadges::Badge &badge : ProfileBadges::badges()) {
-            // The description is a short thank-you; it once also spelled out
-            // that a badge is no role, and that was cut as noise. What stays
-            // binding is that neither text claims one.
             const QString lowered = badge.description.toLower();
             for (const char *claim : { "verified", "moderator", "admin" })
                 QVERIFY2(!lowered.contains(QLatin1String(claim)),

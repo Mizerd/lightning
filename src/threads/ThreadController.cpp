@@ -20,8 +20,6 @@
 #include <algorithm>
 
 namespace {
-// Clipboard images beyond this edge are scaled down before encoding, as in
-// the room composer, to bound allocation and upload size.
 constexpr int kMaxPasteEdge = 4096;
 Q_LOGGING_CATEGORY(lcThread, "matrix.thread")
 }
@@ -33,8 +31,6 @@ ThreadController::ThreadController(QObject *parent)
     m_traceEnabled = qEnvironmentVariableIsSet("LIGHTNING_THREAD_TRACE");
     connect(m_attachments, &AttachmentQueueModel::countChanged, this,
             [this] { Q_EMIT attachmentsChanged(); });
-    // A video queued before its poster decoded dispatches once the poster
-    // resolves or fails.
     connect(m_attachments, &AttachmentQueueModel::entryPrepared,
             this, &ThreadController::dispatchAttachment);
     m_draftDebounce.setSingleShot(true);
@@ -42,7 +38,6 @@ ThreadController::ThreadController(QObject *parent)
     connect(&m_draftDebounce, &QTimer::timeout, this,
             [this] { saveDraftNow(); });
 
-    // ── Reply navigation inside the open thread (contract C5) ───────────
     m_navigationHighlightTimer.setSingleShot(true);
     m_navigationMessageTimer.setSingleShot(true);
     m_navigationBatchTimer.setSingleShot(true);
@@ -55,29 +50,20 @@ ThreadController::ThreadController(QObject *parent)
         Q_EMIT navigationChanged();
     });
     connect(&m_navigationBatchTimer, &QTimer::timeout, this, [this] {
-        // Nothing answered the batch; report failure. The batch counter is
-        // already spent, so this cannot spin.
         if (!m_navigationEventId.isEmpty())
             failNavigation();
     });
-    // Rows landed: check now so the panel lands on the same frame. Requesting
-    // another page waits for the completion edge, since a request made while
-    // still paginating would be dropped and waste an attempt.
     connect(&m_model, &TimelineModel::olderPrepended, this, [this](int) {
         if (m_navigationEventId.isEmpty())
             return;
         if (navigationStale()) {
-            clearNavigation(/*clearMessage=*/true);
+            clearNavigation(true);
             return;
         }
         const int row = m_model.rowForStableId(m_navigationEventId);
         if (row >= 0)
             locateNavigationTarget(row);
     });
-    // The SDK summary arrives as an in-place Set on the root row, which does
-    // not emit countChanged, so dataChanged is watched too. Everything goes
-    // through notifyReplyCountIfChanged(), which only announces when the
-    // number actually changes.
     connect(&m_model, &TimelineModel::countChanged, this,
             &ThreadController::notifyReplyCountIfChanged);
     connect(this, &ThreadController::stateChanged, this,
@@ -85,14 +71,9 @@ ThreadController::ThreadController(QObject *parent)
     connect(&m_model, &TimelineModel::dataChanged, this,
             [this](const QModelIndex &topLeft, const QModelIndex &bottomRight,
                    const QList<int> &roles) {
-                // onEventChangedAt announces all roles (an empty list), so
-                // empty must count as a match.
                 if (!roles.isEmpty()
                     && !roles.contains(TimelineModel::ThreadReplyCountRole))
                     return;
-                // Compare ids over the announced range instead of resolving
-                // the root's row: rowForStableId is a linear scan, and this
-                // runs on every Set.
                 const auto &events = m_model.events();
                 const int lo = qMax(0, topLeft.row());
                 const int hi =
@@ -100,7 +81,6 @@ ThreadController::ThreadController(QObject *parent)
                 for (int row = lo; row <= hi; ++row) {
                     if (events.at(row).eventId == m_rootEventId) {
                         notifyReplyCountIfChanged();
-                        // The panel's root card is a snapshot of this row.
                         Q_EMIT rootInfoChanged();
                         return;
                     }
@@ -109,14 +89,10 @@ ThreadController::ThreadController(QObject *parent)
     connect(&m_model, &TimelineModel::paginationChanged, this, [this] {
         const bool wasPaginating = m_modelPaginating;
         m_modelPaginating = m_model.paginating();
-        // The fill follows the controller's own busy -> idle edge, never a
-        // retry timer: a page that has not landed must not be asked for twice.
         if (m_fillActive && wasPaginating && !m_modelPaginating)
             continueHistoryFill();
         if (m_navigationEventId.isEmpty() || m_modelPaginating)
             return;
-        // Only a busy -> idle transition is an answer; other emissions must
-        // not consume a bounded attempt.
         if (!wasPaginating)
             return;
         continueNavigation();
@@ -181,8 +157,6 @@ void ThreadController::restoreDraft()
 
 void ThreadController::setImageMetadataMode(const QString &mode)
 {
-    // Through the parser, so an unreadable value lands on the default and not
-    // on "keep".
     const QString normalized =
         imagemeta::modeToString(imagemeta::modeFromString(mode));
     if (m_imageMetadataMode == normalized)
@@ -226,8 +200,6 @@ void ThreadController::setClient(MatrixClient *client)
         });
         connect(m_client, &MatrixClient::timelineReset, this,
                 [this](const QString &timelineId) {
-                    // Only the requested thread's reset promotes to Ready;
-                    // composite-id identity is the staleness gate.
                     if (timelineId != this->timelineId()) {
                         if (m_state != Closed)
                             traceState("stale_reset");
@@ -235,8 +207,6 @@ void ThreadController::setClient(MatrixClient *client)
                     }
                     if (m_state == Opening)
                         setState(Ready);
-                    // A reset replaces the loaded replies with whatever the
-                    // cache holds, so the fill starts over after each one.
                     if (m_state == Ready)
                         startHistoryFill();
                 });
@@ -254,7 +224,7 @@ void ThreadController::setClient(MatrixClient *client)
                        bool supported, bool subscribed, bool automatic) {
                     if (m_state == Closed || roomId != m_roomId
                         || rootEventId != m_rootEventId)
-                        return;   // stale: another thread's answer
+                        return;
                     m_followSupported = supported;
                     m_followed = supported && subscribed;
                     m_followAutomatic = supported && automatic;
@@ -263,12 +233,11 @@ void ThreadController::setClient(MatrixClient *client)
                 });
         connect(m_client, &MatrixClient::threadSubscriptionResult, this,
                 [this](const QString &roomId, const QString &rootEventId,
-                       bool ok, bool /*subscribed*/) {
+                       bool ok, bool) {
                     if (m_state == Closed || roomId != m_roomId
                         || rootEventId != m_rootEventId)
                         return;
                     if (!ok) {
-                        // The change did not apply; re-query the server state.
                         m_followBusy = false;
                         Q_EMIT followStateChanged();
                         m_client->queryThreadSubscription(m_roomId,
@@ -279,10 +248,8 @@ void ThreadController::setClient(MatrixClient *client)
                 [this](const QString &roomId, const QVariantList &threads,
                        bool endReached, bool failed) {
                     if (!m_listOpen || roomId != m_listRoomId)
-                        return;   // stale: list moved to another room
+                        return;
                     QVariantList sorted = threads;
-                    // Latest activity first; unread-first where the loaded
-                    // room timeline supplies a summary for the root.
                     std::sort(sorted.begin(), sorted.end(),
                               [this](const QVariant &a, const QVariant &b) {
                         const QVariantMap ma = a.toMap();
@@ -317,12 +284,8 @@ void ThreadController::setClient(MatrixClient *client)
                 });
         connect(m_client, &MatrixClient::loggedOut, this,
                 [this] { m_pendingThreadReads.clear(); close(); closeList(); });
-        // A thread's receipt clears its Activity rows only once the server
-        // accepted it, as the main room's mark-as-read does.
         connect(m_client, &MatrixClient::threadReadMarkerAdvanced, this,
                 [this](const QString &, const QString &, quint64 opId) {
-                    // Matched on the request id, never on arrival order: the
-                    // bell hears that request's own room, thread and time.
                     const auto it = m_pendingThreadReads.find(opId);
                     if (it == m_pendingThreadReads.end())
                         return;
@@ -334,15 +297,12 @@ void ThreadController::setClient(MatrixClient *client)
                 });
         connect(m_client, &MatrixClient::threadMarkReadFailed, this,
                 [this](const QString &, const QString &, quint64 opId) {
-                    // Only the failed request's own entry goes.
                     const auto it = m_pendingThreadReads.find(opId);
                     if (it == m_pendingThreadReads.end())
                         return;
                     const PendingThreadRead failed = it.value();
                     m_pendingThreadReads.erase(it);
                     traceState("receipt_failed");
-                    // The reply it covered must be retried by the next
-                    // markRead(), not deduplicated away for good.
                     if (failed.roomId == m_roomId && failed.rootId == m_rootEventId
                         && m_lastMarkedReadEventId == failed.eventId)
                         m_lastMarkedReadEventId.clear();
@@ -370,16 +330,11 @@ void ThreadController::openThread(const QString &roomId,
         return;
     if (m_state != Closed && roomId == m_roomId && rootEventId == m_rootEventId
         && m_state != Failed)
-        return; // already open/opening — reopening would only reset scroll.
+        return;
 
-    // Save the previous thread's draft before the ids its key derives from
-    // change, and stop the debounce so a stale timer cannot write across
-    // threads.
     m_draftDebounce.stop();
     saveDraftNow();
 
-    // The old thread owns uploads already handed to the SDK. Unsent rows
-    // retain the existing discard-on-navigation behavior.
     const QString previousId = timelineId();
     if (!previousId.isEmpty()) {
         auto committed = m_attachments->takeCommitted();
@@ -393,17 +348,11 @@ void ThreadController::openThread(const QString &roomId,
     m_rootEventId = rootEventId;
     m_failureCategory.clear();
     cancelReply();
-    // Drop the previous thread's composer text (its draft was saved above).
     clearComposerText();
     restoreDraft();
-    // Queued attachments belong to the thread they were prepared in.
     clearAttachments();
     m_attachments->restoreEntries(m_committedAttachments.take(timelineId()));
-    // Abandon any reply search in the previous thread silently;
-    // navigationStale() handles batches already in flight.
-    clearNavigation(/*clearMessage=*/true);
-    // Bind the model to the new composite id before dispatching so the
-    // snapshot reset is applied, never raced.
+    clearNavigation(true);
     m_model.setRoomId(timelineId());
     resetFollowState();
     m_lastMarkedReadEventId.clear();
@@ -425,7 +374,6 @@ void ThreadController::reopen()
 
 void ThreadController::close()
 {
-    // Closing keeps the draft; it restores when the thread is reopened.
     m_draftDebounce.stop();
     saveDraftNow();
     stopHistoryFill();
@@ -444,20 +392,13 @@ void ThreadController::close()
     for (const auto &entries : std::as_const(m_committedAttachments))
         m_attachments->discardEntries(entries);
     m_committedAttachments.clear();
-    clearNavigation(/*clearMessage=*/true);
+    clearNavigation(true);
     resetFollowState();
     m_lastMarkedReadEventId.clear();
-    // Reclaim voice recordings whose send may never report back: the result
-    // is gated on the thread generation, which advances here. Deleting is
-    // safe because rooms::send_thread_voice_path reads the bytes up front
-    // (AttachmentSource::Data), so nothing touches the path afterwards. Do
-    // not switch it to the File variant, which reads inside the spawned task.
     for (const VoiceOp &op : std::as_const(m_voiceOps))
         QFile::remove(op.localPath);
     m_voiceOps.clear();
     if (wasActive) {
-        // The next thread announces its own count. Keep the braces: close()
-        // must not announce on an already-closed controller.
         m_lastReplyCount = -1;
         setState(Closed);
     }
@@ -465,12 +406,12 @@ void ThreadController::close()
 
 void ThreadController::sendText(const QString &body)
 {
-    sendTextInternal(body, /*allowCommands=*/true);
+    sendTextInternal(body,true);
 }
 
 void ThreadController::sendTextBypassingCommands(const QString &body)
 {
-    sendTextInternal(body, /*allowCommands=*/false);
+    sendTextInternal(body,false);
 }
 
 void ThreadController::sendTextInternal(const QString &body, bool allowCommands)
@@ -478,19 +419,12 @@ void ThreadController::sendTextInternal(const QString &body, bool allowCommands)
     if (!m_client || m_state == Closed || m_roomId.isEmpty()
         || m_rootEventId.isEmpty())
         return;
-    // Expand inserted @-mentions into matrix.to links and the deduped MXID
-    // list. Refs index into m_text; without tracked text, fall back to the
-    // trimmed body.
     const mention::Expansion expansion = mention::expand(m_text, m_mentionRefs);
     QString outBody = expansion.body.trimmed();
     if (outBody.isEmpty())
         outBody = body.trimmed();
     const QStringList mentionIds = expansion.userIds;
 
-    // Slash commands follow the room composer's rules: parsed before
-    // attachments dispatch, so a refused command leaves the tray untouched.
-    // Content commands go through the thread lane; room administration acts
-    // on the thread's room.
     if (allowCommands && !outBody.isEmpty()) {
         const SlashCommands::Parse parsed = SlashCommands::parse(outBody);
         switch (parsed.kind) {
@@ -500,9 +434,6 @@ void ThreadController::sendTextInternal(const QString &body, bool allowCommands)
             outBody = parsed.literalText.trimmed();
             break;
         case SlashCommands::Parse::Unknown:
-            // Unknown commands are sent as text (issue #11): bots have
-            // command sets Lightning cannot know. A known command with bad
-            // arguments still refuses; `//text` still escapes to a literal.
             break;
         case SlashCommands::Parse::Known: {
             SlashCommands::Actions actions;
@@ -556,13 +487,8 @@ void ThreadController::sendTextInternal(const QString &body, bool allowCommands)
         }
     }
 
-    // Attachments first, each its own SDK local echo, then the text as a
-    // separate thread message, matching the room composer.
     const bool dispatched = dispatchAttachments();
     if (outBody.isEmpty()) {
-        // An attachment-only send is valid, and it carried the reply (captured
-        // per entry at dispatch), so the chip is spent just as it is after a
-        // text reply.
         if (dispatched)
             cancelReply();
         return;
@@ -578,8 +504,6 @@ void ThreadController::sendPrepared(const QString &body, const QString &html,
         || m_rootEventId.isEmpty() || body.trimmed().isEmpty())
         return;
     dispatchAttachments();
-    // Empty html is an unformatted rich-mode message: send verbatim on the
-    // plain lane, not as markdown.
     sendThreadBody(body, mentionUserIds,
                    html.isEmpty()
                        ? QVariantMap{ { QStringLiteral("format"),
@@ -613,7 +537,6 @@ void ThreadController::sendThreadBody(const QString &bodyIn,
 
 void ThreadController::retireComposerDraft()
 {
-    // Retire the draft; a pending debounce must not resurrect the text.
     m_draftDebounce.stop();
     if (m_drafts && !timelineId().isEmpty())
         m_drafts->clear(timelineId());
@@ -634,7 +557,6 @@ void ThreadController::setText(const QString &text)
         return;
     m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, text);
     m_text = text;
-    // Any edit invalidates a standing command refusal.
     setCommandError(QString());
     Q_EMIT textChanged();
     Q_EMIT mentionRangesChanged();
@@ -732,9 +654,7 @@ void ThreadController::addDroppedAttachments(const QList<QUrl> &urls,
             if (m_roomId != roomId || m_rootEventId != rootId
                 || m_dropGeneration != generation || m_client != client
                 || !m_client || m_client->currentUserId() != userId)
-                return; // another thread or session is open now
-            // Only a portal key was dropped and the portal gave nothing: say
-            // so rather than leave the drop silently ignored.
+                return;
             if (resolved.isEmpty()) {
                 Q_EMIT attachmentRejected(tr("That file cannot be read."));
                 return;
@@ -753,8 +673,6 @@ bool ThreadController::pasteFromClipboard()
     if (!mime)
         return false;
 
-    // Real file MIME (text/uri-list) — plain text is never treated as paths.
-    // Resolved like a drop (portal key included).
     if (mime->hasUrls()) {
         QList<QUrl> local;
         const auto urls = mime->urls();
@@ -782,7 +700,7 @@ bool ThreadController::pasteFromClipboard()
         if (!image.save(&buffer, "PNG")) {
             Q_EMIT attachmentRejected(
                 tr("The clipboard image could not be read."));
-            return true;   // handled: never paste binary junk as text
+            return true;
         }
         const QString reason = m_attachments->addImageData(
             bytes, QStringLiteral("image/png"), image.width(), image.height());
@@ -804,8 +722,6 @@ bool ThreadController::dispatchAttachments()
         if (entries[row].state != QLatin1String("queued"))
             continue;
         entries[row].sendRequested = true;
-        // Captured now: a video waits for its poster, and the reply is spent by
-        // the time it dispatches. A retry with no new reply keeps its own.
         if (!m_replyToEventId.isEmpty())
             entries[row].replyToEventId = m_replyToEventId;
         any = true;
@@ -814,8 +730,6 @@ bool ThreadController::dispatchAttachments()
     return any;
 }
 
-// See MessageComposer::dispatchAttachment: a queued video waits for its local
-// poster, then sends through the SDK's thread-focused path.
 void ThreadController::dispatchAttachment(int row)
 {
     if (!m_client || m_state != Ready || m_roomId.isEmpty()
@@ -854,8 +768,6 @@ void ThreadController::dispatchAttachment(int row)
             entry.width, entry.height, entry.durationMs, entry.poster,
             entry.posterWidth, entry.posterHeight, entry.replyToEventId);
     } else if (entry.isSvg) {
-        // An SVG is converted to a PNG file before it can dispatch (see
-        // AttachmentQueueModel); an unconverted one is never uploaded.
         opId = 0;
     } else {
         opId = m_client->sendThreadAttachment(
@@ -889,7 +801,6 @@ void ThreadController::sendVoiceMessage(const QString &localPath,
         Q_EMIT attachmentRejected(tr("The voice message could not be sent."));
         return;
     }
-    // Same preflight as the room composer; silent when the limit is unknown.
     const qint64 recordedBytes = QFileInfo(localPath).size();
     if (m_attachments && m_attachments->exceedsUploadLimit(recordedBytes)) {
         QFile::remove(localPath);
@@ -904,8 +815,6 @@ void ThreadController::sendVoiceMessage(const QString &localPath,
     amplitudes.reserve(waveform.size());
     for (const QVariant &value : waveform)
         amplitudes.append(value.toInt());
-    // Capture the target thread now; the panel may move before the send
-    // resolves.
     const QString targetRoom = m_roomId;
     const QString targetRoot = m_rootEventId;
     const quint64 opId = m_client->sendThreadVoiceMessage(
@@ -919,7 +828,6 @@ void ThreadController::sendVoiceMessage(const QString &localPath,
         return;
     }
     m_voiceOps.insert(opId, VoiceOp{localPath, targetRoom, targetRoot});
-    // The recording carried the reply, so the reply chip is spent.
     cancelReply();
 }
 
@@ -931,12 +839,9 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
     Q_UNUSED(category);
     if (opId == 0)
         return;
-    // The stripped copy (if any) has been read by the SDK or the op failed.
     m_imagePrep.finished(opId);
     if (const auto voiceIt = m_voiceOps.constFind(opId);
         voiceIt != m_voiceOps.constEnd()) {
-        // Cleanup is unconditional; a failure is reported only while the same
-        // room and root are still open.
         const VoiceOp op = voiceIt.value();
         QFile::remove(op.localPath);
         m_voiceOps.erase(voiceIt);
@@ -949,9 +854,8 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
     for (int row = 0; row < entries.size(); ++row) {
         if (entries[row].opId != opId
             || (!roomId.isEmpty() && roomId != m_roomId))
-            continue;   // not ours (the room composer owns other op ids).
+            continue;
         if (ok) {
-            // The SDK local echo now owns this attachment's send state.
             entries[row].state = QStringLiteral("sent");
             m_attachments->removeAt(row);
         } else {
@@ -996,8 +900,6 @@ void ThreadController::beginReply(const QString &eventId)
 {
     if (m_state == Closed || eventId.isEmpty())
         return;
-    // Only loaded thread events are valid reply targets; replying to the
-    // root is a plain thread message, so it clears the target.
     if (eventId == m_rootEventId) {
         cancelReply();
         return;
@@ -1052,21 +954,16 @@ int ThreadController::replyCount() const
 
 int ThreadController::exactReplyCount() const
 {
-    // Read the event, not ThreadReplyCountRole: the role reports 0 when the
-    // summary is absent, while TimelineEvent::threadReplyCount is -1 exactly
-    // when unknown.
     const auto summaryFor = [](const QList<TimelineEvent> &events,
                                const QString &rootId) {
         for (const auto &e : events)
             if (e.eventId == rootId)
-                return e.threadReplyCount;   // -1 when the SDK has not said
+                return e.threadReplyCount;
         return -1;
     };
 
     const int rootRow = m_model.rowForStableId(m_rootEventId);
     int known = summaryFor(m_model.events(), m_rootEventId);
-    // The root may not be a row of the thread model yet (same fallback as
-    // rootInfo()); only then scan the room timeline.
     if (rootRow < 0 && known < 0 && m_client)
         known = summaryFor(m_client->timeline(m_roomId), m_rootEventId);
 
@@ -1115,8 +1012,6 @@ QVariantMap ThreadController::rootInfo() const
                     data(TimelineModel::IsFileRole));
     };
 
-    // Prefer the loaded thread timeline; the room timeline is the fallback
-    // while the thread snapshot is still arriving.
     const int threadRow = m_model.rowForStableId(m_rootEventId);
     if (threadRow >= 0) {
         const QModelIndex idx = m_model.index(threadRow, 0);
@@ -1150,8 +1045,6 @@ QVariantMap ThreadController::rootInfo() const
             return info;
         }
     }
-    // Opened from the Threads panel: the list already named the root, however
-    // many pages of replies stand between the newest reply and it.
     for (const QVariant &entry : m_threadList) {
         const QVariantMap thread = entry.toMap();
         if (thread.value(QStringLiteral("rootEventId")).toString()
@@ -1237,8 +1130,6 @@ void ThreadController::syncViewerAtLatest()
         return;
     m_viewerAtLatestAnnounced = now;
     Q_EMIT viewerAtLatestChanged();
-    // Back at the newest reply (window focused again, panel shown, scrolled
-    // down): what arrived meanwhile is read now. Deduplicated in markRead().
     if (now)
         markRead();
 }
@@ -1249,15 +1140,10 @@ void ThreadController::markRead()
         traceState("receipt_not_ready");
         return;
     }
-    // Only what the reader is looking at: a panel left open behind another
-    // window, minimised or in the tray, or scrolled up, reads nothing. The
-    // room timeline holds the same line (ReadReceiptCoordinator).
     if (!viewerAtLatest()) {
         traceState("receipt_view_hidden_or_old");
         return;
     }
-    // A notification is moving the reader to a particular reply; the newest
-    // one is not what they are being shown.
     if (!m_pendingNavigationEventId.isEmpty() || !m_navigationEventId.isEmpty()) {
         traceState("receipt_navigation_pending");
         return;
@@ -1265,11 +1151,8 @@ void ThreadController::markRead()
     qint64 latestMs = 0;
     const QString latest = m_model.latestReadableEventId(&latestMs);
     if (latest.isEmpty() || latest == m_lastMarkedReadEventId)
-        return;   // deduplicated: one receipt per new latest reply
+        return;
     m_lastMarkedReadEventId = latest;
-    // Announced to the bell only when the server accepts it (a failed receipt
-    // must leave the rows). Queued BEFORE the call: a backend may answer
-    // synchronously (failure on a null handle, or an immediate acceptance).
     const quint64 opId = m_nextThreadReadId++;
     m_pendingThreadReads.insert(
         opId, {m_roomId, m_rootEventId, latest, latestMs});
@@ -1343,33 +1226,25 @@ void ThreadController::paginateList()
     m_client->paginateThreadList(m_listRoomId);
 }
 
-// ── Reply navigation inside the open thread (contract C5) ───────────────
-//
-// Separate from PaginationController::jumpToEvent on purpose. The SDK's
-// thread timeline keeps only in-thread relations, so a reply target is always
-// another thread event or the root; the room history loader must never be
-// used. "Open in room" is the only way out of the thread.
 void ThreadController::navigateToEvent(const QString &eventId)
 {
     if (eventId.isEmpty() || m_state == Closed)
         return;
     if (eventId == m_rootEventId) {
-        // The root is pinned as a card above the replies, so navigating to
-        // it pulses the card.
-        clearNavigation(/*clearMessage=*/true);
+        clearNavigation(true);
         setNavigationHighlight(eventId);
         return;
     }
     const int loadedRow = m_model.rowForStableId(eventId);
     if (loadedRow >= 0) {
-        clearNavigation(/*clearMessage=*/true);
+        clearNavigation(true);
         setNavigationHighlight(eventId);
         Q_EMIT navigationTargetLocated(loadedRow);
         return;
     }
     if (m_navigationEventId == eventId)
-        return;   // coalesce repeated activation of the same reply preview
-    clearNavigation(/*clearMessage=*/true);
+        return;
+    clearNavigation(true);
     m_navigationEventId = eventId;
     m_navigationRoomId = m_roomId;
     m_navigationRootEventId = m_rootEventId;
@@ -1391,7 +1266,6 @@ void ThreadController::stopHistoryFill()
     const bool wasActive = m_fillActive;
     m_fillActive = false;
     m_fillBatches = 0;
-    // The root card stops saying it is still looking.
     if (wasActive)
         Q_EMIT rootInfoChanged();
 }
@@ -1400,7 +1274,6 @@ void ThreadController::continueHistoryFill()
 {
     if (!m_fillActive)
         return;
-    // A reply search paginates for itself; the fill must not spend its pages.
     if (!m_client || m_state != Ready || !m_navigationEventId.isEmpty()
         || m_model.rowForStableId(m_rootEventId) >= 0) {
         traceState(m_model.rowForStableId(m_rootEventId) >= 0
@@ -1410,7 +1283,7 @@ void ThreadController::continueHistoryFill()
     }
     const QString id = timelineId();
     if (m_client->paginating(id))
-        return;   // ride the batch in flight; its completion edge continues
+        return;
     if (m_fillBatches >= m_maxFillBatches || !m_client->canPaginate(id)) {
         traceState(m_fillBatches >= m_maxFillBatches
                        ? "fill_limit" : "history_exhausted");
@@ -1420,7 +1293,6 @@ void ThreadController::continueHistoryFill()
     ++m_fillBatches;
     traceState("page_requested");
     m_model.requestOlder();
-    // Re-read so the busy -> idle edge above can be recognised.
     m_modelPaginating = m_client->paginating(id);
 }
 
@@ -1429,12 +1301,10 @@ void ThreadController::beginNavigationBatch()
     if (m_navigationEventId.isEmpty())
         return;
     if (!m_client || navigationStale()) {
-        clearNavigation(/*clearMessage=*/true);
+        clearNavigation(true);
         return;
     }
     const QString id = timelineId();
-    // canPaginate() is also false while a batch is loading; ride that batch,
-    // its completion edge continues the search.
     const bool busy = m_client->paginating(id);
     if (m_navigationBatches >= m_maxNavigationBatches
         || (!busy && !m_client->canPaginate(id))) {
@@ -1445,7 +1315,6 @@ void ThreadController::beginNavigationBatch()
     m_navigationBatchTimer.start(m_navigationBatchTimeoutMs);
     if (!busy)
         m_model.requestOlder();
-    // Re-read so the busy -> idle edge below can be recognised.
     m_modelPaginating = m_client->paginating(id);
 }
 
@@ -1454,7 +1323,7 @@ void ThreadController::continueNavigation()
     if (m_navigationEventId.isEmpty())
         return;
     if (navigationStale()) {
-        clearNavigation(/*clearMessage=*/true);
+        clearNavigation(true);
         return;
     }
     const int row = m_model.rowForStableId(m_navigationEventId);
@@ -1472,15 +1341,14 @@ void ThreadController::continueNavigation()
 void ThreadController::locateNavigationTarget(int row)
 {
     const QString eventId = m_navigationEventId;
-    clearNavigation(/*clearMessage=*/true);
+    clearNavigation(true);
     setNavigationHighlight(eventId);
     Q_EMIT navigationTargetLocated(row);
 }
 
 void ThreadController::failNavigation()
 {
-    clearNavigation(/*clearMessage=*/false);
-    // Reuses the room timeline's message so both surfaces read the same.
+    clearNavigation(false);
     m_navigationMessage = PaginationController::unavailableTargetMessage();
     m_navigationMessageTimer.start(
         PaginationController::kNavigationMessageDurationMs);
@@ -1549,8 +1417,6 @@ void ThreadController::setState(State state, const QString &failureCategory)
         if (!sameThread || m_state == Closed || m_state == Failed) {
             m_pendingNavigationEventId.clear();
         } else if (m_state == Ready) {
-            // After every stateChanged handler, so the panel's restore of a
-            // saved scroll position cannot undo the landing.
             const QString eventId = m_pendingNavigationEventId;
             m_pendingNavigationEventId.clear();
             navigateToEvent(eventId);
@@ -1558,8 +1424,6 @@ void ThreadController::setState(State state, const QString &failureCategory)
         }
     }
     syncViewerAtLatest();
-    // markRead() refused while the landing was pending; if the reply it
-    // landed on left the reader at the newest one, that is read now.
     if (landed && viewerAtLatest())
         markRead();
 }
@@ -1578,9 +1442,8 @@ void ThreadController::openThreadAt(const QString &roomId,
     if (eventId.isEmpty() || eventId == rootEventId)
         return;
     if (m_roomId != roomId || m_rootEventId != rootEventId)
-        return;   // the open was refused
+        return;
     if (m_state == Ready) {
-        // Already open, or a backend that opened it synchronously.
         navigateToEvent(eventId);
         return;
     }
@@ -1593,8 +1456,6 @@ void ThreadController::traceState(const char *reason) const
 {
     if (!m_traceEnabled)
         return;
-    // Every variable is selected metadata. Never pass a backend error string,
-    // composite timeline id, body, draft, URL, or filesystem path here.
     qCInfo(lcThread).nospace()
         << "thread_diag reason=" << reason
         << " generation=" << m_traceGeneration

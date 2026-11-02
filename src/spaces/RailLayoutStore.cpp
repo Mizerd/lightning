@@ -11,17 +11,13 @@
 #include <QJsonObject>
 
 namespace {
-// Shared with SettingsManager::forgetDeviceGlobalAccountResidue, which removes
-// it when the last account is cleared.
 constexpr auto kLayoutKey = SettingsManager::kRailLayoutKey;
 
-// Pseudo rows (All rooms, orphans) cannot be ordered or filed; they stay at
-// the top.
 bool isPseudoSpace(const QString &id)
 {
     return id.isEmpty() || id.startsWith(QLatin1Char('@'));
 }
-} // namespace
+}
 
 RailLayoutStore::RailLayoutStore(SettingsManager *settings, QObject *parent)
     : QObject(parent)
@@ -52,7 +48,6 @@ void RailLayoutStore::setClient(MatrixClient *client)
 
 void RailLayoutStore::invalidate()
 {
-    // Unconditional: the next read must consult the account active now.
     m_loaded = false;
     m_cache = {};
     Q_EMIT layoutChanged();
@@ -91,7 +86,6 @@ const RailLayoutStore::Layout &RailLayoutStore::load() const
         for (const QJsonValue &member :
              entry.value(QStringLiteral("spaceIds")).toArray()) {
             const QString id = member.toString();
-            // A pseudo row can never be filed, even in a hand-edited config.
             if (!id.isEmpty() && !isPseudoSpace(id)
                 && !folder.spaceIds.contains(id))
                 folder.spaceIds.append(id);
@@ -105,8 +99,6 @@ const RailLayoutStore::Layout &RailLayoutStore::load() const
         if (!id.isEmpty() && !isPseudoSpace(id) && !m_cache.order.contains(id))
             m_cache.order.append(id);
     }
-    // Additive format: a layout without "expanded" loads with nothing
-    // expanded. Never migrate what can be defaulted.
     for (const QJsonValue &value :
          object.value(QStringLiteral("expanded")).toArray()) {
         const QString id = value.toString();
@@ -115,7 +107,6 @@ const RailLayoutStore::Layout &RailLayoutStore::load() const
             m_cache.expanded.append(id);
         }
     }
-    // Also additive: without "childOrder"/"roomOrder", Matrix's own order.
     const auto readOrderMap = [](const QJsonObject &source) {
         QHash<QString, QStringList> out;
         for (auto it = source.constBegin(); it != source.constEnd(); ++it) {
@@ -194,7 +185,7 @@ RailLayoutStore::dropEmptiedFolders(const Layout &layout) const
     //
     // Done here because every path that removes a member ends in save().
     if (!m_loaded)
-        return layout;   // nothing was loaded, so nothing was emptied
+        return layout;
     Layout next = layout;
     for (int i = next.folders.size() - 1; i >= 0; --i) {
         if (!next.folders.at(i).spaceIds.isEmpty())
@@ -210,7 +201,6 @@ RailLayoutStore::dropEmptiedFolders(const Layout &layout) const
         if (!hadMembers)
             continue;
         next.folders.removeAt(i);
-        // Its id is also a top-level entry.
         next.order.removeAll(id);
     }
     return next;
@@ -292,8 +282,6 @@ void RailLayoutStore::deleteFolder(const QString &folderId)
     for (int i = 0; i < layout.folders.size(); ++i) {
         if (layout.folders.at(i).id != folderId)
             continue;
-        // Members return to the top level where the folder was, not at the
-        // end.
         const QStringList members = layout.folders.at(i).spaceIds;
         layout.folders.removeAt(i);
         const int at = layout.order.indexOf(folderId);
@@ -342,14 +330,11 @@ void RailLayoutStore::setSpaceFolder(const QString &spaceId,
         return;
     Layout layout = load();
     bool changed = false;
-    // A Space is in at most one folder: leaving the old one is part of
-    // joining the new one.
     for (Folder &folder : layout.folders) {
         if (folder.id != folderId && folder.spaceIds.removeAll(spaceId) > 0)
             changed = true;
     }
     if (folderId.isEmpty()) {
-        // Back to the top level, at the end: its old slot was the folder's.
         if (!layout.order.contains(spaceId)) {
             layout.order.append(spaceId);
             changed = true;
@@ -367,7 +352,6 @@ void RailLayoutStore::setSpaceFolder(const QString &spaceId,
         }
         if (!known)
             return;
-        // A filed Space is no longer a top-level entry.
         if (layout.order.removeAll(spaceId) > 0)
             changed = true;
     }
@@ -380,8 +364,6 @@ void RailLayoutStore::moveEntry(const QString &entryId, int toIndex)
     if (entryId.isEmpty() || isPseudoSpace(entryId))
         return;
     Layout layout = load();
-    // An entry never dragged is not in `order` yet; the rail passes the
-    // index it dropped at and everything before it is already materialised.
     const int from = layout.order.indexOf(entryId);
     if (from >= 0)
         layout.order.removeAt(from);
@@ -392,10 +374,6 @@ void RailLayoutStore::moveEntry(const QString &entryId, int toIndex)
 
 namespace {
 
-/// The stored arrangement first, for ids still present, then anything it does
-/// not mention in the caller's order, so something new joins the end of the
-/// run. A departed id is simply not returned (not cleaned up eagerly): an
-/// unfinished load is not a change.
 QStringList applyStoredOrder(const QStringList &stored,
                              const QStringList &known)
 {
@@ -425,7 +403,7 @@ QStringList sanitizedOrder(const QStringList &ids)
     return out;
 }
 
-} // namespace
+}
 
 QStringList RailLayoutStore::orderedChildren(const QString &parentId,
                                              const QStringList &known) const
@@ -489,7 +467,7 @@ void RailLayoutStore::setTopLevelOrder(const QStringList &entryIds)
         if (id.isEmpty() || isPseudoSpace(id) || next.contains(id))
             continue;
         if (!folderOf(id).isEmpty())
-            continue;   // filed: it is not a top-level entry
+            continue;
         next.append(id);
     }
     if (next == layout.order)
@@ -557,11 +535,7 @@ QString RailLayoutStore::createFolderWithSpaces(const QStringList &spaceIds,
     if (folder.id.isEmpty())
         return {};
     folder.name = name.trimmed().left(kMaxNameLength);
-    // An unnamed folder stays unnamed: "Folder" is localised where it is
-    // displayed, so the tooltip never reads "Folder: Folder" and the label
-    // follows the language.
     folder.spaceIds = members;
-    // The members leave wherever they were: another folder or the top level.
     for (Folder &other : layout.folders) {
         for (const QString &id : members)
             other.spaceIds.removeAll(id);
@@ -622,18 +596,17 @@ void RailLayoutStore::applyArrangement(const QStringList &topLevel,
     for (const Folder &folder : next.folders)
         knownFolders.insert(folder.id);
 
-    // Every space the caller placed inside a folder, and which folder it is.
     QHash<QString, QString> assigned;
     QHash<QString, QStringList> rendered;
     for (auto it = folderMembers.constBegin(); it != folderMembers.constEnd();
          ++it) {
         if (!knownFolders.contains(it.key()))
-            continue;   // a folder that no longer exists names nothing
+            continue;
         QStringList members;
         for (const QString &id : it.value().toStringList()) {
             if (id.isEmpty() || isPseudoSpace(id) || knownFolders.contains(id)
                 || members.contains(id) || assigned.contains(id)) {
-                continue;   // a Space is in at most one place
+                continue;
             }
             members.append(id);
             assigned.insert(id, it.key());
@@ -647,7 +620,7 @@ void RailLayoutStore::applyArrangement(const QStringList &topLevel,
         if (id.isEmpty() || isPseudoSpace(id) || order.contains(id))
             continue;
         if (assigned.contains(id))
-            continue;   // named as a folder member: not a top-level entry
+            continue;
         order.append(id);
         topLevelSet.insert(id);
     }
@@ -658,8 +631,6 @@ void RailLayoutStore::applyArrangement(const QStringList &topLevel,
             folder.spaceIds = *it;
             continue;
         }
-        // A folder the caller did not render (collapsed) keeps its members,
-        // except any placed elsewhere by this call.
         for (int i = folder.spaceIds.size() - 1; i >= 0; --i) {
             const QString &id = folder.spaceIds.at(i);
             if (assigned.contains(id) || topLevelSet.contains(id))
@@ -725,7 +696,7 @@ QStringList RailLayoutStore::sortedForMode(
             const qint64 aWhen = activityOf(a);
             const qint64 bWhen = activityOf(b);
             if (aWhen != bWhen)
-                return aWhen > bWhen;   // never-active (0) sorts last
+                return aWhen > bWhen;
         }
         return conversation::byName(collator, nameOf(a), a, nameOf(b), b);
     });
@@ -756,8 +727,6 @@ QStringList RailLayoutStore::orderedSpaceIds(const QVariantList &spaces) const
         }
     }
 
-    // Each folder expanded in place even when collapsed: this is an ordering
-    // question.
     QStringList out;
     auto appendFolder = [&](const QString &folderId) {
         for (const Folder &folder : layout.folders) {
@@ -821,7 +790,6 @@ QVariantList RailLayoutStore::arrange(const QVariantList &spaces) const
         natural.append(id);
     }
 
-    // Folder membership, restricted to Spaces that actually exist right now.
     QHash<QString, QString> folderOfSpace;
     for (const Folder &folder : layout.folders) {
         for (const QString &id : folder.spaceIds) {
@@ -830,12 +798,10 @@ QVariantList RailLayoutStore::arrange(const QVariantList &spaces) const
         }
     }
 
-    // The user's order first, then anything new in model order, so a newly
-    // joined Space appears at the bottom.
     QStringList top;
     for (const QString &id : layout.order) {
         if (folderOfSpace.contains(id))
-            continue;            // filed since it was ordered
+            continue;
         if (byId.contains(id) || [&] {
                 for (const Folder &folder : layout.folders) {
                     if (folder.id == id)
@@ -855,9 +821,6 @@ QVariantList RailLayoutStore::arrange(const QVariantList &spaces) const
             top.append(id);
     }
 
-    // Automatic order: sort a copy of the top level (a folder sorts by its own
-    // name, or by its newest member's activity). The stored arrangement above
-    // is untouched, so Manual restores it.
     if (m_sortMode != conversation::RailSortManual) {
         top = sortedForMode(top, sortKeys(layout, byId));
     }
@@ -884,12 +847,9 @@ QVariantList RailLayoutStore::arrange(const QVariantList &spaces) const
             continue;
         }
 
-        // The members that still exist, in the folder's own order.
         QStringList members;
         int unread = 0;
         int highlight = 0;
-        // Up to four member avatars for the folder tile's composite preview,
-        // so a collapsed folder is identifiable.
         QVariantList preview;
         for (const QString &memberId :
              sortedForMode(folder->spaceIds, byId)) {
@@ -909,9 +869,6 @@ QVariantList RailLayoutStore::arrange(const QVariantList &spaces) const
                 });
             }
         }
-        // A folder with no resolved members still renders: it was created
-        // empty, or its members have not synced yet. Emptiness is judged in
-        // dropEmptiedFolders(), never here.
         QVariantMap entry;
         entry.insert(QStringLiteral("kind"), QStringLiteral("folder"));
         entry.insert(QStringLiteral("entryId"), folder->id);
@@ -934,8 +891,6 @@ QVariantList RailLayoutStore::arrange(const QVariantList &spaces) const
             member.insert(QStringLiteral("kind"), QStringLiteral("space"));
             member.insert(QStringLiteral("entryId"), memberId);
             member.insert(QStringLiteral("folderId"), folder->id);
-            // The last member carries the container's rounded bottom.
-            // RailEntryModel restamps this over nested rows.
             member.insert(QStringLiteral("folderLast"),
                           m == members.size() - 1);
             out.append(member);

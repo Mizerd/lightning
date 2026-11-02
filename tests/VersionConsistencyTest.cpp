@@ -1,9 +1,3 @@
-// Every place that quotes the release version must quote the same one:
-// CMake's project() and APP_VERSION_LABEL, rust/Cargo.toml, rust/Cargo.lock
-// and the install instructions (README.md and docs/install.md).
-//
-// A consistency check, not a value check: CMakeLists.txt is authoritative for
-// what the version is.
 
 #include <QtTest/QtTest>
 
@@ -22,7 +16,6 @@ QString readFile(const QString &relative)
     return QString::fromUtf8(f.readAll());
 }
 
-/// First capture of `pattern` in `text`, or an empty string.
 QString firstCapture(const QString &text, const QString &pattern)
 {
     const QRegularExpression re(pattern);
@@ -30,9 +23,6 @@ QString firstCapture(const QString &text, const QString &pattern)
     return m.hasMatch() ? m.captured(1) : QString();
 }
 
-// Written with escapes rather than raw strings: several patterns match a
-// literal double quote, and a raw string whose body ends in `)"` closes
-// early.
 const QString kTriple = QStringLiteral("([0-9]+\\.[0-9]+\\.[0-9]+)");
 
 QString labelPattern()
@@ -41,7 +31,7 @@ QString labelPattern()
            + QStringLiteral("\"");
 }
 
-} // namespace
+}
 
 class VersionConsistencyTest : public QObject
 {
@@ -53,9 +43,6 @@ private slots:
         const QString cmake = readFile(QStringLiteral("CMakeLists.txt"));
         QVERIFY2(!cmake.isEmpty(), "CMakeLists.txt is unreadable");
 
-        // The authority. Both spellings must already agree with each other:
-        // `project(VERSION ...)` feeds the build, APP_VERSION_LABEL feeds
-        // `--version`.
         const QString projectVersion = firstCapture(
             cmake,
             QStringLiteral("project\\(lightning\\s*\\n\\s*VERSION\\s+") + kTriple);
@@ -65,7 +52,6 @@ private slots:
         QVERIFY2(!label.isEmpty(), "could not read APP_VERSION_LABEL");
         QCOMPARE(label, projectVersion);
 
-        // The Rust crate, whose version also derives the HTTP user agent.
         const QString cargoToml = readFile(QStringLiteral("rust/Cargo.toml"));
         QVERIFY2(!cargoToml.isEmpty(), "rust/Cargo.toml is unreadable");
         const QString cargoVersion = firstCapture(
@@ -73,8 +59,6 @@ private slots:
             QStringLiteral("(?m)^version = \"") + kTriple + QStringLiteral("\""));
         QCOMPARE(cargoVersion, projectVersion);
 
-        // The lock file's entry for our crate, matched by package name so an
-        // unrelated crate with the same version cannot satisfy it.
         const QString cargoLock = readFile(QStringLiteral("rust/Cargo.lock"));
         QVERIFY2(!cargoLock.isEmpty(), "rust/Cargo.lock is unreadable");
         const QString lockVersion = firstCapture(
@@ -86,8 +70,6 @@ private slots:
         QCOMPARE(lockVersion, projectVersion);
     }
 
-    // ---- and the files a new user actually reads ----
-
     void theReadmeDoesNotAdvertiseAnOlderRelease()
     {
         const QString cmake = readFile(QStringLiteral("CMakeLists.txt"));
@@ -95,15 +77,9 @@ private slots:
         const QString version = firstCapture(cmake, labelPattern());
         QVERIFY2(!version.isEmpty(), "could not read APP_VERSION_LABEL");
 
-        // The README links out to docs/install.md, which holds the install
-        // commands that name release files. Both are scanned.
         const QStringList files = {QStringLiteral("README.md"),
                                    QStringLiteral("docs/install.md")};
 
-        // Ours only: these files also quote dependency versions (Qt,
-        // GStreamer) that must not move with a release. A version counts if
-        // its line mentions Lightning (every install command and flake ref
-        // does) or if it is in backticks.
         const QRegularExpression triple(QStringLiteral("\\b") + kTriple
                                         + QStringLiteral("\\b"));
         QStringList wrong;
@@ -126,7 +102,7 @@ private slots:
                         && line.at(at - 1) == QLatin1Char('`')
                         && line.at(at + found.size()) == QLatin1Char('`');
                     if (!mentionsProduct && !backticked)
-                        continue;   // a dependency's version, not ours
+                        continue;
                     ++ours;
                     const QString where =
                         QStringLiteral("%1 in %2").arg(found, file);
@@ -136,7 +112,6 @@ private slots:
             }
         }
 
-        // A scan that matches nothing passes vacuously, so require a floor.
         QVERIFY2(ours >= 5,
                  qPrintable(QStringLiteral(
                      "only %1 Lightning version(s) found in README.md and "

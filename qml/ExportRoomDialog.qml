@@ -3,25 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Export a room to a file: HTML (one self-contained page, optionally with its
-// attachments), plain text or JSON.
-//
-// What is exported: the messages Lightning has loaded (no network), the
-// latest N, everything from the start of the room, or a date range. The last
-// three read the room's history in the background (app.roomExport), never by
-// scrolling the timeline, and the dialog shows progress and can cancel.
-//
-// Encrypted rooms: CLAUDE.md §6 keeps encrypted plaintext memory-only, and
-// this is the one place that offers to break that. It is a decision, not a
-// format option: the checkbox is off by default, its words say what the file
-// will contain, and declining still exports the conversation's shape with
-// every body AND every attachment withheld (state rows worded from event
-// names alone, such as "X joined", stay: state events are never encrypted).
-// An unknown encryption state
-// counts as encrypted (AppController::exportOptions).
-//
-// Every limit is shown before a file is picked and repeated in the file,
-// since a partial export can be mistaken for the whole history.
 Dialog {
     id: root
     objectName: "exportRoomDialog"
@@ -34,13 +15,10 @@ Dialog {
     width: Math.min(560, parent ? parent.width - AppTheme.spacing24 * 2 : 560)
     anchors.centerIn: parent
     padding: AppTheme.spacing16
-    // Capped to the window: a taller dialog was clipped top and bottom with
-    // Cancel and Choose file unreachable; the content scrolls instead.
     height: Math.min(implicitHeight, parent ? parent.height - AppTheme.spacing24 * 2
                                               : implicitHeight)
 
     property string format: "html"
-    // "loaded" | "latest" | "all" | "dates"
     property string rangeMode: "loaded"
     property bool includeAttachments: true
     property bool includeEncryptedText: false
@@ -48,11 +26,7 @@ Dialog {
     property bool encrypted: false
     property string roomName: ""
     property string failure: ""
-    // "Exported N events to <file>." after a successful export; the dialog
-    // stays open to say so, rather than closing without a word.
     property string success: ""
-    // The failure text last produced by inputProblem(); edited-away inputs
-    // withdraw it, an export's own failure is never withdrawn this way.
     property string inputProblemShown: ""
 
     function clearInputProblem() {
@@ -61,7 +35,6 @@ Dialog {
         inputProblemShown = ""
     }
 
-    // True for a real calendar date written YYYY-MM-DD (2026-13-45 is not).
     function isRealDate(text) {
         var m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(text)
         if (!m)
@@ -78,8 +51,6 @@ Dialog {
                                              && exporter.historyAvailable
     readonly property bool isHtml: format === "html"
 
-    // The range choices, in order. Reading history needs the Rust backend;
-    // without it only the loaded messages can be exported.
     readonly property var rangeValues: historyAvailable
                                        ? ["loaded", "latest", "all", "dates"]
                                        : ["loaded"]
@@ -92,7 +63,6 @@ Dialog {
         format = "html"
         rangeMode = "loaded"
         includeAttachments = true
-        // Re-armed on every open; never inherited from a previous export.
         includeEncryptedText = false
         failure = ""
         success = ""
@@ -112,8 +82,6 @@ Dialog {
         open()
     }
 
-    // A reason the inputs cannot be exported yet, or "". Checked before the
-    // file dialog opens; the C++ side checks again.
     function inputProblem() {
         if (rangeMode === "latest") {
             var n = parseInt(countField.text, 10)
@@ -138,8 +106,6 @@ Dialog {
         return ""
     }
 
-    // Closing the dialog stops an export in flight: nothing keeps running
-    // where the user can no longer see or cancel it.
     onClosed: {
         if (root.busy)
             root.exporter.cancel()
@@ -171,8 +137,6 @@ Dialog {
                        ? [ qsTr("Web page (*.html)"), qsTr("All files (*)") ]
                        : [ qsTr("Text (*.txt)"), qsTr("All files (*)") ]
         onAccepted: {
-            // Cleared first: an export that fails at once reports through
-            // onFinished during this very call, and must not be overwritten.
             root.failure = ""
             root.success = ""
             var problem = app.startRoomExport(
@@ -187,8 +151,6 @@ Dialog {
         }
     }
 
-    // Qt's ScrollView never scrolls a focused child into view, so Tab in a
-    // window shorter than the dialog landed on controls nobody could see.
     function ensureVisible(item) {
         var flick = scroller.contentItem
         if (!item || !flick || !flick.contentHeight)
@@ -232,7 +194,6 @@ Dialog {
             font.weight: AppTheme.weightStrong
         }
 
-        // ── Format ──
         Label {
             text: qsTr("Format")
             color: AppTheme.stormTextMuted
@@ -252,7 +213,6 @@ Dialog {
             onActivated: (value) => root.format = value
         }
 
-        // ── Messages ──
         Label {
             text: qsTr("Messages")
             color: AppTheme.stormTextMuted
@@ -319,10 +279,6 @@ Dialog {
             // The room name is attacker-chosen: with AutoText, markup such as
             // `<img src=...>` would render and beacon.
             textFormat: Text.PlainText
-            // The count first for the loaded range: it answers "is this the
-            // whole conversation?", usually no. Branched rather than
-            // `%n message(s)`, which renders "(s)" literally without a loaded
-            // catalog.
             text: {
                 if (root.rangeMode === "latest")
                     return qsTr("Reads the latest messages of %1 from the "
@@ -361,7 +317,6 @@ Dialog {
             font.pixelSize: AppTheme.textMeta
         }
 
-        // ── Attachments (HTML only) ──
         ColumnLayout {
             objectName: "exportRoomAttachmentOptions"
             visible: root.isHtml
@@ -417,7 +372,6 @@ Dialog {
             }
         }
 
-        // ── The encrypted-room exception ──
         Rectangle {
             objectName: "exportRoomEncryptedNotice"
             visible: root.encrypted
@@ -447,8 +401,6 @@ Dialog {
                     objectName: "exportRoomIncludeEncrypted"
                     palette.windowText: AppTheme.stormText
                     enabled: !root.busy
-                    // The label is a sentence; it wraps inside the dialog
-                    // instead of running past its edge.
                     Layout.fillWidth: true
                     contentItem: Label {
                         text: includeEncryptedBox.text
@@ -461,8 +413,6 @@ Dialog {
                             ? includeEncryptedBox.indicator.width
                               + includeEncryptedBox.spacing : 0
                     }
-                    // Says what the file will contain, not what the option is
-                    // called.
                     text: root.isHtml && root.includeAttachments
                           ? qsTr("Write the message text and attachments "
                                  + "(photos, files) into this file in the "
@@ -500,7 +450,6 @@ Dialog {
             }
         }
 
-        // ── Progress ──
         RowLayout {
             objectName: "exportRoomProgressRow"
             visible: root.busy
@@ -554,8 +503,6 @@ Dialog {
             }
             AppButton {
                 objectName: "exportRoomCancel"
-                // While an export runs this stops it; the partly written file
-                // is discarded.
                 text: root.busy ? qsTr("Cancel export")
                                 : (root.success.length > 0 ? qsTr("Close")
                                                            : qsTr("Cancel"))

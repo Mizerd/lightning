@@ -27,14 +27,11 @@ void RoomHistory::visitSearchResult(const QString &roomId, const QString &eventI
 
 void RoomHistory::visitPlace(const Place &place)
 {
-    // Coming back to the room the cursor is on (after the lobby, or the same
-    // room re-selected) is not a new navigation: the forward list stays.
     if (m_cursor >= 0 && m_cursor < m_entries.size()
         && m_entries.at(m_cursor) == place) {
         m_detached = false;
         return;
     }
-    // A new navigation drops everything ahead of the cursor.
     while (m_entries.size() > m_cursor + 1)
         m_entries.removeLast();
     m_entries.append(place);
@@ -51,11 +48,9 @@ void RoomHistory::prune(const Openable &openable)
     int keptUpToCursor = 0;
     for (int i = 0; i < m_entries.size(); ++i) {
         const Place &place = m_entries.at(i);
-        // The open room is never pruned; a detached cursor entry may be.
         const bool protectedEntry = !m_detached && i == m_cursor;
         if (!protectedEntry && !openable(place.roomId))
             continue;
-        // Removing a room can leave the same one twice in a row.
         if (!kept.isEmpty() && kept.last() == place)
             continue;
         kept.append(place);
@@ -66,7 +61,6 @@ void RoomHistory::prune(const Openable &openable)
     m_cursor = keptUpToCursor - 1;
     if (m_entries.isEmpty())
         m_detached = false;
-    // A cursor of -1 is only valid while detached.
     if (m_cursor < 0 && !m_entries.isEmpty())
         m_detached = true;
     trim();
@@ -74,8 +68,6 @@ void RoomHistory::prune(const Openable &openable)
 
 void RoomHistory::trim()
 {
-    // Back steps available: the entries before the cursor, plus the cursor's
-    // own while detached.
     while (!m_entries.isEmpty()
            && m_cursor + (m_detached ? 1 : 0) > kMaxBackEntries) {
         m_entries.removeFirst();
@@ -146,4 +138,4 @@ void RoomHistory::clear()
     m_detached = false;
 }
 
-} // namespace lightning
+}

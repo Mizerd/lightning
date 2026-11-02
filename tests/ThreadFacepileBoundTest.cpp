@@ -1,16 +1,3 @@
-// Thread-participant fetches are bounded. The room timeline is not
-// virtualized, so every loaded thread root's summary card calls
-// requestParticipants on the same frame. Pins:
-//   * at most kMaxConcurrentParticipantFetches are ever in flight, and the
-//     remainder wait rather than being dropped;
-//   * an answer frees a slot and the queue advances;
-//   * a failed (empty) answer frees its slot too;
-//   * requests are deduplicated against cached, in-flight and queued roots;
-//   * a room switch discards queued work for other rooms but leaves
-//     in-flight work alone (its answer is keyed by room);
-//   * a late answer for the previous room populates only that room.
-//
-// Covers the C++ bound and its bookkeeping, not real `/relations` cost.
 
 #include "matrix/MatrixClient.h"
 #include "threads/ThreadManager.h"
@@ -26,10 +13,8 @@ class FakeClient final : public MatrixClient
 public:
     using MatrixClient::MatrixClient;
 
-    // Every (room, root) the manager actually dispatched, in order.
     QList<QPair<QString, QString>> dispatched;
 
-    // MatrixClient pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -84,16 +69,13 @@ const QString kOther = QStringLiteral("!other:example.org");
 
 QString root(int i) { return QStringLiteral("$root%1:example.org").arg(i); }
 
-} // namespace
+}
 
 class ThreadFacepileBoundTest : public QObject
 {
     Q_OBJECT
 
 private:
-    // The bound the manager enforces. Kept as a local expectation rather
-    // than reading the private constant, so a change to it is a deliberate
-    // test update rather than a silently-passing tautology.
     static constexpr int kMaxInFlight = 4;
 
     static void answer(FakeClient &client, const QString &roomId,
@@ -114,14 +96,12 @@ private Q_SLOTS:
         mgr.setClient(&client);
         mgr.setActiveRoom(kRoom);
 
-        // A thread-heavy room: 12 loaded roots all asking on one frame.
         for (int i = 0; i < 12; ++i)
             mgr.requestParticipants(kRoom, root(i));
 
         QCOMPARE(client.dispatched.size(), kMaxInFlight);
         QCOMPARE(mgr.participantFetchesInFlightForTest(), kMaxInFlight);
         QCOMPARE(mgr.participantFetchesQueuedForTest(), 12 - kMaxInFlight);
-        // FIFO: the first roots to ask are the first to go out.
         QCOMPARE(client.dispatched.at(0).second, root(0));
         QCOMPARE(client.dispatched.at(kMaxInFlight - 1).second,
                  root(kMaxInFlight - 1));
@@ -142,7 +122,6 @@ private Q_SLOTS:
         QCOMPARE(client.dispatched.last().second, root(kMaxInFlight));
         QCOMPARE(mgr.participantFetchesInFlightForTest(), kMaxInFlight);
 
-        // Drain the rest: nothing is dropped, only paced.
         int guard = 0;
         while (mgr.participantFetchesQueuedForTest() > 0 && guard++ < 100) {
             const QString next = client.dispatched.last().second;
@@ -162,16 +141,11 @@ private Q_SLOTS:
             mgr.requestParticipants(kRoom, root(i));
         QCOMPARE(client.dispatched.size(), kMaxInFlight);
 
-        // A failed lookup arrives empty and is not cached, but must still
-        // release its concurrency slot.
         answer(client, kRoom, root(0), QVariantList{});
         QCOMPARE(client.dispatched.size(), kMaxInFlight + 1);
         QCOMPARE(mgr.participantFetchesInFlightForTest(), kMaxInFlight);
         QVERIFY(mgr.participants(kRoom, root(0)).isEmpty());
 
-        // Retrying must respect the cap. root(0) now has a second in-flight
-        // identity, and the first one's pending 60 s timeout must not release
-        // this one's slot.
         mgr.requestParticipants(kRoom, root(0));
         QCOMPARE(client.dispatched.size(), kMaxInFlight + 1);
         QCOMPARE(mgr.participantFetchesInFlightForTest(), kMaxInFlight);
@@ -184,14 +158,11 @@ private Q_SLOTS:
         mgr.setClient(&client);
         mgr.setActiveRoom(kRoom);
 
-        // In flight: asking again costs nothing.
         mgr.requestParticipants(kRoom, root(0));
         mgr.requestParticipants(kRoom, root(0));
         mgr.requestParticipants(kRoom, root(0));
         QCOMPARE(client.dispatched.size(), 1);
 
-        // Queued: also deduplicated, or a card scrolling in and out would
-        // grow the queue without bound.
         for (int i = 1; i < 10; ++i)
             mgr.requestParticipants(kRoom, root(i));
         const int queued = mgr.participantFetchesQueuedForTest();
@@ -199,7 +170,6 @@ private Q_SLOTS:
             mgr.requestParticipants(kRoom, root(i));
         QCOMPARE(mgr.participantFetchesQueuedForTest(), queued);
 
-        // Cached: also nothing.
         answer(client, kRoom, root(0), onePerson());
         const int after = client.dispatched.size();
         mgr.requestParticipants(kRoom, root(0));
@@ -217,15 +187,9 @@ private Q_SLOTS:
         QCOMPARE(mgr.participantFetchesQueuedForTest(), 12 - kMaxInFlight);
 
         mgr.setActiveRoom(kOther);
-        // Those cards are gone; their answers would only make the new
-        // room's facepiles wait behind work nothing will read.
         QCOMPARE(mgr.participantFetchesQueuedForTest(), 0);
-        // In-flight work is left running: it is already paid for and its
-        // answer is keyed by room.
         QCOMPARE(mgr.participantFetchesInFlightForTest(), kMaxInFlight);
 
-        // The new room's own requests still queue behind those in-flight
-        // slots and start as they free.
         const int before = client.dispatched.size();
         mgr.requestParticipants(kOther, root(100));
         QCOMPARE(client.dispatched.size(), before);
@@ -243,9 +207,6 @@ private Q_SLOTS:
         mgr.requestParticipants(kRoom, root(0));
         mgr.setActiveRoom(kOther);
 
-        // The old room's answer lands after the switch. The cache is keyed
-        // by (room, root), so it can only ever populate its own room —
-        // never the one now on screen.
         answer(client, kRoom, root(0), onePerson());
         QCOMPARE(mgr.participants(kRoom, root(0)).size(), 1);
         QVERIFY(mgr.participants(kOther, root(0)).isEmpty());
@@ -263,7 +224,6 @@ private Q_SLOTS:
         QCOMPARE(mgr.participants(kRoom, root(0)).size(), 1);
 
         Q_EMIT client.loggedOut();
-        // One account's faces must never be shown under another's.
         QVERIFY(mgr.participants(kRoom, root(0)).isEmpty());
         QCOMPARE(mgr.participantFetchesQueuedForTest(), 0);
         QCOMPARE(mgr.participantFetchesInFlightForTest(), 0);

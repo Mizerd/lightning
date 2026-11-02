@@ -28,68 +28,36 @@ class SingleInstanceGuard : public QObject
     Q_OBJECT
 public:
     enum class Claim {
-        Primary,      // this process owns the data root
-        Deferred,     // another instance owns it and was asked to show itself
-        Unresponsive, // another instance owns it and did not answer in time
-        Unguarded,    // the lock could not be used at all; run without it
+        Primary,
+        Deferred,
+        Unresponsive,
+        Unguarded,
     };
 
-    // How long a second launch waits for the running instance, which may
-    // still be starting (its event loop answers only after QML has loaded)
-    // or shutting down. RustSdkMatrixClient::kStoreCloseBudgetMs (15000; not
-    // referenced directly, this header must not depend on the Rust client)
-    // is how long a real teardown may still be closing the store after
-    // aboutToQuit, and the running instance keeps the lock for every bit of
-    // that — see holdLockUntilProcessExit(). This budget must stay
-    // comfortably above it, or a relaunch during a slow-but-healthy shutdown
-    // is told the running instance is unresponsive.
     static constexpr int kDefaultBudgetMs = 20000;
-    // Longest request line the server reads.
     static constexpr int kMaxRequestBytes = 512;
-    // Longest activation token forwarded.
     static constexpr int kMaxTokenBytes = 256;
 
     SingleInstanceGuard(const QString &dataRoot, const QString &appName,
                         QObject *parent = nullptr);
     ~SingleInstanceGuard() override;
 
-    // Takes the lock and starts serving, or hands off to the holder. Blocks
-    // for at most `budgetMs` while another instance holds the lock.
     Claim claim(int budgetMs = kDefaultBudgetMs);
 
-    // Closes the server; a relaunch during teardown then waits for the lock
-    // instead of talking to an event loop that has stopped. For aboutToQuit.
     void stopListening();
 
-    // Switches the destructor from releasing the lock (the default, which is
-    // what lets a test simulate a quitting instance by destroying its guard)
-    // to leaving it held: only the kernel then drops the fd/handle, at real
-    // process exit, after every static destructor and background thread
-    // (e.g. the Rust SDK's store-close retirement pool, which can outlive
-    // main() returning) has had its chance to run. main.cpp calls this once,
-    // right after constructing its one real, process-lifetime guard, so the
-    // lock is never released early merely because main() unwound.
     void holdLockUntilProcessExit();
 
     bool isListening() const;
     QString serverName() const { return m_serverName; }
     QString lockFilePath() const { return m_lockPath; }
 
-    // Outcome of a non-blocking attempt to take another data root's lock.
     enum class LockProbe {
-        Acquired,    // this RootLock now holds it
-        HeldByOther, // a live process holds it; nothing was acquired
-        Unusable,    // the lock itself could not be used; fails open
+        Acquired,
+        HeldByOther,
+        Unusable,
     };
 
-    // RAII probe-and-hold of another data root's lock, usable before a
-    // QCoreApplication exists (raw flock()/LockFileEx, no QLocalSocket, so it
-    // cannot also fall back to the socket the way claim()'s Lock::Error path
-    // can). Releases on destruction unless held until process exit.
-    // --reset-crypto-store holds one across
-    // its whole scan-and-delete, so a starting instance waits in its own
-    // claim() budget instead of opening the store mid-delete; probing and
-    // releasing BEFORE deleting would leave exactly that window open.
     class RootLock
     {
     public:
@@ -111,11 +79,7 @@ public:
 #endif
     };
 
-    // Pure helpers, public for the tests.
-    // Existing roots resolve symlinks; case folds on Windows and macOS.
     static QString canonicalRoot(const QString &dataRoot);
-    // lightning-<32 hex>, under `socketDir` when it is set and short enough
-    // for sun_path, otherwise a bare name (Qt then uses the temp directory).
     static QString serverNameFor(const QString &canonicalRoot,
                                  const QString &appName,
                                  const QString &user,
@@ -125,15 +89,10 @@ public:
     // shares only $XDG_RUNTIME_DIR/app/$FLATPAK_ID.
     static QString defaultSocketDir();
     static QString currentUser();
-    // Printable ASCII without spaces, at most kMaxTokenBytes.
     static bool isAcceptableActivationToken(const QByteArray &token);
-    // "show" or "show <token>". An unacceptable token is dropped, not the
-    // request. False for anything else.
     static bool parseRequest(const QByteArray &line, QString *activationToken);
 
 Q_SIGNALS:
-    // Another launch asked this instance to show its window. The token is the
-    // launcher's XDG activation token (Wayland), already validated, or empty.
     void activationRequested(const QString &activationToken);
 
 private:
@@ -150,9 +109,6 @@ private:
     QString m_lockPath;
     QString m_serverName;
     QLocalServer *m_server = nullptr;
-    // See holdLockUntilProcessExit(). Default false: the destructor releases
-    // the lock, which is what every existing test relies on to simulate a
-    // quitting instance by destroying its guard.
     bool m_holdLockUntilProcessExit = false;
 #ifdef Q_OS_WIN
     void *m_lockHandle = nullptr;
@@ -161,4 +117,4 @@ private:
 #endif
 };
 
-} // namespace lightning
+}

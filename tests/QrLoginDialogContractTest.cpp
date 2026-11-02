@@ -1,5 +1,3 @@
-// Contract scan for qml/QrLoginDialog.qml (swarm C49-F02, C49-F03).
-// Source-text only: it proves the wiring is present, not how it renders.
 
 #include <QFile>
 #include <QtTest/QtTest>
@@ -19,7 +17,6 @@ private Q_SLOTS:
         const QString s = source();
         QVERIFY(!s.isEmpty());
         QVERIFY(s.contains(QStringLiteral("Accessible.role: Accessible.Dialog")));
-        // Dialog name plus the two inputs: three Accessible.name entries.
         QCOMPARE(s.count(QStringLiteral("Accessible.name:")), 3);
     }
 

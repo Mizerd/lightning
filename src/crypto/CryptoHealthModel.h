@@ -6,15 +6,6 @@
 #include <QVariantMap>
 #include <QtQmlIntegration/qqmlintegration.h>
 
-// Read-only E2EE health and readiness state.
-//
-// The Rust SDK owns all crypto state; this mirrors the sanitized
-// `crypto_health` snapshots (booleans, enum names and the public device id;
-// never keys, signatures, secrets or paths) plus app-layer context. It cannot
-// mutate crypto state.
-//
-// AppController bumps the generation on logout and account switch; snapshots
-// from an older generation are ignored.
 class CryptoHealthModel : public QObject
 {
     Q_OBJECT
@@ -26,27 +17,9 @@ class CryptoHealthModel : public QObject
     Q_PROPERTY(bool cryptoSyncing READ cryptoSyncing NOTIFY healthChanged)
     Q_PROPERTY(bool cryptoError READ cryptoError NOTIFY healthChanged)
     Q_PROPERTY(QString currentDeviceId READ currentDeviceId NOTIFY healthChanged)
-    // Yes / No / Unknown — never guessed from cached UI state.
     Q_PROPERTY(TriState currentDeviceVerified READ currentDeviceVerified NOTIFY healthChanged)
     Q_PROPERTY(bool crossSigningAvailable READ crossSigningAvailable NOTIFY healthChanged)
     Q_PROPERTY(bool crossSigningReady READ crossSigningReady NOTIFY healthChanged)
-    // Where this account's cross-signing stands, from SDK facts only:
-    //   "unknown"      - no health snapshot yet;
-    //   "not_set_up"   - the account has no cross-signing identity at all;
-    //   "complete"     - this session holds every private key AND the SDK
-    //                    reports it verified by them: its own device is
-    //                    cross-signed by its owner (a signature only the
-    //                    server's copy of the identity can carry) and the own
-    //                    identity is verified;
-    //   "unconfirmed"  - this session holds every private key but the server
-    //                    has not confirmed them (an interrupted or cancelled
-    //                    setup: matrix-sdk saves the keys before uploading).
-    //                    Setting up again uploads them, never replaces an
-    //                    identity the server already has;
-    //   "keys_missing" - an identity exists but this session lacks some or all
-    //                    private keys (normal for a fresh login until it is
-    //                    verified or recovered; if secret storage does not
-    //                    hold them, a new identity would REPLACE the old one).
     Q_PROPERTY(QString crossSigningSetup READ crossSigningSetup NOTIFY healthChanged)
     Q_PROPERTY(TriState ownIdentityVerified READ ownIdentityVerified NOTIFY healthChanged)
     // Tri-state: "not known" is not "no backup". A failed GET
@@ -63,8 +36,6 @@ class CryptoHealthModel : public QObject
     Q_PROPERTY(int pendingVerificationCount READ pendingVerificationCount NOTIFY healthChanged)
     Q_PROPERTY(QDateTime lastRefreshed READ lastRefreshed NOTIFY healthChanged)
     Q_PROPERTY(QString statusSummary READ statusSummary NOTIFY healthChanged)
-    // The three cross-signing keys individually, for the detail view: whether
-    // each is known locally, never the private material.
     Q_PROPERTY(bool hasMasterKey READ hasMasterKey NOTIFY healthChanged)
     Q_PROPERTY(bool hasSelfSigningKey READ hasSelfSigningKey NOTIFY healthChanged)
     Q_PROPERTY(bool hasUserSigningKey READ hasUserSigningKey NOTIFY healthChanged)
@@ -75,16 +46,13 @@ public:
 
     explicit CryptoHealthModel(QObject *parent = nullptr);
 
-    // App-layer context (not part of the Rust snapshot).
     void setSupported(bool supported);
     void setSyncing(bool syncing);
     void setPendingVerificationCount(int count);
     void setError(bool error);
 
-    // Adopt one sanitized snapshot; ignored when `generation` is stale.
     void applySnapshot(const QVariantMap &snapshot, quint64 generation);
     quint64 generation() const { return m_generation; }
-    // New account/session epoch: everything returns to Unknown.
     void resetForNewGeneration();
 
     bool cryptoSupported() const { return m_supported; }

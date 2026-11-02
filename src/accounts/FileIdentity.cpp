@@ -58,4 +58,4 @@ FileIdentity fileIdentityOf(const QString &path)
     return id;
 }
 
-} // namespace lightning::accounts
+}

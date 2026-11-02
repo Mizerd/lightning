@@ -19,5 +19,5 @@ public:
                         const QSize &requestedSize) override;
 
 private:
-    MediaBridge *m_bridge; // not owned; outlives the QML engine
+    MediaBridge *m_bridge;
 };

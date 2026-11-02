@@ -25,19 +25,15 @@ AccountListModel::AccountListModel(SettingsManager *settings, AccountManager *ac
     , m_hasRevocationProof(std::move(hasRevocationProof))
 {
     if (m_settings) {
-        // A record changed (a fresh sign-in, a removal): what the keyring
-        // answered before may no longer hold.
         connect(m_settings, &SettingsManager::accountsChanged, this, [this] {
             forgetProbes();
             refresh();
         });
         connect(m_settings, &SettingsManager::keepRunningChanged, this, &AccountListModel::refresh);
-        // isActive moves with the active account.
         connect(m_settings, &SettingsManager::sessionChanged, this, &AccountListModel::refresh);
     }
     if (m_accounts)
         connect(m_accounts, &AccountManager::sessionRevokedChanged, this, &AccountListModel::refresh);
-    // Live states only: a summary (a badge) never changes a row here.
     if (m_activity)
         connect(m_activity, &AccountActivityModel::liveStateChanged, this,
                 &AccountListModel::onActivityLiveStateChanged);
@@ -115,7 +111,7 @@ QVector<AccountListModel::Row> AccountListModel::buildRows() const
         return rows;
     const QString active = m_settings->activeAccountUserId();
     const QString needle = m_filter.trimmed();
-    const QStringList ids = m_settings->savedAccountUserIds(); // addedAt order
+    const QStringList ids = m_settings->savedAccountUserIds();
     rows.reserve(ids.size());
     for (const QString &uid : ids) {
         // The settings file only. NEVER AccountManager::accounts(), account()
@@ -138,9 +134,6 @@ QVector<AccountListModel::Row> AccountListModel::buildRows() const
         row.needsSignIn = row.sessionRevoked
             || (m_hasRevocationProof && m_hasRevocationProof(uid))
             || row.liveState == AccountActivityModel::NeedsSignIn
-            // The keyring answered (off this thread) and holds no sign-in:
-            // what AccountManager::needsSignIn() says today, read here
-            // without a GUI-thread keyring call (la1-M L2).
             || m_lostSignIn.value(uid, false);
         row.keepRunning = m_settings->keepRunningFor(uid);
         row.lastLiveAt = m_settings->lastLiveAtFor(uid);
@@ -149,11 +142,6 @@ QVector<AccountListModel::Row> AccountListModel::buildRows() const
             || row.liveState == AccountActivityModel::Stopping;
         rows.append(row);
     }
-    // Running first, the active account at its top, then the rest of the
-    // running section in saved order (a running host rewrites lastLiveAt every
-    // few minutes, and rows must not jump while the menu is open). Then
-    // "other", most recently live first. stable_sort keeps saved (addedAt)
-    // order for every tie.
     std::stable_sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
         if (a.running != b.running)
             return a.running;
@@ -186,8 +174,6 @@ void AccountListModel::refresh()
             Q_EMIT dataChanged(idx, idx);
         }
     } else {
-        // Rows moved, appeared or went: a structural change, which happens on
-        // a user action or a lifecycle edge, never on a badge update.
         beginResetModel();
         m_rows = std::move(next);
         endResetModel();
@@ -214,14 +200,10 @@ void AccountListModel::requestProbes()
 {
     if (!m_signInProbe)
         return;
-    // Chosen first: a probe that answered inside the call would refresh the
-    // rows being walked.
     QStringList ask;
     for (const Row &row : std::as_const(m_rows)) {
         if (m_probing.size() + ask.size() >= kMaxProbesInFlight)
             break;
-        // A running or active account says so itself (its host or the
-        // foreground read the keyring); a row already marked needs nothing.
         if (row.isActive || row.running || row.needsSignIn
             || m_lostSignIn.contains(row.userId) || m_probing.contains(row.userId))
             continue;
@@ -236,8 +218,6 @@ void AccountListModel::requestProbes()
                 return;
             self->m_probing.remove(uid);
             self->m_lostSignIn.insert(uid, lost);
-            // Re-reads the rows (a lost sign-in shows its chip) and asks
-            // about the next ones.
             self->refresh();
         });
     }
@@ -252,7 +232,6 @@ void AccountListModel::onActivityLiveStateChanged(const QString &userId)
 QVariantMap AccountListModel::mapOf(const Row &row)
 {
     QVariantMap m;
-    // Today's AccountManager::accounts() keys, same spelling...
     m.insert(QStringLiteral("userId"), row.userId);
     m.insert(QStringLiteral("homeserver"), row.homeserver);
     m.insert(QStringLiteral("displayName"), row.displayName);
@@ -260,7 +239,6 @@ QVariantMap AccountListModel::mapOf(const Row &row)
     m.insert(QStringLiteral("isActive"), row.isActive);
     m.insert(QStringLiteral("needsSignIn"), row.needsSignIn);
     m.insert(QStringLiteral("sessionRevoked"), row.sessionRevoked);
-    // ...plus the Labs roles.
     m.insert(QStringLiteral("liveState"), row.liveState);
     m.insert(QStringLiteral("keepRunning"), row.keepRunning);
     m.insert(QStringLiteral("section"),

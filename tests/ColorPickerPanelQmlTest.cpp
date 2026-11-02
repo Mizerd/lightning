@@ -1,11 +1,3 @@
-// qml/ColorPickerPanel.qml on the real component. Pins:
-//   * a host that assigns `selectedColor` directly (Settings' name colour
-//     picker) gets a picker that SHOWS it: hex field, HSV and the "before"
-//     half all follow, on first open and on every reopen;
-//   * the SV square, the hue strip, the close button and the reset button take
-//     keyboard focus and are operable from it (arrows move, Enter closes).
-// And a source-order guard (documented limit: ImageCropDialog needs the whole
-// app to load standalone) that it ignores a horizontal-only wheel.
 
 #include <QAccessible>
 #include <QFile>
@@ -77,7 +69,6 @@ private slots:
         QCOMPARE(m_panel->property("originalColor").value<QColor>().name(),
                  QStringLiteral("#b81425"));
 
-        // Reopen with another colour: not the previous one.
         m_panel->setProperty("selectedColor", QColor("#115E9A"));
         QCOMPARE(hex(), QStringLiteral("#115E9A"));
         QCOMPARE(m_panel->property("originalColor").value<QColor>().name(),
@@ -87,13 +78,11 @@ private slots:
     void reopenWithTheSameColourRebasesBefore()
     {
         m_panel->setProperty("selectedColor", QColor("#B81425"));
-        // Simulate a drag that the host mirrored into its draft.
         QMetaObject::invokeMethod(m_panel, "applyColor",
                                   Q_ARG(QVariant, QColor("#336699")));
         QCOMPARE(m_panel->property("selectedColor").value<QColor>().name(),
                  QStringLiteral("#336699"));
         m_panel->setProperty("visible", false);
-        // The host re-assigns the colour the panel already holds.
         m_panel->setProperty("selectedColor", QColor("#336699"));
         m_panel->setProperty("visible", true);
         QCOMPARE(m_panel->property("originalColor").value<QColor>().name(),
@@ -102,9 +91,6 @@ private slots:
 
     void theResetButtonIsOneAccessibleButton()
     {
-        // Behaviour, not a source count: the reset button itself is the
-        // accessible Button carrying the label, and has no accessible child
-        // repeating it (the old MouseArea child was the only one named).
         QQuickItem *btn = item("colorResetButton");
         QVERIFY(btn);
         QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(btn);

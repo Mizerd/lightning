@@ -1,15 +1,3 @@
-// Type-specific media placeholders. Renders the production MessageDelegate
-// (and the shared Skeleton) offscreen with staged role fixtures and checks
-// that each deferred content class reserves stable, type-correct geometry:
-//   * images/GIFs reserve their metadata aspect box (a bounded default when
-//     dimensions are unknown) with a shimmering skeleton, never zero height;
-//   * stickers keep a bounded transparency-preserving box;
-//   * videos reserve thumbnail geometry with a play badge and duration;
-//   * audio/voice rows are compact and fixed;
-//   * recoverable undecryptable rows show the decrypting skeleton, while
-//     deterministic failures keep their static explanation;
-//   * the skeleton animates only while shimmering, on screen, and not in
-//     reduced-motion mode.
 #include <QtTest/QtTest>
 
 #include <QTemporaryDir>
@@ -17,7 +5,6 @@
 #include <QBuffer>
 #include <QRegularExpression>
 #include "media/MediaImageProvider.h"
-
 
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
@@ -60,8 +47,6 @@ private:
         QStringList warnings;
     };
 
-    // A complete role map with safe defaults so the production delegate
-    // binds without undefined-property warnings.
     static QVariantMap baseFixture(AppController &controller)
     {
         QVariantMap fixture;
@@ -105,7 +90,6 @@ private:
         fixture.insert(QStringLiteral("mediaThumbAvailable"), false);
         fixture.insert(QStringLiteral("mediaKey"), QString{});
         fixture.insert(QStringLiteral("mediaFilename"), QString{});
-        // The real model roles always deliver QUrls (possibly empty).
         fixture.insert(QStringLiteral("mediaUrl"), QUrl{});
         fixture.insert(QStringLiteral("mediaThumbUrl"), QUrl{});
         fixture.insert(QStringLiteral("mediaMimetype"), QString{});
@@ -118,8 +102,6 @@ private:
         return fixture;
     }
 
-    // Repeater delegates are not reachable through findChild; walk the visual
-    // tree.
     static void collectItems(QQuickItem *item, const QString &name,
                              QList<QQuickItem *> &out)
     {
@@ -185,11 +167,6 @@ private:
     }
 
 private Q_SLOTS:
-    // Isolate the settings store before anything touches it: a real
-    // AppController uses a default QSettings resolved from the application
-    // identity, which would be the developer's real configuration. Both
-    // guards are needed: XDG_CONFIG_HOME set here (QStandardPaths caches its
-    // first answer) and an identity that is not the app's.
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());
@@ -200,9 +177,6 @@ private Q_SLOTS:
             QStringLiteral("media-placeholder-qml-test"));
     }
 
-    // Known Matrix dimensions reserve the exact bounded aspect box before any
-    // bytes arrive, identical to the final display box so the swap-in cannot
-    // reflow the row.
     void imageWithKnownDimensionsReservesAspectBox()
     {
         AppController controller(AppController::MockBackend);
@@ -222,7 +196,6 @@ private Q_SLOTS:
             QStringLiteral("imageSkeleton"));
         QVERIFY(skeleton != nullptr);
         QVERIFY(skeleton->isVisible());
-        // 800x600 bounded to the 360 px media width: 360x270.
         QVERIFY(qAbs(skeleton->width() - 360.0) < 1.0);
         QVERIFY(qAbs(skeleton->height() - 270.0) < 1.0);
         QCOMPARE(d.warnings, QStringList{});
@@ -258,10 +231,6 @@ private Q_SLOTS:
         QCOMPARE(d.root->height(), height);
     }
 
-    // An MSC4274 gallery renders every attachment: two pictures as equal
-    // square tiles side by side and a file as a chip below, with geometry
-    // fixed before any byte arrives. The generated `[name: mxc]` body is not
-    // shown as a caption.
     void aGalleryRendersEveryAttachment()
     {
         AppController controller(AppController::MockBackend);
@@ -284,7 +253,6 @@ private Q_SLOTS:
         QVERIFY(createDelegate(controller, fixture, d));
         QTRY_VERIFY(d.root->findChild<QQuickItem *>(
                         QStringLiteral("messageGallery")) != nullptr);
-        // The single-picture component for the primary item is not built.
         QVERIFY(d.root->findChild<QQuickItem *>(QStringLiteral("imageMedia"))
                 == nullptr);
         QList<QQuickItem *> tiles;
@@ -293,7 +261,6 @@ private Q_SLOTS:
         QVERIFY(tiles.at(0)->width() >= 48.0);
         QCOMPARE(tiles.at(0)->width(), tiles.at(0)->height());
         QCOMPARE(tiles.at(0)->width(), tiles.at(1)->width());
-        // Side by side, not stacked.
         QCOMPARE(tiles.at(0)->y(), tiles.at(1)->y());
         QVERIFY(tiles.at(1)->x() > tiles.at(0)->x());
         QList<QQuickItem *> files;
@@ -306,9 +273,6 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // A gallery tile fetches nothing outside the media band or while hidden,
-    // like a single picture; releasing each gate makes both tiles fetch,
-    // proving the probe (bridge cache misses) can see a fetch.
     void aGalleryTileFetchesNothingOutsideTheBandOrWhileHidden()
     {
         AppController controller(AppController::MockBackend);
@@ -333,7 +297,6 @@ private Q_SLOTS:
                         QStringLiteral("after.png")),
         });
 
-        // Outside the band.
         const qint64 beforeBand = misses();
         Delegate out;
         QVERIFY(createDelegate(controller, fixture, out,
@@ -345,7 +308,6 @@ private Q_SLOTS:
         out.root->setProperty("mediaInBand", true);
         QTRY_COMPARE(misses() - beforeBand, qint64(2));
 
-        // Hidden before the row is built, as a recycled row would be.
         controller.mediaVisibility()->hide(QStringLiteral("$fixture"));
         const qint64 beforeHidden = misses();
         QVariantMap other = fixture;
@@ -369,14 +331,9 @@ private Q_SLOTS:
         QCOMPARE(hidden.warnings, QStringList{});
     }
 
-    // A gallery offers no Forward, Save as or Copy image: those carry the
-    // row's single media key and would drop the other attachments. A single
-    // picture keeps Forward, proving the menu is read at all.
     void aGalleryRowOffersNoSingleAttachmentActions()
     {
         AppController controller(AppController::MockBackend);
-        // Save as and Copy image also need a working media bridge, or they
-        // are hidden on every row.
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
         mock->setSupportsMediaBridgeForTest(true);
@@ -405,7 +362,6 @@ private Q_SLOTS:
                 QStringLiteral("messageContextMenu"));
             if (!menu)
                 return QStringLiteral("no menu");
-            // QTRY_* would return from this lambda; wait by hand.
             for (int waited = 0; !menu->property("opened").toBool()
                                  && waited < kSignalTimeoutMs; waited += 20)
                 QTest::qWait(20);
@@ -424,7 +380,6 @@ private Q_SLOTS:
             QCOMPARE(menuItemVisible(gallery, name), QStringLiteral("hidden"));
         }
 
-        // Nor can a gallery be selected for multi-message forwarding.
         const auto selectable = [&](const QVariantMap &fixture) {
             Delegate d;
             if (!createDelegate(controller, fixture, d))
@@ -447,7 +402,6 @@ private Q_SLOTS:
     {
         QFETCH(bool, decodeError);
         QTest::failOnWarning(QRegularExpression(QStringLiteral("QQuickPixmap:.*")));
-        // A live thumbnail, then the same hide/release ordering used on quit.
         ReplyMediaClient client;
         AppController controller(AppController::MockBackend);
         controller.mediaBridge()->setClient(&client);
@@ -471,7 +425,7 @@ private Q_SLOTS:
             bytes = QByteArrayLiteral("invalid raster fixture");
         Q_EMIT client.mediaReady(client.lastOp, QStringLiteral("$target"), 1,
                                 bytes, QStringLiteral("image/png"), QString{});
-        const int expectedStatus = decodeError ? 3 : 1; // Image.Error / Ready
+        const int expectedStatus = decodeError ? 3 : 1;
         QTRY_COMPARE(image->property("status").toInt(), expectedStatus);
         const QUrl source = image->property("source").toUrl();
         QVERIFY(!source.isEmpty());
@@ -482,15 +436,12 @@ private Q_SLOTS:
         d.root->setVisible(true);
         QTRY_COMPARE(image->property("source").toUrl(), source);
         QTRY_COMPARE(image->property("status").toInt(), expectedStatus);
-        // Retention changes must still work after the first cache fill.
         QVERIFY(d.root->setProperty("mediaPixmapRetained", false));
         QTRY_VERIFY(image->property("source").toUrl().isEmpty());
         for (const QString &warning : d.warnings)
             QVERIFY2(!warning.contains(QStringLiteral("Binding loop")), qPrintable(warning));
     }
 
-    // A reply quoting a wordless target labels it by kind (an image, "2
-    // images"), keeping "not loaded" for targets of unknown kind.
     void aReplyQuoteLabelsAWordlessTargetByKind()
     {
         AppController controller(AppController::MockBackend);
@@ -513,8 +464,6 @@ private Q_SLOTS:
             return label ? label->property("text").toString()
                          : QStringLiteral("<no label>");
         };
-        // Plural wording comes from the catalog ("%n image(s)" is literal with
-        // none loaded), so assert the count and noun only.
         const QString two = quoteText(QStringLiteral("image"), 2);
         QVERIFY2(two.startsWith(QStringLiteral("2 image")), qPrintable(two));
         const QString three = quoteText(QStringLiteral("file"), 3);
@@ -524,7 +473,6 @@ private Q_SLOTS:
                  QStringLiteral("(original message not loaded)"));
     }
 
-    // Unknown dimensions still reserve a bounded non-zero default box.
     void imageWithoutDimensionsReservesBoundedDefault()
     {
         AppController controller(AppController::MockBackend);
@@ -547,8 +495,6 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // Videos reserve thumbnail geometry from metadata and show the play badge
-    // and duration.
     void videoReservesThumbnailGeometryWithDuration()
     {
         AppController controller(AppController::MockBackend);
@@ -566,9 +512,6 @@ private Q_SLOTS:
         auto *video = d.root->findChild<QQuickItem *>(
             QStringLiteral("videoMedia"));
         QVERIFY(video != nullptr);
-        // Landscape sizing: ~72% of the content column (280..560), aspect
-        // preserved, 400 px height cap; computed from the box's own published
-        // bounds.
         const qreal maxW = video->property("maxW").toReal();
         const qreal minControlW = video->property("minControlW").toReal();
         const qreal ratio = 720.0 / 1280.0;
@@ -579,7 +522,6 @@ private Q_SLOTS:
         QVERIFY(qAbs(video->implicitWidth() - expectedW) < 1.0);
         QVERIFY(qAbs(video->implicitHeight()
                      - qMin(400.0, expectedW * ratio)) < 1.0);
-        // Larger than the old flat 360 cap on a 640 px row.
         QVERIFY(video->implicitWidth() >= 400.0);
         bool foundDuration = false;
         const auto labels = video->findChildren<QQuickItem *>();
@@ -591,9 +533,6 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // A video with no usable thumbnail shows a styled placeholder (surface
-    // tone, type icon, filename) under the play affordance, never an empty
-    // transparent box.
     void videoWithoutThumbnailShowsStyledPlaceholder()
     {
         AppController controller(AppController::MockBackend);
@@ -625,9 +564,6 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // Live 2026-10-26: the placeholder's filename (and a type icon) were
-    // centred on the same pixels as the play circle, so the name ran through
-    // the button. The name must sit clear of the circle.
     void thePlaceholderNameDoesNotRunThroughThePlayButton()
     {
         AppController controller(AppController::MockBackend);
@@ -665,8 +601,6 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // A portrait video never renders as a narrow strip, and every player
-    // control stays reachable at the minimum card width.
     void portraitVideoControlsRemainReachable()
     {
         AppController controller(AppController::MockBackend);
@@ -687,16 +621,9 @@ private Q_SLOTS:
         auto *video = d.root->findChild<QQuickItem *>(
             QStringLiteral("videoMedia"));
         QVERIFY(video != nullptr);
-        // The control-surface floor: at least 260 (or the column) wide,
-        // height capped at 440 with letterboxing.
         QVERIFY(video->implicitWidth() >= 260.0 - 0.5);
         QVERIFY(video->implicitHeight() <= 440.0 + 0.5);
 
-        // With the inline player active, every control of the adaptive bar
-        // lies inside the card. At 260 px the bar is compact (the time on
-        // its own line, close in the card's corner) and tight (no speed), so
-        // the seek track stays scrubbable: it was ~45 px wide (design review
-        // 2026-10-20, U6).
         QVERIFY(video->setProperty("playerActive", true));
         QCoreApplication::processEvents();
         auto *bar = video->findChild<QQuickItem *>(
@@ -717,11 +644,7 @@ private Q_SLOTS:
             QStringLiteral("videoSeekSlider"),
             QStringLiteral("videoTimeLabel"),
             QStringLiteral("videoExpandButton"),
-            // Close lives in the card's corner while the bar is compact.
             QStringLiteral("videoCardCloseButton"),
-            // The volume control stays visible at the narrowest card (its
-            // level would otherwise only be reachable fullscreen), without
-            // pushing the row outside the 260 px card.
             QStringLiteral("videoMuteButton"),
         };
         for (const QString &name : required) {
@@ -738,8 +661,6 @@ private Q_SLOTS:
             QVERIFY2(bottomRight.y() <= video->height() + 0.5,
                      qPrintable(name));
         }
-        // Tight mode collapses the speed control; the bar's own close gave
-        // way to the corner one.
         auto *speed = bar->findChild<QQuickItem *>(
             QStringLiteral("videoSpeedButton"));
         QVERIFY(speed);
@@ -750,7 +671,6 @@ private Q_SLOTS:
         QVERIFY(barClose);
         QVERIFY(!barClose->isVisible());
 
-        // The volume control reaches its slider, not just mute.
         auto *volume = bar->findChild<QQuickItem *>(
             QStringLiteral("videoMuteButton"));
         QVERIFY(volume != nullptr);
@@ -800,17 +720,6 @@ private Q_SLOTS:
         }
     }
 
-    // Reaching the end of playback must not leave the card on a frozen or
-    // black frame (some QtMultimedia backends clear the video sink at
-    // EndOfMedia rather than holding the last decoded frame — the literal
-    // black card this was reported as). It must close the inline player
-    // exactly like the explicit close button, which reveals
-    // MessageDelegate's own cover underneath: thumbnail and Play glyph, the
-    // same poster-plus-replay affordance shown before Play was first
-    // pressed. Driven directly (handleEndOfMedia(), not a real decoder
-    // reaching EndOfMedia, which needs a real codec this test tree cannot
-    // assume) — QMetaObject::invokeMethod itself fails to find the method
-    // on the unfixed card, which had no EndOfMedia handling at all.
     void endedVideoReturnsToTheCoverInsteadOfABlackCard()
     {
         AppController controller(AppController::MockBackend);
@@ -846,10 +755,6 @@ private Q_SLOTS:
                         QStringLiteral("videoPlayerCard")) == nullptr);
     }
 
-    // The cover says where a stopped video will resume, and a watched one
-    // offers Replay (design review 2026-10-20, U4: a room switch sent the
-    // video back to 0:00 with nothing to say so). Driven through the real
-    // MediaPlaybackController the card writes to; the cover follows it live.
     void theVideoCoverOffersResumeAndReplay()
     {
         AppController controller(AppController::MockBackend);
@@ -895,16 +800,12 @@ private Q_SLOTS:
         QCOMPARE(glyph->property("name").toString(),
                  QStringLiteral("refresh"));
 
-        // Another account: nothing to resume or replay.
         playback->forgetResumePositions();
         QTRY_COMPARE(glyph->property("name").toString(),
                      QStringLiteral("play_arrow"));
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // The cover is a keyboard button that says what Play will do (review
-    // F3: it had no focus and no name, so a keyboard user could not start a
-    // video at all). Space starts it; the name follows the resume store.
     void theVideoCoverIsAKeyboardButtonThatSaysWhatPlayDoes()
     {
         AppController controller(AppController::MockBackend);
@@ -946,8 +847,6 @@ private Q_SLOTS:
         QTest::keyClick(d.window.get(), Qt::Key_Space);
         QTRY_VERIFY2(video->property("playerActive").toBool(),
                      "Space on the focused cover did not start the video");
-        // The keys move with it (review R2-1): the cover is hidden now, and
-        // focus left there sent the next Space to the timeline, which paged.
         QTRY_VERIFY(video->findChild<QQuickItem *>(
                         QStringLiteral("videoControlBar")) != nullptr);
         auto *bar = video->findChild<QQuickItem *>(
@@ -956,8 +855,6 @@ private Q_SLOTS:
                      "a player opened by Space left focus on the hidden "
                      "cover");
 
-        // Closed from the keyboard (Space on the close button), focus comes
-        // back to the cover rather than to nowhere (review R3-1).
         auto *close = bar->findChild<QQuickItem *>(
             QStringLiteral("videoCloseButton"));
         QVERIFY(close != nullptr);
@@ -970,10 +867,6 @@ private Q_SLOTS:
                      "closing the player from the keyboard lost focus");
     }
 
-    // Play whose fetch cannot start ends in the failure panel with Retry, not
-    // a spinner that never stops: neither a dispatch the backend refuses at
-    // once nor a fetch blocked by an earlier failure is followed by a signal.
-    // Retry clears the mark and dispatches again.
     void aVideoWhoseFetchCannotStartOffersRetry()
     {
         AppController controller(AppController::MockBackend);
@@ -996,7 +889,6 @@ private Q_SLOTS:
         fixture.insert(QStringLiteral("mediaHeight"), 720);
         fixture.insert(QStringLiteral("mediaDurationMs"), 11000);
         fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
-        // No declared size: the cover prefetches nothing.
         fixture.insert(QStringLiteral("mediaSize"), 0);
         fixture.insert(QStringLiteral("mediaKey"), key);
         fixture.insert(QStringLiteral("mediaFilename"),
@@ -1030,7 +922,6 @@ private Q_SLOTS:
                 && spinner && !spinner->isVisible();
         };
 
-        // 1. The backend refuses the dispatch before the card starts waiting.
         const qint64 before = dispatchFailures();
         QVERIFY(video->setProperty("playerActive", true));
         QTRY_VERIFY(card() != nullptr);
@@ -1039,8 +930,6 @@ private Q_SLOTS:
                      QStringLiteral("failed"));
         QVERIFY(checkFailedPanel());
 
-        // 2. Reopened inside the retry interval: the mark blocks the fetch and
-        // nothing is dispatched.
         QVERIFY(video->setProperty("playerActive", false));
         QTRY_VERIFY(card() == nullptr);
         QVERIFY(!bridge->failureCategory(fullKey).isEmpty());
@@ -1063,11 +952,6 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // M-F01: a thumbnail failure is not a playback failure. The cover's Play
-    // used to retry the poster and return while the thumbnail was marked
-    // failed, so a video whose poster could never load could not be opened
-    // from its cover at all. Play now opens the player; retrying the poster
-    // is a separate, secondary button.
     void aFailedThumbnailDoesNotBlockPlay()
     {
         AppController controller(AppController::MockBackend);
@@ -1121,8 +1005,6 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // Audio and voice rows are compact and fixed, and the voice marker
-    // switches the presentation.
     void audioAndVoiceRowsStayCompact()
     {
         AppController controller(AppController::MockBackend);
@@ -1159,7 +1041,6 @@ private Q_SLOTS:
         QCOMPARE(v.warnings, QStringList{});
     }
 
-    // Stickers reserve a bounded box and paint no opaque backing card.
     void stickerReservesBoundedTransparentBox()
     {
         AppController controller(AppController::MockBackend);
@@ -1177,16 +1058,11 @@ private Q_SLOTS:
         QVERIFY(sticker != nullptr);
         QVERIFY(qAbs(sticker->implicitWidth() - 180.0) < 1.0);
         QVERIFY(qAbs(sticker->implicitHeight() - 180.0) < 1.0);
-        // The sticker container is a plain Item (no colour role): transparent
-        // pixels show the timeline surface.
         QVERIFY(!sticker->metaObject()->className()
                      || sticker->property("color").isValid() == false);
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // A sticker has an animated path, gated by the bytes rather than its
-    // label: `info.mimetype` is optional for m.sticker (MSC2545), so an absent
-    // mimetype means "unknown, ask" rather than "not a GIF".
     void anUnlabelledStickerStillReachesTheAnimatedPath()
     {
         AppController controller(AppController::MockBackend);
@@ -1198,7 +1074,6 @@ private Q_SLOTS:
         fixture.insert(QStringLiteral("mediaFilename"), QStringLiteral("wave"));
         fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
         fixture.insert(QStringLiteral("mediaKey"), QStringLiteral("$sticker"));
-        // What an MSC2545 sticker without info.mimetype delivers.
         fixture.insert(QStringLiteral("mediaMimetype"), QString{});
 
         Delegate d;
@@ -1212,14 +1087,10 @@ private Q_SLOTS:
                  "a sticker with no AnimatedImage can never animate");
         QVERIFY(sticker->property("maybeAnimated").isValid());
         QCOMPARE(sticker->property("maybeAnimated").toBool(), true);
-        // No bytes yet, so the still frame is drawn; the animated item has not
-        // taken over on an empty source.
         QCOMPARE(animated->property("animating").toBool(), false);
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // A sticker declaring a still format is taken at its word only to avoid
-    // requesting a second full payload.
     void aStickerThatDeclaresAStillFormatDoesNotAskForAnAnimation()
     {
         AppController controller(AppController::MockBackend);
@@ -1239,17 +1110,12 @@ private Q_SLOTS:
         auto *sticker = d.root->findChild<QQuickItem *>(
             QStringLiteral("stickerMedia"));
         QVERIFY(sticker != nullptr);
-        // Check the property exists first: an absent property also reads
-        // false.
         QVERIFY2(sticker->property("maybeAnimated").isValid(),
                  "the sticker delegate has no animation policy to test");
         QCOMPARE(sticker->property("maybeAnimated").toBool(), false);
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // An SVG image row without the sender's raster thumbnail has nothing it
-    // may draw (SVG is never decoded), so it is a file card to save, not a
-    // broken image tile.
     void anSvgWithoutASenderThumbnailIsAFileCard()
     {
         AppController controller(AppController::MockBackend);
@@ -1270,9 +1136,6 @@ private Q_SLOTS:
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // With the sender's raster thumbnail the row shows it; activating the
-    // row saves the file instead of opening the viewer (which would ask for
-    // the SVG payload); and the HTTP fallback never loads the SVG's URL.
     void anSvgWithASenderThumbnailShowsItAndActivatingSaves()
     {
         AppController controller(AppController::MockBackend);
@@ -1341,8 +1204,6 @@ QtObject {
         QVERIFY(pane->property("openedKey").toString().isEmpty());
     }
 
-    // A plain file (body defaults to the filename) shows the filename once, in
-    // the file card; a distinct caption is still shown.
     void fileWithBodyEqualToFilenameSuppressesDuplicate()
     {
         AppController controller(AppController::MockBackend);
@@ -1357,10 +1218,9 @@ QtObject {
         auto *body = d.root->findChild<QQuickItem *>(
             QStringLiteral("messageBody"));
         QVERIFY(body != nullptr);
-        QVERIFY(!body->isVisible()); // duplicate filename suppressed
+        QVERIFY(!body->isVisible());
         QCOMPARE(d.warnings, QStringList{});
 
-        // A distinct caption is preserved.
         QVariantMap captioned = fixture;
         captioned.insert(QStringLiteral("body"),
                          QStringLiteral("Here is the Q3 report"));
@@ -1373,9 +1233,6 @@ QtObject {
         QCOMPARE(c.warnings, QStringList{});
     }
 
-    // An m.emote is an action: "* Alice waves hello", in italics, in every
-    // layout and under a continuation row with no sender header. A plain text
-    // row of the same words is neither prefixed nor italic.
     void anEmoteReadsAsAnActionInEveryLayout()
     {
         AppController controller(AppController::MockBackend);
@@ -1387,7 +1244,6 @@ QtObject {
                            QStringLiteral("Alice <b>"));
             fixture.insert(QStringLiteral("body"),
                            QStringLiteral("waves hello"));
-            // No header above it, as on a run of one sender's messages.
             fixture.insert(QStringLiteral("showSenderIdentity"), false);
             Delegate d;
             QVERIFY(createDelegate(controller, fixture, d));
@@ -1416,9 +1272,6 @@ QtObject {
         controller.settings()->setMessageLayout(0);
     }
 
-    // MSC2530: when `filename` is present and differs from `body`, the body is
-    // a caption and shows under the picture, whether or not the picture is
-    // encrypted; a body that only repeats the filename shows nothing twice.
     void anImageCaptionShowsUnderPlainAndEncryptedMedia()
     {
         AppController controller(AppController::MockBackend);
@@ -1465,9 +1318,6 @@ QtObject {
         }
     }
 
-    // Double-click replies from the part of the bubble that does nothing else:
-    // the empty space beside a short line replies; the text itself (a word
-    // select), and the reply quote (it navigates) keep their own meaning.
     void doubleClickOnTheEmptyPartOfABubbleStartsAReply()
     {
         AppController controller(AppController::MockBackend);
@@ -1509,20 +1359,17 @@ QtObject {
         QVERIFY2(bubble->mapFromScene(emptyPoint).x() < bubble->width(),
                  "the probe point must still be inside the bubble");
 
-        // On the text: a word select, no reply.
         QTest::mouseDClick(d.window.get(), Qt::LeftButton, {},
                            textPoint.toPoint());
         QTest::qWait(50);
         QCOMPARE(controller.composer()->replyingToEventId(), QString());
 
-        // In the empty part of the bubble: a reply to this message.
         QTest::mouseDClick(d.window.get(), Qt::LeftButton, {},
                            emptyPoint.toPoint());
         QTRY_COMPARE_WITH_TIMEOUT(controller.composer()->replyingToEventId(),
                                   id, kSignalTimeoutMs);
         controller.composer()->clearReplyTarget();
 
-        // A deleted message cannot be replied to.
         QVariantMap gone = fixture;
         gone.insert(QStringLiteral("redacted"), true);
         Delegate g;
@@ -1537,7 +1384,6 @@ QtObject {
         QTest::qWait(50);
         QCOMPARE(controller.composer()->replyingToEventId(), QString());
 
-        // On the reply quote: it navigates, so it must not also reply.
         QVariantMap quoting = fixture;
         quoting.insert(QStringLiteral("replyToEventId"),
                        QStringLiteral("$other"));
@@ -1557,8 +1403,6 @@ QtObject {
         QTest::qWait(50);
         QCOMPARE(controller.composer()->replyingToEventId(), QString());
 
-        // On the action bar: it is a sibling of the bubble, drawn over a short
-        // one, and its buttons must not also start a reply.
         Delegate b;
         QVERIFY(createDelegate(controller, fixture, b));
         auto *barLoader = b.root->findChild<QQuickItem *>(
@@ -1581,8 +1425,6 @@ QtObject {
         QCOMPARE(controller.composer()->replyingToEventId(), QString());
     }
 
-    // A sanitized formatted body renders as rich content, not the raw markdown
-    // of the plain body.
     void formattedBodyRendersInsteadOfRawMarkdown()
     {
         AppController controller(AppController::MockBackend);
@@ -1599,17 +1441,13 @@ QtObject {
         auto *body = d.root->findChild<QQuickItem *>(
             QStringLiteral("messageBody"));
         QVERIFY(body != nullptr);
-        // TextEdit normalizes RichText, so assert on content: the mention and
-        // display name are present, the raw markdown is not.
         const QString shown = body->property("text").toString();
         QVERIFY(shown.contains(QStringLiteral("@bob")));
         QVERIFY(shown.contains(QStringLiteral("mention:@bob:example.org")));
-        QVERIFY(!shown.contains(QStringLiteral("](")));   // not the raw markdown
+        QVERIFY(!shown.contains(QStringLiteral("](")));
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // Recoverable undecryptable rows show the decrypting skeleton (keys can
-    // still arrive); deterministic failures keep the static explanation.
     void decryptingSkeletonOnlyForRecoverableFailures()
     {
         AppController controller(AppController::MockBackend);
@@ -1649,8 +1487,6 @@ QtObject {
         QCOMPARE(w.warnings, QStringList{});
     }
 
-    // The skeleton shimmers only while active, shimmering and visible in a
-    // visible window; reduced motion forces the static surface.
     void skeletonPrimitiveAnimatesOnlyWhenEligible()
     {
         QQmlApplicationEngine engine;
@@ -1682,7 +1518,6 @@ QtObject {
         skeleton->setProperty("active", true);
         QVERIFY(skeleton->property("animating").toBool());
 
-        // Reduced motion wins over everything.
         auto *theme = engine.singletonInstance<QObject *>(
             QStringLiteral("MatrixClient"), QStringLiteral("AppTheme"));
         QVERIFY(theme != nullptr);
@@ -1691,14 +1526,11 @@ QtObject {
         theme->setProperty("reducedMotion", false);
         QVERIFY(skeleton->property("animating").toBool());
 
-        // Circle mode keeps the circular radius contract for avatars.
         skeleton->setProperty("circle", true);
         QCOMPARE(skeleton->property("radius").toReal(), 20.0);
         QCOMPARE(warnings, QStringList{});
     }
 
-    // Local image hiding keeps the media box's exact reserved rectangle, so
-    // nothing above or below moves.
     void hidingAnImageKeepsItsExactReservedGeometry()
     {
         AppController controller(AppController::MockBackend);
@@ -1717,7 +1549,6 @@ QtObject {
         auto *skeleton =
             d.root->findChild<QQuickItem *>(QStringLiteral("imageSkeleton"));
         QVERIFY(skeleton != nullptr);
-        // 800x600 bounded to the 360 px media width: 360x270.
         const qreal boxWidth = skeleton->width();
         const qreal boxHeight = skeleton->height();
         QVERIFY(qAbs(boxWidth - 360.0) < 1.0);
@@ -1738,7 +1569,6 @@ QtObject {
         QVERIFY2(placeholder != nullptr,
                  "hiding produced no placeholder, so the media box is empty");
         QVERIFY(placeholder->isVisible());
-        // Same box, same row.
         QVERIFY2(qAbs(placeholder->width() - boxWidth) < 1.0,
                  qPrintable(QStringLiteral("placeholder is %1 wide, box was %2")
                                 .arg(placeholder->width()).arg(boxWidth)));
@@ -1749,9 +1579,7 @@ QtObject {
                  qPrintable(QStringLiteral("the row changed height from %1 to "
                                            "%2, so the timeline jumped")
                                 .arg(rowHeight).arg(d.root->height())));
-        // The skeleton stands down behind the opaque placeholder.
         QVERIFY(!skeleton->isVisible());
-        // The placeholder says how to get the picture back.
         auto *label = d.root->findChild<QQuickItem *>(
             QStringLiteral("mediaShowImageLabel"));
         QVERIFY(label != nullptr);
@@ -1780,8 +1608,6 @@ QtObject {
         d.root->polish();
         QCoreApplication::processEvents();
         QCOMPARE(d.root->property("mediaHidden").toBool(), false);
-        // Gone or not painted (a Loader destroys its item on its own
-        // schedule): nothing covers the picture.
         auto *stale = d.root->findChild<QQuickItem *>(
             QStringLiteral("mediaHiddenPlaceholder"));
         QVERIFY2(stale == nullptr || !stale->isVisible(),
@@ -1796,8 +1622,6 @@ QtObject {
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // Hidden state is keyed by media identity in a store, not the delegate,
-    // so a rebuilt row (recycling, room re-entry) comes back hidden.
     void aRebuiltRowComesBackHidden()
     {
         AppController controller(AppController::MockBackend);
@@ -1818,7 +1642,6 @@ QtObject {
         QVERIFY(d.root->findChild<QQuickItem *>(
                     QStringLiteral("mediaHiddenPlaceholder")) != nullptr);
 
-        // A different image is unaffected.
         QVariantMap other = baseFixture(controller);
         other.insert(QStringLiteral("isImage"), true);
         other.insert(QStringLiteral("mediaWidth"), 400);
@@ -1831,8 +1654,6 @@ QtObject {
         QVERIFY(!e.root->property("mediaHidden").toBool());
     }
 
-    // Stickers are hideable (they draw a bitmap); videos are not (their card
-    // has its own poster and controls).
     void stickersAreHideableAndVideosAreNot()
     {
         AppController controller(AppController::MockBackend);
@@ -1866,8 +1687,6 @@ QtObject {
                  "images and stickers");
     }
 
-    // The hidden set is bounded and evicts the oldest entry rather than
-    // refusing a new hide.
     void theHiddenSetIsBoundedAndEvictsTheOldest()
     {
         MediaVisibilityStore store;
@@ -1881,12 +1700,10 @@ QtObject {
             QStringLiteral("$k%1").arg(MediaVisibilityStore::kMaxHidden + 9)));
         store.clear();
         QCOMPARE(store.hiddenCount(), 0);
-        // An empty key is not an identity and must never be stored.
         store.hide(QString());
         QCOMPARE(store.hiddenCount(), 0);
         QVERIFY(!store.isHidden(QString()));
     }
-
 
 private:
     QTemporaryDir m_configHome;

@@ -1,11 +1,3 @@
-// User-selectable and importable fonts. This suite holds:
-//   * the fallback rule: a family missing on this host renders as the bundled
-//     default and the stored choice is not rewritten;
-//   * the import gates on real bytes, with refusals asserted by category;
-//   * copy discipline: the picked path is never stored or read again; the
-//     recorded name is content-addressed in Lightning's own directory.
-// The target links only Qt, SettingsManager and app-data paths, with no
-// MatrixClient or network: nothing remote can name a font file.
 #include "app/FontManager.h"
 #include "app/SettingsManager.h"
 #include "storage/AppDataPaths.h"
@@ -18,8 +10,6 @@
 
 namespace {
 
-// From SOURCE_DIR, as desktop-integration-test does, so it works on any
-// checkout.
 const char *kRealFont = SOURCE_DIR "/data/fonts/Manrope[wght].ttf";
 
 QByteArray readAll(const QString &path)
@@ -30,7 +20,7 @@ QByteArray readAll(const QString &path)
     return f.readAll();
 }
 
-} // namespace
+}
 
 class FontManagerTest : public QObject
 {
@@ -63,13 +53,10 @@ private Q_SLOTS:
         qputenv("XDG_DATA_HOME", m_root->path().toUtf8());
         QCoreApplication::setOrganizationName(QStringLiteral("LightningFontTest"));
         QCoreApplication::setApplicationName(QStringLiteral("font-manager"));
-        // A real font, so QFontDatabase's acceptance is a real answer.
         m_fontsSource = QString::fromLatin1(kRealFont);
         if (!QFileInfo::exists(m_fontsSource))
             m_fontsSource.clear();
     }
-
-    // ---- pure validators ----
 
     void sfntSignaturesAreAcceptedAndTheRestAreNot()
     {
@@ -77,11 +64,9 @@ private Q_SLOTS:
             QByteArray::fromHex("0001000000090080")));
         QVERIFY(FontManager::looksLikeSfnt(QByteArrayLiteral("OTTO....")));
         QVERIFY(FontManager::looksLikeSfnt(QByteArrayLiteral("true....")));
-        // A web wrapper (WOFF) and a collection are deliberately refused.
         QVERIFY(!FontManager::looksLikeSfnt(QByteArrayLiteral("wOFF....")));
         QVERIFY(!FontManager::looksLikeSfnt(QByteArrayLiteral("wOF2....")));
         QVERIFY(!FontManager::looksLikeSfnt(QByteArrayLiteral("ttcf....")));
-        // Nothing else is a font.
         QVERIFY(!FontManager::looksLikeSfnt(QByteArrayLiteral("\x89PNG")));
         QVERIFY(!FontManager::looksLikeSfnt(QByteArrayLiteral("<svg")));
         QVERIFY(!FontManager::looksLikeSfnt(QByteArrayLiteral("#!/bin/sh")));
@@ -100,15 +85,11 @@ private Q_SLOTS:
         QVERIFY(!FontManager::hasFontExtension(QStringLiteral("ttf")));
     }
 
-    // A family name is stored verbatim when plausible and refused when it
-    // carries anything a markup or style reader would need to escape.
     void familyNamesAreValidatedSyntacticallyAndNotSemantically()
     {
         QCOMPARE(SettingsManager::acceptableFontFamily(
                      QStringLiteral("  Noto Sans CJK JP  ")),
                  QStringLiteral("Noto Sans CJK JP"));
-        // Not installed anywhere, yet storable: existence is FontManager's
-        // question.
         QCOMPARE(SettingsManager::acceptableFontFamily(
                      QStringLiteral("Comic Sans MS")),
                  QStringLiteral("Comic Sans MS"));
@@ -125,8 +106,6 @@ private Q_SLOTS:
             QVERIFY2(SettingsManager::acceptableFontFamily(bad).isEmpty(),
                      qPrintable(bad.left(20)));
     }
-
-    // ---- persistence ----
 
     void bothFacesPersistPerAccountAndSurviveARestart()
     {
@@ -149,18 +128,14 @@ private Q_SLOTS:
         QCOMPARE(uiSpy.count(), 1);
         QCOMPARE(monoSpy.count(), 1);
         QCOMPARE(settings.uiFont(), QStringLiteral("Inter"));
-        // Not installed here; stored anyway.
         QCOMPARE(settings.monoFont(), QStringLiteral("Fira Code"));
 
         settings.setActiveAccountUserId(bob);
-        // Alice's choice is hers alone (B004): Bob keeps the look he had.
         QCOMPARE(settings.uiFont(), QStringLiteral("Manrope"));
         settings.setUiFont(QStringLiteral("Source Sans 3"));
         settings.setActiveAccountUserId(alice);
         QCOMPARE(settings.uiFont(), QStringLiteral("Inter"));
 
-        // A fresh manager restores the active account's (alice's) faces, not
-        // the last value any account wrote.
         SettingsManager reopened;
         QCOMPARE(reopened.uiFont(), QStringLiteral("Inter"));
         QCOMPARE(reopened.monoFont(), QStringLiteral("Fira Code"));
@@ -175,9 +150,6 @@ private Q_SLOTS:
         QCOMPARE(settings.uiFont(), QStringLiteral("Manrope"));
     }
 
-    // ---- resolution and fallback ----
-
-    // A missing family renders the bundled face and keeps the stored choice.
     void aMissingFamilyRendersTheBundledFaceAndKeepsTheStoredChoice()
     {
         SettingsManager settings;
@@ -189,8 +161,6 @@ private Q_SLOTS:
         QCOMPARE(fonts.monospaceFamily(), QStringLiteral("JetBrains Mono"));
         QVERIFY(!fonts.uiFamilyAvailable());
         QVERIFY(!fonts.monospaceFamilyAvailable());
-        // Not rewritten, so a reinstalled font comes back and the picker shows
-        // what the user asked for.
         QCOMPARE(fonts.storedUiFamily(),
                  QStringLiteral("A Font Nobody Has 12345"));
         QCOMPARE(settings.uiFont(), QStringLiteral("A Font Nobody Has 12345"));
@@ -204,8 +174,6 @@ private Q_SLOTS:
         FontManager fonts(&settings);
         const QStringList installed = QFontDatabase::families();
         QVERIFY(!installed.isEmpty());
-        // The first family the interface may use: a bitmap face installed
-        // first on this host is installed yet deliberately not offered.
         QString real;
         for (const QString &f : installed) {
             if (FontManager::isUsableUiFace(f)
@@ -221,10 +189,6 @@ private Q_SLOTS:
         QCOMPARE(fonts.uiFamily(), real);
     }
 
-    // The emoji face is registered as Qt's fallback for the Common script: a
-    // Only Qt 6.8 gets the extra fallback family: up to 6.11 Qt's fontconfig
-    // fallback check reads an uninitialised FcCharSet, and the family crashed
-    // the Flatpak (Qt 6.11) on a user's machine.
     void theEmojiFallbackIsInstalledOnlyWhereQtNeedsIt()
     {
         QVERIFY(FontManager::emojiFallbackNeeded(QVersionNumber(6, 8, 2)));
@@ -232,14 +196,11 @@ private Q_SLOTS:
         QVERIFY(!FontManager::emojiFallbackNeeded(QVersionNumber(6, 11, 1)));
     }
 
-    // QML `font.family` replaces the families list, and Qt 6.8's own fallback
-    // picks a monochrome face.
     void theEmojiFaceBecomesQtsFallbackForCommonScript()
     {
 #if QT_VERSION < QT_VERSION_CHECK(6, 8, 0)
         QSKIP("QFontDatabase fallback families need Qt 6.8");
 #else
-        // Any name will do: Qt records the family without resolving it.
         const QString face = QStringLiteral("Lightning Test Emoji");
         QVERIFY(!QFontDatabase::applicationFallbackFontFamilies(QChar::Script_Common)
                      .contains(face));
@@ -247,8 +208,6 @@ private Q_SLOTS:
         QVERIFY(FontManager::installEmojiFallback(face));
         QCOMPARE(QFontDatabase::applicationFallbackFontFamilies(QChar::Script_Common)
                      .count(face), 1);
-        // Idempotent. (A Common-script fallback applies to every script, so it
-        // also appears in the Latin list; it only fills missing glyphs.)
         QVERIFY(FontManager::installEmojiFallback(face));
         QCOMPARE(QFontDatabase::applicationFallbackFontFamilies(QChar::Script_Common)
                      .count(face), 1);
@@ -256,14 +215,10 @@ private Q_SLOTS:
 #endif
     }
 
-    // Icon and emoji faces are never offered as text faces. Qt reports emoji
-    // faces as fixed-pitch and they carry 0-9 as keycap bases, so choosing one
-    // as the monospace face turned every digit into an emoji.
     void anIconOrEmojiFaceIsNotATextFaceAndIsNeverOffered()
     {
         if (m_fontsSource.isEmpty())
             QSKIP("no real font available in this environment");
-        // The bundled icon subset is such a face and always available here.
         const QString icons = QString::fromLatin1(SOURCE_DIR
             "/data/fonts/MaterialSymbolsRounded-subset.ttf");
         QVERIFY2(QFileInfo::exists(icons), qPrintable(icons));
@@ -271,10 +226,8 @@ private Q_SLOTS:
         QVERIFY(QFontDatabase::addApplicationFont(
                     QString::fromLatin1(SOURCE_DIR "/data/fonts/JetBrainsMono[wght].ttf")) >= 0);
 
-        // The predicate asks the face, not Qt's writing-system table.
         QVERIFY(!FontManager::facesLatinText(QStringLiteral("Material Symbols Rounded")));
         QVERIFY(FontManager::facesLatinText(QStringLiteral("JetBrains Mono")));
-        // Named emoji faces are refused whether or not this host has them.
         QVERIFY(FontManager::isNonTextFace(QStringLiteral("Noto Color Emoji")));
         QVERIFY(FontManager::isNonTextFace(QStringLiteral("noto color emoji")));
         QVERIFY(FontManager::isNonTextFace(QStringLiteral("Segoe UI Emoji")));
@@ -284,7 +237,6 @@ private Q_SLOTS:
 
         SettingsManager settings;
         FontManager manager(&settings);
-        // Neither list offers it, on either surface.
         for (const QString &family : manager.uiFamilies())
             QVERIFY2(!FontManager::isNonTextFace(family), qPrintable(family));
         for (const QString &family : manager.monospaceFamilies()) {
@@ -292,8 +244,6 @@ private Q_SLOTS:
             QVERIFY2(FontManager::facesLatinText(family), qPrintable(family));
         }
 
-        // A stored one is installed yet unused: the bundled face is used, the
-        // reason is "unusable" (not "missing"), and the choice is kept.
         settings.setMonoFont(QStringLiteral("Material Symbols Rounded"));
         QCOMPARE(manager.storedMonospaceFamily(),
                  QStringLiteral("Material Symbols Rounded"));
@@ -306,8 +256,6 @@ private Q_SLOTS:
         QCOMPARE(manager.uiFamilyUnavailableReason(), QStringLiteral("unusable"));
         QCOMPARE(manager.uiFamily(), QStringLiteral("Manrope"));
 
-        // A family this computer lacks is reported differently, so Settings
-        // can say which happened.
         settings.setMonoFont(QStringLiteral("A Font Nobody Has 12345"));
         QCOMPARE(manager.monospaceFamilyUnavailableReason(),
                  QStringLiteral("missing"));
@@ -319,13 +267,11 @@ private Q_SLOTS:
         FontManager fonts(&settings);
         const QStringList ui = fonts.uiFamilies();
         QVERIFY(!ui.isEmpty());
-        // No duplicates: the bundled block merges with the host's.
         QSet<QString> seen;
         for (const QString &f : ui) {
             QVERIFY2(!seen.contains(f.toLower()), qPrintable(f));
             seen.insert(f.toLower());
         }
-        // An icon subset is not a UI face.
         QVERIFY(!ui.contains(QStringLiteral("Material Symbols Rounded")));
         const QStringList mono = fonts.monospaceFamilies();
         QVERIFY(!mono.isEmpty());
@@ -333,8 +279,6 @@ private Q_SLOTS:
             QVERIFY(!f.startsWith(QLatin1Char('.')));
     }
 
-    // The interface list offers only outline, upright faces: a bitmap PCF
-    // (cursor.pcf) made the whole UI giant and overlapping when picked.
     void theUiListOffersNoBitmapOrRotatedFace()
     {
         QVERIFY(!FontManager::isUsableUiFace(QStringLiteral("Noto Fangsong KSS Rotated")));
@@ -344,12 +288,10 @@ private Q_SLOTS:
         FontManager fonts(&settings);
         for (const QString &f : fonts.uiFamilies()) {
             if (f == QLatin1String("Manrope"))
-                continue; // the bundled default is always listed
+                continue;
             QVERIFY2(QFontDatabase::isSmoothlyScalable(f), qPrintable(f));
             QVERIFY2(!f.contains(QLatin1String("Rotated"), Qt::CaseInsensitive), qPrintable(f));
         }
-        // A bitmap face stored by an earlier build falls back to the bundled
-        // face and reports "unusable", never "missing".
         for (const QString &f : QFontDatabase::families()) {
             if (QFontDatabase::isSmoothlyScalable(f) || f.startsWith(QLatin1Char('.'))
                 || SettingsManager::acceptableFontFamily(f).isEmpty())
@@ -361,8 +303,6 @@ private Q_SLOTS:
             break;
         }
     }
-
-    // ---- import ----
 
     void arealFontFileIsAcceptedCopiedAndRegistered()
     {
@@ -386,16 +326,12 @@ private Q_SLOTS:
         QVERIFY(entry.value(QStringLiteral("available")).toBool());
         QVERIFY(!entry.value(QStringLiteral("families")).toStringList().isEmpty());
 
-        // The recorded name is ours, content-addressed, with nothing the user
-        // typed.
         const QString recorded = entry.value(QStringLiteral("fileName")).toString();
         QCOMPARE(recorded.size(), 68);
         QVERIFY(recorded.endsWith(QStringLiteral(".ttf")));
         QVERIFY(!recorded.contains(QStringLiteral("Picked")));
         QCOMPARE(settings.importedFontFiles(), QStringList{ recorded });
 
-        // The copy lives in Lightning's directory; the picked file is never
-        // referenced again.
         const QString copy = matrix::app_data::primaryRoot()
             + QLatin1String("/fonts/") + recorded;
         QVERIFY(QFileInfo(copy).isFile());
@@ -403,13 +339,11 @@ private Q_SLOTS:
         for (const QString &stored : settings.importedFontFiles())
             QVERIFY(!stored.contains(QLatin1Char('/')));
 
-        // Importing the same bytes again yields one entry.
         const QString again = write(QStringLiteral("Other Name.ttf"), bytes);
         QVERIFY(!fonts.importFontFile(url(again)));
         QCOMPARE(fonts.lastImportError(), QStringLiteral("already_imported"));
         QCOMPARE(fonts.importedFonts().size(), 1);
 
-        // Removing it deletes the copy and forgets the record.
         QVERIFY(fonts.removeImportedFont(recorded));
         QVERIFY(!QFileInfo::exists(copy));
         QVERIFY(fonts.importedFonts().isEmpty());
@@ -445,15 +379,12 @@ private Q_SLOTS:
             QVERIFY2(fonts.importedFonts().isEmpty(), c.what);
         }
 
-        // Not a local file: there is no download path.
         QVERIFY(!fonts.importFontFile(QUrl(QStringLiteral("https://x.example/a.ttf"))));
         QCOMPARE(fonts.lastImportError(), QStringLiteral("not_a_local_file"));
         QVERIFY(!fonts.importFontFile(QUrl()));
         QCOMPARE(fonts.lastImportError(), QStringLiteral("not_a_local_file"));
     }
 
-    // A hand-edited config cannot make this class read, register or delete a
-    // path of someone else's choosing.
     void aStoredNameThatIsNotOneOfOursIsIgnored()
     {
         SettingsManager settings;
@@ -469,8 +400,6 @@ private Q_SLOTS:
         QVERIFY(!fonts.removeImportedFont(QStringLiteral("evil.ttf")));
     }
 
-    // A record whose copy is gone reports unavailable rather than vanishing,
-    // so the user sees why the font stopped applying.
     void arecordWhoseFileVanishedReportsUnavailable()
     {
         if (m_fontsSource.isEmpty())
@@ -499,7 +428,6 @@ private Q_SLOTS:
         if (m_fontsSource.isEmpty())
             QSKIP("bundled font source not present");
         SettingsManager settings;
-        // Fill the record to the cap with well-formed names of ours.
         QStringList full;
         for (int i = 0; i < FontManager::kMaxImportedFonts; ++i) {
             full.append(QString(64, QLatin1Char('a')).replace(
@@ -512,7 +440,6 @@ private Q_SLOTS:
             write(QStringLiteral("one-too-many.ttf"), readAll(m_fontsSource));
         QVERIFY(!fonts.importFontFile(url(picked)));
         QCOMPARE(fonts.lastImportError(), QStringLiteral("store_full"));
-        // Nothing was discarded to make room.
         QCOMPARE(settings.importedFontFiles().size(),
                  FontManager::kMaxImportedFonts);
     }

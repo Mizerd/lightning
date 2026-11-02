@@ -3,11 +3,6 @@ import QtQuick.Controls
 import QtTest
 import MatrixClient
 
-// The voice/audio player's QML against a recording stand-in for
-// app.voicePlayback (VoicePlaybackController) and app.settings: the docked
-// strip and the popped-out card (design-media U1, B1, B2, U2, U3, U5, U7, P1),
-// and the timeline row (B6, P4, U5, U7). Every case names the finding it
-// pins; each fails on the code before the fix (see the case comments).
 TestCase {
     id: test
     name: "VoicePlayer"
@@ -16,7 +11,6 @@ TestCase {
     visible: true
     when: windowShown
 
-    // ── Stand-ins ──
     QtObject {
         id: voice
         property bool active: false
@@ -128,8 +122,6 @@ TestCase {
     }
     property var app: appStub
 
-    // The window's history shortcuts (ShortcutRegistry history.back and
-    // history.forward), for the card's Alt+arrow keys to beat (C21-F05).
     property int historyHits: 0
     Shortcut {
         sequences: ["Alt+Left", "Alt+Right"]
@@ -148,7 +140,6 @@ TestCase {
             }
         }
     }
-    // The card over a scrollable view, as over the timeline.
     Component {
         id: overFlickableComponent
         Item {
@@ -165,7 +156,6 @@ TestCase {
             VoiceMiniPlayer { anchors.fill: parent }
         }
     }
-    // A row inside a scrolling view, as in the timeline.
     Component {
         id: rowInViewComponent
         Flickable {
@@ -230,8 +220,6 @@ TestCase {
         }
     }
 
-    // A volume control placed at a chosen height in the window, to see where
-    // its popup lands.
     Component {
         id: placedVolumeComponent
         Item {
@@ -284,7 +272,6 @@ TestCase {
             if (found)
                 return found
         }
-        // Popups (menus, tooltips) are in `data`, not `children`.
         var dat = item.data
         for (var d = 0; dat && d < dat.length; ++d) {
             if (dat[d] && dat[d].objectName === name)
@@ -312,7 +299,6 @@ TestCase {
         settings.voicePlayerDocked = false
     }
 
-    // ── U1: docked by default; the popped-out card only on request ──
     function test_dockedByDefault() {
         var host = makeHost()
         var bar = createTemporaryObject(barComponent, test)
@@ -322,8 +308,6 @@ TestCase {
                "the floating card showed while the player is docked")
         compare(card.visible, false)
         verify(bar.visible && bar.height > 20, "the strip did not show")
-        // The strip's pop-out writes the setting; the card's dock writes it
-        // back.
         var popOutButton = find(bar, "voicePlayerBarPopOut")
         verify(popOutButton)
         mouseClick(popOutButton)
@@ -336,7 +320,6 @@ TestCase {
         tryCompare(card, "visible", false)
     }
 
-    // ── B1: the progress line is a seek target, not "go to message" ──
     function test_theScrubberSeeksAndDoesNotLeaveTheRoom() {
         var host = makeHost()
         popOut()
@@ -353,26 +336,21 @@ TestCase {
         verify(Math.abs(target - 30000) < 3000,
                "seeked to " + target + " for the middle of a 60 s clip")
         compare(appStub.opened.length, 0, "the click left for the clip's room")
-        // The title is still the way back.
         var info = find(card, "voiceMiniPlayerInfo")
         mouseClick(info, 10, info.height / 2)
         compare(appStub.opened.length, 1)
         compare(appStub.opened[0], "!room:x")
     }
 
-    // ── B2 / U2: where the card shows ──
     function test_theCardShowsWhereverTheRowIsNot() {
         var host = makeHost()
         var mini = find(host, "voiceMiniPlayerHost")
         popOut()
-        // In the clip's own room with its row off screen: shown (U2; it used
-        // to hide whenever the room was open).
         voice.load({ rowOnScreen: false })
         appStub.currentRoomId = "!room:x"
         verify(mini.wanted, "no player in the clip's room with its row away")
         voice.rowOnScreen = true
         verify(!mini.wanted, "the card showed beside its own visible row")
-        // Settings hides the rows: shown again (B2).
         appStub.currentScreen = 2
         verify(mini.wanted, "no player while Settings is open")
         appStub.currentScreen = 1
@@ -380,7 +358,6 @@ TestCase {
         verify(!mini.wanted)
     }
 
-    // ── Free move, gentle snap, persistence relative to the window ──
     function test_theCardMovesFreelyAndRemembersItsPlace() {
         var host = makeHost()
         popOut()
@@ -388,8 +365,6 @@ TestCase {
         var mini = find(host, "voiceMiniPlayerHost")
         var card = cardOf(host)
         tryCompare(card, "opacity", 1)
-        // Grab it by its avatar slot (no control there) and drop it in the
-        // middle of the window.
         var avatar = find(card, "voiceMiniPlayerAvatar")
         var from = avatar.mapToItem(test, avatar.width / 2, avatar.height / 2)
         var to = Qt.point(450, 300)
@@ -407,7 +382,6 @@ TestCase {
         verify(cx > mini.area.x + mini.snapDistance
                && cy > mini.area.y + mini.snapDistance,
                "a drop in the middle snapped to an edge")
-        // A window resize keeps the relative place and the card inside.
         host.width = 600
         host.height = 400
         tryVerify(function() {
@@ -419,7 +393,6 @@ TestCase {
         tryVerify(function() {
             return Math.abs((card.x - mini.area.x) / freeX - g.x) < 0.02
         }, 2000, "the relative place was not kept")
-        // Dropped close to the left edge: settles against it.
         var p = avatar.mapToItem(test, avatar.width / 2, avatar.height / 2)
         var travel = card.x - mini.area.x - 10
         mousePress(test, p.x, p.y)
@@ -430,7 +403,6 @@ TestCase {
         compare(settings.voiceMiniPlayerGeometry.x, 0)
     }
 
-    // ── Resize with min/max and reflow ──
     function test_theCardResizesAndReflows() {
         var host = makeHost()
         popOut()
@@ -439,12 +411,10 @@ TestCase {
         var card = cardOf(host)
         tryCompare(card, "opacity", 1)
         compare(card.tier, "regular")
-        // Bottom-right corner, dragged far out: bounded by the maximum.
         var corner = find(card, "voiceMiniPlayerResize_br")
         verify(corner, "no resize handle")
         compare(corner.cursorShape, Qt.SizeFDiagCursor)
         var c = corner.mapToItem(test, corner.width / 2, corner.height / 2)
-        // Room to grow: move the card to the top-left first.
         settings.voiceMiniPlayerGeometry = Qt.rect(0, 0, 300, 92)
         tryCompare(card, "x", mini.area.x)
         c = corner.mapToItem(test, corner.width / 2, corner.height / 2)
@@ -458,7 +428,6 @@ TestCase {
         verify(find(card, "voiceMiniPlayerWave").visible,
                "the large card does not show the waveform")
         verify(find(card, "voiceMiniPlayerSpeed").visible)
-        // ...and down past the minimum.
         c = corner.mapToItem(test, corner.width / 2, corner.height / 2)
         mousePress(test, c.x, c.y)
         for (var j = 1; j <= 10; ++j)
@@ -472,11 +441,9 @@ TestCase {
         compare(settings.voiceMiniPlayerGeometry.width, mini.minWidth)
     }
 
-    // ── Never off screen ──
     function test_aRememberedPlaceCanNeverBeOffScreen() {
         var host = makeHost()
         popOut()
-        // Remembered from a big window: far corner, large.
         settings.voiceMiniPlayerGeometry = Qt.rect(1, 1, 540, 300)
         voice.load({})
         var mini = find(host, "voiceMiniPlayerHost")
@@ -493,7 +460,6 @@ TestCase {
                    "at " + cases[i] + " the card is at " + card.x + ","
                    + card.y + " " + card.width + "x" + card.height)
         }
-        // A corrupt or hostile value reads as fractions inside the area.
         settings.voiceMiniPlayerGeometry = Qt.rect(7, -3, 300, 92)
         host.width = 900
         host.height = 700
@@ -501,7 +467,6 @@ TestCase {
         verify(card.x + card.width <= host.width && card.y >= 0)
     }
 
-    // ── Keyboard alternatives (U5) ──
     function test_theKeyboardMovesAndResizesTheCard() {
         var host = makeHost()
         popOut()
@@ -523,14 +488,12 @@ TestCase {
         verify(card.activeFocusOnTab, "Tab cannot reach the card")
     }
 
-    // ── U3: speed, next, call pause, thread, track name ──
     function test_theBarSaysWhatPlaysAndWhy() {
         var bar = createTemporaryObject(barComponent, test)
         var host = makeHost()
         popOut()
         voice.load({ threadRootId: "$root", eventId: "$reply",
                      upNext: [{ eventId: "$n", senderName: "Bob" }] })
-        // The card says the same (it used to show the room name alone).
         var card = cardOf(host)
         tryCompare(card, "opacity", 1)
         compare(find(card, "voiceMiniPlayerRoom").text,
@@ -546,19 +509,16 @@ TestCase {
         voice.playing = false
         verify(sub.text.indexOf("call") >= 0,
                "a clip the call paused says nothing: " + sub.text)
-        // An audio file: its own title and artist.
         voice.load({ isVoice: false, filename: "song.mp3",
                      trackTitle: "Short Test Song", trackArtist: "Band" })
         compare(title.text, "Short Test Song")
         compare(sub.text, "Band · Lounge")
-        // The speed chip steps and shows the clip's speed.
         var chip = find(bar, "voicePlayerBarSpeed")
         voice.calls = []
         mouseClick(chip)
         compare(voice.made("rate:"), ["rate:1.5"])
     }
 
-    // ── U7: text size ──
     function test_theBarAndTheRowFollowTheTextSize() {
         var bar = createTemporaryObject(barComponent, test)
         var row = createTemporaryObject(rowComponent, test)
@@ -575,9 +535,6 @@ TestCase {
                "the row ignored the text size")
     }
 
-    // ── P1: the card's surface and inks in every theme ──
-    // Measured on the card as drawn: its colour against both bubbles and the
-    // canvas, and every label's colour against it (a failure line too).
     function test_theCardReadsInEveryTheme() {
         var host = makeHost()
         popOut()
@@ -641,19 +598,16 @@ TestCase {
         }
         voice.fetchState = "idle"
         compare(checked, 11)
-        // The loop really varied the palette (CLAUDE.md §16).
         verify(Object.keys(palettes).length >= 8,
                "only " + Object.keys(palettes).length + " distinct palettes")
     }
 
-    // ── The timeline row ──
     function test_anIdleRowLightsNoBarAndFillsItsWidth() {
         var row = createTemporaryObject(rowComponent, test,
                                         { waveform: [50, 60, 70, 80, 90, 40,
                                                      30, 20, 10, 50] })
         var wave = find(row, "voiceSeekWave")
         verify(wave && wave.visible, "no waveform drawn")
-        // The Row places its bars on the next polish.
         waitForRendering(row)
         var lit = 0
         var right = 0
@@ -683,7 +637,6 @@ TestCase {
         compare(plays.length, 1, "no start: " + voice.calls)
         var at = Number(plays[0].split(":")[2])
         verify(Math.abs(at - 30000) < 3000, "started at " + at)
-        // Keyboard: the bar is focusable and steps 5 s.
         voice.load({ eventId: "$row", position: 10000, duration: 60000 })
         seek.forceActiveFocus()
         verify(seek.activeFocus, "the waveform takes no keyboard focus")
@@ -697,8 +650,6 @@ TestCase {
     readonly property string tinyCover:
         "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 
-    // With "Large album art" OFF the compact tile sits beside the button, so
-    // the row's height never depends on whether a cover has been seen.
     function test_anAudioFileKeepsItsHeightAndShowsItsTitle() {
         settings.largeAlbumArt = false
         var row = createTemporaryObject(rowComponent, test,
@@ -708,7 +659,6 @@ TestCase {
         compare(title.text, "Short Test Song.mp3")
         var before = row.implicitHeight
         var seekBefore = find(row, "audioSeekSlider").width
-        // An earlier play found the tags and a cover.
         voice.info = { "mk-row": { title: "Short Test Song", artist: "Band",
                                    artworkSource: tinyCover } }
         voice.clipInfoRevision++
@@ -717,7 +667,6 @@ TestCase {
         wait(50)
         compare(row.implicitHeight, before,
                 "the cover changed the row's height")
-        // Playing it changes neither the height nor the scrubber's width.
         voice.load({ eventId: "$row", isVoice: false, loaded: true })
         wait(0)
         compare(row.implicitHeight, before)
@@ -725,9 +674,6 @@ TestCase {
                 "the scrubber shrank when playback started")
     }
 
-    // With it ON (the default) the big cover appears once an earlier play has
-    // seen one (clip info is RAM-only, so it cannot be known earlier): the row
-    // grows ONCE, at that moment, and playback never changes it afterwards.
     function test_aLargeCoverGrowsTheRowOnceAndPlaybackNeverMovesIt() {
         compare(settings.largeAlbumArt, true)
         var row = createTemporaryObject(rowComponent, test,
@@ -742,13 +688,10 @@ TestCase {
         verify(box && box.visible && box.height > 80,
                "the large cover is not shown")
         var withCover = row.implicitHeight
-        // The compact tile leaves the control row, so the scrubber widens
-        // once with the cover; playback must not move it again.
         var seekWithCover = find(row, "audioSeekSlider").width
         verify(withCover >= box.height + 12 && withCover > compact,
                "the row did not make room for the large cover: " + compact
                + " -> " + withCover)
-        // Play, pause, finish: the height stays where the cover put it.
         voice.load({ eventId: "$row", isVoice: false, loaded: true })
         wait(0)
         compare(row.implicitHeight, withCover, "starting playback moved the row")
@@ -757,14 +700,11 @@ TestCase {
         voice.load({ eventId: "$row", isVoice: false, loaded: false })
         wait(0)
         compare(row.implicitHeight, withCover, "stopping playback moved the row")
-        // Turning the setting off returns the compact row.
         settings.largeAlbumArt = false
         wait(50)
         compare(row.implicitHeight, compact)
     }
 
-    // Clicking the cover shows it enlarged (the host's viewer), with the file
-    // name as title, and does nothing else: no play, no seek, no row select.
     function test_clickingTheCoverAsksForTheEnlargedArtAndOnlyThat() {
         for (var large = 0; large < 2; ++large) {
             settings.largeAlbumArt = large === 1
@@ -786,7 +726,6 @@ TestCase {
             compare(asked.length, 1, "click, large=" + large)
             compare(asked[0][0], tinyCover)
             compare(asked[0][1], "Song.mp3")
-            // Enter on the focused button does the same.
             button.forceActiveFocus(Qt.TabFocusReason)
             keyClick(Qt.Key_Return)
             compare(asked.length, 2, "Enter, large=" + large)
@@ -796,7 +735,6 @@ TestCase {
         }
     }
 
-    // No cover: the placeholder tile is inert and asks for nothing.
     function test_theCoverlessTileIsInert() {
         settings.largeAlbumArt = true
         var row = createTemporaryObject(rowComponent, test,
@@ -818,7 +756,6 @@ TestCase {
         verify(speed.visible && speed.enabled,
                "an idle row hides the speed it will play at")
         compare(speed.rate, 1.5)
-        // A file plays at 1x whatever the voice speed.
         var file = createTemporaryObject(rowComponent, test,
                                          { isVoice: false })
         compare(find(file, "audioSpeedButton").rate, 1.0)
@@ -832,13 +769,11 @@ TestCase {
         verify(button.Accessible.description.indexOf("Playing") === 0)
         voice.playing = false
         compare(button.actionLabel, "Play voice message")
-        // A click hides the tooltip it would have contradicted.
         mouseMove(button, button.width / 2, button.height / 2)
         mouseClick(button)
         compare(button.tipSuppressed, true)
     }
 
-    // C21-F09: the tooltip is centred above its button, never left of it.
     function test_thePlayTooltipIsCentredAboveTheButton() {
         var row = createTemporaryObject(rowComponent, test, { x: 200, y: 200 })
         var button = find(row, "audioPlayPauseButton")
@@ -868,28 +803,22 @@ TestCase {
         row.rowOnScreen = false
         reports = voice.made("row:")
         compare(reports[reports.length - 1], "row:$row:false")
-        // Another clip's row never claims to show this one.
         var other = createTemporaryObject(rowComponent, test,
                                           { eventId: "$other" })
         reports = voice.made("row:$other:")
         compare(reports[reports.length - 1], "row:$other:false")
     }
 
-    // ── The shared volume control is reachable and usable by keyboard (U5;
-    // the media-video package relies on it). It used to be a hover popup
-    // Tab never entered.
     function test_theVolumeSliderIsATabStop() {
         var row = createTemporaryObject(volumeComponent, test)
         var control = row.control
         control.forceActiveFocus(Qt.TabFocusReason)
         verify(control.activeFocus)
-        // Up on the button steps the level, and remembers it.
         keyClick(Qt.Key_Up)
         compare(Math.round(row.output.volume * 100), 55)
         compare(Math.round(settings.mediaVolume * 100), 55)
         verify(control.Accessible.description.indexOf("55%") >= 0,
                control.Accessible.description)
-        // Tab goes into the slider.
         keyClick(Qt.Key_Tab)
         var slider = find(Overlay.overlay, "volumeUnderTestSlider")
         verify(slider, "no slider in the popup")
@@ -903,20 +832,11 @@ TestCase {
         keyClick(Qt.Key_Home)
         compare(row.output.volume, 0)
         compare(row.output.muted, true)
-        // Tab leaves it for the next control.
         keyClick(Qt.Key_Tab)
         tryVerify(function() { return row.after.activeFocus },
                   2000, "Tab stayed in the slider")
     }
 
-    // Live finding (xdotool, 2026-10-20): a downward drag of the card over
-    // the timeline was stolen by the timeline beneath it, which scrolled
-    // instead, and the card stopped after the first steps. NOT COVERAGE for
-    // that fix: this case, and a second attempt over the real TimelinePane
-    // in voice-player-dock-qml (review round 1, since removed), both pass
-    // with the old DragHandler too; synthesized events do not reproduce the
-    // steal. It only pins that a drag on the card moves the card and not a
-    // plain Flickable beneath it. The live xdotool drag is the evidence.
     function test_aDragOverTheTimelineMovesTheCardNotTheTimeline() {
         var scene = createTemporaryObject(overFlickableComponent, test)
         popOut()
@@ -938,10 +858,6 @@ TestCase {
                "the card moved " + (card.y - y0) + " of 300 px")
     }
 
-    // U2, measured live: the timeline's rowOnScreen is an activation band a
-    // viewport wide on each side, so a row scrolled well away still counted
-    // as on screen and the popped-out card never appeared in its own room.
-    // The current row now reports its real geometry in its scrolling view.
     function test_aRowScrolledAwayIsNotOnScreen() {
         voice.load({ eventId: "$row" })
         var view = createTemporaryObject(rowInViewComponent, test)
@@ -957,9 +873,6 @@ TestCase {
         }, 2000, "the row scrolled into view did not report it")
     }
 
-    // Review round 1 (M1): the shortcut's focus on a strip, then Space,
-    // plays or pauses and never opens the message: the strip under a header
-    // (TimelinePane) and the one along the bottom (Main.qml's fallback).
     function test_spaceAfterTheShortcutPlaysOrPauses_data() {
         return [ { tag: "under the header", atBottom: false },
                  { tag: "along the bottom", atBottom: true } ]
@@ -976,7 +889,6 @@ TestCase {
         keyClick(Qt.Key_Space)
         compare(appStub.opened.length, 0, "Space opened the message")
         compare(voice.made("toggle").length, 1, "Space did not play/pause")
-        // The link, if Tab put focus there, takes Space the same way.
         voice.calls = []
         find(bar, "voicePlayerBarSource").forceActiveFocus()
         keyClick(Qt.Key_Space)
@@ -984,15 +896,12 @@ TestCase {
         compare(voice.made("toggle").length, 1)
     }
 
-    // Review round 1 (L2): a press or drag on the card does not take the
-    // keyboard focus (it left the composer and drew the ring).
     function test_aDragDoesNotTakeTheFocus() {
         var host = makeHost()
         popOut()
         voice.load({})
         var card = cardOf(host)
         tryCompare(card, "opacity", 1)
-        // On the card itself (the avatar), not on a control.
         var avatar = find(card, "voiceMiniPlayerAvatar")
         var at = avatar.mapToItem(card, avatar.width / 2, avatar.height / 2)
         mouseDrag(card, at.x, at.y, -60, -40)
@@ -1002,8 +911,6 @@ TestCase {
         compare(card.border.width, 1)
     }
 
-    // Review round 1 (L1, L9): an idle row's volume button is not shown as
-    // muted; the compact card still names what plays.
     function test_idleVolumeIsNotMutedAndCompactKeepsTheTitle() {
         var row = createTemporaryObject(rowComponent, test)
         compare(find(row, "audioMuteButton").iconName, "volume_up")
@@ -1019,7 +926,6 @@ TestCase {
                "the compact card shows no title")
     }
 
-    // Review round 1 (L7): accessible names do not change with the position.
     function test_accessibleNamesDoNotTick() {
         var bar = createTemporaryObject(barComponent, test)
         voice.load({ position: 1000 })
@@ -1032,11 +938,6 @@ TestCase {
         compare(after, before)
     }
 
-    // ── C21 round 1 ──
-
-    // C21-F01, C21-D09: Return and Enter act on a focused button as Space
-    // does. Old code: AbstractButton maps Space only, so each Return below
-    // changed nothing and the count of recorded calls stayed 0.
     function test_returnAndEnterActivateTheButtons() {
         var bar = createTemporaryObject(barComponent, test)
         voice.load({})
@@ -1083,8 +984,6 @@ TestCase {
                   "Return on the row's speed chip opened no menu")
     }
 
-    // C21-F02: a drag that starts on the title moves the card, and a click
-    // on it still goes to the message.
     function test_aDragFromTheTitleMovesTheCard() {
         var host = makeHost()
         popOut()
@@ -1107,15 +1006,12 @@ TestCase {
                + " of 160 px")
         verify(card.x < x0 - 30, "and " + (x0 - card.x) + " of 40 px sideways")
         compare(appStub.opened.length, 0, "the drag opened the message")
-        // A plain click on the title is the way back to the message.
         var at = title.mapToItem(card, 8, title.height / 2)
         mouseClick(card, at.x, at.y)
         tryVerify(function() { return appStub.opened.length > 0 }, 2000,
                   "a click on the title did not go to the message")
     }
 
-    // A press that begins off the title and is released over it is not a
-    // click on the title (release-position-only check in the old code).
     function test_aPressOffTheTitleReleasedOverItDoesNotOpenTheMessage() {
         var host = makeHost()
         popOut()
@@ -1125,7 +1021,6 @@ TestCase {
         tryCompare(card, "opacity", 1)
         var title = find(card, "voiceMiniPlayerSender")
         var t = title.mapToItem(card, 0, 0)
-        // Start 3 px left of the title's box, release at its left edge.
         var startX = t.x - 3
         var y = t.y + title.height / 2
         verify(startX > 0)
@@ -1136,9 +1031,6 @@ TestCase {
                 "a press that began off the title opened the message")
     }
 
-    // C21-F05, C21-D14: Alt+Left/Right are also the window's history
-    // shortcuts; with the card focused they move the card. Old code: the
-    // shortcut took the key, the card stayed and the history shortcut ran.
     function test_altArrowsMoveTheCardAndNotTheHistory() {
         var host = makeHost()
         popOut()
@@ -1154,16 +1046,12 @@ TestCase {
         keyClick(Qt.Key_Right, Qt.AltModifier)
         tryVerify(function() { return Math.abs(card.x - x0) < 0.5 })
         compare(test.historyHits, 0, "the history shortcut ran")
-        // Without the card focused, the shortcut is the window's again.
         card.focus = false
         test.forceActiveFocus()
         keyClick(Qt.Key_Left, Qt.AltModifier)
         compare(test.historyHits, 1, "the shortcut stopped working elsewhere")
     }
 
-    // C21-F03: Escape closes the open volume popup and is not passed on.
-    // Old code: no Escape branch on the button (the popup was held open by
-    // its visual focus) and the key went on to the window.
     function test_escapeClosesTheVolumePopup() {
         var row = createTemporaryObject(volumeComponent, test)
         var control = row.control
@@ -1174,11 +1062,9 @@ TestCase {
         keyClick(Qt.Key_Escape)
         tryVerify(function() { return !slider.visible }, 2000,
                   "Escape left the popup open")
-        // It comes back when the keyboard returns to the control.
         control.focus = false
         control.forceActiveFocus(Qt.TabFocusReason)
         tryVerify(function() { return slider.visible }, 2000)
-        // And from inside the slider.
         keyClick(Qt.Key_Tab)
         tryVerify(function() { return slider.activeFocus }, 2000)
         keyClick(Qt.Key_Escape)
@@ -1186,8 +1072,6 @@ TestCase {
                   "Escape in the slider left the popup open")
     }
 
-    // C21-F03 (hover case): the pointer opened the popup, the focus is
-    // elsewhere, Escape closes it. Old code: only focused handlers saw Escape.
     function test_escapeClosesAHoverOpenedVolumePopup() {
         var row = createTemporaryObject(volumeComponent, test)
         var control = row.control
@@ -1204,11 +1088,6 @@ TestCase {
                   "Escape left the hover-opened popup open")
     }
 
-    // The popup stays inside the window. Docked under the room header the
-    // host sits at the window top and there is no room above it: the popup
-    // opens downward from the button's bottom edge instead of being cut off.
-    // Old code: y was always -height, so the top of the slider (and the
-    // handle at full volume) went above the window.
     function popupRectOf(controlY) {
         var place = createTemporaryObject(placedVolumeComponent, test,
                                           { controlY: controlY })
@@ -1219,7 +1098,6 @@ TestCase {
         tryVerify(function() { return slider.visible }, 2000)
         var tl = slider.mapToItem(Overlay.overlay, 0, 0)
         var ctl = place.control.mapToItem(Overlay.overlay, 0, 0)
-        // The popup's padding is 8 around the slider.
         return { top: tl.y - 8, bottom: tl.y + slider.height + 8,
                  ctlTop: ctl.y, ctlBottom: ctl.y + place.control.height,
                  window: Overlay.overlay.height }
@@ -1244,8 +1122,6 @@ TestCase {
         verify(Math.abs(r.bottom - r.ctlTop) <= 1, "did not open upward")
     }
 
-    // C21-F06: the wheel over the popup's slider steps the level. Old code:
-    // wheelEnabled was false, so the wheel did nothing.
     function test_theWheelStepsTheVolume() {
         var row = createTemporaryObject(volumeComponent, test)
         var control = row.control
@@ -1262,7 +1138,6 @@ TestCase {
                "the wheel did not lower the level: " + row.output.volume)
     }
 
-    // C21-D06: the strip and the card carry the volume too.
     function test_theStripAndTheCardCarryTheVolume() {
         var bar = createTemporaryObject(barComponent, test)
         voice.load({})
@@ -1274,11 +1149,9 @@ TestCase {
         tryCompare(card, "opacity", 1)
         var v = find(card, "voiceMiniPlayerVolume")
         verify(v && v.visible, "no volume on the card")
-        // Idle (no output yet) it is present and disabled, not missing.
         compare(v.enabled, false)
     }
 
-    // C21-D07: the chip's tooltip names the speed and the next one.
     function test_theSpeedChipSaysWhatAClickDoes() {
         var bar = createTemporaryObject(barComponent, test)
         voice.load({ rate: 1.0 })
@@ -1289,7 +1162,6 @@ TestCase {
                && chip.ToolTip.text.indexOf("1×") >= 0, chip.ToolTip.text)
     }
 
-    // C21-D08: the scrubber's tooltip names the time under the pointer.
     function test_theScrubberTooltipNamesTheTime() {
         var bar = createTemporaryObject(barComponent, test)
         voice.load({ duration: 60000, position: 1000 })
@@ -1300,7 +1172,6 @@ TestCase {
         }, 2000, "tooltip: " + seek.ToolTip.text)
     }
 
-    // C21-D13: a narrow strip keeps the position.
     function test_aNarrowStripKeepsThePosition() {
         var bar = createTemporaryObject(barComponent, test, { width: 340 })
         voice.load({ position: 4000, duration: 60000 })
@@ -1311,8 +1182,6 @@ TestCase {
         compare(clock.text, "0:04 / 1:00")
     }
 
-    // C21-D05: the row's clock and speed read at 4.5:1 on its surface in
-    // every theme. Old code drew them in textMuted and accent unguarded.
     function test_theRowInksReadInEveryTheme() {
         var row = createTemporaryObject(rowComponent, test)
         voice.load({ eventId: "$row", rate: 1.0 })
@@ -1342,7 +1211,6 @@ TestCase {
                "only " + Object.keys(palettes).length + " distinct palettes")
     }
 
-    // C21-F07: the narrowest compact card gives the picture up for the title.
     function test_theNarrowCompactCardKeepsMoreOfTheTitle() {
         var host = makeHost()
         popOut()

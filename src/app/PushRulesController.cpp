@@ -9,15 +9,10 @@
 
 namespace {
 
-// Mirrors rust/src/pushrules.rs clean_keyword so a refusal is shown at once
-// instead of after a round trip. The Rust side stays the authority.
 constexpr int kMaxKeywordChars = 120;
 
-// How long a choice the server accepted is kept on screen while waiting for a
-// snapshot that reflects it (a sync round trip, with room to spare).
 constexpr qint64 kHoldMs = 15000;
 
-// Keyword lists compare as sets: the server orders them, we append.
 QVariantMap keywordMap(const QVariant &list)
 {
     QVariantMap out;
@@ -73,7 +68,7 @@ QString eventSnapshotKey(const QString &key)
     return {};
 }
 
-} // namespace
+}
 
 PushRulesController::PushRulesController(QObject *parent)
     : QObject(parent)
@@ -242,7 +237,7 @@ QVariantList withKeyword(QVariantList list, const QString &keyword, int level,
     }
     return list;
 }
-} // namespace
+}
 
 int PushRulesController::keywordIndex(const QString &keyword, bool exact) const
 {
@@ -266,7 +261,6 @@ bool PushRulesController::addKeyword(const QString &keyword, int level)
         Q_EMIT stateChanged();
         return false;
     }
-    // Adding must not quietly rewrite the level of a keyword already listed.
     if (keywordIndex(keyword.trimmed(), false) >= 0) {
         m_error = tr("That keyword is already in your list. Change its level "
                      "there.");
@@ -280,9 +274,6 @@ bool PushRulesController::addKeyword(const QString &keyword, int level)
 
 void PushRulesController::setKeywordLevel(const QString &keyword, int level)
 {
-    // A keyword already in the list is addressed by its EXACT text, so one
-    // another client created (a slash, padding, a long phrase) can still be
-    // changed. Only a new keyword has to pass the validator.
     const bool listed = keywordIndex(keyword, true) >= 0;
     const QString k = listed ? keyword : keyword.trimmed();
     if (!listed) {
@@ -348,17 +339,10 @@ void PushRulesController::armHoldTimer()
 
 void PushRulesController::onHoldExpired()
 {
-    // Nothing reflected the choice in time: show what the account says, and
-    // look once more.
     if (m_pending.isEmpty()) {
         applyServer(m_lastServer);
         Q_EMIT stateChanged();
     } else {
-        // A write is still in flight, so onWriteFinished will settle the
-        // display. Forget the expired holds (m_snap is left alone) so the
-        // timer re-arms only for holds that still have time; keeping them
-        // made armHoldTimer wait 0 and tick every 20 ms for as long as the
-        // write stayed pending.
         const qint64 now = QDateTime::currentMSecsSinceEpoch();
         for (auto it = m_hold.begin(); it != m_hold.end();) {
             if (it->expiresMs <= now)
@@ -404,8 +388,6 @@ void PushRulesController::onSnapshot(quint64 opId, bool ok,
         return;
     }
     m_lastServer = snapshot;
-    // While writes are in flight the optimistic state is what the user just
-    // chose; it is replaced once the last of them has answered.
     if (m_pending.isEmpty()) {
         applyServer(snapshot);
         // A snapshot read before the initial sync is the SDK's default rule
@@ -427,14 +409,10 @@ void PushRulesController::onWriteFinished(quint64 opId, const QString &kind,
 {
     if (!m_pending.contains(opId))
         return;
-    // The kind this controller sent, not the echoed argument.
     const QString sentKind = m_pending.take(opId);
     const QVariantMap optimistic = m_optimistic.take(opId);
     Q_UNUSED(kind);
     if (ok) {
-        // Keep the choice on screen until a snapshot reflects it (the
-        // account-data store only moves on the next sync, which also raises
-        // pushRulesChanged); no guessed delay.
         const qint64 expires = QDateTime::currentMSecsSinceEpoch() + m_holdMs;
         for (auto it = optimistic.cbegin(); it != optimistic.cend(); ++it)
             m_hold.insert(it.key(), Hold{it.value(), expires});
@@ -444,15 +422,11 @@ void PushRulesController::onWriteFinished(quint64 opId, const QString &kind,
             Q_EMIT accountDefaultChanged();
         return;
     }
-    // Put the last server state back, but keep the choices of writes that are
-    // still in flight out of it: the next snapshot settles those.
     applyServer(m_lastServer);
     m_error = describeCategory(category);
     m_errorFromRefresh = false;
     Q_EMIT stateChanged();
     Q_EMIT writeFailed(m_error);
-    // A multi-step write (add keyword then set level, plain then encrypted
-    // default) may have been applied in part: show what the account holds.
     refresh();
 }
 

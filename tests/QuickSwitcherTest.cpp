@@ -1,6 +1,3 @@
-// The quick switcher result model: matching over local room/DM/Space/invite
-// presentation data, category classification, bounded results, and logout
-// clearing. No network, no homeserver.
 
 #include "matrix/MockMatrixClient.h"
 #include "models/QuickSwitcherModel.h"
@@ -29,7 +26,7 @@ QString categoryFor(const QuickSwitcherModel &m, const QString &name)
     }
     return {};
 }
-} // namespace
+}
 
 class QuickSwitcherTest : public QObject
 {
@@ -47,22 +44,16 @@ class QuickSwitcherTest : public QObject
     }
 
 private Q_SLOTS:
-    // B097: accents and case never decide a match, on either side, and the
-    // room list filter shares the fold (models/TextFold.h). Reverting
-    // matchScore to toLower() fails every line below.
     void matchingIgnoresAccentsAndCase()
     {
         const QString cafe = QStringLiteral("Caf\u00e9 Z\u00fcrich");
         QVERIFY(QuickSwitcherModel::matchScore(QStringLiteral("cafe"), cafe, {}) > 0);
         QVERIFY(QuickSwitcherModel::matchScore(QStringLiteral("ZURICH"), cafe, {}) > 0);
-        // The query may carry the accent the candidate lacks.
         QVERIFY(QuickSwitcherModel::matchScore(QStringLiteral("caf\u00e9"),
                                                QStringLiteral("Cafe"), {}) > 0);
-        // An alternate is folded too.
         QVERIFY(QuickSwitcherModel::matchScore(
                     QStringLiteral("jose"), QStringLiteral("Direct chat"),
                     { QStringLiteral("Jos\u00e9") }) > 0);
-        // Prefix ranking survives the fold.
         QCOMPARE(QuickSwitcherModel::matchScore(QStringLiteral("cafe"), cafe, {}),
                  1000);
         QVERIFY(QuickSwitcherModel::matchScore(QStringLiteral("xyz"), cafe, {}) < 0);
@@ -70,17 +61,13 @@ private Q_SLOTS:
                  QStringLiteral("angstrom"));
     }
 
-    // matchScore is a pure predicate: empty query matches everything; every
-    // token must be present; name prefix beats word-start beats substring.
     void matchScorePolicy()
     {
         QCOMPARE(QuickSwitcherModel::matchScore(QString(), QStringLiteral("x"),
                                                 {}), 0);
-        // Missing token excludes.
         QVERIFY(QuickSwitcherModel::matchScore(QStringLiteral("zzz"),
                                                QStringLiteral("General"), {})
                 < 0);
-        // Prefix > word-start > bare substring.
         const int prefix = QuickSwitcherModel::matchScore(
             QStringLiteral("gen"), QStringLiteral("General"), {});
         const int word = QuickSwitcherModel::matchScore(
@@ -90,11 +77,9 @@ private Q_SLOTS:
         QVERIFY(prefix > word);
         QVERIFY(word > sub);
         QVERIFY(sub > 0);
-        // Alternate (e.g. DM MXID) can satisfy a token the name lacks.
         QVERIFY(QuickSwitcherModel::matchScore(
                     QStringLiteral("bob"), QStringLiteral("Direct chat"),
                     { QStringLiteral("@bob:mock.local") }) > 0);
-        // Multi-token AND across name + alternates.
         QVERIFY(QuickSwitcherModel::matchScore(
                     QStringLiteral("bob chat"), QStringLiteral("Direct chat"),
                     { QStringLiteral("@bob:mock.local") }) > 0);

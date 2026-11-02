@@ -53,7 +53,6 @@ VoicePreviewBar { objectName: "bar" }
     }
 
 private Q_SLOTS:
-    // B07: the seek tooltip's clock went past an hour as "62:23".
     void theSeekTooltipClockHasAnHoursBranch()
     {
         QQmlApplicationEngine engine;
@@ -108,9 +107,6 @@ VoiceSeekBar { objectName: "bar" }
         const qreal idleContent = bar.label->property("contentWidth").toReal();
         QVERIFY2(!idleText.contains(QLatin1Char('/')), qPrintable(idleText));
 
-        // What playback shows, in the widest digits: the label is bound to
-        // MediaPlayer.position, which a test cannot drive, so state the text
-        // it would produce. (Breaking the binding is fine here, it is a probe.)
         const int total = int(std::round(durationMs / 1000.0));
         auto clock = [](int s) {
             return QStringLiteral("%1:%2").arg(s / 60).arg(s % 60, 2, 10,
@@ -118,8 +114,7 @@ VoiceSeekBar { objectName: "bar" }
         };
         const QString playing = QStringLiteral("8:88 / ") + clock(total);
         bar.label->setProperty("text", playing);
-        QTest::qWait(60); // let the layout polish run
-        // Non-vacuity: the text really is wider than the idle one.
+        QTest::qWait(60);
         QVERIFY2(bar.label->property("contentWidth").toReal() > idleContent,
                  "probe sanity: the playing text must be the wider one");
         QCOMPARE(bar.item->implicitWidth(), idle);

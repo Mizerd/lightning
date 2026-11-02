@@ -2,36 +2,14 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// The gradient as a bar, with one handle per colour stop (GradientEditor hosts
-// it). It is deliberately dumb: it draws `spec`, reports what the user did and
-// writes nothing; the editor owns the store.
-//
-//   * drag a handle                -> stopMoved(index, position)
-//   * click the bar                -> stopAddRequested(position)   (or, when the
-//                                    gradient is full, the nearest handle is
-//                                    selected)
-//   * press a handle               -> stopSelected(index)
-//   * keyboard (the bar is a tab stop)
-//       Left / Right      move the selected stop (Shift: ten times as far)
-//       Home / End        send it to the start / end
-//       Up / Down         select the previous / next stop
-//       Delete, Backspace remove the selected stop
-//       Insert, "+"       add a stop in the widest gap
-//
-// A handle cannot be dragged past its neighbour, so the stop order (and with
-// it every stop index the picker and the stop rows use) never changes by
-// dragging. A radial gradient runs from its centre (left) to its edge (right).
 FocusScope {
     id: bar
     objectName: "gradientBar"
 
-    // { type, angle, stops, positions? } or null.
     property var spec: null
-    // The stop the host's picker is editing, or -1.
     property int selectedStop: -1
     property int maxStops: 3
     property int minStops: 2
-    // Names a stop for assistive technology ("Start", "Middle", "End").
     property var stopNamer: function (i) { return String(i + 1) }
 
     signal stopSelected(int index)
@@ -45,7 +23,6 @@ FocusScope {
     readonly property real trackHeight: 22
     readonly property real inner: Math.max(1, track.width - bar.handleWidth)
 
-    // How far one arrow press moves a stop.
     readonly property real smallStep: 0.02
     readonly property real largeStep: 0.1
 
@@ -68,7 +45,6 @@ FocusScope {
     function positionAtX(x) {
         return Math.max(0, Math.min(1, (x - bar.handleWidth / 2) / bar.inner))
     }
-    // The room a stop has to move in: between its neighbours.
     function lowerLimit(i) { return i > 0 ? bar.positionOf(i - 1) : 0 }
     function upperLimit(i) { return i < bar.stopCount - 1 ? bar.positionOf(i + 1) : 1 }
     function clampedMove(i, p) {
@@ -86,7 +62,6 @@ FocusScope {
         }
         return best
     }
-    // The middle of the widest gap, where "add a stop" puts one.
     function widestGapMiddle() {
         var best = 0.5
         var bestGap = -1
@@ -164,7 +139,6 @@ FocusScope {
         event.accepted = handled
     }
 
-    // The gradient itself, drawn along the bar whatever the real direction.
     Rectangle {
         id: track
         objectName: "gradientBarTrack"
@@ -189,7 +163,6 @@ FocusScope {
             } : null
         }
 
-        // Keyboard focus ring on the whole bar.
         Rectangle {
             anchors.fill: parent
             anchors.margins: -3
@@ -235,8 +208,6 @@ FocusScope {
                 anchors.fill: parent
                 radius: AppTheme.radiusSm
                 color: bar.spec ? bar.spec.stops[handle.index] : "transparent"
-                // A dark outer ring and a light inner keyline, so the handle
-                // reads on any colour it can hold.
                 border.width: handle.selected ? 3 : 2
                 border.color: handle.selected ? AppTheme.editorAccent
                                               : AppTheme.editorText

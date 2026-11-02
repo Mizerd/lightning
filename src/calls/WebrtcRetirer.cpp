@@ -22,7 +22,6 @@ namespace {
 
 Q_LOGGING_CATEGORY(lcRetire, "lightning.calls.webrtc")
 
-// One lock for every gate: it is held only to count, never across a callback.
 std::mutex g_gateMutex;
 std::condition_variable g_gateCv;
 // Scopes open on this thread, so a callback that retires cannot wait for
@@ -36,8 +35,6 @@ GQuark gateQuark()
     return quark;
 }
 
-// The holder is written once before any callback can run and freed with the
-// element, so copying the pointer out needs no lock.
 std::shared_ptr<GateState> gateOf(GstElement *webrtc)
 {
     if (!webrtc)
@@ -47,8 +44,6 @@ std::shared_ptr<GateState> gateOf(GstElement *webrtc)
     return holder ? *holder : nullptr;
 }
 
-// Marks the element retired and waits for callbacks already inside. Returns
-// false when some were still running at the end of the wait.
 bool closeGate(GstElement *webrtc, int waitMs)
 {
     const std::shared_ptr<GateState> state = gateOf(webrtc);
@@ -74,8 +69,6 @@ void barrierFree(gpointer data)
     delete static_cast<ReplyCount *>(data);
 }
 
-// FLUSH_START on every sink pad: it marks the pad flushing and wakes a
-// thread blocked in a probe there, without waiting for anything itself.
 void flushSinkPads(GstElement *webrtc)
 {
     GstIterator *it = gst_element_iterate_sink_pads(webrtc);
@@ -83,8 +76,6 @@ void flushSinkPads(GstElement *webrtc)
         return;
     GValue item = G_VALUE_INIT;
     bool done = false;
-    // Bounded resyncs: pads are only added by our own publishes, which have
-    // stopped.
     int resyncsLeft = 8;
     while (!done) {
         switch (gst_iterator_next(it, &item)) {
@@ -118,21 +109,18 @@ GstWebRTCICEGatheringState gatheringState(GstElement *webrtc)
 }
 
 struct StopJob {
-    GstElement *pipeline = nullptr; // owns a ref
-    GstElement *webrtc = nullptr;   // owns a ref
+    GstElement *pipeline = nullptr;
+    GstElement *webrtc = nullptr;
     std::shared_ptr<RetireStats> stats;
 };
 
 void stopNow(StopJob *job)
 {
-    // Sampled where the NULL is issued: this is the window the crash needs.
     if (gatheringState(job->webrtc) == GST_WEBRTC_ICE_GATHERING_STATE_GATHERING)
         job->stats->whileGathering.fetch_add(1);
     gst_element_set_state(job->webrtc, GST_STATE_NULL);
     gst_object_unref(job->webrtc);
     job->webrtc = nullptr;
-    // The rest of the pipeline went to NULL in retire(); this ref was only
-    // keeping webrtcbin's parent alive.
     if (job->pipeline) {
         gst_object_unref(job->pipeline);
         job->pipeline = nullptr;
@@ -149,7 +137,6 @@ void runStopJob(GstElement *, gpointer data)
 void stopJobFree(gpointer data)
 {
     auto *job = static_cast<StopJob *>(data);
-    // Set only when the job never ran.
     if (job->webrtc)
         gst_object_unref(job->webrtc);
     if (job->pipeline)
@@ -157,7 +144,7 @@ void stopJobFree(gpointer data)
     delete job;
 }
 
-} // namespace
+}
 
 void installGate(GstElement *webrtc)
 {
@@ -175,7 +162,7 @@ CallbackScope::CallbackScope(GstElement *webrtc)
 {
     std::shared_ptr<GateState> state = gateOf(webrtc);
     if (!state)
-        return; // not gated: always live
+        return;
     std::lock_guard<std::mutex> lock(g_gateMutex);
     if (state->retired) {
         m_live = false;
@@ -225,8 +212,6 @@ void Retirer::retire(GstElement *pipeline, GstElement *webrtc)
                             << kCallbackWaitMs << "ms";
     }
     if (pipeline) {
-        // Everything else stops now, exactly as before: devices, probes and
-        // sinks of ours. Only webrtcbin keeps running.
         gst_element_set_locked_state(webrtc, TRUE);
         // webrtcbin blocks each sink pad until its transceiver negotiates, so
         // an unanswered offer leaves our send chain's streaming thread parked
@@ -250,8 +235,6 @@ void Retirer::retire(GstElement *pipeline, GstElement *webrtc)
 
 void Retirer::sendBarrier(Entry &entry)
 {
-    // get-stats runs on webrtcbin's own thread behind every task already
-    // queued there, and replies (with an error) even once it is closed.
     GstPromise *promise = gst_promise_new_with_change_func(
         barrierReplied, new ReplyCount(entry.replied), barrierFree);
     ++entry.sent;
@@ -263,9 +246,6 @@ Retirer::Step Retirer::advance(Entry &entry)
 {
     if (entry.replied->load() < entry.sent)
         return Step::Wait;
-    // Two barriers. The first runs after any queued set-local-description,
-    // which starts gathering; the GATHERING state that start produces is
-    // published by a task queued behind it, which the second one waits out.
     if (entry.sent < 2) {
         sendBarrier(entry);
         return Step::Wait;
@@ -299,8 +279,6 @@ void Retirer::finish(Entry &entry, bool expired, bool async)
     entry.pipeline = nullptr;
     entry.webrtc = nullptr;
     if (async) {
-        // Off this thread: webrtcbin's NULL closes the ICE agent (up to 2 s
-        // with TURN) and joins its threads.
         gst_element_call_async(job->webrtc, runStopJob, job, stopJobFree);
     } else {
         stopNow(job);
@@ -312,16 +290,13 @@ void Retirer::poll()
 {
     for (auto it = m_entries.begin(); it != m_entries.end();) {
         if (advance(*it) == Step::Ready) {
-            finish(*it, /*expired=*/false, /*async=*/true);
+            finish(*it,false,true);
             it = m_entries.erase(it);
         } else if (it->age.elapsed() >= m_boundMs) {
-            finish(*it, /*expired=*/true, /*async=*/true);
+            finish(*it,true,true);
             it = m_entries.erase(it);
         } else {
             if (!it->softBoundReported && it->age.elapsed() >= m_softBoundMs) {
-                // Still gathering past every timer libnice has of its own: a
-                // server name still resolving, most likely. Its candidates
-                // would land during a stop now, so keep waiting.
                 it->softBoundReported = true;
                 m_stats->outlivedSoftBound.fetch_add(1);
                 qCWarning(lcRetire)
@@ -344,7 +319,7 @@ void Retirer::drain(int budgetMs)
     while (!m_entries.empty()) {
         for (auto it = m_entries.begin(); it != m_entries.end();) {
             if (advance(*it) == Step::Ready) {
-                finish(*it, /*expired=*/false, /*async=*/false);
+                finish(*it,false,false);
                 it = m_entries.erase(it);
             } else {
                 ++it;
@@ -361,10 +336,7 @@ void Retirer::drain(int budgetMs)
     for (Entry &entry : m_entries) {
         if (gatheringState(entry.webrtc)
             != GST_WEBRTC_ICE_GATHERING_STATE_GATHERING) {
-            // Not gathering (its barriers merely had not answered): no
-            // candidate can land during this stop, so it is neither the
-            // crash window nor an expired bound, and is not reported as one.
-            finish(entry, /*expired=*/false, /*async=*/false);
+            finish(entry,false,false);
             continue;
         }
         m_stats->leftRunningAtQuit.fetch_add(1);
@@ -376,7 +348,6 @@ void Retirer::drain(int budgetMs)
         entry.pipeline = nullptr;
     }
     m_entries.clear();
-    // Jobs already on the pool thread; a moment more even if the budget went.
     const qint64 deadline = qMax<qint64>(budgetMs, clock.elapsed() + 500);
     while (m_stats->retiring.load() > 0 && clock.elapsed() < deadline)
         QThread::msleep(5);
@@ -386,4 +357,4 @@ void Retirer::drain(int budgetMs)
     }
 }
 
-} // namespace lightning::webrtc
+}

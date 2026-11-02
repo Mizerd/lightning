@@ -3,33 +3,20 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The room's media, files and links across the whole accessible history, not
-// just what the timeline has loaded. Drives MediaHistoryModel, which walks
-// /messages on its own cursor (rust/src/mediahistory.rs) and never moves the
-// reader's timeline. Completeness is shown, not implied: the strip under the
-// toolbar says how much history was examined and whether the start was reached,
-// and undecryptableCount reports history that exists but cannot be read.
 Item {
     id: root
 
-    /// The model (app.mediaHistory), passed in so this component has no global
-    /// lookups and can be tested.
     property var model: null
-    /// The room whose history is browsed.
     property string roomId: ""
     /// Ask the host to open the image viewer at `index` of `entries`, this
     /// browser's own image list in view order. Passing a key alone made the
     /// viewer search the timeline's loaded images, which do not contain this
     /// history.
     signal openImagesRequested(var entries, int index)
-    /// Ask the host to jump the timeline to this event via its existing
-    /// search/permalink path; this component never navigates.
     signal jumpToEventRequested(string eventId)
 
     readonly property bool ready: model !== null && model.available
 
-    // Categories. "media" is the combined visual view; the individual ones stay
-    // reachable.
     readonly property var categories: [
         { key: "media",  label: qsTr("Media") },
         { key: "image",  label: qsTr("Images") },
@@ -41,25 +28,16 @@ Item {
         { key: "link",   label: qsTr("Links") },
     ]
     property string category: "media"
-    /// Grid for visual categories, list for the rest.
     property bool gridMode: category === "media" || category === "image"
                             || category === "video" || category === "gif"
                             || category === "sticker"
 
-    // Push the initial value too: onCategoryChanged only fires on change.
     onCategoryChanged: root.applyCategory()
     onModelChanged: root.applyCategory()
     Component.onCompleted: root.applyCategory()
 
-    /// Why the date fields are not applied ("" when they are, or are empty).
     property string dateError: ""
 
-    /// Pushes both fields to the model, which owns the day semantics and the
-    /// parsing. An invalid entry leaves the previous range in force and says
-    /// so, rather than silently showing everything.
-    // An unset QDateTime reaches QML as an invalid Date, whose toString() is
-    // "Invalid Date": testing its length called every empty tab filtered and
-    // answered "Nothing matches those filters" for a room with no links at all.
     function dateIsSet(d) {
         if (d === undefined || d === null)
             return false
@@ -72,7 +50,6 @@ Item {
             return
         var from = fromField.text.trim()
         var to = toField.text.trim()
-        // Half-typed dates are not errors yet.
         var partial = (from.length > 0 && from.length < 10)
                       || (to.length > 0 && to.length < 10)
         if (partial) {
@@ -94,13 +71,9 @@ Item {
         if (!model)
             return
         model.roomId = roomId
-        // Fetch the first page when shown, not on room change.
         if (visible)
             model.loadMore()
     }
-    // How long the panel may stay hidden before a re-show rescans the room.
-    // Switching Room info sections away and back is shorter than this and keeps
-    // the reader's place and the pages already loaded.
     property int staleAfterMs: 30000
     property double _hiddenAt: 0
     property string _hiddenRoom: ""
@@ -113,10 +86,6 @@ Item {
             return
         }
         if (model.loadedCount > 0 || model.complete) {
-            // Shown again after being hidden: what the model holds is the room
-            // as it was at the last scan, and nothing appends later messages to
-            // it. Rescan from the live edge only when it can plausibly be
-            // stale: the room changed, or the panel was away for a while.
             var away = _hiddenAt > 0 ? Date.now() - _hiddenAt : staleAfterMs
             if (_hiddenRoom !== roomId || away >= staleAfterMs)
                 model.reload()
@@ -129,8 +98,6 @@ Item {
         anchors.fill: parent
         spacing: AppTheme.spacing8
 
-        // Category tabs in a Flow, so all six stay one click away in a narrow
-        // panel.
         Flow {
             Layout.fillWidth: true
             Layout.leftMargin: AppTheme.spacing12
@@ -142,8 +109,6 @@ Item {
                 delegate: AppButton {
                     required property var modelData
                     text: modelData.label
-                    // The selected category is a real button; the rest are
-                    // ghosts.
                     kind: root.category === modelData.key ? "secondary" : "ghost"
                     size: "sm"
                     onClicked: root.category = modelData.key
@@ -152,7 +117,6 @@ Item {
             }
         }
 
-        // Search and filters
         RowLayout {
             Layout.fillWidth: true
             Layout.leftMargin: AppTheme.spacing12
@@ -178,8 +142,6 @@ Item {
             }
         }
 
-        // Date range: a message is kept when its day, in this computer's time
-        // zone, is From <= day <= To (To includes the whole of its day).
         RowLayout {
             objectName: "mediaBrowserDateRow"
             Layout.fillWidth: true
@@ -222,7 +184,6 @@ Item {
             wrapMode: Text.WordWrap
         }
 
-        // Sender filter, offered once more than one person appears.
         RowLayout {
             Layout.fillWidth: true
             Layout.leftMargin: AppTheme.spacing12
@@ -237,10 +198,7 @@ Item {
             AppComboBox {
                 id: senderBox
                 Layout.fillWidth: true
-                // Known senders are data: a same-size rebuild is a real
-                // change (AppComboBox).
                 restoreAfterModelReset: false
-                // "Anyone" is index 0 and is not a user id.
                 model: [qsTr("Anyone")].concat(
                     root.model ? root.model.knownSenders : [])
                 onActivated: {
@@ -253,7 +211,6 @@ Item {
             }
         }
 
-        // The completeness line
         Label {
             objectName: "mediaBrowserCoverage"
             Layout.fillWidth: true
@@ -285,7 +242,6 @@ Item {
                                     "", shown).arg(scanned))
                 }
                 if (root.model.undecryptableCount > 0) {
-                    // Never let missing keys quietly shorten the list.
                     parts.push(qsTr("%n message(s) could not be decrypted and "
                                     + "may hold more.", "",
                                     root.model.undecryptableCount))
@@ -294,11 +250,6 @@ Item {
             }
         }
 
-        // Older history is reached on request as well as by scrolling: a room
-        // whose first pages hold a handful of items never overflows the view,
-        // so nothing would ever scroll to ask for more. "Load more" is one
-        // page; "Show all media" keeps going, bounded, until the start of
-        // history, and Stop ends it.
         RowLayout {
             objectName: "mediaBrowserPagingRow"
             Layout.fillWidth: true
@@ -336,12 +287,10 @@ Item {
             }
         }
 
-        // The results
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            // Empty state, specific about which kind of empty.
             Label {
                 anchors.centerIn: parent
                 width: parent.width - AppTheme.spacing24 * 2
@@ -370,14 +319,10 @@ Item {
             GridView {
                 id: grid
                 anchors.fill: parent
-                // Aligned with the header's margin: the tile draws 2 px inside
-                // its cell.
                 anchors.leftMargin: AppTheme.spacing12 - 2
                 visible: root.gridMode
                 model: root.model
                 clip: true
-                // The view is the one Tab stop; arrows, Home/End and Page keys
-                // move the current tile, Return opens it, Menu opens its menu.
                 activeFocusOnTab: true
                 keyNavigationEnabled: true
                 Accessible.role: Accessible.List
@@ -392,8 +337,6 @@ Item {
                 cellHeight: cellWidth
                 ScrollBar.vertical: AppScrollBar {}
                 SmoothWheelArea {}
-                // Paginate when the end comes into view. loadMore() is a no-op
-                // while a page is in flight or the walk is done.
                 onContentYChanged: {
                     if (contentY + height > contentHeight - cellHeight * 2)
                         root.requestMore()
@@ -428,7 +371,6 @@ Item {
                     if (contentY + height > contentHeight - height)
                         root.requestMore()
                 }
-                // Date headers, locale-resolved in C++ (DateGroupRole).
                 section.property: "dateGroup"
                 section.criteria: ViewSection.FullString
                 section.delegate: Rectangle {
@@ -454,8 +396,6 @@ Item {
                 }
             }
 
-            // Middle-click autoscroll, as in the timeline and the room list.
-            // A sibling over the views, which stay the ones drawn and focused.
             MiddleClickScroller {
                 objectName: "mediaBrowserMiddleClickScroller"
                 anchors.fill: parent
@@ -463,7 +403,6 @@ Item {
                 view: root.gridMode ? grid : list
             }
 
-            // A quiet spinner; the grid stays usable while older history loads.
             BusyIndicator {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
@@ -475,7 +414,6 @@ Item {
             }
         }
 
-        // A failed page means the rest of history is unknown, so offer Retry.
         AppButton {
             Layout.alignment: Qt.AlignHCenter
             Layout.bottomMargin: AppTheme.spacing12
@@ -485,9 +423,6 @@ Item {
         }
     }
 
-    // A view whose content does not fill it cannot scroll, so the scroll
-    // handlers never ask for the next page. Ask for it here, a few pages at
-    // most (the model bounds it) and re-evaluated after every page.
     function fillIfShort() {
         if (!model || !root.visible)
             return
@@ -503,8 +438,6 @@ Item {
     }
     onGridModeChanged: Qt.callLater(root.fillIfShort)
 
-    /// Home, End and the Page keys, which neither view's keyNavigation covers
-    /// (arrows it does). A page is what the view shows.
     function navigate(view, event) {
         var n = view.count
         if (n <= 0)
@@ -539,7 +472,6 @@ Item {
             model.loadMore()
     }
 
-    /// An image opens in the viewer; anything else jumps to its message.
     function activate(row) {
         if (!model)
             return

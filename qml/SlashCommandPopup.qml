@@ -3,11 +3,6 @@ import QtQuick.Controls.Basic
 import QtQuick.Effects
 import MatrixClient
 
-// Slash-command autocomplete, built like MentionPopup: never takes focus; the
-// TextArea forwards Up/Down/Tab/Return/Escape. Model:
-// MessageComposer.commandCompletions ([{name, argsHint, description,
-// enabled}]). A disabled row is a permission hint (the server enforces),
-// skipped by selection but still listed.
 Popup {
     id: root
     objectName: "slashCommandPopup"
@@ -21,14 +16,10 @@ Popup {
 
     parent: Overlay.overlay
     focus: false
-    // The composer drives open/close; auto-close would fight the editor's
-    // focus.
     closePolicy: Popup.NoAutoClose
     padding: AppTheme.menuPadding
 
     readonly property int count: completions ? completions.length : 0
-    // Rows are two lines (command with argument hint, then description). The
-    // list is a clipped, scrollable ListView whose height follows what fits.
     readonly property int rowH: AppTheme.scaled(52)
     readonly property int headerH: AppTheme.scaled(24)
     readonly property int visibleRows: Math.max(1, Math.min(count, 6))
@@ -39,8 +30,6 @@ Popup {
                          Math.min(anchorInputTop.x,
                                   parent.width - width - AppTheme.spacing4))
               : anchorInputTop.x
-    // Above the input, but never outside the overlay (window shrunk under an
-    // open popup).
     y: {
         var above = Math.max(AppTheme.spacing4,
                              anchorInputTop.y - height - AppTheme.spacing4)
@@ -75,9 +64,6 @@ Popup {
             currentIndex = (currentIndex - 1 + count) % count
         commandList.positionViewAtIndex(currentIndex, ListView.Contain)
     }
-    // Return on a command word that is already complete and needs no argument
-    // (/shrug, /markdown) sends it instead of rewriting it to "/shrug ".
-    // Commands with required arguments still complete first.
     readonly property bool returnSends: {
         var entry = count > 0 ? completions[currentIndex] : null
         return !!entry && entry.exact === true && entry.requiresArgs === false
@@ -138,17 +124,14 @@ Popup {
             objectName: "slashCommandPopupList"
             width: parent.width
             height: root.height - root.headerH - root.padding * 2
-            // Nothing may be drawn outside the panel.
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             model: root.completions
             currentIndex: root.currentIndex
-            // The list follows the keyboard; the popup never takes focus.
             interactive: contentHeight > height
             Accessible.role: Accessible.List
             Accessible.name: qsTr("Commands")
 
-            // The timeline's wheel feel; a burst of notches reaches the end.
             SmoothWheelArea {}
 
             ScrollBar.vertical: AppScrollBar {
@@ -169,11 +152,6 @@ Popup {
                 radius: AppTheme.radiusSm
                 color: selected ? AppTheme.stormSelection : "transparent"
 
-                // The ground under a row's text is the selection chip over the
-                // panel when selected, and the panel otherwise; grade inks
-                // against the composite (stormSelection is translucent in some
-                // palettes). textMuted passes on resting rows but fails on
-                // selected ones in most palettes.
                 readonly property color rowFill:
                     AppTheme.flatten(commandRow.color, AppTheme.stormPanel)
 
@@ -201,13 +179,6 @@ Popup {
                         font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.scaled(13)
                         font.weight: Font.DemiBold
-                        // Not bolt: outside Storm bolt is the accent and
-                        // stormSelection is a tint of the same hue, so the
-                        // selected name failed AA on ten of eleven palettes.
-                        // stormText, as in MentionPopup, clears AA everywhere.
-                        // Deriving bolt was rejected: it made the description
-                        // as bright as the name (see legibleInkOn in
-                        // AppTheme.qml).
                         color: rowEnabled
                                ? AppTheme.stormText
                                : AppTheme.legibleInkOn(AppTheme.textMuted,
@@ -223,9 +194,6 @@ Popup {
                                     .arg(modelData.description || "")
                         objectName: "slashCommandDescription"
                         font.pixelSize: AppTheme.fontChip
-                        // Derived against the fill this row paints; where the
-                        // token already clears it (every resting row) it is
-                        // returned unchanged.
                         color: AppTheme.legibleInkOn(AppTheme.textMuted,
                                                      commandRow.rowFill)
                     }
@@ -245,11 +213,6 @@ Popup {
                     enabled: rowEnabled
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    // The row a click will accept is the row that is
-                    // highlighted. Only REAL pointer motion counts: when the
-                    // keyboard scrolls the list under a parked pointer Qt
-                    // re-issues hover for the row now beneath it, and acting
-                    // on that would steal the selection back.
                     onPositionChanged: function (mouse) {
                         var p = mapToItem(null, mouse.x, mouse.y)
                         if (Math.abs(p.x - root.lastHoverScenePos.x) < 1

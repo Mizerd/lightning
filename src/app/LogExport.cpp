@@ -17,10 +17,6 @@
 
 namespace lightning::logexport {
 
-// =========================================================================
-// sanitizer
-// =========================================================================
-
 namespace {
 
 constexpr int kMaxLineChars = 4000;
@@ -36,15 +32,12 @@ const char *const kSensitiveCategories[] = {
     "matrix.secret",
 };
 
-// Lines that name a crypto engine's internals: debug output there can carry
-// raw session state.
 bool mentionsCryptoInternals(const QString &line)
 {
     return line.contains(QLatin1String("matrix_sdk_crypto"))
         || line.contains(QLatin1String("vodozemac"));
 }
 
-// "<iso time> <level> <category>: <message>" as AsyncLogSink writes it.
 const QRegularExpression &categoryOfLine()
 {
     static const QRegularExpression re(QStringLiteral(
@@ -52,7 +45,6 @@ const QRegularExpression &categoryOfLine()
     return re;
 }
 
-// A message-body field: never exported, however it came to be logged.
 const QRegularExpression &bodyField()
 {
     static const QRegularExpression re(
@@ -61,7 +53,6 @@ const QRegularExpression &bodyField()
     return re;
 }
 
-// !room:server, @user:server, #alias:server and legacy $event:server.
 const QRegularExpression &matrixId()
 {
     static const QRegularExpression re(QStringLiteral(
@@ -69,7 +60,6 @@ const QRegularExpression &matrixId()
     return re;
 }
 
-// Event ids since room version 3 have no server part.
 const QRegularExpression &bareEventId()
 {
     static const QRegularExpression re(
@@ -93,9 +83,6 @@ const QRegularExpression &urlUserinfo()
     return re;
 }
 
-// "Authorization: Bearer <token>" and "Basic <b64>" carry no `=` or `:` after
-// the scheme word, which the shared credential rule requires; JWT-shaped
-// strings are caught wherever they appear.
 const QRegularExpression &authorizationScheme()
 {
     static const QRegularExpression re(
@@ -136,7 +123,7 @@ QString maskWith(const QRegularExpression &re, const QString &input,
     return out;
 }
 
-} // namespace
+}
 
 bool isSensitiveCategory(QStringView category)
 {
@@ -155,8 +142,6 @@ QString maskMatrixId(const QString &id, const QByteArray &salt)
 {
     if (salt.isEmpty())
         return matrix::e2ee::redactId(id);
-    // redactId() keeps the sigil and hashes the rest; the salt rides in front
-    // of the rest so the result keeps that shape.
     QString salted;
     qsizetype restFrom = 0;
     if (!id.isEmpty()
@@ -178,7 +163,6 @@ std::optional<QString> sanitizeLine(const QString &line,
         ++stats->linesIn;
 
     QString s = line;
-    // A control character can hide text from a reader or forge a line.
     for (QChar &ch : s) {
         if (ch.unicode() < 0x20 && ch != QLatin1Char('\t'))
             ch = QLatin1Char(' ');
@@ -207,15 +191,12 @@ std::optional<QString> sanitizeLine(const QString &line,
     if (stats)
         stats->idsReplaced += ids;
 
-    // Host stays (it says which server is unreachable); path, query,
-    // fragment and credentials go.
     s.replace(urlWithPath(), QStringLiteral("\\1\\2/<path>"));
     s.replace(urlUserinfo(), QStringLiteral("\\1"));
     s.replace(emailAddress(), QStringLiteral("<email>"));
     s.replace(authorizationScheme(), QStringLiteral("<credential>"));
     s.replace(jwtShape(), QStringLiteral("<credential>"));
 
-    // Longest first so a name inside a longer one cannot leave a tail.
     QStringList literals;
     for (const QString &lit : options.literals) {
         if (lit.size() >= 3)
@@ -277,7 +258,6 @@ QString sanitizeText(const QString &text, const SanitizeOptions &options)
             nl = text.size();
         const QString line = text.mid(pos, nl - pos);
         pos = nl + 1;
-        // Header lines are never dropped for their shape, only scrubbed.
         if (line.isEmpty()) {
             out += QLatin1Char('\n');
             continue;
@@ -325,10 +305,6 @@ QString lastLines(const QString &text, int count)
     return text.mid(start, end - start);
 }
 
-// =========================================================================
-// rolling log
-// =========================================================================
-
 struct RollingLogDevice::Impl {
     QString dir;
     RollingLimits limits;
@@ -373,7 +349,7 @@ void RollingLogDevice::prune(const QString &directory,
            && (files.size() > limits.maxFiles || total > limits.maxTotalBytes)) {
         const QString oldest = files.first();
         if (!keep.isEmpty() && QFileInfo(oldest) == QFileInfo(keep))
-            break; // only the live file is left to remove
+            break;
         const qint64 sz = QFileInfo(oldest).size();
         files.removeFirst();
         if (QFile::remove(oldest))
@@ -441,8 +417,6 @@ qint64 RollingLogDevice::writeData(const char *data, qint64 len)
     if (m_impl->size >= m_impl->limits.maxFileBytes && !openNextFile())
         return -1;
     const qint64 written = m_impl->file.write(data, len);
-    // One write(2) per batch: QFile buffers, and the sink does not flush a
-    // device that is not a QFileDevice.
     m_impl->file.flush();
     if (written > 0)
         m_impl->size += written;
@@ -465,7 +439,6 @@ QByteArray readRecentLog(const QString &directory, qint64 maxBytes,
         if (f.size() > room) {
             f.seek(f.size() - room);
             chunk = f.readAll();
-            // Start at a line, not in the middle of one.
             const qsizetype nl = chunk.indexOf('\n');
             chunk = nl >= 0 ? chunk.mid(nl + 1) : QByteArray();
         } else {
@@ -489,7 +462,7 @@ QByteArray readRecentLog(const QString &directory, qint64 maxBytes,
 namespace {
 std::atomic<lightning::logging::AsyncLogSink *> g_rollingSink{nullptr};
 QString g_rollingDir;
-} // namespace
+}
 
 lightning::logging::AsyncLogSink *rollingLogSink()
 {
@@ -508,7 +481,7 @@ QString rollingLogDirectory()
 
 namespace {
 constexpr char kKeepLogKey[] = "diagnostics/keepLog";
-} // namespace
+}
 
 bool keepLogEnabled()
 {
@@ -583,13 +556,9 @@ void setRollingLogDirectory(const QString &directory)
 
 namespace {
 QString g_buildInfo;
-} // namespace
+}
 void setBuildInfo(const QString &text) { g_buildInfo = text; }
 QString buildInfo() { return g_buildInfo; }
-
-// =========================================================================
-// zip
-// =========================================================================
 
 namespace {
 
@@ -633,8 +602,6 @@ quint32 get32(const QByteArray &b, qsizetype at)
     return get16(b, at) | (get16(b, at + 2) << 16);
 }
 
-// Raw deflate, taken out of Qt's zlib framing: 4 bytes of length, a 2-byte
-// zlib header, the deflate stream, a 4-byte adler32.
 QByteArray rawDeflate(const QByteArray &data)
 {
     const QByteArray framed = qCompress(data, 6);
@@ -642,8 +609,6 @@ QByteArray rawDeflate(const QByteArray &data)
         return {};
     return framed.mid(6, framed.size() - 10);
 }
-
-// ---- inflate (RFC 1951), after zlib's puff.c ------------------------------
 
 struct Inflater {
     const quint8 *in;
@@ -861,7 +826,7 @@ void dosTime(const QDateTime &when, quint32 *time, quint32 *date)
                     | t.date().day());
 }
 
-} // namespace
+}
 
 QByteArray writeZip(const QList<ZipEntry> &entries, const QDateTime &when)
 {
@@ -883,7 +848,7 @@ QByteArray writeZip(const QList<ZipEntry> &entries, const QDateTime &when)
 
         put32(out, 0x04034b50);
         put16(out, 20);
-        put16(out, 0x0800); // UTF-8 names
+        put16(out, 0x0800);
         put16(out, method);
         put16(out, dtime);
         put16(out, ddate);
@@ -988,10 +953,6 @@ QList<ZipEntry> readZip(const QByteArray &zip, bool *ok)
     return result;
 }
 
-// =========================================================================
-// the export
-// =========================================================================
-
 QString exportPromise()
 {
     return QStringLiteral(
@@ -1039,4 +1000,4 @@ ExportResult buildExport(const ExportInputs &inputs)
     return r;
 }
 
-} // namespace lightning::logexport
+}

@@ -78,8 +78,6 @@ GstPadProbeReturn dropAllProbe(GstPad *, GstPadProbeInfo *, gpointer)
     return GST_PAD_PROBE_DROP;
 }
 
-/// Removes `front` from `pipeline` now and stops it on a pool thread, under
-/// its state lock, so a start of it still queued finds it parentless.
 void stopRemovedFrontAsync(GstBin *pipeline, GstElement *front)
 {
     gst_object_ref(front);
@@ -98,9 +96,8 @@ void stopRemovedFrontAsync(GstBin *pipeline, GstElement *front)
     gst_object_unref(front);
 }
 
-/// One capture start on a pool thread.
 struct FrontStart {
-    GstCallMediaBackend *backend = nullptr; // only handed to marshal()
+    GstCallMediaBackend *backend = nullptr;
     quint64 serial = 0;
     quint64 frontSerial = 0;
     bool chosen = false;
@@ -139,11 +136,9 @@ void frontStartFree(gpointer data)
     delete static_cast<FrontStart *>(data);
 }
 
-// Context for promise callbacks: keeps the webrtcbin alive until the promise
-// settles and records which call the description belongs to.
 struct PromiseCtx {
     GstCallMediaBackend *backend = nullptr;
-    GstElement *webrtc = nullptr; // owns one ref
+    GstElement *webrtc = nullptr;
     QString callId;
 };
 
@@ -165,8 +160,6 @@ void promiseCtxFree(gpointer data)
     delete ctx;
 }
 
-// Applies the "offer"/"answer" description from a settled promise as the
-// local description and returns its SDP, or empty on any failure.
 QString applyCreatedDescription(GstPromise *promise, GstElement *webrtc,
                                 const char *field)
 {
@@ -191,8 +184,6 @@ QString applyCreatedDescription(GstPromise *promise, GstElement *webrtc,
 
 constexpr int kDefaultOpusPayloadType = 111;
 
-// The offerer's dynamic Opus payload type from its rtpmap; an answer must
-// reuse it (RFC 3264).
 int opusPayloadTypeFromSdp(const QString &sdp)
 {
     static const QRegularExpression rtpmap(
@@ -209,9 +200,6 @@ int opusPayloadTypeFromSdp(const QString &sdp)
 
 constexpr int kDefaultVp8PayloadType = 96;
 
-// The live video section's dynamic VP8 payload type, or -1 when the offer has
-// no such section or no VP8 in it (the section is then declined). Scoped to
-// the section: an audio section's numbers mean nothing here.
 int vp8PayloadTypeFromSdp(const QString &sdp)
 {
     const qsizetype section = sdp.indexOf(QLatin1String("m=video "));
@@ -236,14 +224,13 @@ int vp8PayloadTypeFromSdp(const QString &sdp)
     return ok && payload >= 96 && payload <= 127 ? payload : -1;
 }
 
-// One media section's shape: kind, direction and whether it is rejected.
 QString sectionShape(const GstSDPMedia *media)
 {
     const char *kind = gst_sdp_media_get_media(media);
     QString out = QString::fromUtf8(kind ? kind : "?").left(16);
     static const char *const kDirections[] = {"sendrecv", "sendonly",
                                               "recvonly", "inactive"};
-    const char *direction = "sendrecv"; // the SDP default
+    const char *direction = "sendrecv";
     for (const char *candidate : kDirections) {
         if (gst_sdp_media_get_attribute_val(media, candidate)) {
             direction = candidate;
@@ -256,7 +243,6 @@ QString sectionShape(const GstSDPMedia *media)
     return out;
 }
 
-// The offer's media kind at `mline`, or empty when there is no such section.
 QString offeredKind(const GstSDPMessage *sdp, guint mline)
 {
     if (!sdp || mline >= gst_sdp_message_medias_len(sdp))
@@ -266,12 +252,6 @@ QString offeredKind(const GstSDPMessage *sdp, guint mline)
     return QString::fromUtf8(kind ? kind : "");
 }
 
-// Sets every transceiver whose offered section this call does not carry to
-// inactive, before the answer is created, so the answer declines it instead of
-// accepting a track this engine cannot play: everything that is not audio,
-// unless `video` says the session has a video chain for the video section.
-// Keyed on the offer's section: webrtcbin reports our own audio transceiver's
-// kind as unknown at this point. Returns how many were declined.
 int declineUnhandledSections(GstElement *webrtc, bool video)
 {
     GstWebRTCSessionDescription *remote = nullptr;
@@ -279,7 +259,6 @@ int declineUnhandledSections(GstElement *webrtc, bool video)
     if (!remote)
         return 0;
     int declined = 0;
-    // Bounded: an offer names a handful of sections.
     for (guint i = 0; i < 32; ++i) {
         GstWebRTCRTPTransceiver *transceiver = nullptr;
         g_signal_emit_by_name(webrtc, "get-transceiver", static_cast<gint>(i),
@@ -331,9 +310,6 @@ bool padCarriesOpusAudio(GstPad *pad)
     return opus;
 }
 
-// Whether a receive pad carries VP8 video, the only video this engine decodes.
-// Unlike the Opus check an absent field is not good enough: a video chain
-// linked to the wrong track stops the transport, and draining costs nothing.
 bool padCarriesVp8Video(GstPad *pad)
 {
     GstCaps *caps = gst_pad_get_current_caps(pad);
@@ -355,9 +331,8 @@ bool padCarriesVp8Video(GstPad *pad)
     return vp8;
 }
 
-// Which picture an appsink feeds; one per sink, freed with its closure.
 struct VideoSinkCtx {
-    GstCallMediaBackend *backend = nullptr; // handed to marshal(); see below
+    GstCallMediaBackend *backend = nullptr;
     std::shared_ptr<SfuVideoRouter> router;
     QString key;
     quintptr token = 0;
@@ -373,9 +348,6 @@ void videoSinkCtxFree(void *data, GClosure *)
 constexpr auto kRemoteVideoKey = "remote";
 constexpr auto kSelfVideoKey = "self";
 
-// One decoded RGBA frame to the router, as the MatrixRTC lane delivers them:
-// copied, because a QVideoFrame cannot borrow the GstBuffer, and through the
-// router's one-frame mailbox, so a busy GUI thread collects at most one.
 GstFlowReturn onVideoSample(GstElement *sink, void *userData)
 {
     auto *ctx = static_cast<VideoSinkCtx *>(userData);
@@ -387,8 +359,6 @@ GstFlowReturn onVideoSample(GstElement *sink, void *userData)
     // thread), so it has the router it shares and marshal(), which checks.
     if (ctx->remote) {
         ctx->backend->noteRemoteVideoFrame(ctx->token);
-        // One surface and possibly two tracks: a peer's screen share beside
-        // its camera (see remoteFrameWanted()).
         if (!ctx->backend->remoteFrameWanted(ctx->padSerial)) {
             gst_sample_unref(sample);
             return GST_FLOW_OK;
@@ -443,9 +413,6 @@ GstFlowReturn onVideoSample(GstElement *sink, void *userData)
     return GST_FLOW_OK;
 }
 
-// Whether `element` sits in a bin whose name starts with one of `prefixes`.
-// The camera front, the send chain and the receive chain are not the call: an
-// error in one costs a picture.
 bool insideBinNamed(GstObject *element, std::initializer_list<const char *> prefixes)
 {
     GstObject *walk = element ? GST_OBJECT(gst_object_ref(element)) : nullptr;
@@ -464,7 +431,6 @@ bool insideBinNamed(GstObject *element, std::initializer_list<const char *> pref
     return found;
 }
 
-/// One camera start on a pool thread; see frontStartAsync().
 struct CameraStart {
     GstCallMediaBackend *backend = nullptr;
     quintptr token = 0;
@@ -527,9 +493,6 @@ GstPadProbeReturn countDecoded(GstPad *, GstPadProbeInfo *, gpointer counter)
     return GST_PAD_PROBE_OK;
 }
 
-// Test-tone mode, the receive chain's output: the loudest sample, in
-// thousandths of full scale. Reads only the two formats the chain produces
-// (opusdec's S16LE, or F32LE where a sink asks for it).
 GstPadProbeReturn recordPeak(GstPad *pad, GstPadProbeInfo *info,
                              gpointer peakMilli)
 {
@@ -569,11 +532,6 @@ GstPadProbeReturn recordPeak(GstPad *pad, GstPadProbeInfo *info,
     return GST_PAD_PROBE_OK;
 }
 
-// Sets a resolved device binding on the element called `name` inside `bin`.
-// Never interpolated into a description: a quote in a device name would be
-// parsed as syntax. Converted to the property's own type (osxaudiosrc's
-// `device` is an int). False when nothing was set; the caller then keeps the
-// element's own default device. Same rule as SfuMediaEngine's.
 bool applyBinding(GstElement *bin, const char *name,
                   const lightning::calls::DeviceBinding &binding)
 {
@@ -596,8 +554,6 @@ bool applyBinding(GstElement *bin, const char *name,
         } else {
             GValue typed = G_VALUE_INIT;
             g_value_init(&typed, spec->value_type);
-            // g_param_value_validate() is true when it had to change the
-            // value, i.e. it was out of range.
             set = gst_value_deserialize(&typed, value.constData())
                 && !g_param_value_validate(spec, &typed);
             if (set)
@@ -606,7 +562,6 @@ bool applyBinding(GstElement *bin, const char *name,
             g_value_unset(&typed);
         }
     }
-    // The property and how it matched, never the value (a device name).
     if (set) {
         qCInfo(lcCallMedia) << "audio device bound element=" << name
                             << "property=" << binding.property
@@ -620,9 +575,6 @@ bool applyBinding(GstElement *bin, const char *name,
     return set;
 }
 
-/// The new output for a received track (a speaker switch), built on the
-/// switch's pool thread (lightning::calls::sinkswap): parsed, its latency
-/// settled like the SFU lane's, its device bound.
 GstElement *buildReplacementSink(const QByteArray &description,
                                  const lightning::calls::DeviceBinding &binding)
 {
@@ -637,14 +589,11 @@ GstElement *buildReplacementSink(const QByteArray &description,
         return nullptr;
     }
     next = GST_ELEMENT(gst_object_ref_sink(next));
-    // Without it the new sink gets no latency and drops buffers as late:
-    // choppy audio on the new output (measured on the SFU lane).
     g_object_set(next, "async-handling", TRUE, nullptr);
     applyBinding(next, "outsink", binding);
     return next;
 }
 
-// One get-stats walk, reduced to the numbers the 1:1 stats line prints.
 struct StatsTotals {
     quint64 inboundAudio = 0;
     quint64 inboundAudioBytes = 0;
@@ -726,34 +675,25 @@ GstBusSyncReply busSyncHandler(GstBus *bus, GstMessage *message,
                                         : QStringLiteral("media_pipeline")));
         }
     }
-    // Drop after inspection: nothing drains this bus, so passing messages
-    // would grow the queue for the whole call.
     gst_message_unref(message);
     return GST_BUS_DROP;
 }
 
-} // namespace
+}
 
 bool GstCallMediaBackend::runtimeAvailable(QString *whyNot)
 {
-    // One process-wide init with the plugin path applied (GstBootstrap.h).
-    // This backend is probed before the SFU engine, so a bare gst_init here
-    // left packaged builds with an empty registry.
     const bool initOk = lightning::gst::ensureInitialised(whyNot);
     if (!initOk) {
         if (whyNot)
             *whyNot = QStringLiteral("gstreamer_init_failed");
         return false;
     }
-    // Everything the pipeline needs, including webrtcbin's own runtime
-    // elements (nice transport, DTLS-SRTP).
     static const char *const kRequired[] = {
         "webrtcbin",    "nicesrc",      "nicesink",     "dtlssrtpenc",
         "dtlssrtpdec",  "opusenc",      "opusdec",      "rtpopuspay",
         "rtpopusdepay", "audioconvert", "audioresample", "audiotestsrc",
         "fakesink",     "autoaudiosrc", "autoaudiosink", "queue",
-        // Mute uses a real valve (send) and volume (receive), so both must
-        // resolve for mute support.
         "valve",        "volume",
         "capsfilter",
         // Created by webrtcbin and dtlssrtpenc themselves, so nothing above
@@ -823,16 +763,11 @@ int GstCallMediaBackend::offerPromiseErrorReplyContextRefsForTest()
     GstElement *webrtc = gst_element_factory_make("webrtcbin", nullptr);
     if (!webrtc)
         return -1;
-    // Floating from the factory (one ref); promiseCtxNew takes a second. A
-    // null backend makes marshal() drop the hand-off, so only the promise
-    // lifetime is exercised.
     GstPromise *promise = gst_promise_new_with_change_func(
         onOfferCreated,
         promiseCtxNew(nullptr, webrtc,
                       QStringLiteral("promise-ctx-lifetime-probe")),
         promiseCtxFree);
-    // webrtcbin's error reply: an "error" field and no "offer".
-    // gst_promise_reply calls the change function inline.
     GError *error = g_error_new(g_quark_from_static_string("lightning-test"),
                                 0, "no description");
     gst_promise_reply(promise,
@@ -840,8 +775,6 @@ int GstCallMediaBackend::offerPromiseErrorReplyContextRefsForTest()
                                         "error", G_TYPE_ERROR, error,
                                         nullptr));
     g_clear_error(&error);
-    // Not unreffed here: the change function consumed the last reference, as
-    // in production.
     const int refs = static_cast<int>(GST_OBJECT_REFCOUNT_VALUE(webrtc));
     gst_object_unref(webrtc);
     return refs;
@@ -858,13 +791,11 @@ GstCallMediaBackend::GstCallMediaBackend(QObject *parent)
 GstCallMediaBackend::~GstCallMediaBackend()
 {
     {
-        // Unregister first so no new marshalled lambda targets us.
         QMutexLocker lock(&g_aliveMutex);
         g_aliveBackends.remove(this);
     }
     if (m_sessionActive)
         destroySessionLocked();
-    // Bounded: at quit a webrtcbin still gathering is stopped anyway.
     m_retirer.drain(lightning::webrtc::Retirer::kQuitBudgetMs);
 }
 
@@ -880,43 +811,21 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
                                        int opusPayloadType, int vp8PayloadType)
 {
     if (m_sessionActive) {
-        // One call at a time; an existing session here is a controller bug, so
-        // refuse rather than leak the old pipeline.
         qCWarning(lcCallMedia) << "session already active; refusing new call";
         return false;
     }
-    // The devices this call opens: asked now, so a choice made since the
-    // last call applies (and a live call follows later ones; see
-    // audioDevicesChanged()).
     const AudioDevicePlan plan = resolveDevices();
     {
         QMutexLocker lock(&m_planMutex);
         m_plan = plan;
     }
-    // As offerer we use 111 (the common convention); as answerer RFC 3264
-    // requires the offerer's number, which createAnswer() extracts.
     const int payload = qBound(96, opusPayloadType, 127);
-    // Our SSRC, fixed before any description exists and named in the caps
-    // webrtcbin reads. webrtcbin writes a=ssrc into an ANSWER only from caps
-    // already on its sink pad, and a real capture delivers its first buffer
-    // ~0.7 s after the session starts, so every answer went out without one.
-    // A browser answering a BUNDLE of audio plus a declined video section
-    // then cannot map our unsignalled SSRC to its audio receiver and drops
-    // every packet: Element's legacy VIDEO call heard nothing from Lightning
-    // (2026-10-08; Chromium's webrtc-internals: 2620 packets in on the
-    // transport, no inbound-rtp at all). With a single m-line the browser
-    // falls back to its only receiver, which is why voice calls worked.
     const quint32 ssrc = QRandomGenerator::global()->bounded(1u, 0xFFFFFFFFu);
-    // The capture is a separate bin (buildMicrophoneFront()) linked in front
-    // of the valve, so a device switch replaces it without touching the rest.
     const QString description = QStringLiteral(
         "webrtcbin name=wb bundle-policy=max-bundle latency=100 "
         // valve name=micvalve: drop=true stops buffers before the encoder, so
         // nothing is published while muted (lowering volume would still send).
         "valve name=micvalve drop=false "
-        // Every capture is converted to exactly this before the encoder, so a
-        // device switch mid-call never changes the encoder's or the track's
-        // caps (a caps change on webrtcbin's pad can ask for renegotiation).
         "! audio/x-raw,format=S16LE,layout=interleaved,rate=48000,channels=1 "
         "! opusenc "
         "! rtpopuspay name=micpay pt=%1 ssrc=%2 mtu=%3 "
@@ -927,7 +836,6 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     GstElement *pipeline =
         gst_parse_launch(description.toUtf8().constData(), &error);
     if (error) {
-        // The GError message can embed the parse text: category only.
         qCWarning(lcCallMedia) << "pipeline construction failed";
         g_error_free(error);
         if (pipeline)
@@ -939,20 +847,12 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
         gst_object_unref(pipeline);
         return false;
     }
-    // The pipeline runs on the system clock, never on the capture's. An audio
-    // source provides a clock and the pipeline prefers it; a device switch
-    // then removes the clock with the source, and a pipeline whose clock is
-    // gone waits on it for ever: webrtcbin's clocksync held every packet and
-    // the swap's own state change deadlocked behind it (measured live,
-    // 2026-10-08). Nothing here could recover: this bus drops CLOCK_LOST.
     if (GstClock *clock = gst_system_clock_obtain()) {
         gst_pipeline_use_clock(GST_PIPELINE(pipeline), clock);
         gst_object_unref(clock);
     }
     GstElement *front = buildMicrophoneFront(plan);
     if (!front && !plan.microphoneFront.isEmpty()) {
-        // The chosen device's capture would not even build: the default
-        // beats no call.
         qCWarning(lcCallMedia)
             << "the chosen microphone's capture could not be built; using "
                "the system default";
@@ -964,7 +864,7 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     if (front && valveForFront && gst_bin_add(GST_BIN(pipeline), front)) {
         frontLinked = gst_element_link(front, valveForFront);
     } else if (front) {
-        gst_object_unref(front); // never added
+        gst_object_unref(front);
         front = nullptr;
     }
     if (valveForFront)
@@ -983,7 +883,7 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     m_session.pipeline = pipeline;
     m_session.webrtc = webrtc;
     m_session.offerer = offerer;
-    m_session.micFront = front; // borrowed: the pipeline owns it
+    m_session.micFront = front;
     m_session.streamId = QUuid::createUuid().toString(QUuid::Id128);
     m_receivedVideoPackets.store(0);
     m_decodedVideoFrames.store(0);
@@ -993,8 +893,6 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     m_lastRemoteFrameMs.store(0);
     m_remoteVideoPads.store(0);
     m_lastNewestPadFrameMs.store(0);
-    // Both tracks name one stream, as a browser's do: a peer reading MSC3077
-    // metadata looks the stream up by this id.
     setPadStreamId(webrtc, "sink_0", m_session.streamId);
     if (GstPad *audioPad = gst_element_get_static_pad(webrtc, "sink_0")) {
         statePadCaps(audioPad,
@@ -1004,16 +902,11 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
                          .arg(payload));
         gst_object_unref(audioPad);
     }
-    // Borrowed: the pipeline owns the valve and outlives the session struct.
     if (GstElement *valve = gst_bin_get_by_name(GST_BIN(pipeline),
                                                 "micvalve")) {
         m_session.micValve = valve;
         gst_object_unref(valve);
     }
-    // webrtcbin syncs its inputs to the clock, so a microphone whose
-    // timestamps run ahead would starve the leaky queue; see CaptureClock.h.
-    // Seen at the capture, corrected on the RTP, so the RTP timestamps stay
-    // sample-accurate.
     {
         GstElement *micsrc = gst_bin_get_by_name(GST_BIN(pipeline), "micsrc");
         GstElement *micpay = gst_bin_get_by_name(GST_BIN(pipeline), "micpay");
@@ -1030,7 +923,6 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
                     << count << ")";
             };
             lightning::calls::holdCaptureToClock(captured, rtp, hold);
-            // A replacement capture re-attaches to the same hold.
             m_session.clockHold = hold;
         }
         if (captured)
@@ -1044,13 +936,10 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     }
     m_sessionActive = true;
     m_callAllocator.engage();
-    // Before any callback can run; see destroySessionLocked().
     lightning::webrtc::installGate(webrtc);
 
     applyIceConfigLocked();
 
-    // The answerer is driven by createAnswer(); this asks for an offer only
-    // when m_offerWanted says so (the first one, and an upgrade to video).
     m_offerWanted.store(offerer);
     g_signal_connect(webrtc, "on-negotiation-needed",
                      G_CALLBACK(onNegotiationNeeded), this);
@@ -1069,8 +958,6 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     gst_bus_set_sync_handler(bus, busSyncHandler, busCtx, busCtxFree);
     gst_object_unref(bus);
 
-    // A video call: the send chain is on webrtcbin before the first
-    // description exists, with or without a camera behind it.
     const bool prepared = m_preparedCallId == callId;
     if (vp8PayloadType > 0 && supportsVideo()
         && !addVideoChainLocked(vp8PayloadType)) {
@@ -1079,8 +966,6 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     }
     m_session.cameraWanted = prepared && m_preparedCamera;
     m_acceptVideo.store(m_session.camInput != nullptr);
-    // Told, or the call says the camera is on while nothing opened it. Queued:
-    // the controller is still inside createOffer()/createAnswer().
     if (m_session.cameraWanted && !m_session.camInput) {
         m_session.cameraWanted = false;
         QMetaObject::invokeMethod(
@@ -1092,10 +977,6 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     }
     m_preparedCallId.clear();
 
-    // The capture is started apart, off this thread (startMicrophoneFrontAsync):
-    // its source opening a sound server that does not answer blocked the GUI
-    // thread for as long as the server took (issue #12 family). Locked out of
-    // the pipeline's own state change until then.
     m_session.serial = ++m_sessionSerial;
     gst_element_set_locked_state(front, TRUE);
     if (gst_element_set_state(pipeline, GST_STATE_PLAYING)
@@ -1107,9 +988,6 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     startMicrophoneFrontAsync(front, !plan.microphoneFront.isEmpty());
     if (m_session.camInput && m_session.cameraWanted)
         startCameraLocked();
-    // webrtcbin asks for negotiation only once a buffer has told it the caps,
-    // and a capture muted before its first buffer never does: the offer would
-    // not come at all. They are stated above, so nothing needs to arrive.
     if (offerer)
         onNegotiationNeeded(webrtc, this);
     if (!m_negotiationTimer) {
@@ -1159,11 +1037,6 @@ void GstCallMediaBackend::destroySessionLocked()
         m_negotiationTimer->stop();
         m_offerDelayTimer->stop();
     }
-    // The capture leaves first, started or not, and is stopped off this
-    // thread: the pipeline's NULL below would otherwise wait on its state
-    // lock (a start in flight) or on its own stop (a capture whose sound
-    // server stopped answering mid-call), on this thread. Its output drops
-    // everything first, so nothing it still pushes meets an unlinked pad.
     detachStartingFront();
     stopCameraLocked();
     if (GstElement *front = m_session.micFront; front && m_session.pipeline) {
@@ -1181,8 +1054,6 @@ void GstCallMediaBackend::destroySessionLocked()
     m_session = Session();
     m_sessionActive = false;
     m_callAllocator.release();
-    // Engine state is per session. The controller owns the deafen intent and
-    // re-applies it; a latched value would silence a later call.
     m_outputMuted.store(false);
     m_acceptVideo.store(false);
     m_offerWanted.store(false);
@@ -1194,9 +1065,6 @@ void GstCallMediaBackend::applyIceConfigLocked()
 {
     if (!m_session.webrtc)
         return;
-    // Only servers the homeserver named (see CallMediaBackend.h). The first
-    // stun: URI sets stun-server; each turn(s): URI is added with the
-    // credentials percent-encoded.
     bool stunApplied = false;
     const QByteArray user =
         QUrl::toPercentEncoding(m_iceUsername);
@@ -1237,7 +1105,6 @@ void GstCallMediaBackend::applyIceConfigLocked()
             gboolean added = FALSE;
             g_signal_emit_by_name(m_session.webrtc, "add-turn-server",
                                   value.toUtf8().constData(), &added);
-            // Never log the URI: it carries credentials.
         }
     }
 }
@@ -1249,31 +1116,26 @@ void GstCallMediaBackend::setIceServers(const QStringList &uris,
     m_iceUris = uris;
     m_iceUsername = username;
     m_icePassword = password;
-    // Applied to the next session; a live call keeps its negotiated config.
 }
 
 void GstCallMediaBackend::createOffer(const QString &callId)
 {
     const bool video = m_preparedCallId == callId && m_preparedVideo;
-    if (!startSession(callId, /*offerer=*/true, kDefaultOpusPayloadType,
+    if (!startSession(callId,true, kDefaultOpusPayloadType,
                       video ? kDefaultVp8PayloadType : -1))
         Q_EMIT failed(callId, QStringLiteral("media_init"));
-    // The offer arrives via on-negotiation-needed -> create-offer.
 }
 
 void GstCallMediaBackend::createAnswer(const QString &callId,
                                        const QString &remoteOfferSdp)
 {
-    // Taken before set-remote-description: webrtcbin pairs an offered section
-    // with a sink pad it already has, so the chain must exist by then.
-    if (!startSession(callId, /*offerer=*/false,
+    if (!startSession(callId,false,
                       opusPayloadTypeFromSdp(remoteOfferSdp),
                       vp8PayloadTypeFromSdp(remoteOfferSdp))) {
         Q_EMIT failed(callId, QStringLiteral("media_init"));
         return;
     }
     GstSDPMessage *message = nullptr;
-    // GStreamer's SDP parser accepts garbage, so also require a media section.
     if (gst_sdp_message_new_from_text(remoteOfferSdp.toUtf8().constData(),
                                       &message)
             != GST_SDP_OK
@@ -1284,11 +1146,10 @@ void GstCallMediaBackend::createAnswer(const QString &callId,
         Q_EMIT failed(callId, QStringLiteral("bad_remote_offer"));
         return;
     }
-    // Shape only (kinds and directions), never the SDP itself.
     qCInfo(lcCallMedia) << "remote offer sections="
                         << sdpSectionShape(remoteOfferSdp);
     GstWebRTCSessionDescription *offer = gst_webrtc_session_description_new(
-        GST_WEBRTC_SDP_TYPE_OFFER, message); // takes ownership of message
+        GST_WEBRTC_SDP_TYPE_OFFER, message);
     GstPromise *promise = gst_promise_new_with_change_func(
         onRemoteOfferSet, promiseCtxNew(this, m_session.webrtc, callId),
         promiseCtxFree);
@@ -1343,8 +1204,6 @@ void GstCallMediaBackend::setPadStreamId(GstElement *webrtc, const char *pad,
     GstPad *sink = gst_element_get_static_pad(webrtc, pad);
     if (!sink)
         return;
-    // Absent on an old webrtcbin: the id then stays what webrtcbin chose, and
-    // metadata must not name a stream the SDP does not.
     if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "msid"))
         g_object_set(sink, "msid", streamId.toUtf8().constData(), nullptr);
     else
@@ -1359,11 +1218,6 @@ bool GstCallMediaBackend::addVideoChainLocked(int payloadType)
     if (!m_session.pipeline || !m_session.webrtc)
         return false;
     const quint32 ssrc = QRandomGenerator::global()->bounded(1u, 0xFFFFFFFFu);
-    // Same values as the MatrixRTC camera at 720p. The queue in front is the
-    // live-path rule: bounded and leaky, a late frame is worth nothing. The
-    // caps name the ssrc for the reason startSession() gives, and the feedback
-    // a browser needs to ask for a keyframe; without it a lost one freezes the
-    // picture for good.
     const QString description = QStringLiteral(
         "queue name=caminput max-size-buffers=0 max-size-bytes=0 "
         "max-size-time=100000000 leaky=downstream "
@@ -1390,7 +1244,7 @@ bool GstCallMediaBackend::addVideoChainLocked(int payloadType)
     }
     gst_element_set_name(bin, "camchain");
     if (!gst_bin_add(GST_BIN(m_session.pipeline), bin))
-        return false; // sunk and dropped by gst_bin_add
+        return false;
     GstPad *sink = gst_element_request_pad_simple(m_session.webrtc, "sink_%u");
     GstPad *out = gst_element_get_static_pad(bin, "src");
     bool linked = sink && out && gst_pad_link(out, sink) == GST_PAD_LINK_OK;
@@ -1399,7 +1253,6 @@ bool GstCallMediaBackend::addVideoChainLocked(int payloadType)
         g_object_set(sink, "msid", m_session.streamId.toUtf8().constData(),
                      nullptr);
     }
-    // No buffer may ever pass with the camera off: see statePadCaps().
     if (sink && linked) {
         statePadCaps(sink,
                      QStringLiteral("application/x-rtp,media=video,"
@@ -1420,7 +1273,7 @@ bool GstCallMediaBackend::addVideoChainLocked(int payloadType)
         return false;
     }
     gst_element_sync_state_with_parent(bin);
-    m_session.camInput = bin; // borrowed: the pipeline owns it
+    m_session.camInput = bin;
     return true;
 }
 
@@ -1451,10 +1304,6 @@ GstElement *GstCallMediaBackend::buildCameraFront(CameraPlan plan)
         gst_element_set_state(probe, GST_STATE_NULL);
         gst_object_unref(probe);
     }
-    // The self-view lives in the front, so it stops with the camera. Both
-    // branches are bounded: a slow picture must not stall the other one, and
-    // `async=false` keeps a capture with no first frame from holding the
-    // running pipeline back (selfViewBranch() in the MatrixRTC lane).
     front += QStringLiteral(
         " ! tee name=camt "
         "camt. ! queue max-size-buffers=2 leaky=downstream ! videoconvert "
@@ -1508,7 +1357,6 @@ bool GstCallMediaBackend::startCameraLocked()
         ? m_resolveCamera(m_session.cameraPortalFd)
         : CameraPlan{};
     if (plan.needsPortal) {
-        // Answered by providePortalCamera(), possibly after a dialog.
         Q_EMIT cameraAccessNeeded(m_session.callId);
         return true;
     }
@@ -1533,8 +1381,7 @@ bool GstCallMediaBackend::startCameraLocked()
                             QStringLiteral("camera_failed"));
         return false;
     }
-    m_session.camFront = front; // borrowed: the pipeline owns it
-    // Off this thread, as the microphone: opening a device can block.
+    m_session.camFront = front;
     gst_element_set_locked_state(front, TRUE);
     gst_element_call_async(
         front, cameraStartAsync,
@@ -1548,7 +1395,7 @@ void GstCallMediaBackend::stopCameraLocked()
 {
     GstElement *front = std::exchange(m_session.camFront, nullptr);
     if (!front || !m_session.pipeline) {
-        closePortalFdLocked(); // granted, and nothing was built on it
+        closePortalFdLocked();
         return;
     }
     if (GstPad *out = gst_element_get_static_pad(front, "src")) {
@@ -1564,9 +1411,6 @@ void GstCallMediaBackend::stopCameraLocked()
 void GstCallMediaBackend::closePortalFdLocked()
 {
 #ifdef Q_OS_LINUX
-    // The stop above is asynchronous, but pipewiresrc dups or keeps its own:
-    // the MatrixRTC lane holds it for the bin only because that varies by
-    // plugin version, and a late close there is the same close.
     if (m_session.cameraPortalFd >= 0)
         ::close(m_session.cameraPortalFd);
 #endif
@@ -1605,14 +1449,10 @@ void GstCallMediaBackend::setCameraEnabled(const QString &callId, bool on)
     }
     if (m_session.camInput) {
         startCameraLocked();
-        // An earlier offer for this section was never answered.
         if (m_session.videoUnconfirmed && !m_session.negotiating)
             requestOfferLocked();
         return;
     }
-    // A voice call gaining a camera: the chain goes on webrtcbin, which then
-    // asks for negotiation. Only once the first exchange is finished: a
-    // section added under an open offer would be silently left out of it.
     if (!supportsVideo() || !m_session.remoteDescriptionSet
         || m_session.negotiating) {
         m_session.cameraWanted = false;
@@ -1652,8 +1492,6 @@ void GstCallMediaBackend::sendOfferLocked()
 {
     m_session.offerDelayed = false;
     m_offerWanted.store(true);
-    // webrtcbin may not ask by itself: nothing new reaches it while the camera
-    // is still opening.
     onNegotiationNeeded(m_session.webrtc, this);
 }
 
@@ -1661,9 +1499,6 @@ void GstCallMediaBackend::onNegotiationTimeout()
 {
     if (!m_sessionActive || !m_session.negotiating)
         return;
-    // A lost send, a silent peer, or crossed offers. The offer stays with
-    // webrtcbin (see requestOfferLocked()), so this end takes no further peer
-    // offer; the call goes on, and turning the camera on again offers anew.
     qCWarning(lcCallMedia) << "a renegotiation went unanswered";
     m_session.negotiating = false;
     m_session.offerDelayed = false;
@@ -1686,7 +1521,6 @@ void GstCallMediaBackend::applyNegotiation(const QString &callId,
     if (!offer && type != QLatin1String("answer"))
         return;
     if (offer && m_session.offerDelayed && vp8PayloadTypeFromSdp(sdp) > 0) {
-        // Our offer has not left: the caller's carries what it asked for.
         m_offerDelayTimer->stop();
         m_negotiationTimer->stop();
         m_session.offerDelayed = false;
@@ -1694,14 +1528,11 @@ void GstCallMediaBackend::applyNegotiation(const QString &callId,
         m_session.videoUnconfirmed = false;
     }
     if (offer && m_session.offerDelayed) {
-        // A caller's offer without video (a hold): ours waits until it is done.
         m_offerDelayTimer->start(m_calleeOfferDelayMs);
         applyRemoteOfferLocked(sdp);
         return;
     }
     if (offer && (m_session.negotiating || m_session.localOfferSet)) {
-        // Crossed, or one we gave up on: webrtcbin cannot take an offer now
-        // (see requestOfferLocked()). The timeout reports it.
         qCInfo(lcCallMedia) << "an offer into our own open one was ignored";
         return;
     }
@@ -1730,7 +1561,7 @@ void GstCallMediaBackend::applyNegotiation(const QString &callId,
     m_negotiationTimer->stop();
     GstWebRTCSessionDescription *description =
         gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_ANSWER,
-                                           message); // takes ownership
+                                           message);
     GstPromise *promise = gst_promise_new_with_change_func(
         onRemoteAnswerSet, promiseCtxNew(this, m_session.webrtc, callId),
         promiseCtxFree);
@@ -1752,15 +1583,12 @@ void GstCallMediaBackend::applyRemoteOfferLocked(const QString &sdp)
     }
     qCInfo(lcCallMedia) << "renegotiation offered sections="
                         << sdpSectionShape(sdp);
-    // The peer turned its camera on in a voice call. Our chain has to be on
-    // webrtcbin before the description is, or the section is answered with
-    // nothing to send; no camera opens until the user asks for it.
     const int payload = vp8PayloadTypeFromSdp(sdp);
     if (payload > 0 && supportsVideo() && addVideoChainLocked(payload))
         m_acceptVideo.store(true);
     GstWebRTCSessionDescription *description =
         gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_OFFER,
-                                           message); // takes ownership
+                                           message);
     GstPromise *promise = gst_promise_new_with_change_func(
         onRemoteOfferSet,
         promiseCtxNew(this, m_session.webrtc, m_session.callId),
@@ -1809,8 +1637,6 @@ void GstCallMediaBackend::noteRemoteVideoFrame(quintptr token)
 
 bool GstCallMediaBackend::remoteFrameWanted(int padSerial)
 {
-    // The newest track wins, which is a peer's screen share over its camera,
-    // and the older one comes back within a moment of the newest going quiet.
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (padSerial == m_remoteVideoPads.load()) {
         m_lastNewestPadFrameMs.store(now);
@@ -1827,8 +1653,6 @@ void GstCallMediaBackend::handleCameraLost(quintptr token,
     qCWarning(lcCallMedia) << "the camera failed category=" << category
                            << "; the call goes on without it";
     if (category == QLatin1String("video_receive")) {
-        // Nothing more enters that chain, so it cannot stop the shared
-        // transport. Our camera is not involved.
         m_videoReceiveDead.store(true);
         if (m_remoteVideoReceiving) {
             m_remoteVideoReceiving = false;
@@ -1837,7 +1661,6 @@ void GstCallMediaBackend::handleCameraLost(quintptr token,
         }
         return;
     }
-    // A send chain error with the camera off: nothing the user asked for.
     if (!m_session.camFront && !m_session.cameraWanted)
         return;
     stopCameraLocked();
@@ -1850,14 +1673,12 @@ void GstCallMediaBackend::addRemoteCandidate(const QString &callId,
                                              const QString &sdpMid,
                                              int sdpMLineIndex)
 {
-    Q_UNUSED(sdpMid); // webrtcbin keys on the m-line index
+    Q_UNUSED(sdpMid);
     if (!m_sessionActive || m_session.callId != callId || !m_session.webrtc)
         return;
     if (candidate.trimmed().isEmpty())
-        return; // MSC2746 end-of-candidates
+        return;
     if (!m_session.remoteDescriptionSet) {
-        // Trickled candidates can outrun the description; apply them once it
-        // is set. Bounded.
         if (m_session.pendingRemoteCandidates.size() < 64)
             m_session.pendingRemoteCandidates.append(
                 qMakePair(sdpMLineIndex, candidate));
@@ -1888,7 +1709,6 @@ QString GstCallMediaBackend::receiveSinkDescription(
 {
     if (!plan.speakerSink.isEmpty())
         return plan.speakerSink;
-    // The test tone plays nowhere; a real call follows the system default.
     return m_testTone ? QStringLiteral("fakesink sync=false name=outsink")
                       : QStringLiteral("autoaudiosink name=outsink");
 }
@@ -1922,8 +1742,6 @@ GstElement *GstCallMediaBackend::buildMicrophoneFront(
         gst_parse_bin_from_description(front.toUtf8().constData(), TRUE,
                                        &error);
     if (error) {
-        // The description names elements only (the device is a binding set
-        // after the parse), so it is safe to log; the message is not.
         qCWarning(lcCallMedia) << "capture description did not parse code="
                                << error->code << "description=" << front;
         g_error_free(error);
@@ -1933,8 +1751,6 @@ GstElement *GstCallMediaBackend::buildMicrophoneFront(
     }
     if (!bin)
         return nullptr;
-    // Unique per build, so an outgoing capture and its replacement can share
-    // the pipeline for the moment of the swap.
     static std::atomic<int> serial{0};
     const QByteArray name =
         QByteArray("micfront") + QByteArray::number(serial.fetch_add(1));
@@ -1946,15 +1762,13 @@ GstElement *GstCallMediaBackend::buildMicrophoneFront(
 void GstCallMediaBackend::audioDevicesChanged()
 {
     if (!m_sessionActive || !m_session.pipeline)
-        return; // the next call resolves at its start
+        return;
     const AudioDevicePlan plan = resolveDevices();
     AudioDevicePlan current;
     {
         QMutexLocker lock(&m_planMutex);
         current = m_plan;
     }
-    // The signal also fires for a camera change: move only what changed, so a
-    // camera pick never interrupts the microphone.
     const auto sameBinding = [](const lightning::calls::DeviceBinding &a,
                                 const lightning::calls::DeviceBinding &b) {
         return a.property == b.property && a.value == b.value;
@@ -2000,12 +1814,6 @@ bool GstCallMediaBackend::swapMicrophoneLocked(const AudioDevicePlan &plan)
                                   "not be built; keeping the current one";
         return false;
     }
-    // The outgoing capture leaves the pipeline at once and is stopped off
-    // this thread (a capture whose server stalled blocks its stop too). Its
-    // output drops everything first, so a push in flight never meets an
-    // unlinked pad (not-linked posts an error, and an error ends the call),
-    // and once removed it has no bus to post on. One still starting is
-    // detached the same way.
     if (m_session.frontStarting && m_session.frontStarting->load()) {
         detachStartingFront();
     } else if (GstElement *old = m_session.micFront) {
@@ -2019,7 +1827,7 @@ bool GstCallMediaBackend::swapMicrophoneLocked(const AudioDevicePlan &plan)
     }
     const auto install = [&](GstElement *front) {
         if (!gst_bin_add(GST_BIN(pipeline), front))
-            return false; // sunk and dropped by gst_bin_add
+            return false;
         if (!gst_element_link(front, valve)) {
             gst_bin_remove(GST_BIN(pipeline), front);
             return false;
@@ -2037,11 +1845,7 @@ bool GstCallMediaBackend::swapMicrophoneLocked(const AudioDevicePlan &plan)
     }
     if (!m_session.micFront)
         return false;
-    // Started off this thread; a chosen device that will not start falls
-    // back to the default there (noteMicrophoneFrontStarted()).
     startMicrophoneFrontAsync(m_session.micFront, ok && chosen);
-    // The clock hold watches the capture's own pad (CaptureClock.h); the RTP
-    // half stays on the payloader.
     if (GstElement *source =
             gst_bin_get_by_name(GST_BIN(m_session.micFront), "micsrc")) {
         if (GstPad *pad = gst_element_get_static_pad(source, "src")) {
@@ -2109,7 +1913,6 @@ void GstCallMediaBackend::noteMicrophoneFrontStarted(quint64 serial,
                                                      bool chosenDevice,
                                                      qint64 tookMs)
 {
-    // Another call, or a capture since replaced: nothing to say.
     if (!m_sessionActive || serial != m_session.serial
         || frontSerial != m_session.frontSerial || !m_session.micFront)
         return;
@@ -2144,9 +1947,6 @@ void GstCallMediaBackend::swapSpeakersLocked(const AudioDevicePlan &plan)
     if (!m_session.pipeline)
         return;
     const QByteArray description = receiveSinkDescription(plan).toUtf8();
-    // Every received track's volume element, matched by our name as in
-    // setOutputMuted(); the sink after it is what moves, the volume (and so
-    // the deafen state) stays.
     QList<GstElement *> volumes;
     GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_session.pipeline));
     if (!it)
@@ -2187,10 +1987,6 @@ void GstCallMediaBackend::swapSpeakersLocked(const AudioDevicePlan &plan)
         GstObject *bin = gst_object_get_parent(GST_OBJECT(volume));
         GstPad *pad = gst_element_get_static_pad(volume, "src");
         if (bin && pad) {
-            // Off this thread and one at a time per chain, the newest pick
-            // winning (SerialSinkSwap.h): closing the old output and opening
-            // the new one wait on the sound server, and this is the GUI
-            // thread.
             lightning::calls::sinkswap::Request request;
             const lightning::calls::DeviceBinding binding = plan.speakerBinding;
             request.build = [description, binding] {
@@ -2219,7 +2015,6 @@ void GstCallMediaBackend::setMicrophoneMuted(const QString &callId,
     m_session.micMuted = muted;
     if (!m_session.micValve)
         return;
-    // drop=true discards buffers before the encoder: a real mute, no RTP.
     g_object_set(m_session.micValve, "drop", muted ? TRUE : FALSE, nullptr);
 }
 
@@ -2228,21 +2023,14 @@ void GstCallMediaBackend::setOutputMuted(const QString &callId, bool muted)
     if (!m_sessionActive || m_session.callId != callId)
         return;
     m_session.outputMuted = muted;
-    // Read by onPadAdded on a GStreamer thread, so a track arriving while
-    // deafened comes up silenced.
     m_outputMuted.store(muted);
     if (!m_session.pipeline)
         return;
-    // Mute every receive volume element, matched by our name ("outvol"), not
-    // the "volume" factory: auto elements may contain their own volume, and a
-    // factory match could reach the send chain. Deafen and mic mute must stay
-    // independent controls.
     GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_session.pipeline));
     if (!it)
         return;
     GValue item = G_VALUE_INIT;
     bool done = false;
-    // Bounded resyncs, so a constantly changing pipeline cannot spin forever.
     int resyncsLeft = 8;
     while (!done) {
         switch (gst_iterator_next(it, &item)) {
@@ -2259,8 +2047,6 @@ void GstCallMediaBackend::setOutputMuted(const QString &callId, bool muted)
             break;
         }
         case GST_ITERATOR_RESYNC:
-            // The pipeline changes exactly while a track is added, which is
-            // when a missed element would stay audible. Restart, bounded.
             if (resyncsLeft-- <= 0) {
                 done = true;
                 break;
@@ -2284,8 +2070,6 @@ void GstCallMediaBackend::close(const QString &callId)
     destroySessionLocked();
 }
 
-// ── Qt-thread handlers ──────────────────────────────────────────────────
-
 bool GstCallMediaBackend::tokenMatchesLiveSession(quintptr token) const
 {
     if (!m_sessionActive)
@@ -2302,7 +2086,6 @@ void GstCallMediaBackend::handleLocalDescription(quintptr token, bool offer,
     const bool renegotiation = m_session.answerSent || m_session.offerSent;
     if (sdp.isEmpty()) {
         if (renegotiation) {
-            // The call is up and did not need this: it stays as it was.
             qCWarning(lcCallMedia) << "a renegotiation produced no description";
             m_session.negotiating = false;
             m_negotiationTimer->stop();
@@ -2320,10 +2103,6 @@ void GstCallMediaBackend::handleLocalDescription(quintptr token, bool offer,
     qCInfo(lcCallMedia) << (offer ? "local offer sections="
                                   : "local answer sections=")
                         << sdpSectionShape(sdp);
-    // The first description of each kind sets the call up; every later one is
-    // a renegotiation, which reaches the peer as m.call.negotiate and never as
-    // a new invite for the same call. An answerer's first offer is such a one
-    // too: its first description was the answer.
     if (renegotiation) {
         if (offer)
             m_session.localOfferSet = true;
@@ -2398,9 +2177,8 @@ void GstCallMediaBackend::requestStats()
                 if (const GstStructure *reply = gst_promise_get_reply(promise))
                     gst_structure_foreach(reply, addStat, &totals);
             }
-            gst_promise_unref(promise); // may free ctx
+            gst_promise_unref(promise);
             marshal(backend, [backend, token, totals] {
-                // The ICE state is read here, on the Qt thread.
                 int ice = -1;
                 if (backend->tokenMatchesLiveSession(token)
                     && backend->m_session.webrtc) {
@@ -2429,8 +2207,6 @@ void GstCallMediaBackend::handleStats(quintptr token, quint64 inboundAudio,
     if (!tokenMatchesLiveSession(token))
         return;
     const int report = m_session.statsReports++;
-    // A stall is news only once the transport is up (ICE connected or
-    // completed), and an unmoving send count is the point of a mute.
     const bool transportUp = iceState == GST_WEBRTC_ICE_CONNECTION_STATE_CONNECTED
         || iceState == GST_WEBRTC_ICE_CONNECTION_STATE_COMPLETED;
     const bool inStalled = report > 0 && transportUp
@@ -2439,8 +2215,6 @@ void GstCallMediaBackend::handleStats(quintptr token, quint64 inboundAudio,
         && outboundAudio == m_session.lastOutboundAudioPackets;
     m_session.lastInboundAudioPackets = inboundAudio;
     m_session.lastOutboundAudioPackets = outboundAudio;
-    // A picture that stopped: the peer's camera went away without metadata,
-    // or its packets did. Nothing else would ever say so.
     if (m_remoteVideoReceiving
         && QDateTime::currentMSecsSinceEpoch() - m_lastRemoteFrameMs.load()
             > kRemoteVideoStallMs) {
@@ -2448,9 +2222,6 @@ void GstCallMediaBackend::handleStats(quintptr token, quint64 inboundAudio,
         m_lastRemoteFrameMs.store(0);
         Q_EMIT remoteVideoChanged(m_session.callId, false);
     }
-    // The first half minute every 5 s, then once a minute, and whenever audio
-    // stopped arriving or leaving: the line that tells "nothing arrived" from
-    // "arrived and was not decoded" from "never sent". Counts only.
     if (report >= 6 && report % 12 != 0 && !inStalled && !outStalled)
         return;
     const QString counts =
@@ -2504,48 +2275,36 @@ void GstCallMediaBackend::handleFailure(quintptr token,
     Q_EMIT failed(callId, category);
 }
 
-// ── GStreamer-thread callbacks ─────────────────────────────────────────
-
 void GstCallMediaBackend::onNegotiationNeeded(GstElement *webrtc,
                                               void *userData)
 {
-    // A closed call queues nothing more on its webrtcbin.
     const lightning::webrtc::CallbackScope scope(webrtc);
     if (!scope.live())
         return;
     auto *backend = static_cast<GstCallMediaBackend *>(userData);
     if (!backend->m_offerWanted.exchange(false))
         return;
-    // Session identity travels as the emitting element's pointer (kept alive
-    // by the promise ctx), so a stale offer cannot be attributed to a newer
-    // session without reading backend state on this thread.
     GstPromise *promise = gst_promise_new_with_change_func(
         onOfferCreated, promiseCtxNew(backend, webrtc, QString()),
         promiseCtxFree);
     g_signal_emit_by_name(webrtc, "create-offer", nullptr, promise);
 }
 
-// promiseCtxFree is the promise's destroy notify, so the gst_promise_unref()
-// in these change functions can free ctx (webrtcbin's error-reply path holds
-// no other reference). Read every ctx field before the unref; a function
-// that keeps using the element takes its own reference.
 void GstCallMediaBackend::onOfferCreated(GstPromise *promise, void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
-    // Held to the end: set-local-description must not start gathering on a
-    // webrtcbin that is being retired.
     const lightning::webrtc::CallbackScope scope(ctx->webrtc);
     if (!scope.live()) {
-        gst_promise_unref(promise); // frees ctx
+        gst_promise_unref(promise);
         return;
     }
     GstCallMediaBackend *backend = ctx->backend;
     const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
     const QString sdp =
         applyCreatedDescription(promise, ctx->webrtc, "offer");
-    gst_promise_unref(promise); // may free ctx: read nothing from it below
+    gst_promise_unref(promise);
     marshal(backend, [backend, token, sdp] {
-        backend->handleLocalDescription(token, /*offer=*/true, sdp);
+        backend->handleLocalDescription(token,true, sdp);
     });
 }
 
@@ -2555,17 +2314,16 @@ void GstCallMediaBackend::onRemoteOfferSet(GstPromise *promise,
     auto *ctx = static_cast<PromiseCtx *>(userData);
     const lightning::webrtc::CallbackScope scope(ctx->webrtc);
     if (!scope.live()) {
-        gst_promise_unref(promise); // frees ctx
+        gst_promise_unref(promise);
         return;
     }
     GstCallMediaBackend *backend = ctx->backend;
-    // Our own reference: the ctx's is released by promiseCtxFree.
     GstElement *webrtc = GST_ELEMENT(gst_object_ref(ctx->webrtc));
     const QString callId = ctx->callId;
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
     const bool replied =
         gst_promise_wait(promise) == GST_PROMISE_RESULT_REPLIED;
-    gst_promise_unref(promise); // may free ctx: read nothing from it below
+    gst_promise_unref(promise);
     if (!replied) {
         gst_object_unref(webrtc);
         return;
@@ -2573,15 +2331,12 @@ void GstCallMediaBackend::onRemoteOfferSet(GstPromise *promise,
     marshal(backend, [backend, token] {
         backend->handleRemoteDescriptionApplied(token);
     });
-    // Decline what this engine cannot carry before answering; see the header.
     const int declined =
         declineUnhandledSections(webrtc, backend->m_acceptVideo.load());
     if (declined > 0) {
         qCInfo(lcCallMedia) << "declining" << declined
                             << "offered section(s) this call does not carry";
     }
-    // Answer creation continues on this thread; the element is ref-held, and
-    // an answer for a closed session is dropped by the Qt-side token check.
     GstPromise *answerPromise = gst_promise_new_with_change_func(
         onAnswerCreated, promiseCtxNew(backend, webrtc, callId),
         promiseCtxFree);
@@ -2595,16 +2350,16 @@ void GstCallMediaBackend::onAnswerCreated(GstPromise *promise,
     auto *ctx = static_cast<PromiseCtx *>(userData);
     const lightning::webrtc::CallbackScope scope(ctx->webrtc);
     if (!scope.live()) {
-        gst_promise_unref(promise); // frees ctx
+        gst_promise_unref(promise);
         return;
     }
     GstCallMediaBackend *backend = ctx->backend;
     const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
     const QString sdp =
         applyCreatedDescription(promise, ctx->webrtc, "answer");
-    gst_promise_unref(promise); // may free ctx: read nothing from it below
+    gst_promise_unref(promise);
     marshal(backend, [backend, token, sdp] {
-        backend->handleLocalDescription(token, /*offer=*/false, sdp);
+        backend->handleLocalDescription(token,false, sdp);
     });
 }
 
@@ -2616,7 +2371,7 @@ void GstCallMediaBackend::onRemoteAnswerSet(GstPromise *promise,
     const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
     const bool replied =
         gst_promise_wait(promise) == GST_PROMISE_RESULT_REPLIED;
-    gst_promise_unref(promise); // may free ctx: read nothing from it below
+    gst_promise_unref(promise);
     if (!replied)
         return;
     marshal(backend, [backend, token] {
@@ -2669,8 +2424,6 @@ void GstCallMediaBackend::onConnectionNotify(GstElement *webrtc, void *pspec,
 void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
                                      void *userData)
 {
-    // Closing waits for this handler, so it never adds to a pipeline that is
-    // already stopping; a later pad of a closed call stays unlinked.
     const lightning::webrtc::CallbackScope scope(webrtc);
     if (!scope.live())
         return;
@@ -2679,7 +2432,7 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
     if (GST_PAD_DIRECTION(srcPad) != GST_PAD_SRC)
         return;
     GstElement *pipeline =
-        GST_ELEMENT(gst_element_get_parent(webrtc)); // owns one ref
+        GST_ELEMENT(gst_element_get_parent(webrtc));
     if (!pipeline)
         return;
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
@@ -2738,14 +2491,9 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
             qCInfo(lcCallMedia) << "a VP8 receive track is linked";
             return;
         }
-        // Falls through to the drain: the picture is lost, the call is not.
         qCWarning(lcCallMedia) << "the VP8 receive chain did not build";
     }
     if (!padCarriesOpusAudio(srcPad)) {
-        // A track the Opus chain cannot decode (a video section the peer
-        // sends anyway, as webrtcbin does after an inactive answer). Drained,
-        // never linked into the chain: not-negotiated there stops the shared
-        // transport, and with it the call's audio.
         backend->m_drainedPads.fetch_add(1);
         qCInfo(lcCallMedia) << "a receive track that is not Opus audio is "
                                "discarded";
@@ -2756,7 +2504,7 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
         if (error)
             g_error_free(error);
         if (ok && !gst_bin_add(GST_BIN(pipeline), drain)) {
-            drain = nullptr; // sunk and dropped by gst_bin_add
+            drain = nullptr;
             ok = false;
         }
         if (ok) {
@@ -2770,31 +2518,21 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
         }
         gst_object_unref(pipeline);
         if (!ok) {
-            // An unlinked pad returns not-linked, which stops the transport
-            // just the same, so this is still a failure.
             marshal(backend, [backend, token] {
                 backend->handleFailure(token, QStringLiteral("media_receive"));
             });
         }
         return;
     }
-    // The plan can change mid-call (a speaker switch), hence the lock; a
-    // switch racing this pad is caught by the switch's own walk, which
-    // starts after the plan is updated.
     AudioDevicePlan plan;
     {
         QMutexLocker lock(&backend->m_planMutex);
         plan = backend->m_plan;
     }
     const QString sink = backend->receiveSinkDescription(plan);
-    // Bounded and leaky: the receive side is where a listener hears delay,
-    // and a default queue would keep a stall's second of audio forever. 200 ms
-    // absorbs local scheduling jitter. Leaking is safe for Opus (the decoder
-    // conceals a lost frame), unlike RTP in front of a video depayloader.
     const QString recvQueue = QStringLiteral(
         "queue max-size-buffers=0 max-size-bytes=0 "
         "max-size-time=200000000 leaky=downstream ");
-    // `outsink` is what a speaker switch replaces (swapSpeakersLocked()).
     const QString descriptionString = recvQueue
         + QStringLiteral("! rtpopusdepay ! opusdec name=recvdec ! audioconvert "
                          "! audioresample ! volume name=outvol ! %1")
@@ -2807,7 +2545,7 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
     if (error) {
         g_error_free(error);
         if (bin)
-            gst_object_unref(bin); // non-NULL result beside a set error
+            gst_object_unref(bin);
         gst_object_unref(pipeline);
         marshal(backend, [backend, token] {
             backend->handleFailure(token, QStringLiteral("media_receive"));
@@ -2815,8 +2553,6 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
         return;
     }
     if (!gst_bin_add(GST_BIN(pipeline), bin)) {
-        // gst_bin_add sinks and drops the element on failure: never touch bin
-        // again.
         gst_object_unref(pipeline);
         marshal(backend, [backend, token] {
             backend->handleFailure(token, QStringLiteral("media_receive"));
@@ -2824,8 +2560,6 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
         return;
     }
     applyBinding(bin, "outsink", plan.speakerBinding);
-    // Apply the current deafen state before the bin plays, so a new track is
-    // never briefly audible.
     if (GstElement *vol = gst_bin_get_by_name(GST_BIN(bin), "outvol")) {
         g_object_set(vol, "mute",
                      backend->m_outputMuted.load() ? TRUE : FALSE, nullptr);
@@ -2838,8 +2572,6 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
         }
         gst_object_unref(vol);
     }
-    // Decoded buffers, for the stats line: RTP that arrived but never reached
-    // a decoder is a different fault from RTP that never arrived.
     if (GstElement *dec = gst_bin_get_by_name(GST_BIN(bin), "recvdec")) {
         if (GstPad *out = gst_element_get_static_pad(dec, "src")) {
             gst_pad_add_probe(out, GST_PAD_PROBE_TYPE_BUFFER, countDecoded,
@@ -2863,7 +2595,6 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
         });
         return;
     }
-    // The pad name ("src_0") only: which received track became audible.
     gchar *padName = gst_pad_get_name(srcPad);
     qCInfo(lcCallMedia) << "an Opus receive track is linked pad="
                         << (padName ? padName : "?")

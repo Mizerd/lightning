@@ -3,39 +3,23 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// A link that is itself a video, or an image too large to show inline
-// (LinkPreviewController: mediaKind "video", or "image" without mediaHeld).
-// A cover shaped like the Matrix video card, and nothing is fetched until the
-// reader asks: Play swaps VideoPlayerCard into the same box, View opens the
-// image viewer. Both fetch through MediaBridge's "link:" key, so through the
-// Rust safe fetch with its size cap (rust/src/linkmedia.rs). No URL ever
-// reaches an Image or a MediaPlayer here. A played video gets its first frame
-// as the cover, from the file Play materialized; a viewed image shows itself.
 Item {
     id: root
     objectName: "linkMediaCard"
 
-    // The row's loaded preview (LinkPreviewController::previewFor()).
     property var preview: ({})
     property real maximumWidth: 360
-    // Row identity for app.playback (one audible card at a time).
     property string ownerKey: ""
     property bool rowOnScreen: true
-    // False while the row must not react (multi-select mode).
     property bool interactive: true
 
     signal viewRequested()
     signal openInBrowserRequested()
     signal dismissRequested()
-    // Play/View pressed on a card this row had not allowed itself; emitted
-    // before the fetch starts, so the delegate records the row's consent.
     signal consentGiven()
 
     readonly property bool isVideo: (root.preview.mediaKind || "") === "video"
     readonly property string mediaKey: root.preview.mediaKey || ""
-    // Where the inline player stopped in this session, or whether it played to
-    // the end (MediaPlaybackController; the same store the timeline's video
-    // cover reads). Through the revision: a call alone binds to nothing.
     readonly property real resumeMs: {
         var revision = app.playback.resumeRevision
         return root.isVideo && app.playback.videoResumePosition
@@ -47,7 +31,6 @@ Item {
                ? app.playback.videoFinished(root.mediaKey) : false
     }
     readonly property real mediaSize: root.preview.mediaSize || 0
-    // The fetch found it over the cap (the size was not declared up front).
     property bool fetchTooLarge: false
     readonly property bool tooLarge:
         root.preview.mediaTooLarge === true || root.fetchTooLarge
@@ -63,7 +46,6 @@ Item {
               .arg(root.preview.host || "")
         : qsTr("Opens from %1, which will see your IP address")
               .arg(root.preview.host || "")
-    // image://lightning-media/ sources only, from MediaBridge's cache.
     property string coverSource: ""
 
     function sizeText(bytes) {
@@ -74,7 +56,6 @@ Item {
         return qsTr("%1 MB").arg(Number(bytes / (1024 * 1024)).toLocaleString(Qt.locale(AppLocale.name), "f", 1))
     }
     readonly property string kindText: root.isVideo ? qsTr("Video") : qsTr("Image")
-    // "Video · 12.4 MB", or the kind alone when the size is unknown.
     readonly property string chipText: {
         var size = root.sizeText(root.mediaSize)
         return size.length > 0 ? root.kindText + " · " + size : root.kindText
@@ -94,16 +75,12 @@ Item {
     readonly property real boxWidth:
         Math.max(160, Math.min(360, root.maximumWidth > 0 ? root.maximumWidth
                                                           : 360))
-    // An image keeps its own shape within bounds; a video's is unknown until
-    // it plays, and the player letterboxes.
     readonly property real aspect:
         !root.isVideo && root.preview.imageWidth > 0 && root.preview.imageHeight > 0
         ? Math.min(1.25, Math.max(0.5, root.preview.imageHeight
                                         / root.preview.imageWidth))
         : 9 / 16
     implicitWidth: root.boxWidth
-    // A floor so the caption, the affordance and the chip never overlap in a
-    // narrow column; the player letterboxes.
     implicitHeight: Math.max(150, Math.round(root.boxWidth * root.aspect))
 
     function refreshCover() {
@@ -111,8 +88,6 @@ Item {
             root.coverSource = ""
             return
         }
-        // Never dispatches: a cached poster (video) or the image the viewer
-        // already fetched.
         root.coverSource = app.mediaBridge.cachedSource(
             (root.isVideo ? "thumb:" : "full:") + root.mediaKey)
     }
@@ -127,8 +102,6 @@ Item {
     function activate() {
         if (!root.interactive)
             return
-        // Over the cap, or the preview behind this row has left the cache
-        // (its byte budget): the browser, never a dead click.
         if (root.tooLarge || !app.linkPreviews.linkMediaAvailable(root.mediaKey)) {
             root.openInBrowserRequested()
             return
@@ -152,7 +125,6 @@ Item {
             }
         }
         function onPlayableMediaReady(cacheKey) {
-            // The file Play wrote can give the cover its first frame.
             if (root.isVideo && cacheKey === "full:" + root.mediaKey
                 && root.coverSource.length === 0)
                 root.coverSource =
@@ -186,11 +158,9 @@ Item {
             sourceSize.width: 720
             asynchronous: true
             cache: true
-            // The consent notice needs a plain surface to be read on.
             visible: status === Image.Ready && !root.needsConsent
         }
 
-        // Identity while there is no picture: the kind and the file name.
         ColumnLayout {
             anchors.centerIn: parent
             anchors.verticalCenterOffset:
@@ -208,7 +178,6 @@ Item {
             }
             Label {
                 objectName: "linkMediaCaption"
-                // Sender-chosen text: never markup.
                 textFormat: Text.PlainText
                 text: root.captionText
                 color: AppTheme.textMuted
@@ -227,11 +196,9 @@ Item {
                 font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
-                // Never elided: this is what the press agrees to.
                 elide: Label.ElideNone
                 Layout.fillWidth: true
             }
-            // Over the cap: said plainly, and the card opens the browser.
             Label {
                 objectName: "linkMediaTooLarge"
                 visible: root.tooLarge
@@ -256,7 +223,6 @@ Item {
             }
         }
 
-        // Play or View; Replay once the video was watched to the end.
         Rectangle {
             id: playAffordance
             objectName: "linkMediaPlayAffordance"
@@ -337,8 +303,6 @@ Item {
 
         HoverHandler { id: coverHover }
 
-        // On a scrim like the chip: over a poster the theme's own icon ink can
-        // vanish into the picture.
         Rectangle {
             z: 3
             anchors.top: parent.top
@@ -384,13 +348,11 @@ Item {
         }
     }
 
-    // Keyboard: the card is one control.
     activeFocusOnTab: root.interactive && !root.playerActive
     Keys.onReturnPressed: root.activate()
     Keys.onEnterPressed: root.activate()
     Keys.onSpacePressed: root.activate()
     Accessible.role: Accessible.Button
-    // A screen reader's "press" is the same action as a click.
     Accessible.onPressAction: root.activate()
     Accessible.name: root.tooLarge
         ? qsTr("%1 too large to show here, open %2 in browser")
@@ -413,7 +375,6 @@ Item {
         visible: root.activeFocus
     }
 
-    // The inline player replaces the cover in the same box.
     Loader {
         objectName: "linkMediaPlayerLoader"
         anchors.fill: parent

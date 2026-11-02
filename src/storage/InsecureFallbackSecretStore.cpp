@@ -33,7 +33,6 @@ QString InsecureFallbackSecretStore::backendName() const
 
 QString InsecureFallbackSecretStore::accountGroup(const QString &userId)
 {
-    // Escape the separators in Matrix user ids so QSettings groups don't break.
     QString safeUser = userId;
     safeUser.replace(QLatin1Char('/'), QLatin1Char('_'));
     safeUser.replace(QLatin1Char('\\'), QLatin1Char('_'));
@@ -74,22 +73,16 @@ QString InsecureFallbackSecretStore::readSecret(const QString &userId,
     m_lastReadFound = false;
     m_lastReadUserHasRecord = false;
     const QVariant value = m_store->value(settingsKey(userId, key));
-    // QSettings reports an unreadable backing file only through status(), which
-    // keeps the first error; value() just returns empty.
     const QSettings::Status status = m_store->status();
     if (status != QSettings::NoError) {
         m_lastReadFailed = true;
-        // Never the file contents or key: this reaches logs and Settings.
         m_lastError = status == QSettings::AccessError
             ? QStringLiteral("the settings file could not be read")
             : QStringLiteral("the settings file is malformed");
         return {};
     }
-    // A value in hand lets a substituted store vouch for this read. Empty is a
-    // miss; see lastReadFailed().
     const QString secret = value.toString();
     m_lastReadFound = !secret.isEmpty();
-    // Only a miss consults it.
     m_lastReadUserHasRecord = m_lastReadFound || hasAnySecretFor(userId);
     return secret;
 }
@@ -107,7 +100,7 @@ bool InsecureFallbackSecretStore::clearAccountSecrets(const QString &userId)
 {
     m_lastError.clear();
     m_store->beginGroup(accountGroup(userId));
-    m_store->remove(QString{}); // remove all keys in this group
+    m_store->remove(QString{});
     m_store->endGroup();
     m_store->sync();
     return true;

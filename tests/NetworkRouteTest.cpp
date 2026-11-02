@@ -1,12 +1,3 @@
-// The per-account network route (src/matrix/NetworkRoute.h,
-// docs/network-profiles.md): where each half is kept, that the password never
-// comes back out except to Rust, that it goes with the account, and that every
-// state that cannot be used reaches Rust as "unavailable", never as "none".
-// "none" would build the client direct, which is exactly what a user who set
-// a proxy asked not to happen (fail closed).
-//
-// Against a fake SecretStore with the real contract: a miss with
-// lastReadFailed() false is an answer, true is "could not ask".
 
 #include "app/NetworkRouteController.h"
 #include "app/SettingsManager.h"
@@ -118,7 +109,7 @@ QString state(const QByteArray &json)
     return parsed(json).value(QStringLiteral("state")).toString();
 }
 
-} // namespace
+}
 
 class NetworkRouteTest : public QObject
 {
@@ -161,7 +152,6 @@ private Q_SLOTS:
         QCOMPARE(route::validate(r), QStringLiteral("invalid_username"));
     }
 
-    // A bare IPv6 literal is bracketed on save, as a proxy URL needs it.
     void aBareIpv6HostIsBracketed()
     {
         FakeStore store;
@@ -186,23 +176,19 @@ private Q_SLOTS:
                  QString());
         QCOMPARE(store.get(kUser, QLatin1String(route::kSecretName)), kPassword);
 
-        // Nothing in the settings file carries it.
         QSettings raw;
         bool sawRecord = false;
         for (const QString &key : raw.allKeys()) {
             sawRecord = sawRecord || key.endsWith(QLatin1String("networkRoute/kind"));
             QVERIFY2(!raw.value(key).toString().contains(kPassword), qPrintable(key));
         }
-        // The scan read the file the record is in, or it proved nothing.
         QVERIFY(sawRecord);
-        // The record holds the rest.
         const QVariantMap record = settings.networkRouteRecord(kUser);
         QCOMPARE(record.value(QStringLiteral("kind")).toString(), QStringLiteral("socks5"));
         QCOMPARE(record.value(QStringLiteral("username")).toString(), QStringLiteral("alice"));
         QVERIFY(!record.contains(QStringLiteral("password")));
     }
 
-    // QML is told whether one is stored, never what it is.
     void theControllerNeverHandsThePasswordToQml()
     {
         FakeStore store;
@@ -226,7 +212,6 @@ private Q_SLOTS:
         QVERIFY(shown.value(QStringLiteral("hasPassword")).toBool());
         for (auto it = shown.cbegin(); it != shown.cend(); ++it)
             QVERIFY2(!it.value().toString().contains(kPassword), qPrintable(it.key()));
-        // And no property of the object carries it either.
         const QMetaObject *meta = controller.metaObject();
         for (int i = meta->propertyOffset(); i < meta->propertyCount(); ++i) {
             const QVariant v = meta->property(i).read(&controller);
@@ -234,23 +219,18 @@ private Q_SLOTS:
             QVERIFY(!QJsonDocument::fromVariant(v).toJson().contains(kPassword.toUtf8()));
         }
 
-        // Keeping the password while changing the host does not ask again.
         QCOMPARE(controller.save(QStringLiteral("http"), QStringLiteral("other.example"), 3128,
                                  QStringLiteral("alice"), QString(), false),
                  QString());
         QCOMPARE(store.get(kUser, QLatin1String(route::kSecretName)), kPassword);
-        // A different username cannot keep the old one's password.
         QCOMPARE(controller.save(QStringLiteral("http"), QStringLiteral("other.example"), 3128,
                                  QStringLiteral("bob"), QString(), false),
                  QStringLiteral("password_required"));
-        // "none" removes both halves.
         QCOMPARE(controller.clear(), QString());
         QVERIFY(settings.networkRouteRecord(kUser).isEmpty());
         QVERIFY(store.get(kUser, QLatin1String(route::kSecretName)).isEmpty());
     }
 
-    // A keyring that cannot take the password stores nothing at all: no
-    // record that names a password that is not there.
     void aKeyringThatRefusesTheWriteStoresNoRoute()
     {
         FakeStore store;
@@ -278,7 +258,6 @@ private Q_SLOTS:
         QCOMPARE(route::save(&settings, &store, kUser, socks(), route::PasswordChange::Keep, {}),
                  QStringLiteral("no_account"));
         QCOMPARE(state(route::rustJson(&settings, &store, kUser)), QStringLiteral("none"));
-        // A first sign-in has no owner yet: "none" too (documented).
         QCOMPARE(state(route::rustJson(&settings, &store, QString())), QStringLiteral("none"));
     }
 
@@ -303,15 +282,9 @@ private Q_SLOTS:
         json = parsed(bytes);
         QCOMPARE(json.value(QStringLiteral("username")).toString(), QStringLiteral("alice"));
         QCOMPARE(json.value(QStringLiteral("password")).toString(), kPassword);
-        // What the client logs about it: the kind, nothing else.
         QCOMPARE(route::describeJson(bytes), QStringLiteral("socks5"));
     }
 
-    // The fail-closed half: a route that exists but cannot be used is
-    // "unavailable", which refuses the client in Rust. Each of these old
-    // behaviours would have been "none" (direct) or a configured route with
-    // no credentials (rejected by the proxy, but only after leaking that the
-    // account tried).
     void everyUnusableRouteIsUnavailableNeverNone()
     {
         FakeStore store;
@@ -322,20 +295,15 @@ private Q_SLOTS:
                              route::PasswordChange::Replace, kPassword),
                  QString());
 
-        // A locked keyring.
         store.locked = true;
         QCOMPARE(state(route::rustJson(&settings, &store, kUser)), QStringLiteral("unavailable"));
         store.locked = false;
-        // An unavailable backend.
         store.available = false;
         QCOMPARE(state(route::rustJson(&settings, &store, kUser)), QStringLiteral("unavailable"));
         QCOMPARE(state(route::rustJson(&settings, nullptr, kUser)), QStringLiteral("unavailable"));
         store.available = true;
-        // The password gone (another tool cleared the keyring).
         QVERIFY(store.deleteSecret(kUser, QLatin1String(route::kSecretName)));
         QCOMPARE(state(route::rustJson(&settings, &store, kUser)), QStringLiteral("unavailable"));
-        // A record a newer build wrote with a kind this one does not know,
-        // or one edited by hand into something invalid.
         settings.setNetworkRouteRecord(kUser, {{QStringLiteral("kind"), QStringLiteral("wireguard")},
                                                {QStringLiteral("host"), QStringLiteral("h")},
                                                {QStringLiteral("port"), 1}});
@@ -347,9 +315,6 @@ private Q_SLOTS:
         QVERIFY(settings.networkRouteConfigured(kUser));
     }
 
-    // The route is the account's: sign-out takes the password with the
-    // tokens (clearAccountSecrets) and the record with the account's record,
-    // and another account's route is untouched.
     void signingOutTakesTheRouteAndLeavesTheOtherAccounts()
     {
         FakeStore store;
@@ -371,23 +336,17 @@ private Q_SLOTS:
         QVERIFY(settings.networkRouteConfigured(kOther));
     }
 
-    // Review M2: a store-less sign-in handle (OAuth/SSO bootstrap, whoami
-    // probe, revocation) follows the route of the saved account it signs in
-    // again; before, it always went direct. A new account's first sign-in
-    // (no routed account on that server) stays direct, as documented.
     void aSignInToARoutedAccountsServerFollowsItsRoute()
     {
         FakeStore store;
         SettingsManager settings;
         settings.setSecretStore(&store);
         settings.saveSession(kHs, kUser, QStringLiteral("DEVICE"), QStringLiteral("syt"));
-        // Nothing routed yet: direct.
         QCOMPARE(state(route::rustJsonForSignIn(&settings, &store, kHs)), QStringLiteral("none"));
 
         QCOMPARE(route::save(&settings, &store, kUser, socks(QStringLiteral("alice")),
                              route::PasswordChange::Replace, kPassword),
                  QString());
-        // As typed, recorded, by server name, with a trailing slash, by account.
         for (const QString &typed : {kHs, QStringLiteral("route.example"),
                                      QStringLiteral("https://ROUTE.example/"),
                                      QStringLiteral(" route.example ")}) {
@@ -397,18 +356,14 @@ private Q_SLOTS:
         }
         QCOMPARE(state(route::rustJsonForSignIn(&settings, &store, QString(), kUser)),
                  QStringLiteral("configured"));
-        // Another server: a new account there signs in direct.
         QCOMPARE(state(route::rustJsonForSignIn(&settings, &store,
                                                 QStringLiteral("https://elsewhere.example"))),
                  QStringLiteral("none"));
-        // The routed account's route cannot be used: refused, never direct.
         store.locked = true;
         QCOMPARE(state(route::rustJsonForSignIn(&settings, &store, kHs)),
                  QStringLiteral("unavailable"));
         store.locked = false;
 
-        // Two routed accounts on that server with different routes: which one
-        // is signing in is unknown, so neither is guessed.
         settings.saveSession(kHs, kOther, QStringLiteral("DEVICE2"), QStringLiteral("syt2"));
         route::Route other = socks();
         other.port = 2080;
@@ -416,16 +371,11 @@ private Q_SLOTS:
                  QString());
         QCOMPARE(state(route::rustJsonForSignIn(&settings, &store, kHs)),
                  QStringLiteral("unavailable"));
-        // Named by account, each gets its own.
         QCOMPARE(parsed(route::rustJsonForSignIn(&settings, &store, kHs, kOther))
                      .value(QStringLiteral("port")).toInt(),
                  2080);
     }
 
-    // The Settings contract, read from source: the password field is never
-    // filled from the controller, nothing reads a password out of the route,
-    // the copy states the fail-closed rule and its consequences, and the card
-    // is on the Account page with an outline entry and a search entry.
     void theSettingsCardKeepsThePasswordWriteOnly()
     {
         QFile card(QStringLiteral(NETWORK_ROUTE_QML_PATH));
@@ -440,7 +390,6 @@ private Q_SLOTS:
                  "the password field binds its text to something");
         QVERIFY(block.contains(QLatin1String("TextInput.Password")));
         QVERIFY(!qml.contains(QLatin1String("route.password")));
-        // The only writes to the field clear it.
         const QRegularExpression write(
             QStringLiteral("passwordField\\.text\\s*=(?!=)\\s*(\\S+)"));
         auto it = write.globalMatch(qml);
@@ -451,11 +400,9 @@ private Q_SLOTS:
                      qPrintable(m.captured(0)));
             ++writes;
         }
-        QCOMPARE(writes, 2);   // load() and save() clear it
-        // The fail-closed rule is said where the user sets the proxy.
+        QCOMPARE(writes, 2);
         QVERIFY(qml.contains(QLatin1String("stays offline instead of")));
         QVERIFY(qml.contains(QLatin1String("connecting directly")));
-        // Review M2: the copy says exactly what sign-in it covers.
         QVERIFY(qml.contains(QLatin1String("this account in again")));
         QVERIFY(qml.contains(QLatin1String("first sign-in")));
         QVERIFY(qml.contains(QLatin1String("browser's own network settings")));
@@ -468,9 +415,6 @@ private Q_SLOTS:
         QVERIFY(settings.contains(QLatin1String("anchor: \"networkRouteCard\"")));
     }
 
-    // Found live (2026-10-26): a routed account was told "or directly, your
-    // IP" on the preview gate and a generic "you appear to be offline" when
-    // its proxy was down. Both now say the account never goes direct.
     void theProxyIsNamedWhereADirectFallbackUsedToBe()
     {
         const auto read = [](const char *name) {

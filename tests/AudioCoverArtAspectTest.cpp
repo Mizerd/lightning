@@ -1,9 +1,3 @@
-// The audio card's cover art (design-media B6): a FIXED square thumbnail the
-// play button sits on, whatever the artwork's shape, so a row never changes
-// height when a cover appears (it used to grow a box up to 420 px tall on
-// play and drop it at the end, moving the history twice). Plus the card's
-// clocks and waveform shape. Drives the real qml/AudioPlayerCard.qml with
-// real images.
 
 #include <QtTest/QtTest>
 
@@ -31,8 +25,6 @@ class AudioCoverArtAspectTest : public QObject
 private:
     QTemporaryDir m_dir;
 
-    // A solid image of an exact size, on disk, so the QML Image reports true
-    // implicit dimensions.
     QUrl makeImage(const QString &name, int w, int h)
     {
         QImage image(w, h, QImage::Format_RGB32);
@@ -46,12 +38,9 @@ private:
         std::unique_ptr<QObject> root;
         QQuickItem *item = nullptr;
         QQuickItem *box = nullptr;
-        // A window, so the layouts polish and sizes are real.
         std::unique_ptr<QQuickWindow> window;
     };
 
-    // Instantiates the production card with a file:// artwork URL;
-    // artworkSource is a plain string, so no decrypted payload is needed.
     Card makeCard(const QUrl &artwork, qreal cardWidth)
     {
         Card card;
@@ -69,7 +58,7 @@ AudioPlayerCard { objectName: "card" }
 )", QUrl(QStringLiteral("qrc:/audioCoverArtAspect.qml")));
         if (!component.errors().isEmpty()) {
             qWarning("%s", qPrintable(component.errorString()));
-            return card;  // caller asserts on the null item
+            return card;
         }
         card.root.reset(component.create(card.engine->rootContext()));
         card.item = qobject_cast<QQuickItem *>(card.root.get());
@@ -85,9 +74,6 @@ AudioPlayerCard { objectName: "card" }
         card.box = card.item->findChild<QQuickItem *>(
             QStringLiteral("audioCoverArtBox"));
 
-        // The Image loads asynchronously; wait for a non-fallback shape.
-        // Spun by hand because QTRY_VERIFY returns void; a timeout is left to
-        // the caller's geometry assertions to report.
         QQuickItem *image = card.item->findChild<QQuickItem *>(
             QStringLiteral("audioCoverArtwork"));
         if (image) {
@@ -128,8 +114,6 @@ private Q_SLOTS:
         QSettings().clear();
     }
 
-    // The play button never covers the art, in either layout (0.10.2 drew it
-    // on top of the 40 px tile), and the setting switches between them.
     void thePlayButtonNeverCoversTheCoverAndTheSettingSwitchesLayout()
     {
         Card card = makeCard(makeImage(QStringLiteral("g.png"), 600, 600), 360);
@@ -141,42 +125,32 @@ private Q_SLOTS:
             QStringLiteral("audioCoverArtBox"));
         QVERIFY(play && tile);
 
-        // Default on, with art: the large tile, spanning the control block,
-        // with the controls beside it and not under it.
         setLarge(card, true);
         QTRY_VERIFY(tile->width() > 80);
         QCOMPARE(tile->width(), tile->height());
         QVERIFY2(!sceneRectOf(play).intersects(sceneRectOf(tile)),
                  "the play button covers the large cover");
-        // The controls end at the tile's foot: no taller than it, give or
-        // take the card's padding.
         const qreal withLarge = card.item->implicitHeight();
         QVERIFY2(withLarge <= tile->height() + 12 + 4,
                  "the card is taller than its cover");
 
-        // Off: the compact tile, beside the button, not under it.
         setLarge(card, false);
         QTRY_COMPARE(tile->width(), 40.0);
         QVERIFY2(!sceneRectOf(play).intersects(sceneRectOf(tile)),
                  "the play button covers the compact tile");
         QVERIFY(card.item->implicitHeight() < withLarge);
 
-        // No art at all: compact even with the setting on.
         card.item->setProperty("artworkSource", QString());
         setLarge(card, true);
         QTRY_COMPARE(tile->width(), 40.0);
         QVERIFY(!sceneRectOf(play).intersects(sceneRectOf(tile)));
 
-        // A narrow card keeps the compact tile (the controls need the room).
         card.item->setProperty("artworkSource",
             makeImage(QStringLiteral("n.png"), 600, 600).toString());
         card.item->setWidth(240);
         QTRY_COMPARE(tile->width(), 40.0);
     }
 
-    // A cover another client attached to the event (info.thumbnail_url) stands
-    // in for the file's own art: it shows like embedded art, and a broken one
-    // looks exactly like no cover (no empty large square, no row growth).
     void anEventCoverStandsInAndABrokenOneLooksLikeNone()
     {
         Card bare = makeCard(QUrl(), 360);
@@ -202,8 +176,6 @@ private Q_SLOTS:
         QVERIFY(good.item->property("artworkSource").toString().endsWith(
             QStringLiteral("wire.png")));
 
-        // Broken: the bytes are not an image. The Image errors and the card
-        // gives the cover up for good.
         const QString junk = m_dir.filePath(QStringLiteral("junk.png"));
         {
             QFile f(junk);
@@ -225,8 +197,6 @@ private Q_SLOTS:
         QCOMPARE(broken.item->implicitHeight(), bareHeight);
     }
 
-    // Any cover, square, tall or wide, is the same fixed 40 px tile, cropped
-    // to fill it; the row is as tall as it was without one (B6).
     void everyCoverIsTheSameFixedTileAndTheRowKeepsItsHeight()
     {
         Card bare = makeCard(QUrl(), 360);
@@ -256,11 +226,10 @@ private Q_SLOTS:
                 QStringLiteral("audioCoverArtwork"));
             QVERIFY(image);
             QCOMPARE(image->property("fillMode").toInt(),
-                     int(2) /* Image.PreserveAspectCrop */);
+                     int(2));
         }
     }
 
-    // A voice message has no tile at all: just the play button.
     void aVoiceMessageHasNoCoverTile()
     {
         Card card = makeCard(QUrl(), 360);
@@ -270,10 +239,6 @@ private Q_SLOTS:
         QVERIFY(!card.box->isVisible());
     }
 
-    // A position floors and a total rounds. The summary line rounds the
-    // duration, so the card must too; rounding the elapsed clock as well
-    // would claim time that has not passed. 25700 and 25400 straddle the
-    // boundary both ways, and each is checked against both functions.
     void aPositionFloorsAndATotalRounds()
     {
         Card card = makeCard(QUrl(), 360);
@@ -287,30 +252,21 @@ private Q_SLOTS:
             return called ? out.toString() : QStringLiteral("<not called>");
         };
 
-        // The total: 25.7 s of audio is 26 seconds, as the summary line says.
         QCOMPARE(call("formatDuration", 25700), QStringLiteral("0:26"));
         QCOMPARE(call("formatDuration", 25400), QStringLiteral("0:25"));
-        // The position: at 25.7 s you have not reached 0:26.
         QCOMPARE(call("formatPosition", 25700), QStringLiteral("0:25"));
         QCOMPARE(call("formatPosition", 25400), QStringLiteral("0:25"));
-        // Neither leaks past 59 into "0:60".
         QCOMPARE(call("formatDuration", 59600), QStringLiteral("1:00"));
         QCOMPARE(call("formatPosition", 60000), QStringLiteral("1:00"));
         QCOMPARE(call("formatDuration", 0), QStringLiteral("0:00"));
         QCOMPARE(call("formatPosition", 0), QStringLiteral("0:00"));
     }
 
-    // The received waveform draws its buckets rather than a solid block.
-    // rust/src/timeline.rs normalises buckets to 0..100 and
-    // RustTimelineIngest.cpp keeps that range, so clamping with
-    // Math.min(1, v) saturates every non-zero bucket. Asserted as shape: bars
-    // differ, loud beats quiet, none fills the strip.
     void theWaveformDrawsItsBucketsInsteadOfClampingThemToABlock()
     {
         Card card = makeCard(QUrl(), 360);
         QVERIFY(card.item != nullptr);
 
-        // Ascending buckets across the ingest's 0..100 range.
         QVariantList wf;
         for (int amp : { 0, 5, 12, 25, 40, 55, 70, 85, 100 })
             wf.append(amp);
@@ -322,9 +278,6 @@ private Q_SLOTS:
         QVERIFY2(row != nullptr, "the waveform row was not created");
         QTRY_VERIFY(row->isVisible() && row->width() > 1);
 
-        // findChild cannot reach Repeater delegates; walk the Row's children.
-        // The bars are stretched over the row (no dead space), so they are
-        // as wide as the row allows; only the Repeater itself is skipped.
         QList<qreal> heights;
         const auto kids = row->childItems();
         for (QQuickItem *kid : kids) {
@@ -343,12 +296,9 @@ private Q_SLOTS:
         }
         const qreal strip = row->height();
 
-        // Count distinct heights: under the clamp bucket 0 still sits on the
-        // floor while the rest saturate, so a min-vs-max check alone passes.
-        // Nine ascending buckets must give a spread.
         QSet<int> distinct;
         for (qreal h : heights)
-            distinct.insert(qRound(h * 4.0));  // quarter-pixel buckets
+            distinct.insert(qRound(h * 4.0));
         QVERIFY2(distinct.size() >= 5,
                  qPrintable(QStringLiteral(
                      "nine ascending buckets drew only %1 distinct bar "
@@ -359,8 +309,6 @@ private Q_SLOTS:
         QVERIFY2(hi <= strip + 0.5,
                  qPrintable(QStringLiteral("a bar is %1px on a %2px strip")
                                 .arg(hi).arg(strip)));
-        // The loudest bucket (100) is the full strip; the quietest sits on the
-        // 0.12 floor.
         QVERIFY2(lo < strip * 0.3,
                  qPrintable(QStringLiteral(
                      "the quietest bar is %1px of a %2px strip")

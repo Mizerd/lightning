@@ -4,52 +4,28 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// Sticker picker for MSC2545 image packs, shared by the room and thread
-// composers. Its own popup rather than an emoji-picker tab: a pack is remote
-// content with an owner, attribution and possibly a room, and its failure
-// states need their own words. Modelled on GifPicker.qml (same chrome,
-// remembered size, press sink and activation latch).
-//
-// Every tile is a pack mxc resolved through the MediaBridge; pack images with
-// an invalid mxc are dropped in Rust, so a pack cannot plant a tracking URL.
-// Shortcodes, bodies, pack names and attribution are remote text, bounded and
-// control-stripped in Rust, and set as plain text only.
 AnchoredPopup {
     id: picker
 
-    // "room" or "thread": routes the send and decides which composer gets focus
-    // back.
     property string target: "room"
-    // The chosen image as the manager's row map (shortcode, url, body,
-    // mimetype, width, height, size, isEmoticon, isSticker).
     signal stickerChosen(var image)
-    // See GifPicker.qml: the two pickers are one window with two tabs, swapped
-    // by the host.
     signal kindRequested(string kind)
     property bool offerKindTabs: false
 
     readonly property var stickers: app.stickers
 
-    // Same proportions and remembered size key as the emoji and GIF pickers.
     widthFraction: 0.38
     heightFraction: 0.64
     minWidth: 300
     minHeight: 320
     sizeSettingsKey: "picker"
     padding: AppTheme.spacingS
-    // Not modal, like EmojiPicker/GifPicker: a grabbed overlay stops the
-    // timeline scrolling. The tiles and background sink consume presses.
     modal: false
     dim: false
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-    // One-shot activation latch, as in GifPicker: close() starts an exit
-    // transition, so a second activation can arrive while closing. Reset on the
-    // next open.
     property bool activated: false
-    // Normally the clicked tile's own captured map. Keyboard activation passes
-    // a row number, resolved against the model immediately.
     function choose(imageOrRow) {
         if (activated)
             return
@@ -73,8 +49,6 @@ AnchoredPopup {
         picker.stickers.refreshIfStale()
     }
 
-    // The selected pack's attribution, if declared (optional in MSC2545);
-    // otherwise the footer names where the pack came from.
     readonly property var selectedPack: {
         var rev = picker.stickers.revision
         var row = picker.stickers.packs
@@ -123,11 +97,9 @@ AnchoredPopup {
         anchors.bottomMargin: footerRow.implicitHeight + AppTheme.spacing4 * 2
         spacing: AppTheme.spacingS
 
-        // Row 0: which kind of media this window shows
         SegmentedControl {
             objectName: "pickerKindTabs"
             visible: picker.offerKindTabs
-            // Explicit left alignment, like the rows below.
             Layout.alignment: Qt.AlignLeft
             Layout.fillWidth: false
             storm: true
@@ -142,7 +114,6 @@ AnchoredPopup {
             }
         }
 
-        // Header: title, refresh, close
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacingXS
@@ -164,16 +135,12 @@ AnchoredPopup {
                 implicitWidth: 18
                 implicitHeight: 18
             }
-            // Add a sticker from this computer: the only way to create a pack
-            // from nothing.
             NativeFileDialog {
                 id: stickerFileDialog
                 purpose: "image"
                 title: qsTr("Choose a sticker")
                 currentFolder: app.defaultFileDialogFolder()
                 nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif *.svg)")]
-                // Straight to the pack, no crop step. The bytes are sniffed and
-                // bounded in Rust.
                 onAccepted: picker.stickers.uploadImage(selectedFile, "", picker.stickers.usage)
             }
             IconButton {
@@ -188,15 +155,11 @@ AnchoredPopup {
                 ToolTip.delay: 500
                 onClicked: stickerFileDialog.open()
             }
-            // Manage the selected pack. The editor is read-only when this
-            // account may not write it, so members can still see its contents.
             IconButton {
                 id: manageButton
                 objectName: "stickerManageButton"
                 storm: true
                 size: "md"
-                // edit_square: the icon font is a subset and Icon.qml returns
-                // "" for unknown names, so a wrong name is a blank button.
                 iconName: "edit_square"
                 enabled: picker.stickers.available
                          && picker.stickers.selectedPackId.length > 0
@@ -206,7 +169,6 @@ AnchoredPopup {
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
                 onClicked: {
-                    // The manager owns the row lookup and the permission rule.
                     var pack = picker.stickers.packInfo(
                         picker.stickers.selectedPackId)
                     if (!pack || !pack.packId)
@@ -237,22 +199,17 @@ AnchoredPopup {
             }
         }
 
-        // Pack strip: one tile per pack holding at least one sticker.
         ListView {
             id: packStrip
             objectName: "stickerPackStrip"
             Layout.fillWidth: true
             Layout.preferredHeight: 40
-            // usablePackCount, so an emoticon-only account gets no empty band.
-            // (A mixed account keeps 4px of spacing per hidden tile; cosmetic.)
             visible: picker.stickers.usablePackCount > 0
             orientation: ListView.Horizontal
             clip: true
             spacing: AppTheme.spacingXS
             model: picker.stickers.packs
             boundsBehavior: Flickable.StopAtBounds
-            // Horizontal axis: the default would derive bounds from
-            // contentHeight/height (equal here) and swallow every wheel event.
             SmoothWheelArea { axis: "horizontal" }
 
             delegate: AbstractButton {
@@ -265,15 +222,12 @@ AnchoredPopup {
                 required property int stickerCount
                 required property bool hidden
 
-                // Emoticon-only packs are not sticker packs here, and a pack
-                // the user hid on this device is not offered.
                 visible: stickerCount > 0 && !hidden
                 width: visible ? 36 : 0
                 height: 36
                 hoverEnabled: true
                 focusPolicy: Qt.TabFocus
                 Accessible.role: Accessible.Button
-                // Remote text: a plain accessible label and tooltip.
                 Accessible.name: packTile.displayName
                 ToolTip.text: packTile.displayName
                 ToolTip.visible: hovered
@@ -281,8 +235,6 @@ AnchoredPopup {
                 readonly property bool current:
                     packTile.packId === picker.stickers.selectedPackId
 
-                // Keyboard focus ring (C41-F03): the selected-state border alone
-                // left a focused, unselected tile invisible.
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: -2
@@ -310,8 +262,6 @@ AnchoredPopup {
                         circle: false
                         squareRadius: AppTheme.radiusSm
                         mxc: packTile.avatarUrl
-                        // A pack without an avatar shows initials from its
-                        // name.
                         name: packTile.displayName
                         colorKey: packTile.packId
                     }
@@ -320,10 +270,6 @@ AnchoredPopup {
             }
         }
 
-        // "Use everywhere" for the selected room pack: writes
-        // im.ponies.emote_rooms (account data, no power level). Not offered for
-        // the account's own pack. Not optimistic: AppSwitch never sets its own
-        // `checked`, so this follows the snapshot re-read after the write.
         RowLayout {
             id: useEverywhereRow
             Layout.fillWidth: true
@@ -366,7 +312,6 @@ AnchoredPopup {
             }
         }
 
-        // The grid
         GridView {
             id: grid
             objectName: "stickerGrid"
@@ -388,16 +333,12 @@ AnchoredPopup {
                 if (activeFocus && currentIndex < 0 && count > 0)
                     currentIndex = 0
             }
-            // The highlighted row is an int that Qt does not remap; every pack
-            // change is a reset, so drop it.
             Connections {
                 target: picker.stickers.images
                 function onModelReset() { grid.currentIndex = -1 }
             }
             Keys.onReturnPressed: if (grid.currentIndex >= 0)
                                       picker.choose(grid.currentIndex)
-            // Space sends, and Home/End/Page move the current tile, as in a
-            // file view (C41-F04). Four columns; a page is the visible rows.
             Keys.onSpacePressed: if (grid.currentIndex >= 0)
                                      picker.choose(grid.currentIndex)
             Keys.onPressed: (event) => {
@@ -460,10 +401,7 @@ AnchoredPopup {
                         app.mediaBridge.mxcAnimatedSource(tile.url)
                 }
                 Component.onCompleted: refreshAnimatedSource()
-                // Turning autoplay back on starts the fetch that gifMode === 2
-                // refused.
                 onGifModeChanged: refreshAnimatedSource()
-                // The exact row this tile shows, captured at activation.
                 function snapshot() {
                     return picker.stickers.images.get(tile.index)
                 }
@@ -483,19 +421,11 @@ AnchoredPopup {
                     anchors.margins: 6
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
-                    // The bridge retains compressed bytes. Do not retain a
-                    // second decoded pixmap for every tile visited by scrolling.
                     cache: false
                     sourceSize.width: Math.max(1, Math.ceil(width))
                     sourceSize.height: Math.max(1, Math.ceil(height))
-                    // The still frame is the default and fallback until the
-                    // animation reports Ready.
                     visible: !tileAnim.animating
-                    // Re-resolve through a counter the binding reads; assigning
-                    // `source` would destroy the binding.
                     property int resolveTick: 0
-                    // Must match the edge in the source binding: the bridge key
-                    // is "mxcimg:<edge>:<mxc>".
                     readonly property int stillEdge: 160
                     readonly property string stillCacheKey:
                         "mxcimg:" + stillEdge + ":" + tile.url
@@ -509,8 +439,6 @@ AnchoredPopup {
                         target: app.mediaBridge
                         enabled: tile.url.length > 0
                         function onMediaCached(cacheKey) {
-                            // The exact still key; a suffix match would also
-                            // fire on the animation's bytes.
                             if (cacheKey === tileImage.stillCacheKey)
                                 tileImage.resolveTick++
                         }
@@ -522,8 +450,6 @@ AnchoredPopup {
                     anchors.fill: parent
                     anchors.margins: 6
                     fillMode: Image.PreserveAspectFit
-                    // Loaded whenever animated bytes exist and animation is not
-                    // off, so on-hover playback starts immediately.
                     source: tile.gifMode !== 2 ? tile.animatedSource : ""
                     readonly property bool animating:
                         status === AnimatedImage.Ready
@@ -535,25 +461,19 @@ AnchoredPopup {
                     cache: false
                     sourceSize.width: Math.max(1, Math.ceil(width))
                     sourceSize.height: Math.max(1, Math.ceil(height))
-                    // Keeps the bridge from evicting the file mid-play.
                     AnimationFileHold {}
                 }
                 Connections {
                     target: app.mediaBridge
                     enabled: tile.url.length > 0
                     function onAnimatedMediaReady(cacheKey) {
-                        // MediaBridge validated these bytes as an animation;
-                        // only now does the AnimatedImage get a source.
                         if (cacheKey === tile.animatedCacheKey)
                             tile.refreshAnimatedSource()
                     }
                 }
-                // A sticker that will not load says so.
                 Loader {
                     anchors.centerIn: parent
                     width: parent.width - 8
-                    // Never over a playing animation: the thumbnail and
-                    // animation are separate fetches.
                     active: tileImage.status === Image.Error
                             && !tileAnim.animating
                     sourceComponent: Label {
@@ -567,7 +487,6 @@ AnchoredPopup {
                 }
 
                 HoverHandler { id: tileHover }
-                // Remote text: a plain tooltip.
                 ToolTip.text: tile.body.length > 0 ? tile.body : tile.shortcode
                 ToolTip.visible: tileHover.hovered
                 ToolTip.delay: 400
@@ -585,8 +504,6 @@ AnchoredPopup {
             }
         }
 
-        // Empty states: not read yet, no backend support, no packs, and a pack
-        // with no stickers each get their own message.
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -648,7 +565,6 @@ AnchoredPopup {
         }
     }
 
-    // Footer: where the selected pack came from, and the send hint
     RowLayout {
         id: footerRow
         anchors.bottom: parent.bottom
@@ -666,8 +582,6 @@ AnchoredPopup {
             font.family: AppTheme.uiFont
             font.pixelSize: AppTheme.textMicro
             elide: Text.ElideRight
-            // Attribution when declared, otherwise the pack's name and where it
-            // lives. Both plain text.
             text: {
                 var pack = picker.selectedPack
                 if (!pack)

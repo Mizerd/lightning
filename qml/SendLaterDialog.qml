@@ -3,11 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// "Send later": presets in local time, a custom date/time, and the room's
-// pending scheduled messages (edit, reschedule, cancel, send now). The mode
-// line is honest: a message the server holds (MSC4140) goes out regardless; one
-// Lightning holds needs Lightning running and connected, and in an encrypted
-// room it is not written to disk.
 Dialog {
     id: root
     objectName: "sendLaterDialog"
@@ -22,10 +17,8 @@ Dialog {
     padding: AppTheme.spacing16
 
     readonly property var scheduler: app.scheduledSends
-    // The composed message to schedule; empty map = pending-only.
     property var message: ({})
     property string choice: "30m"
-    // Editing an existing entry's text.
     property string editingId: ""
 
     function openFor(snapshot) {
@@ -45,8 +38,6 @@ Dialog {
                                        && message.body.length > 0
     readonly property string roomId: hasMessage ? message.roomId : app.currentRoomId
 
-    // Schedules the composed message for the chosen time. Shared by the
-    // Schedule button and Return in the date/time fields.
     function submit() {
         if (!root.hasMessage || root.customInvalid)
             return
@@ -60,10 +51,6 @@ Dialog {
         }
     }
 
-    // Commits an edited body. The editor is closed BEFORE the controller is
-    // told: updateText emits pendingChanged, which rebuilds `roomPending` and
-    // destroys the delegate this runs from, so anything after the call (the
-    // `root` id included) no longer resolves there and the editor stayed open.
     function commitEdit(entryId, text) {
         var body = text.trim()
         root.editingId = ""
@@ -97,7 +84,6 @@ Dialog {
         return -1
     }
     readonly property bool customInvalid: root.choice === "custom" && root.sendAtMs() < 0
-    // serverScheduling carries the dependency; the invokable alone does not.
     readonly property bool serverMode: {
         if (!scheduler || !hasMessage)
             return false
@@ -106,10 +92,6 @@ Dialog {
                                         message.threadRootId || "",
                                         message.replyToEventId || "")
     }
-    // Re-read on every open, not bound: roomIsEncrypted is a Q_INVOKABLE and
-    // this dialog is reused for the room's lifetime, so enabling encryption
-    // would leave a stale false and promise durability that an encrypted room's
-    // in-memory schedule does not have.
     property bool encryptedRoom: false
     function refreshEncryptedRoom() {
         encryptedRoom = !!scheduler && root.roomId !== ""
@@ -117,7 +99,6 @@ Dialog {
     }
     onOpened: refreshEncryptedRoom()
     onRoomIdChanged: refreshEncryptedRoom()
-    // From the notifying `pending` property, so the list refreshes on change.
     readonly property var roomPending: {
         if (!scheduler)
             return []
@@ -149,7 +130,6 @@ Dialog {
             font.weight: AppTheme.weightBold
         }
 
-        // ---- scheduling a new message
         ColumnLayout {
             Layout.fillWidth: true
             visible: root.hasMessage
@@ -215,8 +195,6 @@ Dialog {
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta
             }
-            // The honest line: never promise delivery while the computer is off
-            // unless the server holds it.
             Label {
                 objectName: "sendLaterModeLine"
                 Layout.fillWidth: true
@@ -247,7 +225,6 @@ Dialog {
             }
         }
 
-        // ---- pending list for this room
         Label {
             visible: pendingRepeater.count > 0
             text: qsTr("Pending in this room")

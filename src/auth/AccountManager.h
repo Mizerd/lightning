@@ -7,9 +7,6 @@
 
 class SettingsManager;
 
-// QML-facing view of the multi-account registry. Records live in
-// SettingsManager under accounts/<slug>/, tokens in the SecretStore. This class
-// handles metadata only; AppController owns the account-switch lifecycle.
 class AccountManager : public QObject
 {
     Q_OBJECT
@@ -17,8 +14,6 @@ class AccountManager : public QObject
     Q_PROPERTY(QString activeUserId READ activeUserId NOTIFY activeUserIdChanged)
     Q_PROPERTY(QStringList knownUserIds READ knownUserIds NOTIFY accountsChanged)
     Q_PROPERTY(bool hasActiveAccount READ hasActiveAccount NOTIFY activeUserIdChanged)
-    // List of maps: {userId, homeserver, displayName, avatarUrl, isActive,
-    // needsSignIn, sessionRevoked}.
     Q_PROPERTY(QVariantList accounts READ accounts NOTIFY accountsChanged)
 
 public:
@@ -31,8 +26,6 @@ public:
 
     Q_INVOKABLE bool hasAccount(const QString &userId) const;
     Q_INVOKABLE QVariantMap account(const QString &userId) const;
-    // True when nothing could restore this account locally (no record or no
-    // token). False when the secret backend cannot be read at all.
     Q_INVOKABLE bool needsSignIn(const QString &userId) const;
 
     void setActiveUser(const QString &userId);
@@ -43,27 +36,19 @@ public:
     void markSessionRevoked(const QString &userId);
     void clearSessionRevoked(const QString &userId);
     bool sessionRevoked(const QString &userId) const;
-    // Cache the account's own profile for the switcher UI.
     void updateProfile(const QString &userId,
                        const QString &displayName,
                        const QString &avatarUrl);
-    // Metadata + secrets removal only; AppController wraps this with the
-    // client/store lifecycle for a full account removal.
     bool removeAccount(const QString &userId);
 
 Q_SIGNALS:
     void activeUserIdChanged();
     void accountsChanged();
-    // markSessionRevoked()/clearSessionRevoked() changed this account's flag.
-    // Emitted right after accountsChanged(), so a view that keys on one row
-    // (the Labs switcher) need not rebuild every row.
     void sessionRevokedChanged(const QString &userId);
 
 private:
-    // True when the SecretStore backend itself cannot answer (no store
-    // injected, keyring locked, session bus unavailable).
     bool secretBackendUnavailable() const;
 
-    SettingsManager *m_settings = nullptr; // not owned; outlives this object
+    SettingsManager *m_settings = nullptr;
     QStringList m_revokedSessions;
 };

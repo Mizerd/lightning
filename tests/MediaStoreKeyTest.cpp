@@ -1,14 +1,3 @@
-// The encrypted media store's key (src/matrix/MediaStoreKey.h): when one is
-// made, when one must NOT be made, and that it goes with the account.
-//
-// CLAUDE.md §6: an unreadable keyring is transient and never evidence that a
-// secret is gone. A key made while the old one merely could not be read would
-// orphan the encrypted store for good, so every "cannot tell" state here must
-// end in no key (an in-memory media store for the session) and no write.
-//
-// Against a fake SecretStore with the same contract as the real ones: a miss
-// with lastReadFailed() false is a real answer, true is "could not ask";
-// missesAreInconclusive() marks a fallback standing in for a native store.
 
 #include "app/SettingsManager.h"
 #include "matrix/MediaStoreKey.h"
@@ -30,7 +19,6 @@ const QString kUser = QStringLiteral("@rokas:media.example");
 const QString kOther = QStringLiteral("@other:media.example");
 const QString kHs = QStringLiteral("https://media.example");
 
-// No Q_OBJECT: it adds no meta-object of its own (as InMemorySecretStore).
 class FakeStore final : public SecretStore
 {
 public:
@@ -50,7 +38,6 @@ public:
     }
     QString readSecret(const QString &userId, const QString &key) const override
     {
-        // A dismissed unlock prompt: nothing, and no error either.
         if (silentWhileLocked && locked) {
             m_lastReadFailed = false;
             return {};
@@ -111,14 +98,13 @@ private:
 
 const QString kName = QLatin1String(msk::kSecretName);
 
-// A signed-in account as SettingsManager leaves it: a token in the store.
 void seedToken(FakeStore &store, const QString &userId)
 {
     store.put(userId, QLatin1String(msk::kAccessTokenName),
               QStringLiteral("syt_token_") + userId);
 }
 
-} // namespace
+}
 
 class MediaStoreKeyTest : public QObject
 {
@@ -171,11 +157,8 @@ void MediaStoreKeyTest::anAbsentKeyIsCreatedOnceAndThenReused()
     const msk::Resolution first = msk::resolve(&store, kUser);
     QVERIFY(first.created);
     QCOMPARE(first.key.size(), msk::kKeyBytes);
-    // Stored as it is read back: 64 lowercase hex characters.
     QCOMPARE(store.get(kUser, kName), QString::fromLatin1(first.key.toHex()));
 
-    // The next start reuses it. A resolve that always made a key would
-    // replace it here and orphan the store it encrypted.
     const int writesBefore = store.writes;
     const msk::Resolution second = msk::resolve(&store, kUser);
     QVERIFY(!second.created);
@@ -183,7 +166,6 @@ void MediaStoreKeyTest::anAbsentKeyIsCreatedOnceAndThenReused()
     QCOMPARE(second.key, first.key);
     QCOMPARE(store.writes, writesBefore);
 
-    // Two keys are not the same key.
     FakeStore otherStore;
     seedToken(otherStore, kUser);
     QVERIFY(msk::resolve(&otherStore, kUser).key != first.key);
@@ -206,9 +188,6 @@ void MediaStoreKeyTest::aLockedKeyringNeverGetsANewKey()
     QCOMPARE(store.get(kUser, kName), existing);
 }
 
-// The case the second witness exists for: a lookup in a locked collection
-// that comes back empty WITHOUT an error. The media key reads as absent; the
-// account's own token reads as absent too, which a saved account cannot be.
 void MediaStoreKeyTest::aKeyringThatAnswersNothingWhileLockedGetsNoKeyEither()
 {
     FakeStore store;
@@ -226,9 +205,6 @@ void MediaStoreKeyTest::aKeyringThatAnswersNothingWhileLockedGetsNoKeyEither()
     QCOMPARE(store.get(kUser, kName), existing);
 }
 
-// FakeStore is secure by default. The insecure fallback standing in for a
-// keyring is aDesktopWithNoKeyringKeepsAKeyForUnencryptedRoomsOnly and
-// aFallbackHoldingNothingForTheAccountMakesNoKey, against the real store.
 void MediaStoreKeyTest::aSecureStoreWhoseMissesAreInconclusiveGetsNoKey()
 {
     FakeStore store;
@@ -251,9 +227,6 @@ void MediaStoreKeyTest::anUnavailableBackendGetsNoKey()
     QCOMPARE(store.writes, 0);
 }
 
-// The keyring-outage contract: while SettingsManager says the backend is
-// unavailable or its misses are inconclusive, the caller passes
-// mayCreate=false. A key already there is still used; none is made.
 void MediaStoreKeyTest::whileTheBackendCannotTellAnExistingKeyIsUsedButNoneIsMade()
 {
     FakeStore store;
@@ -270,11 +243,6 @@ void MediaStoreKeyTest::whileTheBackendCannotTellAnExistingKeyIsUsedButNoneIsMad
     QCOMPARE(reused.key, made.key);
 }
 
-// A key written to the QSettings fallback (macOS, or a build without a native
-// store) must not stop that account's secrets migrating when a secure store
-// appears: migrateInsecureSecretsGroup keeps a whole group in plaintext when
-// it holds a key it does not know. The key moves unchanged, so the encrypted
-// media store it opens still opens.
 void MediaStoreKeyTest::aFallbackGroupHoldingAMediaKeyStillMigratesWhole()
 {
     const QString slug = matrix::app_data::safeUserSlug(kUser);
@@ -290,7 +258,6 @@ void MediaStoreKeyTest::aFallbackGroupHoldingAMediaKeyStillMigratesWhole()
         seed.setValue(base + QStringLiteral("addedAt"),
                       QStringLiteral("2026-09-01T00:00:00"));
         seed.setValue(QStringLiteral("accounts/active"), kUser);
-        // As InsecureFallbackSecretStore writes them.
         seed.setValue(group + QLatin1String(msk::kAccessTokenName),
                       QStringLiteral("syt_plaintext"));
         seed.setValue(group + kName, mediaKey);
@@ -299,7 +266,7 @@ void MediaStoreKeyTest::aFallbackGroupHoldingAMediaKeyStillMigratesWhole()
 
     FakeStore secure;
     SettingsManager settings;
-    settings.setSecretStore(&secure); // runs the plaintext migration
+    settings.setSecretStore(&secure);
 
     QCOMPARE(secure.get(kUser, QLatin1String(msk::kAccessTokenName)),
              QStringLiteral("syt_plaintext"));
@@ -336,7 +303,6 @@ void MediaStoreKeyTest::aKeyThatWasNotStoredIsNotUsed()
     seedToken(store, kUser);
     store.failWrites = true;
     const msk::Resolution r = msk::resolve(&store, kUser);
-    // Encrypting with a key nobody kept would make a store nothing can open.
     QVERIFY(r.key.isEmpty());
     QVERIFY(!r.created);
     QCOMPARE(store.writes, 1);
@@ -347,7 +313,6 @@ void MediaStoreKeyTest::noAccountMeansNoKeyAndNoWrite()
     FakeStore store;
     QVERIFY(msk::resolve(&store, QString()).key.isEmpty());
     QVERIFY(msk::resolve(nullptr, kUser).key.isEmpty());
-    // A saved account with no token in this store: not answering for it.
     QVERIFY(msk::resolve(&store, kUser).key.isEmpty());
     QCOMPARE(store.writes, 0);
 }
@@ -369,15 +334,10 @@ void MediaStoreKeyTest::theKeyNeverReachesALogLine()
     const QString hex = QString::fromLatin1(created.key.toHex());
     for (const QString &line : std::as_const(captured))
         QVERIFY2(!line.contains(hex.left(16)), "the key was logged");
-    // What the client logs is the state's name and nothing else.
     QCOMPARE(QString::fromLatin1(msk::describe(created)), QStringLiteral("created"));
     QCOMPARE(QString::fromLatin1(msk::describe(again)), QStringLiteral("present"));
 }
 
-// The key lives in the account's secret scope, so the sign-out that deletes
-// the tokens (clearSessionForAccount -> clearAccountSecrets) deletes it too.
-// A key kept under any other scope, the store's slug for instance, would
-// outlive the account.
 void MediaStoreKeyTest::signingOutDeletesTheMediaKeyWithTheTokens()
 {
     FakeStore store;
@@ -392,7 +352,6 @@ void MediaStoreKeyTest::signingOutDeletesTheMediaKeyWithTheTokens()
     QVERIFY(settings.clearSessionForAccount(kUser));
     QVERIFY2(store.get(kUser, kName).isEmpty(),
              "the media key outlived the account's sign-out");
-    // And the next sign-in of the same account starts from a new key.
     settings.saveSession(kHs, kUser, QStringLiteral("DEVICE2"),
                          QStringLiteral("syt_access2"));
     const msk::Resolution next = msk::resolve(&store, kUser);
@@ -421,20 +380,15 @@ void MediaStoreKeyTest::removingOneAccountLeavesTheOthersKey()
     QCOMPARE(kept.key, theirs);
 }
 
-// The policy RustSdkMatrixClient::applyMediaStoreKey applies, on its own.
 void MediaStoreKeyTest::theCreationPolicyNeverOverridesABackendThatCannotAnswer()
 {
     for (const bool inconclusive : { false, true }) {
         for (const bool secure : { false, true })
-            QVERIFY(!msk::mayCreate(/*backendUnavailable=*/true, inconclusive, secure));
+            QVERIFY(!msk::mayCreate(true, inconclusive, secure));
     }
-    // A store that vouches for its misses: native keyrings, macOS's fallback,
-    // a portable folder.
     QVERIFY(msk::mayCreate(false, false, true));
     QVERIFY(msk::mayCreate(false, false, false));
-    // The plaintext fallback standing in for a keyring that did not answer.
     QVERIFY(msk::mayCreate(false, true, false));
-    // A secure store that could not vouch for a miss: never.
     QVERIFY(!msk::mayCreate(false, true, true));
 
     msk::Resolution withKey;
@@ -444,21 +398,13 @@ void MediaStoreKeyTest::theCreationPolicyNeverOverridesABackendThatCannotAnswer(
     QVERIFY(!msk::admitsEncryptedRooms(msk::Resolution{}, true));
 }
 
-// 2026-10-01, Fedora 44 + COSMIC from the COPR: no Secret Service at all, so
-// the plaintext fallback stands in (substituted), and 0.10.0 made no media
-// key there: every start was `state=unreadable`, the media store was in
-// memory, and NOTHING was kept, not even unencrypted-room media that every
-// earlier release kept. With the REAL fallback store: the account signed in
-// while no keyring answered, so its token is there; its key is made there,
-// read back at the next start, and admits no encrypted-room media.
 void MediaStoreKeyTest::aDesktopWithNoKeyringKeepsAKeyForUnencryptedRoomsOnly()
 {
-    InsecureFallbackSecretStore store(nullptr, /*substitutedForNative=*/true);
+    InsecureFallbackSecretStore store(nullptr,true);
     QVERIFY(store.missesAreInconclusive());
     QVERIFY(!store.isSecure());
     QVERIFY(store.storeSecret(kUser, QLatin1String(msk::kAccessTokenName),
                               QStringLiteral("syt_no_keyring")));
-    // What SettingsManager reports for it after reading the token back.
     QCOMPARE(store.readSecret(kUser, QLatin1String(msk::kAccessTokenName)),
              QStringLiteral("syt_no_keyring"));
     const bool unavailable = !store.isAvailable() || store.lastReadFailed();
@@ -471,7 +417,6 @@ void MediaStoreKeyTest::aDesktopWithNoKeyringKeepsAKeyForUnencryptedRoomsOnly()
     QCOMPARE(first.key.size(), msk::kKeyBytes);
     QVERIFY(!msk::admitsEncryptedRooms(first, store.isSecure()));
 
-    // The next start: the same store object kind, the same file.
     InsecureFallbackSecretStore again(nullptr, true);
     const msk::Resolution second = msk::resolve(&again, kUser, mayCreate);
     QCOMPARE(second.found, msk::Found::Present);
@@ -479,14 +424,9 @@ void MediaStoreKeyTest::aDesktopWithNoKeyringKeepsAKeyForUnencryptedRoomsOnly()
     QVERIFY(!msk::admitsEncryptedRooms(second, again.isSecure()));
 }
 
-// The other half, §6: a keyring that is merely LOCKED at this start also
-// gets the substituted fallback, but the account's secrets are in the
-// keyring and the fallback holds nothing for it. Its miss is not evidence,
-// and nothing is written: the keyring's key opens the store again later.
 void MediaStoreKeyTest::aFallbackHoldingNothingForTheAccountMakesNoKey()
 {
-    InsecureFallbackSecretStore store(nullptr, /*substitutedForNative=*/true);
-    // Another account signed in here does not vouch for this one.
+    InsecureFallbackSecretStore store(nullptr,true);
     QVERIFY(store.storeSecret(kOther, QLatin1String(msk::kAccessTokenName),
                               QStringLiteral("syt_other")));
     const msk::Resolution r = msk::resolve(

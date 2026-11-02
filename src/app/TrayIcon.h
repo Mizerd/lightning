@@ -12,9 +12,6 @@ class QImage;
 class QMenu;
 class QSystemTrayIcon;
 
-// The system-tray icon. It exists only while the user has enabled it, and it
-// owns no close-to-tray policy (Main.qml decides that). Availability is asked
-// of the platform: a Linux desktop without a StatusNotifier host has no tray.
 class TrayIcon : public QObject
 {
     Q_OBJECT
@@ -23,55 +20,23 @@ public:
     explicit TrayIcon(QObject *parent = nullptr);
     ~TrayIcon() override;
 
-    // Whether this platform/session actually offers a tray right now.
     static bool platformSupportsTray();
 
-    // Creates or destroys the icon. Idempotent.
     void setEnabled(bool enabled);
     bool enabled() const { return m_icon != nullptr; }
 
-    // Unread state for the tooltip and badge. The icon is repainted only when
-    // the displayed badge changes. `anyUnread` covers unread rooms with no
-    // count (server-reported or marked unread by hand), shown as a dot.
     void setUnread(int count, bool anyUnread);
-    // Identifies the account in the tooltip when several are running.
     void setAccountLabel(const QString &label);
 
-    // The badge text: empty for none, "\u2022" for the countless dot,
-    // otherwise "1".."9" or "9+". Static so it is testable without a tray.
     static QString badgeLabel(int count, bool anyUnread);
 
-    // The colour badge painted on `base` (a red disc in the bottom-right
-    // corner, with the label). Geometry is in the pixmap's device-independent
-    // units, so it stays inside the pixmap at any devicePixelRatio. Static so
-    // it is testable without a tray.
     static QPixmap badged(const QPixmap &base, const QString &label);
 
-    // Badges a macOS menu-bar TEMPLATE image. AppKit reads only the alpha
-    // channel and recolours it per appearance, so the badge is a cleared moat,
-    // an opaque disc and a knocked-out digit. Qt's cocoa backend maps
-    // QIcon::setIsMask(true) to [NSImage setTemplate:]. Compiled everywhere so
-    // it is testable without a Mac; only the call site is macOS-only.
     static QPixmap macTemplateBadged(const QPixmap &base, const QString &label);
 
-    // A notification through the icon's balloon, Qt's only delivery without a
-    // freedesktop daemon (Windows, macOS). Returns false when the icon is not
-    // visible. `image` is the sender's avatar, or null for the app icon.
-    // `platformSound`: the platform may add its own notification sound (the
-    // sound plan's platformSound: the user chose System default, or our own
-    // sound cannot play). False means it must stay silent, because Lightning
-    // plays its own chime or none.
-    //
-    // QSystemTrayIcon::showMessage cannot honour false on Windows: Qt's
-    // balloon never sets NIIF_NOSOUND, so Windows played its "Notify System
-    // Generic" on every balloon, on top of our chime and with notification
-    // sound Off. There the balloon is raised on Qt's own icon (same window
-    // and id, so a click still reaches messageClicked()) with the flags
-    // balloonInfoFlags() composes, and Qt's call is only the fallback.
     bool showMessage(const QString &title, const QString &body,
                      const QImage &image, bool platformSound);
 
-    // The timeout handed to QSystemTrayIcon::showMessage: 0 on macOS.
     static int balloonTimeoutMs(bool isMac);
 
     // Takes the balloon showMessage() raised off the screen where the
@@ -83,39 +48,18 @@ public:
     // it cannot, an old balloon stays clickable (macOS Notification Center),
     // so NotificationManager cannot assume a click is the latest balloon.
     static bool canWithdrawBalloon();
-    // How long one balloon holds the screen before NotificationManager lets
-    // another replace it: Windows' notification duration
-    // (SPI_GETMESSAGEDURATION, Settings' "Show notifications for") plus a
-    // margin, so a balloon has gone before the next is raised. Elsewhere the
-    // default duration.
     static int balloonHoldMs();
-    // The hold for a notification duration in whole seconds; 0 or less is
-    // "unknown" (Windows' default, 5 s). Pure, so it is testable anywhere.
     static int balloonHoldMsFor(int durationSeconds);
 
-    // The Win32 NIIF_* values (shellapi.h) a balloon is composed from,
-    // mirrored here so the composition is testable off Windows. TrayIcon.cpp
-    // static_asserts them against the SDK on Windows.
-    static constexpr unsigned kBalloonInfo = 0x01;      // NIIF_INFO
-    static constexpr unsigned kBalloonUser = 0x04;      // NIIF_USER
-    static constexpr unsigned kBalloonNoSound = 0x10;   // NIIF_NOSOUND
-    static constexpr unsigned kBalloonLargeIcon = 0x20; // NIIF_LARGE_ICON
-    // dwInfoFlags for a Windows balloon. The icon bits are exactly Qt
-    // 6.11.2's (NIIF_INFO without an image, NIIF_USER | NIIF_LARGE_ICON with
-    // one); NIIF_NOSOUND is added unless the platform sound was asked for.
+    static constexpr unsigned kBalloonInfo = 0x01;
+    static constexpr unsigned kBalloonUser = 0x04;
+    static constexpr unsigned kBalloonNoSound = 0x10;
+    static constexpr unsigned kBalloonLargeIcon = 0x20;
     static unsigned balloonInfoFlags(bool hasImage, bool platformSound);
-    // The balloon's image: the avatar scaled down (never up) to fit 256x256,
-    // keeping its aspect, as Qt's icon.actualSize(QSize(256, 256)) did.
     static QImage balloonImage(const QImage &avatar);
 
-    // The icon's right-click menu: "Show Lightning" and "Quit Lightning".
-    // Built on first use, so it is testable without a tray.
     QMenu *contextMenu();
-    // Whether an activation raises the window. Not the Context reason: that is
-    // the right click which opens the menu (Windows reports both).
     static bool activationShowsWindow(int reason);
-    // Whether this activation should have US pop the menu up (the platform
-    // menu is not attached; see closebehavior::trayUsesNativeMenu).
     static bool activationOpensOwnMenu(int reason, bool nativeMenu);
     // The reason the activated handler acts on. On macOS a Control-click is
     // the standard secondary click, but Qt's cocoa backend reports it as
@@ -124,19 +68,13 @@ public:
     static int effectiveActivationReason(int reason, bool isMac,
                                          bool controlHeld);
 
-    // Re-sets the menu's action texts and the tooltip in the current
-    // language. Also run on QEvent::LanguageChange, which the application
-    // receives when a translator is installed or removed.
     void retranslate();
-    // The tooltip text. Static so it is testable without a tray.
     static QString tooltipText(const QString &account, int unread,
                                bool anyUnread);
 
 Q_SIGNALS:
     void showRequested();
-    // "Quit Lightning" in the menu: quit for real, past close-to-tray.
     void quitRequested();
-    // The balloon shown by showMessage() was clicked.
     void messageClicked();
 
 protected:
@@ -147,15 +85,10 @@ private:
     void refreshIcon();
     void popUpMenu();
 #ifdef Q_OS_WIN
-    // The balloon raised natively; false when Qt's call must carry it.
     bool showNativeBalloon(const QString &title, const QString &body,
                            const QImage &image, bool platformSound);
     void releaseBalloonIcon();
-    // NIM_MODIFY with an empty balloon text: removes the balloon on screen.
     void hideNativeBalloon();
-    // HICON of the last native balloon, kept until the next one replaces it
-    // (Qt keeps its own the same way). void* so this header needs no
-    // windows.h.
     void *m_balloonIcon = nullptr;
 #endif
 

@@ -1,13 +1,3 @@
-// Widgets: the list, the consent data, and the one path out to the desktop.
-//
-// Lightning lists widgets and opens them in the user's browser rather than
-// embedding them (docs/widgets.md), so no QML path may hand the desktop a URL
-// that did not come from this model's own validated list.
-//
-// The URL rules (https only, no userinfo, no templated authority,
-// percent-encoded substitution) are tested in Rust. Tested here: op-id and
-// room matching, that a refused widget still appears with its reason, and
-// that opening is by row so an address can never be named from QML.
 
 #include "matrix/MockMatrixClient.h"
 #include "models/WidgetController.h"
@@ -42,7 +32,7 @@ bool login(MockMatrixClient &client)
                  QStringLiteral("alice"), QStringLiteral("x"));
     return spy.wait(kSignalTimeoutMs);
 }
-} // namespace
+}
 
 class WidgetControllerTest : public QObject
 {
@@ -74,10 +64,6 @@ private Q_SLOTS:
                      .toStringList().size(), 2);
     }
 
-    // ── A refused widget still appears ───────────────────────────────────
-    //
-    // Dropping it would make "Lightning will not open this" look the same as
-    // "this room has no widgets".
     void aRefusedWidgetIsShownWithItsReasonRatherThanDropped()
     {
         MockMatrixClient client;
@@ -96,11 +82,9 @@ private Q_SLOTS:
         QCOMPARE(model.data(idx, WidgetController::OpenableRole).toBool(), false);
         QCOMPARE(model.data(idx, WidgetController::RefusalRole).toString(),
                  QStringLiteral("not_https"));
-        // And it is refused at the door too, not merely drawn greyed out.
         QCOMPARE(model.openWidget(0), false);
     }
 
-    // ── The one path out to the desktop ──────────────────────────────────
     void openingIsByRowSoAnAddressCanNeverBeNamedFromQml()
     {
         MockMatrixClient client;
@@ -114,17 +98,12 @@ private Q_SLOTS:
         model.refresh();
         QVERIFY(QTest::qWaitFor([&] { return model.rowCount({}) == 1; },
                                 kSignalTimeoutMs));
-        // Out of range is refused rather than clamped: a clamp would turn a
-        // wrong index into opening SOME widget, which is worse than nothing.
         QCOMPARE(model.openWidget(-1), false);
         QCOMPARE(model.openWidget(5), false);
-        // Row 0 is openable; whether the desktop actually launches a browser
-        // is the environment's business and is deliberately not asserted here.
         QVERIFY(model.rowAt(0).value(QStringLiteral("url")).toString()
                     .startsWith(QStringLiteral("https://")));
     }
 
-    // ── Answers must not cross rooms or accounts ─────────────────────────
     void anAnswerForAnotherRoomNeverRepaintsThisOne()
     {
         MockMatrixClient client;
@@ -136,14 +115,11 @@ private Q_SLOTS:
         model.setClient(&client);
         model.setRoomId(QStringLiteral("!first:mock.local"));
         model.refresh();
-        // The user moves on before the answer lands.
         model.setRoomId(QStringLiteral("!second:mock.local"));
         QTest::qWait(80);
         QCOMPARE(model.rowCount({}), 0);
         QCOMPARE(model.state(), QStringLiteral("idle"));
 
-        // A hand-delivered answer naming the wrong room is ignored even with a
-        // matching op id.
         Q_EMIT client.roomWidgetsReceived(999, QStringLiteral("!elsewhere:x"),
                                           true, true, client.mockWidgets);
         QTest::qWait(30);
@@ -168,7 +144,6 @@ private Q_SLOTS:
                                 kSignalTimeoutMs));
     }
 
-    // ── The notice has to say something for every key ────────────────────
     void everyDisclosureKeyRendersAsASentenceIncludingUnknownOnes()
     {
         WidgetController model;
@@ -177,16 +152,11 @@ private Q_SLOTS:
                                  "homeserver", "connection" }) {
             const QString text = model.disclosureText(QLatin1String(key));
             QVERIFY2(!text.isEmpty(), key);
-            // A SENTENCE, not the key echoed back. "theme" is allowed to
-            // appear inside "Which theme you use" — what must not happen is
-            // the key standing alone, which tells nobody anything.
             QVERIFY2(text != QLatin1String(key), key);
             QVERIFY2(text.contains(QLatin1Char(' ')),
                      qPrintable(QStringLiteral("%1 renders as a single word")
                                     .arg(QLatin1String(key))));
         }
-        // An unknown key is still disclosed, so the notice never understates
-        // what the widget will receive.
         const QString unknown = model.disclosureText(
             QStringLiteral("org.example.something_new"));
         QVERIFY(!unknown.isEmpty());
@@ -211,16 +181,10 @@ private Q_SLOTS:
         WidgetController model;
         QCOMPARE(model.supported(), false);
         model.setRoomId(QStringLiteral("!r:mock.local"));
-        model.refresh();   // must not crash with no client
+        model.refresh();
         QCOMPARE(model.rowCount({}), 0);
         QCOMPARE(model.openWidget(0), false);
     }
-
-    // ── Adding and removing ─────────────────────────────────────────────
-    //
-    // The controller writes the same state event Element writes. Pinned: the
-    // gate (the room's power level as read), the shape of what is published,
-    // removal by row, and that the address rule is UrlLauncher's.
 
     void addingIsRefusedWhenTheRoomDidNotGrantIt()
     {
@@ -240,8 +204,6 @@ private Q_SLOTS:
         model.removeWidget(0);
         QVERIFY2(client.widgetWrites.isEmpty(),
                  "a refused account must send nothing, not send and fail");
-        // And BEFORE any read has answered, the same: absence of the claim
-        // is not permission.
         WidgetController fresh;
         fresh.setClient(&client);
         fresh.setRoomId(QStringLiteral("!r:mock.local"));
@@ -281,20 +243,16 @@ private Q_SLOTS:
                  QStringLiteral("Standup"));
         QCOMPARE(content.value(QStringLiteral("creatorUserId")).toString(),
                  client.currentUserId());
-        // A Jitsi widget carries its conference in `data`, which is what
-        // Element reads rather than the URL.
         const QJsonObject data = content.value(QStringLiteral("data")).toObject();
         QCOMPARE(data.value(QStringLiteral("domain")).toString(),
                  QStringLiteral("meet.example"));
         QCOMPARE(data.value(QStringLiteral("conferenceId")).toString(),
                  QStringLiteral("daily-sync"));
 
-        // A second add while one is in flight is refused, not queued.
         model.addWidget(QStringLiteral("m.custom"), QStringLiteral("y"),
                         QStringLiteral("https://ok.example/"));
         QCOMPARE(client.widgetWrites.size(), 1);
 
-        // Success re-reads rather than applying optimistically.
         QVERIFY(done.wait(kSignalTimeoutMs));
         QCOMPARE(done.first().at(0).toBool(), true);
         QVERIFY(!model.writing());
@@ -320,18 +278,12 @@ private Q_SLOTS:
         QCOMPARE(client.widgetWrites.size(), 1);
         const auto &[room, id, json] = client.widgetWrites.first();
         QCOMPARE(id, QStringLiteral("w2"));
-        // An EMPTY object is the tombstone — Element's own removal, and what
-        // the reader already treats as "no widget".
         QCOMPARE(QJsonDocument::fromJson(json.toUtf8()).object().size(), 0);
-        // Out-of-range rows send nothing.
         model.removeWidget(7);
         model.removeWidget(-1);
         QCOMPARE(client.widgetWrites.size(), 1);
     }
 
-    // An answer arriving after a room switch must clear the op id (or
-    // `writing` stays true and Add/Remove stay disabled), and the permission
-    // claim must not survive the switch.
     void aWriteAnsweredAfterARoomSwitchDoesNotWedgeTheController()
     {
         MockMatrixClient client;
@@ -347,11 +299,9 @@ private Q_SLOTS:
         model.addWidget(QStringLiteral("m.custom"), QStringLiteral("x"),
                         QStringLiteral("https://ok.example/"));
         QVERIFY(model.writing());
-        // The user moves on before the server answers.
         model.setRoomId(QStringLiteral("!b:mock.local"));
         QVERIFY2(!model.canManage(), "room B has granted nothing yet");
         QTRY_VERIFY2(!model.writing(), "the answer for A must free the controller");
-        // And B is writable again once its own read says so.
         model.refresh();
         QVERIFY(QTest::qWaitFor([&] {
             return model.state() == QLatin1String("ready");
@@ -374,7 +324,6 @@ private Q_SLOTS:
         QVERIFY(!model.urlIsAcceptable(QStringLiteral("javascript:alert(1)")));
         QVERIFY(!model.urlIsAcceptable(QStringLiteral("https://")));
         QVERIFY(!model.urlIsAcceptable(QString()));
-        // And the write refuses the same input it advertises as bad.
         model.setRoomId(QStringLiteral("!r:mock.local"));
         model.refresh();
         QVERIFY(QTest::qWaitFor([&] {

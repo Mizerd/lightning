@@ -1,14 +1,5 @@
 #pragma once
 
-// Wording and gating for Lightning's own non-message notices (the call card,
-// the missed-call notice, invitations, verification requests, the summary for
-// mentions the sync never delivered) and the small decisions AppController
-// makes around them. Pure, so every rule is tested without a bus, a window or
-// a session (tests/NotificationNoticesTest.cpp).
-//
-// Strings are translated in the "AppController" context, where they lived
-// before, so existing translations keep applying.
-
 #include "matrix/RoomInfo.h"
 
 #include <QCoreApplication>
@@ -22,15 +13,10 @@
 
 namespace notices {
 
-/// SettingsManager's preview values: 0 sender and message, 1 sender only,
-/// 2 private. Callers resolve the level for the room first
-/// (SettingsManager::effectiveNotificationPreview, the stricter level while a
-/// room's encryption is unknown or the room is not listed yet).
 inline constexpr int kPreviewPrivate = 2;
 
 inline bool isPrivate(int preview) { return preview >= kPreviewPrivate; }
 
-/// Private withholds the room as well, and its picture would name it.
 inline bool showsRoomAvatar(int preview) { return !isPrivate(preview); }
 
 /// An invitation's picture is chosen by a stranger: it also needs the
@@ -40,8 +26,6 @@ inline bool showsInviteAvatar(int preview, bool inviteAvatarsAllowed)
 {
     return showsRoomAvatar(preview) && inviteAvatarsAllowed;
 }
-
-// ── Calls ────────────────────────────────────────────────────────────────
 
 inline QString incomingCallTitle(bool video)
 {
@@ -107,29 +91,12 @@ inline QString missedCallBody(int preview, const QString &caller,
               .arg(caller, roomName);
 }
 
-/// What an announced ring does about sound.
 struct RingPlan {
-    /// The call rings at all (the user's ring switch, not silenced).
     bool ring = false;
-    /// Lightning's own looping ringer starts.
     bool ownRinger = false;
-    /// The desktop card asks the platform for its call sound.
     bool cardSound = false;
 };
 
-/// The ring follows "Ring for incoming calls" alone: the message
-/// notification sound setting is about chat chimes and must not silence
-/// calls. `platformLoopsCallSound`: the delivery path re-posts the card with
-/// the desktop's call sound until the call ends (freedesktop notifications).
-/// Without it (the tray balloon on Windows and macOS) the desktop gives one
-/// cue at most, so Lightning's own ringer is always started there, and the
-/// card's single cue is used only while that ringer is not ready.
-///
-/// `desktopDoNotDisturb` (decided 2026-10-18): the desktop's Do Not Disturb
-/// is on (NotificationManager::desktopInhibited(); false where it cannot be
-/// read). The call is still announced, so its card and the in-app prompt can
-/// be answered, but nothing sounds, as phones and Teams/Slack do in Do Not
-/// Disturb and as Lightning's own message chime already does.
 inline RingPlan ringPlan(bool ringForCalls, bool silenced, bool ringerAvailable,
                          bool platformLoopsCallSound,
                          bool desktopDoNotDisturb = false)
@@ -148,13 +115,6 @@ inline RingPlan ringPlan(bool ringForCalls, bool silenced, bool ringerAvailable,
     return plan;
 }
 
-/// Bounds critical-urgency call announcements per sender without dropping a
-/// real redial. A room member must not be able to pump call cards with fresh
-/// call ids, but a caller who gives up and tries again a few seconds later is
-/// the most ordinary thing a call does: the first `kMaxNewCallsPerWindow`
-/// distinct calls from one sender inside `kWindowMs` are announced, a call
-/// already announced is a refresh (never counted), and only the burst beyond
-/// the cap is refused.
 class RingAnnounceLimiter
 {
 public:
@@ -197,8 +157,6 @@ private:
             else
                 ++it;
         }
-        // Still over: the window is full of distinct senders. Any entry may
-        // go; the bound is a heuristic, not a ledger.
         while (m_bySender.size() > kMaxSenders) {
             auto it = m_bySender.begin();
             if (it.key() == keep)
@@ -210,14 +168,6 @@ private:
     QHash<QString, std::deque<std::pair<qint64, QString>>> m_bySender;
 };
 
-// ── Invitations ──────────────────────────────────────────────────────────
-
-/// Push-rule levels as PushRulesController reports them: -1 the server has no
-/// such rule, 0 off, 1 notify, 2 notify with sound.
-///
-/// The account's rules are what every other client follows: master mute
-/// ("Mute all notifications") and "Invitations to you: Off" silence the
-/// invitation card too. Unknown rules keep the local behaviour.
 inline bool inviteNoticeAllowed(bool notificationsEnabled, bool rulesKnown,
                                 bool masterMute, int inviteRuleLevel)
 {
@@ -228,9 +178,6 @@ inline bool inviteNoticeAllowed(bool notificationsEnabled, bool rulesKnown,
     return true;
 }
 
-/// An invitation is a conversation starting (a new DM arrives as one), so it
-/// sounds under both "Mentions and direct messages" and "All". When the rules
-/// are known, the invite rule's own sound tweak decides, as on other clients.
 inline bool inviteSound(int soundMode, bool rulesKnown, int inviteRuleLevel)
 {
     if (soundMode <= 0)
@@ -240,7 +187,6 @@ inline bool inviteSound(int soundMode, bool rulesKnown, int inviteRuleLevel)
     return true;
 }
 
-/// `inviter`: a display name or localpart; empty when unknown.
 inline QString inviteBody(int preview, const QString &inviter,
                           const QString &roomName, bool direct)
 {
@@ -267,9 +213,6 @@ inline QString inviteBody(int preview, const QString &inviter,
         .arg(roomName);
 }
 
-// ── Verification ─────────────────────────────────────────────────────────
-
-/// Master mute silences this notice too; it is a notification like any other.
 inline bool verificationNoticeAllowed(bool notificationsEnabled, bool rulesKnown,
                                       bool masterMute)
 {
@@ -297,18 +240,10 @@ inline QString verificationBody(int preview, bool isSelf,
         .arg(otherName);
 }
 
-/// One key per flow, so the card can be withdrawn when the flow leaves
-/// "requested" (accepted, cancelled or finished, here or on another device).
 inline QString verificationNoticeKey(const QString &flowId)
 {
     return QStringLiteral("verification:") + flowId;
 }
-
-// ── A call announced without ringing us ──────────────────────────────────
-//
-// A MatrixRTC `notification` (a group call starting), or a `ring` that
-// addresses neither this user nor the room (MSC4075). CallController never
-// rings for it; Element shows a quiet notice, and so does this.
 
 inline bool callStartedNoticeAllowed(bool notificationsEnabled,
                                      bool initialSyncDone, bool roomMuted,
@@ -319,7 +254,6 @@ inline bool callStartedNoticeAllowed(bool notificationsEnabled,
         && !roomVisible && !masterMute && !senderIgnored && !ownSender;
 }
 
-/// `caller`: a display name or localpart, never a full MXID.
 inline QString callStartedBody(int preview, const QString &caller,
                                const QString &roomName)
 {
@@ -335,13 +269,10 @@ inline QString callStartedBody(int preview, const QString &caller,
         .arg(caller, roomName);
 }
 
-/// One card per room: a newer announcement replaces the older one.
 inline QString callStartedKey(const QString &roomId)
 {
     return QStringLiteral("call-started:") + roomId;
 }
-
-// ── Mentions the sync never delivered ────────────────────────────────────
 
 inline bool highlightSummaryAllowed(bool notificationsEnabled,
                                     bool initialSyncDone, bool roomMuted,
@@ -364,26 +295,17 @@ inline QString highlightSummaryBody(int preview, int count,
         .arg(roomName);
 }
 
-/// One card per room: a newer summary replaces the older one.
 inline QString highlightSummaryKey(const QString &roomId)
 {
     return QStringLiteral("highlights:") + roomId;
 }
 
-// ── Small decisions ──────────────────────────────────────────────────────
-
-/// Event ids already handed to the notification and Activity paths. Two
-/// producers can deliver one event (a thread copy and the room's sync, an
-/// SDK insert and a later append), and a sliding-sync reset re-delivers. A
-/// set wiped wholesale at its cap forgets everything at once, so a reply
-/// notified hours ago could notify again; this one forgets the oldest only.
 class RecentIds
 {
 public:
     explicit RecentIds(int capacity = 2048) : m_capacity(std::max(1, capacity))
     {}
 
-    /// False when the id was already present (nothing changes then).
     bool insert(const QString &id)
     {
         if (m_set.contains(id))
@@ -410,30 +332,18 @@ private:
     std::deque<QString> m_order;
 };
 
-/// The read-receipt coordinator's "the user can see the window": the MAIN
-/// window focused and on screen. Application activation is not enough: the
-/// picture-in-picture and full-screen call windows are top-level windows of
-/// the same application.
 inline bool mainWindowCountsAsActive(bool windowActive, bool minimized,
                                      bool hidden)
 {
     return windowActive && !minimized && !hidden;
 }
 
-/// Whether QWindow::alert() may be used for a taskbar flash on this platform.
-/// Never on Wayland: Qt's backend implements the alert state by requesting an
-/// xdg-activation token and activating the surface, so "flash the taskbar"
-/// becomes a real raise and focus steal (GitHub #49). There is no flash there.
 inline bool windowAlertAllowed(const QString &platformName)
 {
     return !platformName.startsWith(QLatin1String("wayland"),
                                     Qt::CaseInsensitive);
 }
 
-/// Whether a notification CLICK should ask the compositor for activation with
-/// alert() because no daemon token is available. On Wayland the window's own
-/// requestActivate() carries a stale input serial and is refused; alert()
-/// requests a token without one. Only ever for a deliberate click.
 inline bool clickNeedsAlertActivation(const QString &platformName,
                                       bool daemonTokenApplied)
 {
@@ -442,10 +352,6 @@ inline bool clickNeedsAlertActivation(const QString &platformName,
                                    Qt::CaseInsensitive);
 }
 
-/// "Mark as read" on a Space, with Home's filter (RoomListModel::
-/// markAllRoomsRead): never a room the user marked unread to come back to,
-/// never an invite, a Space, or a room with nothing unread (a receipt there
-/// is a request for nothing).
 inline bool roomWantsMarkRead(const RoomInfo &room)
 {
     if (room.membership != RoomInfo::Joined || room.isSpace || room.markedUnread)
@@ -454,8 +360,6 @@ inline bool roomWantsMarkRead(const RoomInfo &room)
         || room.hasUnreadMessages;
 }
 
-/// The tray tooltip names the account by display name, else its localpart;
-/// empty while signed out.
 inline QString trayAccountLabel(const QString &userId,
                                 const QString &displayName)
 {
@@ -471,8 +375,6 @@ inline QString trayAccountLabel(const QString &userId,
     return local.isEmpty() ? userId : local;
 }
 
-/// The troubleshooter's account default for one room's kind: -1 unknown,
-/// 0 all messages, 1 mentions and keywords.
 inline int accountDefaultLevel(bool rulesKnown, bool isDirect, bool dmAll,
                                bool roomsAll)
 {
@@ -481,9 +383,6 @@ inline int accountDefaultLevel(bool rulesKnown, bool isDirect, bool dmAll,
     return (isDirect ? dmAll : roomsAll) ? 0 : 1;
 }
 
-/// The Activity seed after a failed attempt: 5 s, doubling, at most 5 min;
-/// -1 once `attempt` (0-based) reaches the cap. A later Syncing edge still
-/// tries again on its own.
 inline int activitySeedRetryDelayMs(int attempt)
 {
     constexpr int kMaxAttempts = 6;
@@ -492,4 +391,4 @@ inline int activitySeedRetryDelayMs(int attempt)
     return std::min(5000 << attempt, 300000);
 }
 
-} // namespace notices
+}

@@ -1,8 +1,3 @@
-// The opt-in account-switch tracer (LIGHTNING_SWITCH_TRACE): the env rule it
-// shares with Rust, inert when off, accumulating and nesting steps, S8 and
-// S9 taken from their real boundaries, Rust fields read with -1 for a missing
-// key, the two targets kept separate, the 30 s deadline, supersession, the
-// loggedIn probe, and a line that carries account slugs and numbers only.
 
 #include "app/SwitchTrace.h"
 
@@ -47,7 +42,6 @@ QStringList probeLines()
     return out;
 }
 
-// One "key=value" field of a written line.
 QString fieldOf(const QString &line, const QString &key)
 {
     const QStringList parts = line.split(QLatin1Char(' '));
@@ -57,7 +51,7 @@ QString fieldOf(const QString &line, const QString &key)
     return QStringLiteral("<absent>");
 }
 
-} // namespace
+}
 
 class SwitchTraceTest : public QObject
 {
@@ -83,8 +77,6 @@ private Q_SLOTS:
         g_previous = nullptr;
     }
 
-    // The contract's §1 rule, which Rust's reader applies too: one variable
-    // must switch both halves of a trace on together.
     void theEnvRuleMatchesTheSharedRule()
     {
         for (const char *off : {"", "0", "false", "off", "no", "  OFF ", "No",
@@ -93,9 +85,6 @@ private Q_SLOTS:
         for (const char *on : {"1", "true", "yes", "on", "2", "anything",
                                " 1 ", "TRUE"})
             QVERIFY2(st::enabledFromEnvValue(QByteArray(on)), on);
-        // The edges where a byte-wise reading parted from Rust's: bytes that
-        // are not UTF-8 (env::var fails: off), Unicode whitespace (trimmed),
-        // and a leading BOM (kept, so the value is not "off").
         QVERIFY(!st::enabledFromEnvValue(QByteArray("1\xff")));
         QVERIFY(!st::enabledFromEnvValue(QByteArray("\xc2\xa0off\xe2\x80\x83")));
         QVERIFY(!st::enabledFromEnvValue(QByteArray("\xc2\x85no")));
@@ -129,8 +118,6 @@ private Q_SLOTS:
         st::begin(QStringLiteral("@a:example.org"),
                   QStringLiteral("@b:example.org"));
         QVERIFY(st::active());
-        // S6 runs twice per switch (switch, then onLoginSucceeded): the
-        // durations add and the runs are counted.
         st::stepBegin(st::Step::S6);
         g_now += 10;
         st::stepEnd(st::Step::S6);
@@ -138,7 +125,6 @@ private Q_SLOTS:
         st::stepBegin(st::Step::S6);
         g_now += 5;
         st::stepEnd(st::Step::S6);
-        // Nested begin/end of one step: only the outermost pair counts.
         st::stepBegin(st::Step::S3);
         g_now += 7;
         st::stepBegin(st::Step::S3);
@@ -146,9 +132,7 @@ private Q_SLOTS:
         st::stepEnd(st::Step::S3);
         g_now += 2;
         st::stepEnd(st::Step::S3);
-        // An end with no begin changes nothing.
         st::stepEnd(st::Step::S4);
-        // RAII.
         {
             st::StepScope scope(st::Step::S1);
             g_now += 4;
@@ -159,7 +143,6 @@ private Q_SLOTS:
         QCOMPARE(r.step(st::Step::S3), qint64(12));
         QCOMPARE(r.step(st::Step::S4), qint64(-1));
         QCOMPARE(r.step(st::Step::S1), qint64(4));
-        // S5 is folded into S4 in Phase 0 and never measured.
         QCOMPARE(r.step(st::Step::S5), qint64(-1));
     }
 
@@ -170,7 +153,7 @@ private Q_SLOTS:
             st::StepScope s7(st::Step::S7);
             g_now += 20;
         }
-        g_now += 250; // restore thread + poll
+        g_now += 250;
         const QJsonObject rust{
             {QStringLiteral("v"), 1},
             {QStringLiteral("discovery_ms"), 120},
@@ -181,10 +164,8 @@ private Q_SLOTS:
             {QStringLiteral("resume_unsent_ms"), 2},
             {QStringLiteral("restore_total_ms"), 200},
             {QStringLiteral("enq_wall_ms"), 5000.0},
-            // fallback_build_ms deliberately absent
         };
         st::noteRustRestore(rust, 5030);
-        // Only the first per trace is recorded.
         g_now += 50;
         st::noteRustRestore(QJsonObject{{QStringLiteral("restore_ms"), 999}},
                             9999);
@@ -219,7 +200,6 @@ private Q_SLOTS:
     {
         st::begin(QStringLiteral("@a:example.org"),
                   QStringLiteral("@b:example.org"));
-        // Before startSync a reset can only be the previous account's.
         st::noteFirstReset(77, 1, 1, {}, 0);
         QCOMPARE(st::currentRecordForTest().resetRooms, qint64(-1));
 
@@ -234,7 +214,7 @@ private Q_SLOTS:
         };
         st::noteFirstReset(1000, 600, 40, rust, 8015);
         g_now += 10;
-        st::noteFirstReset(5, 1, 1, {}, 0); // not the first: ignored
+        st::noteFirstReset(5, 1, 1, {}, 0);
         const st::Record r = st::currentRecordForTest();
         QCOMPARE(r.step(st::Step::S9), qint64(300));
         QCOMPARE(r.resetRooms, qint64(1000));
@@ -250,7 +230,6 @@ private Q_SLOTS:
     {
         st::begin(QStringLiteral("@a:example.org"),
                   QStringLiteral("@b:example.org"));
-        // Targets before the login are the previous account's frames.
         st::markFirstFrame();
         st::markRoomInteractive();
         QCOMPARE(st::currentRecordForTest().firstFrameMs, qint64(-1));
@@ -260,9 +239,9 @@ private Q_SLOTS:
         st::markLoginSucceeded();
         g_now += 100;
         st::markFirstFrame();
-        QVERIFY(st::active()); // one target is not enough
+        QVERIFY(st::active());
         g_now += 50;
-        st::markFirstFrame(); // first per trace only
+        st::markFirstFrame();
         st::stepBegin(st::Step::S11);
         g_now += 900;
         st::markRoomInteractive();
@@ -279,15 +258,11 @@ private Q_SLOTS:
                  QStringLiteral("900"));
     }
 
-    // T0 at the click (Part 4 §5): the lead before begin() (a live-account
-    // release, a queue behind a running switch) is reported, and the first
-    // frame is also measured from the click. A re-entry keeps the first T0;
-    // a click on another account replaces it.
     void theIntentIsTZeroAndTheTotalNeverRestarts()
     {
         st::noteIntent(QStringLiteral("@b:example.org"));
         g_now += 300;
-        st::noteIntent(QStringLiteral("@b:example.org")); // re-entry
+        st::noteIntent(QStringLiteral("@b:example.org"));
         g_now += 200;
         st::begin(QStringLiteral("@a:example.org"),
                   QStringLiteral("@b:example.org"));
@@ -304,7 +279,6 @@ private Q_SLOTS:
                          QStringLiteral("first_frame_from_intent_ms")),
                  QStringLiteral("600"));
 
-        // Newest click wins; the old target's intent does not leak.
         st::noteIntent(QStringLiteral("@b:example.org"));
         g_now += 50;
         st::noteIntent(QStringLiteral("@c:example.org"));
@@ -318,14 +292,11 @@ private Q_SLOTS:
     void s11BeginsOnceAndOnlyAfterLogin()
     {
         st::begin({}, QStringLiteral("@b:example.org"));
-        st::stepBegin(st::Step::S11); // before login: ignored
+        st::stepBegin(st::Step::S11);
         g_now += 1000;
         st::markLoginSucceeded();
         st::stepBegin(st::Step::S11);
         g_now += 40;
-        // A repeated begin keeps the first start and needs no second end.
-        // (AppController abandons first when the room really changes; see
-        // targetTwoNeedsAnOpenS11AndIsGivenUpWhenTheRoomIsLeft.)
         st::stepBegin(st::Step::S11);
         g_now += 60;
         st::markFirstFrame();
@@ -333,10 +304,6 @@ private Q_SLOTS:
         QCOMPARE(st::currentRecordForTest().step(st::Step::S11), qint64(100));
     }
 
-    // Target 2 is S11's end and nothing else: a fill signal before the
-    // first room's open is not one (its edge can be a focus change), and a
-    // room left before it filled gives the target up rather than recording
-    // the NEXT room's fill against the first one's start.
     void targetTwoNeedsAnOpenS11AndIsGivenUpWhenTheRoomIsLeft()
     {
         st::begin(QStringLiteral("@a:example.org"),
@@ -345,7 +312,6 @@ private Q_SLOTS:
         st::markLoginSucceeded();
         st::markFirstFrame();
         g_now += 100;
-        // Logged in, no room opened yet: S11 is not open.
         st::markRoomInteractive();
         QCOMPARE(st::currentRecordForTest().roomInteractiveMs, qint64(-1));
         QCOMPARE(st::currentRecordForTest().step(st::Step::S11), qint64(-1));
@@ -353,14 +319,13 @@ private Q_SLOTS:
 
         st::stepBegin(st::Step::S11);
         g_now += 200;
-        st::abandonRoomInteractive(); // the user opened another room
-        st::stepBegin(st::Step::S11); // ...which does not restart S11
+        st::abandonRoomInteractive();
+        st::stepBegin(st::Step::S11);
         g_now += 300;
-        st::markRoomInteractive(); // that room's fill
+        st::markRoomInteractive();
         QCOMPARE(st::currentRecordForTest().roomInteractiveMs, qint64(-1));
         QCOMPARE(st::currentRecordForTest().step(st::Step::S11), qint64(-1));
         QVERIFY(st::active());
-        // So the trace ends Partial with target 2 unmeasured, not wrong.
         g_now += st::kDeadlineMs;
         QVERIFY(!st::active());
         const QStringList lines = traceLines();
@@ -372,7 +337,6 @@ private Q_SLOTS:
         QCOMPARE(fieldOf(lines.first(), QStringLiteral("s11")),
                  QStringLiteral("-1"));
 
-        // Abandoning with nothing open is a no-op.
         st::begin({}, QStringLiteral("@c:example.org"));
         st::markLoginSucceeded();
         st::abandonRoomInteractive();
@@ -382,12 +346,9 @@ private Q_SLOTS:
         QCOMPARE(st::currentRecordForTest().step(st::Step::S11), qint64(70));
     }
 
-    // AppController finishes a trace Failed on loginFailed only while the
-    // trace still awaits its login: an add-account attempt failing after a
-    // switch succeeded must not relabel that switch.
     void onlyATraceAwaitingItsLoginCanFail()
     {
-        QVERIFY(!st::awaitingLogin()); // nothing open
+        QVERIFY(!st::awaitingLogin());
         st::begin(QStringLiteral("@a:example.org"),
                   QStringLiteral("@b:example.org"));
         QVERIFY(st::awaitingLogin());
@@ -395,7 +356,7 @@ private Q_SLOTS:
         QVERIFY(!st::awaitingLogin());
         QVERIFY(st::active());
         st::setEnabledForTest(false);
-        QVERIFY(!st::awaitingLogin()); // off: inert
+        QVERIFY(!st::awaitingLogin());
         st::setEnabledForTest(true);
     }
 
@@ -416,8 +377,6 @@ private Q_SLOTS:
                  QStringLiteral("partial"));
         QCOMPARE(fieldOf(lines.first(), QStringLiteral("room_interactive_ms")),
                  QStringLiteral("-1"));
-        // Without a login there is no deadline: a switch waiting on a slow
-        // restore is not cut short.
         st::begin({}, QStringLiteral("@c:example.org"));
         g_now += 10 * st::kDeadlineMs;
         QVERIFY(st::active());
@@ -439,7 +398,7 @@ private Q_SLOTS:
         QCOMPARE(open.id, quint64(2));
         QVERIFY(open.path == st::Path::Startup);
         st::finish(st::Outcome::Refused);
-        st::finish(st::Outcome::Failed); // none open: no second line
+        st::finish(st::Outcome::Failed);
         lines = traceLines();
         QCOMPARE(lines.size(), 2);
         QCOMPARE(fieldOf(lines.last(), QStringLiteral("outcome")),
@@ -450,8 +409,8 @@ private Q_SLOTS:
 
     void theLoggedInProbeLogsTransitionsAndCountsFlipsInATrace()
     {
-        st::noteLoggedIn(true); // no trace open: logged, not counted
-        st::noteLoggedIn(true); // a repeat: ignored
+        st::noteLoggedIn(true);
+        st::noteLoggedIn(true);
         st::begin(QStringLiteral("@a:example.org"),
                   QStringLiteral("@b:example.org"));
         g_now += 25;
@@ -466,8 +425,6 @@ private Q_SLOTS:
         QCOMPARE(st::currentRecordForTest().loggedInFlips, 2);
     }
 
-    // The exact line, key order included: a log parser reads it by position
-    // as well as by key, and the contract fixes the set.
     void theLineIsExactAndCarriesSlugsAndNumbersOnly()
     {
         st::Record r;
@@ -516,7 +473,6 @@ private Q_SLOTS:
                      "logged_in_flips=3 intent_lead_ms=-1 "
                      "first_frame_from_intent_ms=-1"));
 
-        // A real trace: accounts appear as slugs, never as MXIDs.
         st::begin(QStringLiteral("@alice:example.org"),
                   QStringLiteral("@bob:example.org"));
         st::finish(st::Outcome::Failed);
@@ -530,10 +486,6 @@ private Q_SLOTS:
         QVERIFY(!lines.first().contains(QLatin1Char(':')));
     }
 
-    // AppController's stamps, by source scan (the controller needs a whole
-    // application to construct). A stamp that silently disappears leaves a
-    // step reading -1 in every trace, which looks like "not measured" rather
-    // than "broken". Each extent is checked to be real first.
     void appControllerStampsEveryStepItOwns()
     {
 #ifndef LIGHTNING_SOURCE_DIR
@@ -557,7 +509,6 @@ private Q_SLOTS:
         const int signIn = sw.indexOf(QStringLiteral("signInStateFor(target)"));
         QVERIFY2(begin >= 0 && signIn > begin,
                  "the trace does not open before the S1 keyring read");
-        // The sign-in refusal and the detach refusal.
         QCOMPARE(sw.count(QStringLiteral("trace::Outcome::Refused")), 2);
         for (const char *step : {"trace::Step::S1", "trace::Step::S2",
                                  "trace::Step::S3", "trace::Step::S4"})
@@ -572,8 +523,6 @@ private Q_SLOTS:
         QVERIFY(login.contains(QStringLiteral("armSwitchTraceFirstFrame()")));
         QVERIFY(body("void AppController::clearCrossAccountCaches(")
                     .contains(QStringLiteral("Step::S6")));
-        // Target 2 counts only an edge seen with the main window active on
-        // the main screen: QML's hydrating value also drops on a focus loss.
         const QString hydr = body("void AppController::setActiveRoomHydrating(");
         const int mark = hydr.indexOf(QStringLiteral("markRoomInteractive()"));
         QVERIFY2(mark >= 0, "target 2 is no longer stamped");
@@ -581,15 +530,12 @@ private Q_SLOTS:
                      && hydr.lastIndexOf(
                             QStringLiteral("m_currentScreen == MainScreen"), mark) >= 0,
                  "target 2 takes a focus loss or a hidden shell for a fill");
-        // Leaving the measured room gives target 2 up BEFORE the next room
-        // could (re)start S11.
         const QString room = body("void AppController::setCurrentRoomId(");
         const int abandon = room.indexOf(QStringLiteral("abandonRoomInteractive()"));
         const int s11 = room.indexOf(QStringLiteral("Step::S11"));
         QVERIFY2(s11 >= 0, "S11 is no longer begun");
         QVERIFY2(abandon >= 0 && abandon < s11,
                  "a room change does not give target 2 up first");
-        // A login failure finishes the trace only while it awaits its login.
         const int failed = src.indexOf(QStringLiteral("&AuthManager::loginFailed"));
         QVERIFY2(failed >= 0, "the loginFailed handler moved; re-point this scan");
         const int fin = src.indexOf(
@@ -603,7 +549,6 @@ private Q_SLOTS:
         const QString arm = body("void AppController::armSwitchTraceFirstFrame(");
         QVERIFY(arm.contains(QStringLiteral("QQuickWindow::frameSwapped")));
         QVERIFY(arm.contains(QStringLiteral("markFirstFrame()")));
-        // The probe is connected only when the trace is on.
         const int probe = src.indexOf(QStringLiteral("noteLoggedIn(loggedIn())"));
         QVERIFY2(probe >= 0, "the loggedIn probe is gone");
         const int guard = src.lastIndexOf(

@@ -13,8 +13,6 @@
 namespace settingsport {
 
 namespace {
-// A JSON number as milliseconds, or -1 when it is not a sane one. A bare
-// static_cast of a double beyond the int64 range is undefined behaviour.
 qint64 safeMs(const QJsonValue &v)
 {
     if (!v.isDouble())
@@ -24,23 +22,8 @@ qint64 safeMs(const QJsonValue &v)
         return -1;
     return static_cast<qint64>(d);
 }
-} // namespace
+}
 
-// Why each setting is where it is (the rule, so the next field has a place):
-//
-//  Export + Sync   a preference about how the app looks or behaves that means
-//                  the same on every machine.
-//  Export only     meaningful on THIS machine (window state, widths, zoom,
-//                  volumes, capture size, hardware-dependent switches) or a
-//                  setting that WIDENS what leaves the app or what is shown
-//                  outside its protection (notification previews, link
-//                  previews in encrypted rooms, strict device trust, keeping
-//                  media): the homeserver can write account data, so it must
-//                  not be able to loosen those on a client.
-//  Neither         everything else: tokens, keys, recovery material, device
-//                  and hardware ids, paths, account ids, geometry, dismissals.
-//
-// The table is generated from one spec so the flags stay a single column.
 const QList<Field> &fields()
 {
     static const QList<Field> table = {
@@ -114,7 +97,7 @@ Checked checkString(const Field &f, const QString &s)
     return pass(s);
 }
 
-} // namespace
+}
 
 Checked check(const Field &f, const QVariant &raw)
 {
@@ -174,7 +157,6 @@ Checked check(const Field &f, const QVariant &raw)
             if (!one.ok)
                 return one;
         }
-        // Canonical: sorted and unique, as the setter stores it.
         items.sort();
         items.removeDuplicates();
         return pass(items);
@@ -229,7 +211,7 @@ QVariantMap readSettings(const SettingsManager *settings, int flag)
         return out;
     for (const QString &name : presentationKeys()) {
         if (!out.contains(name))
-            continue;   // not in this flag's set
+            continue;
         const Field *f = find(name);
         const QVariant lightning = settings->lightningPresentationValue(name);
         const Checked c = f ? check(*f, lightning) : Checked{};
@@ -260,8 +242,6 @@ QStringList writeSettings(SettingsManager *settings, const QVariantMap &values)
     return failed;
 }
 
-// ---- settings file ---------------------------------------------------------
-
 QByteArray buildDocument(const Document &doc, const QString &exportedAtIso)
 {
     QJsonObject root;
@@ -273,8 +253,6 @@ QByteArray buildDocument(const Document &doc, const QString &exportedAtIso)
     QJsonObject settings;
     for (auto it = doc.settings.constBegin(); it != doc.settings.constEnd(); ++it) {
         const Field *f = find(it.key());
-        // The allow-list is enforced HERE as well as on read: a value the
-        // schema does not export is dropped, whoever handed it over.
         if (!f || !(f->flags & Export))
             continue;
         const Checked c = check(*f, it.value());
@@ -409,8 +387,6 @@ QList<Change> diff(const QVariantMap &current, const QVariantMap &incoming)
     return out;
 }
 
-// ---- sync ------------------------------------------------------------------
-
 ParsedBlob parseBlob(const QJsonObject &content, bool present)
 {
     ParsedBlob p;
@@ -418,7 +394,7 @@ ParsedBlob parseBlob(const QJsonObject &content, bool present)
     if (!present)
         return p;
     if (content.isEmpty())
-        return p; // `{}`: cleared
+        return p;
     const QJsonValue version = content.value(QStringLiteral("version"));
     if (!version.isDouble() || !content.value(QStringLiteral("settings")).isObject()) {
         p.readable = false;
@@ -435,10 +411,6 @@ ParsedBlob parseBlob(const QJsonObject &content, bool present)
             p.keep.insert(it.key(), it.value());
             continue;
         }
-        // Known but not usable HERE (not a synced setting in this build, or a
-        // value this build cannot hold): reported, ignored, and carried
-        // through every write verbatim, so an older build never undoes what
-        // a newer one stored.
         if (!(f->flags & Sync) || !it.value().isObject()) {
             p.rejected.append(it.key());
             p.keep.insert(it.key(), it.value());
@@ -543,12 +515,10 @@ State detectLocalChanges(const QVariantMap &local, State state, qint64 now)
             continue;
         const bool synced = state.lastSynced.contains(f.name);
         if (synced && state.lastSynced.value(f.name) == value.value()) {
-            state.pending.remove(f.name); // changed back: nothing to say
+            state.pending.remove(f.name);
             continue;
         }
         if (!synced) {
-            // Never agreed with the server: a local change only when it
-            // differs from the default (an untouched setting is not a choice).
             if (f.def.isValid() && f.def == value.value()) {
                 state.pending.remove(f.name);
                 continue;
@@ -578,9 +548,6 @@ State absorbLocal(State state, const QVariantMap &local)
 
 namespace {
 
-// A server timestamp more than kMaxSkewMs ahead is taken as the moment it was
-// first seen (remembered in `st`), not as `now`: `now` moves forward with every
-// merge and would let a fast clock outrank every later edit for ever.
 qint64 clampTs(const QString &name, qint64 t, qint64 now, State &st)
 {
     if (t <= now + kMaxSkewMs) {
@@ -595,7 +562,7 @@ qint64 clampTs(const QString &name, qint64 t, qint64 now, State &st)
     return now;
 }
 
-} // namespace
+}
 
 MergeResult merge(const ParsedBlob &server, const QVariantMap &local, const State &state, qint64 now)
 {
@@ -603,8 +570,8 @@ MergeResult merge(const ParsedBlob &server, const QVariantMap &local, const Stat
     r.readOnly = server.newerVersion || !server.readable;
     r.keep = server.keep;
     State st = detectLocalChanges(local, state, now);
-    State applied = st;      // after applying server values, before any PUT
-    State written = st;      // plus what the PUT carries
+    State applied = st;
+    State written = st;
     Blob out = server.entries;
     bool write = false;
 
@@ -625,8 +592,6 @@ MergeResult merge(const ParsedBlob &server, const QVariantMap &local, const Stat
                 written.pending.remove(n);
                 write = true;
             } else if (st.lastSynced.contains(n) && st.lastTs.value(n) > 0 && localValue.isValid()) {
-                // We had agreed this key with the server and it is gone (a
-                // concurrent writer replaced the blob): put it back.
                 out.insert(n, { localValue, st.lastTs.value(n) });
                 write = true;
             }
@@ -635,13 +600,12 @@ MergeResult merge(const ParsedBlob &server, const QVariantMap &local, const Stat
 
         const qint64 st_t = clampTs(n, sv->t, now, st);
         if (st_t != sv->t)
-            out[n].t = st_t; // the hostile time is not written back
+            out[n].t = st_t;
         const QVariant serverValue = sv->v;
 
         if (pending && localValue.isValid()) {
             const qint64 mine = st.pending.value(n);
             if (serverValue == localValue) {
-                // Same value: nothing to say, just agree on the time.
                 applied.lastSynced.insert(n, localValue);
                 applied.lastTs.insert(n, st_t);
                 applied.pending.remove(n);
@@ -649,15 +613,12 @@ MergeResult merge(const ParsedBlob &server, const QVariantMap &local, const Stat
                 written.lastTs.insert(n, st_t);
                 written.pending.remove(n);
             } else if (mine >= st_t) {
-                // Local change is the later one: it wins and is pushed.
                 out.insert(n, { localValue, mine });
                 written.lastSynced.insert(n, localValue);
                 written.lastTs.insert(n, mine);
                 written.pending.remove(n);
                 write = true;
             } else {
-                // A later change on another device replaced an unsynced one
-                // here. Reported, never silent.
                 r.applyLocal.insert(n, serverValue);
                 r.lostLocal.append(n);
                 applied.lastSynced.insert(n, serverValue);
@@ -670,15 +631,12 @@ MergeResult merge(const ParsedBlob &server, const QVariantMap &local, const Stat
             continue;
         }
 
-        // Not pending: the server's value is what this device should show.
         if (serverValue != localValue)
             r.applyLocal.insert(n, serverValue);
         applied.lastSynced.insert(n, serverValue);
         applied.lastTs.insert(n, st_t);
         written.lastSynced.insert(n, serverValue);
         written.lastTs.insert(n, st_t);
-        // A server value OLDER than what this device last synced means a
-        // concurrent writer clobbered the blob: re-assert ours.
         if (st.lastSynced.contains(n) && st.lastTs.value(n) > sv->t && st.lastSynced.value(n) != serverValue
             && localValue.isValid() && localValue == st.lastSynced.value(n)) {
             r.applyLocal.remove(n);
@@ -713,9 +671,6 @@ FirstRunPlan planFirstRun(const ParsedBlob &server, const QVariantMap &local)
 
 MergeResult adoptServer(const ParsedBlob &server, const QVariantMap &local, qint64 now)
 {
-    // Baseline = what this device holds now, nothing pending: merge then sees
-    // every differing server key as "server value, not pending" and applies
-    // it, and uploads nothing.
     State st;
     for (const Field &f : fields()) {
         if ((f.flags & Sync) && local.contains(f.name)) {
@@ -729,8 +684,7 @@ MergeResult adoptServer(const ParsedBlob &server, const QVariantMap &local, qint
 MergeResult uploadLocal(const ParsedBlob &server, const QVariantMap &local, qint64 now)
 {
     State st = detectLocalChanges(local, State(), now);
-    // Keys the server holds with a value equal to ours need no write.
     return merge(server, local, st, now + 1);
 }
 
-} // namespace settingsport
+}

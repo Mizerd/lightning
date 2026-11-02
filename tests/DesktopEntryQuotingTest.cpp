@@ -4,8 +4,6 @@
 
 using lightning::desktop_entry::quoteExecArgument;
 
-// Desktop-entry Exec argument quoting, tested by calling the function rather
-// than scanning main.cpp for a literal.
 class DesktopEntryQuotingTest : public QObject
 {
     Q_OBJECT
@@ -15,13 +13,10 @@ private Q_SLOTS:
     {
         QCOMPARE(quoteExecArgument(QStringLiteral("/opt/Lightning.AppImage")),
                  QStringLiteral("\"/opt/Lightning.AppImage\""));
-        // A space is why the argument is quoted at all.
         QCOMPARE(quoteExecArgument(QStringLiteral("/home/a b/L.AppImage")),
                  QStringLiteral("\"/home/a b/L.AppImage\""));
     }
 
-    // A literal backslash needs four: one for the Exec rule, both doubled by
-    // the string escape the reader undoes first.
     void aBackslashSurvivesBothEscapingLayers()
     {
         const QString out = quoteExecArgument(QStringLiteral("/a\\b"));
@@ -32,8 +27,6 @@ private Q_SLOTS:
                  "escape of the following character");
     }
 
-    // `\$` is not a valid string escape: GKeyFile rejects the whole value and
-    // the entry ends up with no Exec.
     void aDollarIsEscapedAtBothLayersNotOne()
     {
         const QString out = quoteExecArgument(QStringLiteral("/a$b"));
@@ -53,8 +46,6 @@ private Q_SLOTS:
                  QStringLiteral("\"/a\\\\\"b\""));
     }
 
-    // `%` introduces a field code: an undoubled `%20` in a percent-encoded
-    // download path is mangled by the expander.
     void aPercentIsDoubledSoTheFieldCodeExpanderLeavesItAlone()
     {
         const QString out =
@@ -66,8 +57,6 @@ private Q_SLOTS:
         QCOMPARE(out.count(QLatin1Char('%')), 2);
     }
 
-    // Refused, not encoded: a newline would inject a key and has no correct
-    // quoting. Empty means "do not publish".
     void aControlCharacterIsRefusedRatherThanEncoded()
     {
         QVERIFY2(quoteExecArgument(QStringLiteral("/a\nExec=/bin/sh")).isEmpty(),

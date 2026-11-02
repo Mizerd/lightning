@@ -1,7 +1,3 @@
-// Unit coverage for the composer formatting toolbar's markdown transforms:
-// wrap/unwrap for the inline styles, line prefixes for list/quote, the link
-// scaffold, selection integrity, and the active-state detection that drives
-// the toolbar's accent-chip states.
 
 #include <QtTest/QtTest>
 
@@ -26,7 +22,6 @@ private slots:
 
     void boldUnwrapsWrappedSelection()
     {
-        // Selection is the inner word of an already-wrapped range.
         const auto r = toggle(QStringLiteral("bold"),
                               QStringLiteral("**hello** world"), 2, 7);
         QCOMPARE(r.text, QStringLiteral("hello world"));
@@ -74,7 +69,6 @@ private slots:
         QCOMPARE(r.text, QStringLiteral("hi ****"));
         QCOMPARE(r.selectionStart, 5);
         QCOMPARE(r.selectionEnd, 5);
-        // Toggling again from the caret between the markers removes them.
         const auto undone = toggle(QStringLiteral("bold"), r.text, 5, 5);
         QCOMPARE(undone.text, QStringLiteral("hi "));
     }
@@ -84,7 +78,6 @@ private slots:
         const QString text = QStringLiteral("one\ntwo\nthree");
         const auto r = toggle(QStringLiteral("list"), text, 0, text.size());
         QCOMPARE(r.text, QStringLiteral("- one\n- two\n- three"));
-        // Toggling again removes the prefixes.
         const auto undone = toggle(QStringLiteral("list"), r.text,
                                    r.selectionStart, r.selectionEnd);
         QCOMPARE(undone.text, text);
@@ -113,7 +106,6 @@ private slots:
         QCOMPARE(r.text.mid(r.selectionStart,
                             r.selectionEnd - r.selectionStart),
                  QStringLiteral("url"));
-        // Selecting the label of an existing link removes it.
         const auto undone = toggle(QStringLiteral("link"), r.text, 5, 9);
         QCOMPARE(undone.text, QStringLiteral("see docs"));
     }
@@ -145,8 +137,6 @@ private slots:
         QVERIFY(link.value(QStringLiteral("link")).toBool());
     }
 
-    // Final retest N-1: with a bare caret in or right after a span, the toolbar
-    // showed the format on and the button inserted a second pair.
     void aBareCaretInASpanTogglesItOff_data()
     {
         QTest::addColumn<QString>("format");
@@ -177,8 +167,6 @@ private slots:
         QVERIFY(!MarkdownFormat::state(text, 5, 5).value(QStringLiteral("code")).toBool());
     }
 
-    // Literal markers are not a span: "2 ** 3 ** 4" is arithmetic, so a bare
-    // caret between the stars reads bold off and the button adds a pair.
     void literalMarkersWithSpacesAroundThemAreNoSpan()
     {
         const QString text = QStringLiteral("2 ** 3 ** 4");
@@ -190,7 +178,6 @@ private slots:
         const auto result =
             MarkdownFormat::toggle(QStringLiteral("bold"), text, 6, 6);
         QVERIFY(result.text.size() == text.size() + 4);
-        // A real span still reads on, and a code span keeps its spaces.
         QVERIFY(MarkdownFormat::state(QStringLiteral("a **b** c"), 5, 5)
                     .value(QStringLiteral("bold")).toBool());
         QVERIFY(MarkdownFormat::state(QStringLiteral("`a b ` c"), 3, 3)

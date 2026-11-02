@@ -1,16 +1,3 @@
-// Dates and numbers follow the UI language, and follow a switch live
-// (2026-10-18 live runs: room-list and file-chooser dates read "10 spal." in
-// an English UI on a desktop with LANG=en_US and LC_TIME=lt_LT, and date-only
-// labels kept the old language after a switch until their delegate was
-// rebuilt).
-//
-// Three parts that fail for different reasons:
-//   * the default QLocale for an English UI on that desktop (main() below sets
-//     the environment before Qt reads it);
-//   * AppLocale, the one notifying name QML formats with: a binding over it
-//     re-runs on a switch, one over Qt.locale() does not;
-//   * a source scan of qml/: every Qt.locale() names AppLocale.name, no
-//     locale-less toLocale*String(), no toFixed() in a byte size.
 
 #include "app/SettingsManager.h"
 #include "i18n/LocalizationManager.h"
@@ -32,8 +19,6 @@
 
 namespace {
 
-// Set before the QCoreApplication exists: Qt reads the system locale's
-// categories from these once (qlocale_unix.cpp).
 void desktopWithLithuanianDates()
 {
     qunsetenv("LC_ALL");
@@ -52,7 +37,7 @@ QString readAll(const QString &path)
     return QString::fromUtf8(f.readAll());
 }
 
-} // namespace
+}
 
 class LocaleFollowsLanguageTest : public QObject
 {
@@ -61,7 +46,6 @@ class LocaleFollowsLanguageTest : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        // SettingsManager must never touch a real configuration.
         QVERIFY(m_configHome.isValid());
         qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
         qputenv("XDG_DATA_HOME", m_configHome.path().toUtf8());
@@ -69,10 +53,6 @@ private Q_SLOTS:
         QCoreApplication::setApplicationName(QStringLiteral("locale-follows-language-test"));
     }
 
-    // The reported desktop: an English UI, Lithuanian dates and numbers in
-    // LC_TIME/LC_NUMERIC. Old code kept QLocale::system() as the default
-    // because the languages matched, and that answers month names from
-    // LC_TIME: "10 spal.".
     void anEnglishUiDoesNotTakeItsDatesFromLcTime()
     {
 #if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN) && !defined(Q_OS_ANDROID)
@@ -95,9 +75,6 @@ private Q_SLOTS:
 #endif
     }
 
-    // The system's region is still honoured when it speaks the UI language,
-    // and the desktop's time category wins when it does (review round 1:
-    // LANG=en_US with LC_TIME=en_GB wrote 10/20/26 and h:mm AP).
     void theDesktopsOwnConventionsAreKeptForItsLanguage()
     {
         using L = LocalizationManager;
@@ -111,7 +88,6 @@ private Q_SLOTS:
                                      QLocale(QStringLiteral("en_GB")))
                      .name(),
                  QStringLiteral("en_GB"));
-        // Another language in LC_TIME: never its words.
         QCOMPARE(L::formattingLocale(QStringLiteral("en"), enUS,
                                      QLocale(QStringLiteral("lt_LT")))
                      .toString(day, QStringLiteral("d MMM")),
@@ -128,14 +104,11 @@ private Q_SLOTS:
                  QStringLiteral("pt_BR"));
     }
 
-    // The same through the environment and LocalizationManager, as the app
-    // runs it.
     void lcTimeInTheUiLanguageDecidesTheDateFormat()
     {
 #if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN) && !defined(Q_OS_ANDROID)
         const QByteArray saved = qgetenv("LC_TIME");
         const QLocale before;
-        // Restored even when a comparison fails: later cases read LC_TIME.
         const auto restore = qScopeGuard([&] {
             qputenv("LC_TIME", saved);
             QLocale::setDefault(before);
@@ -151,45 +124,32 @@ private Q_SLOTS:
 #endif
     }
 
-    // "Follow the system" for the clock (review round 1, lead decision):
-    // the desktop's own pattern when its time category speaks the UI
-    // language; otherwise its 12/24-hour cycle in the UI language's pattern,
-    // with no foreign literal.
     void followTheSystemClockKeepsTheCycleNotTheWords()
     {
         using i18n::followSystemClockFormat;
         const QLocale enUS(QStringLiteral("en_US"));
         const QLocale enGB(QStringLiteral("en_GB"));
         const QLocale de(QStringLiteral("de_DE"));
-        // Same language: the desktop's pattern.
         QCOMPARE(followSystemClockFormat(enGB, enGB, enGB.timeFormat(QLocale::ShortFormat)),
                  enGB.timeFormat(QLocale::ShortFormat));
         QVERIFY(!i18n::usesTwelveHourClock(
             followSystemClockFormat(enGB, enGB, enGB.timeFormat(QLocale::ShortFormat))));
-        // English UI, Lithuanian dates (this host): 24-hour, English pattern.
         const QLocale lt(QStringLiteral("lt_LT"));
         QCOMPARE(followSystemClockFormat(enUS, lt, lt.timeFormat(QLocale::ShortFormat)),
                  QStringLiteral("HH:mm"));
-        // English UI, fr_CA desktop ("HH 'h' mm"): its 24-hour cycle, and
-        // no French literal.
         const QLocale frCA(QStringLiteral("fr_CA"));
         const QString fromFrench =
             followSystemClockFormat(enUS, frCA, frCA.timeFormat(QLocale::ShortFormat));
         QVERIFY2(!fromFrench.contains(QLatin1Char('\'')), qPrintable(fromFrench));
         QVERIFY(!i18n::usesTwelveHourClock(fromFrench));
-        // German UI on an en_US desktop: the desktop's 12-hour cycle.
         QVERIFY(i18n::usesTwelveHourClock(
             followSystemClockFormat(de, enUS, enUS.timeFormat(QLocale::ShortFormat))));
-        // German UI on a 24-hour desktop: German's own pattern.
         QCOMPARE(followSystemClockFormat(de, enGB, enGB.timeFormat(QLocale::ShortFormat)),
                  de.timeFormat(QLocale::ShortFormat));
-        // No desktop preference: the UI language's own.
         QCOMPARE(followSystemClockFormat(de, QLocale::c(), QStringLiteral("HH:mm:ss")),
                  de.timeFormat(QLocale::ShortFormat));
     }
 
-    // And through SettingsManager on this test's desktop (LANG=en_US,
-    // LC_TIME=lt_LT): an English UI keeps the desktop's 24-hour clock.
     void theClockSettingFollowsTheDesktopsCycle()
     {
 #if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN) && !defined(Q_OS_ANDROID)
@@ -207,9 +167,6 @@ private Q_SLOTS:
 #endif
     }
 
-    // A label formatted through Qt.locale(AppLocale.name) re-runs when the
-    // language changes; one through Qt.locale() keeps the old words (which
-    // is why every date label in qml/ goes through AppLocale).
     void aBindingOverAppLocaleFollowsASwitch()
     {
         const QLocale before;
@@ -234,20 +191,16 @@ private Q_SLOTS:
         QCOMPARE(probe->property("size").toString(), QStringLiteral("1.5"));
 
         QSignalSpy changed(AppLocale::instance(), &AppLocale::changed);
-        // What LocalizationManager::applyLanguage does, without a catalog.
         QLocale::setDefault(QLocale(QStringLiteral("de_DE")));
         AppLocale::instance()->notifyChanged();
         QCOMPARE(changed.count(), 1);
         QCOMPARE(AppLocale::instance()->name(), QStringLiteral("de"));
         QCOMPARE(probe->property("followed").toString(), QStringLiteral("Oktober"));
         QCOMPARE(probe->property("size").toString(), QStringLiteral("1,5"));
-        // The control: nothing told this binding to re-run.
         QCOMPARE(probe->property("stale").toString(), QStringLiteral("October"));
         QLocale::setDefault(before);
     }
 
-    // A language switch announces itself on AppLocale, after the default
-    // locale moved (so a re-running binding sees the new one).
     void switchingTheLanguageAnnouncesItOnAppLocale()
     {
         const QLocale before;
@@ -263,9 +216,6 @@ private Q_SLOTS:
         QLocale::setDefault(before);
     }
 
-    // Every date and number in qml/ is formatted through AppLocale. A
-    // Qt.locale() with no argument returns the right locale and notifies
-    // nothing, so its label kept the old language after a switch.
     void everyQmlLocaleCallNamesAppLocale()
     {
         static const QRegularExpression localeCall(

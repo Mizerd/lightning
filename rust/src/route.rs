@@ -1,29 +1,3 @@
-//! Per-account network route: an explicit HTTP (CONNECT) or SOCKS5 proxy for
-//! everything one account's matrix-sdk client sends (docs/network-profiles.md).
-//!
-//! What it covers: the account's `matrix_sdk::Client` HTTP transport, built
-//! here (`http_client`) and handed to the SDK, so discovery, login, sync,
-//! E2EE key traffic, media up/download, thumbnails and every Lightning call
-//! through `client.http_client()` / `client.send()` follow the route.
-//!
-//! What it does NOT cover, and is therefore refused for a routed account
-//! (`routed()`), never sent directly: the client-side link preview and link
-//! media fetch (they pin a validated public IP and send no proxy, so a proxy
-//! would void the SSRF checks, and going direct would leak the address the
-//! user is hiding), and calls (SFU signalling over a WebSocket and WebRTC
-//! media over UDP, which no HTTP/SOCKS proxy here carries). GIF providers and
-//! the updater are not account traffic and keep the system setting.
-//!
-//! Fail closed: a route that is configured but cannot be used (its password
-//! could not be read from the keyring, or the configuration is invalid) is
-//! recorded as `Unavailable`, and building the account's client is refused;
-//! nothing falls back to a direct connection. A proxy that is configured but
-//! unreachable makes every request fail (reqwest does not retry without the
-//! proxy, and an explicit proxy disables the environment's proxy settings).
-//!
-//! Secrets: the password arrives once per handle from C++ (read from the
-//! keyring there), lives only in this registry, is never logged, never put in
-//! a URL string that anything prints, and `Debug` redacts it.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -32,17 +6,11 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-/// The SDK's own default request timeout (matrix-sdk 0.18 `HttpSettings`),
-/// kept so a routed client behaves like an unrouted one. Per-request configs
-/// (sync long-polls) still override it.
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum RouteKind {
-    /// HTTP proxy, tunnelling HTTPS with CONNECT.
     Http,
-    /// SOCKS5 with remote DNS (`socks5h`), so the account's host names are
-    /// resolved by the proxy and never by the local resolver.
     Socks5,
 }
 
@@ -70,7 +38,6 @@ impl std::fmt::Debug for RouteConfig {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub(crate) enum RouteState {
     Configured(RouteConfig),
-    /// A route is configured for the account but cannot be used now.
     Unavailable,
 }
 
@@ -100,9 +67,6 @@ fn clean_secret(value: Option<&Value>, max: usize) -> Result<Option<String>, &'s
     }
 }
 
-/// Parses what C++ sends: `{"state":"none"}`, `{"state":"unavailable"}`, or
-/// `{"state":"configured","kind":"http"|"socks5","host","port","username"?,
-/// "password"?}`. A username needs a password and the other way round.
 pub(crate) fn parse(json: &str) -> Result<Option<RouteState>, &'static str> {
     let value: Value = serde_json::from_str(json).map_err(|_| "invalid_route")?;
     match value.get("state").and_then(Value::as_str) {
@@ -138,8 +102,6 @@ pub(crate) fn parse(json: &str) -> Result<Option<RouteState>, &'static str> {
     })))
 }
 
-/// The proxy URL WITHOUT credentials (they are attached with
-/// `Proxy::basic_auth`, which for SOCKS5 becomes the SOCKS username/password).
 pub(crate) fn proxy_url(route: &RouteConfig) -> String {
     let scheme = match route.kind {
         RouteKind::Http => "http",
@@ -148,9 +110,6 @@ pub(crate) fn proxy_url(route: &RouteConfig) -> String {
     format!("{scheme}://{}:{}", route.host, route.port)
 }
 
-/// The account's HTTP transport: the SDK's own settings (user agent, TLS 1.2
-/// minimum, default request timeout, default trust roots, never any
-/// certificate leniency) plus exactly one proxy for every request.
 pub(crate) fn http_client(route: &RouteConfig) -> Result<reqwest::Client, &'static str> {
     let mut proxy = reqwest::Proxy::all(proxy_url(route)).map_err(|_| "invalid_route")?;
     if let (Some(user), Some(pass)) = (&route.username, &route.password) {
@@ -168,12 +127,6 @@ pub(crate) fn http_client(route: &RouteConfig) -> Result<reqwest::Client, &'stat
         .map_err(|_| "route_client_failed")
 }
 
-// ---- The per-account route, by store path -----------------------------------
-//
-// Like the media-store key (mediastore.rs): build_client() takes only a store
-// path, so the route is looked up by it. Each entry belongs to the handle that
-// set it, so a handle being retired cannot remove its successor's.
-
 struct Entry {
     owner: usize,
     state: RouteState,
@@ -184,11 +137,6 @@ fn registry() -> &'static Mutex<HashMap<PathBuf, Entry>> {
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// The registry key of a handle's route: its store path, or for a handle
-/// with none (the OAuth/SSO bootstrap, the whoami probe, a refused sign-in's
-/// revocation) a key of its own that no real path can equal (it holds a NUL).
-/// C++ picks that handle's route from the account the sign-in is for
-/// (matrix/NetworkRoute.h, rustJsonForSignIn).
 pub(crate) fn key_for(owner: usize, store_path: &Path) -> PathBuf {
     if store_path.as_os_str().is_empty() {
         PathBuf::from(format!("\u{0}lightning-handle-{owner:x}"))
@@ -197,8 +145,6 @@ pub(crate) fn key_for(owner: usize, store_path: &Path) -> PathBuf {
     }
 }
 
-/// Records this handle's route (`None`: no route, the system default as
-/// before), under `key_for(owner, store_path)`.
 pub(crate) fn set(owner: usize, store_path: &Path, state: Option<RouteState>) {
     let key = key_for(owner, store_path);
     let store_path = key.as_path();
@@ -227,21 +173,14 @@ pub(crate) fn lookup(store_path: &Path) -> Option<RouteState> {
     map.get(store_path).map(|e| e.state.clone())
 }
 
-/// Whether the account behind this store has a route (usable or not): the
-/// direct-connection features refuse to run for it.
 pub(crate) fn routed(store_path: &Path) -> bool {
     lookup(store_path).is_some()
 }
 
-/// The refusal build_client reports for a route that cannot be used.
 pub(crate) const ROUTE_UNAVAILABLE: &str =
     "network route unavailable: this account's proxy is configured but cannot be used \
      (its password could not be read, or its settings are invalid); not connecting directly";
 
-/// The HTTP client the account behind `store_path` must use: `Ok(None)` for
-/// an account without a route (the SDK builds its default client, as
-/// before), `Ok(Some)` for a usable one, and `Err` for a route that cannot
-/// be used, which refuses the build rather than going direct.
 pub(crate) fn client_for(store_path: &Path) -> Result<Option<reqwest::Client>, &'static str> {
     match lookup(store_path) {
         None => Ok(None),
@@ -252,7 +191,6 @@ pub(crate) fn client_for(store_path: &Path) -> Result<Option<reqwest::Client>, &
     }
 }
 
-/// The refusal a direct-connection feature reports for a routed account.
 pub(crate) const BLOCKED_BY_ROUTE: &str = "blocked_by_route";
 
 #[cfg(test)]
@@ -329,17 +267,13 @@ mod tests {
         set(1, &a, Some(RouteState::Unavailable));
         assert!(routed(&a));
         assert!(!routed(&b));
-        // Another handle forgetting does not remove the entry it does not own.
         forget(2, &a);
         assert!(routed(&a));
-        // A successor replaces it, and the predecessor's forget leaves it.
         set(3, &a, Some(RouteState::Unavailable));
         forget(1, &a);
         assert!(routed(&a));
         set(3, &a, None);
         assert!(!routed(&a));
-        // A store-less handle's route is its own: keyed by the handle, never
-        // by the empty path another store-less handle also has.
         set(4, Path::new(""), Some(RouteState::Unavailable));
         assert!(!routed(Path::new("")));
         assert!(routed(&key_for(4, Path::new(""))));
@@ -349,9 +283,6 @@ mod tests {
         assert!(!routed(&key_for(4, Path::new(""))));
     }
 
-    /// The OAuth bootstrap case the review asked for: an in-memory client
-    /// built for a store-less handle follows that handle's route and refuses
-    /// an unusable one, before any request.
     #[test]
     fn a_store_less_handles_memory_client_follows_its_own_route() {
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
@@ -360,7 +291,6 @@ mod tests {
         let key = key_for(owner, Path::new(""));
         let refused = rt.block_on(crate::build_memory_client("http://127.0.0.1:9", &key));
         assert_eq!(refused.err().as_deref(), Some(ROUTE_UNAVAILABLE));
-        // Another store-less handle without a route is untouched by it.
         let other = key_for(owner + 1, Path::new(""));
         assert!(matches!(client_for(&other), Ok(None)));
         forget(owner, Path::new(""));
@@ -376,15 +306,11 @@ mod tests {
         assert_eq!(client_for(&unusable).err(), Some(ROUTE_UNAVAILABLE));
         set(11, &usable, parse(r#"{"state":"configured","kind":"http","host":"127.0.0.1","port":3128}"#).unwrap());
         assert!(matches!(client_for(&usable), Ok(Some(_))));
-        // The refusal names no secret and no host.
         assert!(!ROUTE_UNAVAILABLE.contains("127.0.0.1"));
         set(10, &unusable, None);
         set(11, &usable, None);
     }
 
-    /// A store path whose route is set refuses to build its Matrix client
-    /// when the route cannot be used: build_client_with never reaches the
-    /// network or the store.
     #[test]
     fn building_a_client_on_an_unusable_route_is_refused() {
         let dir = std::env::temp_dir().join(format!("route-test-build-{}", std::process::id()));
@@ -400,11 +326,6 @@ mod tests {
         assert!(!dir.exists(), "no store was created");
     }
 
-    /// Review note: no `LIGHTNING_RUST_LOG` value can switch on the transport
-    /// crates' tracing, which can print the proxy and its credentials. Read
-    /// back from the parsed filter itself (its Display lists the directives it
-    /// holds): every transport target is `off`, and no directive that would
-    /// outrank it (a longer, more specific transport target) survives.
     #[test]
     fn the_sdk_log_filter_never_enables_the_http_transport() {
         for requested in [
@@ -432,14 +353,9 @@ mod tests {
                 assert!(shown.contains(&format!("{t}=off")), "{requested} -> {shown}");
             }
         }
-        // What was asked for otherwise is kept.
         assert!(crate::clamp_transport_tracing("matrix_sdk=debug").starts_with("matrix_sdk=debug,"));
     }
 
-    /// Fail closed against a real dead proxy: a request through a proxy on a
-    /// closed local port fails; it is not retried directly. The target is a
-    /// local server that DOES answer a direct request (the control proves
-    /// it), so a direct fallback would turn the failure into a success.
     #[test]
     fn an_unreachable_proxy_fails_instead_of_going_direct() {
         use std::io::{Read, Write};
@@ -453,7 +369,6 @@ mod tests {
                 let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
             }
         });
-        // A port nothing listens on: bound, then released.
         let dead = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let url = format!("http://{target}/");

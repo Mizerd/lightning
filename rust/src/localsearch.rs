@@ -1,40 +1,15 @@
-//! The local message index: SQLite FTS5 over what this client has seen.
-//!
-//! Server search (`search.rs`) cannot read encrypted rooms, so this index,
-//! built from plaintext the client already has, makes search work the same
-//! in encrypted and public rooms.
-//!
-//! It adds no new class of data to disk: the SDK event cache already stores
-//! decrypted events unencrypted (`encode_event` serializes the `Decrypted`
-//! variant and Lightning opens `sqlite_store(path, None)`), in the same 0700
-//! directory. The index is a second, more queryable copy (see
-//! `docs/local-search.md`). Encrypting the store at rest would fix both, but
-//! `sqlite_store` uses one config for all stores, and adding a passphrase
-//! would leave existing installs unable to decode their account pickle.
-//!
-//! Tokenizer: `trigram`, not `unicode61`. unicode61 splits on spaces and
-//! punctuation, so unspaced scripts like Chinese become one token and are
-//! unsearchable; trigram matches substrings in every script at the cost of
-//! a larger index and a 3-character minimum. `remove_diacritics 2` on the
-//! trigram table folds both stored text and query (`koln` finds `Köln`).
 
 use std::collections::HashSet;
 use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-/// File name inside the account's store directory.
 pub(crate) const INDEX_FILE: &str = "lightning-search.sqlite3";
 
-/// Rows kept before the oldest are evicted, so the index cannot grow without
-/// bound (roughly tens of MB at ~100 bytes per message).
 pub(crate) const MAX_ROWS: i64 = 250_000;
 
-/// Shortest query the trigram tokenizer can match; reported to the user
-/// rather than silently returning nothing.
 pub(crate) const MIN_QUERY_CHARS: usize = 3;
 
-/// One result.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Hit {
     pub event_id: String,
@@ -44,18 +19,11 @@ pub(crate) struct Hit {
     pub body: String,
     pub msgtype: String,
     pub ts: i64,
-    /// The attachment's file name when it differs from `body` (a captioned
-    /// attachment); "" otherwise.
     pub filename: String,
 }
 
-/// Longest file name kept, in BYTES (cut on a character boundary). A name is
-/// at most 255 bytes on every common file system; the bound also stops a
-/// hostile event from filling a row.
 const MAX_FILENAME_BYTES: usize = 255;
 
-/// Message types whose `filename` is worth finding. Anything else carrying a
-/// `filename` key is not an attachment and is ignored.
 fn is_attachment_msgtype(msgtype: &str) -> bool {
     matches!(msgtype, "m.image" | "m.video" | "m.audio" | "m.file")
 }
@@ -81,23 +49,14 @@ fn clean_filename(raw: &str) -> String {
     out.trim().to_owned()
 }
 
-/// Schema version recorded in `PRAGMA user_version`. 0 is every index created
-/// before file names were indexed (and a brand-new file, which the same steps
-/// bring to 1). Bump only with a migration in [`SearchIndex::migrate`].
 const SCHEMA_VERSION: i64 = 1;
 
-/// What the index holds, for "search covers N messages".
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct IndexStats {
     pub messages: i64,
     pub rooms: i64,
 }
 
-/// The typed text as an FTS5 MATCH expression: always one quoted phrase, so
-/// FTS5 operators (`AND`, `OR`, `NOT`, `*`, `^`, `:`, parentheses) are taken
-/// literally and an unbalanced quote is not a syntax error. With trigram this
-/// is a literal substring search. Inner double quotes are doubled, per
-/// SQLite.
 pub(crate) fn match_expression(query: &str) -> String {
     // Not folded here: `remove_diacritics 2` on the trigram table folds the
     // query too, and a second implementation could drift.
@@ -112,15 +71,9 @@ pub(crate) fn query_is_long_enough(query: &str) -> bool {
 
 pub(crate) struct SearchIndex {
     conn: Connection,
-    /// Changes when the index is cleared, and is unique per opened index. A
-    /// writer captures it before its first `.await` and writes only while it
-    /// still matches, checked under the index mutex that `clear` also holds:
-    /// so nothing collected before a clear can land after it.
     generation: std::sync::atomic::AtomicU64,
 }
 
-/// Source of index generations, process-wide so a reopened index never
-/// repeats a value an older writer captured.
 static GENERATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 fn next_generation() -> u64 {
@@ -128,7 +81,6 @@ fn next_generation() -> u64 {
 }
 
 impl SearchIndex {
-    /// Open (creating if needed) the index for an account store directory.
     pub(crate) fn open_in(store_dir: &Path) -> Result<Self, String> {
         let path = store_dir.join(INDEX_FILE);
         let conn = Connection::open(&path)
@@ -217,23 +169,7 @@ impl SearchIndex {
         self.migrate()
     }
 
-    /// Bring an index of any earlier shape to [`SCHEMA_VERSION`]. Idempotent:
-    /// every statement is guarded, so a run interrupted half way, or repeated
-    /// on every open, converges on the same schema.
-    ///
-    /// Version 1 indexes attachment file names (a captioned attachment's
-    /// `body` is the caption; the name lives in `filename`). Deliberately NOT
-    /// done by rebuilding `messages_fts`: that rewrites the whole text index in
-    /// one burst on an idle machine. Instead:
-    ///   * `messages.filename` is added as NULL = "not examined yet";
-    ///   * a SECOND, initially empty FTS table holds the names, so the
-    ///     existing text index is untouched;
-    ///   * old attachment rows are filled in as the paced sweeps meet their
-    ///     events again ([`SearchIndex::stale_filename_ids`]), one tiny update
-    ///     each, never a table scan.
     fn migrate(&self) -> Result<(), String> {
-        // One transaction: a crash or an error part way leaves the previous
-        // schema, never a half-migrated one. (SQLite DDL is transactional.)
         self.conn
             .execute_batch("BEGIN IMMEDIATE;")
             .map_err(|e| format!("cannot migrate the search index: {e}"))?;
@@ -268,8 +204,6 @@ impl SearchIndex {
             }
         }
         if version < SCHEMA_VERSION {
-            // The pre-1 trigger fired on ANY update, so a filename-only update
-            // would have rewritten the body's FTS entries for nothing.
             self.conn
                 .execute_batch("DROP TRIGGER IF EXISTS messages_au;")
                 .map_err(fail)?;
@@ -326,9 +260,6 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// Add or update one message. An upsert on the event id, so an edit
-    /// replaces the old wording instead of leaving it findable. The caller
-    /// resolves the edit. Returns whether a row actually changed.
     pub(crate) fn upsert(
         &self,
         event_id: &str,
@@ -342,10 +273,6 @@ impl SearchIndex {
         self.upsert_named(event_id, room_id, sender, sender_name, body, msgtype, ts, None)
     }
 
-    /// [`upsert`](Self::upsert) with the attachment's file name. `None` means
-    /// "the event does not say" (an edit without `filename`): a stored name is
-    /// kept, and a new row is left unexamined. `Some("")` means "examined, no
-    /// separate name".
     pub(crate) fn upsert_named(
         &self,
         event_id: &str,
@@ -361,7 +288,6 @@ impl SearchIndex {
         if event_id.is_empty() || room_id.is_empty() {
             return Ok(false);
         }
-        // An empty body can never be found; do not spend a row on it.
         if body.trim().is_empty() {
             return Ok(false);
         }
@@ -395,9 +321,6 @@ impl SearchIndex {
             .map_err(|e| format!("cannot index a message: {e}"))
     }
 
-    /// Attachment rows among `event_ids` indexed before file names were: their
-    /// `filename` is still NULL. Text rows are deliberately not listed (they
-    /// have no name), which bounds the backfill to attachments.
     pub(crate) fn stale_filename_ids(
         &self,
         event_ids: &[String],
@@ -430,9 +353,6 @@ impl SearchIndex {
         Ok(out)
     }
 
-    /// Record the file name of an already indexed row, touching nothing else
-    /// (an edited body must survive). Only fills a NULL, so a row is written
-    /// at most once by the backfill. Returns whether a row changed.
     pub(crate) fn fill_filename(&self, event_id: &str, filename: &str) -> Result<bool, String> {
         self.conn
             .execute(
@@ -443,8 +363,6 @@ impl SearchIndex {
             .map_err(|e| format!("cannot record a file name: {e}"))
     }
 
-    /// The sender stored for an event: the original's, which is the only
-    /// sender allowed to edit it.
     pub(crate) fn sender_of(&self, event_id: &str) -> Result<Option<String>, String> {
         self.conn
             .query_row(
@@ -456,9 +374,6 @@ impl SearchIndex {
             .map_err(|e| e.to_string())
     }
 
-    /// Remember which edit event produced a row's current text, so redacting
-    /// that edit can take its text out (see [`remove_event`](Self::remove_event)).
-    /// An event id only. Writes nothing when it is already recorded.
     pub(crate) fn set_edit_id(&self, event_id: &str, edit_id: &str) -> Result<bool, String> {
         self.conn
             .execute(
@@ -469,18 +384,10 @@ impl SearchIndex {
             .map_err(|e| format!("cannot record an edit: {e}"))
     }
 
-    /// A redaction removes the row outright; a redacted message must not stay
-    /// findable by its text. `event_id` may also be the EDIT that produced the
-    /// row's current text (`edit_id`): the edit's wording (and file name) lives
-    /// in the original's row, and the index cannot restore the wording before
-    /// it, so the row goes too. That is the conservative direction: the
-    /// original is re-indexed from the event cache by the next sweep, which
-    /// skips the redacted edit ([`indexable_from`]) and applies any earlier one.
     pub(crate) fn remove_event(&self, event_id: &str) -> Result<(), String> {
         self.conn
             .execute("DELETE FROM messages WHERE event_id = ?1", params![event_id])
             .map_err(|e| format!("cannot remove a message from the index: {e}"))?;
-        // Separate statement so the partial index serves it (an OR would scan).
         self.conn
             .execute(
                 "DELETE FROM messages WHERE edit_id = ?1 AND edit_id IS NOT NULL",
@@ -490,7 +397,6 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// Everything for one room (the user forgets a room).
     pub(crate) fn remove_room(&self, room_id: &str) -> Result<(), String> {
         self.conn
             .execute("DELETE FROM messages WHERE room_id = ?1", params![room_id])
@@ -498,13 +404,10 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// The current generation; see the field.
     pub(crate) fn generation(&self) -> u64 {
         self.generation.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// Drop the whole index. The generation moves FIRST, so a writer holding
-    /// an older one is refused even when the delete itself fails.
     pub(crate) fn clear(&self) -> Result<(), String> {
         self.generation
             .store(next_generation(), std::sync::atomic::Ordering::Relaxed);
@@ -514,8 +417,6 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// Evict the oldest rows past [`MAX_ROWS`], by timestamp: recent messages
-    /// are the ones most often searched.
     pub(crate) fn prune(&self) -> Result<i64, String> {
         let total: i64 = self
             .conn
@@ -548,7 +449,6 @@ impl SearchIndex {
         Ok(IndexStats { messages, rooms })
     }
 
-    /// True when this event is already indexed.
     #[cfg(test)]
     pub(crate) fn contains(&self, event_id: &str) -> Result<bool, String> {
         let found: Option<i64> = self
@@ -563,13 +463,11 @@ impl SearchIndex {
         Ok(found.is_some())
     }
 
-    /// Which of `event_ids` are already indexed, in one query.
     pub(crate) fn known(&self, event_ids: &[String]) -> Result<HashSet<String>, String> {
         let mut out = HashSet::new();
         if event_ids.is_empty() {
             return Ok(out);
         }
-        // Chunked below SQLite's default 999-parameter limit.
         for slice in event_ids.chunks(500) {
             let placeholders = std::iter::repeat("?")
                 .take(slice.len())
@@ -591,8 +489,6 @@ impl SearchIndex {
         Ok(out)
     }
 
-    /// Search; empty `room_id` searches every indexed room. Newest first rather
-    /// than by bm25, matching the server search beside it.
     pub(crate) fn search(
         &self,
         query: &str,
@@ -607,7 +503,6 @@ impl SearchIndex {
         let limit = limit.clamp(1, 500);
         let offset = offset.max(0);
 
-        // A row matches on its text (body, sender name) OR its file name.
         let sql = if room_id.is_empty() {
             "SELECT m.event_id, m.room_id, m.sender, m.sender_name, m.body,
                     m.msgtype, m.ts, ifnull(m.filename, '')
@@ -655,42 +550,20 @@ impl SearchIndex {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Feeding the index
-// ---------------------------------------------------------------------------
-//
-// One source: the SDK event cache, not the live timeline (which covers only
-// the open room). `RoomEventCache::events()` returns events already
-// decrypted (the redecryptor replaces UTDs in place), so encrypted rooms
-// index like public ones.
-//
-// Coverage is what Lightning has cached, growing as the user reads and as
-// [`deep_index_room`] pages backwards; the UI shows a count rather than
-// implying completeness.
-
 use matrix_sdk::room::Room;
 
-/// Events per backward page while deep-indexing.
 const DEEP_PAGE_SIZE: u16 = 100;
 
-/// One message worth indexing, taken from a cached event.
 struct Indexable {
     event_id: String,
     sender: String,
     body: String,
     msgtype: String,
     ts: i64,
-    /// `Some(name)`: the event states a file name distinct from the body
-    /// ("" = examined, none). `None`: it does not say (an edit without one).
     filename: Option<String>,
-    /// For a replacement: the id of the EDIT event itself (`event_id` is the
-    /// original's). `None` for an ordinary event.
     edit_id: Option<String>,
 }
 
-/// Pull the searchable text out of one cached event. Only messages with text
-/// qualify; state changes, reactions and receipts would make "joined the
-/// room" the most common hit. Redacted events are skipped (see below).
 fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
     let event_id = raw.get("event_id")?.as_str()?.to_owned();
     let sender = raw.get("sender")?.as_str()?.to_owned();
@@ -711,9 +584,6 @@ fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
     }
     let content = raw.get("content")?;
 
-    // An edit carries its text in `m.new_content` and a "* fallback" in `body`.
-    // Indexing the fallback would make edits findable by an asterisk and keep
-    // the old text; the edit is applied to the original event's row instead.
     let relates = content.get("m.relates_to");
     let is_replacement = relates
         .and_then(|r| r.get("rel_type"))
@@ -735,7 +605,6 @@ fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_owned();
-    // An attachment's `body` is its filename, which is worth finding.
     let raw_body = body_source.get("body").and_then(|v| v.as_str())?;
     // The quoted original is not part of this message; indexing it would make
     // a reply findable by words it never said.
@@ -747,13 +616,8 @@ fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
     if body.trim().is_empty() {
         return None;
     }
-    // The name of a captioned attachment (MSC2530): `body` is the caption and
-    // `filename` the file. When it is the same string, or absent on an original
-    // event, `body` already is the name and nothing extra is stored.
     let filename = if is_attachment_msgtype(&msgtype) {
         match body_source.get("filename").and_then(|v| v.as_str()) {
-            // Compared AFTER cleaning, on both sides, so a name that differs
-            // from the body only by control or bidi characters is not stored.
             Some(name) => {
                 let cleaned = clean_filename(name);
                 Some(if cleaned == clean_filename(&body) { String::new() } else { cleaned })
@@ -770,11 +634,6 @@ fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
     Some(Indexable { event_id: target_id, sender, body, msgtype, ts, filename, edit_id })
 }
 
-/// Page a room backwards, indexing what each page brings in ("Index this
-/// room"). The same walk as [`deep_index_room_gated`], stopped only by
-/// sign-out and unpaced, because the user is waiting on it.
-///
-/// Returns (pages run, reached_start, rows written).
 pub(crate) async fn deep_index_room(
     room: &Room,
     index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
@@ -787,32 +646,21 @@ pub(crate) async fn deep_index_room(
     Ok((outcome.pages, outcome.reached_start, outcome.written))
 }
 
-/// What a paged walk is told between pages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Gate {
-    /// Fetch the next page.
     Go,
-    /// Hold (a call, a scrolling reader): wait and ask again, losing nothing.
     Wait,
-    /// Stop now: sign-out, account switch, cancel or pause.
     Stop,
 }
 
-/// How a caller paces and stops [`deep_index_room_gated`]. Sync methods only,
-/// so the walk future stays `Send` without an async trait.
 pub(crate) trait PageGate: Sync {
-    /// Asked before every page, and polled while a page is in flight so a
-    /// stop never waits on a slow request (only `Stop` matters then).
     fn gate(&self) -> Gate;
-    /// Pause between pages. Zero for the interactive per-room index.
     fn page_gap(&self) -> std::time::Duration {
         std::time::Duration::ZERO
     }
-    /// Called after each page is indexed, with the walk so far.
     fn on_page(&self, _so_far: &DeepOutcome) {}
 }
 
-/// The per-room gate: sign-out stops it, nothing paces it.
 pub(crate) struct StopOnly<'a>(pub &'a std::sync::atomic::AtomicBool);
 
 impl PageGate for StopOnly<'_> {
@@ -825,22 +673,15 @@ impl PageGate for StopOnly<'_> {
     }
 }
 
-/// How one walk ended.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DeepOutcome {
     pub pages: u16,
     pub reached_start: bool,
     pub written: usize,
-    /// Distinct events in the walked history that are still undecryptable.
-    /// They are never indexed (their `type` is `m.room.encrypted`); counted
-    /// so a room holding them is not recorded as fully indexed.
     pub undecryptable: usize,
-    /// The gate stopped the walk before its bound or the room start.
     pub interrupted: bool,
 }
 
-/// Why a walk failed. `retry_after_ms` is the server's own hint on an
-/// `M_LIMIT_EXCEEDED` that matrix-sdk's retries did not absorb.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DeepError {
     pub message: String,
@@ -872,10 +713,8 @@ impl DeepError {
     }
 }
 
-/// How often a hold or an in-flight page re-reads its gate.
 const GATE_POLL_MS: u64 = 250;
 
-/// Resolves once the gate says `Stop`; raced against an in-flight page.
 async fn stopped<G: PageGate>(gate: &G) {
     loop {
         if gate.gate() == Gate::Stop {
@@ -885,7 +724,6 @@ async fn stopped<G: PageGate>(gate: &G) {
     }
 }
 
-/// Wait `gap`, then out any hold. False when the gate stopped the walk.
 async fn paced<G: PageGate>(gate: &G, gap: std::time::Duration) -> bool {
     let poll = std::time::Duration::from_millis(GATE_POLL_MS);
     let mut left = gap;
@@ -906,9 +744,6 @@ async fn paced<G: PageGate>(gate: &G, gap: std::time::Duration) -> bool {
     }
 }
 
-/// The generation a writer captures before its first `.await`; 0 when no
-/// index is open (every write is then refused, which is right: there is
-/// nothing to write into).
 pub(crate) fn current_generation(
     index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
 ) -> u64 {
@@ -938,29 +773,14 @@ fn write_locked(
     Some(write_batch(ix, room_id, batch))
 }
 
-/// Upper bound on the undecryptable ids one walk remembers: 50 pages of 100
-/// events is 5,000, so this never truncates a real walk and still bounds a
-/// pathological one.
 const MAX_TRACKED_UNDECRYPTABLE: usize = 10_000;
 
-/// Page a room backwards, indexing what each page brings in.
-///
-/// Read after every page: `RoomEventCache::events()` reads the in-memory
-/// linked chunk, which Lightning's jump-to-live trim shrinks to about one
-/// page, so reading only at the end would collect one page.
-///
-/// Bounded by `max_pages` and stops at the room start. The gate is asked
-/// before every page and polled while one is in flight, so sign-out never
-/// waits on a request. Pages already fetched come from the event-cache store
-/// before the network, so re-walking a room is mostly local reads.
 pub(crate) async fn deep_index_room_gated<G: PageGate>(
     room: &Room,
     index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
     gate: &G,
     max_pages: u16,
 ) -> Result<DeepOutcome, DeepError> {
-    // Before the first await: every write below must go into this index, so a
-    // clear during any await, this one included, refuses them.
     let generation = current_generation(index);
     let (room_cache, _drop_handles) = room
         .event_cache()
@@ -970,7 +790,6 @@ pub(crate) async fn deep_index_room_gated<G: PageGate>(
 
     let mut outcome = DeepOutcome::default();
     let mut undecryptable: HashSet<String> = HashSet::new();
-    // What is already loaded, before any request.
     if let Ok(batch) = collect_from(room, &room_cache).await {
         let Some(written) = write_locked(index, generation, room_id, &batch) else {
             outcome.interrupted = true;
@@ -998,7 +817,6 @@ pub(crate) async fn deep_index_room_gated<G: PageGate>(
         let page_outcome = result.map_err(|e| DeepError::from_pagination(&e))?;
         outcome.pages += 1;
         if let Ok(batch) = collect_from(room, &room_cache).await {
-            // Cleared while this page was in flight: stop, write nothing.
             let Some(written) = write_locked(index, generation, room_id, &batch) else {
                 outcome.interrupted = true;
                 break;
@@ -1026,29 +844,14 @@ fn note_undecryptable(seen: &mut HashSet<String>, batch: &RoomBatch) {
     }
 }
 
-/// True for an event the client holds but could not decrypt: the cache keeps
-/// a UTD in its encrypted form. Never indexed ([`indexable_from`] takes only
-/// `m.room.message`); counted instead.
 fn is_undecryptable(raw: &serde_json::Value) -> bool {
     raw.get("type").and_then(|t| t.as_str()) == Some("m.room.encrypted")
 }
 
-// ---------------------------------------------------------------------------
-// The background indexer
-// ---------------------------------------------------------------------------
-
-/// Rooms swept per wake-up, so an account with hundreds of rooms does not
-/// hold the runtime for long.
 pub(crate) const SWEEP_ROOM_BATCH: usize = 40;
 
-/// Backward pages per room for the deep index: 50 x 100 events, useful yet
-/// bounded.
 pub(crate) const DEEP_MAX_PAGES: u16 = 50;
 
-/// Where the next sweep's window starts, over the sorted joined rooms, PER
-/// ACCOUNT: two signed-in accounts (or a sign-out and a different sign-in in
-/// one process) have unrelated room lists and must not advance each other's
-/// window.
 static SWEEP_CURSORS: std::sync::Mutex<Option<std::collections::HashMap<String, usize>>> =
     std::sync::Mutex::new(None);
 
@@ -1066,8 +869,6 @@ fn set_sweep_cursor(account: &str, value: usize) {
     }
 }
 
-/// The `batch` items starting at `start` (wrapping), or all of them when they
-/// fit in one batch.
 pub(crate) fn sweep_window<T: Clone>(all: Vec<T>, start: usize, batch: usize) -> Vec<T> {
     if all.len() <= batch {
         return all;
@@ -1076,8 +877,6 @@ pub(crate) fn sweep_window<T: Clone>(all: Vec<T>, start: usize, batch: usize) ->
     all.iter().cycle().skip(from).take(batch).cloned().collect()
 }
 
-/// Sweep every joined room's cached events into the index. Returns (rooms
-/// visited, rows written). `stop` is checked between rooms.
 pub(crate) async fn sweep(
     client: &matrix_sdk::Client,
     index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
@@ -1085,13 +884,7 @@ pub(crate) async fn sweep(
 ) -> (usize, usize) {
     let mut rooms_done = 0usize;
     let mut written = 0usize;
-    // Captured before the first await, like the deep walk: a clear during the
-    // sweep ends it rather than being refilled from batches collected before.
     let generation = current_generation(index);
-    // A batch of SWEEP_ROOM_BATCH rooms per wake that always started at the
-    // same place meant an account with more joined rooms than that never had
-    // the rest swept at all. The window now moves on by what it visited, over
-    // a stable order, so every room is met within ceil(rooms / batch) wakes.
     let mut joined = client.joined_rooms();
     joined.sort_by(|a, b| a.room_id().cmp(b.room_id()));
     let account = client.user_id().map(|u| u.to_string()).unwrap_or_default();
@@ -1101,7 +894,6 @@ pub(crate) async fn sweep(
             break;
         }
         rooms_done += 1;
-        // Lock per room, not for the whole sweep, so a search is not blocked.
         let events = match collect_room(&room).await {
             Ok(events) => events,
             Err(_) => continue,
@@ -1115,13 +907,10 @@ pub(crate) async fn sweep(
     (rooms_done, written)
 }
 
-/// One room's indexable events, ready to write. Separate from the write so
-/// the index mutex is never held across an `.await`.
 pub(crate) struct RoomBatch {
     ordinary: Vec<Indexable>,
     edits: Vec<Indexable>,
     names: std::collections::HashMap<String, String>,
-    /// Ids of events still undecryptable; ids only, never content.
     undecryptable: Vec<String>,
 }
 
@@ -1133,8 +922,6 @@ pub(crate) async fn collect_room(room: &Room) -> Result<RoomBatch, String> {
     collect_from(room, &room_cache).await
 }
 
-/// The same walk against a cache handle the caller already holds; re-taking
-/// it per page would let the linked chunk shrink under the walk.
 pub(crate) async fn collect_from(
     room: &Room,
     room_cache: &matrix_sdk::event_cache::RoomEventCache,
@@ -1189,24 +976,10 @@ pub(crate) async fn collect_from(
     Ok(RoomBatch { ordinary, edits, names, undecryptable })
 }
 
-/// Write one collected room. Synchronous, so the index mutex is held for a
-/// bounded burst of inserts, never across a network wait.
-///
-/// In ONE transaction. FTS5 flushes a new segment, and SQLite writes every
-/// b-tree page the change touched, at each commit, so a row per transaction
-/// rewrote the same index pages once per message: measured 2026-10-26, the
-/// sweep after a session that loaded ~420 messages wrote 6 MiB to this file's
-/// WAL for a 143 KiB database, and a model of this schema writes 17-21x fewer
-/// WAL bytes with one commit per room. A room's rows also land together: a
-/// crash part way keeps the room's previous rows, never half a batch, and the
-/// next sweep writes the rest as it would have anyway.
 pub(crate) fn write_batch(index: &SearchIndex, room_id: &str, batch: &RoomBatch) -> usize {
-    // Unbatched (as before) only when a transaction cannot be opened, e.g. one
-    // is already open on this connection.
     let tx = index.conn.unchecked_transaction().ok();
     let written = write_batch_rows(index, room_id, batch);
     match tx {
-        // A failed COMMIT rolls back when `tx` drops: nothing was written.
         Some(tx) => {
             if tx.commit().is_ok() {
                 written
@@ -1221,8 +994,6 @@ pub(crate) fn write_batch(index: &SearchIndex, room_id: &str, batch: &RoomBatch)
 fn write_batch_rows(index: &SearchIndex, room_id: &str, batch: &RoomBatch) -> usize {
     let ids: Vec<String> = batch.ordinary.iter().map(|c| c.event_id.clone()).collect();
     let known = index.known(&ids).unwrap_or_default();
-    // Attachments indexed before file names were: their cached events are met
-    // by the ordinary paced sweeps, and each is filled in once (below).
     let stale = index.stale_filename_ids(&ids).unwrap_or_default();
     let mut written = 0usize;
     for item in &batch.ordinary {
@@ -1304,10 +1075,6 @@ fn write_batch_rows(index: &SearchIndex, room_id: &str, batch: &RoomBatch) -> us
     written
 }
 
-/// Remove a redacted message's row as the redaction arrives. Registered for
-/// the sync loop's lifetime, like the RTC and call observers, so it never
-/// fires into a later account's index. Best effort: `indexable_from` also
-/// refuses to re-add a redacted event on the next sweep.
 pub(crate) fn register_redaction_handler(
     client: &matrix_sdk::Client,
     index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
@@ -1353,9 +1120,6 @@ mod tests {
         ix.upsert(id, room, "@a:x", "Ann", body, "m.text", ts).unwrap();
     }
 
-    // FTS5 is a compile-time SQLite option; `bundled-sqlite` makes it a build
-    // constant rather than whatever the host has. The schema cannot build
-    // without FTS5.
     #[test]
     fn fts5_is_compiled_in() {
         let ix = index();
@@ -1370,26 +1134,21 @@ mod tests {
         add(&ix, "$2", "!r:x", "hello world", 2000);
         add(&ix, "$3", "!r:x", "привет мир", 3000);
         add(&ix, "$4", "!r:x", "مرحبا بالعالم", 4000);
-        // Chinese has no spaces: unicode61 would find nothing here, trigram does.
         assert_eq!(ix.search("一个测", "", 10, 0).unwrap().len(), 1);
-        // A substring inside a word.
         assert_eq!(ix.search("ell", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("ривет", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("العا", "", 10, 0).unwrap().len(), 1);
     }
 
-    // ── The cost of trigram ──────────────────────────────────────────────
     #[test]
     fn a_query_shorter_than_three_characters_is_refused_not_silently_empty() {
         let ix = index();
         add(&ix, "$1", "!r:x", "ok then", 1000);
         assert!(!query_is_long_enough("ok"));
         assert!(!query_is_long_enough(" a "));
-        // Trimmed before counting, so trailing space does not count.
         assert!(!query_is_long_enough("ok "));
         assert!(query_is_long_enough(" okay "));
         assert!(query_is_long_enough("测试消"));
-        // The minimum is in characters, not bytes, or CJK queries would be refused.
         assert_eq!("测试消".len(), 9);
         assert_eq!(ix.search("ok", "", 10, 0).unwrap().len(), 0);
     }
@@ -1399,19 +1158,16 @@ mod tests {
         let ix = index();
         add(&ix, "$1", "!r:x", "Köln im Sommer", 1000);
         add(&ix, "$2", "!r:x", "CAFÉ au lait", 2000);
-        // Passes only because `remove_diacritics 2` folds both sides.
         assert_eq!(ix.search("koln", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("KÖLN", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("cafe", "", 10, 0).unwrap().len(), 1);
     }
 
-    // ── The query is text, not a language ────────────────────────────────
     #[test]
     fn ftsOperatorsTypedByAUserAreCharactersNotOperators() {
         let ix = index();
         add(&ix, "$1", "!r:x", "deploy AND release notes", 1000);
         add(&ix, "$2", "!r:x", "deploy only", 2000);
-        // As an FTS5 operator this would match both rows; as text, only one.
         let hits = ix.search("deploy AND release", "", 10, 0).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].event_id, "$1");
@@ -1421,15 +1177,12 @@ mod tests {
     fn aQuotationMarkIsASearchTermNotASyntaxError() {
         let ix = index();
         add(&ix, "$1", "!r:x", "he said \"hello\" loudly", 1000);
-        // Unescaped, this would be an FTS5 syntax error.
         let hits = ix.search("said \"hello\"", "", 10, 0).unwrap();
         assert_eq!(hits.len(), 1);
-        // A lone quote must not fail either.
         assert!(ix.search("\"\"\"", "", 10, 0).is_ok());
         assert!(ix.search("a*b(c)", "", 10, 0).is_ok());
     }
 
-    // ── Editing, redaction, scope ────────────────────────────────────────
     #[test]
     fn anEditReplacesTheOldWordingRatherThanAddingToIt() {
         let ix = index();
@@ -1452,7 +1205,6 @@ mod tests {
         ix.remove_event("$1").unwrap();
         assert_eq!(ix.search("regrettable", "", 10, 0).unwrap().len(), 0);
         assert_eq!(ix.stats().unwrap().messages, 0);
-        // Removing what is not there is not an error.
         assert!(ix.remove_event("$nope").is_ok());
     }
 
@@ -1480,7 +1232,6 @@ mod tests {
         assert_eq!(page1[1].event_id, "$4");
         let page2 = ix.search("paging", "", 2, 2).unwrap();
         assert_eq!(page2[0].event_id, "$3");
-        // The limit is clamped.
         assert!(ix.search("paging", "", 100_000, 0).unwrap().len() <= 5);
         assert!(ix.search("paging", "", 0, -5).is_ok());
     }
@@ -1494,16 +1245,13 @@ mod tests {
         assert_eq!(ix.stats().unwrap().messages, 0);
     }
 
-    // A room batch is ONE commit, not one per message. On the old code each
-    // upsert committed on its own: 40 rows, 40 commits, and the FTS pages
-    // written once per commit (write_batch's comment has the measurement).
     #[test]
     fn aRoomBatchIsWrittenInOneCommit() {
         use std::os::raw::{c_int, c_void};
         use std::sync::atomic::{AtomicUsize, Ordering};
         unsafe extern "C" fn count_commit(arg: *mut c_void) -> c_int {
             (*(arg as *const AtomicUsize)).fetch_add(1, Ordering::SeqCst);
-            0 // 0 = let the commit proceed
+            0
         }
         let ix = index();
         let commits = Box::new(AtomicUsize::new(0));
@@ -1530,11 +1278,9 @@ mod tests {
         };
         assert_eq!(write_batch(&ix, "!r:x", &batch), 40);
         assert_eq!(commits.load(Ordering::SeqCst), 1, "one commit per room batch");
-        // Committed, not left open or rolled back.
         assert!(ix.conn.is_autocommit());
         assert_eq!(ix.stats().unwrap().messages, 40);
         assert_eq!(ix.search("quick", "", 100, 0).unwrap().len(), 40);
-        // A repeat writes nothing new, so it costs no commit that changes rows.
         assert_eq!(write_batch(&ix, "!r:x", &batch), 0);
         unsafe {
             rusqlite::ffi::sqlite3_commit_hook(ix.conn.handle(), None, std::ptr::null_mut());
@@ -1542,7 +1288,6 @@ mod tests {
         drop(commits);
     }
 
-    // The index's WAL is bounded on disk; see ensure_schema.
     #[test]
     fn theIndexWalHasASizeLimit() {
         let ix = index();
@@ -1585,9 +1330,6 @@ mod tests {
         assert_eq!(timestamp, 1000);
     }
 
-    // Several cached edits of one event: the last wins and the row keeps the
-    // original's sender, timestamp and message type metadata. Every edit here is
-    // by the ORIGINAL's sender (anything else is refused, see the next test).
     #[test]
     fn coalescingEditsKeepsTheOriginalFallbackMetadata() {
         let ix = index();
@@ -1613,9 +1355,6 @@ mod tests {
         assert_eq!(write_batch(&ix, "!r:x", &batch), 0);
     }
 
-    // An m.replace is honoured only from the original's sender. On the old
-    // code @evil could rewrite another user's message and file name, or plant
-    // a row under their own name for an event the index had never seen.
     #[test]
     fn an_edit_by_anyone_but_the_original_sender_is_ignored() {
         let ix = index();
@@ -1629,7 +1368,6 @@ mod tests {
             msgtype: "m.image".into(), ts: 2000, filename: Some("pwned.png".into()),
             edit_id: Some(id.into()),
         };
-        // 1. Original in the same batch.
         let batch = RoomBatch {
             ordinary: vec![original],
             edits: vec![evil_edit("$img", "$ev1")],
@@ -1640,7 +1378,6 @@ mod tests {
         assert_eq!(ix.search("alices caption", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("alice-photo", "", 10, 0).unwrap().len(), 1);
         assert!(ix.search("pwned", "", 10, 0).unwrap().is_empty());
-        // 2. Original known only from the stored row (a later sweep).
         let later = RoomBatch {
             ordinary: vec![],
             edits: vec![evil_edit("$img", "$ev2")],
@@ -1649,8 +1386,6 @@ mod tests {
         };
         assert_eq!(write_batch(&ix, "!r:x", &later), 0);
         assert!(ix.search("pwned", "", 10, 0).unwrap().is_empty());
-        // 3. Original unknown to the index and the batch: no row is invented
-        // under the editor's name.
         let orphan = RoomBatch {
             ordinary: vec![],
             edits: vec![evil_edit("$never-seen", "$ev3")],
@@ -1660,7 +1395,6 @@ mod tests {
         assert_eq!(write_batch(&ix, "!r:x", &orphan), 0);
         assert!(!ix.contains("$never-seen").unwrap());
         assert_eq!(ix.stats().unwrap().messages, 1);
-        // The owner's own edit still lands.
         let mut own = evil_edit("$img", "$own");
         own.sender = "@alice:x".into();
         let batch = RoomBatch {
@@ -1673,8 +1407,6 @@ mod tests {
         assert_eq!(ix.search("pwned.png", "", 10, 0).unwrap().len(), 1);
     }
 
-    // A stranger's edit that comes AFTER the owner's must not displace it
-    // (the last edit used to be chosen before the sender was checked).
     #[test]
     fn a_strangers_later_edit_does_not_displace_the_owners_edit() {
         let ix = index();
@@ -1695,7 +1427,6 @@ mod tests {
         assert!(ix.search("original", "", 10, 0).unwrap().is_empty());
     }
 
-    // Redacting an edit finds the row through an index, not a table scan.
     #[test]
     fn redacting_an_edit_is_served_by_the_edit_id_index() {
         let ix = index();
@@ -1710,9 +1441,6 @@ mod tests {
         assert!(plan.iter().any(|d| d.contains("messages_edit_id")), "scan: {plan:?}");
     }
 
-    // Redacting an EDIT must not leave its wording (or file name) behind: the
-    // edit lives in the original's row, so the row is dropped and re-indexed
-    // from the cache, which skips the redacted edit.
     #[test]
     fn redacting_an_edit_takes_its_text_and_file_name_out_of_the_index() {
         let ix = index();
@@ -1730,11 +1458,9 @@ mod tests {
         };
         write_batch(&ix, "!r:x", &batch);
         assert_eq!(ix.search("regrettable", "", 10, 0).unwrap().len(), 1);
-        // The redaction names the edit event, not the original.
         ix.remove_event("$edit").unwrap();
         assert!(ix.search("regrettable", "", 10, 0).unwrap().is_empty());
         assert!(!ix.contains("$img").unwrap());
-        // Control: redacting an unrelated id removes nothing.
         ix.upsert_named("$other", "!r:x", "@a:x", "Ann", "keepme text", "m.text", 3, None).unwrap();
         ix.remove_event("$unrelated").unwrap();
         assert!(ix.contains("$other").unwrap());
@@ -1750,11 +1476,9 @@ mod tests {
             .query_row("SELECT sql FROM sqlite_master WHERE name = 'messages_au'", [], |r| r.get(0))
             .unwrap();
         assert!(sql.contains("WHEN old.body IS NOT new.body"), "the old unconditional trigger survived: {sql}");
-        // A filename-only update must not rewrite the body's FTS entries.
         ix.upsert_named("$img2", "!r:x", "@a:x", "Ann", "some caption", "m.image", 5, Some("keep.png")).unwrap();
         let fingerprint = body_fts_fingerprint(&ix);
         ix.fill_filename("$img", "late.png").unwrap();
-        // The name was indexed, the body's FTS entries were not rewritten.
         assert_eq!(ix.search("late.png", "", 10, 0).unwrap().len(), 1);
         assert_eq!(body_fts_fingerprint(&ix), fingerprint);
         ix.clear().unwrap();
@@ -1762,7 +1486,6 @@ mod tests {
         assert!(ix.search("late.png", "", 10, 0).unwrap().is_empty());
         let rows: i64 = ix.conn.query_row("SELECT count(*) FROM messages", [], |r| r.get(0)).unwrap();
         assert_eq!(rows, 0);
-        // Not just joined away: nothing is left matchable in the name table.
         let left: i64 = ix
             .conn
             .query_row(
@@ -1774,8 +1497,6 @@ mod tests {
         assert_eq!(left, 0);
     }
 
-    // The migration runs in one transaction: when it cannot complete, the
-    // index is left exactly as it was and no transaction stays open.
     #[test]
     fn a_migration_that_cannot_complete_leaves_the_old_schema_and_no_open_transaction() {
         let conn = Connection::open_in_memory().unwrap();
@@ -1794,7 +1515,6 @@ mod tests {
             .exists([])
             .unwrap();
         assert!(!has);
-        // And it still migrates cleanly afterwards.
         ix.migrate().unwrap();
         assert!(ix.conn.is_autocommit());
     }
@@ -1808,11 +1528,9 @@ mod tests {
         assert_eq!(ix.search("robert", "", 10, 0).unwrap().len(), 1);
     }
 
-    // ── Bounds ───────────────────────────────────────────────────────────
     #[test]
     fn pruningEvictsTheOldestAndKeepsTheNewest() {
         let ix = index();
-        // Exercise the eviction SQL MAX_ROWS drives without writing 250k rows.
         for i in 1..=10 {
             add(&ix, &format!("${i}"), "!r:x", "bounded sample", i * 1000);
         }
@@ -1833,7 +1551,6 @@ mod tests {
             "$5",
             "eviction took the newest instead of the oldest"
         );
-        // Under the cap, prune() does nothing.
         assert_eq!(ix.prune().unwrap(), 0);
     }
 
@@ -1849,7 +1566,6 @@ mod tests {
         assert!(ix.contains("$1").unwrap());
         assert!(!ix.contains("$9").unwrap());
         assert!(ix.known(&[]).unwrap().is_empty());
-        // Past SQLite's 999-parameter limit, hence the chunking.
         let many: Vec<String> = (0..1500).map(|i| format!("$x{i}")).collect();
         assert!(ix.known(&many).unwrap().is_empty());
     }
@@ -1864,35 +1580,29 @@ mod tests {
         assert_eq!(ix.search("after", "", 10, 0).unwrap().len(), 1);
     }
 
-
-    // ── Lifting text out of a cached event ───────────────────────────────
     fn raw(json: serde_json::Value) -> serde_json::Value {
         json
     }
 
     #[test]
     fn onlyRoomMessagesWithTextAreIndexed() {
-        // State changes are not indexed.
         assert!(indexable_from(&raw(serde_json::json!({
             "event_id": "$1", "sender": "@a:x", "origin_server_ts": 1,
             "type": "m.room.member",
             "content": {"membership": "join", "displayname": "Ann"}
         })))
         .is_none());
-        // A reaction is not a message either.
         assert!(indexable_from(&raw(serde_json::json!({
             "event_id": "$2", "sender": "@a:x", "origin_server_ts": 1,
             "type": "m.reaction",
             "content": {"m.relates_to": {"key": "👍"}}
         })))
         .is_none());
-        // A redacted message's content is emptied by the server.
         assert!(indexable_from(&raw(serde_json::json!({
             "event_id": "$3", "sender": "@a:x", "origin_server_ts": 1,
             "type": "m.room.message", "content": {}
         })))
         .is_none());
-        // An empty body is nothing to find.
         assert!(indexable_from(&raw(serde_json::json!({
             "event_id": "$4", "sender": "@a:x", "origin_server_ts": 1,
             "type": "m.room.message",
@@ -1912,10 +1622,6 @@ mod tests {
         assert_eq!(ok.ts, 42);
     }
 
-    // "Index all rooms" must not record a room as complete while part of its
-    // history is still ciphertext. The cache keeps a UTD in its encrypted
-    // form; it is counted, and never indexed. Old code had no such count, so
-    // a walk over a room of UTDs reported nothing unusual.
     #[test]
     fn anUndecryptableEventIsCountedAndNeverIndexed() {
         let utd = raw(serde_json::json!({
@@ -1941,16 +1647,10 @@ mod tests {
             undecryptable: vec!["$u".to_owned(), "$v".to_owned()],
         };
         note_undecryptable(&mut seen, &batch);
-        // The same page read twice (the in-memory chunk overlaps) counts once.
         note_undecryptable(&mut seen, &batch);
         assert_eq!(seen.len(), 2);
     }
 
-    // "Clear index" while a page is in flight: the walk (or sweep) captured
-    // the generation before its await, the clear moves it under the same
-    // mutex, and the batch collected for the old index is refused. Old code:
-    // write_locked had no generation, so this batch refilled the cleared
-    // index with up to a page of decrypted text.
     #[test]
     fn aBatchCollectedBeforeAClearIsNeverWrittenAfterIt() {
         let index = std::sync::Arc::new(std::sync::Mutex::new(Some(
@@ -1969,13 +1669,11 @@ mod tests {
             names: std::collections::HashMap::new(),
             undecryptable: Vec::new(),
         };
-        // Control: the same batch writes when nothing was cleared.
         let before = current_generation(&index);
         assert_ne!(before, 0);
         assert_eq!(write_locked(&index, before, "!r:x", &batch), Some(1));
 
         let generation = current_generation(&index);
-        // The page is "in flight"; the user clears the index.
         index.lock().unwrap().as_ref().unwrap().clear().unwrap();
         assert_eq!(
             write_locked(&index, generation, "!r:x", &batch),
@@ -1985,20 +1683,16 @@ mod tests {
         let stats = index.lock().unwrap().as_ref().unwrap().stats().unwrap();
         assert_eq!(stats.messages, 0, "the cleared index was refilled");
 
-        // A writer that starts after the clear writes normally.
         let fresh = current_generation(&index);
         assert_eq!(write_locked(&index, fresh, "!r:x", &batch), Some(1));
-        // No index open: nothing to write into, and nothing is written.
         let closed = std::sync::Arc::new(std::sync::Mutex::new(None));
         assert_eq!(current_generation(&closed), 0);
         assert_eq!(write_locked(&closed, 0, "!r:x", &batch), None);
-        // A reopened index never reuses a generation an old writer holds.
         assert_ne!(SearchIndex::open_in_memory().unwrap().generation(), fresh);
     }
 
     #[test]
     fn anAttachmentIsIndexedByItsFilename() {
-        // An attachment's `body` is its filename.
         let item = indexable_from(&raw(serde_json::json!({
             "event_id": "$f", "sender": "@a:x", "origin_server_ts": 7,
             "type": "m.room.message",
@@ -2012,8 +1706,6 @@ mod tests {
 
     #[test]
     fn anEditIsAttributedToTheEventItReplaces() {
-        // An m.replace's "* new text" fallback must not be indexed; the edit is
-        // attributed to the original event, or the old wording would stay findable.
         let item = indexable_from(&raw(serde_json::json!({
             "event_id": "$edit", "sender": "@a:x", "origin_server_ts": 99,
             "type": "m.room.message",
@@ -2036,8 +1728,6 @@ mod tests {
 
     #[test]
     fn aReplyIsAnOrdinaryMessageNotAnEdit() {
-        // m.in_reply_to is also an m.relates_to; treating a reply as a replacement
-        // would overwrite the original's row.
         let item = indexable_from(&raw(serde_json::json!({
             "event_id": "$reply", "sender": "@a:x", "origin_server_ts": 5,
             "type": "m.room.message",
@@ -2054,7 +1744,6 @@ mod tests {
     #[test]
     fn aMalformedEventIsSkippedRatherThanPanicking()
     {
-        // Events come off the wire: none of these may unwrap.
         for value in [
             serde_json::json!({}),
             serde_json::json!({"event_id": "$1"}),
@@ -2067,7 +1756,6 @@ mod tests {
             serde_json::json!({"event_id": "$1", "sender": "@a:x",
                                "origin_server_ts": 1, "type": "m.room.message",
                                "content": {"body": 12345}}),
-            // An m.replace without a target is dropped, not filed under a guess.
             serde_json::json!({"event_id": "$1", "sender": "@a:x",
                                "origin_server_ts": 1, "type": "m.room.message",
                                "content": {"body": "* x",
@@ -2077,10 +1765,8 @@ mod tests {
         }
     }
 
-
     #[test]
     fn trigramCanFoldDiacriticsItself() {
-        // Measures that trigram's remove_diacritics folds diacritics itself.
         let db = Connection::open_in_memory().unwrap();
         let created = db.execute_batch(
             "CREATE VIRTUAL TABLE t USING fts5(body, tokenize='trigram remove_diacritics 2');
@@ -2101,8 +1787,6 @@ mod tests {
         assert_eq!(upper, 1, "trigram is not case-insensitive");
     }
 
-    // ── Attachment file names (schema version 1) ─────────────────────────
-
     fn captioned_image(event_id: &str, caption: &str, filename: &str) -> serde_json::Value {
         serde_json::json!({
             "type": "m.room.message", "event_id": event_id, "sender": "@a:x",
@@ -2115,8 +1799,6 @@ mod tests {
         })
     }
 
-    /// An image with a caption is found by its file name, which `body` no
-    /// longer carries. Fails on the old code: only `body` was indexed.
     #[test]
     fn a_captioned_image_is_found_by_its_file_name() {
         let ix = index();
@@ -2134,14 +1816,11 @@ mod tests {
         assert_eq!(by_name.len(), 1);
         assert_eq!(by_name[0].event_id, "$img");
         assert_eq!(by_name[0].filename, "IMG_2041_sunset.png");
-        // Folded like text, and the caption still works.
         assert_eq!(ix.search("img_2041_SUNSET", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("sunset", "", 10, 0).unwrap().len(), 1);
-        // Scoped search still scopes.
         assert!(ix.search("IMG_2041", "!other:x", 10, 0).unwrap().is_empty());
     }
 
-    /// Nothing but the name is stored: not the mxc URI, not the mime type.
     #[test]
     fn only_the_file_name_is_added_to_what_is_stored() {
         let ix = index();
@@ -2178,31 +1857,25 @@ mod tests {
             "content": { "msgtype": "m.file", "body": "old-style.zip", "url": "mxc://x/y" },
         });
         assert_eq!(indexable_from(&no_name).unwrap().filename.as_deref(), Some(""));
-        // A stray `filename` on a text message is not an attachment name.
         let text = serde_json::json!({
             "type": "m.room.message", "event_id": "$c", "sender": "@a:x",
             "origin_server_ts": 1i64,
             "content": { "msgtype": "m.text", "body": "hello", "filename": "x.png" },
         });
         assert_eq!(indexable_from(&text).unwrap().filename.as_deref(), Some(""));
-        // Bounded and stripped of control characters.
         let long = "n".repeat(10_000);
         let bounded = indexable_from(&captioned_image("$d", "cap", &format!("{long}\n\u{7}"))).unwrap();
         let bounded = bounded.filename.unwrap();
         assert_eq!(bounded.len(), MAX_FILENAME_BYTES);
-        // Cut on a character boundary, never in the middle of one.
-        let wide = "é".repeat(200); // 400 bytes
+        let wide = "é".repeat(200);
         let cut = clean_filename(&wide);
         assert!(cut.len() <= MAX_FILENAME_BYTES);
         assert_eq!(cut.chars().count(), MAX_FILENAME_BYTES / 2);
-        // Bidi controls (not Cc) are removed: they would disguise an extension.
         assert_eq!(clean_filename("evil\u{202E}gpj.exe\u{2066}"), "evilgpj.exe");
-        // The name==body comparison happens AFTER cleaning.
         let disguised = indexable_from(&captioned_image("$e", "plain.png", "plain\u{202E}.png")).unwrap();
         assert_eq!(disguised.filename.as_deref(), Some(""));
     }
 
-    /// A redaction removes the row, and with it the file name in the FTS table.
     #[test]
     fn a_redaction_removes_the_file_name_too() {
         let ix = index();
@@ -2211,7 +1884,6 @@ mod tests {
         assert_eq!(ix.search("secret-plans", "", 10, 0).unwrap().len(), 1);
         ix.remove_event("$img").unwrap();
         assert!(ix.search("secret-plans", "", 10, 0).unwrap().is_empty());
-        // The FTS table itself is empty, not merely joined away.
         let leftovers: i64 = ix
             .conn
             .query_row(
@@ -2221,19 +1893,16 @@ mod tests {
             )
             .unwrap();
         assert_eq!(leftovers, 0);
-        // Same for a whole forgotten room and for clear().
         ix.upsert_named("$2", "!r:x", "@a:x", "Ann", "c", "m.file", 1, Some("ledger.xlsx")).unwrap();
         ix.remove_room("!r:x").unwrap();
         assert!(ix.search("ledger", "", 10, 0).unwrap().is_empty());
     }
 
-    /// An edited name replaces the old one; a body-only edit keeps the name.
     #[test]
     fn editing_a_caption_keeps_the_name_and_a_new_name_replaces_it() {
         let ix = index();
         ix.upsert_named("$i", "!r:x", "@a:x", "Ann", "first caption", "m.image", 1, Some("old-name.png"))
             .unwrap();
-        // An edit that states no filename (None) changes the caption only.
         ix.upsert_named("$i", "!r:x", "@a:x", "Ann", "second caption", "m.image", 1, None).unwrap();
         assert_eq!(ix.search("old-name", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("second caption", "", 10, 0).unwrap().len(), 1);
@@ -2243,8 +1912,6 @@ mod tests {
         assert_eq!(ix.search("new-name", "", 10, 0).unwrap().len(), 1);
     }
 
-    /// A fingerprint of the BODY text index's storage: row counts and byte
-    /// totals of its shadow tables. A rebuild or a rewrite of any entry moves it.
     fn body_fts_fingerprint(ix: &SearchIndex) -> (i64, i64, i64, i64) {
         let data: (i64, i64) = ix
             .conn
@@ -2261,7 +1928,6 @@ mod tests {
         (data.0, data.1, sizes.0, sizes.1)
     }
 
-    /// The schema an index had before file names existed.
     const LEGACY_SCHEMA: &str = "
         CREATE TABLE messages(
             id INTEGER PRIMARY KEY, event_id TEXT NOT NULL UNIQUE, room_id TEXT NOT NULL,
@@ -2298,30 +1964,19 @@ mod tests {
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, 0);
         let ix_before = SearchIndex { conn, generation: std::sync::atomic::AtomicU64::new(1) };
-        // (legacy tables have no `messages_fts_data` fingerprint problem: FTS5 made them)
         let fingerprint_before = body_fts_fingerprint(&ix_before);
         let changes_before = ix_before.conn.total_changes();
         let SearchIndex { conn, .. } = ix_before;
 
         let ix = SearchIndex::from_connection(conn).unwrap();
 
-        // The existing text index was neither rebuilt nor touched, so there is
-        // no write burst on an idle machine. (`total_changes` also counts the
-        // handful of bookkeeping rows SQLite writes when FTS5 creates the empty
-        // name table, hence a small bound rather than zero.)
         assert_eq!(body_fts_fingerprint(&ix), fingerprint_before);
-        // The exact measured value (FTS5's own config row and friends), so a
-        // rebuild/optimize or any extra write moves it. The fixture has four
-        // separately committed inserts, so the body index holds several segments
-        // and an `optimize` would change the fingerprint above.
         assert_eq!(ix.conn.total_changes() - changes_before, 3);
         let version: i64 = ix.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, SCHEMA_VERSION);
-        // Old rows survive and stay searchable by their text.
         assert_eq!(ix.stats().unwrap().messages, 4);
         assert_eq!(ix.search("ordinary", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("picture", "", 10, 0).unwrap().len(), 1);
-        // The old attachment is unexamined (NULL), the text row is not listed.
         let stale = ix
             .stale_filename_ids(&["$text".to_owned(), "$img".to_owned()])
             .unwrap();
@@ -2333,12 +1988,10 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(LEGACY_SCHEMA).unwrap();
         let ix = SearchIndex::from_connection(conn).unwrap();
-        // Running the steps again on every open changes nothing and fails nothing.
         let before = ix.conn.total_changes();
         ix.ensure_schema().unwrap();
         ix.ensure_schema().unwrap();
         assert_eq!(ix.conn.total_changes(), before);
-        // An interrupted migration: column added, version never written.
         ix.conn.execute_batch("PRAGMA user_version = 0;").unwrap();
         ix.ensure_schema().unwrap();
         let version: i64 = ix.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
@@ -2346,8 +1999,6 @@ mod tests {
         assert_eq!(ix.search("ordinary", "", 10, 0).unwrap().len(), 1);
     }
 
-    /// A migrated attachment gains its name when the paced sweep meets its
-    /// event again, once, without disturbing an edited caption.
     #[test]
     fn a_migrated_attachment_is_backfilled_once_by_the_ordinary_sweep() {
         let conn = Connection::open_in_memory().unwrap();
@@ -2357,7 +2008,6 @@ mod tests {
 
         let batch = RoomBatch {
             ordinary: vec![
-                // The cached ORIGINAL still has the old caption; the row holds a newer one.
                 indexable_from(&captioned_image("$img", "caption of the picture", "holiday-photo.jpg"))
                     .unwrap(),
                 indexable_from(&serde_json::json!({
@@ -2373,20 +2023,16 @@ mod tests {
         ix.conn
             .execute("UPDATE messages SET body = 'edited caption' WHERE event_id = '$img'", [])
             .unwrap();
-        // One row filled in; the text row is not touched.
         assert_eq!(write_batch(&ix, "!r:x", &batch), 1);
         assert_eq!(ix.search("holiday-photo", "", 10, 0).unwrap().len(), 1);
         assert_eq!(ix.search("edited caption", "", 10, 0).unwrap().len(), 1, "the edit was overwritten");
-        // Nothing left to do: the second pass writes nothing at all.
         let before = ix.conn.total_changes();
         assert_eq!(write_batch(&ix, "!r:x", &batch), 0);
         assert_eq!(ix.conn.total_changes(), before);
     }
 
-    // ── The tokenizer decision, evidenced ────────────────────────────────
     #[test]
     fn unicode61WouldHaveMadeChineseUnsearchable() {
-        // Tests the alternative, so choosing trigram rests on a measurement.
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch(
             "CREATE VIRTUAL TABLE t USING fts5(body,
@@ -2402,7 +2048,6 @@ mod tests {
         assert_eq!(hits, 0, "unicode61 segmented CJK after all");
     }
 
-    // A sweep that always began at room 0 never reached room 41 onward.
     #[test]
     fn theSweepWindowMovesOnAndCoversEveryRoom() {
         let rooms: Vec<usize> = (0..100).collect();
@@ -2417,15 +2062,12 @@ mod tests {
             seen.extend(w);
         }
         assert_eq!(seen.len(), 100);
-        // Wraps instead of stopping short.
         assert_eq!(sweep_window(rooms.clone(), 90, 40)[10], 0);
-        // Each account has its own cursor.
         set_sweep_cursor("@a:x", 40);
         assert_eq!(sweep_cursor("@a:x"), 40);
         assert_eq!(sweep_cursor("@b:x"), 0);
         set_sweep_cursor("@b:x", 7);
         assert_eq!(sweep_cursor("@a:x"), 40);
-        // Few rooms: all of them, whatever the cursor.
         assert_eq!(sweep_window(vec![1, 2, 3], 7, 40), vec![1, 2, 3]);
     }
 }

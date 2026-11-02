@@ -7,9 +7,6 @@
 
 #include <csignal>
 
-// B117: SIGTERM had the default disposition and killed the process with no
-// orderly shutdown (no aboutToQuit, no store close). The bridge turns it into
-// a call on the event loop. Unix only, like the bridge.
 class QuitSignalBridgeTest : public QObject
 {
     Q_OBJECT
@@ -30,7 +27,6 @@ void QuitSignalBridgeTest::initTestCase()
 #ifndef Q_OS_UNIX
     QSKIP("POSIX signals only");
 #else
-    // As nohup leaves it.
     struct sigaction ignore {};
     ignore.sa_handler = SIG_IGN;
     sigemptyset(&ignore.sa_mask);
@@ -43,7 +39,6 @@ void QuitSignalBridgeTest::initTestCase()
         m_received = signo;
         QCoreApplication::quit();
     }));
-    // Once per process.
     QVERIFY(!lightning::quitsignals::install(&m_context, [](int) {}));
 #endif
 }
@@ -63,17 +58,10 @@ void QuitSignalBridgeTest::aSignalTheProcessWasStartedIgnoringStaysIgnored()
 void QuitSignalBridgeTest::sigtermQuitsThroughTheEventLoopAndASecondKindOfSignalDoesNotCutItShort()
 {
 #ifdef Q_OS_UNIX
-    // Without the bridge the SIGTERM kills the test process (QtTest reports the
-    // signal): exactly the old behaviour. The SIGINT right behind it stands in
-    // for logind's SIGHUP after the SIGTERM of a desktop logout (SIGHUP is
-    // ignored in this process, as nohup leaves it): a different signal inside
-    // the grace period must not _exit(130) over the orderly quit, which a
-    // bridge that forces the exit on ANY second signal does.
     QTimer::singleShot(0, [] {
         ::raise(SIGTERM);
         ::raise(SIGINT);
     });
-    // A watchdog, so a bridge that never delivers fails instead of hanging.
     QTimer::singleShot(5000, [] { QCoreApplication::exit(99); });
     const int status = QCoreApplication::exec();
     QCOMPARE(status, 0);

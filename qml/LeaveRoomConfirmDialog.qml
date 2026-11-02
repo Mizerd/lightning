@@ -4,29 +4,15 @@ import QtQuick.Layouts
 import MatrixClient
 import "LeaveAdminCheck.js" as AdminCheck
 
-// The one leave-room confirmation, shared by the room list menu and the room
-// information panel. The wording is honest about what leaving costs: a room
-// the user is the only member of ends up empty, and an invite-only room needs
-// a new invitation to come back to. Callers pass what they know; -1 and ""
-// mean "not known", which gets the neutral text and never a promise.
-//
-// Chrome follows the other confirmations (sign-out): panel surface, explicit
-// scrim, padded title, Cancel as the default.
 Dialog {
     id: root
 
-    // Emitted with the room id passed to openFor(), after the dialog closed.
     signal confirmed(string roomId)
 
     property string pendingRoomId: ""
-    // A remote string: shown PlainText only.
     property string pendingRoomName: ""
-    // Joined members including the user, or -1 when the caller does not know.
     property int memberCount: -1
-    // m.room.join_rules value ("public", "invite", ...), or "" when unknown.
     property string joinRule: ""
-    // Pending invitations, or -1 when unknown. Invitees can still join, so
-    // the room is not empty while any exist.
     property int invitedCount: -1
 
     // The user holds the only admin power level in a room with others left in
@@ -44,27 +30,19 @@ Dialog {
                                         && (joinRule === "invite"
                                             || joinRule === "private")
 
-    // The name as quoted in the body: at most 80 characters, then an ellipsis.
-    // An unbroken 300-character name ran past the dialog and the window
-    // (break-it s03); the room is identified, not reproduced.
     readonly property int nameLimit: 80
     readonly property string shownRoomName: {
         var name = pendingRoomName
         if (name.length <= nameLimit)
             return name
         var cut = nameLimit
-        // Never split a surrogate pair.
         var code = name.charCodeAt(cut - 1)
         if (code >= 0xD800 && code <= 0xDBFF)
             cut -= 1
         return name.slice(0, cut) + "\u2026"
     }
-    // Anyone can walk back into a public room; promising a re-invite there
-    // undersold it (break-it s03).
     readonly property bool openToAnyone: joinRule === "public"
 
-    // See LeaveAdminCheck.js; `roomId` makes it refuse a roster that belongs
-    // to another room.
     function soleAdminOf(info, roomId) {
         return AdminCheck.soleAdminOf(info, roomId)
     }
@@ -122,8 +100,6 @@ Dialog {
 
     parent: Overlay.overlay
     anchors.centerIn: parent
-    // Bound to the overlay, not to content, so wrapping text cannot feed back
-    // into the Dialog width.
     width: Math.max(240, Math.min(420, parent ? parent.width - 32 : 420))
     modal: true
     Overlay.modal: Rectangle { color: AppTheme.modalScrim }
@@ -138,7 +114,6 @@ Dialog {
         radius: AppTheme.radiusLg
     }
 
-    // Replaces Basic's stock title bar; `title` stays for accessibility.
     header: Label {
         text: root.title
         color: AppTheme.stormText
@@ -152,12 +127,6 @@ Dialog {
         bottomPadding: AppTheme.spacing8
     }
 
-    // Cancel is the default and must really hold the keys with a visible ring:
-    // the Popup's own focus hand-off uses PopupFocusReason, which draws no
-    // ring, so the dialog opened with focus nobody could see (break-it C06
-    // F01). Asked for again with the Tab reason once it is open.
-    // (It already holds the focus by then, and forceActiveFocus on the holder
-    // keeps the old reason, so the focus is released first.)
     onOpened: {
         cancelButton.focus = false
         cancelButton.forceActiveFocus(Qt.TabFocusReason)
@@ -165,19 +134,13 @@ Dialog {
 
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
-        // Return / Enter press the focused button (AppButton answers them,
-        // C06 F03), so Cancel (the default) closes and a Tab-ed-to Leave
-        // room confirms.
         Label {
             objectName: "leaveRoomConfirmBody"
             Layout.fillWidth: true
-            // Untrusted text (the room name): never markup.
             textFormat: Text.PlainText
             text: root.bodyText
             lineHeight: AppTheme.lineHeightBody
             lineHeightMode: Text.ProportionalHeight
-            // Anywhere when a word cannot fit: a long unbroken name is one
-            // "word", and WordWrap let it run past the dialog.
             wrapMode: Text.WrapAtWordBoundaryOrAnywhere
             color: AppTheme.stormText
         }
@@ -210,13 +173,6 @@ Dialog {
                 objectName: "leaveRoomConfirmButton"
                 kind: "danger"
                 text: qsTr("Leave room")
-                // The destructive button answers the keyboard only when it
-                // was REACHED by the keyboard (visualFocus: Tab, arrow). A
-                // Space / Return that finds it focused any other way (live
-                // report C06 F01: Space left the room 3/3 with no ring
-                // anywhere) is swallowed and the focus goes back to Cancel.
-                // Return/Enter: AppButton's keysNeedVisualFocus (its own
-                // handler runs first); Space: here.
                 keysNeedVisualFocus: true
                 Keys.onPressed: (event) => {
                     if (!visualFocus && event.key === Qt.Key_Space) {
@@ -224,7 +180,6 @@ Dialog {
                         cancelButton.forceActiveFocus(Qt.TabFocusReason)
                     }
                 }
-                // Return/Enter without the ring: the same move as Space.
                 onKeyRefusedWithoutRing: cancelButton.forceActiveFocus(Qt.TabFocusReason)
                 onClicked: {
                     var id = root.pendingRoomId

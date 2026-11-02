@@ -2,16 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// The shared presence indicator. Anchor it to an avatar's bottom-right corner
-// (every surface uses that one corner), set `userId` and the `ring` colour of
-// the surface behind it; watch/unwatch with
-// PresenceManager, state colours and hiding live here. Unknown presence renders
-// nothing: an unanswered lookup, a backend without presence and a server that
-// disabled it are all the same absence, never a fabricated offline.
-// `unavailable` is not consulted either; that disclosure needs a sentence and
-// lives on the member profile's membership chip. The dot owns `statusText`, the
-// one presence sentence, shown on hover where a surface opts in
-// (`hoverStatus`).
 Rectangle {
     id: dot
 
@@ -28,29 +18,21 @@ Rectangle {
             presenceService = app.presence
     }
 
-    // The user shown. The dot holds one watch reference while it exists, so
-    // only on-screen users are polled.
     property string userId: ""
-    // The colour of the surface under the dot, drawn as its ring.
     property color ring: AppTheme.surface
     property int dotSize: 10
 
-    // Re-evaluated on any presence change (revision); stateFor is a pure read.
     readonly property string presenceState:
         userId !== "" && presenceService && presenceService.revision >= 0
             ? presenceService.stateFor(userId) : ""
 
-    // The presence sentence, the only one in the app. "" when unknown, which
-    // renders nothing.
     readonly property string statusText: {
         if (userId === "" || !presenceService)
             return ""
-        var rev = presenceService.revision   // re-evaluation dependency
+        var rev = presenceService.revision
         var info = presenceService.infoFor(userId)
         if (!info || info.state === undefined)
             return ""
-        // The peer's status_msg follows the state: remote text, bounded and
-        // control-stripped in Rust, rendered plain.
         var status = (info.statusMsg && info.statusMsg.length > 0)
                      ? " \u00b7 " + info.statusMsg : ""
         if (info.state === "online")
@@ -73,14 +55,10 @@ Rectangle {
         return qsTr("Offline \u2014 active %1 d ago").arg(Math.floor(hours / 24)) + status
     }
 
-    // Opt-in: a HoverHandler on every dot in a long list costs every row.
     property bool hoverStatus: false
 
-    // The watch reference held, so a userId change releases the old user first.
     property string _watched: ""
 
-    // Session epoch: sign-out/account switch drops the watched set, so
-    // surviving dots re-register.
     readonly property int _epoch:
         presenceService ? presenceService.sessionEpoch : 0
     on_EpochChanged: {
@@ -113,12 +91,8 @@ Rectangle {
     width: dotSize
     height: dotSize
     radius: dotSize / 2
-    // The outer disc is the ring separating the dot from the avatar.
     color: ring
 
-    // The state disc. Offline is a hollow ring, online and away are solid: a
-    // difference in form, readable without distinguishing hues (as Element X
-    // does).
     Rectangle {
         objectName: "presenceDotDisc"
         anchors.fill: parent
@@ -130,12 +104,10 @@ Rectangle {
         color: dot.presenceState === "online" ? AppTheme.presenceDot
              : dot.presenceState === "unavailable" ? AppTheme.presenceAway
                                                    : "transparent"
-        // Whole pixels: a fractional border renders soft at 1.0 DPR.
         border.width: _offline ? Math.max(1, Math.round(dot.dotSize * 0.2)) : 0
         border.color: AppTheme.presenceOffline
     }
 
-    // The tooltip gives readers who cannot tell the hues apart the same fact.
     HoverHandler {
         id: statusHover
         enabled: dot.hoverStatus && dot.visible
@@ -144,8 +116,6 @@ Rectangle {
     ToolTip.visible: dot.hoverStatus && statusHover.hovered
                      && dot.statusText.length > 0
     ToolTip.delay: 300
-    // In the accessibility tree only where the dot is the sole carrier of
-    // status.
     Accessible.role: Accessible.StaticText
     Accessible.ignored: !dot.hoverStatus || dot.statusText.length === 0
     Accessible.name: dot.statusText

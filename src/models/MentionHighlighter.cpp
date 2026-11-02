@@ -36,24 +36,18 @@ void MentionHighlighter::setAccentColor(const QColor &color)
     rehighlight();
 }
 
-// A codepoint test rather than a catalogue lookup: the question is only
-// whether Qt's fallback would pick the wrong face, which applies to the
-// pictographic blocks. Variation selectors and ZWJ are included so a sequence
-// keeps one face across its joiners and the colour font's ligature holds.
 static bool isEmojiCodepoint(char32_t cp)
 {
-    return (cp >= 0x1F000 && cp <= 0x1FAFF)   // pictographs, symbols, faces
-        || (cp >= 0x2600 && cp <= 0x27BF)     // misc symbols and dingbats
-        || cp == 0x200D                       // zero-width joiner
-        || cp == 0xFE0F                       // emoji presentation selector
-        || cp == 0x20E3                       // combining enclosing keycap
-        || (cp >= 0x2B00 && cp <= 0x2BFF);    // additional symbols and arrows
+    return (cp >= 0x1F000 && cp <= 0x1FAFF)
+        || (cp >= 0x2600 && cp <= 0x27BF)
+        || cp == 0x200D
+        || cp == 0xFE0F
+        || cp == 0x20E3
+        || (cp >= 0x2B00 && cp <= 0x2BFF);
 }
 
 void MentionHighlighter::highlightBlock(const QString &text)
 {
-    // The emoji pass runs before the early return below: composers without
-    // mentions still contain emoji.
     if (!m_emojiFamily.isEmpty()) {
         QTextCharFormat emojiFormat;
         // Set both APIs: setFontFamilies() is what QTextDocument round-trips,
@@ -61,8 +55,6 @@ void MentionHighlighter::highlightBlock(const QString &text)
         // FontFamily property.
         emojiFormat.setFontFamilies({ m_emojiFamily });
         emojiFormat.setFontFamily(m_emojiFamily);
-        // Walk UTF-16 indices: setFormat() takes them, and astral emoji are
-        // surrogate pairs.
         int i = 0;
         while (i < text.length()) {
             const int start = i;

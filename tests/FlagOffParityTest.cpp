@@ -54,7 +54,6 @@ namespace {
 const QString kAliceId = QStringLiteral("@alice:one.example");
 const QString kBobId = QStringLiteral("@bob:two.example");
 
-// Records every signal of the watched objects, in emission order, by name.
 class SignalRecorder : public QObject
 {
     Q_OBJECT
@@ -101,10 +100,7 @@ std::unique_ptr<SecretStore> memoryKeyring(QObject *parent)
 }
 
 struct SwitchRecord {
-    // Emitted inside the switchToAccount() call itself: deterministic.
     QStringList synchronous;
-    // Emitted after it, until the switch settled: compared as a set, since
-    // timers may interleave differently between runs.
     QStringList settled;
 };
 
@@ -153,7 +149,7 @@ QString serialize(const SwitchRecord &record)
         + QStringLiteral("\n[settled]\n") + record.settled.join(QLatin1Char('\n'))
         + QLatin1Char('\n');
 }
-} // namespace
+}
 
 class FlagOffParityTest : public QObject
 {
@@ -181,8 +177,6 @@ private Q_SLOTS:
         qunsetenv("LIGHTNING_LABS_LIVE_ACCOUNTS");
     }
 
-    // T-OFF-2 against the golden from 34d76bc8. Compiles on that tree too
-    // (FLAG_OFF_GOLDEN_CAPTURE), which is how the golden is written.
     void aSwitchMatchesTheGolden()
     {
         AppController app(AppController::MockBackend, false, memoryKeyring);
@@ -204,8 +198,6 @@ private Q_SLOTS:
     }
 
 #ifndef FLAG_OFF_GOLDEN_CAPTURE
-    // T-OFF-1. Positive control first: the same probes DO see a pool when
-    // live accounts are really on, so their silence below means something.
     void theProbesSeeLiveAccountsWhenTheyAreOn()
     {
         labstest::ScriptedLabsBridge bridge;
@@ -226,19 +218,12 @@ private Q_SLOTS:
         QTest::addColumn<bool>("setting");
         QTest::addColumn<bool>("bridgeAvailable");
         QTest::addColumn<bool>("bridgeAsked");
-        // hiddenSwitch: the column keeps its name; since 2026-10-20 true is
-        // the shipped default (Labs offered, LIGHTNING_LABS_LIVE_ACCOUNTS
-        // unset) and false the test override that forces it off.
         QTest::newRow("stored true, forced off") << false << true << true << false;
         QTest::newRow("the default: offered, switch off") << true << false << true << false;
         QTest::newRow("switch on, bridge unavailable") << true << true << false << true;
         QTest::newRow("forced off, switch off") << false << false << true << false;
     }
 
-    // Fails with: the force-off check dropped from applyLiveAccountsLabs
-    // (row 1 starts a pool); the order of its conditions changed so the
-    // bridge is asked first (rows 1, 2 and 4 count a call); a Labs object
-    // constructed unconditionally (the child count differs from "neither").
     void nothingExistsWithTheFlagOff()
     {
         QFETCH(bool, hiddenSwitch);
@@ -248,11 +233,7 @@ private Q_SLOTS:
         labstest::ScriptedLabsBridge bridge;
         bridge.setAvailable(bridgeAvailable);
         labstest::BridgeScope scope(&bridge);
-        // The setting is stored before the controller exists, as after a
-        // restart, and also changed while it runs.
         if (setting) {
-            // Labs forced off for the seed: storing the switch must not count
-            // as this controller asking the bridge.
             labstest::LabsEnvScope seedEnv(false);
             AppController seed(AppController::MockBackend, false, memoryKeyring);
             seed.settings()->setLabsConcurrentAccounts(true);
@@ -272,13 +253,11 @@ private Q_SLOTS:
         QVERIFY(app.liveAccountsStepsForTest().isEmpty());
         QVERIFY(!app.notificationsForTest()->liveAccountsMode());
         if (bridgeAsked) {
-            // Only available(), and nothing after its "no".
             QCOMPARE(bridge.totalCalls(), 1);
         } else {
             QCOMPARE(bridge.totalCalls(), 0);
         }
         QCOMPARE(app.settings()->lastLiveAtFor(kAliceId), qint64(0));
-        // Exactly the objects a controller that never heard of Labs has.
         int childrenWithout = 0;
         {
             labstest::LabsEnvScope noSwitch(false);
@@ -292,10 +271,6 @@ private Q_SLOTS:
                  childrenWithout);
     }
 
-    // T-OFF-2, differential: every "off" shape switches with exactly the
-    // signals of a controller that never heard of Labs. Fails with: any Labs
-    // signal or connection made outside the guard (an extra
-    // liveAccountCountChanged, a reordered sessionChanged reaction).
     void aSwitchIsTheSameInEveryOffShape()
     {
         QSettings().clear();
@@ -333,13 +308,6 @@ private Q_SLOTS:
         }
     }
 
-    // Every Labs call in AppController.cpp, outside the Labs section itself,
-    // has a live-accounts guard on its own line or on an ENCLOSING line (less
-    // indented) within the 60 lines above it: a guard of an unrelated block
-    // at the same depth does not count, and `if (m_sessionPool->...)` is a
-    // call, not a guard. Fails with: any guard (`m_sessionPool &&`,
-    // `if (m_sessionPool)`, ...) removed from the shared paths, e.g. in
-    // switchToAccount() or failAccountSwitch().
     void everyLabsCallIsBehindTheGuard()
     {
         QFile file(QStringLiteral(SOURCE_DIR "/src/app/AppController.cpp"));
@@ -386,10 +354,6 @@ private Q_SLOTS:
             ++calls;
             bool guarded = false;
             for (int j = i; j >= std::max(0, i - 60) && !guarded; --j) {
-                // The enclosing function's own lines only: a column-0 brace
-                // above is the end of the previous function (or the start of
-                // this one), and a guard beyond it guards nothing here (§18
-                // round 1, L11).
                 if (j < i && (lines.at(j).startsWith(QLatin1Char('}'))
                               || lines.at(j).startsWith(QLatin1Char('{'))))
                     break;
@@ -400,8 +364,6 @@ private Q_SLOTS:
                 unguarded.append(QStringLiteral("%1: %2").arg(i + 1).arg(line.trimmed()));
         }
         QVERIFY2(unguarded.isEmpty(), qPrintable(unguarded.join(QLatin1Char('\n'))));
-        // The scan saw the shared paths' Labs calls at all (the constructor,
-        // the destructor, the quit, the switch, the removals, the tray).
         QVERIFY2(calls >= 20, qPrintable(QString::number(calls)));
     }
 #endif

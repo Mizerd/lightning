@@ -1,6 +1,3 @@
-// GIF provider abstraction: endpoint construction, API-key injection,
-// pagination, safe-search mapping, attribution, parse dispatch and the factory
-// for GIPHY and KLIPY, without network. Keys here are placeholders.
 
 #include "gif/GifProvider.h"
 
@@ -13,7 +10,7 @@ using gif::Rating;
 
 namespace {
 QUrlQuery queryOf(const QString &url) { return QUrlQuery(QUrl(url).query()); }
-} // namespace
+}
 
 class GifProviderTest : public QObject
 {
@@ -64,7 +61,6 @@ void GifProviderTest::giphySearchUrlEncodesAndClampsQuery()
     const QUrlQuery q = queryOf(url);
     QCOMPARE(q.queryItemValue(QStringLiteral("q"), QUrl::FullyDecoded),
              QStringLiteral("happy cat"));
-    // 50-char cap.
     const QString clamped =
         queryOf(p->searchUrl(longQuery, Rating::G, 0, 24, QStringLiteral("K")))
             .queryItemValue(QStringLiteral("q"), QUrl::FullyDecoded);

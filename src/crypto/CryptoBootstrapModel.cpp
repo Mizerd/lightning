@@ -21,7 +21,7 @@ const char *phaseName(CryptoBootstrapModel::Phase phase)
     }
     return "idle";
 }
-} // namespace
+}
 
 CryptoBootstrapModel::CryptoBootstrapModel(QObject *parent)
     : QObject(parent)
@@ -44,7 +44,6 @@ QString CryptoBootstrapModel::statusMessage() const
         return tr("Requesting encryption keys from your verified session. "
                   "Approve the request on your other device if it asks.");
     case SecretsPending:
-        // Requests are out and unanswered; Lightning keeps re-requesting.
         if (m_requestAttempts > 0)
             return tr("Your verified session has not responded yet. Keep it "
                       "open and connected — Lightning will request the keys "
@@ -69,8 +68,6 @@ QString CryptoBootstrapModel::statusMessage() const
                  m_keysReceived)
             : tr("History decryption is ready.");
     case NoBackupAvailable:
-        // Without a server-side backup, neither gossip nor a recovery key can
-        // restore history; only an exported key file can.
         if (m_backupExists == 0)
             return tr("This account has no encryption key backup on the "
                       "server. Older encrypted messages can only be "
@@ -114,9 +111,6 @@ bool CryptoBootstrapModel::canRequestKeys() const
 
 void CryptoBootstrapModel::onWaitTimeout()
 {
-    // Backstop; the coordinator's "exhausted" report is primary. Escalate only
-    // while still waiting. SecretReceived counts as waiting, so an unrequested
-    // m.secret.send cannot park this phase forever.
     if (m_phase != WaitingForKeys && m_phase != SecretsPending
         && m_phase != SecretReceived)
         return;
@@ -138,12 +132,8 @@ void CryptoBootstrapModel::applyEvent(const QString &kind,
     } else if (kind == QLatin1String("backup_state")) {
         m_backup = state;
     } else if (kind == QLatin1String("backup_exists")) {
-        // Server truth from the one-shot probe.
         m_backupExists = (state == QLatin1String("true")) ? 1 : 0;
     } else if (kind == QLatin1String("backup_download")) {
-        // The per-room download pass. Skips are refused here too: recompute()
-        // reads anything but "failed" as Ready, so a misrouted skip would
-        // report Ready over unrestored history.
         if (state.startsWith(QLatin1String("skipped_"))) {
             qCInfo(lcCryptoBootstrap)
                 << "backup download skipped reason=" << state;
@@ -151,40 +141,27 @@ void CryptoBootstrapModel::applyEvent(const QString &kind,
         }
         m_download = state;
     } else if (kind == QLatin1String("backup_download_skipped")) {
-        // Why a pass did not run: logged, never stored in m_download, or a
-        // skipped room could overwrite another room's "failed" and report Ready
-        // over unrestored history.
         qCInfo(lcCryptoBootstrap)
             << "backup download skipped reason=" << state;
         return;
     } else if (kind == QLatin1String("auto_key_recovery")) {
-        // The automatic pass for undecryptable rows: an observation, not a
-        // download outcome. Both counts are logged; "1 of 32" alone cannot tell
-        // missing backup entries from a refusing server.
         qCInfo(lcCryptoBootstrap)
             << "auto key recovery" << state << "sessions=" << count
             << "inconclusive=" << inconclusive;
         return;
     } else if (kind == QLatin1String("secrets_pending")) {
         if (state == QLatin1String("exhausted")) {
-            // The coordinator finished its requests with secrets still missing.
             m_secretsExhausted = true;
         } else {
-            // Requests are out and unanswered; the coordinator keeps going.
             m_secretsPending = true;
         }
     } else if (kind == QLatin1String("secret_request")) {
-        // One request attempt; count is eligible verified sessions.
         m_requestState = state;
         m_eligibleDevices = static_cast<int>(qMin<quint64>(count, 1000));
-        // An attempt that still finds secrets missing means a received answer
-        // did not complete recovery.
         if (state != QLatin1String("none_missing"))
             m_secretReceived = false;
         if (state == QLatin1String("requested")) {
             m_requestAttempts += 1;
-            // A new request restarts the wait and may leave an escalated state
-            // once.
             m_secretsExhausted = false;
             m_rearmed = true;
             if (m_phase == WaitingForKeys || m_phase == SecretsPending
@@ -195,8 +172,6 @@ void CryptoBootstrapModel::applyEvent(const QString &kind,
             m_secretsExhausted = false;
         }
     } else if (kind == QLatin1String("secret_response")) {
-        // Arrival only; the SDK validates and imports it, and nothing crosses
-        // the FFI.
         m_secretReceived = true;
         m_secretsPending = false;
     } else if (kind == QLatin1String("own_identity")) {
@@ -204,43 +179,27 @@ void CryptoBootstrapModel::applyEvent(const QString &kind,
     } else if (kind == QLatin1String("cross_signing_secrets")) {
         m_crossSigning = state;
     } else if (kind == QLatin1String("utds_resolved")) {
-        // matrix-sdk's redecryptor turned stored undecryptable events into
-        // decrypted ones. Logged beside the key arrivals below so a capture
-        // can tell "the key never came" from "it came and nothing was
-        // redecrypted" (a thread reply that stayed "Waiting for keys" until a
-        // manual Retry). Counts only.
         qCInfo(lcCryptoBootstrap) << "undecryptable events resolved count="
                                   << count;
         return;
     } else if (kind == QLatin1String("thread_reply_out_of_view")) {
-        // Replies matrix-sdk decrypted that the open thread view cannot show:
-        // its in-memory thread cache keeps the undecryptable copy until a
-        // restart (see TimelineRegistry::
-        // redecrypted_replies_missing_from_open_thread). Counts only.
         qCWarning(lcCryptoBootstrap)
             << "thread replies decrypted but not shown in the open thread count="
             << count;
         return;
     } else if (kind == QLatin1String("redecryption_lagging")) {
-        // matrix-sdk's redecryptor reported that its key stream lagged: some
-        // keys may have arrived without a redecryption attempt.
         qCWarning(lcCryptoBootstrap) << "redecryption lagged; keys may have "
                                         "arrived without a retry";
         return;
     } else if (kind == QLatin1String("redecryption_reports_missed")) {
-        // Our own subscriber to those reports fell behind: the counts above
-        // are short, the redecryptor itself may be fine.
         qCWarning(lcCryptoBootstrap) << "redecryption reports missed; the "
                                         "resolved counts are incomplete";
         return;
     } else if (kind == QLatin1String("room_keys_received")) {
-        // Counts only, and when: the other half of the question above.
         qCInfo(lcCryptoBootstrap) << "room keys received count=" << count;
         if (count > 0) {
             m_keysReceived += static_cast<int>(
                 qMin<quint64>(count, 1000000));
-            // Counts refresh the Ready message; the phase comes from the states
-            // below.
             Q_EMIT changed();
         }
         return;
@@ -262,56 +221,38 @@ void CryptoBootstrapModel::recompute()
             || m_download == QLatin1String("started")) {
             next = RestoringHistory;
         } else if (m_backup == QLatin1String("enabled")) {
-            // The backup key is usable; a failed download pass escalates
-            // instead of claiming Ready.
             next = m_download == QLatin1String("failed")
                 ? ManualRecoveryRequired : Ready;
         } else if (m_backupExists == 0) {
-            // No backup exists on the server: nothing to restore from.
             next = NoBackupAvailable;
         } else if (m_recovery == QLatin1String("disabled")) {
-            // No secret storage to gossip from; only a recovery key can help.
             next = NoBackupAvailable;
         } else if (m_ownIdentity == QLatin1String("unverified")) {
-            // Gossiped answers cannot be accepted; re-verification or the
-            // recovery key is the remedy.
             next = IdentityIncomplete;
         } else if (m_secretsExhausted) {
-            // Exhaustion outranks a received but unhelpful answer.
             next = ManualRecoveryRequired;
         } else if (m_secretReceived) {
-            // An answer arrived; backup enablement or the next attempt moves
-            // on.
             next = SecretReceived;
         } else {
-            // Secret requests are out; secrets_pending refines the wait.
             next = m_secretsPending ? SecretsPending : WaitingForKeys;
         }
     }
-    // Once escalated, only real backup progress or a new request round
-    // (m_rearmed) leaves manual recovery.
     if (m_phase == ManualRecoveryRequired
         && (next == WaitingForKeys || next == SecretsPending
             || next == SecretReceived)
         && !m_rearmed)
         next = ManualRecoveryRequired;
     m_rearmed = false;
-    // SecretReceived stays inside the timed wait so the backstop can still
-    // escalate it.
     const bool wasWaiting = m_phase == WaitingForKeys
         || m_phase == SecretsPending || m_phase == SecretReceived;
     const bool nextWaiting = next == WaitingForKeys
         || next == SecretsPending || next == SecretReceived;
-    // Leaving the wait consumes the pending report.
     if (!nextWaiting) {
         m_secretsPending = false;
-        // Leaving the waiting family also consumes the arrival flag.
         m_secretReceived = false;
     }
     if (next == m_phase)
         return;
-    // Arm the bound on entering the wait, keep it across its refinements, and
-    // cancel it on progress or a terminal state.
     if (nextWaiting && !wasWaiting)
         m_waitTimer.start(m_waitTimeoutMs);
     else if (!nextWaiting)
@@ -350,8 +291,6 @@ void CryptoBootstrapModel::reset()
 
 void CryptoBootstrapModel::rearmAfterManualRequest()
 {
-    // The user asked for a new request round: leave the escalated state and
-    // restart the backstop.
     if (m_phase != ManualRecoveryRequired && m_phase != WaitingForKeys
         && m_phase != SecretsPending && m_phase != SecretReceived)
         return;

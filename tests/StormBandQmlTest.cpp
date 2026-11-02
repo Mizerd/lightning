@@ -1,13 +1,3 @@
-// StormBand.qml: the About page's procedural storm-landscape band. The runtime
-// component contract (pixels are StormBandPainterTest's job): zero-warning
-// load through the real "MatrixClient" QML module with the real image
-// provider registered (a missing provider surfaces as a qmlWarning), fixed
-// geometry, no pointer interception, and the reduced-motion / off-screen
-// animation gate (the `animating` idiom from qml/Skeleton.qml). Also runs
-// source-level contract scans against the file.
-//
-// StormBand.qml depends only on AppTheme and the Window attached property, so
-// it loads directly with no AppController or context properties.
 #include <QtTest/QtTest>
 
 #include <QFile>
@@ -31,7 +21,7 @@ QString readAll(const QString &path)
         return {};
     return QString::fromUtf8(file.readAll());
 }
-} // namespace
+}
 
 class StormBandQmlTest : public QObject
 {
@@ -48,8 +38,6 @@ private:
     bool createBand(Loaded &out)
     {
         out.engine = std::make_unique<QQmlApplicationEngine>();
-        // The engine owns the provider, exactly like main.cpp registering
-        // "lightning-media"/"lightning-qr" before loading any QML.
         out.engine->addImageProvider(QStringLiteral("storm-band"),
                                      new StormBandImageProvider());
         connect(out.engine.get(), &QQmlEngine::warnings, this,
@@ -86,9 +74,6 @@ private Q_SLOTS:
         QCOMPARE(band.warnings, QStringList{});
     }
 
-    // The alpha mask is a MultiEffect over a layer, which the software scene
-    // graph cannot draw (the whole scene would be blank). There the layer is
-    // off and the same ramp is laid over the scene instead.
     void theMaskIsReplacedWhereNoEffectCanBeDrawn()
     {
         Loaded band;

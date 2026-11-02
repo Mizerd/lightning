@@ -12,7 +12,6 @@
 
 namespace updater {
 
-// NSIS MUI2. See the header for "/S" ordering and the omitted "/D=".
 const QStringList kNsisSilentSwitches = {QStringLiteral("/S")};
 const QString kNsisPerUserSwitch = QStringLiteral("/CURRENTUSER");
 const QString kNsisPerMachineSwitch = QStringLiteral("/ALLUSERS");
@@ -37,7 +36,7 @@ QString firstExisting(const QStringList &candidates, const ExecutableProbe &prob
     return QString();
 }
 
-} // namespace
+}
 
 const char *strategyErrorName(StrategyError error)
 {
@@ -83,9 +82,6 @@ QStringList debFrontendCandidates()
 
 QStringList rpmFrontendCandidates()
 {
-    // Probe order per UPDATE-SPEC §10: dnf5, dnf, zypper, rpm-ostree, rpm.
-    // zypper is openSUSE's: the same .rpm installs there, and bare `rpm -U`
-    // cannot pull in a dependency a new release adds.
     return {
         QStringLiteral("/usr/bin/dnf5"),
         QStringLiteral("/usr/bin/dnf"),
@@ -102,13 +98,10 @@ QStringList packageManagerArguments(const QString &managerPath,
     const QString tool = QFileInfo(managerPath).fileName();
 
     if (tool == QLatin1String("apt-get")) {
-        // apt-get installs a local .deb by path and resolves its dependencies,
-        // which dpkg cannot.
         return {managerPath, QStringLiteral("install"), QStringLiteral("-y"),
                 QStringLiteral("--only-upgrade"), artifactPath};
     }
     if (tool == QLatin1String("dpkg")) {
-        // No --force-*: a dpkg refusal is information.
         return {managerPath, QStringLiteral("-i"), artifactPath};
     }
     if (tool == QLatin1String("dnf5") || tool == QLatin1String("dnf")) {
@@ -125,20 +118,14 @@ QStringList packageManagerArguments(const QString &managerPath,
                 artifactPath};
     }
     if (tool == QLatin1String("rpm-ostree")) {
-        // rpm-ostree layers into the next deployment and takes no -y.
         return {managerPath, QStringLiteral("install"), artifactPath};
     }
     if (tool == QLatin1String("rpm")) {
-        // -U upgrades (installing if absent). Never --force, never --nodeps.
         return {managerPath, QStringLiteral("-U"), artifactPath};
     }
     return QStringList();
 }
 
-// msiexec reads '/' as the start of a switch, so a Qt-style
-// `/i C:/Users/.../Lightning.msi` fails with 1619
-// (ERROR_INSTALL_PACKAGE_OPEN_FAILED). Converted unconditionally: these plans
-// only run on Windows, and this keeps them testable on Linux.
 QString windowsNativePath(const QString &path)
 {
     QString native = path;
@@ -175,14 +162,11 @@ QString windowsCommandLine(const QStringList &arguments, bool *ok)
             if (c == QLatin1Char('"') || c.unicode() < 0x20 || c.unicode() == 0x7f)
                 return QString();
         }
-        // Tabs are control characters, refused above.
         const bool needsQuotes = argument.isEmpty() || argument.contains(QLatin1Char(' '));
         if (!needsQuotes) {
             quoted << argument;
             continue;
         }
-        // Inside quotes, only a backslash run right before the closing quote is
-        // halved by CommandLineToArgvW; double just that run.
         QString element = argument;
         int trailing = 0;
         while (trailing < element.size()
@@ -207,9 +191,6 @@ QString launchablePathFromFinal(const QString &finalPath)
         path = finalPath.mid(kLocal.size());
     else
         path = finalPath;
-    // Must be a drive path ("C:\...") or a UNC path with server and share;
-    // never a device or volume path, nor anything still prefixed "\\?\" or
-    // "\\.\".
     const bool drive = path.size() >= 4 && path.at(0).isLetter()
         && path.at(1) == QLatin1Char(':') && path.at(2) == QLatin1Char('\\');
     const QStringList uncParts = path.mid(2).split(QLatin1Char('\\'));
@@ -232,7 +213,6 @@ bool retargetPlanToLockedFile(InstallPlan &plan, const QString &launchablePath)
     bool found = false;
     if (rewritten.program == plan.lockedArtifact) {
         rewritten.program = launchablePath;
-        // The parent, still a directory: "C:\x.exe" -> "C:\".
         QString parent = launchablePath.left(launchablePath.lastIndexOf(QLatin1Char('\\')));
         if (parent.size() == 2 && parent.at(1) == QLatin1Char(':'))
             parent += QLatin1Char('\\');
@@ -252,8 +232,6 @@ bool retargetPlanToLockedFile(InstallPlan &plan, const QString &launchablePath)
     return true;
 }
 
-// ---------------------------------------------------------------------------
-
 StrategyResult planWindowsMsi(const UpdaterArguments &args)
 {
     if (args.artifactPath.isEmpty())
@@ -263,13 +241,6 @@ StrategyResult planWindowsMsi(const UpdaterArguments &args)
     StrategyResult result;
     result.plan.requiresExternalProcess = true;
     result.plan.program = windowsSystemExecutable(QStringLiteral("msiexec.exe"));
-    // /i installs or upgrades; /qb shows a basic progress UI (the user asked
-    // for this and should see it). REINSTALLMODE=vemus: v re-caches the
-    // package, and e replaces a file of EQUAL version too ("o" replaces only
-    // an older one). The MSI removes the previous product after installing
-    // (generate-windows-wix.py), so a file whose bytes changed at the same
-    // version, a Qt or MinGW rebuild, would otherwise stay stale. Per-machine:
-    // see the header.
     result.plan.arguments = {QStringLiteral("/i"),
                              windowsNativePath(args.artifactPath),
                              QStringLiteral("/qb"),
@@ -290,16 +261,11 @@ StrategyResult planWindowsSetup(const UpdaterArguments &args)
 
     StrategyResult result;
     result.plan.requiresExternalProcess = true;
-    // The artifact is the program: an absolute path the argv validator proved
-    // is a regular file. Made native for consistency with the MSI plan.
     result.plan.program = windowsNativePath(args.artifactPath);
-    result.plan.arguments = kNsisSilentSwitches; // "/S" must come first
-    // Always explicit: with both a per-user and a per-machine copy present,
-    // only the helper knows which is being upgraded.
+    result.plan.arguments = kNsisSilentSwitches;
     if (args.installScope == InstallScope::Machine) {
         result.plan.arguments << kNsisPerMachineSwitch;
         result.plan.elevateOnWindows = true;
-        // The program is the artifact, so the locked file is what Windows runs.
         result.plan.lockedArtifact = result.plan.program;
     } else {
         result.plan.arguments << kNsisPerUserSwitch;
@@ -311,8 +277,6 @@ StrategyResult planWindowsSetup(const UpdaterArguments &args)
 
 StrategyResult planWindowsPortable(const UpdaterArguments &)
 {
-    // In-process: extract into private staging, validate the layout, then swap
-    // directories with rollback.
     StrategyResult result;
     result.plan.requiresExternalProcess = false;
     return result;
@@ -320,8 +284,6 @@ StrategyResult planWindowsPortable(const UpdaterArguments &)
 
 StrategyResult planLinuxAppImage(const UpdaterArguments &)
 {
-    // In-process: chmod +x the staged AppImage, then replace atomically with
-    // rollback.
     StrategyResult result;
     result.plan.requiresExternalProcess = false;
     return result;
@@ -347,7 +309,6 @@ StrategyResult planLinuxDeb(const UpdaterArguments &args,
     result.plan.requiresExternalProcess = true;
     result.plan.elevates = true;
     result.plan.program = pkexec;
-    // pkexec's argv: the program and its arguments. Never sudo or a shell.
     result.plan.arguments = packageManagerArguments(manager, args.artifactPath);
     if (result.plan.arguments.isEmpty())
         return strategyFail(StrategyError::NoPackageManagerFound,
@@ -424,4 +385,4 @@ StrategyResult planForMode(const UpdaterArguments &args,
                         QStringLiteral("unhandled install type"));
 }
 
-} // namespace updater
+}

@@ -26,7 +26,6 @@ Dialog {
     anchors.centerIn: parent
     padding: AppTheme.spacing16
 
-    /// "" | "asking" | the sanitized failure category.
     property string status: ""
     property string choice: "today"
     property real pendingOp: 0
@@ -40,8 +39,6 @@ Dialog {
         open()
     }
 
-    // Local midnight of the chosen day: the user picks from their own
-    // calendar.
     function chosenMs() {
         var now = new Date()
         switch (root.choice) {
@@ -64,8 +61,6 @@ Dialog {
             if (!(y >= 1970 && m >= 1 && m <= 12 && d >= 1 && d <= 31))
                 return -1
             var picked = new Date(y, m - 1, d)
-            // Round-tripped, so 2026-02-31 is refused rather than becoming
-            // 3 March.
             if (picked.getFullYear() !== y || picked.getMonth() !== m - 1
                     || picked.getDate() !== d)
                 return -1
@@ -83,13 +78,9 @@ Dialog {
     function failureText(category) {
         switch (category) {
         case "not_found":
-            // The common outcome. A server without MSC3030 is classified as
-            // "unrecognized" below, so this needn't hedge.
             return qsTr("Your homeserver could not find a message on or "
                         + "after that date.")
         case "unrecognized":
-            // Homeserver too old for MSC3030: nothing to retry in the app, so
-            // say whose limitation it is.
             return qsTr("Your homeserver does not support jumping to a date. "
                         + "That needs a newer homeserver; searching this "
                         + "room still works.")
@@ -107,7 +98,6 @@ Dialog {
         }
     }
 
-    // The Jump button's action, also reached by Return in the date field.
     function submit() {
         if (root.customInvalid || root.asking)
             return
@@ -116,7 +106,6 @@ Dialog {
             return
         var op = app.jumpToDate(at)
         if (op === 0) {
-            // 0 means this build can't ask, which isn't the server saying no.
             root.status = "backend"
             return
         }
@@ -140,8 +129,6 @@ Dialog {
     }
 
     contentItem: ColumnLayout {
-        // On the content: Accessible attaches to an Item, and a Dialog is a
-        // Popup (on the Dialog it warned at load and named nothing).
         Accessible.role: Accessible.Dialog
         Accessible.name: qsTr("Jump to date")
         spacing: AppTheme.spacing12
@@ -185,8 +172,6 @@ Dialog {
             storm: true
             Layout.fillWidth: true
             placeholderText: qsTr("yyyy-mm-dd")
-            // A validator, not an inputMask: a mask draws "  -  -" in an
-            // empty field and the placeholder format hint never shows.
             validator: RegularExpressionValidator { regularExpression: /[0-9-]{0,10}/ }
             Accessible.name: qsTr("Pick a date")
             Accessible.description: qsTr("yyyy-mm-dd")

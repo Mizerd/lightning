@@ -1,25 +1,3 @@
-//! The About page's three backend questions: what does this homeserver say
-//! about itself, what account data does the account hold (read only), and
-//! clear the SDK's event cache.
-//!
-//! * Homeserver information is two unauthenticated GETs: `/_matrix/client/
-//!   versions` (spec versions and unstable features) and, best effort,
-//!   `/_matrix/federation/v1/version` (software name and version, which a
-//!   deployment may keep off the client port). The access token is NEVER sent
-//!   to either.
-//! * The account-data browser enumerates with one filtered initial `/sync`
-//!   (`timeout=0`, no `since`), which is the only way to list what exists:
-//!   neither the SDK nor its store can list account data by type. The request
-//!   is made over the SDK's HTTP client and does not touch the SDK's own sync
-//!   position. Secret-bearing types (secret storage, cross-signing keys, the
-//!   backup key) are REDACTED here, in Rust, to their type name: their content
-//!   never reaches C++ or QML (CLAUDE.md §6).
-//! * Clearing the event cache calls the SDK's `clear_all_rooms`, then compacts
-//!   the event cache (and, for the media reset, the media store) through the
-//!   SDK's typed store locks and `optimize()` (a SQLite VACUUM) so the files
-//!   shrink. The compaction is reported as its own later `cache_compacted`
-//!   event; it never delays the clear's result. It never touches the crypto
-//!   store, the state store or the credentials.
 
 use std::ffi::c_void;
 use std::os::raw::c_char;
@@ -33,17 +11,11 @@ use crate::rooms::require_client;
 use crate::{bridge, cstr_arg, enqueue, ffi_string, RustClient};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
-/// `/versions` and the federation version are tiny.
 const SMALL_BODY_CAP: usize = 65_536;
-/// An account with a lot of account data answers a few hundred KiB.
 const SYNC_BODY_CAP: usize = 4 * 1024 * 1024;
-/// One pretty-printed entry is cut here; the browser says so.
 const ENTRY_CAP: usize = 64 * 1024;
-/// More entries than this are not listed; the browser says so.
 const ENTRY_COUNT_CAP: usize = 500;
 
-/// Account-data types whose CONTENT is secret or key material. Matched on the
-/// type's prefix, so a future `m.secret_storage.key.<id>` is covered.
 const SECRET_PREFIXES: &[&str] = &[
     "m.secret_storage.",
     "m.cross_signing.",
@@ -60,9 +32,6 @@ pub(crate) fn is_secret_type(event_type: &str) -> bool {
     SECRET_PREFIXES.iter().any(|p| lower.starts_with(p)) || lower.contains("secret")
 }
 
-/// One list entry from `{"type": .., "content": ..}` events: the type, whether
-/// it was redacted, and the pretty JSON (empty when redacted). Pure and
-/// unit-tested.
 pub(crate) fn entries_from_events(events: &[Value]) -> (Vec<Value>, bool) {
     let mut out: Vec<Value> = Vec::new();
     let mut truncated = false;
@@ -96,8 +65,6 @@ pub(crate) fn entries_from_events(events: &[Value]) -> (Vec<Value>, bool) {
     (out, truncated)
 }
 
-/// Account-data events out of an initial `/sync` body: the global ones, or the
-/// named room's. Pure and unit-tested.
 pub(crate) fn events_from_sync(body: &Value, room_id: &str) -> Vec<Value> {
     let events = if room_id.is_empty() {
         body.pointer("/account_data/events")
@@ -112,7 +79,6 @@ pub(crate) fn events_from_sync(body: &Value, room_id: &str) -> Vec<Value> {
     events.and_then(Value::as_array).cloned().unwrap_or_default()
 }
 
-/// The filter the enumerating sync carries: nothing but account data.
 pub(crate) fn sync_filter(room_id: &str) -> Value {
     // Global: a room filter naming a room id that cannot exist (Synapse treats
     // an empty `rooms` list as "no filter" on some versions, which would mean
@@ -134,7 +100,6 @@ pub(crate) fn sync_filter(room_id: &str) -> Value {
     })
 }
 
-/// `/versions` into `(versions, features)`. Pure and unit-tested.
 pub(crate) fn parse_versions(body: &Value) -> (Vec<String>, Vec<(String, bool)>) {
     let versions = body
         .get("versions")
@@ -154,7 +119,6 @@ pub(crate) fn parse_versions(body: &Value) -> (Vec<String>, Vec<(String, bool)>)
     (versions, features)
 }
 
-/// `/federation/v1/version` into `(name, version)`. Pure and unit-tested.
 pub(crate) fn parse_software(body: &Value) -> (String, String) {
     let server = body.get("server");
     let text = |key: &str| {
@@ -170,7 +134,6 @@ pub(crate) fn parse_software(body: &Value) -> (String, String) {
     (text("name"), text("version"))
 }
 
-/// `base` plus path segments, each encoded as one segment.
 fn endpoint(base: &url::Url, segments: &[&str]) -> Result<url::Url, String> {
     let mut url = base.clone();
     url.set_query(None);
@@ -182,7 +145,6 @@ fn endpoint(base: &url::Url, segments: &[&str]) -> Result<url::Url, String> {
     Ok(url)
 }
 
-/// Status and body (None past `cap`). `token` is attached only when given.
 async fn get(
     client: &matrix_sdk::Client,
     url: url::Url,
@@ -214,8 +176,6 @@ async fn get(
     Ok((status, serde_json::from_slice(&bytes).ok()))
 }
 
-/// Result event `homeserver_info { op_id, ok, address, versions, features,
-/// software_name, software_version, category }`.
 pub(crate) fn homeserver_info(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -262,8 +222,6 @@ pub(crate) fn homeserver_info(bridge: &RustClient, op_id: u64) -> Result<(), Str
     Ok(())
 }
 
-/// Result event `account_data_listing { op_id, room_id, ok, truncated,
-/// entries: [{type, redacted, json, cut}], category }`.
 pub(crate) fn account_data_listing(
     bridge: &RustClient,
     room_id: String,
@@ -310,12 +268,8 @@ pub(crate) fn account_data_listing(
     Ok(())
 }
 
-/// How long compacting a cache database may take before the reset reports it
-/// as not done. VACUUM rewrites the file, so it scales with what is left.
 const COMPACT_BUDGET: Duration = Duration::from_secs(90);
 
-/// Bytes a path occupies on disk: the file itself, or every regular file under
-/// a directory. Symlinks are neither followed nor counted. A missing path is 0.
 pub(crate) fn tree_bytes(path: &Path) -> u64 {
     let Ok(meta) = std::fs::symlink_metadata(path) else {
         return 0;
@@ -332,9 +286,6 @@ pub(crate) fn tree_bytes(path: &Path) -> u64 {
     entries.flatten().map(|entry| tree_bytes(&entry.path())).sum()
 }
 
-/// A SQLite database's footprint: the file and its `-wal`, `-shm` and
-/// `-journal` siblings. After a clear most of that can still be free pages
-/// (and a long WAL), which is what a VACUUM gives back.
 pub(crate) fn sqlite_family_bytes(db: &Path) -> u64 {
     let mut total = tree_bytes(db);
     for suffix in ["-wal", "-shm", "-journal"] {
@@ -345,7 +296,6 @@ pub(crate) fn sqlite_family_bytes(db: &Path) -> u64 {
     total
 }
 
-/// The event cache database's on-disk size, where this session opened it.
 pub(crate) fn event_cache_disk_bytes(store_path: &Path) -> u64 {
     if store_path.as_os_str().is_empty() {
         return 0;
@@ -354,11 +304,6 @@ pub(crate) fn event_cache_disk_bytes(store_path: &Path) -> u64 {
     sqlite_family_bytes(&placement.event_cache.join(crate::cachelayout::EVENT_CACHE_DB))
 }
 
-/// The in-use SQLite media store's on-disk size, 0 while media is held in
-/// memory. The store in use is the one mediastore opened: the old plaintext
-/// `<store>/matrix-sdk-media.sqlite3` while it is still active (Legacy), else
-/// the encrypted store's directory in the cache directory, so the figures
-/// match the store that was vacuumed.
 pub(crate) fn media_store_disk_bytes(store_path: &Path) -> u64 {
     if store_path.as_os_str().is_empty() {
         return 0;
@@ -370,25 +315,12 @@ pub(crate) fn media_store_disk_bytes(store_path: &Path) -> u64 {
     tree_bytes(&placement.media_store.join(crate::mediastore::DIR_NAME))
 }
 
-/// How one cache database's compaction ended. Absent is not failed
-/// (CLAUDE.md section 6): `NotApplicable` means there was no SQLite store to
-/// compact, and only `Failed` and `TimedOut` may be worded as a problem.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Outcome {
-    /// The VACUUM ran and the file is smaller.
     Compacted,
-    /// The VACUUM ran and the file did not get smaller (nothing to give back,
-    /// or a release build of the SDK swallowed a failed VACUUM; the SDK logs
-    /// it and returns Ok). Reported as figures only, never as success.
     Unchanged,
-    /// No SQLite store exists for this cache (media held in memory, no media
-    /// key, no store directory). Not a failure.
     NotApplicable,
-    /// The store could not be reached or the VACUUM returned an error.
     Failed,
-    /// The budget ran out. The VACUUM is not cancelled by this (the query
-    /// keeps running on its pool connection), so the file may still shrink and
-    /// no "after" figure is reported.
     TimedOut,
 }
 
@@ -404,8 +336,6 @@ impl Outcome {
     }
 }
 
-/// One store's compaction: the outcome and its measured on-disk sizes. `after`
-/// is 0 (unknown) for `NotApplicable` and `TimedOut`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Compaction {
     pub outcome: Outcome,
@@ -413,9 +343,6 @@ pub(crate) struct Compaction {
     pub after: u64,
 }
 
-/// Run one store's `vacuum` future under `budget` and classify the result by
-/// the file's measured size, not by the return value alone. `vacuum` is not
-/// polled at all when the store is not `applicable`.
 pub(crate) async fn compact<E, F, M>(
     applicable: bool,
     budget: Duration,
@@ -446,13 +373,6 @@ where
     }
 }
 
-/// Give a cleared event cache's free pages back to the filesystem, through the
-/// SDK's own typed path: the event cache store's lock, then its `optimize()`
-/// (which is `vacuum()` for SQLite). That is the path
-/// `Client::optimize_stores` takes minus the state store, so the crypto and
-/// state stores are not reachable from here, and the store's cross-process
-/// lock is respected (a store another process holds is skipped, reported as
-/// `Failed`).
 pub(crate) async fn compact_event_cache(
     client: &matrix_sdk::Client,
     store_path: &Path,
@@ -476,8 +396,6 @@ pub(crate) async fn compact_event_cache(
     .await
 }
 
-/// The same for the media store, after its entries were cleaned. Only an
-/// on-disk SQLite media store is applicable.
 pub(crate) async fn compact_media_store(
     client: &matrix_sdk::Client,
     store_path: &Path,
@@ -493,7 +411,6 @@ pub(crate) async fn compact_media_store(
     compact(on_disk, COMPACT_BUDGET, before, vacuum, move || media_store_disk_bytes(&path)).await
 }
 
-/// Enqueue the later `cache_compacted` event for one store.
 pub(crate) fn report_compaction(
     events: &crate::EventQueueRef,
     op_id: u64,
@@ -510,11 +427,6 @@ pub(crate) fn report_compaction(
     );
 }
 
-/// Result events: `event_cache_cleared { op_id, ok }` as soon as the SDK has
-/// cleared the storage (the crypto store is not involved), then, only after a
-/// successful clear, a separate `cache_compacted` event for this op carrying
-/// the compaction's outcome and measured sizes. Compaction never delays or
-/// colours the clear's own result.
 pub(crate) fn clear_event_cache(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -538,7 +450,6 @@ pub(crate) fn clear_event_cache(bridge: &RustClient, op_id: u64) -> Result<(), S
     Ok(())
 }
 
-/// Ask the homeserver what it is. Result: `homeserver_info`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_homeserver_info(ptr: *mut c_void, op_id: u64) -> *mut c_char {
     ffi_string(|| {
@@ -547,8 +458,6 @@ pub unsafe extern "C" fn mx_rust_homeserver_info(ptr: *mut c_void, op_id: u64) -
     })
 }
 
-/// List the account data (global when `room_id` is empty). Secret types are
-/// redacted before the result leaves Rust. Result: `account_data_listing`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_account_data_listing(
     ptr: *mut c_void,
@@ -562,22 +471,13 @@ pub unsafe extern "C" fn mx_rust_account_data_listing(
     })
 }
 
-/// Most sessions listed for one user.
 const CLIENT_COUNT_CAP: usize = 64;
-/// A session name is whatever its owner typed; it is cut here.
 const CLIENT_NAME_CAP: usize = 80;
 
-/// One session name made safe to show: control characters dropped, bounded.
-/// Pure and unit-tested. The text is the owner's own and is never trusted as
-/// a statement about the software.
 pub(crate) fn clean_client_name(name: &str) -> String {
     name.chars().filter(|c| !c.is_control()).take(CLIENT_NAME_CAP).collect::<String>().trim().to_owned()
 }
 
-/// The sessions this device's crypto store knows for `user_id`: device id and
-/// the display name the owner gave it. That is all the protocol carries about
-/// a "client"; nothing is inferred. A user the store does not track yields an
-/// empty list, which the UI reports as unknown. Result: `user_clients`.
 pub(crate) fn user_clients(
     bridge: &RustClient,
     user_id: String,
@@ -615,7 +515,6 @@ pub(crate) fn user_clients(
     Ok(())
 }
 
-/// Sessions of one user as this device knows them. Result: `user_clients`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_user_clients(
     ptr: *mut c_void,
@@ -629,8 +528,6 @@ pub unsafe extern "C" fn mx_rust_user_clients(
     })
 }
 
-/// Clear the SDK's event cache (not the crypto store). Result:
-/// `event_cache_cleared`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_event_cache_clear(ptr: *mut c_void, op_id: u64) -> *mut c_char {
     ffi_string(|| {
@@ -759,8 +656,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // The point of the compaction: clearing rows leaves the file as big as it
-    // was, and the SDK store's own vacuum() is what gives the space back.
     #[tokio::test]
     async fn vacuuming_the_sdk_store_shrinks_its_file_after_a_clear() {
         use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
@@ -787,7 +682,6 @@ mod tests {
         let full = tree_bytes(&dir);
         store.remove_media_content(&request).await.unwrap();
         let cleared = tree_bytes(&dir);
-        // Through the same classifier the reset uses, not the bare vacuum().
         let measured = dir.clone();
         let result = compact(
             true,
@@ -808,9 +702,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // The classifier: the verdict follows the measured size, an absent store is
-    // not a failure, a timeout reports no "after", and a store that is not
-    // applicable is never asked to vacuum.
     #[tokio::test]
     async fn compaction_outcomes_follow_the_measured_size_and_absence_is_not_failure() {
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -819,16 +710,12 @@ mod tests {
         let shrank = compact(true, budget, 1000, async { Ok::<(), ()>(()) }, || 100).await;
         assert_eq!(shrank, Compaction { outcome: Outcome::Compacted, before: 1000, after: 100 });
 
-        // Ok from the SDK but the file did not shrink (a release build logs a
-        // failed VACUUM and returns Ok): never "compacted".
         let same = compact(true, budget, 1000, async { Ok::<(), ()>(()) }, || 1000).await;
         assert_eq!(same.outcome, Outcome::Unchanged);
 
         let failed = compact(true, budget, 1000, async { Err::<(), ()>(()) }, || 1000).await;
         assert_eq!(failed.outcome, Outcome::Failed);
 
-        // No SQLite store (in-memory media, no key): not applicable, no figures,
-        // and the vacuum future is never polled.
         let polled = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&polled);
         let none = compact(
@@ -846,7 +733,6 @@ mod tests {
         assert!(!polled.load(Ordering::SeqCst));
         assert_ne!(none.outcome.as_str(), "failed");
 
-        // A vacuum that outlives the budget: timed out, no "after" figure.
         let slow = compact(
             true,
             Duration::from_millis(20),
@@ -858,8 +744,6 @@ mod tests {
         assert_eq!(slow, Compaction { outcome: Outcome::TimedOut, before: 1000, after: 0 });
     }
 
-    // The compaction budget stays below the C++ side's wait for a compaction
-    // report (kCompactionWaitMs in AboutController.h, 100 s).
     #[test]
     fn the_compaction_budget_is_inside_the_uis_wait() {
         assert!(COMPACT_BUDGET < Duration::from_secs(100));

@@ -56,8 +56,6 @@ struct ZipEntry {
     QByteArray data;
 };
 
-// A stored ZIP. Names are ASCII by construction (the caller builds them from a
-// fixed alphabet), the UTF-8 flag is set anyway.
 QByteArray writeStoredZip(const QList<ZipEntry> &entries)
 {
     QByteArray out;
@@ -65,13 +63,12 @@ QByteArray writeStoredZip(const QList<ZipEntry> &entries)
     for (const ZipEntry &e : entries) {
         const quint32 offset = quint32(out.size());
         const quint32 crc = crc32(e.data);
-        // Local file header.
         le32(out, 0x04034b50);
-        le16(out, 20);          // version needed
-        le16(out, 0x0800);      // UTF-8 names
-        le16(out, 0);           // stored
-        le16(out, 0);           // time
-        le16(out, 0x0021);      // date: 1980-01-01
+        le16(out, 20);
+        le16(out, 0x0800);
+        le16(out, 0);
+        le16(out, 0);
+        le16(out, 0x0021);
         le32(out, crc);
         le32(out, quint32(e.data.size()));
         le32(out, quint32(e.data.size()));
@@ -79,9 +76,8 @@ QByteArray writeStoredZip(const QList<ZipEntry> &entries)
         le16(out, 0);
         out.append(e.name);
         out.append(e.data);
-        // Central directory record.
         le32(central, 0x02014b50);
-        le16(central, 20);      // version made by
+        le16(central, 20);
         le16(central, 20);
         le16(central, 0x0800);
         le16(central, 0);
@@ -91,11 +87,11 @@ QByteArray writeStoredZip(const QList<ZipEntry> &entries)
         le32(central, quint32(e.data.size()));
         le32(central, quint32(e.data.size()));
         le16(central, quint16(e.name.size()));
-        le16(central, 0);       // extra
-        le16(central, 0);       // comment
-        le16(central, 0);       // disk
-        le16(central, 0);       // internal attributes
-        le32(central, 0);       // external attributes
+        le16(central, 0);
+        le16(central, 0);
+        le16(central, 0);
+        le16(central, 0);
+        le32(central, 0);
         le32(central, offset);
         central.append(e.name);
     }
@@ -129,7 +125,7 @@ QString normalizeUsage(const QString &usage)
     return QStringLiteral("sticker");
 }
 
-}  // namespace
+}
 
 bool isValidShortcode(const QString &key)
 {
@@ -213,16 +209,12 @@ QByteArray buildArchive(const Pack &pack, int *skipped)
             ++skippedCount;
             continue;
         }
-        // A valid key travels exactly (case, `__`, 65-100 bytes); only a
-        // malformed one is turned into a suggestion.
         const QString code = proposeShortcode(image.shortcode);
         if (code.isEmpty()) {
             ++skippedCount;
             continue;
         }
         ++index;
-        // The file name is a locator only (the manifest carries the exact
-        // shortcode), so it stays short enough for the reader's name rule.
         const QString file = QStringLiteral("images/%1-%2.%3")
                                  .arg(index, 4, 10, QLatin1Char('0'))
                                  .arg(code.left(64), ext);
@@ -336,7 +328,6 @@ ReadResult readArchive(const QString &zipPath, const QString &workDir)
             code = sanitizeShortcode(QFileInfo(file).completeBaseName());
         if (code.isEmpty())
             code = QStringLiteral("sticker");
-        // Exact, case-sensitive: `Cat` and `cat` are two images.
         if (seen.contains(code)) {
             ++result.refused;
             continue;
@@ -357,4 +348,4 @@ ReadResult readArchive(const QString &zipPath, const QString &workDir)
     return result;
 }
 
-}  // namespace stickers::archive
+}

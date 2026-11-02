@@ -1,7 +1,3 @@
-// The tray icon's right-click menu (GitHub #17). With close-to-tray on, the icon
-// had no menu and every click only raised the window, so a user whose window was
-// closed to the tray had no way to quit from it. A QMenu is a widget, hence a
-// QApplication (QTEST_MAIN) rather than composer-spell-test's guiless main.
 
 #include <QAction>
 #include <QCoreApplication>
@@ -22,14 +18,12 @@ class TrayMenuTest : public QObject
     Q_OBJECT
 
 private slots:
-    // GitHub #17: with close-to-tray on, the tray icon had no menu and every
-    // click only raised the window, so there was no way to quit from it.
     void theTrayMenuShowsTheWindowAndQuits()
     {
         TrayIcon tray;
         QMenu *menu = tray.contextMenu();
         QVERIFY(menu);
-        QCOMPARE(tray.contextMenu(), menu); // one menu, built once
+        QCOMPARE(tray.contextMenu(), menu);
         QAction *show = nullptr;
         QAction *quit = nullptr;
         for (QAction *action : menu->actions()) {
@@ -49,7 +43,6 @@ private slots:
         QCOMPARE(quitting.count(), 1);
     }
 
-    // Finding 145: the dot-only state (unread rooms, no count) had no words.
     void theTooltipSaysUnreadInTheDotOnlyState()
     {
         const QString dotOnly = TrayIcon::tooltipText(QString(), 0, true);
@@ -61,7 +54,6 @@ private slots:
                     .contains(QStringLiteral("3")));
     }
 
-    // Finding 144: the cached menu kept the language it was built in.
     void aLanguageChangeRetranslatesTheCachedMenu()
     {
         TrayIcon tray;
@@ -79,7 +71,6 @@ private slots:
         QCOMPARE(acts[1]->text(), QStringLiteral("Quit Lightning"));
     }
 
-    // Finding 42: macOS Control-click arrives as Trigger.
     void aMacControlClickIsASecondaryClick()
     {
         QCOMPARE(TrayIcon::effectiveActivationReason(QSystemTrayIcon::Trigger, true, true),
@@ -92,16 +83,12 @@ private slots:
                  int(QSystemTrayIcon::DoubleClick));
     }
 
-    // Finding 36: a non-zero timeout deletes the notification from
-    // Notification Center on macOS.
     void macOSBalloonsAreNeverTimedOut()
     {
         QCOMPARE(TrayIcon::balloonTimeoutMs(true), 0);
         QVERIFY(TrayIcon::balloonTimeoutMs(false) > 0);
     }
 
-    // The right click opens the menu; it must not also raise the window
-    // (Windows reports the Context activation alongside the menu).
     void aRightClickOpensTheMenuWithoutRaisingTheWindow()
     {
         QVERIFY(!TrayIcon::activationShowsWindow(QSystemTrayIcon::Context));
@@ -110,11 +97,6 @@ private slots:
         QVERIFY(TrayIcon::activationShowsWindow(QSystemTrayIcon::MiddleClick));
     }
 
-    // GitHub #23: at an interface zoom != 100% QIcon::pixmap() hands back
-    // size*dpr physical pixels with devicePixelRatio set, and the badge was
-    // laid out from the PHYSICAL size inside a painter that scales by the
-    // ratio again, so the disc landed past the corner and was clipped. The
-    // red disc must be the same circle at every ratio, inside the pixmap.
     void theBadgeDiscStaysInsideThePixmapAtAnyDevicePixelRatio_data()
     {
         QTest::addColumn<qreal>("dpr");
@@ -151,8 +133,6 @@ private slots:
             }
         }
         QVERIFY2(red > 0, "a red disc is drawn");
-        // dot diameter is 0.42 of the logical side; expect it tangent to the
-        // bottom-right corner, in physical pixels.
         const qreal diameter = logicalSide * 0.42 * dpr;
         const qreal edge = physical;
         QVERIFY2(qAbs(minX - (edge - diameter)) <= 2.0,
@@ -163,18 +143,12 @@ private slots:
                                 .arg(minY).arg(edge - diameter)));
         QVERIFY2(edge - 1 - maxX <= 2.0 && edge - 1 - maxY <= 2.0,
                  "the disc reaches the corner");
-        // Not clipped: the whole disc area is there.
         const qreal expectedArea = 3.14159265 * diameter * diameter / 4.0;
         QVERIFY2(qAbs(red - expectedArea) / expectedArea < 0.06,
                  qPrintable(QStringLiteral("red area %1 expected %2")
                                 .arg(red).arg(expectedArea)));
     }
 
-    // Windows, 2026-10-07: every balloon also played Windows' "Notify System
-    // Generic", because Qt 6.11.2's QWindowsSystemTrayIcon::showMessage sets
-    // dwInfoFlags to NIIF_INFO or NIIF_USER | NIIF_LARGE_ICON and never
-    // NIIF_NOSOUND. The values are shellapi.h's; TrayIcon.cpp static_asserts
-    // the mirrored constants against the SDK on Windows.
     void aWindowsBalloonCarriesNoSoundUnlessThePlatformSoundWasAskedFor()
     {
         constexpr unsigned niifInfo = 0x01, niifUser = 0x04,
@@ -184,21 +158,16 @@ private slots:
         QCOMPARE(TrayIcon::kBalloonNoSound, niifNoSound);
         QCOMPARE(TrayIcon::kBalloonLargeIcon, niifLargeIcon);
 
-        // Lightning's chime or silence: Windows must add nothing.
-        QCOMPARE(TrayIcon::balloonInfoFlags(/*hasImage=*/false,
-                                            /*platformSound=*/false),
+        QCOMPARE(TrayIcon::balloonInfoFlags(false,
+false),
                  niifInfo | niifNoSound);
         QCOMPARE(TrayIcon::balloonInfoFlags(true, false),
                  niifUser | niifLargeIcon | niifNoSound);
-        // System default chosen: exactly Qt's own composition, so the icon
-        // and size the balloon showed before are unchanged.
         QCOMPARE(TrayIcon::balloonInfoFlags(false, true), niifInfo);
         QCOMPARE(TrayIcon::balloonInfoFlags(true, true),
                  niifUser | niifLargeIcon);
     }
 
-    // The balloon image is what Qt's icon.actualSize(QSize(256, 256)) gave:
-    // scaled down to fit, aspect kept, never scaled up.
     void theBalloonImageFitsQtsBoundWithoutUpscaling()
     {
         QVERIFY(TrayIcon::balloonImage(QImage()).isNull());
@@ -213,8 +182,6 @@ private slots:
         QCOMPARE(TrayIcon::balloonImage(tall).size(), QSize(128, 256));
     }
 
-    // Without an icon there is no balloon, and the caller falls back to its
-    // own log line; the sound argument changes nothing about that.
     void noIconMeansNoBalloonWhateverTheSound()
     {
         TrayIcon tray;
@@ -224,9 +191,6 @@ private slots:
                                   QImage(), true));
     }
 
-    // GitHub #34: a native menu on a macOS status item throws from Qt's
-    // menu-tracking observer. There the menu is ours, popped from the Context
-    // activation; elsewhere the platform's menu stands and we never pop one.
     void macOsTrayMenuIsOursNotTheStatusItems()
     {
         using closebehavior::trayUsesNativeMenu;
@@ -235,17 +199,12 @@ private slots:
         QVERIFY(TrayIcon::activationOpensOwnMenu(QSystemTrayIcon::Context, false));
         QVERIFY(!TrayIcon::activationOpensOwnMenu(QSystemTrayIcon::Context, true));
         QVERIFY(!TrayIcon::activationOpensOwnMenu(QSystemTrayIcon::Trigger, false));
-        // A left click still raises the window on the same platform.
         QVERIFY(TrayIcon::activationShowsWindow(QSystemTrayIcon::Trigger));
     }
 
-    // GitHub #34: closing the window on macOS hides it (Cmd+W is not Cmd+Q),
-    // on other platforms only with close-to-tray and a tray; a declared quit
-    // is never vetoed.
     void closeHidesWindowFollowsThePlatformConvention()
     {
         using closebehavior::closeHidesWindow;
-        // isMac, closeToTray, trayAvailable, quitIntended
         QVERIFY(closeHidesWindow(true, false, false, false));
         QVERIFY(closeHidesWindow(true, true, true, false));
         QVERIFY(!closeHidesWindow(true, true, true, true));
@@ -255,22 +214,15 @@ private slots:
         QVERIFY(!closeHidesWindow(false, true, true, true));
     }
 
-    // The Dock icon (a forced ApplicationActive) brings back only a window
-    // that a close hid, and only on macOS.
     void dockActivationRestoresOnlyAWindowThatACloseHid()
     {
         using closebehavior::activationRestoresWindow;
         QVERIFY(activationRestoresWindow(true, true, true));
-        QVERIFY(!activationRestoresWindow(true, false, true)); // start in tray
-        QVERIFY(!activationRestoresWindow(true, true, false)); // already shown
+        QVERIFY(!activationRestoresWindow(true, false, true));
+        QVERIFY(!activationRestoresWindow(true, true, false));
         QVERIFY(!activationRestoresWindow(false, true, true));
     }
 
-    // Element-style macOS close, independent of the tray setting. The platform
-    // code cannot run here, so the pieces that make it work are pinned in
-    // source: Cmd+W (the app has no native menu bar to carry a Close item), a
-    // hidden last window not counting as a quit, and both guarded to macOS so
-    // Linux and Windows keep their behaviour.
     void theMacCloseContractIsInSourceAndGuardedToMacOs()
     {
         auto read = [](const QString &relative) {
@@ -294,7 +246,6 @@ private slots:
         const int quitOnLast = controller.indexOf(
             QStringLiteral("QGuiApplication::setQuitOnLastWindowClosed(false)"));
         QVERIFY2(quitOnLast >= 0, "a hidden last window must not quit on macOS");
-        // Inside an #ifdef Q_OS_MACOS block, not unconditional.
         const int guardOpen = controller.lastIndexOf(
             QStringLiteral("#ifdef Q_OS_MACOS"), quitOnLast);
         const int guardClose = controller.indexOf(QStringLiteral("#endif"), guardOpen);

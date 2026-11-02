@@ -1,9 +1,3 @@
-// What a session does with credentials it cannot fully use: an OAuth client
-// id the keyring could not read at restore, an OAuth session the SDK ended
-// without a refresh token to try, and a sign-in this install copied from an
-// item saved before install scoping, checked with the server before use.
-// Real RustSdkMatrixClient and SettingsManager; fixture keyrings; a loopback
-// homeserver where one is needed. Never the host keyring.
 
 #include "app/SettingsManager.h"
 #include "matrix/RustSdkMatrixClient.h"
@@ -28,9 +22,6 @@
 #include <atomic>
 
 namespace {
-// A keyring shared between installs, as libsecret's is: this install's items
-// under its scope, and the pre-scoping items any install can read. Reads of
-// the keys in `failingReads` fail ("cannot tell").
 class SharedFixtureStore final : public SecretStore
 {
     Q_OBJECT
@@ -82,8 +73,6 @@ private:
     mutable bool m_failed = false;
 };
 
-// Answers versions, and whoami by token: "mine" is MINEDEVICE, "theirs" is
-// THEIRDEVICE, anything else 401. Everything else 404.
 class WhoamiHomeserver : public QObject
 {
     Q_OBJECT
@@ -160,7 +149,7 @@ private:
     QTcpServer m_server;
     QHash<QTcpSocket *, QByteArray> m_buffers;
 };
-} // namespace
+}
 
 class SessionCredentialTest : public QObject
 {
@@ -174,7 +163,6 @@ private:
         return matrix::app_data::safeUserSlug(userId);
     }
 
-    // A saved account whose store exists, its sign-in in this install's items.
     static void saveAccount(SettingsManager &settings, const QString &server,
                             const QString &userId, const QString &access,
                             const QString &authType = QStringLiteral("password"),
@@ -189,7 +177,6 @@ private:
         QDir().mkpath(identity.rustStorePath);
     }
 
-    // As adoptLegacyKeyringSession() leaves a copied sign-in.
     static void markAdopted(const QString &userId)
     {
         QSettings raw;
@@ -198,7 +185,6 @@ private:
         raw.sync();
     }
 
-    // The running session, as a restore leaves it, for the event handler.
     static void running(RustSdkMatrixClient &client, const QString &server,
                         const QString &userId)
     {
@@ -234,10 +220,6 @@ private Q_SLOTS:
         raw.sync();
     }
 
-    // An OAuth account whose client id the keyring cannot read at restore is
-    // the keyring card, before any handle exists. It was the "missing session
-    // metadata" message, which asks for a sign-in that would start a new
-    // device over a session that is fine.
     void anUnreadableOAuthClientIdIsTheKeyringCard()
     {
         SharedFixtureStore secrets;
@@ -261,13 +243,6 @@ private Q_SLOTS:
         QCOMPARE(settings.oauthClientIdFor(uma), QStringLiteral("client-id"));
     }
 
-    // matrix-sdk reports UnknownToken without asking the server when the
-    // session holds no refresh token. For OAuth that was always a HARD
-    // revocation (the next sign-in a new device). Now, when the keyring holds
-    // one (or cannot answer), the session merely never got it -> the keyring
-    // card and no revocation. Conclusively none, or a refresh token the
-    // server refused -> the hard revocation as before, whose next sign-in
-    // moves the store aside instead of leaving "Remove" as the only way on.
     void anOAuthSessionWithoutARefreshTokenIsRevokedOnlyWhenTheKeyringHasNone()
     {
         const QString server = QStringLiteral("https://example.org");
@@ -301,8 +276,6 @@ private Q_SLOTS:
             QVERIFY(client.m_softLogoutUserId.isEmpty());
         }
         {
-            // The server's soft_logout absent: still the hard end, with the
-            // proof the next sign-in needs to move the store aside.
             RustSdkMatrixClient client(&settings);
             running(client, server, vic);
             QSignalSpy blocked(&client, &RustSdkMatrixClient::localSessionBlocked);
@@ -327,9 +300,6 @@ private Q_SLOTS:
         }
     }
 
-    // A password sign-in copied from an item saved before install scoping is
-    // another install's device: this install's copy goes, the shared item
-    // stays, the card says so, and the next start never adopts it again.
     void anAdoptedSignInOfAnotherInstallsDeviceIsDeclined()
     {
         WhoamiHomeserver homeserver;
@@ -359,8 +329,6 @@ private Q_SLOTS:
         QCOMPARE(blocked.size(), 1);
         QCOMPARE(blocked.first().at(0).toString(), QStringLiteral("keyring_other_install"));
         QVERIFY(settings.keyringItemsDeclinedForOtherInstall(wes));
-        // This install's copy is gone, the other install's item is untouched,
-        // and it is not adopted again.
         QVERIFY(settings.accessTokenFor(wes).isEmpty());
         QVERIFY(!settings.secretBackendUnavailable());
         QCOMPARE(secrets.readLegacySecret(wes, QStringLiteral("accessToken")),
@@ -368,9 +336,6 @@ private Q_SLOTS:
         QVERIFY(!settings.hasSession());
         QVERIFY(!client.m_rustHandle);
 
-        // The card asks for a sign-in: a password sign-in continues as the
-        // recorded device, into this store, and never reaches a reason whose
-        // remedy deletes the store.
         matrix::app_data::AccountIdentity identity;
         QVERIFY(matrix::app_data::resolveAccountIdentity(server, wes, &identity));
         QSignalSpy reset(&client, &RustSdkMatrixClient::localSessionResetRequired);
@@ -384,9 +349,6 @@ private Q_SLOTS:
         QVERIFY(QFileInfo::exists(identity.rustStorePath));
     }
 
-    // An answer that arrives after the account moved on changes nothing: a
-    // newer sign-in written during the check, or a session of the account
-    // running by then, keeps its tokens.
     void aLateAdoptionAnswerNeverRemovesANewerSignIn()
     {
         WhoamiHomeserver homeserver;
@@ -398,7 +360,6 @@ private Q_SLOTS:
         SettingsManager settings;
         settings.setSecretStore(&secrets);
 
-        // A newer sign-in during the check.
         const QString abe = QStringLiteral("@abe:example.org");
         saveAccount(settings, server, abe, QStringLiteral("theirs"));
         markAdopted(abe);
@@ -413,7 +374,6 @@ private Q_SLOTS:
             QVERIFY(!settings.keyringItemsDeclinedForOtherInstall(abe));
         }
 
-        // A session of the account running by the time it answers.
         const QString bea = QStringLiteral("@bea:example.org");
         saveAccount(settings, server, bea, QStringLiteral("theirs"));
         markAdopted(bea);
@@ -431,8 +391,6 @@ private Q_SLOTS:
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
     }
 
-    // The same device confirms the adoption; a 401 decides nothing and the
-    // restore goes on, unverified; an OAuth sign-in is never asked about.
     void anAdoptedSignInIsConfirmedOrRestoredUnverified()
     {
         WhoamiHomeserver homeserver;

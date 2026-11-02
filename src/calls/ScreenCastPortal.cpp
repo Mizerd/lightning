@@ -26,10 +26,6 @@
 namespace {
 Q_LOGGING_CATEGORY(lcPortal, "lightning.calls.portal")
 
-/// How long a portal request may stay outstanding. Long, because the user is
-/// picking a source by hand; it only stops an unanswered request from wedging
-/// the feature. Outside the D-Bus guard because the timer exists in every
-/// build.
 constexpr int kRequestTimeoutMs = 120000;
 
 #ifdef HAVE_QT_DBUS
@@ -38,10 +34,6 @@ constexpr auto kPath = "/org/freedesktop/portal/desktop";
 constexpr auto kScreenCast = "org.freedesktop.portal.ScreenCast";
 constexpr auto kRequest = "org.freedesktop.portal.Request";
 
-/// The portal backend refusing X11 sessions outright (xdg-desktop-portal-kde:
-/// "screen sharing is not available in X11 sessions"). Recognised by its
-/// message so a user's dismissal or an unrelated failure is never mistaken
-/// for it; the text itself is never logged or forwarded.
 QString errorCategory(const QDBusError &error, const QString &fallback)
 {
     const QString message = error.message();
@@ -65,11 +57,9 @@ QString freshToken()
         .arg(QRandomGenerator::system()->generate64(), 0, 16);
 }
 #endif
-} // namespace
+}
 
 #ifdef HAVE_QT_DBUS
-/// One step of the handshake: subscribe to the Request's `Response`, deliver
-/// it once, unsubscribe.
 class PortalStep : public QObject
 {
     Q_OBJECT
@@ -90,7 +80,6 @@ public:
     }
 
 Q_SIGNALS:
-    /// response: 0 = success, 1 = user cancelled, 2 = ended some other way.
     void answered(uint response, const QVariantMap &results);
 
 private Q_SLOTS:
@@ -107,8 +96,6 @@ private:
 
 ScreenCastPortal::ScreenCastPortal(QObject *parent) : QObject(parent)
 {
-    // Armed when a request starts; stopped by cancel() and by a granted
-    // source.
     m_requestTimeout.setSingleShot(true);
     m_requestTimeout.setInterval(kRequestTimeoutMs);
     connect(&m_requestTimeout, &QTimer::timeout, this, [this] {
@@ -146,16 +133,10 @@ ScreenCastPortal::~ScreenCastPortal()
 bool ScreenCastPortal::available()
 {
 #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-    // No portal on Windows and macOS: the GStreamer source captures directly,
-    // so this only asks whether there is a screen. macOS's Screen Recording
-    // permission is prompted by the OS on the first capture; refusing here
-    // would give the user no way to grant it.
     return QGuiApplication::screens().size() > 0;
 #elif defined(HAVE_QT_DBUS)
     if (!QDBusConnection::sessionBus().isConnected())
         return false;
-    // Probe the interface version; a desktop without the ScreenCast portal
-    // answers with an error.
     QDBusMessage probe = QDBusMessage::createMethodCall(
         kService, kPath, "org.freedesktop.DBus.Properties",
         QStringLiteral("Get"));
@@ -176,7 +157,6 @@ void ScreenCastPortal::cancel()
     m_answerWatchdog.stop();
 #ifdef HAVE_QT_DBUS
     if (!m_sessionHandle.isEmpty()) {
-        // Close the session, or the compositor keeps streaming to nobody.
         QDBusMessage close = QDBusMessage::createMethodCall(
             kService, m_sessionHandle, "org.freedesktop.portal.Session",
             QStringLiteral("Close"));
@@ -200,10 +180,6 @@ void ScreenCastPortal::requestShare(int types, int preparationBoundMs,
     Q_UNUSED(types);
     Q_UNUSED(preparationBoundMs);
     Q_UNUSED(pickerBoundMs);
-    // No portal broker here: resolve a monitor index and deliver it through
-    // the same `ready` signal, in the node-id slot, which
-    // SfuMediaEngine::screenShareSource() reads as a monitor index on these
-    // platforms.
     if (m_busy) {
         Q_EMIT failed(QStringLiteral("busy"));
         return;
@@ -213,8 +189,6 @@ void ScreenCastPortal::requestShare(int types, int preparationBoundMs,
         Q_EMIT failed(QStringLiteral("no_screen"));
         return;
     }
-    // The screen the app is on, not screen 0, so the user never shares a
-    // display they did not mean.
     const QWindow *window = QGuiApplication::focusWindow();
     const QScreen *screen = window ? window->screen() : nullptr;
     if (!screen)
@@ -229,7 +203,6 @@ void ScreenCastPortal::requestShare(int types, int preparationBoundMs,
     Q_UNUSED(types);
     Q_UNUSED(preparationBoundMs);
     Q_UNUSED(pickerBoundMs);
-    // No portal means no screen sharing; report it.
     Q_EMIT failed(QStringLiteral("no_portal"));
 }
 #else
@@ -237,7 +210,6 @@ void ScreenCastPortal::requestShare(int types, int preparationBoundMs,
                                     int pickerBoundMs)
 {
     if (m_busy) {
-        // A second request would open a second dialog and orphan a session.
         Q_EMIT failed(QStringLiteral("busy"));
         return;
     }
@@ -255,7 +227,6 @@ void ScreenCastPortal::requestShare(int types, int preparationBoundMs,
         return generation != m_generation;
     };
 
-    // Step 1: CreateSession
     QDBusMessage create = QDBusMessage::createMethodCall(
         kService, kPath, kScreenCast, QStringLiteral("CreateSession"));
     const QString token = freshToken();
@@ -270,10 +241,6 @@ void ScreenCastPortal::requestShare(int types, int preparationBoundMs,
         if (stale())
             return;
         if (response != 0) {
-            // No dialog is shown at this step, so nothing here is the user
-            // declining: the portal refused to make a session (KDE's does on
-            // X11, where KWin's screencast protocol is absent). Said, never
-            // swallowed as a silent "cancel".
             qCWarning(lcPortal) << "screen share session refused response="
                                 << response;
             reset();
@@ -289,7 +256,6 @@ void ScreenCastPortal::requestShare(int types, int preparationBoundMs,
         }
         selectSources(types);
     };
-    // Subscribed before the call; see PortalRequest.h.
     auto subscription = portal::subscribeBeforeCall<PortalStep>(
         this, QDBusConnection::sessionBus().baseService(), token, onAnswer);
 
@@ -305,8 +271,6 @@ void ScreenCastPortal::requestShare(int types, int preparationBoundMs,
                     return;
                 }
                 if (reply.isError()) {
-                    // Error text can name the desktop and paths; report a
-                    // category only.
                     portal::dropSubscription(subscription);
                     reset();
                     Q_EMIT failed(errorCategory(reply.error(),
@@ -325,8 +289,6 @@ void ScreenCastPortal::selectSources(int types)
         return generation != m_generation;
     };
 
-    // Step 2: SelectSources. `multiple: false` keeps one published track per
-    // share.
     QDBusMessage select = QDBusMessage::createMethodCall(
         kService, kPath, kScreenCast, QStringLiteral("SelectSources"));
     const QString token = freshToken();
@@ -334,8 +296,6 @@ void ScreenCastPortal::selectSources(int types)
     options.insert(QStringLiteral("handle_token"), token);
     options.insert(QStringLiteral("types"), static_cast<uint>(types));
     options.insert(QStringLiteral("multiple"), false);
-    // cursor_mode: 1 = hidden, 2 = embedded, 4 = metadata. Embedded draws the
-    // pointer into the stream, so receivers need not composite it.
     options.insert(QStringLiteral("cursor_mode"), 2u);
     select << QVariant::fromValue(QDBusObjectPath(m_sessionHandle)) << options;
 
@@ -348,7 +308,6 @@ void ScreenCastPortal::selectSources(int types)
             return;
         }
         if (response != 0) {
-            // 2: "ended in some other way" -- the portal, not the user.
             qCWarning(lcPortal) << "screen share source selection refused "
                                    "response=" << response;
             cancel();
@@ -390,16 +349,12 @@ void ScreenCastPortal::startSession()
         return generation != m_generation;
     };
 
-    // Step 3: Start, where the portal shows its picker. From here a human
-    // may be choosing, so the caller's picker bound replaces the
-    // preparation bound.
     armAnswerWatchdog(m_pickerBoundMs);
     QDBusMessage start = QDBusMessage::createMethodCall(
         kService, kPath, kScreenCast, QStringLiteral("Start"));
     const QString token = freshToken();
     QVariantMap options;
     options.insert(QStringLiteral("handle_token"), token);
-    // No portable parent-window handle from Qt; the dialog appears unparented.
     start << QVariant::fromValue(QDBusObjectPath(m_sessionHandle))
           << QString() << options;
 
@@ -408,15 +363,12 @@ void ScreenCastPortal::startSession()
         if (stale())
             return;
         if (response != 0) {
-            // The user cancelled in the picker.
             cancel();
             Q_EMIT cancelled();
             return;
         }
         handleStreams(results);
     };
-    // Usually a picker precedes the answer, but a portal restoring a previous
-    // selection answers immediately.
     auto subscription = portal::subscribeBeforeCall<PortalStep>(
         this, QDBusConnection::sessionBus().baseService(), token, onAnswer);
 
@@ -445,8 +397,6 @@ void ScreenCastPortal::startSession()
 
 void ScreenCastPortal::handleStreams(const QVariantMap &results)
 {
-    // `streams` is a(ua{sv}): (node_id, properties). One source was requested,
-    // so the first entry is exactly what the user chose.
     const QVariant streams = results.value(QStringLiteral("streams"));
     const QDBusArgument argument = streams.value<QDBusArgument>();
     if (argument.currentType() != QDBusArgument::ArrayType) {
@@ -476,8 +426,6 @@ void ScreenCastPortal::handleStreams(const QVariantMap &results)
         Q_EMIT failed(QStringLiteral("no_stream"));
         return;
     }
-    // The session stays open (closing it stops the stream); cancel() closes it
-    // when the share stops.
     qCInfo(lcPortal) << "screen share source selected";
     openRemote(nodeId);
 }
@@ -502,8 +450,6 @@ void ScreenCastPortal::openRemote(unsigned nodeId)
                 if (generation != m_generation)
                     return;
                 if (reply.isError() || !reply.value().isValid()) {
-                    // Error name only: messages can carry window titles or
-                    // paths.
                     qCWarning(lcPortal)
                         << "OpenPipeWireRemote failed error="
                         << (reply.isError() ? reply.error().name()

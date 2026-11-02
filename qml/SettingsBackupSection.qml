@@ -3,11 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings -> Account: a settings file (export / import) and "Sync settings
-// across your devices". Both move the same allow-listed preference set
-// (src/settings/SettingsPortable.*); neither ever carries a sign-in, a key, a
-// device, a file location or anything about an account. Bound to
-// app.settingsSync.
 ColumnLayout {
     id: backup
     objectName: "settingsBackupSection"
@@ -16,8 +11,6 @@ ColumnLayout {
 
     readonly property var sync: (typeof app !== "undefined" && app)
                                 ? app.settingsSync : null
-    // True when the previewed file would change something (rows, shortcuts or
-    // new themes); the summary label and the Import button both follow it.
     readonly property bool previewHasExtras: (backup.preview.shortcutChanges || 0) > 0
                                              || (backup.preview.themesNew || 0) > 0
     readonly property bool previewHasChanges:
@@ -73,7 +66,6 @@ ColumnLayout {
         }
     }
 
-    // ---- the settings file -------------------------------------------------
     Card {
         objectName: "settingsFileCard"
         ColumnLayout {
@@ -118,7 +110,6 @@ ColumnLayout {
         }
     }
 
-    // ---- sync ----------------------------------------------------------------
     Card {
         objectName: "settingsSyncCard"
         visible: backup.syncAvailable
@@ -148,7 +139,6 @@ ColumnLayout {
                     text: qsTr("Sync settings across your devices")
                     TapHandler {
                         onTapped: if (syncSwitch.enabled) {
-                            // Like a native label: the switch takes focus.
                             syncSwitch.focusFromPointer()
                             backup.sync.setSyncEnabled(!backup.sync.enabled)
                         }
@@ -200,7 +190,6 @@ ColumnLayout {
                 }
             }
 
-            // First enable with settings on both sides that disagree.
             ColumnLayout {
                 objectName: "settingsSyncChoice"
                 Layout.fillWidth: true
@@ -237,7 +226,6 @@ ColumnLayout {
                 }
             }
 
-            // A later change elsewhere replaced an unsynced one here.
             ColumnLayout {
                 objectName: "settingsSyncConflicts"
                 Layout.fillWidth: true
@@ -274,7 +262,6 @@ ColumnLayout {
         }
     }
 
-    // ---- dialogs -------------------------------------------------------------
     NativeFileDialog {
         id: exportDialog
         purpose: "settings"
@@ -436,7 +423,6 @@ ColumnLayout {
                     storm: true
                     kind: "primary"
                     objectName: "importApplyButton"
-                    // Nothing to apply: the summary says so, so no button.
                     enabled: backup.previewHasChanges
                     text: qsTr("Import")
                     onClicked: {

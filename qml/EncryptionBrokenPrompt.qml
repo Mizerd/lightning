@@ -3,20 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The one surface for "this session can never decrypt anything": the device
-// published a curve25519 identity key its local Olm account doesn't hold.
-// Peers encrypt to the published key, so every room key and call media key
-// addressed to this device is unreadable for good (messages stay on "Waiting
-// for keys…", calls are silent one way), while sending still works.
-//
-// The repair is signing out and in again, and its cost is stated: it's a new
-// device, and history not in key backup won't come back. Deliberately not
-// automated (CLAUDE.md §6: no crypto-store reset as a normal repair).
-// app.auth.logout() is the ordinary sign-out; nothing here touches the crypto
-// store.
-//
-// A corner card like VerifySessionPrompt so sending isn't blocked by a modal,
-// but in a stronger tone.
 Rectangle {
     id: root
 
@@ -27,8 +13,6 @@ Rectangle {
     readonly property bool shouldShow:
         app.encryptionIdentityBroken
         && !suppressed
-        // Chat shell only (currentScreen 1): the repair is a sign-out, and
-        // there's no account to act on at login or boot.
         && app.currentScreen === 1
 
     Connections {
@@ -81,8 +65,6 @@ Rectangle {
             }
         }
 
-        // Plain language, including that sending still works, which is why this
-        // is hard to notice.
         Label {
             objectName: "encryptionBrokenPromptBody"
             Layout.fillWidth: true
@@ -121,8 +103,6 @@ Rectangle {
         }
     }
 
-    // The cost is stated on the confirmation too: this is where the user
-    // commits.
     Dialog {
         id: signOutConfirm
         objectName: "encryptionBrokenSignOutDialog"
@@ -158,9 +138,6 @@ Rectangle {
             Label {
                 objectName: "encryptionBrokenSignOutConsequences"
                 Layout.fillWidth: true
-                // State whether backup exists rather than a generic "only if in
-                // backup". `keyBackupUsable` is false when unknown too, so it
-                // errs towards warning.
                 readonly property bool backupUsable:
                     app.cryptoHealth && app.cryptoHealth.keyBackupUsable
                 text: qsTr("Signing in again creates a NEW session with new "

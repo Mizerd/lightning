@@ -1,11 +1,3 @@
-// A session restored from the local store must read as Offline, and keep
-// reading so: `loginSucceeded` runs synchronously into startSync(), which
-// sets Syncing, and the sync lane then reports "starting" (Syncing again),
-// which AppController shows as "Loading rooms…". Only a sync response may
-// release the override.
-//
-// Drives the real event dispatcher with the real payload names; no FFI
-// handle, store or network.
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
@@ -39,9 +31,6 @@ private:
         return out;
     }
 
-    /// The `login_ok` a RESTORE produces: a user and a device, and no access
-    /// token (the restore already had one, which is why the handler's
-    /// saveSession branch is keyed on a non-empty token).
     static QJsonObject restoredLoginOk()
     {
         QJsonObject out = event(QStringLiteral("login_ok"));
@@ -71,8 +60,6 @@ private:
         return out;
     }
 
-    // What restoreSession() records before it opens the store: the account
-    // the client's session events, the revocation included, are reported for.
     static void openingAs(RustSdkMatrixClient *client, const QString &userId)
     {
         matrix::app_data::AccountIdentity identity;
@@ -92,10 +79,6 @@ private:
         return true;
     }
 
-    // `userId` on the main screen the way an offline-first restore gets
-    // there: from the store, before the server has judged the credential.
-    // `others` are saved accounts that never run. No tokens: the secret store
-    // is detached, so nothing reaches a real keyring.
     static bool restoredOnMain(AppController &app, RustSdkMatrixClient *rust,
                                const QString &userId, const QStringList &others)
     {
@@ -121,9 +104,6 @@ private slots:
         qputenv("XDG_CONFIG_HOME", m_home.path().toUtf8());
     }
 
-    // The control, and it has to come first: without the offline marker the
-    // states are exactly what they have always been. An override that fired
-    // on every session would be far worse than the defect it fixes.
     void anOrdinaryRestoreStillReportsSyncing()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -148,8 +128,6 @@ private slots:
         SettingsManager settings;
         RustSdkMatrixClient client(&settings);
 
-        // Enqueued by build_client_for_restore BEFORE its login_ok, which is
-        // what lets the flag be set by the time the state is decided.
         client.handleRustEventForTest(
             event(QStringLiteral("session_restored_offline")));
         client.handleRustEventForTest(restoredLoginOk());
@@ -157,8 +135,6 @@ private slots:
 #endif
     }
 
-    // Everything between login_ok and the first sync failure reports Syncing;
-    // the state must stay Offline.
     void theOfflineStateSurvivesTheSyncLaneStarting()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -170,8 +146,6 @@ private slots:
             event(QStringLiteral("session_restored_offline")));
         client.handleRustEventForTest(restoredLoginOk());
 
-        // `startSync()` needs an FFI handle but only does setState(Syncing);
-        // the lane's "starting" and "retrying" arrive as these events.
         QJsonObject syncing = event(QStringLiteral("status"));
         syncing.insert(QStringLiteral("state"), QStringLiteral("syncing"));
         client.handleRustEventForTest(syncing);
@@ -191,8 +165,6 @@ private slots:
 #endif
     }
 
-    // And a session that reconnects is not stranded: a sync response proves
-    // the server was reached and releases the override.
     void aSyncResponseReleasesTheOverride()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -208,9 +180,6 @@ private slots:
         client.handleRustEventForTest(syncState(QStringLiteral("running")));
         QCOMPARE(client.connectionState(), MatrixClient::Syncing);
 
-        // Permanently: a later reconnect cycle behaves like any other
-        // session's, or one outage would pin the label for the rest of the
-        // run.
         client.handleRustEventForTest(syncState(QStringLiteral("offline")));
         QCOMPARE(client.connectionState(), MatrixClient::Offline);
         client.handleRustEventForTest(syncState(QStringLiteral("retrying")));
@@ -218,19 +187,11 @@ private slots:
 #endif
     }
 
-    // The reported defect: the offline-first restore reaches the main screen
-    // before the server refuses the credential, so the failed-startup path
-    // that shows the login card never runs, and the app sat on Main saying
-    // "You appear to be offline". The session must end LOCALLY: the record,
-    // the active account, the crypto store and every per-account file stay,
-    // and no other account is switched to.
     void aRevocationAfterMainShowsTheLoginCard()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
         QSKIP("The offline restore path exists on the Rust backend only.");
 #else
-        // Its own settings file, so no account of another case is restored
-        // when the controller is constructed.
         QCoreApplication::setApplicationName(
             QStringLiteral("offline-restore-revoke-main"));
         const QString alice = QStringLiteral("@alice:example.org");
@@ -240,7 +201,6 @@ private slots:
         QVERIFY(rust);
         QVERIFY(restoredOnMain(app, rust, alice, {bob}));
 
-        // What a sign-out would delete, and a revocation must not.
         const QString starred =
             matrix::app_data::starredGifsDir(alice) + QStringLiteral("/marker");
         const QString bridge = matrix::app_data::bridgeLabelsFile(alice);
@@ -257,7 +217,6 @@ private slots:
             event(QStringLiteral("session_token_revoked")));
         QTRY_COMPARE_WITH_TIMEOUT(app.currentScreen(),
                                   AppController::LoginScreen, 2000);
-        // Nothing downstream may put Main back.
         QTest::qWait(100);
         QCOMPARE(app.currentScreen(), AppController::LoginScreen);
 
@@ -273,7 +232,6 @@ private slots:
         QVERIFY(QFileInfo::exists(keys));
         QVERIFY(app.accounts()->sessionRevoked(alice));
 
-        // A session that signs in again is healthy again.
         rust->handleRustEventForTest(restoredLoginOkFor(alice));
         QCOMPARE(app.currentScreen(), AppController::MainScreen);
         QCOMPARE(app.localSessionFailureReasonCode(), QString());
@@ -281,11 +239,6 @@ private slots:
 #endif
     }
 
-    // Review RV1: only the running handle reports a revocation, so it is the
-    // running account's, whatever login() last opened. An add-account attempt
-    // refused as "already signed in here" leaves another saved account in the
-    // opening identity while this session keeps running; the revocation must
-    // still end THIS session and mark THIS account, and leave the other alone.
     void aRevocationEndsTheRunningSessionWhateverLoginLastOpened()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -325,8 +278,6 @@ private slots:
 #endif
     }
 
-    // The end is queued. If another session replaced the revoked one before it
-    // runs, it must end nothing: the revocation was not that session's.
     void aQueuedEndNeverEndsTheSessionThatReplacedIt()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -341,8 +292,6 @@ private slots:
         QVERIFY(rust);
         QVERIFY(restoredOnMain(app, rust, alice, {bob}));
 
-        // Revoked while alice runs; before the queued end is delivered, alice
-        // is gone and bob is running.
         rust->handleRustEventForTest(
             event(QStringLiteral("session_token_revoked")));
         QVERIFY(rust->detachSession());
@@ -357,10 +306,6 @@ private slots:
 #endif
     }
 
-    // A network outage, a sync that stops and even the room list's own
-    // authentication error are not the SDK's definitive "could not renew":
-    // none of them ends the session. And the home page must not call a sync
-    // that stopped "offline".
     void aNetworkOrSyncErrorNeverEndsTheSession()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND

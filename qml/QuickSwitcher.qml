@@ -4,20 +4,9 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// Keyboard-driven quick switcher (Ctrl+K): a modal overlay over the local
-// room/DM/Space/invite data (app.quickSwitcher). No network search, no
-// persisted message text; selecting routes through normal navigation. Two modes
-// in one 480px surface. Navigate mode lists rooms, people, spaces and invites
-// in sections. Command mode (">" as the first character, or Ctrl+Shift+K) shows
-// a bolt tile, an Actions/Rooms/People scope row and a small declarative set of
-// executable actions (no leave/mute/file actions, no slash-command registry).
 Popup {
     id: switcher
-    // Discover / Join is hosted elsewhere (the dialog lives in RoomsPanel); the
-    // switcher only announces the intent.
     signal discoverRequested(string startMode)
-    // Global message search (dialog hosted by MainScreen), optionally seeded
-    // with what was typed.
     signal globalSearchRequested(string query)
     signal savedMessagesRequested()
     signal threadsRequested()
@@ -28,21 +17,14 @@ Popup {
     dim: true
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-    // One shared width in both modes; min() guards narrow windows.
     width: Math.min(480, parent ? parent.width - 48 : 480)
     height: Math.min(460, parent ? parent.height - 120 : 460)
     x: parent ? (parent.width - width) / 2 : 0
     y: parent ? Math.max(60, parent.height * 0.12) : 0
     padding: 0
 
-    // Command mode, entered by ">" as the first character (stripped
-    // immediately) or Ctrl+Shift+K. commandScope narrows results to Actions /
-    // Rooms / People (the latter two filter the same app.quickSwitcher
-    // results).
     property bool commandMode: false
     property string commandScope: "actions"
-    // Set by openCommandMode() before open(); consumed once in onOpened so the
-    // open animation cannot race it.
     property bool _pendingCommandMode: false
 
     function openCommandMode() {
@@ -89,7 +71,6 @@ Popup {
             // Rooms, DMs and invites open the room; an invite opens its
             // accept/decline view, never auto-accepted.
             app.openRoom(r.roomId)
-            // Ctrl+K is a deliberate jump: ready to type (GitHub #29).
             app.requestComposerFocus(r.roomId)
         }
         switcher.close()
@@ -108,9 +89,6 @@ Popup {
         }
     }
 
-    // Command-mode actions: Open Settings and each section, switch to another
-    // account, and every real theme. Section icons/titles match
-    // SettingsScreen's sectionIcon()/sectionTitle().
     function buildCommandActions() {
         var actions = []
         actions.push({
@@ -212,8 +190,6 @@ Popup {
                 run: function() { switcher.globalSearchRequested("") }
             })
         }
-        // Looks: where people type "background" or "gradient" and expect to
-        // land somewhere.
         if (app.backdrops) {
             actions.push({
                 kind: "action", id: "chat-background",
@@ -249,8 +225,6 @@ Popup {
             enabled: true,
             run: function() { app.showSettingsSection("appearance") }
         })
-        // Every section SettingsScreen has a nav row for, with matching titles
-        // and glyphs; SettingsShellQmlTest asserts the two lists agree.
         var sectionDefs = [
             { key: "account", title: qsTr("Account"), icon: "account_circle" },
             { key: "appearance", title: qsTr("Appearance"), icon: "palette" },
@@ -277,8 +251,6 @@ Popup {
                 })
             })(sectionDefs[s])
         }
-        // Labs: AccountListModel's rows (no secret read per row), copied by
-        // refreshLabsAccountRows(); otherwise AccountManager's list as before.
         var accountList = app.accountList
             ? (switcher.labsAccountRows || [])
             : (app.accounts ? app.accounts.accounts : [])
@@ -304,8 +276,6 @@ Popup {
             iconName: "palette", keywords: "theme match system auto",
             enabled: true, run: function() { app.settings.theme = 0 }
         })
-        // The custom theme is offered only once it exists (an empty one looks
-        // like nothing happened).
         var themes = AppTheme.themeList.filter(
             (t) => t.id !== 12 || (app.customTheme && app.customTheme.exists))
         for (var t = 0; t < themes.length; ++t) {
@@ -324,9 +294,6 @@ Popup {
     }
     readonly property var commandActions: buildCommandActions()
 
-    // Labs (concurrent accounts). The rows' snapshot is a Q_INVOKABLE, so it is
-    // copied here by handlers and never read inside a binding; null with Labs
-    // off, when `app.accountList` is null.
     property var labsAccountRows: null
     // A host starting, running or pausing also signals rowsChanged. While the
     // switcher is open that change is held: replacing the rows would rebuild
@@ -347,7 +314,6 @@ Popup {
     }
     Connections {
         target: app
-        // The signal only exists in builds that carry Labs.
         ignoreUnknownSignals: true
         function onLiveAccountsActiveChanged() { switcher.refreshLabsAccountRows() }
     }
@@ -355,20 +321,15 @@ Popup {
         target: app.accountList ? app.accountList : null
         function onRowsChanged() { switcher.refreshLabsAccountRows() }
     }
-    // Per-account activity for the "Switch to" entries; reads nothing while
-    // `app.accountActivity` is null.
     readonly property AccountActivityFeed activityFeed: AccountActivityFeed {
         source: app.accountActivity ? app.accountActivity : null
         userIds: app.accountActivity
                  ? (switcher.labsAccountRows || []).map(a => a.userId || "") : []
     }
-    // The "Chat background…" actions' dialog; a Popup of its own, so it
-    // outlives the switcher closing behind it.
     ChatBackgroundDialog {
         id: switcherBackgroundDialog
         objectName: "switcherChatBackgroundDialog"
     }
-    // One height per list, shared by the delegates and the paging arithmetic.
     readonly property int resultRowHeight: 48
     readonly property int commandRowHeight: 44
     // Names are untrusted (a room or invite name is chosen by a stranger), so
@@ -378,7 +339,6 @@ Popup {
         id: plainTip
         property bool shown: false
         property string plainText: ""
-        // A standalone ToolTip ignores `delay`, so the hover delay is a Timer.
         onShownChanged: {
             if (shown) tipDelay.restart()
             else { tipDelay.stop(); hide() }
@@ -404,10 +364,6 @@ Popup {
             if (!list[i].isActive) return true
         return false
     }
-    // Command search folds case, accents and punctuation, and splits the
-    // query into words: an action matches when EVERY word occurs somewhere in
-    // its label or keywords, in any order ("indigo-nacht design" finds
-    // "Design: Indigo-Nacht").
     function foldForSearch(text) {
         var t = String(text || "").toLowerCase()
         if (typeof t.normalize === "function")
@@ -428,8 +384,6 @@ Popup {
             if (hay.indexOf(tokens[i]) === -1) return false
         return true
     }
-    // The footer's examples are REAL action labels, never separately
-    // translated sentences, so a translation cannot drift from the matcher.
     function commandHintLabels() {
         var theme = "", sw = "", privacy = ""
         for (var i = 0; i < commandActions.length; ++i) {
@@ -450,8 +404,6 @@ Popup {
         : qsTr("Try %1").arg(commandHintExamples.map(l => "\u201c" + l + "\u201d").join(" \u00b7 "))
     readonly property var filteredCommandActions: commandActions.filter(actionMatches)
 
-    // Rooms/People scope: a filter over the same live results, via the
-    // presentation-safe resultAt() fields.
     function scopedEntityRowsFor(wantDm) {
         var rows = []
         const count = app.quickSwitcher.count
@@ -471,10 +423,6 @@ Popup {
         : []
     readonly property var commandRows:
         commandScope === "actions" ? filteredCommandActions : scopedEntityRows
-    // The ListView renders from a ListModel of plain data: action entries hold
-    // run() closures, and Qt 6.11's delegate model can report a count for a raw
-    // JS object array yet instantiate no rows. activateCommandRow() dispatches
-    // by index into commandRows, kept in the same order.
     ListModel { id: commandRowModel }
     function syncCommandRows() {
         commandRowModel.clear()
@@ -503,8 +451,6 @@ Popup {
         if (category === "invite") return qsTr("INVITES")
         return category.toUpperCase()
     }
-    // Section jump (Tab/Shift+Tab, navigate mode): the model sorts by category,
-    // so section runs are contiguous.
     function sectionStarts() {
         var starts = []
         var lastCat = null
@@ -515,8 +461,6 @@ Popup {
         }
         return starts
     }
-    // The visible list's selection moves through this one door so every key
-    // (arrows, Tab wrap-around, paging) also scrolls the row into view.
     function dialogAction(event) {
         return switcher.opened && app.shortcuts
             ? app.shortcuts.dialogActionForKey(event.key, event.modifiers,
@@ -554,8 +498,6 @@ Popup {
                                         : switcher.resultRowHeight
         return Math.max(1, Math.floor(list.height / rowH) - 1)
     }
-    // Enter. With no match the fallbacks are the keyboard path too: message
-    // search first, else the public room directory.
     function acceptCurrent() {
         if (switcher.commandMode) {
             switcher.activateCommandRow(commandList.currentIndex)
@@ -583,7 +525,6 @@ Popup {
         }
     }
 
-    // HTML-escape untrusted names before any StyledText highlight.
     function escapeHtml(s) {
         return String(s)
             .replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -614,7 +555,6 @@ Popup {
             id: dialogKeySink
             Keys.onPressed: (event) => switcher.handleDialogKey(event)
         }
-        // One of the design's four shadows (composer pattern).
         MultiEffect {
             source: card
             anchors.fill: card
@@ -628,7 +568,6 @@ Popup {
         Rectangle {
             id: card
             anchors.fill: parent
-            // Storm chrome: the theme-invariant navy panel.
             color: AppTheme.stormPanel
             border.color: AppTheme.stormBorder
             border.width: 1
@@ -644,7 +583,6 @@ Popup {
         Keys.onPressed: (event) => switcher.handleDialogKey(event)
         spacing: 0
 
-        // Header: leading glyph, query field, ESC keycap
         RowLayout {
             Layout.fillWidth: true
             Layout.margins: AppTheme.spacing12
@@ -660,8 +598,6 @@ Popup {
                     size: 19
                     color: AppTheme.stormTextMuted
                 }
-                // Command mode swaps the search glyph for the bolt tile
-                // (boltInk glyph).
                 Rectangle {
                     anchors.centerIn: parent
                     visible: switcher.commandMode
@@ -695,9 +631,6 @@ Popup {
                 selectedTextColor: AppTheme.stormText
                 background: Item {}
                 onTextChanged: {
-                    // ">" as the first character enters command mode and is
-                    // stripped immediately (re-entering onTextChanged once,
-                    // harmlessly).
                     if (!switcher.commandMode && text.length > 0 && text[0] === ">") {
                         switcher.commandMode = true
                         text = text.slice(1)
@@ -727,8 +660,6 @@ Popup {
                         event.accepted = true
                         return
                     }
-                    // Ctrl+Home / Ctrl+End jump to the ends of the list; plain
-                    // Home/End stay with the text cursor.
                     if ((event.modifiers & Qt.ControlModifier)
                         && (event.key === Qt.Key_Home || event.key === Qt.Key_End)) {
                         switcher.selectRow(event.key === Qt.Key_Home
@@ -778,7 +709,6 @@ Popup {
             color: AppTheme.stormBorder
         }
 
-        // Command-mode scope chips (Actions / Rooms / People)
         Row {
             visible: switcher.commandMode
             Layout.fillWidth: true
@@ -816,18 +746,13 @@ Popup {
                         border.width: 2
                         visible: scopeChip.visualFocus
                     }
-                    // Scope chips: selected is a bolt pill with boltInk;
-                    // resting is an outline. A hovered unselected chip
-                    // brightens its background so its ink stays AA.
                     contentItem: Label {
                         id: chipLabel
-                        // Untrusted text: never markup.
                         textFormat: Text.PlainText
                         text: scopeChip.modelData.label
                         color: scopeChip.selected ? AppTheme.boltInk
                                                   : scopeChip.hovered ? AppTheme.stormText
                                                   : AppTheme.stormTextMuted
-                        // The UI face at meta size, like other chips.
                         font.family: AppTheme.menuFont
                         font.pixelSize: AppTheme.textMeta
                         font.weight: AppTheme.weightStrong
@@ -852,8 +777,6 @@ Popup {
             color: AppTheme.stormBorder
         }
 
-        // Navigate-mode empty states. Nothing matched is not a dead end: the
-        // words may be in a message, in a public room, or be a command.
         ColumnLayout {
             objectName: "quickSwitcherEmptyState"
             visible: !switcher.commandMode && app.quickSwitcher.count === 0
@@ -880,8 +803,6 @@ Popup {
                 kind: "ghost"
                 size: "sm"
                 iconName: "search"
-                // The user's own query, capped (an AppButton does not elide)
-                // and with no "<" so the label can never read as markup.
                 readonly property string shownQuery: {
                     var q = queryField.text.replace(/</g, "‹")
                     return q.length > 32 ? q.substring(0, 31) + "…" : q
@@ -921,7 +842,6 @@ Popup {
             font.pixelSize: AppTheme.textBody
         }
 
-        // Navigate mode: sectioned rooms/people/spaces/invites list
         Item {
             visible: !switcher.commandMode
             Layout.fillWidth: true
@@ -930,7 +850,6 @@ Popup {
             // (openCommandMode() before open()), so the visible list would open
             // at 0 height.
             Layout.fillHeight: !switcher.commandMode
-            // The scroller is a sibling of the view, never inside it.
             MiddleClickScroller {
                 objectName: "quickSwitcherMiddleClickScroller"
                 anchors.fill: parent
@@ -947,8 +866,6 @@ Popup {
                 currentIndex: -1
                 keyNavigationEnabled: false
                 ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-                // Every selection change scrolls its row into view, including the
-                // Tab wrap-around, which sets currentIndex from far away.
                 onCurrentIndexChanged: {
                     if (currentIndex === 0) positionViewAtBeginning()
                     else if (currentIndex > 0)
@@ -973,7 +890,6 @@ Popup {
                     onClicked: switcher.activate(index)
                     Accessible.name: model.name + " " + (model.subtitle || "")
                     Accessible.selected: row.highlighted
-                    // Names elide in a fixed-width dialog; hover shows the rest.
                     PlainTip {
                         objectName: "quickSwitcherRowTip"
                         shown: row.hovered && rowTitle.truncated
@@ -982,7 +898,6 @@ Popup {
 
                     background: Rectangle {
                         color: row.highlighted ? AppTheme.stormSelection : "transparent"
-                        // Bolt cursor overhanging the selected row's left edge.
                         Icon {
                             visible: row.highlighted
                             name: "bolt"
@@ -1002,7 +917,6 @@ Popup {
 
                         Avatar {
                             size: 28
-                            // Invite pictures follow the account's MSC4278 choice.
                             mxc: (model.category === "invite" && !(app.accountPrefs
                                   && app.accountPrefs.inviteAvatarsAllowed))
                                  ? "" : model.avatarUrl
@@ -1017,8 +931,6 @@ Popup {
                                 id: rowTitle
                                 Layout.fillWidth: true
                                 textFormat: Text.StyledText
-                                // The matched fragment is bolt on the selected row
-                                // only; other rows brighten it to stormText.
                                 text: switcher.highlightedName(
                                     model.name, app.quickSwitcher.query,
                                     row.highlighted ? "" + AppTheme.bolt
@@ -1031,18 +943,13 @@ Popup {
                                 elide: Label.ElideRight
                             }
                             Label {
-                                // Untrusted text: never markup.
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 visible: (model.subtitle || "").length > 0
                                 text: model.subtitle || ""
-                                // AA on the selection fill.
                                 color: row.highlighted ? AppTheme.stormTextSecondary
                                                      : AppTheme.stormTextMuted
-                                // One face down the list; mono is for code and
-                                // keycaps.
                                 font.family: AppTheme.uiFont
-                                // Meta size, not the mono identity size.
                                 font.pixelSize: AppTheme.textMeta
                                 elide: Label.ElideRight
                             }
@@ -1057,11 +964,9 @@ Popup {
             }
         }
 
-        // Command mode: actions or the scoped Rooms/People copy
         Item {
             visible: switcher.commandMode
             Layout.fillWidth: true
-            // Mode-dependent, as for the navigate list.
             Layout.fillHeight: switcher.commandMode
             MiddleClickScroller {
                 objectName: "quickSwitcherCommandMiddleClickScroller"
@@ -1156,9 +1061,6 @@ Popup {
                                 id: commandRowTitleLabel
                                 objectName: "commandRowTitle"
                                 Layout.fillWidth: true
-                                // Row ink follows the selection for both kinds;
-                                // only the matched entity fragment is tinted, via
-                                // the same escape+highlight helper.
                                 textFormat: model.kind === "entity"
                                             ? Text.StyledText : Text.PlainText
                                 text: model.kind === "action"
@@ -1176,23 +1078,16 @@ Popup {
                                 elide: Label.ElideRight
                             }
                             Label {
-                                // Untrusted text: never markup.
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 visible: (model.subtitle || "").length > 0
                                 text: model.subtitle || ""
-                                // Muted ink; faint is reserved for decorative
-                                // headers.
                                 color: AppTheme.stormTextMuted
-                                // One face and one size down the list.
                                 font.family: AppTheme.uiFont
                                 font.pixelSize: AppTheme.textMeta
                                 elide: Label.ElideRight
                             }
                         }
-                        // A "Switch to" entry's account activity (Labs). Only
-                        // inactive accounts get an entry, so the active-row rule
-                        // holds by construction.
                         AccountActivityBadge {
                             objectName: "quickSwitcherAccountBadge"
                             readonly property var activity:
@@ -1219,7 +1114,6 @@ Popup {
             color: AppTheme.stormBorder
         }
 
-        // Footer hint bar
         Item {
             Layout.fillWidth: true
             Layout.margins: AppTheme.spacing12
@@ -1244,7 +1138,6 @@ Popup {
                     Label {
                         text: qsTr("navigate")
                         color: AppTheme.stormTextMuted
-                        // The keycap glyph stays mono; the word is prose.
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.textMeta
                     }
@@ -1277,8 +1170,6 @@ Popup {
                         font.pixelSize: AppTheme.textMeta
                     }
                 }
-                // ESC already has a keycap in the header; this slot names
-                // the command mode, which nothing else on screen mentions.
                 Row {
                     objectName: "quickSwitcherCommandHint"
                     spacing: AppTheme.spacing4

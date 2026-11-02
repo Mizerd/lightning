@@ -1,6 +1,3 @@
-// RoomListModel::roomPermalink is pure formatting. It mirrors
-// TimelineModel::messagePermalink's percent-encoding convention (! $ : @ are
-// not encoded) so message and room links read consistently.
 
 #include <QtTest/QtTest>
 
@@ -16,8 +13,6 @@ private Q_SLOTS:
         const QString link = RoomListModel::roomPermalink(
             QStringLiteral("!abc123:example.org"),
             QStringLiteral("#general:example.org"));
-        // '#' is not in the !$:@ exclusion set, so it percent-encodes; ':'
-        // and '.' are unaffected, matching messagePermalink's convention.
         QCOMPARE(link, QStringLiteral(
             "https://matrix.to/#/%23general:example.org"));
     }
@@ -26,15 +21,12 @@ private Q_SLOTS:
     {
         const QString link = RoomListModel::roomPermalink(
             QStringLiteral("!abc123:example.org"), QString());
-        // '!' and ':' are both in the exclusion set, so a bare room id is
-        // carried through unchanged apart from the matrix.to prefix.
         QCOMPARE(link, QStringLiteral(
             "https://matrix.to/#/!abc123:example.org"));
     }
 
     void fallsBackToRoomIdWhenAliasOmitted()
     {
-        // The alias parameter defaults to empty when the caller has none.
         const QString link =
             RoomListModel::roomPermalink(QStringLiteral("!abc123:example.org"));
         QCOMPARE(link, QStringLiteral(
@@ -48,8 +40,6 @@ private Q_SLOTS:
 
     void emptyRoomIdWithAliasStillUsesAlias()
     {
-        // A caller that only has the alias (no room id resolved yet) still
-        // gets a usable link.
         const QString link = RoomListModel::roomPermalink(
             QString(), QStringLiteral("#help:example.org"));
         QCOMPARE(link, QStringLiteral(

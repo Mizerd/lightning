@@ -40,7 +40,7 @@ CallSignal invite(const QString &callId,
     s.hasDescription = true;
     return s;
 }
-} // namespace
+}
 
 class CallRingPolicyTest : public QObject
 {
@@ -62,11 +62,6 @@ private:
     }
 
 private Q_SLOTS:
-    // A notification action must not act under the wrong account: a card can
-    // outlive the account that raised it, and acting under the current account
-    // would mark another account's room read or reply as the wrong identity.
-    // The guard is AppController's; NotificationManagerTest proves the payload
-    // carries the raising account.
     void aNotificationActionUnderTheWrongAccountIsRefused()
     {
         AppController controller(AppController::MockBackend);
@@ -76,13 +71,11 @@ private Q_SLOTS:
 
         const int noticesBefore = notifications->genericNoticeCountForTest();
 
-        // A card raised for an account that is not signed in.
         Q_EMIT notifications->replyRequested(
             QStringLiteral("@someone-else:other.example"),
             QStringLiteral("!general:mock.local"), QString(),
             QStringLiteral("this must not be sent"));
 
-        // Refused, and the user is told.
         QCOMPARE(notifications->genericNoticeCountForTest(), noticesBefore + 1);
 
         Q_EMIT notifications->markReadRequested(
@@ -90,13 +83,11 @@ private Q_SLOTS:
             QStringLiteral("!general:mock.local"), QString());
         QCOMPARE(notifications->genericNoticeCountForTest(), noticesBefore + 2);
 
-        // An empty account on the payload is refused too (fail closed).
         Q_EMIT notifications->replyRequested(
             QString(), QStringLiteral("!general:mock.local"), QString(),
             QStringLiteral("nor this"));
         QCOMPARE(notifications->genericNoticeCountForTest(), noticesBefore + 3);
 
-        // The matching account is not refused, so the guard is not vacuous.
         const QString own = controller.auth()->currentUserId();
         QVERIFY(!own.isEmpty());
         Q_EMIT notifications->markReadRequested(
@@ -106,11 +97,6 @@ private Q_SLOTS:
 
     void callLanePrefersMatrixRtcAndFallsBackToDmOnlyLegacy()
     {
-        // Lane selection lives here, not in QML:
-        //  * MatrixRTC is primary where it can carry a call (video, screen
-        //    share, groups; what current Element speaks);
-        //  * the legacy fallback is 1:1 DMs only, since m.call.invite rings
-        //    every room member.
         AppController controller(AppController::MockBackend);
         QVERIFY(login(controller));
 
@@ -121,19 +107,14 @@ private Q_SLOTS:
                      QStringLiteral("!general:mock.local")),
                  QString());
 
-        // An empty room id is never callable.
         QVERIFY(!controller.canStartCall(QString()));
 
-        // Refusing says why.
         QSignalSpy refused(&controller, &AppController::callStartRefused);
         QVERIFY(!controller.startCall(QStringLiteral("!general:mock.local")));
         QCOMPARE(refused.count(), 1);
         QVERIFY(!refused.at(0).at(0).toString().isEmpty());
     }
 
-    /// The call format the user chose decides the lane where the room can
-    /// use it, and only there; "auto" stays what it always was. An unknown
-    /// stored value is the default, not whichever format sorts last.
     void theChosenCallFormatDecidesTheLaneWhereTheRoomCanUseIt()
     {
         class Engine : public CallMediaBackend
@@ -165,7 +146,6 @@ private Q_SLOTS:
         }
         QVERIFY2(!dm.isEmpty(), "the mock needs an unambiguous 1:1 DM");
 
-        // Automatic, with no MatrixRTC here: legacy, and now with video.
         QCOMPARE(controller.settings()->callFormat(), QStringLiteral("auto"));
         QCOMPARE(controller.preferredCallLane(dm), QStringLiteral("legacy"));
         QVariantMap formats = controller.callFormats(dm);
@@ -174,22 +154,17 @@ private Q_SLOTS:
         QCOMPARE(formats.value("video").toBool(), true);
         QCOMPARE(formats.value("autoLane").toString(), QStringLiteral("legacy"));
 
-        // Not a DM: Direct cannot carry it, and nothing changes.
         controller.settings()->setCallFormat(QStringLiteral("legacy"));
         QCOMPARE(controller.preferredCallLane(dm), QStringLiteral("legacy"));
         QCOMPARE(controller.preferredCallLane(
                      QStringLiteral("!general:mock.local")),
                  QString());
 
-        // A value from a newer build is the default.
         controller.settings()->setCallFormat(QStringLiteral("hologram"));
         QCOMPARE(controller.settings()->callFormat(), QStringLiteral("auto"));
         controller.calls()->setMediaBackend(nullptr);
     }
 
-    // A routed account (docs/network-profiles.md): the call button is
-    // refused with its own reason instead of nothing (live, 2026-10-26: the
-    // legacy lane refused silently and the click did nothing visible).
     void aRoutedAccountIsToldWhyItCannotCall()
     {
         AppController controller(AppController::MockBackend);
@@ -203,7 +178,6 @@ private Q_SLOTS:
         QCOMPARE(refused.count(), 1);
         QVERIFY2(refused.at(0).at(0).toString().contains(QLatin1String("proxy")),
                  qPrintable(refused.at(0).at(0).toString()));
-        // And it reaches the status strip (Main.qml onErrorReported).
         QCOMPARE(shown.count(), 1);
         QCOMPARE(shown.at(0).at(0).toString(), refused.at(0).at(0).toString());
     }
@@ -245,12 +219,11 @@ private Q_SLOTS:
         QVERIFY(login(controller));
         auto *client = mock(controller);
         QVERIFY(client);
-        controller.settings()->setRoomNotificationMode(kRoom, 2 /*Muted*/);
+        controller.settings()->setRoomNotificationMode(kRoom, 2);
         client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
         QCOMPARE(controller.calls()->state(),
                  CallController::State::Ringing);
         QVERIFY(!controller.calls()->shouldRing());
-        // Un-muting reopens the gate live (the functor reads current state).
         controller.settings()->setRoomNotificationMode(kRoom, 0);
         QVERIFY(controller.calls()->shouldRing());
     }
@@ -261,7 +234,6 @@ private Q_SLOTS:
         QVERIFY(login(controller));
         auto *client = mock(controller);
         QVERIFY(client);
-        // Seed the moderation cache as the SDK list arrival does.
         Q_EMIT client->ignoredUsersChanged(
             QStringList{ QStringLiteral("@peer:mock.local") });
         QTRY_VERIFY_WITH_TIMEOUT(
@@ -269,25 +241,22 @@ private Q_SLOTS:
                 QStringLiteral("@peer:mock.local")),
             kSignalTimeoutMs);
         client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
-        // Dropped before any state: the ignore check reached CallController.
         QCOMPARE(controller.calls()->state(), CallController::State::Idle);
     }
 
     void ringForCallsSettingRoundTrips()
     {
         AppController controller(AppController::MockBackend);
-        QCOMPARE(controller.settings()->ringForCalls(), true); // default ON
+        QCOMPARE(controller.settings()->ringForCalls(), true);
         QSignalSpy changed(controller.settings(),
                            &SettingsManager::ringForCallsChanged);
         controller.settings()->setRingForCalls(false);
         QCOMPARE(changed.count(), 1);
         QCOMPARE(controller.settings()->ringForCalls(), false);
-        controller.settings()->setRingForCalls(false); // no-op
+        controller.settings()->setRingForCalls(false);
         QCOMPARE(changed.count(), 1);
     }
 
-    // The automatic pop-out on minimise is opt-in; the call bar's manual
-    // pop-out is unaffected.
     void theAutomaticPopOutIsOptIn()
     {
         AppController controller(AppController::MockBackend);
@@ -312,8 +281,6 @@ private Q_SLOTS:
         QVERIFY(!CallController::isMissedCallReason(ER::MediaFailed));
     }
 
-    // Missed-call notices require the ring to have been announced: a call
-    // suppressed by mute, backlog or ignore never resurfaces as "missed".
     void missedNoticeOnlyForAnnouncedRings()
     {
         AppController controller(AppController::MockBackend);
@@ -322,7 +289,6 @@ private Q_SLOTS:
         QVERIFY(client);
         auto *notices = controller.notificationsForTest();
 
-        // Announced ring, caller gives up → exactly one missed notice.
         client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
         QCOMPARE(controller.calls()->state(),
                  CallController::State::Ringing);
@@ -338,10 +304,7 @@ private Q_SLOTS:
         client->emitCallSignalForTest(hangup);
         QCOMPARE(notices->genericNoticeCountForTest(), before + 1);
 
-        // Muted room: never announced, so no missed notice.
-        controller.settings()->setRoomNotificationMode(kRoom, 2 /*Muted*/);
-        // A fresh sender, so only the mute can explain the missing
-        // announcement.
+        controller.settings()->setRoomNotificationMode(kRoom, 2);
         client->emitCallSignalForTest(
             invite(QStringLiteral("call-2"),
                    QStringLiteral("@peer2:mock.local")));
@@ -356,9 +319,6 @@ private Q_SLOTS:
         QCOMPARE(notices->genericNoticeCountForTest(), muted);
     }
 
-    // Bounded per sender: past the cap, a fresh call id rings in state but is
-    // not announced, so no missed notice either. A redial below the cap IS
-    // announced (NotificationGlueTest).
     void senderRingCooldownBoundsAnnouncements()
     {
         AppController controller(AppController::MockBackend);
@@ -394,8 +354,6 @@ private Q_SLOTS:
         client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
         QCOMPARE(controller.calls()->state(),
                  CallController::State::Ringing);
-        // No D-Bus daemon offscreen, so emit the decline signal directly: the
-        // glue must route it to rejectIncoming for the matching call only.
         Q_EMIT controller.notificationsForTest()->callDeclineRequested(
             QStringLiteral("some-other-call"));
         QCOMPARE(controller.calls()->state(),
@@ -419,7 +377,6 @@ private Q_SLOTS:
                           &AppController::callGateRevisionChanged);
         const int before = controller.callGateRevision();
 
-        // Transport availability, the first thing canStartCall consults.
         controller.rtc()->setMediaAvailable(
             !controller.rtc()->mediaAvailable());
         QVERIFY2(controller.callGateRevision() > before,
@@ -428,7 +385,6 @@ private Q_SLOTS:
                  "answer it had at room-open");
         QVERIFY(bumped.count() >= 1);
 
-        // ...and one room's session, which arrives later.
         const int afterAvailability = controller.callGateRevision();
         controller.rtc()->setRoomEncrypted(QStringLiteral("!sess:mock.local"),
                                            true);
@@ -437,10 +393,6 @@ private Q_SLOTS:
                  "not move");
     }
 
-    // The call lane must know a room's encryption without the room being
-    // opened: IncomingCallPrompt's Join opens nothing, and a missing entry
-    // falls back to "encrypted", so an unencrypted call gets one-way audio.
-    // This case never opens the room.
     void theCallLaneSeesARoomsEncryptionWithoutOpeningIt()
     {
         AppController controller(AppController::MockBackend);
@@ -463,10 +415,6 @@ private Q_SLOTS:
                  "the caller is not using, and drops all of their media");
     }
 
-    // Opening a room before its encryption state has synced must not pin it
-    // as encrypted. Recording `!known || encrypted` turns unknown into a
-    // known "encrypted", and setRoomEncrypted's downgrade guard (encryption
-    // cannot be removed in Matrix) then refuses the real answer.
     void openingARoomBeforeItsEncryptionIsKnownDoesNotPinItEncrypted()
     {
         AppController controller(AppController::MockBackend);
@@ -486,12 +434,10 @@ private Q_SLOTS:
 
         controller.openRoom(fresh);
         QTRY_COMPARE(controller.currentRoomId(), fresh);
-        // Unknown still fails closed.
         QVERIFY2(controller.rtc()->roomEncrypted(fresh),
                  "an unknown room stopped failing closed, which is the "
                  "silent downgrade §6 forbids");
 
-        // ...and then the first known answer arrives.
         controller.rtc()->setRoomEncrypted(fresh, false);
         QVERIFY2(!controller.rtc()->roomEncrypted(fresh),
                  "opening the room while its encryption was unknown pinned "
@@ -499,9 +445,6 @@ private Q_SLOTS:
                  "required encryption no peer was using");
     }
 
-    // The notification's Answer action reaches the call and opens its room.
-    // Starts with no room open, so "opened the right room" and "did nothing"
-    // are distinguishable.
     void acceptFromNotificationOpensTheCallsRoom()
     {
         AppController controller(AppController::MockBackend);
@@ -512,7 +455,6 @@ private Q_SLOTS:
         client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
         QCOMPARE(controller.calls()->state(),
                  CallController::State::Ringing);
-        // A stale card from an earlier call must not answer this one.
         Q_EMIT controller.notificationsForTest()->callAcceptRequested(
             QStringLiteral("some-other-call"));
         QCOMPARE(controller.currentRoomId(), QString());
@@ -528,10 +470,6 @@ private Q_SLOTS:
                  controller.calls()->activeRoomId());
     }
 
-    // A withdrawn call refusal clears the status strip. SfuCallController
-    // withdraws by emitting `callFailed` with an empty reason, and an empty
-    // `errorReported` is how AppController clears the strip. Driven through
-    // the real signal so the production connection is what is tested.
     void aWithdrawnCallRefusalReachesTheStatusStrip()
     {
         AppController controller(AppController::MockBackend);
@@ -573,8 +511,6 @@ private Q_SLOTS:
         NotificationManager *notifications = controller.notificationsForTest();
         QVERIFY(notifications);
 
-        // Start away from the room, on a screen only openRoom() leaves.
-        // (Main.qml calls showMain() first; this case is about C++ routing.)
         controller.setCurrentRoomId(QString());
         controller.showSettings();
         QCOMPARE(controller.currentScreen(), AppController::SettingsScreen);
@@ -589,7 +525,6 @@ private Q_SLOTS:
                  "SDK timeline is subscribed for it, the room shows only the "
                  "background sync mirror and can never paginate");
 
-        // The Activity Center row takes the same route.
         controller.setCurrentRoomId(QString());
         controller.showSettings();
         auto *activity = controller.activity();
@@ -605,10 +540,6 @@ private Q_SLOTS:
                  "produced");
     }
 
-    // A thread notification must not hand the composite timeline id to
-    // openRoom(). openRoomTimeline() has no composite guard, and the Rust side
-    // closes the current room's timeline before failing to parse the id.
-    // Fails on no open, on re-emitting the composite, and on an unguarded open.
     void aTimelineIdIsNeverHandedToTheRoomOpener()
     {
         AppController controller(AppController::MockBackend);
@@ -616,7 +547,6 @@ private Q_SLOTS:
         NotificationManager *notifications = controller.notificationsForTest();
         QVERIFY(notifications);
 
-        // Start with no room open, so the reduction is positively observable.
         controller.setCurrentRoomId(QString{});
         QVERIFY(controller.currentRoomId().isEmpty());
 
@@ -625,8 +555,6 @@ private Q_SLOTS:
         const QString root = QStringLiteral("$root:mock.local");
         const QString composite = MatrixClient::threadTimelineId(kRoom, root);
         QVERIFY(MatrixClient::isThreadTimelineId(composite));
-        // No root argument: the composite is the only place it exists
-        // (routeNotificationOpen()'s recovery branch).
         Q_EMIT notifications->openRequested(composite, QStringLiteral("$ev:mock"),
                                             QString{});
 
@@ -643,7 +571,6 @@ private Q_SLOTS:
         QCOMPARE(routed.at(0).at(0).toString(), kRoom);
         QCOMPARE(routed.at(0).at(2).toString(), root);
     }
-
 
 private:
     QTemporaryDir m_configHome;

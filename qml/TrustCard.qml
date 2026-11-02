@@ -3,14 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Verification/trust surface. Uses the routed storm* roles like every other
-// surface and owns no colour tokens (AppTheme.qml records the old mapping);
-// Space Grotesk on the display name keeps the brand identity. Purely
-// presentational: every value (steps, status, whether Verify applies) comes
-// from the caller. It never reads the app context, never invents trust and
-// never promotes local UI state to SDK trust. The embedding surface derives
-// `steps` from CryptoHealthModel/sessionDevices and wires verifyRequested to
-// own-verification.
 Item {
     id: root
     objectName: "trustCard"
@@ -18,13 +10,9 @@ Item {
     property string displayName: ""
     property string userId: ""
     property string avatarMxc: ""
-    // [{label: string, iconName: string, complete: bool}, ...]
     property var steps: []
     property string statusText: ""
-    // Verify is the only action (SAS is the only real flow).
     property bool showVerify: false
-    // Offer the recovery key as the other way to verify this session, beside
-    // Verify. The embedding surface owns what opens (it never reaches the app).
     property bool showRecoveryOption: false
 
     signal verifyRequested()
@@ -42,16 +30,11 @@ Item {
         objectName: "trustCardSurface"
         anchors.fill: parent
         radius: AppTheme.radiusLg
-        // The SettingsCard pair (stormPanel/stormBorder), so this reads as one
-        // of the page's cards.
         color: AppTheme.stormPanel
         border.width: 1
         border.color: AppTheme.stormBorder
     }
 
-    // Decorative bolt watermark, cropped to the card (stormWatermark, as in
-    // IdentityCard and MemberProfilePopover); exempt from the non-text contrast
-    // bar.
     Icon {
         name: "bolt"
         size: 120
@@ -70,7 +53,6 @@ Item {
         anchors.margins: AppTheme.spacing16
         spacing: AppTheme.spacing16
 
-        // Header: avatar with double ring + identity
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing12
@@ -89,9 +71,6 @@ Item {
                                                        : root.userId
                     colorKey: root.userId
                 }
-                // Double ring: a 2px gap of card ground plus a 2px stroke, like
-                // the rail's active ring. wordmarkBolt: a brand mark around a
-                // face, not a state light.
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: -4
@@ -129,7 +108,6 @@ Item {
             }
         }
 
-        // Trust chain module
         Rectangle {
             objectName: "trustChainPanel"
             Layout.fillWidth: true
@@ -149,7 +127,6 @@ Item {
 
                 RowLayout {
                     spacing: AppTheme.spacing6
-                    // The adjacent caption carries the meaning.
                     Icon { name: "bolt"; size: 13; color: AppTheme.bolt }
                     Label {
                         text: qsTr("TRUST CHAIN")
@@ -176,8 +153,6 @@ Item {
                         delegate: RowLayout {
                             id: stepItem
                             spacing: 0
-                            // Only non-last steps stretch, so connectors fill
-                            // the gaps evenly.
                             Layout.fillWidth: index < root.steps.length - 1
 
                             readonly property bool stepComplete:
@@ -200,8 +175,6 @@ Item {
                                         visible: stepItem.stepComplete
                                         anchors.fill: parent
                                         radius: 12
-                                        // Bolt means complete here: a state, not
-                                        // decoration.
                                         color: AppTheme.bolt
                                     }
                                     // Pending nodes get a dashed ring of eight
@@ -242,10 +215,6 @@ Item {
                                                && modelData.iconName.length > 0)
                                               ? modelData.iconName : "check"
                                         size: stepItem.stepComplete ? 13 : 12
-                                        // Complete: the glyph sits on the bolt
-                                        // disc, so boltInk. Pending:
-                                        // stormTextMuted, which meets AA on the
-                                        // input fill everywhere.
                                         color: stepItem.stepComplete
                                                ? AppTheme.boltInk
                                                : AppTheme.stormTextMuted
@@ -269,14 +238,9 @@ Item {
                                 objectName: "trustChainConnector"
                                 visible: index < root.steps.length - 1
                                 Layout.fillWidth: true
-                                // Through the node centres (24px nodes, 2px
-                                // bar: top offset 11), so the chain reads as
-                                // one path.
                                 Layout.alignment: Qt.AlignTop
                                 Layout.topMargin: 11
                                 implicitHeight: 2
-                                // A segment is complete only when both ends
-                                // are.
                                 color: (stepItem.stepComplete && stepItem.nextComplete)
                                        ? AppTheme.bolt : AppTheme.stormBorderStrong
                             }
@@ -284,8 +248,6 @@ Item {
                     }
                 }
 
-                // Status copy inside the chain module, so it reads as one
-                // object.
                 Label {
                     Layout.fillWidth: true
                     visible: root.statusText.length > 0
@@ -298,7 +260,6 @@ Item {
             }
         }
 
-        // Actions: Verify only
         RowLayout {
             Layout.fillWidth: true
             visible: root.showVerify
@@ -331,15 +292,12 @@ Item {
                 }
                 background: Rectangle {
                     radius: AppTheme.radiusTile
-                    // A quiet outlined control; an accent hover would compete
-                    // with the bolt discs.
                     color: (verifyButton.hovered || verifyButton.down)
                            ? Qt.alpha(AppTheme.stormBorderStrong, 0.25)
                            : "transparent"
                     border.width: 1
                     border.color: AppTheme.stormBorderStrong
                 }
-                // Keyboard focus indicator: the app-wide focusRing.
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: -3

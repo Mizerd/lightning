@@ -10,8 +10,6 @@
 
 GifStarredStore::GifStarredStore(QObject *parent)
     : QObject(parent)
-    // Constructed once without a backing store and never recreated: the picker
-    // binds this pointer directly.
     , m_model(std::make_unique<GifStarredModel>(nullptr, this))
 {
     connect(m_model.get(), &GifStoredModel::countChanged,
@@ -22,7 +20,7 @@ GifStarredStore::~GifStarredStore() = default;
 
 bool GifStarredStore::isSafeHashHex(const QString &hash)
 {
-    if (hash.size() != 64) // sha256 hex digest length
+    if (hash.size() != 64)
         return false;
     for (const QChar c : hash) {
         const ushort u = c.unicode();
@@ -56,7 +54,6 @@ bool GifStarredStore::ensureDirectory() const
         return false;
     if (!QDir().mkpath(m_dir))
         return false;
-    // Owner-only: decrypted GIF bytes and the index live here.
     QFile::setPermissions(m_dir, QFileDevice::ReadOwner | QFileDevice::WriteOwner
                                 | QFileDevice::ExeOwner);
     return true;
@@ -64,15 +61,11 @@ bool GifStarredStore::ensureDirectory() const
 
 QString GifStarredStore::categoryMessage(const QString &category) const
 {
-    // "not_a_gif" (validateGifBytes) and "unsupported_format"
-    // (validateRasterBytes: not GIF/PNG/JPEG/WebP) share one sentence.
     if (category == QLatin1String("not_a_gif")
         || category == QLatin1String("unsupported_format"))
         return tr("That file is not a supported image.");
     if (category == QLatin1String("invalid_media"))
         return tr("That file could not be read.");
-    // Shown verbatim in the timeline banner, so the wording says "saved". The
-    // category tokens are a stable contract (tests, TimelinePane.qml).
     if (category == QLatin1String("too_large"))
         return tr("That image is too large to save.");
     if (category == QLatin1String("cap_items")) {
@@ -105,7 +98,7 @@ void GifStarredStore::openFor(const QString &accountDir)
 
     const QString dir = accountDir.trimmed();
     if (dir.isEmpty()) {
-        m_model->reopen(nullptr); // closed/inert — drop any previous rows
+        m_model->reopen(nullptr);
         return;
     }
     // Refuse a symlinked account root or store directory: writing decrypted
@@ -123,8 +116,6 @@ void GifStarredStore::openFor(const QString &accountDir)
         dir + QStringLiteral("/index.ini"), QSettings::IniFormat);
     m_model->reopen(m_settings.get());
 
-    // Disk state is authoritative in both directions: (1) index -> file: an
-    // entry whose file is missing is dropped, never shown.
     QStringList stale;
     for (int i = 0; i < m_model->count(); ++i) {
         const gif::GifResult r = m_model->resultAt(i);
@@ -136,11 +127,6 @@ void GifStarredStore::openFor(const QString &accountDir)
     for (const QString &hash : std::as_const(stale))
         m_model->unstar(hash);
 
-    // (2) file -> index: any supported-suffix file the pruned index does not
-    // reference is unreferenced decrypted content (a crash between write and
-    // index, or a damaged index) and is removed so it cannot escape the caps.
-    // Every format this store can write is swept. (Multiple instances on one
-    // account are unsupported; index.ini would conflict anyway.)
     QDir dirObj(m_dir);
     if (dirObj.exists()) {
         const auto entries = dirObj.entryList(
@@ -177,11 +163,8 @@ void GifStarredStore::starBytes(const QString &mediaKey, const QByteArray &bytes
     const QString hash = QString::fromLatin1(
         QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
     const QString path = filePath(hash, v.ext);
-    // Re-starring an indexed hash skips the write only if the file really
-    // exists.
     const bool existing = m_model->hasHash(hash) && QFileInfo::exists(path);
     if (!existing) {
-        // A hard refusal, never an eviction: a star is an explicit "keep this".
         if (m_model->count() >= m_maxItems) {
             Q_EMIT starFinished(mediaKey, false, QStringLiteral("cap_items"),
                                 categoryMessage(QStringLiteral("cap_items")));
@@ -197,15 +180,12 @@ void GifStarredStore::starBytes(const QString &mediaKey, const QByteArray &bytes
                                 categoryMessage(QStringLiteral("write_failed")));
             return;
         }
-        // The validated bytes, untranscoded, under the suffix the bytes
-        // decided.
         QSaveFile file(path);
         if (!file.open(QIODevice::WriteOnly)) {
             Q_EMIT starFinished(mediaKey, false, QStringLiteral("write_failed"),
                                 categoryMessage(QStringLiteral("write_failed")));
             return;
         }
-        // Owner-only explicitly; QSaveFile otherwise honours the umask.
         file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
         if (file.write(bytes) != bytes.size() || !file.commit()) {
             Q_EMIT starFinished(mediaKey, false, QStringLiteral("write_failed"),
@@ -222,8 +202,6 @@ void GifStarredStore::starBytes(const QString &mediaKey, const QByteArray &bytes
     r.localExt = v.ext;
     m_model->insertLocal(r);
     m_mediaKeyToHash.insert(mediaKey, hash);
-    // The hash was already indexed (the unknown-state activation path in the
-    // header); report "already_starred" rather than a new star.
     if (existing) {
         Q_EMIT starFinished(mediaKey, true, QStringLiteral("already_starred"),
                             categoryMessage(QStringLiteral("already_starred")));
@@ -236,14 +214,9 @@ void GifStarredStore::unstar(const QString &hash)
 {
     if (!isOpen() || !isSafeHashHex(hash))
         return;
-    // Look up the suffix before the model removes the row; unknown hashes
-    // delete nothing.
     const QString ext = extForHash(hash);
     if (!ext.isEmpty())
         QFile::remove(filePath(hash, ext));
-    // Drop session mappings before mutating the model: unstar() emits
-    // countChanged synchronously, and a consumer refreshing then must not see
-    // the hash as starred (its next activation would re-star the removed file).
     for (auto it = m_mediaKeyToHash.begin(); it != m_mediaKeyToHash.end();) {
         if (it.value() == hash)
             it = m_mediaKeyToHash.erase(it);
@@ -274,8 +247,6 @@ void GifStarredStore::clearAll()
             QFile::remove(filePath(r.id, ext));
         }
     }
-    // Clear the session map before clearAll(), whose countChanged is this
-    // path's only signal, so no consumer sees a stale starred state.
     m_mediaKeyToHash.clear();
     m_model->clearAll();
 }
@@ -290,7 +261,6 @@ QByteArray GifStarredStore::readBytes(const QString &hash) const
     QFile file(filePath(hash, ext));
     if (!file.open(QIODevice::ReadOnly))
         return {};
-    // Bounded read: the file may have been replaced since it was validated.
     if (file.size() > gif::kMaxGifBytes)
         return {};
     return file.readAll();

@@ -15,7 +15,7 @@ bool isKnownOp(const QString &op)
            || op == QLatin1String("unban");
 }
 
-} // namespace
+}
 
 SpaceModerationController::SpaceModerationController(QObject *parent)
     : QObject(parent)
@@ -46,7 +46,6 @@ void SpaceModerationController::onStepTimedOut()
         return;
     qCWarning(lcSpaceModeration) << "step did not answer in" << kStepTimeoutMs
                                  << "ms";
-    // A late answer is ignored; the server may still have done it.
     m_stepOp = 0;
     ++m_unknown;
     markRow(m_stepRoom, QStringLiteral("unknown"),
@@ -69,7 +68,6 @@ void SpaceModerationController::setClient(MatrixClient *client)
             &SpaceModerationController::onPlanReceived);
     connect(m_client, &MatrixClient::moderationFinished, this,
             &SpaceModerationController::onModerationFinished);
-    // A flow belongs to the account that started it.
     connect(m_client, &MatrixClient::loggedOut, this,
             &SpaceModerationController::reset);
 }
@@ -119,9 +117,6 @@ bool SpaceModerationController::begin(const QString &spaceId,
                                       const QString &displayName,
                                       const QString &op)
 {
-    // A running flow is finished or reset first: its steps are already on
-    // the server and their answers must still be counted. Say so rather
-    // than ignore the request.
     if (m_phase == QLatin1String("running")) {
         m_notice = tr("An earlier action is still running and is shown "
                       "here. Start the new one when it has finished.");
@@ -139,7 +134,6 @@ bool SpaceModerationController::begin(const QString &spaceId,
     m_op = op;
     QStringList scope = m_scopeResolver ? m_scopeResolver(spaceId)
                                         : QStringList{};
-    // The Space is always assessed first, even when the resolver omits it.
     scope.removeAll(spaceId);
     scope.prepend(spaceId);
     m_planOp = m_client->requestModerationPlan(scope, userId, op);
@@ -154,7 +148,6 @@ void SpaceModerationController::onPlanTimedOut()
 {
     if (m_phase != QLatin1String("planning") || m_planOp == 0)
         return;
-    // A late answer is ignored; nothing was sent.
     qCWarning(lcSpaceModeration) << "plan did not answer in"
                                  << m_planTimeoutMs << "ms";
     m_planOp = 0;
@@ -163,7 +156,6 @@ void SpaceModerationController::onPlanTimedOut()
 
 QVariantMap SpaceModerationController::rowFromPlan(const QVariantMap &plan)
 {
-    // Fails closed: a row without a reason key or a room id is not offered.
     QString reason = plan.value(QStringLiteral("reason")).toString();
     if (!plan.contains(QStringLiteral("reason"))
         || plan.value(QStringLiteral("roomId")).toString().isEmpty())
@@ -177,8 +169,6 @@ QVariantMap SpaceModerationController::rowFromPlan(const QVariantMap &plan)
         { QStringLiteral("reason"), reason },
         { QStringLiteral("reasonText"),
           eligible ? QString() : reasonText(reason) },
-        // Offered rooms start selected: the cascade switch is the one
-        // decision, and the list refines it.
         { QStringLiteral("selected"), eligible },
         { QStringLiteral("status"), QString() },
         { QStringLiteral("message"), QString() },
@@ -213,8 +203,6 @@ void SpaceModerationController::onPlanReceived(quint64 opId,
         m_rooms.append(row);
     }
     if (m_spaceRow.isEmpty()) {
-        // The backend did not answer for the Space itself: treat it as not
-        // offered rather than guessing.
         m_spaceRow = rowFromPlan(QVariantMap{
             { QStringLiteral("roomId"), m_spaceId },
             { QStringLiteral("name"), m_spaceName },
@@ -334,7 +322,6 @@ void SpaceModerationController::confirm(const QString &reason)
         return;
     m_reason = reason.trimmed();
     m_steps.clear();
-    // Only rows the plan offered are ever dispatched.
     if (spaceEligible()) {
         m_steps.append(m_spaceId);
         m_spaceRow.insert(QStringLiteral("status"), QStringLiteral("pending"));
@@ -389,8 +376,6 @@ void SpaceModerationController::dispatchNext()
         reset();
         return;
     }
-    // One step at a time: a Space with many rooms would otherwise meet the
-    // server's rate limit on its own requests.
     while (m_nextStep < m_steps.size()) {
         const QString roomId = m_steps.at(m_nextStep++);
         quint64 opId = 0;
@@ -484,7 +469,6 @@ QString SpaceModerationController::title() const
     const QString who = m_displayName.isEmpty() ? m_userId : m_displayName;
     const QString where = m_spaceName.isEmpty() ? tr("this space")
                                                 : m_spaceName;
-    // The plan refused the Space itself: only its rooms can change.
     if (spaceSkipped()) {
         if (m_op == QLatin1String("kick"))
             return tr("Kick %1 from rooms in %2?").arg(who, where);
@@ -504,8 +488,6 @@ QString SpaceModerationController::title() const
 
 QString SpaceModerationController::consequenceText() const
 {
-    // Each names what happens to the Space and, separately, to its rooms,
-    // because a Space membership does not carry into the rooms.
     if (spaceSkipped()) {
         return tr("The space itself is unchanged (%1). Only the rooms selected "
                   "below are affected.")

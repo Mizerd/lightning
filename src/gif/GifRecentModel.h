@@ -18,7 +18,6 @@ public:
     bool recordingEnabled() const { return m_recording; }
     void setRecordingEnabled(bool on);
 
-    // Record a successful send handoff. No-op when recording is disabled.
     void recordSent(const gif::GifResult &r);
     Q_INVOKABLE void recordSentMap(const QVariantMap &result)
     { recordSent(fromVariantMap(result)); }

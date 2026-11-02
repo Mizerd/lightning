@@ -4,55 +4,15 @@ import QtQuick.Layouts
 import QtQuick.Shapes
 import MatrixClient
 
-// The crop/adjust dialog for every display image Lightning uploads: room and
-// Space avatars, banners, the own profile banner, and the picture chosen when
-// creating a room.
-//
-// Presentation only: it decides where the crop rectangle sits and hands the
-// coordinates to C++. `ImageCropper` reads the file, accepts only the five
-// raster formats by magic bytes (so SVG never reaches a renderer), decodes,
-// crops, caps, encodes and writes a temp file. A picked SVG is converted to a
-// PNG by a helper process first (rasterize on send) and only that PNG is
-// previewed, cropped and uploaded.
-//
-// The preview uses `image://lightning-staged/<token>`, bytes the cropper has
-// already sniffed. Pointing an Image at the user's file:// URL would let Qt's
-// loader render SVG as active content.
-//
-// Interaction model:
-//   * The crop rectangle is in viewport coordinates and always fully inside
-//     the viewport. It moves (drag inside) and resizes (drag a corner) with
-//     its aspect ratio locked.
-//   * The image pans (drag outside the crop) and zooms (wheel, slider)
-//     behind it.
-//   * Invariant: the image always covers the crop rectangle. Every gesture
-//     clamps against it, so the result never contains empty space.
-//
-// A circular avatar still produces a square image: Matrix avatars are square
-// and clients draw the circle.
-//
-// Animated sources (GIF, animated WebP): Qt cannot encode an animation, so any
-// crop flattens it to one frame. "Keep animation" uploads the original frames
-// instead, uncropped and with the metadata stripped, the frame locked to the
-// centre, which is where clients crop it when drawing. The animated preview is
-// `animatedUrl`, the stripped copy the cropper wrote after sniffing it, never
-// the chosen file.
 AppDialog {
     id: root
 
-    // ── API ──
-    /// "avatar" (1:1, shown as a circle) or "banner" (3:1 strip). Shape, mask
-    /// and output cap all follow from it.
     property string role: "avatar"
     readonly property real aspect: role === "banner" ? 3.0 : 1.0
     readonly property bool circular: role !== "banner"
 
-    /// Emitted with a file:// URL for the cropped image; every call site's sink
-    /// already takes a local path.
     signal cropped(url file)
 
-    /// Open the picker's result. Refusals (SVG, unreadable file, missing codec)
-    /// are shown inside the dialog rather than silently ignored.
     function openFor(fileUrl) {
         root.errorText = ""
         root.srcW = 0
@@ -64,18 +24,14 @@ AppDialog {
         root.converting = false
         var info = app.imageCrop.load(fileUrl)
         if (info && info.pending === true)
-            // An SVG: converted to a PNG in the background, answered on
-            // svgLoaded. The dialog opens now and says so.
             root.converting = true
         else
             root._applyInfo(info)
         root.keepAnimation = root.canKeepAnimation
         root.open()
-        // The viewport has no geometry until the popup is laid out.
         Qt.callLater(root._reset)
     }
 
-    /// Show the gate's answer: the staged preview, or the refusal.
     function _applyInfo(info) {
         if (!info || !info.ok) {
             root.errorText = info && info.errorText
@@ -92,7 +48,6 @@ AppDialog {
         }
     }
 
-    // The converted SVG arrives here. Only the dialog that asked reacts.
     Connections {
         target: app.imageCrop
         function onSvgLoaded(info) {
@@ -105,24 +60,17 @@ AppDialog {
         }
     }
 
-    // ── State (viewport coordinates unless named otherwise) ──
     property string previewUrl: ""
-    property int srcW: 0                 // decoded source width, in pixels
+    property int srcW: 0
     property int srcH: 0
     property string errorText: ""
-    /// An SVG is being converted to a PNG (the picker's result, not yet a
-    /// picture).
     property bool converting: false
-    /// The source is an animation, and whether it can be kept in this role.
     property bool animated: false
     property string animatedUrl: ""
     property bool canKeepAnimation: false
-    /// Upload the original animation rather than a cropped still frame.
     property bool keepAnimation: false
     readonly property bool cropLocked: keepAnimation && canKeepAnimation
-    /// Displayed pixels per source pixel.
     property real imgScale: 1.0
-    /// Top-left of the drawn image, in viewport coordinates.
     property real panX: 0
     property real panY: 0
     property real cropX: 0
@@ -133,15 +81,11 @@ AppDialog {
     readonly property bool ready: srcW > 0 && srcH > 0 && cropW > 0
     readonly property real drawnW: srcW * imgScale
     readonly property real drawnH: srcH * imgScale
-    /// The smallest scale at which the image still covers the frame. Zooming
-    /// below it is refused, so the picture never jumps mid-gesture.
     readonly property real minScale: (srcW > 0 && srcH > 0 && cropW > 0)
                                      ? Math.max(cropW / srcW, cropH / srcH)
                                      : 1.0
     readonly property real maxScale: Math.max(minScale * 8, 1.0)
 
-    /// Minimum frame edge in viewport pixels: small enough to pick out a face,
-    /// large enough to keep grabbable corners.
     readonly property real minCropEdge: 56
 
     title: qsTr("Adjust picture")
@@ -155,13 +99,11 @@ AppDialog {
     closePolicy: Popup.CloseOnEscape
     width: Math.min(720, parent ? parent.width - 64 : 720)
 
-    // However it closes, the staged bytes and decoded source are discarded.
     onClosed: {
         root.converting = false
         app.imageCrop.discard()
     }
 
-    // ── Geometry helpers ──
     function _describe(category) {
         if (category === "unsupported_image")
             return qsTr("That file isn't a picture Lightning can use. "
@@ -179,7 +121,6 @@ AppDialog {
         return qsTr("That picture couldn't be used.")
     }
 
-    /// Fit the image, then centre the largest frame of the right shape on it.
     function _reset() {
         if (srcW <= 0 || srcH <= 0 || viewport.width <= 0 || viewport.height <= 0)
             return
@@ -197,14 +138,11 @@ AppDialog {
 
     function _clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
 
-    /// Keep the image covering the frame; the one place the invariant is
-    /// enforced, called after every gesture.
     function _clampPan() {
         panX = _clamp(panX, cropX + cropW - drawnW, cropX)
         panY = _clamp(panY, cropY + cropH - drawnH, cropY)
     }
 
-    /// Keep the frame inside both the viewport and the drawn image.
     function _clampCrop() {
         var loX = Math.max(0, panX)
         var loY = Math.max(0, panY)
@@ -226,7 +164,6 @@ AppDialog {
         _clampCrop()
     }
 
-    /// Zoom about the frame's centre, so the framed subject stays framed.
     function _zoomTo(next) {
         if (!ready)
             return
@@ -235,8 +172,6 @@ AppDialog {
             return
         var cx = cropX + cropW / 2
         var cy = cropY + cropH / 2
-        // Keep the source pixel under the frame's centre fixed:
-        // pan' = c - (c - pan) * next/old.
         var k = next / imgScale
         panX = cx - (cx - panX) * k
         panY = cy - (cy - panY) * k
@@ -246,19 +181,14 @@ AppDialog {
             zoomSlider.value = next
     }
 
-    /// Resize from one corner, aspect locked, anchored at the opposite one.
-    /// `corner` is 0 TL, 1 TR, 2 BR, 3 BL.
     function _resizeCrop(corner, px, py) {
         if (!ready)
             return
         var fixedX = (corner === 0 || corner === 3) ? cropX + cropW : cropX
         var fixedY = (corner === 0 || corner === 1) ? cropY + cropH : cropY
-        // Width leads and height follows, so the ratio is exact.
         var w = Math.abs(px - fixedX)
         var h = Math.abs(py - fixedY)
         w = Math.max(w, h * aspect)
-        // Room available in the corner's direction, bounded by the viewport and
-        // the drawn image.
         var leftBound = Math.max(0, panX)
         var topBound = Math.max(0, panY)
         var rightBound = Math.min(viewport.width, panX + drawnW)
@@ -270,14 +200,12 @@ AppDialog {
         w = Math.min(w, roomX, roomY * aspect)
         w = Math.max(w, minCropEdge, minCropEdge * aspect)
         if (w > roomX || w / aspect > roomY)
-            return   // no room to grow; leave the frame exactly as it was
+            return
         var newH = w / aspect
         cropX = (corner === 0 || corner === 3) ? fixedX - w : fixedX
         cropY = (corner === 0 || corner === 1) ? fixedY - newH : fixedY
         cropW = w
         cropH = newH
-        // Growing is refused above rather than allowed to strand the image; the
-        // pan clamp keeps the cover invariant.
         _clampPan()
         _clampCrop()
     }
@@ -312,7 +240,6 @@ AppDialog {
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
 
-        // ── The stage ──
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Math.max(
@@ -331,7 +258,6 @@ AppDialog {
                 clip: true
                 visible: root.errorText.length === 0 && !root.converting
 
-                // Re-fit when the dialog is resized.
                 onWidthChanged: Qt.callLater(root._reset)
                 onHeightChanged: Qt.callLater(root._reset)
 
@@ -352,16 +278,12 @@ AppDialog {
                     width: root.drawnW
                     height: root.drawnH
                 }
-                // The animation that will be uploaded, over the still frame.
                 Loader {
                     objectName: "cropAnimatedPreview"
                     x: root.panX
                     y: root.panY
                     width: root.drawnW
                     height: root.drawnH
-                    // The user's own pick, so explicit intent like the image
-                    // viewer: plays unless Animated images is Don't play
-                    // (MotionPolicy); the still frame beneath stands in then.
                     active: root.cropLocked && root.animatedUrl.length > 0
                             && MotionPolicy.allowed
                     sourceComponent: AnimatedImage {
@@ -375,9 +297,6 @@ AppDialog {
                     }
                 }
 
-                // ── The mask: everything outside the frame, dimmed ── One
-                // OddEvenFill path punches the frame out of the viewport, so
-                // the circular case dims the corners too.
                 Shape {
                     anchors.fill: parent
                     visible: root.ready && !root.circular
@@ -423,13 +342,10 @@ AppDialog {
                     }
                 }
 
-                // ── Panning and moving; declared before the handles so a
-                // corner grab wins the press. ──
                 MouseArea {
                     id: stageArea
                     objectName: "cropStageArea"
                     anchors.fill: parent
-                    // A kept animation is uploaded whole; nothing to move.
                     enabled: !root.cropLocked
                     acceptedButtons: Qt.LeftButton
                     hoverEnabled: true
@@ -487,7 +403,6 @@ AppDialog {
                     }
                 }
 
-                // ── The frame outline and its corner grips ──
                 Rectangle {
                     objectName: "cropFrame"
                     visible: root.ready
@@ -543,7 +458,6 @@ AppDialog {
                 }
             }
 
-            // An SVG being converted, shown where the picture will be.
             Label {
                 objectName: "cropConvertingLabel"
                 anchors.centerIn: parent
@@ -556,7 +470,6 @@ AppDialog {
                 font.pixelSize: AppTheme.textBody
             }
 
-            // The refusal, shown where the picture would be.
             Label {
                 objectName: "cropErrorLabel"
                 anchors.centerIn: parent
@@ -570,7 +483,6 @@ AppDialog {
             }
         }
 
-        // ── Animation ──
         RowLayout {
             Layout.fillWidth: true
             visible: root.ready && root.animated
@@ -593,16 +505,12 @@ AppDialog {
                 Accessible.name: qsTr("Keep animation")
                 onToggled: {
                     root.keepAnimation = !root.keepAnimation
-                    // The kept animation is shown centred, as it will be drawn.
                     if (root.keepAnimation)
                         root._reset()
                 }
             }
         }
 
-        // ── Zoom ──
-        // Hidden but still laid out while an animation is kept, so toggling
-        // "Keep animation" never moves the switch out from under the pointer.
         RowLayout {
             Layout.fillWidth: true
             visible: root.ready
@@ -649,8 +557,6 @@ AppDialog {
                     width: 16
                     height: 16
                     radius: 8
-                    // White: a dark thumb on the fill boundary reads as
-                    // disabled.
                     color: "#FFFFFF"
                     border.width: zoomSlider.visualFocus ? 2 : 0
                     border.color: AppTheme.bolt
@@ -668,7 +574,6 @@ AppDialog {
             id: cropHint
             Layout.fillWidth: true
             visible: root.ready
-            // Two lines either way, for the same reason as the zoom row.
             Layout.minimumHeight: root.animated
                                   ? Math.ceil(hintMetrics.lineSpacing * 2)
                                   : 0
@@ -695,8 +600,6 @@ AppDialog {
                          + "the crop, and drag a corner to resize it.")
         }
 
-        // ── Footer: its own row rather than standardButtons, so the accept
-        // button can say what it does. ──
         RowLayout {
             Layout.fillWidth: true
             Layout.topMargin: AppTheme.spacing4

@@ -16,7 +16,6 @@ namespace {
 
 constexpr int kDefaultSlowMs = 2000;
 constexpr int kMinSlowMs = 100;
-// Bounded; the oldest journeys are dropped.
 constexpr int kMaxTrackedJourneys = 512;
 
 struct Journey {
@@ -52,7 +51,7 @@ qint64 nowMs()
     return QDateTime::currentMSecsSinceEpoch();
 }
 
-std::atomic<int> g_enabled{-1};   // -1 unread, 0 off, >0 threshold
+std::atomic<int> g_enabled{-1};
 
 int resolveEnabled()
 {
@@ -63,7 +62,6 @@ int resolveEnabled()
     const int value = raw.toInt(&ok);
     if (ok && value >= kMinSlowMs)
         return value;
-    // "1" (or any true-ish non-threshold value) enables with the default.
     if (raw == "1" || raw.compare("true", Qt::CaseInsensitive) == 0
         || raw.compare("on", Qt::CaseInsensitive) == 0
         || raw.compare("yes", Qt::CaseInsensitive) == 0)
@@ -86,8 +84,6 @@ int enabledThreshold()
     return cached;
 }
 
-// Eight hex characters of a SHA-256: distinguishes rooms without identifying
-// them.
 QByteArray roomKeyFor(const QString &roomId)
 {
     if (roomId.isEmpty())
@@ -97,7 +93,7 @@ QByteArray roomKeyFor(const QString &roomId)
         .left(8);
 }
 
-} // namespace
+}
 
 bool synctrace::enabled()
 {
@@ -131,7 +127,6 @@ quint64 synctrace::beginEvent(const QString &roomId, qint64 sdkEpochMs)
     Journey j;
     j.id = s.nextId++;
     j.roomKey = roomKeyFor(roomId);
-    // A future stamp would make every later delta negative; use now instead.
     const qint64 now = nowMs();
     j.sdkMs = (sdkEpochMs > 0 && sdkEpochMs <= now) ? sdkEpochMs : now;
     s.journeys.insert(j.id, j);
@@ -183,7 +178,6 @@ void synctrace::noteUi(quint64 id)
         s.lastTotalMs = uiMs - j.sdkMs;
     }
 
-    // A stage that never fired reports -1, not 0.
     const qint64 toBridge = j.bridgeMs >= 0 ? j.bridgeMs - j.sdkMs : -1;
     const qint64 toModel =
         (j.modelMs >= 0 && j.bridgeMs >= 0) ? j.modelMs - j.bridgeMs : -1;

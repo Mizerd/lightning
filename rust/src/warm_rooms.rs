@@ -1,32 +1,11 @@
-//! Warm rooms: the rooms the sliding sync keeps subscribed.
-//!
-//! Until now the sync carried ONE room subscription, the room that is open.
-//! Switching back to the room you just left therefore started from a
-//! one-event cache and a fill round trip, and after the sliding-sync session
-//! expired (`M_UNKNOWN_POS`) the SDK cleared every subscription
-//! (`SlidingSync::expire_session`), so even the open room silently stopped
-//! getting its richer timeline until the user switched away and back.
-//!
-//! This is the policy half, kept pure so it can be tested without a server:
-//! a bounded most-recently-used set of room ids, and the rule for when the
-//! whole set must be sent again.
-//!
-//! Bound: [`WARM_ROOM_LIMIT`]. Each subscribed room receives a 20-event
-//! timeline and extra required state, and those events are written to the
-//! event cache, so the set is deliberately modest (Sable keeps 32).
 
 use matrix_sdk::ruma::OwnedRoomId;
 
-/// How many recently opened rooms stay subscribed. Modest on purpose: every
-/// subscribed room's events are persisted by the event cache.
 pub const WARM_ROOM_LIMIT: usize = 16;
 
-/// The open room plus the most recently opened others, newest first.
 #[derive(Debug, Default)]
 pub struct SubscriptionSet {
-    /// Newest first. Never longer than `WARM_ROOM_LIMIT`.
     recent: Vec<OwnedRoomId>,
-    /// The room that is open right now, if any. Always also in `recent`.
     active: Option<OwnedRoomId>,
     /// The membership last handed to the SDK. `subscribe_to_rooms` replaces
     /// the whole map and flags every room in it for a member refetch, and the
@@ -36,8 +15,6 @@ pub struct SubscriptionSet {
 }
 
 impl SubscriptionSet {
-    /// A room was opened: it becomes the active room and the newest warm one.
-    /// Returns the room that fell off the end, if the bound was exceeded.
     pub fn open(&mut self, room: OwnedRoomId) -> Option<OwnedRoomId> {
         self.recent.retain(|r| r != &room);
         self.recent.insert(0, room.clone());
@@ -49,11 +26,6 @@ impl SubscriptionSet {
         }
     }
 
-    /// A room with a call: subscribed like a recently opened one, without
-    /// opening it. The room list's timeline limit is 1, so several `m.call.*`
-    /// events in one response would otherwise reach the client as the last one
-    /// alone; a subscription delivers them, and its first response replays the
-    /// recent ones. Never evicts the open room.
     pub fn warm(&mut self, room: OwnedRoomId) {
         self.recent.retain(|r| r != &room);
         self.recent.insert(0, room);
@@ -67,23 +39,16 @@ impl SubscriptionSet {
         }
     }
 
-    /// The open room was closed. It stays warm: that is the point.
     pub fn close_active(&mut self) {
         self.active = None;
     }
 
-    /// Forget everything (sign-out, account switch, sync teardown), so one
-    /// account's rooms can never be subscribed by another account's sync.
     pub fn clear(&mut self) {
         self.recent.clear();
         self.active = None;
         self.sent.clear();
     }
 
-    /// What to hand to `subscribe_to_rooms` now, or `None` when the SDK
-    /// already holds exactly this membership. `force` is for a fresh or
-    /// expired session, whose subscription map is empty whatever we sent
-    /// before.
     pub fn pending(&mut self, force: bool) -> Option<Vec<OwnedRoomId>> {
         let now: std::collections::BTreeSet<OwnedRoomId> =
             self.recent.iter().cloned().collect();
@@ -98,7 +63,6 @@ impl SubscriptionSet {
         self.active.as_ref()
     }
 
-    /// Every room to subscribe, newest (the open room) first.
     pub fn desired(&self) -> Vec<OwnedRoomId> {
         self.recent.clone()
     }
@@ -108,13 +72,6 @@ impl SubscriptionSet {
     }
 }
 
-/// Whether the room-list sync state means subscriptions may have been lost
-/// and the whole set must be sent again.
-///
-/// `SlidingSync::expire_session` clears the SDK's subscription map, and a
-/// rebuilt `RoomListService` starts with none. Both end with the list coming
-/// back to `Running` after a state that was not `Running`; a `Running` that
-/// follows `Running` (it repeats on every response) is not a reason.
 pub fn must_resubscribe(was_running: bool, now_running: bool) -> bool {
     now_running && !was_running
 }
@@ -203,23 +160,17 @@ mod tests {
         set.open(room(1));
         set.open(room(2));
         assert_eq!(set.pending(false), Some(vec![room(2), room(1)]));
-        // Switching back to a warm room only reorders the set.
         set.open(room(1));
         assert_eq!(set.pending(false), None);
         set.close_active();
         assert_eq!(set.pending(false), None);
-        // A new room changes the membership.
         set.open(room(3));
         assert!(set.pending(false).is_some());
-        // An expired or rebuilt session needs everything again.
         assert!(set.pending(true).is_some());
     }
 
     #[test]
     fn only_a_return_to_running_resends_the_set() {
-        // Running after an offline/error/recovering gap (a session expiry or a
-        // rebuilt service) resends; a repeated Running does not, because that
-        // arm fires on every response.
         assert!(must_resubscribe(false, true));
         assert!(!must_resubscribe(true, true));
         assert!(!must_resubscribe(false, false));

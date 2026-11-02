@@ -44,7 +44,7 @@ TimelineEvent makeText(const QString &sender, const QString &body,
     e.status = TimelineEvent::Sent;
     return e;
 }
-} // namespace
+}
 
 class TimelineHydrationQmlTest : public QObject
 {
@@ -72,8 +72,6 @@ private:
         return controller.roomList()->rowCount() >= 1;
     }
 
-    // Loads the real TimelinePane into a shown offscreen window so the
-    // ListView lays out real delegates with real heights.
     bool createPane(AppController &controller, Pane &pane)
     {
         pane.engine = std::make_unique<QQmlApplicationEngine>();
@@ -125,18 +123,12 @@ private:
         return out;
     }
 
-    // How far the view sits from the newest message. The timeline is rotated
-    // so the newest row is at the low end of the scroll range: following the
-    // latest means contentY resting on wheelMinY().
     static qreal bottomDistance(QQuickItem *timeline)
     {
         return timelineReal(timeline, "contentY")
             - callQml(timeline, "wheelMinY").toReal();
     }
 
-    // The y position of the row inside the viewport, or NaN when that row is
-    // not currently held by the view (the proxy paces newly paginated history
-    // out over several frames).
     static qreal viewportYForRow(QQuickItem *timeline, int row)
     {
         auto *quickItem = callQml(timeline, "itemAtViewRow", row)
@@ -147,9 +139,6 @@ private:
     }
 
 private Q_SLOTS:
-    // A room whose cache starts with one event and hydrates through fill
-    // batches must not present the partial snapshot; it presents once
-    // coherent, at the latest event, with the loading surface gone.
     void initialHydrationGateHoldsThenOpensAtLatest()
     {
         AppController controller(AppController::MockBackend);
@@ -162,12 +151,10 @@ private Q_SLOTS:
         Pane pane;
         QVERIFY(createPane(controller, pane));
 
-        // Stage the live shape: one event in the snapshot, two more history
-        // pages available. The reset re-engages the presentation gate.
         mock->resetTimelineForTest(
             kRoom, { makeText(QStringLiteral("@matas:mock.local"),
                               QStringLiteral("newest message"), 60) },
-            /*paginationPages=*/2);
+2);
         QCOMPARE(pane.timeline->property("presentationReady").toBool(), false);
         auto *loading = pane.root->findChild<QQuickItem *>(
             QStringLiteral("timelineLoadingSurface"));
@@ -175,13 +162,8 @@ private Q_SLOTS:
         QVERIFY(loading->isVisible());
         QCOMPARE(pane.timeline->opacity(), 0.0);
 
-        // The automatic viewport fill settles the gate without user input.
         QTRY_VERIFY_WITH_TIMEOUT(
             pane.timeline->property("presentationReady").toBool(), 5000);
-        // The gate does not open on the one-item partial snapshot. On failure
-        // the message reports the geometry the gate decided on: right after a
-        // reset contentHeight still reads the outgoing content until the
-        // Column relayouts, which presentationGeometryStale must suppress.
         const int gatedRows = controller.timeline()->rowCount();
         QVERIFY2(gatedRows > 1,
                  qPrintable(
@@ -201,8 +183,6 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(pane.timeline->opacity(), 1.0, 5000);
         QVERIFY(!loading->isVisible());
 
-        // Presented at the latest event: the view is bottom-pinned and the
-        // remaining distance below the viewport is (near) zero.
         QVERIFY(pane.timeline->property("stickToBottom").toBool());
         if (timelineReal(pane.timeline, "contentHeight")
             > timelineReal(pane.timeline, "height")) {
@@ -212,17 +192,12 @@ private Q_SLOTS:
         QCOMPARE(pane.warnings, QStringList{});
     }
 
-    // The gate's fast path: warm content that already fills the viewport
-    // presents via fillsViewport, not via the pagination settle signal
-    // (delayed 3s here) or the 2.5s guard timer.
     void firstRoomOpenWithWarmContentPresentsFast()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(login(controller));
         auto *mock = controller.findChild<MockMatrixClient *>();
         QVERIFY(mock != nullptr);
-        // Stage plenty of content BEFORE the room is ever opened, and make
-        // the pagination settle path too slow to win.
         QList<TimelineEvent> events;
         for (int i = 0; i < 16; ++i) {
             events.append(makeText(QStringLiteral("@alice:mock.local"),
@@ -230,7 +205,7 @@ private Q_SLOTS:
                                        .arg(i),
                                    (30 - i) * 60));
         }
-        mock->resetTimelineForTest(kRoom, events, /*paginationPages=*/1);
+        mock->resetTimelineForTest(kRoom, events,1);
         mock->setPaginationDelayForTest(3000);
 
         Pane pane;
@@ -249,8 +224,6 @@ private Q_SLOTS:
                                 .arg(openedAfterMs)));
     }
 
-    // While pinned to the bottom, asynchronous growth above the newest message
-    // (image hydration, late decryption, link previews) keeps it visible.
     void bottomPinnedStaysAtLatestWhileRowsGrow()
     {
         AppController controller(AppController::MockBackend);
@@ -267,13 +240,11 @@ private Q_SLOTS:
         }
         Pane pane;
         QVERIFY(createPane(controller, pane));
-        mock->resetTimelineForTest(kRoom, events, /*paginationPages=*/0);
+        mock->resetTimelineForTest(kRoom, events,0);
         QTRY_VERIFY_WITH_TIMEOUT(
             pane.timeline->property("presentationReady").toBool(), 5000);
         QTRY_VERIFY_WITH_TIMEOUT(bottomDistance(pane.timeline) < 48.0, 5000);
 
-        // Grow several rows above the newest message in randomized-ish
-        // order, as media/decryption completion does.
         const QList<int> growth = { 3, 9, 1, 6 };
         for (int row : growth) {
             TimelineEvent grown = events.at(row);
@@ -286,15 +257,11 @@ private Q_SLOTS:
             mock->changeEventAtForTest(kRoom, row, grown);
             QTest::qWait(30);
         }
-        // One coalesced correction per batch keeps the newest event pinned.
         QTRY_VERIFY_WITH_TIMEOUT(bottomDistance(pane.timeline) < 48.0, 5000);
         QVERIFY(pane.timeline->property("stickToBottom").toBool());
         QCOMPARE(pane.warnings, QStringList{});
     }
 
-    // While the user reads older history, growth above the anchored message
-    // must not move it inside the viewport, growth below must not either,
-    // and a live append must not force the view back to the bottom.
     void scrolledUpAnchorHoldsThroughGrowthAndAppends()
     {
         AppController controller(AppController::MockBackend);
@@ -312,17 +279,13 @@ private Q_SLOTS:
         }
         Pane pane;
         QVERIFY(createPane(controller, pane));
-        mock->resetTimelineForTest(kRoom, events, /*paginationPages=*/0);
+        mock->resetTimelineForTest(kRoom, events,0);
         QTRY_VERIFY_WITH_TIMEOUT(
             pane.timeline->property("presentationReady").toBool(), 5000);
         QTRY_VERIFY_WITH_TIMEOUT(bottomDistance(pane.timeline) < 48.0, 5000);
 
-        // Scroll up to the middle of history the way programmatic
-        // navigation does, then let the pane capture its reading anchor.
         const int anchorRow = 15;
         pane.timeline->setProperty("stickToBottom", false);
-        // Release the paced backlog first: a jump must be able to address any
-        // loaded row, which is exactly why the navigation paths do the same.
         QMetaObject::invokeMethod(pane.timeline, "releasePendingRows");
         QMetaObject::invokeMethod(pane.timeline, "positionViewAtViewRow",
                                   Q_ARG(QVariant, anchorRow),
@@ -331,9 +294,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(
             !pane.timeline->property("viewAnchorId").toString().isEmpty(),
             2000);
-        // Track one event, not one view slot: a live append shifts every view
-        // row by one, so keep the anchor's source row and re-derive its view
-        // row through the pane's own mapping functions.
         const int anchorSourceRow =
             callQml(pane.timeline, "sourceRowForViewRow", anchorRow).toInt();
         QVERIFY(anchorSourceRow >= 0);
@@ -355,7 +315,6 @@ private Q_SLOTS:
             mock->changeEventAtForTest(kRoom, row, grown);
         };
 
-        // Growth above the anchor.
         grow(2);
         grow(5);
         QTest::qWait(60);
@@ -364,17 +323,12 @@ private Q_SLOTS:
                 <= 2.0,
             5000);
 
-        // Growth on the other side: the timeline is rotated, so model row 24
-        // (newer) sits at lower content y and growing it shifts the anchor,
-        // which maintainViewAnchor must compensate. QTRY, because the
-        // correction is one coalesced pass per batch.
         grow(24);
         QTRY_VERIFY_WITH_TIMEOUT(
             qAbs(viewportYForRow(pane.timeline, anchorRow) - anchorViewportY)
                 <= 2.0,
             5000);
 
-        // A live append below must not force the reader to the bottom.
         mock->appendEventForTest(
             kRoom, makeText(QStringLiteral("@bob:mock.local"),
                             QStringLiteral("new live message"), 0));
@@ -388,7 +342,6 @@ private Q_SLOTS:
         QCOMPARE(pane.warnings, QStringList{});
     }
 
-    // An in-place Set diff re-reads exactly one row, not the full range.
     void setDiffEmitsRowScopedChange()
     {
         AppController controller(AppController::MockBackend);
@@ -424,9 +377,6 @@ private Q_SLOTS:
                              TimelineModel::SenderDisplayNameRole).toString(),
                  QStringLiteral("Resolved Name"));
 
-        // A grouping-relevant change (new sender) also refreshes the
-        // neighbourhood presentation roles, synchronously and scoped to the
-        // mutation boundary. Every span stays local.
         changed.clear();
         TimelineEvent senderChange = updated;
         senderChange.sender = QStringLiteral("@carol:mock.local");
@@ -446,9 +396,6 @@ private Q_SLOTS:
         QVERIFY(sawRowScoped);
     }
 
-    // The sender label never falls back to the full Matrix ID when a safer
-    // form exists: unresolved profiles show the localpart, and a late profile
-    // replaces it in place on the same row.
     void displayNameFallsBackToLocalpartThenResolvesInPlace()
     {
         AppController controller(AppController::MockBackend);
@@ -460,7 +407,7 @@ private Q_SLOTS:
         TimelineEvent unresolved =
             makeText(QStringLiteral("@matas:matrix.smetonis.net"),
                      QStringLiteral("labas"), 60);
-        unresolved.senderDisplayName.clear(); // profile not yet available
+        unresolved.senderDisplayName.clear();
         mock->resetTimelineForTest(kRoom, { unresolved }, 0);
 
         auto *model = controller.timeline();
@@ -472,12 +419,9 @@ private Q_SLOTS:
         QCOMPARE(model->data(idx, TimelineModel::SenderInitialsRole)
                      .toString(),
                  QStringLiteral("M"));
-        // Full MXID stays available on the identity role for tooltips.
         QCOMPARE(model->data(idx, TimelineModel::SenderRole).toString(),
                  QStringLiteral("@matas:matrix.smetonis.net"));
 
-        // Late member-profile resolution (an SDK Set diff) updates the same
-        // row in place.
         TimelineEvent resolved = unresolved;
         resolved.eventId = model->data(idx, TimelineModel::EventIdRole)
                                .toString();

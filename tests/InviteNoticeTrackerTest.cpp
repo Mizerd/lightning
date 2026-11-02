@@ -1,11 +1,3 @@
-// Which room invites are announced, and when one counts as resolved.
-//
-// Reported live 2026-09-30: one invite raised two notifications 0 s apart,
-// "You were invited to Empty Room" and then the room's real name. The room
-// list re-sorted the invite when its name arrived: a remove and an insert,
-// each its own roomsChanged, with the room absent in between. The old sweep
-// resolved it on the remove and announced it again on the insert. Pure
-// logic with the clock passed in; no homeserver.
 
 #include "notifications/InviteNoticeTracker.h"
 
@@ -21,10 +13,6 @@ class InviteNoticeTrackerTest : public QObject
     Q_OBJECT
 
 private slots:
-    // The reported shape: listed, gone, listed again within one burst, each
-    // step processed the way AppController processes a roomsChanged. One
-    // announcement and nothing resolved, both when the re-sort comes before
-    // the announcement and when it comes long after.
     void aResortIsOneInviteNotTwo()
     {
         InviteNoticeTracker tracker;
@@ -53,8 +41,6 @@ private slots:
                  "and the next insert was a new invite");
     }
 
-    // Announced only after the settle, so the name that arrives a moment
-    // later is the one read at delivery.
     void aNewInviteWaitsForTheSettle()
     {
         InviteNoticeTracker tracker;
@@ -68,8 +54,6 @@ private slots:
         QCOMPARE(tracker.nextDueInMs(99999), qint64(-1));
     }
 
-    // Due while it is momentarily off the list: it waits for the room to be
-    // back rather than being announced for a room that is not listed.
     void aDueInviteOffTheListWaitsForIt()
     {
         InviteNoticeTracker tracker;
@@ -80,8 +64,6 @@ private slots:
         QCOMPARE(tracker.takeDue(2100), QStringList{ kRoom });
     }
 
-    // Accepted or declined: off the list past the grace. Resolved once, and
-    // an invite to the same room after that is new again.
     void aGoneInviteResolvesAfterTheGrace()
     {
         InviteNoticeTracker tracker;
@@ -99,7 +81,6 @@ private slots:
                  QStringList{ kRoom });
     }
 
-    // Declined during its settle: never announced.
     void anInviteGoneBeforeItsSettleIsNeverAnnounced()
     {
         InviteNoticeTracker tracker;
@@ -110,8 +91,6 @@ private slots:
         QVERIFY(tracker.takeDue(99999).isEmpty());
     }
 
-    // Accepted or left, and still listed as that: settled at once, with no
-    // grace and no announcement still to come; inviting again is new.
     void aSettledInviteIsForgottenAtOnce()
     {
         InviteNoticeTracker tracker;
@@ -127,8 +106,6 @@ private slots:
                  QStringList{ kRoom });
     }
 
-    // Invites already there at startup are recorded, never announced, even
-    // across a re-sort after initial sync.
     void invitesFromBeforeInitialSyncAreSilent()
     {
         InviteNoticeTracker tracker;
@@ -140,7 +117,6 @@ private slots:
         QVERIFY(tracker.takeResolved(99999).isEmpty());
     }
 
-    // An account change starts over.
     void clearForgetsEverything()
     {
         InviteNoticeTracker tracker;

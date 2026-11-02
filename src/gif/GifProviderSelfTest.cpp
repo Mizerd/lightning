@@ -19,7 +19,6 @@
 namespace gif {
 namespace {
 
-// Bounded caps for the diagnostic request. Trending JSON is small.
 constexpr qint64 kMaxBytes = 2 * 1024 * 1024;
 constexpr int kTimeoutMs = 15000;
 
@@ -28,9 +27,6 @@ ResolvedKey resolvedKey(const QString &providerId)
     return resolveProviderKeyDetailed(providerId);
 }
 
-// Perform one bounded trending request. On success sets *count and returns
-// true. `detail` receives a presentation-safe reason on failure — never a key
-// or URL.
 bool trendingProbe(const QString &providerId, const QString &key, int *count,
                    QString *detail)
 {
@@ -41,7 +37,7 @@ bool trendingProbe(const QString &providerId, const QString &key, int *count,
     }
     // The URL embeds the key: build it, use it, never log it.
     const QString url =
-        provider->trendingUrl(Rating::G, /*page=*/0, /*perPage=*/5, key);
+        provider->trendingUrl(Rating::G,0,5, key);
     if (url.isEmpty()) {
         *detail = QStringLiteral("no request URL");
         return false;
@@ -49,8 +45,6 @@ bool trendingProbe(const QString &providerId, const QString &key, int *count,
 
     QNetworkAccessManager nam;
     QNetworkRequest req{QUrl(url)};
-    // https only; keep any redirect on the same origin so a key is never
-    // replayed to another host, matching the app's provider-host policy.
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::SameOriginRedirectPolicy);
     req.setHeader(QNetworkRequest::UserAgentHeader,
@@ -88,7 +82,6 @@ bool trendingProbe(const QString &providerId, const QString &key, int *count,
     if (timedOut) { *detail = QStringLiteral("timeout"); return false; }
     if (tooLarge) { *detail = QStringLiteral("response too large"); return false; }
     if (http != 200) {
-        // Status only — never the body (may echo the key) or URL.
         *detail = QStringLiteral("status %1").arg(http);
         return false;
     }
@@ -98,7 +91,7 @@ bool trendingProbe(const QString &providerId, const QString &key, int *count,
     }
 
     const ParseOutcome parsed =
-        provider->parse(body, Rating::G, /*requestPage=*/0, /*perPage=*/5);
+        provider->parse(body, Rating::G,0,5);
     if (!parsed.ok || parsed.results.isEmpty()) {
         *detail = QStringLiteral("no structured results");
         return false;
@@ -107,12 +100,10 @@ bool trendingProbe(const QString &providerId, const QString &key, int *count,
     return true;
 }
 
-} // namespace
+}
 
 int printProviderStatus()
 {
-    // Booleans first (the packaging validation greps these exact lines),
-    // then the sanitized source class — never a key, prefix, or suffix.
     QTextStream out(stdout);
     for (const QString &id : {QStringLiteral("giphy"), QStringLiteral("klipy")}) {
         const ResolvedKey resolved = resolvedKey(id);
@@ -154,4 +145,4 @@ int runProviderSelfTest()
     return allOk ? 0 : 1;
 }
 
-} // namespace gif
+}

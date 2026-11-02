@@ -1,8 +1,3 @@
-// Closing and deleting rooms through RoomClosureController against a fake
-// client: a close is never presented as a delete, the plan is the gate for
-// what a close may attempt, a Space cascades to its rooms with the Space
-// last, a delete needs the server's own "administrator" answer and the typed
-// name, and every room reports its own outcome.
 
 #include "spaces/RoomClosureController.h"
 #include "matrix/MatrixClient.h"
@@ -30,7 +25,7 @@ public:
 
     struct Sent {
         quint64 opId;
-        QString kind; // "close" | "delete"
+        QString kind;
         QString roomId;
         QString reason;
         bool leave = false;
@@ -43,7 +38,6 @@ public:
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
     bool isLoggedIn() const override { return true; }
-    // Changed by a test to stand for another account becoming active.
     QString userId = QStringLiteral("@me:example.org");
     QString currentUserId() const override { return userId; }
     QString homeserverUrl() const override { return {}; }
@@ -188,7 +182,7 @@ QStringList sentRooms(const FakeClient &client)
     return out;
 }
 
-} // namespace
+}
 
 class RoomClosureControllerTest : public QObject
 {
@@ -206,8 +200,6 @@ private:
             admin ? QString() : QStringLiteral("not_admin"));
     }
 
-    // Space -> sub -> A; Space -> B; Space -> C (not offered); shared room is
-    // also listed by another Space.
     void beginSpaceClose()
     {
         QVERIFY(m_ctl->begin(kSpace, QStringLiteral("Lounge"), true,
@@ -267,7 +259,6 @@ private slots:
         m_client = nullptr;
     }
 
-    // Closing is never called deleting, and the confirmation says what stays.
     void aCloseIsNeverPresentedAsADelete()
     {
         QVERIFY(m_ctl->begin(QStringLiteral("!lone:example.org"),
@@ -286,21 +277,17 @@ private slots:
         QVERIFY(text.contains(QStringLiteral("anyone can read stays readable")));
         QVERIFY(!m_ctl->title().contains(QStringLiteral("Delete")));
         QVERIFY(!m_ctl->confirmLabel().contains(QStringLiteral("Delete")));
-        // Leaving is part of the promise only while it is chosen.
         QVERIFY(text.contains(QStringLiteral("then you leave")));
         m_ctl->setLeaveAfter(false);
         QVERIFY(m_ctl->consequenceText().contains(QStringLiteral("You stay.")));
         QVERIFY(!m_ctl->consequenceText().contains(QStringLiteral("then you leave")));
     }
 
-    // One room: its parents are offered for unlisting, and the choice is
-    // what the backend is asked to do.
     void aSingleRoomCloseCarriesItsOptions()
     {
         const QString lone = QStringLiteral("!lone:example.org");
         QVERIFY(m_ctl->begin(lone, QStringLiteral("General"), false,
                              QStringLiteral("close")));
-        // The parents are asked about too, for their child permission only.
         QCOMPARE(m_client->lastPlanRooms, QStringList{ lone });
         QCOMPARE(m_client->lastPlanParents, (QStringList{ kSpace, kOtherSpace }));
         QVariantMap editable = planRow(kSpace, QStringLiteral("parent"));
@@ -310,10 +297,7 @@ private slots:
         Q_EMIT m_client->roomClosurePlanReceived(
             m_client->lastPlanOpId, false,
             QVariantList{ planRow(lone, QString()), editable, locked });
-        // Parents are not rows.
         QVERIFY(m_ctl->rooms().isEmpty());
-        // Only a parent whose children the viewer may change is offered;
-        // the other is named, so a close can still finish.
         QCOMPARE(m_ctl->parentSpaceNames(), QStringList{ QStringLiteral("Lounge") });
         QCOMPARE(m_ctl->lockedParentNames(), QStringList{ QStringLiteral("Other") });
         m_ctl->confirm(QStringLiteral("  wound down  "));
@@ -336,8 +320,6 @@ private slots:
         QCOMPARE(m_client->sent.constFirst().leave, false);
     }
 
-    // The plan is the gate: a room it does not offer is never sent, whatever
-    // the view asks, and a room another Space also lists starts unselected.
     void onlyOfferedRoomsAreClosedAndTheSpaceGoesLast()
     {
         beginSpaceClose();
@@ -356,12 +338,10 @@ private slots:
 
         m_ctl->confirm(QString());
         QCOMPARE(m_ctl->phase(), QStringLiteral("running"));
-        // One at a time.
         QCOMPARE(m_client->sent.size(), 1);
         for (int i = 0; i < 4; ++i)
             m_client->answerClose(QStringLiteral("closed"));
         QCOMPARE(m_ctl->phase(), QStringLiteral("done"));
-        // Deepest first, the Space last; no Space unlisting inside a cascade.
         QCOMPARE(sentRooms(*m_client), (QStringList{ kRoomB, kRoomA, kSub, kSpace }));
         for (const auto &s : m_client->sent)
             QVERIFY(s.unlist.isEmpty());
@@ -381,17 +361,14 @@ private slots:
         QCOMPARE(sentRooms(*m_client), QStringList{ kSpace });
     }
 
-    // Every room reports its own outcome; a partial close is not a success
-    // and a refusal does not stop the others.
     void eachRoomReportsItsOwnOutcome()
     {
         m_client->refuseSend = { kRoomA };
         beginSpaceClose();
         m_ctl->confirm(QString());
-        m_client->answerClose(QStringLiteral("partial"), 3, 0);  // B
-        // A could not be sent at all.
-        m_client->answerClose(QStringLiteral("failed"));         // sub
-        m_client->answerClose(QStringLiteral("closed"), 4, 1);   // Space
+        m_client->answerClose(QStringLiteral("partial"), 3, 0);
+        m_client->answerClose(QStringLiteral("failed"));
+        m_client->answerClose(QStringLiteral("closed"), 4, 1);
         QCOMPARE(m_ctl->phase(), QStringLiteral("done"));
         QCOMPARE(m_ctl->succeededCount(), 1);
         QCOMPARE(m_ctl->partialCount(), 1);
@@ -407,9 +384,6 @@ private slots:
                     .contains(QStringLiteral("Nothing was changed")));
         QCOMPARE(row(*m_ctl, kRoomA).value(QStringLiteral("status")).toString(),
                  QStringLiteral("failed"));
-        // Nothing beneath the subspace or the Space finished cleanly, so the
-        // viewer stays in both: once out of a Space it cannot be cascaded
-        // again.
         QCOMPARE(sentRooms(*m_client), (QStringList{ kRoomB, kSub, kSpace }));
         QCOMPARE(m_client->sent.at(0).leave, true);
         QCOMPARE(m_client->sent.at(1).leave, false);
@@ -423,41 +397,33 @@ private slots:
         QVERIFY(m_ctl->statusText().contains(QStringLiteral("1 partly closed")));
     }
 
-    // A subspace is left when everything beneath IT closed, whatever
-    // happened to rooms elsewhere in the Space; the Space itself is not.
     void aSpaceIsLeftOnlyWhenEverythingBeneathItClosed()
     {
         beginSpaceClose();
         m_ctl->confirm(QString());
-        m_client->answerClose(QStringLiteral("failed"));  // B
-        m_client->answerClose(QStringLiteral("closed"));  // A (in sub)
-        m_client->answerClose(QStringLiteral("closed"));  // sub
-        m_client->answerClose(QStringLiteral("closed"));  // Space
+        m_client->answerClose(QStringLiteral("failed"));
+        m_client->answerClose(QStringLiteral("closed"));
+        m_client->answerClose(QStringLiteral("closed"));
+        m_client->answerClose(QStringLiteral("closed"));
         QCOMPARE(sentRooms(*m_client), (QStringList{ kRoomB, kRoomA, kSub, kSpace }));
         QCOMPARE(m_client->sent.at(2).leave, true);
         QCOMPARE(m_client->sent.at(3).leave, false);
     }
 
-    // A step that never answers is marked "not known yet" and the rest go
-    // on; its late answer is not counted.
     void aStepThatNeverAnswersDoesNotHoldTheRest()
     {
-        // No wall clock: the watchdog is checked armed, then expired through
-        // the test hook.
         beginSpaceClose();
         m_ctl->confirm(QString());
         const auto first = m_client->sent.constFirst();
         QVERIFY(m_ctl->stepWatchdogArmedForTest());
         QCOMPARE(m_ctl->stepWatchdogIntervalForTest(),
                  RoomClosureController::kStepSilenceMs);
-        // Progress for the step in flight keeps it armed.
         Q_EMIT m_client->roomClosureProgress(first.opId, first.roomId, 0, 0);
         QVERIFY(m_ctl->stepWatchdogArmedForTest());
         QCOMPARE(row(*m_ctl, first.roomId).value(QStringLiteral("progress")).toString(),
                  QStringLiteral("Working…"));
         m_ctl->expireStepForTest();
         QCOMPARE(m_client->sent.size(), 2);
-        // The next step has its own watchdog.
         QVERIFY(m_ctl->stepWatchdogArmedForTest());
         QCOMPARE(row(*m_ctl, first.roomId).value(QStringLiteral("status")).toString(),
                  QStringLiteral("unknown"));
@@ -468,7 +434,6 @@ private slots:
             first.opId, first.roomId,
             QVariantMap{ { QStringLiteral("outcome"), QStringLiteral("closed") } });
         QCOMPARE(m_ctl->succeededCount(), 0);
-        // Something not known beneath the Space keeps the viewer in it.
         m_client->answerClose(QStringLiteral("closed"));
         m_client->answerClose(QStringLiteral("closed"));
         m_client->answerClose(QStringLiteral("closed"));
@@ -479,8 +444,6 @@ private slots:
         QVERIFY(!m_ctl->stepWatchdogArmedForTest());
     }
 
-    // Hiding the dialog keeps the flow; reopening shows it, and a flow that
-    // ended while hidden is shown once before a new one can start.
     void hidingTheDialogKeepsTheFlow()
     {
         beginSpaceClose();
@@ -498,14 +461,12 @@ private slots:
                               QStringLiteral("close")));
         QCOMPARE(m_ctl->targetId(), kSpace);
         QVERIFY(m_ctl->notice().contains(QStringLiteral("how the earlier")));
-        // Seen: closing the dialog now resets, and a new flow starts.
         m_ctl->viewClosed();
         QCOMPARE(m_ctl->phase(), QStringLiteral("idle"));
         QVERIFY(m_ctl->begin(kRoomB, QStringLiteral("B"), false,
                              QStringLiteral("close")));
     }
 
-    // Without the kick permission nobody is removed, and every text says so.
     void withoutKickPermissionEveryoneStaysAndItIsSaid()
     {
         QVariantMap plan = planRow(kRoomB, QString(), 0, 3);
@@ -534,7 +495,6 @@ private slots:
         QVERIFY(!message.contains(QStringLiteral("role not below yours")));
     }
 
-    // "Not an administrator" is believed; "could not ask" is asked again.
     void anUnreachableAdminAnswerIsAskedAgain()
     {
         m_ctl->setAdminRetryForTest(0);
@@ -567,15 +527,12 @@ private slots:
                     .contains(QStringLiteral("Sign in again")));
     }
 
-    // Add-account never signs the previous account out. Nothing more may go
-    // out through the client once it speaks for another account.
     void aFlowNeverContinuesUnderAnotherAccount()
     {
         beginSpaceClose();
         m_ctl->confirm(QString());
         QCOMPARE(m_client->sent.size(), 1);
         m_client->userId = QStringLiteral("@other:example.org");
-        // The old account's answer never comes; the watchdog fires.
         m_ctl->expireStepForTest();
         QCOMPARE(m_client->sent.size(), 1);
         QCOMPARE(m_ctl->phase(), QStringLiteral("idle"));
@@ -591,7 +548,6 @@ private slots:
         QVERIFY(!m_ctl->begin(kSpace, QStringLiteral("Lounge"), true,
                               QStringLiteral("delete")));
 
-        // A "yes" for the first account does not carry to the next either.
         cleanup();
         init();
         becomeAdmin(true);
@@ -612,10 +568,6 @@ private slots:
         QCOMPARE(m_client->sent.size(), 1);
     }
 
-    // A room the plan could not assess may still need closing, so the Space
-    // above it is not left.
-    // The whole scope has rows, so nothing but C's reason can hold the leave;
-    // the no_permission pass is the control that leaves.
     void anUnassessedRoomKeepsTheViewerInTheSpace()
     {
         for (const QString &reasonC :
@@ -632,7 +584,7 @@ private slots:
                               planRow(kRoomC, reasonC), planRow(kShared, QString()) });
             m_ctl->confirm(QString());
             for (int i = 0; i < 4; ++i)
-                m_client->answerClose(QStringLiteral("closed")); // B, A, sub, Space
+                m_client->answerClose(QStringLiteral("closed"));
             QCOMPARE(sentRooms(*m_client),
                      (QStringList{ kRoomB, kRoomA, kSub, kSpace }));
             QCOMPARE(m_client->sent.at(3).leave,
@@ -640,7 +592,6 @@ private slots:
         }
     }
 
-    // A delete whose request got no answer is not a failure: nobody knows.
     void aDeleteWithNoAnswerIsNotKnownRatherThanFailed()
     {
         becomeAdmin(true);
@@ -680,7 +631,6 @@ private slots:
                     .contains(QStringLiteral("may already be running")));
     }
 
-    // An administrator question that could not even be sent is asked again.
     void anUnsentAdminQuestionIsAskedAgain()
     {
         m_client->refuseAdmin = true;
@@ -691,7 +641,6 @@ private slots:
         QCOMPARE(m_client->adminCalls, 2);
     }
 
-    // A name nobody can type does not lock the delete: the id works, always.
     void theRoomIdAlwaysConfirmsADelete()
     {
         becomeAdmin(true);
@@ -715,25 +664,21 @@ private slots:
         QVERIFY(m_ctl->canConfirm());
     }
 
-    // A plan cut at its cap has no row for the rooms past it; those were
-    // never closed, so the Space above them is not left.
     void aTruncatedPlanKeepsTheViewerInTheSpace()
     {
         m_ctl->begin(kSpace, QStringLiteral("Lounge"), true, QStringLiteral("close"));
         Q_EMIT m_client->roomClosurePlanReceived(
-            m_client->lastPlanOpId, /*truncated=*/true,
+            m_client->lastPlanOpId,true,
             QVariantList{ planRow(kSpace, QString()), planRow(kRoomB, QString()) });
         QVERIFY(m_ctl->planTruncated());
         m_ctl->confirm(QString());
-        m_client->answerClose(QStringLiteral("closed")); // B
-        m_client->answerClose(QStringLiteral("closed")); // Space
+        m_client->answerClose(QStringLiteral("closed"));
+        m_client->answerClose(QStringLiteral("closed"));
         QCOMPARE(sentRooms(*m_client), (QStringList{ kRoomB, kSpace }));
         QCOMPARE(m_client->sent.at(0).leave, true);
         QCOMPARE(m_client->sent.at(1).leave, false);
     }
 
-    // A room listed under two subspaces runs under only one of them; the
-    // other is not left while it is still waiting.
     void aSubspaceIsNotLeftBeforeASharedRoomRuns()
     {
         const QString kSub2 = QStringLiteral("!sub2:example.org");
@@ -761,9 +706,6 @@ private slots:
         QCOMPARE(m_client->sent.at(2).leave, true);
     }
 
-    // The administrator answer is about one account: shown to another, it
-    // reads "unknown" (so no delete button) even if no reset ran, and that
-    // account is asked for itself.
     void anAdminAnswerNeverShowsForAnotherAccount()
     {
         becomeAdmin(true);
@@ -777,8 +719,6 @@ private slots:
         QCOMPARE(m_ctl->serverAdmin(), QStringLiteral("no"));
     }
 
-    // A join-rule change that timed out may have landed: not known, not
-    // "nothing was changed".
     void aTimedOutJoinRuleIsNotKnown()
     {
         const QString lone = QStringLiteral("!lone:example.org");
@@ -800,11 +740,9 @@ private slots:
         QVERIFY(!message.contains(QStringLiteral("Nothing was changed")));
     }
 
-    // A single room's own Spaces are not "another space": its row says whom
-    // closing removes and who stays. Nor is a closed subspace's own parent.
     void aSingleRoomCloseShowsWhomItRemoves()
     {
-        const QString lone = QStringLiteral("!lone:example.org"); // in two Spaces
+        const QString lone = QStringLiteral("!lone:example.org");
         m_ctl->begin(lone, QStringLiteral("General"), false, QStringLiteral("close"));
         Q_EMIT m_client->roomClosurePlanReceived(
             m_client->lastPlanOpId, false,
@@ -821,7 +759,6 @@ private slots:
         QCOMPARE(m_ctl->targetRow().value(QStringLiteral("alsoElsewhere")).toInt(), 0);
     }
 
-    // One room is "1 room", through a plural form, never "1 rooms".
     void aSpaceDeleteCountsItsRoomsWithAPlural()
     {
         becomeAdmin(true);
@@ -830,14 +767,12 @@ private slots:
         m_ctl->setAllRoomsSelected(false);
         m_ctl->setRoomSelected(kRoomB, true);
         QCOMPARE(m_ctl->selectedRoomCount(), 1);
-        // No translator in this test, so the plural source text shows.
         QCOMPARE(m_ctl->title(),
                  QStringLiteral("Delete Lounge and 1 room(s) from example.org?"));
         QVERIFY(m_ctl->consequenceText().contains(
             QStringLiteral("the space and the 1 room(s) selected below")));
     }
 
-    // A room the viewer cannot make invite-only is not offered at all.
     void aRoomThatCannotBeRestrictedIsNotOffered()
     {
         const QString lone = QStringLiteral("!lone:example.org");
@@ -849,7 +784,6 @@ private slots:
         QVERIFY(!m_ctl->canConfirm());
         m_ctl->confirm(QString());
         QVERIFY(m_client->sent.isEmpty());
-        // A row with no reason at all fails closed too.
         cleanup();
         init();
         m_ctl->begin(lone, QStringLiteral("General"), false, QStringLiteral("close"));
@@ -873,8 +807,6 @@ private slots:
                  QStringLiteral("Removes nobody · 4 stay: A, B and 2 more"));
     }
 
-    // A delete is not offered until the server says the account is an
-    // administrator, and the question is asked once.
     void aDeleteNeedsTheServersOwnAnswer()
     {
         QVERIFY(!m_ctl->begin(kSpace, QStringLiteral("Lounge"), true,
@@ -886,7 +818,6 @@ private slots:
         QCOMPARE(m_ctl->serverAdmin(), QStringLiteral("checking"));
         m_ctl->checkServerAdmin();
         QCOMPARE(m_client->adminCalls, 1);
-        // A stale answer is ignored.
         Q_EMIT m_client->serverAdminStatusReceived(m_client->lastAdminOpId + 7,
                                                    true, QString());
         QCOMPARE(m_ctl->serverAdmin(), QStringLiteral("checking"));
@@ -898,13 +829,10 @@ private slots:
         m_ctl->checkServerAdmin();
         QCOMPARE(m_client->adminCalls, 1);
 
-        // Signing out forgets the answer.
         m_client->logout();
         QCOMPARE(m_ctl->serverAdmin(), QStringLiteral("unknown"));
     }
 
-    // Deleting needs the typed name, names the server, and says what it does
-    // not reach.
     void aDeleteIsConfirmedByTypingTheName()
     {
         becomeAdmin(true);
@@ -913,7 +841,6 @@ private slots:
                              QStringLiteral("delete")));
         QCOMPARE(m_ctl->phase(), QStringLiteral("ready"));
         QCOMPARE(m_client->planCalls, 0);
-        // The cascade is named with its size, not as "it".
         QCOMPARE(m_ctl->title(),
                  QStringLiteral("Delete Lounge and 4 room(s) from example.org?"));
         QVERIFY(m_ctl->consequenceText().contains(QStringLiteral("cannot be undone")));
@@ -936,7 +863,6 @@ private slots:
 
         m_ctl->setBlock(false);
         m_ctl->confirm(QString());
-        // The shared room was not selected; the rest go first, the Space last.
         QCOMPARE(m_client->sent.size(), 1);
         for (int i = 0; i < 5; ++i)
             m_client->answerDelete(QStringLiteral("complete"), true);
@@ -951,7 +877,6 @@ private slots:
                     .contains(QStringLiteral("Deleted from the server")));
     }
 
-    // A delete the server has not finished is not reported as done or failed.
     void aDeleteStillRunningOnTheServerIsSaidSo()
     {
         becomeAdmin(true);
@@ -985,7 +910,6 @@ private slots:
         Q_EMIT m_client->roomClosureFinished(
             step.opId, kRoomC,
             QVariantMap{ { QStringLiteral("outcome"), QStringLiteral("closed") } });
-        // A delete answer cannot finish a close step.
         Q_EMIT m_client->adminRoomDeleteFinished(
             step.opId, step.roomId,
             QVariantMap{ { QStringLiteral("status"), QStringLiteral("complete") },

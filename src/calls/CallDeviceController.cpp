@@ -11,10 +11,9 @@
 #include "calls/CaptureDeviceSelection.h"
 
 namespace {
-/// Which device list a resolve checks.
 enum DeviceKind { Microphone, Speaker, Camera };
 
-} // namespace
+}
 
 CallDeviceController::CallDeviceController(QObject *parent) : QObject(parent)
 {
@@ -29,8 +28,6 @@ void CallDeviceController::ensureBackend() const
         return;
     auto *self = const_cast<CallDeviceController *>(this);
     self->m_devices = new QMediaDevices(self);
-    // Hotplug for all three lists; an active change is announced only when
-    // the resolved device actually moved.
     connect(m_devices, &QMediaDevices::audioInputsChanged, self,
             &CallDeviceController::onDeviceListChanged);
     connect(m_devices, &QMediaDevices::audioOutputsChanged, self,
@@ -56,7 +53,6 @@ void CallDeviceController::setSettings(SettingsManager *settings)
         connect(m_settings, &SettingsManager::callDevicePreferenceChanged,
                 this, &CallDeviceController::onDeviceListChanged);
     }
-    // No enumeration here: this runs at login.
     Q_EMIT devicesChanged();
     Q_EMIT selectionChanged();
 }
@@ -64,8 +60,6 @@ void CallDeviceController::setSettings(SettingsManager *settings)
 QString CallDeviceController::resolveActive(const QString &preferred,
                                             int kind) const
 {
-    // An empty preference ("system default") stays empty, so the automatic
-    // element keeps following the default.
     if (preferred.isEmpty())
         return QString();
     const auto present = [&](const QString &id) {
@@ -90,8 +84,6 @@ QString CallDeviceController::resolveActive(const QString &preferred,
             return false;
         }
     };
-    // The preference is kept even when absent; only the active value falls
-    // back, so reconnecting a device restores the choice.
     return present(preferred) ? preferred : QString();
 }
 
@@ -118,14 +110,11 @@ bool CallDeviceController::preferredMicrophoneMissing() const
     if (!m_settings)
         return false;
     const QString preferred = m_settings->preferredMicrophoneId();
-    // Only a non-empty preference can be missing.
     return !preferred.isEmpty() && activeMicrophoneId().isEmpty();
 }
 
 bool CallDeviceController::preferredCameraMissing() const
 {
-    // In a sandbox Qt lists no camera and the desktop's portal chooses one
-    // when it is turned on; the UI says that instead.
     return !camerasChosenByDesktop() && cameraSelection().preferredMissing;
 }
 
@@ -144,7 +133,6 @@ bool CallDeviceController::hasSpeaker() const
 bool CallDeviceController::camerasChosenByDesktop() const
 {
 #if defined(Q_OS_LINUX)
-    // Never QFileInfo::exists("/.flatpak-info"): see SandboxEnvironment.h.
     return sandboxenv::isFlatpak();
 #else
     return false;
@@ -170,8 +158,6 @@ QVariantList CallDeviceController::microphones() const
         row.insert(QStringLiteral("id"), id);
         row.insert(QStringLiteral("description"), device.description());
         row.insert(QStringLiteral("isDefault"), device.isDefault());
-        // "active" is what audio flows through, "chosen" what the user
-        // picked; they differ when a preferred device is unplugged.
         row.insert(QStringLiteral("active"),
                    active.isEmpty() ? device.isDefault() : id == active);
         row.insert(QStringLiteral("chosen"), id == preferred);
@@ -218,8 +204,6 @@ QVariantList CallDeviceController::cameras() const
         row.insert(QStringLiteral("isDefault"), device.isDefault());
         row.insert(QStringLiteral("active"),
                    active.isEmpty() ? device.isDefault() : id == active);
-        // A missing camera is chosen by nobody: the device under its old
-        // /dev/videoN is another camera, and "chosen" draws a radio.
         row.insert(QStringLiteral("chosen"), id == preferred && !missing);
         out.append(row);
     }
@@ -243,9 +227,6 @@ void CallDeviceController::selectCamera(const QString &id)
     if (!m_settings)
         return;
     ensureBackend();
-    // The description goes first: the id setter announces the change, and a
-    // listener must read the pair. Recorded so a /dev/videoN that later
-    // belongs to another camera is refused rather than opened.
     QString description;
     for (const QCameraDevice &device : QMediaDevices::videoInputs()) {
         if (QString::fromUtf8(device.id()) == id) {
@@ -257,17 +238,12 @@ void CallDeviceController::selectCamera(const QString &id)
     m_settings->setPreferredCameraDescription(id.isEmpty() ? QString()
                                                            : description);
     m_settings->setPreferredCameraId(id);
-    // Re-picking the same id announces nothing through the settings (the id
-    // did not change), yet it can end "missing" by recording the camera now
-    // under that node. Announce it here.
     if (sameId)
         onDeviceListChanged();
 }
 
 namespace {
 
-// The description of the device with this id, or empty when gone. Looked up,
-// not stored: driver strings can change on hotplug.
 template <typename ListT>
 QString describe(const ListT &devices, const QString &id)
 {
@@ -280,7 +256,7 @@ QString describe(const ListT &devices, const QString &id)
     return {};
 }
 
-} // namespace
+}
 
 CallDeviceController::Selection CallDeviceController::cameraSelection() const
 {
@@ -290,8 +266,6 @@ CallDeviceController::Selection CallDeviceController::cameraSelection() const
     QList<lightning::calls::PresentCamera> present;
     for (const QCameraDevice &device : QMediaDevices::videoInputs())
         present.append({QString::fromUtf8(device.id()), device.description()});
-    // Unlike audio, a missing camera is reported, never resolved to the
-    // default (CaptureDeviceSelection.h).
     const lightning::calls::CameraSelection chosen =
         lightning::calls::resolveCameraPreference(
             m_settings->preferredCameraId(),
@@ -318,8 +292,6 @@ void CallDeviceController::onDeviceListChanged()
     Q_EMIT devicesChanged();
     Q_EMIT selectionChanged();
 
-    // Announce an active change only when the resolved device moved: a live
-    // call re-opens its capture on this signal.
     const QString mic = activeMicrophoneId();
     const QString speaker = activeSpeakerId();
     const Selection cameraNow = cameraSelection();

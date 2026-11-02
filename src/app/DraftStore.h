@@ -25,16 +25,11 @@ public:
     void setSettings(SettingsManager *settings) { m_settings = settings; }
     void setClient(MatrixClient *client);
 
-    // `draftKey` identifies the composer surface (room id or thread composite);
-    // `realRoomId` is used only for the encryption decision. An empty draft
-    // clears the entry.
     void save(const QString &draftKey, const QString &realRoomId,
               const QVariantMap &draft);
     QVariantMap load(const QString &draftKey) const;
     void clear(const QString &draftKey);
 
-    // On account switch or sign-out. Persisted drafts are account-scoped and
-    // wiped with the account.
     void clearMemoryDrafts() { m_memory.clear(); }
 
     static bool draftIsEmpty(const QVariantMap &draft);

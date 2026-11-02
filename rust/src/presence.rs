@@ -1,15 +1,3 @@
-//! Matrix presence: bounded polling of other users' presence and publishing
-//! the local user's own.
-//!
-//! Sliding sync delivers no presence (MSC4186 has no presence extension), so
-//! C++ (`PresenceManager`) polls the users currently on screen and owns the
-//! policy (who, cadence, give-up latch); this module is stateless and
-//! answers each round with one `presence_batch` event.
-//!
-//! Only presentation-safe fields cross, and the list is deliberate: user id,
-//! coarse state, `currently_active`, `last_active_ago`, a bounded status
-//! text, and on publish failure the coarse category plus the server's
-//! `retry_after_ms`. Nothing here logs user ids or SDK error text.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,16 +15,10 @@ use serde_json::json;
 use crate::rooms::{classify_room_error, require_client};
 use crate::{enqueue, RustClient};
 
-/// Cap on one polling batch. C++ stays below it and round-robins; this is
-/// defence in depth against a malformed request fanning out.
 pub(crate) const PRESENCE_BATCH_CAP: usize = 40;
 
-/// Per-request bound, no retries: polls are disposable (the next round
-/// supersedes them) and the room-action pool is joined at sign-out.
 const PRESENCE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Coarse state string. `_Custom` becomes "unknown", which C++ renders as no
-/// indicator rather than a fabricated offline.
 pub(crate) fn presence_state_str(state: &PresenceState) -> &'static str {
     match state {
         PresenceState::Online => "online",
@@ -46,7 +28,6 @@ pub(crate) fn presence_state_str(state: &PresenceState) -> &'static str {
     }
 }
 
-/// Own-presence code from C++: 0 online, 1 unavailable, 2 offline.
 pub(crate) fn own_presence_state(code: u32) -> Option<PresenceState> {
     match code {
         0 => Some(PresenceState::Online),
@@ -56,9 +37,6 @@ pub(crate) fn own_presence_state(code: u32) -> Option<PresenceState> {
     }
 }
 
-/// Parse the C++ batch (a JSON array of user ids). Invalid entries are
-/// dropped so one bad id does not blind every indicator; an empty or
-/// non-array payload is a caller bug and refused.
 pub(crate) fn parse_presence_batch(payload: &str) -> Result<Vec<OwnedUserId>, String> {
     let raw: Vec<String> = serde_json::from_str(payload)
         .map_err(|_| "invalid presence batch payload".to_owned())?;
@@ -73,10 +51,6 @@ pub(crate) fn parse_presence_batch(payload: &str) -> Result<Vec<OwnedUserId>, St
     Ok(ids)
 }
 
-/// One polling round: up to eight concurrent GETs over at most
-/// `PRESENCE_BATCH_CAP` users, answered as one `presence_batch` event.
-/// Per-user failures carry a coarse category, so C++ can tell "server
-/// refuses presence" (forbidden) from "no data" (not_found).
 pub(crate) fn fetch_presence(
     bridge: &RustClient,
     payload: String,
@@ -124,7 +98,6 @@ pub(crate) fn fetch_presence(
                                 ago.as_millis().min(u128::from(u32::MAX)) as u64
                             );
                         }
-                        // The peer's status text, cleaned at the boundary.
                         if let Some(msg) = response.status_msg.as_deref() {
                             let cleaned = clean_status_msg(msg);
                             if !cleaned.is_empty() {
@@ -164,8 +137,6 @@ pub(crate) fn fetch_presence(
     Ok(())
 }
 
-/// Bound a status message and drop control characters, in either direction
-/// (remote text is sanitized at the boundary). Nothing else is interpreted.
 pub(crate) fn clean_status_msg(raw: &str) -> String {
     const MAX_CHARS: usize = 256;
     raw.chars()
@@ -176,14 +147,6 @@ pub(crate) fn clean_status_msg(raw: &str) -> String {
         .to_owned()
 }
 
-/// Publish the local user's presence. Success emits `presence_published`
-/// (no payload; C++ uses it to stop waiting on a sign-out or quit
-/// withdrawal); a failure emits `presence_publish_failed` with the category
-/// and, for `M_LIMIT_EXCEEDED`, `retry_after_ms`, so C++ can retry on the
-/// server's schedule.
-///
-/// `status_msg` is the spec's presence status text; `None` clears it. The
-/// offered emoji is just the first character(s) of that text.
 pub(crate) fn publish_presence(
     bridge: &RustClient,
     state_code: u32,
@@ -234,8 +197,6 @@ pub(crate) fn publish_presence(
     Ok(())
 }
 
-/// How long the server asked us to wait, in ms, or `None`. Only
-/// `M_LIMIT_EXCEEDED` carries it. Bounds are the caller's policy.
 fn retry_after_ms(error: &matrix_sdk::HttpError) -> Option<u64> {
     use matrix_sdk::ruma::api::error::{ErrorKind, LimitExceededErrorData};
     let ErrorKind::LimitExceeded(LimitExceededErrorData { retry_after, .. }) =
@@ -246,13 +207,6 @@ fn retry_after_ms(error: &matrix_sdk::HttpError) -> Option<u64> {
     retry_after_to_ms(retry_after.as_ref()?)
 }
 
-/// Convert a `RetryAfter` to ms; separate so it is testable. `Delay` is what
-/// Synapse sends (ruma also fills it from the legacy body field or a
-/// `Retry-After` header); `DateTime` is allowed by the spec. A past
-/// `DateTime` yields `None`, which C++ treats like 0 ("retry now").
-///
-/// `DateTime` is compared with the local clock, so a skewed client clock can
-/// ask for a long wait; the C++ ceiling is what bounds it.
 pub(crate) fn retry_after_to_ms(retry_after: &matrix_sdk::ruma::api::error::RetryAfter) -> Option<u64> {
     use matrix_sdk::ruma::api::error::RetryAfter;
     match retry_after {
@@ -268,7 +222,6 @@ pub(crate) fn retry_after_to_ms(retry_after: &matrix_sdk::ruma::api::error::Retr
 mod tests {
     use super::*;
 
-    // Both RetryAfter arms are directly constructible.
     #[test]
     fn a_delay_hint_converts_to_its_milliseconds() {
         use matrix_sdk::ruma::api::error::RetryAfter;
@@ -288,14 +241,12 @@ mod tests {
         let at = std::time::SystemTime::now() + Duration::from_secs(5);
         let ms = retry_after_to_ms(&RetryAfter::DateTime(at))
             .expect("a future instant converts");
-        // Wall clock, so a window rather than an equality.
         assert!(
             (4_000..=5_000).contains(&ms),
             "a five-second hint converted to {ms} ms"
         );
     }
 
-    // A past instant means retry now; `None` reaches C++ as 0.
     #[test]
     fn a_past_datetime_hint_is_not_a_negative_wait() {
         use matrix_sdk::ruma::api::error::RetryAfter;
@@ -308,7 +259,6 @@ mod tests {
         assert_eq!(presence_state_str(&PresenceState::Online), "online");
         assert_eq!(presence_state_str(&PresenceState::Unavailable), "unavailable");
         assert_eq!(presence_state_str(&PresenceState::Offline), "offline");
-        // A non-spec state crosses as unknown.
         let custom = PresenceState::from("org.example.busy");
         assert_eq!(presence_state_str(&custom), "unknown");
     }

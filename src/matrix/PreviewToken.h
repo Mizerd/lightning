@@ -6,16 +6,6 @@
 #include <QStringList>
 #include <QStringView>
 
-// A room-list preview as WHAT it says, not the words saying it, so it can be
-// worded again in whatever language is current. A preview worded once and
-// kept as text ("You joined", "Image", "Unable to decrypt") stayed in the
-// language it was first written in after the user switched (2026-10-18 live
-// runs, every platform). A free-text preview (a message body, a file name) is
-// Kind::Text and is shown as it is.
-//
-// Header-only on purpose: every test target that compiles RoomInfo users
-// gets it without another source file. The words keep their "EventPreview"
-// catalogue context, so moving them here changed no translation key.
 namespace matrix::preview {
 
 // APPEND-ONLY. The numbers are persisted (CacheStore rooms.preview_kind), so
@@ -23,31 +13,28 @@ namespace matrix::preview {
 // reorder or remove. A build that meets a number it does not know keeps the
 // stored words (isKnownKind).
 enum class Kind : quint8 {
-    Text = 0,      // arg is the text itself
-    Removed,       // "Message removed"
-    Undecryptable, // "Unable to decrypt"
-    OwnJoin,       // "You joined"
-    Image,         // "Image"
-    Gif,           // "GIF"
-    File,          // "File"
-    FileNamed,     // "File: <arg>"
-    Video,         // "Video"
-    Audio,         // "Audio"
-    Voice,         // "Voice message"
-    Sticker,       // "Sticker"
-    Poll,          // "Poll"
-    PollQuestion,  // "Poll: <arg>"
-    LiveLocation,  // "Live location"
-    Images,        // "<arg> images", arg is the count
-    Attachments,   // "<arg> attachments", arg is the count
-    StateSentence, // a room-state or membership sentence; arg is
-                   // packStateSentence(sentence, actor, target)
+    Text = 0,
+    Removed,
+    Undecryptable,
+    OwnJoin,
+    Image,
+    Gif,
+    File,
+    FileNamed,
+    Video,
+    Audio,
+    Voice,
+    Sticker,
+    Poll,
+    PollQuestion,
+    LiveLocation,
+    Images,
+    Attachments,
+    StateSentence,
 };
 
 inline constexpr int kKindCount = int(Kind::StateSentence) + 1;
 
-// A stored or received kind number this build understands. An unknown one
-// (written by a newer build) is not guessed at: the caller keeps the text.
 inline bool isKnownKind(int value)
 {
     return value >= 0 && value < kKindCount;
@@ -73,16 +60,8 @@ inline QString countText(const char *source, const QString &englishOne,
     return raw;
 }
 
-} // namespace detail
+}
 
-// A room-state or membership row's sentence, from the closed name the Rust
-// bridge sends as `state_sentence` (rust/src/timeline.rs, `state_sentence`
-// and `membership_sentence`), the actor (the sender, as presented) and the
-// target member. Empty for a name this build does not know: the caller then
-// shows the bridge's English body. Names are untrusted plain text; with
-// `isolate` each is wrapped in U+2068/U+2069 (first-strong isolate), so a
-// right-to-left name cannot reorder the sentence around it. Safe because
-// presentable_name::sanitized() strips isolates from the names themselves.
 inline QString stateSentence(QStringView sentence, QString actor, QString target,
                              bool isolate = true)
 {
@@ -146,8 +125,6 @@ inline QString stateSentence(QStringView sentence, QString actor, QString target
     return {};
 }
 
-// Every sentence name this build words. stateSentence() must word each one
-// (StateSentenceTest checks both directions against the Rust table).
 inline const QSet<QString> &stateSentenceNames()
 {
     static const QSet<QString> names = {
@@ -167,8 +144,6 @@ inline const QSet<QString> &stateSentenceNames()
     return names;
 }
 
-// Whether `sentence` is one this build words, so a stored or received name
-// is trusted as a closed value. A set lookup: the ingest asks it per row.
 inline bool isStateSentence(const QString &sentence)
 {
     return stateSentenceNames().contains(sentence);
@@ -188,7 +163,6 @@ inline QString packStateSentence(const QString &sentence, QString actor,
     return sentence + sep + actor + sep + target + sep + fallback;
 }
 
-// The words for `kind` in the language whose translators are installed now.
 inline QString render(Kind kind, const QString &arg)
 {
     using detail::t;
@@ -233,9 +207,6 @@ inline QString render(Kind kind, const QString &arg)
             QStringLiteral("%1 attachment"), QStringLiteral("%1 attachments"),
             arg.toInt());
     case Kind::StateSentence: {
-        // Never an empty row: a name this build does not know (a newer
-        // build's, read back from the cache) shows the English the bridge
-        // sent, else the generic sentence.
         const QStringList parts = arg.split(QChar(0x1f));
         const QString actor = parts.value(1);
         const QString worded =
@@ -250,10 +221,6 @@ inline QString render(Kind kind, const QString &arg)
     return arg;
 }
 
-// The names the Rust bridge sends in `last_message_preview_kind` and
-// `preview_kind`: the `kind_preview(...)` calls in rust/src/lib.rs
-// `raw_event_preview_line`. Anything else,
-// including "", is Text: the English words it also sends are shown instead.
 inline Kind kindFromWire(QStringView name)
 {
     if (name == QLatin1String("image")) return Kind::Image;
@@ -269,4 +236,4 @@ inline Kind kindFromWire(QStringView name)
     return Kind::Text;
 }
 
-} // namespace matrix::preview
+}

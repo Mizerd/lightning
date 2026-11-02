@@ -3,11 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings -> Privacy & security: when media and invite avatars load.
-//
-// Stored in the account (MSC4278 `m.media_preview_config`), so Element and any
-// other client that honours it follow the same choice. A value this build does
-// not know reads as Never. See AccountPrefsController.
 ColumnLayout {
     id: section
     objectName: "mediaPreviewSettings"
@@ -109,8 +104,6 @@ ColumnLayout {
                 checked: section.prefs ? section.prefs.inviteAvatars : true
                 onToggled: {
                     section.prefs.setInviteAvatars(checked)
-                    // Keep following the account's value, not the click: a
-                    // refused write must put the box back.
                     checked = Qt.binding(function () {
                         return section.prefs ? section.prefs.inviteAvatars : true
                     })
@@ -118,12 +111,6 @@ ColumnLayout {
                 Accessible.description: qsTr(
                     "Load the picture a stranger set on a room that invites you")
             }
-            // Server-side invitation blocking (spec v1.18
-            // m.invite_permission_config, or MSC4380). Offered only when the
-            // homeserver says it implements it: on any other server a switch
-            // could only hide invitations, while people could still send them.
-            // Muting invitation notifications is a separate push rule
-            // (Notifications), and ignoring a person is per person.
             SettingsCheckBox {
                 id: allowInvitesCheck
                 objectName: "allowInvitesCheck"
@@ -135,8 +122,6 @@ ColumnLayout {
                 checked: section.prefs ? !section.prefs.invitesBlocked : true
                 onToggled: {
                     section.prefs.setInvitesBlocked(!checked)
-                    // The account's confirmed value, never the click: a refused
-                    // write puts the box back.
                     checked = Qt.binding(function () {
                         return section.prefs ? !section.prefs.invitesBlocked : true
                     })

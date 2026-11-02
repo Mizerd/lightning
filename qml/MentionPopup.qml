@@ -4,33 +4,18 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// Composer @-mention autocomplete: a flat surface above the input while an
-// @-token is typed. It never takes focus: the TextArea keeps the caret and
-// forwards Up/Down/Tab/Return/Escape. Presents only current-room members from
-// the shared MentionSuggestionModel; no directory queries, no protocol logic,
-// no message text logged. Header, matched-prefix tint, ADMIN/MOD role chip when
-// the snapshot has a recognised role, a Return keycap on the selected row, and
-// row accessibility. Presence dots are omitted: the model has no data for them.
-// Storm skin.
 Popup {
     id: root
     objectName: "mentionPopup"
 
-    // The MentionSuggestionModel; the composer drives its query and room.
     property var suggestions: null
-    // The composer's live query, kept here because the room and thread hosts
-    // share one model instance and each owns its popup's header.
     property string query: ""
-    // Top-left of the composer input in overlay coordinates; the popup sits
-    // above it.
     property point anchorInputTop: Qt.point(0, 0)
     property real anchorWidth: 320
     property int currentIndex: 0
 
     signal chosen(string userId, string displayName)
 
-    // A member without a display name reads as the localpart; the MXID is
-    // already on the second line.
     function localpartOf(userId) {
         var s = String(userId)
         if (s.charAt(0) === "@")
@@ -45,8 +30,6 @@ Popup {
 
     parent: Overlay.overlay
     focus: false
-    // The composer drives open/close; auto-close would fight the editor's
-    // focus.
     closePolicy: Popup.NoAutoClose
     padding: AppTheme.menuPadding
 
@@ -57,14 +40,10 @@ Popup {
 
     width: Math.max(240, Math.min(anchorWidth, 380))
     height: headerH + visibleRows * rowH + padding * 2
-    // Clamped inside the overlay (as placeInsideWindow() in the pickers): the
-    // 240px floor can exceed a narrow thread composer.
     x: parent ? Math.max(AppTheme.spacing4,
                          Math.min(anchorInputTop.x,
                                   parent.width - width - AppTheme.spacing4))
               : anchorInputTop.x
-    // Above the input, but never outside the overlay (window shrunk under an
-    // open popup).
     y: {
         var above = Math.max(AppTheme.spacing4,
                              anchorInputTop.y - height - AppTheme.spacing4)
@@ -74,10 +53,6 @@ Popup {
                       : above
     }
 
-    // Set by the composer while an @-token is at the caret. The popup is shown
-    // only when it has something to offer: matches, or a member list that is
-    // still loading. A loaded list with zero matches hides it, and it returns
-    // as soon as the user keeps typing into matches again.
     property bool tokenActive: false
     readonly property bool membersLoaded: suggestions ? suggestions.membersLoaded : false
     readonly property bool shouldShow: tokenActive && (count > 0 || !membersLoaded)
@@ -131,9 +106,6 @@ Popup {
                         .replace(/>/g, "&gt;")
     }
 
-    // Highlights the query as a display-name prefix only; other matches show
-    // the plain name. `ink`: bolt on the selected row only, brightened
-    // stormText on others.
     function highlightedName(name, q, ink) {
         // A row can arrive without a display name; String methods on undefined
         // would kill the binding.
@@ -149,10 +121,6 @@ Popup {
     }
 
     background: Item {
-        // Elevation, as a sibling behind the surface (z: -1) so the popup's
-        // geometry is unchanged (a shadow on the background would inflate the
-        // implicit size the anchor maths use). Same construction as the
-        // composer card.
         MultiEffect {
             source: mentionSurface
             anchors.fill: mentionSurface
@@ -190,7 +158,6 @@ Popup {
             font.weight: Font.DemiBold
             font.letterSpacing: AppTheme.trackingStorm
             font.capitalization: Font.AllUppercase
-            // Faint mono section-header ink.
             color: AppTheme.stormTextFaint
         }
 
@@ -260,9 +227,6 @@ Popup {
                         Label {
                             objectName: "mentionName"
                             Layout.fillWidth: true
-                            // StyledText, not RichText: it keeps the <font>
-                            // tint and, unlike RichText, honours elide, so a
-                            // long name ends in an ellipsis before the keycap.
                             textFormat: Text.StyledText
                             text: root.highlightedName(
                                 root.nameFor(model), root.query,
@@ -278,23 +242,18 @@ Popup {
                                          : AppTheme.weightStrong
                             elide: Label.ElideRight
                         }
-                        // The MXID under the name.
                         Label {
-                            // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             visible: (model.ambiguous === true)
                                      || (model.displayName
                                          && model.displayName.length > 0)
-                            // The whole-room row says what it does: it notifies
-                            // everyone.
                             text: model.isRoom === true
                                   ? qsTr("Notify everyone in this room")
                                   : model.userId
                             font.family: model.isRoom === true
                                          ? AppTheme.uiFont : AppTheme.monoFont
                             font.pixelSize: AppTheme.scaled(AppTheme.fontMonoXS)
-                            // AA on the selection fill.
                             color: rowDelegate.isSelected
                                    ? AppTheme.stormTextSecondary
                                    : AppTheme.stormTextMuted

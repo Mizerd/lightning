@@ -28,4 +28,4 @@ inline QString fold(const QString &text)
     return out.toCaseFolded();
 }
 
-} // namespace textfold
+}

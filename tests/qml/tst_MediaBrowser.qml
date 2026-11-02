@@ -3,11 +3,6 @@ import QtQuick.Controls
 import QtTest
 import MatrixClient
 
-// The media browser against a stub model: keyboard reach (one Tab stop per
-// view, arrows, Return, Menu), middle-click autoscroll, a fresh scan when the
-// panel is shown again after a while (not on a quick section switch).
-// Not covered: the narrow-panel date row (C34-F07, seen once at 1100 px, not
-// reproduced, so not changed).
 TestCase {
     id: test
     name: "MediaBrowser"
@@ -27,7 +22,6 @@ TestCase {
     }
     property var app: ({ mediaBridge: bridge })
 
-    // A ListModel that also answers the browser's model API.
     Component {
         id: modelComponent
         ListModel {
@@ -174,7 +168,6 @@ TestCase {
         b.visible = false
         b.visible = true
         compare(m.reloads, 1, "a browser re-shown after the stale bound must reload from the live edge")
-        // An empty, unfinished model asks for its first page instead.
         var m2 = createTemporaryObject(modelComponent, test)
         var b2 = createTemporaryObject(browserComponent, test, { model: m2 })
         b2.staleAfterMs = 0

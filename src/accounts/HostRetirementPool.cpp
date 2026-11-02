@@ -91,8 +91,6 @@ void HostSignInRetirements::clearForTest()
     m_unsaved.clear();
 }
 
-// One job's GUI half, run once: from the event loop, or by
-// deliverFinishedNow() while the quit path blocks it.
 struct HostRetirementPool::Finished {
     std::atomic<bool> delivered{false};
     std::function<void()> onGui;
@@ -100,9 +98,7 @@ struct HostRetirementPool::Finished {
 
 struct HostRetirementPool::Shared {
     QMutex finishedMutex;
-    QList<std::shared_ptr<Finished>> finished;   // done on a worker, not yet delivered
-    // Per handle: the jobs waiting for the one running now. A handle is a key
-    // only while one of its jobs runs; the running job takes the next itself.
+    QList<std::shared_ptr<Finished>> finished;
     QMutex chainMutex;
     QHash<void *, QList<std::function<void()>>> chains;
 };
@@ -118,10 +114,6 @@ HostRetirementPool::HostRetirementPool(RustBridgeApi *api, QObject *parent)
 
 HostRetirementPool::~HostRetirementPool()
 {
-    // Drained by the owner first. A job still running after the bound is a
-    // store close that has not returned: its threads are left to the process
-    // exit (it holds m_shared, never this object; its result checks a
-    // QPointer), as the keyring worker leaves a wedged call.
     if (!m_threads->waitForDone(kDestroyWaitMs)) {
         qCWarning(lcHostRetire) << "a background host's blocking call is still running; "
                                    "leaving it to the process exit";
@@ -181,8 +173,6 @@ void HostRetirementPool::submit(void *handle, std::function<std::function<void()
     jobStarted();
     QPointer<HostRetirementPool> self(this);
     const std::shared_ptr<Shared> shared = m_shared;
-    // The worker half: the blocking work, then its GUI half queued back here.
-    // Captures the shared state and a QPointer, never `this`.
     std::function<void()> job = [self, shared, work = std::move(work)] {
         auto finished = std::make_shared<Finished>();
         finished->onGui = work();
@@ -190,7 +180,6 @@ void HostRetirementPool::submit(void *handle, std::function<std::function<void()
             QMutexLocker lock(&shared->finishedMutex);
             shared->finished.append(finished);
         }
-        // The QPointer was made on the GUI thread and is only read there.
         if (QCoreApplication *app = QCoreApplication::instance()) {
             QMetaObject::invokeMethod(app, [self, finished] {
                 if (self)
@@ -202,8 +191,6 @@ void HostRetirementPool::submit(void *handle, std::function<std::function<void()
         QMutexLocker lock(&shared->chainMutex);
         const auto it = shared->chains.find(handle);
         if (it != shared->chains.end()) {
-            // A job for this handle is running: this one runs after it
-            // returns, on the same worker.
             it->append(std::move(job));
             return;
         }
@@ -238,32 +225,22 @@ void HostRetirementPool::retire(const RetireJob &job,
         timer.start();
         outcome.shutdownReport = api->shutdownTasks(job.handle);
         outcome.shutdownMs = timer.elapsed();
-        // Sync has stopped: the tokens are final. A rotation the drainer never
-        // took is only here (SENSITIVE: never logged).
         if (job.collectFinalTokens) {
             outcome.finalTokens = custody::parseFinalSessionTokens(
                 api->finalSessionTokens(job.handle));
             outcome.collectedFinalTokens = true;
         }
-        // matrix-sdk's own tasks (send queue, backup downloads, E2EE
-        // initialization) hold the Client and can still refresh until the
-        // destroy below shuts the runtime down. Every rotation is in the
-        // token ledger, which outlives the handle: read it once nothing can
-        // rotate (as the foreground's retirement does, 24a485c5).
         void *ledger = job.collectFinalTokens ? api->tokenLedgerRetain(job.handle) : nullptr;
         timer.restart();
         outcome.destroyReport = api->destroyAndReport(job.handle);
         outcome.destroyMs = timer.elapsed();
         if (ledger) {
-            // SENSITIVE: never log `latest`.
             const SessionTokenPair latest =
                 custody::parseFinalSessionTokens(api->tokenLedgerLatest(ledger));
             api->tokenLedgerRelease(ledger);
             if (!latest.accessToken.isEmpty()
                 && custody::accessTokenDigest(latest.accessToken)
                     != custody::accessTokenDigest(outcome.finalTokens.accessToken)) {
-                // The ledger's pair is the newest the handle ever held: a
-                // rotation landed after the read above.
                 outcome.finalTokens = latest;
                 outcome.rotatedWhileClosing = true;
             }
@@ -333,4 +310,4 @@ int HostRetirementPool::activeJobs() const
     return m_active;
 }
 
-} // namespace lightning::accounts
+}

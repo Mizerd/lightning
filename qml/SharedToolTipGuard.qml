@@ -19,10 +19,6 @@ Item {
     objectName: "sharedToolTipPlainTextGuard"
     visible: false
 
-    // Rounded chrome with the theme border for the shared tooltip (Basic's
-    // is a square outlined in a text-weight grey). Imperative because the
-    // style creates the instance; re-applied on palette changes by the
-    // Connections below.
     function applyToolTipChrome() {
         const shared = ToolTip.toolTip
         if (!shared)
@@ -37,26 +33,16 @@ Item {
     }
 
     Component.onCompleted: {
-        // Touching contentItem forces the lazy instance to exist. Guarded
-        // for styles whose content is not a Text.
         const shared = ToolTip.toolTip
         if (shared && shared.contentItem
                 && shared.contentItem.textFormat !== undefined)
             shared.contentItem.textFormat = Text.PlainText
-        // A long name wraps instead of running as one line across the window
-        // (a 120-character room name was ~960 px wide); see the width cap
-        // below.
         if (shared && shared.contentItem
                 && shared.contentItem.wrapMode !== undefined)
             shared.contentItem.wrapMode = Text.Wrap
         applyToolTipChrome()
     }
 
-    // The cap: the tooltip is as wide as its text up to this, then the text
-    // wraps. Applied each time it is about to show, because Popup.show()
-    // resets the width, so a binding or a single assignment is lost on the
-    // second showing of the same text. The Text's implicit width stays the
-    // unwrapped width, so the cap does not feed back into itself.
     function capToolTipWidth() {
         const shared = sharedToolTipGuard.ToolTip.toolTip
         if (!shared)

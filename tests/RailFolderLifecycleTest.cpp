@@ -1,16 +1,3 @@
-// When a rail folder exists, and when it stops existing.
-//
-// An empty Space folder is deleted. A folder holds Space ids and the rail
-// draws their intersection with the Spaces the account currently knows,
-// which is legitimately empty during a cold start, initial sync or account
-// switch. So emptiness is judged on the store, only at a write that removed
-// the last member.
-//
-// `RailEntryModel::commitReorder` must not name folders whose members it did
-// not render (collapsed folders, unsynced members): a named folder's list is
-// taken as the whole truth by `applyArrangement`, so a reorder would empty
-// (and now delete) them. The gesture cases drive the real drag (beginDrag /
-// hoverGap / endDrag) rather than the store.
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
@@ -128,7 +115,7 @@ QStringList modelIds(const RailEntryModel &model)
     return out;
 }
 
-} // namespace
+}
 
 class RailFolderLifecycleTest : public QObject
 {
@@ -152,8 +139,6 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // ── The deletion rule ────────────────────────────────────────────────
-
     void aFolderTheUserEmptiesGoesAwayWithTheWriteThatEmptiedIt()
     {
         SettingsManager settings;
@@ -162,12 +147,9 @@ private Q_SLOTS:
         store.setSpaceFolder(QStringLiteral("!a:x"), work);
         QCOMPARE(folderIds(store), QStringList{ work });
 
-        // Its last Space leaves. There is nothing left for the folder to be.
         store.setSpaceFolder(QStringLiteral("!a:x"), QString());
         QVERIFY2(folderIds(store).isEmpty(),
                  "an emptied folder survived the write that emptied it");
-        // ...and its slot in the top-level order goes with it, or the rail
-        // keeps a place for something nothing can draw.
         QVERIFY(!store.order().contains(work));
         QCOMPARE(idsOf(store.arrange(withPseudo({
                      space(QStringLiteral("!a:x"), QStringLiteral("A")) }))),
@@ -176,23 +158,17 @@ private Q_SLOTS:
 
     void aFolderCreatedEmptyIsNotDeletedBeforeItCanBeFilled()
     {
-        // "New folder…" (SpacesRail.qml) makes an empty folder for the user
-        // to drag Spaces into. Deleting it because it is empty is not a
-        // cleanup, it is the action silently failing.
         SettingsManager settings;
         RailLayoutStore store(&settings);
         const QString made = store.createFolder(QStringLiteral("Later"));
         QVERIFY(!made.isEmpty());
         QCOMPARE(folderIds(store), QStringList{ made });
 
-        // It survives unrelated writes too — a rename, a collapse, and a
-        // reorder of the Spaces around it.
         store.setFolderCollapsed(made, true);
         store.renameFolder(made, QStringLiteral("Soon"));
         store.setTopLevelOrder({ QStringLiteral("!a:x"), made });
         QCOMPARE(folderIds(store), QStringList{ made });
 
-        // And across a reload: the layout on disk still has it.
         RailLayoutStore reopened(&settings);
         QCOMPARE(folderIds(reopened), QStringList{ made });
     }
@@ -208,13 +184,10 @@ private Q_SLOTS:
         store.setSpaceFolder(QStringLiteral("!a:x"), work);
         store.setSpaceFolder(QStringLiteral("!b:x"), work);
 
-        // Nothing has synced: the rail draws the folder with no members.
         const QVariantList arranged = store.arrange(withPseudo({}));
         QCOMPARE(idsOf(arranged),
                  (QStringList{ QString(), QStringLiteral("[Work]") }));
 
-        // A write happens anyway (the user collapses it, or drags a Space
-        // that has arrived). The folder still holds both ids.
         store.setFolderCollapsed(work, true);
         store.setTopLevelOrder({ work, QStringLiteral("!z:x") });
         QCOMPARE(store.folderMembers(work),
@@ -224,9 +197,6 @@ private Q_SLOTS:
 
     void anArrangementThatEmptiesAnOpenFolderDeletesIt()
     {
-        // The atomic write a finished drag produces: the folder is RENDERED
-        // (so the caller may speak for it) and the drag took its only member
-        // to the top level.
         SettingsManager settings;
         RailLayoutStore store(&settings);
         const QString work = store.createFolder(QStringLiteral("Work"));
@@ -240,8 +210,6 @@ private Q_SLOTS:
         QCOMPARE(store.order(),
                  (QStringList{ QStringLiteral("!a:x"), QStringLiteral("!z:x") }));
     }
-
-    // ── The defect that produced empty folders ───────────────────────────
 
     void aCollapsedFolderSurvivesAReorderDragThatNeverShowedIt()
     {
@@ -268,13 +236,10 @@ private Q_SLOTS:
 
         RailEntryModel model;
         model.setSources(&spaces, &store);
-        // [All rooms][Shut][z][p] — the folder is collapsed, so its members
-        // have no rows at all. That is the whole hazard.
         QCOMPARE(modelIds(model).mid(1),
                  (QStringList{ shut, QStringLiteral("!z:x"),
                                QStringLiteral("!p:x") }));
 
-        // A drag that has nothing to do with the folder: z moves past p.
         QVERIFY(model.beginDrag(QStringLiteral("!z:x")));
         model.hoverGap(model.rowCount());
         model.endDrag(true);
@@ -284,7 +249,6 @@ private Q_SLOTS:
         QVERIFY2(folderIds(store).contains(shut),
                  "a drag past a collapsed folder emptied it, and the empty "
                  "folder was then deleted");
-        // The reorder the user actually asked for still happened.
         QCOMPARE(modelIds(model).mid(1),
                  (QStringList{ shut, QStringLiteral("!p:x"),
                                QStringLiteral("!z:x") }));
@@ -292,8 +256,6 @@ private Q_SLOTS:
 
     void anOpenFolderKeepsAMemberThatHasNotResolvedYet()
     {
-        // An open folder holding one synced and one unsynced Space renders one
-        // member row; the arrangement must not drop the other.
         FakeClient client;
         client.roomList = {
             spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A")),
@@ -314,7 +276,6 @@ private Q_SLOTS:
                  (QStringList{ work, QStringLiteral("!a:x"),
                                QStringLiteral("!z:x") }));
 
-        // Drag the one member that exists out to the end of the rail.
         QVERIFY(model.beginDrag(QStringLiteral("!a:x")));
         model.hoverGap(model.rowCount());
         model.endDrag(true);
@@ -327,9 +288,6 @@ private Q_SLOTS:
                  "though it were empty");
     }
 
-    // A Space you are in, with no joined rooms, stays selected across
-    // rebuilds (a new Space, or one joined from Explore before its rooms);
-    // "known" must not depend on having found a joined child room.
     void aSpaceWithNoJoinedRoomsKeepsTheRailSelection()
     {
         FakeClient client;
@@ -340,7 +298,6 @@ private Q_SLOTS:
         spaces.setActiveSpaceId(QStringLiteral("!empty:x"));
         QCOMPARE(spaces.activeSpaceId(), QStringLiteral("!empty:x"));
 
-        // Any sync rebuilds the space list. Nothing about the Space changed.
         Q_EMIT client.roomsChanged();
         QVERIFY2(spaces.activeSpaceId() == QStringLiteral("!empty:x"),
                  "a joined Space with no joined child rooms lost the rail "
@@ -348,8 +305,6 @@ private Q_SLOTS:
                  "the reader is thrown back to Home");
     }
 
-    // ...and the guard still drops a selection pointing at a Space the
-    // account has left.
     void aSpaceTheAccountHasLeftStillLosesTheRailSelection()
     {
         FakeClient client;

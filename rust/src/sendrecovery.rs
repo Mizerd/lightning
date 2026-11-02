@@ -1,35 +1,15 @@
-//! Automatic recovery of a send queue that matrix-sdk disabled after a
-//! RECOVERABLE send error (network failure, 429, 5xx, timeout).
-//!
-//! matrix-sdk sets a room's queue `locally_enabled = false` on ANY send error
-//! and never turns it back on by itself. Lightning re-enabled it in exactly
-//! three places: when a NEW send is composed in a room that has a live
-//! timeline (`timeline::unwedge_send_queue`), on a sync Running/recovery edge,
-//! and on a manual Retry. A send-only failure (sync healthy, `/send` rejected
-//! or timed out) in a room the user then stopped typing in therefore left the
-//! echo parked until the next restart, where
-//! `respawn_tasks_for_rooms_with_unsent_requests` finally picked it up.
-//!
-//! This task listens to `SendQueue::subscribe_errors` and re-enables the
-//! failing room after a bounded backoff. Unrecoverable errors are wedged by
-//! the SDK (skipped, not resent) and are left for the user's Retry/Cancel.
-//! Logging carries a coarse category and a redacted room id, never a body,
-//! never the SDK error text.
 
 use std::time::Duration;
 
 use matrix_sdk::Client;
 use tokio::sync::broadcast::error::RecvError;
 
-/// Attempts per room before the automatic path gives up and leaves the
-/// visible Retry as the only way forward.
 const MAX_AUTO_ATTEMPTS: u32 = 8;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RecoveryPolicy {
     pub base: Duration,
     pub ceiling: Duration,
-    /// An error this long after the previous one starts the count afresh.
     pub forget_after: Duration,
 }
 
@@ -48,7 +28,6 @@ impl RecoveryPolicy {
     }
 }
 
-/// Sigil plus 8 hex of SHA-256: stable for correlation, not reversible.
 fn redact(id: &str) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(id.as_bytes());
@@ -64,10 +43,7 @@ fn category(error: &matrix_sdk::Error) -> &'static str {
     }
 }
 
-/// Start the listener. The task ends when the client is no longer active
-/// (logout) or the runtime shuts down.
 pub(crate) fn spawn(client: Client, policy: RecoveryPolicy) {
-    // Subscribed before the task starts, so an error cannot slip in between.
     let mut errors = client.send_queue().subscribe_errors();
     tokio::spawn(async move {
         let mut state: std::collections::HashMap<
@@ -83,7 +59,6 @@ pub(crate) fn spawn(client: Client, policy: RecoveryPolicy) {
                     continue;
                 }
                 Ok(Ok(error)) => error,
-                // A lagged receiver is a gap, not an end.
                 Ok(Err(RecvError::Lagged(_))) => continue,
                 Ok(Err(RecvError::Closed)) => return,
             };
@@ -163,16 +138,10 @@ mod tests {
 
     #[derive(Clone, Copy, PartialEq)]
     enum Failure {
-        /// 500s that outlast the SDK's own short retry: recoverable, the
-        /// queue disabled, the item kept.
         Recoverable,
-        /// 413: permanent, the item wedged, and the queue disabled anyway.
         Wedged,
     }
 
-    /// Fail the first /send(s) of message A, queue message B behind it, and
-    /// report whether the LAST message reached the server within the window
-    /// with no further user action (no new send, no Retry, no restart).
     async fn delivered_without_user_action(failure: Failure, recover: bool) -> bool {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
@@ -218,7 +187,6 @@ mod tests {
                 }
                 RoomSendQueueUpdate::SentEvent { .. } => {
                     sent += 1;
-                    // A wedged A is never resent, so only B arrives there.
                     let want = if failure == Failure::Wedged { 1 } else { 2 };
                     if sent == want {
                         assert!(errors >= 1, "the mock should have failed at least once");
@@ -241,8 +209,6 @@ mod tests {
         assert!(delivered_without_user_action(Failure::Wedged, true).await);
     }
 
-    /// Controls: with no listener the SDK leaves the queue disabled, which is
-    /// what the tests above would hit on the old code.
     #[tokio::test(flavor = "multi_thread")]
     async fn without_the_listener_a_recoverable_error_parks_the_queue() {
         assert!(!delivered_without_user_action(Failure::Recoverable, false).await);

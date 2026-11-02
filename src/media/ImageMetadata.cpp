@@ -10,17 +10,11 @@
 namespace imagemeta {
 namespace {
 
-// What a worker learned, beyond the bytes it produced. Read by the inspection
-// helpers, so "does this file carry a location" and "what is its orientation"
-// are answered by the very code that strips, not by a second parser that could
-// disagree with it.
 struct Ctx {
     Mode mode = Mode::RemoveLocation;
     bool foundLocation = false;
-    int orientation = 0;  // first readable Exif orientation, 0 = none
+    int orientation = 0;
 };
-
-// -- byte helpers ------------------------------------------------------------
 
 inline quint16 be16(const uchar *p) { return quint16((p[0] << 8) | p[1]); }
 inline quint32 be32(const uchar *p)
@@ -55,8 +49,6 @@ bool contains(const QByteArray &hay, const char *needle)
 {
     return hay.contains(needle);
 }
-
-// -- TIFF (the body of Exif) -------------------------------------------------
 
 struct Tiff {
     uchar *d = nullptr;
@@ -115,7 +107,6 @@ qsizetype typeSize(quint16 type)
     }
 }
 
-// Validates an IFD at `off` and returns its entry count, or -1.
 int ifdCount(const Tiff &t, qsizetype off)
 {
     if (!t.inb(off, 2))
@@ -126,7 +117,6 @@ int ifdCount(const Tiff &t, qsizetype off)
     return count;
 }
 
-// The IFD chain (IFD0, IFD1, ...), bounded so a looping file ends.
 QList<qsizetype> ifdChain(const Tiff &t)
 {
     QList<qsizetype> chain;
@@ -161,7 +151,7 @@ int tiffOrientation(Tiff &t)
     if (i < 0)
         return 0;
     const qsizetype e = chain.first() + 2 + qsizetype(i) * 12;
-    if (t.u16(e + 2) != 3)  // SHORT
+    if (t.u16(e + 2) != 3)
         return 0;
     const int v = t.u16(e + 8);
     return (v >= 1 && v <= 8) ? v : 0;
@@ -181,10 +171,6 @@ void zero(Tiff &t, qsizetype off, qsizetype len)
         std::memset(t.d + off, 0, size_t(len));
 }
 
-// Removes every GPS IFD pointer in place: the GPS IFD and its out-of-line
-// values are zeroed, the pointer entry is squeezed out of its IFD and the IFD's
-// count is reduced. The buffer keeps its length, so no other offset moves; the
-// freed 12 bytes sit as zeros after the IFD's next-pointer.
 void tiffRemoveGps(Tiff &t)
 {
     for (const qsizetype ifd : ifdChain(t)) {
@@ -204,8 +190,6 @@ void tiffRemoveGps(Tiff &t)
                 }
                 zero(t, gps, 2 + qsizetype(gpsCount) * 12 + 4);
             }
-            // Squeeze the pointer entry out. The next-IFD pointer moves up with
-            // the entries behind it.
             const qsizetype tail = qsizetype(count - 1 - i) * 12 + 4;
             std::memmove(t.d + entry, t.d + entry + 12, size_t(tail));
             zero(t, ifd + 2 + qsizetype(count - 1) * 12 + 4, 12);
@@ -214,8 +198,6 @@ void tiffRemoveGps(Tiff &t)
     }
 }
 
-// A valid TIFF holding only the orientation (26 bytes), or an empty one
-// (14 bytes) when there is nothing worth keeping.
 QByteArray minimalTiff(int orientation)
 {
     QByteArray b;
@@ -236,8 +218,6 @@ QByteArray minimalTiff(int orientation)
     return b;
 }
 
-// Rewrites a TIFF block in place so it holds only the orientation. The block
-// is zeroed first, so nothing of the old content survives.
 void tiffScrubToOrientation(uchar *d, qsizetype n, int orientation)
 {
     const QByteArray min = minimalTiff(orientation);
@@ -250,7 +230,6 @@ void tiffScrubToOrientation(uchar *d, qsizetype n, int orientation)
     }
 }
 
-// Reads orientation and location out of a TIFF block without changing it.
 void inspectTiff(const QByteArray &block, Ctx &ctx)
 {
     QByteArray copy = block;
@@ -263,8 +242,6 @@ void inspectTiff(const QByteArray &block, Ctx &ctx)
         ctx.foundLocation = true;
 }
 
-// Applies the mode to an Exif TIFF block that is being KEPT (Location mode).
-// False = the block is not a TIFF we can edit.
 bool editTiffForLocation(QByteArray &block, Ctx &ctx)
 {
     Tiff t;
@@ -289,8 +266,6 @@ bool xmpHasGps(const QByteArray &xmp)
            || contains(xmp, "photoshop:Country") || contains(xmp, "CountryCode");
 }
 
-// -- CRC32 for PNG -----------------------------------------------------------
-
 quint32 crc32(const uchar *p, qsizetype n)
 {
     static quint32 table[256];
@@ -309,8 +284,6 @@ quint32 crc32(const uchar *p, qsizetype n)
         c = table[(c ^ p[i]) & 0xFF] ^ (c >> 8);
     return c ^ 0xFFFFFFFFu;
 }
-
-// -- JPEG --------------------------------------------------------------------
 
 bool startsWith(const uchar *p, qsizetype n, const char *id, qsizetype idLen)
 {
@@ -345,11 +318,11 @@ Result processJpeg(const QByteArray &in, Ctx &ctx)
         if (pos + 2 > n || s[pos] != 0xFF)
             return fail;
         const uchar marker = s[pos + 1];
-        if (marker == 0xFF) {  // fill byte
+        if (marker == 0xFF) {
             ++pos;
             continue;
         }
-        if (marker == 0xD9) {  // EOI before any scan
+        if (marker == 0xD9) {
             out.append("\xFF\xD9", 2);
             break;
         }
@@ -368,7 +341,6 @@ Result processJpeg(const QByteArray &in, Ctx &ctx)
         const QByteArray whole = in.mid(pos, 2 + len);
 
         if (marker == 0xDA) {
-            // Start of scan: the header, then entropy-coded data to the EOI.
             qsizetype i = pos + 2 + len;
             qsizetype end = -1;
             while (i < n) {
@@ -393,10 +365,10 @@ Result processJpeg(const QByteArray &in, Ctx &ctx)
                 }
                 if (i + 4 > n)
                     return fail;
-                i += 2 + qsizetype(be16(s + i + 2));  // DHT / SOS / DNL ...
+                i += 2 + qsizetype(be16(s + i + 2));
             }
             if (end < 0)
-                return fail;  // no EOI: truncated, cannot vouch for it
+                return fail;
             out.append(in.constData() + pos, end - pos);
             // Anything after the EOI is not the picture: Samsung / Apple /
             // Google append whole secondary images (depth, gain map) there, with
@@ -435,8 +407,6 @@ Result processJpeg(const QByteArray &in, Ctx &ctx)
                                                                        : Keep;
             } else if (startsWith(payload, plen,
                                   "http://ns.adobe.com/xmp/extension/\0", 35)) {
-                // Extended XMP is split over segments; a GPS block cannot be
-                // judged from one slice, so none of it is kept.
                 action = Drop;
             } else if (mode == Mode::RemoveAll) {
                 action = Drop;
@@ -445,11 +415,11 @@ Result processJpeg(const QByteArray &in, Ctx &ctx)
             if (startsWith(payload, plen, "ICC_PROFILE\0", 12))
                 action = Keep;  // colour, not metadata: dropping it shifts colours
             else if (startsWith(payload, plen, "MPF\0", 4))
-                action = Drop;  // offsets into the trailing images dropped above
+                action = Drop;
             else if (mode == Mode::RemoveAll)
                 action = Drop;
         } else if (marker == 0xED) {
-            action = Drop;  // Photoshop / IPTC: captions and place names
+            action = Drop;
         } else if (marker == 0xFE) {
             if (mode == Mode::RemoveAll)
                 action = Drop;
@@ -478,8 +448,6 @@ Result processJpeg(const QByteArray &in, Ctx &ctx)
     r.status = (out == in) ? Status::Unchanged : Status::Stripped;
     return r;
 }
-
-// -- PNG ---------------------------------------------------------------------
 
 QByteArray pngChunk(const char type[4], const QByteArray &data)
 {
@@ -537,8 +505,6 @@ Result processPng(const QByteArray &in, Ctx &ctx)
                     ctx.foundLocation = true;
                 keep = false;
             } else if (data.startsWith("XML:com.adobe.xmp")) {
-                // keyword NUL, compression flag, method, then text. A
-                // compressed block cannot be inspected, so it goes.
                 const int nul = data.indexOf('\0');
                 const bool compressed = nul >= 0 && nul + 1 < data.size()
                                         && data.at(nul + 1) != 0;
@@ -549,7 +515,6 @@ Result processPng(const QByteArray &in, Ctx &ctx)
                 }
             }
         } else if (type == "zTXt") {
-            // Compressed, so it cannot be inspected: dropped in both modes.
             keep = false;
         } else if (type == "tEXt" || type == "tIME") {
             if (mode == Mode::RemoveAll) {
@@ -577,18 +542,16 @@ Result processPng(const QByteArray &in, Ctx &ctx)
         pos += 12 + len;
     }
     if (!sawIend)
-        return fail;  // truncated: no IEND to end the picture at
+        return fail;
 
     if (mode == Mode::RemoveAll && ctx.orientation >= 2 && afterIhdr > 0)
         out.insert(afterIhdr, pngChunk("eXIf", minimalTiff(ctx.orientation)));
 
     Result r;
-    r.bytes = out;  // anything after IEND is not part of the picture
+    r.bytes = out;
     r.status = (out == in) ? Status::Unchanged : Status::Stripped;
     return r;
 }
-
-// -- WebP --------------------------------------------------------------------
 
 QByteArray webpChunk(const char fourcc[4], const QByteArray &data)
 {
@@ -612,9 +575,9 @@ Result processWebp(const QByteArray &in, Ctx &ctx)
     if (limit < 12 || limit > n)
         return fail;
 
-    QByteArray body;  // everything after "WEBP"
+    QByteArray body;
     qsizetype pos = 12;
-    qsizetype vp8xAt = -1;  // offset of the VP8X payload inside `body`
+    qsizetype vp8xAt = -1;
     bool hasExif = false;
     bool hasXmp = false;
 
@@ -686,11 +649,9 @@ Result processWebp(const QByteArray &in, Ctx &ctx)
     return r;
 }
 
-// -- HEIC / AVIF (ISO BMFF) --------------------------------------------------
-
 struct Box {
-    qsizetype start = 0;   // box header
-    qsizetype body = 0;    // first byte after the header
+    qsizetype start = 0;
+    qsizetype body = 0;
     qsizetype end = 0;
     char type[4] = {0, 0, 0, 0};
 };
@@ -750,7 +711,6 @@ bool isBmffBrand(const uchar *s, qsizetype n)
                                    "heis", "hevm", "hevs", "mif1", "msf1",
                                    "avif", "avis"};
     const qsizetype size = qMin<qsizetype>(qsizetype(be32(s)), n);
-    // Major brand, then the compatible list.
     for (qsizetype o = 8; o + 4 <= size; o += (o == 8 ? 8 : 4))
         for (const char *b : brands)
             if (std::memcmp(s + o, b, 4) == 0)
@@ -767,7 +727,6 @@ Result processBmff(const QByteArray &in, Ctx &ctx)
     Result fail;
     fail.status = Status::Failed;
 
-    // Top level: find 'meta'.
     Box meta;
     bool haveMeta = false;
     for (qsizetype pos = 0; pos < n;) {
@@ -793,11 +752,8 @@ Result processBmff(const QByteArray &in, Ctx &ctx)
         QList<Extent> extents;
         int constructionMethod = 0;
     };
-    // iloc may come before iinf (libheif writes it that way), so locations are
-    // collected on their own and joined to items by id once both are read.
     QHash<quint32, Loc> locs;
     bool haveIinf = false, haveIloc = false;
-    // 'meta' is a full box: 4 bytes of version and flags before its children.
     for (qsizetype pos = meta.body + 4; pos < meta.end;) {
         Box b;
         if (!readBox(s, n, pos, meta.end, b))
@@ -808,7 +764,7 @@ Result processBmff(const QByteArray &in, Ctx &ctx)
                 return fail;
             const int version = s[b.body];
             qsizetype p = b.body + 4;
-            p += (version == 0) ? 2 : 4;  // entry_count
+            p += (version == 0) ? 2 : 4;
             while (p < b.end) {
                 Box infe;
                 if (!readBox(s, n, p, b.end, infe))
@@ -822,10 +778,9 @@ Result processBmff(const QByteArray &in, Ctx &ctx)
                         if (q + idSize + 2 + 4 > infe.end)
                             return fail;
                         it.id = quint32(readN(s + q, idSize));
-                        q += idSize + 2;  // item_ID, protection index
+                        q += idSize + 2;
                         std::memcpy(it.type, s + q, 4);
                         q += 4;
-                        // item_name\0 then, for 'mime', content_type\0
                         while (q < infe.end && s[q] != 0)
                             ++q;
                         ++q;
@@ -879,7 +834,7 @@ Result processBmff(const QByteArray &in, Ctx &ctx)
                 }
                 if (p + 2 + baseSize + 2 > b.end)
                     return fail;
-                p += 2;  // data_reference_index
+                p += 2;
                 const quint64 base = readN(s + p, baseSize);
                 p += baseSize;
                 const int extentCount = be16(s + p);
@@ -891,8 +846,6 @@ Result processBmff(const QByteArray &in, Ctx &ctx)
                     p += indexSize;
                     Extent ex;
                     const quint64 rel = readN(s + p, offsetSize);
-                    // base + offset must not wrap into a small, valid-looking
-                    // position.
                     if (rel > std::numeric_limits<quint64>::max() - base)
                         return fail;
                     ex.offset = base + rel;
@@ -920,7 +873,6 @@ Result processBmff(const QByteArray &in, Ctx &ctx)
                                || it.contentType.contains("rdf"));
         if (!isExif && !isXmp)
             continue;
-        // An item whose bytes we cannot point at cannot be vouched for.
         if (!haveIinf || !haveIloc || !it.located || it.constructionMethod != 0
             || it.extents.size() != 1)
             return fail;
@@ -930,8 +882,6 @@ Result processBmff(const QByteArray &in, Ctx &ctx)
         const qsizetype off = qsizetype(ex.offset);
         const qsizetype len = qsizetype(ex.length);
         if (isExif) {
-            // 4 bytes: offset from here to the TIFF header (usually 0, or 6
-            // when the "Exif\0\0" prefix is kept).
             if (len < 4 + 8)
                 return fail;
             const qsizetype tiffOff = 4 + qsizetype(be32(s + off));
@@ -973,13 +923,13 @@ bool carriesUnhandledMetadata(const uchar *s, qsizetype n)
 {
     if (n >= 4 && ((s[0] == 'I' && s[1] == 'I' && s[2] == 0x2A && s[3] == 0)
                    || (s[0] == 'M' && s[1] == 'M' && s[2] == 0 && s[3] == 0x2A)))
-        return true;  // TIFF, DNG, many raws
+        return true;
     if (n >= 2 && s[0] == 0xFF && s[1] == 0x0A)
-        return true;  // JPEG XL codestream
+        return true;
     if (n >= 12 && s[0] == 0 && s[1] == 0 && s[2] == 0 && s[3] == 0x0C
         && (std::memcmp(s + 4, "JXL ", 4) == 0
             || std::memcmp(s + 4, "jP  ", 4) == 0))
-        return true;  // JPEG XL container, JPEG 2000
+        return true;
     return false;
 }
 
@@ -1017,7 +967,7 @@ Result run(const QByteArray &in, Ctx &ctx)
     return r;
 }
 
-}  // namespace
+}
 
 Result strip(const QByteArray &input, Mode mode)
 {
@@ -1048,4 +998,4 @@ int exifOrientation(const QByteArray &input)
     return ctx.orientation;
 }
 
-}  // namespace imagemeta
+}

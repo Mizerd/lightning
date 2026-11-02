@@ -2,17 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// One channel row in the Channels navigation layout: the room's avatar and
-// name, nothing else at rest. No preview or timestamp, so the list stays
-// scannable and still (Classic is where previews live). A small badge on the
-// avatar marks the two things a picture can't: an invite, or encryption.
-//
-// Weight is the unread signal (`channelText` vs `channelTextUnread`); the only
-// count pill is for unread/mentions. Nothing moves when a message arrives.
-//
-// Per-row delegate: every Label whose text can be empty lives behind a Loader.
-// An empty, never laid-out Text keeps ItemObservesViewport and makes Qt walk
-// the whole tree on every scroll frame.
 ItemDelegate {
     id: root
 
@@ -22,14 +11,9 @@ ItemDelegate {
 
     property string roomId: ""
     property string channelName: ""
-    /// The room's avatar (mxc uri); empty until it resolves, when Avatar shows
-    /// palette initials like every other room surface.
     property string avatarUrl: ""
-    /// Colour key for that fallback, matching the room list's policy.
     property string identityColorKey: ""
     property bool isDirect: false
-    /// An invited, unjoined room. It gets its own glyph and always reads as
-    /// unread, since it's waiting on the user.
     property bool isInvite: false
     // An invitation's picture is a stranger's choice: it loads only when the
     // account allows it (MSC4278 invite_avatars, fail-closed until known).
@@ -41,21 +25,15 @@ ItemDelegate {
     property bool encrypted: false
     property int unreadCount: 0
     property int highlightCount: 0
-    // 0 none, 1 unread in a thread, 2 mention in a thread: the remaining
-    // unread is held by threads alone (see ThreadUnreadBadge).
     property int threadUnreadKind: 0
     readonly property bool threadOnly: threadUnreadKind > 0 && !isInvite && !muted
     property bool hasUnread: false
     property bool active: false
     property bool batchSelected: false
-    /// Indentation level: 0 at the top of the column, 1 inside a folder.
     property int depth: 0
-    /// Favourite flag, for the context menu toggle and the star.
     property bool isFavourite: false
     property bool isLowPriority: false
 
-    // The same actions as the Classic row. Signal-only: the presenter performs
-    // every mutation, as with RoomDelegate.
     signal markRead()
     signal markUnread()
     signal setFavourite(bool on)
@@ -66,18 +44,12 @@ ItemDelegate {
     signal chatBackgroundRequested()
     signal inviteRequested()
     signal selectRoomRequested()
-    // Invitation rows only (GitHub #28): the menu replaces Leave with these.
     signal acceptInvite()
     signal rejectInvite()
 
-    // roomNotificationMode is Q_INVOKABLE, not bindable, so it's re-queried
-    // when the id changes (delegate reuse) and when settings announce a write,
-    // as in RoomDelegate.
     property int notificationMode: 0
     readonly property bool muted: notificationMode === 2
     function refreshNotificationMode() {
-        // Guarded: a delegate created synchronously from a property-change
-        // handler can see `app` undefined on its first lookup.
         if (typeof app === "undefined" || !app || !app.settings)
             return;
         if (root.roomId.length === 0)
@@ -86,8 +58,6 @@ ItemDelegate {
     }
     onRoomIdChanged: {
         root.refreshNotificationMode()
-        // A recycled row is another room, and its menu is bound to the row:
-        // left open it would quietly change target.
         if (menuLoader.item)
             menuLoader.item.close()
     }
@@ -99,20 +69,11 @@ ItemDelegate {
         }
     }
 
-    // A muted channel keeps its unread weight but loses its pill. Plain unread
-    // gets a pill too, not only mentions; the count can be 0 on an unread room
-    // (Matrix computes notification_count only where push rules say to), so
-    // the pill falls back to a dot.
     readonly property bool showsPill:
         (root.highlightCount > 0 || root.unreadCount > 0
          || root.hasUnread || root.isInvite || root.threadOnly) && !root.muted
     readonly property bool readsUnread: (root.isInvite || root.hasUnread || root.unreadCount > 0 || root.highlightCount > 0)
 
-    // Loaded by the Channels presenter (five row kinds). The Loader takes its
-    // height from this explicit value, so rows stack instead of all sitting at
-    // y=0.
-    // Follows the text scale like a Classic row: two lines of the scaled font,
-    // never under the 32 px the row has always had, so nothing clips.
     height: Math.max(AppTheme.channelRowMinHeight,
                     2 * AppTheme.scaled(AppTheme.textBody))
     padding: 0
@@ -138,7 +99,6 @@ ItemDelegate {
         return base;
     }
 
-    // A name cut short by the column is readable in full on hover.
     ToolTip.text: root.channelName
     ToolTip.visible: root.hovered && !root.contextMenuOpen
                      && nameLoader.item !== null && nameLoader.item.truncated
@@ -146,8 +106,6 @@ ItemDelegate {
 
     background: Rectangle {
         radius: AppTheme.radiusSm
-        // Inset from the column edges so it reads as a list, not full-width
-        // bands.
         anchors.fill: parent
         anchors.leftMargin: 8 + root.depth * 10
         anchors.rightMargin: 8
@@ -166,14 +124,10 @@ ItemDelegate {
     contentItem: Item {
         anchors.fill: parent
 
-        // The unread bar at the left edge, except on the active row, which is
-        // already marked.
         Rectangle {
             anchors.verticalCenter: parent.verticalCenter
-            // Anchored, not `x`: anchors mirror under LayoutMirroring.
             anchors.left: parent.left
             anchors.leftMargin: 2 + root.depth * 10
-            // Wide enough to notice: surfacing unread is this column's job.
             width: 4
             height: 20
             radius: 2
@@ -181,7 +135,6 @@ ItemDelegate {
             visible: root.readsUnread && !root.active && !root.muted
         }
 
-        // A DM is a circle and a room a rounded square, as in the Classic row.
         Avatar {
             id: roomAvatar
             objectName: "channelAvatar"
@@ -196,13 +149,9 @@ ItemDelegate {
             labelSize: 9
             name: root.channelName
             colorKey: root.identityColorKey.length > 0 ? root.identityColorKey : root.roomId
-            // A stranger's invite picture loads only when the account allows
-            // it (MSC4278 invite_avatars, fail-closed until known).
             mxc: root.inviteAvatarWithheld ? "" : root.avatarUrl
         }
 
-        // A small ringed badge on the avatar's corner: invite or lock. The lock
-        // is a claim that must be visible wherever the room appears.
         Loader {
             active: root.isInvite || root.encrypted
             visible: active
@@ -224,7 +173,6 @@ ItemDelegate {
             }
         }
 
-        // Behind a Loader: the name is empty until the room's state resolves.
         Loader {
             id: nameLoader
             objectName: "channelNameLoader"
@@ -248,14 +196,6 @@ ItemDelegate {
             }
         }
 
-        // Favourite star: filled when favourited, an outline on hover, and a
-        // click toggles the same m.favourite tag as the menu. No width when
-        // neither, so the unread pill never moves. Drawn rather than a glyph
-        // (the icon subset has no filled star).
-        //
-        // It anchors to the mute glyph when that is shown, not only to the call
-        // glyph: both sit 14px from the right edge, so anchoring to one alone
-        // drew the star through the other.
         Loader {
             id: favouriteStar
             objectName: "channelFavouriteStar"
@@ -318,8 +258,6 @@ ItemDelegate {
             }
         }
 
-        // Call indicator, between the name and the unread pill; zero width when
-        // there's no call.
         RoomCallGlyph {
             id: callGlyph
             roomId: root.roomId
@@ -348,19 +286,13 @@ ItemDelegate {
         Component {
             id: countBadgeComponent
             UnreadBadge {
-                // Mentions win the colour and number; an unread room with no
-                // count shows a dot.
                 count: root.highlightCount > 0 ? root.highlightCount
                                                : root.unreadCount
                 mention: root.highlightCount > 0
-                // Unread with no honest number falls back to the dot.
                 dot: root.hasUnread || root.isInvite
             }
         }
 
-        // Mute bell, only when muted and nothing else holds the rightmost slot.
-        // Explicit zero width when inactive so the star doesn't inherit a stale
-        // offset.
         Loader {
             id: mutedGlyph
             objectName: "channelMutedGlyph"
@@ -385,10 +317,6 @@ ItemDelegate {
         }
     }
 
-    // Right-click and the Menu key open the same actions as the Classic row.
-    // The menu is loaded on first use, not declared inline: building a Popup
-    // with a submenu per 32px row made filter switches (which rebuild every
-    // delegate) laggy.
     readonly property bool contextMenuOpen: menuLoader.item !== null && menuLoader.item.visible
     function openContextMenu() {
         if (root.roomId.length === 0)
@@ -398,7 +326,6 @@ ItemDelegate {
             menuLoader.item.popup();
     }
     TapHandler {
-        // Touch has no buttons, so a tap would fire this too.
         acceptedButtons: Qt.RightButton
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         enabled: root.roomId.length > 0
@@ -416,12 +343,6 @@ ItemDelegate {
             root.openContextMenu();
         }
     }
-    // Whether the activation in progress came from a pointer. `clicked` also
-    // fires for Space and for a screen reader's press action, and only a
-    // pointer open may move the keyboard into the message box (GitHub #29).
-    // Passive (the default DragThreshold policy), so the row still gets its
-    // own press; pointer handlers see it first, so this is set before
-    // `clicked`.
     property bool pointerActivation: false
     TapHandler {
         acceptedButtons: Qt.LeftButton

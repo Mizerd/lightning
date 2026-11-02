@@ -1,9 +1,3 @@
-// Rendered proof for the shared control system: AppButton kinds,
-// SegmentedControl, AppTextField and AppComboBox (popup open) are rendered
-// offscreen and sampled for flat fills (no Fusion gradient or bevel),
-// token-driven colours per state and a themed popup surface. Expected colours
-// come from token probes in the same scene, so the contract holds on every
-// theme.
 
 #include <QtTest/QtTest>
 
@@ -43,7 +37,6 @@ int channelDelta(const QColor &a, const QColor &b)
 
 constexpr int kTolerance = 8;
 
-// Source-over: what a translucent `top` renders as on opaque `bottom`.
 QColor over(const QColor &top, const QColor &bottom)
 {
     const double a = top.alphaF();
@@ -147,7 +140,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class ControlSystemTest : public QObject
 {
@@ -185,8 +178,6 @@ private:
         return it ? it->property("color").value<QColor>() : QColor();
     }
 
-    // Sample near the top and bottom of the interior: a flat fill has
-    // identical rows; a gradient or bevel does not.
     void assertFlatFill(const QImage &img, QQuickItem *it, const QColor &expected,
                         const char *what)
     {
@@ -237,21 +228,15 @@ private slots:
         assertFlatFill(img, primary, token("tokAccent"), "primary");
         auto *secondary = item("secondaryButton");
         QVERIFY(secondary);
-        // Secondary (since 2026-10-25, master prompt Part 6 2.2): a flat
-        // translucent tint of its own ink over whatever it sits on, so an
-        // enabled secondary reads as a control before hover. The old
-        // transparent field vanished on cards (Space Home Rename/Save).
         const QColor tint = token("tokSecondaryFill");
         QVERIFY2(tint.alpha() > 0 && tint.alpha() < 255,
                  "the secondary resting fill must be a translucent tint");
         const QColor rest = over(tint, token("tokBackground"));
         assertFlatFill(img, secondary, rest, "secondary");
-        // It must be visibly NOT the surface beneath it...
         QVERIFY2(channelDelta(rest, token("tokBackground")) >= 6,
                  qPrintable(QStringLiteral("secondary rest %1 is indistinguishable "
                                            "from the background %2")
                                 .arg(rest.name(), token("tokBackground").name())));
-        // ...and its label must stay readable on the tint.
         auto *label = findItem(secondary, QStringLiteral("buttonLabel"));
         QVERIFY(label);
         const double ratio = contrastRatio(
@@ -269,18 +254,12 @@ private slots:
         auto *disabled = item("disabledPrimary");
         QVERIFY(danger && disabled);
         assertFlatFill(img, danger, token("tokBackground"), "danger-rest");
-        // Disabled (2026-10-26 button audit): a faint tint of the disabled
-        // ink over whatever is behind it, inside a 1px edge, so the shape
-        // survives on a cardElevated card (the old cardElevated fill vanished
-        // there). It must stay visibly unlike the enabled primary.
         const QColor disabledRest = over(token("tokDisabledTint"), token("tokBackground"));
         assertFlatFill(img, disabled, disabledRest, "disabled");
         QVERIFY(channelDelta(disabledRest, token("tokAccent")) > 40);
         auto *disabledBg = disabled->property("background").value<QQuickItem *>();
         QVERIFY(disabledBg);
         QCOMPARE(QQmlProperty::read(disabledBg, QStringLiteral("border.width")).toInt(), 1);
-        // The danger label uses the danger tone. The label is a named child:
-        // AppButton's contentItem wraps an optional icon and the label.
         auto *label = findItem(danger, QStringLiteral("buttonLabel"));
         QVERIFY(label);
         const QColor dangerText = label->property("color").value<QColor>();
@@ -290,9 +269,6 @@ private slots:
         QVERIFY(dangerText != saveLabel->property("color").value<QColor>());
     }
 
-    // A destructive dialog's confirm uses "dangerPrimary", a real fill with
-    // dangerText on it; "danger" is the quiet outlined kind, and `danger` as a
-    // background would fail contrast (it is an ink token).
     void destructiveKindIsASolidFillWithItsOwnInk()
     {
         const QImage img = m_window->grabWindow();
@@ -304,7 +280,6 @@ private slots:
         QCOMPARE(label->property("color").value<QColor>(), token("tokDangerInk"));
     }
 
-    // Every kind shares one geometry: height and corner.
     void everyKindSharesOneGeometry()
     {
         const char *kinds[] = { "secondaryButton", "primaryButton",
@@ -324,7 +299,6 @@ private slots:
         }
     }
 
-    // A disabled segment is visibly distinct from an enabled, unselected one.
     void disabledSegmentIsVisiblyDistinctFromAnUnselectedOne()
     {
         auto *disabled = item("segments_files");
@@ -369,8 +343,6 @@ private slots:
         QVERIFY(combo);
         assertFlatFill(img, combo, token("tokInputBg"), "combo-field");
 
-        // Open the popup: its surface and delegates are themed and flat, with
-        // the accent-soft selected row.
         auto *popupObject = combo->property("popup").value<QObject *>();
         QVERIFY(popupObject);
         QMetaObject::invokeMethod(popupObject, "open");
@@ -384,10 +356,6 @@ private slots:
             popupItem->width() - 10, popupItem->height() / 2));
         const QColor sampled = sampleAvg(
             open, QRect(int(inPopup.x()), int(inPopup.y()), 2, 2));
-        // Dropdown popups render stormPanel, which is theme-routed (Storm's
-        // literal under theme 11, the user's surface tone otherwise). The
-        // sampled pixel is compared with the same routed token, so this holds
-        // under any theme.
         QVERIFY2(channelDelta(sampled, token("tokStormPanel")) <= kTolerance,
                  qPrintable(QStringLiteral("popup surface %1 vs %2")
                                 .arg(sampled.name(),
@@ -397,7 +365,7 @@ private slots:
 
     void themeSwitchRetintsEveryKind()
     {
-        m_root->setProperty("themeMode", 8); // Moss Light
+        m_root->setProperty("themeMode", 8);
         QCoreApplication::processEvents();
         const QImage img = m_window->grabWindow();
         auto *primary = item("primaryButton");
@@ -411,20 +379,13 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // Under Storm the selected segment is a soft accent field with readable
-    // ink, not dark text on a tinted fill.
     void stormRoutesSelectedSegmentToASoftAccentField()
     {
-        m_root->setProperty("themeMode", 11); // Storm
+        m_root->setProperty("themeMode", 11);
         QCoreApplication::processEvents();
         const QImage img = m_window->grabWindow();
         auto *selected = item("segments_people");
         QVERIFY(selected);
-        // A soft accent field rather than solid bolt: the filter defaults to
-        // "All", so a solid fill would put the app's loudest colour
-        // permanently in the navigation column; bolt belongs to the primary
-        // button. The fill is the soft field, the ink readable, and the fill
-        // not solid bolt.
         const QColor selectedFill = sampleAvg(
             img, QRect(int(selected->mapToScene(QPointF(8, 6)).x()),
                        int(selected->mapToScene(QPointF(8, 6)).y()), 2, 2));
@@ -441,14 +402,8 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // In non-Storm themes the selected segment's label uses selectedText, not
-    // accentText (the ink for a solid accent fill, invisible on a tint).
-    // ThemeTokensTest pins the contrast numbers; this pins that the control
-    // asks for that token.
     void designThemesKeepTheSelectedSegmentLabelReadable()
     {
-        // Deep Teal (10), Moss Light (8) and Lightning Light (1) fell below AA
-        // with the wrong ink.
         for (int mode : { 10, 8, 1 }) {
             m_root->setProperty("themeMode", mode);
             QCoreApplication::processEvents();
@@ -461,7 +416,6 @@ private slots:
             const QColor ink = label->property("color").value<QColor>();
 
             QCOMPARE(ink, token("tokSelectedText"));
-            // Not the solid-fill ink.
             QVERIFY2(ink != token("tokAccentText"),
                      qPrintable(QStringLiteral("theme %1 still inks the selected "
                                                "segment with accentText")

@@ -30,53 +30,19 @@ Item {
     // role -> colour, from AppTheme.paletteForTheme(id). Not named `palette`,
     // which would shadow QQuickItem's own property.
     required property var pal
-    // Which navigation layout the room-list column shows, bound to the user's
-    // own choice so the preview shows where colours actually land.
     property bool channels: false
-    // The role open in the picker, outlined here.
     property string highlightRole: ""
-    // The role the pointer is over in the editor's list: outlined here too,
-    // so a row can be traced to where it paints without opening it.
     property string hoverRole: ""
-    // { role: true } for roles that currently follow the outlined one (an
-    // unset child takes its parent's colour), outlined more lightly: editing
-    // the parent recolours them too.
     property var linkedRoles: ({})
-    // { role: true } for the roles the readability audit flags: each region
-    // painting one carries a small amber dot, so a problem is on the thing
-    // rather than in a report. Decoration only; it takes no input.
     property var problemRoles: ({})
-    // The ring's stroke in this item's own pixels. The editor scales the
-    // preview, so it passes 2 / scale to keep the ring 2px on screen.
     property real outlineWidth: 2
-    // Surface gradients to paint: role -> { type, angle, stops }, the theme's
-    // own (CustomThemeStore.gradients), an element's inherited one, and, while
-    // Depth is on, Depth's for the grounds the theme leaves flat. A role
-    // without one stays flat.
     property var gradients: ({})
 
-    // ---- keyboard (2026-10-14) ----
-    //
-    // Tab or the arrow keys walk the regions in reading order (top to bottom in
-    // bands, then left to right, a container before what it holds); the focus
-    // ring is the region's own, drawn by the Region. Enter or Space opens the
-    // element in the inspector (regionActivated), Escape hands focus back to
-    // the editor's list (keyboardEscape).
-    //
-    // Real focus moves from region to region (each is a focus target, but not
-    // a Tab stop, so Tab does not visit a hundred of them): that is what lets
-    // an assistive technology read the region's name when it arrives. The
-    // names come from the editor, which knows the roles' labels.
-    // role -> label (a function the editor supplies), and a one-line state
-    // ("Own colour", "Linked to Panels and cards").
     property var roleLabel: null
     property var roleState: null
-    // The region the keyboard is on, remembered when focus leaves.
     property Item kbRegion: null
-    // The role it is on while it has focus, else "".
     readonly property string keyboardRole:
         root.kbRegion && root.kbRegion.activeFocus ? root.kbRegion.role : ""
-    // Set when focus leaves backwards, so the entry stop does not pull it back.
     property bool kbLeaving: false
     signal keyboardEscape()
 
@@ -88,7 +54,6 @@ Item {
         return root.roleState ? root.roleState(role) : ""
     }
 
-    // Every region on screen, in reading order.
     function orderedRegions() {
         var found = []
         var walk = function (node) {
@@ -122,8 +87,6 @@ Item {
         root.kbRegion = region
         region.forceActiveFocus()
     }
-    // Moves one region on. Tab leaves at the ends (false: not handled), the
-    // arrow keys stop there.
     function stepFocus(dir, tabbing) {
         var list = root.orderedRegions()
         if (list.length === 0)
@@ -143,13 +106,10 @@ Item {
         if (list.length > 0)
             root.focusRegion(list[last ? list.length - 1 : 0])
     }
-    // Opens the focused element, as a click on it would.
     function activateFocused() {
         if (root.kbRegion && root.kbRegion.activeFocus)
             root.regionActivated(root.kbRegion.role, [root.kbRegion.role])
     }
-    // Tab arrived at the entry stop: hand focus to the region the keyboard was
-    // on, else the one open in the picker, else the first.
     function enterFromTab() {
         if (root.kbLeaving) {
             root.kbLeaving = false
@@ -170,7 +130,6 @@ Item {
         root.focusRegion(target ? target : list[0])
     }
 
-    // The one Tab stop of the whole sample window.
     Item {
         id: kbEntry
         objectName: "themePreviewKeyboardEntry"
@@ -232,14 +191,8 @@ Item {
         return g && g.stops && g.stops.length >= 2 ? g : null
     }
 
-    // A region was clicked; the editor opens that role. `stack` lists every
-    // role painted under the pointer, the clicked one first and then each
-    // surface behind it, so text and the fill under it are both reachable.
     signal regionActivated(string role, var stack)
 
-    // The roles under a clicked region: the region itself, then any region
-    // filling one of its ancestors (a region fills its parent element, so
-    // an ancestor's region covers the point too).
     function regionStack(region, x, y) {
         var out = [region.role]
         var item = region.parent
@@ -250,7 +203,6 @@ Item {
                 if (k === region || k.isThemeRegion !== true || !k.visible
                         || out.indexOf(k.role) >= 0)
                     continue
-                // A padded or offset region (a halo) may not cover the point.
                 if (!k.contains(k.mapFromItem(region, x, y)))
                     continue
                 out.push(k.role)
@@ -260,8 +212,6 @@ Item {
         return out
     }
 
-    // Natural size. The editor scales it uniformly to fit (up to 1.6x; text
-    // here is distance-field rendered and scales cleanly).
     implicitWidth: 880
     implicitHeight: 560
     clip: true
@@ -273,15 +223,10 @@ Item {
         return p && p[fallback] !== undefined ? p[fallback] : "transparent"
     }
 
-    // A palette entry at a given alpha (status chips are a tint of their ink).
-    // Goes through Qt.color because a custom palette carries "#RRGGBB" strings.
     function tone(role, fallback, alpha) {
         return Qt.alpha(Qt.color(String(root.c(role, fallback))), alpha)
     }
 
-    // The identity colours, derived from this palette by AppTheme's own rule
-    // (identityAnchor): avatar discs and sender names follow the theme without
-    // being a role of it.
     readonly property color identityAnchor: {
         var bg = Qt.color(String(root.c("background", "background")))
         var ink = Qt.color(String(root.c("accent", "accent")))
@@ -304,7 +249,6 @@ Item {
              Qt.color(String(root.c("otherBubble", "surface")))])
     }
 
-    // Fixture rows. `state` shows selected and hovered rows at once.
     readonly property var fakeRooms: [
         { name: qsTr("Design"),    preview: qsTr("Shipped the new palette"), badge: 0, mention: 0, state: "normal" },
         { name: qsTr("Lightning"), preview: qsTr("Storm looks good now"),    badge: 0, mention: 0, state: "selected" },
@@ -313,8 +257,6 @@ Item {
         { name: qsTr("Support"),   preview: qsTr("Open, pointer on it"),     badge: 0, mention: 0, state: "selectedHover" }
     ]
 
-    // The Channels shape: navigation rows, a group, and a Space folder with
-    // rooms. Literals only.
     readonly property var fakeChannelRows: [
         { kind: "nav",    name: qsTr("Lobby"),          state: "selected" },
         { kind: "nav",    name: qsTr("Message Search"), state: "normal" },
@@ -336,18 +278,9 @@ Item {
     component Region: MouseArea {
         id: region
         required property string role
-        // Marks a region for regionStack(); other children of an element
-        // are skipped.
         readonly property bool isThemeRegion: true
-        // The same element drawn more than once (two rows of one list): the
-        // only case in which two Regions may name one role.
         property bool repeated: false
-        // Grows the hit area and the outline past a thin element (a hairline,
-        // a scrollbar) so it can be pointed at.
         property real pad: 0
-        // How loudly this region is outlined: 3 open in the picker, 2 pointed
-        // at in the list, 1 recoloured along with either, 0.5 under the
-        // pointer here, 0 not at all.
         readonly property real emphasis:
             region.activeFocus ? 3
             : root.highlightRole === region.role ? 3
@@ -358,22 +291,17 @@ Item {
         anchors.margins: -region.pad
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        // Reachable by the keyboard and named for assistive technology: what
-        // it is, and whether its colour is its own or linked.
         Accessible.role: Accessible.Button
         Accessible.name: root.labelOf(region.role)
         Accessible.description: root.stateOf(region.role)
         Accessible.focusable: true
         Accessible.onPressAction: root.regionActivated(region.role, [region.role])
         onClicked: (mouse) => {
-            // The keyboard carries on from where the pointer last was.
             root.kbRegion = region
             root.regionActivated(
                 region.role, root.regionStack(region, mouse.x, mouse.y))
         }
 
-        // The readability mark: inside the region's top-right corner, 8px on
-        // screen at any scale (outlineWidth is 2px on screen).
         Rectangle {
             objectName: "themeProblemDot"
             visible: root.problemRoles[region.role] === true
@@ -389,7 +317,6 @@ Item {
             border.color: "#B0000000"
         }
 
-        // Built only while shown: there are about a hundred regions.
         Loader {
             anchors.fill: parent
             // A text element's box hugs its glyphs, so the ring would stroke
@@ -399,10 +326,6 @@ Item {
                              ? -root.outlineWidth * 1.5 : 0
             active: region.emphasis > 0
             sourceComponent: Component {
-                // Three strokes so the ring reads on any colour the theme
-                // can paint, including one close to the accent: a dark halo
-                // outside, the accent, and a light keyline inside. Rounded
-                // to the element's own corners.
                 Item {
                     id: ring
                     readonly property real w: root.outlineWidth
@@ -411,9 +334,6 @@ Item {
                         ? region.parent.radius + region.pad
                         : AppTheme.radiusSm
                     readonly property bool strong: region.emphasis >= 2
-                    // A linked region (recoloured along with the traced
-                    // role) is visibly quieter than the role itself, which
-                    // at 0.9 read as the same thing.
                     opacity: region.emphasis >= 2 ? 1.0
                              : region.emphasis >= 1 ? 0.6 : 0.5
                     Rectangle {
@@ -440,9 +360,6 @@ Item {
                         border.width: ring.w * 0.5
                         border.color: "#E6FFFFFF"
                     }
-                    // The keyboard's own mark: a white band standing off the
-                    // ring, so keyboard focus is not mistaken for the element
-                    // that is merely open in the picker.
                     Rectangle {
                         objectName: "themeKeyboardRing"
                         visible: region.activeFocus
@@ -458,18 +375,12 @@ Item {
         }
     }
 
-    // A role's gradient over its element's flat fill, beneath the element's
-    // Region and content so the outline and the click target are unchanged.
-    // Draws nothing for a flat role.
     component GradientLayer: ThemedSurface {
         anchors.fill: parent
         flatFill: false
         specOverride: root.gradientSpec(role)
     }
 
-    // A labelled strip for a state the main window shows only in one layout or
-    // one dialog. Its label is drawn in the ink the real element uses on that
-    // state, and is a target of its own.
     component Sample: Rectangle {
         id: smp
         required property string role
@@ -497,9 +408,6 @@ Item {
         }
     }
 
-    // A 1px line of its own, so a border is a click target separate from the
-    // box it frames (a Region over the box would hand the line and the fill to
-    // one role). Lies along the bottom edge of its parent.
     component EdgeRegion: Item {
         id: edge
         required property string role
@@ -511,8 +419,6 @@ Item {
         Region { role: edge.role; pad: 3; repeated: edge.repeated }
     }
 
-    // An avatar disc in a person's (or a room's) identity colour: content, not
-    // a target.
     component IdentityDisc: Rectangle {
         required property string key
         property bool square: false
@@ -526,7 +432,6 @@ Item {
         anchors.fill: parent
         spacing: 0
 
-        // Spaces rail
         Rectangle {
             Layout.preferredWidth: 60
             Layout.fillHeight: true
@@ -540,7 +445,6 @@ Item {
                 anchors.bottomMargin: AppTheme.spacing12
                 spacing: AppTheme.spacing12
 
-                // Home: a resting tile, with something unread in it.
                 Rectangle {
                     Layout.alignment: Qt.AlignHCenter
                     implicitWidth: 34
@@ -563,9 +467,6 @@ Item {
                     }
                 }
 
-                // The open Space: a soft wash inside an accent ring drawn
-                // outside the tile. The ring is declared first, so the wash
-                // wins inside it and the ring keeps the band around it.
                 Item {
                     Layout.alignment: Qt.AlignHCenter
                     implicitWidth: 34
@@ -587,7 +488,6 @@ Item {
                     }
                 }
 
-                // A Space with a picture of its own.
                 IdentityDisc {
                     Layout.alignment: Qt.AlignHCenter
                     key: "#design:example.org"
@@ -601,7 +501,6 @@ Item {
             }
         }
 
-        // Room list
         Rectangle {
             Layout.preferredWidth: 236
             Layout.fillHeight: true
@@ -625,7 +524,6 @@ Item {
                     Region { role: "roomListTitle" }
                 }
 
-                // Search field.
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 28
@@ -656,7 +554,6 @@ Item {
                     Region { role: "roomListSection" }
                 }
 
-                // The Channels shape: a folder header, then indented rooms.
                 Repeater {
                     model: root.channels ? root.fakeChannelRows : []
                     delegate: Rectangle {
@@ -676,8 +573,6 @@ Item {
                         border.width: fakeChannelRow.isFolder ? 1 : 0
                         border.color: root.c("channelFolderBorder", "border")
 
-                        // A resting row is the column itself: no target of
-                        // its own, a click reaches the room list.
                         Region {
                             visible: fakeChannelRow.isSelected || fakeChannelRow.isHovered
                             enabled: visible
@@ -695,7 +590,6 @@ Item {
                             anchors.rightMargin: AppTheme.spacing8
                             spacing: AppTheme.spacing6
 
-                            // The folder's arrow.
                             Rectangle {
                                 visible: fakeChannelRow.isFolder
                                 implicitWidth: 8
@@ -704,7 +598,6 @@ Item {
                                 color: root.c("channelChevron", "textMuted")
                                 Region { role: "channelChevron"; repeated: true; pad: 2 }
                             }
-                            // A room's avatar.
                             IdentityDisc {
                                 visible: fakeChannelRow.isRoom
                                 key: fakeChannelRow.modelData.name
@@ -741,7 +634,6 @@ Item {
                     delegate: Rectangle {
                         id: fakeRoomRow
                         required property var modelData
-                        // The open room, with or without the pointer on it.
                         readonly property bool isSelected:
                             modelData.state === "selected"
                             || modelData.state === "selectedHover"
@@ -757,8 +649,6 @@ Item {
                                ? root.c("roomHover", "hover")
                                : "transparent"
 
-                        // Beneath the content, so each ink names itself. A
-                        // resting row is the column itself: no target.
                         Region {
                             visible: fakeRoomRow.modelData.state !== "normal"
                             enabled: visible
@@ -805,7 +695,6 @@ Item {
                                     }
                                 }
                                 Text {
-                                    // Untrusted text: never markup.
                                     textFormat: Text.PlainText
                                     text: fakeRoomRow.modelData.preview
                                     color: fakeRoomRow.isSelected
@@ -823,7 +712,6 @@ Item {
                                 }
                             }
 
-                            // Unread count.
                             Rectangle {
                                 visible: fakeRoomRow.modelData.badge > 0
                                 implicitWidth: 20
@@ -842,7 +730,6 @@ Item {
                                 }
                             }
 
-                            // Mention count: the pill that says someone named you.
                             Rectangle {
                                 visible: fakeRoomRow.modelData.mention > 0
                                 implicitWidth: 20
@@ -868,7 +755,6 @@ Item {
             }
         }
 
-        // Timeline + composer
         Rectangle {
             id: timelineArea
             Layout.fillWidth: true
@@ -882,7 +768,6 @@ Item {
                 anchors.fill: parent
                 spacing: 0
 
-                // Room header.
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 44
@@ -904,13 +789,10 @@ Item {
                         width: parent.width
                         height: 1
                         color: root.c("headerDivider", "border")
-                        // A one pixel line is not clickable; the region is
-                        // widened around it.
                         Region { role: "headerDivider"; pad: 3 }
                     }
                 }
 
-                // A call going on in the room.
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.leftMargin: AppTheme.spacing12
@@ -936,14 +818,12 @@ Item {
                     EdgeRegion { role: "accentBorder" }
                 }
 
-                // Messages.
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.margins: AppTheme.spacing12
                     spacing: AppTheme.spacing8
 
-                    // Incoming.
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.maximumWidth: 320
@@ -951,8 +831,6 @@ Item {
                                         + AppTheme.spacing8 * 2
                         radius: AppTheme.radiusMd
                         color: root.c("otherBubble", "surface")
-                        // A message that is selected (to forward) or was just
-                        // jumped to: a wash painted behind its row.
                         Rectangle {
                             anchors.fill: parent
                             anchors.margins: -4
@@ -970,7 +848,6 @@ Item {
                             spacing: 2
                             RowLayout {
                                 spacing: AppTheme.spacing6
-                                // The sender in their identity colour.
                                 Text {
                                     text: qsTr("Sam")
                                     color: root.nameInk("@sam:example.org")
@@ -998,7 +875,6 @@ Item {
                         }
                     }
 
-                    // Outgoing.
                     Rectangle {
                         Layout.alignment: Qt.AlignRight
                         implicitWidth: Math.min(300, outgoingText.implicitWidth
@@ -1021,8 +897,6 @@ Item {
                         }
                     }
 
-                    // Incoming, carrying a link, a mention of you, code, a
-                    // link preview and reactions.
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.maximumWidth: 360
@@ -1054,8 +928,6 @@ Item {
                                     font.underline: true
                                     Region { role: "link" }
                                 }
-                                // A mention of you: bold ink, no chip, as the
-                                // timeline draws it.
                                 Text {
                                     text: qsTr("@you")
                                     color: root.c("selfMentionInk", "accent")
@@ -1066,7 +938,6 @@ Item {
                                 }
                             }
 
-                            // Code.
                             Rectangle {
                                 Layout.fillWidth: true
                                 implicitHeight: 26
@@ -1088,7 +959,6 @@ Item {
                                 EdgeRegion { role: "codeBlockBorder" }
                             }
 
-                            // A link preview.
                             Rectangle {
                                 Layout.fillWidth: true
                                 implicitHeight: 26
@@ -1111,9 +981,6 @@ Item {
                                 EdgeRegion { role: "embedBorder" }
                             }
 
-                            // Reactions: someone else's, then your own. Each
-                            // is its edge with the fill inside it, so the edge
-                            // is a target of its own.
                             RowLayout {
                                 spacing: AppTheme.spacing6
 
@@ -1131,8 +998,6 @@ Item {
                                         Region { role: "reaction" }
                                         Text {
                                             anchors.centerIn: parent
-                                            // Not an emoji: emoji literals are
-                                            // banned in row delegates here.
                                             text: qsTr("+2")
                                             color: root.c("reactionInk", "textSecondary")
                                             font.family: AppTheme.uiFont
@@ -1172,7 +1037,6 @@ Item {
                     Item { Layout.fillHeight: true }
                 }
 
-                // Composer.
                 RowLayout {
                     Layout.fillWidth: true
                     Layout.margins: AppTheme.spacing12
@@ -1187,8 +1051,6 @@ Item {
                         border.width: 1
                         border.color: root.c("composerBorder", "border")
                         Region { role: "composerField" }
-                        // Draft text with part of it selected: the message box
-                        // selects in the system selection colours.
                         Row {
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.left: parent.left
@@ -1225,9 +1087,6 @@ Item {
                         radius: AppTheme.radiusMd
                         color: root.c("sendButton", "accent")
 
-                        // The keyboard focus ring, drawn as it is on a focused
-                        // control: outside the control, with a gap. Declared
-                        // first so the button's own region wins inside it.
                         Rectangle {
                             anchors.fill: parent
                             anchors.margins: -4
@@ -1256,7 +1115,6 @@ Item {
                 }
             }
 
-            // A scrollbar handle, as it sits at the timeline's edge.
             Rectangle {
                 anchors.right: parent.right
                 anchors.rightMargin: 3
@@ -1269,7 +1127,6 @@ Item {
                 Region { role: "scrollbarHandle"; pad: 4 }
             }
 
-            // A context menu, open over the timeline.
             Rectangle {
                 anchors.right: parent.right
                 anchors.rightMargin: AppTheme.spacing20
@@ -1294,7 +1151,6 @@ Item {
                         width: parent.width
                         height: 24
                         radius: AppTheme.radiusSm
-                        // The highlighted item.
                         color: root.c("menuHighlight", "hover")
                         Region { role: "menuHighlight" }
                         Text {
@@ -1328,8 +1184,6 @@ Item {
                         width: parent.width
                         height: 24
                         radius: AppTheme.radiusSm
-                        // A destructive item under the pointer: a tint of the
-                        // danger family.
                         color: root.tone("menuDangerTint", "dangerTint", 0.10)
                         Region { role: "menuDangerTint" }
                         Text {
@@ -1347,7 +1201,6 @@ Item {
             }
         }
 
-        // Side panel: the people in the room.
         Rectangle {
             Layout.preferredWidth: 168
             Layout.fillHeight: true
@@ -1360,7 +1213,6 @@ Item {
                 anchors.margins: AppTheme.spacing12
                 spacing: AppTheme.spacing6
 
-                // A text field with what was typed in it selected.
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 26
@@ -1403,7 +1255,6 @@ Item {
                         id: memberRow
                         required property string modelData
                         required property int index
-                        // The third person is under the pointer.
                         readonly property bool hovered: index === 2
                         Layout.fillWidth: true
                         implicitHeight: 24
@@ -1425,7 +1276,6 @@ Item {
                                 key: memberRow.modelData
                                 implicitWidth: 18
                                 implicitHeight: 18
-                                // Presence: the first two are online.
                                 Rectangle {
                                     visible: memberRow.index < 2
                                     anchors.right: parent.right
@@ -1441,7 +1291,6 @@ Item {
                                     Region { role: "presenceDot"; repeated: true; pad: 2 }
                                 }
                             }
-                            // Names wear their owner's identity colour.
                             Text {
                                 Layout.fillWidth: true
                                 text: memberRow.modelData
@@ -1454,7 +1303,6 @@ Item {
                     }
                 }
 
-                // Status chips: a tint of their own colour.
                 Flow {
                     Layout.fillWidth: true
                     spacing: AppTheme.spacing4
@@ -1491,9 +1339,6 @@ Item {
                     }
                 }
 
-                // States the window above shows only in the other layout or
-                // another dialog. In the room-list layout: Channels rows; in
-                // the Channels layout: room-list rows.
                 Sample {
                     visible: !root.channels
                     role: "channelSelected"
@@ -1510,7 +1355,6 @@ Item {
                     inkRole: "channelText"
                     ink: root.c("channelText", "textSecondary")
                 }
-                // An open Channels folder: its outline, arrow and name.
                 Rectangle {
                     visible: !root.channels
                     Layout.fillWidth: true
@@ -1566,9 +1410,6 @@ Item {
                     ink: root.c("buttonGhostInk", "textSecondary")
                 }
 
-                // Settings in miniature: its navigation column (the open
-                // section marked, two more labels) beside its page (a heading
-                // and two lines), split by Settings' divider.
                 Row {
                     Layout.fillWidth: true
                     height: 40
@@ -1645,7 +1486,6 @@ Item {
 
                 Item { Layout.fillHeight: true }
 
-                // A primary button at rest, under the pointer and held down.
                 Row {
                     spacing: AppTheme.spacing4
 
@@ -1696,7 +1536,6 @@ Item {
                     }
                 }
 
-                // A disabled button, so the disabled ink and edge are visible.
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 26

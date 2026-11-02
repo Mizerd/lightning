@@ -4,10 +4,6 @@
 #include <QString>
 #include <QtGlobal>
 
-// How the desktop asks for times and dates to be written, separately from the
-// UI language. Header-only: SettingsManager (the clock setting) and
-// LocalizationManager (the default QLocale) both use it, and SettingsManager
-// is compiled into many test targets without LocalizationManager.
 namespace i18n {
 
 // The locale of the desktop's TIME category. On Unix that is the first set of
@@ -22,7 +18,6 @@ inline QLocale timeCategoryLocale()
         QString value = qEnvironmentVariable(name);
         if (value.isEmpty())
             continue;
-        // "en_GB.UTF-8", "de_DE@euro": only the locale name.
         for (const QChar stop : { QLatin1Char('.'), QLatin1Char('@') }) {
             const qsizetype cut = value.indexOf(stop);
             if (cut >= 0)
@@ -38,8 +33,6 @@ inline QLocale timeCategoryLocale()
 #endif
 }
 
-// True when a Qt time format uses a 12-hour cycle: an AM/PM designator
-// ("a"/"A") outside quoted text.
 inline bool usesTwelveHourClock(const QString &format)
 {
     bool quoted = false;
@@ -52,15 +45,6 @@ inline bool usesTwelveHourClock(const QString &format)
     return false;
 }
 
-// The clock setting's "Follow the system", as a Qt time format.
-//   * The desktop's time category speaks the UI language: its own pattern
-//     (en_GB in an English UI: "HH:mm").
-//   * It speaks another language: the desktop's 12/24-hour CYCLE, written
-//     with the UI language's own pattern, so no foreign literal leaks into
-//     the UI (fr_CA's "HH 'h' mm" in an English one). When the UI language's
-//     pattern has the other cycle, a plain pattern of the desktop's cycle.
-// `systemTimeFormat` is what the desktop itself reports
-// (QLocale::system().timeFormat(QLocale::ShortFormat)).
 inline QString followSystemClockFormat(const QLocale &ui,
                                        const QLocale &timeCategory,
                                        const QString &systemTimeFormat)
@@ -68,7 +52,6 @@ inline QString followSystemClockFormat(const QLocale &ui,
     if (timeCategory.language() == ui.language())
         return timeCategory.timeFormat(QLocale::ShortFormat);
     const QString uiFormat = ui.timeFormat(QLocale::ShortFormat);
-    // No desktop preference at all ("C", unset): the UI language's own.
     if (timeCategory.language() == QLocale::C)
         return uiFormat;
     const bool systemTwelve = usesTwelveHourClock(systemTimeFormat);
@@ -77,4 +60,4 @@ inline QString followSystemClockFormat(const QLocale &ui,
     return systemTwelve ? QStringLiteral("h:mm AP") : QStringLiteral("HH:mm");
 }
 
-} // namespace i18n
+}

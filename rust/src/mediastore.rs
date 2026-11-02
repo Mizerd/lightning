@@ -53,45 +53,28 @@ use sha2::{Digest, Sha256};
 
 use crate::storeclose::StoreProbe;
 
-/// The encrypted store's directory, in the account's cache directory
-/// (cachelayout.rs) inside its store directory, so it is deleted with the
-/// account.
 pub(crate) const DIR_NAME: &str = "lightning-media-store";
-/// The one-way identifier of the key the store in DIR_NAME belongs to.
 const KEY_ID_FILE: &str = "lightning-key-id";
-/// SqliteMediaStore's file name, the same in the old location and the new.
 pub(crate) const MEDIA_DB: &str = "matrix-sdk-media.sqlite3";
 const LEGACY_SIDECARS: [&str; 2] = ["matrix-sdk-media.sqlite3-wal", "matrix-sdk-media.sqlite3-shm"];
-/// A pinned attachment in the old store not read or written for this long is
-/// taken as abandoned (an upload that wedged and was never cancelled), so the
-/// old plaintext store cannot stay in use for ever.
 pub(crate) const ABANDONED_AFTER: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
-/// Where this account's media store lives this session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Active {
-    /// The old plaintext store, kept for one more session for an attachment
-    /// the send queue has not uploaded yet. Admits no encrypted-room media.
     Legacy,
-    /// Encrypted with the account's key. `admits_encrypted`: that key is held
-    /// by a secure OS keyring, so encrypted-room media may be cached too.
     Encrypted { admits_encrypted: bool },
-    /// In memory: no key this session. Nothing is kept.
     Memory,
 }
 
 impl Active {
-    /// Whether anything fetched may be kept between sessions.
     pub(crate) fn persists(self) -> bool {
         !matches!(self, Active::Memory)
     }
 
-    /// Whether media from an encrypted room may be kept.
     pub(crate) fn admits_encrypted(self) -> bool {
         matches!(self, Active::Encrypted { admits_encrypted: true })
     }
 
-    /// The name `mx_rust_media_store_state` reports. A state, never a path.
     pub(crate) fn state_name(self) -> &'static str {
         match self {
             Active::Encrypted { admits_encrypted: true } => "encrypted_admits",
@@ -102,8 +85,6 @@ impl Active {
     }
 }
 
-/// A key copy that is zeroed when dropped. Best effort, like the password
-/// buffer on the C++ side; SqliteStoreConfig keeps its own zeroizing copy.
 #[derive(Clone)]
 pub(crate) struct KeyBytes(pub(crate) [u8; 32]);
 
@@ -115,12 +96,6 @@ impl Drop for KeyBytes {
         }
     }
 }
-
-// ---- The per-handle key, by store path -------------------------------------
-//
-// build_client() takes only a store path, so the key is looked up by it. Each
-// entry belongs to the handle (RustClient) that set it: a handle being retired
-// for the same account must not remove the entry of the handle replacing it.
 
 struct Entry {
     owner: usize,
@@ -134,8 +109,6 @@ fn registry() -> &'static Mutex<HashMap<PathBuf, Entry>> {
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Set this handle's key. `None`: no key this session, so memory.
-/// `admits_encrypted` is honoured only with a key.
 pub(crate) fn set_key(
     owner: usize,
     store_path: &Path,
@@ -151,7 +124,6 @@ pub(crate) fn set_key(
     }
 }
 
-/// Drop this handle's entry, and only this handle's.
 pub(crate) fn forget(owner: usize, store_path: &Path) {
     if let Ok(mut map) = registry().lock() {
         if map.get(store_path).is_some_and(|entry| entry.owner == owner) {
@@ -160,8 +132,6 @@ pub(crate) fn forget(owner: usize, store_path: &Path) {
     }
 }
 
-/// The handle that last set this directory's key (`set_key`'s `owner`), if
-/// any. The stores opened now belong to it (storeclose.rs).
 pub(crate) fn owner_for(store_path: &Path) -> Option<usize> {
     registry()
         .lock()
@@ -188,8 +158,6 @@ fn record_active(store_path: &Path, active: Active) {
     }
 }
 
-/// What the account at `store_path` opened. Memory when nothing was opened
-/// for it, so a caller never keeps what it cannot account for.
 pub(crate) fn active(store_path: &Path) -> Active {
     registry()
         .lock()
@@ -198,39 +166,23 @@ pub(crate) fn active(store_path: &Path) -> Active {
         .unwrap_or(Active::Memory)
 }
 
-// ---- Decisions (pure) -------------------------------------------------------
-
-/// The old plaintext store, `<store>/matrix-sdk-media.sqlite3`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Legacy {
     Absent,
-    /// Its -wal/-shm without the database: inert, removed.
     Leftovers,
-    /// Present, and nothing in it waits for an upload.
     Idle,
-    /// Present, and every pinned row is older than ABANDONED_AFTER.
     Abandoned,
-    /// Present, and not a readable SQLite database (not one at all, or
-    /// corrupt). matrix-sdk could not open it either.
     Damaged,
-    /// Present, with a row the send queue pinned until its upload finishes,
-    /// touched within ABANDONED_AFTER.
     Pending,
-    /// Present, and it could not be asked (permissions, I/O). Treated as
-    /// Pending; matrix-sdk's own open is likely to fail the same way.
     Unknown,
 }
 
-/// The encrypted store directory, measured against the key in hand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OnDisk {
     Nothing,
     Matches,
-    /// Recorded for another key: unreadable with this one.
     Differs,
-    /// Files, but no key record: not something this module left.
     Unmarked,
-    /// The key record could not be read. Never a reason to delete.
     Unreadable,
 }
 
@@ -241,8 +193,6 @@ pub(crate) enum Plan {
     Encrypted { drop_legacy: bool, wipe: bool },
 }
 
-/// The whole decision. Without a key the encrypted store is never touched: a
-/// key that exists but cannot be read now may be readable at the next start.
 pub(crate) fn plan(legacy: Legacy, have_key: bool, disk: OnDisk) -> Plan {
     let drop_legacy = match legacy {
         Legacy::Pending | Legacy::Unknown => return Plan::KeepLegacy,
@@ -259,16 +209,12 @@ pub(crate) fn plan(legacy: Legacy, have_key: bool, disk: OnDisk) -> Plan {
     }
 }
 
-/// A one-way identifier of a key: which key a store belongs to, without
-/// saying anything about the key.
 pub(crate) fn key_id(key: &[u8; 32]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"lightning media store key id v1\0");
     hasher.update(key);
     hasher.finalize()[..16].iter().map(|byte| format!("{byte:02x}")).collect()
 }
-
-// ---- Filesystem ------------------------------------------------------------
 
 fn failed(err: &rusqlite::Error) -> Legacy {
     match err.sqlite_error_code() {
@@ -292,8 +238,6 @@ pub(crate) fn legacy_state(store_path: &Path, now: SystemTime) -> Legacy {
         Ok(meta) if !meta.is_file() => return Legacy::Unknown,
         Ok(_) => {}
     }
-    // Read-write: a read-only open of a WAL database can fail for want of its
-    // -shm, and the file is ours. Closing checkpoints the WAL into it.
     let conn = match rusqlite::Connection::open_with_flags(
         &db,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -301,8 +245,6 @@ pub(crate) fn legacy_state(store_path: &Path, now: SystemTime) -> Legacy {
         Ok(conn) => conn,
         Err(err) => return failed(&err),
     };
-    // A database without the table has nothing pinned. SQLite reads the
-    // header here, so a file that is not a database fails on this query.
     let has_table: rusqlite::Result<bool> = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'media')",
         [],
@@ -442,16 +384,10 @@ enum Prepared {
     Encrypted,
 }
 
-/// Decide and carry out the filesystem half. Blocking. Log lines name no
-/// path, account or key. `media_parent` is the directory the encrypted store
-/// lives in (cachelayout.rs: the cache directory, or the store directory
-/// while it is still there).
 fn prepare(store_path: &Path, media_parent: &Path, key: Option<&[u8; 32]>) -> Prepared {
     prepare_in(store_path, media_parent, key, preserve_caches_for_audit())
 }
 
-/// Temporary runtime audit switch: avoid migration deleting the data under
-/// investigation. A cache for another key stays untouched and is not opened.
 pub(crate) fn preserve_caches_for_audit() -> bool {
     std::env::var_os("LIGHTNING_IO_AUDIT_PRESERVE_CACHES")
         .is_some_and(|value| value == "1")
@@ -550,7 +486,6 @@ fn prepare_in(
 }
 
 fn build_error(err: impl std::fmt::Display) -> String {
-    // The prefix build_client always used for a store that would not open.
     crate::format_matrix_error("failed to build Matrix Rust SDK client", err)
 }
 
@@ -559,9 +494,6 @@ pub(crate) enum OpenedMedia {
     Memory,
 }
 
-/// Open the media store for the account at `store_path`, with the key its
-/// handle set. `plain` is the config the other stores use, for the one case
-/// that opens the old plaintext store.
 #[cfg(test)]
 pub(crate) async fn open_media(
     store_path: &Path,
@@ -570,7 +502,6 @@ pub(crate) async fn open_media(
     open_media_in(store_path, store_path, plain).await
 }
 
-/// The same, with the encrypted store in `media_parent` (cachelayout.rs).
 pub(crate) async fn open_media_in(
     store_path: &Path,
     media_parent: &Path,
@@ -589,15 +520,11 @@ pub(crate) async fn open_media_in(
     };
     let opened = match (prepared, key) {
         (Prepared::Legacy, _) => {
-            // Exactly what `sqlite_store(path, None)` opened; a failure fails
-            // the build as it always did.
             let store = SqliteMediaStore::open_with_config(plain).await.map_err(build_error)?;
             (OpenedMedia::Sqlite(store), Active::Legacy)
         }
         (Prepared::Encrypted, Some(key)) => {
             let dir = media_parent.join(DIR_NAME);
-            // Labs: a Background handle's low-memory profile; today's config
-            // otherwise (`labs::sqlite_config(_, false)` is `new`).
             let low_memory =
                 crate::labs::open_context().is_some_and(|context| context.low_memory_sqlite);
             let config = crate::labs::sqlite_config(&dir, low_memory).key(Some(&key.0));
@@ -622,22 +549,10 @@ pub(crate) async fn open_media_in(
     Ok(opened)
 }
 
-/// The stores for the account at `store_path`: the state and crypto stores
-/// exactly as `ClientBuilder::sqlite_store(path, None)` opened them
-/// (matrix-sdk 0.18 client/builder/mod.rs:693-721), the event-cache store
-/// where cachelayout.rs placed it (`cache/`, or the store directory while it
-/// is still there), and the media store from open_media_in. Records what was
-/// opened for `active()`.
-///
-/// Each SQLite store is handed to the SDK as an `Arc` this function made, so
-/// the returned probe can tell, by a `Weak` failing to upgrade, when the SDK
-/// has really let go of it (storeclose.rs, GitHub #2).
 pub(crate) async fn open_account_stores(
     store_path: &Path,
     lock_config: CrossProcessLockConfig,
 ) -> Result<(StoreConfig, StoreProbe), String> {
-    // The caches move only while this process owns the profile: without the
-    // OS lock another process may have these files open.
     let may_change = crate::storelocking::profile_lock_held() && !preserve_caches_for_audit();
     open_account_stores_with(store_path, lock_config, may_change).await
 }
@@ -647,10 +562,6 @@ pub(crate) async fn open_account_stores_with(
     lock_config: CrossProcessLockConfig,
     may_move_caches: bool,
 ) -> Result<(StoreConfig, StoreProbe), String> {
-    // Labs (design §3.2.6): the reservation comes FIRST, before cachelayout or
-    // the media store touches a file, and the crypto precheck before anything
-    // opens the crypto store. Both only while `labs::store_guards_active()`
-    // and inside a handle's open context; with the flag off there is none.
     let context = crate::labs::open_context().filter(|_| crate::labs::store_guards_active());
     let required = context.as_ref().and_then(|context| context.require_account.clone());
     let reservation = match &context {
@@ -661,7 +572,6 @@ pub(crate) async fn open_account_stores_with(
         crypto_file_precheck(store_path)?;
     }
     let low_memory = context.as_ref().is_some_and(|context| context.low_memory_sqlite);
-    // Before any store is opened, so nothing is moved from under one.
     let placement = {
         let path = store_path.to_path_buf();
         tokio::task::spawn_blocking(move || crate::cachelayout::prepare(&path, may_move_caches))
@@ -683,8 +593,6 @@ pub(crate) async fn open_account_stores_with(
     let crypto = Arc::new(
         SqliteCryptoStore::open_with_config(&config).await.map_err(build_error)?,
     );
-    // The precheck's second half reads the store the client is built with,
-    // never a second open.
     if let Some((user_id, device_id)) = &required {
         crypto_account_precheck(&crypto, user_id, device_id).await?;
     }
@@ -692,7 +600,6 @@ pub(crate) async fn open_account_stores_with(
     record_active(store_path, active);
     let cache_dir = store_path.join(crate::cachelayout::CACHE_DIR);
     if placement.event_cache == cache_dir {
-        // The SDK created the event cache's files at the process umask.
         restrict_tree(&cache_dir);
     }
     let mut probe = StoreProbe::default();
@@ -720,13 +627,6 @@ pub(crate) async fn open_account_stores_with(
 /// The crypto store's file name (matrix-sdk-sqlite 0.18 `crypto_store.rs`).
 pub(crate) const CRYPTO_DATABASE_NAME: &str = "matrix-sdk-crypto.sqlite3";
 
-/// Reserve the store directory for `serial` (storeclose.rs).
-///
-/// A Background open (`existing_only`: it requires an account) is for a store
-/// that EXISTS, and creates nothing: a missing directory is refused as a
-/// missing crypto account, before anything could create it (I5, R1-M4;
-/// review 2026-10-16, finding 6). A foreground open keeps today's behaviour,
-/// where the SQLite opens would create the directory anyway.
 fn reserve_store(
     store_path: &Path,
     serial: u64,
@@ -748,10 +648,6 @@ fn reserve_store(
         .map_err(|_| crate::labs::refuse_store(crate::labs::REFUSAL_STORE_IN_USE))
 }
 
-/// Precheck, first half: the crypto database must already exist as a regular,
-/// non-empty file. Checked WITHOUT opening it, because opening an absent one
-/// creates it, and an empty crypto store mints a new device identity
-/// (matrix-sdk-crypto 0.18 `machine/mod.rs`, `load_account` -> None).
 pub(crate) fn crypto_file_precheck(store_path: &Path) -> Result<(), String> {
     match std::fs::symlink_metadata(store_path.join(CRYPTO_DATABASE_NAME)) {
         Ok(meta) if meta.file_type().is_file() && meta.len() > 0 => Ok(()),
@@ -759,7 +655,6 @@ pub(crate) fn crypto_file_precheck(store_path: &Path) -> Result<(), String> {
     }
 }
 
-/// Precheck, second half: the stored Olm account is the recorded identity.
 async fn crypto_account_precheck(
     crypto: &SqliteCryptoStore,
     user_id: &str,
@@ -787,7 +682,6 @@ mod tests {
     use matrix_sdk::ruma::OwnedMxcUri;
     use matrix_sdk_base::media::store::{IgnoreMediaRetentionPolicy, MediaStore};
 
-    /// A store directory under the system temp dir, removed on drop.
     struct Store(PathBuf);
 
     impl Store {
@@ -823,11 +717,6 @@ mod tests {
     fn bytes_of_every_file(dir: &Path) -> Vec<u8> {
         let mut all = Vec::new();
         for entry in fs::read_dir(dir).unwrap().flatten() {
-            // SQLite deletes its `-wal` and `-shm` sidecars when the last
-            // connection to a database closes, and the SDK closes
-            // asynchronously, so a file listed a moment ago may be gone before
-            // it is read. A file that no longer exists holds no bytes; any
-            // other read error is still a failure.
             let Ok(kind) = entry.file_type() else { continue };
             if !kind.is_file() {
                 continue;
@@ -845,23 +734,16 @@ mod tests {
         haystack.windows(needle.len()).any(|window| window == needle)
     }
 
-    // ---- plan ----
-
-    // The send queue still needs what the old store holds: deleting it would
-    // lose an attachment the user has already sent from the UI.
     #[test]
     fn an_unsent_attachment_keeps_the_old_store_one_more_session() {
         for have_key in [false, true] {
             for disk in [OnDisk::Nothing, OnDisk::Matches, OnDisk::Differs] {
                 assert_eq!(plan(Legacy::Pending, have_key, disk), Plan::KeepLegacy);
-                // A store that cannot be asked is treated the same way.
                 assert_eq!(plan(Legacy::Unknown, have_key, disk), Plan::KeepLegacy);
             }
         }
     }
 
-    // The bound on that exception: a week-old pin and a file that is not a
-    // database are dropped, so the plaintext store is not used for ever.
     #[test]
     fn an_abandoned_or_damaged_old_store_is_dropped() {
         for legacy in [Legacy::Abandoned, Legacy::Damaged] {
@@ -873,8 +755,6 @@ mod tests {
         }
     }
 
-    // CLAUDE.md §6: an unreadable key is transient. Without a key the
-    // encrypted store is left exactly as it is, whatever is on disk.
     #[test]
     fn without_a_key_the_encrypted_store_is_never_touched() {
         for disk in [
@@ -906,7 +786,6 @@ mod tests {
             plan(Legacy::Absent, true, OnDisk::Unmarked),
             Plan::Encrypted { drop_legacy: false, wipe: true }
         );
-        // A record that cannot be read is no reason to delete anything.
         assert_eq!(plan(Legacy::Absent, true, OnDisk::Unreadable), Plan::Memory { drop_legacy: false });
     }
 
@@ -927,8 +806,6 @@ mod tests {
         assert_eq!(key_id(&KEY_A).len(), 32);
     }
 
-    // ---- registry ----
-
     #[test]
     fn a_retiring_handle_cannot_drop_its_successors_key() {
         let path = PathBuf::from("/nonexistent/lightning-mediastore-registry");
@@ -940,15 +817,11 @@ mod tests {
         assert!(admits);
         forget(2, &path);
         assert!(key_for(&path).0.is_none());
-        // Nothing opened for a path: nothing may be kept.
         assert_eq!(active(&path), Active::Memory);
-        // Admission needs a key.
         set_key(3, &path, None, true);
         assert!(!key_for(&path).1);
         forget(3, &path);
     }
-
-    // ---- the old store ----
 
     async fn plaintext_store_with(store: &Path, pending: bool) {
         let legacy = SqliteMediaStore::open_with_config(&SqliteStoreConfig::new(store))
@@ -960,8 +833,6 @@ mod tests {
             IgnoreMediaRetentionPolicy::No
         };
         legacy.add_media_content(&request(URI), MARKER.to_vec(), policy).await.unwrap();
-        // Snapshot tests must wait for the SDK's asynchronous connection close
-        // and WAL checkpoint before comparing database bytes.
         legacy.close().await.unwrap();
     }
 
@@ -983,7 +854,6 @@ mod tests {
         assert_eq!(fs::read(store.0.join(MEDIA_DB)).unwrap(), legacy_before);
     }
 
-    /// Age every pinned row of the old store to `days` ago.
     fn age_pins(store: &Path, days: u64) {
         let at = SystemTime::now() - Duration::from_secs(days * 24 * 60 * 60);
         let secs = at.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64;
@@ -1000,33 +870,25 @@ mod tests {
         assert_eq!(legacy_state(&store.0, now), Legacy::Idle);
         plaintext_store_with(&store.0, true).await;
         assert_eq!(legacy_state(&store.0, now), Legacy::Pending);
-        // A pin nobody has touched for longer than the bound.
         age_pins(&store.0, 6);
         assert_eq!(legacy_state(&store.0, now), Legacy::Pending);
         age_pins(&store.0, 8);
         assert_eq!(legacy_state(&store.0, now), Legacy::Abandoned);
-        // Not a database at all.
         fs::write(store.0.join(MEDIA_DB), vec![b'x'; 4096]).unwrap();
         for sidecar in LEGACY_SIDECARS {
             let _ = fs::remove_file(store.0.join(sidecar));
         }
         assert_eq!(legacy_state(&store.0, now), Legacy::Damaged);
-        // An empty file is an empty database: nothing pinned.
         fs::write(store.0.join(MEDIA_DB), b"").unwrap();
         assert_eq!(legacy_state(&store.0, now), Legacy::Idle);
-        // Sidecars alone.
         fs::remove_file(store.0.join(MEDIA_DB)).unwrap();
         fs::write(store.0.join(LEGACY_SIDECARS[0]), b"x").unwrap();
         assert_eq!(legacy_state(&store.0, now), Legacy::Leftovers);
         assert!(remove_legacy(&store.0));
         assert_eq!(legacy_state(&store.0, now), Legacy::Absent);
-        // Idempotent.
         assert!(remove_legacy(&store.0));
     }
 
-    // MAJOR 1 of the review: an upload that never finishes must not keep the
-    // plaintext store in use, and write every later attachment into it, for
-    // ever.
     #[tokio::test]
     async fn an_abandoned_upload_does_not_keep_the_old_store_alive() {
         let store = Store::new("abandoned");
@@ -1048,16 +910,12 @@ mod tests {
         set_key(16, &store.0, None, false);
         let plain = SqliteStoreConfig::new(&store.0);
         let (media, active) = open_media(&store.0, &plain).await.unwrap();
-        // Before the bound this opened the damaged file as the media store,
-        // and failed the whole client build at every start.
         assert_eq!(active, Active::Memory);
         assert!(matches!(media, OpenedMedia::Memory));
         assert!(!store.0.join(MEDIA_DB).exists());
         forget(16, &store.0);
     }
 
-    // The migration: an old plaintext store with nothing waiting is deleted,
-    // and its bytes are gone from the account's directory.
     #[tokio::test]
     async fn an_idle_old_store_is_deleted_when_the_encrypted_store_opens() {
         let store = Store::new("migrate");
@@ -1086,10 +944,6 @@ mod tests {
         forget(11, &store.0);
     }
 
-    // ---- the encrypted store ----
-
-    // The point of the change: what the send queue and the cache write is not
-    // readable on disk, and it is still there at the next start.
     #[tokio::test]
     async fn media_is_encrypted_at_rest_and_survives_a_restart() {
         let store = Store::new("at-rest");
@@ -1116,8 +970,6 @@ mod tests {
         forget(12, &store.0);
     }
 
-    // A new key (the old record was provably gone) cannot read the old store,
-    // so it is replaced rather than failing every start.
     #[tokio::test]
     async fn a_store_whose_key_is_gone_is_replaced() {
         let store = Store::new("rekey");
@@ -1140,16 +992,6 @@ mod tests {
         forget(13, &store.0);
     }
 
-    // 2026-10-01, measured on a Fedora VM: a keyed store refused media from
-    // about 16 MiB although the cap was 24 MiB, because the SDK measures the
-    // ENCODED row against `max_file_size` and the keyed store encodes
-    // ciphertext as a msgpack array of integers. Through the KEYED store, as
-    // production opens it and with the production policy: a 40 MiB payload (a
-    // phone video from an encrypted room; Rokas raised the cap for exactly
-    // that) is kept and reads back whole, and the encoded/plain ratio is
-    // measured and must leave the policy room for a payload AT the plaintext
-    // cap. The plain-store tests above cannot see this: their encoding is
-    // identity.
     #[tokio::test]
     async fn the_keyed_store_keeps_a_large_payload() {
         use crate::rooms::{
@@ -1185,8 +1027,6 @@ mod tests {
              write {wrote:?}, read {read:?}"
         );
         assert!((1.45..1.55).contains(&ratio), "encoded/plain ratio {ratio}");
-        // A payload AT the plaintext cap, at the measured ratio, still fits,
-        // with most of the slack unused.
         let at_cap = (MEDIA_STORE_MAX_FILE_BYTES as f64 * ratio) as u64;
         assert!(
             at_cap + 512 * 1024 <= MEDIA_STORE_ENCODED_MAX_BYTES,
@@ -1195,12 +1035,6 @@ mod tests {
         forget(17, &store.0);
     }
 
-    // A micro-benchmark, not a gate: how long the keyed store takes to write and
-    // read a payload at the sizes media actually has, so a slow debug build is
-    // not mistaken for a slow product. Run with
-    //   cargo test --release --manifest-path rust/Cargo.toml \
-    //     the_keyed_store_speed -- --ignored --nocapture
-    // It asserts only that the payload reads back whole.
     #[tokio::test]
     #[ignore = "benchmark: run with --release --ignored --nocapture"]
     async fn the_keyed_store_speed_at_40_and_100_mib() {
@@ -1234,8 +1068,6 @@ mod tests {
         }
     }
 
-    // Keyring locked: memory for the session, and the encrypted store, its
-    // record and the old store's decision are all left for the next start.
     #[tokio::test]
     async fn without_a_key_nothing_is_written_and_nothing_is_deleted() {
         let store = Store::new("no-key");
@@ -1243,7 +1075,6 @@ mod tests {
         set_key(14, &store.0, Some(KeyBytes(KEY_A)), false);
         {
             let (media, active) = open_media(&store.0, &plain).await.unwrap();
-            // An insecure keyring still encrypts, but admits no encrypted rooms.
             assert_eq!(active, Active::Encrypted { admits_encrypted: false });
             let OpenedMedia::Sqlite(media) = media else { panic!("not opened") };
             media
@@ -1261,8 +1092,6 @@ mod tests {
         assert!(dir.join(MEDIA_DB).exists(), "the encrypted store was deleted");
         forget(14, &store.0);
     }
-
-    // ---- Labs: reservation and crypto precheck (design §3.2.6) ------------
 
     fn context(serial: u64, require: Option<(&str, &str)>) -> Arc<crate::labs::OpenContext> {
         Arc::new(crate::labs::OpenContext {
@@ -1284,7 +1113,6 @@ mod tests {
         .await
     }
 
-    /// An Olm account for (user, device) saved in the store's crypto DB.
     async fn plant_account(store: &Path, user: &str, device: &str) {
         let crypto = SqliteCryptoStore::open_with_config(&SqliteStoreConfig::new(store))
             .await
@@ -1306,9 +1134,6 @@ mod tests {
         names
     }
 
-    // R1-M4: a missing crypto database is refused WITHOUT creating it, and
-    // nothing else in the directory is touched (cachelayout never ran). The
-    // reason is recorded in the open's context, not in its text.
     #[tokio::test]
     async fn a_missing_crypto_store_is_refused_and_nothing_is_created() {
         let _labs = crate::labs::LabsTestGuard::enabled();
@@ -1319,7 +1144,6 @@ mod tests {
         assert!(!err.contains("crypto_account_missing"), "a marker in the text: {err}");
         assert!(entries(&store.0).is_empty(), "the refused open created {:?}", entries(&store.0));
         assert!(!crate::cachelayout::recorded_split(&store.0));
-        // An empty file is missing too: it would open as a fresh store.
         fs::write(store.0.join(CRYPTO_DATABASE_NAME), b"").unwrap();
         let ctx = context(501, Some(("@u:hs", "DEV")));
         open_in(&store.0, Some(Arc::clone(&ctx))).await.err().unwrap();
@@ -1329,9 +1153,6 @@ mod tests {
                 "a refused open keeps no reservation");
     }
 
-    // I5 / R1-M4, review 2026-10-16 finding 6: a Background open of a store
-    // DIRECTORY that does not exist creates nothing at all, not even the
-    // directory, and is refused as a missing crypto account.
     #[tokio::test]
     async fn a_missing_store_directory_is_refused_and_not_created() {
         let _labs = crate::labs::LabsTestGuard::enabled();
@@ -1344,8 +1165,6 @@ mod tests {
         assert!(entries(&parent.0).is_empty(), "{:?}", entries(&parent.0));
     }
 
-    // WP1-R review N1: a store directory reached through a symlink is the
-    // same store, and a Background open of it is not refused as missing.
     #[cfg(unix)]
     #[tokio::test]
     async fn a_symlinked_store_directory_opens_in_the_background() {
@@ -1361,8 +1180,6 @@ mod tests {
         assert!(opened.is_ok());
     }
 
-    // R1-M4: an account for another device (or none) is a mismatch; the
-    // recorded one opens.
     #[tokio::test]
     async fn only_the_recorded_identity_passes_the_precheck() {
         let _labs = crate::labs::LabsTestGuard::enabled();
@@ -1382,9 +1199,6 @@ mod tests {
         drop((config, probe));
     }
 
-    // I1: the loser of a reservation is refused before cachelayout runs
-    // (fail-if-reordered: a prepare before the reservation writes the layout
-    // record into the fresh directory).
     #[tokio::test]
     async fn a_store_reserved_by_another_serial_is_refused_before_any_file_is_touched() {
         let _labs = crate::labs::LabsTestGuard::enabled();
@@ -1396,7 +1210,6 @@ mod tests {
         assert_eq!(ctx.refusal(), Some(crate::labs::REFUSAL_STORE_IN_USE));
         assert!(entries(&store.0).is_empty(), "{:?}", entries(&store.0));
         assert!(!crate::cachelayout::recorded_split(&store.0), "cachelayout ran for the loser");
-        // The holder itself may open (re-entry), and its build then holds it.
         let (config, mut probe) = open_in(&store.0, Some(context(601, None))).await.expect("holder");
         drop(held);
         let id = crate::storeclose::path_id(&store.0).unwrap();
@@ -1407,14 +1220,11 @@ mod tests {
         assert!(!crate::storeclose::any_held_id(&id), "a build dropped before register releases it");
     }
 
-    // T-OFF-4 (store half): with the flag off, no context exists, nothing is
-    // reserved and a store without a crypto database opens exactly as today.
     #[tokio::test]
     async fn with_labs_off_no_reservation_or_precheck_runs() {
         let _labs = crate::labs::LabsTestGuard::off();
         let store = Store::new("labs-off");
         let before = crate::storeclose::reserve_calls();
-        // Even a context in scope does nothing while the guards are off.
         let (config, probe) = open_in(&store.0, Some(context(701, Some(("@u:hs", "DEV")))))
             .await
             .expect("today's open");

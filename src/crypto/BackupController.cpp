@@ -21,7 +21,7 @@ bool isCancelCategory(const QString &category)
         || category == QLatin1String("cancelled_reset_unconfirmed");
 }
 
-} // namespace
+}
 
 BackupController::BackupController(QObject *parent)
     : QObject(parent)
@@ -38,7 +38,6 @@ bool BackupController::isSafeApprovalUrl(const QString &url)
         return true;
     if (scheme != QLatin1String("http"))
         return false;
-    // Plain http only for a server on this machine (development/test).
     const QString host = parsed.host().toLower();
     if (host == QLatin1String("localhost"))
         return true;
@@ -66,13 +65,9 @@ void BackupController::setClient(MatrixClient *client)
     connect(m_client, &MatrixClient::uiaRequired, this,
             [this](quint64 uiaId, bool hasPasswordStage, bool wrongPassword,
                    const QStringList &) {
-        // Only our own operation may open our prompt.
         if (uiaId == 0 || uiaId != m_op || m_cancelling)
             return;
         if (!hasPasswordStage) {
-            // The server asked for something this client cannot render. Stop
-            // rather than hang on a prompt that cannot be answered; the
-            // backend reports what stopping left behind.
             requestCancel(QStringLiteral("unsupported_auth"));
             return;
         }
@@ -96,12 +91,7 @@ void BackupController::setClient(MatrixClient *client)
     connect(m_client, &MatrixClient::backupActionFinished, this,
             [this](quint64 opId, const QString &action, bool ok,
                    const QString &recoveryKey, const QString &category) {
-        // An earlier session's setup that never reported (the backend found
-        // its marker at sync start). It belongs to no operation of ours, so it
-        // only informs, and never over an operation in flight.
         if (opId == 0 && !ok && category == QLatin1String("setup_interrupted")) {
-            // Never over an operation in flight, and never dropped: queued
-            // until that operation has reported (review L3).
             if (busy()) {
                 m_setupInterruptedPending = true;
                 return;
@@ -120,9 +110,6 @@ void BackupController::setClient(MatrixClient *client)
         if (ok) {
             m_errorCategory.clear();
             m_error.clear();
-            // Held for display only; the dialog dismisses it. A key minted
-            // after Cancel was pressed is shown all the same: the change it
-            // belongs to happened.
             m_recoveryKey = recoveryKey;
             if (cancelWasRequested) {
                 m_notice = tr("The approval had already gone through before "
@@ -146,8 +133,6 @@ void BackupController::setClient(MatrixClient *client)
         }
         Q_EMIT stateChanged();
         requestProgress();
-        // On any outcome: even a failure can change server state, and the stale
-        // snapshot gates destructive buttons.
         Q_EMIT cryptoHealthStale();
         if (m_setupInterruptedPending)
             showSetupInterrupted();
@@ -155,7 +140,6 @@ void BackupController::setClient(MatrixClient *client)
     connect(m_client, &MatrixClient::backupProgress, this,
             [this](const QString &backupState, const QString &uploadState,
                    qint64 backedUp, qint64 total, quint64 requestId) {
-        // A late answer to an earlier request describes an older moment.
         if (requestId != m_progressRequest)
             return;
         m_backupState = backupState;
@@ -188,12 +172,7 @@ void BackupController::setClient(MatrixClient *client)
 
 QString BackupController::failureText(const QString &category) const
 {
-    // Never claim "nothing was changed" unless the backend says so: a failed
-    // `enable` may already have created the backup version, and a failed
-    // `disable_and_delete` may already have disabled it locally.
     if (category == QLatin1String("keys_unavailable")) {
-        // Honest about why, and about what Lightning will not do on its own
-        // (CLAUDE.md section 6).
         return tr("This account already has a cross-signing identity, but this "
                   "session does not hold its keys and they could not be created "
                   "again without replacing that identity. Lightning will not "
@@ -229,9 +208,6 @@ QString BackupController::failureText(const QString &category) const
                   "it next checks your identity with the server, which it could "
                   "not do just now.");
     }
-    // A reset that failed after it started has already replaced this
-    // session's keys locally; the backend has put them back in line with the
-    // server and says which way it went. Never "nothing was changed".
     if (category == QLatin1String("reset_failed")) {
         return tr("The reset did not go through: the server kept your existing "
                   "cross-signing identity. The replacement keys this session had "
@@ -299,8 +275,6 @@ void BackupController::showSetupInterrupted()
 {
     m_setupInterruptedPending = false;
     const QString text = failureText(QStringLiteral("setup_interrupted"));
-    // A key on screen belongs to an action that did report; it stays. An
-    // operation's own failure keeps the error line; this goes to the notice.
     if (m_error.isEmpty()) {
         m_lastAction = QStringLiteral("enable");
         m_errorCategory = QStringLiteral("setup_interrupted");
@@ -310,8 +284,6 @@ void BackupController::showSetupInterrupted()
     }
     Q_EMIT stateChanged();
     Q_EMIT cryptoHealthStale();
-    // Shown now, so the backend may forget it. A report still queued when the
-    // session ends is not acknowledged and comes back next session.
     if (m_client)
         m_client->acknowledgeInterruptedSetup();
 }
@@ -320,10 +292,6 @@ QString BackupController::recoveryFailureText(const QString &category,
                                               bool sessionVerified,
                                               bool becameVerified)
 {
-    // Only these can fail AFTER import_secrets() has signed this device. A
-    // key-entry failure (wrong, malformed, no secret storage, unsupported)
-    // stops before anything was imported, and always gets its own sentence:
-    // "verified, but" would hide the one thing the user must fix.
     const bool afterImport = category == QLatin1String("network")
         || category == QLatin1String("server_refused")
         || category == QLatin1String("secret_storage_mismatch")
@@ -343,8 +311,6 @@ QString BackupController::recoveryFailureText(const QString &category,
                         "storage. Try again.");
         else
             reason = tr("try again.");
-        // "now" only when this attempt verified it; a session verified earlier
-        // (by SAS) is simply verified.
         return becameVerified
             ? tr("This session is now verified, but the key backup could not "
                  "be restored: %1").arg(reason)
@@ -461,7 +427,6 @@ void BackupController::runCrossSigning(const QString &action,
 void BackupController::requestProgress()
 {
     if (m_client) {
-        // An answer from before this request describes an older moment.
         if (m_progressAnswered) {
             m_progressAnswered = false;
             Q_EMIT progressChanged();
@@ -499,12 +464,8 @@ void BackupController::submitPassword(const QString &password)
     if (!m_client || m_op == 0 || !m_passwordRequired || m_cancelling
         || password.isEmpty())
         return;
-    // Close optimistically; a wrong password reopens it via uiaRequired.
     const bool accepted = m_client->uiaSubmitPassword(m_op, password);
     if (!accepted) {
-        // Nothing was retried. Release a job that may still be parked in the
-        // backend (its late report is ignored) and fail here, since a backend
-        // that refused the answer may not report at all.
         m_client->uiaCancel(m_op);
         m_op = 0;
         clearAuth();
@@ -531,8 +492,6 @@ void BackupController::requestCancel(const QString &reason)
     if (!m_client || m_op == 0)
         return;
     m_client->uiaCancel(m_op);
-    // Busy until the backend's own result: an approval may already have gone
-    // through, and only the backend knows what the cancel left behind.
     m_cancelling = true;
     m_cancelReason = reason;
     m_passwordRequired = false;

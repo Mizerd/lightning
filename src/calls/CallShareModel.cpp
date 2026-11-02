@@ -158,7 +158,6 @@ void CallShareModel::applyShares(const QVector<CallShareRow> &desired)
             Q_EMIT dataChanged(index(i), index(i), changed);
     }
 
-    // Emitted after the model settles, so listeners see the final state.
     for (const QString &id : std::as_const(ended))
         Q_EMIT shareEnded(id);
     for (const QString &id : std::as_const(appeared))

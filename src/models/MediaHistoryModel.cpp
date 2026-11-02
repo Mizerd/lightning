@@ -8,14 +8,10 @@
 #include <QUrl>
 
 namespace {
-/// Events per page. The walk is unfiltered, so a page may add no rows in a
-/// chatty room; loadMore() keeps going.
 constexpr int kPageSize = 60;
 
-/// Newest first, stable: attachments in one message share a timestamp and
-/// must not reorder between pages.
 bool newerFirst(qint64 a, qint64 b) { return a > b; }
-} // namespace
+}
 
 MediaHistoryModel::MediaHistoryModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -35,7 +31,6 @@ void MediaHistoryModel::setClient(MatrixClient *client)
                 this, &MediaHistoryModel::onPage);
         connect(m_client, &MatrixClient::mediaHistoryFailed,
                 this, &MediaHistoryModel::onFailed);
-        // A browse belongs to the account that opened it; clear on sign-out.
         connect(m_client, &MatrixClient::loggedOut, this,
                 [this] {
                     m_roomId.clear();
@@ -43,8 +38,6 @@ void MediaHistoryModel::setClient(MatrixClient *client)
                     Q_EMIT roomIdChanged();
                     Q_EMIT availableChanged();
                 });
-        // `available` depends on a live Rust handle, which appears at login,
-        // well after setClient(); re-announce it then.
         connect(m_client, &MatrixClient::loginSucceeded, this,
                 [this] { Q_EMIT availableChanged(); });
     }
@@ -118,8 +111,6 @@ QVariant MediaHistoryModel::data(const QModelIndex &index, int role) const
     case UrlRole: return e.url;
     case HostRole: return e.host;
     case DateGroupRole: {
-        // Resolved in the viewer's time zone and locale: "Yesterday" means the
-        // reader's yesterday.
         const QDateTime when =
             QDateTime::fromMSecsSinceEpoch(e.timestampMs).toLocalTime();
         const QDate day = when.date();
@@ -132,7 +123,6 @@ QVariant MediaHistoryModel::data(const QModelIndex &index, int role) const
             return tr("This week");
         if (day.year() == today.year() && day.month() == today.month())
             return tr("This month");
-        // Month order and names come from the viewer's locale.
         return QLocale().toString(day, QStringLiteral("MMMM yyyy"));
     }
     default: return {};
@@ -146,8 +136,6 @@ void MediaHistoryModel::setRoomId(const QString &roomId)
     m_roomId = roomId;
     clearAll();
     Q_EMIT roomIdChanged();
-    // No auto-load: walking history for a tab nobody opened is an unrequested
-    // request. QML calls loadMore() when the browser becomes visible.
 }
 
 void MediaHistoryModel::setCategory(const QString &category)
@@ -246,19 +234,13 @@ bool MediaHistoryModel::setDateRange(const QString &from, const QString &to)
 
 void MediaHistoryModel::loadMore()
 {
-    // One request at a time and none once complete; a grid calls this on every
-    // scroll.
     if (!available() || m_roomId.isEmpty() || m_pendingOp != 0 || m_complete)
         return;
     m_lastError.clear();
-    // The backend keeps one cursor per room for the whole session. A model
-    // that was cleared has forgotten what it showed, so its first page must
-    // begin at the live edge: continuing from the old cursor answered
-    // "nothing older" with no rows the second time a room's Media was opened.
     const bool restart = m_restartNext;
     m_pendingOp = m_client->requestMediaHistoryPage(m_roomId, kPageSize, restart);
     if (m_pendingOp == 0)
-        return;   // the backend refused; nothing is in flight
+        return;
     m_restartNext = false;
     Q_EMIT stateChanged();
 }
@@ -273,7 +255,7 @@ void MediaHistoryModel::loadAll()
     if (m_pendingOp == 0) {
         loadMore();
         if (m_pendingOp == 0)
-            m_walking = false;   // refused; nothing will ever continue it
+            m_walking = false;
     }
     Q_EMIT stateChanged();
 }
@@ -336,8 +318,6 @@ QVariantList MediaHistoryModel::imageEntries() const
         if (e.kind != QLatin1String("image") || e.mediaKey.isEmpty())
             continue;
         QVariantMap entry;
-        // `row` is the shown row this entry came from, as TimelineModel's
-        // entries carry their row.
         entry.insert(QStringLiteral("row"), row);
         entry.insert(QStringLiteral("mediaKey"), e.mediaKey);
         entry.insert(QStringLiteral("filename"),
@@ -369,7 +349,7 @@ int MediaHistoryModel::imageIndexForRow(int row) const
         const Entry &e = m_all.at(m_shown.at(r));
         if (e.kind != QLatin1String("image") || e.mediaKey.isEmpty()) {
             if (r == row)
-                return -1; // the row exists but is not one of the images
+                return -1;
             continue;
         }
         if (r == row)
@@ -399,8 +379,6 @@ void MediaHistoryModel::onPage(quint64 opId, const QString &roomId,
                                bool complete, bool encryptedRoom)
 {
     Q_UNUSED(scanned);
-    // Drop pages for another room or a superseded walk, so one room's media
-    // never appears under another's name.
     if (opId != m_pendingOp || roomId != m_roomId)
         return;
     m_pendingOp = 0;
@@ -417,9 +395,6 @@ void MediaHistoryModel::onPage(quint64 opId, const QString &roomId,
         e.eventId = row.value(QStringLiteral("eventId")).toString();
         e.kind = row.value(QStringLiteral("kind")).toString();
         e.url = row.value(QStringLiteral("url")).toString();
-        // A link event contributes one row per URL, so identity is the (event,
-        // URL) pair, joined with a unit separator that cannot occur in an event
-        // id.
         const QString identity = e.eventId + QChar(0x1F) + e.url;
         if (e.eventId.isEmpty() || m_seen.contains(identity))
             continue;
@@ -442,8 +417,6 @@ void MediaHistoryModel::onPage(quint64 opId, const QString &roomId,
         added.append(e);
     }
 
-    // Identity of what the view shows now, so the page can be applied as an
-    // insertion rather than a reset: a reset sends a scrolled view to the top.
     const auto identityOf = [](const Entry &e) {
         return e.eventId + QChar(0x1F) + e.url;
     };
@@ -454,8 +427,6 @@ void MediaHistoryModel::onPage(quint64 opId, const QString &roomId,
 
     if (!added.isEmpty()) {
         m_all.append(added);
-        // Pages already arrive in order; the sort also covers a server
-        // answering out of order.
         std::stable_sort(m_all.begin(), m_all.end(),
                          [](const Entry &a, const Entry &b) {
                              return newerFirst(a.timestampMs, b.timestampMs);
@@ -472,25 +443,22 @@ void MediaHistoryModel::onPage(quint64 opId, const QString &roomId,
         for (int i = 0; prefix && i < oldIds.size(); ++i)
             prefix = identityOf(m_all.at(next.at(i))) == oldIds.at(i);
         if (prefix) {
-            // Older pages land after what is shown: append, keep the position.
             if (next.size() > oldIds.size()) {
                 beginInsertRows(QModelIndex(), int(oldIds.size()),
                                 int(next.size()) - 1);
                 m_shown = next;
                 endInsertRows();
             } else {
-                m_shown = next;   // indices shifted, rows unchanged
+                m_shown = next;
             }
             Q_EMIT countsChanged();
         } else {
-            // A server answering out of order put rows above the view.
             beginResetModel();
             m_shown = next;
             endResetModel();
             Q_EMIT countsChanged();
         }
     }
-    // A "show all" walk continues itself, within its budget.
     if (m_walking) {
         if (m_complete || ++m_walkPages >= kMaxWalkPages) {
             m_walking = false;
@@ -510,8 +478,6 @@ void MediaHistoryModel::onFailed(quint64 opId, const QString &roomId,
     if (opId != m_pendingOp || roomId != m_roomId)
         return;
     m_pendingOp = 0;
-    // Not `complete`: after an error the rest of history is unknown, and the
-    // view offers a retry.
     m_lastError = message;
     m_walking = false;
     Q_EMIT stateChanged();
@@ -525,7 +491,6 @@ bool MediaHistoryModel::matches(const Entry &e) const
                 && e.kind != QLatin1String("video"))
                 return false;
         } else if (m_category == QLatin1String("audio")) {
-            // Voice messages are m.audio and belong in the Audio tab.
             if (e.kind != QLatin1String("audio")
                 && e.kind != QLatin1String("voice"))
                 return false;

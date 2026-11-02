@@ -1,10 +1,3 @@
-// The automatic read-receipt coordinator: receipts only under the full
-// visibility conjunction (window active, timeline visible, near bottom, room
-// open), debounce cancellation on focus loss / scroll-away / room switch /
-// sign-out, local-echo and failed-send ineligibility, duplicate suppression
-// and never-regress ordering; announcing a receipt only once the server
-// accepted it, a bounded retry of a failed one, and m.fully_read moving only
-// when the reader leaves the room.
 
 #include "matrix/MatrixClient.h"
 #include "models/ReadReceiptCoordinator.h"
@@ -99,7 +92,6 @@ public:
         fullyReadEvents.append(eventId);
     }
 
-    // Remaining pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -149,7 +141,6 @@ struct Rig {
         coordinator.setNearBottom(true);
     }
 
-    // The server's answers, as the Rust backend reports them.
     void accept(const QString &roomId, const QString &eventId)
     {
         Q_EMIT client.readReceiptAccepted(roomId, eventId);
@@ -160,7 +151,7 @@ struct Rig {
     }
 };
 
-} // namespace
+}
 
 class ReadReceiptCoordinatorTest : public QObject
 {
@@ -189,7 +180,6 @@ private Q_SLOTS:
         rig.model.setRoomId(kRoomA);
         rig.coordinator.setTimelineVisible(true);
         rig.coordinator.setNearBottom(true);
-        // windowActive stays false.
         QVERIFY(!rig.coordinator.receiptPending());
         QTest::qWait(20);
         QCOMPARE(rig.client.receiptEvents.size(), 0);
@@ -256,7 +246,6 @@ private Q_SLOTS:
 
         rig.model.setRoomId(kRoomB);
         QTRY_VERIFY(!rig.client.receiptEvents.isEmpty());
-        // Only the new room's newest event may ever be acked.
         QCOMPARE(rig.client.receiptEvents.first(), QStringLiteral("$b"));
         QCOMPARE(rig.client.receiptRooms.first(), kRoomB);
         QVERIFY(!rig.client.receiptEvents.contains(QStringLiteral("$a")));
@@ -289,10 +278,6 @@ private Q_SLOTS:
         QCOMPARE(rig.client.receiptEvents.last(), QStringLiteral("$2"));
     }
 
-    // GitHub #46: a reaction is not a timeline row, so the newest readable
-    // event stays the same while the server counts the reaction. The same
-    // event must be sent again once for each new count, and not in a loop when
-    // the server does not clear it.
     void aReactionAfterTheNewestRowGetsItsReceiptResent()
     {
         Rig rig;
@@ -306,31 +291,28 @@ private Q_SLOTS:
         QTRY_COMPARE(rig.client.receiptEvents.size(), 1);
         rig.accept(kRoomA, QStringLiteral("$1"));
 
-        rig.client.roomInfos[0].unreadCount = 1; // the reaction
+        rig.client.roomInfos[0].unreadCount = 1;
         rig.coordinator.reevaluate();
         QTRY_COMPARE(rig.client.receiptEvents.size(), 2);
         QCOMPARE(rig.client.receiptEvents.last(), QStringLiteral("$1"));
         rig.accept(kRoomA, QStringLiteral("$1"));
 
-        // The server still says 1: no third receipt.
         rig.coordinator.reevaluate();
         QTest::qWait(20);
         QCOMPARE(rig.client.receiptEvents.size(), 2);
 
-        rig.client.roomInfos[0].unreadCount = 2; // another reaction
+        rig.client.roomInfos[0].unreadCount = 2;
         rig.coordinator.reevaluate();
         QTRY_COMPARE(rig.client.receiptEvents.size(), 3);
     }
 
-    // The server clears the count after the receipt, and a new reaction raises
-    // it to the value it had when the receipt was sent: still a new count.
     void aCountThatReturnsToTheSameValueIsResent()
     {
         Rig rig;
         RoomInfo info;
         info.id = kRoomA;
         info.membership = RoomInfo::Joined;
-        info.unreadCount = 1; // opened with a count already on it
+        info.unreadCount = 1;
         rig.client.roomInfos = { info };
         rig.client.timelines[kRoomA] = { makeEvent(kRoomA, QStringLiteral("$1"), 1000) };
         rig.model.setRoomId(kRoomA);
@@ -338,19 +320,17 @@ private Q_SLOTS:
         QTRY_COMPARE(rig.client.receiptEvents.size(), 1);
         rig.accept(kRoomA, QStringLiteral("$1"));
 
-        rig.client.roomInfos[0].unreadCount = 0; // the server cleared it
+        rig.client.roomInfos[0].unreadCount = 0;
         Q_EMIT rig.client.roomsChanged();
         QTest::qWait(20);
         QCOMPARE(rig.client.receiptEvents.size(), 1);
 
-        rig.client.roomInfos[0].unreadCount = 1; // a new reaction
+        rig.client.roomInfos[0].unreadCount = 1;
         Q_EMIT rig.client.roomsChanged();
         QTRY_COMPARE(rig.client.receiptEvents.size(), 2);
         QCOMPARE(rig.client.receiptEvents.last(), QStringLiteral("$1"));
     }
 
-    // A count recorded for one room never decides for another, and coming back
-    // to a room whose count is unchanged does not send again.
     void theRecordedCountBelongsToItsRoom()
     {
         Rig rig;
@@ -377,7 +357,7 @@ private Q_SLOTS:
         QTest::qWait(20);
         QCOMPARE(rig.client.receiptEvents.size(), 2);
 
-        rig.client.roomInfos[0].unreadCount = 2; // a reaction in A only
+        rig.client.roomInfos[0].unreadCount = 2;
         Q_EMIT rig.client.roomsChanged();
         QTRY_COMPARE(rig.client.receiptEvents.size(), 3);
         QCOMPARE(rig.client.receiptEvents.last(), QStringLiteral("$a1"));
@@ -427,8 +407,6 @@ private Q_SLOTS:
         QTRY_COMPARE(rig.client.receiptEvents.size(), 1);
         QCOMPARE(rig.client.receiptEvents.first(), QStringLiteral("$new"));
 
-        // The timeline resets to a state whose newest readable event is
-        // OLDER than the already-acked one (e.g. truncated snapshot).
         rig.client.resetTimeline(kRoomA,
                                  { makeEvent(kRoomA, QStringLiteral("$old"), 1000) });
         rig.coordinator.reevaluate();
@@ -438,7 +416,6 @@ private Q_SLOTS:
 
     void aNewerEventWithAnEarlierTimestampStillGetsItsReceipt()
     {
-        // Federated rooms: origin_server_ts is not monotonic with stream order.
         Rig rig;
         rig.client.timelines[kRoomA] = {
             makeEvent(kRoomA, QStringLiteral("$a"), 5000),
@@ -447,7 +424,6 @@ private Q_SLOTS:
         rig.makeEligible();
         QTRY_COMPARE(rig.client.receiptEvents.size(), 1);
 
-        // A later arrival (skewed clock) carries an EARLIER timestamp.
         rig.client.appendEvent(makeEvent(kRoomA, QStringLiteral("$b"), 3000));
         QTRY_COMPARE(rig.client.receiptEvents.size(), 2);
         QCOMPARE(rig.client.receiptEvents.last(), QStringLiteral("$b"));
@@ -482,7 +458,6 @@ private Q_SLOTS:
         rig.model.setRoomId(kRoomA);
         rig.makeEligible();
         QTRY_COMPARE(rig.client.receiptEvents.size(), 1);
-        // The user marks the room they are reading as unread.
         RoomInfo room;
         room.id = kRoomA;
         room.markedUnread = true;
@@ -549,8 +524,6 @@ private Q_SLOTS:
         QVERIFY(rig.client.roomInfos.first().markedUnread);
     }
 
-    // receiptSent drives the Activity bell's "read up to here". It must wait
-    // for the server: a receipt that is only queued may still fail.
     void receiptSentWaitsForTheServerToAccept()
     {
         Rig rig;
@@ -562,7 +535,6 @@ private Q_SLOTS:
         QTest::qWait(20);
         QCOMPARE(sent.size(), 0);
 
-        // An answer for another event, or another room, announces nothing.
         rig.accept(kRoomA, QStringLiteral("$other"));
         rig.accept(kRoomB, QStringLiteral("$1"));
         QCOMPARE(sent.size(), 0);
@@ -572,13 +544,10 @@ private Q_SLOTS:
         QCOMPARE(sent.at(0).at(0).toString(), kRoomA);
         QCOMPARE(sent.at(0).at(1).toString(), QStringLiteral("$1"));
         QCOMPARE(sent.at(0).at(2).toLongLong(), qint64(1000));
-        // A duplicate answer is not a second announcement.
         rig.accept(kRoomA, QStringLiteral("$1"));
         QCOMPARE(sent.size(), 1);
     }
 
-    // A receipt that failed (laptop waking before the network) is sent again
-    // without waiting for a new message, and announced only when it lands.
     void aFailedReceiptIsSentAgain()
     {
         Rig rig;
@@ -597,14 +566,11 @@ private Q_SLOTS:
 
         rig.accept(kRoomA, QStringLiteral("$1"));
         QCOMPARE(sent.size(), 1);
-        // Accepted: nothing further is sent.
         rig.coordinator.reevaluate();
         QTest::qWait(40);
         QCOMPARE(rig.client.receiptEvents.size(), 2);
     }
 
-    // The retry waits for its backoff: a sync's roomsChanged storm must not
-    // re-send the failed event every debounce.
     void aFailedReceiptWaitsForItsBackoff()
     {
         Rig rig;
@@ -619,14 +585,11 @@ private Q_SLOTS:
         QTest::qWait(40);
         QCOMPARE(rig.client.receiptEvents.size(), 1);
         QVERIFY(rig.coordinator.retryPending());
-        // A NEWER event is not held back by the old one's backoff.
         rig.client.appendEvent(makeEvent(kRoomA, QStringLiteral("$2"), 2000));
         QTRY_COMPARE(rig.client.receiptEvents.size(), 2);
         QCOMPARE(rig.client.receiptEvents.last(), QStringLiteral("$2"));
     }
 
-    // Retries are bounded; after the last one the reader coming back to the
-    // window is the next chance, not an endless loop.
     void retriesAreBoundedAndResumeWhenTheReaderReturns()
     {
         Rig rig;
@@ -650,8 +613,6 @@ private Q_SLOTS:
         QTRY_COMPARE(rig.client.receiptEvents.size(), attempts + 1);
     }
 
-    // A room marked unread clears through the SDK mark-read action, which
-    // answers with the room-level pair; the same rules apply.
     void markReadPathWaitsForTheServerAndRetries()
     {
         Rig rig;
@@ -667,7 +628,6 @@ private Q_SLOTS:
         QTRY_COMPARE(rig.client.markedReadRooms.size(), 1);
         QCOMPARE(sent.size(), 0);
 
-        // The mark-read failed: the flag is still set server-side.
         rig.client.roomInfos.first().markedUnread = true;
         Q_EMIT rig.client.markRoomReadFailed(kRoomA);
         QTRY_COMPARE(rig.client.markedReadRooms.size(), 2);
@@ -694,9 +654,6 @@ private Q_SLOTS:
         QVERIFY(!rig.coordinator.retryPending());
     }
 
-    // m.fully_read anchors the "New messages" divider. Receipts must not move
-    // it, or the divider and the first-unread pill vanish about a second after
-    // the room opens; it moves when the reader leaves.
     void receiptsDoNotMoveTheFullyReadMarker()
     {
         Rig rig;
@@ -724,7 +681,6 @@ private Q_SLOTS:
         QCOMPARE(rig.client.fullyReadRooms, QStringList{ kRoomA });
         QCOMPARE(rig.client.fullyReadEvents, QStringList{ QStringLiteral("$a") });
 
-        // Back and away again with nothing new read: no second write.
         QTRY_COMPARE(rig.client.receiptEvents.size(), 2);
         rig.model.setRoomId(kRoomA);
         QCOMPARE(rig.client.fullyReadRooms,
@@ -745,18 +701,14 @@ private Q_SLOTS:
                          &ReadReceiptCoordinator::fullyReadMarkerMoved);
         rig.coordinator.setWindowActive(false);
         QCOMPARE(rig.client.fullyReadEvents, QStringList{ QStringLiteral("$1") });
-        // Announced once, for the room and event written (the timeline's
-        // first-unread pill withdraws on it).
         QCOMPARE(moved.size(), 1);
         QCOMPARE(moved.at(0).at(0).toString(), kRoomA);
         QCOMPARE(moved.at(0).at(1).toString(), QStringLiteral("$1"));
-        // Explicit flush (sign-out) with nothing new: no duplicate.
         rig.coordinator.flushFullyReadMarker();
         QCOMPARE(rig.client.fullyReadEvents.size(), 1);
         QCOMPARE(moved.size(), 1);
     }
 
-    // A room the reader never reached the bottom of keeps its marker.
     void leavingUnreadRoomLeavesTheFullyReadMarker()
     {
         Rig rig;
@@ -779,8 +731,6 @@ private Q_SLOTS:
         rig.model.setRoomId(kRoomA);
         rig.makeEligible();
         QTRY_COMPARE(rig.client.receiptEvents.size(), 1);
-        // (The model drops its room on loggedOut before the coordinator hears
-        // it; a backend without a session ignores that write.)
         rig.client.logout();
         const int afterSignOut = int(rig.client.fullyReadEvents.size());
         rig.coordinator.setNearBottom(false);
@@ -790,8 +740,6 @@ private Q_SLOTS:
         QCOMPARE(int(rig.client.fullyReadEvents.size()), afterSignOut);
     }
 
-    // One client object can serve an account switch: what account A was
-    // shown must never be written into account B's session.
     void anotherAccountNeverGetsTheFullyReadMarker()
     {
         Rig rig;
@@ -800,17 +748,14 @@ private Q_SLOTS:
         rig.model.setRoomId(kRoomA);
         rig.makeEligible();
         QTRY_COMPARE(rig.client.receiptEvents.size(), 1);
-        // The session moved on without a loggedOut (add-account).
         rig.client.userId = QStringLiteral("@other:example.org");
         rig.coordinator.setNearBottom(false);
         rig.model.setRoomId(QString());
         QVERIFY(rig.client.fullyReadEvents.isEmpty());
 
-        // And the announced switch clears the previous account's receipts.
         rig.client.userId = QStringLiteral("@me:example.org");
         rig.coordinator.setNearBottom(true);
         rig.model.setRoomId(kRoomA);
-        // $1 is still in flight from before.
         QCOMPARE(rig.client.receiptEvents.size(), 1);
         rig.client.userId = QStringLiteral("@third:example.org");
         Q_EMIT rig.client.loginSucceeded(QStringLiteral("@third:example.org"));

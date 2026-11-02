@@ -14,17 +14,14 @@
 namespace lx = lightning::logexport;
 
 namespace {
-// Newest part of the rolling log an export reads. The files hold up to 8 MB;
-// an issue is nearly always in the latest minutes, and the sanitizer's cost
-// is linear in what it is given.
 constexpr qint64 kMaxRawBytes = 3 * 1024 * 1024;
-} // namespace
+}
 
 struct LogExportController::Job {
     QString directory;
     QString diagnostics;
     lx::SanitizeOptions options;
-    QString destination; // empty: build only
+    QString destination;
 };
 
 struct LogExportController::Built {
@@ -68,7 +65,6 @@ void LogExportController::setKeepLog(bool on)
     if (on == lx::keepLogEnabled() && on == lx::rollingLogRunning())
         return;
     lx::setKeepLogEnabled(on);
-    // Immediate: the device opens or closes now, existing files stay.
     if (on)
         lx::startRollingLog(m_directory.isEmpty() ? lx::rollingLogDirectory()
                                                   : m_directory);
@@ -115,7 +111,6 @@ std::shared_ptr<LogExportController::Job> LogExportController::makeJob() const
 LogExportController::Built LogExportController::run(const Job &job)
 {
     Built b;
-    // What was logged a moment ago is still in the writer's queue.
     if (auto *sink = lx::rollingLogSink())
         sink->flush(500);
     int files = 0;
@@ -170,7 +165,7 @@ void LogExportController::prepare()
         QMetaObject::invokeMethod(
             qApp, [self, generation, built = std::move(built)]() mutable {
                 if (!self || generation != self->m_generation)
-                    return; // a newer prepare() owns the answer
+                    return;
                 const lx::ExportResult &r = built.result;
                 QVariantMap m;
                 m.insert(QStringLiteral("ready"), true);
@@ -219,7 +214,6 @@ void LogExportController::exportTo(const QUrl &file)
 
 void LogExportController::copyRecentLines(int count)
 {
-    // The prepared text was cut at 200 lines; a smaller request trims it.
     const QString text = lx::lastLines(m_recent, count);
     if (text.isEmpty())
         return;

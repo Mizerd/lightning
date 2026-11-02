@@ -2,24 +2,12 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// Q3: unread rooms scrolled out of sight above or below a room list. A pill
-// on that edge scrolls the LIST to the nearest one -- it opens nothing, so the
-// open conversation, its draft and its read state are untouched
-// (next-unread-room navigation is the separate command that opens one).
-// Recomputed on a short debounce after scrolling or model changes, never per
-// frame; the model answers with one bounded pass (attentionRowFrom, on both
-// RoomListModel and SpaceChannelModel). Placed over the list it serves, it
-// takes no input outside its two pills.
 Item {
     id: root
 
-    // The ListView whose rows the pills point at.
     property ListView list: null
-    // Its model: anything with attentionRowFrom(fromRow, step, mentionsOnly).
     property var attentionModel: null
 
-    // The pinned section header's band at the top of the list: the "above"
-    // bar sits below it, never over its text.
     property real pinnedHeaderInset: 34
     property int attentionAboveRow: -1
     property int attentionBelowRow: -1
@@ -84,16 +72,6 @@ Item {
         // is debounced.
         visible: targetRow >= 0 && root.list !== null && root.list.count > 0
         z: 30
-        // A short bar centred on the list's edge, as Discord draws its unread
-        // and mention markers. Every earlier placement covered something: a
-        // centred worded pill covered "Favourites" and an invitation's Accept
-        // button, a round icon on the right edge covered the row's count
-        // badge and timestamp, and a bar the width of the list left a click
-        // target across the top of every row beneath it. This one is a few
-        // pixels tall and `barWidth` wide, and its target is the bar plus a
-        // pixel or two, so the rest of the edge still reaches the row. A
-        // mention differs by shape as well as colour: taller, with a dot at
-        // its end. The words are the accessible name and the tooltip.
         readonly property int barWidth: 64
         readonly property int dot: 6
         anchors.horizontalCenter: parent.horizontalCenter
@@ -124,7 +102,6 @@ Item {
                      : pill.down ? AppTheme.accentPressed
                      : pill.hovered ? AppTheme.accentHover : AppTheme.accent
             }
-            // The mention's second shape cue, past the bar's end.
             Rectangle {
                 visible: pill.mention
                 x: bar.x + bar.width + 2

@@ -42,7 +42,6 @@ const char *levelName(QtMsgType type)
     return "info";
 }
 
-// "<level> <category>: <message>\n"; the stamp goes in front of it.
 QByteArray lineBody(QtMsgType type, const char *category,
                     const QString &message)
 {
@@ -78,12 +77,11 @@ void writeAndFlush(QIODevice &device, const QByteArray &bytes)
 {
     if (!bytes.isEmpty())
         device.write(bytes);
-    // A plain QIODevice has nothing to flush; a file has Qt's buffer.
     if (auto *file = qobject_cast<QFileDevice *>(&device))
         file->flush();
 }
 
-} // namespace
+}
 
 struct AsyncLogSink::State {
     struct Entry {
@@ -96,38 +94,28 @@ struct AsyncLogSink::State {
         : limits(l), device(std::move(d)) {}
 
     const Limits limits;
-    // Written by the writer thread; once it has exited, by a fatal line under
-    // directWriting.
     const std::unique_ptr<QIODevice> device;
 
-    // Guards everything below. Held for queue operations only, never across
-    // a write to the device.
     std::mutex mutex;
-    std::condition_variable wake;       // the writer: work or stop
-    std::condition_variable progress;   // written, or the writer exited
+    std::condition_variable wake;
+    std::condition_variable progress;
     std::vector<Entry> queue;
     qint64 queuedBytes = 0;
-    // Drops since the writer last took the queue. While non-zero nothing is
-    // queued, so the notice lands exactly where the gap is.
     quint64 dropped = 0;
     qint64 firstDropMs = 0;
     qint64 lastDropMs = 0;
     quint64 droppedTotal = 0;
-    // Sequence of the last accepted line (a gap's notice takes one too), and
-    // of the last one written and flushed.
     quint64 accepted = 0;
     quint64 written = 0;
     bool directWriting = false;
     bool closed = false;
     bool stopping = false;
     bool exited = false;
-    // A caller is waiting for the writer: skip the coalescing wait.
     bool urgent = false;
 };
 
 namespace {
 
-// The line owed for a gap, stamped with its first drop.
 AsyncLogSink::State::Entry dropNotice(quint64 dropped, qint64 firstMs,
                                       qint64 lastMs)
 {
@@ -171,8 +159,6 @@ void runWriter(const std::shared_ptr<AsyncLogSink::State> &state)
                 break;
             }
             if (s.limits.coalesceMs > 0 && !s.stopping && !s.urgent) {
-                // Let a burst gather; anything that needs the file now, or a
-                // backlog near the bound, ends the wait.
                 s.wake.wait_for(
                     lock, std::chrono::milliseconds(s.limits.coalesceMs),
                     [&s] {
@@ -194,10 +180,8 @@ void runWriter(const std::shared_ptr<AsyncLogSink::State> &state)
         for (const AsyncLogSink::State::Entry &entry : batch)
             appendEntry(out, entry);
         batch.clear();
-        // Everything in the batch was queued before the first drop.
         if (dropped > 0)
             appendEntry(out, dropNotice(dropped, firstDropMs, lastDropMs));
-        // One write and one flush per batch.
         writeAndFlush(*s.device, out);
         if (out.capacity() > (1 << 20))
             out = QByteArray();
@@ -211,7 +195,7 @@ void runWriter(const std::shared_ptr<AsyncLogSink::State> &state)
     s.progress.notify_all();
 }
 
-} // namespace
+}
 
 AsyncLogSink::AsyncLogSink(std::unique_ptr<QIODevice> device)
     : AsyncLogSink(std::move(device), Limits{})
@@ -234,8 +218,6 @@ AsyncLogSink::~AsyncLogSink()
 bool AsyncLogSink::log(QtMsgType type, const char *category,
                        const QString &message)
 {
-    // Stamped before anything can wait, so a line keeps the time it was
-    // logged even when it reaches the file much later.
     const qint64 whenMs = nowMs();
     return enqueue(whenMs, lineBody(type, category, message), true);
 }
@@ -263,7 +245,6 @@ bool AsyncLogSink::enqueue(qint64 whenMs, QByteArray text, bool stamp)
             || qsizetype(s.queue.size()) >= s.limits.maxLines
             || s.queuedBytes + size > s.limits.maxBytes;
         if (full) {
-            // Never wait for room: count it, and owe a notice.
             if (s.dropped == 0) {
                 ++s.accepted;
                 s.firstDropMs = whenMs;
@@ -278,7 +259,6 @@ bool AsyncLogSink::enqueue(qint64 whenMs, QByteArray text, bool stamp)
             s.queuedBytes += size;
             ++s.accepted;
             queued = true;
-            // A writer gathering a burst must not sit on a near-full queue.
             if (s.limits.coalesceMs > 0
                 && (s.queuedBytes >= s.limits.maxBytes / 4
                     || qsizetype(s.queue.size()) >= s.limits.maxLines / 2)) {
@@ -286,7 +266,6 @@ bool AsyncLogSink::enqueue(qint64 whenMs, QByteArray text, bool stamp)
             }
         }
     }
-    // Only an idle writer waits, and it waits only on an empty queue.
     if (wakeWriter)
         s.wake.notify_one();
     return queued;
@@ -317,7 +296,6 @@ bool AsyncLogSink::logFatal(const char *category, const QString &message,
     State &s = *m_state;
     std::unique_lock<std::mutex> lock(s.mutex);
     if (s.exited && !s.directWriting) {
-        // The writer is gone (static destruction): nobody else writes.
         s.directWriting = true;
         lock.unlock();
         QByteArray line = isoTimestamp(whenMs);
@@ -328,11 +306,7 @@ bool AsyncLogSink::logFatal(const char *category, const QString &message,
         s.directWriting = false;
         return true;
     }
-    // Queued past the bound and after the notice for any gap before it, so
-    // it lands last and in order; then the writer gets the bound to reach it.
-    // A direct write here would race the writer, or block where it blocks.
     if (s.dropped > 0) {
-        // Its sequence number was taken at the first drop.
         s.queue.push_back(dropNotice(s.dropped, s.firstDropMs, s.lastDropMs));
         s.dropped = 0;
     }
@@ -386,11 +360,9 @@ QByteArray AsyncLogSink::formatLine(qint64 msSinceEpochUtc, QtMsgType type,
 
 QByteArray AsyncLogSink::isoTimestamp(qint64 msSinceEpochUtc)
 {
-    // A clock before 1970 is not worth a floor division.
     const qint64 ms = msSinceEpochUtc > 0 ? msSinceEpochUtc : 0;
     const qint64 days = ms / 86400000;
     const qint64 msOfDay = ms % 86400000;
-    // Days to civil date (H. Hinnant's civil_from_days, days >= 0).
     const qint64 z = days + 719468;
     const qint64 era = z / 146097;
     const qint64 doe = z - era * 146097;
@@ -436,4 +408,4 @@ bool flushProcessLog(int timeoutMs)
     return !sink || sink->flush(timeoutMs);
 }
 
-} // namespace lightning::logging
+}

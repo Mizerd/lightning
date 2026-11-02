@@ -1,5 +1,3 @@
-// Swarm C17 regressions for the sanitizer's table flattening and the spoiler
-// markup contract the delegate keys on.
 #include "models/MessageHtml.h"
 
 #include <QtTest/QtTest>
@@ -14,20 +12,17 @@ QString sanitize(const QString &html, bool reveal = false,
 }
 QString nested(const QString &innerText)
 {
-    // Three tables deep: the innermost is past kMaxTableDepth and is
-    // flattened into the middle cell, which already holds text.
     return QStringLiteral(
                "<table><tr><td>outer<table><tr><td>inner<table><tr><td>")
         + innerText
         + QStringLiteral("</td></tr></table></td></tr></table></td></tr></table>");
 }
-} // namespace
+}
 
 class MessageHtmlC17Test : public QObject
 {
     Q_OBJECT
 private slots:
-    // C17-F07: "inner" and the flattened "too deep" ran together.
     void aFlattenedNestedTableIsSeparatedFromTheTextBeforeIt()
     {
         const QString out = sanitize(nested(QStringLiteral("too deep")));

@@ -37,65 +37,30 @@ public:
     explicit CameraPortal(QObject *parent = nullptr);
     ~CameraPortal() override;
 
-    /// True when the Camera portal interface answers on the session bus.
-    /// False without Qt DBus, without a portal, and on non-Linux platforms.
-    /// Says nothing about whether a camera exists; see cameraPresent().
     static bool available();
 
-    /// The portal's `IsCameraPresent`. False when unreadable, which keeps the
-    /// direct route in charge.
     static bool cameraPresent();
 
-    /// Ask the user for the camera. Answers exactly once with `ready`,
-    /// `cancelled` or `failed`. The portal remembers the grant, so only the
-    /// first call shows a dialog; never ask before the user presses the
-    /// camera button.
     void requestAccess();
 
-    /// Abandon an in-flight request. Idempotent; there is no session to close.
     void cancel();
 
-    /// The `failed` category for a D-Bus error `errorName` from AccessCamera
-    /// (`openingRemote` false) or OpenPipeWireRemote (true). Pure.
-    ///
-    ///  - `not_allowed`: the desktop REFUSED the camera
-    ///    (org.freedesktop.portal.Error.NotAllowed: a camera lockdown, or a
-    ///    permission that is not "yes" when the remote is opened;
-    ///    org.freedesktop.portal.Error.Cancelled;
-    ///    org.freedesktop.DBus.Error.AccessDenied). A refusal; callers must
-    ///    never route around it.
-    ///  - `no_portal`: there is no camera portal to ask (ServiceUnknown,
-    ///    UnknownMethod/Interface/Object, NameHasNoOwner).
-    ///  - otherwise `no_pipewire_remote` when opening the remote failed, or
-    ///    `portal_failed` when asking for access did.
     static QString failureCategory(const QString &errorName,
                                    bool openingRemote);
     bool busy() const { return m_busy; }
 
 Q_SIGNALS:
-    /// Access was granted and the PipeWire remote holding the cameras is open.
-    /// `pipewireFd` is a dup owned by the receiver, which must close it on
-    /// every path, including declining to build a pipeline.
     void ready(int pipewireFd);
-    /// The user declined or the portal denied. Not an error; show no message.
     void cancelled();
-    /// A coarse, safe-to-log category, never a raw D-Bus error string (which
-    /// can carry paths and device names); see failureCategory(). Also `busy`,
-    /// `timeout`, and `no_portal` without a session bus.
     void failed(const QString &category);
 
 private:
     void reset();
 #if defined(HAVE_QT_DBUS) && !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
-    /// Step 2: get a descriptor to the PipeWire remote the grant opened.
     void openRemote();
 #endif
 
     bool m_busy = false;
-    /// Frees a wedged request: only the portal's `Response` ends one, and a
-    /// missing one would leave `m_busy` set and the camera dead until restart.
     QTimer m_requestTimeout;
-    /// Discards replies to a superseded request, so a stale Response cannot
-    /// open a remote for a camera the user already turned off.
     quint64 m_generation = 0;
 };

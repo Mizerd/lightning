@@ -38,11 +38,7 @@ namespace {
 Q_LOGGING_CATEGORY(lcLauncher, "lightning.files.launch")
 
 #ifdef HAVE_QT_DBUS
-// Generous: the file manager may be D-Bus activated, which starts it.
 constexpr int kRevealTimeoutMs = 8000;
-// OpenURI answers its Request once the file manager or the handler has been
-// asked. A portal that never answers had accepted the call, so the request
-// counts as handed over then rather than opening a second window over it.
 constexpr int kResponseTimeoutMs = 10000;
 constexpr auto kPortalService = "org.freedesktop.portal.Desktop";
 constexpr auto kPortalPath = "/org/freedesktop/portal/desktop";
@@ -50,12 +46,9 @@ constexpr auto kOpenUri = "org.freedesktop.portal.OpenURI";
 constexpr auto kRequest = "org.freedesktop.portal.Request";
 #endif
 
-// The document portal records each document's real location in this
-// attribute (xdg-desktop-portal's Documents interface documentation).
 [[maybe_unused]] constexpr auto kHostPathAttribute =
     "user.document-portal.host-path";
 
-// One answer, however many paths try to give it.
 [[maybe_unused]] std::function<void(bool)> once(std::function<void(bool)> done)
 {
     auto shared = std::make_shared<std::function<void(bool)>>(std::move(done));
@@ -69,13 +62,12 @@ constexpr auto kRequest = "org.freedesktop.portal.Request";
 
 [[maybe_unused]] QString hostPathFromBytes(QByteArray bytes)
 {
-    // `ay` paths come NUL-terminated.
     while (bytes.endsWith('\0'))
         bytes.chop(1);
     const QString path = QFile::decodeName(bytes);
     return QDir::isAbsolutePath(path) ? QDir::cleanPath(path) : QString();
 }
-} // namespace
+}
 
 #ifdef HAVE_QT_DBUS
 /// Subscribes to one OpenURI Request's Response, delivers it once,
@@ -172,7 +164,6 @@ void FileLauncher::installDefaults()
                     [done](QDBusPendingCallWatcher *w) {
                         w->deleteLater();
                         if (w->isError()) {
-                            // The error NAME only: messages can carry paths.
                             qCInfo(lcLauncher)
                                 << "FileManager1 unavailable error="
                                 << w->error().name();
@@ -206,8 +197,6 @@ void FileLauncher::installDefaults()
                                           std::function<void(const QString &)>
                                               done) {
 #if defined(Q_OS_LINUX)
-            // The attribute first: no bus round trip. A portal that does not
-            // set it answers ENODATA and the bus is asked.
             {
                 QByteArray value(4096, '\0');
                 const ssize_t n =
@@ -232,8 +221,6 @@ void FileLauncher::installDefaults()
                 done(QString());
                 return;
             }
-            // Version 5 of the Documents portal; an older one answers
-            // UnknownMethod and the folder simply stays unnamed.
             QDBusMessage call = QDBusMessage::createMethodCall(
                 QStringLiteral("org.freedesktop.portal.Documents"),
                 QStringLiteral("/org/freedesktop/portal/documents"),
@@ -278,9 +265,6 @@ void FileLauncher::callOpenUriWithFd(const QString &method,
 #ifdef HAVE_QT_DBUS
     const std::function<void(bool)> answer = once(std::move(done));
     QDBusConnection bus = QDBusConnection::sessionBus();
-    // Read-only and close-on-exec (Qt opens every file O_CLOEXEC), which is
-    // what both methods accept; the portal resolves a document-portal
-    // descriptor to the real file itself.
     QFile file(path);
     if (!bus.isConnected() || !file.open(QIODevice::ReadOnly)) {
         answer(false);
@@ -289,8 +273,6 @@ void FileLauncher::callOpenUriWithFd(const QString &method,
     const QString token = QStringLiteral("lightning_%1")
         .arg(QRandomGenerator::system()->generate64(), 0, 16);
     const auto onAnswer = [answer, method](uint response, const QVariantMap &) {
-        // 1 is the user cancelling a chooser the portal showed: handled,
-        // and nothing to fall back to.
         if (response > 1)
             qCInfo(lcLauncher) << "OpenURI" << method << "failed response="
                                << response;
@@ -303,8 +285,6 @@ void FileLauncher::callOpenUriWithFd(const QString &method,
         kPortalService, kPortalPath, kOpenUri, method);
     QVariantMap options;
     options.insert(QStringLiteral("handle_token"), token);
-    // The descriptor is duplicated into the message, so the QFile may close
-    // when this scope ends.
     call << QString()
          << QVariant::fromValue(QDBusUnixFileDescriptor(file.handle()))
          << options;
@@ -317,7 +297,6 @@ void FileLauncher::callOpenUriWithFd(const QString &method,
                 QDBusPendingReply<QDBusObjectPath> reply = *w;
                 if (reply.isError()) {
                     portal::dropSubscription(subscription);
-                    // The error NAME only: messages can carry paths.
                     qCInfo(lcLauncher) << "OpenURI" << method
                                        << "refused error="
                                        << reply.error().name();
@@ -329,7 +308,7 @@ void FileLauncher::callOpenUriWithFd(const QString &method,
                 const QPointer<FileLauncherPortalStep> step = subscription.step;
                 QTimer::singleShot(kResponseTimeoutMs, this, [step, answer] {
                     if (!step)
-                        return; // answered (steps delete themselves)
+                        return;
                     step->deleteLater();
                     answer(true);
                 });
@@ -349,8 +328,6 @@ bool FileLauncher::openFile(const QString &path)
     const QString absolute = info.absoluteFilePath();
     if (m_platform == Platform::Linux
         && savenaming::isDocumentPortalPath(absolute)) {
-        // The portal's own route for a file it granted. Qt's is the same
-        // call plus xdg-open, so it is the fallback.
         QPointer<FileLauncher> self(this);
         m_hooks.portalOpenFile(absolute, [self, absolute](bool ok) {
             if (!self || ok)
@@ -436,7 +413,6 @@ bool FileLauncher::showInFolder(const QString &path,
 
     switch (m_platform) {
     case Platform::Windows: {
-        // Qt Creator's form: "/select," and the path as separate arguments.
         const bool ok = m_hooks.startDetached(
             QStringLiteral("explorer.exe"),
             {QStringLiteral("/select,"), QDir::toNativeSeparators(absolute)});
@@ -464,8 +440,6 @@ bool FileLauncher::showInFolder(const QString &path,
         return true;
     }
 
-    // Linux: FileManager1, then the portal, then the folder. Each step answers
-    // asynchronously; a guard keeps the object alive-checked.
     QPointer<FileLauncher> self(this);
     m_hooks.showItems(
         QUrl::fromLocalFile(absolute), [self, absolute, done](bool ok) {

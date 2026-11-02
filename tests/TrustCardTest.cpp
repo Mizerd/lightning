@@ -1,9 +1,3 @@
-// Offscreen test for the standalone TrustCard component. It never touches
-// `app.*`, so it is driven purely through property injection: complete vs
-// pending node rendering, the both-ends-complete connector rule, the
-// Verify-only action (never Message, never QR), and that the card follows
-// the selected theme, painting the same plane as the SettingsCards beside
-// it.
 
 #include <QtTest/QtTest>
 
@@ -73,7 +67,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class TrustCardTest : public QObject
 {
@@ -106,8 +100,6 @@ private:
         m_root->setProperty("themeMode", mode);
         QCoreApplication::processEvents();
     }
-    // The complete node's icon, resolved through the repeater (delegates are
-    // not QObject-parented into the window tree).
     QQuickItem *stepChild(int step, const QString &name) const
     {
         auto *repeater = find(QStringLiteral("trustChainStepRepeater"));
@@ -123,9 +115,6 @@ private:
 private slots:
     void initTestCase()
     {
-        // The bundled faces main.cpp loads — without them the brand face
-        // falls back and every Icon glyph renders tofu (the assertions pass
-        // either way, but the optional snapshot must show production type).
         for (const char *font :
              { "MaterialSymbolsRounded-subset.ttf", "SpaceGrotesk[wght].ttf",
                "Manrope[wght].ttf", "JetBrainsMono[wght].ttf" }) {
@@ -144,9 +133,6 @@ private slots:
         QVERIFY(m_window);
         QVERIFY(QTest::qWaitForWindowExposed(m_window));
 
-        // Optional visual-comparison artifact: when
-        // LIGHTNING_TRUSTCARD_SNAPSHOT names an output path, this fictional
-        // scene is saved as a reference capture.
         const QString snapshotPath = qEnvironmentVariable(
             "LIGHTNING_TRUSTCARD_SNAPSHOT");
         if (!snapshotPath.isEmpty()) {
@@ -164,8 +150,6 @@ private slots:
 
     void noQrWordingInAnyUserFacingString()
     {
-        // The banned icon name, and no qsTr() string mentioning QR/scanning
-        // (SAS is the only real flow). Checks qsTr() call sites, not comments.
         QFile file(QStringLiteral(QML_DIR "/TrustCard.qml"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString content = QString::fromUtf8(file.readAll());
@@ -187,7 +171,6 @@ private slots:
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString content = QString::fromUtf8(file.readAll());
         QVERIFY(!content.contains(QStringLiteral("app.")));
-        // Brand tokens only — no stray hex outside AppTheme.trust*.
         QRegularExpression hexColor(QStringLiteral("color\\s*:\\s*\"#[0-9A-Fa-f]{3,8}\""));
         QVERIFY(!content.contains(hexColor));
         QVERIFY(!content.contains(QStringLiteral("Qt.rgba(")));
@@ -261,7 +244,6 @@ private slots:
         auto *repeater = find(QStringLiteral("trustChainStepRepeater"));
         QVERIFY(repeater);
 
-        // steps[0]/[1] both complete -> connector 0 is yellow.
         QQuickItem *step0 = nullptr;
         QMetaObject::invokeMethod(repeater, "itemAt",
                                   Q_RETURN_ARG(QQuickItem *, step0), Q_ARG(int, 0));
@@ -270,7 +252,6 @@ private slots:
         QVERIFY(connector0);
         QCOMPARE(connector0->property("color").value<QColor>(), token("tokBolt"));
 
-        // steps[1] complete, steps[2] pending -> connector 1 is pending.
         QQuickItem *step1 = nullptr;
         QMetaObject::invokeMethod(repeater, "itemAt",
                                   Q_RETURN_ARG(QQuickItem *, step1), Q_ARG(int, 1));
@@ -299,13 +280,8 @@ private slots:
 
     void pendingRingActuallyPaintsPixels()
     {
-        // The dashed pending ring must render, not merely be `visible`: a
-        // deferred Canvas paint can miss offscreen grabs.
         const QImage shot = m_window->grabWindow();
         QVERIFY(!shot.isNull());
-        // Repeater delegates are not QObject-parented into the window tree,
-        // so resolve through the repeater and search WITHIN each delegate
-        // subtree (the canvas is a static child there).
         auto *repeater = find(QStringLiteral("trustChainStepRepeater"));
         QVERIFY(repeater);
         QQuickItem *ring = nullptr;
@@ -327,7 +303,6 @@ private slots:
         const int w = int(ring->width());
         const int h = int(ring->height());
         QVERIFY(w >= 20 && h >= 20);
-        // Canvas corners sit outside the circle — module background.
         const QColor bg = shot.pixelColor(int(tl.x()) + 1, int(tl.y()) + 1);
         const qreal cx = w / 2.0, cy = h / 2.0;
         int inkedBandPixels = 0;
@@ -336,7 +311,7 @@ private slots:
                 const qreal dx = x + 0.5 - cx, dy = y + 0.5 - cy;
                 const qreal r = std::sqrt(dx * dx + dy * dy);
                 if (r < 8.0 || r > 12.5)
-                    continue; // only the ring annulus, not the icon
+                    continue;
                 const QColor px = shot.pixelColor(int(tl.x()) + x,
                                                   int(tl.y()) + y);
                 const int delta = qMax(qMax(qAbs(px.red() - bg.red()),
@@ -353,9 +328,6 @@ private slots:
 
     void nodeIconInkIsTheInkForItsOwnFill()
     {
-        // The complete node's glyph sits on the bolt disc, so it must be
-        // boltInk. The pending glyph uses stormTextMuted, which is readable on
-        // inputBackground on every theme.
         setTheme(9);
         auto *complete = stepChild(0, QStringLiteral("trustNodeIcon"));
         QVERIFY(complete);
@@ -369,21 +341,19 @@ private slots:
 
     void cardRetintsWhenTheThemeChanges()
     {
-        // Switching theme must move the card's colours, sampled through the
-        // real AppTheme.mode binding off the card's own items.
         auto *surface = find(QStringLiteral("trustCardSurface"));
         auto *chain = find(QStringLiteral("trustChainPanel"));
         QVERIFY(surface);
         QVERIFY(chain);
 
-        setTheme(8); // Moss Light
+        setTheme(8);
         const QColor fillLight = surface->property("color").value<QColor>();
         const QColor edgeLight = borderColor(surface);
         const QColor chainLight = chain->property("color").value<QColor>();
         const QColor inkLight = token(QStringLiteral("tokText"));
         const QColor boltLight = token(QStringLiteral("tokBolt"));
 
-        setTheme(10); // Deep Teal
+        setTheme(10);
         QVERIFY2(surface->property("color").value<QColor>() != fillLight,
                  "the card fill must retint with the theme");
         QVERIFY2(borderColor(surface) != edgeLight,
@@ -399,9 +369,6 @@ private slots:
 
     void cardPaintsTheSettingsCardPairOnEveryTheme()
     {
-        // The card must paint the same plane and edge as SettingsScreen's
-        // SettingsCard beside it, on all eleven modes. The probe and
-        // SettingsCard must name the same token.
         auto *surface = find(QStringLiteral("trustCardSurface"));
         auto *chain = find(QStringLiteral("trustChainPanel"));
         QVERIFY(surface);
@@ -411,9 +378,6 @@ private slots:
             QCOMPARE(surface->property("color").value<QColor>(),
                      token(QStringLiteral("tokPanel")));
             QCOMPARE(borderColor(surface), token(QStringLiteral("tokBorder")));
-            // The inner module rides the input-fill rung, so it stays distinct
-            // from the card ground. The inequality guards the routing, not the
-            // size of the step.
             QCOMPARE(chain->property("color").value<QColor>(),
                      token(QStringLiteral("tokInset")));
             QCOMPARE(borderColor(chain), token(QStringLiteral("tokBorder")));
@@ -428,10 +392,6 @@ private slots:
 
     void stormKeepsTheBrandLiterals()
     {
-        // Under Storm (theme 11) every routed role must land on its brand
-        // literal. The card fill follows the SettingsCard plane (_stoPanel
-        // #202473). The watermark alpha is not asserted: nothing can
-        // distinguish it from the fill behind it.
         setTheme(11);
         auto *surface = find(QStringLiteral("trustCardSurface"));
         auto *chain = find(QStringLiteral("trustChainPanel"));

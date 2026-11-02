@@ -13,8 +13,6 @@
 
 namespace {
 
-// Formatting tags allowed through (attributes stripped): the intersection of
-// the Matrix suggested subset and Qt's RichText subset.
 const QSet<QString> &allowedTags()
 {
     static const QSet<QString> s = {
@@ -62,33 +60,14 @@ constexpr int kMaxTableDepth = 2;
 constexpr int kMaxTableColumns = 16;
 constexpr int kMaxTableCells = 400;
 
-// What Qt will build from one emitted table, read back from the sanitizer's
-// own output (every '<' there opens a tag this pass emitted). `wellFormed` is
-// false when Qt's tree could differ from the table as written; such a table is
-// flattened rather than counted, because QTextHtmlParser (6.11) does not keep
-// to a table's bounds:
-//  - a close tag walks up to the nearest open element of that name, through
-//    any <table>, so a stray </td> or </b> inside an inner table closes the
-//    OUTER cell and later rows land in the outer table;
-//  - a <td> climbs to the nearest <tr> anywhere above it, and with none it
-//    makes a table of its own; a <tr> or section climbs to the nearest table;
-//  - a <p> closes an open <p> above it up to the nearest block, and an <li>
-//    closes an <li> directly above it, so a later </p> or </li> may match
-//    nothing inside the table and walk out of it.
-// The read below follows exactly those rules and refuses everything else they
-// would make ambiguous: a close tag that matches nothing inside the innermost
-// table, a cell with no row of that table open, and any other element opened
-// directly in table, section or row context. Real clients send none of these.
 struct EmittedTableShape {
     bool wellFormed = false;
-    int columns = 0;   // the table's own widest row
-    qint64 cells = 0;  // its rows x columns, plus every kept nested table's
+    int columns = 0;
+    qint64 cells = 0;
 };
 
 EmittedTableShape measureEmittedTable(const QString &out, qsizetype from)
 {
-    // Block elements per Qt's element table, among the tags this pass emits
-    // (<hr> is void, <table>/<thead>/<tbody>/<tr> are display:table).
     static const QSet<QString> blockTags = {
         QStringLiteral("p"),  QStringLiteral("pre"), QStringLiteral("blockquote"),
         QStringLiteral("h1"), QStringLiteral("h2"),  QStringLiteral("h3"),
@@ -105,7 +84,7 @@ EmittedTableShape measureEmittedTable(const QString &out, qsizetype from)
     };
     struct Open {
         QString name;
-        qsizetype block = -1;   // nearest block element at or below this one
+        qsizetype block = -1;
     };
     struct Grid {
         qint64 rows = 0;
@@ -115,8 +94,8 @@ EmittedTableShape measureEmittedTable(const QString &out, qsizetype from)
         qint64 cells() const { return rows * columns + nested; }
     };
     QList<Open> stack;
-    QList<qsizetype> tableAt;   // stack index of each open table
-    QList<Grid> grids;          // one per open table, innermost last
+    QList<qsizetype> tableAt;
+    QList<Grid> grids;
     const auto push = [&](const QString &name) {
         const qsizetype at = stack.size();
         const qsizetype below = stack.isEmpty() ? -1 : stack.last().block;
@@ -147,13 +126,12 @@ EmittedTableShape measureEmittedTable(const QString &out, qsizetype from)
         i = gt + 1;
 
         if (stack.isEmpty()) {
-            // The span starts at the table's own open tag.
             if (closing || name != QLatin1String("table"))
                 return {};
             push(name);
             continue;
         }
-        const qsizetype scope = tableAt.last();   // innermost open table
+        const qsizetype scope = tableAt.last();
         const bool inTableContext = tableContext.contains(stack.last().name);
 
         if (closing) {
@@ -165,7 +143,7 @@ EmittedTableShape measureEmittedTable(const QString &out, qsizetype from)
                 return {};
             if (name == QLatin1String("table")) {
                 if (tableAt.size() < 2)
-                    return {};   // the root's own close is not in the span
+                    return {};
                 stack.resize(scope);
                 tableAt.removeLast();
                 const Grid inner = grids.takeLast();
@@ -176,7 +154,7 @@ EmittedTableShape measureEmittedTable(const QString &out, qsizetype from)
             while (j > scope && stack[j].name != name)
                 --j;
             if (j == scope)
-                return {};   // would walk out of this table
+                return {};
             stack.resize(j);
             continue;
         }
@@ -188,7 +166,7 @@ EmittedTableShape measureEmittedTable(const QString &out, qsizetype from)
             qsizetype j = stack.size() - 1;
             while (!tableContext.contains(stack[j].name)
                    || stack[j].name == QLatin1String("tr"))
-                --j;   // stops at the innermost table at the latest
+                --j;
             stack.resize(j + 1);
             push(name);
             ++grids.last().rows;
@@ -198,15 +176,14 @@ EmittedTableShape measureEmittedTable(const QString &out, qsizetype from)
             while (j > scope && stack[j].name != QLatin1String("tr"))
                 --j;
             if (j == scope)
-                return {};   // no row of this table open
+                return {};
             stack.resize(j + 1);
             push(name);
             Grid &g = grids.last();
             g.columns = qMax(g.columns, ++g.rowCells);
         } else if (inTableContext) {
-            return {};   // text-level markup belongs in a cell
+            return {};
         } else if (voidTags.contains(name)) {
-            // nothing stays open
         } else {
             if (name == QLatin1String("p")) {
                 const qsizetype b = stack.last().block;
@@ -228,10 +205,6 @@ EmittedTableShape measureEmittedTable(const QString &out, qsizetype from)
     return shape;
 }
 
-// Rewrites out[from..] (sanitizer OUTPUT, where every '<' opens a tag this
-// pass emitted: text and attribute values are escaped) with its table markup
-// flattened the way a too-deep table is: a cell ends in a space, a row in a
-// line break, and every other table tag goes. Other markup is kept.
 void flattenEmittedTables(QString &out, qsizetype from)
 {
     QString flat;
@@ -246,7 +219,7 @@ void flattenEmittedTables(QString &out, qsizetype from)
         }
         flat += QStringView(out).mid(i, lt - i);
         const qsizetype gt = out.indexOf(QLatin1Char('>'), lt);
-        if (gt < 0) {   // cannot happen in our own output; keep it verbatim
+        if (gt < 0) {
             flat += QStringView(out).mid(lt);
             break;
         }
@@ -259,9 +232,6 @@ void flattenEmittedTables(QString &out, qsizetype from)
             ++e;
         const QString name = out.mid(k, e - k);
         if (tableTags().contains(name)) {
-            // A table opening inside a cell that already holds text: the text
-            // before it and the first cell after it would otherwise run
-            // together ("inner" + "too deep" -> "innertoo deep").
             if (!closing && name == QLatin1String("table") && !flat.isEmpty()
                 && !flat.endsWith(QLatin1Char(' '))
                 && !flat.endsWith(QLatin1String("<br>")))
@@ -280,7 +250,6 @@ void flattenEmittedTables(QString &out, qsizetype from)
     out += flat;
 }
 
-// Tags dropped together with their content.
 const QSet<QString> &dropContentTags()
 {
     static const QSet<QString> s = {
@@ -298,29 +267,20 @@ struct ParsedTag {
     bool valid = false;
     bool closing = false;
     QString name;
-    QString raw; // inside of <...>, sans the surrounding brackets
+    QString raw;
 };
 
-// Tag parser for one left-to-right pass. It owns the cursor so the '>'
-// search always resumes where the last one stopped: the pass stays linear
-// even for inputs like "<a" repeated (remote input parsed on the GUI thread),
-// and no caller can reintroduce the quadratic scan.
 class TagScanner
 {
 public:
     explicit TagScanner(const QString &s) : m_s(s) {}
-    TagScanner(QString &&) = delete; // the scanner does not own the string
+    TagScanner(QString &&) = delete;
 
-    // Parse a tag at m_s[pos] == '<'. endOut receives the index just past '>'.
-    // valid is false for a stray '<'. `pos` only moves forward; if it ever
-    // moves back, the memo is rebuilt.
     ParsedTag tagAt(qsizetype pos, qsizetype &endOut)
     {
         ParsedTag t;
         endOut = pos + 1;
         const qsizetype n = m_s.size();
-        // A '<' only starts a tag when followed by a letter or '/' (HTML rule);
-        // "a < b" is literal text.
         if (pos + 1 >= n)
             return t;
         const QChar after = m_s[pos + 1];
@@ -332,8 +292,6 @@ public:
             return t;
         }
         endOut = gt + 1;
-        // Views, not copies: an interior is materialized only for a tag that
-        // parses, so stray '<' characters cost no copying of the remainder.
         const QStringView raw =
             QStringView(m_s).mid(pos + 1, gt - pos - 1).trimmed();
         if (raw.isEmpty())
@@ -348,7 +306,7 @@ public:
                && (inside[i].isLetterOrNumber() || inside[i] == QLatin1Char('-')))
             ++i;
         if (i == 0)
-            return t; // "< " or "</ " — not a real tag
+            return t;
         t.name = inside.left(i).toString().toLower();
         t.raw = raw.toString();
         t.valid = true;
@@ -356,9 +314,6 @@ public:
     }
 
 private:
-    // Index of the first '>' at or after `from`, or -1. Memoized: m_gt is the
-    // first '>' at or after m_from, so any later `from` <= m_gt reuses it and
-    // rescans start past the previous answer. Total scanning is linear.
     qsizetype gtAtOrAfter(qsizetype from)
     {
         if (from >= m_from) {
@@ -395,8 +350,6 @@ QString extractHref(const QString &rawInside)
     return v;
 }
 
-/// One attribute value from a raw tag interior, quoted either way (like
-/// extractHref).
 QString extractAttr(const QString &rawInside, const QString &name)
 {
     const QRegularExpression re(
@@ -414,8 +367,6 @@ QString extractAttr(const QString &rawInside, const QString &name)
     return v;
 }
 
-/// True when the tag carries `data-mx-emoticon` as an attribute name. MSC2545
-/// says the value is ignored, so presence alone is the test.
 bool hasEmoticonMarker(const QString &rawInside)
 {
     static const QRegularExpression re(
@@ -432,13 +383,12 @@ bool isSafeHttp(const QUrl &url)
         && url.userInfo().isEmpty();
 }
 
-// A matrix.to user permalink -> the "@user:server" id, else empty.
 QString matrixToUserId(const QString &href)
 {
     const QUrl u(href);
     if (u.host().compare(QLatin1String("matrix.to"), Qt::CaseInsensitive) != 0)
         return {};
-    QString frag = u.fragment(QUrl::FullyDecoded); // "/@user:server"
+    QString frag = u.fragment(QUrl::FullyDecoded);
     if (frag.startsWith(QLatin1Char('/')))
         frag = frag.mid(1);
     const int slash = frag.indexOf(QLatin1Char('/'));
@@ -456,11 +406,6 @@ QString localpart(const QString &userId)
     return colon > 0 ? lp.left(colon) : lp;
 }
 
-// ---- Code-block segmentation helpers --------------------------------------
-
-// Decode entities into literal characters. Code-block text is rendered as
-// plain text, so "&lt;script&gt;" stays literal. One pass only: a second would
-// turn "&amp;lt;" into "<".
 QString decodeEntities(const QString &in)
 {
     QString out;
@@ -474,8 +419,6 @@ QString decodeEntities(const QString &in)
             continue;
         }
         const qsizetype semi = in.indexOf(QLatin1Char(';'), i + 1);
-        // An unterminated or overlong "&…" is not an entity; keep the
-        // ampersand.
         if (semi < 0 || semi - i > 12) {
             out += c;
             ++i;
@@ -494,7 +437,7 @@ QString decodeEntities(const QString &in)
         else if (name == QLatin1String("apos"))
             rep = QStringLiteral("'");
         else if (name == QLatin1String("nbsp"))
-            rep = QStringLiteral(" "); // a code block wants a real space
+            rep = QStringLiteral(" ");
         else if (name.startsWith(QLatin1Char('#')) && name.size() > 1) {
             bool ok = false;
             uint value = 0;
@@ -503,7 +446,6 @@ QString decodeEntities(const QString &in)
                 value = QStringView(name).mid(2).toUInt(&ok, 16);
             else
                 value = QStringView(name).mid(1).toUInt(&ok, 10);
-            // Reject surrogates and out-of-range code points.
             if (ok && value > 0 && value <= 0x10FFFFu
                 && !(value >= 0xD800u && value <= 0xDFFFu)) {
                 const char32_t ucs = static_cast<char32_t>(value);
@@ -521,14 +463,9 @@ QString decodeEntities(const QString &in)
     return out;
 }
 
-// The validated language token from `class="language-rust"` / `lang-rust`.
-// Fails closed: anything other than a short identifier yields empty. The raw
-// class string is sender text and is never returned.
 QString languageFromClass(const QString &rawInside)
 {
     static const QRegularExpression attr(
-        // The tag name comes first, so a real class attribute follows
-        // whitespace; this keeps `data-class=` from matching.
         QStringLiteral("(?:\\A|\\s)class\\s*=\\s*"
                        "(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'=<>`]+))"),
         QRegularExpression::CaseInsensitiveOption);
@@ -559,16 +496,12 @@ QString languageFromClass(const QString &rawInside)
     return {};
 }
 
-// Tags with no content of their own; a run of only these is spacing, and
-// dropping it avoids an empty line between adjacent code blocks. <hr>, lists
-// and headings are content and are not here.
 bool isLayoutOnlyTag(const QString &name)
 {
     return name == QLatin1String("p") || name == QLatin1String("br")
         || name == QLatin1String("span") || name == QLatin1String("div");
 }
 
-// Does a sanitized RichText run carry anything a reader would see?
 bool richTextCarriesContent(const QString &rich)
 {
     const qsizetype n = rich.size();
@@ -589,8 +522,6 @@ bool richTextCarriesContent(const QString &rich)
         qsizetype end = 0;
         const ParsedTag t = scanner.tagAt(i, end);
         if (!t.valid) {
-            // A stray '<' would have been escaped, so this is malformed output;
-            // treat it as content rather than dropping the run.
             return true;
         }
         if (!isLayoutOnlyTag(t.name))
@@ -600,8 +531,6 @@ bool richTextCarriesContent(const QString &rich)
     return false;
 }
 
-// Normalize line endings, drop the leading newline `<pre><code>` usually
-// carries, and drop trailing newlines.
 QString normalizeCodeText(QString text)
 {
     text.replace(QLatin1String("\r\n"), QLatin1String("\n"));
@@ -613,8 +542,6 @@ QString normalizeCodeText(QString text)
     return text;
 }
 
-// Cheap reject first: every formatted body runs through this. A <pre> inside
-// dropped content (<script>, <mx-reply>) is not a code block.
 bool containsCodeBlock(const QString &html)
 {
     if (!html.contains(QLatin1String("<pre"), Qt::CaseInsensitive))
@@ -653,17 +580,11 @@ bool containsCodeBlock(const QString &html)
     return false;
 }
 
-
-// ---- Inline emoji sizing (markEmoji) ------------------------------------
-
 struct CodepointRange {
     char32_t lo;
     char32_t hi;
 };
 
-// Emoji_Presentation=Yes: code points drawn as a picture without a variation
-// selector. The narrow set that may be enlarged; digits, "#" and "(c)" are
-// Emoji=Yes too and must not be.
 constexpr CodepointRange kEmojiPresentation[] = {
     {0x231Au, 0x231Bu},   {0x23E9u, 0x23ECu},   {0x23F0u, 0x23F0u},
     {0x23F3u, 0x23F3u},   {0x25FDu, 0x25FEu},   {0x2614u, 0x2615u},
@@ -716,11 +637,6 @@ bool isSkinToneModifier(char32_t cp) { return cp >= 0x1F3FBu && cp <= 0x1F3FFu; 
 bool isRegionalIndicator(char32_t cp) { return cp >= 0x1F1E6u && cp <= 0x1F1FFu; }
 bool isTagCharacter(char32_t cp) { return cp >= 0xE0020u && cp <= 0xE007Fu; }
 
-// The broad test, used only to decide whether a body is emoji-only (see
-// markEmoji). It must be a superset of the narrow test and of EmojiCatalog's
-// lookup, or a big-emoji body could be enlarged twice; it covers Emoji=Yes
-// characters without default emoji presentation (a bare U+2764). CJK and kana
-// are letters and deliberately outside it.
 bool couldCarryEmoji(char32_t cp)
 {
     return cp == 0x00A9u || cp == 0x00AEu
@@ -732,8 +648,6 @@ bool couldCarryEmoji(char32_t cp)
         || isTagCharacter(cp);
 }
 
-// Does this grapheme cluster render as a picture? Narrow by design: it
-// decides what is enlarged.
 bool clusterIsEmoji(const QList<char32_t> &cps)
 {
     if (cps.isEmpty())
@@ -746,9 +660,6 @@ bool clusterIsEmoji(const QList<char32_t> &cps)
         if (cp == kVs16)
             sawVs16 = true;
     }
-    // U+FE0F requests emoji presentation for a non-default base (U+2764
-    // U+FE0F). The base must be a symbol so a selector after a letter cannot
-    // resize a word.
     return sawVs16 && couldCarryEmoji(cps.first());
 }
 
@@ -772,12 +683,11 @@ bool clusterIsWhitespace(const QList<char32_t> &cps)
     return !cps.isEmpty();
 }
 
-// One O(n) gate; an ASCII body leaves without allocating anything.
 bool mayHoldEmoji(const QString &html)
 {
     for (const QChar c : html) {
         const char16_t u = c.unicode();
-        if (u >= 0xD800u && u <= 0xDBFFu) // a high surrogate: any SMP char
+        if (u >= 0xD800u && u <= 0xDBFFu)
             return true;
         if (u == 0x00A9u || u == 0x00AEu)
             return true;
@@ -789,14 +699,8 @@ bool mayHoldEmoji(const QString &html)
     return false;
 }
 
-// Is html[i] the start of a character entity? Returns its end (past ';') or
-// -1. Entities are atomic: splitting "&amp;" corrupts markup and can even
-// manufacture a tag.
 qsizetype entityEnd(const QString &html, qsizetype i)
 {
-    // Bound the search rather than scanning the whole rest and rejecting after:
-    // a body of repeated "&" would otherwise be quadratic. No entity is longer
-    // than ten characters.
     const qsizetype limit = qMin(i + 11, html.size());
     const qsizetype semi = QStringView(html).mid(i + 1, limit - (i + 1))
                                .indexOf(QLatin1Char(';'));
@@ -805,18 +709,10 @@ qsizetype entityEnd(const QString &html, qsizetype i)
     return i + 1 + semi + 1;
 }
 
-} // namespace
+}
 
 namespace {
 
-// Wrap bare http(s) URLs in a TEXT run of an already-tokenised formatted body.
-//
-// A formatted body is HTML the sender's client produced, and CommonMark has no
-// bare-URL autolinks: a markdown message that also carries a mention pill (so
-// it travels as HTML) arrives with its URL as plain text, which used to draw
-// as dead text while the link-preview card beneath it worked. The text is the
-// sender's, already entity-escaped, so it is copied through untouched; only
-// the href is decoded, re-validated and re-escaped.
 QString linkifyBareUrls(const QString &text, const QString &linkInk)
 {
     if (!text.contains(QLatin1String("://")))
@@ -849,7 +745,7 @@ QString linkifyBareUrls(const QString &text, const QString &linkInk)
                     continue;
                 }
                 if (entity.hasMatch())
-                    break; // an entity that belongs to the URL (&amp;)
+                    break;
                 candidate.chop(1);
                 continue;
             }
@@ -888,7 +784,7 @@ QString linkifyBareUrls(const QString &text, const QString &linkInk)
     return out;
 }
 
-} // namespace
+}
 
 QString MessageHtml::sanitize(
     const QString &html,
@@ -897,29 +793,19 @@ QString MessageHtml::sanitize(
     const MentionStyle &mentionStyle,
     bool revealSpoilers)
 {
-    // Defensive bound: never process an unreasonably large formatted body.
     static constexpr qsizetype kMaxInput = 64 * 1024;
     const QString in = html.size() > kMaxInput ? html.left(kMaxInput) : html;
 
     QString out;
     out.reserve(in.size());
-    int dropDepth = 0;      // inside a dropped-content element
-    int mentionSwallow = 0; // inside a mention whose text we already replaced
-    QList<bool> anchorEmitted; // did each open <a> emit an <a> we must close?
-    // Per open <span>: was it emitted as a spoiler anchor? Keeps a plain
-    // </span> from closing a spoiler anchor and vice versa.
+    int dropDepth = 0;
+    int mentionSwallow = 0;
+    QList<bool> anchorEmitted;
     QList<bool> spanIsSpoiler;
-    int codeDepth = 0;      // inside <code>/<pre>: a URL there stays text
-    // Per open <table>: did this pass emit it? A table past kMaxTableDepth is
-    // flattened into its parent cell.
+    int codeDepth = 0;
     QList<bool> tableEmitted;
-    // Where each EMITTED open table's markup starts in `out`. Its shape is read
-    // back from that span when it closes (measureEmittedTable): one that is
-    // malformed, past the column bound, or past what is left of the body's
-    // cell budget is flattened; a flattened table holds no cells. A kept
-    // nested table's cells are part of its parent's span and so of its count.
     QList<qsizetype> openTableStarts;
-    qint64 tableCellsKept = 0;   // cells of the top-level tables kept so far
+    qint64 tableCellsKept = 0;
     const auto closeEmittedTable = [&out, &openTableStarts, &tableCellsKept]() {
         const qsizetype start = openTableStarts.takeLast();
         const EmittedTableShape shape = measureEmittedTable(out, start);
@@ -943,9 +829,6 @@ QString MessageHtml::sanitize(
                 lt = n;
             if (dropDepth == 0 && mentionSwallow == 0) {
                 const QString chunk = in.mid(i, lt - i);
-                // Bare URLs become links, except inside an anchor (emitted or
-                // dropped), inside code, or inside a spoiler run, whose own
-                // anchor must not be nested in.
                 if (anchorEmitted.isEmpty() && codeDepth == 0
                     && !spanIsSpoiler.contains(true)) {
                     out += linkifyBareUrls(
@@ -965,8 +848,6 @@ QString MessageHtml::sanitize(
         qsizetype end = 0;
         const ParsedTag t = scanner.tagAt(ltPos, end);
         if (!t.valid) {
-            // Literal '<' (stray or unterminated tag): escape just this
-            // character and keep scanning.
             if (dropDepth == 0 && mentionSwallow == 0)
                 out += QLatin1String("&lt;");
             i = ltPos + 1;
@@ -1003,11 +884,11 @@ QString MessageHtml::sanitize(
             if (t.closing)
                 continue;
             if (!hasEmoticonMarker(t.raw))
-                continue;   // an image that does not claim to be an emoticon
+                continue;
             const QString src = extractAttr(t.raw, QStringLiteral("src"));
             if (!src.startsWith(QLatin1String("mxc://"))
                 || src.length() <= int(sizeof("mxc://") - 1)) {
-                continue;   // unaddressable, or not ours to fetch
+                continue;
             }
             // An mxc URI is `mxc://<server>/<media id>` and the media id is
             // ASCII alphanumerics, `_` and `-` only: no extra path, query,
@@ -1018,12 +899,6 @@ QString MessageHtml::sanitize(
                 if (!mxcShape.match(src).hasMatch())
                     continue;
             }
-            // Matrix v1.19: `alt` is the image's description and `title` its
-            // shortcode. Both are remote text shown on hover and read by
-            // assistive technology: kept separate, escaped and bounded.
-            // Attribute text arrives entity-encoded (a sender escapes quotes);
-            // decode the five XML entities once so re-escaping below does not
-            // turn `&quot;` into visible "&quot;" for a screen reader.
             const auto decoded = [](QString v) {
                 v.replace(QLatin1String("&quot;"), QLatin1String("\""));
                 v.replace(QLatin1String("&#39;"), QLatin1String("'"));
@@ -1048,8 +923,6 @@ QString MessageHtml::sanitize(
             if (!title.isEmpty())
                 out += QStringLiteral(" title=\"") + title.toHtmlEscaped()
                     + QStringLiteral("\"");
-            // The sender's `height` is not honoured: a fixed inline size keeps
-            // a remote emoticon from taking over the reader's message list.
             out += QStringLiteral(" height=\"20\" width=\"20\">");
             continue;
         }
@@ -1065,12 +938,10 @@ QString MessageHtml::sanitize(
                 continue;
             }
             if (mentionSwallow > 0) {
-                ++mentionSwallow; // nested anchor inside a replaced mention
+                ++mentionSwallow;
                 continue;
             }
             const QString href = extractHref(t.raw);
-            // Inside a covered spoiler nothing is a link: the whole slab is the
-            // reveal toggle. Links return once revealed.
             const bool coveredSpoiler = !revealSpoilers && spanIsSpoiler.contains(true);
             const QString mentionUser = matrixToUserId(href);
             if (!mentionUser.isEmpty() && coveredSpoiler) {
@@ -1083,11 +954,11 @@ QString MessageHtml::sanitize(
                 if (disp.isEmpty())
                     disp = localpart(mentionUser);
                 out += (QStringLiteral("@") + disp).toHtmlEscaped();
-                ++mentionSwallow; // drop the sender's original inner text + </a>
+                ++mentionSwallow;
                 continue;
             }
             if (coveredSpoiler) {
-                anchorEmitted.append(false); // inner text flows, no href
+                anchorEmitted.append(false);
                 continue;
             }
             if (!mentionUser.isEmpty()) {
@@ -1097,18 +968,10 @@ QString MessageHtml::sanitize(
                     disp.clear();
                 if (disp.startsWith(QLatin1Char('@')))
                     disp = disp.mid(1);
-                // The resolver answers the member name, else a global profile
-                // name, else the localpart. The sender's anchor text is
-                // deliberately never used: a pill reading "@admin" that links
-                // to @attacker:evil is the spoof this prevents (Element ignores
-                // it too).
                 if (disp.isEmpty())
                     disp = localpart(mentionUser);
                 const bool self =
                     !ownUserId.isEmpty() && mentionUser == ownUserId;
-                // The accent is reserved for a mention of you; others take the
-                // link ink (see MentionStyle). Each ink falls back to the
-                // other, so a theme that sets only one still styles both.
                 const QString &preferred = self ? mentionStyle.accentColor
                                                 : mentionStyle.linkColor;
                 const QString &alternate = self ? mentionStyle.linkColor
@@ -1131,23 +994,17 @@ QString MessageHtml::sanitize(
                                : QStringLiteral(";text-decoration:none\""));
                 }
                 out += QStringLiteral(">");
-                // <b> stays the self-mention marker because it survives an
-                // unstyled body, so both paths agree and MentionTokenizer's
-                // recovery matches one shape.
                 if (self)
                     out += QLatin1String("<b>");
                 out += (QStringLiteral("@") + disp).toHtmlEscaped();
                 if (self)
                     out += QLatin1String("</b>");
                 out += QLatin1String("</a>");
-                ++mentionSwallow; // drop the sender's original inner text + </a>
+                ++mentionSwallow;
                 continue;
             }
             const QUrl u(href);
             if (isSafeHttp(u)) {
-                // Give links the theme's link ink instead of Qt's default
-                // #0000ff, which is unreadable on dark themes. The underline
-                // separates a URL from a mention.
                 const QString linkInk = mentionStyle.linkColor.isEmpty()
                     ? mentionStyle.accentColor
                     : mentionStyle.linkColor;
@@ -1159,21 +1016,15 @@ QString MessageHtml::sanitize(
                 out += QStringLiteral(">");
                 anchorEmitted.append(true);
             } else {
-                anchorEmitted.append(false); // drop the link, keep its text
+                anchorEmitted.append(false);
             }
             continue;
         }
 
         if (mentionSwallow > 0)
-            continue; // drop any other markup inside a replaced mention
+            continue;
 
         if (name == QLatin1String("span")) {
-            // Spoilers: a data-mx-spoiler span becomes a click-to-reveal run.
-            // Covered is a solid codeBackground slab (background and text in
-            // one ink); revealed keeps only the background. Both wrap the run
-            // in the internal spoiler:toggle anchor, routed to the model, never
-            // a browser. The optional reason is ignored; other spans stay
-            // attribute-stripped.
             static const QRegularExpression spoilerAttr(
                 QStringLiteral("(?:\\A|\\s)data-mx-spoiler(?:\\s*=|\\s|\\z)"),
                 QRegularExpression::CaseInsensitiveOption);
@@ -1222,20 +1073,12 @@ QString MessageHtml::sanitize(
                         openTableStarts.size() < kMaxTableDepth;
                     tableEmitted.append(withinBound);
                     if (!withinBound) {
-                        // Flattened into the cell holding it: keep its first
-                        // cell apart from any text already there ("inner" +
-                        // "too deep" ran together).
                         if (!out.isEmpty() && !out.endsWith(QLatin1Char(' '))
                             && !out.endsWith(QLatin1String("<br>")))
                             out += QLatin1Char(' ');
                         continue;
                     }
                     openTableStarts.append(out.size());
-                    // No sender attribute survives (border, width, bgcolor,
-                    // style). The grid is ours: a one-pixel collapsed rule and
-                    // cell padding, so cells read as cells ("a | b" ran
-                    // together as "ab"). The colour is a validated theme
-                    // QColor, escaped again.
                     out += QStringLiteral("<table border=\"1\" cellspacing=\"0\" "
                                           "cellpadding=\"6\" style=\"border-collapse:"
                                           "collapse");
@@ -1250,9 +1093,6 @@ QString MessageHtml::sanitize(
                 }
                 continue;
             }
-            // Rows and cells: only directly inside a table this pass emitted.
-            // In a flattened (too deep) table a cell ends in a space and a row
-            // in a line break, so its text still does not run together.
             if (tableEmitted.isEmpty() || !tableEmitted.last()) {
                 if (t.closing && (name == QLatin1String("td")
                                   || name == QLatin1String("th")))
@@ -1261,8 +1101,6 @@ QString MessageHtml::sanitize(
                     out += QStringLiteral("<br>");
                 continue;
             }
-            // Emitted as written; whether Qt would build it as written is
-            // decided from the output when the table closes.
             out += (t.closing ? QStringLiteral("</") : QStringLiteral("<"))
                 + name + QStringLiteral(">");
             continue;
@@ -1276,12 +1114,6 @@ QString MessageHtml::sanitize(
                 if (name != QLatin1String("br") && name != QLatin1String("hr"))
                     out += QStringLiteral("</") + name + QStringLiteral(">");
             } else if (name == QLatin1String("ol")) {
-                // `start` survives on <ol>. Markdown splits a numbered list
-                // interrupted by nested bullets into several <ol start="N">
-                // lists; without it every one restarts at 1. Qt 6 honours it
-                // (QTextListFormat::start()), although its documented subset
-                // does not say so. Digits only and bounded, re-emitted from a
-                // parsed integer so no sender text survives.
                 const QString rawStart =
                     extractAttr(t.raw, QStringLiteral("start"));
                 bool ok = false;
@@ -1295,19 +1127,12 @@ QString MessageHtml::sanitize(
             } else if (!mentionStyle.codeBackground.isEmpty()
                        && (name == QLatin1String("code")
                            || name == QLatin1String("pre"))) {
-                // Inline code and code blocks get a subtle boxed background.
-                // The colour is a validated theme QColor, escaped again; the
-                // plain </tag> above closes it.
                 out += QStringLiteral("<") + name
                     + QStringLiteral(" style=\"background-color:")
                     + mentionStyle.codeBackground.toHtmlEscaped()
                     + QStringLiteral("\">");
             } else if (!mentionStyle.linkColor.isEmpty()
                        && name == QLatin1String("blockquote")) {
-                // A quote bar: Qt renders a bare <blockquote> as an indent
-                // only. Qt 6 honours block border properties, so draw a left
-                // rule in the theme's link ink. The colour is a validated theme
-                // QColor, escaped again.
                 out += QStringLiteral("<blockquote style=\"border-left:3px "
                                       "solid ")
                     + mentionStyle.linkColor.toHtmlEscaped()
@@ -1316,10 +1141,8 @@ QString MessageHtml::sanitize(
                 out += QStringLiteral("<") + name + QStringLiteral(">");
             }
         }
-        // Unknown tag: dropped; its text content still flows through.
     }
 
-    // Close any anchors/spans left open by malformed input.
     while (!spanIsSpoiler.isEmpty()) {
         out += spanIsSpoiler.takeLast() ? QLatin1String("</span></a>")
                                         : QLatin1String("</span>");
@@ -1328,14 +1151,8 @@ QString MessageHtml::sanitize(
         if (anchorEmitted.takeLast())
             out += QLatin1String("</a>");
     }
-    // Then tables, outermost last, so nothing after this body is laid out
-    // inside a cell.
     while (!openTableStarts.isEmpty())
         closeEmittedTable();
-    // Emoji sizing runs last, over already-safe output, so the formatted and
-    // code-block paths share it. The one non-render consumer (beginEdit ->
-    // mention::refsFromSanitizedHtml) matches only mention anchors and strips
-    // inner tags, so the span never reaches an outgoing formatted_body.
     return markEmoji(out);
 }
 
@@ -1371,12 +1188,9 @@ QString MessageHtml::resolveInlineImages(
     const std::function<QString(const QString &)> &resolve,
     const std::function<double(const QString &)> &aspectOf)
 {
-    // Nothing to do for most messages, and this runs on every read.
     if (!resolve || !safeHtml.contains(QLatin1String("data-mx-emoticon")))
         return safeHtml;
 
-    // Operates on sanitize()'s own output, so the only possible <img> is the
-    // one it emitted, in its exact shape.
     static const QRegularExpression re(
         QStringLiteral("<img data-mx-emoticon src=\"(mxc://[^\"]+)\"([^>]*)>"),
         QRegularExpression::CaseInsensitiveOption);
@@ -1392,10 +1206,6 @@ QString MessageHtml::resolveInlineImages(
         const QString mxc = m.captured(1);
         const QString source = resolve(mxc);
         if (source.isEmpty()) {
-            // Not cached yet: show the shortcode rather than a broken-image
-            // glyph; the fetch just started will re-render this.
-            // The SHORTCODE (title) as `:code:`, short like the glyph it stands
-            // for; the description (alt) only when no shortcode was sent.
             static const QRegularExpression altRe(
                 QStringLiteral("\\balt=\"([^\"]*)\""),
                 QRegularExpression::CaseInsensitiveOption);
@@ -1414,9 +1224,6 @@ QString MessageHtml::resolveInlineImages(
             continue;
         }
         QString attrs = m.captured(2);
-        // Keep the picture's own proportions at the line height (the
-        // sanitizer emitted the square; only this render step knows the
-        // decoded size). Bounded, so a 1000:1 image stays one short run.
         if (aspectOf) {
             const int width = inlineEmojiWidth(aspectOf(source));
             attrs.replace(QStringLiteral(" width=\"20\""),
@@ -1436,17 +1243,10 @@ QList<MessageHtml::Segment> MessageHtml::segments(
     const MentionStyle &mentionStyle,
     bool revealSpoilers)
 {
-    // Bounds. Well-formed events are capped at 64 KiB by the spec; these make a
-    // hostile body degrade into fewer segments rather than unbounded work. The
-    // input bound is above the code-text bound so the latter binds. Applied
-    // before containsCodeBlock(), since formatted_body arrives uncapped and
-    // that scan runs for every message.
     static constexpr qsizetype kMaxSegmentInput = 1024 * 1024;
     const QString in = html.size() > kMaxSegmentInput
         ? html.left(kMaxSegmentInput) : html;
 
-    // The ordinary message: one RichText segment from the same sanitize() call
-    // on the untouched input, so the two entry points cannot drift.
     if (!containsCodeBlock(in)) {
         return QList<Segment>{
             Segment{SegmentKind::RichText,
@@ -1456,25 +1256,22 @@ QList<MessageHtml::Segment> MessageHtml::segments(
     }
 
     static constexpr qsizetype kMaxSegments = 64;
-    // In QChar (UTF-16) units, which bounds the renderer's memory.
     static constexpr qsizetype kMaxCodeChars = 256 * 1024;
 
     QList<Segment> out;
-    QString richSource;   // raw source of the current RichText run
-    QString codeText;     // decoded text of the current code block
+    QString richSource;
+    QString codeText;
     QString codeLanguage;
     qsizetype codeCharsEmitted = 0;
-    int dropDepth = 0;    // inside a dropped-content element
-    int preDepth = 0;     // inside a code block
-    bool exhausted = false; // a bound was reached: stop emitting entirely
+    int dropDepth = 0;
+    int preDepth = 0;
+    bool exhausted = false;
 
     auto flushRich = [&]() {
         const QString source = richSource;
         richSource.clear();
         if (exhausted || source.isEmpty())
             return;
-        // Handed to the sanitizer verbatim; it owns the allowlist, href policy
-        // and mention rewriting.
         const QString rich =
             sanitize(source, resolveDisplayName, ownUserId, mentionStyle,
                      revealSpoilers);
@@ -1527,8 +1324,6 @@ QList<MessageHtml::Segment> MessageHtml::segments(
         const ParsedTag t = scanner.tagAt(ltPos, end);
         if (!t.valid) {
             if (dropDepth == 0) {
-                // Inside a code block a stray '<' is part of the program.
-                // Outside, the sanitizer escapes it.
                 if (preDepth > 0)
                     codeText += QLatin1Char('<');
                 else
@@ -1542,7 +1337,6 @@ QList<MessageHtml::Segment> MessageHtml::segments(
         const QString &name = t.name;
 
         if (dropContentTags().contains(name)) {
-            // Drop-with-content still applies inside a code block.
             if (t.closing) {
                 if (dropDepth > 0)
                     --dropDepth;
@@ -1561,7 +1355,6 @@ QList<MessageHtml::Segment> MessageHtml::segments(
                     if (preDepth == 0)
                         flushCode();
                 }
-                // A stray </pre> outside a block is noise: dropped.
                 continue;
             }
             if (preDepth == 0) {
@@ -1569,14 +1362,11 @@ QList<MessageHtml::Segment> MessageHtml::segments(
                 codeText.clear();
                 codeLanguage = languageFromClass(t.raw);
             }
-            // A nested <pre> is not a second block; the inner tag is dropped.
             ++preDepth;
             continue;
         }
 
         if (preDepth > 0) {
-            // Inside a code block only <br> has meaning (one per line); other
-            // tags are dropped and their text flows.
             if (name == QLatin1String("br") && !t.closing)
                 codeText += QLatin1Char('\n');
             else if (name == QLatin1String("code") && !t.closing
@@ -1588,7 +1378,6 @@ QList<MessageHtml::Segment> MessageHtml::segments(
         richSource += QLatin1Char('<') + t.raw + QLatin1Char('>');
     }
 
-    // An unclosed <pre> still describes one block.
     if (preDepth > 0)
         flushCode();
     flushRich();
@@ -1603,8 +1392,6 @@ QString MessageHtml::markRoomMention(const QString &safeHtml,
     if (safeHtml.isEmpty() || color.isEmpty() || !safeHtml.contains(kNeedle))
         return safeHtml;
 
-    // A match must stand alone, so "@roomba" and "user@room.example" are not
-    // room pings.
     const auto boundaryBefore = [](QChar c) {
         return !(c.isLetterOrNumber() || c == QLatin1Char('@')
                  || c == QLatin1Char('_') || c == QLatin1Char('-')
@@ -1633,8 +1420,6 @@ QString MessageHtml::markRoomMention(const QString &safeHtml,
     while (i < n) {
         const QChar ch = safeHtml.at(i);
         if (ch == QLatin1Char('<')) {
-            // Copy the tag through untouched and track code spans, so a literal
-            // @room in code is left alone.
             const qsizetype gt = safeHtml.indexOf(QLatin1Char('>'), i);
             const qsizetype end = gt < 0 ? n : gt + 1;
             const QString tag = safeHtml.mid(i, end - i);
@@ -1650,7 +1435,6 @@ QString MessageHtml::markRoomMention(const QString &safeHtml,
             continue;
         }
         if (ch == QLatin1Char('&')) {
-            // Entities are atomic: splitting "&amp;" would corrupt markup.
             const qsizetype semi = safeHtml.indexOf(QLatin1Char(';'), i);
             if (semi > i && semi - i <= 10) {
                 out += safeHtml.mid(i, semi - i + 1);
@@ -1686,11 +1470,7 @@ QString MessageHtml::markEmoji(const QString &safeHtml)
     static const QString kOpen =
         QStringLiteral("<span style=\"font-size:x-large\">");
     static const QString kClose = QStringLiteral("</span>");
-    // Each run costs a fixed 43 characters and there are at most this many, so
-    // output growth is bounded.
     static constexpr int kMaxRuns = 256;
-    // A body of 1-3 emoji is the big-emoji row, already enlarged by the
-    // delegate.
     static constexpr int kBigEmojiMaxSequences = 3;
 
     if (safeHtml.isEmpty() || !mayHoldEmoji(safeHtml))
@@ -1701,8 +1481,8 @@ QString MessageHtml::markEmoji(const QString &safeHtml)
         qsizetype end = 0;
     };
     QList<Run> runs;
-    int emojiish = 0;      // clusters that could be part of an emoji-only body
-    int nonEmojiish = 0;   // anything else that is not whitespace
+    int emojiish = 0;
+    int nonEmojiish = 0;
 
     const qsizetype n = safeHtml.size();
     qsizetype i = 0;
@@ -1711,8 +1491,6 @@ QString MessageHtml::markEmoji(const QString &safeHtml)
 
     while (i < n) {
         if (safeHtml.at(i) == QLatin1Char('<')) {
-            // Track code spans as markRoomMention does, so emoji in code stay
-            // text-sized.
             const qsizetype gt = safeHtml.indexOf(QLatin1Char('>'), i);
             const qsizetype end = gt < 0 ? n : gt + 1;
             const QString lower = safeHtml.mid(i, end - i).toLower();
@@ -1729,8 +1507,6 @@ QString MessageHtml::markEmoji(const QString &safeHtml)
         qsizetype lt = safeHtml.indexOf(QLatin1Char('<'), i);
         if (lt < 0)
             lt = n;
-        // Walk by grapheme cluster so ZWJ families, flags, keycaps and tone
-        // variants are never split.
         QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme,
                                    safeHtml.constData() + i, lt - i);
         qsizetype cursor = i;
@@ -1738,15 +1514,11 @@ QString MessageHtml::markEmoji(const QString &safeHtml)
         const auto closeRun = [&](qsizetype at) {
             if (runStart < 0)
                 return;
-            // Past the cap runs are dropped, not merged: a wrong span is worse
-            // than a missing one.
             if (runs.size() < kMaxRuns)
                 runs.append(Run{runStart, at});
             runStart = -1;
         };
         while (cursor < lt) {
-            // An entity is never an emoji here; re-encoding it would mean
-            // decoding and rewriting sender text.
             if (safeHtml.at(cursor) == QLatin1Char('&')) {
                 const qsizetype ee = entityEnd(safeHtml, cursor);
                 if (ee > 0 && ee <= lt) {
@@ -1777,7 +1549,6 @@ QString MessageHtml::markEmoji(const QString &safeHtml)
             }
 
             if (clusterIsWhitespace(cps)) {
-                // Whitespace ends a run: a 1.5x space is just a wider gap.
                 closeRun(cursor);
             } else if (clusterCouldBeEmoji(cps)) {
                 ++emojiish;
@@ -1799,9 +1570,6 @@ QString MessageHtml::markEmoji(const QString &safeHtml)
 
     if (runs.isEmpty())
         return safeHtml;
-    // Big-emoji suppression. `emojiish` uses the broad test (see
-    // couldCarryEmoji), a superset of both detectors, so disagreement can only
-    // suppress, never enlarge twice.
     if (nonEmojiish == 0 && emojiish >= 1 && emojiish <= kBigEmojiMaxSequences)
         return safeHtml;
 

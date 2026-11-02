@@ -3,19 +3,10 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The question asked when a preset is chosen while the theme already has edits:
-// "Start from Dusk? You have changed 7 colours." with Keep my changes (the
-// preset becomes the base and the edits stay on top of it), Replace (the edits
-// go, as one undoable step) and Cancel. Shown over the sample window, where
-// the eye already is; it holds no theme state and decides nothing itself.
-//
-// Painted in the invariant editor tokens (see `editorCanvas` in AppTheme.qml).
 Rectangle {
     id: root
 
-    // The preset asked for, by name.
     property string presetName: ""
-    // How many colours (and gradients) the theme has of its own.
     property int changes: 0
 
     signal keepRequested()
@@ -54,8 +45,6 @@ Rectangle {
             root._returnFocusTo = null
             const w = root.Window.window
             const held = w ? w.activeFocusItem : null
-            // Only when focus is still in here (or nowhere): never steal it
-            // from a control the user moved to on purpose.
             let inside = held === null
             for (let i = held; i && !inside; i = i.parent)
                 inside = (i === root)
@@ -64,7 +53,6 @@ Rectangle {
         }
     }
 
-    // Self-contained button, so this file depends on no other file's parts.
     component PromptButton: Rectangle {
         id: btn
         property string text: ""
@@ -120,7 +108,6 @@ Rectangle {
         }
     }
 
-    // A press must not fall through to the sample window beneath.
     MouseArea {
         anchors.fill: parent
         hoverEnabled: true

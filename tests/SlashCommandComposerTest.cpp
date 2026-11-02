@@ -1,7 +1,3 @@
-// Slash commands: what the composer does with a parsed command (the parser
-// itself is SlashCommandsTest). A recording client pins which backend verb
-// ran, with which arguments and body spec, and that a refusal never destroys
-// the draft.
 
 #include "matrix/MatrixClient.h"
 #include "models/MessageComposer.h"
@@ -13,9 +9,9 @@ namespace {
 const QString kRoom = QStringLiteral("!room:example.org");
 
 struct SendRecord {
-    QString kind; // "text" | "reply" | "thread" | "edit"
+    QString kind;
     QString roomId;
-    QString target; // reply-to / edit target / thread root
+    QString target;
     QString body;
     QStringList mentionIds;
     QVariantMap spec;
@@ -28,9 +24,8 @@ public:
     explicit RecordingClient(QObject *parent = nullptr) : MatrixClient(parent) {}
 
     QList<SendRecord> sends;
-    QStringList calls; // moderation/admin verbs, formatted for assertion
+    QStringList calls;
 
-    // ---- interface stubs (the TimelineModelDiffTest double pattern).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -50,9 +45,6 @@ public:
     QUrl mediaThumbnailUrl(const QString &, int, int, bool) const override { return {}; }
     void redactEvent(const QString &, const QString &, const QString &) override {}
     void toggleReaction(const QString &, const QString &, const QString &) override {}
-    // Recorded rather than discarded: the typing-privacy gate can only be
-    // proven by what the CLIENT was asked to send, and a stub that throws
-    // the call away can prove neither that it happened nor that it did not.
     QList<bool> typingCalls;
     void sendTyping(const QString &, bool isTyping, int) override
     {
@@ -65,8 +57,6 @@ public:
     bool canPaginate(const QString &) const override { return false; }
     bool paginating(const QString &) const override { return false; }
 
-    // ---- the recorded surfaces. The base 2-arg lanes trap accidental
-    // fallbacks; the spec overloads are what the composer must reach.
     void sendTextMessage(const QString &roomId, const QString &body) override
     {
         sends.append({ QStringLiteral("text"), roomId, {}, body, {}, {} });
@@ -153,7 +143,7 @@ public:
     }
 };
 
-} // namespace
+}
 
 class SlashCommandComposerTest : public QObject
 {
@@ -175,11 +165,6 @@ private Q_SLOTS:
         m_client = nullptr;
     }
 
-    // ── Typing privacy (Settings -> Privacy -> Reading and typing) ──────
-    //
-    // The setting stops typing notices at the source, including one already
-    // live when it is switched off.
-
     void typingNoticesAreSentByDefault()
     {
         m_composer->setText(QStringLiteral("hello"));
@@ -196,8 +181,6 @@ private Q_SLOTS:
                  "no typing notice may leave the device while it is off");
     }
 
-    // Turning it off while a notice is live retracts it immediately rather
-    // than waiting for the server's timeout.
     void turningItOffMidNoticeSendsTheStopImmediately()
     {
         m_composer->setText(QStringLiteral("hello"));
@@ -209,8 +192,6 @@ private Q_SLOTS:
         QCOMPARE(m_client->typingCalls.first(), false);
     }
 
-    // And turning it back on with text already in the box resumes, rather
-    // than waiting for the next keystroke.
     void turningItBackOnResumesWithTextAlreadyPresent()
     {
         m_composer->setTypingNotificationsEnabled(false);
@@ -231,7 +212,6 @@ private Q_SLOTS:
         QCOMPARE(s.body, QStringLiteral("waves"));
         QCOMPARE(s.spec.value(QStringLiteral("msgtype")).toString(),
                  QStringLiteral("emote"));
-        // A successful command clears the composer like a send.
         QCOMPARE(m_composer->text(), QString());
     }
 
@@ -256,13 +236,10 @@ private Q_SLOTS:
         QVERIFY(m_client->sends.isEmpty());
         QVERIFY(!m_composer->commandError().isEmpty());
         QCOMPARE(m_composer->text(), QStringLiteral("/me"));
-        // Any edit clears the refusal.
         m_composer->setText(QStringLiteral("/me x"));
         QVERIFY(m_composer->commandError().isEmpty());
     }
 
-    // An unknown command is sent as text with its slash intact: a client
-    // cannot tell a bot's command from a typo.
     void unknownCommandIsSentAsTextWithItsSlashIntact()
     {
         m_composer->setText(QStringLiteral("/frobnicate hard"));
@@ -275,8 +252,6 @@ private Q_SLOTS:
         QCOMPARE(m_composer->text(), QString());
     }
 
-    // ...but a known command with bad arguments still refuses, since there
-    // Lightning knows what was meant.
     void aKnownCommandWithMissingArgumentsStillRefuses()
     {
         m_composer->setText(QStringLiteral("/me"));
@@ -317,8 +292,6 @@ private Q_SLOTS:
         QCOMPARE(s.body, QStringLiteral("ends <b>badly</b>"));
         QCOMPARE(s.spec.value(QStringLiteral("format")).toString(),
                  QStringLiteral("html"));
-        // The spoiler TEXT is escaped — typed angle brackets are content,
-        // not markup, and cannot smuggle tags into the formatted body.
         QCOMPARE(s.spec.value(QStringLiteral("html")).toString(),
                  QStringLiteral("<span data-mx-spoiler>"
                                 "ends &lt;b&gt;badly&lt;/b&gt;</span>"));
@@ -372,7 +345,6 @@ private Q_SLOTS:
         QCOMPARE(m_client->calls.last(),
                  QStringLiteral("join|#matrix:example.org"));
 
-        // A join target that is neither an alias nor a room id refuses.
         m_composer->setText(QStringLiteral("/join somewhere"));
         m_composer->send();
         QVERIFY(!m_composer->commandError().isEmpty());
@@ -437,16 +409,12 @@ private Q_SLOTS:
         comps = m_composer->commandCompletions();
         QCOMPARE(comps.first().toMap().value(QStringLiteral("enabled")).toBool(),
                  false);
-        // A key the map does not carry counts as allowed.
         m_composer->setText(QStringLiteral("/ban"));
         comps = m_composer->commandCompletions();
         QCOMPARE(comps.size(), 1);
         QVERIFY(comps.first().toMap().value(QStringLiteral("enabled")).toBool());
     }
 
-    // A body past the event size limit never leaves: it is refused with the
-    // reason, nothing is sent and the text stays (a failed echo would offer
-    // only Retry and Cancel, and Cancel loses the text).
     void anOversizeMessageIsRefusedAndKeepsItsText()
     {
         const QString big(70000, QLatin1Char('x'));
@@ -457,21 +425,16 @@ private Q_SLOTS:
         QVERIFY(m_composer->commandError().contains(
             QStringLiteral("too long")));
 
-        // Multi-byte text counts in bytes: 25,000 snowmen are 75,000 bytes.
         const QString wide(25000, QChar(0x2603));
         m_composer->setText(wide);
         m_composer->send();
         QVERIFY(m_client->sends.isEmpty());
 
-        // Control: an ordinary message still goes.
         m_composer->setText(QStringLiteral("hello"));
         m_composer->send();
         QCOMPARE(m_client->sends.size(), 1);
     }
 
-    // Return sends an exact optional-argument command instead of completing it
-    // (the popup reads exact + requiresArgs); a required-argument command
-    // still completes first.
     void anExactOptionalArgumentCommandIsMarkedSendable()
     {
         m_composer->setText(QStringLiteral("/shrug"));
@@ -505,8 +468,6 @@ private Q_SLOTS:
         QCOMPARE(edit.kind, QStringLiteral("edit"));
         QCOMPARE(edit.roomId, composite);
 
-        // ...and an ordinary edit still goes to the composer's own room, so
-        // the fix cannot have been made by always sending somewhere else.
         m_client->sends.clear();
         m_composer->beginEdit(QStringLiteral("$plain"),
                               QStringLiteral("before"));
@@ -516,15 +477,11 @@ private Q_SLOTS:
         QCOMPARE(m_client->sends.last().roomId, kRoom);
     }
 
-    // C46 F06: saving an edit without changing the text sends no edit event
-    // (it only added "(edited)") and still leaves edit mode. Fails on the old
-    // code: one "edit" send is recorded and the first QVERIFY flips.
     void anUnchangedEditSendsNothingAndLeavesEditMode()
     {
         m_composer->beginEdit(QStringLiteral("$same"),
                               QStringLiteral("unchanged"));
         QVERIFY(m_composer->isEditing());
-        // The banner quotes the message being edited (C46 F07).
         QCOMPARE(m_composer->editOriginalText(), QStringLiteral("unchanged"));
         m_composer->send();
         QVERIFY2(m_client->sends.isEmpty(),
@@ -532,7 +489,6 @@ private Q_SLOTS:
         QVERIFY(!m_composer->isEditing());
         QCOMPARE(m_composer->text(), QString());
 
-        // A real change still goes out.
         m_composer->beginEdit(QStringLiteral("$changed"),
                               QStringLiteral("unchanged"));
         m_composer->setText(QStringLiteral("changed"));
@@ -541,9 +497,6 @@ private Q_SLOTS:
         QCOMPARE(m_client->sends.first().kind, QStringLiteral("edit"));
     }
 
-    // C46 review item 1: the rich composer saves through sendPrepared, which
-    // had no unchanged-edit guard. Fails on the old code: one "edit" send is
-    // recorded and the first QVERIFY2 flips.
     void anUnchangedRichEditSendsNothing()
     {
         m_composer->beginEdit(QStringLiteral("$rich"),
@@ -554,8 +507,6 @@ private Q_SLOTS:
                  "an unchanged rich edit was sent to the server");
         QVERIFY(!m_composer->isEditing());
 
-        // Formatting-only change must still go out. The editor's mirror moves
-        // with any formatting change, and that is what is compared.
         m_composer->beginEdit(QStringLiteral("$rich2"),
                               QStringLiteral("same body"));
         m_composer->setText(QStringLiteral("**same body**"));
@@ -565,7 +516,6 @@ private Q_SLOTS:
         QCOMPARE(m_client->sends.size(), 1);
         QCOMPARE(m_client->sends.first().kind, QStringLiteral("edit"));
 
-        // Removing formatting while keeping the words must also go out.
         m_client->sends.clear();
         m_composer->beginEdit(QStringLiteral("$rich3"),
                               QStringLiteral("same body"),
@@ -577,7 +527,6 @@ private Q_SLOTS:
         QCOMPARE(m_client->sends.first().kind, QStringLiteral("edit"));
     }
 
-    // Retest: the edit banner quoted the box's raw markdown.
     void theEditBannerQuotesWhatTheMessageReadsAs()
     {
         m_composer->beginEdit(QStringLiteral("$fmt"),
@@ -589,9 +538,6 @@ private Q_SLOTS:
         QCOMPARE(m_composer->editOriginalText(), QString());
     }
 
-    // An unchanged box sends nothing through either editor, whatever the seed:
-    // a seed plainer than the message would otherwise strip it, and a rich
-    // document may read back differently from what was loaded.
     void anUnchangedSaveOfAFormattedOriginalSendsNothing_data()
     {
         QTest::addColumn<QString>("html");
@@ -615,7 +561,6 @@ private Q_SLOTS:
         m_composer->sendPrepared(QStringLiteral("bold"), QString(), QStringList());
         QVERIFY(m_client->sends.isEmpty());
 
-        // Changing the box is a real edit.
         m_composer->beginEdit(QStringLiteral("$fmt"), QStringLiteral("bold"), html);
         m_composer->setText(QStringLiteral("bold!"));
         m_composer->send();

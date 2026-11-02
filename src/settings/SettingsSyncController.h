@@ -1,23 +1,5 @@
 #pragma once
 
-// Settings export / import and "Sync settings across your devices".
-//
-// Both features move the SAME allow-listed preference set (SettingsPortable.h)
-// and share its codec. This class is the glue: it reads and writes
-// SettingsManager through its properties, the shortcut registry and the custom
-// theme store through their public API, and talks to the homeserver only
-// through MatrixClient's three account-data calls.
-//
-// Sync, in one paragraph. An ACCOUNT-WIDE switch (its own account-data type,
-// absent = off) turns it on. While on, every read asks the SERVER, merges per
-// key (last writer wins, with the later one reported when it replaces an
-// unsynced local edit), applies what changed locally and writes the blob back
-// when this device owes it a change. Local edits are noticed through the
-// properties' own change signals and pushed after a 2 s debounce. Nothing
-// untouched is uploaded (an untouched setting is not a choice), so improved
-// defaults still reach a device that never chose. The first enable on a device
-// with its own non-default settings asks: adopt the account's, or upload mine.
-
 #include "settings/SettingsPortable.h"
 
 #include <QObject>
@@ -38,18 +20,12 @@ class SettingsSyncController : public QObject
     Q_OBJECT
 
     Q_PROPERTY(bool supported READ supported NOTIFY changed)
-    // The account-wide switch as the server last said it.
     Q_PROPERTY(bool enabled READ enabled NOTIFY changed)
-    // "unsupported" | "off" | "checking" | "choice" | "idle" | "busy" |
-    // "error" | "readOnly"
     Q_PROPERTY(QString state READ state NOTIFY changed)
     Q_PROPERTY(QString error READ error NOTIFY changed)
     Q_PROPERTY(qint64 lastSyncedMs READ lastSyncedMs NOTIFY changed)
     Q_PROPERTY(int pendingCount READ pendingCount NOTIFY changed)
-    // First enable with settings on both sides that disagree.
     Q_PROPERTY(int choiceDiffering READ choiceDiffering NOTIFY changed)
-    // Settings a later change on another device replaced here. Cleared by
-    // acknowledgeConflicts().
     Q_PROPERTY(QStringList conflicts READ conflicts NOTIFY changed)
 
 public:
@@ -69,27 +45,18 @@ public:
     int choiceDiffering() const { return int(m_choiceDiffering); }
     QStringList conflicts() const { return m_conflicts; }
 
-    // ---- sync ----
     Q_INVOKABLE void setSyncEnabled(bool on);
     Q_INVOKABLE void chooseAdoptServer();
     Q_INVOKABLE void chooseUploadMine();
-    // Turns the switch off and empties the server copy. Local settings stay.
     Q_INVOKABLE void removeFromServer();
     Q_INVOKABLE void acknowledgeConflicts();
 
-    // ---- export / import ----
-    // "" on success, else a user-facing reason.
     Q_INVOKABLE QString exportSettings(const QUrl &file);
-    // { ok, error, version, newerVersion, changes: [{name, label, group,
-    //   from, to}], rejected: [{label, reason}], unknownCount,
-    //   shortcutChanges, themesNew }
     Q_INVOKABLE QVariantMap previewImport(const QUrl &file);
-    // { ok, error, applied, shortcutsSkipped, themesAdded }
     Q_INVOKABLE QVariantMap applyImport();
     Q_INVOKABLE void cancelImport();
     Q_INVOKABLE QString labelFor(const QString &name) const;
 
-    // For tests: run the debounced local-change check now.
     void checkLocalNow();
     qint64 nowMs() const;
     void setClockForTesting(qint64 fixedMs) { m_fixedNow = fixedMs; }
@@ -146,7 +113,7 @@ private:
     // In-flight work. A generation bump (account change, sign-out, switch
     // off) makes every outstanding answer stale.
     quint64 m_gen = 1;
-    quint64 m_nextOp = 0x53455400; // "SET\0": apart from other modules' ids
+    quint64 m_nextOp = 0x53455400;
     quint64 m_readOp = 0;
     quint64 m_writeOp = 0;
     quint64 m_switchOp = 0;
@@ -165,12 +132,9 @@ private:
     QTimer m_retryTimer;
     bool m_applying = false;
     bool m_started = false;
-    // The first merge after loading a persisted baseline absorbs differences
-    // nobody edited for this account (see settingsport::absorbLocal).
     bool m_absorbLocal = false;
     qint64 m_fixedNow = 0;
 
-    // The parsed import awaiting the user's decision.
     bool m_haveImport = false;
     settingsport::ParseResult m_import;
 };

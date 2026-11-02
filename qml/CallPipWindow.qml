@@ -4,30 +4,14 @@ import QtQuick.Layouts
 import QtQuick.Window
 import MatrixClient
 
-// Picture-in-picture: the live call in a small always-on-top window, for
-// when the main window is elsewhere.
-//
-// A replacement, never a duplicate: SfuVideoRouter holds one sink per track
-// and the last attach owns it, so two surfaces for one participant would
-// leave one black. This window's video is built only while it shows,
-// CallStageState makes PiP and full screen mutually exclusive, and the main
-// stage's tiles are gone because this only opens when the room isn't on
-// screen.
-//
-// It shows the call's grid (every participant and every share as its own
-// tile) via the stage's CallTileGrid. It does not follow the active speaker;
-// the main window's pin chooses the subject.
 Window {
     id: root
 
-    /// The stage state that owns the flag; overridable so tests need no global
-    /// lookups.
     property var stageState: app.groupCall ? app.groupCall.stageState : null
     property var participantModel:
         app.groupCall ? app.groupCall.participantModel : null
     property var shareModel: app.groupCall ? app.groupCall.shareModel : null
 
-    /// Whether a call is live: the SFU lane, or the audio-only legacy 1:1 lane.
     readonly property bool callLive:
         (app.groupCall && app.groupCall.active)
         || (app.calls && (app.calls.state === CallController.Active
@@ -37,14 +21,9 @@ Window {
     readonly property bool wanted:
         root.callLive && root.stageState && root.stageState.pictureInPicture
 
-    // ── Which surface ──
-    // A share wins over a face.
     readonly property int shareRow: {
         if (!root.shareModel || !root.stageState)
             return -1
-        // Read the count first on every path: indexOfShare is a
-        // Q_INVOKABLE and registers no dependency, and the row moves when
-        // another share ends.
         var live = root.shareModel.count
         if (root.stageState.spotlightShareId.length > 0)
             return root.shareModel.indexOfShare(root.stageState.spotlightShareId)
@@ -54,8 +33,6 @@ Window {
         if (!root.participantModel || !root.stageState
             || root.stageState.pinnedIdentity.length === 0)
             return -1
-        // As in `shareRow`: without the count read the row would never
-        // update as people join and leave.
         var live = root.participantModel.count
         return live > 0
             ? root.participantModel.indexOfIdentity(
@@ -63,36 +40,23 @@ Window {
             : -1
     }
     readonly property bool hasSurface: root.shareRow >= 0 || root.pinnedRow >= 0
-    /// Tiles the grid draws: every share and every participant.
     readonly property int total:
         (root.shareModel ? root.shareModel.count : 0)
         + (root.participantModel ? root.participantModel.count : 0)
-    /// The share shown, by id: a row number moves when others start or stop
-    /// sharing.
     readonly property string shareIdShown: {
         if (!root.shareModel || !root.stageState)
             return ""
         if (root.stageState.spotlightShareId.length > 0)
             return root.stageState.spotlightShareId
-        // Nothing spotlighted: the first live share (the same row `shareRow`
-        // reports).
         var row = root.shareModel.count > 0 ? root.shareModel.get(0) : null
         return row ? (row.shareId || "") : ""
     }
     readonly property string pinnedIdentityShown:
         root.stageState ? root.stageState.pinnedIdentity : ""
 
-    // Fill the window with one share, edge to edge (e.g. as a dedicated share
-    // window on a second monitor). Toggled by the same button, dropped when
-    // the share ends. Local to this window; the stage's spotlight is untouched.
     property bool shareFills: false
-    // The share clicked to fill the window; falls back to the spotlighted or
-    // first share when it's gone.
     property string fillShareId: ""
     readonly property string fillShareShown: {
-        // The `count` read is required: indexOfShare registers no dependency,
-        // and without it onFillShareShownChanged (which drops fill mode) would
-        // never fire when the share ends.
         var live = root.shareModel ? root.shareModel.count : 0
         if (live > 0 && root.fillShareId.length > 0
             && root.shareModel.indexOfShare(root.fillShareId) >= 0)
@@ -102,8 +66,6 @@ Window {
     readonly property bool shareFillActive:
         root.shareFills && root.groupLive && root.fillShareShown.length > 0
     onFillShareShownChanged: if (root.fillShareShown.length === 0) root.shareFills = false
-    // No chrome while a share fills the window; clicking the share or Escape
-    // restores the tiles. Clicking a share tile fills the window.
     Shortcut {
         sequence: "Escape"
         enabled: root.shareFillActive
@@ -115,20 +77,14 @@ Window {
     transientParent: null
 
     title: qsTr("Lightning call")
-    // A tool window beside the app rather than in the task switcher, and
-    // always on top.
     flags: Qt.Window | Qt.WindowStaysOnTopHint | Qt.WindowTitleHint
            | Qt.WindowCloseButtonHint
-    // Room for a 2x2 grid of tiles at a legible size.
     width: 480
     height: 320
     minimumWidth: 240
     minimumHeight: 160
     color: AppTheme.background
 
-    // Imperative, like CallStage's full-screen window: binding `visible` would
-    // break when the window manager writes it on close. The flag is the single
-    // source of truth; onClosing writes it back.
     function sync() {
         if (root.wanted && !root.visible)
             root.show()
@@ -149,8 +105,6 @@ Window {
     }
 
     onClosing: (close) => {
-        // Accept the close and write the flag back; refusing could veto
-        // application quit on some desktops.
         close.accepted = true
         if (root.stageState)
             root.stageState.setPictureInPicture(false)
@@ -160,27 +114,15 @@ Window {
         anchors.fill: parent
         spacing: 0
 
-        // ── The picture ──
         Item {
             id: surface
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
 
-            // The whole call via the stage's grid (shares as their own tiles),
-            // built only while this window shows (`active` below), so each
-            // track still has one owner. Bound to the real models, so late
-            // track keys still attach.
-            //
-            // The share alone, when fill is on: a Repeater over the share
-            // model, where only the shown row gets a size.
             Repeater {
                 id: shareFillTiles
                 objectName: "pipShareFill"
-                // Only while the window shows, like the grid: a tile claims its
-                // sink when built and the stage reclaims it on hide, so a stale
-                // fill tile would stay unattached (a grey box). The fill choice
-                // itself is kept across pop-outs.
                 model: root.visible && root.shareFillActive ? root.shareModel : null
                 delegate: Item {
                     id: fillCell
@@ -192,8 +134,6 @@ Window {
                     required property bool local
                     readonly property bool shown: fillCell.shareId === root.fillShareShown
                     anchors.fill: parent
-                    // Breathing room so the picture's frame isn't the window
-                    // edge.
                     anchors.margins: AppTheme.spacing6
                     visible: shown
                     CallShareTile {
@@ -235,7 +175,6 @@ Window {
                 }
             }
 
-            // Voice-only, or nothing to show: say so rather than show black.
             ColumnLayout {
                 anchors.centerIn: parent
                 width: parent.width - AppTheme.spacing16 * 2
@@ -263,9 +202,6 @@ Window {
             }
         }
 
-        // ── Controls ──
-        // Only those that matter away from the main window; for anything else,
-        // "Back to Lightning" is right here.
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 44
@@ -340,8 +276,6 @@ Window {
                     glyphSize: 17
                     tooltip: qsTr("Leave the call")
                     onClicked: {
-                        // `hangup`, not `hangUp`: a QML->C++ name is only
-                        // checked when the line runs.
                         if (root.groupLive)
                             app.groupCall.leave()
                         else
@@ -361,7 +295,5 @@ Window {
                                                        ? app.calls.deafened
                                                        : false)
 
-    /// Bring the main window back and stand this one down. The host raises its
-    /// own window.
     signal restoreRequested()
 }

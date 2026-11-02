@@ -9,8 +9,6 @@
 
 #include <functional>
 
-// The result grid model: safe gif::GifResult rows exposed as presentation
-// roles, never raw provider JSON. Deduplicated by (provider, id) and bounded.
 class GifResultModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -21,18 +19,17 @@ public:
         ProviderRole = Qt::UserRole + 1,
         GifIdRole,
         TitleRole,
-        PreviewUrlRole,   // small animated preview
-        StillUrlRole,     // static thumbnail
-        GifUrlRole,       // sendable original (download source)
-        Mp4UrlRole,       // optional preview video — never sent
-        WidthRole,        // sendable width
-        HeightRole,       // sendable height
+        PreviewUrlRole,
+        StillUrlRole,
+        GifUrlRole,
+        Mp4UrlRole,
+        WidthRole,
+        HeightRole,
         PreviewWidthRole,
         PreviewHeightRole,
-        AspectRole,       // width/height, for stable grid sizing
+        AspectRole,
         RatingRole,
-        FavoriteRole,     // set by the controller from favorites state
-        // Sendable variant's byte size; 0 = unknown (no size overlay).
+        FavoriteRole,
         BytesRole,
     };
 
@@ -44,29 +41,21 @@ public:
 
     int count() const { return m_rows.size(); }
 
-    // Replace all rows (a fresh trending/search). Resets dedup.
     void reset(const QList<gif::GifResult> &rows);
-    // Append a page, skipping (provider,id) duplicates. Returns how many were
-    // actually added. Enforces the bounded cap.
     int append(const QList<gif::GifResult> &rows);
     void clear();
 
-    // Row lookup for send/favorite actions.
     gif::GifResult resultAt(int row) const;
     Q_INVOKABLE QVariantMap get(int row) const;
 
-    // Re-emit FavoriteRole for a (provider,id) when favorites change, without
-    // rebuilding the grid.
     void refreshFavorite(const QString &provider, const QString &id);
 
-    // Favorite-state hook the controller installs (provider, id) -> bool.
     void setFavoriteResolver(std::function<bool(const QString &, const QString &)> fn)
     { m_isFavorite = std::move(fn); }
 
     static QString dedupKey(const QString &provider, const QString &id)
-    { return provider + QChar(0x1f) + id; } // unit separator
+    { return provider + QChar(0x1f) + id; }
 
-    // Hard cap on loaded results (bounded model / memory).
     static constexpr int kMaxRows = 300;
 
 Q_SIGNALS:

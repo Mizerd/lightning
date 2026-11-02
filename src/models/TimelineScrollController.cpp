@@ -10,9 +10,6 @@
 #include <cmath>
 
 namespace {
-// Per-notch distance is a fraction of the viewport, clamped to an absolute
-// pixel range, so the feel is consistent across window sizes. VeryFast suits
-// low-resolution wheels that emit few notches per turn.
 struct SpeedProfile {
     double fraction;
     double minPixels;
@@ -23,17 +20,11 @@ constexpr SpeedProfile kStandard{0.12, 60.0, 260.0};
 constexpr SpeedProfile kFast{0.34, 130.0, 680.0};
 constexpr SpeedProfile kVeryFast{0.55, 220.0, 1000.0};
 
-// Fallback when QML passes a non-positive height (pane not sized yet).
 constexpr double kFallbackViewport = 600.0;
 
-// Motion tuning. Each frame covers (1 - exp(-dt/tau)) of the remaining
-// distance, so speed tracks what is left and rises again when a notch extends
-// the target. The minimum settle speed bounds the exponential tail and the
-// snap distance ends it exactly. A dt clamp keeps a stalled frame from
-// integrating one giant jump.
 constexpr double kTauMs = 90.0;
-constexpr double kMinSettleSpeed = 700.0;   // px/s
-constexpr double kSnapDistance = 0.5;       // px
+constexpr double kMinSettleSpeed = 700.0;
+constexpr double kSnapDistance = 0.5;
 constexpr double kMaxTickMs = 50.0;
 
 // Hard ceiling on how far one emitted frame may move contentY, as a fraction
@@ -57,15 +48,13 @@ const SpeedProfile &profileFor(int speed)
     }
 }
 
-// Frame source for the motion engine, driven by Qt's animation driver and
-// running only while motion is in flight.
 class WheelTicker : public QAbstractAnimation
 {
 public:
     explicit WheelTicker(TimelineScrollController *controller)
         : QAbstractAnimation(controller), m_controller(controller) {}
 
-    int duration() const override { return -1; }   // runs until stopped
+    int duration() const override { return -1; }
 
 protected:
     void updateCurrentTime(int currentTime) override
@@ -99,7 +88,6 @@ TimelineScrollController::TimelineScrollController(QObject *parent)
 }
 
 namespace {
-// The recorder's writer vocabulary. Index 0 is "other".
 constexpr const char *kScrollWriters[] = {
     "other", "input", "native", "wheel", "pixel", "keyboard", "bar-drag",
     "bar-top-hold", "autoscroll", "anchor-hold", "anchor-restore",
@@ -114,8 +102,6 @@ quint8 writerIndex(const QString &writer)
     }
     return 0;
 }
-// The anchor row kinds MessageDelegate.rowKind can name. Index 0 is "-":
-// no anchor, or a word outside this list (never echoed into the log).
 constexpr const char *kAnchorKinds[] = {
     "-", "event", "state", "divider", "read-marker", "start",
 };
@@ -127,7 +113,7 @@ quint8 anchorKindIndex(const QString &kind)
     }
     return 0;
 }
-} // namespace
+}
 
 void TimelineScrollController::recordScroll(
     const QString &writer, double oldY, double newY, double minY, double maxY,
@@ -145,8 +131,6 @@ void TimelineScrollController::recordScroll(
     if (!anchorId.isEmpty()) {
         auto it = m_anchorAliases.constFind(anchorId);
         if (it == m_anchorAliases.cend()) {
-            // Bounded: a long session starts a fresh alias space rather than
-            // growing for ever (aliases only need to be stable within a dump).
             if (m_anchorAliases.size() >= kMaxAnchorAliases)
                 m_anchorAliases.clear();
             it = m_anchorAliases.insert(anchorId, m_nextAnchorAlias++);
@@ -186,8 +170,6 @@ bool TimelineScrollController::reportScrollIncident(const QString &code,
         return false;
     m_lastIncidentMs = now;
     const int n = qBound(0, records, m_ringSize);
-    // The code is a fixed word from the QML side; keep only [a-z-] so no
-    // caller can smuggle text into the log through it.
     QString safeCode;
     for (const QChar c : code.left(32)) {
         if ((c >= QLatin1Char('a') && c <= QLatin1Char('z'))
@@ -259,7 +241,7 @@ double TimelineScrollController::notchDistance(double viewportHeight) const
 double TimelineScrollController::clampY(double y, double lo, double hi)
 {
     if (hi < lo)
-        hi = lo;                 // content shorter than the viewport: pinned.
+        hi = lo;
     if (y < lo)
         return lo;
     if (y > hi)
@@ -281,17 +263,12 @@ double TimelineScrollController::wheelTargetY(double angleDeltaY, double content
                                               double viewportHeight)
 {
     const double per = notchDistance(viewportHeight);
-    // angleDelta.y > 0 means wheel up, so contentY decreases. Partial or
-    // high-resolution deltas contribute their exact fraction of a notch.
     const double deltaPixels = -(angleDeltaY / 120.0) * per;
     const int dir = deltaPixels > 0.0 ? 1 : (deltaPixels < 0.0 ? -1 : 0);
     if (dir == 0)
         return clampY(m_motionActive ? m_targetY : contentY,
                       minContentY, maxContentY);
 
-    // Extend the goal only for same-direction input during motion, so quick
-    // notches build one movement; a reversal or new gesture redirects from the
-    // live position.
     const double base = (m_motionActive && dir == m_direction) ? m_targetY
                                                                : contentY;
     const double target = clampY(base + deltaPixels, minContentY, maxContentY);
@@ -305,8 +282,6 @@ void TimelineScrollController::wheelNotch(double angleDeltaY, double contentY,
                                           double minContentY, double maxContentY,
                                           double viewportHeight)
 {
-    // Mid-motion the integrated position is authoritative (QML's contentY may
-    // lag a frame); otherwise seed from the view.
     if (!m_motionActive)
         m_positionY = clampY(contentY, minContentY, maxContentY);
     m_minY = minContentY;
@@ -315,13 +290,12 @@ void TimelineScrollController::wheelNotch(double angleDeltaY, double contentY,
     wheelTargetY(angleDeltaY, m_positionY, minContentY, maxContentY,
                  viewportHeight);
     if (!m_motionActive)
-        return;                    // zero-delta event: nothing to do.
-    startTicker();                 // idempotent while already running.
+        return;
+    startTicker();
 }
 
 void TimelineScrollController::setViewportHeight(double viewportHeight)
 {
-    // Ignore a non-positive height rather than disabling the step cap.
     if (viewportHeight > 0.0)
         m_viewportHeight = viewportHeight;
 }
@@ -346,10 +320,7 @@ double TimelineScrollController::pixelTargetY(double pixelDeltaY, double content
                                               double minContentY,
                                               double maxContentY)
 {
-    // Platform momentum arrives as pixel-delta events; apply them directly and
-    // drop any coalesced wheel goal so the paths never fight.
     cancel();
-    // pixelDelta.y > 0 == scroll toward the top == contentY decreases.
     return clampY(contentY - pixelDeltaY * m_pixelFactor,
                   minContentY, maxContentY);
 }
@@ -366,8 +337,6 @@ void TimelineScrollController::notifyBoundReached(double clampedY)
 double TimelineScrollController::motionStep(double remaining, double dtMs,
                                             double viewportHeight) const
 {
-    // advanceMotion's per-frame maths without state: exponential approach,
-    // minimum settle speed, and per-frame ceiling.
     if (dtMs <= 0.0)
         return 0.0;
     dtMs = std::min(dtMs, kMaxTickMs);
@@ -388,13 +357,10 @@ double TimelineScrollController::motionStep(double remaining, double dtMs,
 
 void TimelineScrollController::translateActiveMotion(double deltaY)
 {
-    // Nothing in flight: the caller cancels instead. A zero shift is a no-op.
     if (!m_motionActive || deltaY == 0.0)
         return;
     m_positionY += deltaY;
     m_targetY += deltaY;
-    // The remaining distance is unchanged, so the next frame continues the same
-    // curve toward the moved target. QML re-clamps every emitted frame.
 }
 
 bool TimelineScrollController::advanceMotion(double dtMs)
@@ -419,9 +385,6 @@ bool TimelineScrollController::advanceMotion(double dtMs)
     if (std::abs(step) < minStep)
         step = std::copysign(std::min(minStep, absRemaining), remaining);
 
-    // Never move a whole viewport in one frame (see kMaxStepViewportFraction).
-    // m_targetY is untouched, so later frames cover the rest. Applied after the
-    // minimum-speed floor so the tail cannot exceed the ceiling.
     const double maxStep = m_viewportHeight * kMaxStepViewportFraction;
     if (maxStep > 0.0 && std::abs(step) > maxStep)
         step = std::copysign(maxStep, remaining);

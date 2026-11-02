@@ -1,14 +1,3 @@
-// Microphone noise suppression (GitHub #20): the processing layer.
-//
-// Everything here runs through the REAL `lightningdenoise` element, driven
-// pad-to-pad on the test thread (no pipeline threads, so every byte is
-// deterministic), with FAKE backends whose effect is exact in float: a gain
-// of 0.5 (standing in for RNNoise) or 0.25 (DeepFilterNet). The fakes count
-// their instances, their frames and every sample they were handed, which is
-// what "only the selected backend ran" and "nothing leaked" are asserted on.
-//
-// The webrtcdsp live swap and the shared chain descriptions run in real
-// pipelines; the real backends run when this build carries them.
 
 #include "calls/GstBootstrap.h"
 #include "calls/noise/DenoiseElement.h"
@@ -35,8 +24,6 @@ using calls::noise::Mode;
 
 namespace {
 
-// ── Fake backends ───────────────────────────────────────────────────────
-
 struct Ledger {
     std::atomic<int> live{0};
     std::array<std::atomic<int>, 4> created{};
@@ -46,8 +33,6 @@ struct Ledger {
 
     void clear()
     {
-        // `live` is deliberately not cleared: a leak from an earlier case
-        // must stay visible.
         for (auto &c : created)
             c.store(0);
         for (auto &f : frames)
@@ -97,9 +82,6 @@ private:
     bool m_realtimeReset;
 };
 
-/// A backend that stops processing for good after `frames` frames, as
-/// DeepFilterNet does after a caught panic: from then on it passes audio
-/// through and says failed().
 class FailingSuppressor final : public calls::noise::NoiseSuppressor
 {
 public:
@@ -140,18 +122,15 @@ constexpr int kFakeLatency = 96;
 std::unique_ptr<calls::noise::NoiseSuppressor> fakeFactory(Mode mode)
 {
     if (mode == Mode::RNNoise)
-        // Like the real ones: RNNoise declares a real-time-safe reset,
-        // DeepFilterNet (until its reset stops allocating) does not.
         return std::make_unique<FakeSuppressor>(mode, kRnnoiseGain, true,
                                                 calls::noise::kFrameSamples,
                                                 kFakeLatency,
-                                                /*realtimeReset=*/true);
+true);
     if (mode == Mode::DeepFilterNet)
         return std::make_unique<FakeSuppressor>(mode, kDfnGain);
     return nullptr;
 }
 
-/// Non-zero, exact in float, and well inside the sanitising clamp.
 float ramp(size_t i) { return 1.0f + float(i % 1000) / 1024.0f; }
 
 std::vector<float> rampSamples(size_t from, size_t count)
@@ -164,8 +143,6 @@ std::vector<float> rampSamples(size_t from, size_t count)
 
 std::atomic<int> g_elementsAlive{0};
 void elementFinalized(gpointer, GObject *) { --g_elementsAlive; }
-
-// ── A pad-to-pad harness around one element ─────────────────────────────
 
 GstStaticPadTemplate kAnySrc = GST_STATIC_PAD_TEMPLATE(
     "src", GST_PAD_SRC, GST_PAD_ALWAYS, GST_STATIC_CAPS_ANY);
@@ -208,9 +185,6 @@ public:
 
         gst_pad_push_event(src, gst_event_new_stream_start("noise-test"));
         GstCaps *parsed = gst_caps_from_string(caps);
-        // Not push_event's return value: a sticky event the peer refuses is
-        // still stored on our pad, and that counts as TRUE. What matters is
-        // whether the ELEMENT took the caps.
         gst_pad_push_event(src, gst_event_new_caps(parsed));
         gst_caps_unref(parsed);
         {
@@ -283,9 +257,6 @@ public:
         return calls::noise::denoiseStatus(element);
     }
 
-    /// Feeds silence until the element reports `requested` taking effect,
-    /// and returns that report's `ok`. The silence is cleared from output.
-    /// Like waitForStatus(), for a report with this exact outcome.
     bool waitForStatusWith(Mode requested, bool wantOk, int timeoutMs = 5000)
     {
         QElapsedTimer timer;
@@ -399,7 +370,7 @@ bool elementExists(const char *name)
     return true;
 }
 
-} // namespace
+}
 
 class NoiseSuppressionTest : public QObject
 {
@@ -423,8 +394,6 @@ private slots:
 
     void cleanup() { calls::noise::setSuppressorFactoryForTest({}); }
 
-    // The setting's spelling round-trips, and anything else falls back rather
-    // than landing on the "nearest" mode.
     void modeKeysRoundTripAndUnknownKeysFallBack()
     {
         for (Mode mode : {Mode::Off, Mode::WebRtc, Mode::RNNoise,
@@ -434,7 +403,6 @@ private slots:
                      int(mode));
             QVERIFY(calls::noise::isModeKey(calls::noise::modeKey(mode)));
         }
-        // "3" is DeepFilterNet's enum value: an index must not be honoured.
         QVERIFY(calls::noise::modeFromKey("3", Mode::WebRtc) == Mode::WebRtc);
         QVERIFY(calls::noise::modeFromKey("RNNoise", Mode::WebRtc)
                 == Mode::WebRtc);
@@ -443,16 +411,12 @@ private slots:
         QVERIFY(calls::noise::kDefaultMode == Mode::Off);
     }
 
-    // Off (and WebRTC, whose suppressor lives in webrtcdsp) leave every byte
-    // alone, whatever the bytes are, and build no backend at all.
     void offAndWebrtcLeaveTheStreamBitExact()
     {
         for (Mode mode : {Mode::Off, Mode::WebRtc}) {
             Harness h;
             QVERIFY(h.element && h.capsAccepted);
             h.setMode(mode);
-            // Arbitrary bit patterns, NaNs and infinities included: nothing
-            // may touch them, not even the sanitiser.
             QByteArray sent;
             quint32 seed = 0x1234567u;
             for (const gsize words : {gsize(1), gsize(480), gsize(479),
@@ -478,8 +442,6 @@ private slots:
         QCOMPARE(g_ledger.created[size_t(Mode::DeepFilterNet)].load(), 0);
     }
 
-    // The selected backend runs, and only it: switching hands the stream to
-    // the other one and the first stops seeing frames.
     void onlyTheSelectedBackendProcesses()
     {
         Harness h;
@@ -504,10 +466,8 @@ private slots:
         QVERIFY(g_ledger.frames[size_t(Mode::DeepFilterNet)].load() >= 10);
         QCOMPARE(g_ledger.created[size_t(Mode::RNNoise)].load(), 1);
         QCOMPARE(g_ledger.created[size_t(Mode::DeepFilterNet)].load(), 1);
-        // The retired RNNoise backend is destroyed off the streaming thread.
         QVERIFY(waitUntil([] { return g_ledger.live.load() == 1; }));
 
-        // Back to Off: pass-through again, every backend gone.
         h.setMode(Mode::Off);
         QVERIFY(h.waitForStatus(Mode::Off, &ok));
         const long long dfnFrames =
@@ -519,9 +479,6 @@ private slots:
         QVERIFY(waitUntil([] { return g_ledger.live.load() == 0; }));
     }
 
-    // Any buffer size: the output is the input delayed by exactly one frame
-    // and processed, sample for sample, with the same sample count and the
-    // same timestamps; the delay is what the element reports.
     void framingHoldsAcrossOddBufferSizes()
     {
         Harness h;
@@ -537,8 +494,6 @@ private slots:
         bool first = true;
         for (const gsize n : sizes) {
             const std::vector<float> chunk = rampSamples(sent.size(), n);
-            // DISCONT on the first: the delay line restarts from a known
-            // point, independent of the silence fed while waiting.
             QCOMPARE(int(h.push(chunk, first)), int(GST_FLOW_OK));
             first = false;
             sent.insert(sent.end(), chunk.begin(), chunk.end());
@@ -559,7 +514,6 @@ private slots:
         QCOMPARE(h.status().latencySamples,
                  calls::noise::kFrameSamples + kFakeLatency);
 
-        // ... and the LATENCY query carries it downstream.
         GstQuery *query = gst_query_new_latency();
         GstPad *out = gst_element_get_static_pad(h.element, "src");
         QVERIFY(gst_pad_query(out, query));
@@ -576,8 +530,6 @@ private slots:
         gst_query_unref(query);
     }
 
-    // A switch between two backends lands between frames: no frame is ever
-    // part one backend, part the other, and the framing carries on.
     void aBackendSwitchNeverSplitsAFrame()
     {
         Harness h;
@@ -594,7 +546,6 @@ private slots:
         };
         feed(1000, true);
         h.setMode(Mode::DeepFilterNet);
-        // Odd chunks while the new backend is being built, then plenty more.
         QElapsedTimer timer;
         timer.start();
         while (h.status().active != Mode::DeepFilterNet
@@ -635,7 +586,6 @@ private slots:
         QVERIFY(dfnFrames > 0);
     }
 
-    // Malformed input never crashes and never reaches a backend as garbage.
     void malformedInputIsSurvived()
     {
         {
@@ -644,14 +594,12 @@ private slots:
             bool ok = false;
             h.setMode(Mode::RNNoise);
             QVERIFY(h.waitForStatus(Mode::RNNoise, &ok));
-            // A buffer that is not a whole number of samples, and an empty one.
             const char odd[7] = {1, 2, 3, 4, 5, 6, 7};
             QCOMPARE(int(h.pushBytes(odd, sizeof odd)), int(GST_FLOW_OK));
             QCOMPARE(int(h.pushBytes(nullptr, 0)), int(GST_FLOW_OK));
             QByteArray ragged(4 * 700 + 3, '\x01');
             QCOMPARE(int(h.pushBytes(ragged.constData(), gsize(ragged.size()))), int(GST_FLOW_OK));
             QCOMPARE(h.output.size(), qsizetype(7 + 0 + ragged.size()));
-            // Non-finite and absurd samples.
             std::vector<float> nasty(2000, 0.1f);
             nasty[3] = std::numeric_limits<float>::quiet_NaN();
             nasty[500] = std::numeric_limits<float>::infinity();
@@ -665,7 +613,6 @@ private slots:
             for (const float v : h.outputSamples())
                 QVERIFY(std::isfinite(v));
         }
-        // Caps it cannot take are refused at negotiation, not crashed on.
         for (const char *caps :
              {"audio/x-raw,format=S16LE,rate=48000,channels=1,"
               "layout=interleaved",
@@ -681,9 +628,6 @@ private slots:
         }
     }
 
-    // A backend that fails to start (says !ok, has the wrong frame size,
-    // returns nothing, or throws) leaves the microphone passing through,
-    // unaltered, and says so.
     void aFailedBackendPassesThroughAndIsReported_data()
     {
         QTest::addColumn<int>("failure");
@@ -723,12 +667,9 @@ private slots:
         h.push(samples);
         QVERIFY(h.outputSamples() == samples);
         QCOMPARE(g_ledger.frames[size_t(Mode::DeepFilterNet)].load(), 0ll);
-        // The refused instance is destroyed, not kept.
         QVERIFY(waitUntil([] { return g_ledger.live.load() == 0; }));
     }
 
-    // Calls start and stop, modes change mid-build, elements die with a
-    // build in flight: every backend and every element is released.
     void repeatedStartStopLeaksNothing()
     {
         for (int round = 0; round < 25; ++round) {
@@ -737,31 +678,27 @@ private slots:
             const Mode first = round % 2 ? Mode::RNNoise : Mode::DeepFilterNet;
             h.setMode(first);
             if (round % 3 == 0)
-                continue; // destroyed with the build still in flight
+                continue;
             bool ok = false;
             QVERIFY(h.waitForStatus(first, &ok));
             h.push(rampSamples(0, 1500));
             h.setMode(first == Mode::RNNoise ? Mode::DeepFilterNet
                                              : Mode::RNNoise);
             if (round % 3 == 1)
-                continue; // second build in flight
+                continue;
             h.setMode(Mode::Off);
-            h.setMode(first); // quick toggles: only the last may survive
+            h.setMode(first);
             QVERIFY(h.waitForStatus(first, &ok));
             h.push(rampSamples(0, 1500));
         }
         QVERIFY2(waitUntil([] { return g_ledger.live.load() == 0; }),
                  qPrintable(QStringLiteral("%1 backends still alive")
                                 .arg(g_ledger.live.load())));
-        // Every harness of the whole run is gone by now; their elements must
-        // be too once the pool has finished with them.
         QVERIFY2(waitUntil([] { return g_elementsAlive.load() == 0; }),
                  qPrintable(QStringLiteral("%1 elements outlived their harness")
                                 .arg(g_elementsAlive.load())));
     }
 
-    // The fragment the call and the mic test share: in every mode exactly one
-    // suppressor is configured, and the result parses and runs.
     void theChainRunsExactlyOneSuppressor_data()
     {
         QTest::addColumn<int>("mode");
@@ -791,8 +728,6 @@ private slots:
         QCOMPARE(fragment.contains(QLatin1String(
                      calls::noise::denoiseElementName())),
                  denoise);
-        // webrtcdsp suppresses in WebRTC mode only; its gain control and
-        // high-pass stay in every mode.
         QCOMPARE(fragment.contains(QStringLiteral("noise-suppression=true")),
                  dsp && m == Mode::WebRtc);
         if (dsp) {
@@ -803,10 +738,8 @@ private slots:
         if (denoise) {
             QVERIFY(fragment.contains(
                 QStringLiteral("mode=%1").arg(calls::noise::modeKey(m))));
-            // The float round trip must not add dither to the stream.
             QVERIFY(fragment.contains(QStringLiteral("dithering=none")));
         }
-        // GStreamer accepts and runs it.
         if (dsp && !elementExists("webrtcdsp"))
             QSKIP("webrtcdsp is not in this GStreamer");
         const QString description =
@@ -835,9 +768,6 @@ private slots:
         QVERIFY2(eos, "the chain errored instead of reaching EOS");
     }
 
-    // webrtcdsp reads its configuration only when it negotiates, so a live
-    // WebRTC on/off REPLACES the element; the audio keeps flowing through
-    // the new one.
     void aLiveWebrtcSwitchReplacesTheDspAndAudioKeepsFlowing()
     {
         if (!elementExists("webrtcdsp"))
@@ -892,7 +822,6 @@ private slots:
         const int atSecondSwap = buffers.load();
         QVERIFY(waitUntil([&] { return buffers.load() > atSecondSwap + 20; }));
 
-        // No error anywhere in the pipeline.
         GstBus *bus = gst_element_get_bus(pipeline);
         GstMessage *errorMessage =
             gst_bus_pop_filtered(bus, GST_MESSAGE_ERROR);
@@ -905,16 +834,6 @@ private slots:
         gst_object_unref(pipeline);
     }
 
-    // Before it negotiates, webrtcdsp just takes the property: no swap.
-    // Live finding 2026-10-06: after unmute the far end first heard 60-80 ms
-    // of the moment of MUTING with RNNoise and DeepFilterNet. The delay line
-    // was cleared on the valve's discontinuity, but the backend's own history
-    // was not. A backend whose reset is real-time safe is reset there; one
-    // that has not declared it is left alone (its reset may allocate).
-    // Review LOW 4: DeepFilterNet after a caught panic passes audio through
-    // while the element went on reporting it active and ok (40 ms latency
-    // included), so nothing fell back and nothing was logged. The element
-    // now retires such a backend and reports the mode as failed, once.
     void aBackendThatFailsMidCallIsRetiredAndReported()
     {
         calls::noise::setSuppressorFactoryForTest(
@@ -926,36 +845,27 @@ private slots:
         h.setMode(Mode::DeepFilterNet);
         QVERIFY(h.waitForStatusWith(Mode::DeepFilterNet, true));
         QVERIFY(h.status().active == Mode::DeepFilterNet);
-        // Past its fifth frame it fails.
         h.push(rampSamples(0, 4000));
         QVERIFY(h.waitForStatusWith(Mode::DeepFilterNet, false));
         const auto status = h.status();
         QVERIFY(status.active == Mode::Off);
         QVERIFY(!status.ok);
         QCOMPARE(status.latencySamples, 0);
-        // Pass-through from here, bit-exact and undelayed, and no second
-        // report for the same failure.
         h.clearOutput();
         const std::vector<float> after = rampSamples(3, 2000);
         h.push(after);
         QVERIFY(h.outputSamples() == after);
         bool again = true;
         QVERIFY(!h.waitForStatus(Mode::DeepFilterNet, &again, 300));
-        // The dead backend is destroyed, off the streaming thread.
         QVERIFY(waitUntil([] { return g_ledger.live.load() == 0; }));
     }
 
-    // Review LOW 6: after a backend failed, selecting the same mode again
-    // did nothing (the element saw no change), so retrying needed a detour
-    // through another mode. A re-select of a FAILED mode builds it again; a
-    // re-select of a running one still does nothing.
     void reselectingAFailedModeRetriesIt()
     {
         static std::atomic<int> attempts{0};
         attempts.store(0);
         calls::noise::setSuppressorFactoryForTest(
             [](Mode mode) -> std::unique_ptr<calls::noise::NoiseSuppressor> {
-                // The first build fails, the next ones work.
                 if (attempts.fetch_add(1) == 0)
                     return nullptr;
                 return fakeFactory(mode);
@@ -969,7 +879,6 @@ private slots:
         QVERIFY(h.waitForStatusWith(Mode::RNNoise, true));
         QVERIFY(h.status().active == Mode::RNNoise);
         QCOMPARE(attempts.load(), 2);
-        // Running: the same mode again builds nothing.
         h.setMode(Mode::RNNoise);
         bool ok = false;
         QVERIFY(!h.waitForStatus(Mode::RNNoise, &ok, 300));
@@ -981,34 +890,28 @@ private slots:
         Harness h;
         QVERIFY(h.element);
         bool ok = false;
-        h.setMode(Mode::RNNoise); // the fake declares a real-time-safe reset
+        h.setMode(Mode::RNNoise);
         QVERIFY(h.waitForStatus(Mode::RNNoise, &ok));
         QVERIFY(ok);
         h.push(rampSamples(0, 1000));
         const int before = g_ledger.resets.load();
-        h.push(rampSamples(0, 1000)); // no gap: no reset
+        h.push(rampSamples(0, 1000));
         QCOMPARE(g_ledger.resets.load(), before);
-        h.push(rampSamples(0, 700), /*discont=*/true);
+        h.push(rampSamples(0, 700),true);
         QCOMPARE(g_ledger.resets.load(), before + 1);
 
-        h.setMode(Mode::DeepFilterNet); // the fake does not declare it
+        h.setMode(Mode::DeepFilterNet);
         QVERIFY(h.waitForStatus(Mode::DeepFilterNet, &ok));
         QVERIFY(ok);
         const int dfnBefore = g_ledger.resets.load();
-        h.push(rampSamples(0, 700), /*discont=*/true);
+        h.push(rampSamples(0, 700),true);
         QCOMPARE(g_ledger.resets.load(), dfnBefore);
-        // Either way the delay line restarts: the first frame after the gap
-        // is silence, never audio from before it.
         h.clearOutput();
-        h.push(rampSamples(0, 480), /*discont=*/true);
+        h.push(rampSamples(0, 480),true);
         for (const float v : h.outputSamples())
             QCOMPARE(v, 0.0f);
     }
 
-    // Live finding 2026-10-06: a WebRTC -> DeepFilterNet switch left about a
-    // second (the model's build) with NO suppressor, because webrtcdsp was
-    // replaced at once. Waiting for the denoiser keeps WebRTC suppressing
-    // until the caller is told the new backend runs.
     void aSwitchToANeuralModeKeepsWebrtcSuppressingUntilTheDenoiserReports()
     {
         if (!elementExists("webrtcdsp"))
@@ -1017,7 +920,6 @@ private slots:
         release.store(false);
         calls::noise::setSuppressorFactoryForTest(
             [](Mode mode) -> std::unique_ptr<calls::noise::NoiseSuppressor> {
-                // A slow build, like DeepFilterNet unpacking its model.
                 QElapsedTimer waited;
                 waited.start();
                 while (!release.load() && waited.elapsed() < 10000)
@@ -1049,7 +951,6 @@ private slots:
         };
         GstElement *denoise = gst_bin_get_by_name(GST_BIN(pipeline), "micdenoise");
         QVERIFY(denoise);
-        // Negotiated and flowing, so a dsp change would be a real swap.
         QVERIFY(waitUntil([denoise] {
             GstPad *pad = gst_element_get_static_pad(denoise, "src");
             const bool negotiated = gst_pad_has_current_caps(pad);
@@ -1060,7 +961,6 @@ private slots:
         const QString did = calls::noise::applyMode(
             pipeline, Mode::RNNoise, calls::noise::DspSwitch::WaitForDenoiser);
         QVERIFY2(did.contains(QStringLiteral("waits")), qPrintable(did));
-        // The backend is still building: WebRTC must still be suppressing.
         QTest::qWait(400);
         QCOMPARE(suppressing(), 1);
         QVERIFY(calls::noise::denoiseStatus(denoise).active == Mode::Off);
@@ -1069,12 +969,9 @@ private slots:
         QVERIFY(waitUntil([denoise] {
             return calls::noise::denoiseStatus(denoise).active == Mode::RNNoise;
         }));
-        // The caller follows the report.
         calls::noise::applyDspMode(pipeline, Mode::RNNoise);
         QVERIFY(waitUntil([&] { return suppressing() == 0; }));
 
-        // Into WebRTC (or Off) nothing is built: the switch is at once even
-        // when asked to wait.
         calls::noise::applyMode(pipeline, Mode::WebRtc,
                                 calls::noise::DspSwitch::WaitForDenoiser);
         QVERIFY(waitUntil([&] { return suppressing() == 1; }));
@@ -1107,9 +1004,6 @@ private slots:
         gst_object_unref(pipeline);
     }
 
-    // The real backends, when this build carries them, really suppress:
-    // white noise through the element comes out much quieter. (The speech
-    // quality comparison is a separate, longer test.)
     void theRealBackendsSuppressNoiseWhenBuiltIn_data()
     {
         QTest::addColumn<int>("mode");
@@ -1130,7 +1024,6 @@ private slots:
         QVERIFY(h.waitForStatus(m, &ok, 20000));
         QVERIFY2(ok, "the real backend failed to start");
         QVERIFY(h.status().active == m);
-        // Two seconds of deterministic white noise at about -23 dBFS RMS.
         std::vector<float> noise(2 * calls::noise::kSampleRate);
         quint32 seed = 0xC0FFEEu;
         for (float &v : noise) {
@@ -1148,7 +1041,6 @@ private slots:
                 sum += double(p[i]) * p[i];
             return std::sqrt(sum / double(n));
         };
-        // The second half: past start-up and the adaptation of either model.
         const size_t half = noise.size() / 2;
         const double in = rms(noise.data() + half, half);
         const double outRms = rms(got.data() + half, half);

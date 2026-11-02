@@ -1,8 +1,3 @@
-// C15-F03: a link on the user's own bubble was drawn in the page's link ink
-// on the bubble's accent fill (~1:1, "a faint smear"). MessageDelegate's
-// inkLinksForOwnBubble() swaps the baked ink for the bubble's text ink. The
-// function is extracted from the real QML source and run in a QJSEngine, so
-// the case fails if the function is removed, not called, or stops swapping.
 #include <QFile>
 #include <QJSEngine>
 #include <QtTest>
@@ -93,8 +88,6 @@ private slots:
     void bothBodyPathsApplyIt()
     {
         const QString qml = source();
-        // The single-body path and the segmented path each feed their text
-        // through it; a third caller would be a new rich-text path to check.
         QCOMPARE(qml.count(QStringLiteral("root.inkLinksForOwnBubble(")), 2);
     }
 };

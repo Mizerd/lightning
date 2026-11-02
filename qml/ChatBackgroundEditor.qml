@@ -3,37 +3,14 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Chat background editor, shared by Room information, Space settings and
-// Settings -> Appearance. Edits one of:
-//
-//   scopeKind "room":    the room's shared background (everyone here) or this
-//                        account's own picture for the room (only me), plus
-//                        "hide what others set here";
-//   scopeKind "space":   the Space's shared background, which its rooms use
-//                        unless they have their own;
-//   scopeKind "default": this account's own picture for every room.
-//
-// Nothing is written until Apply. The shared choice is offered only when the
-// room's power levels allow it (app.backdrops.canSetShared, false until the
-// room answered), and says before upload that room state is not end-to-end
-// encrypted.
 ColumnLayout {
     id: editor
     objectName: "chatBackgroundEditor"
 
     property string scopeKind: "room"
     property string scopeId: ""
-    // "shared" | "personal" once the user picks one; "" follows the room's
-    // answer (shared when this account may set it, else only me). A Space
-    // edits shared only; the default edits personal only.
     property string audience: ""
-    // Show the group title (hosts with their own heading turn it off).
     property bool showTitle: true
-    // On a Settings page: draw the frame, buttons and inks in the storm
-    // tokens the page uses. Off the page (Room information, Space settings)
-    // the panel tokens are right; on the page, `border` and the neutral
-    // button edge are the colour of a light page, so in Moss Light the
-    // preview had no frame and "Choose picture…" read as plain text.
     property bool storm: false
     readonly property color mutedInk: storm ? AppTheme.stormTextMuted
                                             : AppTheme.textMuted
@@ -53,14 +30,12 @@ ColumnLayout {
         var _dep = app.backdrops.revision
         return app.backdrops.canSetShared(editor.scopeId)
     }
-    // A backend without shared backgrounds leaves a room with "only me".
     readonly property string effectiveAudience:
         scopeKind === "space" ? "shared"
         : (scopeKind === "default" || !sharedPossible ? "personal"
            : (audience !== "" ? audience : (canShare ? "shared" : "personal")))
     readonly property string personalKey: scopeKind === "default" ? "" : scopeId
 
-    // The record being edited, as it is now.
     readonly property var current: {
         if (!editor.available)
             return ({})
@@ -79,15 +54,12 @@ ColumnLayout {
     readonly property var prepared: editor.available ? app.backdrops.prepared : ({})
     readonly property bool hasPrepared: !!(editor.prepared && editor.prepared.imageUrl)
 
-    // Pending presentation. Loaded from the current record whenever the
-    // target changes and nothing has been touched.
     property real pDim: 0.2
     property real pBlur: 0
     property real pTint: 0.25
     property string pFit: "cover"
     property string pAlign: "center"
     property bool dirty: false
-    /// A picked SVG is being converted to a PNG in the background.
     property bool convertingSvg: false
 
     function _presentationOf(record) {
@@ -96,7 +68,7 @@ ColumnLayout {
         if (record.presentation)
             return record.presentation
         if (record.dim !== undefined)
-            return record   // personalFor() flattens presentation
+            return record
         return null
     }
     function loadFromCurrent() {
@@ -118,8 +90,6 @@ ColumnLayout {
     // touched it (mock, 2026-10-07).
     property bool actedHere: false
     onScopeIdChanged: {
-        // Another room: its own answer decides again, and a picture picked
-        // for the previous room is not carried over.
         editor.actedHere = false
         editor.audience = ""
         editor.discardPicked()
@@ -132,7 +102,6 @@ ColumnLayout {
         if (editor.sharedPossible)
             app.backdrops.refreshScope(editor.scopeId)
     }
-    // A host created before its scope or the backend was ready asks once it is.
     onSharedPossibleChanged: {
         if (editor.sharedPossible)
             app.backdrops.refreshScope(editor.scopeId)
@@ -143,8 +112,6 @@ ColumnLayout {
                  fit: editor.pFit, align: editor.pAlign }
     }
 
-    // What the preview draws: the picked picture, or the current one, with
-    // the pending presentation.
     readonly property var previewSpec: {
         var base = null
         if (editor.hasPrepared) {
@@ -174,15 +141,10 @@ ColumnLayout {
     }
 
     function errorText(category) {
-        // A refused SVG: the controller words the reason.
         if (category.indexOf("svg_") === 0)
             return app.backdrops.svgMessage(category.substring(4))
-        // One honest sentence per category; every category the controller,
-        // the FFI or rust/src/backdrop.rs can report is listed, and an unknown
-        // one still shows its code rather than a sentence that says nothing.
         switch (category) {
         case "": return ""
-        // Picking the picture.
         case "unsupported_image":
             return qsTr("That file is not a picture Lightning can use (PNG, "
                         + "JPEG, WebP, GIF or BMP).")
@@ -193,7 +155,6 @@ ColumnLayout {
         case "unreadable": return qsTr("That file could not be opened.")
         case "encode_failed":
             return qsTr("Lightning could not convert that picture. Try another one.")
-        // Before anything is sent.
         case "no_picture": return qsTr("Choose a picture first.")
         case "write_failed":
         case "read_failed":
@@ -212,7 +173,6 @@ ColumnLayout {
         case "rejected":
             return qsTr("Lightning could not start the upload. Please report "
                         + "this if it keeps happening.")
-        // What the server said.
         case "forbidden":
             return qsTr("You are not allowed to change this background: your "
                         + "power level in this room is too low.")
@@ -234,7 +194,6 @@ ColumnLayout {
         case "network":
             return qsTr("Could not reach the server. Check your connection "
                         + "and try again.")
-        // Personal pictures.
         case "no_account": return qsTr("Sign in to keep your own backgrounds.")
         case "encrypted_room":
             return qsTr("Pictures from encrypted rooms cannot be used as a "
@@ -342,7 +301,6 @@ ColumnLayout {
         font.weight: AppTheme.weightStrong
     }
 
-    // Who sees it. Rooms only; a Space is shared, the default is personal.
     SegmentedControl {
         objectName: "chatBackgroundAudience"
         storm: editor.storm
@@ -363,10 +321,6 @@ ColumnLayout {
             app.backdrops.discardPrepared()
     }
 
-    // The preview, with the two inks that sit straight on a background. With
-    // nothing set it is the empty state AND the way in: the whole frame
-    // chooses a picture (pointer, or Tab then Enter/Space), the target a
-    // first-time user aims at.
     Rectangle {
         id: previewFrame
         objectName: "chatBackgroundPreview"
@@ -377,9 +331,6 @@ ColumnLayout {
         radius: AppTheme.radiusMd
         clip: true
         color: AppTheme.background
-        // At rest: the Settings page's strong storm edge (see `storm`), or on
-        // a panel the strong edge while empty, since the frame is then the
-        // control. Pointed at or focused while pickable: the accent.
         border.color: previewFrame.pickable
                       && (previewChoose.containsMouse || previewFrame.activeFocus)
                       ? AppTheme.accent
@@ -402,7 +353,6 @@ ColumnLayout {
             spec: editor.previewSpec
             edgeFades: false
         }
-        // A picture: sample inks over it, so the reader judges readability.
         Column {
             visible: !previewFrame.empty
             anchors.left: parent.left
@@ -427,8 +377,6 @@ ColumnLayout {
             }
             Label {
                 objectName: "chatBackgroundAnimationNote"
-                // Only for an animated picture, and only to say why it is
-                // still: Animated images (MotionPolicy) is the one switch.
                 visible: !!(editor.previewSpec && editor.previewSpec.animated)
                 width: parent.width
                 text: MotionPolicy.autoplay
@@ -441,7 +389,6 @@ ColumnLayout {
                 elide: Label.ElideRight
             }
         }
-        // No picture: say so, and say what a click does.
         Column {
             objectName: "chatBackgroundEmptyState"
             visible: previewFrame.empty
@@ -476,8 +423,6 @@ ColumnLayout {
                 elide: Label.ElideRight
             }
         }
-        // An empty preview is the biggest thing in the section, so it is also
-        // the way in.
         MouseArea {
             id: previewChoose
             objectName: "chatBackgroundPreviewChoose"
@@ -489,7 +434,6 @@ ColumnLayout {
         }
     }
 
-    // Permission and privacy, before anything is uploaded.
     Label {
         Layout.fillWidth: true
         visible: editor.effectiveAudience === "shared" && editor.sharedPossible
@@ -520,9 +464,6 @@ ColumnLayout {
         text: qsTr("A newer version of Lightning set this background, so it "
                    + "is not shown here.")
     }
-    // This account's own picture for the room wins over the shared one, on
-    // this account only. Said while editing the shared one, with the way
-    // back: dropping the own picture shows the room's.
     ColumnLayout {
         objectName: "chatBackgroundOwnOverride"
         Layout.fillWidth: true
@@ -586,11 +527,6 @@ ColumnLayout {
                                          || editor.canShare)
                                      && !app.backdrops.busy
 
-    // One decision at a time, so the row never wraps into a puzzle: with a
-    // pending change it is Apply / Cancel (and a different picture); at rest it
-    // is Change / Remove. With nothing set, choosing is the primary action.
-    // Remove is withheld while a change is pending, where it sat beside Apply
-    // and Cancel as a fourth button with the opposite meaning.
     readonly property bool pending: editor.hasPrepared
                                     || (editor.dirty && editor.hasCurrent)
     Flow {
@@ -631,7 +567,6 @@ ColumnLayout {
             objectName: "chatBackgroundChoose"
             text: editor.hasCurrent || editor.hasPrepared
                   ? qsTr("Change picture…") : qsTr("Choose picture…")
-            // The one thing to do when there is nothing yet.
             kind: editor.hasCurrent || editor.hasPrepared ? "secondary" : "primary"
             storm: editor.storm
             iconName: "image"
@@ -657,7 +592,6 @@ ColumnLayout {
         }
     }
 
-    // Presentation, once there is something to present.
     ColumnLayout {
         Layout.fillWidth: true
         visible: editor.hasPrepared || editor.hasCurrent
@@ -701,8 +635,6 @@ ColumnLayout {
                 onMoved: { editor.pTint = value; editor.dirty = true }
             }
         }
-        // Labelled like the sliders above: two unlabelled rows of words read
-        // as tabs, not as settings of the picture.
         RowLayout {
             objectName: "chatBackgroundFitRow"
             Layout.fillWidth: true
@@ -758,8 +690,6 @@ ColumnLayout {
         }
     }
 
-    // Per-room opt-out of what others set (rooms only; Settings has the
-    // global one).
     RowLayout {
         Layout.fillWidth: true
         visible: editor.scopeKind === "room" && editor.available
@@ -805,7 +735,6 @@ ColumnLayout {
                  ? editor.errorText(app.backdrops.lastError) : "")
     }
 
-    // The converted SVG arrives here (see prepareImage).
     Connections {
         target: editor.available ? app.backdrops : null
         function onImagePrepared(result) {
@@ -827,7 +756,6 @@ ColumnLayout {
         onAccepted: {
             editor.actedHere = true
             var result = app.backdrops.prepareImage(selectedFile)
-            // An SVG answers later, on imagePrepared.
             editor.convertingSvg = result.pending === true
             if (result.ok)
                 editor.dirty = true

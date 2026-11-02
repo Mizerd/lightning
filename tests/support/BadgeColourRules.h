@@ -1,13 +1,3 @@
-// The badge colour rules of AppTheme.qml (its "Badge colours" section), for
-// the C++ fixtures that resolve a palette the way paletteForTheme() does
-// (CustomThemeTest, ChatBackdropTest). AppTheme.qml is the rule; this is a
-// copy kept beside the tests that need it, so the readability table can grade
-// the badge fills and inks AppTheme actually derives.
-//
-// Same arithmetic as the QML: WCAG relative luminance with the 0.03928 knee,
-// HSL lightness steps of 0.005 tried both ways, the opposite ink when the own
-// ink would move the fill by more than kMaxShift and the opposite needs less.
-// High contrast is not modelled (the fixtures grade the default mode).
 #pragma once
 
 #include <QColor>
@@ -56,7 +46,6 @@ inline double worstRatio(const QColor &c, const QList<QColor> &against)
     return worst;
 }
 
-// AppTheme._lightnessFit.
 inline Fit lightnessFit(const QColor &fill, const QList<QColor> &against, double minRatio)
 {
     Fit best{fill, 0.0, false, worstRatio(fill, against)};
@@ -83,7 +72,6 @@ inline Fit lightnessFit(const QColor &fill, const QList<QColor> &against, double
     return best;
 }
 
-// AppTheme.badgeInk.
 inline QColor badgeInk(const QColor &fill, const QColor &ink, double minRatio = kInkRatio)
 {
     const Fit own = lightnessFit(fill, {ink}, minRatio);
@@ -96,11 +84,6 @@ inline QColor badgeInk(const QColor &fill, const QColor &ink, double minRatio = 
     return ink;
 }
 
-// The derived badge keys paletteForTheme() adds after its element loop, from
-// the palette's own resolved roles. `own` names what the palette or the user
-// set explicitly (an element they set keeps its colour). A source that is
-// absent or translucent leaves its derived keys absent, as the audit then
-// reports.
 inline void addDerived(QVariantMap &p, const QVariantMap &own = QVariantMap())
 {
     const auto color = [&p](const char *key) {
@@ -113,7 +96,7 @@ inline void addDerived(QVariantMap &p, const QVariantMap &own = QVariantMap())
     const QColor mention = color("mentionBadge");
     QColor mentionText = color("mentionBadgeText");
     if (!mentionText.isValid())
-        mentionText = QColor(kLightInk);   // AppTheme's dangerText literal
+        mentionText = QColor(kLightInk);
     if (mention.isValid()) {
         const QColor ink = badgeInk(mention, mentionText);
         const QColor fill = lightnessFit(mention, {ink}, kInkRatio).color;
@@ -132,4 +115,4 @@ inline void addDerived(QVariantMap &p, const QVariantMap &own = QVariantMap())
     }
 }
 
-} // namespace badgerules
+}

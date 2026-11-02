@@ -3,30 +3,15 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Reusable Matrix user search, used by the New Conversation and Invite People
-// dialogs. Debounce, stale-result rejection and deduplication live in C++
-// (UserSearchModel); this provides the input, results, keyboard navigation and
-// selection signal. All instances share one UserSearchModel
-// (app.conversations.userSearch); owners keep at most one picker visible and
-// clear the search when switching.
 ColumnLayout {
     id: root
     spacing: AppTheme.spacing8
 
-    // Emitted on click or Enter. avatarUrl is additive, so two-argument
-    // handlers still work.
     signal userSelected(string userId, string displayName, string avatarUrl)
 
     property alias searchText: searchField.text
     readonly property var model: app.conversations.userSearch
-    // The New Conversation omnibox reuses this instance and its objectNames
-    // with a different treatment, so CreationDialogQmlTest's
-    // "<objectName>SearchField" lookups keep working.
     property bool omniboxStyle: false
-    // Local suggestions shown while the search is EMPTY (Invite People:
-    // recent one-to-one conversations). [{ userId, displayName, avatarUrl }],
-    // already filtered by the owner. A click or Enter on one only selects it
-    // (userSelected), exactly like a search result; nothing is sent here.
     property var suggestions: []
     property string suggestionsTitle: qsTr("Recent conversations")
     readonly property bool showingSuggestions:
@@ -73,17 +58,12 @@ ColumnLayout {
         searchIcon: !root.omniboxStyle
         clearButton: true
         leftPadding: root.omniboxStyle ? 38 : (searchIcon ? 32 : 12)
-        // Title size for the omnibox, which is the dialog's subject; body size
-        // elsewhere.
         font.pixelSize: root.omniboxStyle ? AppTheme.textTitle
                                           : AppTheme.textBody
         placeholderText: root.omniboxStyle
             ? qsTr("Type a name, an @user ID, or a #room address…")
             : qsTr("Search people, or enter a full Matrix ID…")
         Accessible.name: qsTr("Search for a user")
-        // stormInset field with a bolt focus border and halo. The omnibox's
-        // larger radius and leading glyph are overridden here rather than in
-        // AppTextField.
         storm: true
         background: Rectangle {
             radius: root.omniboxStyle ? AppTheme.radiusOmnibox : AppTheme.radiusMd
@@ -93,7 +73,6 @@ ColumnLayout {
                           : (root.omniboxStyle || searchField.hovered)
                             ? AppTheme.stormBorderStrong
                           : AppTheme.stormBorder
-            // Focus halo: an outside ring, never field geometry.
             Rectangle {
                 visible: searchField.activeFocus
                 anchors.fill: parent
@@ -111,7 +90,6 @@ ColumnLayout {
             anchors.verticalCenter: parent.verticalCenter
             name: "bolt"
             size: 18
-            // The omnibox glyph inks bolt while focused.
             color: searchField.activeFocus ? AppTheme.bolt
                                            : AppTheme.stormTextMuted
         }
@@ -139,8 +117,6 @@ ColumnLayout {
                 resultsList.currentIndex = Math.max(resultsList.currentIndex - 1, 0)
         }
         Keys.onReturnPressed: (event) => {
-            // An empty search never picks a suggestion by itself: only one
-            // the keyboard highlighted, and only as a selection.
             if (root.showingSuggestions) {
                 if (suggestionList.currentIndex >= 0) {
                     suggestionList.selectRow(suggestionList.currentIndex)
@@ -160,7 +136,6 @@ ColumnLayout {
         }
     }
 
-    // State line: loading / no results / error.
     Label {
         objectName: root.objectName.length > 0
                     ? root.objectName + "StateLabel" : "userPickerStateLabel"
@@ -178,7 +153,6 @@ ColumnLayout {
         font.pixelSize: AppTheme.textBody
     }
 
-    // Suggestions for an empty search, kept apart from directory results.
     Label {
         objectName: root.objectName.length > 0
                     ? root.objectName + "SuggestionsTitle" : "userPickerSuggestionsTitle"
@@ -222,8 +196,6 @@ ColumnLayout {
             objectName: "userPickerSuggestion_" + index
             width: ListView.view.width
             highlighted: ListView.isCurrentItem
-            // The person's global profile from the session cache when the
-            // room snapshot had no name for them (asked once per user).
             readonly property var profiles: typeof app !== "undefined" && app
                                             ? app.userProfiles : null
             property var resolvedProfile: profiles
@@ -275,7 +247,6 @@ ColumnLayout {
                         font.weight: AppTheme.weightStrong
                         elide: Label.ElideRight
                     }
-                    // The full ID always: two people can share a name.
                     Label {
                         textFormat: Text.PlainText
                         Layout.fillWidth: true
@@ -311,8 +282,6 @@ ColumnLayout {
         function selectRow(row) {
             var userId = root.model.userIdAt(row)
             if (userId && userId.length > 0) {
-                // The avatar comes from the visible delegate (the highlighted
-                // row is instantiated).
                 var delegateItem = resultsList.itemAtIndex(row)
                 root.userSelected(userId, root.model.displayNameAt(row) || "",
                                   delegateItem ? delegateItem.rowAvatarUrl : "")
@@ -360,7 +329,6 @@ ColumnLayout {
                         elide: Label.ElideRight
                     }
                     Label {
-                        // Untrusted text: never markup.
                         textFormat: Text.PlainText
                         Layout.fillWidth: true
                         visible: model.displayName && model.displayName.length > 0
@@ -371,7 +339,6 @@ ColumnLayout {
                         elide: Label.ElideMiddle
                     }
                 }
-                // Provenance chip: directory result vs confirmed exact lookup.
                 StatusChip {
                     readonly property string src: model.source || "directory"
                     storm: true

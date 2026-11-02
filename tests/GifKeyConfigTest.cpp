@@ -1,9 +1,3 @@
-// GIF provider key configuration: the application itself reads
-// lightning-gif.env, not only the shell launcher. Covers the safe env-file
-// parser, environment > env file > build key precedence where empty never
-// overrides, discovery via LIGHTNING_GIF_ENV_FILE, controller refresh for a
-// picker opened before configuration, one-provider setups, and that no
-// fixture key value reaches the log.
 
 #include <QtTest/QtTest>
 
@@ -18,7 +12,6 @@ using gif::resolveProviderKeyDetailed;
 
 namespace {
 
-// Synthetic fixture values only — never real keys.
 const QByteArray kGiphyFixture = "giphy-fixture-0123456789abcdef";
 const QByteArray kKlipyFixture = "klipy-fixture-fedcba9876543210";
 
@@ -41,7 +34,7 @@ private:
     inline static QStringList s_messages;
 };
 
-} // namespace
+}
 
 class GifKeyConfigTest : public QObject
 {
@@ -82,7 +75,7 @@ private slots:
             "not a valid line\n"
             "=missing-name\n"
             "BAD NAME=x\n"
-            "TRAILING_NO_NEWLINE=last"; // deliberately no final newline
+            "TRAILING_NO_NEWLINE=last";
         const auto values = parseEnvAssignments(content);
         QCOMPARE(values.value(QStringLiteral("LIGHTNING_GIPHY_API_KEY")),
                  QString::fromUtf8(kGiphyFixture));
@@ -94,7 +87,6 @@ private slots:
                  QStringLiteral("last"));
         QVERIFY(!values.contains(QStringLiteral("BAD NAME")));
         QVERIFY(!values.contains(QString()));
-        // Nothing shell-like is evaluated; invalid lines are simply absent.
         QCOMPARE(values.size(), 4);
     }
 
@@ -111,33 +103,26 @@ private slots:
             "LIGHTNING_GIPHY_API_KEY=" + kGiphyFixture + "\n");
         qputenv("LIGHTNING_GIF_ENV_FILE", file.toUtf8());
 
-        // File source alone.
         auto resolved = resolveProviderKeyDetailed(QStringLiteral("giphy"));
         QVERIFY(resolved.configured());
         QCOMPARE(resolved.source, KeySourceClass::EnvFile);
         QCOMPARE(resolved.key, QString::fromUtf8(kGiphyFixture));
 
-        // Process environment wins over the file.
         qputenv("LIGHTNING_GIPHY_API_KEY", "env-fixture-value");
         resolved = resolveProviderKeyDetailed(QStringLiteral("giphy"));
         QCOMPARE(resolved.source, KeySourceClass::Environment);
         QCOMPARE(resolved.key, QStringLiteral("env-fixture-value"));
 
-        // An empty environment value falls back to the file; empty never
-        // overrides a lower-precedence source.
         qputenv("LIGHTNING_GIPHY_API_KEY", "   ");
         resolved = resolveProviderKeyDetailed(QStringLiteral("giphy"));
         QCOMPARE(resolved.source, KeySourceClass::EnvFile);
         QCOMPARE(resolved.key, QString::fromUtf8(kGiphyFixture));
 
-        // An empty FILE value falls through to the build key / absent.
         const QString emptyFile =
             writeEnvFile("LIGHTNING_GIPHY_API_KEY=\"\"\n");
         qputenv("LIGHTNING_GIF_ENV_FILE", emptyFile.toUtf8());
         qunsetenv("LIGHTNING_GIPHY_API_KEY");
         resolved = resolveProviderKeyDetailed(QStringLiteral("giphy"));
-        // A source build has no compiled key, so this is the build key when
-        // embedded and absent otherwise, never the empty file value.
         if (!resolved.configured())
             QCOMPARE(resolved.source, KeySourceClass::Absent);
         else
@@ -153,8 +138,6 @@ private slots:
         QVERIFY(klipy.configured());
         QCOMPARE(klipy.source, KeySourceClass::EnvFile);
         const auto giphy = resolveProviderKeyDetailed(QStringLiteral("giphy"));
-        // giphy has no env or file source here; only a compiled key could
-        // configure it.
         QVERIFY(giphy.source == KeySourceClass::Absent
                 || giphy.source == KeySourceClass::BuildKey);
     }
@@ -162,12 +145,10 @@ private slots:
     void controllerRefreshRecoversAPickerOpenedBeforeConfiguration()
     {
         LogCapture logs;
-        // Constructed with no configuration: both providers off.
         GifSearchController controller;
         QVERIFY(!controller.providerConfigured(QStringLiteral("giphy")));
         QVERIFY(!controller.providerConfigured(QStringLiteral("klipy")));
 
-        // Configuration becomes available (env file appears or env is set).
         const QString file = writeEnvFile(
             "LIGHTNING_GIPHY_API_KEY=" + kGiphyFixture + "\n"
             "LIGHTNING_KLIPY_API_KEY=" + kKlipyFixture + "\n");
@@ -180,17 +161,14 @@ private slots:
         QVERIFY(controller.providerConfigured(QStringLiteral("giphy")));
         QVERIFY(controller.providerConfigured(QStringLiteral("klipy")));
 
-        // A second refresh with unchanged state stays quiet.
         controller.refreshProviderKeys();
         QCOMPARE(configSpy.count(), 1);
 
-        // The test seam pins a provider; refresh must not clobber it.
         controller.setApiKey(QStringLiteral("giphy"),
                              QStringLiteral("pinned-fixture"));
         controller.refreshProviderKeys();
         QVERIFY(controller.providerConfigured(QStringLiteral("giphy")));
 
-        // No fixture key value ever reached the log stream.
         const QString joined = logs.messages().join(QLatin1Char('\n'));
         QVERIFY(!joined.contains(QString::fromUtf8(kGiphyFixture)));
         QVERIFY(!joined.contains(QString::fromUtf8(kKlipyFixture)));

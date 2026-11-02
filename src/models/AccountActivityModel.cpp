@@ -16,8 +16,6 @@ int AccountActivityModel::rowCount(const QModelIndex &parent) const
 
 AccountActivityModel::Summary AccountActivityModel::visibleSummary(const Row &row)
 {
-    // A paused or non-live account shows nothing (design §8, DECISION §14.5):
-    // its counts are as old as its last sync and would only mislead.
     if (row.liveState != Running)
         return {};
     return row.summary;
@@ -123,8 +121,6 @@ void AccountActivityModel::emitRowChanged(int row)
 bool AccountActivityModel::setSummary(const QString &uid, quint64 epoch,
                                       const Summary &s)
 {
-    // A removed account stays removed: a summary from the host retired with
-    // it, at any epoch, must not bring the row back.
     if (uid.isEmpty() || m_removed.contains(uid))
         return false;
     int i = indexOf(uid);
@@ -155,14 +151,12 @@ bool AccountActivityModel::setSummary(const QString &uid, quint64 epoch,
 
 void AccountActivityModel::setLiveState(const QString &uid, LiveState state)
 {
-    // The retiring host of a removed account still walks Stopping -> NotLive;
-    // neither may re-create its row.
     if (uid.isEmpty() || m_removed.contains(uid))
         return;
     int i = indexOf(uid);
     if (i < 0) {
         if (state == NotLive)
-            return; // nothing to say about an account without a row
+            return;
         i = insertRow(uid, 0);
     }
     Row &row = m_rows[i];
@@ -172,7 +166,6 @@ void AccountActivityModel::setLiveState(const QString &uid, LiveState state)
     row.liveState = state;
     emitRowChanged(i);
     Q_EMIT liveStateChanged(uid);
-    // Running shows the summary and every other state hides it.
     if (activityOf(&m_rows.at(i)) != before)
         Q_EMIT summaryChanged(uid);
     refreshTotals();
@@ -206,8 +199,6 @@ void AccountActivityModel::removeAccount(const QString &uid)
 {
     if (uid.isEmpty())
         return;
-    // Tombstoned whether or not a row exists: a Starting host that has not
-    // reported yet must not create one afterwards either.
     m_removed.insert(uid);
     const int i = indexOf(uid);
     if (i < 0)

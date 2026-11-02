@@ -31,48 +31,21 @@ class SettingsManager : public QObject
                    WRITE setLoginHomeserverPrefill
                    NOTIFY loginHomeserverPrefillChanged)
     Q_PROPERTY(Theme theme READ theme WRITE setTheme NOTIFY themeChanged)
-    // Layout preset: 0 Lightning (the ordinary presentation), 1 Nheko compact.
-    // A preset is a PROFILE for the presentation keys below (messageLayout,
-    // messageSpacing, threadPlacement): while Nheko compact is selected their
-    // getters answer the profile's own stored override, else the preset's
-    // value, and their setters write that override -- the Lightning values
-    // are never touched, so switching back restores them exactly. Fonts, text
-    // scale, palette, privacy, notifications and media choices are not
-    // presentation keys and no preset changes them. Account-scoped, synced.
     Q_PROPERTY(int layoutPreset READ layoutPreset WRITE setLayoutPreset
                    NOTIFY layoutPresetChanged)
-    // True while the selected preset has an override the user set.
     Q_PROPERTY(bool layoutPresetCustomized READ layoutPresetCustomized
                    NOTIFY layoutPresetChanged)
-    // Message layout (0 = Modern, 1 = Bubbles for DMs, 2 = Compact/IRC,
-    // 3 = Small avatars: flat rows, a small avatar beside the sender name
-    // above the first body, no permanent avatar gutter -- Nheko's
-    // small-avatar arrangement) and
-    // text scale (percent, 90–140). Per-account with a global fallback that
-    // doubles as the logged-out default.
     Q_PROPERTY(int messageLayout READ messageLayout WRITE setMessageLayout
                    NOTIFY messageLayoutChanged)
-    /// Room-list organisation: 0 = Classic (one activity-ordered list with
-    /// DM/Rooms sections), 1 = Channels (the active Space's own hierarchy).
-    /// Account-scoped through appearanceValue.
     Q_PROPERTY(int roomNavigationLayout READ roomNavigationLayout
                    WRITE setRoomNavigationLayout
                    NOTIFY roomNavigationLayoutChanged)
-    // Room-list filter chips (0 All, 1 People, 2 Rooms, 3 Unreads).
-    // Per-account with global fallback.
     Q_PROPERTY(int roomFilterMode READ roomFilterMode WRITE setRoomFilterMode
                    NOTIFY roomFilterModeChanged)
     Q_PROPERTY(int textScale READ textScale WRITE setTextScale
                    NOTIFY textScaleChanged)
-    // UI font family, per-account with global fallback. Stored verbatim after a
-    // syntactic check only: this class links Qt6::Core alone and cannot ask
-    // QFontDatabase. FontManager resolves the name and falls back to the
-    // bundled face without rewriting this value, so a reinstalled font comes
-    // back.
     Q_PROPERTY(QString uiFont READ uiFont WRITE setUiFont
                    NOTIFY uiFontChanged)
-    // Monospace family (code blocks, keycaps, Matrix identifiers). Same storage
-    // and resolution rules as uiFont.
     Q_PROPERTY(QString monoFont READ monoFont WRITE setMonoFont
                    NOTIFY monoFontChanged)
     Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY languageChanged)
@@ -83,8 +56,6 @@ class SettingsManager : public QObject
     Q_PROPERTY(bool customAppIconEnabled READ customAppIconEnabled
                    WRITE setCustomAppIconEnabled NOTIFY customAppIconEnabledChanged)
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY notificationsEnabledChanged)
-    // Notification privacy: 0 = sender and message, 1 = sender only (default),
-    // 2 = private ("New Matrix notification").
     Q_PROPERTY(int notificationPreview READ notificationPreview
                    WRITE setNotificationPreview NOTIFY notificationPreviewChanged)
     // Separate preview level for encrypted rooms: a notification body lands in
@@ -94,28 +65,14 @@ class SettingsManager : public QObject
     Q_PROPERTY(int notificationPreviewEncrypted READ notificationPreviewEncrypted
                    WRITE setNotificationPreviewEncrypted
                    NOTIFY notificationPreviewEncryptedChanged)
-    // MSC4153 "invisible crypto": refuse to share room keys with, and to
-    // decrypt from, devices that are not cross-signed. Off by default because
-    // enabling it makes contacts with unverified devices unreadable. Takes
-    // effect on restart: matrix-sdk 0.18 has no runtime setter for either half.
     Q_PROPERTY(bool strictDeviceTrust READ strictDeviceTrust
                    WRITE setStrictDeviceTrust NOTIFY strictDeviceTrustChanged)
-    // How many days back the Activity panel's opening list reaches for rows
-    // the server already marks read (0 = no limit). Device-local; default 60.
     Q_PROPERTY(int activityReadHorizonDays READ activityReadHorizonDays
                    WRITE setActivityReadHorizonDays
                    NOTIFY activityReadHorizonDaysChanged)
-    // Labs: run several accounts at once (concurrent live accounts). Off by
-    // default, and only a stored bool `true` turns it on: a hand edit reading
-    // "1" or "yes" stays off. Never exported or synced (not in the settings
-    // schema), so a homeserver cannot switch on network activity for every
-    // saved account. AppController also requires the Rust bridge, and does
-    // nothing when LIGHTNING_LABS_LIVE_ACCOUNTS forces Labs off.
     Q_PROPERTY(bool labsConcurrentAccounts READ labsConcurrentAccounts
                    WRITE setLabsConcurrentAccounts
                    NOTIFY labsConcurrentAccountsChanged)
-    // Hold the account just switched away from for a while (Phase 2). On by
-    // default (DECISION 3). Nothing reads it in Phase 1.
     Q_PROPERTY(bool labsConcurrentAccountsWarmSlot
                    READ labsConcurrentAccountsWarmSlot
                    WRITE setLabsConcurrentAccountsWarmSlot
@@ -128,52 +85,28 @@ class SettingsManager : public QObject
     // SENDS are kept by matrix-sdk's send queue whatever this says.
     Q_PROPERTY(bool keepMediaOnDevice READ keepMediaOnDevice
                    WRITE setKeepMediaOnDevice NOTIFY keepMediaOnDeviceChanged)
-    // About -> Developer tools: reveals the read-only developer panels. Off by
-    // default and per device; it turns on nothing that runs by itself.
     Q_PROPERTY(bool developerTools READ developerTools
                    WRITE setDeveloperTools NOTIFY developerToolsChanged)
-    // Downloads: Element's "Download" saves straight to the downloads folder
-    // unless this is on, in which case every download asks where to save.
     Q_PROPERTY(bool alwaysAskWhereToSave READ alwaysAskWhereToSave
                    WRITE setAlwaysAskWhereToSave
                    NOTIFY alwaysAskWhereToSaveChanged)
-    // The folder downloads go to; empty means the system's Downloads folder.
     Q_PROPERTY(QString downloadFolder READ downloadFolder
                    WRITE setDownloadFolder NOTIFY downloadFolderChanged)
-    // Who is told this account has read a message: 0 public (default), 1
-    // private (MSC2285 `m.read.private`, still clears this account's other
-    // devices). A stored 2 (the former "Do not send" mode, which sent private
-    // receipts too) reads as 1. The fully-read marker is sent in every mode;
-    // it is private account data.
     Q_PROPERTY(int readReceiptMode READ readReceiptMode
                    WRITE setReadReceiptMode NOTIFY readReceiptModeChanged)
-    // Whether typing notices leave this device.
     Q_PROPERTY(bool sendTypingNotifications READ sendTypingNotifications
                    WRITE setSendTypingNotifications
                    NOTIFY sendTypingNotificationsChanged)
-    // Notification sound: 0 = off, 1 = mentions and DMs (default), 2 = all.
-    // Suppressed along with the notification it belongs to.
     Q_PROPERTY(int notificationSound READ notificationSound
                    WRITE setNotificationSound NOTIFY notificationSoundChanged)
-    // Whose sound a notification makes: 0 = Lightning's own chime (the
-    // default; the platform's sound is suppressed), 1 = the platform's
-    // themed sound. Which notifications sound at all is notificationSound.
     Q_PROPERTY(int notificationSoundSource READ notificationSoundSource
                    WRITE setNotificationSoundSource
                    NOTIFY notificationSoundSourceChanged)
-    // Volume of Lightning's notification chime, 0-100 (perceptual).
     Q_PROPERTY(int notificationSoundVolume READ notificationSoundVolume
                    WRITE setNotificationSoundVolume
                    NOTIFY notificationSoundVolumeChanged)
-    // Whether an incoming call rings. Device-wide; the call banner itself is
-    // governed by notificationsEnabled.
     Q_PROPERTY(bool ringForCalls READ ringForCalls WRITE setRingForCalls
                    NOTIFY ringForCallsChanged)
-    // Lightning's own call sounds (src/calls/CallSoundPolicy.h). Device-scoped.
-    // The master switch covers every in-call cue and the outgoing ringback; the
-    // three below split cues by meaning. The incoming ring stays on
-    // ringForCalls. Volumes are 0-100 on a perceptual scale. One NOTIFY for the
-    // group.
     Q_PROPERTY(bool callSoundsEnabled READ callSoundsEnabled
                    WRITE setCallSoundsEnabled NOTIFY callSoundSettingsChanged)
     Q_PROPERTY(bool callSoundsPresence READ callSoundsPresence
@@ -187,8 +120,6 @@ class SettingsManager : public QObject
                    WRITE setCallSoundVolume NOTIFY callSoundSettingsChanged)
     Q_PROPERTY(int ringerVolume READ ringerVolume WRITE setRingerVolume
                    NOTIFY callSoundSettingsChanged)
-    // Call device preferences. Device-scoped: hardware belongs to the machine.
-    // Stored as the PipeWire/Pulse node name; empty means "system default".
     Q_PROPERTY(QString preferredMicrophoneId READ preferredMicrophoneId
                    WRITE setPreferredMicrophoneId
                    NOTIFY callDevicePreferenceChanged)
@@ -198,7 +129,6 @@ class SettingsManager : public QObject
     Q_PROPERTY(QString preferredCameraId READ preferredCameraId
                    WRITE setPreferredCameraId
                    NOTIFY callDevicePreferenceChanged)
-    // Link previews. Encrypted-room previews default off.
     Q_PROPERTY(bool autoLoadLinkPreviews READ autoLoadLinkPreviews
                    WRITE setAutoLoadLinkPreviews NOTIFY autoLoadLinkPreviewsChanged)
     Q_PROPERTY(bool loadPreviewsInEncryptedRooms READ loadPreviewsInEncryptedRooms
@@ -206,13 +136,9 @@ class SettingsManager : public QObject
                    NOTIFY loadPreviewsInEncryptedRoomsChanged)
     Q_PROPERTY(bool animateGifPreviews READ animateGifPreviews
                    WRITE setAnimateGifPreviews NOTIFY animateGifPreviewsChanged)
-    // A link that is itself an image or a video shows as that media (viewer on
-    // click, player on Play). On by default: it can fetch only what the two
-    // preview switches above already allow, and those default off.
     Q_PROPERTY(bool showLinkMediaInline READ showLinkMediaInline
                    WRITE setShowLinkMediaInline
                    NOTIFY showLinkMediaInlineChanged)
-    // Screen-share quality. Device-global.
     Q_PROPERTY(int shareMaxHeight READ shareMaxHeight WRITE setShareMaxHeight
                    NOTIFY shareQualityChanged)
     Q_PROPERTY(int shareFps READ shareFps WRITE setShareFps
@@ -225,91 +151,54 @@ class SettingsManager : public QObject
                    WRITE setEchoCancellation NOTIFY voiceProcessingChanged)
     Q_PROPERTY(bool autoGainControl READ autoGainControl
                    WRITE setAutoGainControl NOTIFY voiceProcessingChanged)
-    /// True when the chosen combination asks more of the encoder than it can
-    /// sustain in real time. Single predicate shared by every surface.
     Q_PROPERTY(bool shareQualityDemanding READ shareQualityDemanding
                    NOTIFY shareQualityChanged)
-    // Publish this account's own presence. Default on; viewing others' presence
-    // is passive and has no toggle.
     Q_PROPERTY(bool sharePresence READ sharePresence
                    WRITE setSharePresence NOTIFY sharePresenceChanged)
-    // Labs: publish "Playing <game>" as the presence status while a game
-    // runs. Off by default. The hide list holds game names that are never
-    // published; the custom list holds user "exe=Name" detection entries.
     Q_PROPERTY(bool gameActivityEnabled READ gameActivityEnabled
                    WRITE setGameActivityEnabled NOTIFY gameActivityChanged)
     Q_PROPERTY(QStringList gameActivityHidden READ gameActivityHidden
                    WRITE setGameActivityHidden NOTIFY gameActivityChanged)
     Q_PROPERTY(QStringList gameActivityCustom READ gameActivityCustom
                    WRITE setGameActivityCustom NOTIFY gameActivityChanged)
-    // Labs: "Listening to <song> by <artist>" while Spotify plays on this
-    // computer (Discord's "Display Spotify as your status"). Off by default.
     Q_PROPERTY(bool musicActivityEnabled READ musicActivityEnabled
                    WRITE setMusicActivityEnabled NOTIFY musicActivityChanged)
-    // Shell layout. Device-level: it describes this window on this screen, and
-    // an account switch must not resize it.
     Q_PROPERTY(bool spacesRailVisible READ spacesRailVisible
                    WRITE setSpacesRailVisible NOTIFY spacesRailVisibleChanged)
-    // Space banner visibility and expansion. App-wide rather than per-Space.
     Q_PROPERTY(bool spaceBannersVisible READ spaceBannersVisible
                    WRITE setSpaceBannersVisible NOTIFY spaceBannersVisibleChanged)
-    // Keep the conversation list's order still while it is in use: a new
-    // message updates its row in place and the list re-sorts when the user
-    // changes Space, tab or search, returns to the window, or leaves the list
-    // alone. Device-scoped; on by default (Element's behaviour).
     Q_PROPERTY(bool keepRoomListOrderStill READ keepRoomListOrderStill
                    WRITE setKeepRoomListOrderStill
                    NOTIFY keepRoomListOrderStillChanged)
-    /// How the conversation lists order each group: 0 = Activity (default),
-    /// 1 = A-Z (name, locale-aware). Device-scoped. An unknown stored value
-    /// reads as Activity: an enum has no "nearest", so no clamp.
     Q_PROPERTY(int roomListSort READ roomListSort WRITE setRoomListSort
                    NOTIFY roomListSortChanged)
-    /// How the Spaces rail orders its Spaces: 0 = Manual (the dragged
-    /// arrangement, default), 1 = A-Z, 2 = Recent activity. The two automatic
-    /// modes sort at read time and never touch the stored arrangement.
-    /// Device-scoped, like the arrangement itself. Unknown reads as Manual.
     Q_PROPERTY(int railSort READ railSort WRITE setRailSort
                    NOTIFY railSortChanged)
     Q_PROPERTY(bool spaceBannerExpanded READ spaceBannerExpanded
                    WRITE setSpaceBannerExpanded NOTIFY spaceBannerExpandedChanged)
     Q_PROPERTY(bool roomListVisible READ roomListVisible
                    WRITE setRoomListVisible NOTIFY roomListVisibleChanged)
-    // The room member panel stays open across room switches and restarts.
     Q_PROPERTY(bool memberPanelOpen READ memberPanelOpen
                    WRITE setMemberPanelOpen NOTIFY memberPanelOpenChanged)
     Q_PROPERTY(int roomListWidth READ roomListWidth
                    WRITE setRoomListWidth NOTIFY roomListWidthChanged)
     Q_PROPERTY(int spacesRailWidth READ spacesRailWidth
                    WRITE setSpacesRailWidth NOTIFY spacesRailWidthChanged)
-    /// How the rail shows nesting: 0 = Regions (tinted region per ancestor),
-    /// 1 = Classic (indentation only). Presentation only: rows, order and drag
-    /// behaviour are identical. App-wide like spacesRailWidth.
     Q_PROPERTY(int spacesRailDepthStyle READ spacesRailDepthStyle
                    WRITE setSpacesRailDepthStyle
                    NOTIFY spacesRailDepthStyleChanged)
     Q_PROPERTY(int sidePanelWidth READ sidePanelWidth
                    WRITE setSidePanelWidth NOTIFY sidePanelWidthChanged)
-    // The clamps, exposed so a slider cannot invent narrower bounds than the
-    // setter enforces.
     Q_PROPERTY(int roomListMinWidth READ roomListMinWidth CONSTANT)
     Q_PROPERTY(int roomListExpandedMinWidth READ roomListExpandedMinWidth CONSTANT)
     Q_PROPERTY(int roomListSnapThreshold READ roomListSnapThreshold CONSTANT)
     Q_PROPERTY(int roomListMaxWidth READ roomListMaxWidth CONSTANT)
     Q_PROPERTY(int sidePanelMinWidth READ sidePanelMinWidth CONSTANT)
     Q_PROPERTY(int sidePanelMaxWidth READ sidePanelMaxWidth CONSTANT)
-    // Storage bounds for the rail width. The draggable stops are computed in
-    // QML from scaled pixels (which C++ cannot know); MainScreen intersects
-    // both.
     Q_PROPERTY(int spacesRailMinWidth READ spacesRailMinWidth CONSTANT)
     Q_PROPERTY(int spacesRailMaxWidth READ spacesRailMaxWidth CONSTANT)
-    // Closing the window hides to the system tray instead of quitting. Off by
-    // default and gated on the platform having a tray.
     Q_PROPERTY(bool closeToTray READ closeToTray WRITE setCloseToTray
                    NOTIFY closeToTrayChanged)
-    // Call keys through the desktop's GlobalShortcuts portal, so they work
-    // while another window is focused (GitHub #47). Off by default: it is a
-    // system-wide grab and the first bind may ask the user.
     Q_PROPERTY(bool globalShortcutsEnabled READ globalShortcutsEnabled
                    WRITE setGlobalShortcutsEnabled
                    NOTIFY globalShortcutsEnabledChanged)
@@ -324,33 +213,13 @@ class SettingsManager : public QObject
     // AppController::restorableWindowGeometry.
     Q_PROPERTY(QRect initialWindowGeometry READ initialWindowGeometry CONSTANT)
     Q_PROPERTY(bool initialWindowMaximized READ initialWindowMaximized CONSTANT)
-    // Why this settings file may not describe this device (B118), decided once
-    // at startup. A SettingsReadProblem value; the UI says so instead of
-    // presenting a fresh sign-in as if nothing were there.
     Q_PROPERTY(int settingsReadProblem READ settingsReadProblem CONSTANT)
-    // The user dismissed the "verify this session" warnings. Strictly
-    // account-scoped (not appearanceValue, which mirrors into a global
-    // fallback). Cleared once the session becomes verified.
     Q_PROPERTY(bool verificationWarningDismissed
                    READ verificationWarningDismissed
                    WRITE setVerificationWarningDismissed
                    NOTIFY verificationWarningDismissedChanged)
-    // GIF browser policy. gifAutoplay: 0 = Always, 1 = OnHover, 2 = Never.
-    // gifSafeSearch is a gif::Rating id. gifPreferredProvider is "giphy" or
-    // "klipy".
-    //
-    // The gifAutoplay name is historical: it is the "Animated images" choice
-    // (Play automatically / Play on hover / Don't play) and governs animation
-    // and the fetch of animated bytes only; speculative video/audio prefetch
-    // is videoPrefetchEnabled. The key keeps its name so existing preferences
-    // are not reset.
     Q_PROPERTY(int gifAutoplay READ gifAutoplay WRITE setGifAutoplay
                    NOTIFY gifAutoplayChanged)
-    // "Preload videos and audio": speculative download of playable media
-    // (videos up to the limit, audio and voice messages) before Play. Off
-    // means nothing is fetched ahead of Play (a poster still comes from a
-    // thumbnail when the sender provided one). The key name is historical. The limit is whole megabytes; a stored
-    // value outside the range reads as the default.
     Q_PROPERTY(bool videoPrefetchEnabled READ videoPrefetchEnabled
                    WRITE setVideoPrefetchEnabled
                    NOTIFY videoPrefetchEnabledChanged)
@@ -366,209 +235,100 @@ class SettingsManager : public QObject
                    WRITE setGifPreferredProvider NOTIFY gifPreferredProviderChanged)
     Q_PROPERTY(bool showRoomActivity READ showRoomActivity
                    WRITE setShowRoomActivity NOTIFY showRoomActivityChanged)
-    // Narrower filters under the showRoomActivity master switch: joins/leaves
-    // and profile changes. With the master off nothing is shown.
     Q_PROPERTY(bool showMembershipEvents READ showMembershipEvents
                    WRITE setShowMembershipEvents
                    NOTIFY showMembershipEventsChanged)
     Q_PROPERTY(bool showProfileChangeEvents READ showProfileChangeEvents
                    WRITE setShowProfileChangeEvents
                    NOTIFY showProfileChangeEventsChanged)
-    // Collapse media and link embeds to one line. Presentation only and off by
-    // default; see `collapseEmbedsSetting` in qml/MessageDelegate.qml for what
-    // it covers. Per account with a global fallback, so it must be announced in
-    // setActiveAccountUserId (SettingsSessionTest checks this).
     Q_PROPERTY(bool collapseEmbeds READ collapseEmbeds WRITE setCollapseEmbeds
                    NOTIFY collapseEmbedsChanged)
-    // Reduced motion, read by AppTheme.reducedMotion. Per account with a global
-    // fallback.
     Q_PROPERTY(bool reducedMotion READ reducedMotion WRITE setReducedMotion
                    NOTIFY reducedMotionChanged)
 
-    // Accessibility (Settings > Appearance > Accessibility). All per account
-    // with a global fallback, like reducedMotion.
-    //
-    // highContrast: stronger text and border inks (AppTheme.highContrast).
     Q_PROPERTY(bool highContrast READ highContrast WRITE setHighContrast
                    NOTIFY highContrastChanged)
-    // underlineLinks: also underline mentions and in-app links. URLs in a
-    // message are always underlined; this is off by default so nothing
-    // changes for an existing install.
     Q_PROPERTY(bool underlineLinks READ underlineLinks WRITE setUnderlineLinks
                    NOTIFY underlineLinksChanged)
-    // nameColorCorrection: how hard a sender-name colour is pushed to stay
-    // readable. 0 Strong (4.5:1, the long-standing behaviour), 1 Weak (3:1),
-    // 2 Off (no correction). Out-of-range reads back as Strong.
     Q_PROPERTY(int nameColorCorrection READ nameColorCorrection
                    WRITE setNameColorCorrection
                    NOTIFY nameColorCorrectionChanged)
-    // messageSpacing: vertical rhythm of timeline rows. 0 Compact, 1 Cozy
-    // (today's spacing), 2 Roomy. Out-of-range reads back as Cozy.
     Q_PROPERTY(int messageSpacing READ messageSpacing WRITE setMessageSpacing
                    NOTIFY messageSpacingChanged)
-    // threadStyle: how m.thread replies are presented. 0 Panel (Element-like:
-    // replies live in the thread side panel and are hidden from the room
-    // timeline), 1 Inline (Nheko-like: replies stay interleaved in the room
-    // timeline with a thread tag). It is the ROOM HISTORY policy only; where a
-    // focused thread is shown is threadPlacement. Out-of-range reads back as
-    // Panel. Account-scoped.
     Q_PROPERTY(int threadStyle READ threadStyle WRITE setThreadStyle
                    NOTIFY threadStyleChanged)
-    // threadPlacement: where a focused thread (the SDK-backed thread session,
-    // ThreadController) is shown. 0 Side panel, beside the room; 1 Main view,
-    // in the conversation column in place of the room, which stays alive
-    // underneath. Until the user chooses, it follows threadStyle (Panel -> side,
-    // Inline -> main), so existing configurations keep their meaning; an
-    // explicit choice is stored and wins. Unknown values read back as the
-    // derived default. Account-scoped.
     Q_PROPERTY(int threadPlacement READ threadPlacement
                    WRITE setThreadPlacement NOTIFY threadPlacementChanged)
-    // Inline thread style: the room timeline leaves thread replies out (roots
-    // keep their summary card). One switch for every room. Default false.
-    /// How the call button places a call: "auto" (today's choice for the
-    /// room), "matrixrtc", or "legacy". A format a room cannot use falls back
-    /// to "auto" there.
     Q_PROPERTY(QString callFormat READ callFormat WRITE setCallFormat
                    NOTIFY callFormatChanged)
     Q_PROPERTY(bool hideThreadReplies READ hideThreadReplies
                    WRITE setHideThreadReplies NOTIFY hideThreadRepliesChanged)
 
-    // conversationReturnMode: where a passive return to a room lands. 0
-    // Previous position (default: the saved anchor, or the live edge when the
-    // reader left following it), 1 Latest messages, 2 Selected message when
-    // available (else the previous position). Explicit targets (a link, a
-    // notification, a search hit, a reply jump) always win. Out-of-range
-    // reads back as Previous position. Account-scoped.
     Q_PROPERTY(int conversationReturnMode READ conversationReturnMode
                    WRITE setConversationReturnMode
                    NOTIFY conversationReturnModeChanged)
-    // Whether a restored message selection is outlined on return without the
-    // timeline taking keyboard focus. Selection identity is restored either
-    // way; this only governs the visible outline. Default false.
     Q_PROPERTY(bool showSelectionOnReturn READ showSelectionOnReturn
                    WRITE setShowSelectionOnReturn
                    NOTIFY showSelectionOnReturnChanged)
 
-    // Smooth scrolling. Separate from reducedMotion so the wheel can land
-    // directly without disabling every animation. Default on.
     Q_PROPERTY(bool smoothScrolling READ smoothScrolling WRITE setSmoothScrolling
                    NOTIFY smoothScrollingChanged)
-    // Device-global accessibility preference. False leaves Qt's platform
-    // cursor timing in charge; true requests a steady cursor in every input.
     Q_PROPERTY(bool showBridgeBadges READ showBridgeBadges
                    WRITE setShowBridgeBadges NOTIFY showBridgeBadgesChanged)
     Q_PROPERTY(bool compactRoomList READ compactRoomList
                    WRITE setCompactRoomList NOTIFY compactRoomListChanged)
     Q_PROPERTY(bool disableCursorBlink READ disableCursorBlink
                    WRITE setDisableCursorBlink NOTIFY disableCursorBlinkChanged)
-    // Composer buttons the user has hidden, by key: "formatting", "emoji",
-    // "media", "voice", "sendOptions". Stores what is hidden, so buttons added
-    // later are visible by default. A notifying list rather than an invokable
-    // so QML bindings re-evaluate. The attach button is not hideable: narrow
-    // windows displace other actions into it.
     Q_PROPERTY(QStringList hiddenComposerButtons READ hiddenComposerButtons
                    WRITE setHiddenComposerButtons
                    NOTIFY hiddenComposerButtonsChanged)
-    // Clock format: 0 = follow the system locale (default), 1 = 12-hour,
-    // 2 = 24-hour. Per account with a global fallback.
     Q_PROPERTY(int clockFormat READ clockFormat WRITE setClockFormat
                    NOTIFY clockFormatChanged)
-    // The Qt time-format string the clock setting resolves to. A property
-    // rather than an invokable so timestamp bindings re-evaluate when the
-    // setting changes.
     Q_PROPERTY(QString clockTimeFormat READ clockTimeFormat
                    NOTIFY clockFormatChanged)
-    // Composer: Enter inserts a newline and Ctrl+Enter sends. Device-global.
     Q_PROPERTY(bool enterInsertsNewline READ enterInsertsNewline
                    WRITE setEnterInsertsNewline
                    NOTIFY enterInsertsNewlineChanged)
-    // Composer mode: "markdown" or "rich". Device-global. Any value but "rich"
-    // reads as markdown.
     Q_PROPERTY(QString composerMode READ composerMode WRITE setComposerMode
                    NOTIFY composerModeChanged)
-    // Spell checking. Application preference, never synced. Language "" is
-    // Automatic, otherwise a BCP-47 tag; independent of the UI language.
     Q_PROPERTY(bool spellCheckEnabled READ spellCheckEnabled
                    WRITE setSpellCheckEnabled NOTIFY spellCheckEnabledChanged)
     Q_PROPERTY(QString spellCheckLanguage READ spellCheckLanguage
                    WRITE setSpellCheckLanguage NOTIFY spellCheckLanguageChanged)
-    // Languages checked as well as spellCheckLanguage (BCP-47 tags).
     Q_PROPERTY(QStringList spellCheckExtraLanguages READ spellCheckExtraLanguages
                    WRITE setSpellCheckExtraLanguages
                    NOTIFY spellCheckExtraLanguagesChanged)
-    // Autocorrect: 0 = the platform's default (SpellChecker::
-    // autocorrectDefault), 1 = on, 2 = off. Any other stored value reads as 0.
     Q_PROPERTY(int autocorrectMode READ autocorrectMode WRITE setAutocorrectMode
                    NOTIFY autocorrectModeChanged)
-    // Composer: text typed alongside an attachment is sent as its caption
-    // rather than as a separate message. Device-global.
     Q_PROPERTY(bool sendTextAsCaption READ sendTextAsCaption
                    WRITE setSendTextAsCaption
                    NOTIFY sendTextAsCaptionChanged)
-    // Photo metadata removed from images before upload: "location" (default),
-    // "all" or "keep". Device-global. An unreadable stored value reads as the
-    // default, never as "keep".
     Q_PROPERTY(QString imageMetadataMode READ imageMetadataMode
                    WRITE setImageMetadataMode
                    NOTIFY imageMetadataModeChanged)
-    // Composer: a completed `:shortcode:` naming a standard Unicode emoji
-    // (never a custom pack one) converts to the emoji automatically, while
-    // typing once a space follows it and once more at send for a trailing
-    // one with none. Device-global. Default true.
     Q_PROPERTY(bool emojiShortcodeAutoConvert READ emojiShortcodeAutoConvert
                    WRITE setEmojiShortcodeAutoConvert
                    NOTIFY emojiShortcodeAutoConvertChanged)
-    // Timeline mouse-wheel speed, matching TimelineScrollController::WheelSpeed
-    // (0 = Standard, 1 = Fast, 2 = Very fast). Default: Fast.
     Q_PROPERTY(int timelineWheelSpeed READ timelineWheelSpeed
                    WRITE setTimelineWheelSpeed NOTIFY timelineWheelSpeedChanged)
-    // Inline media playback volume (linear 0..1) and rate (0.25..4.0),
-    // remembered globally.
     Q_PROPERTY(qreal mediaVolume READ mediaVolume WRITE setMediaVolume
                    NOTIFY mediaVolumeChanged)
     Q_PROPERTY(qreal mediaPlaybackRate READ mediaPlaybackRate
                    WRITE setMediaPlaybackRate NOTIFY mediaPlaybackRateChanged)
-    // The corner the voice/audio mini-player snaps to: 0 bottom-right (the
-    // default), 1 bottom-left, 2 top-right, 3 top-left. A value this build
-    // does not know reads as the default, never as the nearest corner.
     Q_PROPERTY(int voiceMiniPlayerCorner READ voiceMiniPlayerCorner
                    WRITE setVoiceMiniPlayerCorner
                    NOTIFY voiceMiniPlayerCornerChanged)
-    // How the voice/audio player shows while a clip is loaded: docked as a
-    // slim "now playing" strip under the header (the default; it is laid out
-    // in its own band, so it covers nothing), or popped out as a floating card
-    // the user moves and resizes freely.
     Q_PROPERTY(bool voicePlayerDocked READ voicePlayerDocked
                    WRITE setVoicePlayerDocked NOTIFY voicePlayerDockedChanged)
-    // Audio-file rows show the cover art as a large square above the controls
-    // (opt-in); off keeps the compact tile beside the play button. A file
-    // with no art always uses the compact layout.
     Q_PROPERTY(bool largeAlbumArt READ largeAlbumArt WRITE setLargeAlbumArt
                    NOTIFY largeAlbumArtChanged)
-    // The popped-out card's place and size. x and y are FRACTIONS (0..1) of
-    // the free space the card can move in (the area minus the card), so the
-    // card keeps its relative place through a window resize and can never be
-    // restored off screen; width and height are pixels, clamped by the host
-    // to what fits. An invalid rect (width <= 0) means "never placed": the
-    // host picks its default spot.
     Q_PROPERTY(QRectF voiceMiniPlayerGeometry READ voiceMiniPlayerGeometry
                    WRITE setVoiceMiniPlayerGeometry
                    NOTIFY voiceMiniPlayerGeometryChanged)
-    // The playback speed of VOICE MESSAGES (0.25..4.0), remembered: a reader
-    // who listens to voice notes at 1.5x wants every voice note at 1.5x.
-    // Audio FILES (music, podcasts) start at 1x every time and their speed is
-    // the clip's own (VoicePlaybackController::rate). Until it is first
-    // written it reads the older shared `mediaPlaybackRate`, which was the
-    // voice/audio speed, so an existing choice carries over.
     Q_PROPERTY(qreal voicePlaybackRate READ voicePlaybackRate
                    WRITE setVoicePlaybackRate NOTIFY voicePlaybackRateChanged)
-    // Whole-interface zoom percent (75..150). Global: main() turns it into
-    // QT_SCALE_FACTOR before the app exists, so it applies on next launch.
     Q_PROPERTY(int interfaceZoom READ interfaceZoom WRITE setInterfaceZoom
                    NOTIFY interfaceZoomChanged)
-    // Text rendering backend (0 smooth, 1 native). Global: main() applies it
-    // with QQuickWindow::setTextRenderType before any window exists, so it
-    // takes effect on next launch.
     Q_PROPERTY(int textRendering READ textRendering WRITE setTextRendering
                    NOTIFY textRenderingChanged)
     Q_PROPERTY(bool hasSession READ hasSession NOTIFY sessionChanged)
@@ -578,77 +338,39 @@ class SettingsManager : public QObject
     Q_PROPERTY(bool secretsArePortable READ secretsArePortable NOTIFY secretBackendChanged)
 
 public:
-    // Appearance presets. Ids are stable across releases; AppTheme.qml resolves
-    // each to a palette.
     enum Theme {
         SystemTheme = 0,
-        LightTheme = 1,         // Lightning Light
-        DarkTheme = 2,          // Lightning Dark
+        LightTheme = 1,
+        DarkTheme = 2,
         GraphiteTheme = 3,
-        MidnightBlueTheme = 4,  // Midnight
-        NordTheme = 5,          // Nordic
+        MidnightBlueTheme = 4,
+        NordTheme = 5,
         PurpleDuskTheme = 6,
         WarmTheme = 7,
-        MossLightTheme = 8,     // design-handoff light
-        IndigoNightTheme = 9,   // design-handoff dark
-        DeepTealTheme = 10,     // design-handoff dark
-        StormTheme = 11,        // brand navy + bolt yellow (0.6.5 Storm)
-        // User-authored palette: role overrides on top of a preset. Values live
-        // in CustomThemeStore.
+        MossLightTheme = 8,
+        IndigoNightTheme = 9,
+        DeepTealTheme = 10,
+        StormTheme = 11,
         CustomTheme = 12,
     };
     Q_ENUM(Theme)
 
-    // See the settingsReadProblem property. Notice only: nothing is rebuilt
-    // from the stores on disk.
     enum SettingsReadProblem {
         NoReadProblem = 0,
-        // QSettings reported an access or format error reading the file.
         SettingsUnreadable = 1,
-        // The file reads, but lists no account while account stores exist on
-        // this device (garbage or a replaced file reads as empty, NoError).
-        // NOT proof of damage: a store left by a removal that failed outside
-        // sign-out looks the same, so a notice for it must not say the file
-        // is damaged. A store left by a sign-in that never finished is not
-        // counted (recordPendingSignIn). Where the settings are an INI file
-        // (Linux, every portable install) QSettings writes it through
-        // QSaveFile, so a kill during a write leaves the old file or the new
-        // one, never a torn one; an installed Windows build keeps them in the
-        // registry and macOS in a plist, which this does not speak for.
         AccountsMissing = 2,
     };
     Q_ENUM(SettingsReadProblem)
     int settingsReadProblem() const { return m_settingsReadProblem; }
 
-    // Highest valid Theme id; an out-of-range stored value falls back to
-    // SystemTheme (see theme()).
     static constexpr int kMaxThemeId = CustomTheme;
 
     explicit SettingsManager(QObject *parent = nullptr);
-    // Writes a change still waiting for the flush throttle (below).
     ~SettingsManager() override;
 
-    // QSettings rewrites the WHOLE settings file (a new file, fsync'd, renamed
-    // over the old one, plus its lock file) once per event-loop turn that saw
-    // any setValue or remove, even of an unchanged value. A slider drag or a
-    // run of media cards learning their sizes rewrote it many times a second.
-    // Writes are now gathered and flushed at most once per kFlushDelayMs; the
-    // in-process view of every value is current at once (QSettings answers
-    // from its cache), and the places that must reach the disk at once
-    // (session records, call volumes, sign-out markers) still call sync().
-    // A pending write is flushed on quit and on destruction.
     static constexpr int kFlushDelayMs = 1000;
-    // True while a write is waiting for the throttled flush. For tests and
-    // diagnostics: a setter that stored nothing new must leave this false.
     bool hasUnflushedWrites() const { return m_flushTimer.isActive(); }
-    // Write any pending change now.
     void flushPendingWrites();
-    // A slider drag in progress (call volumes, microphone gain). While held
-    // nothing reaches the disk, however many steps the drag takes; releasing
-    // writes ONE batch. The live effect of each step is not delayed: the
-    // setters emit their change signals as before. A hold that is never
-    // released (a popup destroyed under the pointer) lets go after
-    // kDragHoldMaxMs.
     Q_INVOKABLE void holdWritesWhileDragging(bool held);
     bool writesHeld() const { return m_writesHeld; }
     static constexpr int kDragHoldMaxMs = 30000;
@@ -671,7 +393,6 @@ public:
     Theme theme() const;
     void setTheme(Theme t);
 
-    // Out-of-range message layout values read back as Modern.
     static constexpr int kMaxMessageLayout = 3;
     static constexpr int kMessageLayoutSmallAvatars = 3;
     static constexpr int kLayoutPresetLightning = 0;
@@ -679,26 +400,11 @@ public:
     int layoutPreset() const;
     void setLayoutPreset(int preset);
     bool layoutPresetCustomized() const;
-    // Drops the selected preset's overrides (Nheko compact back to its own
-    // values). The Lightning preset has no overrides: its values ARE the
-    // ordinary settings. Touches nothing outside the presentation keys.
     Q_INVOKABLE void resetLayoutPresetOverrides();
-    // Whether `property` (messageLayout, messageSpacing, threadPlacement) is
-    // currently answered by the selected preset rather than chosen by the
-    // user. Always false in the Lightning preset.
     Q_INVOKABLE bool presetSuppliesValue(const QString &property) const;
-    // Settings sync and the layout preset: what syncs is the LIGHTNING
-    // configuration of the presentation keys (messageLayout,
-    // messageSpacing, threadPlacement), never a value the selected preset supplied, so picking
-    // Nheko compact on one device cannot restyle another device's ordinary
-    // layout. Invalid QVariant for any other name.
     QVariant lightningPresentationValue(const QString &property) const;
-    // Writes the Lightning configuration of a synced presentation key without
-    // touching the selected preset's profile; announced only when it is what
-    // the UI shows. False for any other name.
     bool setLightningPresentationValue(const QString &property,
                                        const QVariant &value);
-    /// 0 Classic, 1 Channels.
     static constexpr int kMaxRoomNavigationLayout = 1;
     int messageLayout() const;
     int roomNavigationLayout() const;
@@ -707,7 +413,6 @@ public:
     int roomFilterMode() const;
     void setRoomFilterMode(int mode);
 
-    // Text scale percent. Out-of-range values read back as 100.
     static constexpr int kMinTextScale = 75;
     static constexpr int kMaxTextScale = 150;
     int textScale() const;
@@ -715,15 +420,9 @@ public:
     void setUiFont(const QString &family);
     QString monoFont() const;
     void setMonoFont(const QString &family);
-    // Curated bundled UI families, shown first in the picker.
     Q_INVOKABLE static QStringList uiFontChoices();
-    // Returns the trimmed family name if it is safe to persist (bounded, no
-    // control characters or markup/style punctuation), else empty. Does not
-    // check that the font exists.
     static QString acceptableFontFamily(const QString &family);
 
-    // Basenames of user-imported fonts. Device-global: application fonts are
-    // registered before any account restores.
     QStringList importedFontFiles() const;
     void setImportedFontFiles(const QStringList &fileNames);
     void setTextScale(int percent);
@@ -746,22 +445,10 @@ public:
                                                  bool encryptionKnown) const;
     bool callPictureInPicture() const;
     void setCallPictureInPicture(bool v);
-    /// Microphone noise suppression for calls (GitHub #20): "off", "webrtc",
-    /// "rnnoise" or "deepfilternet". Machine-wide, not per account: it
-    /// describes this machine's microphone and room. An unreadable stored
-    /// value (a newer build's mode, a hand edit) reads as the default,
-    /// "webrtc", which is what every build before the selector ran.
     QString noiseSuppressionMode() const;
-    /// Refuses anything but the four keys; the stored value is unchanged.
     void setNoiseSuppressionMode(const QString &mode);
-    /// What a screen share's sound carries (GitHub #43): 0 no sound, 1 the
-    /// whole system, 2 only chosen applications. Machine-wide, like the other
-    /// call device choices. An enum, so anything unreadable (a newer build's
-    /// mode, a hand edit) reads as the default, 1, never as the nearest end.
     int callShareAudioMode() const;
-    /// Refuses anything but 0, 1 and 2; the stored value is unchanged.
     void setCallShareAudioMode(int mode);
-    /// The applications "only chosen apps" carried (lower-case keys).
     QStringList callShareAudioApps() const;
     void setCallShareAudioApps(const QStringList &keys);
     bool strictDeviceTrust() const;
@@ -794,7 +481,6 @@ public:
     int notificationSoundVolume() const;
     void setNotificationSoundVolume(int percent);
     bool ringForCalls() const;
-    // Call sounds. Volumes clamp to 0..100.
     static constexpr int kDefaultCallSoundVolume = 70;
     static constexpr int kDefaultRingerVolume = 80;
     bool callSoundsEnabled() const;
@@ -815,52 +501,23 @@ public:
     void setPreferredSpeakerId(const QString &id);
     QString preferredCameraId() const;
     void setPreferredCameraId(const QString &id);
-    /// The chosen camera's description when it was chosen. A Linux camera id
-    /// is /dev/videoN, which renumbers on replug; a different description
-    /// under the same id is another camera and is refused
-    /// (CaptureDeviceSelection.h). Set before the id, which announces.
     QString preferredCameraDescription() const;
     void setPreferredCameraDescription(const QString &description);
     void setRingForCalls(bool enabled);
     void setNotificationPreview(int mode);
-    // Per-room notification mode: 0 = all messages, 1 = mentions & keywords, 2
-    // = mute. On the Rust backend this is a local cache of the server push-rule
-    // mode (server wins for explicit rules). Stored per account with a
-    // read-fallback to the legacy device-global key.
     Q_INVOKABLE int roomNotificationMode(const QString &roomId) const;
-    // The mode the UNREAD RULE (roomunread::) reads: roomNotificationMode(), except
-    // that a "mentions & keywords" mode this device holds only locally (device
-    // only, or a write the server never took) reports
-    // roomunread::kModeMentionsUnverified, because the push rule behind the
-    // client's count may not be the one the user chose. Every unread surface
-    // reads this one function.
     int roomUnreadMode(const QString &roomId) const;
     Q_INVOKABLE void setRoomNotificationMode(const QString &roomId, int mode);
-    // Rooms whose mode was chosen here and whose write failed, so the server
-    // does not have it. Kept per account and across restarts: while a room is
-    // listed its local mode decides alone and the retry keeps going.
-    // `serverBase` is the mode the server held before that choice (-1 if
-    // unknown), which the retry compares with before sending again.
     bool roomNotificationModeUnsynced(const QString &roomId) const;
     int roomNotificationModeUnsyncedBase(const QString &roomId) const;
     void setRoomNotificationModeUnsynced(const QString &roomId, bool unsynced,
                                          int serverBase = -1);
     QStringList unsyncedRoomNotificationModes() const;
-    // A mode 1 or 2 this device holds only in the legacy device-global key,
-    // with no key of the active account's own: chosen before modes were saved
-    // to the server ("Local setting: it does not change this room's server
-    // push rules"). It decides on this device and is never sent.
     bool roomNotificationModeDeviceOnly(const QString &roomId) const;
     /// True only when a mode key is stored for the room (account or legacy
     /// device key). roomNotificationMode() returns 0 for an absent key, so
     /// this is the only way to tell "all messages" from "never configured".
     bool hasStoredRoomNotificationMode(const QString &roomId) const;
-    // Same answers as the active-account accessors above, for ANY saved
-    // account, without switching the active account. The scope is
-    // slugForSavedAccount(userId) (exact stored id match, uncached); an empty
-    // userId or one with no saved record reads the device scope, exactly as
-    // the accessors above behave with no active account. Never write, never
-    // emit. For the active account each one equals its accessor above.
     int roomNotificationModeFor(const QString &userId,
                                 const QString &roomId) const;
     bool roomNotificationModeUnsyncedFor(const QString &userId,
@@ -872,55 +529,31 @@ public:
     bool hasStoredRoomNotificationModeFor(const QString &userId,
                                           const QString &roomId) const;
     int roomUnreadModeFor(const QString &userId, const QString &roomId) const;
-    // The twin of NotificationManager::Context::localModeUnsynced: the
-    // account's local mode decides alone (unsynced or device only). For the
-    // active account it equals AppController::roomNotificationModeDecidesLocally.
     bool roomNotificationModeDecidesLocallyFor(const QString &userId,
                                                const QString &roomId) const;
-    // Rooms with a mode stored under the active account's own key (never the
-    // legacy device-global ones). Empty without an account.
     QStringList accountRoomNotificationModeRooms() const;
-    // The account's own status message {emoji, text, expiresAtMs}, so it can be
-    // re-published or cleared after a restart. Strictly account-scoped.
     QVariantMap ownPresenceStatus() const;
     void setOwnPresenceStatus(const QVariantMap &status);
-    // Local scheduled-send queue, account-scoped. Never holds encrypted-room
-    // rows.
     QVariantList scheduledSends() const;
     void setScheduledSends(const QVariantList &rows);
-    // Activity Center state: the "seen up to" marker and keyword list.
     QVariantMap activityState() const;
     void setActivityState(const QVariantMap &state);
 
-    // Composer drafts for unencrypted rooms only (DraftStore enforces this).
-    // Strictly account-scoped, LRU-bounded, wiped with the account. An empty
-    // map removes the entry.
     QVariantMap roomDraft(const QString &draftKey) const;
     void setRoomDraft(const QString &draftKey, const QVariantMap &draft);
 
-    // Video dimensions learned from the first decoded frame, for events whose
-    // metadata declares none, so the card has its real shape on later visits.
-    // Account-scoped, keyed by a hash of the media key, LRU-bounded. Empty size
-    // when unknown.
     Q_INVOKABLE QSize knownVideoDimensions(const QString &mediaKey) const;
     void setKnownVideoDimensions(const QString &mediaKey, int width,
                                  int height);
-    // Payload size learned from the first fetch, for media whose event declares
-    // none. Same hashed-key LRU storage. 0 when unknown.
     Q_INVOKABLE double knownMediaSizeBytes(const QString &mediaKey) const;
     void setKnownMediaSizeBytes(const QString &mediaKey, qint64 bytes);
 
-    // Remembered size of a resizable picker (GIF/emoji) as a share of available
-    // space, per mille 50..1000. `id` is whitelisted so QML cannot reach
-    // arbitrary keys; unknown ids read 0 and write nothing. 0 means "use the
-    // component default", which is also what out-of-range values degrade to.
     Q_INVOKABLE int pickerWidthShare(const QString &id) const;
     Q_INVOKABLE int pickerHeightShare(const QString &id) const;
     Q_INVOKABLE void setPickerShare(const QString &id, int widthPerMille,
                                     int heightPerMille);
     void setNotificationsEnabled(bool v);
 
-    // Link-preview policy.
     bool autoLoadLinkPreviews() const;
 
     void setAutoLoadLinkPreviews(bool v);
@@ -930,37 +563,22 @@ public:
     void setAnimateGifPreviews(bool v);
     bool showLinkMediaInline() const;
     void setShowLinkMediaInline(bool v);
-    /// Screen-share ceiling in scanlines: 0 (Auto), 720, 1080, 1440 or 2160.
-    /// Never upscales. Auto is today's default, 1080.
     int shareMaxHeight() const;
     void setShareMaxHeight(int v);
-    /// What the encoder gets: Auto resolved.
     int effectiveShareMaxHeight() const;
-    /// Screen-share frame rate: 0 (Auto), 15, 30 or 60. Auto is 30.
     int shareFps() const;
     void setShareFps(int v);
     int effectiveShareFps() const;
-    /// Screen-share bitrate cap in kbit/s: 0 (Auto, derived from the picture)
-    /// or 500, 1000, 2000, 3000, 4500. A cap only ever lowers the bitrate.
     int shareBitrateCapKbps() const;
     void setShareBitrateCapKbps(int v);
-    /// Camera resolution ceiling in scanlines: 0 (Auto), 360, 480, 720, 1080.
-    /// Auto is today's 720. Applies to the next camera capture.
     int cameraResolution() const;
     void setCameraResolution(int v);
     int effectiveCameraResolution() const;
-    /// webrtcdsp switches. Echo cancellation is off by default (it needs the
-    /// playback reference the engine adds only while it is on) and automatic
-    /// gain control on: both are what every build did before they were
-    /// settings. They apply to the next call.
     bool echoCancellation() const;
     void setEchoCancellation(bool v);
     bool autoGainControl() const;
     void setAutoGainControl(bool v);
-    /// Whether the chosen height and rate exceed what software VP8 sustains.
     bool shareQualityDemanding() const;
-    /// The same rule for an arbitrary combination, so a menu row can mark
-    /// itself.
     Q_INVOKABLE bool shareQualityDemandingAt(int maxHeight, int fps) const;
 
     bool sharePresence() const;
@@ -978,12 +596,7 @@ public:
     void setKeepRoomListOrderStill(bool v);
     int roomListSort() const;
     void setRoomListSort(int mode);
-    // Whether the user ever chose a sort (an explicit Activity included):
-    // until then the models get -1, "never chosen", which is Space order
-    // inside a real Space and Activity elsewhere (C04, MASTER-1 H2).
     bool roomListSortChosen() const;
-    // What the room list models are handed: roomListSort() once chosen,
-    // -1 before.
     int roomListSortForModels() const;
     int railSort() const;
     void setRailSort(int mode);
@@ -999,16 +612,9 @@ public:
     void setRoomListWidth(int px);
     Q_INVOKABLE int roomListExpandedWidth() const;
     Q_INVOKABLE void setRoomListExpandedWidth(int px);
-    /// The folder the attach dialog last picked from; per device, shared by
-    /// every account. Empty when unset or no longer present on disk.
     Q_INVOKABLE QUrl lastAttachFolder() const;
-    /// Record the folder containing `file` (a file URL) as the last one used.
     Q_INVOKABLE void rememberAttachFolder(const QUrl &file);
-    /// The last folder a file chooser of this `purpose` ("attach", "image",
-    /// "save", ...) ended in. "attach" is lastAttachFolder(). Empty when unset
-    /// or gone from disk.
     QUrl lastFileFolder(const QString &purpose) const;
-    /// Record `folder` (a folder URL) for `purpose`.
     void rememberFileFolder(const QString &purpose, const QUrl &folder);
     int spacesRailWidth() const;
     void setSpacesRailWidth(int px);
@@ -1024,22 +630,15 @@ public:
     void setStartInTray(bool v);
     QRect initialWindowGeometry() const { return m_initialWindowGeometry; }
     bool initialWindowMaximized() const { return m_initialWindowMaximized; }
-    // Both refuse unrestorable values: Qt reports transient 0x0 geometry while
-    // a window is shown, hidden to the tray or restored.
     Q_INVOKABLE void saveWindowGeometry(int x, int y, int width, int height);
     Q_INVOKABLE void saveWindowMaximized(bool maximized);
-    // Resize bounds, kept here so QML cannot drift from the clamp.
     static constexpr int kRoomListMinWidth = 64;
     static constexpr int kRoomListExpandedMinWidth = 212;
     static constexpr int kRoomListSnapThreshold = 156;
     static constexpr int kRoomListMaxWidth = 560;
-    // Lightning rail floor; compact has a separate floor for its 32px tile
-    // and 15px gutter. The ceiling limits drag width in both presets.
     static constexpr int kSpacesRailMinWidth = 68;
     static constexpr int kCompactSpacesRailMinWidth = 62;
     static constexpr int kSpacesRailMaxWidth = 260;
-    /// Rail depth styles. Clamped on read too: an unknown value (hand-edited,
-    /// or from a newer build) must land on a style this build can draw.
     static constexpr int kRailDepthRegions = 0;
     static constexpr int kRailDepthClassic = 1;
     static constexpr int kMaxSpacesRailDepthStyle = kRailDepthClassic;
@@ -1056,7 +655,6 @@ public:
     bool verificationWarningDismissed() const;
     void setVerificationWarningDismissed(bool v);
     void setSharePresence(bool v);
-    // GIF browser policy.
     int gifAutoplay() const;
     void setGifAutoplay(int mode);
     int gifSafeSearch() const;
@@ -1068,9 +666,6 @@ public:
     void setVideoPrefetchMaxMb(int mb);
     static constexpr int videoPrefetchMinMb() { return 1; }
     static constexpr int videoPrefetchLimitMb() { return 100; }
-    // Decided 2026-10-18: 8 MB, Telegram's style of auto-downloading only
-    // short clips (was 32). Element and Discord fetch nothing before Play,
-    // but they stream; an encrypted video here must be whole before it plays.
     static constexpr int videoPrefetchDefaultMb() { return 8; }
     void setStoreRecentGifs(bool v);
     QString gifPreferredProvider() const;
@@ -1081,8 +676,6 @@ public:
     void setShowMembershipEvents(bool v);
     bool showProfileChangeEvents() const;
     void setShowProfileChangeEvents(bool v);
-    /// Whether attachments and loaded link previews render as a one-line
-    /// summary with a disclosure control.
     bool collapseEmbeds() const;
     void setCollapseEmbeds(bool v);
     bool reducedMotion() const;
@@ -1130,36 +723,20 @@ public:
     void setDisableCursorBlink(bool disabled);
     QStringList hiddenComposerButtons() const;
     void setHiddenComposerButtons(const QStringList &keys);
-    /// Convenience for the settings checkboxes, which think in "shown".
     Q_INVOKABLE void setComposerButtonShown(const QString &key, bool shown);
 
-    // Images this account has hidden in the timeline. Strictly account-scoped
-    // with no global fallback. Bounded by MediaVisibilityStore's cap.
     QStringList hiddenMediaKeys() const;
     void setHiddenMediaKeys(const QStringList &keys);
 
-    // ── Call volumes ──────────────────────────────────────────────────
-    // Keyed by Matrix user id, never by SFU participant identity (which is per
-    // device or per session). Strictly account-scoped with no global fallback.
-    // 0..200; above 100 amplifies.
-
-    /// This account's playback volume for one person, 0..200. 100 when unset.
     Q_INVOKABLE int callParticipantVolume(const QString &userId) const;
-    /// A person's screen-share playback level. Separate from their microphone
-    /// level, and keyed by user because share ids change on every restart.
     Q_INVOKABLE int callShareVolume(const QString &userId) const;
     Q_INVOKABLE void setCallShareVolume(const QString &userId, int percent);
-    /// Setting exactly 100 removes the key, so reset is a real reset.
     Q_INVOKABLE void setCallParticipantVolume(const QString &userId,
                                               int percent);
 
-    // Pop the call out into a small always-on-top window when the main window
-    // is minimised or hidden to the tray. Default off.
     Q_PROPERTY(bool callPictureInPicture READ callPictureInPicture
                    WRITE setCallPictureInPicture
                    NOTIFY callPictureInPictureChanged)
-    /// Own microphone gain, 0..200, applied to what others hear. Account-scoped
-    /// with the global fallback: it describes this machine's hardware.
     Q_PROPERTY(int microphoneGain READ microphoneGain WRITE setMicrophoneGain
                    NOTIFY microphoneGainChanged)
     Q_PROPERTY(QString noiseSuppressionMode READ noiseSuppressionMode
@@ -1170,7 +747,6 @@ public:
 
     void setReducedMotion(bool v);
 
-    // Clock format ids.
     static constexpr int kClockFormatSystem = 0;
     static constexpr int kClockFormat12Hour = 1;
     static constexpr int kClockFormat24Hour = 2;
@@ -1197,22 +773,13 @@ public:
     bool emojiShortcodeAutoConvert() const;
     void setEmojiShortcodeAutoConvert(bool v);
 
-    // ── Rebindable keyboard shortcuts ────────────────────────────────────
-    // Stored per action id as QKeySequence::PortableText, per account with a
-    // global fallback. Empty means "use the default", as does an id outside
-    // [A-Za-z0-9._-] (which could escape its QSettings group). ShortcutRegistry
-    // owns defaults and validation; this is storage only.
     QString shortcutSequence(const QString &actionId) const;
     void setShortcutSequence(const QString &actionId, const QString &portable);
     void clearShortcutSequence(const QString &actionId);
 
-    // Timeline wheel speed: 0 = Standard, 1 = Fast, 2 = Very fast. Out-of-range
-    // values read back as Fast.
-    static constexpr int kDefaultTimelineWheelSpeed = 1; // Fast
+    static constexpr int kDefaultTimelineWheelSpeed = 1;
     static constexpr int kMinInterfaceZoom = 75;
     static constexpr int kMaxInterfaceZoom = 150;
-    // Text rendering ids. An ENUM, not a quantity: an unknown stored value
-    // (written by a newer build) means the default, never the nearest id.
     static constexpr int kTextRenderingSmooth = 0;
     static constexpr int kTextRenderingNative = 1;
     static constexpr auto kTextRenderingKey = "ui/textRendering";
@@ -1242,70 +809,34 @@ public:
 
     QStringList recentEmoji() const;
     void recordRecentEmoji(const QString &emoji);
-    // Replace the list (most recent first), trimmed to the same limit.
     void setRecentEmoji(const QStringList &mru);
     void clearRecentEmoji();
     QString preferredEmojiTone() const;
     void setPreferredEmojiTone(const QString &tone);
 
-    // Session storage. The access token lives in the SecretStore keyed by the
-    // full user id (and, in a store shared between installs, by this install);
-    // non-secret metadata is stored per account under
-    // accounts/<slug>/, and accounts/active names the account shown. The
-    // accessors below describe the active account.
     bool hasSession() const;
     QString accessToken() const;
     QString userId() const;
     QString deviceId() const;
     QString syncToken() const;
 
-    // Multi-account registry. Records are keyed by safeUserSlug of the full
-    // MXID; unsafe ids are rejected. Ordered oldest-added first.
     QStringList savedAccountUserIds() const;
     bool hasSavedAccount(const QString &userId) const;
-    // True when a different saved account occupies this identity's slug. The
-    // slug mapping is not injective, so such logins must be refused.
     bool accountSlugConflicts(const QString &userId) const;
-    // Map a typed login identity onto the server-canonical user id already
-    // saved for it. Localparts are case-sensitive, and the server's canonical
-    // id may differ in case from what the user typed. Matches the server name
-    // exactly and the localpart case-insensitively. Returns empty when nothing
-    // or more than one account matches; `ambiguous` distinguishes the two. Kept
-    // separate from slugForSavedAccount()/hasSavedAccount(), which must stay
-    // exact.
     QString canonicalUserIdForTypedIdentity(const QString &typedUserId,
                                             bool *ambiguous = nullptr) const;
-    // {userId, homeserver, deviceId, displayName, avatarUrl, addedAt}, or empty
-    // when unknown. Never exposes the sync token.
     QVariantMap accountRecord(const QString &userId) const;
-    // The answer to the one-time "index all messages now?" offer ("yes",
-    // "no", "later"; empty = never asked). Kept in the account's own record,
-    // so it goes with the account on sign-out or removal — the same moment
-    // its search index is deleted. Nothing is stored for an account without
-    // a record: nothing would ever clean it up.
     QString indexAllOfferAnswer(const QString &userId) const;
     void setIndexAllOfferAnswer(const QString &userId, const QString &answer);
-    // The room last opened under this account, reopened after a restart or a
-    // switch back to it (as Element and Discord do). A public room id, kept in
-    // the account's own record so it goes with the account; nothing is stored
-    // for an account without a record. An empty id forgets it.
     QString lastOpenedRoom(const QString &userId) const;
     void setLastOpenedRoom(const QString &userId, const QString &roomId);
-    // Access token for a specific saved account (SecretStore lookup).
     QString accessTokenFor(const QString &userId) const;
-    // OAuth session material. Credentials kept in the SecretStore; never
-    // exposed to QML. Empty is normal (password sessions often lack a refresh
-    // token). updateSessionTokens() writes back tokens the SDK rotated and
-    // touches nothing else.
     bool updateSessionTokens(const QString &userId,
                              const QString &accessToken,
                              const QString &refreshToken);
     QString refreshToken() const;
     QString refreshTokenFor(const QString &userId) const;
     QString oauthClientIdFor(const QString &userId) const;
-    // "password" (matrix_auth) or "oauth". Kept in QSettings so restore can
-    // route even when the keyring is unreadable. Older accounts report
-    // "password".
     QString authTypeFor(const QString &userId) const;
     bool isOAuthAccount(const QString &userId) const;
 
@@ -1313,134 +844,55 @@ public:
     // Empty means never recorded. The path must never be re-derived: the typed
     // login name and the canonical user id can disagree (case, delegation).
     QString storeSlugFor(const QString &userId) const;
-    // The saved account that could own store directory `storeSlug`, or empty.
-    // Checks the canonical slug, the recorded storeSlug and the legacy
-    // homeserver-derived slug. Anything that deletes a store must consult this.
     QString accountOwningStoreSlug(const QString &storeSlug) const;
     // True when the secret backend cannot answer at all (no store, locked
     // keyring, no session bus). Distinct from "this account has no token";
     // anything classifying a missing token must check this first.
     bool secretBackendUnavailable() const;
-    /// Whether a miss could hide a secret this store cannot see. Destructive
-    /// decisions key on this; see SecretStore::missesAreInconclusive().
     bool secretMissesAreInconclusive() const;
-    /// True when this install saved the account's secrets itself, for the
-    /// device its record names, and has not removed them since (removing
-    /// them removes the record). A store that answers "no such item" for such
-    /// an account has lost them; the account did not sign out. False for
-    /// records older than the marks and for sessions adopted from before
-    /// install scoping (whose device may be another install's). Reads the
-    /// settings file only, never the secret store.
     bool secretsWrittenHereForRecordedDevice(const QString &userId) const;
-    // The keyring backend (SecretStore::backendKindFor()) this account's
-    // sign-in was last written in, or found in; empty when never recorded. A
-    // store with two backends reads the account there (setSecretStore()).
-    // keyringBackendChanged() is true when this launch's store defaults to a
-    // different one.
     QString keyringBackendFor(const QString &userId) const;
-    // The adoption check (RustSdkMatrixClient::AdoptedSessionCheck) on a
-    // sign-in copied from an item saved before install scoping:
-    // adopted-unverified until the server says whose device it is, then
-    // confirmed as this install's own, or declined (this install's copy
-    // removed, the shared item kept and never adopted again).
     bool keyringItemsAdoptedUnverified(const QString &userId) const;
     bool keyringItemsDeclinedForOtherInstall(const QString &userId) const;
     void confirmAdoptedKeyringItems(const QString &userId);
-    // False, and nothing removed, unless the account is still
-    // adopted-unverified for `checkedDeviceId`.
     bool declineAdoptedKeyringItems(const QString &userId,
                                     const QString &checkedDeviceId);
     bool keyringBackendChanged(const QString &userId) const;
     void setStoreSlugFor(const QString &userId, const QString &storeSlug);
-    // Resolve a saved account into an identity whose paths point at the
-    // recorded store. Use wherever an account's files are read, deleted or
-    // opened.
     bool resolveSavedIdentity(const QString &userId,
                               matrix::app_data::AccountIdentity *out) const;
     QString activeAccountUserId() const;
-    // Selects which saved account the session accessors describe. An empty
-    // id or an id without a saved record clears the selection.
     void setActiveAccountUserId(const QString &userId);
-    // Cache the account's own display name / avatar for the account UI.
     void updateAccountProfile(const QString &userId,
                               const QString &displayName,
                               const QString &avatarUrl);
 
-    // ── Labs: concurrent live accounts (per account) ──────────────────────
-    // GUI thread. Settings-file reads and writes only: nothing below ever
-    // touches the SecretStore. Kept in the account's own record
-    // (accounts/<slug>/), so they go when the record goes. Never exported or
-    // synced, written without QSettings::sync() and never emitting
-    // accountsChanged(): a pin or a timestamp is not a change to the record
-    // the switcher and the session lifecycle react to.
-    //
-    // The cap counts the foreground plus the pins; pins count whether the
-    // pinned account is in the foreground or not.
     static constexpr int kMaxLiveAccounts = 5;
     static constexpr int kMaxPinnedAccounts = 4;
     enum class KeepRunningResult : quint8 { Ok, Unchanged, RefusedCap, RefusedNoRecord };
-    // "Keep running in the background". Refuses a pin past
-    // kMaxPinnedAccounts (nothing stored) and an id with no saved record.
-    // Turning a pin off is never refused. Emits keepRunningChanged(userId) on
-    // a real change only.
     KeepRunningResult setKeepRunningFor(const QString &userId, bool on);
     bool keepRunningFor(const QString &userId) const;
-    // The account's network route, the non-secret half only: {kind, host,
-    // port, username}, or an empty map for none (docs/network-profiles.md).
-    // Device-local: stored in the account's record, so it goes with it, and
-    // never synced or exported. Validation and the password are
-    // matrix/NetworkRoute.h's; this only stores. setNetworkRouteRecord()
-    // refuses an id with no saved record, takes an empty map (or no "kind")
-    // as "no route", flushes, and emits networkRouteChanged(userId).
     QVariantMap networkRouteRecord(const QString &userId) const;
     bool setNetworkRouteRecord(const QString &userId, const QVariantMap &record);
     bool networkRouteConfigured(const QString &userId) const;
-    // The pinned accounts, in savedAccountUserIds() order.
     QStringList keepRunningUserIds() const;
-    // When the account was last live (foreground or background), UNIX ms; 0
-    // when never recorded or unreadable. No signal.
     qint64 lastLiveAtFor(const QString &userId) const;
-    // Ignored for an id with no saved record; a value <= 0 clears it.
     void setLastLiveAtFor(const QString &userId, qint64 unixMs);
-    // Rooms whose stored mode for that account decides locally
-    // (roomNotificationModeDecidesLocallyFor() is true): the Rust local-rule
-    // set. Enumerates that account's own unsynced keys and the legacy
-    // device-global modes it has no key of its own for; never another
-    // account's keys. Sorted. Empty for an id with no saved record.
     QStringList locallyDecidedNotificationRoomsFor(const QString &userId) const;
-    // A host may read and write this account's keyring items directly: the
-    // store is not shared between installs, or the items are current for this
-    // install (written for the recorded device); and the account is neither
-    // adopted-unverified nor declined as another install's sign-in. False
-    // without a record or without a SecretStore.
-    // Settings file only: a pre-scoping session would be ADOPTED (written) by
-    // its first read, which only the foreground path may do.
     bool keyringItemsDirectlyReadableFor(const QString &userId) const;
-    // After another thread (KeyringWorker) wrote this account's tokens: what
-    // updateSessionTokens() does on success (records the keyring backend).
-    // GUI thread.
     void noteSessionTokensWrittenElsewhere(const QString &userId);
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    // Screenshot demo only: register a fictional account as non-secret
-    // metadata, never touching the SecretStore. `order` fixes addedAt for a
-    // stable switcher order.
     void registerDemoAccount(const QString &homeserverUrl, const QString &userId,
                              const QString &displayName, const QString &avatarUrl,
                              int order);
-    // Screenshot demo only: drop all fictional account records.
     void clearDemoAccounts();
 #endif
 
-    // True iff the process is using a native, secure secret backend.
     bool secretsAreSecure() const;
     bool secretsArePortable() const;
     QString secretBackendName() const;
 
-    // `refreshToken` may be empty. `authType` is "password" or "oauth".
-    // `oauthClientId` applies to OAuth accounts only. refreshToken and
-    // oauthClientId are credentials: SecretStore only, never QSettings, QML or
-    // logs.
     void saveSession(const QString &homeserverUrl,
                      const QString &userId,
                      const QString &deviceId,
@@ -1449,22 +901,12 @@ public:
                      const QString &authType = QStringLiteral("password"),
                      const QString &oauthClientId = QString());
     void setSyncToken(const QString &token);
-    // Clear the active session, including stale metadata whose token is
-    // already absent. Returns false only when the account's SecretStore
-    // entries could not be removed; non-secret metadata is still cleared.
     bool clearSession();
 
-    // Shell keys that store Matrix objects (rail arrangement, collapsed Space
-    // folders). Declared here so forgetDeviceGlobalAccountResidue() sweeps the
-    // same spelling the stores write.
     static constexpr const char *kRailLayoutKey = "shell/railLayout";
     static constexpr const char *kChannelCollapsedKey = "shell/channelCollapsed";
 
-    // Account-scoped clear used by signed-out reset. Always clears secrets for
-    // `userId`; clears the global session metadata only if it belongs to it.
     bool clearSessionForAccount(const QString &userId);
-    // Same, but reports whether a saved record was actually matched, since a
-    // no-op secret clear also reports success.
     bool clearSessionForAccount(const QString &userId, bool *matchedRecord);
 
     // A sign-out that began and has not yet deleted its store (B044). Written
@@ -1474,10 +916,6 @@ public:
     // sign-in of the account (saveSession) supersedes it.
     void recordPendingSignOut(const matrix::app_data::AccountIdentity &identity);
     void clearPendingSignOut(const QString &userId);
-    // The pending sign-outs whose identity still resolves to the very store
-    // they named, under this primaryRoot(), and that no other saved account
-    // owns. Anything else is refused, logged and dropped: nothing here may
-    // delete a store it cannot prove is the one that was being signed out.
     QList<matrix::app_data::AccountIdentity> pendingSignOuts();
 
     // A fresh sign-in whose store the SDK is about to create, before the
@@ -1585,7 +1023,6 @@ Q_SIGNALS:
     void disableCursorBlinkChanged();
     void hiddenComposerButtonsChanged();
     void microphoneGainChanged();
-    /// One person's stored volume changed. Carries the USER ID.
     void callParticipantVolumeChanged(const QString &userId, int percent);
     void callShareVolumeChanged(const QString &userId, int percent);
     void clockFormatChanged();
@@ -1610,16 +1047,11 @@ Q_SIGNALS:
     void textRenderingChanged();
     void sessionChanged();
     void secretBackendChanged();
-    // A saved-account record was added, removed, or updated.
     void accountsChanged();
-    // setKeepRunningFor() changed this account's pin. Never accountsChanged().
     void keepRunningChanged(const QString &userId);
-    // setNetworkRouteRecord() wrote this account's route.
     void networkRouteChanged(const QString &userId);
 
 private:
-    // Per-account appearance state; friends so the private helpers stay
-    // private.
     friend class CustomThemeStore;
     friend class RailLayoutStore;
     friend class ChatBackdropController;
@@ -1630,101 +1062,44 @@ private:
     void migrateLegacySessionRecord();
     void migratePrefetchFromAnimation();
     void migrateComposerModeToMarkdown();
-    // Store paths of recorded unfinished sign-ins whose store still exists;
-    // markers whose store is gone are removed. Called at every start. See
-    // recordPendingSignIn().
     QSet<QString> pendingSignInStorePaths();
-    // Removes every unfinished-sign-in marker naming this store.
     void dropPendingSignInsNaming(const QString &storePath);
-    // This install's scope in a shared secret store, created once in the
-    // settings file. Empty only when it could not be saved.
     QString keyringInstallId();
-    // At startup: adoptLegacyKeyringSession() for every saved account with no
-    // items of its own for its recorded device yet.
     void adoptLegacyKeyringSessions();
-    // Whether this install's items in a shared store were written for the
-    // device the account record names now.
     bool keyringItemsAreCurrent(const QString &slug) const;
-    // Records how this install's items for the account came to be, and for
-    // which device. Flushed at once.
     void markKeyringItems(const QString &slug, const char *how) const;
-    // Records SecretStore::backendKindFor() for the account (see
-    // kAccountKeyringBackend). Const: called from the const adoption path.
     void noteKeyringBackend(const QString &userId) const;
     mutable QSet<QString> m_keyringBackendChangeLogged;
-    // What the secret store is told an account's recorded keyring is
-    // (SecretStore::setRecordedBackendLookup()): keyringBackendFor(), or, for
-    // the account whose record clearSessionForAccount() has just removed and
-    // whose secrets it is clearing, what that record said.
     QString keyringBackendForStore(const QString &userId) const;
     std::pair<QString, QString> m_keyringBackendBeingCleared;
     enum class LegacyAdoption { Adopted, CopyFailed, NotAdoptable, Unreadable };
-    // Copies an account's items saved before install scoping into this
-    // install's, leaving the shared ones untouched. Only for an account this
-    // install records and did not sign in itself for the recorded device.
-    // Const, and writing, because the read path adopts on first use when the
-    // keyring was locked at startup.
     LegacyAdoption adoptLegacyKeyringSession(
         const QString &userId, QHash<QString, QString> *legacyOut) const;
-    // One secret of an account. In a shared store the access token decides:
-    // this install's items when it has one for the recorded device, else the
-    // pre-scoping session, adopted on the way. A failed read leaves
-    // lastReadFailed() set.
     QString readAccountSecret(const QString &userId, const char *key) const;
-    // Per-account appearance storage: reads prefer the active account, else
-    // the global fallback (the signed-out shell's value, and a new account's
-    // start). A write while signed in goes to the active account; it moves the
-    // global only after every other account keeps what it showed (B004).
     QVariant appearanceValue(const char *globalKey,
                              const QVariant &fallback) const;
     void setAppearanceValue(const char *globalKey, const QVariant &value);
-    // Whether threadPlacement is an explicit choice rather than derived. A
-    // helper of the setter, not a property: nothing binds to it.
     bool threadPlacementIsExplicit() const;
-    // Device-local pane widths, kept per layout preset (see paneWidthKey).
     QString paneWidthKey(const char *key) const;
     QVariant paneWidthValue(const char *key, int fallback) const;
     void announcePaneWidthsIfMoved(int roomList, int rail, int sidePanel);
-    // The same per-account storage, for reads and writes that are NOT a
-    // notifying property of their own (the threadPlacement setter's
-    // explicit-choice test, and settings sync's view of the Lightning layout
-    // while a preset is selected). Named with the appearanceValue prefix so
-    // the account-switch signal scan in SettingsSessionTest treats them as
-    // storage, not as getters that owe a *Changed signal.
     QVariant appearanceValueUnannounced(const char *globalKey,
                                         const QVariant &fallback) const
     { return appearanceValue(globalKey, fallback); }
     void setAppearanceValueUnannounced(const char *globalKey,
                                        const QVariant &value)
     { setAppearanceValue(globalKey, value); }
-    // Strictly per-account storage for values that name Matrix objects (room
-    // ids, user-typed labels), which must not be mirrored into a device-global
-    // copy a new account would inherit. Writes go to the account key alone
-    // while an account is active; reads still fall back to the global key as
-    // the migration source for pre-upgrade data, which
-    // forgetDeviceGlobalAccountResidue() sweeps once no account remains.
     QVariant accountScopedValue(const char *globalKey,
                                 const QVariant &fallback) const;
     void setAccountScopedValue(const char *globalKey, const QVariant &value);
-    // Called when the last saved account is removed: drops the device-global
-    // keys that name Matrix rooms/Spaces.
     void forgetDeviceGlobalAccountResidue();
     QString accountKey(const QString &slug, const char *subKey) const;
     QString slugForSavedAccount(const QString &userId) const;
-    // Per-room notification-mode keys: the account-scoped key (empty when
-    // no account is active) and the legacy device-global fallback key.
     static QString roomNotificationModeGlobalKey(const QString &roomId);
     QString roomNotificationModeScopedKey(const QString &roomId) const;
-    // "accounts/<slug>/" for the active account, or empty for the signed-out
-    // device scope, as setRoomNotificationMode writes.
     QString roomNotificationScopePrefix() const;
-    // The same two keys for an explicit account slug (empty = device scope).
-    // The two above are these with activeAccountSlugCached().
     static QString scopePrefixFor(const QString &slug);
     static QString scopedKeyFor(const QString &slug, const QString &roomId);
-    // The per-room mode readers, for one scope. The active accessors pass
-    // activeAccountSlugCached() (the hot path keeps its cache); the *For
-    // versions pass slugForSavedAccount(userId).
     int roomNotificationModeInScope(const QString &slug,
                                     const QString &roomId) const;
     bool roomNotificationModeUnsyncedInScope(const QString &slug,
@@ -1736,7 +1111,6 @@ private:
     bool hasStoredRoomNotificationModeInScope(const QString &slug,
                                               const QString &roomId) const;
     int roomUnreadModeInScope(const QString &slug, const QString &roomId) const;
-    // Learned-media store: one LRU index covers dimension and size keys.
     static QString mediaInfoIndexKeyForSlug(const QString &slug);
     void touchMediaInfoIndex(const QString &slug, const QString &hash);
     // roomNotificationMode() runs for every appended remote event, so the
@@ -1744,11 +1118,7 @@ private:
     // active id, and setActiveAccountUserId clears the cache explicitly.
     QString activeAccountSlugCached() const;
     QString slugForAccountScope(const QString &userId) const;
-    // Reads and validates the stored window geometry once, from the
-    // constructor.
     void loadWindowGeometry();
-    // Main.qml's minimums, duplicated because validation runs before any window
-    // exists.
     static constexpr int kWindowMinWidth = 640;
     static constexpr int kWindowMinHeight = 420;
     bool upsertAccountRecord(const QString &userId,
@@ -1756,13 +1126,10 @@ private:
                              const QString &deviceId);
 
     std::unique_ptr<QSettings> m_store;
-    // Declared after m_store, so it is destroyed first and ~QSettings then
-    // writes whatever the throttle still held.
     QTimer m_flushTimer;
     QTimer m_holdTimer;
     bool m_writesHeld = false;
-    SecretStore *m_secretStore = nullptr; // not owned; lifetime = process
-    // Captured once in the constructor; see the CONSTANT properties.
+    SecretStore *m_secretStore = nullptr;
     QRect m_initialWindowGeometry;
     bool m_initialWindowMaximized = false;
     int m_settingsReadProblem = NoReadProblem;

@@ -1,11 +1,3 @@
-// macOS SpellBackend over NSSpellChecker: system dictionaries, learned words
-// and automatic language identification. Objective-C++ so the common C++
-// never sees an AppKit header; compiled only on Apple.
-//
-// Used only from the thread that created it (the GUI thread).
-//
-// Written against the documented AppKit API; not yet exercised on macOS
-// (`--spell-selftest` in the macOS package job is the first run).
 
 #include "text/SpellBackend.h"
 
@@ -33,8 +25,6 @@ public:
             for (NSString *lang in [checker availableLanguages])
                 m_languages << spellTagToBcp47(fromNSString(lang));
             if (preferredLanguage.isEmpty()) {
-                // Automatic: AppKit identifies the language. Report the first
-                // preferred language as the resolved one.
                 m_automatic = true;
                 NSArray<NSString *> *preferred = [checker userPreferredLanguages];
                 m_language = preferred.count > 0
@@ -115,8 +105,6 @@ public:
         return out;
     }
 
-    // AppKit's own autocorrection: the replacement macOS itself would make
-    // as you type in a native text field, or nil.
     QString autoCorrection(const QString &word) const override
     {
         @autoreleasepool {
@@ -147,7 +135,7 @@ private:
     QStringList m_languages;
 };
 
-} // namespace
+}
 
 std::unique_ptr<SpellBackend> createPlatformSpellBackend(
     const QString &preferredLanguage, SpellBackendFailure *failure,
@@ -166,8 +154,6 @@ std::unique_ptr<SpellBackend> createPlatformSpellBackend(
 
 bool platformSpellEngineCompiledIn() { return true; }
 
-// macOS autocorrects every native text field when "Correct spelling
-// automatically" is on (the default); Lightning's own default follows it.
 bool platformAutocorrectDefault()
 {
     @autoreleasepool {

@@ -23,7 +23,7 @@ QVariantMap check(const QString &id, const QString &title,
     return out;
 }
 
-} // namespace
+}
 
 NotificationTroubleshooter::NotificationTroubleshooter(QObject *parent)
     : QObject(parent)
@@ -57,8 +57,6 @@ NotificationTroubleshooter::probeDeliveryPath()
     }
 #endif
 #if !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
-    // On Linux Qt's tray balloon goes through the very same notification
-    // daemon, and the icon may not exist: it is no fallback to count on.
     return NoPath;
 #else
     if (QSystemTrayIcon::isSystemTrayAvailable()
@@ -73,7 +71,6 @@ QVariantList NotificationTroubleshooter::evaluate(const Inputs &in)
 {
     QVariantList out;
 
-    // 1. Is there anything to deliver through?
     switch (in.delivery) {
     case DesktopService:
         out.append(check(QStringLiteral("delivery"),
@@ -112,7 +109,6 @@ QVariantList NotificationTroubleshooter::evaluate(const Inputs &in)
         break;
     }
 
-    // 2. The operating system. Never readable, always said so.
     QString osDetail;
     if (in.platform == QLatin1String("macos")) {
         osDetail = tr("Lightning cannot read whether macOS allows its "
@@ -133,7 +129,6 @@ QVariantList NotificationTroubleshooter::evaluate(const Inputs &in)
                      tr("System permission and Do Not Disturb"), Unknown,
                      osDetail));
 
-    // 3. Lightning's own switch.
     out.append(in.appEnabled
         ? check(QStringLiteral("app"), tr("Desktop notifications are on"), Pass,
                 tr("Lightning is allowed to show notifications."))
@@ -141,7 +136,6 @@ QVariantList NotificationTroubleshooter::evaluate(const Inputs &in)
                 tr("Lightning is set not to show any desktop notification."),
                 QStringLiteral("enableApp")));
 
-    // 4. The account.
     if (!in.rulesKnown) {
         out.append(check(QStringLiteral("account"),
                          tr("Account notification settings"), Unknown,
@@ -168,7 +162,6 @@ QVariantList NotificationTroubleshooter::evaluate(const Inputs &in)
                          tr("The master mute is off.")));
     }
 
-    // 5. The open room.
     if (!in.roomId.isEmpty()) {
         if (in.roomMode == 2) {
             out.append(check(QStringLiteral("room"),

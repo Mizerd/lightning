@@ -50,15 +50,11 @@ void WidgetController::setClient(MatrixClient *client)
                    const QString &category) {
         if (opId == 0 || opId != m_writeOp)
             return;
-        // Final for our op whatever room is showing, or `writing` stays stuck
-        // after a room switch.
         m_writeOp = 0;
         if (roomId != m_roomId) {
             Q_EMIT stateChanged();
             return;
         }
-        // Nothing is applied optimistically: on success the list is re-read; a
-        // refusal leaves it alone.
         if (ok)
             refresh();
         const QString error = ok ? QString() : category;
@@ -69,7 +65,6 @@ void WidgetController::setClient(MatrixClient *client)
         Q_EMIT stateChanged();
         Q_EMIT writeFinished(ok, category);
     });
-    // One account's widgets must never surface under another's.
     connect(m_client, &MatrixClient::loggedOut, this, [this] { clear(); });
     Q_EMIT stateChanged();
 }
@@ -91,9 +86,8 @@ void WidgetController::setRoomId(const QString &roomId)
     if (m_roomId == roomId)
         return;
     m_roomId = roomId;
-    m_pendingOp = 0;   // an answer for the old room must not repaint the new one
-    m_writeOp = 0;     // and a write for it is no longer ours to wait for
-    // The new room has granted nothing until its own read says so.
+    m_pendingOp = 0;
+    m_writeOp = 0;
     m_canManage = false;
     if (!m_lastWriteError.isEmpty()) {
         m_lastWriteError.clear();
@@ -109,8 +103,6 @@ void WidgetController::setRoomId(const QString &roomId)
 
 bool WidgetController::urlIsAcceptable(const QString &text) const
 {
-    // Same rule as UrlLauncher and the Rust write: https, a host, no
-    // credentials. Never publish a widget this client would refuse to open.
     const QUrl url(text.trimmed(), QUrl::StrictMode);
     return url.isValid() && url.scheme().toLower() == QLatin1String("https")
         && !url.host().isEmpty() && url.userInfo().isEmpty();
@@ -121,8 +113,6 @@ QJsonObject WidgetController::widgetContent(const QString &kind,
                                             const QString &url,
                                             const QString &creatorUserId)
 {
-    // Element's shape, field for field, so every client can list it.
-    // `waitForIframeLoad` is meaningless here but expected by readers.
     QJsonObject content{
         { QStringLiteral("type"), kind },
         { QStringLiteral("url"), url.trimmed() },
@@ -132,8 +122,6 @@ QJsonObject WidgetController::widgetContent(const QString &kind,
     };
     QJsonObject data;
     if (kind == QLatin1String("m.jitsi")) {
-        // A Jitsi widget carries its conference in `data`, which Element reads;
-        // derived from the URL's host and first path segment.
         const QUrl u(url.trimmed());
         const QString conference =
             u.path().section(QLatin1Char('/'), 0, 0, QString::SectionSkipEmpty);
@@ -157,8 +145,6 @@ void WidgetController::addWidget(const QString &kind, const QString &name,
     };
     if (!kKinds.contains(kind) || !urlIsAcceptable(url))
         return;
-    // The id is the state key: a fresh UUID, so another client's write cannot
-    // land on this key by accident.
     const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     const QJsonObject content = widgetContent(
         kind, name.isEmpty() ? kind : name, url, m_client->currentUserId());
@@ -180,15 +166,12 @@ void WidgetController::removeWidget(int row)
     if (row < 0 || row >= m_rows.size())
         return;
     const QVariantMap &target = m_rows.at(row);
-    // The tombstone must name the exact state key; rows whose key the reader
-    // could not preserve exactly (or legacy `m.widget` rows) are not removable.
     if (target.value(QStringLiteral("removable"), true).toBool() == false)
         return;
     const QString id = target.value(QStringLiteral("stateKey"),
                                     target.value(QStringLiteral("id"))).toString();
     if (id.isEmpty())
         return;
-    // An empty content object removes the widget, as in Element.
     const quint64 op = m_client->writeRoomWidget(m_roomId, id,
                                                  QStringLiteral("{}"));
     if (op == 0) {
@@ -285,8 +268,6 @@ bool WidgetController::openWidget(int row)
     if (address.isEmpty())
         return false;
     const QUrl url(address);
-    // Second gate after Rust's https/host/no-userinfo check: ask the single
-    // desktop exit whether it would open the scheme at all.
     if (!url.isValid() || url.scheme() != QLatin1String("https"))
         return false;
     if (!lightning::urls::isOpenableExternally(url))
@@ -303,7 +284,6 @@ QVariantMap WidgetController::rowAt(int row) const
 
 QString WidgetController::disclosureText(const QString &key) const
 {
-    // Phrased as what the site learns, not as a field name.
     if (key == QLatin1String("user_id"))
         return tr("Your full Matrix ID");
     if (key == QLatin1String("display_name"))
@@ -322,8 +302,6 @@ QString WidgetController::disclosureText(const QString &key) const
         return tr("Your homeserver's address");
     if (key == QLatin1String("connection"))
         return tr("Your IP address, and anything your browser normally sends");
-    // Unknown keys are disclosed rather than hidden, so the notice never
-    // quietly shrinks.
     return tr("Something this build does not recognise (%1)").arg(key);
 }
 

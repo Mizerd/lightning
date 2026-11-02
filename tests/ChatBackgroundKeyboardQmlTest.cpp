@@ -1,12 +1,3 @@
-// Keyboard and pointer reach of the chat background dialog and editor
-// (swarm chunk C66, 2026-10-20):
-//
-//  * Tab onto a control below the dialog's fold scrolls it into view (the
-//    Flickable did not follow focus, so the ring was invisible and Space
-//    toggled an unseen switch);
-//  * the dialog carries the middle-click autoscroller its siblings have;
-//  * the tone sliders answer Up/Down, Home/End and PageUp/PageDown, not only
-//    the arrows of their own orientation.
 #include <QtTest/QtTest>
 
 #include <QImage>
@@ -48,7 +39,7 @@ void collectSliders(QQuickItem *p, QList<QQuickItem *> &out)
     for (QQuickItem *c : p->childItems())
         collectSliders(c, out);
 }
-} // namespace
+}
 
 class ChatBackgroundKeyboardQmlTest : public QObject
 {
@@ -127,7 +118,6 @@ ApplicationWindow {
                                 .arg(topInFlick.y()).arg(themes->height())
                                 .arg(flick->height())));
 
-        // And back up: focusing a control above the fold scrolls it down.
         auto *choose = findItem(root, QStringLiteral("chatBackgroundChoose"));
         QVERIFY(choose);
         choose->forceActiveFocus(Qt::BacktabFocusReason);
@@ -229,7 +219,6 @@ ApplicationWindow {
         QTRY_COMPARE(dim->property("value").toDouble(), 0.0);
         QVERIFY(editor->property("dirty").toBool());
 
-        // A key at a limit changes nothing and must not mark the editor dirty.
         editor->setProperty("dirty", false);
         QCOMPARE(dim->property("value").toDouble(), 0.0);
         QTest::keyClick(win, Qt::Key_Home);
@@ -269,7 +258,6 @@ ApplicationWindow {
         auto *sw = findItem(root, QStringLiteral("showSharedBackgroundsSwitch"));
         QVERIFY(sw);
         QVERIFY2(sw->isVisible(), "fixture: the shared-backgrounds row must show");
-        // Focus elsewhere first, then click the LABEL beside the switch.
         auto *other = findItem(root, QStringLiteral("surfaceDepthMakeGradientButton"));
         QVERIFY(other);
         other->forceActiveFocus(Qt::TabFocusReason);

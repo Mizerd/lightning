@@ -101,8 +101,6 @@ class ThreadStyleQmlTest : public QObject
         QTest::qWait(200);
     }
 
-    // The demo room's thread root and its replies, as the room model holds
-    // them (the replies are present only in the inline style).
     QString threadRoot() const
     {
         for (const TimelineEvent &e : timeline()->events())
@@ -167,7 +165,6 @@ class ThreadStyleQmlTest : public QObject
         QTest::mouseClick(m_window, Qt::LeftButton, {}, centre.toPoint());
     }
 
-    // Element mode: open the demo thread in the side panel.
     void openThreadPanel(QString *rootOut)
     {
         openDevRoom();
@@ -180,7 +177,6 @@ class ThreadStyleQmlTest : public QObject
         *rootOut = root;
     }
 
-    // QTest::keyClicks takes a QWidget only.
     void type(const QString &text)
     {
         for (const QChar c : text)
@@ -263,25 +259,20 @@ ApplicationWindow {
         m_controller = nullptr;
     }
 
-    // ── Inline (Nheko-like) ─────────────────────────────────────────────
-
     void threadStyleSettingPersistsAndSwitchesTheOpenTimeline()
     {
         QCOMPARE(m_controller->settings()->property("threadStyle").toInt(), 0);
         openDevRoom();
         const QString root = threadRoot();
         QVERIFY(!root.isEmpty());
-        // The default (thread panel): replies live only in the thread.
         QCOMPARE(repliesIn(root).size(), 0);
 
         setThreadStyle(1);
-        // The open room is rebuilt with its thread replies in it.
         QTRY_COMPARE(repliesIn(root).size(), 4);
         {
             SettingsManager fresh;
             QCOMPARE(fresh.property("threadStyle").toInt(), 1);
         }
-        // The Settings control shows it.
         QVERIFY(m_controller->settings()->setProperty("threadStyle", 0));
         QTRY_COMPARE(repliesIn(root).size(), 0);
         QVERIFY(!timeline()->property("threadRepliesInline").toBool());
@@ -300,8 +291,6 @@ ApplicationWindow {
         QCOMPARE(replies.size(), 4);
         const QString later = plainMessage(QStringLiteral("Shipped: smooth"));
         QVERIFY(!later.isEmpty());
-        // Time order, not "thread replies at the end": every reply sits after
-        // its root and before the room message posted after them.
         const int rootRow = timeline()->rowForStableId(root);
         const int laterRow = timeline()->rowForStableId(later);
         for (const QString &id : replies) {
@@ -317,14 +306,9 @@ ApplicationWindow {
                  "the root carries its thread's tag");
         QVERIFY2(!tagOn(later) || !tagOn(later)->isVisible(),
                  "a room message is in no thread");
-        // A thread reply is an ordinary row of this timeline: reply-eligible,
-        // which is what keyboard selection and double-click reply key on.
         QVERIFY(rowFor(replies.first())->property("replyEligible").toBool());
     }
 
-    // Until the reader chooses, where a focused thread is shown follows the
-    // style (Panel -> beside the room, Inline -> the main column); a choice is
-    // stored per account and outlives later style changes.
     void threadPlacementFollowsTheStyleUntilChosen()
     {
         SettingsManager *settings = m_controller->settings();
@@ -340,17 +324,10 @@ ApplicationWindow {
             SettingsManager fresh;
             QCOMPARE(fresh.property("threadPlacement").toInt(), 0);
         }
-        // Anything but Main view is written as the side panel.
         QVERIFY(settings->setProperty("threadPlacement", 7));
         QCOMPARE(settings->property("threadPlacement").toInt(), 0);
     }
 
-    // A thread tag opens the thread's own SDK session (every reply, its own
-    // draft, thread receipts) -- not a narrowed copy of the loaded room rows.
-    // Inline's default placement is the main column: the room column hides
-    // (alive, and not read) and Back returns to it. Moving the thread between
-    // the main view and the side panel is presentation only: the same session
-    // stays open.
     void tagOpensTheThreadSessionInTheMainView()
     {
         setThreadStyle(1);
@@ -376,28 +353,20 @@ ApplicationWindow {
         QTRY_VERIFY(panel->isVisible());
         QTRY_VERIFY2(!roomColumn->isVisible(),
                      "Main view: the thread takes the conversation column");
-        // The panel fills the conversation pane (its RowLayout) once the
-        // layout has run: measured against the pane, not a literal, since
-        // the room list's width is not this test's concern, and polled,
-        // since the RowLayout re-lays out on the next polish.
         QQuickItem *pane = panel->parentItem();
         QVERIFY(pane);
         QTRY_VERIFY2(panel->width() >= pane->width() - 2,
                      qPrintable(QStringLiteral("panel %1 in a %2 px pane")
                                     .arg(panel->width()).arg(pane->width())));
-        // The room underneath is not on screen, so it cannot be read.
         QTRY_VERIFY(!receipts->property("timelineVisible").toBool());
-        // The room composer stays the room's.
         QCOMPARE(m_controller->composer()->property("threadTargetRootId").toString(),
                  QString());
 
-        // Side panel and back: the same session, never closed in between.
         QSignalSpy states(m_controller->thread(), SIGNAL(stateChanged()));
         click(item("threadPlacementButton"));
         QTRY_COMPARE(m_controller->settings()->property("threadPlacement").toInt(), 0);
         QTRY_VERIFY(roomColumn->isVisible());
         QVERIFY(panel->isVisible());
-        // Beside the room: the room keeps at least its 320 px column.
         QTRY_VERIFY2(panel->width() <= pane->width() - 320,
                      qPrintable(QStringLiteral("panel %1 in a %2 px pane")
                                     .arg(panel->width()).arg(pane->width())));
@@ -409,7 +378,6 @@ ApplicationWindow {
         QCOMPARE(m_controller->thread()->rootEventId(), root);
         QCOMPARE(states.count(), 0);
 
-        // Back returns to the room, which kept its rows.
         QQuickItem *back = item("threadBackToRoomButton");
         QVERIFY(back && back->isVisible());
         click(back);
@@ -418,12 +386,6 @@ ApplicationWindow {
         QTRY_VERIFY(rowHeight(later) > 0);
     }
 
-    // The Thread panel style with Main view chosen opens there too: placement
-    // and room history policy are independent.
-    // The room's Threads list is part of the thread surface too: it must open
-    // (beside the room, whatever the placement), and a thread opened from it
-    // follows the placement. A first version of the Main view change split the
-    // surface condition and the list never showed (found in the GUI pass).
     void theThreadsListOpensBesideTheRoomInEveryPlacement()
     {
         openDevRoom();
@@ -436,7 +398,6 @@ ApplicationWindow {
         QTRY_VERIFY2(panel->isVisible(), "the Threads list must show");
         QVERIFY2(roomColumn->isVisible(),
                  "the Threads list stays beside the room in Main view");
-        // A thread opened from the list takes the main column.
         m_controller->thread()->openThread(QString::fromLatin1(kDevRoom),
                                            threadRoot());
         QTRY_VERIFY(m_controller->thread()->active());
@@ -454,13 +415,9 @@ ApplicationWindow {
             Q_ARG(QString, root)));
         QTRY_VERIFY(m_controller->thread()->active());
         QTRY_VERIFY(!item("roomColumn")->isVisible());
-        // The style still keeps replies out of the room.
         QCOMPARE(repliesIn(root).size(), 0);
     }
 
-    // Nheko compact in one click: the room renders in Small avatars -- a 20 px
-    // avatar in the sender header above the body, no gutter avatar, 2 px
-    // between continuations -- and the text size is the user's own.
     void nhekoCompactPresetRendersSmallAvatarRows()
     {
         openDevRoom();
@@ -480,9 +437,7 @@ ApplicationWindow {
 
         QVERIFY(m_controller->settings()->setProperty("layoutPreset", 1));
         QTRY_COMPARE(m_controller->settings()->property("messageLayout").toInt(), 3);
-        // Chrome density follows the preset: the shared header band.
         QTRY_COMPARE(header->height(), 48.0);
-        // Every identity row: header avatar shown, gutter avatar hidden.
         int identityRows = 0;
         int continuationRows = 0;
         for (const TimelineEvent &e : timeline()->events()) {
@@ -496,7 +451,7 @@ ApplicationWindow {
             if (identity) {
                 const auto head = itemsNamed(QStringLiteral("senderHeaderAvatar"), r);
                 if (head.isEmpty())
-                    continue; // a state/notice row has no sender header
+                    continue;
                 QVERIFY(head.first()->isVisible());
                 QCOMPARE(head.first()->width(), 20.0);
                 ++identityRows;
@@ -508,14 +463,12 @@ ApplicationWindow {
         }
         QVERIFY2(identityRows >= 2, qPrintable(QString::number(identityRows)));
         QVERIFY2(continuationRows >= 1, qPrintable(QString::number(continuationRows)));
-        // Typography preserved.
         row = rowFor(later);
         const auto bodies = itemsNamed(QStringLiteral("messageBody"), row);
         if (bodyPixelSizeBefore > 0 && !bodies.isEmpty())
             QCOMPARE(bodies.first()->property("font").value<QFont>().pixelSize() * 1.0,
                      bodyPixelSizeBefore);
 
-        // Back to Lightning: Modern rows again.
         QVERIFY(m_controller->settings()->setProperty("layoutPreset", 0));
         QTRY_COMPARE(m_controller->settings()->property("messageLayout").toInt(), 0);
         QTRY_COMPARE(header->height(), 60.0);
@@ -552,8 +505,6 @@ ApplicationWindow {
             QVERIFY(fresh.property("hideThreadReplies").toBool());
         }
 
-        // The root's tag still opens the whole thread, and Back returns to
-        // the room as the reader keeps it (replies hidden).
         click(tagOn(root));
         QTRY_VERIFY(m_controller->thread()->active());
         QTRY_VERIFY(m_controller->thread()->model()->rowCount() >= replies.size());
@@ -563,7 +514,6 @@ ApplicationWindow {
             QTRY_COMPARE(rowHeight(id), 0.0);
         QTRY_VERIFY(rowHeight(later) > 0);
 
-        // The same switch shows them again.
         click(toggle);
         QTRY_VERIFY(!m_controller->settings()->property("hideThreadReplies").toBool());
         for (const QString &id : replies)
@@ -576,7 +526,6 @@ ApplicationWindow {
         openDevRoom();
         const QString root = threadRoot();
         const QStringList replies = repliesIn(root);
-        // Narrowed through the model (no tag narrows any more).
         timeline()->setProperty("threadFilterRootId", root);
         QTRY_COMPARE(timeline()->property("threadFilterRootId").toString(), root);
         auto *editor = item("composerInput");
@@ -590,16 +539,12 @@ ApplicationWindow {
         QTRY_COMPARE(timeline()->events().size(), before + 1);
         const TimelineEvent sent = timeline()->events().last();
         QCOMPARE(sent.body, QStringLiteral("into the thread"));
-        // The thread send path: an m.thread reply to this root, not a room
-        // message.
         QCOMPARE(sent.threadRootId, root);
         QCOMPARE(sent.replyToEventId, QString());
         QTRY_VERIFY(rowHeight(sent.eventId) > 0);
-        // Still targeting the thread after the send.
         QCOMPARE(m_controller->composer()->property("threadTargetRootId").toString(),
                  root);
 
-        // A reply to a message of the narrowed thread: an in-thread reply.
         QVERIFY(QMetaObject::invokeMethod(rowFor(replies.first()), "beginReply",
                                           Q_ARG(QVariant, QVariant(replies.first()))));
         QTRY_VERIFY(m_controller->composer()->isReplying());
@@ -610,10 +555,8 @@ ApplicationWindow {
         const TimelineEvent reply = timeline()->events().last();
         QCOMPARE(reply.threadRootId, root);
         QCOMPARE(reply.replyToEventId, replies.first());
-        // Neither went out as a room message (§8: no room-send fallback).
         QCOMPARE(mock()->property("roomTextSends").toInt(), roomSendsBefore);
 
-        // Back to the room: a plain message goes to the room again.
         timeline()->setProperty("threadFilterRootId", QString());
         QTRY_COMPARE(m_controller->composer()->property("threadTargetRootId").toString(),
                      QString());
@@ -663,17 +606,12 @@ ApplicationWindow {
         QCOMPARE(timeline()->events().last().threadRootId, root);
     }
 
-    // The automatic receipt may only cover what the reader can see. Inline and
-    // whole: unthreaded at the newest row. Narrowed to a thread: none at all.
-    // Thread replies hidden: a visible (non-thread) row, on the main thread.
     void automaticReceiptNeverCoversHiddenThreadReplies()
     {
         setThreadStyle(1);
         openDevRoom();
         const QString root = threadRoot();
         const QString later = plainMessage(QStringLiteral("Shipped: smooth"));
-        // Make a thread reply the newest event of the room.
-        // Narrowed through the model (no tag narrows any more).
         timeline()->setProperty("threadFilterRootId", root);
         QTRY_COMPARE(timeline()->property("threadFilterRootId").toString(), root);
         auto *editor = item("composerInput");
@@ -686,36 +624,23 @@ ApplicationWindow {
         QCOMPARE(timeline()->events().last().threadRootId, root);
         QTRY_VERIFY(!newestReply.startsWith(QLatin1String("local:")));
 
-        // Narrowed: nothing may be read for the room from this view.
         QCOMPARE(timeline()->latestReadableEventId(), QString());
         QCOMPARE(mock()->property("unthreadedReadReceipts"), QVariant(false));
 
-        // Whole room, replies shown: everything is on screen.
         timeline()->setProperty("threadFilterRootId", QString());
         QTRY_COMPARE(timeline()->latestReadableEventId(), newestReply);
         QCOMPARE(mock()->property("unthreadedReadReceipts"), QVariant(true));
 
-        // Replies hidden: the newest VISIBLE row, as a main-thread receipt.
         QVERIFY(m_controller->settings()->setProperty("hideThreadReplies", true));
         QTRY_COMPARE(timeline()->latestReadableEventId(), later);
         QCOMPARE(mock()->property("unthreadedReadReceipts"), QVariant(false));
         QVERIFY(m_controller->settings()->setProperty("hideThreadReplies", false));
         QTRY_COMPARE(mock()->property("unthreadedReadReceipts"), QVariant(true));
 
-        // The thread panel style never sends an unthreaded receipt.
         setThreadStyle(0);
         QCOMPARE(mock()->property("unthreadedReadReceipts"), QVariant(false));
     }
 
-    // ── Thread panel (Element-like) parity ──────────────────────────────
-
-    // A thread that is following its newest reply stays there while a row
-    // above grows after the first positioning (an image, voice note or code
-    // block learning its real height). It used to open part-way through its
-    // history.
-    // The panel's own "at the newest reply" test (bottom slack included):
-    // positionViewAtEnd() leaves the list's bottomMargin unrevealed, so
-    // Flickable's atYEnd is stricter than what the panel follows on.
     static bool atBottomEdge(QQuickItem *list)
     {
         QVariant r;
@@ -723,9 +648,6 @@ ApplicationWindow {
         return r.toBool();
     }
 
-    // A row growing by several viewports at once (a large image learning its
-    // size) leaves positionViewAtEnd() relying on the ListView's estimates;
-    // the pin settles over a few frames until the list really is at its end.
     void aFollowedThreadStaysOnItsNewestReplyWhenARowGrowsByViewports()
     {
         QString root;
@@ -749,7 +671,6 @@ ApplicationWindow {
                          qPrintable(QStringLiteral("row %1 grew by 3 viewports "
                                                    "and the thread left its "
                                                    "newest reply").arg(index)));
-            // Stays there once settled (no late estimate drags it away).
             QTest::qWait(300);
             QVERIFY(atBottomEdge(list));
         }
@@ -766,14 +687,11 @@ ApplicationWindow {
         QTRY_VERIFY(list->property("atYEnd").toBool());
         const int count = list->property("count").toInt();
         QVERIFY(count >= 2);
-        // A row just above the newest one (instantiated: it is on screen).
         QQuickItem *row = nullptr;
         QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex",
                                           Q_RETURN_ARG(QQuickItem *, row),
                                           Q_ARG(int, count - 2)));
         QVERIFY(row);
-        // Grow it past the viewport: a thread that still fits is trivially
-        // "at its end", which once let this case pass on a broken pin.
         const qreal natural = row->implicitHeight();
         row->setProperty("heightSeed", natural + list->height());
         row->setProperty("heightSeedActive", true);
@@ -783,13 +701,6 @@ ApplicationWindow {
         QVERIFY(list->property("followLatest").toBool());
     }
 
-    // T07: a reply arriving while the reader is up in the thread's history
-    // keeps their place, sends no receipt, and is counted on a pill that
-    // returns to the newest reply.
-    // The newest-reply pin must not fight the reader: dragging a followed
-    // thread up creates the rows above (contentHeight changes while
-    // followLatest is still true until the gesture ends), and the first pin
-    // snapped every such scroll back to the end (wave 2 GUI pass).
     void scrollingAFollowedThreadUpIsNotSnappedBack()
     {
         QString root;
@@ -807,13 +718,6 @@ ApplicationWindow {
                                           Q_RETURN_ARG(QQuickItem *, row),
                                           Q_ARG(int, count - 2)));
         QVERIFY(row);
-        // A row above the newest one, as in
-        // aFollowedThreadStaysOnItsNewestReplyWhileRowsGrow (growing the
-        // newest row itself did not leave the list at its end in the
-        // offscreen run, which is that case's subject, not this one's).
-        // Grown by one viewport: enough to leave room to scroll. A growth of
-        // two viewports did not stay pinned offscreen -- a known follow-up,
-        // not this case's subject.
         row->setProperty("heightSeed", row->implicitHeight() + list->height());
         row->setProperty("heightSeedActive", true);
         QTRY_VERIFY(list->property("contentHeight").toReal() > list->height() + 100);
@@ -853,20 +757,11 @@ ApplicationWindow {
         row->setProperty("heightSeed", row->implicitHeight() + 2 * list->height());
         row->setProperty("heightSeedActive", true);
         QTRY_VERIFY(list->property("contentHeight").toReal() > list->height() * 2);
-        // Let the newest-reply pin settle on the grown thread before parking,
-        // or a late pin can land after the park under load.
         QTRY_VERIFY(atBottomEdge(list));
         QTest::qWait(100);
-        // The reader scrolls up.
         list->setProperty("followLatest", false);
-        // positionViewAtBeginning(), not contentY = originY: with rows of
-        // different heights a raw jump to originY lands outside the laid-out
-        // rows and the ListView re-estimates a contentHeight that fits.
         QVERIFY(QMetaObject::invokeMethod(list, "positionViewAtBeginning"));
         QTRY_VERIFY(!list->property("atYEnd").toBool());
-        // Measured from originY: a ListView may move its origin when rows
-        // are added or re-measured, which moves contentY without moving
-        // anything on screen.
         const qreal parkedAt = list->property("contentY").toReal()
                                - list->property("originY").toReal();
         const int readsBefore = mock()->markThreadReadCallsForTest();
@@ -877,8 +772,6 @@ ApplicationWindow {
         m_controller->thread()->sendText(QStringLiteral("arrived below"));
         QTRY_COMPARE(list->property("unseenReplies").toInt(), 1);
         QVERIFY(!list->property("followLatest").toBool());
-        // The view stays where it was parked; a sent reply only appends, so
-        // nothing above it shifts.
         QTest::qWait(300);
         const qreal nowAt = list->property("contentY").toReal()
                             - list->property("originY").toReal();
@@ -915,10 +808,8 @@ ApplicationWindow {
         QVERIFY2(!text.contains(QLatin1String(":smil")), qPrintable(text));
         QVERIFY2(text.startsWith(QLatin1String("hi ")) && text.size() > 3,
                  qPrintable(text));
-        // Nothing was sent: Return went to the popup.
         QCOMPARE(m_controller->thread()->property("text").toString(), text);
 
-        // A complete `:alias: ` converts as it does in the room composer.
         type(QStringLiteral(":thumbsup: "));
         QTRY_VERIFY(!editor->property("text").toString().contains(
             QLatin1String(":thumbsup:")));
@@ -932,7 +823,6 @@ ApplicationWindow {
             return;
         auto *list = item("threadReplyList");
         QVERIFY(list);
-        // The newest reply: a short line with free space beside it.
         QQuickItem *row = nullptr;
         QString id;
         auto *model = m_controller->thread()->model();
@@ -959,7 +849,6 @@ ApplicationWindow {
         QQuickItem *body = bodies.first();
         auto *bubble = itemsNamed(QStringLiteral("messageContentColumn"), row).value(0);
         QVERIFY(bubble);
-        // The empty part of the bubble beside the text (as in the room).
         QPointF point = body->mapToScene(QPointF(body->width() + 24,
                                                  body->height() / 2));
         if (bubble->mapFromScene(point).x() >= bubble->width() - 2)
@@ -978,27 +867,23 @@ ApplicationWindow {
             return;
         auto *list = item("threadReplyList");
         QVERIFY(list);
-        // timeline.selectLatestMessage: the newest reply, in the panel.
         QTest::keyClick(m_window, Qt::Key_Space,
                         Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_VERIFY(list->hasActiveFocus());
         auto *model = m_controller->thread()->model();
         const QString newest = model->eventIdAt(model->rowCount() - 1);
         QTRY_COMPARE(list->property("keyboardSelectedEventId").toString(), newest);
-        // K: the older message; J back.
         QTest::keyClick(m_window, Qt::Key_K);
         const QString older = list->property("keyboardSelectedEventId").toString();
         QVERIFY(!older.isEmpty() && older != newest && older != root);
         QTest::keyClick(m_window, Qt::Key_J);
         QCOMPARE(list->property("keyboardSelectedEventId").toString(), newest);
-        // R: an in-thread reply to it, typed in the thread composer.
         QTest::keyClick(m_window, Qt::Key_K);
         QTest::keyClick(m_window, Qt::Key_R);
         QTRY_COMPARE(m_controller->thread()->property("replyToEventId").toString(),
                      older);
         auto *editor = item("threadComposerInput");
         QTRY_VERIFY(editor->hasActiveFocus());
-        // composer.focus from the list returns to the thread composer.
         QTest::keyClick(m_window, Qt::Key_W, Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_VERIFY(list->hasActiveFocus());
         QTest::keyClick(m_window, Qt::Key_L, Qt::ControlModifier);

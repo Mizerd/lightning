@@ -16,13 +16,10 @@ QString tr(const char *text)
     return QCoreApplication::translate("SlashCommands", text);
 }
 
-} // namespace
+}
 
 const QList<Command> &registry()
 {
-    // Built lazily so the descriptions pick up an installed translator.
-    // The order here is the completion popup's order: sends first, then
-    // room administration, then local conveniences.
     static const QList<Command> commands = {
         { QStringLiteral("me"), QStringLiteral("<message>"),
           tr("Send an action message"), true, {} },
@@ -84,7 +81,6 @@ Parse parse(const QString &text)
     while (wordEnd < text.size() && !text.at(wordEnd).isSpace())
         ++wordEnd;
     const QString word = text.mid(1, wordEnd - 1);
-    // A command word is letters only; "/me2" is text, not a typo of /me.
     for (const QChar &c : word) {
         if (!c.isLetter())
             return result;
@@ -100,9 +96,6 @@ QString takeUserIdToken(QString &rest)
     rest = rest.trimmed();
     if (rest.isEmpty())
         return {};
-    // Markdown mention link first: the label may contain spaces. The MXID is
-    // percent-encoded ("%40bob%3Aexample.org"), so it is decoded after capture
-    // and checked for its '@' then.
     static const QRegularExpression mentionLink(QStringLiteral(
         "^\\[[^\\]]*\\]\\(https://matrix\\.to/#/([^)?]+)[^)]*\\)"));
     const QRegularExpressionMatch link = mentionLink.match(rest);
@@ -122,7 +115,6 @@ QString takeUserIdToken(QString &rest)
 
 namespace {
 
-// Structural MXID shape only — the server owns real validation.
 bool looksLikeUserId(const QString &id)
 {
     return id.size() >= 4 && id.startsWith(QLatin1Char('@'))
@@ -143,7 +135,7 @@ Outcome done(bool retireDraft = true)
     return o;
 }
 
-} // namespace
+}
 
 Outcome execute(const Parse &parsed, const QStringList &mentionIds,
                 const Actions &actions)
@@ -155,9 +147,6 @@ Outcome execute(const Parse &parsed, const QStringList &mentionIds,
         return refuse(tr("/%1 needs arguments: /%1 %2")
                           .arg(command->name, command->argsHint));
     }
-    // A command that takes no arguments refuses trailing text rather than
-    // running and silently dropping it: "/clear hello" must not wipe the
-    // draft, and the text the user typed stays where it is.
     if (command->argsHint.isEmpty() && !parsed.args.isEmpty())
         return refuse(tr("/%1 takes no arguments.").arg(command->name));
     const QString unavailable =
@@ -176,16 +165,12 @@ Outcome execute(const Parse &parsed, const QStringList &mentionIds,
             return refuse(unavailable);
         const QString shrug = QStringLiteral("¯\\_(ツ)_/¯");
         if (mentionIds.isEmpty()) {
-            // The plain lane sends the shrug verbatim — markdown would eat
-            // the escaped underscore.
             const QString body = parsed.args.isEmpty()
                 ? shrug
                 : parsed.args + QLatin1Char(' ') + shrug;
             actions.send(body, mentionIds,
                          { { QStringLiteral("format"), QStringLiteral("plain") } });
         } else {
-            // With mentions the matrix.to links need the markdown lane, so
-            // the shrug is markdown-escaped to survive the parse.
             const QString escaped = QStringLiteral("¯\\\\\\_(ツ)\\_/¯");
             actions.send(parsed.args + QLatin1Char(' ') + escaped, mentionIds,
                          QVariantMap());
@@ -195,11 +180,6 @@ Outcome execute(const Parse &parsed, const QStringList &mentionIds,
     if (name == QLatin1String("spoiler")) {
         if (!actions.send)
             return refuse(unavailable);
-        // Matrix spoiler: a data-mx-spoiler span in the formatted body, with
-        // the text in the plain body (as Element does). Escaped here and
-        // sanitized again in Rust. A mention pill in the argument becomes a
-        // real matrix.to anchor in the HTML and its display text in the plain
-        // body.
         const mention::Recovery recovered = mention::recoverFromBody(parsed.args);
         QString inner;
         int pos = 0;
@@ -266,7 +246,6 @@ Outcome execute(const Parse &parsed, const QStringList &mentionIds,
     if (name == QLatin1String("topic")) {
         if (!actions.setTopic)
             return refuse(unavailable);
-        // Display text, never pill markdown, in a topic.
         actions.setTopic(mention::recoverFromBody(parsed.args).text);
         return done();
     }
@@ -286,7 +265,6 @@ Outcome execute(const Parse &parsed, const QStringList &mentionIds,
         if (!actions.toggleComposerMode)
             return refuse(unavailable);
         actions.toggleComposerMode();
-        // The command was the whole message, so there is no draft to retire.
         return done(false);
     }
     if (name == QLatin1String("clear")) {
@@ -303,7 +281,6 @@ QList<Command> completions(const QString &text)
     QList<Command> matches;
     if (!text.startsWith(QLatin1Char('/')) || text.startsWith(QStringLiteral("//")))
         return matches;
-    // Completion is offered only while the command word is being typed.
     const QString rest = text.mid(1);
     for (const QChar &c : rest) {
         if (c.isSpace())
@@ -319,4 +296,4 @@ QList<Command> completions(const QString &text)
     return matches;
 }
 
-} // namespace SlashCommands
+}

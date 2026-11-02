@@ -3,12 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// A pending invite opened as the current room (from Activity or a
-// notification): the room's identity, who invited you, and Accept / Decline,
-// in place of a timeline and composer that cannot work before you join. The
-// room list's invite row offers the same two actions; Element shows the same
-// preview. TimelinePane decides when it is shown and wires the actions; this
-// card only presents. Every remote string is plain text.
 Rectangle {
     id: card
     objectName: "invitePreviewCard"
@@ -26,25 +20,12 @@ Rectangle {
     property string colorKey: ""
     property bool isDirect: false
     property bool isSpace: false
-    // An accept or decline is in flight; both buttons wait for it.
     property bool pending: false
     property string errorText: ""
 
     signal acceptRequested()
     signal declineRequested()
 
-    // Keyboard: the card is a Tab stop (with a visible ring, WCAG 2.4.7) and
-    // Accept and Decline follow it in the ordinary chain, so Tab and
-    // Shift+Tab can also LEAVE it (no trap, WCAG 2.1.2). Showing the card
-    // never takes focus, so arrowing down the room list onto an invite row
-    // keeps working. When the card's own buttons disable under the user (an
-    // accept or decline in flight, or an error arriving), the disabled item
-    // drops active focus; focus is pulled back to the card ONLY if it was
-    // inside the card or already lost, never from wherever else the user has
-    // moved (the list's own Accept/Reject also set `pending`; an error
-    // arrives asynchronously). The covered timeline must also be out of the
-    // Tab chain while the card is up: TimelinePane sets enabled on it
-    // (C83-F01; done in TimelinePane).
     activeFocusOnTab: true
     function _focusInsideOrLost() {
         const w = card.Window.window
@@ -65,7 +46,6 @@ Rectangle {
     onPendingChanged: if (pending) focusCard()
     onErrorTextChanged: if (errorText !== "") focusCard()
 
-    // The card's own Tab stop shows a ring, inside its bounds.
     Rectangle {
         objectName: "invitePreviewFocusRing"
         anchors.fill: parent
@@ -78,7 +58,6 @@ Rectangle {
         z: 1
     }
 
-    // Swallow input so nothing reaches the timeline underneath.
     MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.AllButtons

@@ -23,8 +23,6 @@ PackImage PackImage::fromVariantMap(const QVariantMap &map)
 {
     PackImage image;
     image.shortcode = map.value(QStringLiteral("shortcode")).toString();
-    // A map without `key` (an older caller, a test fixture) names a valid key
-    // equal to its shortcode.
     image.key = map.contains(QStringLiteral("key"))
         ? map.value(QStringLiteral("key")).toString() : image.shortcode;
     // Without the flag, an empty key is the one key that is certainly invalid.
@@ -61,4 +59,4 @@ int Pack::emoticonCount() const
     return n;
 }
 
-} // namespace stickers
+}

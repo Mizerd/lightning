@@ -16,24 +16,12 @@ typedef struct _GstElement GstElement;
 
 namespace lightning::rtp {
 
-/// Whole RTP packet budget, including header, payload descriptor and header
-/// extensions. Matches libwebrtc's kVideoMtu (media/base/media_constants.cc):
-/// https://webrtc.googlesource.com/src/+/refs/heads/main/media/base/media_constants.cc
-/// Leave room outside this budget for SRTP, UDP/IP and TURN/tether/VPN
-/// encapsulation rather than relying on GStreamer's 1400-byte default.
-/// Frame encryption adds 30 bytes BEFORE packetization (tag + IV + trailer),
-/// so those bytes are fragmented within this budget, not added per packet.
 inline constexpr unsigned int kRtpPayloadMtu = 1200;
 
-/// Register `lightningrtpvp8pay`. Idempotent, thread-safe; must run after
-/// gst_init.
 void registerVp8Payloader();
 
-/// The element name to use in a pipeline description.
 const char *vp8PayloaderName();
 
-/// Bytes a video payloader (a GstRTPBasePayload) must keep free in each packet
-/// for the header extensions added after it fragments.
 unsigned long rtpHeaderExtensionBudget(GstElement *payloader, GstBuffer *buffer);
 
-} // namespace lightning::rtp
+}

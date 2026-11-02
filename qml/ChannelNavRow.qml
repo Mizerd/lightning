@@ -2,30 +2,18 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// A navigation entry at the top of the Channels layout ("Lobby", "Message
-// Search"). Not a channel row or category: these aren't rooms, so they have
-// no id, unread state, context menu or collapse.
 ItemDelegate {
     id: root
 
     property string label: ""
     property string iconName: ""
-    /// True for Lobby while the shell shows the home surface. Not named
-    /// `active`, which the hosting Loader already has.
     property bool current: false
-    /// Shown greyed and inert with a trailing "Coming soon", rather than
-    /// disabled (which gets no hover to explain itself) or removed.
     property bool comingSoon: false
 
-    // Loaded by the Channels presenter (five row kinds); the Loader takes its
-    // height from this value.
-    // Follows the text scale like a Classic row: two lines of the scaled font,
-    // never under the 32 px the row has always had, so nothing clips.
     height: Math.max(AppTheme.channelRowMinHeight,
                     2 * AppTheme.scaled(AppTheme.textBody))
     padding: 0
     hoverEnabled: true
-    // Reachable by Tab, like a Classic row (RoomDelegate).
     activeFocusOnTab: true
     Keys.onReturnPressed: root.clicked()
     Keys.onEnterPressed: root.clicked()
@@ -44,8 +32,6 @@ ItemDelegate {
         anchors.topMargin: 1
         anchors.bottomMargin: 1
         radius: AppTheme.radiusSm
-        // Hover fills; focus rings (below). A shared fill made the focused row
-        // look like the current one.
         color: root.comingSoon ? "transparent"
                : root.current ? AppTheme.channelSelected
                             : (root.hovered || root.activeFocus
@@ -76,8 +62,6 @@ ItemDelegate {
                                   : AppTheme.channelText
         }
 
-        // Both behind Loaders: an empty Text keeps ItemObservesViewport, and
-        // this row is a per-row delegate.
         Loader {
             active: root.comingSoon
             anchors.right: parent.right
@@ -97,12 +81,9 @@ ItemDelegate {
             anchors.left: glyph.right
             anchors.leftMargin: 8
             anchors.right: parent.right
-            // Leave room for the trailing badge so the elided label doesn't run
-            // under it.
             anchors.rightMargin: root.comingSoon ? 84 : 14
             anchors.verticalCenter: parent.verticalCenter
             sourceComponent: Label {
-                // Remote or externally chosen text: never markup.
                 textFormat: Text.PlainText
                 text: root.label
                 elide: Text.ElideRight

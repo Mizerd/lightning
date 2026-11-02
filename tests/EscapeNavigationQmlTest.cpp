@@ -1,16 +1,3 @@
-// Escape in the real shell:
-//   * Escape never closes the open room, from the message box or the timeline,
-//     with a draft or without (the 0.10.3 QA round reported it as a lost room,
-//     Element and Discord keep it);
-//   * with no room open, Escape from a Space's overview returns to Home and a
-//     further one does nothing;
-//   * every earlier owner of Escape keeps it: a reply or an edit in the
-//     composer, another text field, and an open dialog;
-//   * an open popup (the read-receipt list, a profile card, the reaction
-//     picker) takes the first Escape even without the keyboard focus, and a
-//     hover tooltip does not.
-// Keys are sent to the window, so delivery follows real focus and
-// propagation, not a direct call.
 
 #include <QtTest/QtTest>
 
@@ -54,7 +41,7 @@ ApplicationWindow {
 const QString kRoom = QStringLiteral("!general:mock.local");
 const QString kSpace = QStringLiteral("!space-team:mock.local");
 
-} // namespace
+}
 
 class EscapeNavigationQmlTest : public QObject
 {
@@ -86,8 +73,6 @@ private:
         return findItem(m_window->contentItem(), QLatin1String(name));
     }
 
-    // Opens the room inside the Space with the message box focused, the
-    // state the report starts from.
     void openRoomWithComposerFocused()
     {
         m_controller->openSpaceHome(kSpace);
@@ -167,7 +152,6 @@ private Q_SLOTS:
         QCOMPARE(m_controller->composer()->text(), QStringLiteral("a draft"));
         m_controller->composer()->setText(QString());
 
-        // Nothing but a room around the focus: the timeline itself.
         QQuickItem *timeline = item("timelineListView");
         QVERIFY(timeline);
         timeline->forceActiveFocus();
@@ -187,7 +171,6 @@ private Q_SLOTS:
         escape();
         QCOMPARE(m_controller->spaces()->activeSpaceId(), QString());
 
-        // Home with nothing open: nothing further, and nothing breaks.
         escape();
         QCOMPARE(m_controller->currentRoomId(), QString());
         QCOMPARE(m_controller->spaces()->activeSpaceId(), QString());
@@ -224,10 +207,6 @@ private Q_SLOTS:
         QCOMPARE(m_controller->currentRoomId(), kRoom);
     }
 
-    // C46 F03: with a thread panel open, Escape in the message box cancels the
-    // pending edit FIRST. The panel's own Escape Shortcut is matched before
-    // the box's key handler and used to close the panel, leaving the edit
-    // armed so the next Return saved it.
     void anEditBesideAnOpenThreadPanelKeepsTheFirstEscape()
     {
         openRoomWithComposerFocused();
@@ -251,8 +230,6 @@ private Q_SLOTS:
         m_controller->thread()->close();
     }
 
-    // The room-list search is a text field of its own: Escape there must not
-    // close the conversation behind it.
     void anotherTextFieldKeepsEscape()
     {
         openRoomWithComposerFocused();
@@ -274,8 +251,6 @@ private Q_SLOTS:
         QCOMPARE(m_controller->currentRoomId(), kRoom);
     }
 
-    // A dialog is a popup, not a child of the shell: its Escape closes it and
-    // goes no further.
     void anOpenDialogKeepsEscape()
     {
         openRoomWithComposerFocused();
@@ -292,10 +267,6 @@ private Q_SLOTS:
         QCOMPARE(m_controller->currentRoomId(), kRoom);
     }
 
-    // The read-receipt list, opened by a real click on a row's facepile. The
-    // same tap reaches the timeline's own TapHandler, which used to take the
-    // focus back from the popover, so one Escape went to the shell and closed
-    // the popover (with its room) and stepped back as well.
     void theReceiptListTakesTheFirstEscape()
     {
         openRoomWithComposerFocused();
@@ -305,8 +276,6 @@ private Q_SLOTS:
         read.sender = QStringLiteral("@bob:mock.local");
         read.body = QStringLiteral("Seen by somebody");
         read.timestamp = QDateTime::currentDateTimeUtc();
-        // Four readers: three faces and the "+1" pill, which is what opens the
-        // list (a face opens that reader's profile).
         for (const char *who : { "bob", "carol", "dave", "erin" })
             read.readBy.append({ QStringLiteral("@%1:mock.local")
                                      .arg(QLatin1String(who)),
@@ -319,12 +288,6 @@ private Q_SLOTS:
         QQuickItem *facepile = nullptr;
         QTRY_VERIFY2((facepile = visibleReceiptRow()) != nullptr,
                      "no row drew a read-receipt facepile");
-        // The appended row is laid out a frame after it exists, and until then
-        // it sits on top of the previous row (measured: both at the same y).
-        // A click in that window also reaches the previous row's bubble
-        // TapHandler and pins ITS toolbar, whose own Escape then comes before
-        // leaving the room. A user cannot click a row that has not been
-        // placed, so let the column settle first.
         QTest::qWait(500);
         QQuickItem *pill = nullptr;
         for (QQuickItem *c : facepile->childItems())
@@ -345,9 +308,6 @@ private Q_SLOTS:
         QCOMPARE(m_controller->currentRoomId(), kRoom);
     }
 
-    // Every popup a timeline row opens owns Escape even when the keyboard
-    // focus is somewhere else under the shell (here the message box): the
-    // first Escape closes the popup.
     void anOpenTimelinePopupKeepsEscapeWithoutTheFocus_data()
     {
         QTest::addColumn<QString>("name");
@@ -363,7 +323,6 @@ private Q_SLOTS:
         QVERIFY2(popup, qPrintable(name));
         QVERIFY(QMetaObject::invokeMethod(popup, "open"));
         QTRY_VERIFY(popup->property("opened").toBool());
-        // Wherever the open left the focus, put it back in the message box.
         QQuickItem *composer = item("messageComposer");
         QVERIFY(QMetaObject::invokeMethod(composer, "focusEditor"));
         QTest::qWait(20);
@@ -375,8 +334,6 @@ private Q_SLOTS:
         QCOMPARE(m_controller->currentRoomId(), kRoom);
     }
 
-    // A hover tooltip is not an Escape owner: it must not cost the user a
-    // keypress.
     void aToolTipDoesNotKeepEscape()
     {
         m_controller->openSpaceHome(kSpace);

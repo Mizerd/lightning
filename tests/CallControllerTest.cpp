@@ -1,6 +1,3 @@
-// The MSC2746 state machine in CallController, driven with synthetic
-// CallSignal observations through a recording client double. The outbound
-// path is exercised through placeCallWithOffer with a synthetic SDP.
 #include <QtTest/QtTest>
 
 #include <QDateTime>
@@ -43,7 +40,7 @@ struct SentEvent {
     QString roomId;
     QString callId;
     QString partyId;
-    QString extra; // reason / selected party / notification event id
+    QString extra;
 };
 
 class RecordingCallClient : public MockMatrixClient
@@ -119,8 +116,6 @@ public:
                        const QString &streamMetadataJson) override
     {
         Q_UNUSED(answerType);
-        // Record that an answer was dispatched without retaining the SDP,
-        // mirroring production's no-echo rule.
         sent.append({QStringLiteral("answer"), roomId, callId, partyId,
                      answerSdp.isEmpty() ? QString()
                                          : QStringLiteral("<sdp>")});
@@ -165,18 +160,13 @@ public:
         lastTurnOp = ++opCounter;
         return deferTurn ? lastTurnOp : 0;
     }
-    // Most controller tests model a backend with no TURN operation. The
-    // ordering tests explicitly keep the homeserver response pending.
     bool deferTurn = false;
-    // The SFU's only removal-shaped verb: there is no unpublish message, so a
-    // stopped camera or share must arrive here.
     void sfuMuteTrack(const QString &sid, bool muted) override
     {
         muteRequests.append(qMakePair(sid, muted));
     }
     QList<QPair<QString, bool>> muteRequests;
 
-    // MatrixRTC membership: everything the leave path depends on.
     quint64 rtcPublishMembership(const QString &roomId,
                                  const QString &focusUrl,
                                  const QString &intent,
@@ -195,9 +185,6 @@ public:
         lastRestartOp = ++opCounter;
         return lastRestartOp;
     }
-    // MatrixRTC session reads. Names and avatars come from the membership,
-    // which arrives on a different transport from the SFU's participant
-    // list, so a test can deliver them in either order.
     bool supportsMatrixRtc() const override { return true; }
     quint64 rtcTransports(const QString &roomId) override
     {
@@ -239,9 +226,6 @@ public:
     quint64 lastPublishOp = 0;
     quint64 lastRestartOp = 0;
     quint64 lastRetractOp = 0;
-    /// The bridge routes `rtc_membership_retracted` and `rtc_delayed_updated`
-    /// onto this one signal, distinguished only by op id; emitted exactly as
-    /// RustSdkMatrixClient does.
     void answerMembershipOp(quint64 opId, bool ok, const QString &category)
     {
         Q_EMIT rtcMembershipRetracted(opId, ok, category);
@@ -253,20 +237,15 @@ public:
                                       QStringLiteral("$event"), delayId,
                                       delayedCategory);
     }
-    /// A publish the homeserver refused, with the category the bridge really
-    /// sends (`answerPublish` hard-codes an empty one).
     void refusePublish(quint64 opId, const QString &category)
     {
         Q_EMIT rtcMembershipPublished(opId, false, category, QString(),
                                       QString(), QString());
     }
-    /// The SFU's own lifecycle, on the signal SfuCallController connects.
     void emitSfuState(const QString &state, const QString &category)
     {
         Q_EMIT sfuStateChanged(state, category);
     }
-    /// A raise or lower off the sync loop. A raise names the membership event
-    /// it annotates; a lower names only the reaction, as a redaction does.
     void emitHandChanged(const QString &roomId, const QString &sender,
                          const QString &membershipEventId,
                          const QString &reactionEventId, bool raised)
@@ -274,8 +253,6 @@ public:
         Q_EMIT rtcHandChanged(roomId, sender, membershipEventId,
                               reactionEventId, raised);
     }
-    /// A MatrixRTC call announcement (MSC4075), as SfuCallController hands it
-    /// to the bridge.
     struct SentNotify {
         QString roomId;
         QString type;
@@ -292,8 +269,6 @@ public:
         lastNotifyOp = ++opCounter;
         return lastNotifyOp;
     }
-    /// A transient call reaction, on the bridge's real signature. Records the
-    /// wire arguments: referenced membership event and (emoji, name) pair.
     struct SentReaction {
         QString roomId;
         QString membershipEventId;
@@ -311,7 +286,6 @@ public:
     }
     QList<SentReaction> reactionSends;
     quint64 lastReactionOp = 0;
-    /// One arriving off the sync loop.
     void emitCallReaction(const QString &roomId, const QString &sender,
                           const QString &membershipEventId,
                           const QString &emoji)
@@ -319,13 +293,10 @@ public:
         Q_EMIT rtcCallReactionReceived(roomId, sender, membershipEventId,
                                        emoji);
     }
-    /// The generic RTC send answer, which a reaction's result rides.
     void answerRtcSend(quint64 opId, bool ok, const QString &category)
     {
         Q_EMIT rtcSendFinished(opId, ok, category, QString());
     }
-    /// Answered with a real op id so a successful membership publish reaches
-    /// Authorizing.
     quint64 sfuConnect(const QString &serviceUrl,
                        const QString &roomId) override
     {
@@ -385,8 +356,6 @@ public:
     quint64 lastNotifyOp = 0;
 };
 
-// State-only media double (FakeRecorder pattern): records the calls the
-// controller makes and lets the test drive the async results by hand.
 class FakeMediaBackend : public CallMediaBackend
 {
 public:
@@ -494,9 +463,6 @@ public:
     QString lastRemoteAnswer;
 };
 
-/// FakeMediaBackend plus real mute bookkeeping. Separate because the base
-/// double keeps `supportsMuteControl()` false for the "no mute without an
-/// engine that implements it" case.
 class MuteTrackingBackend : public FakeMediaBackend
 {
 public:
@@ -520,7 +486,6 @@ public:
     bool outputMuted = false;
 };
 
-
 CallSignal freshInvite(const QString &callId,
                        const QString &roomId = QStringLiteral("!r:x"),
                        const QString &sender = QStringLiteral("@peer:x"))
@@ -539,9 +504,6 @@ CallSignal freshInvite(const QString &callId,
     s.hasDescription = true;
     return s;
 }
-
-// Call stage data layer: these drive SfuCallController through the private
-// merge helpers the SFU slots use, via test seams.
 
 QVariantMap sfuTrack(const QString &source, const QString &sid, bool muted)
 {
@@ -595,8 +557,6 @@ int participantRowFor(const CallParticipantModel *model,
 const QString kThumbsUpEmoji = QString::fromUtf8("\xF0\x9F\x91\x8D");
 const QString kPartyEmoji = QString::fromUtf8("\xF0\x9F\x8E\x89");
 
-/// A call fixture with one remote participant whose membership is known, so
-/// a reaction can be attributed. Returns the model.
 CallParticipantModel *stageOneRemoteParticipant(
     RecordingCallClient &client, RtcController &rtc, SfuCallController &call,
     const QString &room, const QString &identity, const QString &userId,
@@ -628,9 +588,6 @@ CallParticipantModel *stageOneRemoteParticipant(
     return call.participantModel();
 }
 
-/// Records media key sends (device ids only; the key is compared, never
-/// printed). Like the Rust bridge (rtc.rs send_media_key), an empty target
-/// list is refused with op 0, and so is every send while `refuseSends`.
 class KeyRecordingClient : public RecordingCallClient
 {
 public:
@@ -661,15 +618,12 @@ public:
         keySends.append(send);
         return send.op;
     }
-    /// The bridge's answer to one send, as rtc_key_sent reports it.
     void answerKeySend(const KeySend &send, bool ok)
     {
         Q_EMIT rtcMediaKeySent(send.op, ok,
                                ok ? QString() : QStringLiteral("network"),
                                ok ? int(send.devices.size()) : 0, send.index);
     }
-    /// A PARTIAL delivery, as rtc_key_sent reports it since F6: ok, with the
-    /// devices the key missed named in `undelivered` (KeyLaneCall's user ids).
     void answerKeySendPartial(const KeySend &send, const QStringList &missed)
     {
         QVariantList undelivered;
@@ -689,10 +643,6 @@ public:
     bool refuseSends = false;
 };
 
-/// An encrypted call whose membership names every device up front, driven
-/// through the real SFU participant slot, so the key lane sees exactly what
-/// it sees in a call: who the SFU says is here, resolved through the
-/// membership.
 struct KeyLaneCall {
     KeyRecordingClient client;
     RtcController rtc;
@@ -720,7 +670,6 @@ struct KeyLaneCall {
         client.answerSession(client.lastSessionOp, session);
         enterCall();
     }
-    /// What join() and onSfuJoined() leave behind, minus the engine.
     void enterCall()
     {
         call.setMembershipForTest(room, QString());
@@ -736,7 +685,6 @@ struct KeyLaneCall {
     {
         return userFor(device) + QLatin1Char(':') + device;
     }
-    /// The SFU announces `device` in its LiveKit session `sid`.
     void sfuJoin(const QString &device, const QString &sid)
     {
         deliver({ sfuParticipant(identityFor(device), sid, {}) });
@@ -761,14 +709,6 @@ struct KeyLaneCall {
     int adopted() const { return call.adoptedKeyIndexForTest(); }
 };
 
-// ── The camera portal ──
-
-/// A connected call whose camera goes through a wired CameraPortal, with the
-/// media engine and the portal's D-Bus request replaced by the controller's
-/// test stand-ins (setCameraPathForTest): a sandbox with a usable portal and
-/// no device node, so the route is the portal. The portal's answers are
-/// emitted by hand. Records every publish with whether its descriptor was
-/// still open when handed over, then closes it as the engine would.
 struct CameraPortalCall {
     RecordingCallClient client;
     SfuCallController call;
@@ -784,9 +724,9 @@ struct CameraPortalCall {
         call.setMembershipForTest(QStringLiteral("!cam:example.org"),
                                   QString());
         call.setCallStateForTest(SfuCallController::State::Connected);
-        call.setCameraRouteForTest(/*viaPortal=*/false,
-                                   /*portalReportedCamera=*/false,
-                                   /*deviceNodeVisible=*/false);
+        call.setCameraRouteForTest(false,
+false,
+false);
         call.setCameraPathForTest(
             [this](int fd) {
                 published.append(fd);
@@ -796,8 +736,8 @@ struct CameraPortalCall {
                     ::close(fd);
 #endif
             },
-            [this] { ++requests; }, /*sandboxed=*/true,
-            /*portalUsable=*/true);
+            [this] { ++requests; },true,
+true);
     }
     static bool fdOpen(int fd)
     {
@@ -808,8 +748,6 @@ struct CameraPortalCall {
         return false;
 #endif
     }
-    /// A real descriptor standing for the portal's PipeWire remote: the read
-    /// end of a pipe (the write end is closed at once).
     static int portalFd()
     {
 #ifdef Q_OS_UNIX
@@ -824,15 +762,9 @@ struct CameraPortalCall {
     }
 };
 
-// ── Reconnecting ──
-
 const QString kReconnectRoom = QStringLiteral("!reconnect:example.org");
 const QString kReconnectFocus = QStringLiteral("https://sfu.example.org");
 
-/// A call that got up: membership published carrying the focus (so the SFU
-/// connect went out once), the SFU session signalling, and Connected, which
-/// is the one state a lost session may be recovered from. `room` defaults to
-/// kReconnectRoom.
 void connectRecoverableCall(RecordingCallClient &client,
                             SfuCallController &call,
                             const QString &delayId = QString(),
@@ -848,10 +780,7 @@ void connectRecoverableCall(RecordingCallClient &client,
     QCOMPARE(client.sfuConnects.size(), 1);
     client.emitSfuState(QStringLiteral("authorized"), QString());
     client.emitSfuState(QStringLiteral("signalling"), QString());
-    // The engine's first remote description is what makes a call Connected;
-    // this target has no engine.
     call.setCallStateForTest(SfuCallController::State::Connected);
-    // ...and its ICE came up: media flowed before the loss.
     if (transportUp) {
         QVERIFY(QMetaObject::invokeMethod(&call, "onEngineTransportState",
                                           Qt::DirectConnection,
@@ -861,7 +790,6 @@ void connectRecoverableCall(RecordingCallClient &client,
     }
 }
 
-/// The SFU's JoinResponse for a rejoin, on the signal the bridge emits.
 void emitSfuJoin(RecordingCallClient &client, const QString &ownIdentity,
                  const QVariantList &participants)
 {
@@ -869,7 +797,6 @@ void emitSfuJoin(RecordingCallClient &client, const QString &ownIdentity,
                             QByteArray());
 }
 
-/// SfuMediaEngine::transportStateChanged, as the controller receives it.
 bool emitTransport(SfuCallController &call, int target, const QString &state)
 {
     return QMetaObject::invokeMethod(&call, "onEngineTransportState",
@@ -878,9 +805,8 @@ bool emitTransport(SfuCallController &call, int target, const QString &state)
                                      Q_ARG(QString, state));
 }
 
-} // namespace
+}
 
-// Rows for one identity (the model also holds our own, local row).
 static int rowsFor(QAbstractItemModel *model, const QString &identity)
 {
     const int role = model->roleNames().key("identity", -1);
@@ -915,8 +841,6 @@ private:
         client.emitSignal(notify);
     }
 
-    // Helper, NOT a slot. A fresh MSC4075 announcement, typed and addressed
-    // as the bridge forwards it.
     static CallSignal rtcAnnouncement(const QString &roomId,
                                       const QString &eventId,
                                       const QString &sender,
@@ -1154,8 +1078,6 @@ private Q_SLOTS:
 
     void aFocusSpelledWithATrailingSlashIsTheSameConnection()
     {
-        // GitHub #57: we advertise our focus as written, so a member on the
-        // same SFU may spell it with the bare origin's slash. One connection.
         RecordingCallClient client;
         RtcController rtc;
         rtc.setClient(&client);
@@ -1220,7 +1142,7 @@ private Q_SLOTS:
         b.focusServiceUrl = other;
         b.expiresAtMs = std::numeric_limits<qint64>::max();
         session.participants = {a, b};
-        session.focusServiceUrl = other; // oldest membership is remote
+        session.focusServiceUrl = other;
         rtc.refresh(room);
         client.answerSession(client.lastSessionOp, session);
         QCOMPARE(rtc.focusUrlFor(room), own);
@@ -1363,16 +1285,10 @@ private Q_SLOTS:
         QCOMPARE(call.streamIdForIdentityForTest(b), QStringLiteral("c2:PA_SAME"));
     }
 
-    // A media key that arrives before join() must survive the join: the peer
-    // sends its key as soon as it sees our membership, and nothing re-sends.
-    // Not covered here: join() clearing the list before applyParkedKeys().
-    // join() returns early without HAVE_LIGHTNING_WEBRTC, which this target
-    // lacks, so that path is unreachable.
     void aKeyThatArrivesBeforeTheCallIsParkedRatherThanDiscarded()
     {
         SfuCallController call;
         const QString key = QString::fromUtf8(QByteArray(32, 'k').toBase64());
-        // Idle, no room yet.
         QMetaObject::invokeMethod(
             &call, "onMediaKeyReceived", Qt::DirectConnection,
             Q_ARG(QString, QString()), Q_ARG(QString, QStringLiteral("@a:x")),
@@ -1380,13 +1296,10 @@ private Q_SLOTS:
             Q_ARG(QString, key));
         QCOMPARE(call.parkedKeyCountForTest(), 1);
 
-        // It survives a state change; only teardown and the TTL remove it.
         call.setCallStateForTest(SfuCallController::State::Connected);
         QCOMPARE(call.parkedKeyCountForTest(), 1);
     }
 
-    // A malformed key never takes a slot, so a member cannot evict a
-    // legitimate peer's key with rubbish.
     void aMalformedKeyIsRefusedBeforeItCanBeParked()
     {
         SfuCallController call;
@@ -1402,9 +1315,6 @@ private Q_SLOTS:
         park(QStringLiteral("DEV1"), 0, good);
         QCOMPARE(call.parkedKeyCountForTest(), 1);
 
-        // Out-of-range index, oversized payload and a bad key length consume
-        // no slot. The ring is 256 indices (element-call's), so out of range
-        // is negative or >= 256.
         park(QStringLiteral("DEV2"), 256, good);
         park(QStringLiteral("DEV5"), -1, good);
         park(QStringLiteral("DEV6"), 100000, good);
@@ -1414,15 +1324,10 @@ private Q_SLOTS:
         QCOMPARE(call.parkedKeyCountForTest(), 1);
     }
 
-    // Key indices 16..255 are valid: matrix-js-sdk rotates key ids modulo
-    // 256. Driven through the parking path, which this target compiles and
-    // which is replayed through the same bound on join.
     void aMediaKeyAtAHighIndexIsKeptRatherThanDiscarded()
     {
         SfuCallController call;
         const QString key = QString::fromUtf8(QByteArray(16, 'k').toBase64());
-        // One device per index: parking caps each device at two
-        // (kMaxParkedKeysPerDevice).
         for (const int index : {16, 200, 255}) {
             QMetaObject::invokeMethod(
                 &call, "onMediaKeyReceived", Qt::DirectConnection,
@@ -1435,7 +1340,6 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("parked=%1: a key at index 16, 200 "
                                            "or 255 was discarded")
                                 .arg(call.parkedKeyCountForTest())));
-        // 256 is still out of the ring.
         QMetaObject::invokeMethod(
             &call, "onMediaKeyReceived", Qt::DirectConnection,
             Q_ARG(QString, QString()),
@@ -1445,16 +1349,11 @@ private Q_SLOTS:
         QCOMPARE(call.parkedKeyCountForTest(), 3);
     }
 
-    // The in-call meter: the call's own level readings, on the meter's
-    // scale, at most every kMeterMinIntervalMs, and empty while muted or
-    // outside a call. Fails on a tree without SfuCallController::
-    // microphoneLevel (the menu then had nothing to draw).
     void theInCallMeterFollowsTheCaptureAtABoundedRate()
     {
         SfuCallController call;
         QSignalSpy changed(&call, &SfuCallController::microphoneLevelChanged);
 
-        // No call: readings are ignored.
         call.noteMicrophoneLevelAt(-6.0, 0);
         QCOMPARE(call.microphoneLevel(), 0.0);
         QCOMPARE(changed.count(), 0);
@@ -1463,15 +1362,9 @@ private Q_SLOTS:
         call.noteMicrophoneLevelAt(-30.0, 1000);
         QCOMPARE(call.microphoneLevel(),
                  lightning::calls::meterFraction(-30.0));
-        // Digital silence (`level`'s -350 floor) is an empty bar, not an
-        // error.
         call.noteMicrophoneLevelAt(-350.0, 2000);
         QCOMPARE(call.microphoneLevel(), 0.0);
 
-        // A burst of readings 5 ms apart for a second (a GUI-thread backlog
-        // delivered at once) changes the property at most once per interval.
-        // Rising, so every published reading differs from the last and an
-        // unthrottled meter would change 200 times.
         changed.clear();
         for (int i = 0; i < 200; ++i)
             call.noteMicrophoneLevelAt(-59.0 + i * 0.25, 3000 + i * 5);
@@ -1480,14 +1373,10 @@ private Q_SLOTS:
                  qPrintable(QString::number(changed.count())));
         QVERIFY2(changed.count() >= perSecond - 2,
                  qPrintable(QString::number(changed.count())));
-        // The last readings fell inside a window and were held: a quieter
-        // reading after it publishes the loudest of them, not itself.
         call.noteMicrophoneLevelAt(-50.0, 4100);
         QCOMPARE(call.microphoneLevel(),
                  lightning::calls::meterFraction(-59.0 + 199 * 0.25));
 
-        // Muting empties the bar at once, and a reading already in flight
-        // does not light it again.
         call.noteMicrophoneLevelAt(-10.0, 10000);
         QVERIFY(call.microphoneLevel() > 0.0);
         call.setMicrophoneMuted(true);
@@ -1499,11 +1388,6 @@ private Q_SLOTS:
         QVERIFY(call.microphoneLevel() > 0.0);
     }
 
-    // A refused join must not touch a call already running. It used to set
-    // Failed first, which reads as inactive while that call's engine and
-    // membership live on, and the next join then skipped tearing them down.
-    // This target has no media engine, so every join here is refused, which
-    // is the path under test.
     void aRefusedJoinLeavesTheRunningCallAlone()
     {
         struct SfuClient : RecordingCallClient {
@@ -1523,19 +1407,14 @@ private Q_SLOTS:
         QCOMPARE(call.roomId(), QStringLiteral("!first:x"));
         QCOMPARE(changed.count(), 0);
         QVERIFY(call.lastError().isEmpty());
-        // Still reported.
         QCOMPARE(failed.count(), 1);
         QVERIFY(!failed.first().first().toString().isEmpty());
 
-        // The same with no client at all.
         SfuCallController bare;
         bare.setCallStateForTest(SfuCallController::State::Connected);
         QVERIFY(!bare.join(QStringLiteral("!second:x"), false));
         QCOMPARE(bare.state(), SfuCallController::State::Connected);
 
-        // The refusal stays on screen until a join gets past the gate, which
-        // withdraws it with an empty message, exactly as for a refusal with
-        // no call running.
         call.leave();
         const quint64 accepted = call.beginMembershipPublishForTest(
             QStringLiteral("!second:x"),
@@ -1547,16 +1426,12 @@ private Q_SLOTS:
                  "a refusal made while a call was active is never withdrawn, "
                  "so the status strip shows it through the next call");
 
-        // With no call running, a refusal still reads as Failed.
         call.leave();
         QVERIFY(!call.join(QStringLiteral("!second:x"), false));
         QCOMPARE(call.state(), SfuCallController::State::Failed);
         QVERIFY(!call.lastError().isEmpty());
     }
 
-    // Received audio the engine could not rebuild (the sound server went
-    // away) is told to the user once, without ending the call, and the
-    // notice is withdrawn when the output comes back.
     void aLostPlaybackIsReportedWithoutEndingTheCall()
     {
         SfuCallController call;
@@ -1577,14 +1452,11 @@ private Q_SLOTS:
         QCOMPARE(failed.count(), 2);
         QVERIFY(failed.at(1).at(0).toString().isEmpty());
 
-        // Nothing once the call is over.
         call.leave();
         report(true);
         QCOMPARE(failed.count(), 2);
     }
 
-    // "Leave and rejoin" is advice about the call it was shown in: leaving
-    // withdraws it, where it used to stay on screen after the call ended.
     void theLostPlaybackNoticeEndsWithItsCall()
     {
         SfuCallController call;
@@ -1599,8 +1471,6 @@ private Q_SLOTS:
         QVERIFY(failed.at(1).at(0).toString().isEmpty());
     }
 
-    // The same for "Your microphone isn't available": it described the call's
-    // microphone and stayed on the status bar after leaving (Flatpak RC).
     void theMicrophoneNoticeEndsWithItsCall()
     {
         SfuCallController call;
@@ -1613,8 +1483,6 @@ private Q_SLOTS:
         QVERIFY(failed.at(1).at(0).toString().isEmpty());
     }
 
-    // A withdrawal clears only its own notice: the playback notice coming
-    // back must not wipe a later, different one (the microphone's).
     void aWithdrawalDoesNotClearSomebodyElsesNotice()
     {
         SfuCallController call;
@@ -1627,17 +1495,12 @@ private Q_SLOTS:
         };
         report(true);
         QCOMPARE(failed.count(), 1);
-        // Somebody else's notice replaces it on screen.
         Q_EMIT call.callFailed(QStringLiteral("Your microphone isn't available."));
         QCOMPARE(failed.count(), 2);
-        // The output comes back: nothing is withdrawn, the microphone's
-        // notice stays.
         report(false);
         QCOMPARE(failed.count(), 2);
     }
 
-    // The delivered key index is per call. Left over, it made "the very first
-    // key is always adopted" false in the next call.
     void aDeliveredKeyIndexDoesNotOutliveItsCall()
     {
         RecordingCallClient client;
@@ -1655,8 +1518,6 @@ private Q_SLOTS:
         QCOMPARE(call.deliveredKeyIndexForTest(), -1);
     }
 
-    // ...and the answer to the previous call's send cannot put it back after
-    // a rejoin.
     void aKeySendAnswerFromThePreviousCallChangesNothing()
     {
         RecordingCallClient client;
@@ -1672,15 +1533,11 @@ private Q_SLOTS:
         Q_EMIT client.rtcMediaKeySent(41, true, QString(), 1, 3);
         QCOMPARE(call.deliveredKeyIndexForTest(), -1);
 
-        // This call's own send still counts.
         call.noteMediaKeySendForTest(42);
         Q_EMIT client.rtcMediaKeySent(42, true, QString(), 1, 1);
         QCOMPARE(call.deliveredKeyIndexForTest(), 1);
     }
 
-    // A stale membership of this device (left by a session killed mid-call)
-    // must not suppress the call announcement; another of our devices, or
-    // anyone else, is a real participant.
     void aStaleOwnDeviceMembershipDoesNotSuppressTheAnnouncement()
     {
         const auto row = [](bool ownUser, bool ownDevice) {
@@ -1701,8 +1558,6 @@ private Q_SLOTS:
                                                row(false, false)}));
     }
 
-    // One slot per (sender, device, index): re-sending cannot grow the list,
-    // and no sender can crowd out another.
     void oneSenderCannotCrowdOutAnothersParkedKey()
     {
         SfuCallController call;
@@ -1716,17 +1571,13 @@ private Q_SLOTS:
         };
         park(QStringLiteral("@victim:x"), 0);
         QCOMPARE(call.parkedKeyCountForTest(), 1);
-        // A flood from one sender: repeats replace and the device is capped.
         for (int i = 0; i < 40; ++i)
             park(QStringLiteral("@flood:x"), i % 16);
         QVERIFY2(call.parkedKeyCountForTest() <= 8,
                  qPrintable(QStringLiteral("parked=%1")
                                 .arg(call.parkedKeyCountForTest())));
-        // The victim's key is still there.
         QVERIFY(call.hasParkedKeyForTest(QStringLiteral("@victim:x")));
     }
-
-    // --- The outbound key lane (matrix-js-sdk RTCEncryptionManager's policy)
 
     void hashedSessionIdentityResolvesTheTileAndKeyTarget()
     {
@@ -1735,8 +1586,6 @@ private Q_SLOTS:
         alice.userId = QStringLiteral("@alice:example.com");
         alice.deviceId = QStringLiteral("ALICEDEV");
         alice.rtcIdentity = QStringLiteral("@alice:example.com:ALICEDEV");
-        // Published matrix-js-sdk vector: SHA-256 of JSON
-        // ["@alice:example.com","memberABC"], standard unpadded Base64.
         alice.hashedRtcIdentity =
             QStringLiteral("M3VnsLXrkbxIDINXO64u8PZzFyD9ZYFiQULR2dshWYs");
         alice.displayName = QStringLiteral("Alice");
@@ -1818,10 +1667,6 @@ private Q_SLOTS:
             laptop.hashedRtcIdentity).isEmpty());
     }
 
-    // DEFECT 9: a join rotated our key and switched our frames to it at once,
-    // so every other peer lost us until the new key reached them over
-    // to-device (measured 4.5 s). A joiner inside the grace period is sent
-    // the key we already use, and nothing else changes. Default timing.
     void aJoinerIsSentTheKeyInUseAndNothingRotates()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
@@ -1830,7 +1675,6 @@ private Q_SLOTS:
         c.call.startKeyLaneForTest();
         const int first = c.newest();
         QVERIFY(first >= 0 && first < 16);
-        // The first key of a call is used at once.
         QCOMPARE(c.adopted(), first);
         QCOMPARE(c.client.keySends.size(), 1);
         QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("ADEV") });
@@ -1846,7 +1690,6 @@ private Q_SLOTS:
         QCOMPARE(c.lastSend().index, first);
         QVERIFY(c.lastSend().key == c.client.keySends.at(0).key);
 
-        // Idempotent: the same update and the refresh tick send nothing.
         c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
         QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
         QCOMPARE(c.client.keySends.size(), 2);
@@ -1859,7 +1702,6 @@ private Q_SLOTS:
     void everyMintedMediaKeyIsSixteenBytes()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
-        // No join grace: a joiner always gets a rotation.
         c.call.setKeyTimingForTest(100, 0, 60000);
         c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
         c.call.startKeyLaneForTest();
@@ -1888,14 +1730,9 @@ private Q_SLOTS:
                                     .arg(decoded.decoded.size())));
             distinct.insert(send.key);
         }
-        // Three keys were minted (first, joiner past the grace, leaver).
         QVERIFY(distinct.size() >= 3);
     }
 
-    // DEFECT 9: a leaver still rotates (it must not decrypt what follows),
-    // but our frames stay on the old key until the peers can hold the new
-    // one; receivers keep both (CallFrameCryptorTest's
-    // rotationKeepsInFlightFramesDecryptable).
     void aLeaverRotatesButOurFramesSwitchOnlyAfterTheUseKeyDelay()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
@@ -1927,10 +1764,6 @@ private Q_SLOTS:
         QCOMPARE(c.client.keySends.size(), 2);
     }
 
-    // The delay is 5 s, not matrix-js-sdk's 1 s default: our own to-device
-    // keys took up to 4.7 s to reach a Lightning peer. Until the send is
-    // answered only the fallback is armed, and it is longer than the delay,
-    // or it would cut the delay short.
     void theDefaultUseKeyDelayCoversTheMeasuredDeliveryTime()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
@@ -1943,18 +1776,11 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("unanswered: switch in %1 ms")
                                 .arg(fallback)));
         c.client.answerKeySend(c.lastSend(), true);
-        // Above 2 s rather than near 5 s, so a loaded machine cannot flake
-        // it; js-sdk's 1 s still fails.
         const int ms = c.call.pendingKeySwitchMsForTest();
         QVERIFY2(ms > 2000 && ms <= 5000,
                  qPrintable(QStringLiteral("switch in %1 ms").arg(ms)));
     }
 
-    // F2 (§18 review): the delay counts from the send's answer, as
-    // matrix-js-sdk sleeps after `await sendKey`. Our send runs a /keys/query
-    // per due user and claims one-time keys before its PUT; counted from the
-    // dispatch, a slow (federated) send ate the delay, and DEFECT 9's own
-    // measurement left 0.3 s of it.
     void aSwitchWaitsForTheSendToThePeersToBeAnswered()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
@@ -1977,10 +1803,6 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
     }
 
-    // Sends run concurrently, so a joiner's send on our own server can be
-    // answered while the rotation's send to a federated holder is still in
-    // /keys/query. Only a send that reached the holders of the key in use
-    // starts the switch.
     void aJoinersQuickAnswerDoesNotStartTheSwitch()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
@@ -2007,21 +1829,16 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
     }
 
-    // ...but with no holder we can name left (only an SFU peer we cannot
-    // name might hold our key), no answer can say more than the joiner's, so
-    // the joiner is not kept waiting for the fallback to hear us.
     void aJoinerIsNotKeptWaitingWhenNoHolderWeCanNameIsLeft()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
         c.call.setKeyTimingForTest(100, 60000, 60000);
         c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
-        // In the SFU, not in the membership.
         c.sfuJoin(QStringLiteral("XDEV"), QStringLiteral("PA_X1"));
         c.call.startKeyLaneForTest();
         const int first = c.newest();
         QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("ADEV") });
 
-        // A leaves: rotated, but the key reaches nobody, so it waits.
         c.sfuLeave(QStringLiteral("ADEV"));
         const int second = c.newest();
         QVERIFY(second != first);
@@ -2038,7 +1855,6 @@ private Q_SLOTS:
                                   3000);
     }
 
-    // A late answer about an older key says nothing about the newest one.
     void anAnswerForAnOlderKeyDoesNotStartTheSwitch()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
@@ -2052,7 +1868,6 @@ private Q_SLOTS:
         c.sfuLeave(QStringLiteral("DDEV"));
         const int second = c.newest();
         const KeyRecordingClient::KeySend secondSend = c.lastSend();
-        // Switched by the fallback while that send's answer is still out.
         QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
 
         c.call.setKeyTimingForTest(100, 60000, 60000);
@@ -2070,8 +1885,6 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), third, 3000);
     }
 
-    // F2's other half: an answer that never comes (lost, or a send that
-    // hangs) cannot keep the old key in use for ever.
     void aLostAnswerCannotHoldTheOldKeyForEver()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
@@ -2092,9 +1905,6 @@ private Q_SLOTS:
         QCOMPARE(c.call.pendingKeySwitchMsForTest(), -1);
     }
 
-    // matrix-js-sdk's grace rule: a joiner arriving once our key is older
-    // than the grace gets a fresh key, and the peers who hold the old one
-    // keep hearing us until the switch.
     void aJoinerAfterTheGraceGetsAFreshKeyAndNobodyIsCutOff()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
@@ -2116,9 +1926,6 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
     }
 
-    // F6 (2026-09-29): a PARTIAL to-device delivery is reported ok, and every
-    // device in that send used to count as a holder, so the ones it missed
-    // were never sent the key again and were cut off at the next switch.
     void aPartialKeyDeliveryIsSentAgainToTheDevicesItMissed()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
@@ -2139,16 +1946,11 @@ private Q_SLOTS:
                  "answer counted it as a holder");
         QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("BDEV") });
         QCOMPARE(c.lastSend().index, first);
-        // A is not sent it twice.
         c.client.answerKeySend(c.lastSend(), true);
         QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
         QCOMPARE(c.client.keySends.size(), sends + 1);
     }
 
-    // Review L1: a device the key keeps missing is re-sent it with a doubling
-    // per-device backoff (the first retry at once), reset by a delivery that
-    // reaches it. Without it every reconcile re-sends to an unreachable
-    // device for the length of the call.
     void aDeviceTheKeyKeepsMissingIsReSentWithABackoff()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
@@ -2160,23 +1962,18 @@ private Q_SLOTS:
         const QStringList missB{ QStringLiteral("BDEV") };
         c.client.answerKeySendPartial(c.lastSend(), missB);
 
-        // First miss: retried at once.
         QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
         QCOMPARE(c.lastSend().devices, missB);
         const qsizetype afterFirstRetry = c.client.keySends.size();
-        // Second miss (the device named undelivered): held back for the base
-        // gap...
         c.client.answerKeySendPartial(c.lastSend(), missB);
         QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
         QVERIFY2(c.client.keySends.size() == afterFirstRetry,
                  "a device that missed the key twice was sent it again at once");
         QVERIFY(c.call.keyResendsHeldBackForTest() >= 1);
-        // ...and sent once it has passed.
         QTest::qWait(350);
         QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
         QCOMPARE(c.client.keySends.size(), afterFirstRetry + 1);
         QCOMPARE(c.lastSend().devices, missB);
-        // Third miss doubles the gap (600 ms): still held at 350 ms.
         c.client.answerKeySendPartial(c.lastSend(), missB);
         QTest::qWait(350);
         QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
@@ -2184,10 +1981,6 @@ private Q_SLOTS:
         QTest::qWait(350);
         QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
         QCOMPARE(c.client.keySends.size(), afterFirstRetry + 2);
-        // A delivery resets it: B's NEXT miss is retried at once again.
-        // (Answering the same send twice proves nothing: its op is already
-        // answered and the second answer is not this call's. A new send is
-        // needed: A leaves, and the rotation goes to B alone.)
         c.client.answerKeySend(c.lastSend(), true);
         c.sfuLeave(QStringLiteral("ADEV"));
         QCOMPARE(c.lastSend().devices, missB);
@@ -2199,8 +1992,6 @@ private Q_SLOTS:
         QCOMPARE(c.lastSend().devices, missB);
     }
 
-    // Recheck L-d: a send that failed as a WHOLE (no device named: the
-    // transport, the homeserver) holds no device back.
     void aWholeSendFailureHoldsNoDeviceBack()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
@@ -2211,7 +2002,7 @@ private Q_SLOTS:
         c.call.startKeyLaneForTest();
         for (int i = 0; i < 3; ++i) {
             const qsizetype before = c.client.keySends.size();
-            c.client.answerKeySend(c.lastSend(), false); // names nobody
+            c.client.answerKeySend(c.lastSend(), false);
             QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
             QVERIFY2(c.client.keySends.size() == before + 1,
                      "a transport failure backed every device off");
@@ -2219,8 +2010,6 @@ private Q_SLOTS:
         QCOMPARE(c.call.keyResendsHeldBackForTest(), 0);
     }
 
-    // ...and a partial answer that missed every holder of the key in use
-    // cannot start the switch: it would cut exactly those peers off.
     void aPartialAnswerThatMissedTheKeyInUseHoldersDoesNotStartTheSwitch()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
@@ -2232,8 +2021,6 @@ private Q_SLOTS:
         const int first = c.newest();
         c.client.answerKeySend(c.lastSend(), true);
 
-        // A joiner after the grace: a fresh key to all three, A and B hold
-        // the key in use.
         c.sfuJoin(QStringLiteral("DDEV"), QStringLiteral("PA_D1"));
         const int second = c.newest();
         QVERIFY(second != first);
@@ -2247,7 +2034,6 @@ private Q_SLOTS:
                  "switched on an answer that reached only the joiner: A and B "
                  "never got the new key and were cut off");
 
-        // The retry reaches them, and the switch follows.
         QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
         QCOMPARE(c.lastSend().index, second);
         QCOMPARE(c.lastSend().devices,
@@ -2256,8 +2042,6 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
     }
 
-    // Nobody holds the key we use while we are alone, so the second person
-    // into the call is not kept waiting out the delay.
     void theSecondPersonInHearsUsWithoutWaitingOutTheDelay()
     {
         KeyLaneCall c({ QStringLiteral("ADEV") });
@@ -2275,9 +2059,6 @@ private Q_SLOTS:
         QCOMPARE(c.call.pendingKeySwitchMsForTest(), -1);
     }
 
-    // One switch at a time, as matrix-js-sdk runs one rollout at a time: a
-    // leave while a switch is pending rotates right after it. A joiner in
-    // between is sent the newest key at once.
     void aLeaveDuringAPendingSwitchRotatesRightAfterIt()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
@@ -2302,7 +2083,6 @@ private Q_SLOTS:
         QCOMPARE(c.lastSend().index, second);
         QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("DDEV") });
 
-        // The switch, then the rotation that excludes B.
         c.client.answerKeySend(rollout, true);
         QTRY_VERIFY_WITH_TIMEOUT(c.newest() != second, 3000);
         QCOMPARE(c.lastSend().index, c.newest());
@@ -2312,9 +2092,6 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), c.newest(), 3000);
     }
 
-    // A device that rejoins keeps its identity, and the SFU can replace its
-    // row with a new sid in one update: the identity set is unchanged, but
-    // the device has lost our key and must be sent it again.
     void aRejoinedDeviceIsSentOurKeyAgain()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
@@ -2333,11 +2110,6 @@ private Q_SLOTS:
         QCOMPARE(c.newest(), first);
     }
 
-    // 4e404672 kept: a key that reached nobody is never switched to while a
-    // peer present can decrypt the one in use (every later frame would be
-    // unreadable while looking healthy here), whether the bridge refused the
-    // send or reported it failed, and when the switch fallback runs out too.
-    // It is sent again, and then switched to.
     void aKeyThatReachedNobodyIsNeverSwitchedToWhileAPeerHoldsOurs()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
@@ -2350,7 +2122,6 @@ private Q_SLOTS:
         const int first = c.newest();
         c.client.answerKeySend(c.lastSend(), true);
 
-        // Refused outright: nothing is dispatched.
         c.client.refuseSends = true;
         c.sfuLeave(QStringLiteral("CDEV"));
         const int second = c.newest();
@@ -2360,8 +2131,6 @@ private Q_SLOTS:
                  "switched to a key the bridge never sent while A and B hold "
                  "the one in use");
 
-        // Dispatched, then reported failed; the fallback (150 ms) runs out
-        // during the wait.
         c.client.refuseSends = false;
         QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
         QCOMPARE(c.lastSend().index, second);
@@ -2371,7 +2140,6 @@ private Q_SLOTS:
                  "switched to a key whose only send was reported failed");
         QCOMPARE(c.call.pendingKeySwitchMsForTest(), -1);
 
-        // The retry reaches them, and the switch follows.
         QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
         QCOMPARE(c.lastSend().index, second);
         QCOMPARE(c.lastSend().devices,
@@ -2380,12 +2148,6 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
     }
 
-    // The SFU still lists a peer whose membership we can no longer resolve
-    // (the sliding-sync store can lose it for a while). It may hold the key
-    // in use, so a rotated key that reached nobody is never switched to. Only
-    // then: once a NAMED peer holds the rotated key, the switch goes ahead
-    // and cuts the unnamed peer off until it is named and sent the key, as
-    // matrix-js-sdk would (it can only send to the members it knows).
     void aRotatedKeyNoNamedPeerHoldsNeverCutsOffAPeerWeCannotName()
     {
         KeyLaneCall c({ QStringLiteral("ADEV") });
@@ -2395,8 +2157,6 @@ private Q_SLOTS:
         const int first = c.newest();
         QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("ADEV") });
 
-        // The membership read in flight answers without A; A is still in
-        // the SFU.
         RtcSessionData session;
         session.roomId = c.room;
         c.client.answerSession(c.client.lastSessionOp, session);
@@ -2407,8 +2167,6 @@ private Q_SLOTS:
                  "SFU still lists may hold the one in use");
     }
 
-    // A failed report does not prove the key did not arrive: a device we
-    // dispatched it to still counts as a leaver.
     void aDeviceWhoseSendWasReportedFailedStillCountsAsALeaver()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
@@ -2426,12 +2184,6 @@ private Q_SLOTS:
         QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("ADEV") });
     }
 
-    // DEFECT 8 candidate: after a rejoin Element never decrypted us again.
-    // Our LiveKit identity is the same across calls (`{user}:{device}` for a
-    // session membership, matrix-js-sdk CallMembership.parseFromEvent), and
-    // livekit-client never drops a participant's key handler
-    // (ParticipantKeyHandler.ts), so a restarted index lands on a slot still
-    // holding our previous call's key. The index now continues instead.
     void aRejoinContinuesTheKeyIndexInsteadOfReusingThePreviousCalls()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
@@ -2463,8 +2215,6 @@ private Q_SLOTS:
         QCOMPARE(c.adopted(), c.newest());
     }
 
-    // Our indices stay 0..15 (the bridge refuses more, and livekit-client
-    // rings default to 16) and advance by one per key, across the wrap.
     void ourKeyIndexWrapsAtSixteenAndAdvancesByOne()
     {
         KeyLaneCall c({ QStringLiteral("ADEV") });
@@ -2472,7 +2222,6 @@ private Q_SLOTS:
         c.call.startKeyLaneForTest();
         QList<int> indices{ c.newest() };
         for (int i = 0; i < 20; ++i) {
-            // Alone after each leave, so each rotation switches at once.
             c.sfuJoin(QStringLiteral("ADEV"),
                       QStringLiteral("PA_A%1").arg(i));
             c.sfuLeave(QStringLiteral("ADEV"));
@@ -2486,9 +2235,6 @@ private Q_SLOTS:
         }
     }
 
-    // F5 (§18 review): with a key withheld, every retry mints a key and none
-    // is switched to, so after 16 the cursor came back to the index our
-    // frames use, and receivers replaced the key those frames need.
     void anUnswitchedKeyNeverTakesTheIndexOurFramesUse()
     {
         KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
@@ -2501,8 +2247,6 @@ private Q_SLOTS:
         c.client.refuseSends = true;
         QSet<int> minted;
         for (int i = 0; i < 20; ++i) {
-            // A join past the grace (0 here) rotates; every send is refused,
-            // so nothing is ever switched to.
             const int before = c.newest();
             c.sfuJoin(QStringLiteral("BDEV"),
                       QStringLiteral("PA_B%1").arg(i + 2));
@@ -2515,14 +2259,9 @@ private Q_SLOTS:
                                     .arg(inUse)));
             minted.insert(c.newest());
         }
-        // Only the index in use is skipped.
         QCOMPARE(minted.size(), 15);
     }
 
-    // DEFECT 11: a camera notice ("The camera you chose isn't available")
-    // stayed on screen after a later camera worked. The SFU accepting a later
-    // camera track withdraws it; the failed track's own late confirmation
-    // does not.
     void aCameraNoticeIsWithdrawnWhenALaterCameraIsAccepted()
     {
         RecordingCallClient client;
@@ -2554,15 +2293,11 @@ private Q_SLOTS:
                  "a camera that works did not withdraw the camera's notice");
         QVERIFY(failed.at(1).at(0).toString().isEmpty());
 
-        // Once.
         Q_EMIT client.sfuTrackPublished(QStringLiteral("cam-2"),
                                         QStringLiteral("TR_cam2"));
         QCOMPARE(failed.count(), 2);
     }
 
-    // Only a camera notice, and only by a camera: another notice showing (it
-    // replaced the camera's) stays, and another track's confirmation
-    // withdraws nothing.
     void aCameraThatWorksWithdrawsOnlyTheCamerasNotice()
     {
         RecordingCallClient client;
@@ -2579,7 +2314,6 @@ private Q_SLOTS:
                 Q_ARG(QString, QStringLiteral("camera_failed"))));
         };
 
-        // Another track's confirmation is not the camera working.
         cameraFails(QStringLiteral("cam-1"));
         QCOMPARE(failed.count(), 1);
         call.setCameraCidForTest(QStringLiteral("cam-2"));
@@ -2588,8 +2322,6 @@ private Q_SLOTS:
         QVERIFY2(failed.count() == 1,
                  "a microphone track withdrew the camera's notice");
 
-        // Another notice replaced the camera's: the camera working leaves
-        // it alone.
         QVERIFY(QMetaObject::invokeMethod(&call, "onRemotePlaybackFailed",
                                           Qt::DirectConnection,
                                           Q_ARG(bool, true)));
@@ -2601,12 +2333,6 @@ private Q_SLOTS:
                  "a camera that works withdrew somebody else's notice");
     }
 
-    // A camera notice belongs to the call it was shown in. One that was no
-    // longer showing when its call ended (another notice had replaced it)
-    // used to survive teardown and then withdraw an identical notice from the
-    // NEXT call when that call's camera was accepted. Fails on the old code:
-    // m_cameraNotice/m_cameraNoticeCid were never reset, so cam-2's
-    // confirmation withdrew the second call's notice.
     void aCameraNoticeFromAnEarlierCallDoesNotReachANewOne()
     {
         RecordingCallClient client;
@@ -2624,13 +2350,11 @@ private Q_SLOTS:
         QCOMPARE(failed.count(), 1);
         const QString cameraText = failed.at(0).at(0).toString();
         QVERIFY(!cameraText.isEmpty());
-        // Another notice replaces it, so leaving does not withdraw it.
         QVERIFY(QMetaObject::invokeMethod(&call, "onRemotePlaybackFailed",
                                           Qt::DirectConnection,
                                           Q_ARG(bool, true)));
         call.leave();
 
-        // A new call shows the same wording from another source.
         call.setMembershipForTest(QStringLiteral("!room:y"), QString());
         call.setCallStateForTest(SfuCallController::State::Connected);
         Q_EMIT call.callFailed(cameraText);
@@ -2695,7 +2419,7 @@ private Q_SLOTS:
 
         CallSignal stale = freshInvite(QStringLiteral("old-call"));
         stale.originServerTs =
-            QDateTime::currentMSecsSinceEpoch() - 120000; // 2 min ago
+            QDateTime::currentMSecsSinceEpoch() - 120000;
         QSignalSpy started(&calls, &CallController::incomingCallStarted);
         client.emitSignal(stale);
 
@@ -2706,18 +2430,15 @@ private Q_SLOTS:
 
     void glareSmallerCallIdSurvivesBothDirections()
     {
-        // Ours is "zzz": theirs ("aaa") wins; we hang ours up with "replaced"
-        // and ring theirs.
         {
             RecordingCallClient client;
             CallController calls;
             calls.setClient(&client);
             QVERIFY(calls.placeCallWithOffer(QStringLiteral("!r:x"),
                                              QStringLiteral("v=0 sdp")));
-            // Force a known ordering relative to the generated id.
             const QString ours = calls.activeCallId();
             CallSignal theirs = freshInvite(QString());
-            theirs.callId = QStringLiteral("0000-smaller"); // always < uuid
+            theirs.callId = QStringLiteral("0000-smaller");
             client.emitSignal(theirs);
 
             QCOMPARE(calls.state(), CallController::State::Ringing);
@@ -2731,7 +2452,6 @@ private Q_SLOTS:
             }
             QVERIFY(hungUpOurs);
         }
-        // Ours is smaller: theirs is rejected, ours stays Inviting.
         {
             RecordingCallClient client;
             CallController calls;
@@ -2740,7 +2460,7 @@ private Q_SLOTS:
                                              QStringLiteral("v=0 sdp")));
             const QString ours = calls.activeCallId();
             CallSignal theirs = freshInvite(QString());
-            theirs.callId = QStringLiteral("zzzz-larger"); // > uuid hex
+            theirs.callId = QStringLiteral("zzzz-larger");
             client.emitSignal(theirs);
 
             QCOMPARE(calls.state(), CallController::State::Inviting);
@@ -2755,8 +2475,6 @@ private Q_SLOTS:
         }
     }
 
-    /// The user was already calling this person: the surviving call needs no
-    /// second click, and it keeps the camera they asked for.
     void aGlareLoserAnswersTheSurvivingCallAtOnce()
     {
         RecordingCallClient client;
@@ -2880,7 +2598,6 @@ private Q_SLOTS:
         client.emitSignal(answer);
         QCOMPARE(calls.state(), CallController::State::Connecting);
 
-        // A second answer from the peer's other device is ignored.
         CallSignal second = answer;
         second.eventId = QStringLiteral("$answer-2");
         second.partyId = QStringLiteral("second-party");
@@ -2918,7 +2635,6 @@ private Q_SLOTS:
         calls.setClient(&client);
         client.emitSignal(freshInvite(QStringLiteral("call-1")));
         QCOMPARE(calls.state(), CallController::State::Ringing);
-        // Never wired a lifecycle owner: must not claim ring-worthiness.
         QVERIFY(!calls.shouldRing());
         calls.setBacklogSuppressed(false);
         QVERIFY(calls.shouldRing());
@@ -2937,13 +2653,8 @@ private Q_SLOTS:
         QVERIFY(client.sent.isEmpty());
     }
 
-    // ── Who a MatrixRTC announcement rings (MSC4075) ──
-
     void aGroupCallNotificationDoesNotRing()
     {
-        // `notification` announces a group call. Before: it reached Ringing
-        // and incomingCallStarted like a 1:1 ring, so every member of the
-        // room got the critical card and the ringer on every call start.
         RecordingCallClient client;
         CallController calls;
         calls.setClient(&client);
@@ -2952,11 +2663,10 @@ private Q_SLOTS:
         QSignalSpy started(&calls, &CallController::incomingCallStarted);
         QSignalSpy notices(&calls, &CallController::callStartedNotice);
 
-        // @room, as Lightning and Element address it.
         const CallSignal announce = rtcAnnouncement(
             QStringLiteral("!group:x"), QStringLiteral("$announce-1"),
             QStringLiteral("@peer:x"), QStringLiteral("notification"),
-            /*mentionsRoom=*/true);
+true);
         client.emitSignal(announce);
 
         QCOMPARE(calls.state(), CallController::State::Idle);
@@ -2970,15 +2680,13 @@ private Q_SLOTS:
         QCOMPARE(notices.first().at(2).toString(), QStringLiteral("@peer:x"));
         QVERIFY(notices.first().at(3).toLongLong() > 0);
 
-        // A sync re-delivery is not a second notice.
         client.emitSignal(announce);
         QCOMPARE(notices.size(), 1);
         QVERIFY(client.sent.isEmpty());
 
-        // An unstated type rings no more than `notification` does.
         client.emitSignal(rtcAnnouncement(
             QStringLiteral("!group:x"), QStringLiteral("$announce-2"),
-            QStringLiteral("@peer:x"), QString(), /*mentionsRoom=*/true));
+            QStringLiteral("@peer:x"), QString(),true));
         QCOMPARE(calls.state(), CallController::State::Idle);
         QCOMPARE(started.size(), 0);
         QCOMPARE(notices.size(), 2);
@@ -2994,20 +2702,18 @@ private Q_SLOTS:
         QSignalSpy started(&calls, &CallController::incomingCallStarted);
         QSignalSpy notices(&calls, &CallController::callStartedNotice);
 
-        // A ring for somebody else in this room: announced, not rung.
         client.emitSignal(rtcAnnouncement(
             QStringLiteral("!group:x"), QStringLiteral("$ring-other"),
             QStringLiteral("@peer:x"), QStringLiteral("ring"),
-            /*mentionsRoom=*/false, {QStringLiteral("@other:x")}));
+false, {QStringLiteral("@other:x")}));
         QCOMPARE(calls.state(), CallController::State::Idle);
         QCOMPARE(started.size(), 0);
         QCOMPARE(notices.size(), 1);
 
-        // A ring that names us rings.
         client.emitSignal(rtcAnnouncement(
             QStringLiteral("!group:x"), QStringLiteral("$ring-me"),
             QStringLiteral("@peer:x"), QStringLiteral("ring"),
-            /*mentionsRoom=*/false,
+false,
             {QStringLiteral("@other:x"), QStringLiteral("@me:x")}));
         QCOMPARE(calls.state(), CallController::State::Ringing);
         QVERIFY(calls.rtcRing());
@@ -3016,11 +2722,10 @@ private Q_SLOTS:
         QVERIFY(calls.shouldRing());
         QVERIFY(calls.rejectIncoming());
 
-        // So does one addressed to the whole room.
         client.emitSignal(rtcAnnouncement(
             QStringLiteral("!group:x"), QStringLiteral("$ring-room"),
             QStringLiteral("@peer:x"), QStringLiteral("ring"),
-            /*mentionsRoom=*/true));
+true));
         QCOMPARE(calls.state(), CallController::State::Ringing);
         QCOMPARE(started.size(), 2);
         QCOMPARE(notices.size(), 1);
@@ -3028,9 +2733,6 @@ private Q_SLOTS:
 
     void aCallFromTheOtherPersonInAOneToOneDmRingsWhateverItsType()
     {
-        // Lightning 0.10.x and earlier announce a DM call as `notification`;
-        // a 1:1 DM whose one m.direct target is the caller keeps ringing for
-        // it.
         RecordingCallClient client;
         client.roomOverrides.insert(
             QStringLiteral("!dm:x"),
@@ -3044,15 +2746,13 @@ private Q_SLOTS:
         client.emitSignal(rtcAnnouncement(
             QStringLiteral("!dm:x"), QStringLiteral("$dm-1"),
             QStringLiteral("@peer:x"), QStringLiteral("notification"),
-            /*mentionsRoom=*/true));
+true));
         QCOMPARE(calls.state(), CallController::State::Ringing);
         QCOMPARE(started.size(), 1);
     }
 
     void aDmThatIsNotOneToOneWithTheCallerDoesNotRingForANotification()
     {
-        // `isDirect` is not "1:1": two m.direct targets, or a caller who is
-        // not the room's one target, gets no DM treatment.
         RecordingCallClient client;
         client.roomOverrides.insert(
             QStringLiteral("!groupdm:x"),
@@ -3071,31 +2771,26 @@ private Q_SLOTS:
         client.emitSignal(rtcAnnouncement(
             QStringLiteral("!groupdm:x"), QStringLiteral("$g-1"),
             QStringLiteral("@peer:x"), QStringLiteral("notification"),
-            /*mentionsRoom=*/true));
+true));
         client.emitSignal(rtcAnnouncement(
             QStringLiteral("!dm:x"), QStringLiteral("$s-1"),
             QStringLiteral("@stranger:x"), QStringLiteral("notification"),
-            /*mentionsRoom=*/true));
+true));
         QCOMPARE(calls.state(), CallController::State::Idle);
         QCOMPARE(started.size(), 0);
         QCOMPARE(notices.size(), 2);
     }
 
-    // ── What our own announcement asks of other clients ──
-
     void ourAnnouncementRingsOnlyInAOneToOneDm()
     {
-        // As Element Web and Element X: `ring` where the call is for the one
-        // other person, `notification` wherever it would ring a whole room.
         using C = SfuCallController;
         QCOMPARE(C::announcementTypeFor(directRoom(
                      QStringLiteral("!dm:x"), {QStringLiteral("@peer:x")})),
                  QStringLiteral("ring"));
-        RoomInfo targetOnly; // a backend that reports directUserId alone
+        RoomInfo targetOnly;
         targetOnly.isDirect = true;
         targetOnly.directUserId = QStringLiteral("@peer:x");
         QCOMPARE(C::announcementTypeFor(targetOnly), QStringLiteral("ring"));
-        // `isDirect` is not 1:1.
         QCOMPARE(C::announcementTypeFor(directRoom(
                      QStringLiteral("!gdm:x"),
                      {QStringLiteral("@a:x"), QStringLiteral("@b:x")})),
@@ -3110,9 +2805,6 @@ private Q_SLOTS:
                  QStringLiteral("notification"));
     }
 
-    // matrix-sdk's DmRoomDefinition::TwoMembers: one m.direct target AND at
-    // most two active (joined or invited) members. A DM someone else joined
-    // or was invited into rings nobody, on either side.
     void aDmWithAThirdMemberIsNotOneToOne()
     {
         RoomInfo dm = directRoom(QStringLiteral("!dm:x"),
@@ -3126,8 +2818,6 @@ private Q_SLOTS:
         QCOMPARE(SfuCallController::announcementTypeFor(dm),
                  QStringLiteral("notification"));
 
-        // Receive side: the peer's `notification` in that room no longer
-        // rings us as a 1:1 call; it is a quiet notice.
         RecordingCallClient client;
         client.roomOverrides.insert(QStringLiteral("!dm:x"), dm);
         CallController controller;
@@ -3139,7 +2829,7 @@ private Q_SLOTS:
         client.emitSignal(rtcAnnouncement(
             QStringLiteral("!dm:x"), QStringLiteral("$announce-3"),
             QStringLiteral("@peer:x"), QStringLiteral("notification"),
-            /*mentionsRoom=*/true));
+true));
         QCOMPARE(controller.state(), CallController::State::Idle);
         QCOMPARE(started.size(), 0);
         QCOMPARE(notice.size(), 1);
@@ -3147,9 +2837,6 @@ private Q_SLOTS:
 
     void aCallWeStartIsAnnouncedWithTheRoomsType()
     {
-        // Through the production path: membership accepted, then the
-        // announcement. Before: always `notification`, so a Lightning DM call
-        // never rang the other person's Element.
         const QList<QPair<QString, QString>> cases = {
             {QStringLiteral("!dm:x"), QStringLiteral("ring")},
             {QStringLiteral("!group:x"), QStringLiteral("notification")},
@@ -3163,7 +2850,7 @@ private Q_SLOTS:
             SfuCallController call;
             call.setClient(&client);
             const quint64 op = call.beginMembershipPublishForTest(
-                c.first, kReconnectFocus, /*announce=*/true);
+                c.first, kReconnectFocus,true);
             QVERIFY(op != 0);
             client.answerPublish(op, true, QString());
             QCOMPARE(client.notifies.size(), 1);
@@ -3174,8 +2861,6 @@ private Q_SLOTS:
         }
     }
 
-    // A `ring` whose m.mentions names us past the bridge's id bound still
-    // rings: Rust decides `mentionsMe` on the whole list.
     void aRingThatMentionsUsPastTheIdBoundStillRings()
     {
         RecordingCallClient client;
@@ -3186,7 +2871,7 @@ private Q_SLOTS:
         CallSignal ring = rtcAnnouncement(
             QStringLiteral("!group:x"), QStringLiteral("$ring-me"),
             QStringLiteral("@peer:x"), QStringLiteral("ring"),
-            /*mentionsRoom=*/false,
+false,
             {QStringLiteral("@a:x"), QStringLiteral("@b:x")});
         client.emitSignal(ring);
         QCOMPARE(calls.state(), CallController::State::Idle);
@@ -3196,8 +2881,6 @@ private Q_SLOTS:
         QCOMPARE(calls.state(), CallController::State::Ringing);
     }
 
-    // The quiet notice follows the ring's gates: the backlog, an ignored
-    // sender, a muted room and the account's ring policy.
     void theCallStartedNoticeFollowsTheRingsGates()
     {
         RecordingCallClient client;
@@ -3205,7 +2888,7 @@ private Q_SLOTS:
         calls.setClient(&client);
         const QString room = QStringLiteral("!group:x");
         const QString peer = QStringLiteral("@peer:x");
-        QVERIFY(!calls.noticeAllowed(room, peer)); // backlog gate up
+        QVERIFY(!calls.noticeAllowed(room, peer));
         calls.setBacklogSuppressed(false);
         QVERIFY(calls.noticeAllowed(room, peer));
         bool ignored = true;
@@ -3223,8 +2906,6 @@ private Q_SLOTS:
         QVERIFY(calls.noticeAllowed(room, peer));
     }
 
-    // An announcement in a room whose call we are already ringing for (or
-    // in) is no news: no "call started" notice on top of the ring.
     void noNoticeForARoomWhoseCallIsAlreadyLiveHere()
     {
         RecordingCallClient client;
@@ -3236,26 +2917,21 @@ private Q_SLOTS:
         client.emitSignal(rtcAnnouncement(
             QStringLiteral("!group:x"), QStringLiteral("$ring-1"),
             QStringLiteral("@peer:x"), QStringLiteral("ring"),
-            /*mentionsRoom=*/true));
+true));
         QCOMPARE(calls.state(), CallController::State::Ringing);
-        // A second member's group `notification` in the same room.
         client.emitSignal(rtcAnnouncement(
             QStringLiteral("!group:x"), QStringLiteral("$notify-2"),
             QStringLiteral("@other:x"), QStringLiteral("notification"),
-            /*mentionsRoom=*/true));
+true));
         QCOMPARE(notices.size(), 0);
         QCOMPARE(calls.state(), CallController::State::Ringing);
-        // The same in another room is a notice.
         client.emitSignal(rtcAnnouncement(
             QStringLiteral("!elsewhere:x"), QStringLiteral("$notify-3"),
             QStringLiteral("@other:x"), QStringLiteral("notification"),
-            /*mentionsRoom=*/true));
+true));
         QCOMPARE(notices.size(), 1);
     }
 
-    // MSC4075: the person our 1:1 ring was for declined it. Element ends the
-    // call there; so does this, while nobody else has joined. A decline by
-    // someone else, of another event, or in a group room ends nothing.
     void aDeclineFromThePersonWeRangEndsOurCall()
     {
         const auto ring = [](RecordingCallClient &client,
@@ -3266,9 +2942,8 @@ private Q_SLOTS:
                            {QStringLiteral("@peer:x")}));
             call.setClient(&client);
             const quint64 op = call.beginMembershipPublishForTest(
-                roomId, kReconnectFocus, /*announce=*/true);
+                roomId, kReconnectFocus,true);
             client.answerPublish(op, true, QString());
-            // The ring's send result names the event a decline targets.
             Q_EMIT client.rtcSendFinished(client.lastNotifyOp, true, QString(),
                                           QStringLiteral("$ring"));
         };
@@ -3289,7 +2964,6 @@ private Q_SLOTS:
             ring(client, call, QStringLiteral("!dm:x"));
             QVERIFY(call.active());
             QSignalSpy failed(&call, &SfuCallController::callFailed);
-            // Someone else, or another event: nothing.
             Q_EMIT client.callSignalReceived(decline(
                 QStringLiteral("!dm:x"), QStringLiteral("@third:x"),
                 QStringLiteral("$ring")));
@@ -3297,7 +2971,6 @@ private Q_SLOTS:
                 QStringLiteral("!dm:x"), QStringLiteral("@peer:x"),
                 QStringLiteral("$other")));
             QVERIFY(call.active());
-            // The peer declines our ring: the call ends, and says why.
             Q_EMIT client.callSignalReceived(decline(
                 QStringLiteral("!dm:x"), QStringLiteral("@peer:x"),
                 QStringLiteral("$ring")));
@@ -3306,8 +2979,6 @@ private Q_SLOTS:
             QVERIFY(!failed.first().at(0).toString().isEmpty());
         }
         {
-            // A group room's announcement is a `notification`: a decline
-            // there is one member's, and the call goes on.
             RecordingCallClient client;
             SfuCallController call;
             ring(client, call, QStringLiteral("!group:x"));
@@ -3319,9 +2990,6 @@ private Q_SLOTS:
         }
     }
 
-    // The peer's decline can reach us before our own ring's send answer
-    // (their client saw the ring through sync first). It is kept, and acted
-    // on once the answer names our event; a decline of another event is not.
     void aDeclineThatOutrunsOurRingsSendAnswerStillEndsTheCall()
     {
         const auto decline = [](const QString &target) {
@@ -3342,10 +3010,9 @@ private Q_SLOTS:
             SfuCallController call;
             call.setClient(&client);
             const quint64 op = call.beginMembershipPublishForTest(
-                QStringLiteral("!dm:x"), kReconnectFocus, /*announce=*/true);
+                QStringLiteral("!dm:x"), kReconnectFocus,true);
             client.answerPublish(op, true, QString());
             QVERIFY(client.lastNotifyOp != 0);
-            // The decline first, while our send is unanswered.
             Q_EMIT client.callSignalReceived(decline(
                 matches ? QStringLiteral("$ring") : QStringLiteral("$other")));
             QVERIFY(call.active());
@@ -3355,12 +3022,8 @@ private Q_SLOTS:
         }
     }
 
-    // ── How an RTC ring ends without a decline ──
-
     void ownMembershipFromAnotherDeviceEndsTheRingAsAnsweredElsewhere()
     {
-        // Picked up on our phone: the desktop stops ringing, and it is not a
-        // missed call.
         RecordingCallClient client;
         CallController calls;
         calls.setClient(&client);
@@ -3370,7 +3033,6 @@ private Q_SLOTS:
         QSignalSpy ended(&calls, &CallController::incomingCallEnded);
 
         const qint64 now = QDateTime::currentMSecsSinceEpoch();
-        // Another room's session says nothing about this ring.
         calls.noteRtcSession(QStringLiteral("!other:x"), now, 2);
         QCOMPARE(calls.state(), CallController::State::Ringing);
 
@@ -3379,7 +3041,7 @@ private Q_SLOTS:
         QCOMPARE(calls.endReason(),
                  CallController::EndReason::AnsweredElsewhere);
         QCOMPARE(ended.size(), 1);
-        QCOMPARE(ended.first().at(3).toBool(), false); // not missed
+        QCOMPARE(ended.first().at(3).toBool(), false);
         QVERIFY2(client.sent.isEmpty(),
                  "a ring answered elsewhere must not send a decline");
     }
@@ -3393,24 +3055,20 @@ private Q_SLOTS:
                                QStringLiteral("@peer:x"));
         QSignalSpy ended(&calls, &CallController::incomingCallEnded);
 
-        // The ring can arrive before the caller's membership: an empty
-        // session that has never shown anyone ends nothing.
         calls.noteRtcSession(QStringLiteral("!r:x"), 0, 0);
         QCOMPARE(calls.state(), CallController::State::Ringing);
 
         calls.noteRtcSession(QStringLiteral("!r:x"), 0, 1);
         QCOMPARE(calls.state(), CallController::State::Ringing);
-        // The caller gave up before anyone answered.
         calls.noteRtcSession(QStringLiteral("!r:x"), 0, 0);
         QCOMPARE(calls.state(), CallController::State::Ended);
         QCOMPARE(calls.endReason(), CallController::EndReason::RemoteHangup);
         QCOMPARE(ended.size(), 1);
-        QCOMPARE(ended.first().at(3).toBool(), true); // missed
+        QCOMPARE(ended.first().at(3).toBool(), true);
     }
 
     void aLegacyRingIgnoresRtcSessionReports()
     {
-        // The legacy lane has answer and hangup events of its own.
         RecordingCallClient client;
         CallController calls;
         calls.setClient(&client);
@@ -3425,9 +3083,6 @@ private Q_SLOTS:
 
     void aStaleOwnMembershipDoesNotSilenceARealRing()
     {
-        // Our laptop crashed in yesterday's call and its membership is still
-        // there; a new ring must ring. Only a membership created after the
-        // ring began (within the clock-skew grace) answered it.
         RecordingCallClient client;
         CallController calls;
         calls.setClient(&client);
@@ -3441,7 +3096,6 @@ private Q_SLOTS:
             QStringLiteral("!r:x"),
             now - CallController::kOwnMembershipSkewMs - 60 * 1000, 2);
         QCOMPARE(calls.state(), CallController::State::Ringing);
-        // Picked up now on the phone.
         calls.noteRtcSession(QStringLiteral("!r:x"), now, 2);
         QCOMPARE(calls.state(), CallController::State::Ended);
         QCOMPARE(calls.endReason(),
@@ -3450,8 +3104,6 @@ private Q_SLOTS:
 
     void aSessionReadThatCannotSayWhoIsThereEndsNothing()
     {
-        // -1 is a read that cannot know (failed, store-only, not read yet).
-        // After the caller was seen it must not read as "everyone left".
         RecordingCallClient client;
         CallController calls;
         calls.setClient(&client);
@@ -3464,8 +3116,6 @@ private Q_SLOTS:
         QCOMPARE(calls.state(), CallController::State::Ended);
         QCOMPARE(calls.endReason(), CallController::EndReason::RemoteHangup);
     }
-
-    // ── Ring policy ──
 
     void theAccountsRingPolicyKeepsTheRingSilent()
     {
@@ -3487,15 +3137,11 @@ private Q_SLOTS:
         QVERIFY(calls.shouldRing());
     }
 
-    // ── A ring that arrived during the initial sync ──
-
     void loweringTheBacklogGateAnnouncesARingStillLive()
     {
-        // Before: the ring reached Ringing under the gate, its announcement
-        // was refused as backlog, and nothing asked again.
         RecordingCallClient client;
         CallController calls;
-        calls.setClient(&client); // gate raised: the default
+        calls.setClient(&client);
         QSignalSpy started(&calls, &CallController::incomingCallStarted);
         ringForRtcNotification(client, QStringLiteral("!r:x"),
                                QStringLiteral("@peer:x"));
@@ -3514,7 +3160,6 @@ private Q_SLOTS:
         QVERIFY(remaining <= firstRemaining);
         QVERIFY(calls.shouldRing());
 
-        // Once only: a later raise and lower is not another announcement.
         calls.setBacklogSuppressed(true);
         calls.setBacklogSuppressed(false);
         QCOMPARE(started.size(), 2);
@@ -3587,9 +3232,6 @@ private Q_SLOTS:
 
     void aDualStackCallerDoesNotGetAFalseDecline()
     {
-        // One caller may announce a call on both lanes: an m.rtc.notification
-        // and a legacy m.call.invite, whose ids never match. The invite must
-        // not hit the busy branch and send m.call.reject while we ring.
         RecordingCallClient client;
         CallController calls;
         calls.setClient(&client);
@@ -3607,13 +3249,11 @@ private Q_SLOTS:
         client.emitSignal(notify);
         QCOMPARE(calls.state(), CallController::State::Ringing);
 
-        // The same caller's legacy leg for the same conversation.
         CallSignal legacy = freshInvite(QStringLiteral("legacy-1"));
         legacy.roomId = QStringLiteral("!r:x");
         legacy.sender = QStringLiteral("@peer:x");
         client.emitSignal(legacy);
 
-        // Still one ring, and nothing on the wire.
         QCOMPARE(calls.state(), CallController::State::Ringing);
         QCOMPARE(calls.activeCallId(), QStringLiteral("$notify-1"));
         QVERIFY2(client.sent.isEmpty(),
@@ -3622,8 +3262,6 @@ private Q_SLOTS:
 
     void aDifferentSenderInTheSameRoomIsStillRejectedAsBusy()
     {
-        // The guard is narrow: varying only the sender proves the sender
-        // clause matters.
         RecordingCallClient client;
         CallController calls;
         calls.setClient(&client);
@@ -3632,8 +3270,8 @@ private Q_SLOTS:
         QCOMPARE(calls.state(), CallController::State::Ringing);
 
         CallSignal other = freshInvite(QStringLiteral("other-1"));
-        other.roomId = QStringLiteral("!r:x"); // same room
-        other.sender = QStringLiteral("@stranger:x"); // different person
+        other.roomId = QStringLiteral("!r:x");
+        other.sender = QStringLiteral("@stranger:x");
         client.emitSignal(other);
 
         QCOMPARE(client.sent.size(), 1);
@@ -3642,8 +3280,6 @@ private Q_SLOTS:
 
     void theSameSenderInADifferentRoomIsStillRejectedAsBusy()
     {
-        // Varying only the room proves the room clause matters: the same
-        // person in another room is a different call.
         RecordingCallClient client;
         CallController calls;
         calls.setClient(&client);
@@ -3652,8 +3288,8 @@ private Q_SLOTS:
         QCOMPARE(calls.state(), CallController::State::Ringing);
 
         CallSignal other = freshInvite(QStringLiteral("other-1"));
-        other.roomId = QStringLiteral("!other:x"); // different room
-        other.sender = QStringLiteral("@peer:x"); // same person
+        other.roomId = QStringLiteral("!other:x");
+        other.sender = QStringLiteral("@peer:x");
         client.emitSignal(other);
 
         QCOMPARE(client.sent.size(), 1);
@@ -3662,8 +3298,6 @@ private Q_SLOTS:
 
     void muteStopsPublishingAndDeafenRestoresThePriorMicState()
     {
-        // Mute must reach the engine, and deafen must not unmute a microphone
-        // muted before deafening.
         RecordingCallClient client;
         CallController calls;
         MuteTrackingBackend backend;
@@ -3671,7 +3305,6 @@ private Q_SLOTS:
         calls.setMediaBackend(&backend);
         QVERIFY(calls.muteControlAvailable());
 
-        // Reach a live call so the intent has somewhere to land.
         QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
         const QString callId = calls.activeCallId();
         backend.deliverOffer(callId, QStringLiteral("v=0 offer"));
@@ -3690,7 +3323,6 @@ private Q_SLOTS:
         QVERIFY(calls.microphoneMuted());
         QCOMPARE(backend.micMuted, true);
 
-        // Deafen while muted, then undeafen: the microphone stays muted.
         calls.setDeafened(true);
         QVERIFY(calls.deafened());
         QCOMPARE(backend.outputMuted, true);
@@ -3706,9 +3338,6 @@ private Q_SLOTS:
 
     void aStandingMuteIsAppliedBeforeMediaCanFlow()
     {
-        // Mute/deafen intent must reach the engine before media connects;
-        // onMediaConnected arrives queued, after RTP is already flowing. So
-        // the assertion is made before deliverConnected().
         RecordingCallClient client;
         CallController calls;
         MuteTrackingBackend backend;
@@ -3719,7 +3348,7 @@ private Q_SLOTS:
         calls.setDeafened(true);
         backend.micCalls.clear();
         backend.outputCalls.clear();
-        backend.micMuted = false;    // engine state resets per session
+        backend.micMuted = false;
         backend.outputMuted = false;
 
         QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
@@ -3745,7 +3374,7 @@ private Q_SLOTS:
         QCOMPARE(calls.state(), CallController::State::Ringing);
 
         calls.setMicrophoneMuted(true);
-        backend.micMuted = false; // as a fresh pipeline would start
+        backend.micMuted = false;
 
         QVERIFY(calls.answer());
         QVERIFY2(backend.micMuted,
@@ -3754,7 +3383,6 @@ private Q_SLOTS:
 
     void signingOutClearsTheAudioIntent()
     {
-        // Mute/deafen persists between calls, but an account change clears it.
         RecordingCallClient client;
         CallController calls;
         MuteTrackingBackend backend;
@@ -3771,8 +3399,6 @@ private Q_SLOTS:
 
     void muteControlIsUnavailableWithoutAnEngineThatImplementsIt()
     {
-        // The seam's default is a no-op, so an engine that does not override
-        // it must not show a working-looking control.
         RecordingCallClient client;
         CallController calls;
         FakeMediaBackend plain;
@@ -3826,7 +3452,6 @@ private Q_SLOTS:
         QVERIFY(calls.placeCallWithOffer(QStringLiteral("!r:x"),
                                          QStringLiteral("v=0 sdp")));
         QSignalSpy failed(&calls, &CallController::sendFailed);
-        // The server refused the invite send.
         client.emitSendFinished(client.opCounter, false,
                                 QStringLiteral("forbidden"));
         QCOMPARE(failed.count(), 1);
@@ -3834,8 +3459,6 @@ private Q_SLOTS:
         QCOMPARE(calls.endReason(), CallController::EndReason::SendFailed);
     }
 
-    // The busy auto-reject is a remotely triggered send with no user action,
-    // so it must be bounded.
     void busyRejectsAreBoundedPerSession()
     {
         RecordingCallClient client;
@@ -3853,14 +3476,11 @@ private Q_SLOTS:
         for (const auto &event : client.sent)
             if (event.kind == QLatin1String("reject"))
                 ++rejects;
-        QCOMPARE(rejects, 8); // kMaxBusyRejectsPerSession
-        // Session untouched throughout.
+        QCOMPARE(rejects, 8);
         QCOMPARE(calls.state(), CallController::State::Ringing);
         QCOMPARE(calls.activeCallId(), QStringLiteral("call-live"));
     }
 
-    // Re-delivery of the live session's own invite is idempotent; the busy
-    // branch must not reject our own ring.
     void duplicateDeliveryOfLiveInviteIsIdempotent()
     {
         RecordingCallClient client;
@@ -3875,8 +3495,6 @@ private Q_SLOTS:
         QVERIFY(client.sent.isEmpty());
     }
 
-    // An ignored sender elicits nothing: no ring, no state and no reject (a
-    // reject would confirm we are online during ignore propagation).
     void ignoredSenderElicitsNothing()
     {
         RecordingCallClient client;
@@ -3903,7 +3521,6 @@ private Q_SLOTS:
         QVERIFY(client.sent.isEmpty());
     }
 
-    // A stale send-op result from an ended call must not touch the next call.
     void staleOpFailureDoesNotTouchNewCall()
     {
         RecordingCallClient client;
@@ -3919,21 +3536,18 @@ private Q_SLOTS:
                                          QStringLiteral("v=0 sdp")));
         QCOMPARE(calls.state(), CallController::State::Inviting);
         QSignalSpy failed(&calls, &CallController::sendFailed);
-        // The first call's invite send now reports failure.
         client.emitSendFinished(firstInviteOp, false,
                                 QStringLiteral("network"));
         QCOMPARE(calls.state(), CallController::State::Inviting);
         QCOMPARE(failed.count(), 0);
     }
 
-    // The targeted-invite filter resolves our identity from the client in the
-    // production wiring, with no extra setter.
     void targetedInviteFilterUsesClientIdentity()
     {
         RecordingCallClient client;
         client.simulatedUserId = QStringLiteral("@me:x");
         CallController calls;
-        calls.setClient(&client); // exactly what AppController wires
+        calls.setClient(&client);
         CallSignal invite = freshInvite(QStringLiteral("call-1"));
         invite.invitee = QStringLiteral("@someone-else:x");
         client.emitSignal(invite);
@@ -3953,19 +3567,18 @@ private Q_SLOTS:
         CallController calls;
         calls.setClient(&client);
         calls.setMediaBackend(&media);
-        QVERIFY(client.mediaCapable); // registering enabled SDP transport
+        QVERIFY(client.mediaCapable);
 
         QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
         QCOMPARE(calls.state(), CallController::State::Inviting);
         QCOMPARE(media.offerRequests.size(), 1);
-        QVERIFY(client.sent.isEmpty()); // nothing on the wire pre-offer
+        QVERIFY(client.sent.isEmpty());
 
         const QString callId = calls.activeCallId();
         media.deliverOffer(callId, QStringLiteral("v=0 offer"));
         QCOMPARE(client.sent.size(), 1);
         QCOMPARE(client.sent.first().kind, QStringLiteral("invite"));
 
-        // Peer answers; the bridge stored their answer SDP.
         CallSignal answer;
         answer.kind = CallSignal::Kind::Answer;
         answer.roomId = QStringLiteral("!r:x");
@@ -3980,7 +3593,6 @@ private Q_SLOTS:
         QCOMPARE(calls.state(), CallController::State::Connecting);
         QCOMPARE(media.remoteAnswers, QStringList{callId});
         QCOMPARE(media.lastRemoteAnswer, QStringLiteral("v=0 answer"));
-        // select_answer was named exactly once.
         int selects = 0;
         for (const auto &event : client.sent)
             if (event.kind == QLatin1String("select_answer"))
@@ -4025,9 +3637,6 @@ private Q_SLOTS:
         QCOMPARE(calls.state(), CallController::State::Active);
     }
 
-    // A routed account (docs/network-profiles.md) neither places nor answers
-    // a legacy call: the media would leave directly. Refused before anything
-    // is sent or produced, with its own token.
     void aRoutedAccountNeitherPlacesNorAnswersACall()
     {
         RecordingCallClient client;
@@ -4053,7 +3662,6 @@ private Q_SLOTS:
         QVERIFY(media.answerRequests.isEmpty());
         QVERIFY(client.sent.isEmpty());
 
-        // Without the route the same ring is answered.
         client.routed = false;
         QVERIFY(calls.answer());
     }
@@ -4065,14 +3673,11 @@ private Q_SLOTS:
         calls.setClient(&client);
         client.emitSignal(freshInvite(QStringLiteral("call-1")));
         QCOMPARE(calls.state(), CallController::State::Ringing);
-        // No media backend.
         QVERIFY(!calls.answer());
         QCOMPARE(calls.lastRefusal(), QStringLiteral("no_media_backend"));
 
         FakeMediaBackend media;
         calls.setMediaBackend(&media);
-        // Backend present but the bridge holds no remote offer (production
-        // without media-capable mode, or the store already consumed).
         QVERIFY(!calls.answer());
         QCOMPARE(calls.lastRefusal(), QStringLiteral("no_remote_offer"));
         QCOMPARE(calls.state(), CallController::State::Ringing);
@@ -4102,7 +3707,6 @@ private Q_SLOTS:
         QCOMPARE(calls.lastRefusal(), QStringLiteral("rtc_unsupported"));
     }
 
-    // A connection lost in a running call is not "could not be set up".
     void theMediaFailureNoticeNamesWhatHappened()
     {
         const auto text = [](const char *category, bool active) {
@@ -4114,8 +3718,6 @@ private Q_SLOTS:
         const QString lost = text("media_connection", true);
         const QString cannotConnect = text("media_connection", false);
         QCOMPARE(text("media_receive", true), lost);
-        // A timeout while still connecting reads as a connection problem, not
-        // a pipeline one.
         QCOMPARE(text("connection_timeout", false), cannotConnect);
         QVERIFY(setup != stopped && setup != lost && setup != cannotConnect);
         QVERIFY(stopped != lost && lost != cannotConnect);
@@ -4132,8 +3734,6 @@ private Q_SLOTS:
         QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
         const QString callId = calls.activeCallId();
 
-        // Failure BEFORE the offer: nothing reached the wire, so nothing
-        // is announced. The reader is told (it ended with no other trace).
         QSignalSpy ended(&calls, &CallController::mediaFailureEnded);
         media.deliverFailure(callId, QStringLiteral("device"));
         QCOMPARE(ended.count(), 1);
@@ -4144,8 +3744,6 @@ private Q_SLOTS:
         QVERIFY(client.sent.isEmpty());
         QCOMPARE(media.closed, QStringList{callId});
 
-        // Failure AFTER the invite went out: the peer is waiting, so a
-        // user_media_failed hangup announces it.
         QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
         const QString second = calls.activeCallId();
         media.deliverOffer(second, QStringLiteral("v=0 offer"));
@@ -4169,12 +3767,10 @@ private Q_SLOTS:
         calls.setMediaBackend(&media);
         QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
         const QString callId = calls.activeCallId();
-        // A late offer for a PREVIOUS call id must not dispatch an invite.
         media.deliverOffer(QStringLiteral("stale-call"),
                            QStringLiteral("v=0 stale"));
         QVERIFY(client.sent.isEmpty());
         QCOMPARE(calls.state(), CallController::State::Inviting);
-        // And a connected() for another call must not activate this one.
         media.deliverOffer(callId, QStringLiteral("v=0 offer"));
         media.deliverConnected(QStringLiteral("stale-call"));
         QCOMPARE(calls.state(), CallController::State::Inviting);
@@ -4189,11 +3785,6 @@ private Q_SLOTS:
         calls.setMediaBackend(&media);
         QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
         QCOMPARE(calls.state(), CallController::State::Inviting);
-        // The backend never answers; drive the bounded production window's
-        // expiry directly instead of waiting out the real 15s timer. The
-        // session must end locally as MediaFailed with NO wire traffic —
-        // in particular no invite_timeout hangup for an invite that was
-        // never dispatched.
         QVERIFY(QMetaObject::invokeMethod(&calls, "onLifetimeExpired"));
         QCOMPARE(calls.state(), CallController::State::Ended);
         QCOMPARE(calls.endReason(), CallController::EndReason::MediaFailed);
@@ -4204,14 +3795,11 @@ private Q_SLOTS:
     {
         calls::SdpStore store;
         store.insert(QStringLiteral("$e1"), QStringLiteral("v=0 one"));
-        // Single-shot: the second take is empty.
         QCOMPARE(store.take(QStringLiteral("$e1")), QStringLiteral("v=0 one"));
         QCOMPARE(store.take(QStringLiteral("$e1")), QString());
-        // Empty ids/values are refused.
         store.insert(QString(), QStringLiteral("x"));
         store.insert(QStringLiteral("$e"), QString());
         QCOMPARE(store.size(), 0);
-        // FIFO bound: the oldest entry is evicted past capacity.
         for (int i = 0; i < calls::SdpStore::kCapacity + 2; ++i)
             store.insert(QStringLiteral("$evt-%1").arg(i),
                          QStringLiteral("sdp-%1").arg(i));
@@ -4219,14 +3807,11 @@ private Q_SLOTS:
         QCOMPARE(store.take(QStringLiteral("$evt-0")), QString());
         QCOMPARE(store.take(QStringLiteral("$evt-1")), QString());
         QVERIFY(!store.take(QStringLiteral("$evt-2")).isEmpty());
-        // Re-inserting an existing id must not double-count in the order
-        // list (otherwise the cap would evict early).
         store.clear();
         store.insert(QStringLiteral("$dup"), QStringLiteral("a"));
         store.insert(QStringLiteral("$dup"), QStringLiteral("b"));
         QCOMPARE(store.size(), 1);
         QCOMPARE(store.take(QStringLiteral("$dup")), QStringLiteral("b"));
-        // clear() empties everything.
         store.insert(QStringLiteral("$x"), QStringLiteral("y"));
         store.clear();
         QCOMPARE(store.size(), 0);
@@ -4243,14 +3828,11 @@ private Q_SLOTS:
         client.storedDescriptions.insert(invite.eventId,
                                          QStringLiteral("v=0 offer"));
         client.emitSignal(invite);
-        // Pre-answer, hangup still refuses: rejectIncoming is the honest
-        // action for a ringing inbound call.
         QVERIFY(!calls.hangup());
         QVERIFY(calls.answer());
         media.deliverAnswer(QStringLiteral("call-1"),
                             QStringLiteral("v=0 answer"));
         QCOMPARE(calls.state(), CallController::State::Connecting);
-        // Answered: the local user must be able to end their own call.
         QVERIFY(calls.hangup());
         QCOMPARE(calls.state(), CallController::State::Ended);
         QCOMPARE(calls.endReason(), CallController::EndReason::LocalHangup);
@@ -4271,7 +3853,6 @@ private Q_SLOTS:
         calls.setMediaBackend(&media);
         QSignalSpy ended(&calls, &CallController::incomingCallEnded);
 
-        // Answered call, peer hangs up: reason RemoteHangup, missed FALSE.
         CallSignal invite = freshInvite(QStringLiteral("call-1"));
         client.storedDescriptions.insert(invite.eventId,
                                          QStringLiteral("v=0 offer"));
@@ -4289,16 +3870,15 @@ private Q_SLOTS:
         hangup.reason = QStringLiteral("user_hangup");
         client.emitSignal(hangup);
         QCOMPARE(ended.count(), 1);
-        QCOMPARE(ended.at(0).at(3).toBool(), false); // NOT missed
+        QCOMPARE(ended.at(0).at(3).toBool(), false);
 
-        // Pure ring the caller abandons: missed TRUE.
         client.emitSignal(freshInvite(QStringLiteral("call-2")));
         CallSignal hangup2 = hangup;
         hangup2.eventId = QStringLiteral("$hangup-2");
         hangup2.callId = QStringLiteral("call-2");
         client.emitSignal(hangup2);
         QCOMPARE(ended.count(), 2);
-        QCOMPARE(ended.at(1).at(3).toBool(), true); // missed
+        QCOMPARE(ended.at(1).at(3).toBool(), true);
     }
 
     void offerProductionPhaseNeverTouchesTheWire()
@@ -4309,14 +3889,10 @@ private Q_SLOTS:
         calls.setClient(&client);
         calls.setMediaBackend(&media);
         QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
-        // hangup() while the offer is still in production ends the call
-        // locally and sends NOTHING — no peer was ever invited.
         QVERIFY(calls.hangup());
         QCOMPARE(calls.state(), CallController::State::Ended);
         QVERIFY(client.sent.isEmpty());
 
-        // Glare against a pending-offer call retires ours with no wire hangup:
-        // theirs wins and ours was never announced.
         QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
         CallSignal theirs = freshInvite(QStringLiteral("0000-smaller"));
         client.emitSignal(theirs);
@@ -4335,7 +3911,6 @@ private Q_SLOTS:
                                          QStringLiteral("v=0 offer"));
         client.emitSignal(invite);
         QVERIFY(calls.rejectIncoming());
-        // endSession issued the discard-take for the invite's event id.
         QVERIFY(client.takenDescriptions.contains(invite.eventId));
         QVERIFY(!client.storedDescriptions.contains(invite.eventId));
     }
@@ -4355,8 +3930,6 @@ private Q_SLOTS:
         QVERIFY(remaining <= 90000);
     }
 
-    // ICE candidates and TURN.
-
     void localCandidatesAreBatchedWithEndMarker()
     {
         RecordingCallClient client;
@@ -4372,13 +3945,11 @@ private Q_SLOTS:
                                     QStringLiteral("candidate:0 1 UDP a"));
         media.deliverLocalCandidate(callId,
                                     QStringLiteral("candidate:1 1 UDP b"));
-        QCOMPARE(client.candidateBatches.size(), 0); // batching window open
+        QCOMPARE(client.candidateBatches.size(), 0);
         QTest::qWait(250);
         QCOMPARE(client.candidateBatches.size(), 1);
         QCOMPARE(client.candidateBatches.first().second.size(), 2);
 
-        // Gathering completion flushes immediately with the MSC2746 empty
-        // end-of-candidates marker appended.
         media.deliverLocalCandidate(callId,
                                     QStringLiteral("candidate:2 1 UDP c"));
         media.deliverGatheringComplete(callId);
@@ -4397,9 +3968,6 @@ private Q_SLOTS:
         CallController calls;
         calls.setClient(&client);
         calls.setMediaBackend(&media);
-        // OUTBOUND call: the engine session exists from placeCall, so the
-        // peer's candidates forward immediately (the inbound pre-answer
-        // BUFFERING path has its own test).
         QVERIFY(calls.placeCall(QStringLiteral("!r:x"), QStringLiteral("@peer:x")));
         const QString callId = calls.activeCallId();
         media.deliverOffer(callId, QStringLiteral("v=0 offer"));
@@ -4408,14 +3976,11 @@ private Q_SLOTS:
         entry.insert(QStringLiteral("candidate"),
                      QStringLiteral("candidate:0 1 UDP x"));
         batch.append(entry);
-        // Wrong call id: dropped.
         client.emitCandidates(QStringLiteral("!r:x"),
                               QStringLiteral("other"), false, batch);
         QVERIFY(media.remoteCandidates.isEmpty());
-        // Our own device's candidates: dropped.
         client.emitCandidates(QStringLiteral("!r:x"), callId, true, batch);
         QVERIFY(media.remoteCandidates.isEmpty());
-        // The live call's: forwarded.
         client.emitCandidates(QStringLiteral("!r:x"), callId, false, batch);
         QCOMPARE(media.remoteCandidates.size(), 1);
     }
@@ -4455,7 +4020,6 @@ private Q_SLOTS:
         QVERIFY(calls.answer());
         QVERIFY(media.answerRequests.isEmpty());
         QVERIFY(media.remoteCandidates.isEmpty());
-        // Trickle can continue after clicking Answer while TURN is pending.
         client.emitCandidates(invite.roomId, invite.callId, false, {candidate});
         client.emitTurnServers(client.lastTurnOp, true,
                                {QStringLiteral("turn:relay.example:3478")});
@@ -4571,9 +4135,6 @@ private Q_SLOTS:
                 Q_ARG(QString, invite.partyId), Q_ARG(QString, sender),
                 Q_ARG(bool, false), Q_ARG(QVariantList, batch));
         };
-        // The public call and party IDs are deliberately correct; only the
-        // sender differs. Neither the early queue nor the live engine may
-        // accept a third room member's candidates.
         QVERIFY(emitFrom(QStringLiteral("@mallory:x")));
         QVERIFY(calls.answer());
         QVERIFY(media.remoteCandidates.isEmpty());
@@ -4601,7 +4162,6 @@ private Q_SLOTS:
         QVERIFY(media.remoteCandidates.isEmpty());
         client.emitTurnServers(client.lastTurnOp, true, {QStringLiteral("turn:relay.example:3478")});
         QCOMPARE(media.remoteCandidates.size(), 1);
-        // With no answering party locked yet, the sender check still applies.
         client.emitCandidates(room, id, false, candidates, QStringLiteral("@mallory:x"));
         QCOMPARE(media.remoteCandidates.size(), 1);
         client.emitCandidates(room, id, false, candidates);
@@ -4614,13 +4174,10 @@ private Q_SLOTS:
         client.deferTurn = true;
         FakeMediaBackend media;
         CallController calls;
-        // Production order: AppController registers the engine before the
-        // client, and the TURN pre-fetch must fire once both are set.
         calls.setMediaBackend(&media);
-        QCOMPARE(client.lastTurnOp, quint64(0)); // no client yet: no fetch
+        QCOMPARE(client.lastTurnOp, quint64(0));
         calls.setClient(&client);
         QVERIFY(client.lastTurnOp != 0);
-        // A stale/foreign op id is ignored.
         client.emitTurnServers(client.lastTurnOp + 999, true,
                                { QStringLiteral("turn:one") });
         QVERIFY(media.iceServerApplications.isEmpty());
@@ -4629,7 +4186,6 @@ private Q_SLOTS:
                                  QStringLiteral("stun:two") });
         QCOMPARE(media.iceServerApplications.size(), 1);
         QCOMPARE(media.iceServerApplications.first().size(), 2);
-        // A fresh call within the TTL re-applies the cache, no new fetch.
         const quint64 fetchOp = client.lastTurnOp;
         QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
         QCOMPARE(client.lastTurnOp, fetchOp);
@@ -4649,8 +4205,6 @@ private Q_SLOTS:
         client.emitSignal(invite);
         QCOMPARE(calls.state(), CallController::State::Ringing);
 
-        // The caller trickles while we ring; the engine has no session yet,
-        // so candidates are buffered, not dropped.
         QVariantList batch;
         for (int i = 0; i < 3; ++i) {
             QVariantMap entry;
@@ -4663,7 +4217,6 @@ private Q_SLOTS:
         QVERIFY(media.remoteCandidates.isEmpty());
 
         QVERIFY(calls.answer());
-        // Drained into the engine right after createAnswer.
         QCOMPARE(media.answerRequests.size(), 1);
         QCOMPARE(media.remoteCandidates.size(), 3);
     }
@@ -4678,8 +4231,6 @@ private Q_SLOTS:
         QVERIFY(calls.placeCall(QStringLiteral("!r:x")));
         const QString callId = calls.activeCallId();
         media.deliverOffer(callId, QStringLiteral("v=0 offer"));
-        // 40 candidates in one burst: the Rust side rejects more than 32 per
-        // event, so the flush chunks (32 + 9 with the end marker).
         for (int i = 0; i < 40; ++i)
             media.deliverLocalCandidate(
                 callId, QStringLiteral("candidate:%1 1 UDP x").arg(i));
@@ -4690,7 +4241,7 @@ private Q_SLOTS:
         int total = 0;
         for (const auto &batch : client.candidateBatches)
             total += batch.second.size();
-        QCOMPARE(total, 41); // 40 + the end-of-candidates marker
+        QCOMPARE(total, 41);
     }
 
     void turnResponseIsBoundedDefensively()
@@ -4707,7 +4258,7 @@ private Q_SLOTS:
             many.append(QStringLiteral("turn:host%1:3478").arg(i));
         client.emitTurnServers(client.lastTurnOp, true, many);
         QCOMPARE(media.iceServerApplications.size(), 1);
-        QCOMPARE(media.iceServerApplications.first().size(), 16); // capped
+        QCOMPARE(media.iceServerApplications.first().size(), 16);
     }
 
     void loggedOutClearsSessionTimersAndOps()
@@ -4723,18 +4274,12 @@ private Q_SLOTS:
         QCOMPARE(calls.endReason(), CallController::EndReason::SessionLost);
         QVERIFY(!calls.sessionLive());
 
-        // The retired-call LRU was cleared too: the same invite rings again
-        // in the next session rather than being absorbed.
         client.emitSignal(freshInvite(QStringLiteral("call-1")));
         QCOMPARE(calls.state(), CallController::State::Ringing);
     }
 
-    // Call stage data layer.
-
     void speakerUpdatesNeverResetTheParticipantModel()
     {
-        // Speaker updates must not reset the participant model, which would
-        // destroy every tile and VideoOutput several times a second.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
@@ -4762,9 +4307,7 @@ private Q_SLOTS:
         QCOMPARE(resets.count(), 0);
         QCOMPARE(removes.count(), 0);
         QCOMPARE(inserts.count(), 0);
-        // The ring has something to animate: the level really did move.
         QVERIFY(changes.count() > 0);
-        // ...and only the speaking roles moved with it.
         for (const QList<QVariant> &emission : changes) {
             const QList<int> roles = emission.at(2).value<QList<int>>();
             QVERIFY(!roles.isEmpty());
@@ -4777,8 +4320,6 @@ private Q_SLOTS:
 
     void speakingLevelCrossesFromTheSfuInsteadOfBeingThrownAway()
     {
-        // LiveKit's SpeakerInfo `level` (0..1) reaches the model as
-        // speakingLevel.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
@@ -4802,15 +4343,13 @@ private Q_SLOTS:
 
     void anSfuThatSendsOnlyActiveDegradesToABinaryRingNotADeadOne()
     {
-        // A boolean is not turned into an amplitude: `speaking` is true so the
-        // ring draws, `speakingLevel` stays 0.0 so it draws at its minimum.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
                            {}),
         });
         call.ingestSpeakersForTest(
-            { speakerEntry(QStringLiteral("PA_1"), true) }); // no "level"
+            { speakerEntry(QStringLiteral("PA_1"), true) });
 
         CallParticipantModel *model = call.participantModel();
         QCOMPARE(participantRole(model, 0,
@@ -4824,9 +4363,6 @@ private Q_SLOTS:
 
     void speakersChangedIsADeltaSoASteadySpeakerKeepsItsRing()
     {
-        // LiveKit repeats a speaker only when it starts, its level moves, or it
-        // stops (active=false). Replacing the set per message rang only
-        // whoever changed last; measured live with three speakers at once.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
@@ -4846,11 +4382,9 @@ private Q_SLOTS:
             { speakerEntry(QStringLiteral("PA_2"), true, 0.4) });
         QVERIFY(speaking(alice));
         QVERIFY(speaking(bob));
-        // A message that names nobody changes nobody.
         call.ingestSpeakersForTest({});
         QVERIFY(speaking(alice));
         QVERIFY(speaking(bob));
-        // A stopped speaker arrives with active=false and level 0.
         call.ingestSpeakersForTest(
             { speakerEntry(QStringLiteral("PA_1"), false, 0.0) });
         QVERIFY(!speaking(alice));
@@ -4859,9 +4393,6 @@ private Q_SLOTS:
                      .toDouble(),
                  0.0);
         QVERIFY(speaking(bob));
-        // Someone who leaves while speaking is forgotten, so a rejoin under
-        // the same sid does not come back ringing. A leave is a
-        // ParticipantUpdate with state "disconnected" (also a delta).
         QVariantMap gone = sfuParticipant(QStringLiteral("bob"),
                                           QStringLiteral("PA_2"), {});
         gone.insert(QStringLiteral("state"), QStringLiteral("disconnected"));
@@ -4877,7 +4408,6 @@ private Q_SLOTS:
 
     void aMuteChangeIsOneRoleOnOneRowNotAMembershipChange()
     {
-        // An update that changes a value must not look like a join.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
@@ -4937,7 +4467,6 @@ private Q_SLOTS:
 
     void twoSimultaneousScreenSharesAreTwoRows()
     {
-        // Multiple simultaneous screen shares each get a row.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
@@ -4953,7 +4482,6 @@ private Q_SLOTS:
         QCOMPARE(shares->shareIds(),
                  (QStringList{ QStringLiteral("TR_share_a"),
                                QStringLiteral("TR_share_b") }));
-        // Distinct routing keys, so two surfaces can render at once.
         QCOMPARE(shares->get(0).value(QStringLiteral("trackKey")).toString(),
                  QStringLiteral("TR_share_a"));
         QCOMPARE(shares->get(1).value(QStringLiteral("trackKey")).toString(),
@@ -4962,8 +4490,6 @@ private Q_SLOTS:
 
     void aDismissedShareStaysLiveAndIsAlwaysReachableAgain()
     {
-        // Dismissal applies to the spotlight, never to the share's existence:
-        // a closed share can always be brought back.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
@@ -4976,18 +4502,14 @@ private Q_SLOTS:
         CallStageState *stage = call.stageState();
         CallShareModel *shares = call.shareModel();
         QVERIFY(stage);
-        // Newest share first: bob started last, so bob is on the spotlight.
         QCOMPARE(stage->spotlightShareId(), QStringLiteral("TR_share_b"));
 
         stage->dismissShare(QStringLiteral("TR_share_b"));
-        // It fell through to the other share rather than nothing.
         QCOMPARE(stage->spotlightShareId(), QStringLiteral("TR_share_a"));
-        QCOMPARE(shares->rowCount(), 2); // still live, still a grid tile
+        QCOMPARE(shares->rowCount(), 2);
 
         stage->dismissShare(QStringLiteral("TR_share_a"));
         QCOMPARE(stage->spotlightShareId(), QString());
-        // With nothing on the spotlight the shares are still rows, so a "show
-        // it again" control has something to bind to.
         QCOMPARE(shares->rowCount(), 2);
         QCOMPARE(stage->restorableShareAvailable(), true);
         QCOMPARE(stage->dismissedShareCount(), 2);
@@ -4999,8 +4521,6 @@ private Q_SLOTS:
 
     void aNewShareReArmsTheSpotlightAfterTheUserChoseGrid()
     {
-        // The layout preference must not latch: a share that starts after the
-        // user picked grid is not the one they dismissed.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
@@ -5022,7 +4542,6 @@ private Q_SLOTS:
 
     void anUnknownLayoutPreferenceIsRefusedRatherThanStored()
     {
-        // An unrecognised mode is not read back verbatim.
         SfuCallController call;
         CallStageState *stage = call.stageState();
         stage->setLayoutPreference(QStringLiteral("spotlight"));
@@ -5032,8 +4551,6 @@ private Q_SLOTS:
 
     void aRestartedShareIsOfferedAgainRatherThanInheritingADismissal()
     {
-        // A restarted share is a new track and sid, and must not inherit the
-        // dismissal.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
@@ -5044,16 +4561,14 @@ private Q_SLOTS:
         stage->dismissShare(QStringLiteral("TR_share_1"));
         QCOMPARE(stage->spotlightShareId(), QString());
 
-        // Alice stops sharing...
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
                            { sfuTrack(QStringLiteral("screen_share"),
                                       QStringLiteral("TR_share_1"), true) }),
         });
         QCOMPARE(call.shareModel()->rowCount(), 0);
-        QCOMPARE(stage->dismissedShareCount(), 0); // pruned with the share
+        QCOMPARE(stage->dismissedShareCount(), 0);
 
-        // ...and starts again. New track, new sid, offered.
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
                            { sfuTrack(QStringLiteral("screen_share"),
@@ -5064,10 +4579,6 @@ private Q_SLOTS:
         QCOMPARE(stage->isShareDismissed(QStringLiteral("TR_share_2")), false);
     }
 
-    // A local stop clears the share row even while the server still reports
-    // the track live: there is no unpublish message, so the server lags. Our
-    // intent must override the stale report on the trailing edge too, or the
-    // tile is never destroyed and the self-view freezes on its last frame.
     void aLocalStopClearsTheShareRowWhileTheServerStillReportsItLive()
     {
         RecordingCallClient client;
@@ -5080,19 +4591,15 @@ private Q_SLOTS:
                            { sfuTrack(QStringLiteral("screen_share"),
                                       QStringLiteral("TR_mine"), false) }),
         });
-        call.setLocalMediaStateForTest(/*cameraOn=*/false,
-                                       /*screenSharing=*/true);
+        call.setLocalMediaStateForTest(false,
+true);
         QCOMPARE(call.shareModel()->rowCount(), 1);
 
-        // The user presses stop and the server says nothing new yet (the mute
-        // must make a round trip).
-        call.setLocalMediaStateForTest(/*cameraOn=*/false,
-                                       /*screenSharing=*/false);
+        call.setLocalMediaStateForTest(false,
+false);
         QCOMPARE(call.shareModel()->rowCount(), 0);
     }
 
-    // The stop must reach the SFU as a mute, or other clients keep being
-    // offered a track that produces nothing.
     void aLocalStopTellsTheSfuTheScreenTrackIsMuted()
     {
         RecordingCallClient client;
@@ -5105,7 +4612,6 @@ private Q_SLOTS:
                            { sfuTrack(QStringLiteral("screen_share"),
                                       QStringLiteral("TR_mine"), false) }),
         });
-        // Starting sends nothing: the server already reports it unmuted.
         call.setLocalMediaStateForTest(false, true);
         QCOMPARE(client.muteRequests.size(), 0);
 
@@ -5114,16 +4620,11 @@ private Q_SLOTS:
         QCOMPARE(client.muteRequests.at(0).first, QStringLiteral("TR_mine"));
         QCOMPARE(client.muteRequests.at(0).second, true);
 
-        // It converges rather than firing once: until the report catches up a
-        // later reconciliation re-sends the same request. It must never flip
-        // direction.
         call.setLocalMediaStateForTest(false, false);
         QCOMPARE(client.muteRequests.size(), 2);
         QCOMPARE(client.muteRequests.at(1).first, QStringLiteral("TR_mine"));
         QCOMPARE(client.muteRequests.at(1).second, true);
 
-        // It stops once the server agrees; the server's report is the state it
-        // converges from, so it cannot loop.
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("me"), QStringLiteral("PA_ME"),
                            { sfuTrack(QStringLiteral("screen_share"),
@@ -5134,8 +4635,6 @@ private Q_SLOTS:
         QCOMPARE(client.muteRequests.size(), 0);
     }
 
-    // The camera has the same shape: a local stop turns the row off and sends
-    // a mute.
     void aLocalCameraStopHasTheSameShape()
     {
         RecordingCallClient client;
@@ -5148,7 +4647,7 @@ private Q_SLOTS:
                            { sfuTrack(QStringLiteral("camera"),
                                       QStringLiteral("TR_cam"), false) }),
         });
-        call.setLocalMediaStateForTest(/*cameraOn=*/true, false);
+        call.setLocalMediaStateForTest(true, false);
         CallParticipantModel *model = call.participantModel();
         const int mine = participantRowFor(model, QStringLiteral("me"));
         QVERIFY(mine >= 0);
@@ -5156,7 +4655,7 @@ private Q_SLOTS:
                                  CallParticipantModel::CameraOnRole).toBool(),
                  true);
 
-        call.setLocalMediaStateForTest(/*cameraOn=*/false, false);
+        call.setLocalMediaStateForTest(false, false);
         QCOMPARE(participantRole(model, mine,
                                  CallParticipantModel::CameraOnRole).toBool(),
                  false);
@@ -5165,13 +4664,8 @@ private Q_SLOTS:
         QCOMPARE(client.muteRequests.at(0).second, true);
     }
 
-    // An SFU identity that resolves to no Matrix device leaves that joiner
-    // unkeyed and inaudible, so it is logged once per identity. Only the
-    // no-session branch is driven here; both branches share the reporter.
     void anSfuIdentityThatResolvesToNobodySaysSoExactlyOnce()
     {
-        // RAII, because QVERIFY returns from the slot: a handler not restored
-        // on failure points at a destroyed stack local.
         struct Capture {
             static QStringList *&sink()
             {
@@ -5212,9 +4706,6 @@ private Q_SLOTS:
             return n;
         };
 
-        // A miss at join is not a fault: a client reaches the SFU before its
-        // own membership comes back through sync, so early lookups resolve
-        // nothing, including the local device.
         {
             Capture capture(&lines);
             QVERIFY(rtc.participantForIdentity(room, identity).isEmpty());
@@ -5224,8 +4715,6 @@ private Q_SLOTS:
                  "a transient lookup miss must not be reported as a "
                  "permanent one");
 
-        // A fault that persists is still reported, exactly once. The grace is
-        // collapsed rather than slept through.
         lines.clear();
         rtc.setUnresolvedIdentityGraceMsForTest(0);
         {
@@ -5237,14 +4726,10 @@ private Q_SLOTS:
                  "an identity that stays unresolvable must be reported, and "
                  "reported once");
 
-        // A new call diagnoses itself again; SFU identities are stable per user
-        // and device.
         lines.clear();
         rtc.forgetUnresolvedIdentityDiagnostics();
         {
             Capture capture(&lines);
-            // Twice: forgetting clears the first-seen record too, so the
-            // grace starts again even at zero.
             QVERIFY(rtc.participantForIdentity(room, identity).isEmpty());
             QVERIFY(rtc.participantForIdentity(room, identity).isEmpty());
         }
@@ -5273,8 +4758,6 @@ private Q_SLOTS:
         call.setMembershipForTest(room, QString());
         call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
 
-        // Outside a call the tick must do nothing: no key to hold, nobody to
-        // address, so a reconcile would be noise.
         call.setCallStateForTest(SfuCallController::State::Idle);
         const int idleBefore = call.keyLaneReconcilesForTest();
         QMetaObject::invokeMethod(&call, "reconcileKeyLane");
@@ -5284,9 +4767,6 @@ private Q_SLOTS:
         QMetaObject::invokeMethod(&call, "reconcileKeyLane");
         QCOMPARE(call.keyLaneReconcilesForTest(), idleBefore + 1);
 
-        // The real refresh timer must drive the key-lane reconcile:
-        // sessionChanged is suppressed for an unchanged membership read, so a
-        // failed distribution would otherwise never retry.
         const int before = call.keyLaneReconcilesForTest();
         call.startRefreshTickForTest(1);
         QTRY_VERIFY2(call.keyLaneReconcilesForTest() > before,
@@ -5312,15 +4792,12 @@ private Q_SLOTS:
         call.setCallStateForTest(SfuCallController::State::Connected);
         call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
 
-        // The SFU announces a joiner before their membership comes back down
-        // sync; show a person only when membership resolves the endpoint.
         call.ingestParticipantsForTest({
             sfuParticipant(identity, QStringLiteral("PA_BEA"), {}),
         });
         CallParticipantModel *model = call.participantModel();
         QCOMPARE(participantRowFor(model, identity), -1);
 
-        // ...and now the membership lands.
         RtcParticipant bea;
         bea.userId = QStringLiteral("@bea:example.org");
         bea.deviceId = QStringLiteral("BDEV");
@@ -5352,10 +4829,6 @@ private Q_SLOTS:
                  QStringLiteral("@bea:example.org"));
     }
 
-    // Restarting a share must not unmute the stopped track. A stop is a mute,
-    // so our row still lists the old track, and its server-assigned sid cannot
-    // be mapped to the new one; the video path therefore only ever mutes. A
-    // new track is published fresh and reported unmuted anyway.
     void aRestartedLocalShareNeverUnmutesTheTrackItJustStopped()
     {
         RecordingCallClient client;
@@ -5363,18 +4836,15 @@ private Q_SLOTS:
         call.setClient(&client);
         call.setCallStateForTest(SfuCallController::State::Connected);
         call.setOwnIdentityForTest(QStringLiteral("me"));
-        // The stopped share, still listed because a mute removes nothing.
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("me"), QStringLiteral("PA_ME"),
                            { sfuTrack(QStringLiteral("screen_share"),
                                       QStringLiteral("TR_dead"), true) }),
         });
-        // A new share whose track has not been announced yet.
-        call.setLocalMediaStateForTest(/*cameraOn=*/false,
-                                       /*screenSharing=*/true);
+        call.setLocalMediaStateForTest(false,
+true);
         QCOMPARE(client.muteRequests.size(), 0);
 
-        // The microphone genuinely needs unmutes and never accumulates tracks.
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("me"), QStringLiteral("PA_ME"),
                            { sfuTrack(QStringLiteral("screen_share"),
@@ -5390,8 +4860,6 @@ private Q_SLOTS:
         QCOMPARE(client.muteRequests.at(0).second, false);
     }
 
-    // A restarted share routes to the live track, not the muted one: our row
-    // can carry two tracks of one source, so the first match is wrong.
     void aRestartedShareRoutesToTheLiveTrackNotTheMutedOne()
     {
         SfuCallController call;
@@ -5418,8 +4886,6 @@ private Q_SLOTS:
 
     void handRaiseIsLocalOnlyAndSaysSoOnEveryOtherRow()
     {
-        // Raised hand is local feedback only in this role; the badge must
-        // light for the local user.
         SfuCallController call;
         call.setOwnIdentityForTest(QStringLiteral("me"));
         call.ingestParticipantsForTest({
@@ -5446,7 +4912,6 @@ private Q_SLOTS:
 
     void localVolumeIsReadableBackFromTheModel()
     {
-        // participantVolume is readable, so a slider can show the value it set.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
@@ -5462,20 +4927,16 @@ private Q_SLOTS:
                                  CallParticipantModel::VolumePercentRole)
                      .toInt(),
                  40);
-        // Clamped to the real ceiling: 200 is a deliberate boost range, so an
-        // over-range value saturates at 200 rather than snapping to unity.
         call.setParticipantVolume(QStringLiteral("alice"), 400);
         QCOMPARE(participantRole(model, 0,
                                  CallParticipantModel::VolumePercentRole)
                      .toInt(),
                  200);
-        // The top of the range is reachable (catches an off-by-one at 199).
         call.setParticipantVolume(QStringLiteral("alice"), 200);
         QCOMPARE(participantRole(model, 0,
                                  CallParticipantModel::VolumePercentRole)
                      .toInt(),
                  200);
-        // And the floor: negative is silence, never a wrap or a reset.
         call.setParticipantVolume(QStringLiteral("alice"), -25);
         QCOMPARE(participantRole(model, 0,
                                  CallParticipantModel::VolumePercentRole)
@@ -5485,7 +4946,6 @@ private Q_SLOTS:
 
     void connectionQualityIsMergedAndUnknownIsNeverRendered()
     {
-        // sfuConnectionQuality reaches the participant model.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
@@ -5505,14 +4965,11 @@ private Q_SLOTS:
                                  CallParticipantModel::ConnectionQualityRole)
                      .toString(),
                  QStringLiteral("excellent"));
-        // "unknown" is the default, not a value to draw a badge for.
         QCOMPARE(participantRole(model, 1,
                                  CallParticipantModel::ConnectionQualityRole)
                      .toString(),
                  QString());
 
-        // A round that does not mention a sid is a delta: the last value
-        // survives.
         call.ingestConnectionQualityForTest({ unknown });
         QCOMPARE(participantRole(model, 0,
                                  CallParticipantModel::ConnectionQualityRole)
@@ -5522,8 +4979,6 @@ private Q_SLOTS:
 
     void leavingClearsTheStageStateSoTheNextCallStartsClean()
     {
-        // Stage view state lives in C++ so it survives the QML Loader a room
-        // switch destroys; therefore leaving the call must clear it.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
@@ -5558,13 +5013,9 @@ private Q_SLOTS:
                                   QStringLiteral("@peer:x"), QStringLiteral("DEV"),
                                   QStringLiteral("$member"));
         const int before = call.participantCount();
-        // Element's subscribe-only connection has an unrelated hashed identity,
-        // no tracks and no corresponding call membership.
         const QString observer = QStringLiteral("unmatched-observer-hash");
         call.ingestParticipantsForTest({sfuParticipant(observer, QStringLiteral("PA_OBSERVER"), {})});
         QCOMPARE(call.participantCount(), before);
-        // A real muted member with no tracks becomes visible as soon as the
-        // authenticated Matrix membership arrives; the SFU row was retained.
         RtcSessionData session;
         session.roomId = room;
         RtcParticipant peer;
@@ -5583,8 +5034,6 @@ private Q_SLOTS:
 
     void participantsInvokableIsReadOutOfTheModel()
     {
-        // One derivation: the legacy participants() invokable must agree with
-        // the model.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
@@ -5598,7 +5047,6 @@ private Q_SLOTS:
                  QStringLiteral("alice"));
         QCOMPARE(row.value(QStringLiteral("micKnown")).toBool(), true);
         QCOMPARE(row.value(QStringLiteral("micMuted")).toBool(), true);
-        // The keys the existing surfaces read are all still there.
         for (const char *key : { "identity", "userId", "displayName",
                                  "avatarMxc", "local", "speaking",
                                  "micKnown", "micMuted", "cameraKnown",
@@ -5611,9 +5059,6 @@ private Q_SLOTS:
 
     void theParticipantCountNotifiesOnEveryPathThatMovesIt()
     {
-        // `participantCount` reads the model's rowCount, so its NOTIFY must
-        // fire on every path that rebuilds the model. Asserted through the
-        // property's own notify signal.
         SfuCallController call;
         const QMetaObject *mo = call.metaObject();
         const int idx = mo->indexOfProperty("participantCount");
@@ -5632,18 +5077,14 @@ private Q_SLOTS:
 
     void fullScreenIsRefusedWhenThereIsNothingToShow()
     {
-        // Full screen must never show an empty rectangle. The guard lives in
-        // the state object so every caller inherits it and it can be driven.
         SfuCallController call;
         CallStageState *stage = call.stageState();
         QVERIFY(stage);
         QCOMPARE(stage->fullScreen(), false);
 
-        // Nothing focused: refused, not stored.
         stage->setFullScreen(true);
         QCOMPARE(stage->fullScreen(), false);
 
-        // A live share gives it something to show.
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
                            { sfuTrack(QStringLiteral("screen_share"),
@@ -5655,24 +5096,18 @@ private Q_SLOTS:
         QCOMPARE(stage->fullScreen(), true);
         QCOMPARE(fullScreenSpy.count(), 1);
 
-        // A pin is also something to show, with no share at all.
         stage->setFullScreen(false);
         stage->dismissShare(QStringLiteral("TR_share_a"));
         QCOMPARE(stage->spotlightShareId(), QString());
         stage->setFullScreen(true);
-        QCOMPARE(stage->fullScreen(), false); // nothing focused yet
+        QCOMPARE(stage->fullScreen(), false);
         stage->pin(QStringLiteral("alice"));
         stage->setFullScreen(true);
         QCOMPARE(stage->fullScreen(), true);
     }
 
-    // Picture-in-picture: the flag lives in the state object so the call's
-    // lifecycle can drop it.
     void pictureInPictureAndFullScreenAreMutuallyExclusive()
     {
-        // SfuVideoRouter holds one sink per track and the last attach wins, so
-        // two surfaces on one participant leave one black. Enforced here
-        // rather than hoping no QML site opens both.
         SfuCallController call;
         CallStageState *stage = call.stageState();
         QVERIFY(stage);
@@ -5696,15 +5131,12 @@ private Q_SLOTS:
                  "render the focused surface and only one can hold its sink");
         QCOMPARE(fsSpy.count(), 1);
 
-        // Idempotent, like every other flag here.
         stage->setPictureInPicture(true);
         QCOMPARE(pipSpy.count(), 1);
     }
 
     void aCallEndingTakesTheFloatingWindowWithIt()
     {
-        // A floating window for an ended call would show a frozen frame and
-        // need dismissing by hand; same rule as full screen.
         SfuCallController call;
         CallStageState *stage = call.stageState();
         QVERIFY(stage);
@@ -5717,8 +5149,6 @@ private Q_SLOTS:
         QCOMPARE(pipSpy.count(), 1);
     }
 
-    // Unlike full screen, picture-in-picture does not need a focused surface:
-    // it is most useful on a voice-only call. The rules differ on purpose.
     void pictureInPictureIsOfferedOnAVoiceOnlyCall()
     {
         SfuCallController call;
@@ -5726,18 +5156,14 @@ private Q_SLOTS:
         QVERIFY(stage);
         QCOMPARE(stage->spotlightShareId(), QString());
         QCOMPARE(stage->pinnedIdentity(), QString());
-        // Full screen refuses this exact state...
         stage->setFullScreen(true);
         QCOMPARE(stage->fullScreen(), false);
-        // ...and picture-in-picture accepts it.
         stage->setPictureInPicture(true);
         QCOMPARE(stage->pictureInPicture(), true);
     }
 
     void fullScreenDropsItselfWhenTheFocusedSurfaceGoesAway()
     {
-        // When the share ends or the pin drops, full screen falls by itself;
-        // the QML window is driven from the flag.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
@@ -5748,7 +5174,6 @@ private Q_SLOTS:
         stage->setFullScreen(true);
         QCOMPARE(stage->fullScreen(), true);
 
-        // The sharer stops: the share row goes, and with it full screen.
         QVariantMap stopped = sfuParticipant(QStringLiteral("alice"),
                                              QStringLiteral("PA_1"),
                                              { sfuTrack(
@@ -5759,14 +5184,12 @@ private Q_SLOTS:
         QCOMPARE(stage->spotlightShareId(), QString());
         QCOMPARE(stage->fullScreen(), false);
 
-        // Same for a pin that is dropped by "Back to grid".
         stage->pin(QStringLiteral("alice"));
         stage->setFullScreen(true);
         QCOMPARE(stage->fullScreen(), true);
         stage->clearPin();
         QCOMPARE(stage->fullScreen(), false);
 
-        // And leaving the call clears it whatever it was.
         stage->pin(QStringLiteral("alice"));
         stage->setFullScreen(true);
         QCOMPARE(stage->fullScreen(), true);
@@ -5774,10 +5197,6 @@ private Q_SLOTS:
         QCOMPARE(stage->fullScreen(), false);
     }
 
-    // Leaving the call.
-
-    // The retraction is issued and names the room and the delay id the
-    // membership was published with.
     void leavingRetractsTheMembershipItPublished()
     {
         RecordingCallClient client;
@@ -5796,8 +5215,6 @@ private Q_SLOTS:
                  QStringLiteral("delay-1"));
     }
 
-    // A failed retraction is retried with backoff; a burst of failure answers
-    // arms one retry, not one per answer.
     void aFailedRetractionIsRetriedWithBackoff()
     {
         RecordingCallClient client;
@@ -5809,7 +5226,6 @@ private Q_SLOTS:
         call.leave();
         QCOMPARE(client.retractions.size(), 1);
 
-        // Offline at hang-up. The retry is backed off, so the wait covers it.
         client.answerMembershipOp(client.lastRetractOp, false,
                                   QStringLiteral("network"));
         QTRY_COMPARE_WITH_TIMEOUT(client.retractions.size(), 2, 5000);
@@ -5817,8 +5233,6 @@ private Q_SLOTS:
                  QStringLiteral("!room:example.org"));
         QCOMPARE(client.retractions.at(1).second, QStringLiteral("delay-1"));
 
-        // Answers for an op already answered arm nothing more; the next step
-        // of the backoff (4 s) is still ahead.
         for (int i = 0; i < 8; ++i) {
             client.answerMembershipOp(client.lastRetractOp, false,
                                       QStringLiteral("network"));
@@ -5828,28 +5242,17 @@ private Q_SLOTS:
         QVERIFY(call.membershipWritesPending());
     }
 
-    // Live FAIL, Windows, pipeline 292: a 75 s outage (NIC disabled) ended
-    // the call, and the retraction's four quick attempts were all spent
-    // inside the outage, so the membership was never retracted and every
-    // client showed a ghost participant until it expired. A network failure
-    // keeps the retraction owed however many attempts it takes; it is sent
-    // once the network is back, and then nothing more is.
     void aRetractionStaysOwedThroughANetworkOutageAndIsSentOnceItEnds()
     {
         RecordingCallClient client;
         SfuCallController call;
         call.setClient(&client);
         call.setCallStateForTest(SfuCallController::State::Connected);
-        // No delay id: no MSC4140 (matrix.smetonis.net), so nothing on the
-        // server will retract this membership for us.
         call.setMembershipForTest(QStringLiteral("!room:example.org"),
                                   QString());
         call.leave();
         QCOMPARE(client.retractions.size(), 1);
 
-        // The outage outlasts any short chain. Each retry is the backoff
-        // timer's own slot, invoked directly so the test does not sit out
-        // the delays.
         for (int i = 0; i < 6; ++i) {
             client.answerMembershipOp(client.lastRetractOp, false,
                                       QStringLiteral("network"));
@@ -5863,13 +5266,10 @@ private Q_SLOTS:
                      QStringLiteral("!room:example.org"));
         }
 
-        // The network is back and the attempt in flight is accepted.
         client.answerMembershipOp(client.lastRetractOp, true, QString());
         QVERIFY(!call.membershipWritesPending());
         const int sent = client.retractions.size();
 
-        // Exactly once: neither the timer nor the reachability edge sends it
-        // again.
         QVERIFY(QMetaObject::invokeMethod(&call, "retryRetraction",
                                           Qt::DirectConnection));
         Q_EMIT client.homeserverReachable();
@@ -5877,8 +5277,6 @@ private Q_SLOTS:
         QCOMPARE(client.retractions.size(), sent);
     }
 
-    // The homeserver answering again sends an owed retraction at once, not
-    // at the next backoff step, and only once.
     void anOwedRetractionIsSentTheMomentTheHomeserverAnswersAgain()
     {
         RecordingCallClient client;
@@ -5892,24 +5290,18 @@ private Q_SLOTS:
                                   QStringLiteral("network"));
         QCOMPARE(client.retractions.size(), 1);
 
-        // The sync loop got an answer: the outage is over.
         Q_EMIT client.homeserverReachable();
         QCOMPARE(client.retractions.size(), 2);
-        // A repeated edge while that attempt is in flight sends nothing.
         Q_EMIT client.homeserverReachable();
         QCOMPARE(client.retractions.size(), 2);
 
         client.answerMembershipOp(client.lastRetractOp, true, QString());
         QVERIFY(!call.membershipWritesPending());
-        // Past the first backoff step: the cancelled timer sent nothing.
         QTest::qWait(2300);
         Q_EMIT client.homeserverReachable();
         QCOMPARE(client.retractions.size(), 2);
     }
 
-    // An attempt sent into the outage may only fail (timeout) after the
-    // homeserver is back; its retry then waits the first delay, not the
-    // grown backoff.
     void anAttemptThatFailsAfterTheHomeserverReturnedIsRetriedPromptly()
     {
         RecordingCallClient client;
@@ -5925,17 +5317,13 @@ private Q_SLOTS:
                                           Qt::DirectConnection));
         QCOMPARE(client.retractions.size(), 2);
 
-        // Attempt 2 is in flight when the sync answers; it fails later.
         Q_EMIT client.homeserverReachable();
         QCOMPARE(client.retractions.size(), 2);
         client.answerMembershipOp(client.lastRetractOp, false,
                                   QStringLiteral("network"));
-        // The grown backoff would be 4 s.
         QTRY_COMPARE_WITH_TIMEOUT(client.retractions.size(), 3, 3200);
     }
 
-    // The bound is the membership's own expiry: past it every reader has
-    // dropped the membership, so nothing more is sent.
     void anOwedRetractionEndsWithTheMembershipsExpiry()
     {
         RecordingCallClient client;
@@ -5948,7 +5336,6 @@ private Q_SLOTS:
         call.leave();
         client.answerMembershipOp(client.lastRetractOp, false,
                                   QStringLiteral("network"));
-        // The last attempt lands at the deadline, not 2 s later.
         QTRY_COMPARE_WITH_TIMEOUT(client.retractions.size(), 2, 1000);
 
         QTest::qWait(200);
@@ -5962,9 +5349,6 @@ private Q_SLOTS:
         QCOMPARE(client.retractions.size(), 2);
     }
 
-    // An owed retraction now waits minutes, so the account it belongs to is
-    // checked again when it is sent: never under another account, even if
-    // nothing called abandonOutstandingMembershipWrites().
     void anOwedRetractionIsNeverSentUnderAnotherAccount()
     {
         RecordingCallClient client;
@@ -5988,8 +5372,6 @@ private Q_SLOTS:
         QCOMPARE(client.retractions.size(), 1);
     }
 
-    // The state key is per device: a re-login of the same account is a new
-    // device, and the owed retraction is not its to send.
     void anOwedRetractionIsNeverSentFromAnotherDevice()
     {
         RecordingCallClient client;
@@ -6010,16 +5392,11 @@ private Q_SLOTS:
         QVERIFY(!call.membershipWritesPending());
     }
 
-    // rtc.rs writes a 4 h `expires` first. When that write landed but the
-    // delayed retraction and the short replacement did not (an answer with
-    // ok=false that still names an event), the membership lives 4 h, and the
-    // retraction stays owed for that long rather than for 5 minutes.
     void aLongExpiryWithNoDelayedLeaveKeepsTheRetractionOwedLonger()
     {
         RecordingCallClient client;
         SfuCallController call;
         call.setClient(&client);
-        // The short window, cut to almost nothing, must not apply here.
         call.setRetractionOwedForMsForTest(150);
         call.setCallStateForTest(SfuCallController::State::Connected);
         call.setMembershipForTest(QStringLiteral("!room:example.org"),
@@ -6027,7 +5404,6 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
                                           Qt::DirectConnection));
         QCOMPARE(client.publishes.size(), 1);
-        // answerPublish names "$event": the 4 h write landed; no delay id.
         client.answerPublish(client.lastPublishOp, false, QString(),
                              QStringLiteral("network"));
 
@@ -6043,8 +5419,6 @@ private Q_SLOTS:
                  "the 5 minute window");
     }
 
-    // An attempt whose answer is lost (the Rust event queue drops on
-    // overflow) must not hold the slot for ever: it counts as failed.
     void aRetractionWhoseAnswerNeverArrivesCountsAsFailed()
     {
         RecordingCallClient client;
@@ -6056,18 +5430,12 @@ private Q_SLOTS:
                                   QString());
         call.leave();
         QCOMPARE(client.retractions.size(), 1);
-        // No answer at all. Past the watchdog the slot is free again, so the
-        // homeserver answering sends the next attempt at once.
         QTest::qWait(300);
         QVERIFY(call.membershipWritesPending());
         Q_EMIT client.homeserverReachable();
         QCOMPARE(client.retractions.size(), 2);
     }
 
-    // A retraction still in flight when we re-join its room cannot be
-    // recalled. If the server accepts it after our new publish, it removed
-    // the membership of the call we are in, so it is published again; a
-    // refused one changes nothing.
     void aRetractionLandingAfterARejoinRepublishesTheMembership()
     {
         RecordingCallClient client;
@@ -6080,7 +5448,6 @@ private Q_SLOTS:
         QCOMPARE(client.retractions.size(), 1);
         const quint64 oldRetraction = client.lastRetractOp;
 
-        // Back in the same room before that attempt was answered.
         const quint64 publish = call.beginMembershipPublishForTest(
             room, QStringLiteral("https://sfu.example.org"));
         QVERIFY(publish != 0);
@@ -6092,14 +5459,10 @@ private Q_SLOTS:
         client.answerMembershipOp(oldRetraction, true, QString());
         QCOMPARE(client.publishes.size(), publishesBefore + 1);
         QCOMPARE(client.publishes.last(), room);
-        // Nothing retracted again, nothing owed.
         QCOMPARE(client.retractions.size(), 1);
         QVERIFY(!call.membershipWritesPending());
     }
 
-    // With an MSC4140 delayed retraction armed, a re-publish would arm a
-    // second one that nothing cancels; when it fired, its `{}` would remove
-    // the live membership. So the repair above must not run then.
     void aRetractionLandingAfterARejoinDoesNotRepublishOverADelayedLeave()
     {
         RecordingCallClient client;
@@ -6121,14 +5484,11 @@ private Q_SLOTS:
         QVERIFY2(client.publishes.size() == publishesBefore,
                  "a re-publish while a delayed retraction is armed arms an "
                  "orphan that later removes the live membership");
-        // The armed one is still the one the heartbeat keeps alive.
         QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
                                           Qt::DirectConnection));
         QCOMPARE(client.delayedRestarts.last(), QStringLiteral("delay-2"));
     }
 
-    // Nor while the join's own publish is in flight: its answer may arm a
-    // delayed retraction too.
     void aRetractionLandingDuringTheRejoinPublishDoesNotRepublish()
     {
         RecordingCallClient client;
@@ -6170,8 +5530,6 @@ private Q_SLOTS:
         QCOMPARE(client.retractions.size(), 1);
     }
 
-    // The owed window mirrors rtc.rs's `expires` constants; if either side
-    // changes alone, the retraction is owed for the wrong length of time.
     void theOwedWindowsMirrorTheRustExpiryConstants()
     {
         const auto product = [](const QByteArray &source,
@@ -6217,7 +5575,6 @@ private Q_SLOTS:
         QCOMPARE(longCpp, longRs);
     }
 
-    // A permanent refusal (`forbidden`) is not retried.
     void aRetractionRefusedOnPolicyGroundsIsNotRetried()
     {
         RecordingCallClient client;
@@ -6229,12 +5586,10 @@ private Q_SLOTS:
         call.leave();
         client.answerMembershipOp(client.lastRetractOp, false,
                                   QStringLiteral("forbidden"));
-        // Longer than the first retry delay, so this proves no retry was armed.
         QTest::qWait(2600);
         QCOMPARE(client.retractions.size(), 1);
     }
 
-    // A successful retraction stops the retry machinery.
     void anAcknowledgedRetractionIsNotRepeated()
     {
         RecordingCallClient client;
@@ -6249,8 +5604,6 @@ private Q_SLOTS:
         QCOMPARE(client.retractions.size(), 1);
     }
 
-    // The destructor retracts too (application quit reaches it; AppController
-    // should still call leave() explicitly).
     void destroyingTheControllerRetracts()
     {
         RecordingCallClient client;
@@ -6266,9 +5619,6 @@ private Q_SLOTS:
                  QStringLiteral("!room:example.org"));
     }
 
-    // Without an MSC4140 delayed event (off by default in Synapse) the
-    // membership's `expires` is the only cleanup, so Rust publishes a short
-    // one and the heartbeat must re-publish to keep a live participant.
     void withoutADelayedRetractionTheHeartbeatRePublishesTheMembership()
     {
         RecordingCallClient client;
@@ -6278,22 +5628,17 @@ private Q_SLOTS:
         call.setMembershipForTest(QStringLiteral("!room:example.org"),
                                   QString());
 
-        // Invoke the heartbeat's own slot, as the timer does.
         QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
                                           Qt::DirectConnection));
         QCOMPARE(client.publishes.size(), 1);
         QCOMPARE(client.publishes.first(), QStringLiteral("!room:example.org"));
-        // Nothing is asked of a delayed event that does not exist.
         QCOMPARE(client.delayedRestarts.size(), 0);
 
-        // Re-publish on a one-minute cadence, not every 5 s tick.
         QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
                                           Qt::DirectConnection));
         QCOMPARE(client.publishes.size(), 1);
     }
 
-    // With a delayed event the heartbeat restarts it and does not rewrite the
-    // state event.
     void withADelayedRetractionTheHeartbeatOnlyRestartsIt()
     {
         RecordingCallClient client;
@@ -6310,9 +5655,6 @@ private Q_SLOTS:
         QCOMPARE(client.publishes.size(), 0);
     }
 
-    // A failed restart may mean the server already fired the delayed
-    // retraction and consumed the id; repair by re-publishing (arming a fresh
-    // one), never by restarting the dead id.
     void aFailedDelayedRestartRePublishesInsteadOfRestartingADeadId()
     {
         RecordingCallClient client;
@@ -6329,7 +5671,6 @@ private Q_SLOTS:
                                   QStringLiteral("not_found"));
         QCOMPARE(client.publishes.size(), 1);
 
-        // The re-publish's new delay id is the one the heartbeat uses from now on.
         client.answerPublish(client.lastPublishOp, true,
                              QStringLiteral("delay-2"));
         QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
@@ -6338,8 +5679,6 @@ private Q_SLOTS:
         QCOMPARE(client.delayedRestarts.at(1), QStringLiteral("delay-2"));
     }
 
-    // A refresh answer must not re-run the join sequence; first publish and
-    // refreshes share `rtcMembershipPublished` and differ only by op id.
     void aRefreshAnswerDoesNotRestartTheJoin()
     {
         RecordingCallClient client;
@@ -6351,15 +5690,11 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
                                           Qt::DirectConnection));
         client.answerPublish(client.lastPublishOp, true, QString());
-        // Still in the call, same room, no second SFU connect.
         QCOMPARE(static_cast<int>(call.state()),
                  static_cast<int>(SfuCallController::State::Connected));
         QCOMPARE(call.roomId(), QStringLiteral("!room:example.org"));
     }
 
-    // An empty delay id has two meanings: `unrecognized`/`not_found`/
-    // `no_delay_id` mean no usable MSC4140 endpoint (cleanup rests on
-    // `expires`); anything else is one refused write. The reason is kept.
     void aRefusedDelayedRetractionKeepsItsReason()
     {
         RecordingCallClient client;
@@ -6377,7 +5712,6 @@ private Q_SLOTS:
         QCOMPARE(call.delayedRefusalReason(),
                  QStringLiteral("unrecognized"));
 
-        // A later publish that arms one clears it, matching rtc.rs's re-probe.
         QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
                                           Qt::DirectConnection));
         client.answerPublish(client.lastPublishOp, true,
@@ -6385,17 +5719,12 @@ private Q_SLOTS:
         QVERIFY(call.delayedRefusalReason().isEmpty());
     }
 
-    // `forbidden` from the homeserver (our membership state event: a room
-    // power-level problem) and from the SFU (the call service's own
-    // authorisation) need different messages; only the first points at room
-    // permissions.
     void aHomeserverRefusingOurMembershipIsNotTheCallServiceRefusingTheCall()
     {
         RecordingCallClient client;
         SfuCallController call;
         call.setClient(&client);
 
-        // (a) The homeserver refuses the membership state event.
         const quint64 publish = call.beginMembershipPublishForTest(
             QStringLiteral("!room:example.org"),
             QStringLiteral("https://sfu.example.org"));
@@ -6406,8 +5735,6 @@ private Q_SLOTS:
         const QString roomRefusal = call.lastError();
         QVERIFY(!roomRefusal.isEmpty());
 
-        // (b) The call service refuses the connection after the membership was
-        // accepted.
         const quint64 second = call.beginMembershipPublishForTest(
             QStringLiteral("!room:example.org"),
             QStringLiteral("https://sfu.example.org"));
@@ -6425,15 +5752,12 @@ private Q_SLOTS:
                  "both refusals still say the same sentence, so nobody can "
                  "tell a room permission problem from the call service "
                  "refusing the connection");
-        // The membership refusal points at the room. Asserted on the remedy
-        // words so rewording stays free.
         QVERIFY2(roomRefusal.contains(QStringLiteral("permission"))
                      && roomRefusal.contains(QStringLiteral("room")),
                  qPrintable(QStringLiteral(
                                 "the membership refusal must point at the "
                                 "room's permissions; it said: %1")
                                 .arg(roomRefusal)));
-        // The service refusal must not, or it sends the user to a room admin.
         QVERIFY2(!serviceRefusal.contains(QStringLiteral("permission")),
                  qPrintable(QStringLiteral(
                                 "the call service's refusal must not read as "
@@ -6441,8 +5765,6 @@ private Q_SLOTS:
                                 .arg(serviceRefusal)));
     }
 
-    // A refusal is withdrawn when a later attempt gets past the gate that
-    // refused it; `callFailed` is otherwise a one-shot notice nothing clears.
     void aLaterSuccessfulJoinWithdrawsTheRefusalItReplaced()
     {
         RecordingCallClient client;
@@ -6457,7 +5779,6 @@ private Q_SLOTS:
         QCOMPARE(failures.size(), 1);
         QVERIFY(!failures.at(0).at(0).toString().isEmpty());
 
-        // Same room, and this time the homeserver accepts the membership.
         const quint64 accepted = call.beginMembershipPublishForTest(
             QStringLiteral("!room:example.org"),
             QStringLiteral("https://sfu.example.org"));
@@ -6471,13 +5792,10 @@ private Q_SLOTS:
         QVERIFY2(failures.at(1).at(0).toString().isEmpty(),
                  "the withdrawal must be an EMPTY message — that is what "
                  "clears a reported error; anything else is a second error");
-        // Withdrawn once, not on every later state change.
         client.emitSfuState(QStringLiteral("signalling"), QString());
         QCOMPARE(failures.size(), 2);
     }
 
-    // The withdrawal does not fire at Preparing, so a retry refused by the
-    // same gate does not blink the message off and on.
     void aRetryThatIsRefusedAgainNeverBlanksTheReasonInBetween()
     {
         RecordingCallClient client;
@@ -6491,7 +5809,6 @@ private Q_SLOTS:
         client.refusePublish(first, QStringLiteral("forbidden"));
         QCOMPARE(failures.size(), 1);
 
-        // The retry reaches Preparing and is refused there too.
         const quint64 second = call.beginMembershipPublishForTest(
             QStringLiteral("!room:example.org"),
             QStringLiteral("https://sfu.example.org"));
@@ -6508,23 +5825,18 @@ private Q_SLOTS:
                  "never withdraw it");
     }
 
-    // A participant volume survives a restart: two controllers over one
-    // SettingsManager, the second knowing only what reached the store.
     void aParticipantVolumeSurvivesARestart()
     {
         const QString room = QStringLiteral("!vol:example.org");
         const QString identity = QStringLiteral("@her:example.org:HERDEV");
         const QString userId = QStringLiteral("@her:example.org");
 
-        // No secret store: the volume key is scoped by the account record,
-        // not the token.
         SettingsManager settings;
         settings.saveSession(QStringLiteral("https://example.org"),
                              QStringLiteral("@me:example.org"),
                              QStringLiteral("MEDEV"),
                              QStringLiteral("token-fixture"));
 
-        // The store outlives the process; reset so a stale value cannot pass.
         settings.setCallParticipantVolume(userId, 100);
         QCOMPARE(settings.callParticipantVolume(userId), 100);
 
@@ -6541,8 +5853,6 @@ private Q_SLOTS:
             QCOMPARE(call.participantVolume(identity), 40);
         }
 
-        // Both halves share one SettingsManager, so QSettings' cache could
-        // answer; reaching disk is proven by SettingsSessionTest.
         RecordingCallClient client2;
         RtcController rtc2;
         SfuCallController call2;
@@ -6559,12 +5869,6 @@ private Q_SLOTS:
                  40);
     }
 
-    // A stored level must reach the engine when the stream id arrives late.
-    // The row appears first and the model takes the stored level with nothing
-    // to address; a later pass must not skip because the model already
-    // matches. Asserted on the engine record
-    // (engineParticipantVolumeForTest), since participantVolume() falls back
-    // to the store and reads 200 even on broken code.
     void aStoredVolumeReachesTheEngineWhenTheStreamIdArrivesLate()
     {
         const QString room = QStringLiteral("!late:example.org");
@@ -6576,7 +5880,6 @@ private Q_SLOTS:
                              QStringLiteral("@me:example.org"),
                              QStringLiteral("MEDEV"),
                              QStringLiteral("token-fixture"));
-        // The store outlives the process, so prove the fixture first.
         settings.setCallParticipantVolume(userId, 100);
         QCOMPARE(settings.callParticipantVolume(userId), 100);
         settings.setCallParticipantVolume(userId, 200);
@@ -6606,7 +5909,6 @@ private Q_SLOTS:
         rtc.refresh(room);
         client.answerSession(client.lastSessionOp, session);
 
-        // 1. The row, with no stream id to address.
         call.ingestParticipantsForTest({
             sfuParticipant(identity, QString(), {}),
         });
@@ -6619,7 +5921,6 @@ private Q_SLOTS:
                  200);
         QCOMPARE(call.engineParticipantVolumeForTest(identity), -1);
 
-        // 2. The stream id arrives.
         call.ingestParticipantsForTest({
             sfuParticipant(identity, QStringLiteral("PA_ONE"),
                            { sfuTrack(QStringLiteral("microphone"),
@@ -6635,16 +5936,8 @@ private Q_SLOTS:
                  "element was never told");
         QCOMPARE(call.engineParticipantVolumeForTest(identity), 200);
 
-        // The getter reads 200 regardless; asserted so nobody rewrites the
-        // case around it.
         QCOMPARE(call.participantVolume(identity), 200);
     }
-
-    // A share level changed in Settings reaches a live call through its own
-    // signal (`callShareVolumeChanged`), without a participant change first
-    // and without duplicate connections. Asserted on the engine record, not
-    // shareVolume(), which reads the store.
-    // ── Legacy video ────────────────────────────────────────────────────
 
     void aVideoInviteIsAskedOfTheEngineWithItsCamera()
     {
@@ -6739,8 +6032,6 @@ private Q_SLOTS:
         QCOMPARE(client.sent.last().extra, QStringLiteral("answer"));
     }
 
-    /// A notification's Answer, and anything else that states no choice: a
-    /// video ring is picked up with the camera off.
     void anAnswerThatStatesNoChoiceLeavesTheCameraOff()
     {
         RecordingCallClient client;
@@ -6762,8 +6053,6 @@ private Q_SLOTS:
         QVERIFY(!controller.cameraOn());
     }
 
-    /// Someone else in the room cannot end our call, let alone get answered
-    /// with our camera, by picking a smaller call id.
     void aThirdPersonsInviteIsNotGlare()
     {
         RecordingCallClient client;
@@ -6915,11 +6204,9 @@ private Q_SLOTS:
                                       false) }),
         });
         QCOMPARE(call.shareModel()->rowCount(), 1);
-        // Unity and untouched, so a later record can only come from the signal.
         QCOMPARE(call.engineShareVolumeForTest(QStringLiteral("TR_share_a")),
                  -1);
 
-        // The change comes from settings; no participant volume is touched.
         settings.setCallShareVolume(userId, 60);
         QVERIFY2(call.engineShareVolumeForTest(QStringLiteral("TR_share_a"))
                      != -1,
@@ -6929,8 +6216,6 @@ private Q_SLOTS:
                  60);
     }
 
-    // A stored share level reaches the engine when the share's audio track
-    // (distinct from the sharer's microphone) is listed after the share row.
     void aStoredShareVolumeReachesTheEngineWhenItsAudioTrackArrivesLate()
     {
         const QString room = QStringLiteral("!shlate:example.org");
@@ -6953,7 +6238,6 @@ private Q_SLOTS:
                                           userId, QStringLiteral("HERDEV"),
                                           QStringLiteral("$m1")) != nullptr);
 
-        // A silent share first: the row exists, its audio track does not.
         call.ingestParticipantsForTest({
             sfuParticipant(identity, QStringLiteral("PA_ONE"),
                            { sfuTrack(QStringLiteral("screen_share"),
@@ -6964,7 +6248,6 @@ private Q_SLOTS:
         QCOMPARE(call.engineShareVolumeForTest(QStringLiteral("TR_share_a")),
                  -1);
 
-        // ...and now the share's audio is unmuted.
         call.ingestParticipantsForTest({
             sfuParticipant(identity, QStringLiteral("PA_ONE"),
                            { sfuTrack(QStringLiteral("screen_share"),
@@ -7001,13 +6284,9 @@ private Q_SLOTS:
                                           userId, QStringLiteral("HERDEV"),
                                           QStringLiteral("$m1")) != nullptr);
 
-        // A share's volume is stored under its owner, not the share id, so it
-        // survives a restart and a re-share. The store outlives the process:
-        // reset to neutral (which removes the key) and prove it clean.
         settings.setCallShareVolume(userId, 100);
         QCOMPARE(settings.callShareVolume(userId), 100);
 
-        // The share id is the track sid, so a restart gives a different one.
         call.ingestParticipantsForTest({
             sfuParticipant(identity, QStringLiteral("PA_ONE"),
                            { sfuTrack(QStringLiteral("screen_share"),
@@ -7018,9 +6297,6 @@ private Q_SLOTS:
         QCOMPARE(call.shareVolume(QStringLiteral("TR_share_a")), 35);
         QCOMPARE(settings.callShareVolume(userId), 35);
 
-        // The same person shares again under a new id; only a store keyed by
-        // the owner can help. Asserted on the applier's signal, not the
-        // getter: shareVolume() falls back to the store and would pass anyway.
         QSignalSpy applied(&call, &SfuCallController::shareVolumeChanged);
         call.ingestParticipantsForTest({
             sfuParticipant(identity, QStringLiteral("PA_ONE"),
@@ -7059,7 +6335,6 @@ private Q_SLOTS:
                      .toInt(),
                  200);
 
-        // Still a closed range for hand-edited or runaway values.
         call.setParticipantVolume(QStringLiteral("alice"), 5000);
         QCOMPARE(participantRole(call.participantModel(), row,
                                  CallParticipantModel::VolumePercentRole)
@@ -7072,8 +6347,6 @@ private Q_SLOTS:
                  0);
     }
 
-    // With no settings seam, a volume still works for the call and is simply
-    // not remembered.
     void aParticipantVolumeReadsUnityWithNowhereToStoreIt()
     {
         RecordingCallClient client;
@@ -7082,104 +6355,70 @@ private Q_SLOTS:
         QCOMPARE(call.participantVolume(QStringLiteral("alice")), 100);
     }
 
-    // Camera route: a pure predicate with every input passed in, so each
-    // clause is checkable without the hardware (and without
-    // HAVE_LIGHTNING_WEBRTC). Proves the decision only, not that either route
-    // carries a picture.
-
-    // A sandboxed build always takes the camera portal: Flatpak has no
-    // camera-only device permission and Flathub rejects `--device=all`. A
-    // portal refusal is something the user can act on; a failed open is not.
     void aSandboxedBuildWithNoDeviceNodeTakesTheCameraPortal()
     {
         using Route = SfuCallController::LinuxCameraRoute;
         for (bool portalUsable : { true, false }) {
             QCOMPARE(SfuCallController::linuxCameraRoute(
-                         /*sandboxed=*/true, portalUsable,
-                         /*deviceNode=*/false),
+true, portalUsable,
+false),
                      Route::Portal);
         }
     }
 
-    // 2026-10-06 report: Debian 12, Flatpak, Flatseal "Webcam" on (device
-    // nodes visible), camera registers and no picture. The portal there has
-    // no camera node; the user's own grant must win. Fails on the old rule
-    // (sandboxed -> Portal unconditionally).
     void aSandboxWithAGrantedDeviceNodeAndNoPortalCameraUsesTheDirectCamera()
     {
         using Route = SfuCallController::LinuxCameraRoute;
         QCOMPARE(SfuCallController::linuxCameraRoute(
-                     /*sandboxed=*/true, /*portalUsable=*/false,
-                     /*deviceNode=*/true),
+true,false,
+true),
                  Route::Direct);
     }
 
-    // A usable portal camera keeps winning inside a sandbox even when device
-    // nodes are visible (MIPI/IPU6/libcamera laptops, "all devices" users
-    // whose portal camera works today).
     void aSandboxWithAUsablePortalCameraKeepsThePortalWhateverNodesExist()
     {
         using Route = SfuCallController::LinuxCameraRoute;
         QCOMPARE(SfuCallController::linuxCameraRoute(
-                     /*sandboxed=*/true, /*portalUsable=*/true,
-                     /*deviceNode=*/true),
+true,true,
+true),
                  Route::Portal);
     }
 
-    // 2026-10-17 report (Arch, KDE Wayland, PipeWire 1.6, MX Brio, Element
-    // Desktop running): the direct `v4l2src` route takes the device
-    // exclusively and failed with "Failed to allocate required memory" while
-    // OBS and Element, which go through PipeWire, worked. A usable portal
-    // camera now wins over a visible device node. Fails on the old rule 3
-    // (visible node -> Direct).
     void aUsablePortalCameraWinsOverAVisibleDeviceNode()
     {
         using Route = SfuCallController::LinuxCameraRoute;
         QCOMPARE(SfuCallController::linuxCameraRoute(
-                     /*sandboxed=*/false, /*portalUsable=*/true,
-                     /*directDeviceVisible=*/true),
+false,true,
+true),
                  Route::Portal);
-        // A camera CHOSEN in Settings names a host device the portal route
-        // cannot bind: it stays direct.
         QCOMPARE(SfuCallController::linuxCameraRoute(
-                     /*sandboxed=*/false, /*portalUsable=*/true,
-                     /*directDeviceVisible=*/true, /*cameraChosen=*/true),
+false,true,
+true,true),
                  Route::Direct);
     }
 
-    // Where the portal has no usable camera, a visible device node keeps
-    // `v4l2src`.
     void aVisibleDeviceNodeKeepsTheDirectCameraWithoutAUsablePortal()
     {
         using Route = SfuCallController::LinuxCameraRoute;
         QCOMPARE(SfuCallController::linuxCameraRoute(
-                     /*sandboxed=*/false, /*portalUsable=*/false,
-                     /*directDeviceVisible=*/true),
+false,false,
+true),
                  Route::Direct);
     }
 
-    // With no device node the portal is used only if usable; otherwise the
-    // answer stays Direct (today's behaviour), not a new refusal state.
     void withNoDeviceNodeThePortalIsUsedOnlyWhenItIsUsable()
     {
         using Route = SfuCallController::LinuxCameraRoute;
         QCOMPARE(SfuCallController::linuxCameraRoute(
-                     /*sandboxed=*/false, /*portalUsable=*/true,
-                     /*directDeviceVisible=*/false),
+false,true,
+false),
                  Route::Portal);
         QCOMPARE(SfuCallController::linuxCameraRoute(
-                     /*sandboxed=*/false, /*portalUsable=*/false,
-                     /*directDeviceVisible=*/false),
+false,false,
+false),
                  Route::Direct);
     }
 
-    // 2026-10-07 report (Debian 12, Flatpak, Flatseal's "All devices (e.g.
-    // webcam)" on): "my camera registers, but there's no feed". A portal
-    // camera that never sent a frame stayed a black tile for the whole call.
-    // With device access granted it now retries ONCE on the device node,
-    // without a notice; if the device node is silent too, the user is told
-    // and the camera goes off. Fails on the old controller, which turned the
-    // camera off and announced on the first report.
     void aSilentPortalCameraFallsBackOnceToTheGrantedDeviceNode()
     {
         RecordingCallClient client;
@@ -7190,9 +6429,9 @@ private Q_SLOTS:
         QSignalSpy failed(&call, &SfuCallController::callFailed);
 
         call.setCameraCidForTest(QStringLiteral("cam-portal"));
-        call.setCameraRouteForTest(/*viaPortal=*/true,
-                                   /*portalReportedCamera=*/true,
-                                   /*deviceNodeVisible=*/true);
+        call.setCameraRouteForTest(true,
+true,
+true);
         QVERIFY(QMetaObject::invokeMethod(
             &call, "onEnginePublishFailed", Qt::DirectConnection,
             Q_ARG(QString, QStringLiteral("cam-portal")),
@@ -7204,7 +6443,6 @@ private Q_SLOTS:
         QVERIFY(call.cameraFellBackForTest());
         QVERIFY(!call.cameraViaPortalForTest());
 
-        // The device node gives nothing either: no third attempt.
         call.setCameraCidForTest(QStringLiteral("cam-device"));
         QVERIFY(QMetaObject::invokeMethod(
             &call, "onEnginePublishFailed", Qt::DirectConnection,
@@ -7251,11 +6489,6 @@ private Q_SLOTS:
         QCOMPARE(opened.size(), 1);
     }
 
-    // SfuMediaEngine::unpublish() reports a portal capture with nothing in
-    // flight as released SYNCHRONOUSLY, inside the unpublish that
-    // onEnginePublishFailed() runs before it arms the wait. That release must
-    // still start the direct device open, or the camera stays "on" with no
-    // picture and nothing left to end the wait (review M1).
     void portalFallbackHonoursAReleaseReportedDuringTheUnpublish()
     {
         RecordingCallClient client;
@@ -7280,9 +6513,6 @@ private Q_SLOTS:
         call.leave();
     }
 
-    // A release that is never reported must not hold the camera "on" with no
-    // picture for ever: after the fallback window the direct open is tried
-    // anyway. A hang-up inside the window still cancels it.
     void portalFallbackOpensTheDeviceAfterTheWindowWithoutARelease()
     {
         RecordingCallClient client;
@@ -7304,13 +6534,11 @@ private Q_SLOTS:
         QVERIFY(opened.isEmpty());
         QTRY_COMPARE_WITH_TIMEOUT(opened, QList<int>{-1}, 3000);
         QVERIFY(call.cameraOn());
-        // A late release for the same capture opens nothing a second time.
         call.releaseCameraPortalForTest(QStringLiteral("portal-silent"));
         QCOMPARE(opened.size(), 1);
 
         call.leave();
 
-        // Hang-up inside the window: the bounded open never happens.
         SfuCallController second;
         second.setClient(&client);
         second.setMembershipForTest(QStringLiteral("!room:x"), QString());
@@ -7393,11 +6621,6 @@ private Q_SLOTS:
         call.leave();
     }
 
-    // Without device access the portal camera has nowhere else to go, and
-    // the notice says what the portal did (offered no camera, or a camera
-    // that sent nothing) instead of the generic "isn't available". Fails on
-    // the old controller, which said "Your camera isn't available." or
-    // nothing at all.
     void aSilentPortalCameraWithoutDeviceAccessNamesThePortal()
     {
         RecordingCallClient client;
@@ -7408,9 +6631,9 @@ private Q_SLOTS:
         QSignalSpy failed(&call, &SfuCallController::callFailed);
 
         call.setCameraCidForTest(QStringLiteral("cam-1"));
-        call.setCameraRouteForTest(/*viaPortal=*/true,
-                                   /*portalReportedCamera=*/true,
-                                   /*deviceNodeVisible=*/false);
+        call.setCameraRouteForTest(true,
+true,
+false);
         QVERIFY(QMetaObject::invokeMethod(
             &call, "onEnginePublishFailed", Qt::DirectConnection,
             Q_ARG(QString, QStringLiteral("cam-1")),
@@ -7419,15 +6642,14 @@ private Q_SLOTS:
         QCOMPARE(failed.at(0).at(0).toString(),
                  SfuCallController::cameraPortalNotice(
                      QStringLiteral("camera_portal_no_picture"),
-                     /*flatpak=*/false));
+false));
         QVERIFY(!call.cameraOn());
         QVERIFY(!call.cameraFellBackForTest());
 
-        // The portal reported no camera when it was chosen: say so.
         call.setCameraCidForTest(QStringLiteral("cam-2"));
-        call.setCameraRouteForTest(/*viaPortal=*/true,
-                                   /*portalReportedCamera=*/false,
-                                   /*deviceNodeVisible=*/false);
+        call.setCameraRouteForTest(true,
+false,
+false);
         QVERIFY(QMetaObject::invokeMethod(
             &call, "onEnginePublishFailed", Qt::DirectConnection,
             Q_ARG(QString, QStringLiteral("cam-2")),
@@ -7436,17 +6658,9 @@ private Q_SLOTS:
         QCOMPARE(failed.at(1).at(0).toString(),
                  SfuCallController::cameraPortalNotice(
                      QStringLiteral("camera_portal_no_camera"),
-                     /*flatpak=*/false));
+false));
     }
 
-    // The fallback is for a portal that produced nothing or is absent, never
-    // a way round the desktop's answer: a decline never reaches it
-    // (CameraPortal::cancelled is a separate signal), a refusal over the bus
-    // (`not_allowed`: a camera lockdown, NotAllowed/AccessDenied; mapped in
-    // CameraPortal::failureCategory) and an unexplained portal error
-    // (`portal_failed`) never fall back, an unanswered dialog (`timeout`) is
-    // not consent, a chosen camera that is missing is never replaced, and
-    // the direct route has nowhere else to go.
     void theCameraFallbackNeedsAPortalThatGaveNothingAndAGrantedNode()
     {
         using Step = SfuCallController::CameraFailureStep;
@@ -7455,7 +6669,6 @@ private Q_SLOTS:
             const QString c = QString::fromLatin1(category);
             QCOMPARE(SfuCallController::cameraFailureStep(c, true, true, false),
                      Step::OpenDeviceNode);
-            // No device node, already fell back, or not the portal: notice.
             QCOMPARE(SfuCallController::cameraFailureStep(c, true, false,
                                                           false),
                      Step::Notice);
@@ -7475,10 +6688,6 @@ private Q_SLOTS:
         }
     }
 
-    // The whole press, not just the predicate: on a desktop with a visible
-    // device node and a usable portal the camera asks the PORTAL and declares
-    // nothing until it grants; a chosen camera is opened directly. Fails on
-    // the old controller, which published -1 (direct) at once.
     void aDesktopWithAUsablePortalAsksThePortalForTheCamera()
     {
 #ifndef Q_OS_UNIX
@@ -7487,9 +6696,9 @@ private Q_SLOTS:
         CameraPortalCall c;
         c.call.setCameraPathForTest(
             [&c](int fd) { c.published.append(fd); },
-            [&c] { ++c.requests; }, /*sandboxed=*/false,
-            /*portalUsable=*/true);
-        c.call.setCameraRouteForTest(false, false, /*deviceNodeVisible=*/true);
+            [&c] { ++c.requests; },false,
+true);
+        c.call.setCameraRouteForTest(false, false,true);
         c.call.setCameraChosenForTest(false);
         c.call.setCameraOn(true);
         QCOMPARE(c.requests, 1);
@@ -7505,12 +6714,6 @@ private Q_SLOTS:
         QCOMPARE(c.published, QList<int>{ -1 });
     }
 
-    // A direct camera whose device would not open (`camera_busy`) retries
-    // ONCE through the portal, which shares the device, and tells the user
-    // nothing while it does. Reached when the portal looked unusable at the
-    // press (IsCameraPresent false) but is wired. A second failure, or a
-    // chosen camera, or no portal, is a notice that says WHY. Fails on the old
-    // controller: no such category and no such hop.
     void aBusyDirectCameraRetriesOnceThroughThePortal()
     {
 #ifndef Q_OS_UNIX
@@ -7519,9 +6722,9 @@ private Q_SLOTS:
         CameraPortalCall c;
         c.call.setCameraPathForTest(
             [&c](int fd) { c.published.append(fd); },
-            [&c] { ++c.requests; }, /*sandboxed=*/false,
-            /*portalUsable=*/false);
-        c.call.setCameraRouteForTest(false, false, /*deviceNodeVisible=*/true);
+            [&c] { ++c.requests; },false,
+false);
+        c.call.setCameraRouteForTest(false, false,true);
         c.call.setCameraChosenForTest(false);
         QSignalSpy failed(&c.call, &SfuCallController::callFailed);
         c.call.setCameraOn(true);
@@ -7538,24 +6741,20 @@ private Q_SLOTS:
         QVERIFY(c.call.cameraAwaitingPortalForTest());
         QVERIFY(c.call.cameraOn());
 
-        // The grant publishes through the portal.
         const int fd = CameraPortalCall::portalFd();
         QVERIFY(fd >= 0);
         Q_EMIT c.portal.ready(fd);
         QCOMPARE(c.published, (QList<int>{ -1, fd }));
         QVERIFY(c.call.cameraViaPortalForTest());
 
-        // The latch is per call.
         c.call.leave();
         QVERIFY(!c.call.cameraFellBackToPortalForTest());
 
-        // A camera the user CHOSE is never swapped for whatever the portal
-        // offers: the failure is a notice, and the portal is not asked.
         CameraPortalCall chosen;
         chosen.call.setCameraPathForTest(
             [&chosen](int fd) { chosen.published.append(fd); },
-            [&chosen] { ++chosen.requests; }, /*sandboxed=*/false,
-            /*portalUsable=*/false);
+            [&chosen] { ++chosen.requests; },false,
+false);
         chosen.call.setCameraRouteForTest(false, false, true);
         chosen.call.setCameraChosenForTest(true);
         QSignalSpy chosenFailed(&chosen.call, &SfuCallController::callFailed);
@@ -7590,7 +6789,6 @@ private Q_SLOTS:
         const int fd = CameraPortalCall::portalFd();
         QVERIFY(fd >= 0);
         Q_EMIT c.portal.ready(fd);
-        // CameraPortalCall's default publisher closes the granted descriptor.
         QSignalSpy failed(&c.call, &SfuCallController::callFailed);
         QVERIFY(QMetaObject::invokeMethod(
             &c.call, "onEnginePublishFailed", Qt::DirectConnection,
@@ -7604,9 +6802,6 @@ private Q_SLOTS:
         QVERIFY(failed.isEmpty());
     }
 
-    // A Settings change after fallback must take precedence when reconnect
-    // restarts capture. preferredMissing is also an explicit camera choice:
-    // the engine must receive the direct request and refuse that device.
     void aRememberedPortalFallbackCannotReplaceANewCameraChoice()
     {
 #ifndef Q_OS_UNIX
@@ -7632,7 +6827,6 @@ private Q_SLOTS:
 #endif
             QVERIFY(c.call.cameraFellBackToPortalForTest());
             QCOMPARE(c.requests, 1);
-            // cameraChosen() treats both an id and preferredMissing as chosen.
             c.call.setCameraChosenForTest(true);
             c.call.setCallStateForTest(SfuCallController::State::Reconnecting);
             c.call.setCallStateForTest(SfuCallController::State::Connected);
@@ -7669,7 +6863,6 @@ private Q_SLOTS:
         QVERIFY(!C::directCameraFallsBackToPortal(
             QStringLiteral("camera_failed"), false, true, false));
 
-        // No portal wired: the notice names the cause.
         for (const bool chosen : { false, true }) {
             RecordingCallClient client;
             SfuCallController call;
@@ -7688,8 +6881,6 @@ private Q_SLOTS:
             QVERIFY2(failed.at(0).at(0).toString().contains(
                          QStringLiteral("may be in use by another app")),
                      qPrintable(failed.at(0).at(0).toString()));
-            // A missing device node is the same resource error as a busy
-            // one, so the advice must not claim only "in use".
             QVERIFY2(failed.at(0).at(0).toString().contains(
                          QStringLiteral("unplugged")),
                      qPrintable(failed.at(0).at(0).toString()));
@@ -7697,9 +6888,6 @@ private Q_SLOTS:
         }
     }
 
-    // The notice categories by route, and the Flatpak wording naming the one
-    // grant a Flatpak user can give (Flatseal's "All devices"); other builds
-    // get no advice they cannot act on.
     void theCameraPortalNoticesNameWhatHappenedAndTheGrant()
     {
         using C = SfuCallController;
@@ -7744,15 +6932,6 @@ private Q_SLOTS:
                     .isEmpty());
     }
 
-    // 2026-10-07 review: a camera the DESKTOP refused (xdg-desktop-portal's
-    // camera lockdown answers NotAllowed) must never be opened through
-    // /dev/video* instead, even with device access granted; it says why the
-    // camera is off. An absent portal still falls back. Drives the real
-    // portal-failure handler through a wired CameraPortal; no engine, so it
-    // proves the decision and the notice, not a publish. Fails on the old
-    // controller, which announced "Your camera isn't available." for every
-    // portal failure (and the old CameraPortal sent `no_portal` for a
-    // lockdown, which the fallback would then have routed around).
     void aCameraTheDesktopRefusedIsNeverOpenedThroughTheDevice()
     {
         RecordingCallClient client;
@@ -7765,9 +6944,9 @@ private Q_SLOTS:
         QSignalSpy failed(&call, &SfuCallController::callFailed);
 
         call.setCameraCidForTest(QString());
-        call.setCameraRouteForTest(/*viaPortal=*/true,
-                                   /*portalReportedCamera=*/true,
-                                   /*deviceNodeVisible=*/true);
+        call.setCameraRouteForTest(true,
+true,
+true);
         call.setCameraAwaitingPortalForTest();
         Q_EMIT portal.failed(QStringLiteral("not_allowed"));
         QVERIFY(!call.cameraFellBackForTest());
@@ -7777,7 +6956,6 @@ private Q_SLOTS:
                      QStringLiteral("turned off in your system settings")),
                  qPrintable(failed.at(0).at(0).toString()));
 
-        // No portal at all, device granted: the device is the camera.
         call.setCameraRouteForTest(true, true, true);
         call.setCameraAwaitingPortalForTest();
         Q_EMIT portal.failed(QStringLiteral("no_portal"));
@@ -7786,13 +6964,6 @@ private Q_SLOTS:
         QCOMPARE(failed.count(), 1);
     }
 
-    // The camera-portal state machine, driven end to end without an engine
-    // (open item 2026-09-12: startCameraCapture() and publishCameraTrack()
-    // were wholly inside the media guard, so this target could never reach
-    // m_cameraAwaitingPortal). On the old controller setCameraOn() is a no-op
-    // here, so every case below fails at its first request count.
-    //
-    // The grant publishes, and the descriptor reaches the publisher open.
     void aPortalCameraPublishesOnTheGrantWithTheDescriptorItWasGiven()
     {
 #ifndef Q_OS_UNIX
@@ -7818,8 +6989,6 @@ private Q_SLOTS:
         QCOMPARE(c.call.cameraPublishesForTest(), 1);
     }
 
-    // The second press: off during the dialog, the late grant is closed and
-    // not published; on again asks again and publishes the new grant.
     void aGrantForACameraTurnedOffDuringTheDialogIsClosedNotPublished()
     {
 #ifndef Q_OS_UNIX
@@ -7848,8 +7017,6 @@ private Q_SLOTS:
         QVERIFY(c.call.cameraOn());
     }
 
-    // Leaving while the dialog is open: the request is abandoned with the
-    // call, and a grant that arrives after is closed and publishes nothing.
     void leavingDuringTheCameraDialogAbandonsItAndClosesALateGrant()
     {
 #ifndef Q_OS_UNIX
@@ -7871,9 +7038,6 @@ private Q_SLOTS:
                  "a grant for a call that ended leaked its descriptor");
     }
 
-    // A grant that lands while the camera is still wanted but the call has
-    // stopped being active (no teardown has run yet): closed, and the camera
-    // control unwound rather than left lit with no track.
     void aGrantAfterTheCallStoppedBeingActiveIsClosedAndUnwound()
     {
 #ifndef Q_OS_UNIX
@@ -7895,7 +7059,6 @@ private Q_SLOTS:
                  "the camera stayed lit with nothing published");
     }
 
-    // A declined dialog unwinds the control with no message.
     void aDeclinedCameraDialogUnwindsTheControlSilently()
     {
         CameraPortalCall c;
@@ -7909,9 +7072,6 @@ private Q_SLOTS:
         QCOMPARE(failed.count(), 0);
     }
 
-    // The fall-back latch is per call: it must not make the next call skip
-    // the portal ("earlier in this call" would be false). Fails without the
-    // resets in teardown() and join().
     void theCameraFallbackLatchDoesNotOutliveTheCall()
     {
         RecordingCallClient client;
@@ -7931,8 +7091,6 @@ private Q_SLOTS:
                  "the portal fallback outlived the call that needed it");
     }
 
-    // The chosen camera route is logged with what decided it, so a silent
-    // failure is distinguishable from "portal never asked" or "portal refused".
     void theCameraRouteIsAnnouncedWithWhatDecidedIt()
     {
         QFile file(QStringLiteral(SOURCE_DIR
@@ -7950,8 +7108,6 @@ private Q_SLOTS:
                                                "not report %1")
                                     .arg(QLatin1String(input))));
         }
-        // The engine separately logs which source it built; a capture can fail
-        // between the decision and the pipeline.
         QFile engine(QStringLiteral(SOURCE_DIR
                                     "/src/calls/SfuMediaEngine.cpp"));
         QVERIFY(engine.open(QIODevice::ReadOnly));
@@ -7966,7 +7122,7 @@ private Q_SLOTS:
                               const QString &wayland, const QString &x11,
                               bool element) {
             return SfuCallController::linuxShareRoute(
-                /*portalAvailable=*/true, platform, session, wayland, x11,
+true, platform, session, wayland, x11,
                 element);
         };
         QCOMPARE(route(QStringLiteral("wayland"), QStringLiteral("wayland"),
@@ -7975,48 +7131,35 @@ private Q_SLOTS:
         QCOMPARE(route(QStringLiteral("xcb"), QStringLiteral("x11"), QString(),
                        QStringLiteral(":0"), true),
                  Route::Portal);
-        // Linux share routing is one pure function, testable without a display
-        // server, portal or GStreamer. The portal always wins when available:
-        // it is what makes Wayland sharing safe. Even with nothing else
-        // working, a reachable portal is the answer.
         QCOMPARE(route(QString(), QString(), QString(), QString(), false),
                  Route::Portal);
-        // A portal route shows the user nothing; nothing went wrong.
         QVERIFY(SfuCallController::linuxShareRefusal(Route::Portal).isEmpty());
     }
 
-    // Wayland with no portal refuses with a reason rather than offering the
-    // picker: XWayland provides a working DISPLAY, but its root window
-    // captures as black. Each Wayland signal must suffice on its own, with an
-    // X11 display and the capture element present.
     void aWaylandSessionWithNoPortalRefusesInsteadOfOfferingAPickerItCannotHonour()
     {
         using Route = SfuCallController::LinuxShareRoute;
         const auto route = [](const QString &platform, const QString &session,
                               const QString &wayland) {
             return SfuCallController::linuxShareRoute(
-                /*portalAvailable=*/false, platform, session, wayland,
-                /*x11Display=*/QStringLiteral(":0"),
-                /*captureElementPresent=*/true);
+false, platform, session, wayland,
+QStringLiteral(":0"),
+true);
         };
-        // 1. The platform plugin says so.
         QCOMPARE(route(QStringLiteral("wayland"), QString(), QString()),
                  Route::RefuseWaylandNeedsPortal);
         QCOMPARE(route(QStringLiteral("wayland-egl"), QString(), QString()),
                  Route::RefuseWaylandNeedsPortal);
-        // 2. The session type says so while Qt is on xcb (an XWayland Qt app).
         QCOMPARE(route(QStringLiteral("xcb"), QStringLiteral("wayland"),
                        QString()),
                  Route::RefuseWaylandNeedsPortal);
         QCOMPARE(route(QStringLiteral("xcb"), QStringLiteral("Wayland"),
                        QString()),
                  Route::RefuseWaylandNeedsPortal);
-        // 3. Only `WAYLAND_DISPLAY` says so.
         QCOMPARE(route(QStringLiteral("xcb"), QStringLiteral("x11"),
                        QStringLiteral("wayland-0")),
                  Route::RefuseWaylandNeedsPortal);
 
-        // The message names the cause and an action.
         const QString message = SfuCallController::linuxShareRefusal(
             Route::RefuseWaylandNeedsPortal);
         QVERIFY(!message.isEmpty());
@@ -8029,9 +7172,6 @@ private Q_SLOTS:
                  "the Wayland refusal is still the old unactionable sentence");
     }
 
-    // xdg-desktop-portal-kde on X11 refuses with "not available in X11
-    // sessions" (category x11_unsupported); the app falls back to its own
-    // picker there and only there. Fails on the old tree (function absent).
     void aRecognisedX11PortalRefusalFallsBackToLightningsOwnPicker()
     {
         const auto falls = [](const QString &category, const QString &platform,
@@ -8043,12 +7183,8 @@ private Q_SLOTS:
         const QString refusal = QStringLiteral("x11_unsupported");
         QVERIFY(falls(refusal, QStringLiteral("xcb"), QStringLiteral("x11"),
                       QString(), QStringLiteral(":0"), true));
-        // An unset session type must not decide.
         QVERIFY(falls(refusal, QStringLiteral("xcb"), QString(), QString(),
                       QStringLiteral(":0"), true));
-        // Only the recognised refusals fall back: a busy portal or any other
-        // failure is not consent to capture the X11 root window. (A dismissal
-        // in the picker is `cancelled`, which never reaches this predicate.)
         for (const QString &other :
              { QStringLiteral("refused"), QStringLiteral("no_portal"),
                QStringLiteral("start_failed"), QStringLiteral("select_failed"),
@@ -8059,7 +7195,6 @@ private Q_SLOTS:
                             QStringLiteral(":0"), true),
                      qPrintable(other));
         }
-        // Wayland never falls back, whatever signal says so.
         QVERIFY(!falls(refusal, QStringLiteral("wayland"),
                        QStringLiteral("wayland"), QStringLiteral("wayland-0"),
                        QString(), true));
@@ -8069,24 +7204,16 @@ private Q_SLOTS:
         QVERIFY(!falls(refusal, QStringLiteral("xcb"), QStringLiteral("x11"),
                        QStringLiteral("wayland-0"), QStringLiteral(":0"),
                        true));
-        // No capture element or no display: nothing to fall back to.
         QVERIFY(!falls(refusal, QStringLiteral("xcb"), QStringLiteral("x11"),
                        QString(), QStringLiteral(":0"), false));
         QVERIFY(!falls(refusal, QStringLiteral("xcb"), QStringLiteral("x11"),
                        QString(), QString(), true));
-        // The portal route itself is unchanged: still preferred when present.
         QCOMPARE(SfuCallController::linuxShareRoute(
                      true, QStringLiteral("xcb"), QStringLiteral("x11"),
                      QString(), QStringLiteral(":0"), true),
                  SfuCallController::LinuxShareRoute::Portal);
     }
 
-    // xdg-desktop-portal-kde on X11 advertises ScreenCast and then never
-    // produces a session (live Flatpak FAIL 2026-10-07: the share button did
-    // nothing for minutes). A portal that never answers, refuses the session
-    // or times out falls back to Lightning's own (always-asking) picker on
-    // X11, and still never on Wayland. Fails on the old tree, which accepted
-    // x11_unsupported only.
     void aPortalThatNeverAnswersOnX11FallsBackToLightningsOwnPicker()
     {
         for (const QString &category :
@@ -8107,9 +7234,6 @@ private Q_SLOTS:
                          true),
                      qPrintable(category));
         }
-        // The handshake is bounded on X11 only, decided by the same
-        // predicate, and the portal turns a silent stall or a refused session
-        // into those categories instead of a silent "cancel".
         QFile ctl(QStringLiteral(SOURCE_DIR "/src/calls/SfuCallController.cpp"));
         QVERIFY(ctl.open(QIODevice::ReadOnly));
         const QByteArray c = ctl.readAll();
@@ -8128,16 +7252,12 @@ private Q_SLOTS:
                  "the portal has no no-answer bound");
         QVERIFY2(p.contains("Q_EMIT failed(QStringLiteral(\"session_refused\"))"),
                  "a refused session is still swallowed as a cancel");
-        // The picker stage gets its own bound, armed when Start is sent.
         const int start = p.indexOf("void ScreenCastPortal::startSession()");
         QVERIFY(start > 0);
         QVERIFY2(p.mid(start, 600).contains("armAnswerWatchdog(m_pickerBoundMs)"),
                  "the picker stage is not bounded");
     }
 
-    // The handler must consult it, and the fallback must never auto-select
-    // the lone display (no consent); the portal names the refusal only from
-    // its own error text.
     void theFallbackAlwaysShowsThePickerAndOnlyRecognisesTheRefusal()
     {
         QFile ctl(QStringLiteral(SOURCE_DIR "/src/calls/SfuCallController.cpp"));
@@ -8160,34 +7280,29 @@ private Q_SLOTS:
                  "the portal never names the X11 refusal");
     }
 
-    // An X11 session with no portal falls back to Lightning's own picker.
     void anX11SessionWithNoPortalFallsBackToLightningsOwnPicker()
     {
         using Route = SfuCallController::LinuxShareRoute;
         QCOMPARE(SfuCallController::linuxShareRoute(
-                     /*portalAvailable=*/false, QStringLiteral("xcb"),
-                     QStringLiteral("x11"), /*waylandDisplay=*/QString(),
-                     QStringLiteral(":0"), /*captureElementPresent=*/true),
+false, QStringLiteral("xcb"),
+                     QStringLiteral("x11"),QString(),
+                     QStringLiteral(":0"),true),
                  Route::FallbackDisplays);
-        // An unset session type must not decide.
         QCOMPARE(SfuCallController::linuxShareRoute(
                      false, QStringLiteral("xcb"), QString(), QString(),
                      QStringLiteral(":1"), true),
                  Route::FallbackDisplays);
-        // Offering a picker is not an error, so it says nothing.
         QVERIFY(SfuCallController::linuxShareRefusal(Route::FallbackDisplays)
                     .isEmpty());
     }
 
-    // A missing capture element is refused before the picker is offered,
-    // not discovered at PLAYING after the user chose.
     void anX11SessionWithoutTheCaptureElementRefusesBeforeOfferingAPicker()
     {
         using Route = SfuCallController::LinuxShareRoute;
         QCOMPARE(SfuCallController::linuxShareRoute(
                      false, QStringLiteral("xcb"), QStringLiteral("x11"),
                      QString(), QStringLiteral(":0"),
-                     /*captureElementPresent=*/false),
+false),
                  Route::RefuseNoCaptureElement);
         const QString message = SfuCallController::linuxShareRefusal(
             Route::RefuseNoCaptureElement);
@@ -8196,11 +7311,8 @@ private Q_SLOTS:
                                            "missing element: %1")
                                 .arg(message)));
 
-        // In a sandbox the host's packages do not help: the Flatpak loads
-        // plugins from its runtime and /app only, and the KDE runtime has no
-        // ximagesrc. The advice must not point at apt.
         const QString sandboxed = SfuCallController::linuxShareRefusal(
-            Route::RefuseNoCaptureElement, /*sandboxed=*/true);
+            Route::RefuseNoCaptureElement,true);
         QVERIFY2(!sandboxed.contains(QStringLiteral("gst-plugins-good")),
                  qPrintable(QStringLiteral("a sandboxed build is told to "
                                            "install a host package: %1")
@@ -8209,9 +7321,6 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("the sandboxed refusal does not "
                                            "name the portal: %1")
                                 .arg(sandboxed)));
-        // Nor is the portal the usual remedy: this route is X11-only, where
-        // few portal backends offer ScreenCast. Name what works instead: a
-        // build that captures X11 itself, or a Wayland session.
         QVERIFY2(sandboxed.contains(QStringLiteral("AppImage"))
                      && sandboxed.contains(QStringLiteral(
                          "distribution package")),
@@ -8227,18 +7336,15 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("the sandboxed refusal names one "
                                            "desktop's portal package: %1")
                                 .arg(sandboxed)));
-        // An unsandboxed build keeps the package advice.
         QVERIFY(message.contains(QStringLiteral("gst-plugins-good")));
-        // The other refusals do not depend on the sandbox.
         QCOMPARE(SfuCallController::linuxShareRefusal(
                      Route::RefuseWaylandNeedsPortal, true),
                  SfuCallController::linuxShareRefusal(
                      Route::RefuseWaylandNeedsPortal, false));
 
-        // No display server outranks the element probe: nothing to capture.
         QCOMPARE(SfuCallController::linuxShareRoute(false, QStringLiteral("xcb"),
                                                     QString(), QString(),
-                                                    /*x11Display=*/QString(),
+QString(),
                                                     true),
                  Route::RefuseNoDisplayServer);
         QVERIFY(!SfuCallController::linuxShareRefusal(
@@ -8246,12 +7352,6 @@ private Q_SLOTS:
                      .isEmpty());
     }
 
-    // The X11 capture rectangle must come from the platform, never be derived
-    // from QScreen::geometry() * devicePixelRatio(): Qt keeps the top-left in
-    // native pixels and scales only the size, and devicePixelRatio() is a
-    // rounded value, so the derivation lands inside a neighbouring monitor.
-    // Scans these two function bodies (the Windows branch legitimately uses
-    // devicePixelRatio() for a label); each slice is proven before use.
     void theLinuxCaptureRectangleIsNeverDerivedFromDevicePixelRatio()
     {
         QFile file(QStringLiteral(
@@ -8260,9 +7360,6 @@ private Q_SLOTS:
                  "SfuCallController.cpp is not where this test looks for it");
         const QString source = QString::fromUtf8(file.readAll());
 
-        // Line comments stripped first: the bodies explain why
-        // devicePixelRatio() is wrong, which would trip the ban. There are no
-        // block comments here.
         const auto stripComments = [](const QString &in) {
             QString out;
             out.reserve(in.size());
@@ -8310,40 +7407,28 @@ private Q_SLOTS:
 
     void aCaptureRectangleIsAcceptedAsTheNativeRectangleOrNotAtAll()
     {
-        // The validator accepts native rectangles unchanged and refuses what
-        // `ximagesrc` cannot be given. These real rectangles pass unchanged.
         QCOMPARE(SfuCallController::validX11CaptureRect(
                      QRect(0, 0, 3840, 2160)),
                  QRect(0, 0, 3840, 2160));
         QCOMPARE(SfuCallController::validX11CaptureRect(
                      QRect(3840, 0, 3840, 2160)),
                  QRect(3840, 0, 3840, 2160));
-        // A vertically stacked second monitor, same rule.
         QCOMPARE(SfuCallController::validX11CaptureRect(
                      QRect(0, 2160, 1920, 1080)),
                  QRect(0, 2160, 1920, 1080));
 
-        // Refused rather than clamped: `ximagesrc`'s coordinates are unsigned,
-        // so a negative origin wraps and captures somewhere else.
         QVERIFY(!SfuCallController::validX11CaptureRect(
                      QRect(-1920, 0, 1920, 1080))
                      .isValid());
         QVERIFY(!SfuCallController::validX11CaptureRect(
                      QRect(0, -100, 800, 600))
                      .isValid());
-        // Degenerate input produces no rectangle rather than an invented one.
         QVERIFY(!SfuCallController::validX11CaptureRect(QRect(0, 0, 0, 0))
                      .isValid());
         QVERIFY(!SfuCallController::validX11CaptureRect(QRect()).isValid());
 
-        // A null screen handle is not a rectangle; QScreen::handle() is null
-        // during hot-unplug teardown.
         QVERIFY(!SfuCallController::nativeScreenRect(nullptr).isValid());
     }
-
-    // The peer is bound: (room, call_id) identifies the call, but call_id is
-    // readable by every room member, so it does not say who speaks for the
-    // other side.
 
     void aHangupFromAnotherRoomMemberDoesNotEndTheRing()
     {
@@ -8358,17 +7443,14 @@ private Q_SLOTS:
         hangup.kind = CallSignal::Kind::Hangup;
         hangup.roomId = QStringLiteral("!r:x");
         hangup.eventId = QStringLiteral("$hangup-stranger");
-        hangup.sender = QStringLiteral("@stranger:x"); // not the caller
+        hangup.sender = QStringLiteral("@stranger:x");
         hangup.callId = QStringLiteral("call-1");
         hangup.partyId = QStringLiteral("stranger-party");
         hangup.reason = QStringLiteral("user_hangup");
         client.emitSignal(hangup);
-        // Still ringing, and no "missed call" was synthesised from someone
-        // who never called.
         QCOMPARE(calls.state(), CallController::State::Ringing);
         QCOMPARE(endedSpy.count(), 0);
 
-        // A select_answer from the stranger cannot silence it either.
         CallSignal selected = hangup;
         selected.kind = CallSignal::Kind::SelectAnswer;
         selected.eventId = QStringLiteral("$select-stranger");
@@ -8376,7 +7458,6 @@ private Q_SLOTS:
         client.emitSignal(selected);
         QCOMPARE(calls.state(), CallController::State::Ringing);
 
-        // The caller's own hangup still ends it.
         hangup.sender = QStringLiteral("@peer:x");
         hangup.partyId = QStringLiteral("peer-party");
         hangup.eventId = QStringLiteral("$hangup-peer");
@@ -8395,7 +7476,6 @@ private Q_SLOTS:
                                          QStringLiteral("@peer:x")));
         const QString callId = calls.activeCallId();
 
-        // A third member answers first; they must not win the media session.
         CallSignal intruder;
         intruder.kind = CallSignal::Kind::Answer;
         intruder.roomId = QStringLiteral("!r:x");
@@ -8442,7 +7522,6 @@ private Q_SLOTS:
         client.emitSignal(answer);
         QCOMPARE(calls.state(), CallController::State::Connecting);
 
-        // Once locked, a hangup from anyone else is not this call's.
         CallSignal hangup;
         hangup.kind = CallSignal::Kind::Hangup;
         hangup.roomId = QStringLiteral("!r:x");
@@ -8459,35 +7538,22 @@ private Q_SLOTS:
         QCOMPARE(calls.state(), CallController::State::Ended);
     }
 
-
-    // Failure reporting for group call joins.
-
-    // Every category Rust can emit has its own wording: nothing may reach the
-    // generic fallback, categories grouped on purpose share exactly one
-    // sentence, and different groups never collide.
     void everySfuFailureCategoryHasItsOwnHonestWording()
     {
         RecordingCallClient client;
         SfuCallController call;
         call.setClient(&client);
 
-        // During the join: a call that was already up reconnects on a
-        // failure a retry can cure instead of ending with its wording (see
-        // eachWayOfLosingTheSessionReconnectsButARefusalStillEnds), so the
-        // wording is the join's.
         auto sentenceFor = [&](const QString &category) {
             call.setCallStateForTest(SfuCallController::State::Connecting);
             client.emitSfuState(QStringLiteral("failed"), category);
             return call.lastError();
         };
 
-        // The fallback itself; anything equal to it has no wording.
         const QString generic =
             sentenceFor(QStringLiteral("a_category_no_path_emits"));
         QVERIFY(!generic.isEmpty());
 
-        // category -> group whose wording it shares. The log keeps the category
-        // verbatim; different groups must read differently.
         const QList<QPair<QString, QString>> table = {
             { QStringLiteral("forbidden"),         QStringLiteral("refused") },
             { QStringLiteral("unsupported"),       QStringLiteral("no-service") },
@@ -8508,9 +7574,6 @@ private Q_SLOTS:
             { QStringLiteral("ws_frame_too_large"),
                                                    QStringLiteral("misconfigured") },
             { QStringLiteral("unknown"),           QStringLiteral("misconfigured") },
-            // The former `connect_failed`, split by failure point (Rust
-            // `classify_ws_error`): DNS, TLS, HTTP status, websocket upgrade,
-            // firewall, dead SFU.
             { QStringLiteral("focus_unresolved"),  QStringLiteral("dns") },
             { QStringLiteral("focus_resolve_timeout"),
                                                    QStringLiteral("dns") },
@@ -8525,8 +7588,6 @@ private Q_SLOTS:
             { QStringLiteral("ws_rejected"),       QStringLiteral("not-a-ws") },
             { QStringLiteral("ws_handshake_failed"),
                                                    QStringLiteral("not-a-ws") },
-            // Websocket-upgrade twins of the JWT service categories; same fact
-            // one step later, same sentence.
             { QStringLiteral("sfu_forbidden"),     QStringLiteral("refused") },
             { QStringLiteral("sfu_not_found"),     QStringLiteral("no-service") },
         };
@@ -8556,7 +7617,6 @@ private Q_SLOTS:
                                                   *known)));
         }
 
-        // Distinct groups must be distinct sentences.
         QStringList distinct = saidForGroup.values();
         distinct.sort();
         QStringList deduped = distinct;
@@ -8565,9 +7625,6 @@ private Q_SLOTS:
                  "two failure groups produce the same sentence, so the user "
                  "still cannot tell them apart");
 
-        // `unsupported` must not blame the user's homeserver: it is a 404 from
-        // the SFU's JWT service, named by the oldest membership and often on
-        // someone else's infrastructure.
         const QString serviceAbsent = saidForGroup.value(
             QStringLiteral("no-service"));
         QVERIFY2(serviceAbsent.contains(QStringLiteral("calling service"),
@@ -8582,17 +7639,12 @@ private Q_SLOTS:
                  "having no calling support are different facts about "
                  "different machines and must not share a sentence");
 
-        // A LAN-only focus must not read as a network outage: Element has no
-        // such policy, so the room works there.
         QVERIFY2(saidForGroup.value(QStringLiteral("private"))
                      != saidForGroup.value(QStringLiteral("connect")),
                  "a focus refused for having a private address still reads "
                  "as 'the network is down'");
     }
 
-    // The membership refusal must not point at the permissions screen:
-    // `org.matrix.msc3401.call.member` is deliberately absent from
-    // RoomInfoController::powerLevelKeys() and the Rust write allowlist.
     void theMembershipRefusalDoesNotPromiseAPermissionsScreenThatCannotHelp()
     {
         RecordingCallClient client;
@@ -8607,8 +7659,6 @@ private Q_SLOTS:
 
         const QString said = call.lastError();
         QVERIFY(!said.isEmpty());
-        // Still a room-permission problem; the case separating it from the call
-        // service's refusal depends on these two words.
         QVERIFY(said.contains(QStringLiteral("permission")));
         QVERIFY(said.contains(QStringLiteral("room")));
         QVERIFY2(!said.contains(QStringLiteral("in the room's permissions")),
@@ -8618,12 +7668,6 @@ private Q_SLOTS:
                                 "said: %1").arg(said)));
     }
 
-    // Leaving during `Preparing`.
-
-    // A publish that lands after we left is retracted with the delay id it
-    // armed; otherwise the server may apply it after our retraction and
-    // recreate a ghost membership, and the delayed retraction is never
-    // cancelled.
     void aMembershipPublishThatLandsAfterWeLeftIsRetracted()
     {
         const QString room = QStringLiteral("!room:example.org");
@@ -8637,14 +7681,12 @@ private Q_SLOTS:
         QCOMPARE(static_cast<int>(call.state()),
                  static_cast<int>(SfuCallController::State::Preparing));
 
-        // Leave while the homeserver is still deciding.
         call.leave();
         QVERIFY2(client.retractions.isEmpty(),
                  "a retraction was sent for a membership that does not exist "
                  "yet — and when the server refuses it, the give-up branch "
                  "reports a ghost membership nobody ever created");
 
-        // ...then the publish lands.
         client.answerPublish(publish, true, QStringLiteral("delay-1"));
 
         QCOMPARE(client.retractions.size(), 1);
@@ -8656,8 +7698,6 @@ private Q_SLOTS:
                  "against an id nothing holds");
     }
 
-    // A refused publish leaves nothing to retract, so no retraction (and no
-    // false ghost-membership warning) follows.
     void aRefusedPublishIsNotFollowedByARetractionOfNothing()
     {
         RecordingCallClient client;
@@ -8675,8 +7715,6 @@ private Q_SLOTS:
                  "a membership the homeserver refused was 'retracted' anyway");
     }
 
-    // A stale publish must not retract the call we are back in: the state key
-    // is per (user, device), so both publishes address the same event.
     void aStalePublishDoesNotRetractTheCallWeAreBackIn()
     {
         const QString room = QStringLiteral("!room:example.org");
@@ -8687,13 +7725,11 @@ private Q_SLOTS:
 
         const quint64 first = call.beginMembershipPublishForTest(room, focus);
         call.leave();
-        // Straight back into the same room's call.
         const quint64 second = call.beginMembershipPublishForTest(room, focus);
         QVERIFY(second != first);
         QCOMPARE(static_cast<int>(call.state()),
                  static_cast<int>(SfuCallController::State::Preparing));
 
-        // The abandoned publish finally lands.
         client.answerPublish(first, true, QStringLiteral("delay-1"));
 
         QVERIFY2(client.retractions.isEmpty(),
@@ -8703,11 +7739,6 @@ private Q_SLOTS:
                  static_cast<int>(SfuCallController::State::Preparing));
     }
 
-    // A hand raised before its membership arrived.
-
-    // The reaction rides sync and the membership rides a session read, with
-    // no ordering, so an early raise is parked and applied when the
-    // membership lands.
     void aRaiseThatBeatsItsMembershipIsAppliedWhenItArrives()
     {
         const QString room = QStringLiteral("!room:example.org");
@@ -8730,11 +7761,9 @@ private Q_SLOTS:
         });
         CallParticipantModel *model = call.participantModel();
         QCOMPARE(participantRowFor(model, identity), -1);
-        // The reaction arrives before a visible member can be attributed.
         client.emitHandChanged(room, QStringLiteral("@bea:example.org"),
                                membership, QStringLiteral("$raise"), true);
 
-        // ...then the membership lands.
         RtcParticipant bea;
         bea.userId = QStringLiteral("@bea:example.org");
         bea.deviceId = QStringLiteral("BDEV");
@@ -8755,8 +7784,6 @@ private Q_SLOTS:
                  "a hand raised before its membership was read stayed down "
                  "for the rest of the call");
 
-        // It can still be lowered: the redaction names only the reaction, so
-        // the applied raise must be recorded under that id.
         client.emitHandChanged(room, QString(), QString(),
                                QStringLiteral("$raise"), false);
         QCOMPARE(participantRole(model, participantRowFor(model, identity),
@@ -8765,9 +7792,6 @@ private Q_SLOTS:
                  false);
     }
 
-    // A forged raise (sender does not own the annotated membership) is never
-    // applied and never parked; forgeries would fill the bounded store. The
-    // first half is a guard on the parking code rather than a regression test.
     void aForgedRaiseIsNeitherAppliedNorParked()
     {
         const QString room = QStringLiteral("!room:example.org");
@@ -8803,7 +7827,6 @@ private Q_SLOTS:
         rtc.refresh(room);
         client.answerSession(client.lastSessionOp, session);
 
-        // Mallory raises Bea's hand.
         client.emitHandChanged(room, QStringLiteral("@mallory:example.org"),
                                membership, QStringLiteral("$forged"), true);
         QCOMPARE(participantRole(model, participantRowFor(model, identity),
@@ -8811,7 +7834,6 @@ private Q_SLOTS:
                      .toBool(),
                  false);
 
-        // A later membership read must not let it through either.
         RtcParticipant moved = bea;
         moved.displayName = QStringLiteral("Bea");
         RtcSessionData again;
@@ -8825,8 +7847,6 @@ private Q_SLOTS:
                  "a raise from somebody who does not own the membership it "
                  "annotates was applied on the next session read");
     }
-
-    // Transient call reactions (io.element.call.reaction).
 
     void aCallReactionIsShownOnTheTileOfWhoeverOwnsTheMembership()
     {
@@ -8850,8 +7870,6 @@ private Q_SLOTS:
                      .toString(),
                  customEmoji);
 
-        // Nobody else's tile moved: a reaction is drawn on the tile of whoever
-        // owns the referenced membership.
         const int mine =
             participantRowFor(model, QStringLiteral("@me:example.org:MEDEV"));
         QVERIFY(mine >= 0);
@@ -8871,7 +7889,6 @@ private Q_SLOTS:
         RecordingCallClient client;
         RtcController rtc;
         SfuCallController call;
-        // The real window, made short; the model's timer and expiry run.
         call.setReactionWindowMsForTest(40);
         CallParticipantModel *model = stageOneRemoteParticipant(
             client, rtc, call, room, identity,
@@ -8886,8 +7903,6 @@ private Q_SLOTS:
                      .toString(),
                  kThumbsUpEmoji);
 
-        // A second one inside the window changes nothing (element-call refuses
-        // too), or a sender could hold a permanent badge by re-sending.
         client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
                                 membership, kPartyEmoji);
         QCOMPARE(participantRole(model, row,
@@ -8895,13 +7910,11 @@ private Q_SLOTS:
                      .toString(),
                  kThumbsUpEmoji);
 
-        // ...and it expires on its own.
         QTRY_VERIFY(participantRole(model, row,
                                     CallParticipantModel::ReactionEmojiRole)
                         .toString()
                         .isEmpty());
 
-        // After the window the next one is accepted.
         client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
                                 membership, kPartyEmoji);
         QCOMPARE(participantRole(model, row,
@@ -8912,8 +7925,6 @@ private Q_SLOTS:
 
     void aForgedCallReactionIsNeitherShownNorParked()
     {
-        // A reaction whose sender does not own the referenced membership is
-        // dropped and not parked.
         const QString room = QStringLiteral("!room:example.org");
         const QString identity = QStringLiteral("@bea:example.org:BDEV");
         const QString membership = QStringLiteral("$bea-membership");
@@ -8935,7 +7946,6 @@ private Q_SLOTS:
                  "a reaction from somebody who does not own the membership it "
                  "references was drawn on that membership's owner");
 
-        // A later session read must not let it through either.
         RtcParticipant moved;
         moved.userId = QStringLiteral("@bea:example.org");
         moved.deviceId = QStringLiteral("BDEV");
@@ -8972,14 +7982,11 @@ private Q_SLOTS:
         const int row = participantRowFor(model, identity);
         QSignalSpy changes(model, &QAbstractItemModel::dataChanged);
 
-        // No emoji (rust/src/rtc.rs drops these; this pins the second gate).
         client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
                                 membership, QString());
-        // A membership nobody has ever declared.
         client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
                                 QStringLiteral("$nobodys-membership"),
                                 kThumbsUpEmoji);
-        // ...and one for a DIFFERENT room, which this call is not in.
         client.emitCallReaction(QStringLiteral("!elsewhere:example.org"),
                                 QStringLiteral("@bea:example.org"), membership,
                                 kThumbsUpEmoji);
@@ -8993,7 +8000,6 @@ private Q_SLOTS:
 
     void aCallReactionThatBeatsItsMembershipIsShownWhenItArrives()
     {
-        // Same race as the raised hand, and the same bounded store.
         const QString room = QStringLiteral("!room:example.org");
         const QString identity = QStringLiteral("@bea:example.org:BDEV");
         const QString membership = QStringLiteral("$bea-membership");
@@ -9014,7 +8020,6 @@ private Q_SLOTS:
         });
         CallParticipantModel *model = call.participantModel();
 
-        // The reaction arrives first and cannot be attributed yet.
         client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
                                 membership, kThumbsUpEmoji);
         QVERIFY(participantRole(model, participantRowFor(model, identity),
@@ -9022,7 +8027,6 @@ private Q_SLOTS:
                     .toString()
                     .isEmpty());
 
-        // ...then the membership lands.
         RtcParticipant bea;
         bea.userId = QStringLiteral("@bea:example.org");
         bea.deviceId = QStringLiteral("BDEV");
@@ -9044,8 +8048,6 @@ private Q_SLOTS:
 
     void aParkedCallReactionThatOutlivedItsWindowIsNeverDrawn()
     {
-        // A reaction parked longer than its window is over and is not drawn
-        // when the membership finally arrives (unlike a hand).
         const QString room = QStringLiteral("!room:example.org");
         const QString identity = QStringLiteral("@bea:example.org:BDEV");
         const QString membership = QStringLiteral("$bea-membership");
@@ -9113,7 +8115,6 @@ private Q_SLOTS:
                      .toString()
                      .isEmpty());
 
-        // The participant leaves: the row and reaction go and do not return.
         QVariantMap gone =
             sfuParticipant(identity, QStringLiteral("PA_ONE"), {});
         gone.insert(QStringLiteral("state"), QStringLiteral("disconnected"));
@@ -9129,7 +8130,6 @@ private Q_SLOTS:
                      .isEmpty(),
                  "a reaction survived the participant who sent it leaving");
 
-        // The call ends: nothing transient outlives it.
         client.emitCallReaction(room, QStringLiteral("@bea:example.org"),
                                 membership, kPartyEmoji);
         QVERIFY(!participantRole(model, participantRowFor(model, identity),
@@ -9163,8 +8163,6 @@ private Q_SLOTS:
         });
         CallParticipantModel *model = call.participantModel();
 
-        // Our membership as the session read reports it; preferred over the
-        // published id because a refresh replaces the state event.
         RtcParticipant me;
         me.userId = QStringLiteral("@me:example.org");
         me.deviceId = QStringLiteral("MEDEV");
@@ -9180,8 +8178,6 @@ private Q_SLOTS:
         rtc.refresh(room);
         client.answerSession(client.lastSessionOp, session);
 
-        // The controller refuses malformed choices before the recording
-        // client's send path, including image-pack keys and multiple emoji.
         for (const QString &invalid : {
                  QStringLiteral("mxc://example.org/image"),
                  QStringLiteral("text"),
@@ -9202,21 +8198,16 @@ private Q_SLOTS:
         QCOMPARE(client.reactionSends.at(0).name,
                  QStringLiteral("thumbsup"));
 
-        // Not optimistic: our tile lights from the event coming back through
-        // sync, like anyone else's.
         QVERIFY2(participantRole(model, participantRowFor(model, ownIdentity),
                                  CallParticipantModel::ReactionEmojiRole)
                      .toString()
                      .isEmpty(),
                  "the sender's own tile was lit before the event existed");
 
-        // A second press inside the window sends nothing; receivers would drop
-        // it, and a held control must not become an event storm.
         call.sendCallReaction(kPartyEmoji,
                               QStringLiteral("party"));
         QCOMPARE(client.reactionSends.size(), 1);
 
-        // ...unless the send failed, so the user can retry at once.
         client.answerRtcSend(client.lastReactionOp, false,
                              QStringLiteral("network"));
         const QString pickedEmoji = QString::fromUtf8("🦊");
@@ -9225,7 +8216,6 @@ private Q_SLOTS:
         QCOMPARE(client.reactionSends.at(1).emoji, pickedEmoji);
         QCOMPARE(client.reactionSends.at(1).name, QString());
 
-        // The returning event draws it, attributed through our membership.
         client.emitCallReaction(room, QStringLiteral("@me:example.org"),
                                 ownMembership,
                                 pickedEmoji);
@@ -9246,8 +8236,6 @@ private Q_SLOTS:
         client.answerPublish(op, true, QString());
         call.setCallStateForTest(SfuCallController::State::Connected);
 
-        // U+2139 is a Unicode letter as well as a catalogue emoji. Rejecting
-        // every letter silently drops this valid choice from the full picker.
         const QString emoji = QString::fromUtf8("ℹ️");
         QVERIFY(emoji.at(0).isLetter());
         call.sendCallReaction(emoji, QString());
@@ -9256,15 +8244,12 @@ private Q_SLOTS:
         QCOMPARE(client.reactionSends.first().name, QString());
     }
 
-    // A share-audio failure costs the share's sound, not the call:
-    // `share_audio_failed` must not reach the teardown in onEngineFailed.
     void aShareAudioFailureCostsTheSoundAndNotTheCall()
     {
         QVERIFY(SfuCallController::categoryIsShareAudioOnly(
             QStringLiteral("share_audio_failed")));
         QVERIFY(SfuCallController::categoryIsShareAudioOnly(
             QStringLiteral("share_audio_unavailable")));
-        // Not a catch-all: everything else still ends the call.
         QVERIFY(!SfuCallController::categoryIsShareAudioOnly(
             QStringLiteral("connection_lost")));
         QVERIFY(!SfuCallController::categoryIsShareAudioOnly(
@@ -9283,7 +8268,6 @@ private Q_SLOTS:
         QCOMPARE(call.state(), SfuCallController::State::Connected);
         QVERIFY2(call.active(),
                  "a share-audio failure ended the call the user was in");
-        // The user is still told.
         QCOMPARE(failures.count(), 1);
         const QString sentence = failures.at(0).at(0).toString();
         QVERIFY2(!sentence.isEmpty(), "no wording for share_audio_failed");
@@ -9293,10 +8277,6 @@ private Q_SLOTS:
                      "a share-audio failure tells the user the call ended: %1")
                      .arg(sentence)));
 
-        // A running share holds a cid that must be released. The engine emits
-        // `failed()` synchronously, re-entering from inside
-        // publishShareAudio(), so startScreenShare records the cid before that
-        // call.
         SfuCallController running;
         running.setClient(&client);
         running.setCallStateForTest(SfuCallController::State::Connected);
@@ -9309,7 +8289,6 @@ private Q_SLOTS:
                  "track stays declared to the SFU with nothing behind it");
         QVERIFY2(running.active(), "the cleanup path ended the call");
 
-        // And the ordinary categories are untouched.
         SfuCallController fatal;
         fatal.setClient(&client);
         fatal.setCallStateForTest(SfuCallController::State::Connected);
@@ -9319,8 +8298,6 @@ private Q_SLOTS:
         QCOMPARE(fatal.state(), SfuCallController::State::Failed);
     }
 
-    // Chosen applications that cannot be captured cost the sound, never the
-    // call, and are never widened to the whole system.
     void chosenAppsThatCannotBeCapturedCostOnlyTheSound()
     {
         QVERIFY(SfuCallController::categoryIsShareAudioOnly(
@@ -9340,14 +8317,10 @@ private Q_SLOTS:
                  qPrintable(failures.at(0).at(0).toString()));
     }
 
-    // The sound choice is three-way and an enum: anything unknown is "no
-    // sound", "on" returns to the choice made before "off", and "only these
-    // apps" is refused where single applications cannot be captured rather
-    // than quietly becoming "everything".
     void theShareSoundChoiceIsAnEnumThatNeverWidens()
     {
         SfuCallController call;
-        QCOMPARE(call.shareAudioMode(), 1);   // the whole system by default
+        QCOMPARE(call.shareAudioMode(), 1);
         QVERIFY(call.shareAudioEnabled());
 
         call.setShareAudioMode(7);
@@ -9356,8 +8329,6 @@ private Q_SLOTS:
         call.setShareAudioEnabled(true);
         QCOMPARE(call.shareAudioMode(), 1);
 
-        // Where single applications cannot be captured, "only these apps" is
-        // refused, never widened.
         call.setShareAudioCanChooseAppsForTest(false);
         call.setShareAudioMode(2);
         QCOMPARE(call.shareAudioMode(), 1);
@@ -9366,10 +8337,7 @@ private Q_SLOTS:
         QCOMPARE(call.shareAudioMode(), 1);
         QVERIFY(call.shareAudioApps().isEmpty());
 
-        // Where they can, the choosing half.
         call.setShareAudioCanChooseAppsForTest(true);
-        // Ticking an application chooses "only these apps"; it is listed
-        // (named) even while it is not playing.
         call.setShareAudioAppChosen(QStringLiteral("Firefox"),
                                     QStringLiteral("Firefox"), true);
         QCOMPARE(call.shareAudioMode(), 2);
@@ -9385,14 +8353,11 @@ private Q_SLOTS:
             }
         }
         QVERIFY2(listed, "a chosen application vanished from the list");
-        // Off and back on keeps the choice.
         call.setShareAudioEnabled(false);
         QCOMPARE(call.shareAudioMode(), 0);
         call.setShareAudioEnabled(true);
         QCOMPARE(call.shareAudioMode(), 2);
         QCOMPARE(call.shareAudioApps().size(), 1);
-        // A window's application replaces the choice, and restoring brings
-        // the earlier one back (the picker's preselection, undone on cancel).
         call.chooseOnlyShareAudioApp(QStringLiteral("mpv.exe"),
                                      QStringLiteral("mpv"));
         QCOMPARE(call.shareAudioApps(), QStringList{ QStringLiteral("mpv.exe") });
@@ -9401,8 +8366,6 @@ private Q_SLOTS:
         QVERIFY(call.shareAudioApps().isEmpty());
     }
 
-    // L1: a window's application chosen by the picker for one share is put
-    // back to the earlier choice when that share ends, not left behind.
     void aWindowPreselectedSoundChoiceEndsWithItsShare()
     {
         RecordingCallClient client;
@@ -9411,12 +8374,10 @@ private Q_SLOTS:
         call.setShareAudioCanChooseAppsForTest(true);
         call.setCallStateForTest(SfuCallController::State::Connected);
         QCOMPARE(call.shareAudioMode(), 1);
-        // The picker: preselect the window's app, then confirm the share.
         call.chooseOnlyShareAudioApp(QStringLiteral("vlc.exe"),
                                      QStringLiteral("VLC"));
         call.restoreShareAudioChoiceAfterShare(1, {});
         QCOMPARE(call.shareAudioMode(), 2);
-        // The share (and here the call) ends.
         QVERIFY(QMetaObject::invokeMethod(
             &call, "onEngineFailed", Qt::DirectConnection,
             Q_ARG(QString, QStringLiteral("connection_lost"))));
@@ -9426,10 +8387,6 @@ private Q_SLOTS:
                  "window's application");
     }
 
-    // #26: a sound choice made DURING the share is the user's own, so the
-    // picker's one-share preselection must not put the earlier choice back
-    // when the share ends. "No sound" picked mid-share must not turn into
-    // "Entire system" for the next share.
     void aSoundChoiceMadeDuringTheShareOutlivesIt()
     {
         RecordingCallClient client;
@@ -9441,7 +8398,6 @@ private Q_SLOTS:
         call.chooseOnlyShareAudioApp(QStringLiteral("vlc.exe"),
                                      QStringLiteral("VLC"));
         call.restoreShareAudioChoiceAfterShare(1, {});
-        // Mid-share, from the call bar: no sound.
         call.setShareAudioMode(0);
         QVERIFY(QMetaObject::invokeMethod(
             &call, "onEngineFailed", Qt::DirectConnection,
@@ -9452,7 +8408,6 @@ private Q_SLOTS:
                      "when it ended, so the next share carries sound")
                      .arg(call.shareAudioMode())));
 
-        // The same for an application ticked mid-share.
         SfuCallController apps;
         apps.setClient(&client);
         apps.setShareAudioCanChooseAppsForTest(true);
@@ -9471,13 +8426,10 @@ private Q_SLOTS:
                                QStringLiteral("mpv.exe") }));
     }
 
-    // GitHub #43: the share sound choice was in memory only and every start
-    // reset it to "Entire system". A choice made by the user outlives the
-    // controller; the picker's one-share preselection does not become one.
     void theShareSoundChoiceSurvivesARestart()
     {
         SettingsManager settings;
-        settings.setCallShareAudioMode(1);   // known start
+        settings.setCallShareAudioMode(1);
         {
             SfuCallController call;
             call.setSettings(&settings);
@@ -9486,7 +8438,6 @@ private Q_SLOTS:
         }
         QCOMPARE(settings.callShareAudioMode(), 0);
         {
-            // "A restart": a fresh controller reads the device choice.
             SfuCallController call;
             call.setSettings(&settings);
             QCOMPARE(call.shareAudioMode(), 0);
@@ -9497,7 +8448,6 @@ private Q_SLOTS:
         back.setSettings(&settings);
         QCOMPARE(back.shareAudioMode(), 1);
 
-        // "Only chosen apps" comes back with its apps.
         {
             SfuCallController call;
             call.setShareAudioCanChooseAppsForTest(true);
@@ -9512,7 +8462,6 @@ private Q_SLOTS:
         QCOMPARE(withApps.shareAudioMode(), 2);
         QCOMPARE(withApps.shareAudioApps(),
                  QStringList{ QStringLiteral("firefox") });
-        // An unreadable stored value is the default, not the nearest end.
         QSettings().setValue(QStringLiteral("calls/shareAudioMode"), 7);
         QCOMPARE(settings.callShareAudioMode(), 1);
     }
@@ -9567,8 +8516,6 @@ private Q_SLOTS:
             QCOMPARE(restarted.shareAudioApps(), apps);
             QCOMPARE(settings.callShareAudioMode(), 2);
             QCOMPARE(settings.callShareAudioApps(), apps);
-            // Cancelling a picker's temporary choice must also preserve the
-            // unavailable preference, rather than restoring Entire system.
             restarted.restoreShareAudioChoice(0, {});
             restarted.restoreShareAudioChoice(2, apps);
             QCOMPARE(restarted.shareAudioMode(), 2);
@@ -9582,8 +8529,6 @@ private Q_SLOTS:
         QCOMPARE(availableAgain.shareAudioApps(), apps);
     }
 
-    // The picker's window preselection and its restore are NOT a preference:
-    // they must never reach the store.
     void thePickersOneSharePreselectionIsNeverPersisted()
     {
         SettingsManager settings;
@@ -9603,9 +8548,6 @@ private Q_SLOTS:
         QCOMPARE(settings.callShareAudioMode(), 1);
     }
 
-    // The share's sound has its own mute (its `sharevalve`, 2026-09-14 seam):
-    // a control, a status line that says so while it is in force, and a
-    // lifetime of one share.
     void theShareSoundCanBeMutedOnItsOwnForOneShare()
     {
         RecordingCallClient client;
@@ -9620,22 +8562,18 @@ private Q_SLOTS:
         QCOMPARE(status.count(), 1);
         QVERIFY2(!call.microphoneMuted(),
                  "muting the share's sound muted the microphone");
-        // Idempotent.
         call.setShareAudioMuted(true);
         QCOMPARE(changed.count(), 1);
         QVERIFY(QMetaObject::invokeMethod(&call, "toggleShareAudioMuted"));
         QVERIFY(!call.shareAudioMuted());
         call.setShareAudioMuted(true);
 
-        // The QML control binds the property.
         const QMetaObject *meta = call.metaObject();
         const int index = meta->indexOfProperty("shareAudioMuted");
         QVERIFY(index >= 0);
         QVERIFY(meta->property(index).isWritable());
         QVERIFY(meta->property(index).hasNotifySignal());
 
-        // The share (here the whole call) ending ends the mute: the next
-        // share starts with its sound on.
         call.setCallStateForTest(SfuCallController::State::Connected);
         call.leave();
         QVERIFY2(!call.shareAudioMuted(),
@@ -9656,11 +8594,6 @@ private Q_SLOTS:
                  qPrintable(muted));
     }
 
-    // Review L3: a daemon restart replaces the share's sound track, but at
-    // most three times per share (a restart loop must not cost the far end a
-    // new track every ten seconds), and the budget is the share's: it comes
-    // back with the next one. Requests for any track but the running one
-    // are ignored.
     void shareAudioRebuildsAreCappedPerShare()
     {
         RecordingCallClient client;
@@ -9680,21 +8613,14 @@ private Q_SLOTS:
         for (int i = 0; i < 5; ++i)
             QVERIFY(ask(QStringLiteral("share-audio-1")));
         QCOMPARE(call.shareAudioRebuildsForTest(), 3);
-        // The share ends (here with the call): the budget is reset.
         call.leave();
         QCOMPARE(call.shareAudioRebuildsForTest(), 0);
     }
 
-    // What the status line says is a pure function of the choice and of what
-    // the running share is doing; the cases that matter are the ones a person
-    // on the other end would otherwise have to report.
     void theShareSoundStatusSaysWhatIsActuallySent()
     {
         using In = SfuCallController::ShareAudioStatusInput;
         In in;
-        // Off, and the reason is one plain line per cause: never the old
-        // "can't exclude Lightning's own playback", which names nothing a
-        // person can act on, and never the wrong platform's remedy.
         in.supported = false;
         using Why = SfuCallController::ShareAudioUnavailable;
         const QList<QPair<Why, QString>> reasons = {
@@ -9719,17 +8645,13 @@ private Q_SLOTS:
         QVERIFY(SfuCallController::shareAudioStatusText(in).contains(
             QStringLiteral("no sound")));
 
-        // The whole system: whether this call is in it must be said.
         in.mode = 1;
-        // Supported always means Lightning is left out (#26): no sentence
-        // says the call may be heard again.
         const QString excluded = SfuCallController::shareAudioStatusText(in);
         QVERIFY2(excluded.contains(QStringLiteral("except Lightning")),
                  qPrintable(excluded));
         QVERIFY2(!excluded.contains(QStringLiteral("including this call")),
                  qPrintable(excluded));
 
-        // Chosen applications, named; none chosen means no sound.
         in.mode = 2;
         in.chosenLabels = {};
         QVERIFY(SfuCallController::shareAudioStatusText(in).contains(
@@ -9739,7 +8661,6 @@ private Q_SLOTS:
         QVERIFY2(named.contains(QStringLiteral("Firefox, mpv")),
                  qPrintable(named));
 
-        // During a share: none of the chosen playing, or nothing heard.
         in.trackLive = true;
         in.perApplication = true;
         in.carriedAny = false;
@@ -9753,8 +8674,6 @@ private Q_SLOTS:
         in.heard = true;
         QCOMPARE(SfuCallController::shareAudioStatusText(in), named);
 
-        // A monitor capture (not per application) that hears nothing says so
-        // too: the Mint report's "the other side hears nothing".
         in.mode = 1;
         in.perApplication = false;
         in.heard = false;
@@ -9763,7 +8682,6 @@ private Q_SLOTS:
 
         in.heard = true;
 
-        // A failed application and the branch limit are said, not silent.
         in.mode = 2;
         in.chosenLabels = { QStringLiteral("VLC") };
         in.perApplication = true;
@@ -9777,18 +8695,6 @@ private Q_SLOTS:
                  qPrintable(troubles));
     }
 
-    // ── Reconnecting after a transient network loss ──
-    //
-    // Live FAIL 2026-10-07 (Windows, UDP blocked for 26 s): the SFU timed
-    // our media out and sent Leave{CONNECTION_TIMEOUT, RESUME}; the bridge
-    // reported it as "ended" and the call was torn down with "The call ended
-    // because the connection was lost." The bridge now reports a Leave that
-    // asks us back, and a lost signalling socket, as "reconnecting".
-
-    // The whole recovery: membership and UI kept, the heartbeat still
-    // running, one rejoin with the same focus and room, and Connected again
-    // only once the new session's transport is up. Nothing is retracted and
-    // nothing is announced as a failure.
     void aSessionLostToTheNetworkRejoinsWithoutEndingTheCall()
     {
         RecordingCallClient client;
@@ -9806,12 +8712,9 @@ private Q_SLOTS:
         QVERIFY2(client.retractions.isEmpty(),
                  "the membership was retracted: to everyone else we left");
 
-        // The membership heartbeat keeps running while reconnecting, or the
-        // MSC4140 delayed retraction fires and removes us mid-reconnect.
         call.startRefreshTickForTest(10);
         QTRY_VERIFY(!client.delayedRestarts.isEmpty());
 
-        // One attempt, with the call's own focus and room.
         QTRY_COMPARE(client.sfuConnects.size(), 2);
         QCOMPARE(client.sfuConnects.last(),
                  qMakePair(kReconnectFocus, kReconnectRoom));
@@ -9836,13 +8739,11 @@ private Q_SLOTS:
         QVERIFY(client.retractions.isEmpty());
         QCOMPARE(call.roomId(), kReconnectRoom);
 
-        // Done: no further attempt goes out.
         QTest::qWait(150);
         QCOMPARE(client.sfuConnects.size(), 2);
         QCOMPARE(call.state(), SfuCallController::State::Connected);
     }
 
-    // Every trigger a connected call recovers from, and the ones it must not.
     void eachWayOfLosingTheSessionReconnectsButARefusalStillEnds()
     {
         const auto reconnects = [](const QString &state,
@@ -9855,26 +8756,21 @@ private Q_SLOTS:
             return call.state();
         };
         using S = SfuCallController::State;
-        // The signalling socket died (the bridge's own word for it).
         QCOMPARE(reconnects(QStringLiteral("reconnecting"),
                             QStringLiteral("signal_lost")), S::Reconnecting);
         QCOMPARE(reconnects(QStringLiteral("reconnecting"),
                             QStringLiteral("signal_timeout")), S::Reconnecting);
-        // A socket error or a close without a Leave.
         QVERIFY2(reconnects(QStringLiteral("failed"),
                             QStringLiteral("connection_lost"))
                      == S::Reconnecting,
                  "a lost socket ended a connected call");
         QCOMPARE(reconnects(QStringLiteral("closed"), QString()),
                  S::Reconnecting);
-        // The service refusing us is the same answer on every attempt.
         QCOMPARE(reconnects(QStringLiteral("failed"),
                             QStringLiteral("sfu_forbidden")), S::Failed);
-        // A Leave with DISCONNECT (removed, room closed) ends the call.
         QCOMPARE(reconnects(QStringLiteral("ended"),
                             QStringLiteral("server_leave")), S::Failed);
 
-        // ICE failing on a connected call reconnects too.
         {
             RecordingCallClient client;
             SfuCallController call;
@@ -9883,8 +8779,6 @@ private Q_SLOTS:
             QVERIFY(emitTransport(call, 0, QStringLiteral("failed")));
             QCOMPARE(call.state(), S::Reconnecting);
         }
-        // "disconnected" only after its grace, and not at all if ICE comes
-        // back first.
         {
             RecordingCallClient client;
             SfuCallController call;
@@ -9898,7 +8792,6 @@ private Q_SLOTS:
             QVERIFY(emitTransport(call, 1, QStringLiteral("disconnected")));
             QTRY_COMPARE(call.state(), S::Reconnecting);
         }
-        // Lost before the call was ever up: still a failed join.
         {
             RecordingCallClient client;
             SfuCallController call;
@@ -9910,15 +8803,10 @@ private Q_SLOTS:
         }
     }
 
-    // A network that does not come back: bounded attempts with backoff, then
-    // the call ends with the existing wording, the membership is retracted
-    // and nothing is attempted afterwards.
     void aReconnectThatNeverGetsBackEndsHonestly()
     {
         RecordingCallClient client;
         SfuCallController call;
-        // First backoff 10 ms (doubling to 80), each attempt 60 ms, 400 ms in
-        // all.
         call.setReconnectTimingForTest(10, 60, 400);
         connectRecoverableCall(client, call);
         QSignalSpy failed(&call, &SfuCallController::callFailed);
@@ -9926,15 +8814,12 @@ private Q_SLOTS:
         client.emitSfuState(QStringLiteral("reconnecting"),
                             QStringLiteral("signal_lost"));
         QCOMPARE(call.state(), SfuCallController::State::Reconnecting);
-        // The first attempt fails at once (the network is down), and another
-        // is made.
         QTRY_COMPARE(client.sfuConnects.size(), 2);
         client.emitSfuState(QStringLiteral("failed"),
                             QStringLiteral("connect_timeout"));
         QCOMPARE(call.state(), SfuCallController::State::Reconnecting);
         QTRY_COMPARE(client.sfuConnects.size(), 3);
 
-        // The rest time out on their own until the budget is spent.
         QTRY_COMPARE_WITH_TIMEOUT(call.state(),
                                   SfuCallController::State::Failed, 5000);
         QCOMPARE(call.lastError(),
@@ -9952,7 +8837,6 @@ private Q_SLOTS:
         QCOMPARE(client.sfuConnects.size(), attempts);
         QCOMPARE(call.state(), SfuCallController::State::Failed);
 
-        // A refusal during a reconnect ends it at once, with its own wording.
         RecordingCallClient refusing;
         SfuCallController refused;
         refused.setReconnectTimingForTest(10, 5000, 20000);
@@ -9967,13 +8851,10 @@ private Q_SLOTS:
         QVERIFY(refused.lastError() != call.lastError());
     }
 
-    // Leave while reconnecting ends the call now: no attempt afterwards, and
-    // nothing the attempt in flight reports can bring it back.
     void leavingWhileReconnectingEndsAtOnce()
     {
         using S = SfuCallController::State;
         {
-            // Waiting for the first attempt.
             RecordingCallClient client;
             SfuCallController call;
             call.setReconnectTimingForTest(40, 5000, 20000);
@@ -9989,7 +8870,6 @@ private Q_SLOTS:
                      "an attempt was made after the user left");
         }
         {
-            // An attempt in flight.
             RecordingCallClient client;
             SfuCallController call;
             call.setReconnectTimingForTest(10, 5000, 20000);
@@ -10009,16 +8889,11 @@ private Q_SLOTS:
         }
     }
 
-    // A report from the session being abandoned must not move the new one:
-    // not a late "closed", Leave or failure, not its JoinResponse or
-    // participant list, and not a transport "connected" from before the
-    // rejoin.
     void aStaleReportFromTheAbandonedSessionChangesNothing()
     {
         using S = SfuCallController::State;
         RecordingCallClient client;
         SfuCallController call;
-        // Long backoff: everything below arrives while waiting.
         call.setReconnectTimingForTest(10000, 5000, 60000);
         connectRecoverableCall(client, call);
         call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
@@ -10033,7 +8908,6 @@ private Q_SLOTS:
         client.emitSfuState(QStringLiteral("reconnecting"),
                             QStringLiteral("server_leave"));
         QCOMPARE(call.state(), S::Reconnecting);
-        // The tiles stay while reconnecting.
         QCOMPARE(call.participantModel()->rowCount(), rows);
 
         client.emitSfuState(QStringLiteral("closed"), QString());
@@ -10063,9 +8937,6 @@ private Q_SLOTS:
         QVERIFY(client.retractions.isEmpty());
     }
 
-    // After the rejoin everyone present is sent the key we already use, once
-    // and without a rotation, and only devices the membership names: an SFU
-    // participant with no membership gets nothing.
     void aRejoinSendsOurCurrentKeyAgainToMembersOnly()
     {
         KeyLaneCall c({ QStringLiteral("ADEV") });
@@ -10075,7 +8946,6 @@ private Q_SLOTS:
         const int key = c.newest();
         QCOMPARE(c.adopted(), key);
 
-        // Give the call its focus, as join() does, and get it up again.
         c.call.setReconnectTimingForTest(10, 5000, 20000);
         const quint64 op = c.call.beginMembershipPublishForTest(
             c.room, kReconnectFocus);
@@ -10085,7 +8955,6 @@ private Q_SLOTS:
         c.client.emitSfuState(QStringLiteral("reconnecting"),
                               QStringLiteral("server_leave"));
         QCOMPARE(c.call.state(), SfuCallController::State::Reconnecting);
-        // Nothing is sent while there is no session.
         QCOMPARE(c.client.keySends.size(), 1);
         QTRY_COMPARE(c.client.sfuConnects.size(), 2);
         c.client.emitSfuState(QStringLiteral("authorized"), QString());
@@ -10107,11 +8976,6 @@ private Q_SLOTS:
         QCOMPARE(c.adopted(), key);
     }
 
-    // Review M3: a successful reconnect resets the episode's budget, so a
-    // focus that lets ICE connect and then sends Leave RESUME again (or a
-    // flapping SFU) would cycle us for ever, each cycle a fresh OpenID token
-    // to its JWT service. Episodes are capped per rolling window; past the
-    // cap the next loss ends the call honestly.
     void reconnectEpisodesAreCappedSoAFocusCannotCycleUsForEver()
     {
         using S = SfuCallController::State;
@@ -10151,7 +9015,6 @@ private Q_SLOTS:
         QTest::qWait(100);
         QCOMPARE(client.sfuConnects.size(), connects);
 
-        // The window rolls: an episode that has aged out no longer counts.
         RecordingCallClient later;
         SfuCallController rolling;
         rolling.setReconnectTimingForTest(10, 5000, 20000);
@@ -10174,16 +9037,13 @@ private Q_SLOTS:
         recover();
     }
 
-    // Review L5: a call is Connected from its first SDP, before any media
-    // path exists. One whose ICE never came up and could not be recovered
-    // was never "lost"; it says it could not connect.
     void aCallWhoseTransportNeverConnectedSaysItCouldNotConnect()
     {
         RecordingCallClient client;
         SfuCallController call;
         call.setReconnectTimingForTest(10, 60, 300);
         connectRecoverableCall(client, call, QString(), kReconnectRoom,
-                               /*transportUp=*/false);
+false);
         QSignalSpy failed(&call, &SfuCallController::callFailed);
         QVERIFY(emitTransport(call, 0, QStringLiteral("failed")));
         QCOMPARE(call.state(), SfuCallController::State::Reconnecting);
@@ -10193,11 +9053,10 @@ private Q_SLOTS:
                  QStringLiteral("Couldn't connect to the call."));
         QCOMPARE(failed.count(), 1);
 
-        // The server ending such a session says the same.
         RecordingCallClient other;
         SfuCallController ended;
         connectRecoverableCall(other, ended, QString(), kReconnectRoom,
-                               /*transportUp=*/false);
+false);
         other.emitSfuState(QStringLiteral("ended"),
                            QStringLiteral("server_leave"));
         QCOMPARE(ended.state(), SfuCallController::State::Failed);
@@ -10205,9 +9064,6 @@ private Q_SLOTS:
                  QStringLiteral("Couldn't connect to the call."));
     }
 
-    // Review L4: a portal grant that lands while reconnecting is refused
-    // with a reason, its descriptor closed and its session cancelled, rather
-    // than failing silently after the user consented.
     void aShareGrantedWhileReconnectingIsRefusedWithAReason()
     {
         RecordingCallClient client;
@@ -10230,11 +9086,9 @@ private Q_SLOTS:
         QVERIFY(!call.screenSharing());
     }
 
-
 private:
     QTemporaryDir m_configHome;
 };
-
 
 QTEST_GUILESS_MAIN(CallControllerTest)
 #include "CallControllerTest.moc"

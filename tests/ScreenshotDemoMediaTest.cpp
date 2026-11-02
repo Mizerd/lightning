@@ -1,13 +1,3 @@
-// Development-only screenshot-demo media contract.
-//
-// Every image/video/GIF row and avatar in the three demo accounts resolves to
-// bundled local fixture bytes through the same media path the real UI uses
-// (MockMatrixClient::supportsMediaBridge + fetchMedia / fetchMxcThumbnail ->
-// mediaReady), with the correct MIME and no network.
-//
-// The fixtures are QRC resources bundled only in a
-// LIGHTNING_ENABLE_SCREENSHOT_DEMO build (see CMake DEMO_MEDIA_RESOURCES), so
-// this test is built only when the demo option is on.
 
 #include "matrix/MockMatrixClient.h"
 #include "matrix/RoomInfo.h"
@@ -20,7 +10,6 @@ class ScreenshotDemoMediaTest : public QObject
 {
     Q_OBJECT
 
-    // Drive one fetch to completion and return the delivered bytes/mime.
     struct Delivered { bool ok = false; QByteArray bytes; QString mime; };
     static Delivered awaitMedia(MockMatrixClient &c, quint64 op)
     {
@@ -46,7 +35,6 @@ private Q_SLOTS:
     {
         MockMatrixClient plain;
         QVERIFY(!plain.supportsMediaBridge());
-        // A non-demo fetch never resolves a demo fixture.
         QCOMPARE(plain.fetchMedia(QStringLiteral("coast"), 1), quint64(0));
 
         MockMatrixClient demo;
@@ -68,14 +56,12 @@ private Q_SLOTS:
                         || e.type == TimelineEvent::Sticker;
                     if (!imageLike || e.mediaMxcUrl.isEmpty())
                         continue;
-                    // The row is wired for the bridge.
                     QVERIFY2(!e.mediaKey.isEmpty(),
                              qUtf8Printable("no mediaKey: " + e.mediaMxcUrl));
                     QVERIFY(e.mediaSourceAvailable);
                     QVERIFY(e.mediaThumbAvailable);
                     QVERIFY2(e.mediaWidth > 0 && e.mediaHeight > 0,
                              qUtf8Printable("no dimensions: " + e.mediaKey));
-                    // Thumbnail (kind 1) and full (kind 0) both resolve.
                     const Delivered thumb = awaitMedia(c, c.fetchMedia(e.mediaKey, 1));
                     QVERIFY2(thumb.ok && !thumb.bytes.isEmpty(),
                              qUtf8Printable("thumb did not resolve: " + e.mediaKey));
@@ -87,7 +73,6 @@ private Q_SLOTS:
                 }
             }
         }
-        // The scene has plenty of media rows across the three accounts.
         QVERIFY2(checked >= 10,
                  qUtf8Printable(QStringLiteral("only %1 media rows checked")
                                     .arg(checked)));
@@ -101,7 +86,7 @@ private Q_SLOTS:
         QVERIFY(d.ok);
         QVERIFY(!d.bytes.isEmpty());
         QCOMPARE(d.mime, QStringLiteral("image/gif"));
-        QVERIFY(d.bytes.startsWith("GIF"));   // real GIF magic
+        QVERIFY(d.bytes.startsWith("GIF"));
     }
 
     void everyAccountAvatarResolves()
@@ -118,7 +103,7 @@ private Q_SLOTS:
             QVERIFY2(d.ok && !d.bytes.isEmpty(),
                      qUtf8Printable("avatar did not resolve: " + p));
             QCOMPARE(d.mime, QStringLiteral("image/png"));
-            QVERIFY(d.bytes.startsWith("\x89PNG"));   // real PNG magic
+            QVERIFY(d.bytes.startsWith("\x89PNG"));
         }
     }
 
@@ -126,8 +111,6 @@ private Q_SLOTS:
     {
         MockMatrixClient c;
         c.setScreenshotDemoMode(true);
-        // A miss returns opId 0 (MediaBridge marks it transient-unavailable),
-        // never a crash or an infinite pending state.
         QCOMPARE(c.fetchMedia(QStringLiteral("does-not-exist"), 1), quint64(0));
         QCOMPARE(c.fetchMxcThumbnail(
                      QStringLiteral("mxc://lightning.example/avatar-nobody"),

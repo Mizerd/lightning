@@ -10,7 +10,7 @@ namespace calls::noise {
 
 namespace {
 std::atomic<int> g_live{0};
-} // namespace
+}
 
 DeepFilterSuppressor::DeepFilterSuppressor(float attenLimitDb)
 {
@@ -20,8 +20,6 @@ DeepFilterSuppressor::DeepFilterSuppressor(float attenLimitDb)
     if (m_handle) {
         m_frameSize = mx_df_frame_size(m_handle);
         m_latency = mx_df_latency_samples(m_handle);
-        // The element frames for exactly 480; a model with another hop (a
-        // future vendored model) must not be handed frames of the wrong size.
         if (m_frameSize != kFrameSize || m_latency < 0) {
             mx_df_destroy(m_handle);
             m_handle = nullptr;
@@ -46,7 +44,7 @@ DeepFilterSuppressor::~DeepFilterSuppressor()
 void DeepFilterSuppressor::process(float *frame) noexcept
 {
     if (!frame || !m_handle)
-        return; // pass-through
+        return;
 #ifdef HAVE_DEEPFILTERNET
     const int rc = mx_df_process(m_handle, frame, static_cast<size_t>(m_frameSize));
     m_lastStatus.store(rc, std::memory_order_relaxed);
@@ -100,4 +98,4 @@ bool deepFilterAvailable()
 #endif
 }
 
-} // namespace calls::noise
+}

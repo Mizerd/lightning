@@ -17,12 +17,6 @@
 #include <unistd.h>
 #endif
 
-// Hermetic, platform-neutral coverage for portable mode.
-//
-// Everything runs through the pure helpers (markerPresentIn, dataRootFor,
-// resolveAppDataBase, composeAppDataRoot) and the test seam. Nothing writes a
-// portable.marker beside the test executable, which would turn every binary
-// in the build tree portable if a run aborted.
 class PortableModeTest : public QObject
 {
     Q_OBJECT
@@ -61,8 +55,6 @@ private:
 void PortableModeTest::initTestCase()
 {
     QVERIFY(m_home.isValid());
-    // Isolate every variable the non-portable paths can reach, so nothing
-    // writes into the real data directory.
     const QByteArray home = m_home.path().toUtf8();
     qputenv("HOME", home);
     qputenv("XDG_DATA_HOME", home + "/xdg-data");
@@ -78,9 +70,6 @@ void PortableModeTest::initTestCase()
     QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
     QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
 
-    // Latch the REAL decision now, with no override and no environment
-    // forcing, so the caching test below measures the genuine mechanism.
-    // The test executable has no portable.marker beside it, so this is false.
     QVERIFY(!lightning::portable::isPortable());
 }
 
@@ -91,18 +80,12 @@ void PortableModeTest::cleanup()
 
 void PortableModeTest::realDecisionIsCachedAndDoesNotFlipMidProcess()
 {
-    // initTestCase() already forced the decision. Turning the override on
-    // afterwards must not change it: a running process's storage location
-    // cannot move.
     qputenv("LIGHTNING_PORTABLE", "1");
     QVERIFY(!lightning::portable::isPortable());
     QVERIFY(lightning::portable::dataRoot().isEmpty());
     qunsetenv("LIGHTNING_PORTABLE");
     QVERIFY(!lightning::portable::isPortable());
 
-    // The test seam, by contrast, is explicitly allowed to answer differently
-    // — that is its whole purpose — and clearing it restores the real answer
-    // rather than latching the fiction.
     lightning::portable::setPortableOverrideForTest(
         true, QStringLiteral("/opt/lightning"));
     QVERIFY(lightning::portable::isPortable());
@@ -115,10 +98,8 @@ void PortableModeTest::markerFilePresenceIsTheOnlySignal()
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
 
-    // Absent -> installed.
     QVERIFY(!lightning::portable::markerPresentIn(dir.path()));
 
-    // Present -> portable.
     const QString marker = QDir(dir.path()).absoluteFilePath(
         QString::fromLatin1(lightning::portable::kMarkerFileName));
     QFile file(marker);
@@ -126,16 +107,11 @@ void PortableModeTest::markerFilePresenceIsTheOnlySignal()
     file.close();
     QVERIFY(lightning::portable::markerPresentIn(dir.path()));
 
-    // A DIRECTORY of that name is not the packaging pipeline's marker.
-    // Treating it as one would relocate a normal installation's storage.
     QVERIFY(file.remove());
     QVERIFY(QDir(dir.path()).mkdir(
         QString::fromLatin1(lightning::portable::kMarkerFileName)));
     QVERIFY(!lightning::portable::markerPresentIn(dir.path()));
 
-    // No directory at all is never portable — there is nowhere to anchor a
-    // portable tree, and inventing one from the working directory would put
-    // the user's session wherever the shortcut happened to point.
     QVERIFY(!lightning::portable::markerPresentIn(QString()));
     QVERIFY(!lightning::portable::markerPresentIn(QStringLiteral("   ")));
 }
@@ -151,8 +127,6 @@ void PortableModeTest::dataRootComposesFromTheExecutableDirectory_data()
     QTest::newRow("windows-drive")
         << QStringLiteral("C:/Lightning")
         << QStringLiteral("C:/Lightning/data");
-    // A portable folder normally lives somewhere a human chose, so spaces and
-    // non-ASCII are the common case, not the edge case.
     QTest::newRow("spaces")
         << QStringLiteral("D:/Portable Apps/Lightning 0.7.4")
         << QStringLiteral("D:/Portable Apps/Lightning 0.7.4/data");
@@ -169,7 +143,6 @@ void PortableModeTest::dataRootComposesFromTheExecutableDirectory_data()
         << QStringLiteral("/opt/lightning/bin/..")
         << QStringLiteral("/opt/lightning/data");
 
-    // Unresolvable executable directory -> no data root. Never a fallback.
     QTest::newRow("empty") << QString() << QString();
     QTest::newRow("blank") << QStringLiteral("  ") << QString();
 }
@@ -204,8 +177,6 @@ void PortableModeTest::namedSubdirectoriesAreAllUnderTheDataRoot()
         QVERIFY2(dir.startsWith(root + QLatin1Char('/')),
                  qPrintable(QStringLiteral("escaped the data root: %1").arg(dir)));
     }
-    // Distinct directories: a shared one would put the sealed secret document
-    // in the same folder as evictable cache files.
     QCOMPARE(QSet<QString>(named.begin(), named.end()).size(), named.size());
 }
 
@@ -221,7 +192,6 @@ void PortableModeTest::installedModeExposesNoPortablePaths()
     QVERIFY(lightning::portable::cacheDir().isEmpty());
     QVERIFY(lightning::portable::logsDir().isEmpty());
 
-    // And the normal locations still resolve exactly as before.
     const QString root = matrix::app_data::primaryRoot();
     QVERIFY(!root.isEmpty());
     QVERIFY2(root.startsWith(m_home.path()),
@@ -273,8 +243,6 @@ void PortableModeTest::resolveAppDataBasePortableRootBeatsEveryEnvironmentSource
         << QStringLiteral("C:/Users/X") << QStringLiteral("/home/x")
         << QStringLiteral("E:/Portable Apps/Lightning/data")
         << QStringLiteral("E:/Portable Apps/Lightning/data");
-    // An empty portable root is "not portable", and must leave the existing
-    // precedence completely untouched.
     QTest::newRow("empty-portable-root-changes-nothing")
         << false << QStringLiteral("/xdg/data") << QString() << QString()
         << QStringLiteral("/home/x") << QString() << QStringLiteral("/xdg/data");
@@ -303,15 +271,11 @@ void PortableModeTest::appDataRootFollowsThePortableTree()
     const QString root = matrix::app_data::primaryRoot();
     QCOMPARE(root, QStringLiteral("E:/Portable Apps/Lightning/data/matrix"));
 
-    // The account layout beneath it is unchanged — that is what keeps a moved
-    // folder resolving the same recorded storeSlug, and therefore the same
-    // Matrix device.
     QCOMPARE(matrix::app_data::accountRoot(QStringLiteral("@rokas:example.org")),
              root + QStringLiteral("/rokas_example.org"));
     QCOMPARE(matrix::app_data::rustSdkStorePath(QStringLiteral("@rokas:example.org")),
              root + QStringLiteral("/rokas_example.org/matrix-rust-sdk-store"));
 
-    // No environment path may appear anywhere in the result.
     QVERIFY(!root.contains(m_home.path()));
 }
 
@@ -319,9 +283,6 @@ void PortableModeTest::legacyRootsAreEmptyInPortableMode()
 {
     lightning::portable::setPortableOverrideForTest(
         true, QStringLiteral("/opt/lightning"));
-    // <dataRoot>/matrix-client never existed: the portable tree is created by
-    // this feature, so no earlier build wrote into it. Handing an invented
-    // directory to --reset-crypto-store's recursive scan is not acceptable.
     QVERIFY(matrix::app_data::legacyRoots().isEmpty());
     QCOMPARE(matrix::app_data::allRoots(),
              QStringList{QStringLiteral("/opt/lightning/data/matrix")});
@@ -329,9 +290,6 @@ void PortableModeTest::legacyRootsAreEmptyInPortableMode()
 
 void PortableModeTest::unresolvableExecutableDirectoryYieldsNoRootRatherThanAppData()
 {
-    // Portable, but the program directory could not be resolved: the answer
-    // is "no root", never a fall-through to the environment that would put the
-    // SDK store outside the folder. main.cpp exits non-zero on this.
     lightning::portable::setPortableOverrideForTest(true, QString());
 
     QVERIFY(lightning::portable::isPortable());
@@ -377,29 +335,19 @@ void PortableModeTest::prepareDataRootCreatesTheWholeTree()
         QVERIFY2(QFileInfo(root + QLatin1Char('/') + sub).isDir(),
                  qPrintable(sub));
     }
-    // matrix/ is exactly what primaryRoot() resolves to, so the SDK store has
-    // its parent already in place.
     QCOMPARE(matrix::app_data::primaryRoot(), root + QStringLiteral("/matrix"));
 
-    // Idempotent: a second launch from the same folder must not fail.
     QCOMPARE(lightning::portable::prepareDataRoot(), QString());
 
-    // The write probe cleans up after itself — a portable folder that
-    // accumulated a probe file per launch would look broken to the user.
     const QStringList leftovers =
         QDir(root).entryList({QStringLiteral(".write-probe-*")},
                              QDir::Files | QDir::Hidden);
     QVERIFY2(leftovers.isEmpty(), qPrintable(leftovers.join(QLatin1Char(','))));
 
-    // Calling it while NOT portable is a programming error, and it says so
-    // rather than quietly creating a tree somewhere.
     lightning::portable::setPortableOverrideForTest(false, exeDir.path());
     QVERIFY(!lightning::portable::prepareDataRoot().isEmpty());
 }
 
-// Every scratch and updater path stays inside the portable folder: voice
-// recordings and animated media scratch, and the updater's staging and
-// displaced previous version (never the folder's parent).
 void PortableModeTest::everyScratchAndUpdatePathStaysInsideTheFolder()
 {
     QTemporaryDir exeDir;
@@ -410,7 +358,6 @@ void PortableModeTest::everyScratchAndUpdatePathStaysInsideTheFolder()
     const QString root = QDir(lightning::portable::dataRoot()).canonicalPath();
     QVERIFY(!root.isEmpty());
 
-    // Everything Lightning chooses to write lives under data/.
     for (const QString &path : {lightning::portable::configDir(),
                                 lightning::portable::secretsDir(),
                                 lightning::portable::cacheDir(),
@@ -424,23 +371,16 @@ void PortableModeTest::everyScratchAndUpdatePathStaysInsideTheFolder()
                                 .arg(path, root)));
     }
 
-    // The media scratch root IS the portable temp dir — not the OS one.
     QCOMPARE(lightning::portable::mediaScratchRoot(),
              lightning::portable::tempDir());
-    // ...and not the OS temp directory. Compared against the bare path, since
-    // this fixture's own folder lives under /tmp.
     QVERIFY2(lightning::portable::mediaScratchRoot() != QDir::tempPath(),
              "decrypted media scratch is still the OS temp directory");
 
-    // Not portable: the scratch root goes back to the OS temp directory, so
-    // an installed build is completely unaffected by any of this.
     lightning::portable::setPortableOverrideForTest(false, exeDir.path());
     QCOMPARE(lightning::portable::mediaScratchRoot(), QDir::tempPath());
     QVERIFY(lightning::portable::tempDir().isEmpty());
     QVERIFY(lightning::portable::updateWorkDir().isEmpty());
 
-    // Stale scratch sweeping: ours by prefix, and NOTHING else. This runs
-    // unattended at startup over a directory the user owns.
     lightning::portable::setPortableOverrideForTest(true, exeDir.path());
     const QString temp = lightning::portable::tempDir();
     QVERIFY(QDir().mkpath(temp + QStringLiteral("/lightning-voice-abc")));
@@ -451,9 +391,6 @@ void PortableModeTest::everyScratchAndUpdatePathStaysInsideTheFolder()
     keep.write("keep me");
     keep.close();
 
-    // Unmarked directories are swept only once they are at least an hour
-    // old (a creator may not have registered its lock yet), so the sweep is
-    // run "two hours later".
     QCOMPARE(lightning::portable::cleanStaleTempDirs(
                  QDateTime::currentDateTimeUtc().addSecs(2 * 60 * 60)),
              2);
@@ -475,7 +412,6 @@ void PortableModeTest::prepareDataRootRefusesAnUnwritableFolderWithoutFallingBac
 
     QTemporaryDir exeDir;
     QVERIFY(exeDir.isValid());
-    // r-x only: mkpath of <exeDir>/data cannot succeed.
     QVERIFY(QFile::setPermissions(exeDir.path(),
                                   QFileDevice::ReadOwner
                                       | QFileDevice::ExeOwner));
@@ -483,8 +419,6 @@ void PortableModeTest::prepareDataRootRefusesAnUnwritableFolderWithoutFallingBac
     lightning::portable::setPortableOverrideForTest(true, exeDir.path());
     const QString reason = lightning::portable::prepareDataRoot();
 
-    // Restore before any assertion can abort the test and leave an
-    // undeletable temporary directory behind.
     QVERIFY(QFile::setPermissions(exeDir.path(),
                                   QFileDevice::ReadOwner
                                       | QFileDevice::WriteOwner
@@ -493,9 +427,6 @@ void PortableModeTest::prepareDataRootRefusesAnUnwritableFolderWithoutFallingBac
     QVERIFY2(!reason.isEmpty(), "an unwritable folder must be reported");
     QVERIFY(reason.contains(QStringLiteral("Lightning portable")));
 
-    // The load-bearing assertion: it did NOT fall back. Portable mode is still
-    // on, the data root is still inside the (unwritable) program folder, and
-    // no AppData / XDG / registry-shaped location was produced.
     QVERIFY(lightning::portable::isPortable());
     QCOMPARE(lightning::portable::dataRoot(),
              QDir::cleanPath(exeDir.path()) + QStringLiteral("/data"));
@@ -519,8 +450,6 @@ void PortableModeTest::relocationKeepsSettingsWithNoReferenceToTheOldRoot()
         QStringLiteral("Žaibas nešiojamas"));
     QVERIFY(QDir().mkpath(dirA));
 
-    // ── Machine A: run portable, write a setting through the same mechanism
-    // main.cpp installs (INI format + an explicit UserScope path).
     lightning::portable::setPortableOverrideForTest(true, dirA);
     QCOMPARE(lightning::portable::prepareDataRoot(), QString());
     QSettings::setDefaultFormat(QSettings::IniFormat);
@@ -543,11 +472,8 @@ void PortableModeTest::relocationKeepsSettingsWithNoReferenceToTheOldRoot()
                       + QStringLiteral("/MatrixClient/matrix-client.ini"))
                 .isFile());
 
-    // ── Copy ONLY that directory to a different path (a different name, on a
-    // different parent) — the user's "copy the folder to another PC" step.
     QVERIFY(copyTree(dirA, dirB));
 
-    // ── Machine B: nothing may retain dirA.
     lightning::portable::setPortableOverrideForTest(true, dirB);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
                        lightning::portable::configDir());
@@ -557,9 +483,6 @@ void PortableModeTest::relocationKeepsSettingsWithNoReferenceToTheOldRoot()
                      QStringLiteral("accounts/rokas_example.org/userId"))
                      .toString(),
                  QStringLiteral("@rokas:example.org"));
-        // The RECORDED store slug is what keeps restore/logout/reset pointed
-        // at one directory. It must survive the move verbatim — re-deriving it
-        // is exactly the bug that once deleted the wrong account's store.
         QCOMPARE(settings.value(
                      QStringLiteral("accounts/rokas_example.org/storeSlug"))
                      .toString(),
@@ -570,14 +493,11 @@ void PortableModeTest::relocationKeepsSettingsWithNoReferenceToTheOldRoot()
         matrix::app_data::accountRoot(QStringLiteral("@rokas:example.org"));
     QVERIFY(accountRootB.startsWith(QDir::cleanPath(dirB)));
     QVERIFY(!accountRootB.contains(QDir::cleanPath(dirA)));
-    // Same Matrix device after the move means the same store directory, found
-    // by the same relative layout.
     QVERIFY(QFileInfo(accountRootB + QStringLiteral("/matrix-rust-sdk-store"))
                 .isDir());
     QCOMPARE(accountRootB.mid(QDir::cleanPath(dirB).size()),
              accountRootA.mid(QDir::cleanPath(dirA).size()));
 
-    // And nothing WRITTEN anywhere in the tree records the old absolute path.
     const QString offender = grepForPath(dirB, QDir::cleanPath(dirA));
     QVERIFY2(offender.isEmpty(),
              qPrintable(QStringLiteral("file records the old root: %1")
@@ -619,17 +539,12 @@ QString PortableModeTest::grepForPath(const QString &dir, const QString &needle)
     return {};
 }
 
-
 void PortableModeTest::staleScratchIsSweptOnAnOrdinaryInstallToo()
 {
-    // The sweep reads mediaScratchRoot(), where decrypted media actually goes,
-    // on ordinary installs too.
     QTemporaryDir exeDir;
     QVERIFY(exeDir.isValid());
     lightning::portable::setPortableOverrideForTest(false, exeDir.path());
     QCOMPARE(lightning::portable::mediaScratchRoot(), QDir::tempPath());
-    // A PRIVATE root for the sweep itself: the real temp directory may hold a
-    // running Lightning's live scratch, and a test must not reach it.
     QTemporaryDir scratch;
     QVERIFY(scratch.isValid());
     lightning::portable::setMediaScratchRootOverrideForTest(scratch.path());
@@ -640,11 +555,8 @@ void PortableModeTest::staleScratchIsSweptOnAnOrdinaryInstallToo()
     const QString theirs = root + QStringLiteral("/other-app-") + suffix;
     QVERIFY(QDir().mkpath(ours));
     QVERIFY(QDir().mkpath(theirs));
-    // Unmarked and just created: left alone by a sweep at "now" (it could be
-    // a creator that has not registered yet)...
     QCOMPARE(lightning::portable::cleanStaleTempDirs(QDateTime::currentDateTimeUtc()) >= 0, true);
     QVERIFY(QFileInfo(ours).isDir());
-    // ...and swept by one that runs two hours later.
     QVERIFY(lightning::portable::cleanStaleTempDirs(
                 QDateTime::currentDateTimeUtc().addSecs(2 * 60 * 60)) >= 1);
     QVERIFY(!QFileInfo::exists(ours));
@@ -653,12 +565,8 @@ void PortableModeTest::staleScratchIsSweptOnAnOrdinaryInstallToo()
     lightning::portable::setMediaScratchRootOverrideForTest(QString());
 }
 
-
 void PortableModeTest::aLiveScratchDirectoryIsNeverSwept()
 {
-    // A second Lightning instance's startup sweep must not remove the first
-    // instance's scratch directory out from under a playing QMediaPlayer.
-    // The creator holds a lock inside the directory; the sweep probes it.
     QTemporaryDir exeDir;
     QVERIFY(exeDir.isValid());
     lightning::portable::setPortableOverrideForTest(true, exeDir.path());
@@ -668,12 +576,10 @@ void PortableModeTest::aLiveScratchDirectoryIsNeverSwept()
     lightning::portable::holdScratchDirLive(live);
     QVERIFY(QFileInfo::exists(
         live + QLatin1Char('/') + QLatin1String(lightning::portable::kScratchLiveLockName)));
-    // Even a sweep that believes a day has passed leaves a HELD directory.
     QCOMPARE(lightning::portable::cleanStaleTempDirs(
                  QDateTime::currentDateTimeUtc().addDays(1)),
              0);
     QVERIFY(QFileInfo(live).isDir());
-    // Released, it is an ordinary candidate again -- swept once old enough.
     lightning::portable::releaseScratchDir(live);
     QCOMPARE(lightning::portable::cleanStaleTempDirs(
                  QDateTime::currentDateTimeUtc().addDays(1)),

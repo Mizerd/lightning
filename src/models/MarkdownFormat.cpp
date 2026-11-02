@@ -42,7 +42,6 @@ bool wrappedBy(const QString &text, const Selection &sel, const QString &marker)
         && text.mid(sel.end, len) == marker;
 }
 
-// Start index of the line containing pos.
 int lineStart(const QString &text, int pos)
 {
     const int idx = text.lastIndexOf(QLatin1Char('\n'),
@@ -50,9 +49,6 @@ int lineStart(const QString &text, int pos)
     return (pos <= 0 || idx < 0) ? 0 : idx + 1;
 }
 
-// The span of `marker` a bare caret stands in, or right after, on its line.
-// Italic is left out: `_` also sits inside words, so pairing it finds spans
-// that are not there.
 bool caretSpan(const QString &format, const QString &text, const Selection &sel,
                int *open, int *close)
 {
@@ -134,7 +130,6 @@ Result toggleInline(const QString &format, QString text, Selection sel)
     return out;
 }
 
-// Start indices of every line the selection touches.
 QList<int> coveredLineStarts(const QString &text, const Selection &sel)
 {
     QList<int> starts;
@@ -168,7 +163,6 @@ Result toggleLines(const QString &format, QString text, Selection sel)
     Result out;
     int start = sel.start;
     int end = sel.end;
-    // Apply back-to-front so earlier offsets stay valid.
     for (int i = starts.size() - 1; i >= 0; --i) {
         const int s = starts.at(i);
         if (removing) {
@@ -187,7 +181,6 @@ Result toggleLines(const QString &format, QString text, Selection sel)
     return out;
 }
 
-// Selection is the label of an existing [label](target) construct.
 bool linkAround(const QString &text, const Selection &sel, int *closeParen)
 {
     if (sel.start < 1 || text.at(sel.start - 1) != QLatin1Char('['))
@@ -224,13 +217,12 @@ Result toggleLink(QString text, Selection sel)
     text.insert(sel.end, QStringLiteral("](url)"));
     text.insert(sel.start, QLatin1Char('['));
     out.text = text;
-    // Select the placeholder target so typing replaces it.
     out.selectionStart = sel.end + 3;
     out.selectionEnd = sel.end + 6;
     return out;
 }
 
-} // namespace
+}
 
 Result toggle(const QString &format, const QString &text,
               int selectionStart, int selectionEnd)
@@ -269,4 +261,4 @@ QVariantMap state(const QString &text, int selectionStart, int selectionEnd)
     return flags;
 }
 
-} // namespace MarkdownFormat
+}

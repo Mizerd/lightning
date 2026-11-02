@@ -3,13 +3,6 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import MatrixClient
 
-// MSC2545 shortcode completion: typing `:blob` offers matches from installed
-// packs. Like SlashCommandPopup and MentionPopup it floats above the composer
-// and never takes focus, so the editor keeps the caret and forwards
-// Up/Down/Tab/Return/Escape.
-//
-// The model is MessageComposer.emojiCompletionsAt(cursor): a shortcode can be
-// anywhere, so the answer depends on the caret, which only QML knows.
 Popup {
     id: root
     objectName: "emojiCompletionPopup"
@@ -19,9 +12,6 @@ Popup {
     property real anchorWidth: 320
     property int currentIndex: 0
 
-    // The whole completion row, so the caller can tell a custom pack
-    // emoticon (accepted as `:shortcode:`) from a standard Unicode emoji
-    // (accepted as the glyph itself) by its "kind".
     signal chosen(var entry)
 
     parent: Overlay.overlay
@@ -40,8 +30,6 @@ Popup {
                          Math.min(anchorInputTop.x,
                                   parent.width - width - AppTheme.spacing4))
               : 0
-    // Above the input, but never outside the overlay: a window shrunk under an
-    // open popup must not leave it below the visible area.
     y: {
         var above = Math.max(AppTheme.spacing4,
                              anchorInputTop.y - height - AppTheme.spacing4)
@@ -70,8 +58,6 @@ Popup {
     function moveUp() { move(-1) }
     function moveDown() { move(1) }
 
-    // Same family as MentionPopup and SlashCommandPopup: Storm panel, header,
-    // selection chip and a Return keycap on the selected row.
     background: Rectangle {
         objectName: "emojiCompletionPopupSurface"
         color: AppTheme.stormPanel
@@ -122,9 +108,6 @@ Popup {
             readonly property bool isUnicode: modelData.kind === "unicode"
             hoverEnabled: true
             onClicked: root.chosen(modelData)
-            // The row a click will accept is the row that is highlighted.
-            // Only REAL pointer motion counts: a list scrolled by the keyboard
-            // under a parked pointer re-issues hover for the row beneath it.
             HoverHandler {
                 cursorShape: Qt.PointingHandCursor
                 onPointChanged: {
@@ -151,9 +134,6 @@ Popup {
             }
             contentItem: RowLayout {
                 spacing: AppTheme.spacing8
-                // The image, resolved through the authenticated media path as
-                // in the timeline. Custom pack emoticons only; a standard
-                // Unicode emoji draws its own glyph below instead.
                 Image {
                     id: completionImage
                     objectName: "emojiCompletionImage"
@@ -163,10 +143,6 @@ Popup {
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     sourceSize.width: 40
-                    // mxcImageSource() returns "" on a cache miss and fetches;
-                    // the bytes arrive via mediaCached, which bumps resolveTick
-                    // to re-evaluate (as EmojiPicker and MediaListThumbnail
-                    // do).
                     property int resolveTick: 0
                     source: {
                         var _tick = resolveTick
@@ -182,9 +158,6 @@ Popup {
                         }
                     }
                 }
-                // The Unicode glyph itself: the whole point of this row is
-                // "this is what you get", unlike a custom emoticon's remote
-                // image which needs the shortcode label to identify it.
                 Label {
                     objectName: "emojiCompletionGlyph"
                     visible: isUnicode
@@ -196,8 +169,6 @@ Popup {
                 Label {
                     objectName: "emojiCompletionShortcode"
                     Layout.fillWidth: true
-                    // A shortcode is remote text from a pack, or a catalogue
-                    // alias: never markup either way.
                     textFormat: Text.PlainText
                     text: ":" + modelData.shortcode + ":"
                     color: AppTheme.stormText

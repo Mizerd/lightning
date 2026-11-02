@@ -16,16 +16,10 @@
 Q_LOGGING_CATEGORY(lcPoster, "lightning.media.poster")
 
 namespace {
-// A frame that never arrives (broken container, missing codec, hostile file)
-// must not wedge the single extraction slot.
 constexpr int kExtractTimeoutMs = 6000;
 
-// Fade-in lead-in frames would give a solid black poster. Frames whose
-// brightest downsampled pixel stays below this are skipped (bounded by
-// kMaxSkippedFrames); the last one is kept so an all-black video still gets a
-// poster.
 constexpr int kBlackMaxLuma = 24;
-constexpr int kMaxSkippedFrames = 90; // ~1.5s at 60fps
+constexpr int kMaxSkippedFrames = 90;
 
 bool frameLooksBlack(const QImage &image)
 {
@@ -40,8 +34,6 @@ bool frameLooksBlack(const QImage &image)
     return maxLuma < kBlackMaxLuma;
 }
 
-// Reports the encoded image's own geometry, which the send path declares as
-// thumbnail w/h. Scaling keeps the aspect ratio.
 QByteArray encodePoster(const QImage &image, int maxEdge, int quality,
                         QSize *encodedSize = nullptr)
 {
@@ -58,16 +50,13 @@ QByteArray encodePoster(const QImage &image, int maxEdge, int quality,
         *encodedSize = jpeg.isEmpty() ? QSize() : scaled.size();
     return jpeg;
 }
-} // namespace
+}
 
 VideoPosterExtractor::VideoPosterExtractor(QObject *parent)
     : QObject(parent)
     , m_thread(new QThread)
     , m_worker(new VideoPosterWorker)
 {
-    // All QMediaPlayer/QVideoSink calls run on the worker thread (see header).
-    // The worker is moved there with its child QTimer; player and sink are
-    // built in startNext() on that thread.
     m_thread->setObjectName(QStringLiteral("lightning-poster"));
     m_worker->moveToThread(m_thread);
     connect(m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
@@ -90,11 +79,8 @@ void VideoPosterExtractor::retireWithoutWaiting()
 
 VideoPosterExtractor::~VideoPosterExtractor()
 {
-    // Already retired; waiting would reintroduce the block.
     if (!m_thread)
         return;
-    // Process exit: wait, bounded by the longest worker call (~1 s backend
-    // init), rather than tear down around a half-destroyed decoder.
     if (!lightning::media::quitAndJoinWorkerForShutdown(m_thread, 2000)) {
         qWarning("quit: poster worker exceeded 2000 ms; detaching thread");
         return;
@@ -107,7 +93,6 @@ void VideoPosterExtractor::requestPoster(const QString &tag,
 {
     if (tag.isEmpty() || filePath.isEmpty())
         return;
-    // Queued: the worker owns the queue and its deduplication.
     QMetaObject::invokeMethod(m_worker, [worker = m_worker, tag, filePath] {
         worker->enqueue(tag, filePath);
     });
@@ -156,7 +141,6 @@ void VideoPosterWorker::warmUp()
     if (m_warmed)
         return;
     m_warmed = true;
-    // Constructing a sink triggers the plugin load and decoder probe.
     QVideoSink probe;
     Q_UNUSED(probe);
 }
@@ -165,7 +149,7 @@ void VideoPosterWorker::startNext()
 {
     if (m_active || m_queue.isEmpty())
         return;
-    m_warmed = true; // the sink built below does the same initialization
+    m_warmed = true;
     const Job job = m_queue.takeFirst();
     m_active = true;
     m_activeTag = job.tag;
@@ -174,10 +158,7 @@ void VideoPosterWorker::startNext()
     m_sink = std::make_unique<QVideoSink>();
     m_player = std::make_unique<QMediaPlayer>();
     m_player->setVideoSink(m_sink.get());
-    // No AudioOutput: decoding is silent and the audio backend never starts.
 
-    // Completions carry the job's tag: a decoder can emit more than one
-    // terminal signal, and an untagged second one would end the next job.
     const QString jobTag = m_activeTag;
     m_skippedFrames = 0;
     m_fallbackFrame = QImage();
@@ -195,11 +176,7 @@ void VideoPosterWorker::startNext()
                     return;
                 const QImage image = frame.toImage();
                 if (image.isNull())
-                    return; // wait for a decodable frame
-                // Sample into the clip rather than freezing the first non-black
-                // frame (a fade-in would give a half-drawn poster). Skip black
-                // lead-in frames (bounded, last kept as fallback) and keep
-                // updating the candidate until ~40% of the clip, capped at 2 s.
+                    return;
                 ++m_skippedFrames;
                 if (frameLooksBlack(image)) {
                     if (m_bestFrame.isNull())
@@ -236,8 +213,6 @@ void VideoPosterWorker::startNext()
             });
     connect(m_player.get(), &QMediaPlayer::mediaStatusChanged, this,
             [this, jobTag](QMediaPlayer::MediaStatus status) {
-                // A short clip can end before any non-black frame; deliver the
-                // fallback now.
                 if (status != QMediaPlayer::EndOfMedia)
                     return;
                 QMetaObject::invokeMethod(
@@ -250,7 +225,6 @@ void VideoPosterWorker::startNext()
             });
     connect(m_player.get(), &QMediaPlayer::errorOccurred, this,
             [this, jobTag](QMediaPlayer::Error, const QString &) {
-                // Error text can contain a file path; log none of it.
                 qCDebug(lcPoster, "poster extraction failed (decoder error)");
                 QMetaObject::invokeMethod(
                     this,
@@ -268,11 +242,8 @@ void VideoPosterWorker::startNext()
 
 void VideoPosterWorker::finishWithBestAvailable()
 {
-    // Best non-black frame first, then the last lead-in frame, then nothing.
     const QImage &frame = !m_bestFrame.isNull() ? m_bestFrame : m_fallbackFrame;
     if (frame.isNull()) {
-        // No frame still reports the duration: audio files always land here,
-        // and the send path decodes them only for their length.
         finishActive({}, {}, {}, m_durationMs);
         return;
     }
@@ -296,7 +267,6 @@ void VideoPosterWorker::finishActive(const QByteArray &jpeg,
     m_activeTag.clear();
     m_durationMs = 0;
     teardownPlayer();
-    // The duration survives an empty poster (audio files); see the header.
     if (jpeg.isEmpty())
         Q_EMIT posterReady(tag, {}, {}, {}, durationMs);
     else

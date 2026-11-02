@@ -1,14 +1,3 @@
-//! Still images that carry a caller-rendered raster thumbnail, and the rule
-//! for showing an SVG attachment.
-//!
-//! SVG is never decoded for display (CLAUDE.md §6). What a timeline row may
-//! show for one is a raster thumbnail: on send, C++ renders one from the
-//! user's own file and it crosses here as `PosterBytes`, re-validated by
-//! magic sniffing; on receive, only the sender's thumbnail is fetched, and a
-//! declared SVG without one is refused before any request, because the full
-//! payload would be refused by MediaBridge's byte sniff and a homeserver
-//! cannot thumbnail SVG (Synapse's thumbnailer is Pillow, which has no SVG
-//! decoder).
 
 use std::ffi::c_char;
 use std::os::raw::c_void;
@@ -29,10 +18,6 @@ pub(crate) fn is_svg_mimetype(mimetype: &str) -> bool {
         .is_some_and(|prefix| prefix.eq_ignore_ascii_case("image/svg"))
 }
 
-/// A thumbnail-class fetch (`kind` 1 or 2) for a declared SVG with no sender
-/// thumbnail has nothing it could show: the full-payload fallback is markup
-/// and a server-side thumbnail of SVG does not exist. Refused without a
-/// request.
 pub(crate) fn svg_thumbnail_unavailable(
     kind: u32,
     has_embedded_thumbnail: bool,
@@ -41,10 +26,6 @@ pub(crate) fn svg_thumbnail_unavailable(
     kind != 0 && !has_embedded_thumbnail && mimetype.is_some_and(is_svg_mimetype)
 }
 
-/// Event metadata and thumbnail for an outgoing still image. The thumbnail
-/// is dropped (the image still sends) unless its bytes sniff as a raster
-/// within `PosterBytes`' bounds, so SVG bytes labelled as a PNG never become
-/// `thumbnail_info`.
 pub(crate) fn image_send_parts(
     mime: &str,
     width: u64,
@@ -100,8 +81,6 @@ pub(crate) fn send_image_path(
     )
 }
 
-/// Thread twin of `send_image_path`, via the thread-focused timeline. Never
-/// falls back to a room send.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_thread_image_path(
     bridge: &RustClient,
@@ -137,15 +116,6 @@ pub(crate) fn send_thread_image_path(
     )
 }
 
-/// Send a still image with a caller-rendered raster thumbnail.
-///
-/// `thumb_*` is optional (null/0 sends none). The thumbnail is copied here,
-/// bounded, and re-validated by magic sniffing; an invalid one is dropped and
-/// the image still sends. The SDK uploads and encrypts it.
-///
-/// # Safety
-/// String arguments must be valid NUL-terminated strings; `thumb_data` must
-/// be null or point to at least `thumb_len` readable bytes.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn mx_rust_timeline_send_image(
@@ -180,10 +150,6 @@ pub unsafe extern "C" fn mx_rust_timeline_send_image(
     })
 }
 
-/// Thread twin of `mx_rust_timeline_send_image`.
-///
-/// # Safety
-/// As for `mx_rust_timeline_send_image`.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn mx_rust_thread_send_image(
@@ -284,22 +250,17 @@ mod tests {
         assert!(!is_svg_mimetype("image/png"));
         assert!(!is_svg_mimetype("image/sv"));
         assert!(!is_svg_mimetype(""));
-        // A multi-byte character at the prefix boundary must not panic.
         assert!(!is_svg_mimetype("imagé/svg+xml"));
     }
 
     #[test]
     fn an_svg_without_a_sender_thumbnail_has_no_thumbnail_fallback() {
         let svg = Some("image/svg+xml");
-        // Timeline thumbnail and list thumbnail: refused, no request.
         assert!(svg_thumbnail_unavailable(1, false, svg));
         assert!(svg_thumbnail_unavailable(2, false, svg));
-        // With the sender's thumbnail, that thumbnail is fetched.
         assert!(!svg_thumbnail_unavailable(1, true, svg));
         assert!(!svg_thumbnail_unavailable(2, true, svg));
-        // The full payload stays fetchable for Save As.
         assert!(!svg_thumbnail_unavailable(0, false, svg));
-        // Rasters and undeclared types keep the existing fallback.
         assert!(!svg_thumbnail_unavailable(1, false, Some("image/png")));
         assert!(!svg_thumbnail_unavailable(1, false, None));
     }

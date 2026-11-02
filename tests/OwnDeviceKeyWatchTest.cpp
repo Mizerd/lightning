@@ -1,17 +1,3 @@
-// The decisions around "this device can never decrypt anything": a device
-// that publishes a curve25519 identity key its own Olm account does not hold
-// receives nothing decryptable, while sending keeps working.
-//
-// The check costs a /keys/query and may not answer, so:
-//
-//   * Unknown is neither a fault nor a clearance: an offline user is not told
-//     their encryption is broken, and a broken device is not declared healthy
-//     because a later check timed out.
-//   * The re-check is rate limited: the fault can appear after login, but the
-//     four event-driven callers fire in one burst.
-//
-// No key material appears here; the tri-state carries only whether two keys
-// agree.
 
 #include "crypto/OwnDeviceKeyWatch.h"
 
@@ -25,7 +11,6 @@ class OwnDeviceKeyWatchTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
-    // A fresh session knows nothing, and "nothing" is not a fault.
     void aFreshWatchIsNeitherBrokenNorAnswered()
     {
         OwnDeviceKeyWatch watch;
@@ -33,8 +18,6 @@ private Q_SLOTS:
         QVERIFY(!watch.answered());
     }
 
-    // An unanswerable check (offline, keys not uploaded yet, a 5xx on
-    // /keys/query) leaves a healthy user alone.
     void unknownNeverRaisesAFault()
     {
         OwnDeviceKeyWatch watch;
@@ -48,7 +31,6 @@ private Q_SLOTS:
                  "an unanswerable check must not count as an answer");
     }
 
-    // The real fault, and it is announced exactly once.
     void anExplicitMismatchLatchesTheFaultOnce()
     {
         OwnDeviceKeyWatch watch;
@@ -62,14 +44,10 @@ private Q_SLOTS:
         QVERIFY(watch.broken());
     }
 
-    // Once broken, a later "could not establish" does not report the device
-    // healthy again.
     void unknownAfterAFaultDoesNotClearIt()
     {
         OwnDeviceKeyWatch watch;
         QVERIFY(watch.apply(KeyAgreement::Mismatch));
-        // broken() FIRST: it is the assertion whose failure names the real
-        // consequence, and a QVERIFY that fails earlier would shadow it.
         const bool announced = watch.apply(KeyAgreement::Unknown);
         QVERIFY2(watch.broken(),
                  "a check that could not run cleared a real fault — the "
@@ -79,9 +57,6 @@ private Q_SLOTS:
                  "unknown is not a state change in either direction");
     }
 
-    // A genuine agreement DOES clear it. Signing in again is the repair, and
-    // the same controller instance must be able to report the new session
-    // healthy rather than staying stuck on the old fault.
     void anExplicitMatchClearsTheFault()
     {
         OwnDeviceKeyWatch watch;
@@ -92,7 +67,6 @@ private Q_SLOTS:
         QVERIFY(watch.answered());
     }
 
-    // A healthy answer on a healthy watch is not a transition.
     void repeatedHealthyAnswersAreNotTransitions()
     {
         OwnDeviceKeyWatch watch;
@@ -103,9 +77,6 @@ private Q_SLOTS:
         QVERIFY(!watch.broken());
     }
 
-    // reset() is what a sign-out / account switch runs: the next account must
-    // not inherit the previous one's fault, and the rate limit must not make
-    // its first check wait.
     void resetForgetsTheFaultAndTheRateLimit()
     {
         OwnDeviceKeyWatch watch;
@@ -119,8 +90,6 @@ private Q_SLOTS:
                  "previous session's dispatch time");
     }
 
-    // The burst gate: sign-in, first sync, a verification and an explicit
-    // refresh can land in one second and share one minimum gap.
     void checksInsideTheMinimumGapAreRefused()
     {
         OwnDeviceKeyWatch watch;
@@ -137,8 +106,6 @@ private Q_SLOTS:
                  "and open exactly at it");
     }
 
-    // The periodic backstop's interval must clear the burst gate, or the
-    // timer could never fire.
     void theBackstopIntervalClearsTheBurstGate()
     {
         QVERIFY2(OwnDeviceKeyWatch::kRecheckIntervalMs
@@ -151,8 +118,6 @@ private Q_SLOTS:
         QVERIFY(watch.checkDue(t0 + OwnDeviceKeyWatch::kRecheckIntervalMs));
     }
 
-    // And it must stay cheap: no more than four single-device /keys/query
-    // requests an hour from the backstop.
     void theBackstopIsCheap()
     {
         QVERIFY2(OwnDeviceKeyWatch::kRecheckIntervalMs >= 5 * 60 * 1000,
@@ -160,8 +125,6 @@ private Q_SLOTS:
                  "background cost");
     }
 
-    // A clock step (suspend/resume, NTP) must not wedge the watch until wall
-    // time catches up.
     void aBackwardsClockDoesNotWedgeTheWatch()
     {
         OwnDeviceKeyWatch watch;

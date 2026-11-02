@@ -17,7 +17,7 @@ bool isRedirectStatus(int status)
     return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
 }
 
-} // namespace
+}
 
 QString transferErrorText(TransferError error)
 {
@@ -135,7 +135,6 @@ void UpdateTransferBase::deliverOfflineForTest(const QUrl &url, qint64 maxBytes,
     m_cancelled = false;
     m_done = false;
 
-    // Same host policy as the network path.
     if (!isPermittedUrl(url)) {
         fail(url.scheme() == QLatin1String("https") ? TransferError::ForeignHost
                                                     : TransferError::InsecureUrl);
@@ -143,7 +142,6 @@ void UpdateTransferBase::deliverOfflineForTest(const QUrl &url, qint64 maxBytes,
     }
     m_url = url;
     if (!bytes) {
-        // DNS, TLS, 404 or 500: handled as the network path does.
         fail(TransferError::Network);
         return;
     }
@@ -159,28 +157,25 @@ void UpdateTransferBase::deliverOfflineForTest(const QUrl &url, qint64 maxBytes,
         }
         onChunk(chunk);
         if (m_done)
-            return; // onChunk reported its own failure
+            return;
     }
     Q_EMIT progress(m_received, m_maxBytes > 0 ? m_maxBytes : m_received);
 
     QString message;
     if (!onCompleted(&message))
-        return; // onCompleted already reported the specific failure
+        return;
     succeed();
 }
 
 void UpdateTransferBase::issueRequest(const QUrl &url)
 {
     QNetworkRequest request(url);
-    // The only added header: exactly "Lightning/<version>", as elsewhere.
     request.setRawHeader(QByteArrayLiteral("User-Agent"), m_userAgent);
-    // Redirects are followed manually so every hop is re-validated.
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          int(QNetworkRequest::ManualRedirectPolicy));
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
                          int(QNetworkRequest::AlwaysNetwork));
     request.setAttribute(QNetworkRequest::CacheSaveControlAttribute, false);
-    // No cookies are sent or stored.
     request.setAttribute(QNetworkRequest::CookieLoadControlAttribute,
                          int(QNetworkRequest::Manual));
     request.setAttribute(QNetworkRequest::CookieSaveControlAttribute,
@@ -216,7 +211,6 @@ void UpdateTransferBase::handleReadyRead()
     if (m_stallTimer)
         m_stallTimer->start(kStallTimeoutMs);
 
-    // Redirect bodies are discarded.
     const int status =
         m_reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     if (isRedirectStatus(status)) {
@@ -275,16 +269,12 @@ void UpdateTransferBase::handleFinished()
             fail(TransferError::InsecureUrl);
             return;
         }
-        // Same role, same policy on every hop.
         if (!isPermittedUrl(resolved)) {
             fail(TransferError::ForeignHost);
             return;
         }
-        // Restart the body; pre-redirect bytes must never enter the hash.
         m_received = 0;
         onRestart();
-        // onRestart can fail (truncating the target) and reports it itself; do
-        // not issue a new request after finishing.
         if (m_done)
             return;
         issueRequest(resolved);
@@ -312,7 +302,7 @@ void UpdateTransferBase::handleFinished()
 
     QString message;
     if (!onCompleted(&message))
-        return; // onCompleted already reported the specific failure
+        return;
     succeed();
 }
 
@@ -344,8 +334,6 @@ UpdateDocumentFetcher::UpdateDocumentFetcher(QNetworkAccessManager *network, QOb
 {
 }
 
-// The single definition of the role, shared with its test. Canonical wins any
-// overlap; only a non-canonical mirror address is the fallback.
 static bool fallbackRoleFor(const QUrl &start)
 {
     return !isAllowedManifestUrl(start) && isAllowedFallbackManifestUrl(start);
@@ -354,7 +342,6 @@ static bool fallbackRoleFor(const QUrl &start)
 void UpdateDocumentFetcher::start(const QUrl &url, qint64 maxBytes, const QByteArray &userAgent)
 {
     m_buffer.clear();
-    // The role is fixed by the starting address and holds for every hop.
     m_fallbackRole = fallbackRoleFor(url);
     beginTransfer(url, userAgent, maxBytes);
 }
@@ -409,8 +396,6 @@ void UpdateDownloader::start(const QUrl &url, qint64 expectedSize,
         return;
     }
     if (expectedSize <= 0 || m_expectedHash.size() != 64) {
-        // Without a declared size and hash nothing can be verified, so never
-        // start.
         fail(TransferError::SizeMismatch);
         return;
     }
@@ -431,7 +416,6 @@ void UpdateDownloader::deliverForTest(const QUrl &url, qint64 expectedSize,
                                       const QString &expectedSha256Hex, QFile *target,
                                       const std::optional<QByteArray> &bytes)
 {
-    // The same preparation as start(), including both refusals.
     prepareForTest(target, expectedSize, expectedSha256Hex);
     resetTerminalStateForReuse();
     if (!target || !target->isOpen() || !target->isWritable()) {
@@ -447,8 +431,6 @@ void UpdateDownloader::deliverForTest(const QUrl &url, qint64 expectedSize,
 
 bool UpdateDownloader::isPermittedUrl(const QUrl &url) const
 {
-    // Canonical host or a compiled-in mirror; installable only after size and
-    // SHA-256 match.
     return isAllowedArtifactUrl(url);
 }
 
@@ -492,22 +474,18 @@ bool UpdateDownloader::onCompleted(QString *message)
 
 void UpdateDownloader::onRestart()
 {
-    // A redirect restarts the file and the hash.
     m_hash.reset();
     if (!m_target || !m_target->isOpen()) {
-        // Nothing left to write into; report it now.
         m_writeFailed = true;
         abortReply();
         fail(TransferError::FileError);
         return;
     }
     if (!m_target->resize(0) || !m_target->seek(0)) {
-        // Report the failure here: otherwise finished() is never emitted and
-        // the manager waits forever holding the lock and temp file.
         m_writeFailed = true;
         abortReply();
         fail(TransferError::FileError);
     }
 }
 
-} // namespace lightning::update
+}

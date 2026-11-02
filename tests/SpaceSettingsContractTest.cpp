@@ -1,16 +1,3 @@
-// Space settings: the Space Home management card, the Space settings dialog
-// (qml/SpaceSettingsDialog.qml), and the RoomInfoController policy behind its
-// Permissions matrix and Members facets.
-//
-// A Space is a Matrix room: its name, topic and avatar go through the same
-// permission-gated RoomInfoController backend as Room Information, and the
-// permission matrix is the room's own `m.room.power_levels`. No Space-specific
-// storage or permission model.
-//
-// Two kinds of test: source contracts for the QML (a control exists, is wired
-// to the shared backend and carries the right gate), and real controller
-// tests against a fake MatrixClient. No homeserver is contacted; a real
-// power_levels round trip and Element interoperability are not tested.
 
 #include "app/RoomInfoController.h"
 #include "matrix/MatrixClient.h"
@@ -37,7 +24,6 @@ public:
     QString lastMatrixKey;
     qlonglong lastMatrixLevel = 0;
 
-    // MatrixClient pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -111,8 +97,6 @@ QVariantMap memberRow(const QString &userId, const QString &displayName,
     return member;
 }
 
-// The seven scalar thresholds plus the four state-event rows, as the Rust
-// snapshot emits them.
 QVariantMap levels(qlonglong usersDefault = 0, qlonglong powerLevelsKey = 100)
 {
     QVariantMap m;
@@ -161,29 +145,23 @@ const QString kZoe = QStringLiteral("@zoe:example.org");
 const QString kAmy = QStringLiteral("@amy:example.org");
 const QString kBan = QStringLiteral("@ban:example.org");
 
-} // namespace
+}
 
 class SpaceSettingsContractTest : public QObject
 {
     Q_OBJECT
 
-    // The Space settings card inside Space Home, bounded so an assertion
-    // cannot match elsewhere in a large file.
     static QString spaceSettingsBlock(const QString &pane)
     {
         const int start = pane.indexOf(QStringLiteral("id: settingsCol"));
         if (start < 0)
             return {};
-        // The lobby after the card lives in SpaceLobby.qml; its instance is
-        // the end marker.
         const int end = pane.indexOf(QStringLiteral("SpaceLobby {"), start);
         if (end < 0)
             return {};
         return pane.mid(start, end - start);
     }
 
-    // Own level 100, an ordinary member, a member on a custom 42, and a banned
-    // member: the four cases the Members page renders.
     static void seed(RoomInfoController &ctl, FakeClient &client,
                      qlonglong ownPl = 100, bool canChangePl = true,
                      qlonglong usersDefault = 0,
@@ -194,7 +172,7 @@ class SpaceSettingsContractTest : public QObject
             client.lastOpId, kSpace,
             snapshot(ownPl,
                      { memberRow(kMe, QStringLiteral("Me"), ownPl,
-                                 QStringLiteral("joined"), /*isOwn=*/true),
+                                 QStringLiteral("joined"),true),
                        memberRow(kZoe, QStringLiteral("Zoe"), usersDefault,
                                  QStringLiteral("joined")),
                        memberRow(kAmy, QStringLiteral("Amy"), 42,
@@ -205,15 +183,12 @@ class SpaceSettingsContractTest : public QObject
     }
 
 private Q_SLOTS:
-    // Space Home card.
 
     void spaceHomeExposesAllThreeEdits()
     {
         const QString block =
             spaceSettingsBlock(readQml(QStringLiteral("TimelinePane.qml")));
         QVERIFY2(!block.isEmpty(), "the Space settings card is missing");
-        // The fields are SpaceTextEditRows (shared with Space settings); the
-        // row hands its field these objectNames.
         QVERIFY(block.contains(QStringLiteral("fieldObjectName: \"spaceNameEditField\"")));
         QVERIFY(block.contains(QStringLiteral("fieldObjectName: \"spaceTopicEditField\"")));
         QVERIFY2(block.contains(QStringLiteral("objectName: \"spaceChangeAvatarButton\"")),
@@ -221,13 +196,6 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("objectName: \"spaceRemoveAvatarButton\"")));
     }
 
-    // "People in this Space" listed a banned member (2026-09-30, live): the
-    // card and its count read the whole roster, bans and invites included.
-    // They read the joined members now, and nothing else in those stretches
-    // of Space Home reads the unfiltered roster. The card sits AFTER the
-    // lobby since 2026-10-20 (a large Space's roster pushed its channels
-    // off-screen); DesignAcceptanceTest::spaceHomeListsChannelsBeforePeople
-    // asserts that geometrically, this only bounds the scans.
     void spacePeopleListsOnlyTheJoined()
     {
         const QString pane = readQml(QStringLiteral("TimelinePane.qml"));
@@ -270,15 +238,13 @@ private Q_SLOTS:
                        memberRow(QStringLiteral("@gone:example.org"), QStringLiteral("Gone"),
                                  0, QStringLiteral("other")),
                        memberRow(kMe, QStringLiteral("Me"), 100, QStringLiteral("joined"),
-                                 /*isOwn=*/true) }));
+true) }));
         QVERIFY(changed.count() > 0);
         QCOMPARE(ctl.members().size(), 5);
         QStringList ids;
         for (const QVariant &row : ctl.joinedMembers())
             ids << row.toMap().value(QStringLiteral("userId")).toString();
         QCOMPARE(ids, (QStringList{ kZoe, kMe }));
-        // A property QML binds, not an invokable: it must be declared with
-        // the roster's own change signal.
         const QMetaObject *meta = ctl.metaObject();
         const QMetaProperty property =
             meta->property(meta->indexOfProperty("joinedMembers"));
@@ -286,9 +252,6 @@ private Q_SLOTS:
         QCOMPARE(property.notifySignal().name(), QByteArray("membersChanged"));
     }
 
-    // Renaming a Space from Space Home left the pane's title on the old name
-    // (live, 2026-10-26): the title read spaceName(), a call, so nothing told
-    // it the Space changed. It reads the SpaceManager change tick too.
     void theSpaceHomeTitleFollowsARename()
     {
         const QString pane = readQml(QStringLiteral("TimelinePane.qml"));
@@ -301,27 +264,19 @@ private Q_SLOTS:
         QVERIFY(pane.contains(QStringLiteral("function onSpacesChanged() { root.spacesTick++ }")));
     }
 
-    // The action row wraps instead of running off the pane.
-
     void theSpaceHomeActionRowWraps()
     {
-        // Up to six buttons, present depending on permissions and state, so no
-        // fixed width can be assumed: the row must wrap.
         const QString pane = readQml(QStringLiteral("TimelinePane.qml"));
         QVERIFY(!pane.isEmpty());
         const int createAt =
             pane.indexOf(QStringLiteral("objectName: \"spaceCreateRoomButton\""));
         QVERIFY2(createAt >= 0, "spaceCreateRoomButton is gone from Space Home");
-        // Walk back to the container holding the button: its own line decides
-        // whether the row wraps.
         const int flowAt = pane.lastIndexOf(QStringLiteral("Flow {"), createAt);
         const int rowAt = pane.lastIndexOf(QStringLiteral("RowLayout {"), createAt);
         QVERIFY2(flowAt > rowAt,
                  "the Space Home action row is back inside a RowLayout, which "
                  "does not wrap -- its buttons run off the right edge of a "
                  "narrow pane and some are unreachable");
-        // Bounded to the Flow's own block (up to the first bare `}` at its
-        // indent), not a fixed window that runs into siblings.
         const int lineStart = pane.lastIndexOf(QLatin1Char('\n'), flowAt) + 1;
         const QString indent = QString(flowAt - lineStart, QLatin1Char(' '));
         const int flowEnd = pane.indexOf(QLatin1Char('\n') + indent
@@ -331,8 +286,6 @@ private Q_SLOTS:
         const QString row = pane.mid(flowAt, flowEnd - flowAt);
         QVERIFY2(row.contains(QStringLiteral("objectName: \"spaceCreateRoomButton\"")),
                  "the Flow block located here is not the action row");
-        // The Flow's own header only (lines before its first child), so a
-        // child's fillWidth cannot satisfy it.
         const int firstChildAt = row.indexOf(QStringLiteral("AppButton {"));
         QVERIFY2(firstChildAt > 0, "the Flow block has no buttons in it");
         const QString flowHeader = row.left(firstChildAt);
@@ -340,8 +293,6 @@ private Q_SLOTS:
                  "the Flow does not fill the pane's width, so it wraps "
                  "against its own implicit width instead of the space "
                  "available");
-        // A fillWidth spacer is a RowLayout idiom; in a Flow it would take a
-        // whole row.
         QVERIFY2(!row.contains(QStringLiteral("Item { Layout.fillWidth: true }")),
                  "a fillWidth spacer survived the move into the Flow");
     }
@@ -355,9 +306,6 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("app.roomInfo.setRoomTopic(")));
         QVERIFY(block.contains(QStringLiteral("app.roomInfo.removeRoomAvatar()")));
         QVERIFY(pane.contains(QStringLiteral("id: spaceAvatarDialog")));
-        // The picker hands its result to the shared crop dialog, which uploads
-        // through the shared room backend; both halves are asserted (the
-        // wiring is covered in full by image-crop-contract).
         QVERIFY(pane.contains(QStringLiteral("onAccepted: spaceAvatarCrop.openFor(selectedFile)")));
         QVERIFY(pane.contains(QStringLiteral("id: spaceAvatarCrop")));
         QVERIFY(pane.contains(QStringLiteral("app.roomInfo.setRoomAvatar(file)")));
@@ -393,16 +341,11 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("Remove the Space avatar")));
     }
 
-    // The dialog's surfaces (source contracts).
-    //
-    // The Permissions page covers every key the backend accepts.
     void permissionMatrixCoversEveryKeyTheBackendAccepts()
     {
         const QString dialog =
             readQml(QStringLiteral("SpaceSettingsDialog.qml"));
         QVERIFY(!dialog.isEmpty());
-        // Each row names a key the controller and the Rust edge accept; an
-        // unknown key is a control that does nothing.
         const QStringList keys = RoomInfoController::powerLevelKeys();
         for (const QString &key : keys) {
             QVERIFY2(dialog.contains(QStringLiteral("key: \"%1\"").arg(key)),
@@ -436,8 +379,6 @@ private Q_SLOTS:
         QVERIFY(dialog.contains(QStringLiteral("app.roomInfo.powerMatrixError")));
     }
 
-    // No row for `m.call.member`: it governs neither the identifier Lightning
-    // sends nor the stable one.
     void theMatrixOffersNoCallMemberRow()
     {
         const QString dialog =
@@ -450,17 +391,12 @@ private Q_SLOTS:
             QStringLiteral("m.call.member")));
     }
 
-    // Threshold combos mirror the value explicitly: `currentIndex:
-    // indexOfValue(…)` is -1 at creation time, and clamping it to 0 makes the
-    // control misreport the room.
     void thresholdCombosSnapBackRatherThanBind()
     {
         const QString dialog =
             readQml(QStringLiteral("SpaceSettingsDialog.qml"));
         QVERIFY(!dialog.isEmpty());
         QVERIFY(dialog.contains(QStringLiteral("levelCombo.syncToValue(")));
-        // Scanned without comments: the dialog's own comment names the shape
-        // this bans.
         QString code = dialog;
         code.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
         code.remove(QRegularExpression(QStringLiteral("/\\*.*?\\*/"),
@@ -468,15 +404,12 @@ private Q_SLOTS:
         QVERIFY2(!code.contains(QStringLiteral("currentIndex: indexOfValue")),
                  "a threshold combo bound to indexOfValue() shows row 0 while "
                  "the space holds something else");
-        // The stripper must actually strip, or the ban is vacuous.
         QVERIFY2(code.contains(QStringLiteral("levelCombo.syncToValue(")),
                  "the comment stripper ate the code, so the ban is vacuous");
         QVERIFY2(dialog.contains(QStringLiteral("function onRosterTickChanged()")),
                  "nothing snaps the combo back after a rejected write");
     }
 
-    // Every binding that calls a controller method reads the roster tick; a
-    // method call creates no property dependency.
     void invokableBackedBindingsReadTheRosterTick()
     {
         const QString dialog =
@@ -488,8 +421,6 @@ private Q_SLOTS:
                  "no binding reads the tick, so none of them re-evaluate");
     }
 
-    // The Members page has a count, filters, and a notice when the roster is
-    // capped.
     void membersPageCarriesCountFiltersAndTheTruncationNotice()
     {
         const QString dialog =
@@ -505,8 +436,6 @@ private Q_SLOTS:
         QVERIFY(dialog.contains(QStringLiteral("app.roomInfo.truncated")));
     }
 
-    // The banner is a real state event with its own required level, not gated
-    // on canEditAvatar.
     void bannerUsesTheBannerBackendAndItsOwnPermission()
     {
         const QString dialog =
@@ -516,18 +445,12 @@ private Q_SLOTS:
         QVERIFY(dialog.contains(QStringLiteral("app.banners.clearRoomBanner(")));
         QVERIFY2(dialog.contains(QStringLiteral("app.banners.canSetRoomBanner(")),
                  "the banner controls are gated on some other event's level");
-        // ...and the dialog re-reads it on every open: sliding sync does not
-        // deliver this custom state type (rust/src/banner.rs), and
-        // `requestRoom` asks once per room per session.
         QVERIFY2(dialog.contains(QStringLiteral("app.banners.refreshRoom(")),
                  "the Space settings dialog no longer re-reads the banner");
         QVERIFY2(!dialog.contains(QStringLiteral("app.banners.requestRoom(")),
                  "a once-per-session read is back beside the refresh");
     }
 
-    // The Space's identity can change under the open dialog: `info` calls
-    // app.spaces.spaceInfo(), so the binding needs a change counter.
-    // Rendered behaviour is covered by SpaceIdentityQmlTest.
     void theSpaceInfoBindingCarriesAChangeDependency()
     {
         const QString dialog =
@@ -539,9 +462,6 @@ private Q_SLOTS:
                  "nothing bumps the counter the info binding reads");
     }
 
-    // "No banner" is shown only when the Space has no banner, not whenever the
-    // Image is invisible (it is also invisible while loading or after a
-    // failed fetch).
     void theEmptyBannerStateIsClaimedOnlyWhenThereIsNoBanner()
     {
         const QString dialog =
@@ -556,10 +476,6 @@ private Q_SLOTS:
                  "the empty state is claimed from the Image's readiness again");
     }
 
-    // Banner recovery as on the profile card: wideImageSource() answers ""
-    // while a transient failure mark stands, so cache completion and mark
-    // expiry both bump the re-resolve counter; `source` is never assigned
-    // imperatively.
     void theSpaceBannerRecoversFromATransientMediaFailure()
     {
         const QString dialog =
@@ -575,8 +491,6 @@ private Q_SLOTS:
                  "the banner binding is destroyed by an imperative assignment");
     }
 
-    // Developer tools: every row copyable through the hidden TextEdit relay,
-    // not a new C++ clipboard surface.
     void developerToolsCanCopyEveryRow()
     {
         const QString dialog =
@@ -587,8 +501,6 @@ private Q_SLOTS:
         QVERIFY(dialog.contains(QStringLiteral("spaceSettingsDevCopy")));
     }
 
-    // No local storage in this file and no upgrade button: an upgrade is
-    // irreversible and orphans every m.space.child edge.
     void thePageStillWritesMatrixStateAndNothingElse()
     {
         const QString dialog =
@@ -602,10 +514,6 @@ private Q_SLOTS:
                  "edge; it must not be a button until it is built properly");
     }
 
-    // Controller policy.
-    //
-    // The snapshot carries the room's real thresholds, version and upgrade
-    // capability.
     void snapshotCarriesTheRoomsRealThresholds()
     {
         FakeClient client;
@@ -619,8 +527,6 @@ private Q_SLOTS:
         QVERIFY(ctl.canUpgradeRoom());
     }
 
-    // An absent key is unknown, never 0 (0 is a real, permissive threshold),
-    // and unknown fails closed for writes.
     void anAbsentThresholdIsUnknownAndFailsClosed()
     {
         FakeClient client;
@@ -636,22 +542,18 @@ private Q_SLOTS:
         QCOMPARE(client.matrixCalls, 0);
     }
 
-    // A threshold above your own level is never offered: requiring more than
-    // you have for m.room.power_levels locks you out of undoing it.
     void aThresholdAboveYourOwnLevelIsNeverOffered()
     {
         FakeClient client;
         RoomInfoController ctl;
         ctl.setClient(&client);
-        seed(ctl, client, /*ownPl=*/50);
+        seed(ctl, client,50);
         QVERIFY(!ctl.canSetPowerLevelKey(QStringLiteral("m.room.power_levels"),
                                          100));
         QVERIFY(ctl.canSetPowerLevelKey(QStringLiteral("m.room.power_levels"),
                                         50));
         ctl.setPowerLevelKey(QStringLiteral("m.room.power_levels"), 100);
         QCOMPARE(client.matrixCalls, 0);
-        // ...which also stops users_default being raised above the person
-        // raising it.
         QVERIFY(!ctl.canSetPowerLevelKey(QStringLiteral("users_default"), 100));
     }
 
@@ -673,10 +575,7 @@ private Q_SLOTS:
         RoomInfoController ctl;
         ctl.setClient(&client);
         seed(ctl, client);
-        // Already 50.
         QVERIFY(!ctl.canSetPowerLevelKey(QStringLiteral("ban"), 50));
-        // Outside the settable band. Display is unbounded; only the write is
-        // bounded, which also keeps the MSC4289 creator sentinel out.
         QVERIFY(!ctl.canSetPowerLevelKey(QStringLiteral("ban"),
                                          RoomInfoController::kMaxSettableLevel + 1));
         QVERIFY(!ctl.canSetPowerLevelKey(QStringLiteral("ban"),
@@ -684,8 +583,6 @@ private Q_SLOTS:
         QVERIFY(ctl.canSetPowerLevelKey(QStringLiteral("ban"), 0));
     }
 
-    // Nothing is applied optimistically: the roster is re-read on success and
-    // on rejection.
     void aRefusedThresholdWriteRereadsTheRoster()
     {
         FakeClient client;
@@ -697,7 +594,6 @@ private Q_SLOTS:
         QCOMPARE(client.matrixCalls, 1);
         QCOMPARE(client.lastMatrixKey, QStringLiteral("ban"));
         QVERIFY(ctl.powerMatrixPending());
-        // A second write is refused while one is in flight.
         ctl.setPowerLevelKey(QStringLiteral("kick"), 0);
         QCOMPARE(client.matrixCalls, 1);
 
@@ -706,7 +602,6 @@ private Q_SLOTS:
                                               QStringLiteral("ban"), 0, false,
                                               QStringLiteral("forbidden"));
         QCOMPARE(done.size(), 1);
-        // powerMatrixActionFinished(roomId, key, level, ok, message)
         QCOMPARE(done.at(0).at(1).toString(), QStringLiteral("ban"));
         QCOMPARE(done.at(0).at(3).toBool(), false);
         QVERIFY(!done.at(0).at(4).toString().isEmpty());
@@ -714,12 +609,9 @@ private Q_SLOTS:
         QVERIFY2(client.lastOpId > before,
                  "a rejected threshold write did not re-read the roster, so "
                  "the UI keeps whatever it optimistically showed");
-        // The controller never wrote the requested value into the snapshot.
         QCOMPARE(ctl.powerLevelForKey(QStringLiteral("ban")), qlonglong(50));
     }
 
-    // A stale answer from a previous room does not clear the current pending
-    // state.
     void aStaleThresholdAnswerIsIgnored()
     {
         FakeClient client;
@@ -736,8 +628,6 @@ private Q_SLOTS:
         QVERIFY(ctl.powerMatrixPending());
     }
 
-    // Members facets.
-
     void theMembershipFacetFiltersAndAnUnknownOneMatchesNothing()
     {
         FakeClient client;
@@ -749,8 +639,6 @@ private Q_SLOTS:
                                    false).size(), 2);
         QCOMPARE(ctl.filterMembers(QString(), QStringLiteral("banned"),
                                    false).size(), 1);
-        // An unknown facet matches nothing, rather than silently not
-        // filtering.
         QCOMPARE(ctl.filterMembers(QString(), QStringLiteral("left"),
                                    false).size(), 0);
     }
@@ -762,7 +650,7 @@ private Q_SLOTS:
         ctl.setClient(&client);
         seed(ctl, client);
         const QVariantList rows =
-            ctl.filterMembers(QString(), QString(), /*alphabetical=*/true);
+            ctl.filterMembers(QString(), QString(),true);
         QCOMPARE(rows.size(), 4);
         QStringList names;
         for (const QVariant &row : rows)
@@ -773,8 +661,6 @@ private Q_SLOTS:
                                       QStringLiteral("Zoe") }));
     }
 
-    // A custom level (42) gets its own role group rather than being folded
-    // into Moderator, as roleLabelForLevel does.
     void roleGroupsGiveACustomLevelItsOwnBucket()
     {
         FakeClient client;
@@ -783,7 +669,7 @@ private Q_SLOTS:
         seed(ctl, client);
         const QVariantList groups =
             ctl.memberRoleGroups(QString(), QString(), false);
-        QCOMPARE(groups.size(), 3); // 100, 42, 0
+        QCOMPARE(groups.size(), 3);
         QCOMPARE(groups.at(0).toMap().value(QStringLiteral("level")).toLongLong(),
                  qlonglong(100));
         QCOMPARE(groups.at(1).toMap().value(QStringLiteral("level")).toLongLong(),
@@ -794,9 +680,6 @@ private Q_SLOTS:
                      .size(), 2);
     }
 
-    // The member panel is a ListView over potentially thousands of members,
-    // so it needs one flat model; flattening happens in C++ next to the
-    // bucketing.
     void theFlattenedRoleRowsCarryTheirHeadingsInOrder()
     {
         FakeClient client;
@@ -809,7 +692,6 @@ private Q_SLOTS:
         const QVariantList rows =
             ctl.memberRoleRows(QString(), QString(), false);
 
-        // One header per group followed by that group's members, in order.
         int expected = groups.size();
         for (const QVariant &g : groups)
             expected += g.toMap().value(QStringLiteral("members")).toList().size();
@@ -829,8 +711,6 @@ private Q_SLOTS:
                 group.value(QStringLiteral("members")).toList();
             QCOMPARE(header.value(QStringLiteral("count")).toInt(),
                      int(members.size()));
-        // A header's id never starts with '@', so it cannot be mistaken for a
-        // user id.
             QVERIFY(!header.value(QStringLiteral("userId")).toString()
                          .startsWith(QLatin1Char('@')));
             for (const QVariant &m : members) {
@@ -839,8 +719,6 @@ private Q_SLOTS:
                          QStringLiteral("member"));
                 QCOMPARE(row.value(QStringLiteral("userId")).toString(),
                          m.toMap().value(QStringLiteral("userId")).toString());
-                // Carried per row, so a recycled delegate cannot inherit the
-                // previous role (roleLabelForLevel is Q_INVOKABLE).
                 QCOMPARE(row.value(QStringLiteral("roleLabel")).toString(),
                          group.value(QStringLiteral("label")).toString());
                 QCOMPARE(row.value(QStringLiteral("powerLevel")).toLongLong(),
@@ -849,17 +727,13 @@ private Q_SLOTS:
         }
         QCOMPARE(at, int(rows.size()));
 
-        // The membership filter and A-to-Z sort reach it.
         QCOMPARE(ctl.memberRoleRows(QString(), QStringLiteral("banned"),
                                     false).size(),
-                 2);   // one heading + one banned member
+                 2);
         QVERIFY(ctl.memberRoleRows(QStringLiteral("zzzz"), QString(),
                                    false).isEmpty());
     }
 
-    // Each Space member action is offered on its own canModerate gate, read at
-    // menu open against this Space's roster, and every one goes through the
-    // confirmation dialog rather than straight to the backend.
     void memberActionsAreGatedAndConfirmed()
     {
         const QString dialog =
@@ -880,7 +754,6 @@ private Q_SLOTS:
         }
         QVERIFY(opener.contains(QStringLiteral("canSetPowerLevel(uid, level)")));
 
-        // The menu items: shown on their gate, and routed to the dialog.
         for (const QString &op : { QStringLiteral("Kick"), QStringLiteral("Ban"),
                                    QStringLiteral("Unban") }) {
             const int item = dialog.indexOf(
@@ -897,7 +770,6 @@ private Q_SLOTS:
                      "a menu item acts without confirmation");
         }
         QVERIFY(dialog.contains(QStringLiteral("SpaceMemberActionDialog {")));
-        // Right-click reaches the same menu.
         QVERIFY(dialog.contains(QStringLiteral("acceptedButtons: Qt.RightButton")));
     }
 
@@ -913,8 +785,6 @@ private Q_SLOTS:
         QVERIFY(home.contains(QStringLiteral("spaceChipMemberAction.openFor(")));
     }
 
-    // The confirmation renders the controller's own text and outcome, so the
-    // strings the controller test pins are the ones on screen.
     void theActionDialogRendersTheControllersText()
     {
         const QString dialog =
@@ -926,15 +796,11 @@ private Q_SLOTS:
         QVERIFY(dialog.contains(QStringLiteral("root.ctl.statusText")));
         QVERIFY(dialog.contains(QStringLiteral("root.ctl.confirm(")));
         QVERIFY(dialog.contains(QStringLiteral("enabled: root.ctl && root.ctl.canConfirm")));
-        // Not closable while steps are still answering.
         QVERIFY(dialog.contains(QStringLiteral("Popup.NoAutoClose")));
-        // Names and room names are remote text.
         QVERIFY(!dialog.contains(QStringLiteral("Text.StyledText")));
         QVERIFY(!dialog.contains(QStringLiteral("Text.RichText")));
     }
 
-    // Asking for a new flow while one runs opens the dialog on the running
-    // flow and shows the controller's notice, instead of doing nothing.
     void openingDuringARunningFlowIsNotSilent()
     {
         const QString dialog =
@@ -952,46 +818,36 @@ private Q_SLOTS:
         QVERIFY(dialog.contains(QStringLiteral("root.ctl.notice")));
     }
 
-    // A room creator (MSC4289, v12) holds a level no power-level event can
-    // change, so lowering it is never offered; anyone else may lower their
-    // own level.
     void aCreatorIsNotOfferedToLowerTheirOwnLevel()
     {
         FakeClient client;
         RoomInfoController ctl;
         ctl.setClient(&client);
         const qlonglong creator = qlonglong(1) << 53;
-        seed(ctl, client, /*ownPl=*/creator);
+        seed(ctl, client,creator);
         QVERIFY(!ctl.canSetPowerLevel(kMe, 100));
         QVERIFY(!ctl.canSetPowerLevel(kMe, 0));
-        // Other members are still theirs to change.
         QVERIFY(ctl.canSetPowerLevel(kZoe, 50));
 
         FakeClient client2;
         RoomInfoController admin;
         admin.setClient(&client2);
-        seed(admin, client2, /*ownPl=*/100);
+        seed(admin, client2,100);
         QVERIFY(admin.canSetPowerLevel(kMe, 50));
 
-        // And the confirmation never shows the self-demotion warning for one.
         const QString dialog = readQml(QStringLiteral("SpaceSettingsDialog.qml"));
         const int at = dialog.indexOf(QStringLiteral("readonly property bool selfDemotion:"));
         QVERIFY(at > 0);
         QVERIFY(dialog.mid(at, 300).contains(
             QStringLiteral("app.roomInfo.ownPowerLevel < 9007199254740992")));
-        // A creator is labelled as one, and the largest finite level is not.
         QCOMPARE(ctl.roleLabelForLevel(creator), QStringLiteral("Creator"));
         QCOMPARE(ctl.roleLabelForLevel(creator - 1),
                  QStringLiteral("Custom (%1)").arg(creator - 1));
-        // Reactive to roster refreshes, not frozen at first evaluation.
         const int loses = dialog.indexOf(QStringLiteral("readonly property bool losesRoleControl:"));
         QVERIFY(loses > 0);
         QVERIFY(dialog.mid(loses, 200).contains(QStringLiteral("root.rosterTick")));
     }
 
-    // Lowering your own role cannot be undone by you, exactly like granting
-    // someone your level; the confirmation says so, and every role control
-    // goes through it.
     void loweringYourOwnRoleIsConfirmedWithAWarning()
     {
         const QString dialog = readQml(QStringLiteral("SpaceSettingsDialog.qml"));
@@ -1005,29 +861,20 @@ private Q_SLOTS:
         QVERIFY(confirm.contains(QStringLiteral("raise it back")));
         QVERIFY(confirm.contains(QStringLiteral("Lower your own role?")));
 
-        // The member menu tells it who is who.
         QVERIFY(dialog.contains(
             QStringLiteral("memberMenu.targetIsOwn = member.isOwn === true")));
         QVERIFY(dialog.contains(QStringLiteral("memberMenu.targetIsOwn)")));
 
-        // The Permissions tab's role buttons used to set the level with no
-        // confirmation at all; now the dialog is the only writer.
         QCOMPARE(dialog.count(QStringLiteral("setMemberPowerLevel(")), 1);
         QVERIFY(confirm.contains(QStringLiteral("setMemberPowerLevel(")));
-        // Three role buttons, the custom per-member level field and the
-        // member menu: every role change goes through the confirmation.
         QCOMPARE(dialog.count(QStringLiteral("roleConfirm.openFor(")), 5);
     }
 
-    // Matrix has no delete for a Space's own admins. The settings offer a
-    // close (gated on the join-rule power), and a delete only after the
-    // server said this account administers it.
     void closeAndDeleteAreSeparateAndGated()
     {
         const QString dialog = readQml(QStringLiteral("SpaceSettingsDialog.qml"));
         const int close = dialog.indexOf(QStringLiteral("objectName: \"spaceCloseButton\""));
         QVERIFY(close > 0);
-        // Up to the next button, the delete.
         const QString closeBlock = dialog.mid(
             close, dialog.indexOf(QStringLiteral("AppButton {"), close) - close);
         QVERIFY(closeBlock.contains(QStringLiteral("app.roomInfo.canChangeJoinRule")));
@@ -1043,17 +890,12 @@ private Q_SLOTS:
             QStringLiteral("app.roomClosure.serverAdmin === \"yes\"")));
         QVERIFY(deleteBlock.contains(QStringLiteral("true, \"delete\")")));
         QVERIFY(dialog.contains(QStringLiteral("RoomCloseDialog { id: spaceCloseDialog }")));
-        // The administrator question is asked when the dialog opens, not in
-        // the background.
         const int open = dialog.indexOf(QStringLiteral("function openFor(targetSpaceId)"));
         QVERIFY(open > 0);
         QVERIFY(dialog.mid(open, 1600).contains(
             QStringLiteral("app.roomClosure.checkServerAdmin()")));
     }
 
-    // The close dialog renders the controller's own text; remote names are
-    // plain text; a delete is confirmed by typing; a click during a running
-    // flow opens it instead of doing nothing.
     void theCloseDialogRendersTheControllersText()
     {
         const QString dialog = readQml(QStringLiteral("RoomCloseDialog.qml"));
@@ -1065,9 +907,6 @@ private Q_SLOTS:
         QVERIFY(dialog.contains(QStringLiteral("root.ctl.confirm(")));
         QVERIFY(dialog.contains(QStringLiteral("enabled: root.ctl && root.ctl.canConfirm")));
         QVERIFY(dialog.contains(QStringLiteral("root.ctl.setTypedConfirmation(text)")));
-        // A close can run for many minutes: the dialog can always be hidden,
-        // and hiding hands the flow back to the controller instead of
-        // resetting it.
         QVERIFY2(!dialog.contains(QStringLiteral("Popup.NoAutoClose")),
                  "the dialog holds the whole app behind a modal while it runs");
         QVERIFY(dialog.contains(QStringLiteral("ctl.viewClosed()")));
@@ -1086,10 +925,6 @@ private Q_SLOTS:
         QVERIFY(body.contains(QStringLiteral("open()")));
     }
 
-    // Both dialogs size their room list from the row height; contentHeight is
-    // not known when the binding first runs and cut the list to half a row.
-    // And what closing does in a row is never replaced by "also in another
-    // space".
     void theRoomListsShowWholeRowsAndTheSummary()
     {
         for (const QString &name : { QStringLiteral("RoomCloseDialog.qml"),
@@ -1109,8 +944,6 @@ private Q_SLOTS:
             QStringLiteral("qsTr(\"%1 · also in another space\").arg(r.summary)")));
     }
 
-    // Sign-out and a Space switch clear the matrix; an empty map is the
-    // unknown state.
     void switchingSpaceClearsTheMatrix()
     {
         FakeClient client;

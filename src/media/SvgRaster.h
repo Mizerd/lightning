@@ -1,32 +1,5 @@
 #pragma once
 
-// Local SVG -> PNG conversion for every picture the user UPLOADS ("rasterize
-// on send"). A recipient only ever receives a PNG; SVG that arrives from
-// anyone else stays refused exactly as before (CLAUDE.md §6, MediaBridge's
-// shape sniff, Rust's sniff_image_mime). Nothing in this header is reachable
-// from a receive path.
-//
-// The input is the user's own local file, but that file may have come from
-// anywhere (downloaded from the web), so it is treated as hostile:
-//   * `screen()` refuses, before QtSvg sees a byte: gzip (SVGZ), documents
-//     over the size, element, `<use>` or depth bounds, external entities,
-//     entity expansion past a budget, processing instructions, every
-//     `<image>`/`<feImage>` (QtSvg would load a raster from the local disk and
-//     draw it into the picture that is then uploaded), every reference that is
-//     not document-internal, and CSS `@import`/external `url()`.
-//   * `rasterize()` renders with the SVG 1.2 Tiny feature subset, no
-//     animation, straight into a QImage at the target size. The size comes
-//     from the document's declared size (width/height with units, else the
-//     viewBox), clamped, aspect ratio preserved.
-//   * The conversion runs in a HELPER PROCESS (the app binary with the hidden
-//     `--rasterize-svg` flag, see SvgRasterJob.h) that is killed on a timeout,
-//     because QtSvg cannot be interrupted and a pathological file (nested
-//     `<use>` multiplication) can otherwise hold a thread for ever.
-//
-// Rendering needs Qt SVG (`LIGHTNING_HAVE_QT_SVG`, set by CMake when the module
-// is linked). Without it `rasterize()` reports "unavailable". The screen is
-// Qt Core only and always compiled.
-
 #include <QByteArray>
 #include <QBuffer>
 #include <QCoreApplication>
@@ -48,8 +21,6 @@
 
 namespace lightning::svgraster {
 
-/// Largest SVG source converted. Bounds parse and render time together with
-/// the element, `<use>` and depth caps.
 inline constexpr qsizetype kMaxSourceBytes = 2 * 1024 * 1024;
 inline constexpr int kMaxElements = 20000;
 inline constexpr int kMaxUseElements = 1000;
@@ -58,41 +29,25 @@ inline constexpr int kMaxDepth = 64;
 /// QXmlStreamReader caps each reference (4096), not the total.
 inline constexpr qsizetype kMaxEntityExpansion = 2 * 1024 * 1024;
 inline constexpr qsizetype kEntityReferenceLimit = 4096;
-/// The longest side a conversion may ever produce, whatever the destination
-/// asks for or the file declares.
 inline constexpr int kAbsoluteMaxEdge = 4096;
-/// A PNG bigger than this is refused rather than uploaded.
 inline constexpr qsizetype kMaxPngBytes = 24 * 1024 * 1024;
-/// The helper process is killed after this long.
 inline constexpr int kDefaultTimeoutMs = 10000;
 
-/// Output size policy: the longest side of the PNG is the document's own
-/// longest side, raised to `minEdge` (a vector is drawn at the target size, so
-/// a 24x24 icon is crisp, not an upscaled raster) and lowered to `maxEdge`.
 struct Policy {
     int minEdge = 1024;
     int maxEdge = 4096;
 };
 
-/// A chat attachment: at least 1024, at most 4096.
 inline constexpr Policy attachmentPolicy() { return { 1024, 4096 }; }
-/// The source an avatar or banner is cropped from. The crop output is capped
-/// at 512, so this leaves room to zoom in.
 inline constexpr Policy cropSourcePolicy() { return { 1024, 2048 }; }
-/// A chat background: screen scale, and the backdrop pipeline's own ceiling.
 inline constexpr Policy backgroundPolicy() { return { 2560, 2560 }; }
-/// A sticker or emote.
 inline constexpr Policy stickerPolicy() { return { 512, 1024 }; }
 
-/// True for the MIME types QMimeDatabase reports for SVG and SVGZ.
 inline bool isSvgMime(const QString &mime)
 {
     return mime.startsWith(QLatin1String("image/svg"), Qt::CaseInsensitive);
 }
 
-/// True when `bytes` look like an SVG document by SHAPE: after a BOM and
-/// whitespace the first character is `<`. Used to route a picked file whose
-/// raster sniff failed; it grants nothing (the screen decides).
 inline bool looksLikeSvg(const QByteArray &bytes)
 {
     qsizetype i = 0;
@@ -105,7 +60,6 @@ inline bool looksLikeSvg(const QByteArray &bytes)
     return i < bytes.size() && bytes.at(i) == '<';
 }
 
-/// True for gzip magic: an SVGZ (or any gzip) file. Refused, not inflated.
 inline bool isGzip(const QByteArray &bytes)
 {
     return bytes.size() >= 2 && static_cast<unsigned char>(bytes.at(0)) == 0x1F
@@ -119,7 +73,6 @@ inline bool isXmlSpace(QChar c)
     return c == u' ' || c == u'\t' || c == u'\r' || c == u'\n';
 }
 
-// Every `url(` in a value must point inside the document (`url(#id)`).
 inline bool hasExternalUrl(QStringView text)
 {
     qsizetype from = 0;

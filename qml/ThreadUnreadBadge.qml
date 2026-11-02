@@ -17,9 +17,7 @@ Rectangle {
     id: root
     objectName: "threadUnreadBadge"
 
-    /// 0 nothing (renders nothing), 1 unread in a thread, 2 mention in a thread.
     property int kind: 0
-    /// Ink for the glyph's pill when the host row is not the ordinary surface.
     readonly property bool mention: kind === 2
 
     readonly property string label: mention ? qsTr("Mention in a thread")
@@ -33,8 +31,6 @@ Rectangle {
     Layout.preferredWidth: 18
     Layout.preferredHeight: 18
     radius: AppTheme.radiusPill
-    // The fills every count badge uses, each with the ink that reads on it
-    // at 4.5:1 (7:1 high contrast).
     color: mention ? AppTheme.mentionBadgeFill : AppTheme.unreadCountFill
 
     Accessible.role: Accessible.StaticText

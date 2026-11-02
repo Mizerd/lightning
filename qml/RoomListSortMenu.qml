@@ -2,23 +2,12 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// The "..." menu beside the room-list search field: how each group of the
-// conversation list is ordered. The groups themselves (invitations,
-// favourites, People, Rooms) are not affected; only the order inside one.
-//
-// The mode is the persisted device setting `app.settings.roomListSort`
-// (0 = Activity, 1 = A-Z, 2 = Space order, which is Activity outside a Space,
-// 3 = Unread first). Until one is picked the models run unset (-1): Space order
-// in a real Space, Activity elsewhere. Both layouts and the Space channel list follow it
-// through AppController, so this menu only writes the setting and reads it
-// back; there is no second copy of the choice here.
 AppMenu {
     id: root
     objectName: "roomListSortMenu"
 
     menuWidth: 280
 
-    // The values mirror conversation::SortMode (models/ConversationOrder.h).
     readonly property int sortActivity: 0
     readonly property int sortName: 1
     readonly property int sortSpace: 2

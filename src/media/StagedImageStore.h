@@ -6,23 +6,6 @@
 #include <QObject>
 #include <QString>
 
-// Encoded bytes of images staged to send, so QML can preview them. A pasted
-// image has no file (AttachmentQueueModel keeps it in memory to avoid temp
-// files), and QML cannot point an Image at a QByteArray, so this is a token ->
-// bytes table read by StagedImageProvider (`image://lightning-staged/<token>`).
-// No filesystem or network access of its own; an entry lives as long as its
-// attachment. The ONE exception is a chat-background picture the backdrop
-// controller staged: MediaBridge::stagedAnimationSource may write an animated
-// one to its 0600 scratch dir to play it, and only after
-// ChatBackdropController::ownsStagedToken says the token is its own. Composer,
-// thread and cropper tokens are never written out.
-//
-// These are the user's own outgoing images: memory only, released when the
-// attachment is removed or sent, wiped on sign-out. Not the received-media
-// cache, which has its own rules (CLAUDE.md §6).
-//
-// Registration happens on the GUI thread, but the provider is called on the
-// QML loader thread for asynchronous Images; the mutex makes that safe.
 class StagedImageStore : public QObject
 {
     Q_OBJECT
@@ -36,12 +19,10 @@ public:
     void remove(const QString &token);
     void clear();
 
-    // Empty when the token is unknown. Safe to call from any thread.
     QByteArray bytes(const QString &token) const;
 
     int count() const;
 
-    // Bounded so a leak cannot grow memory without limit.
     static constexpr int kMaxEntries = 64;
 
 private:

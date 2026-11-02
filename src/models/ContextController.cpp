@@ -28,7 +28,6 @@ void ContextController::setClient(MatrixClient *client)
     connect(m_client, &MatrixClient::eventContextFailed, this,
             [this](const QString &roomId, const QString &eventId,
                    const QString &category) {
-        // Identity is the staleness gate: only the view being opened fails.
         if (m_state != Opening || roomId != m_roomId || eventId != m_eventId)
             return;
         qCWarning(lcContext) << "event context failed category=" << category;
@@ -75,8 +74,7 @@ bool ContextController::open(const QString &roomId, const QString &eventId)
         return false;
     if (m_state != Closed && m_roomId == roomId && m_eventId == eventId
         && m_state != Failed)
-        return true; // already open or opening
-    // A previous view is replaced, not stacked: the backend holds one.
+        return true;
     if (m_state != Closed)
         m_client->closeEventContext();
     m_roomId = roomId;
@@ -88,8 +86,6 @@ bool ContextController::open(const QString &roomId, const QString &eventId)
     }
     m_failureCategory.clear();
     resetEdges();
-    // Bind the model before dispatching so the snapshot reset is applied,
-    // never raced.
     m_model.setRoomId(timelineId());
     setState(Opening);
     m_client->openEventContext(roomId, eventId);
@@ -179,8 +175,6 @@ void ContextController::onTimelineReset(const QString &timelineId)
     tracePhase(QStringLiteral("context-model-ready"));
     const int row = targetRow();
     if (row < 0) {
-        // The server answered without the event (redacted, filtered, or not
-        // visible to us): nothing to show here, fall back.
         const QString room = m_roomId;
         const QString event = m_eventId;
         close();
@@ -189,7 +183,6 @@ void ContextController::onTimelineReset(const QString &timelineId)
     }
     const QString root = m_model.events().at(row).threadRootId;
     if (!root.isEmpty() && root != m_eventId) {
-        // A thread reply belongs to its thread panel (CLAUDE.md §8).
         const QString room = m_roomId;
         const QString event = m_eventId;
         close();
@@ -208,7 +201,7 @@ void ContextController::loadOlder()
     m_olderFailed = false;
     ++m_olderPages;
     Q_EMIT edgesChanged();
-    m_client->paginateEventContext(m_roomId, m_eventId, /*forward=*/false);
+    m_client->paginateEventContext(m_roomId, m_eventId,false);
 }
 
 void ContextController::loadNewer()
@@ -219,7 +212,7 @@ void ContextController::loadNewer()
     m_newerFailed = false;
     ++m_newerPages;
     Q_EMIT edgesChanged();
-    m_client->paginateEventContext(m_roomId, m_eventId, /*forward=*/true);
+    m_client->paginateEventContext(m_roomId, m_eventId,true);
 }
 
 void ContextController::onPagination(const QString &roomId,
@@ -227,7 +220,7 @@ void ContextController::onPagination(const QString &roomId,
                                      const QString &state, bool reachedEdge)
 {
     if (m_state != Ready || roomId != m_roomId || eventId != m_eventId)
-        return; // stale: another view, or none
+        return;
     bool &loading = forward ? m_loadingNewer : m_loadingOlder;
     bool &failed = forward ? m_newerFailed : m_olderFailed;
     bool &reached = forward ? m_reachedEnd : m_reachedStart;
@@ -241,16 +234,10 @@ void ContextController::onPagination(const QString &roomId,
     } else if (state == QLatin1String("failed")) {
         loading = false;
         failed = true;
-        // A failed page does not count against the bound.
         int &pages = forward ? m_newerPages : m_olderPages;
         if (pages > 0)
             --pages;
     }
-    // An event-focused timeline is a finite snapshot, not a live
-    // subscription. Once a forward request reaches its end, hand back to
-    // the live pane even if the request added no visible rows. In particular,
-    // a notification can focus the room's newest message, with only room
-    // activity (or filtered events) after it; no further scroll is possible.
     if (forward && state == QLatin1String("idle") && reachedEdge) {
         jumpToLatest();
         return;

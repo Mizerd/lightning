@@ -5,14 +5,12 @@ import MatrixClient
 
 Item {
     id: root
-    // Compact list setting: no preview line (invites keep theirs).
     readonly property bool compactRows: app.settings.compactRoomList
     implicitHeight: content.implicitHeight + AppTheme.roomRowPaddingV * 2
     Accessible.role: Accessible.ListItem
     Accessible.name: {
         if (model.membership === "invited")
             return qsTr("Invitation to %1").arg(model.name)
-        // A muted room is silent, mentions included.
         var base = root.threadOnly
                    ? (model.threadUnreadKind === 2
                       ? qsTr("%1, mention in a thread", "room row")
@@ -28,29 +26,19 @@ Item {
                    : (model.markedUnread && !root.muted)
                    ? qsTr("%1, marked as unread", "room row").arg(model.name)
                    : model.name
-        // The mute glyph is decorative, so the accessible name says it.
         return root.muted ? qsTr("%1, muted").arg(base) : base
     }
-    // Every row is a tab stop so the keyboard context menu (Menu key /
-    // Shift+F10) reaches any room, not just the selected one. Joined rooms
-    // only, like right-click.
     activeFocusOnTab: true
 
     property bool selected: false
-    // Rule under the last favourite, set by RoomsPanel (only it can see the
-    // section boundary). Pinned section labels have no fill, so a short
-    // favourites block would otherwise merge with the next group.
     property bool showGroupDivider: false
     signal clicked()
     signal acceptInvite()
     signal rejectInvite()
     signal markRead()
     signal markUnread()
-    // Carries the value to write, not a toggle; the row never flips it locally,
-    // so a refused write cannot desynchronize it.
     signal setFavourite(bool on)
     signal setLowPriority(bool on)
-    // Signal-only: the host (RoomsPanel) performs the mutations.
     signal setNotificationMode(int mode)
     signal copyRoomLink()
     signal leaveRoomRequested()
@@ -58,31 +46,17 @@ Item {
     signal inviteRequested()
     signal selectRoomRequested()
 
-    // Meta ink for this row: textMuted is tuned for the list surface, not the
-    // selected chip, where it fails contrast.
     readonly property color metaInk: selected ? AppTheme.selectedText
                                               : AppTheme.textMuted
 
-    // Read rows are dimmed and lighter; unread or selected rows keep full ink.
     readonly property bool isUnread: model.hasUnread || model.markedUnread
-    // Whether the menu offers "Mark as read". hasUnread is the receipt flag
-    // alone and is false for a room whose count the server reports without
-    // one (a 13-unread room offered only "Mark as unread"), so the counts
-    // decide too, as RoomUnreadRule's rawUnread does. Separate from isUnread:
-    // that one drives the row's weight and must not change.
     readonly property bool canMarkRead:
         isUnread || model.unreadCount > 0 || model.highlightCount > 0
 
-    // Mute state. roomNotificationMode is a Q_INVOKABLE, so it is re-queried
-    // when the id changes (rows are recycled) and when settings announce a
-    // write. SettingsManager caches the account slug for this hot path.
     readonly property string roomId: model.roomId || ""
     property int notificationMode: 0
     readonly property bool muted: notificationMode === 2
     function refreshNotificationMode() {
-        // Guarded like Avatar's `bridge` lookup: a delegate created inside a
-        // property-change handler can see `app` undefined. Keep the last known
-        // mode rather than asserting "not muted".
         if (typeof app === "undefined" || !app || !app.settings)
             return
         notificationMode = roomId.length > 0
@@ -98,34 +72,21 @@ Item {
         }
     }
 
-    // Invitations and pending knocks get a tinted chip, without spending the
-    // accent.
     readonly property bool needsAttention:
         model.membership === "invited" || model.membership === "knocked"
 
-    // One predicate for whether there is a count, shared by the pill and the
-    // dots so they never both render.
-    // A muted room is fully silent (as in Element): no count, no mention.
-    // When only a thread holds the remainder, the count is replaced by the
-    // thread glyph: a number would suggest messages the main timeline does not
-    // show.
     readonly property bool threadOnly:
         !root.muted && (model.threadUnreadKind || 0) > 0
     readonly property bool hasCountBadge:
         !root.muted && !root.threadOnly
         && (model.unreadCount > 0 || model.highlightCount > 0)
 
-    // A clock time only for today, as Element does. Identical to
-    // HomePane.activityLabel().
     function activityLabel(when) {
         if (!when || isNaN(when.getTime()) || when.getTime() <= 0)
             return ""
         var now = new Date()
         var days = Math.floor((now - when) / 86400000)
         if (when.toDateString() === now.toDateString())
-            // The app-wide clock format, resolved in C++ to a Qt format string.
-            // Being inside a function, it updates when the caller's binding
-            // next re-evaluates.
             return Qt.formatTime(when, app.settings.clockTimeFormat)
         if (days < 2) return qsTr("Yesterday")
         if (days < 7) return Qt.locale(AppLocale.name).toString(when, "ddd")
@@ -139,10 +100,7 @@ Item {
         anchors.fill: parent
         anchors.leftMargin: AppTheme.spacing4
         anchors.rightMargin: AppTheme.spacing4
-        // The group rule uses the row's last pixel line, kept off the selection
-        // chip where it would be invisible.
         anchors.bottomMargin: root.showGroupDivider ? 1 : 0
-        // An 8px rounded highlight chip from the semantic tokens.
         radius: AppTheme.radiusMd
         color: selected ? (hover.hovered ? AppTheme.roomSelectedHover : AppTheme.roomSelected)
              : hover.hovered ? AppTheme.roomHover
@@ -150,14 +108,8 @@ Item {
              : "transparent"
         TapHandler { onTapped: root.clicked() }
     }
-    // On the ROW, not the chip beneath it: a handler on the chip loses the
-    // hover to the handlers of what is drawn over it (the title's tooltip,
-    // the avatar's motion), so the highlight dropped as the pointer crossed
-    // them. The row's own handler sees the pointer anywhere inside it.
     HoverHandler { id: hover }
 
-    // Selected-room edge bar in the gutter left of the chip, rounded and inset
-    // so it reads as a marker rather than a table border.
     Rectangle {
         visible: selected
         anchors.left: parent.left
@@ -168,11 +120,8 @@ Item {
         color: AppTheme.bolt
     }
 
-    // Drawn inside the row's bounds so it never shifts the rows below; inset to
-    // line up with the avatar column.
     Rectangle {
         objectName: "roomGroupDivider"
-        // Above every other layer in the row.
         z: 1
         visible: root.showGroupDivider
         anchors.left: parent.left
@@ -201,29 +150,18 @@ Item {
             mxc: (model.membership === "invited" && !(app.accountPrefs
                   && app.accountPrefs.inviteAvatarsAllowed))
                  ? "" : (model.avatarUrl || "")
-            // One fallback-colour policy: an unambiguous DM is coloured as the
-            // person.
             colorKey: model.identityColorKey || model.roomId || ""
-            // People are circles; rooms and Spaces are rounded squares with a
-            // "#" until the avatar loads.
             circle: model.isDirect === true
-            // A muted room recedes as a whole, avatar included.
             opacity: root.muted && !selected ? 0.55 : 1.0
-            // Invite rows have a third line; keep the avatar with the name at
-            // the top.
             Layout.alignment: model.membership === "invited"
                               ? Qt.AlignTop : Qt.AlignVCenter
             Layout.topMargin: model.membership === "invited" ? 2 : 0
 
-            // Presence on unambiguous 1:1 DMs only: identityColorKey is the
-            // partner's MXID exactly then. Unknown presence renders nothing.
             PresenceDot {
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
                 anchors.margins: -1
                 dotSize: 10
-                // The ring must be the colour behind the dot (the sidebar, or
-                // the selected chip).
                 ring: selected ? AppTheme.selected : AppTheme.roomList
                 userId: model.isDirect === true
                         && (model.identityColorKey || "").charAt(0) === "@"
@@ -244,8 +182,6 @@ Item {
                     objectName: "roomNameLabel"
                     text: model.name
                     textFormat: Text.PlainText
-                    // Read rows dim; unread and selected keep full ink. A muted
-                    // room never claims unread emphasis.
                     color: selected ? AppTheme.roomSelectedName
                          : (root.isUnread && !root.muted) ? AppTheme.roomNameUnread
                                                           : AppTheme.roomName
@@ -259,9 +195,7 @@ Item {
                     // left is mirrored with the layout.
                     horizontalAlignment: Text.AlignLeft
                     Layout.fillWidth: true
-                    // A bridge chip can never squeeze the name to nothing.
                     Layout.minimumWidth: Math.min(implicitWidth, 72)
-                    // A name cut to fit the row stays readable (C06 F05).
                     ToolTip.visible: nameHover.hovered && nameLabel.truncated
                     ToolTip.delay: 600
                     ToolTip.text: model.name
@@ -279,8 +213,6 @@ Item {
                     readonly property bool tagSelected: selected
                     active: label !== "" && app.settings.showBridgeBadges
                     visible: active
-                    // The name always wins the row: the chip may take at most
-                    // a third of it and elides inside that.
                     Layout.maximumWidth: Math.max(0, nameRow.width / 3)
                     Layout.alignment: Qt.AlignVCenter
                     sourceComponent: Label {
@@ -308,16 +240,12 @@ Item {
                     size: 12
                     color: selected ? AppTheme.selectedText : AppTheme.textMuted
                 }
-                // Call-in-progress mark on the title line; zero width without a
-                // call.
                 RoomCallGlyph {
                     objectName: "roomCallGlyph"
                     roomId: model.roomId
                     glyphSize: 13
                     color: selected ? AppTheme.selectedText : AppTheme.textMuted
                 }
-                // The visible half of the mute state; the accessible name
-                // carries the word.
                 Icon {
                     objectName: "roomMutedGlyph"
                     visible: root.muted
@@ -343,31 +271,21 @@ Item {
 
             RowLayout {
                 id: previewRow
-                // Compact list: one line per row. The unread indicators move
-                // up to the name line; invites keep their own lines.
                 visible: !root.compactRows || model.membership === "invited"
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing6
 
                 Label {
                     objectName: "roomPreviewLabel"
-                    // An invitation has no preview; the empty label held a
-                    // blank line between the title and the invitation text.
                     visible: !root.compactRows && model.membership !== "invited"
                     text: model.lastMessagePreview
                     color: selected ? AppTheme.roomSelectedPreview : AppTheme.roomPreview
                     opacity: selected ? 0.9 : 1.0
-                    // The same emoji-capable font as the composer and message
-                    // body: a preview is message text and hits the same Qt 6.8
-                    // monochrome fallback.
                     font: app.textFontWithEmoji(
                               AppTheme.uiFont,
                               AppTheme.scaled(AppTheme.textMeta))
                     elide: Label.ElideRight
-                    horizontalAlignment: Text.AlignLeft // mirrored under RTL, see the name
-                    // One line, always: explicit newlines would break lines
-                    // even with elide. Plain text: a body must never
-                    // rich-format the room list.
+                    horizontalAlignment: Text.AlignLeft
                     maximumLineCount: 1
                     wrapMode: Text.NoWrap
                     textFormat: Text.PlainText
@@ -378,15 +296,7 @@ Item {
                     id: unreadIndicators
                     objectName: "roomUnreadIndicators"
                     spacing: AppTheme.spacing6
-                    // The count pill sits on the preview line (as Element
-                    // does); a compact list has no such line, so it joins the
-                    // name line.
                     parent: root.compactRows ? nameRow : previewRow
-                    // The count pill sits on the preview line (as Element does), so
-                    // the timestamp does not shift as counts change. An unread room
-                    // with no count still says so: servers often report 0 for a
-                    // genuinely unread room (counts follow push rules), so show a
-                    // dot.
                     Rectangle {
                         id: roomUnreadDot
                         objectName: "roomUnreadDot"
@@ -396,9 +306,6 @@ Item {
                         implicitHeight: 8
                         radius: 4
                         Layout.alignment: Qt.AlignVCenter
-                        // Muted rooms keep the dot in muted ink; otherwise the
-                        // theme's unread colour, in a ring that reads on every
-                        // row state.
                         color: root.muted ? root.metaInk : AppTheme.unreadDot
                         border.width: root.muted ? 0 : AppTheme.badgeDotRingWidth
                         border.color: AppTheme.unreadDotRing
@@ -410,20 +317,14 @@ Item {
                     Label {
                         objectName: "roomUnreadBadge"
                         visible: root.hasCountBadge
-                        // A mention carries "@", not colour alone (WCAG 1.4.1);
-                        // the accessible name stays the number.
                         text: model.highlightCount > 0 ? "@" + model.highlightCount
                                                        : model.unreadCount
                         Accessible.name: String(model.highlightCount > 0 ? model.highlightCount
                                                                          : model.unreadCount)
-                        // Mentions keep their colour even when muted; a muted plain
-                        // count becomes an outline pill in muted ink.
                         color: model.highlightCount > 0 ? AppTheme.mentionBadgeInk
                              : root.muted ? root.metaInk
                                           : AppTheme.unreadCountInk
                         background: Rectangle {
-                            // A count's fill is one its number reads on
-                            // (unreadCountFill); a mention's is roomMentionBadge.
                             color: model.highlightCount > 0 ? AppTheme.roomMentionBadge
                                  : root.muted ? "transparent"
                                               : AppTheme.unreadCountFill
@@ -438,15 +339,10 @@ Item {
                         rightPadding: AppTheme.spacing6
                         font.pixelSize: AppTheme.textMicro
                         font.weight: AppTheme.weightBold
-                        // A single digit renders as a circle.
                         Layout.preferredHeight: 18
                         Layout.minimumWidth: 18
                     }
 
-                    // Marked-unread dot, shown only without a numeric badge, in the
-                    // unreadBadge colour, inline next to where the pill would be.
-                    // Never beside the ordinary dot: a room that is both unread and
-                    // marked would draw two.
                     Rectangle {
                         objectName: "roomMarkedUnreadDot"
                         visible: model.markedUnread === true && !root.hasCountBadge
@@ -462,23 +358,14 @@ Item {
                 }
             }
 
-            // The invitation line has the row's whole width, the buttons the
-            // line below: sharing one line with two buttons left it about 80
-            // px, so every invitation read "Room invitati…" and the inviter
-            // never showed (break-it s03/s04).
             ColumnLayout {
                 visible: model.membership === "invited"
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing4
                 Label {
                     objectName: "roomInviteLabel"
-                    // Untrusted text: never markup.
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
-                    // The inviter first, so a long name elides the generic
-                    // tail rather than the one part that says who it is.
-                    // Whitespace collapsed: a name carrying a trailing space
-                    // read as a double space before the tail.
                     readonly property string inviterName:
                         String(model.inviter || "").replace(/\s+/g, " ").trim()
                     text: inviterName
@@ -521,7 +408,6 @@ Item {
                 }
             }
             Label {
-                // Untrusted text: never markup.
                 textFormat: Text.PlainText
                 visible: model.inviteError && model.inviteError.length > 0
                 text: model.inviteError || ""
@@ -533,10 +419,6 @@ Item {
                 Layout.fillWidth: true
             }
 
-            // This room was replaced and the replacement is reachable (the
-            // model requires the successor to be joined or invited and to point
-            // back). Demoted and labelled, never hidden: the old room stays
-            // readable.
             StatusChip {
                 objectName: "roomUpgradedChip"
                 visible: model.supersededByAccessibleSuccessor === true
@@ -546,7 +428,6 @@ Item {
                 Accessible.name: qsTr("This room has been upgraded")
             }
 
-            // Pending knock: the only actions are waiting and withdrawing.
             RowLayout {
                 visible: model.membership === "knocked"
                 spacing: AppTheme.spacingS
@@ -569,22 +450,10 @@ Item {
         }
     }
 
-    // The room menu is for joined rooms; an invitation offers Accept/Reject
-    // on the row and, in its own small menu, Ignore user.
     readonly property bool isInviteRow: model.membership === "invited"
-    // The id to ignore comes ONLY from the model's inviterUserId role. The
-    // `inviter` role is the inviter's own display name, which they control, so
-    // an id is never inferred from it (a name of "@admin:x.org" would make
-    // Ignore user hit an innocent account). Empty when the role is absent.
     readonly property string inviterUserId: model.inviterUserId || ""
-    // Both row menus are built on first use: the whole list shares one pointer,
-    // so a menu per row would cost hundreds of QObjects that never open.
-    // The list's one shared room menu, when the host provides one; it is built
-    // ahead of time, so a first right-click costs what a later one does.
     property Item sharedRowMenu: null
     readonly property string rowRoomId: model.roomId !== undefined ? model.roomId : ""
-    // A recycled row is another room: its own menus are bound to the row, so
-    // one left open would quietly change target.
     onRowRoomIdChanged: {
         if (inviteMenuLoader.item)
             inviteMenuLoader.item.close()
@@ -625,25 +494,18 @@ Item {
         }
     }
     TapHandler {
-        // Touch has no buttons, so a tap would fire this too.
         acceptedButtons: Qt.RightButton
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         enabled: model.membership === "joined"
                  || (root.isInviteRow && root.inviterUserId !== "")
         onTapped: root.openRowMenu()
     }
-    // Touch has no right button, so a long press is its way to the menu. A
-    // held press never also emits the open-room handler's tapped.
     TapHandler {
         acceptedDevices: PointerDevice.TouchScreen
         enabled: model.membership === "joined"
                  || (root.isInviteRow && root.inviterUserId !== "")
         onLongPressed: root.openRowMenu()
     }
-    // The row's menu from the keyboard, joined rooms only like right-click.
-    // Return / Enter / Space open the row in the host (the Classic presenter's
-    // openFromKeyboard): a keyboard open, without the composer grab a
-    // pointer's clicked() takes (MASTER-3 M2).
     Keys.onPressed: (event) => {
         if (model.membership === "joined"
             && (event.key === Qt.Key_Menu
@@ -653,9 +515,6 @@ Item {
             event.accepted = true
         }
     }
-    // THE keyboard focus ring of a room row (C74-F02; C06's border and the
-    // presenter's second ring folded into it): every row is a Tab stop and
-    // nothing else focuses one, so activeFocus is keyboard focus.
     Rectangle {
         objectName: "roomRowFocusRing"
         anchors.fill: parent
@@ -667,7 +526,6 @@ Item {
         border.color: AppTheme.focusRing
         z: 50
     }
-    // The menu lives in RoomActionsMenu.qml, shared with the Channels row.
     Loader {
         id: roomMenuLoader
         active: false
@@ -693,5 +551,4 @@ Item {
         }
     }
 
-    // No per-row hairline: rows separate through spacing and tints.
 }

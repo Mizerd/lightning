@@ -1,15 +1,3 @@
-// lightning::accounts::custody was factored out of RustSdkMatrixClient's
-// three token paths in live accounts Phase 0, behaviour-identical. Each
-// ORACLE below is a VERBATIM copy of the inline code it replaced (9177fc58,
-// RustSdkMatrixClient.cpp: session_tokens_refreshed ~5626, the retirement
-// worker ~627, persistRetiredSessionTokens ~683, retryRotatedTokenWrite ~743,
-// tokenOwnerForRunningSession ~808), with `m_settings` replaced by a
-// TokenStore and members by parameters. Do not "tidy" the oracles.
-//
-// A counting fake store logs every (call, uid) in order. For every row the
-// oracle and the new code run against two identical stores and must leave the
-// same call log, the same store contents and the same outcome. All token
-// values here are fakes.
 #include "accounts/SessionTokenCustody.h"
 
 #include <QCryptographicHash>
@@ -71,7 +59,6 @@ QVariantMap recordFor(const QString &deviceId)
     return record;
 }
 
-// Store contents every path is run against.
 QList<FakeStore> storeScenarios()
 {
     QList<FakeStore> out;
@@ -86,8 +73,6 @@ QList<FakeStore> storeScenarios()
         plain.access.insert(QStringLiteral("@a:hs"), QStringLiteral("A1"));
         out << plain;
 
-        // The record names another device under the raw id and this one
-        // under the canonical id, whose keyring holds A2.
         FakeStore canonical;
         canonical.updateOk = updateOk;
         canonical.records.insert(QStringLiteral("@a:hs"), recordFor(QStringLiteral("OTHER")));
@@ -95,8 +80,6 @@ QList<FakeStore> storeScenarios()
         canonical.access.insert(QStringLiteral("@A:hs"), QStringLiteral("A2"));
         out << canonical;
 
-        // A record with no deviceId, and the settings account on DEV with an
-        // empty keyring.
         FakeStore odd;
         odd.updateOk = updateOk;
         odd.records.insert(QStringLiteral("@a:hs"), recordFor(QString()));
@@ -120,9 +103,6 @@ const QStringList kFinalJsons{
     QStringLiteral(R"({"access_token":"A1"})"),
 };
 
-// ======================= ORACLES: the old code =========================
-
-// Old anonymous-namespace helper, verbatim.
 QByteArray oracleAccessTokenDigest(const QString &accessToken)
 {
     return accessToken.isEmpty()
@@ -130,8 +110,6 @@ QByteArray oracleAccessTokenDigest(const QString &accessToken)
         : QCryptographicHash::hash(accessToken.toUtf8(), QCryptographicHash::Sha256);
 }
 
-// Old tokenOwnerForRunningSession(); `candidates` is what it built from
-// m_userId, the resolved canonical id and m_settings->userId().
 QString oracleTokenOwner(const TokenStore *m_settings, const QString &m_userId,
                          const QString &m_deviceId, const QStringList &candidates)
 {
@@ -149,7 +127,6 @@ QString oracleTokenOwner(const TokenStore *m_settings, const QString &m_userId,
 }
 
 enum class OldLive { RotatedPast, Written, Failed, NoOwner };
-// Old session_tokens_refreshed branch.
 OldLive oracleLive(TokenStore *m_settings, const QString &m_userId, const QString &m_deviceId,
                    const QStringList &candidates, bool m_rustHandle, const QString &finalJson,
                    const QJsonObject &event, QByteArray *m_persistedAccessDigest)
@@ -181,8 +158,6 @@ OldLive oracleLive(TokenStore *m_settings, const QString &m_userId, const QStrin
 }
 
 enum class OldRetry { NoWrite, Written, Failed };
-// Old retryRotatedTokenWrite() after its unchanged guards (handle, settings,
-// signing out, owner non-empty).
 OldRetry oracleRetry(TokenStore *m_settings, const QString &owner, const QString &json,
                      QByteArray *m_persistedAccessDigest)
 {
@@ -200,7 +175,6 @@ OldRetry oracleRetry(TokenStore *m_settings, const QString &owner, const QString
     return OldRetry::Failed;
 }
 
-// Old retirement worker: whether it queued a handback, and with which pair.
 bool oracleWorker(const QString &json, const QByteArray &accessDigest, QString *outAccess,
                   QString *outRefresh)
 {
@@ -224,7 +198,6 @@ struct OldSignIn {
     QString refreshToken;
 };
 enum class OldHandback { NoStore, SameDevice, RecordGone, KeyringChanged, Written, Failed };
-// Old persistRetiredSessionTokens() loop body for one sign-in.
 OldHandback oracleHandback(TokenStore *m_settings, const OldSignIn &signIn,
                            const QString &restoringUserId, bool m_rustHandle, bool m_loggedIn,
                            const QString &m_deviceId,
@@ -253,10 +226,6 @@ OldHandback oracleHandback(TokenStore *m_settings, const OldSignIn &signIn,
     return ok ? OldHandback::Written : OldHandback::Failed;
 }
 
-// ===================== end of oracles ===================================
-
-// The client's new tokenOwnerForRunningSession(): its unchanged guard, then
-// the custody function.
 QString newTokenOwner(const TokenStore *store, const QString &userId, const QString &deviceId,
                       const QStringList &candidates)
 {
@@ -288,7 +257,7 @@ QList<Running> runningSessions()
 
 QByteArray rowName(int row) { return QByteArray("row ") + QByteArray::number(row); }
 
-} // namespace
+}
 
 class SessionTokenCustodyParityTest : public QObject
 {
@@ -328,7 +297,6 @@ void SessionTokenCustodyParityTest::parsingMatchesTheOldInlineParse()
         ++rows;
     }
     QCOMPARE(rows, kFinalJsons.size());
-    // An error string is never parsed, even one that happens to hold JSON.
     QVERIFY(custody::parseFinalSessionTokens(
                 QStringLiteral(R"(error: {"access_token":"A1"})")).accessToken.isEmpty());
 }
@@ -359,8 +327,6 @@ void SessionTokenCustodyParityTest::theOwnerLookupReadsWhatItAlwaysRead()
     QCOMPARE(rows, 8 * 36 * 2);
     QVERIFY(owned > 0);
 
-    // The custody function on its own: an empty device owns nothing and
-    // reads nothing, even against a record that names no device.
     FakeStore odd = storeScenarios().at(3);
     QVERIFY(custody::tokenOwnerFor(odd, {QStringLiteral("@a:hs")}, QString()).isEmpty());
     QVERIFY(odd.log.isEmpty());
@@ -392,8 +358,6 @@ void SessionTokenCustodyParityTest::theLiveWriteMatchesTheOldHandler()
                                 running.deviceId, running.candidates, hasHandle, json, event,
                                 &oldDigest);
 
-                            // The client's new handler, in its order: owner,
-                            // then the session's current pair, then writeLive.
                             QByteArray newDigest("unchanged");
                             const QString tokenOwner =
                                 newTokenOwner(withStore ? &newStore : nullptr, running.userId,
@@ -445,7 +409,6 @@ void SessionTokenCustodyParityTest::theRetryMatchesTheOldRetry()
                 QByteArray oldDigest = digest;
                 const OldRetry old = oracleRetry(&oldStore, owner, json, &oldDigest);
 
-                // The client's new retry body.
                 QByteArray newDigest = digest;
                 OldRetry now = OldRetry::NoWrite;
                 const SessionTokenPair tokens = custody::parseFinalSessionTokens(json);
@@ -535,7 +498,6 @@ void SessionTokenCustodyParityTest::theHandbackWriteMatchesTheOldLoop()
                                                                         running.candidates);
                                             });
 
-                                        // The client's new loop body.
                                         const bool isRestoring = !restoring.isEmpty()
                                             && signIn.userId == restoring;
                                         const bool sameDeviceRunning = newPtr && !isRestoring
@@ -583,10 +545,6 @@ void SessionTokenCustodyParityTest::theHandbackWriteMatchesTheOldLoop()
     QCOMPARE(outcomes.size(), 6);
 }
 
-// Review M1 (wave 3): the SDK rotated after the background host's last drain,
-// so the handle holds a newer pair than the keyring. Adoption must write that
-// pair exactly once and answer the waiting rotation; an unrotated session
-// writes nothing and still answers Saved; no live session does nothing.
 void SessionTokenCustodyParityTest::anAdoptedSessionWritesOnlyARotationTheKeyringLacks()
 {
     const QByteArray persisted = custody::accessTokenDigest(QStringLiteral("access-1"));
@@ -606,7 +564,6 @@ void SessionTokenCustodyParityTest::anAdoptedSessionWritesOnlyARotationTheKeyrin
     QCOMPARE(none.answerGeneration, quint64(0));
     QVERIFY(!none.answerSavedIfNoWrite);
 
-    // A host that never persisted (empty digest) still gets its pair written.
     QVERIFY(custody::reconcileAdopted(QStringLiteral("access-9"), QByteArray(), 0).write);
 }
 

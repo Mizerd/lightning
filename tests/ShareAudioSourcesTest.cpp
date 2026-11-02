@@ -29,18 +29,8 @@ BranchRecord built(int index, const QString &key, qint64 pid = -1,
     r.muted = muted;
     return r;
 }
-} // namespace
+}
 
-// Which application streams a share with sound captures.
-//
-// Capturing the default sink's monitor would send Lightning's own playback of
-// the other participants back to them, so each playing application is
-// captured on its own and Lightning's own streams are excluded.
-//
-// Tested here: which streams are eligible and the shape of the pipeline
-// description. Not tested anywhere: the rescan bookkeeping, branch cap and
-// poll lifecycle (need a live PipeWire graph), and the echo removal itself
-// (needs a far end).
 class ShareAudioSourcesTest : public QObject
 {
     Q_OBJECT
@@ -75,31 +65,21 @@ private slots:
         QVERIFY(capture.excludesUs);
         QCOMPARE(capture.description, QStringLiteral("lightningmacsystemaudiosrc name=sharesrc"));
     }
-    // Our own playback must never be captured, whichever way the node
-    // identifies itself.
     void ourOwnPlaybackIsNeverCaptured()
     {
         const qint64 ours = 4242;
         QVERIFY(!streamIsForeign(streamProps(ours, QStringLiteral("Firefox")),
                                  ours, QStringList{QStringLiteral("Lightning")}));
-        // No pid on the node — the name still has to save us.
         QVERIFY(!streamIsForeign(streamProps(-1, QStringLiteral("Lightning")),
                                  ours, QStringList{QStringLiteral("Lightning")}));
         QVERIFY(!streamIsForeign(streamProps(-1, QStringLiteral("lightning")),
                                  ours, QStringList{QStringLiteral("Lightning")}));
     }
 
-    // The name check covers a node of ours with no `application.process.id`
-    // (where the pid guard cannot fire). It must match every spelling of our
-    // name: the application name ("matrix-client") and the binary name
-    // ("lightning-matrix").
     void everySpellingOfOurOwnNameIsExcluded()
     {
         const QStringList ours{ QStringLiteral("matrix-client"),
                                 QStringLiteral("lightning-matrix") };
-        // No pid on the node, so only the name can save us. Both spellings
-        // must, because which one an audio server records is not ours to
-        // choose.
         QVERIFY2(!streamIsForeign(
                      streamProps(-1, QStringLiteral("lightning-matrix")),
                      4242, ours),
@@ -107,8 +87,6 @@ private slots:
                  "was not being matched");
         QVERIFY(!streamIsForeign(
             streamProps(-1, QStringLiteral("matrix-client")), 4242, ours));
-        // Case still does not matter, and a genuinely different application
-        // is still captured.
         QVERIFY(!streamIsForeign(
             streamProps(-1, QStringLiteral("Lightning-Matrix")), 4242, ours));
         QVERIFY(streamIsForeign(
@@ -120,22 +98,16 @@ private slots:
         const qint64 ours = 4242;
         QVERIFY(streamIsForeign(streamProps(99, QStringLiteral("Firefox")),
                                 ours, QStringList{QStringLiteral("Lightning")}));
-        // A node with no pid and a name that is not ours is still theirs.
         QVERIFY(streamIsForeign(streamProps(-1, QStringLiteral("mpv")), ours,
                                 QStringList{QStringLiteral("Lightning")}));
     }
 
-    // A stream we cannot target cannot be captured: `pipewiresrc` resolves a
-    // stream node only by `object.serial` (given a name it carries silence),
-    // so an absent or malformed serial is refused.
     void aStreamWithoutAUsableSerialIsRefused()
     {
         QVariantMap noSerial = streamProps(99, QStringLiteral("Firefox"));
         noSerial.remove(QStringLiteral("object.serial"));
         QVERIFY(!streamIsForeign(noSerial, 1, QStringList{QStringLiteral("Lightning")}));
 
-        // A serial that is not a plain number never reaches the parse string,
-        // where "42 ! fakesink" would be a different pipeline.
         for (const QString &bad : { QStringLiteral("42 ! fakesink"),
                                     QStringLiteral("4 2"),
                                     QStringLiteral("abc"),
@@ -151,8 +123,6 @@ private slots:
     void onlyApplicationOutputStreamsQualify()
     {
         QVariantMap p = streamProps(99, QStringLiteral("Firefox"));
-        // PipeWire's own internal split/convert nodes carry audio that some
-        // application already produced; taking them as well sends it twice.
         p.insert(QStringLiteral("media.class"),
                  QStringLiteral("Stream/Output/Audio/Internal"));
         QVERIFY(!streamIsForeign(p, 1, QStringList{QStringLiteral("Lightning")}));
@@ -171,8 +141,6 @@ private slots:
         QVERIFY(!streamIsForeign(p, 1, QStringList{QStringLiteral("Lightning")}));
     }
 
-    // A share started before anything is playing must still hand the Opus
-    // encoder a timeline, or the track publishes and carries nothing.
     void theDescriptionAlwaysCarriesASilenceFloor()
     {
         const QString empty = mixedSourceDescription({});
@@ -188,9 +156,6 @@ private slots:
         QVERIFY(one.contains(QLatin1String("target-object=77")));
     }
 
-    // The mixer's output must be the last chain: the caller appends its
-    // encoder with a bare `! `, and gst_parse continues the last-written
-    // chain.
     void theMixerOutputIsTheLastChain()
     {
         Stream a;
@@ -202,8 +167,6 @@ private slots:
         QVERIFY(!chains.isEmpty());
         QCOMPARE(chains.last().trimmed(),
                  mixerElementName() + QLatin1Char('.'));
-        // Every source feeds the mixer rather than dangling as a second
-        // unlinked src pad, which would be ghosted out of the bin instead.
         int feeders = 0;
         for (const QString &c : chains) {
             if (c.contains(QLatin1String("pipewiresrc"))
@@ -213,7 +176,7 @@ private slots:
                 ++feeders;
             }
         }
-        QCOMPARE(feeders, 3); // silence floor + two applications
+        QCOMPARE(feeders, 3);
     }
 
     // `min-buffers` is pinned, never inherited (the default changed from 8 to
@@ -227,14 +190,9 @@ private slots:
         QVERIFY(branch.contains(QLatin1String("min-buffers=1")));
         QVERIFY(branch.contains(QLatin1String("on-disconnect=eos")));
         QVERIFY(branch.contains(QLatin1String("target-object=9551")));
-        // `do-timestamp` puts the buffers on the pipeline's running time, and
-        // a leaky queue lets a slow branch drop its own buffers instead of
-        // back-pressuring the shared mixer.
         QVERIFY(branch.contains(QLatin1String("do-timestamp=true")));
         QVERIFY(branch.contains(QLatin1String("leaky=downstream")));
         QVERIFY(applicationBranchDescription(Stream{}, 0).isEmpty());
-        // The serial is also checked here: these builders are public and take
-        // a caller-built Stream.
         Stream hostile;
         hostile.serial = QStringLiteral("1 ! fakesink");
         QVERIFY(applicationBranchDescription(hostile, 0).isEmpty());
@@ -260,12 +218,6 @@ private slots:
         QCOMPARE(s.pid, qint64(1234));
     }
 
-    // ── Choosing applications (2026-10-07) ──
-
-    // An application is chosen by one key every stream of it shares, so a
-    // tab Firefox opens a minute later is in the share too. The application's
-    // own name first (what pavucontrol shows), then its binary, then the
-    // node; case does not split one application in two.
     void everyStreamOfAnApplicationSharesOneKey()
     {
         QVariantMap first = streamProps(10, QStringLiteral("Firefox"),
@@ -280,7 +232,6 @@ private slots:
         QCOMPARE(streamFromProperties(second).appKey,
                  streamFromProperties(first).appKey);
 
-        // No application name: the binary, then the node name.
         QVariantMap bare;
         bare.insert(QStringLiteral("media.class"),
                     QStringLiteral("Stream/Output/Audio"));
@@ -293,7 +244,6 @@ private slots:
         QCOMPARE(streamFromProperties(bare).appKey, QStringLiteral("node-x"));
         QCOMPARE(applicationKeyFor(QString(), QString(), QString()), QString());
 
-        // The icon is read when the node names one.
         QVariantMap icon = streamProps(10, QStringLiteral("Firefox"));
         icon.insert(QStringLiteral("application.icon-name"),
                     QStringLiteral("firefox"));
@@ -313,15 +263,13 @@ private slots:
 
         Selection apps;
         apps.mode = Mode::Apps;
-        apps.keys = { QStringLiteral("Firefox") };   // case-insensitive
+        apps.keys = { QStringLiteral("Firefox") };
         QVERIFY(apps.wants(firefox));
         QVERIFY2(!apps.wants(mpv), "an application nobody chose is captured");
         QVERIFY2(!apps.wants(keyless),
                  "a stream with no identity matched a choice");
         QVERIFY(apps.capturesAnything());
 
-        // Applications mode with nothing chosen captures nothing: it must not
-        // read as "everything".
         Selection none;
         none.mode = Mode::Apps;
         QVERIFY(!none.wants(firefox));
@@ -337,7 +285,6 @@ private slots:
         QVERIFY(!off.wants(firefox));
         QVERIFY(!off.capturesAnything());
 
-        // Order is not meaning.
         Selection a;
         a.mode = Mode::Apps;
         a.keys = { QStringLiteral("x"), QStringLiteral("y") };
@@ -348,9 +295,6 @@ private slots:
         QVERIFY(a != b);
     }
 
-    // An enum is not a quantity: a value a newer build wrote must not be
-    // clamped onto the nearest mode, and capturing nothing is the only safe
-    // reading of a mode this build does not know.
     void anUnknownModeReadsAsOff()
     {
         QCOMPARE(modeFromInt(0), Mode::Off);
@@ -380,7 +324,7 @@ private slots:
         QCOMPARE(apps.at(0).key, QStringLiteral("firefox"));
         QCOMPARE(apps.at(0).label, QStringLiteral("Firefox"));
         QCOMPARE(apps.at(0).streams, 2);
-        QVERIFY(apps.at(0).active);   // any of its streams playing
+        QVERIFY(apps.at(0).active);
         QCOMPARE(apps.at(0).iconName, QStringLiteral("firefox"));
         QCOMPARE(apps.at(1).label, QStringLiteral("mpv"));
     }
@@ -400,7 +344,6 @@ private slots:
         QVERIFY2(!branch.contains(QLatin1String("on-disconnect")),
                  "a pre-1.6 branch names on-disconnect, which that "
                  "pipewiresrc does not have");
-        // Still pinned: min-buffers and the serial.
         QVERIFY(branch.contains(QLatin1String("min-buffers=1")));
         QVERIFY(branch.contains(QLatin1String("target-object=9551")));
         QVERIFY(mixedSourceDescription({ s }, legacy)
@@ -409,9 +352,6 @@ private slots:
                      .contains(QLatin1String("on-disconnect")));
     }
 
-    // Deselecting an application mid-share mutes its branch: no linked pad is
-    // ever unlinked on a live pipeline (the unpublish deadlock). So every
-    // branch ends on its own named volume.
     void everyBranchEndsOnItsOwnVolume()
     {
         Stream s;
@@ -426,12 +366,10 @@ private slots:
         QVERIFY(branchVolumeName(3) != branchVolumeName(4));
     }
 
-    // Windows: one process-loopback capture per chosen application's session,
-    // including its children (a browser plays from a child process).
     void aWindowsBranchCapturesOneProcessTree()
     {
         Stream s;
-        s.serial = QStringLiteral("4321");   // the session's pid
+        s.serial = QStringLiteral("4321");
         BranchOptions wasapi;
         wasapi.capture = Capture::WasapiProcess;
         wasapi.retireOnDisconnect = false;
@@ -441,30 +379,23 @@ private slots:
             "loopback-target-pid=4321")));
         QVERIFY(!branch.contains(QLatin1String("pipewiresrc")));
         QVERIFY(branch.contains(QLatin1String("volume name=shareappvol2")));
-        // The pid is a parse-string value too.
         Stream hostile;
         hostile.serial = QStringLiteral("4321 ! fakesink");
         QVERIFY(applicationBranchDescription(hostile, 0, wasapi).isEmpty());
     }
 
-    // include-process-tree on a parent already captures its children; a
-    // second branch for a child would play it twice.
     void aProcessInsideAnotherChosenTreeIsNotCapturedTwice()
     {
-        // 100 -> 200 -> 300; 400 unrelated; 500's parent is not listed.
         const QHash<qint64, qint64> parents{
             { 200, 100 }, { 300, 200 }, { 100, 1 }, { 400, 1 }, { 500, 99 },
         };
         QCOMPARE(dropDescendants({ 300, 100, 400, 500 }, parents),
                  (QList<qint64>{ 100, 400, 500 }));
-        // A stale snapshot with a cycle must terminate.
         const QHash<qint64, qint64> cycle{ { 7, 8 }, { 8, 7 } };
         QCOMPARE(dropDescendants({ 7 }, cycle), (QList<qint64>{ 7 }));
         QCOMPARE(dropDescendants({ 9, 9 }, {}), (QList<qint64>{ 9 }));
     }
 
-    // The share's own mute: built closed when asked, and after the meter, so
-    // a muted share still says whether it hears anything.
     void aMutedShareTrackIsBuiltWithItsValveClosedAfterTheMeter()
     {
         const QString src = QStringLiteral("audiotestsrc name=sharesrc");
@@ -480,14 +411,11 @@ private slots:
                 < muted.indexOf(shareValveElementName()));
         QVERIFY(muted.indexOf(shareValveElementName())
                 < muted.indexOf(QStringLiteral("opusenc")));
-        // The MTU and ssrc still land where they did.
         QVERIFY(muted.contains(QStringLiteral("ssrc=(uint)1")));
         QVERIFY(muted.contains(
             QStringLiteral("mtu=%1").arg(lightning::rtp::kRtpPayloadMtu)));
     }
 
-    // A share carrying silence must be distinguishable from one carrying
-    // sound, so the track can carry a level meter, where the build has one.
     void theLevelMeterIsInTheTrackOnlyWhenAsked()
     {
         const QString src = QStringLiteral("audiotestsrc name=sharesrc");
@@ -495,12 +423,9 @@ private slots:
         const QString with = encodedTrackDescription(src, 1, true);
         QVERIFY(with.contains(QStringLiteral("level name=%1")
                                   .arg(levelElementName())));
-        // Upstream of the encoder: it measures what is sent, not RTP.
         QVERIFY(with.indexOf(levelElementName())
                 < with.indexOf(QLatin1String("opusenc")));
     }
-
-    // ── A running share, as a plan (2026-10-07 review) ──
 
     void aStreamIsKeyedBySerialAndWherePidsRepeatByStartTime()
     {
@@ -513,7 +438,6 @@ private slots:
         QCOMPARE(Stream{}.id(), QString());
     }
 
-    // PipeWire: a branch is one stream node, gone when its stream is.
     void aPipeWireScanAddsChosenMutesDeselectedAndRetiresTheGone()
     {
         ScanInput in;
@@ -528,7 +452,6 @@ private slots:
         QCOMPARE(plan.carried, QStringList{ QStringLiteral("a") });
         QVERIFY(plan.retire.isEmpty());
 
-        // Built; now b is chosen instead: a is muted (never unlinked), b added.
         in.records.insert(QStringLiteral("1"), built(0, QStringLiteral("a")));
         in.liveBranches = 1;
         in.selection.keys = { QStringLiteral("b") };
@@ -540,7 +463,6 @@ private slots:
         QCOMPARE(plan.add.first().serial, QStringLiteral("2"));
         QCOMPARE(plan.carried, QStringList{ QStringLiteral("b") });
 
-        // a's stream ends: retired, not muted again, not carried.
         in.live = { stream(QStringLiteral("2"), QStringLiteral("b")) };
         in.records.insert(QStringLiteral("2"), built(1, QStringLiteral("b")));
         in.records[QStringLiteral("1")].muted = true;
@@ -551,9 +473,6 @@ private slots:
         QVERIFY(plan.mute.isEmpty());
     }
 
-    // H1: Windows process loopback follows the PROCESS. A session that
-    // expires (a paused browser) is no reason to retire; only the process
-    // exiting is, and a process that comes back gets a branch again.
     void aWindowsBranchLivesAsLongAsItsProcessNotItsSession()
     {
         ScanInput in;
@@ -567,7 +486,6 @@ private slots:
                           built(3, QStringLiteral("chrome.exe"), 500, 9));
         in.liveBranches = 1;
 
-        // The session expired; the process runs: nothing happens.
         in.live = {};
         in.running = { chrome.id() };
         ScanPlan plan = planScan(in);
@@ -577,19 +495,15 @@ private slots:
         QVERIFY(plan.add.isEmpty());
         QCOMPARE(plan.carried, QStringList{ QStringLiteral("chrome.exe") });
 
-        // The session is back: the same branch, no second one.
         in.live = { chrome };
         plan = planScan(in);
         QVERIFY(plan.add.isEmpty() && plan.retire.isEmpty());
 
-        // The process exited: retired.
         in.live = {};
         in.running = {};
         plan = planScan(in);
         QCOMPARE(plan.retire, QStringList{ chrome.id() });
 
-        // Its record is forgotten once reclaimed, so a returning process (or
-        // the same pid reused, a different id) is captured again.
         in.records.clear();
         in.liveBranches = 0;
         in.live = { stream(QStringLiteral("500"), QStringLiteral("chrome.exe"),
@@ -626,7 +540,6 @@ private slots:
         QCOMPARE(plan.add.size(), 2);
         QVERIFY2(plan.limitReached, "an application was left out silently");
         QVERIFY(!plan.carried.contains(QStringLiteral("c")));
-        // Branches taken out free their places.
         in.liveBranches = 0;
         in.cap = 3;
         plan = planScan(in);
@@ -634,12 +547,8 @@ private slots:
         QVERIFY(!plan.limitReached);
     }
 
-    // H2: a process Lightning runs inside (explorer.exe, a terminal) is
-    // listed but never captured: include-process-tree on it would capture the
-    // call itself.
     void aProcessLightningRunsInsideIsNeverCaptured()
     {
-        // explorer(10) -> terminal(20) -> lightning(30); chrome(40) under 10.
         const QHash<qint64, qint64> parents{
             { 20, 10 }, { 30, 20 }, { 40, 10 }, { 10, 4 },
         };
@@ -655,14 +564,10 @@ private slots:
         QCOMPARE(ancestorsOf(30, parents),
                  (QSet<qint64>{ 20, 10, 4 }));
 
-        // The listing keeps all three (so the UI can say why), marked.
         const QList<Application> apps = groupByApplication(listed);
         QCOMPARE(apps.size(), 3);
         QVERIFY(apps.at(0).containsUs);
 
-        // Chosen or not, the ancestors get no branch; chrome, under explorer,
-        // is NOT dropped as explorer's descendant, because explorer is never
-        // captured.
         ScanInput in;
         in.options.capture = Capture::WasapiProcess;
         in.options.followsProcess = true;
@@ -680,9 +585,6 @@ private slots:
         QVERIFY(!system.wants(listed.at(0)));
     }
 
-    // dropDescendants applies among the CHOSEN only, at build time: a chosen
-    // child under a chosen parent is captured once (by the parent), and a
-    // standing child branch is muted when its parent becomes chosen.
     void aChosenChildOfAChosenParentIsCapturedOnce()
     {
         const QHash<qint64, qint64> parents{ { 200, 100 } };
@@ -698,13 +600,9 @@ private slots:
             stream(QStringLiteral("100"), QStringLiteral("parent.exe"), 100, 1);
         in.live = { parent, child };
         ScanPlan plan = planScan(in);
-        // Only the child is chosen: it is captured; the parent's presence in
-        // the LISTING drops nothing.
         QCOMPARE(plan.add.size(), 1);
         QCOMPARE(plan.add.first().appKey, QStringLiteral("child.exe"));
 
-        // Now the parent is chosen too: the standing child branch is muted,
-        // the parent added.
         in.records.insert(child.id(),
                           built(0, QStringLiteral("child.exe"), 200, 1));
         in.liveBranches = 1;
@@ -717,8 +615,6 @@ private slots:
         QVERIFY(plan.carried.contains(QStringLiteral("child.exe")) == false);
     }
 
-    // L-c: an ancestor the cap keeps out must not mute the chosen descendant
-    // that is carrying its sound.
     void aCappedAncestorDoesNotMuteItsDescendant()
     {
         const QHash<qint64, qint64> parents{ { 200, 100 } };
@@ -747,10 +643,6 @@ private slots:
         QCOMPARE(plan.carried, QStringList{ QStringLiteral("child.exe") });
     }
 
-    // N2: a restarted PipeWire numbers its nodes again, so a serial a branch
-    // was built for can come back naming ANOTHER application. That branch is
-    // not this stream: it is retired, and the new one is captured once the
-    // old record is gone.
     void aReusedSerialNamingAnotherAppIsNotTheOldBranch()
     {
         ScanInput in;
@@ -761,11 +653,9 @@ private slots:
         ScanPlan plan = planScan(in);
         QCOMPARE(plan.retire, QStringList{ QStringLiteral("65") });
         QVERIFY(plan.add.isEmpty());
-        // Same application at the same serial: kept.
         in.live = { stream(QStringLiteral("65"), QStringLiteral("toneb")) };
         plan = planScan(in);
         QVERIFY(plan.retire.isEmpty());
-        // Once taken out, the new stream is captured.
         in.records.clear();
         in.liveBranches = 0;
         in.live = { stream(QStringLiteral("65"), QStringLiteral("tonec")) };
@@ -795,7 +685,6 @@ private slots:
         QCOMPARE(branchBinName(4), QStringLiteral("shareappbin4"));
     }
 
-    // PipeWire records a native client under its binary as well.
     void ourBinaryNameExcludesOurOwnStream()
     {
         QVariantMap p = streamProps(-1, QStringLiteral("Some Player"));
@@ -805,7 +694,6 @@ private slots:
                                  { QStringLiteral("lightning-matrix") }));
     }
 
-    // Missing capture plugins must be visible to artifact validation.
     void theWholeSystemLeavesUsOutOnlyWithEveryPieceItNeeds()
     {
         ExclusionElements pipewire;
@@ -817,8 +705,6 @@ private slots:
         QCOMPARE(v.how, QStringLiteral("per-application capture"));
         QVERIFY(v.missing.isEmpty());
 
-        // The 0.10.1 AppImage's plugin set (listed from the released
-        // squashfs): PipeWire 1.4.2's pipewiresrc and provider, no mixer.
         ExclusionElements appImage0101 = pipewire;
         appImage0101.audiomixer = false;
         v = systemExclusionFor(Platform::Linux, appImage0101);
@@ -827,7 +713,6 @@ private slots:
                  "leaves us out, and must not be reported as if it could");
         QCOMPARE(v.missing, QStringList{ QStringLiteral("element audiomixer") });
 
-        // Each piece on its own is required, and named.
         const struct {
             bool ExclusionElements::*field;
             const char *named;
@@ -848,7 +733,6 @@ private slots:
                      qPrintable(missing.missing.first()));
             QVERIFY(missing.how.isEmpty());
         }
-        // Windows process loopback is not a Linux capture.
         ExclusionElements onlyWasapi;
         onlyWasapi.wasapiProcessLoopback = true;
         QVERIFY(!systemExclusionFor(Platform::Linux, onlyWasapi).possible);
@@ -856,36 +740,27 @@ private slots:
 
     void windowsLeavesUsOutWithProcessLoopbackAlone()
     {
-        // "The whole system" on Windows is one exclude-process-tree loopback;
-        // the mixer is for chosen applications only, so it is not required.
         ExclusionElements windows;
         windows.wasapiProcessLoopback = true;
         SystemExclusion v = systemExclusionFor(Platform::Windows, windows);
         QVERIFY(v.possible);
         QCOMPARE(v.how, QStringLiteral("process loopback"));
 
-        // Below Windows build 20348 the property does not exist and the share
-        // takes the endpoint mix, which carries the call.
         v = systemExclusionFor(Platform::Windows, {});
         QVERIFY(!v.possible);
         QVERIFY(v.missing.join(QString()).contains(
             QLatin1String("process loopback")));
-        // PipeWire pieces do not stand in for it.
         ExclusionElements linuxOnly;
         linuxOnly.audiomixer = true;
         linuxOnly.pipewireTargetObject = true;
         linuxOnly.pipewireDeviceProvider = true;
         QVERIFY(!systemExclusionFor(Platform::Windows, linuxOnly).possible);
 
-        // macOS has no loopback capture at all.
         ExclusionElements everything = linuxOnly;
         everything.wasapiProcessLoopback = true;
         QVERIFY(!systemExclusionFor(Platform::Other, everything).possible);
     }
 
-    // The exact words package validation matches (packaging-ci/scripts/
-    // lib.sh, assert_share_audio_exclusion). An echoing package must never
-    // print the passing prefix.
     void theStatusLineSaysWhichWayItWent()
     {
         const QString pass = QStringLiteral(
@@ -910,8 +785,6 @@ private slots:
         QVERIFY(!bad.contains(QLatin1Char('\n')));
     }
 
-    // The reason share sound is off follows what is actually missing, so the
-    // sentence beside the disabled control names a remedy that applies.
     void theUnavailableReasonNamesWhatIsMissing()
     {
         ExclusionElements full;
@@ -919,10 +792,8 @@ private slots:
             = full.pipewireDeviceProvider = true;
         QCOMPARE(unavailabilityFor(Platform::Linux, full, true),
                  Unavailability::None);
-        // Plugins present, no daemon: PulseAudio alone or PipeWire not up.
         QCOMPARE(unavailabilityFor(Platform::Linux, full, false),
                  Unavailability::NoPipeWire);
-        // The 0.10.1 AppImage: no audiomixer, whatever the daemon says.
         ExclusionElements noMixer = full;
         noMixer.audiomixer = false;
         QCOMPARE(unavailabilityFor(Platform::Linux, noMixer, true),
@@ -945,10 +816,8 @@ private slots:
         const auto linuxPlan = systemCaptureFor(Platform::Linux, true, false, 4242);
         QCOMPARE(linuxPlan.kind, SystemCapture::Kind::PerApplication);
         QVERIFY(linuxPlan.excludesUs);
-        QVERIFY(linuxPlan.description.isEmpty()); // dynamic application branches
+        QVERIFY(linuxPlan.description.isEmpty());
 
-        // PulseAudio-only, missing mixer/target-object, or a timed-out probe.
-        // A sink monitor would contain every other participant's voice.
         for (const auto platform : { Platform::Linux, Platform::Windows,
                                      Platform::Other }) {
             const auto unavailable = systemCaptureFor(platform, false, false, 4242);
@@ -970,10 +839,6 @@ private slots:
         }
     }
 
-    // Our own call playback, as PipeWire 1.6.9's pipewire-pulse records it
-    // (pw-dump of a pulsesink stream on a private graph, 2026-10-16): it
-    // carries the client's pid, so it is left out by pid, and the same
-    // stream from another process is captured.
     void ourPulsePlaybackStreamIsLeftOutByPid()
     {
         QVariantMap p;
@@ -988,7 +853,6 @@ private slots:
         p.insert(QStringLiteral("application.process.id"),
                  QStringLiteral("2740077"));
         QVERIFY(!streamIsForeign(p, 2740077, {}));
-        // Not by name alone: another process under another name is foreign.
         p.insert(QStringLiteral("application.name"), QStringLiteral("Player"));
         p.insert(QStringLiteral("node.name"), QStringLiteral("Player"));
         p.insert(QStringLiteral("application.process.binary"),

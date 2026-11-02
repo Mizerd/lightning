@@ -26,46 +26,44 @@
 namespace callsound {
 
 enum class Cue {
-    Join,         // someone else joined
-    Leave,        // someone else left
-    Connected,    // you joined (or got back after a reconnect)
-    Ended,        // you left, or the call ended under you
-    Disconnected, // the connection dropped and is being retried
+    Join,
+    Leave,
+    Connected,
+    Ended,
+    Disconnected,
     Mute,
     Unmute,
     Deafen,
     Undeafen,
-    ShareStart, // anyone's screen share went live
-    ShareStop,  // anyone's screen share ended
-    HandRaised, // someone ELSE raised a hand
+    ShareStart,
+    ShareStop,
+    HandRaised,
 };
 
 enum class Loop {
     None,
-    Ring,        // an incoming call, nothing else going on
-    CallWaiting, // an incoming call while you are already in one
-    Ringback,    // your outgoing 1:1 call is ringing at the other end
+    Ring,
+    CallWaiting,
+    Ringback,
 };
 
 enum class Category {
-    Presence,     // join, leave, connected, ended, disconnected
-    Controls,     // mute, unmute, deafen, undeafen
-    ShareAndHand, // screen share start/stop, raised hand
+    Presence,
+    Controls,
+    ShareAndHand,
 };
 
 Category categoryOf(Cue cue);
-/// The sound file's base name (data/sounds/<name>.wav), also used in logs.
 QString soundName(Cue cue);
 QString soundName(Loop loop);
 
 struct Preferences {
-    bool enabled = true; // every in-call cue, and the ringback
+    bool enabled = true;
     bool presence = true;
     bool controls = true;
     bool shareAndHand = true;
 };
 
-/// One REMOTE participant, keyed by LiveKit identity (one per device).
 struct RemoteParticipant {
     bool handRaised = false;
     bool sharing = false;
@@ -98,26 +96,17 @@ public:
     void setOutputCapturedByShare(bool captured) { m_outputCaptured = captured; }
 
     QList<Cue> groupPhaseChanged(GroupPhase phase, qint64 nowMs);
-    /// The complete set of REMOTE participants as it stands now.
     QList<Cue> rosterChanged(const Roster &remotes, qint64 nowMs);
-    /// `remoteEndedOutgoing`: an outgoing call ended by the other side
-    /// (declined, busy, never answered) rather than by us.
     QList<Cue> legacyPhaseChanged(LegacyPhase phase, bool remoteEndedOutgoing);
     QList<Cue> localAudioChanged(Lane lane, bool micMuted, bool deafened);
     QList<Cue> localShareChanged(bool sharing);
 
-    /// Whether an announced incoming ring is live; its gates (notifications,
-    /// ignored senders, muted rooms, the ring switch) belong to the announcer.
     void setIncomingRing(bool ringing) { m_incomingRing = ringing; }
     bool incomingRing() const { return m_incomingRing; }
     Loop desiredLoop() const;
 
     bool inCall() const;
     bool deafened() const;
-    /// Whether a chat notification may make its sound now: never while in a
-    /// call, while a call rings (incoming or outgoing), or while a screen
-    /// share captures this computer's whole output mix. Whether the
-    /// notification itself is shown is NotificationManager's decision.
     bool allowsNotificationSound() const;
     GroupPhase groupPhase() const { return m_group; }
     LegacyPhase legacyPhase() const { return m_legacy; }
@@ -146,7 +135,7 @@ private:
     AudioState m_legacyAudio;
     bool m_localShareKnown = false;
     bool m_localSharing = false;
-    QHash<int, qint64> m_lastPlayedMs; // Cue -> when it last played
+    QHash<int, qint64> m_lastPlayedMs;
 };
 
-} // namespace callsound
+}

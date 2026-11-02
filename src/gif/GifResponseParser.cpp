@@ -9,7 +9,6 @@
 namespace gif {
 namespace {
 
-// GIPHY numeric fields (width/height/size) arrive as strings; be liberal.
 int asInt(const QJsonValue &v)
 {
     if (v.isDouble())
@@ -39,8 +38,6 @@ int ratingRank(Rating r)
     return 3;
 }
 
-// Pick the first rendition in `keys` whose `url` is a sendable .gif on one of
-// `hosts`.
 QString firstGifUrl(const QJsonObject &images, const QStringList &keys,
                     const QStringList &hosts, int &width, int &height,
                     qint64 &bytes)
@@ -77,10 +74,6 @@ bool isProviderHttpsUrl(const QString &url, const QStringList &allowedHostSuffix
     return false;
 }
 
-// Pick the first rendition in `keys` whose `field` is an https URL on one of
-// `hosts`. Qt never loads these: the picker's GifPreviewCache fetches them
-// through the Rust safe-get, and this host allowlist decides which servers a
-// provider response can have it reach.
 QString firstHttpsUrl(const QJsonObject &images, const QStringList &keys,
                       const QString &field, const QStringList &hosts,
                       int &width, int &height)
@@ -97,7 +90,7 @@ QString firstHttpsUrl(const QJsonObject &images, const QStringList &keys,
     return QString();
 }
 
-} // namespace
+}
 
 Rating ratingFromString(const QString &value)
 {
@@ -108,8 +101,6 @@ Rating ratingFromString(const QString &value)
         return Rating::PG;
     if (v == QLatin1String("pg-13") || v == QLatin1String("pg13"))
         return Rating::PG13;
-    // "r", "nsfw", unknown or empty: most permissive, so excluded unless R is
-    // allowed.
     return Rating::R;
 }
 
@@ -163,7 +154,6 @@ bool isSendableGifUrlForHosts(const QString &url,
     }
     if (!hostOk)
         return false;
-    // Must be a GIF, not an mp4/webp/jpg still renamed into place.
     return u.path().endsWith(QLatin1String(".gif"), Qt::CaseInsensitive);
 }
 
@@ -179,12 +169,10 @@ GifByteValidation validateGifBytes(const QByteArray &bytes)
         out.category = QStringLiteral("invalid_media");
         return out;
     }
-    // GIF magic "GIF87a"/"GIF89a" only. Matches rust/src/gifs.rs exactly.
     if (!bytes.startsWith("GIF87a") && !bytes.startsWith("GIF89a")) {
         out.category = QStringLiteral("not_a_gif");
         return out;
     }
-    // Logical-screen descriptor: width/height are little-endian u16 at [6..10).
     const auto *d = reinterpret_cast<const unsigned char *>(bytes.constData());
     const int width = d[6] | (d[7] << 8);
     const int height = d[8] | (d[9] << 8);
@@ -205,9 +193,6 @@ GifByteValidation validateGifBytes(const QByteArray &bytes)
 
 namespace {
 
-// PNG: 8-byte signature, then the mandatory first chunk (length[4] + "IHDR"
-// + width[4] + height[4], all big-endian) per the PNG spec — width/height
-// are always the IHDR chunk's first two fields.
 bool pngDims(const QByteArray &bytes, int &width, int &height)
 {
     static const char kSig[8] = {
@@ -222,11 +207,6 @@ bool pngDims(const QByteArray &bytes, int &width, int &height)
     return width > 0 && height > 0;
 }
 
-// JPEG: walk the marker segments after SOI (FFD8) looking for a Start-Of-
-// Frame marker (C0-CF, excluding DHT/JPG/DAC at C4/C8/CC — those are not
-// SOF markers despite being in the same byte range). A SOF segment's
-// payload is precision[1] + height[2] + width[2], big-endian. Bounded
-// iteration count guards against a crafted file with a marker loop.
 bool jpegDims(const QByteArray &bytes, int &width, int &height)
 {
     const auto *d = reinterpret_cast<const unsigned char *>(bytes.constData());
@@ -235,12 +215,12 @@ bool jpegDims(const QByteArray &bytes, int &width, int &height)
         return false;
     int pos = 2;
     for (int guard = 0; guard < 2000 && pos + 2 <= n; ++guard) {
-        if (d[pos] != 0xFF) { ++pos; continue; } // resync past fill bytes
+        if (d[pos] != 0xFF) { ++pos; continue; }
         const unsigned char marker = d[pos + 1];
         pos += 2;
         if (marker == 0xD8 || marker == 0xD9 || marker == 0x01
             || (marker >= 0xD0 && marker <= 0xD7))
-            continue; // no length field on these markers
+            continue;
         if (pos + 2 > n)
             break;
         const int segLen = (d[pos] << 8) | d[pos + 1];
@@ -255,17 +235,13 @@ bool jpegDims(const QByteArray &bytes, int &width, int &height)
             width = (d[pos + 5] << 8) | d[pos + 6];
             return width > 0 && height > 0;
         }
-        if (marker == 0xDA) // start of scan — entropy data, no more markers
+        if (marker == 0xDA)
             break;
         pos += segLen;
     }
     return false;
 }
 
-// WebP: 12-byte "RIFF"+size+"WEBP" container, then the first chunk's FourCC
-// decides the dimension encoding: VP8X (extended header, 24-bit LE
-// width-1/height-1), VP8L (lossless, packed 14-bit fields), or "VP8 "
-// (lossy, 14-bit fields after the 3-byte start code 9D 01 2A).
 bool webpDims(const QByteArray &bytes, int &width, int &height)
 {
     if (bytes.size() < 20 || bytes.left(4) != QByteArrayLiteral("RIFF")
@@ -273,7 +249,7 @@ bool webpDims(const QByteArray &bytes, int &width, int &height)
         return false;
     const QByteArray fourCc = bytes.mid(12, 4);
     const auto *d = reinterpret_cast<const unsigned char *>(bytes.constData());
-    const int c = 20; // first chunk's data starts after FourCC[4]+size[4]
+    const int c = 20;
     if (fourCc == QByteArrayLiteral("VP8X")) {
         if (bytes.size() < c + 10)
             return false;
@@ -300,10 +276,10 @@ bool webpDims(const QByteArray &bytes, int &width, int &height)
         height = (d[c + 8] | (d[c + 9] << 8)) & 0x3FFF;
         return width > 0 && height > 0;
     }
-    return false; // unrecognized first chunk — not a decodable still image
+    return false;
 }
 
-} // namespace
+}
 
 RasterByteValidation validateRasterBytes(const QByteArray &bytes)
 {
@@ -350,8 +326,6 @@ RasterByteValidation validateRasterBytes(const QByteArray &bytes)
         ext = QStringLiteral("webp");
         mime = QStringLiteral("image/webp");
     } else {
-        // Not one of the four supported formats (SVG, HTML, BMP, TIFF, AVIF,
-        // ...).
         out.category = QStringLiteral("unsupported_format");
         return out;
     }
@@ -399,11 +373,11 @@ ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
         const QJsonObject obj = entry.toObject();
         const QString id = obj.value(QStringLiteral("id")).toString();
         if (id.isEmpty() || seen.contains(id))
-            continue; // drop malformed / duplicate results
+            continue;
 
         const QString rating = obj.value(QStringLiteral("rating")).toString();
         if (!ratingWithin(rating, maxRating))
-            continue; // safe-search: excludes unknown ratings too
+            continue;
 
         const QJsonObject images =
             obj.value(QStringLiteral("images")).toObject();
@@ -414,14 +388,11 @@ ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
               QStringLiteral("downsized"), QStringLiteral("fixed_height") },
             giphyHosts, r.gifWidth, r.gifHeight, r.gifBytes);
         if (r.gifUrl.isEmpty())
-            continue; // nothing sendable — skip entirely
-        // Enforce the sendable caps when the provider reports dimensions/size.
+            continue;
         if (r.gifWidth > kMaxGifDimension || r.gifHeight > kMaxGifDimension
             || (r.gifBytes > 0 && r.gifBytes > kMaxGifBytes))
             continue;
 
-        // Small animated preview for the grid. Its own size must not clobber
-        // the sendable variant's dimensions.
         {
             qint64 ignoreBytes = 0;
             int pw = 0, ph = 0;
@@ -434,7 +405,7 @@ ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
                 r.previewWidth = pw;
                 r.previewHeight = ph;
             } else {
-                r.previewUrl = r.gifUrl; // fall back to the sendable gif
+                r.previewUrl = r.gifUrl;
                 r.previewWidth = r.gifWidth;
                 r.previewHeight = r.gifHeight;
             }
@@ -469,7 +440,6 @@ ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
 
     out.ok = true;
     out.nextOffset = requestOffset + static_cast<int>(data.size());
-    // Another page exists when the server reports more than we have seen.
     if (out.totalCount >= 0)
         out.hasMore = out.nextOffset < out.totalCount;
     else
@@ -477,11 +447,6 @@ ParseOutcome parseGiphy(const QByteArray &json, Rating maxRating,
     return out;
 }
 
-// ── KLIPY ───────────────────────────────────────────────────────────────
-// Response: { result, data: { data:[items], current_page, per_page, has_next }}
-// Item: { id, slug, title, type, file: { hd|md|sm|xs: { gif|webp|jpg|mp4: {
-//         url, width, height, size } } } }. No per-item rating — safe-search is
-// applied at request time, so `requestRating` is stamped onto each result.
 ParseOutcome parseKlipy(const QByteArray &json, Rating requestRating,
                         int requestPage)
 {
@@ -494,8 +459,6 @@ ParseOutcome parseKlipy(const QByteArray &json, Rating requestRating,
         return out;
     }
     const QJsonObject root = doc.object();
-    // KLIPY reports failures as {"result":false,...}. Treat as malformed so the
-    // controller shows a bounded error rather than an empty success.
     if (root.contains(QStringLiteral("result"))
         && !root.value(QStringLiteral("result")).toBool(true)) {
         out.errorCategory = QStringLiteral("malformed");
@@ -514,7 +477,6 @@ ParseOutcome parseKlipy(const QByteArray &json, Rating requestRating,
     const QJsonArray items = itemsVal.toArray();
     for (const QJsonValue &entry : items) {
         const QJsonObject obj = entry.toObject();
-        // id may be a number or a string.
         const QJsonValue idVal = obj.value(QStringLiteral("id"));
         const QString id = idVal.isDouble()
             ? QString::number(static_cast<qint64>(idVal.toDouble()))
@@ -523,12 +485,10 @@ ParseOutcome parseKlipy(const QByteArray &json, Rating requestRating,
             continue;
         if (obj.value(QStringLiteral("type")).toString(QStringLiteral("gif"))
                 != QLatin1String("gif"))
-            continue; // gifs only from the gifs endpoint
+            continue;
 
         const QJsonObject file = obj.value(QStringLiteral("file")).toObject();
 
-        // Build a {size: {url,width,height,size}} view of the .gif renditions
-        // so the shared firstGifUrl helper can pick one.
         QJsonObject gifBySize;
         for (const QString &size : { QStringLiteral("md"), QStringLiteral("hd"),
                                      QStringLiteral("sm"), QStringLiteral("xs") }) {
@@ -565,7 +525,6 @@ ParseOutcome parseKlipy(const QByteArray &json, Rating requestRating,
             }
         }
 
-        // Static still (jpg) for fast scrolling.
         QJsonObject jpgBySize;
         for (const QString &size : { QStringLiteral("sm"), QStringLiteral("md"),
                                      QStringLiteral("xs") }) {
@@ -579,7 +538,6 @@ ParseOutcome parseKlipy(const QByteArray &json, Rating requestRating,
             { QStringLiteral("sm"), QStringLiteral("md"), QStringLiteral("xs") },
             QStringLiteral("url"), klipyHosts, sw, sh);
 
-        // Optional preview mp4 — never sent as a gif.
         for (const QString &size : { QStringLiteral("sm"), QStringLiteral("md") }) {
             const QString mp4 = file.value(size).toObject()
                 .value(QStringLiteral("mp4")).toObject()
@@ -604,4 +562,4 @@ ParseOutcome parseKlipy(const QByteArray &json, Rating requestRating,
     return out;
 }
 
-} // namespace gif
+}

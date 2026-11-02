@@ -16,20 +16,15 @@
 
 namespace {
 Q_LOGGING_CATEGORY(lcRtc, "lightning.calls.rtc")
-/// Presentation bound; the Rust side already caps a session at 128 devices.
 constexpr int kMaxPresentedParticipants = 64;
-/// Bound on rooms holding refusal evidence; in practice one or two.
 constexpr int kMaxRefusedRooms = 32;
 /// The expiry re-read waits this long past the deadline, so the Rust read
 /// (which drops a membership once `expires_at_ms <= now`) is sure to see it
 /// expired.
 constexpr qint64 kExpiryRereadGraceMs = 1000;
-/// Shortest wait for an expiry already past, so a burst coalesces.
 constexpr qint64 kExpiryRereadFloorMs = 100;
-/// Expiries further out than this are not watched (the timer is re-armed on
-/// every read anyway); also keeps the interval far inside QTimer's int.
 constexpr qint64 kMaxExpiryWatchMs = 24LL * 60 * 60 * 1000;
-} // namespace
+}
 
 RtcController::RtcController(QObject *parent) : QObject(parent)
 {
@@ -51,7 +46,6 @@ void RtcController::setClient(MatrixClient *client)
         disconnect(m_client, nullptr, this, nullptr);
     }
     m_client = client;
-    // A new client is a new account (or none): forget what was observed.
     clearForNewSession();
     if (m_client) {
         connect(m_client, &MatrixClient::rtcSessionReceived, this,
@@ -60,12 +54,8 @@ void RtcController::setClient(MatrixClient *client)
                 &RtcController::onSessionPoked);
         connect(m_client, &MatrixClient::rtcTransportsReceived, this,
                 &RtcController::onTransportsReceived);
-        // The permission comes from the member snapshot itself, whoever asked
-        // for it. Pushing it from one panel left every room that panel had
-        // not shown at "permitted", and the join failed at the server.
         connect(m_client, &MatrixClient::roomMembersReceived, this,
                 &RtcController::onRoomMembersReceived);
-        // Power-level changes arrive on this poke too.
         connect(m_client, &MatrixClient::roomMemberEventSeen, this,
                 &RtcController::onRoomMemberEventSeen);
     // Forget observed calls on sign-out: participant lists are other
@@ -79,14 +69,12 @@ void RtcController::setClient(MatrixClient *client)
 void RtcController::clearForNewSession()
 {
     m_sessions.clear();
-    // Diagnostics are per session, so a retry can report again.
     m_unresolvedIdentitiesLogged.clear();
     // Outstanding reads belonged to the previous account. An account switch
     // reuses the client and emits loggedOut, which lands here.
     m_pendingReads.clear();
     m_roomsBeingRead.clear();
     m_pokedRooms.clear();
-    // Also forced reads and their cooldowns: the new account may ask at once.
     m_serverReadWanted.clear();
     m_lastServerReadMs.clear();
     m_serverReadStreak.clear();
@@ -99,10 +87,7 @@ void RtcController::clearForNewSession()
     m_participantFocus.clear();
     m_availabilityCategory.clear();
     m_discoveryOp = 0;
-    // Room encryption belongs to the previous account. The resolver is kept:
-    // it answers from whatever room list is current.
     m_encryptedRooms.clear();
-    // So do its power levels and the server's refusals.
     m_canPublishMembership.clear();
     m_permissionStale.clear();
     m_membershipRefusedAtMs.clear();
@@ -120,9 +105,6 @@ void RtcController::setReadTimeoutMsForTest(int ms)
 
 void RtcController::reapStaleReads()
 {
-    // A reply may never arrive (the Rust event queue drops the oldest on
-    // overflow). Without reaping, the room would stay unrefreshable and
-    // flushPokes would re-arm forever.
     if (m_readTimeoutMs <= 0)
         return;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
@@ -143,8 +125,6 @@ bool RtcController::supported() const
 
 bool RtcController::callingAvailable() const
 {
-    // Availability is a positive fact: a transport was actually named. A
-    // session that names a focus counts even without MSC4143 discovery.
     bool sessionNamesAFocus = false;
     for (auto it = m_sessions.cbegin(); it != m_sessions.cend(); ++it) {
         if (!sessionFocusFor(it.key()).isEmpty()) {
@@ -160,12 +140,8 @@ bool RtcController::callingAvailable() const
 
 bool RtcController::discoveryWorthRetrying() const
 {
-    // Bounds the automatic (room-change) trigger only; an explicit discover()
-    // is always honoured. One request in flight is enough.
     if (m_discoveryOp != 0)
         return false;
-    // Once the server has answered either way, the account-scoped answer is
-    // settled for the session.
     return !m_serverAnswered;
 }
 
@@ -174,9 +150,6 @@ QString RtcController::sessionFocusFor(const QString &roomId) const
     const auto it = m_sessions.constFind(roomId);
     if (it == m_sessions.cend() || it->slotClosed)
         return {};
-    // Rust picked this focus from current memberships. Between reads the
-    // session can age: once every member's KNOWN expiry has passed it names
-    // nobody. An unknown expiry (0) is not evidence of expiry.
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const bool allExpired = !it->participants.isEmpty()
         && std::all_of(it->participants.cbegin(), it->participants.cend(),
@@ -189,11 +162,6 @@ QString RtcController::sessionFocusFor(const QString &roomId) const
 
 bool RtcController::transportReachableFor(const QString &roomId) const
 {
-    // The room's own session focus first: it is where the participants are,
-    // and without MSC4143 (most homeservers) it is the only focus there is.
-    // The homeserver's answer applies everywhere; a participant-advertised
-    // focus (already filtered to current call members in Rust) only to its
-    // own room.
     return !sessionFocusFor(roomId).isEmpty()
         || !m_serviceUrls.isEmpty()
         || !m_participantFocus.value(roomId).isEmpty();
@@ -220,11 +188,6 @@ void RtcController::setEncryptionResolver(EncryptionResolver resolver)
     m_encryptionResolver = std::move(resolver);
 }
 
-/// Asks the resolver first, then falls back to the stored record. The record
-/// was only filled for rooms that were opened or called from, so a join
-/// from the incoming-call card took the fail-closed default in an
-/// unencrypted room and dropped every frame. Pulling means no surface can
-/// forget to push.
 bool RtcController::roomEncrypted(const QString &roomId) const
 {
     const RoomEncryption stored =
@@ -232,13 +195,9 @@ bool RtcController::roomEncrypted(const QString &roomId) const
     if (m_encryptionResolver) {
         switch (m_encryptionResolver(roomId)) {
         case RoomEncryption::Yes:
-            // Remember it, so the irreversibility guard covers every room
-            // ever seen encrypted. One record, not two caches.
             m_encryptedRooms.insert(roomId, RoomEncryption::Yes);
             return true;
         case RoomEncryption::No:
-            // A known Yes still wins: encryption cannot be removed in Matrix,
-            // so a "no" here is a stale view (see setRoomEncrypted).
             return stored == RoomEncryption::Yes;
         case RoomEncryption::Unknown:
             break;
@@ -285,8 +244,6 @@ void RtcController::setCanPublishMembership(const QString &roomId, bool can)
     if (it != m_canPublishMembership.cend() && it.value() == can)
         return;
     m_canPublishMembership.insert(roomId, can);
-    // Same signal as the encryption fact; the banner and call row re-read
-    // their block reason from it.
     Q_EMIT sessionChanged(roomId);
 }
 
@@ -302,8 +259,6 @@ void RtcController::setCurrentRoom(const QString &roomId,
     if (roomId != m_currentRoom) {
         m_currentRoom = roomId;
         m_permissionRereadTimer.stop();
-        // Evidence is per room and short-lived: leaving the room drops it.
-        // The snapshot's answer stays, and it is re-read when stale.
         QStringList dropped;
         for (auto it = m_membershipRefusedAtMs.begin();
              it != m_membershipRefusedAtMs.end();) {
@@ -327,7 +282,6 @@ void RtcController::setCurrentRoom(const QString &roomId,
 
 void RtcController::reapStalePermissionReads()
 {
-    // The Rust queue can drop events, so an answer may never come.
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     for (auto it = m_permissionReads.begin(); it != m_permissionReads.end();) {
         if (m_readTimeoutMs > 0 && now - it->dispatchedAtMs > m_readTimeoutMs) {
@@ -358,12 +312,8 @@ void RtcController::rereadCurrentRoomPermission()
 {
     if (m_currentRoom.isEmpty() || !supported())
         return;
-    // Without this a read whose answer was dropped would postpone the
-    // re-read for ever, and the gate would only clear when the room is
-    // reopened.
     reapStalePermissionReads();
     if (m_permissionRoomsBeingRead.contains(m_currentRoom)) {
-        // The answer in flight may predate the change; ask again after it.
         m_permissionRereadTimer.start(m_permissionRereadMs);
         return;
     }
@@ -375,8 +325,6 @@ void RtcController::onRoomMembersReceived(quint64 opId, const QString &roomId,
 {
     const bool ok = snapshot.value(QStringLiteral("ok")).toBool();
     const bool partial = snapshot.value(QStringLiteral("partial")).toBool();
-    // A cache-first partial answer is followed by the full one under the same
-    // op, so our read ends with the full answer or a failure.
     const auto pending = m_permissionReads.constFind(opId);
     if (pending != m_permissionReads.cend() && (!ok || !partial)) {
         m_permissionRoomsBeingRead.remove(pending->roomId);
@@ -384,7 +332,6 @@ void RtcController::onRoomMembersReceived(quint64 opId, const QString &roomId,
     }
     if (!ok || roomId.isEmpty())
         return;
-    // An absent key is unknown, not a refusal.
     const QString key = QStringLiteral("canPublishCallMembership");
     if (!snapshot.contains(key))
         return;
@@ -395,10 +342,6 @@ void RtcController::onRoomMemberEventSeen(const QString &roomId)
 {
     if (roomId.isEmpty())
         return;
-    // One poke carries both membership and power-level changes, so any poke
-    // may have changed the answer. Only the open room is re-read, and only
-    // when it is refused now: a newly granted level has to re-enable Join,
-    // while a newly lost one is caught by the server's refusal.
     const bool hadEvidence = m_membershipRefusedAtMs.remove(roomId);
     const bool known = m_canPublishMembership.contains(roomId);
     if (known)
@@ -406,8 +349,6 @@ void RtcController::onRoomMemberEventSeen(const QString &roomId)
     const bool refusedBySnapshot = known && !m_canPublishMembership.value(roomId);
     if (roomId == m_currentRoom && (hadEvidence || refusedBySnapshot)
         && !m_permissionRereadTimer.isActive()) {
-        // Not restarted: a busy room pokes every second, and this bounds the
-        // re-reads to one per window rather than postponing them for ever.
         m_permissionRereadTimer.start(m_permissionRereadMs);
     }
     if (hadEvidence)
@@ -446,13 +387,9 @@ void RtcController::refresh(const QString &roomId)
 {
     if (roomId.isEmpty() || !supported())
         return;
-    // One read per room at a time; flushPokes() re-pokes a room whose read
-    // was in flight, so a burst is not lost.
     reapStaleReads();
     if (m_roomsBeingRead.contains(roomId))
         return;
-    // A forced-read request is consumed only when a read is dispatched, so a
-    // request made during another read still reaches the wire.
     const bool preferServer = m_serverReadWanted.contains(roomId);
     const quint64 opId = m_client->rtcSession(roomId, preferServer);
     if (opId == 0)
@@ -468,9 +405,6 @@ void RtcController::refreshFromServer(const QString &roomId)
     if (roomId.isEmpty() || !supported())
         return;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    // The gap doubles for each forced read in a row that changed nothing: a
-    // participant we cannot name is a permanent condition, and polling the
-    // server about it would be a request storm.
     const int streak = m_serverReadStreak.value(roomId);
     qint64 cooldown = m_serverReadCooldownMs;
     for (int i = 0; i < streak && cooldown < m_serverReadCooldownMaxMs; ++i)
@@ -479,7 +413,6 @@ void RtcController::refreshFromServer(const QString &roomId)
     const auto last = m_lastServerReadMs.constFind(roomId);
     if (last != m_lastServerReadMs.cend() && now - *last < cooldown)
         return;
-    // Bounded: this map outlives calls.
     if (m_lastServerReadMs.size() >= 64 && !m_lastServerReadMs.contains(roomId)) {
         m_lastServerReadMs.clear();
         m_serverReadStreak.clear();
@@ -488,8 +421,6 @@ void RtcController::refreshFromServer(const QString &roomId)
     m_serverReadStreak.insert(roomId, streak + 1);
     m_serverReadWanted.insert(roomId);
     if (m_roomsBeingRead.contains(roomId)) {
-        // A store-backed read is in flight; poke so the forced read follows
-        // it rather than being lost.
         m_pokedRooms.insert(roomId);
         if (m_pokeCoalesceMs > 0)
             m_pokeTimer.start(m_pokeCoalesceMs);
@@ -507,7 +438,6 @@ void RtcController::discover(const QString &roomId)
     const quint64 opId = m_client->rtcTransports(roomId);
     if (opId == 0)
         return;
-    // Only the newest discovery counts; an older reply must not overwrite it.
     m_discoveryOp = opId;
     m_discoveryRoomId = roomId;
 }
@@ -521,7 +451,6 @@ void RtcController::onSessionPoked(const QString &roomId)
         flushPokes();
         return;
     }
-    // Restarting the timer coalesces a burst into one read.
     m_pokeTimer.start(m_pokeCoalesceMs);
 }
 
@@ -532,8 +461,6 @@ void RtcController::flushPokes()
     reapStaleReads();
     for (const QString &roomId : rooms) {
         if (m_roomsBeingRead.contains(roomId)) {
-            // A read in flight returns pre-poke state; re-poke. Bounded by the
-            // reap above.
             m_pokedRooms.insert(roomId);
             continue;
         }
@@ -548,29 +475,22 @@ void RtcController::onSessionReceived(quint64 opId,
 {
     const auto pending = m_pendingReads.constFind(opId);
     if (pending == m_pendingReads.cend())
-        return; // not ours, or superseded
+        return;
     const PendingRead read = *pending;
     m_pendingReads.erase(pending);
     m_roomsBeingRead.remove(read.roomId);
-    // The reply must be for the room we asked about.
     if (session.roomId != read.roomId)
         return;
 
     const RtcSessionData previous = m_sessions.value(session.roomId);
     m_sessions.insert(session.roomId, session);
-    // What this answer can vouch for: memberships that expired before the
-    // read was dispatched. One that expires later still needs a read.
     m_sessionReadAtMs.insert(session.roomId, read.dispatchedAtMs);
-    // Counts only, never ids: distinguishes "nobody else here" from "nobody
-    // addressable".
     qCInfo(lcRtc) << "session read room participants=" << session.participants.size()
                   << "source=" << session.source
                   << "rawEvents=" << session.rawMembershipEvents
                   << "slotPresent=" << session.slotPresent
                   << "slotClosed=" << session.slotClosed;
 
-    // Announce only a real change, so a poke storm does not re-render every
-    // banner and facepile.
     const bool changed = previous.participants.size()
             != session.participants.size()
         || previous.slotClosed != session.slotClosed
@@ -580,8 +500,6 @@ void RtcController::onSessionReceived(quint64 opId,
                        previous.participants.cend(),
                        session.participants.cbegin(),
                        [](const RtcParticipant &a, const RtcParticipant &b) {
-                           // Profile fields too: the facepile draws them, and
-                           // a late-resolved name would otherwise stay stale.
                            return a.userId == b.userId
                                && a.deviceId == b.deviceId
                                && a.rtcIdentity == b.rtcIdentity
@@ -593,7 +511,6 @@ void RtcController::onSessionReceived(quint64 opId,
                                && a.avatarMxc == b.avatarMxc;
                        });
     if (changed) {
-        // A read that changed the answer resets the escalating gap.
         m_serverReadStreak.remove(session.roomId);
         Q_EMIT sessionChanged(session.roomId);
     }
@@ -603,23 +520,12 @@ void RtcController::onSessionReceived(quint64 opId,
 bool RtcController::expiryReadDue(const QString &roomId, qint64 expiresAtMs,
                                   qint64 nowMs) const
 {
-    // Due when it has expired and no read was dispatched since. A read
-    // dispatched after the expiry already answered without it (or kept it,
-    // and asking again would spin).
     return expiresAtMs <= nowMs
         && expiresAtMs > m_sessionReadAtMs.value(roomId, 0);
 }
 
 void RtcController::scheduleExpiryReread()
 {
-    // A membership leaves the session when it is retracted OR when it
-    // expires, and expiry writes nothing, so no poke follows it. A client
-    // that crashed or lost its network (and so never retracted) then stayed
-    // in the banner until some unrelated write to the room's call state.
-    //
-    // Every expiry not yet covered by a read counts, including one already
-    // past: an unrelated read landing between the expiry and the timer
-    // re-arms the timer, and must not lose it.
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     qint64 next = 0;
     for (auto it = m_sessions.cbegin(); it != m_sessions.cend(); ++it) {
@@ -653,14 +559,8 @@ void RtcController::rereadExpiredSessions()
             }
         }
     }
-    // Raised before the poke, so these expiries count as asked about even
-    // while the read is coalescing; the read's own answer then records its
-    // dispatch time. This is what stops a membership the store keeps from
-    // being asked about again and again.
     for (const QString &roomId : std::as_const(rooms))
         m_sessionReadAtMs.insert(roomId, now);
-    // Through the poke path, so a read already in flight is followed rather
-    // than doubled, and a burst of expiries is one read per room.
     for (const QString &roomId : std::as_const(rooms))
         onSessionPoked(roomId);
     scheduleExpiryReread();
@@ -672,7 +572,7 @@ void RtcController::onTransportsReceived(quint64 opId, bool serverAnswered,
                                           const QString &participantFocusUrl)
 {
     if (opId != m_discoveryOp)
-        return; // a superseded discovery
+        return;
     const QString discoveredRoom = m_discoveryRoomId;
     m_discoveryOp = 0;
     m_discovered = true;
@@ -684,7 +584,6 @@ void RtcController::onTransportsReceived(quint64 opId, bool serverAnswered,
         else
             m_participantFocus.insert(discoveredRoom, participantFocusUrl);
     }
-    // The category explains an absence; clear it when a transport was found.
     m_availabilityCategory =
         (!serverServiceUrls.isEmpty() || !participantFocusUrl.isEmpty())
         ? QString()
@@ -760,8 +659,6 @@ QString RtcController::identityForMembership(
     for (const RtcParticipant &participant : it->participants) {
         if (participant.membershipEventId != membershipEventId)
             continue;
-        // The sender must own the membership: anyone may annotate anyone's
-        // state event.
         if (participant.userId != sender)
             return {};
         return participant.rtcIdentity;
@@ -809,7 +706,6 @@ QVariantList RtcController::participants(const QString &roomId, int max) const
             break;
         QVariantMap row;
         row.insert(QStringLiteral("userId"), participant.userId);
-        // deviceId is not exposed (RtcSession.h: compared, never rendered).
         row.insert(QStringLiteral("intent"), participant.intent);
         row.insert(QStringLiteral("displayName"), participant.displayName);
         row.insert(QStringLiteral("avatarMxc"), participant.avatarMxc);
@@ -847,7 +743,6 @@ QVariantMap RtcController::participantForIdentity(
         return out;
     const auto it = m_sessions.constFind(roomId);
     if (it == m_sessions.cend() || it->slotClosed) {
-        // An empty answer makes a participant unkeyable; record it.
         noteUnresolvedIdentity(identity, QStringLiteral("no live session"));
         return out;
     }
@@ -876,11 +771,7 @@ QVariantMap RtcController::participantForIdentity(
     }
     if (matched) {
         out.insert(QStringLiteral("userId"), matched->userId);
-        // The device, not just the person: keys are per device, and one
-        // person's laptop and phone are separate senders. A public Matrix
-        // device id, as in mediaKeyTargetsJson().
         out.insert(QStringLiteral("deviceId"), matched->deviceId);
-        // Room-resolved profile; empty degrades to initials.
         out.insert(QStringLiteral("displayName"), matched->displayName);
         out.insert(QStringLiteral("avatarMxc"), matched->avatarMxc);
         out.insert(QStringLiteral("ownUser"), matched->ownUser);
@@ -888,9 +779,6 @@ QVariantMap RtcController::participantForIdentity(
         out.insert(QStringLiteral("focusServiceUrl"), matched->focusServiceUrl);
         return out;
     }
-    // An empty lookup means the participant gets no key and their ring is
-    // never bound (they hear us, we cannot hear them). Logged once per
-    // identity per session; the caller runs on a tick.
     noteUnresolvedIdentity(identity,
                            QStringLiteral("no membership matched it; tried plain=%1 sessionHash=%2 stickyHash=%3")
                                .arg(plainTried).arg(sessionHashTried).arg(stickyHashTried));
@@ -907,18 +795,11 @@ QVariantMap RtcController::participantForIdentity(
 void RtcController::noteUnresolvedIdentity(const QString &identity,
                                            const QString &reason) const
 {
-    // Keyed on identity and reason: "no session yet" is transient at call
-    // start and must not silence the real "no membership matched it".
     const QString subject = identity + QChar(0x1f) + reason;
-    // Bounded: identities come from the SFU.
     if (m_unresolvedIdentitiesLogged.size() >= 256
         || m_unresolvedIdentitiesLogged.contains(subject)) {
         return;
     }
-    // A miss at join is normal: the SFU is reached before our own membership
-    // syncs back, so early lookups (including our own device) fail briefly.
-    // Only a fault that persists past the grace period is logged;
-    // reconcileKeyLane() re-tests on its tick.
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const auto firstSeen = m_unresolvedIdentityFirstSeenMs.constFind(subject);
     if (firstSeen == m_unresolvedIdentityFirstSeenMs.cend()) {
@@ -938,7 +819,6 @@ void RtcController::noteUnresolvedIdentity(const QString &identity,
 
 void RtcController::forgetUnresolvedIdentityDiagnostics()
 {
-    // Per call, not per account: identities repeat across calls.
     m_unresolvedIdentitiesLogged.clear();
     m_unresolvedIdentityFirstSeenMs.clear();
 }
@@ -977,8 +857,6 @@ QStringList RtcController::participantUserIds(const QString &roomId,
     for (const RtcParticipant &participant : it->participants) {
         if (out.size() >= limit)
             break;
-        // One entry per person: a user's laptop and phone are two participants
-        // but one face.
         if (!out.contains(participant.userId))
             out.append(participant.userId);
     }
@@ -998,7 +876,6 @@ QVariantList RtcController::participantFaces(const QString &roomId,
     for (const RtcParticipant &participant : it->participants) {
         if (out.size() >= limit)
             break;
-        // One face per person, as above.
         if (seen.contains(participant.userId))
             continue;
         seen.append(participant.userId);
@@ -1013,9 +890,6 @@ QVariantList RtcController::participantFaces(const QString &roomId,
 
 QString RtcController::focusUrlFor(const QString &roomId) const
 {
-    // multi_sfu: publish on our own homeserver's focus. Legacy peers, or no
-    // focus of our own: the oldest membership's focus (where the participants
-    // are), then a participant-advertised one (servers without MSC4143).
     const QString oldest = sessionFocusFor(roomId);
     if (!usesLegacyFocusFor(roomId) && !ownFocusUrlFor().isEmpty())
         return ownFocusUrlFor();
@@ -1037,7 +911,6 @@ bool RtcController::usesLegacyFocusFor(const QString &roomId) const
     if (session == m_sessions.cend() || session->slotClosed)
         return false;
     for (const RtcParticipant &member : session->participants) {
-        // An unknown expiry (0) is a current member, not an expired one.
         const qint64 expiry = member.expiresAtMs;
         if ((expiry == 0 || expiry > QDateTime::currentMSecsSinceEpoch())
             && !member.ownDevice
@@ -1081,7 +954,6 @@ bool RtcController::sameFocusUrl(const QString &left, const QString &right)
     QUrl b(right);
     if (!a.isValid() || !b.isValid() || a.isEmpty() || b.isEmpty())
         return false;
-    // Match Rust's URL comparison without altering the advertised spelling.
     a = a.adjusted(QUrl::NormalizePathSegments);
     b = b.adjusted(QUrl::NormalizePathSegments);
     if (a.scheme() == QLatin1String("https") && a.port() == 443)
@@ -1099,34 +971,21 @@ RtcController::JoinBlock RtcController::joinBlock(const QString &roomId) const
 {
     if (!supported())
         return JoinBlock::Unsupported;
-    // Before every other reason: nothing else would make the call possible.
     if (m_client->networkRouteActive())
         return JoinBlock::NetworkRoute;
     const auto it = m_sessions.constFind(roomId);
     if (it != m_sessions.cend() && it->slotClosed)
         return JoinBlock::SessionClosed;
-    // Reachability before discovery state: a room whose session names a
-    // focus is joinable even if discovery never answered.
     if (!transportReachableFor(roomId)) {
         if (!m_discovered)
             return JoinBlock::Undiscovered;
-        // "No calling on this homeserver" (answered, nothing named) differs
-        // from "couldn't check".
         return m_serverAnswered ? JoinBlock::NoTransport
                                 : JoinBlock::DiscoveryFailed;
     }
-    // An encrypted room whose call media cannot be encrypted is refused;
-    // checked before the media-transport block so the more relevant reason is
-    // shown. Unknown counts as encrypted; the owner's resolver supplies the
-    // real answer.
     if (roomEncrypted(roomId) && !m_mediaEncryption)
         return JoinBlock::MediaEncryptionUnavailable;
-    // No SFU media engine: never publish a membership nobody can connect to.
     if (!m_mediaAvailable)
         return JoinBlock::NoMediaTransport;
-    // Whether the server would accept our membership, checked last since it
-    // is room-specific. Unknown does not disable Join; a snapshot that says
-    // no, or the server having refused this room already, does.
     if (publishRefused(roomId))
         return JoinBlock::NoPermission;
     return JoinBlock::None;

@@ -1,17 +1,3 @@
-// Element's download workflow (DownloadsController) and the Open / Show in
-// folder actions behind it (FileLauncher).
-//
-// Reported 2026-10-06: "add an option to open files when downloaded, same as
-// in Element — just copy their workflow", and "downloading files doesn't
-// prefill their names or file formats". Element: Download saves without a
-// dialog, never over an existing file ("name (1).ext"), then a "Download
-// completed" toast offers Open. Here: the same, plus Show in folder, plus
-// "Always ask where to save files", and never Open for a file that can run
-// code.
-//
-// Nothing here opens a real file manager or a real dialog: every platform
-// call goes through injected hooks, and the save dialog through an injected
-// runner.
 
 #include "app/DownloadsController.h"
 #include "app/FileChooser.h"
@@ -35,7 +21,6 @@
 
 namespace {
 
-// The MediaBridge test's fake: records fetches, answers on demand.
 class FakeClient final : public MatrixClient
 {
     Q_OBJECT
@@ -96,7 +81,6 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-// What the launcher was asked to do.
 struct LaunchLog
 {
     QList<QUrl> opened;
@@ -105,7 +89,6 @@ struct LaunchLog
     QStringList portalDirs;
     QStringList portalFiles;
     QStringList hostPathAsked;
-    /// What the Documents portal says a document's real path is.
     QString hostPath;
     bool fileManagerAnswers = true;
     bool portalAnswers = true;
@@ -134,8 +117,6 @@ FileLauncher::Hooks hooksFor(LaunchLog &log)
         log.portalDirs.append(path);
         done(log.portalAnswers);
     };
-    // (2026-10-07 hooks: drop these two to build the document-portal cases
-    // against the tree before that fix.)
     hooks.portalOpenFile = [&log](const QString &path,
                                   std::function<void(bool)> done) {
         log.portalFiles.append(path);
@@ -149,8 +130,6 @@ FileLauncher::Hooks hooksFor(LaunchLog &log)
     return hooks;
 }
 
-// $XDG_RUNTIME_DIR pointed at a scratch folder holding a fake document-portal
-// mount, restored afterwards.
 class FakeDocumentPortal
 {
 public:
@@ -158,8 +137,6 @@ public:
         : m_saved(qgetenv("XDG_RUNTIME_DIR")),
           m_had(qEnvironmentVariableIsSet("XDG_RUNTIME_DIR"))
     {
-        // Canonical, because MediaBridge canonicalizes the folder it writes
-        // into and the path it reports must still be inside this mount.
         m_root = QFileInfo(m_dir.path()).canonicalFilePath();
         qputenv("XDG_RUNTIME_DIR", m_root.toUtf8());
         QDir().mkpath(documentFolder());
@@ -204,7 +181,7 @@ QByteArray readFile(const QString &path)
     return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
 }
 
-} // namespace
+}
 
 class DownloadsControllerTest : public QObject
 {
@@ -221,8 +198,6 @@ private Q_SLOTS:
         qputenv("DBUS_SESSION_BUS_ADDRESS",
                 QByteArrayLiteral("unix:path=/nonexistent/lightning-test-bus"));
     }
-
-    // ── FileLauncher: the right platform call ──
 
     void showInFolderAsksTheFileManagerFirstOnLinux()
     {
@@ -255,7 +230,6 @@ private Q_SLOTS:
         log.portalDirs.clear();
         how.clear();
         QVERIFY(launcher.showInFolder(path));
-        // Last resort: the folder itself, never the file.
         QCOMPARE(log.opened,
                  QList<QUrl>{QUrl::fromLocalFile(QFileInfo(path).absolutePath())});
         QCOMPARE(how.at(0).at(0).toString(), QStringLiteral("folder"));
@@ -306,11 +280,6 @@ private Q_SLOTS:
         QVERIFY(log.shown.isEmpty());
     }
 
-    // ── Files the document portal granted (Snap, Flatpak) ──
-    //
-    // Reported 2026-10-07 from the Ubuntu 26 snap: "Saved to fd37b80a" (the
-    // document portal's id for the file), and Show in folder opened nothing.
-
     void showInFolderHandsAPortalFileToThePortalNotByName()
     {
         FakeDocumentPortal portal;
@@ -321,8 +290,6 @@ private Q_SLOTS:
         FileLauncher launcher(FileLauncher::Platform::Linux, hooksFor(log));
         QSignalSpy how(&launcher, &FileLauncher::revealFinished);
         QVERIFY(launcher.showInFolder(path));
-        // OpenDirectory with the file; the host's file manager is never
-        // handed the sandbox's path.
         QCOMPARE(log.portalDirs, QStringList{path});
         QVERIFY(log.shown.isEmpty());
         QVERIFY(log.opened.isEmpty());
@@ -346,8 +313,6 @@ private Q_SLOTS:
         QCOMPARE(log.shown, QList<QUrl>{QUrl::fromLocalFile(log.hostPath)});
         QCOMPARE(how.at(0).at(0).toString(), QStringLiteral("file-manager"));
 
-        // Nothing names the real folder: an honest failure, never the
-        // document's own folder (a directory named by its id).
         log.hostPath.clear();
         log.shown.clear();
         how.clear();
@@ -372,7 +337,6 @@ private Q_SLOTS:
         QVERIFY(launcher.openFile(path));
         QCOMPARE(log.portalFiles, QStringList{path});
         QVERIFY(log.opened.isEmpty());
-        // A portal that fails: Qt's own route, once.
         log.portalFiles.clear();
         log.portalFileAnswers = false;
         QVERIFY(launcher.openFile(path));
@@ -387,7 +351,6 @@ private Q_SLOTS:
         QTemporaryDir dir;
         Fixture f(dir.path());
         f.settings->setAlwaysAskWhereToSave(true);
-        // What the portal's Save dialog hands a Snap or a Flatpak.
         f.answer = QUrl::fromLocalFile(portal.file(QStringLiteral("report.pdf")));
         f.downloads->download(QStringLiteral("$report"),
                               QStringLiteral("report.pdf"),
@@ -402,25 +365,21 @@ private Q_SLOTS:
                  QByteArray("pdf"));
         QCOMPARE(item.value(QStringLiteral("fileName")).toString(),
                  QStringLiteral("report.pdf"));
-        // Not "fd37b80a": the card then says only "Saved".
         QCOMPARE(item.value(QStringLiteral("folderName")).toString(), QString());
         QCOMPARE(f.log.hostPathAsked, QStringList{QStringLiteral("fd37b80a")});
         QCOMPARE(item.value(QStringLiteral("canOpen")).toBool(), true);
 
-        // Show in folder, with no portal and no real path: the row says so.
         f.log.portalAnswers = false;
         const int id = item.value(QStringLiteral("id")).toInt();
         QVERIFY(f.downloads->showInFolder(id));
         item = f.downloads->items().value(0).toMap();
         QCOMPARE(item.value(QStringLiteral("revealFailed")).toBool(), true);
         QVERIFY(f.log.opened.isEmpty());
-        // A second try that works clears it.
         f.log.portalAnswers = true;
         QVERIFY(f.downloads->showInFolder(id));
         item = f.downloads->items().value(0).toMap();
         QCOMPARE(item.value(QStringLiteral("revealFailed")).toBool(), false);
 
-        // Open goes to the portal with the granted file.
         QVERIFY(f.downloads->open(id));
         QCOMPARE(f.log.portalFiles,
                  QStringList{portal.file(QStringLiteral("report.pdf"))});
@@ -467,15 +426,11 @@ private Q_SLOTS:
         QVERIFY(!f.downloads->open(id));
         QVERIFY(f.log.portalFiles.isEmpty());
         QVERIFY(f.log.opened.isEmpty());
-        // Shown, through the portal.
         QVERIFY(f.downloads->showInFolder(id));
         QCOMPARE(f.log.portalDirs,
                  QStringList{portal.file(QStringLiteral("setup.exe"))});
     }
 
-    // The real reader: the attribute the document portal sets on every
-    // document. Needs a filesystem with user xattrs (skips without one); no
-    // bus is reachable here, so GetHostPaths answers nothing.
     void theDefaultReaderTakesTheHostPathFromThePortalsAttribute()
     {
 #if !defined(Q_OS_LINUX)
@@ -489,7 +444,7 @@ private Q_SLOTS:
                               FileLauncher::Hooks{});
         QString host = QStringLiteral("unset");
         launcher.resolveHostPath(path, [&host](const QString &h) { host = h; });
-        QTRY_COMPARE(host, QString()); // no attribute, no bus: nothing
+        QTRY_COMPARE(host, QString());
 
         const QByteArray value("/home/someone/Downloads/report.pdf");
         if (::setxattr(QFile::encodeName(path).constData(),
@@ -502,8 +457,6 @@ private Q_SLOTS:
         QCOMPARE(host, QString::fromUtf8(value));
 #endif
     }
-
-    // ── Sandboxes that cannot write to Downloads always ask ──
 
     void aSandboxWithoutDownloadsAccessAlwaysAsks_data()
     {
@@ -538,16 +491,9 @@ private Q_SLOTS:
         QCOMPARE(DownloadsController::sandboxBlocksDownloads(sandbox), blocked);
     }
 
-    // ── Sandbox detection: never stat-gated (live Flatpak FAIL 2026-10-07) ──
-
     void hostSandboxReadsAnUnlinkedFlatpakInfo()
     {
 #if defined(Q_OS_LINUX)
-        // In the Flathub build /.flatpak-info "did not exist" to Qt (an
-        // unlinked bind mount, st_nlink == 0), so hostSandbox() said "not
-        // sandboxed" and Download wrote into the sandbox's private home. An
-        // open fd to an unlinked file is the same shape. Fails if the
-        // exists() gate comes back.
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         const QString name = dir.filePath(QStringLiteral("flatpak-info"));
@@ -572,8 +518,6 @@ private Q_SLOTS:
 
     void aLeakedFlatpakEnvironmentAloneDoesNotSandboxDownloads()
     {
-        // The description's contents decide; $FLATPAK_ID leaked into a native
-        // process must not refuse its every save.
         const QByteArray saved = qgetenv("FLATPAK_ID");
         const bool wasSet = qEnvironmentVariableIsSet("FLATPAK_ID");
         qputenv("FLATPAK_ID", QByteArrayLiteral("org.example.LightningTest"));
@@ -592,8 +536,6 @@ private Q_SLOTS:
     void sandboxDetectionReadsAnUnlinkedFlatpakInfo()
     {
 #if defined(Q_OS_LINUX)
-        // The real /.flatpak-info: st_nlink == 0, which Qt reports as absent
-        // though it opens. An open fd to an unlinked file is the same shape.
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         const QString name = dir.filePath(QStringLiteral("flatpak-info"));
@@ -635,17 +577,15 @@ private Q_SLOTS:
         QVERIFY(!sandboxenv::detect(env, {}).flatpak);
         sandboxenv::Environment snap;
         snap.snap = QStringLiteral("/snap/lightning/1");
-        QVERIFY(!sandboxenv::detect(snap, {}).snap); // needs SNAP_NAME too
+        QVERIFY(!sandboxenv::detect(snap, {}).snap);
         snap.snapName = QStringLiteral("lightning");
         QVERIFY(sandboxenv::detect(snap, {}).snap);
     }
 
-    // ── Only a path the host can see may be called saved ──
-
     void aPathReachesTheHostOnlyThroughAGrantThePortalOrTheAppsOwnFolder_data()
     {
         QTest::addColumn<QString>("filesystems");
-        QTest::addColumn<QString>("relative"); // under the fake home
+        QTest::addColumn<QString>("relative");
         QTest::addColumn<bool>("reaches");
         QTest::newRow("no grant, home") << "" << "notes.txt" << false;
         QTest::newRow("no grant, Downloads") << "" << "Downloads/a.pdf" << false;
@@ -686,7 +626,6 @@ private Q_SLOTS:
                                home.path() + QStringLiteral("/Downloads"));
         const QString path = home.path() + QLatin1Char('/') + relative;
         QCOMPARE(DownloadsController::pathReachesHost(sandbox, path), reaches);
-        // Outside a sandbox everything reaches the host.
         QVERIFY(DownloadsController::pathReachesHost(
             DownloadsController::Sandbox{}, path));
     }
@@ -722,8 +661,6 @@ private Q_SLOTS:
 
     void aSymlinkInsideAGrantIntoThePrivateTreeDoesNotReachTheHost()
     {
-        // The canonical form decides: Downloads is granted, but a link in it
-        // pointing into the sandbox-private home sends the bytes to tmpfs.
         QTemporaryDir home;
         QVERIFY(home.isValid());
         QVERIFY(QDir().mkpath(home.path() + QStringLiteral("/Downloads")));
@@ -755,9 +692,6 @@ private Q_SLOTS:
 
     void aSaveIntoTheSandboxOnlyHomeIsRefusedNotReportedAsSaved()
     {
-        // Debian KDE with no xdg-desktop-portal: Qt's own dialog runs inside
-        // the sandbox and shows its private tmpfs home. Live 2026-10-07 the
-        // card said "Saved to tester" for a file lost at exit.
         QTemporaryDir home;
         QVERIFY(home.isValid());
         DownloadsController::Sandbox sandbox;
@@ -780,7 +714,7 @@ private Q_SLOTS:
             QStringLiteral("sandbox")));
         QCOMPARE(item.value(QStringLiteral("canOpen")).toBool(), false);
         QTest::qWait(20);
-        QVERIFY(f.client.fetches.isEmpty()); // nothing fetched, nothing written
+        QVERIFY(f.client.fetches.isEmpty());
         QVERIFY(!QFileInfo::exists(home.path() + QStringLiteral("/notes.txt")));
     }
 
@@ -808,8 +742,6 @@ private Q_SLOTS:
 
     void aDownloadsFolderOnlyTheSandboxSeesIsNeverWrittenDirectly()
     {
-        // xdg-download is granted, but the folder the setting names is not
-        // under it: Download must ask (the portal) rather than write there.
         QTemporaryDir home;
         QVERIFY(home.isValid());
         DownloadsController::Sandbox sandbox;
@@ -819,8 +751,8 @@ private Q_SLOTS:
         sandbox.xdgDirs.insert(QStringLiteral("xdg-download"),
                                home.path() + QStringLiteral("/Downloads"));
         Fixture f(home.path() + QStringLiteral("/Elsewhere"), sandbox);
-        QVERIFY(!f.downloads->asksWhereToSave()); // the grant covers Downloads
-        f.answer = QUrl(); // the user cancels the dialog
+        QVERIFY(!f.downloads->asksWhereToSave());
+        f.answer = QUrl();
         f.downloads->download(QStringLiteral("$pic"), QStringLiteral("a.png"),
                               QStringLiteral("image/png"));
         QTRY_COMPARE(f.runnerCalls, 1);
@@ -828,8 +760,6 @@ private Q_SLOTS:
         QVERIFY(f.client.fetches.isEmpty());
         QVERIFY(!QFileInfo::exists(home.path() + QStringLiteral("/Elsewhere")));
     }
-
-    // ── Element's Download ──
 
     void downloadSavesStraightToTheFolderAndNeverReplacesAFile()
     {
@@ -840,7 +770,7 @@ private Q_SLOTS:
         f.downloads->download(QStringLiteral("$report"),
                               QStringLiteral("report.pdf"),
                               QStringLiteral("application/pdf"));
-        QCOMPARE(f.runnerCalls, 0); // no dialog
+        QCOMPARE(f.runnerCalls, 0);
         QCOMPARE(f.client.fetches.size(), 1);
         QVariantMap item = f.downloads->items().value(0).toMap();
         QCOMPARE(item.value(QStringLiteral("state")).toString(),
@@ -861,7 +791,6 @@ private Q_SLOTS:
         QCOMPARE(readFile(dir.path() + QStringLiteral("/report (1).pdf")),
                  QByteArray("second"));
 
-        // Open: the desktop's handler, with the file that was written.
         const int id = item.value(QStringLiteral("id")).toInt();
         QVERIFY(f.downloads->open(id));
         QCOMPARE(f.log.opened.size(), 1);
@@ -898,7 +827,6 @@ private Q_SLOTS:
         const int id = item.value(QStringLiteral("id")).toInt();
         QVERIFY(!f.downloads->open(id));
         QVERIFY(f.log.opened.isEmpty());
-        // Show in folder is still offered.
         QVERIFY(f.downloads->showInFolder(id));
         QCOMPARE(f.log.shown.size(), 1);
     }
@@ -919,10 +847,6 @@ private Q_SLOTS:
         QVERIFY(QDir(dir.path()).entryList(QDir::Files).isEmpty());
     }
 
-    // An account switch or sign-out retires the previous account's notices:
-    // finished and failed ones too (a finished risky file carries a warning),
-    // not only the in-flight saves MediaBridge::clear() drops. Run on the old
-    // code, there is no clear() and the finished item below survives.
     void clearingRetiresEveryItemOfThePreviousAccount()
     {
         QTemporaryDir dir;
@@ -940,16 +864,12 @@ private Q_SLOTS:
         f.downloads->clear();
         QVERIFY(f.downloads->items().isEmpty());
         QCOMPARE(changed.count(), 1);
-        // Nothing to clear: no spurious change.
         f.downloads->clear();
         QCOMPARE(changed.count(), 1);
-        // A late answer for the dropped save does not resurrect it.
         f.client.succeed(f.client.fetches.at(1).opId, QByteArray("late"));
         QCoreApplication::processEvents();
         QVERIFY(f.downloads->items().isEmpty());
     }
-
-    // ── Always ask / Save as: the dialog is prefilled ──
 
     void alwaysAskOpensASaveDialogPrefilledWithTheNameAndType()
     {
@@ -957,7 +877,6 @@ private Q_SLOTS:
         Fixture f(dir.path());
         f.settings->setAlwaysAskWhereToSave(true);
         QVERIFY(f.downloads->asksWhereToSave());
-        // The user deletes the extension in the dialog.
         f.answer = QUrl::fromLocalFile(dir.path() + QStringLiteral("/holiday"));
 
         f.downloads->download(QStringLiteral("$pic"), QStringLiteral("IMG_0042"),
@@ -973,17 +892,10 @@ private Q_SLOTS:
 
         QTRY_COMPARE(f.client.fetches.size(), 1);
         f.client.succeed(f.client.fetches.at(0).opId, "jpeg");
-        // The extension the user removed came back.
         QTRY_VERIFY(QFileInfo::exists(dir.path() + QStringLiteral("/holiday.jpg")));
         QVERIFY(!QFileInfo::exists(dir.path() + QStringLiteral("/holiday")));
     }
 
-    // Reported 2026-10-15 with a screenshot: Save as on Linux without a
-    // portal showed a chooser in no theme of ours with the File name field
-    // EMPTY. Now Lightning's own chooser is asked, with the name to prefill,
-    // the part of it to pre-select and the type; and its answer is saved.
-    // On the previous code no in-app request existed: the request went to
-    // QFileDialog (here the runner), so `asked` stays empty and this fails.
     void saveAsOnLinuxWithoutAPortalAsksTheInAppChooserPrefilled()
     {
         QTemporaryDir dir;
@@ -1026,7 +938,7 @@ private Q_SLOTS:
         QTemporaryDir dir;
         Fixture f(dir.path());
         QVERIFY(!f.downloads->asksWhereToSave());
-        f.answer = QUrl(); // the user cancels
+        f.answer = QUrl();
         f.downloads->saveAs(QStringLiteral("$doc"), QStringLiteral("notes.txt"),
                             QStringLiteral("text/plain"));
         QTRY_COMPARE(f.runnerCalls, 1);
@@ -1048,9 +960,6 @@ private:
             settings = std::make_unique<SettingsManager>();
             settings->setAlwaysAskWhereToSave(false);
             settings->setDownloadFolder(QString());
-            // Linux with no session bus: no portal to try, so the request
-            // goes to Lightning's own chooser (answered by the test through
-            // inAppRequested). Otherwise Qt's route, through the runner.
             FileChooser::Environment env;
             env.linuxDesktop = linuxWithoutPortal;
             chooser = std::make_unique<FileChooser>(env);

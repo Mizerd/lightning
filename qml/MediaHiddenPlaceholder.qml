@@ -2,14 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// Stand-in for a locally hidden image, Element-style. It fills the media box it
-// replaces and has no implicit size, so the row keeps its exact geometry and
-// the timeline does not move when an image is hidden. Behind a Loader in its
-// host.
 Item {
     id: root
 
-    /// Whether the media is hidden right now.
     property bool hidden: false
 
     signal revealRequested()
@@ -26,7 +21,6 @@ Item {
         sourceComponent: Rectangle {
             objectName: "mediaHiddenPlaceholder"
             radius: AppTheme.radiusSm
-            // A quiet surface, reading as "hidden", not "failed to load".
             color: AppTheme.cardElevated
             border.width: 1
             border.color: AppTheme.border
@@ -46,8 +40,6 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("Show image")
                     font.pixelSize: AppTheme.textBody
-                    // Link ink: the one action here, and it behaves like a
-                    // link.
                     color: AppTheme.link
                     font.underline: AppTheme.underlineLinks
                 }
@@ -63,8 +55,6 @@ Item {
         }
     }
 
-    // Keyboard reachable: the placeholder is the only way back for a hidden
-    // image.
     activeFocusOnTab: root.hidden
     Accessible.role: Accessible.Button
     Accessible.name: qsTr("Show image")
@@ -78,7 +68,6 @@ Item {
         }
     }
 
-    // The focus ring.
     Rectangle {
         anchors.fill: parent
         visible: root.activeFocus

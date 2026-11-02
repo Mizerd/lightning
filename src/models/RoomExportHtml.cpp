@@ -21,7 +21,6 @@ const QString kCsp = QStringLiteral(
     "default-src 'none'; img-src data:; media-src data:; "
     "style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'");
 
-// Readable in both schemes, no web fonts (they would be a request).
 const char kStyle[] = R"CSS(
 :root { color-scheme: light dark; --bg: #ffffff; --fg: #1d1f23; --muted: #5f6672;
   --line: #e3e5e8; --card: #f5f6f8; --link: #0b62c4; --note: #8a5a00; }
@@ -167,7 +166,6 @@ QByteArray sniffAudio(const QByteArray &b)
     return {};
 }
 
-// http(s) URLs in a plain body become links; everything else is escaped text.
 QString linkifyPlain(const QString &text)
 {
     static const QRegularExpression urlPattern(
@@ -179,7 +177,6 @@ QString linkifyPlain(const QString &text)
     while (it.hasNext()) {
         const QRegularExpressionMatch match = it.next();
         QString candidate = match.captured(0);
-        // Sentence punctuation after a URL is not part of it.
         while (!candidate.isEmpty()
                && QStringLiteral(".,;:!?)]}'").contains(candidate.back()))
             candidate.chop(1);
@@ -201,7 +198,7 @@ QString linkifyPlain(const QString &text)
     return out;
 }
 
-} // namespace
+}
 
 QString contentSecurityPolicy()
 {
@@ -272,7 +269,6 @@ EmbedPlan planEmbed(const TimelineEvent &event, const QByteArray &bytes)
     default:
         break;
     }
-    // Anything unrecognised is offered as an inert download, never rendered.
     if (plan.element != EmbedElement::Download)
         plan.mime = mime;
     return plan;
@@ -320,7 +316,6 @@ bool HtmlWriter::writeHeader(int messageCount)
                                                        : m_options.roomName;
     QString h;
     h += QStringLiteral("<!DOCTYPE html>\n<html>\n<head>\n");
-    // First in <head>, so no element parsed before it can act.
     h += QStringLiteral("<meta http-equiv=\"Content-Security-Policy\" "
                         "content=\"") + esc(kCsp) + QStringLiteral("\">\n");
     h += QStringLiteral("<meta charset=\"utf-8\">\n"
@@ -336,7 +331,6 @@ bool HtmlWriter::writeHeader(int messageCount)
     if (!m_options.roomName.isEmpty())
         h += QStringLiteral("<p>") + esc(m_options.roomId)
             + QStringLiteral("</p>\n");
-    // English, whatever the host language: the page around it is English.
     const QString when = QLocale::c().toString(
         QDateTime::currentDateTimeUtc(), QStringLiteral("d MMMM yyyy, HH:mm 'UTC'"));
     h += QStringLiteral("<p>Exported from Lightning on ") + esc(when);
@@ -389,10 +383,8 @@ QString HtmlWriter::formattedHtml(const QString &formatted) const
         formatted,
         [&names](const QString &userId) { return names.value(userId); },
         m_options.exportedBy, MessageHtml::MentionStyle{},
-        /*revealSpoilers=*/true);
+true);
 
-    // The sanitizer's only <img> is a custom emoji addressed by mxc:, which
-    // this page could not load anyway: keep its alt text.
     static const QRegularExpression imgTag(
         QStringLiteral("<img\\b[^>]*>"),
         QRegularExpression::CaseInsensitiveOption);
@@ -403,14 +395,11 @@ QString HtmlWriter::formattedHtml(const QString &formatted) const
     while (images.hasNext()) {
         const QRegularExpressionMatch m = images.next();
         noImages += safe.mid(cursor, m.capturedStart() - cursor);
-        // Already escaped by the sanitizer, and still text here.
         noImages += altAttr.match(m.captured(0)).captured(1);
         cursor = m.capturedEnd();
     }
     noImages += safe.mid(cursor);
 
-    // Internal anchors (mention:, spoiler:toggle) mean nothing in a file:
-    // unwrap every link that is not http(s), keeping its text.
     static const QRegularExpression anchorTag(
         QStringLiteral("<a\\b[^>]*>|</a\\s*>"),
         QRegularExpression::CaseInsensitiveOption);
@@ -456,7 +445,6 @@ QString HtmlWriter::bodyHtml(const TimelineEvent &event) const
         return QStringLiteral("<div class=\"state\">") + esc(stateOrBody(event))
             + QStringLiteral("</div>");
     if (isAttachment(event)) {
-        // The caption, when the sender wrote one beyond the file's name.
         const QString caption = event.body.trimmed();
         if (caption.isEmpty() || caption == attachmentName(event))
             return QString();
@@ -500,7 +488,6 @@ qsizetype HtmlWriter::beginEvent(const TimelineEvent &event,
 
     h += QStringLiteral("<article class=\"msg\" id=\"e-") + esc(event.eventId)
         + QStringLiteral("\">\n<div class=\"meta\">");
-    // State rows have no speaker: a name would attribute words to someone.
     if (event.type != TimelineEvent::StateChange)
         h += QStringLiteral("<span class=\"sender\" title=\"")
             + esc(event.sender) + QStringLiteral("\">")
@@ -609,7 +596,6 @@ bool HtmlWriter::writePayloadChunk(qsizetype maxBytes)
 {
     if (m_payloadOffset >= m_payload.size())
         return false;
-    // Whole 3-byte groups, so the chunks' base64 concatenates exactly.
     qsizetype take = qMax<qsizetype>(3, maxBytes - maxBytes % 3);
     take = qMin(take, m_payload.size() - m_payloadOffset);
     write(m_payload.mid(m_payloadOffset, take).toBase64());
@@ -672,4 +658,4 @@ QByteArray renderHtml(const QList<TimelineEvent> &events,
     return bytes;
 }
 
-} // namespace roomexport
+}

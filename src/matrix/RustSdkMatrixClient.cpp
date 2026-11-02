@@ -63,22 +63,15 @@
 
 Q_LOGGING_CATEGORY(lcRust, "matrix.rust")
 Q_LOGGING_CATEGORY(lcRustSfu, "lightning.calls.group")
-// LIGHTNING_TOKEN_TRACE: session-token rotations, where and when each was
-// written, and why a session was declared signed out. Generations, outcomes,
-// backend names and milliseconds only, never a token or a digest of one.
 Q_LOGGING_CATEGORY(lcTokenTrace, "lightning.auth.tokentrace")
 
 namespace {
 
-// A display name that is only whitespace is no name: a row showing it drew an
-// invisible sender, so it falls back as an empty one does (localpart / id).
 QString nonBlankOr(const QString &name, const QString &fallback)
 {
     return name.trimmed().isEmpty() ? fallback : name.trimmed();
 }
 
-// Read once, by the same rule as the other traces; rust/src/sessiontokens.rs
-// reads the same variable, so both halves switch on together.
 bool tokenTraceEnabled()
 {
     static const bool enabled =
@@ -107,16 +100,12 @@ QString takeRustString(char *raw)
     return out;
 }
 
-// Words for a password sign-in's failures (matrix/LoginFailureText.h). The
-// backend's message, which quotes the SDK and the server, is never shown.
 QString passwordLoginFailureText(const QString &reason, const QString &message)
 {
     qCInfo(lcRust) << "password sign-in failed reason=" << reason;
     return matrix::login_failure::passwordText(reason, message);
 }
 
-// Serializes a formatted-body spec for the FFI. An empty map yields empty
-// bytes, which selects the plain markdown path.
 QByteArray bodySpecJson(const QVariantMap &spec)
 {
     if (spec.isEmpty())
@@ -125,8 +114,6 @@ QByteArray bodySpecJson(const QVariantMap &spec)
         .toJson(QJsonDocument::Compact);
 }
 
-// The Rust string is already UTF-8 and QJsonDocument parses UTF-8, so skip
-// the QString round trip on this hot poll path.
 QByteArray takeRustBytes(char *raw)
 {
     if (!raw)
@@ -136,14 +123,6 @@ QByteArray takeRustBytes(char *raw)
     return out;
 }
 
-// mx_rust_poll_event and mx_rust_poll_command_event answer a failure (a null
-// or retired handle, a poisoned queue) with "error: <reason>", which is not an
-// event. Logged as itself, never as a malformed event, and it ends the drain:
-// the next poll would only fail the same way.
-// A failure that persists (a poisoned queue lock) answers every 100 ms tick,
-// on both lanes: warned once per run of failures, then counted at info every
-// kPollFailureReportEvery, and a real event ends the run. Process-wide, like
-// the activity-seed latch: one client per process.
 constexpr int kPollFailureReportEvery = 600;
 
 bool rustPollFailed(const QByteArray &raw)
@@ -154,7 +133,6 @@ bool rustPollFailed(const QByteArray &raw)
         return false;
     }
     ++failuresInARow;
-    // The reasons are this bridge's own fixed sentences, never server text.
     if (failuresInARow == 1) {
         qCWarning(lcRust) << "Rust SDK event poll failed:"
                           << QString::fromUtf8(raw.mid(7, 160));
@@ -171,27 +149,12 @@ bool pathExistsOrIsLink(const QString &path)
     return info.exists() || info.isSymLink();
 }
 
-// B044: the local half of every sign-out that began and did not finish (a
-// quit, crash or kill between the server logout and the store deletion left
-// the store, its keys and search index on disk with no record to find it by).
-// The record and secrets, the store with its sidecars and quarantines, the
-// personal backgrounds and the emptied account directory, as finishSignOut
-// does. The store is the one the marker recorded, which pendingSignOuts()
-// proves is still that account's; never a sweep of unrecorded directories.
-// The server logout is not retried: there is no client here, and the user had
-// already chosen to sign out. The marker goes once the store is gone, so a
-// failed deletion is tried again at the next start.
 void finishInterruptedSignOuts(SettingsManager *settings)
 {
     if (!settings)
         return;
-    // The process registry: a test registry (setStoreOwnershipRegistry) is
-    // never enforced, and at construction nothing is.
     const auto &registry = lightning::accounts::StoreOwnershipRegistry::process();
     for (const auto &identity : settings->pendingSignOuts()) {
-        // Labs: never while any handle in this process still holds the store;
-        // nothing is touched and the marker stays for the next start.
-        // Unenforced (no Labs), always granted.
         if (registry.claimForDeletion(identity.rustStorePath)
             != lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted) {
             qCWarning(lcRust) << "interrupted sign-out: the store is still in use; "
@@ -206,12 +169,6 @@ void finishInterruptedSignOuts(SettingsManager *settings)
         const auto backgrounds = matrix::app_data::removePersonalBackgrounds(identity);
         const auto accountDir =
             matrix::app_data::removeAccountRootIfEmpty(identity.accountRoot);
-        // Both halves, or the marker stays and the next start tries again: a
-        // keyring that is locked at launch leaves the tokens at rest, and the
-        // server logout of an interrupted sign-out may never have been sent,
-        // so they can still be live. The record is gone by now, so this is the
-        // only thing left that names them (clearAccountSecrets keys on the
-        // user id, so the retry needs no record).
         if (files.ok() && sessionOk)
             settings->clearPendingSignOut(identity.userId);
         else if (!sessionOk)
@@ -238,9 +195,6 @@ QDateTime timestampFromMs(qint64 ms)
     return QDateTime::fromMSecsSinceEpoch(ms, QTimeZone::UTC);
 }
 
-// Single normalizing choke point: multi-line bodies (poll fallbacks, mention
-// permalinks) must never reach the room list verbatim. Kept as a kind, not
-// words, so a language switch re-words it (RoomInfo::retranslatePreview).
 void setPreviewFrom(RoomInfo &room, const TimelineEvent &event,
                     const QString &actorLabel = QString())
 {
@@ -248,7 +202,7 @@ void setPreviewFrom(RoomInfo &room, const TimelineEvent &event,
     room.setPreview(token.kind, token.arg);
 }
 
-} // namespace
+}
 
 RustSdkMatrixClient::RustSdkMatrixClient(SettingsManager *settings, QObject *parent)
     : MatrixClient(parent)
@@ -262,8 +216,6 @@ RustSdkMatrixClient::RustSdkMatrixClient(SettingsManager *settings, QObject *par
     m_highlightGapTimer.setSingleShot(true);
     connect(&m_highlightGapTimer, &QTimer::timeout, this,
             &RustSdkMatrixClient::flushHighlightGaps);
-    // A preview kept as a kind ("You joined", "Image") is worded again in the
-    // new UI language; it stayed in the old one until the room's next message.
     connect(AppLocale::instance(), &AppLocale::changed, this, [this] {
         QStringList changed;
         for (auto it = m_rooms.begin(); it != m_rooms.end(); ++it) {
@@ -278,8 +230,6 @@ RustSdkMatrixClient::RustSdkMatrixClient(SettingsManager *settings, QObject *par
                    << rustBackendName()
                    << "version" << rustBackendVersion()
                    << "supports_e2ee=" << rustSupportsE2ee();
-    // Before anything restores or shows the login screen: no store is open
-    // yet, and a half-finished sign-out must not come back as an account.
     finishInterruptedSignOuts(m_settings);
 }
 
@@ -290,7 +240,6 @@ void RustSdkMatrixClient::beginQuitRetirement()
     m_quitRetirementBegun = true;
     m_quitRetirementClock.start();
     m_pollTimer.stop();
-    // As the destructor does, and before invalidate() clears the mark.
     m_retireAsSignOut = m_lifecycle.signingOut();
     m_lifecycle.invalidate();
     endOAuthAttempt();
@@ -306,36 +255,19 @@ void RustSdkMatrixClient::beginQuitRetirement()
 RustSdkMatrixClient::~RustSdkMatrixClient()
 {
     m_pollTimer.stop();
-    // invalidate() clears the sign-out mark, and a quit in the middle of a
-    // sign-out must still retire as one: nothing is written back. After
-    // beginQuitRetirement() the mark was taken there; reading it again here
-    // would read the cleared one.
     if (!m_quitRetirementBegun) {
         m_retireAsSignOut = m_lifecycle.signingOut();
         m_lifecycle.invalidate();
     }
-    // Closing mid-discovery or mid-sign-in must not leak the bootstrap handle,
-    // which owns a tokio runtime, a crypto store and this attempt's tokens.
     endOAuthAttempt();
     releaseAuthHandle();
     releaseProvidersHandle();
     releaseRevokeHandle();
     releaseWhoamiHandle();
     releaseRustHandle();
-    // Process exit is the one place waiting is right: tearing down around a
-    // half-closed SQLite store can leave it mid-write. This is the single
-    // largest budget in the quit path (kStoreCloseBudgetMs=15000, summing the
-    // Rust-side verification/room-action/import/sync joins documented at
-    // SHUTDOWN_WORST_CASE_MS in rust/src/lib.rs plus a destroy reserve). A
-    // reported 14 s quit was never reproduced; retireRustHandleAsync's own
-    // worker already logs shutdown_ms/destroy_ms once it finishes, but
-    // nothing previously recorded how long THIS call actually blocked, or
-    // whether it came close to the ceiling without hitting it.
     stalltrace::Scope stallScope("rust-retirement-wait");
     QElapsedTimer waited;
     waited.start();
-    // One budget for the foreground store, whether its close started here or
-    // in beginQuitRetirement() (then only what is left of it).
     const int budgetMs = m_quitRetirementBegun
         ? int(std::max<qint64>(0, kStoreCloseBudgetMs - m_quitRetirementClock.elapsed()))
         : kStoreCloseBudgetMs;
@@ -403,7 +335,6 @@ void RustSdkMatrixClient::setRevocationProofs(lightning::accounts::RevocationPro
 
 void RustSdkMatrixClient::setLiveAccountsLabs(bool on)
 {
-    // One-way: a runtime "off" keeps the safe rules until restart.
     if (!on || m_liveAccountsLabs)
         return;
     m_liveAccountsLabs = true;
@@ -416,8 +347,6 @@ bool RustSdkMatrixClient::labsHardProofAllowsReplace(const QString &recordUserId
 {
     if (!m_liveAccountsLabs || !m_revocationProofs)
         return false;
-    // A background host of this account recorded the proof: the same rule as
-    // the single slot, against that account's own entry.
     const auto hard = m_revocationProofs->hardFor(recordUserId);
     return hard
         && matrix::rust_session::revokedDeviceMayBeReplaced(recordUserId, recordDeviceId,
@@ -457,7 +386,6 @@ QString RustSdkMatrixClient::storeInUseByBackgroundText()
 
 bool RustSdkMatrixClient::storeHeldByBackgroundHost(const QString &storePath) const
 {
-    // Compared as the claims compare: the identity, else the absolute path.
     using Ownership = lightning::accounts::StoreOwnershipRegistry;
     const auto id = lightning::accounts::fileIdentityOf(storePath);
     const QString absPath = QFileInfo(storePath).absoluteFilePath();
@@ -472,8 +400,6 @@ bool RustSdkMatrixClient::storeHeldByBackgroundHost(const QString &storePath) co
 
 QString RustSdkMatrixClient::storeClaimRefusalText(const QString &storePath) const
 {
-    // "A background session" only when one holds it: a foreground handle
-    // that never confirmed its close is this client's own (review L11).
     if (storeHeldByBackgroundHost(storePath))
         return storeInUseByBackgroundText();
     return tr("This account's data is still in use. Wait a moment and try again.");
@@ -516,11 +442,6 @@ QString RustSdkMatrixClient::currentDeviceId() const
 
 void RustSdkMatrixClient::setState(ConnectionState state)
 {
-    // A restored session that has never reached its homeserver is Offline, not
-    // Syncing. loginSucceeded synchronously ends in startSync() -> Syncing, so
-    // an Offline set at login_ok would be overwritten before it is ever
-    // rendered. Cleared by the first `room_list_sync_state: running`, the only
-    // proof the server was reached.
     if (m_restoredOffline && state == Syncing)
         state = Offline;
     if (m_state == state)
@@ -539,14 +460,10 @@ void RustSdkMatrixClient::setInitialSyncDone(bool done)
 
 void RustSdkMatrixClient::clearLocalState()
 {
-    // Remote session descriptions must never outlive their session on any
-    // teardown path.
     m_callSdpStore.clear();
     clearTimelineInsertBatch();
     m_loggedIn = false;
     m_restoredOffline = false;
-    // Log dedupe is per session, not per process, so a second broken account in
-    // the same run still logs. Reset wherever a session ends.
     m_ownIdentityKeyMismatchLogged = false;
     m_homeserver.clear();
     m_userId.clear();
@@ -581,8 +498,6 @@ void RustSdkMatrixClient::ensurePollTimer()
 
 QString RustSdkMatrixClient::rustStorePathForUser(const QString &userIdForStore) const
 {
-    // Test hook: the smoke harness passes a temporary directory so every run
-    // starts from a clean crypto store.
     if (!m_storePathOverride.isEmpty())
         return m_storePathOverride;
 
@@ -592,9 +507,6 @@ QString RustSdkMatrixClient::rustStorePathForUser(const QString &userIdForStore)
 bool RustSdkMatrixClient::ensureRustHandleForIdentity(
     const matrix::app_data::AccountIdentity &identity)
 {
-    // Open the recorded location, not one re-derived from the user id; they
-    // differ when the typed casing or delegated server name differs from the
-    // homeserver's canonical answer.
     if (!m_storePathOverride.isEmpty())
         return ensureRustHandleForStorePath(m_storePathOverride,
                                             QStringLiteral("(override)"));
@@ -627,8 +539,6 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
     // what makes stale async callbacks unobservable.
     releaseRustHandle();
 
-    // Paths only, never tokens/keys/bodies. Logged before mkpath because the
-    // failure message below points at the log instead of naming the path.
     qCInfo(lcRust) << "Rust SDK store path resolved"
                    << "base=" << matrix::app_data::primaryRoot()
                    << "slug=" << slug
@@ -638,9 +548,6 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
                                   ? QStringLiteral("persistent")
                                   : QStringLiteral("temporary"));
 
-    // Rust only tightens the leaf directory; mkpath creates parents with the
-    // umask's mode, and the account directory name is the Matrix localpart.
-    // Tighten every level created here.
     const auto restrictNewParents = [&storePath] {
         QString walked;
         const QStringList parts = storePath.split(QLatin1Char('/'));
@@ -670,10 +577,6 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
     }
     restrictNewParents();
 
-    // Record-only without Labs: what the store claim would have said, logged
-    // and never acted on. The previous handle released above is still
-    // Retiring until its worker confirms the close, so a quick switch back to
-    // the account just left is exactly what this line is here to count.
     using Ownership = lightning::accounts::StoreOwnershipRegistry;
     Ownership &ownership = storeOwnershipRegistry();
     const bool claimsEnforced = ownership.enforced();
@@ -682,11 +585,6 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
         qCInfo(lcRust) << "store ownership: would refuse (record-only)"
                        << "slug=" << slug << "conflict_serial=" << conflictSerial;
     }
-    // Labs: claimed atomically BEFORE anything opens the store, and refused
-    // while another handle owns it (I1). Only this client's own previous
-    // handle of the same store, still retiring, is waited for here (bounded,
-    // as settleRetiringSignIn waits); a background host's retirement is the
-    // pool's latch to await, never a GUI wait.
     quint64 claimedSerial = 0;
     if (claimsEnforced) {
         auto verdict = ownership.claimOpen(storePath, slug, Ownership::Role::Foreground,
@@ -711,14 +609,11 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
     const QByteArray path = QFileInfo(storePath).absoluteFilePath().toUtf8();
     m_rustHandle = mx_rust_create(path.constData());
     if (!m_rustHandle) {
-        // Nothing opened: the claim goes again.
         if (claimedSerial != 0)
             ownership.noteClosed(claimedSerial, true);
         Q_EMIT errorOccurred(tr("Failed to create Rust SDK backend handle."));
         return false;
     }
-    // Without Labs, recorded after the create exactly as Phase 0 did
-    // (claimOpen() unenforced is recordOpen()).
     if (!claimsEnforced)
         ownership.claimOpen(storePath, slug, Ownership::Role::Foreground, &claimedSerial);
     m_storeOwnershipSerial = claimedSerial;
@@ -735,7 +630,6 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
             mx_rust_destroy(m_rustHandle);
             m_rustHandle = nullptr;
             m_handleGeneration = 0;
-            // Destroyed synchronously, so its store is closed here.
             if (m_storeOwnershipSerial != 0) {
                 ownership.noteClosed(m_storeOwnershipSerial, true);
                 m_storeOwnershipSerial = 0;
@@ -749,7 +643,6 @@ bool RustSdkMatrixClient::ensureRustHandleForStorePath(const QString &storePath,
 
     applyMediaStoreKey(slug);
     if (!applyNetworkRoute(slug)) {
-        // Never left without a route it should have: no handle at all.
         mx_rust_destroy(m_rustHandle);
         m_rustHandle = nullptr;
         m_handleGeneration = 0;
@@ -772,16 +665,12 @@ void RustSdkMatrixClient::applySignInRoute(void *handle, const QString &homeserv
     namespace route = matrix::network_route;
     if (!handle)
         return;
-    // A store-less handle has no account yet: the route of the saved account
-    // on this server that has one (NetworkRoute.h). A route Rust cannot use
-    // refuses every request on this handle; nothing goes direct instead.
     QByteArray json = route::rustJsonForSignIn(
         m_settings, m_settings ? m_settings->secretStore() : nullptr, homeserver, userId);
     const QString state = route::describeJson(json);
     const QString result = takeRustString(mx_rust_set_network_route(handle, json.constData()));
     json.fill('\0');
     json.clear();
-    // The state only: never the host, never a credential, never the server.
     qCInfo(lcRust) << "sign-in network route" << "state=" << state
                    << "applied=" << result.isEmpty();
 }
@@ -789,9 +678,6 @@ void RustSdkMatrixClient::applySignInRoute(void *handle, const QString &homeserv
 bool RustSdkMatrixClient::applyNetworkRoute(const QString &slug)
 {
     namespace route = matrix::network_route;
-    // The saved account that owns this store, as for the media key. A first
-    // sign-in has no record yet and so no route: it connects as the system
-    // does (docs/network-profiles.md, "first sign-in").
     const QString owner = (m_storePathOverride.isEmpty() && m_settings)
         ? m_settings->accountOwningStoreSlug(slug)
         : QString();
@@ -803,7 +689,6 @@ bool RustSdkMatrixClient::applyNetworkRoute(const QString &slug)
     json.fill('\0');
     json.clear();
     m_networkRouteActive = state != QLatin1String("none");
-    // The state only: never the host, never a credential.
     qCInfo(lcRust) << "network route" << "slug=" << slug << "state=" << state
                    << "applied=" << result.isEmpty();
     return result.isEmpty();
@@ -812,24 +697,11 @@ bool RustSdkMatrixClient::applyNetworkRoute(const QString &slug)
 void RustSdkMatrixClient::applyMediaStoreKey(const QString &slug)
 {
     namespace msk = matrix::media_store_key;
-    // Keyed by the saved account that owns this store directory, the same
-    // lookup anything deleting a store uses. A first sign-in has no record yet,
-    // and the test override none at all: both get an in-memory media store for
-    // this session, and a first sign-in its key at the next start.
     const QString owner = (m_storePathOverride.isEmpty() && m_settings)
         ? m_settings->accountOwningStoreSlug(slug)
         : QString();
-    // Asked for on every call and never kept: setSecretStore() replaces it
-    // when the user retries after a keyring outage. The media store of a
-    // session already open stays as it was opened (in memory, if the outage
-    // was then); the next handle (restart, account switch) reads the new one.
     SecretStore *store = m_settings ? m_settings->secretStore() : nullptr;
     const bool storeIsSecure = store && store->isSecure();
-    // Never a new key while the backend cannot answer. The plaintext fallback
-    // standing in for a missing or locked keyring may make one, for an account
-    // it already holds (MediaStoreKey.h): the keyring-less desktop then keeps
-    // unencrypted-room media as macOS's fallback does, where 0.10.0 kept
-    // nothing at all.
     const bool mayCreate = m_settings
                            && msk::mayCreate(m_settings->secretBackendUnavailable(),
                                              m_settings->secretMissesAreInconclusive(),
@@ -854,7 +726,6 @@ void RustSdkMatrixClient::applyMediaStoreKey(const QString &slug)
         admitEncrypted ? 1 : 0));
     resolution.key.fill('\0');
     resolution.key.clear();
-    // The state only: never the key, never a path.
     qCInfo(lcRust) << "media store key" << "slug=" << slug
                    << "state=" << (owner.isEmpty() ? "no-saved-account"
                                                    : msk::describe(resolution))
@@ -867,8 +738,6 @@ void RustSdkMatrixClient::refreshMediaKeepState()
         setMediaKeepState({});
         return;
     }
-    // Where the store really opened: a key does not guarantee it (an old
-    // store kept for an unsent attachment, a directory that would not open).
     const QString opened = takeRustString(mx_rust_media_store_state(m_rustHandle));
     QString state;
     if (opened == QLatin1String("encrypted_admits"))
@@ -876,8 +745,6 @@ void RustSdkMatrixClient::refreshMediaKeepState()
     else if (opened == QLatin1String("encrypted"))
         state = QStringLiteral("keptExceptEncrypted");
     else if (opened == QLatin1String("legacy"))
-        // A keyring may well hold the key: the old store is used this session
-        // only, for an attachment still waiting to upload.
         state = QStringLiteral("keptExceptEncryptedPendingUpload");
     else if (opened == QLatin1String("memory"))
         state = m_mediaKeyOutcome == QLatin1String("no-saved-account")
@@ -885,7 +752,6 @@ void RustSdkMatrixClient::refreshMediaKeepState()
             : (m_mediaKeyOutcome == QLatin1String("key")
                    ? QStringLiteral("notKeptStore")
                    : QStringLiteral("notKeptKeyring"));
-    // Anything else ("error: ...") says nothing: no claim either way.
     setMediaKeepState(state);
 }
 
@@ -897,18 +763,12 @@ void RustSdkMatrixClient::setMediaKeepState(const QString &state)
     Q_EMIT mediaKeepStateChanged();
 }
 
-// Deliberately does not clear m_freshLoginIdentity: login() arms it and then
-// reaches here. The marker is compared against the attempt's account in the
-// login_failed handler and cleared in detachSession().
 namespace {
-// Threads that close retired Rust clients. Retirement is I/O-bound; two
-// threads suffice and rapid switches queue rather than spawning a thread each.
 QThreadPool &rustRetirementPool()
 {
     static QThreadPool *pool = [] {
         auto *p = new QThreadPool;
         p->setMaxThreadCount(2);
-        // Never let an idle worker be reaped mid-teardown.
         p->setExpiryTimeout(-1);
         return p;
     }();
@@ -918,9 +778,6 @@ QThreadPool &rustRetirementPool()
 namespace custody = lightning::accounts::custody;
 using custody::accessTokenDigest;
 
-// The production TokenStore: SettingsManager's own calls, one for one, so the
-// custody functions read and write exactly what this file always did.
-// SENSITIVE: carries tokens through; never logs.
 class SettingsTokenStore final : public lightning::accounts::TokenStore
 {
 public:
@@ -943,14 +800,9 @@ private:
     SettingsManager *m_settings;
 };
 
-// SENSITIVE: sign-ins a retired handle held that were never written down,
-// waiting for the GUI thread. Filled by retirement workers; emptied by
-// persistRetiredSessionTokens(). Never logged.
 struct RetiredSignIn {
     QString userId;
     QString deviceId;
-    // Digest of the access token last written for that handle: written back
-    // only while the keyring still holds exactly that one.
     QByteArray expectedDigest;
     QString accessToken;
     QString refreshToken;
@@ -958,8 +810,6 @@ struct RetiredSignIn {
 struct RetiredSignIns {
     QMutex mutex;
     QList<RetiredSignIn> waiting;
-    // Accounts with a handle still retiring, counted: a restore of one of them
-    // must wait for its final tokens before reading the keyring.
     QHash<QString, int> retiring;
 };
 RetiredSignIns &retiredSignIns()
@@ -967,7 +817,7 @@ RetiredSignIns &retiredSignIns()
     static RetiredSignIns *box = new RetiredSignIns;
     return *box;
 }
-} // namespace
+}
 
 void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
                                                 const QString &typingRoom)
@@ -993,23 +843,15 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
                                 storeOwnershipSerial, storeRegistry] {
         QElapsedTimer teardown;
         teardown.start();
-        // The courtesy "stopped typing" is a network send, so it belongs here
-        // and off the caller's critical path.
         if (!typingRoom.isEmpty()) {
             const QByteArray room = typingRoom.toUtf8();
             takeRustString(mx_rust_send_typing(handle, room.constData(), 0));
         }
         const QString shutdown = takeRustString(mx_rust_shutdown_tasks(handle));
         const qint64 shutdownMs = teardown.elapsed();
-        // Sync has stopped, so the session's tokens are final. A rotation the
-        // GUI never drained (it landed after the last poll, or during the
-        // shutdown above) is only here: lost, the next start presents a used
-        // refresh token and an OAuth server refuses the whole sign-in.
         bool handedBack = false;
-        // SENSITIVE: never log `handedBackAccess`.
         QString handedBackAccess;
         if (tracked) {
-            // SENSITIVE: never log `json` or `tokens`.
             const QString json = takeRustString(mx_rust_final_session_tokens(handle));
             const lightning::accounts::SessionTokenPair tokens =
                 custody::parseFinalSessionTokens(json);
@@ -1022,25 +864,12 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
                 handedBackAccess = tokens.accessToken;
             }
         }
-        // matrix-sdk's own tasks (send queue, backup downloads, E2EE
-        // initialization) hold the Client and can still refresh until the
-        // destroy below shuts the runtime down; the token watcher is already
-        // gone. Every rotation is in the ledger (rust/src/sessiontokens.rs),
-        // which outlives the handle: read it once nothing can rotate.
         void *ledger = tracked ? mx_rust_token_ledger_retain(handle) : nullptr;
         teardown.restart();
-        // Drops the client inside its runtime, shuts the runtime down and
-        // then waits, bounded, until every SQLite store the account opened
-        // has really been dropped. Returning is not that signal on its own:
-        // a leaked Client once kept the whole store open until the process
-        // exited, and Windows could not delete it (GitHub #2). The report
-        // says which: "store_closed=true|false ... still_open=<names>
-        // runtime_shutdown=completed|timed_out|shared".
         const QString released = takeRustString(mx_rust_destroy_and_report(handle));
         const qint64 destroyMs = teardown.elapsed();
         bool rotatedWhileClosing = false;
         if (ledger) {
-            // SENSITIVE: never log `json` or `latest`.
             const QString json = takeRustString(mx_rust_token_ledger_latest(ledger));
             mx_rust_token_ledger_release(ledger);
             const lightning::accounts::SessionTokenPair latest =
@@ -1054,8 +883,6 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
                 QList<RetiredSignIn> &waiting = retiredSignIns().waiting;
                 bool replaced = false;
                 for (RetiredSignIn &entry : waiting) {
-                    // The pair handed back above, still waiting: the newer
-                    // one takes its place, over the same keyring expectation.
                     if (handedBack && entry.userId == signIn.userId
                         && entry.deviceId == signIn.deviceId
                         && entry.accessToken == handedBackAccess) {
@@ -1066,9 +893,6 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
                     }
                 }
                 if (!replaced) {
-                    // Nothing waiting: the keyring holds what this handle last
-                    // wrote, or, if the pair above was already written back
-                    // (a quit that stopped waiting), that pair.
                     waiting.append(RetiredSignIn{
                         signIn.userId, signIn.deviceId,
                         handedBack ? custody::accessTokenDigest(handedBackAccess)
@@ -1091,7 +915,6 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
                                  "account store closed; a sign-out or reset that "
                                  "deletes the store now may not finish on Windows"
                               << released;
-        // Record-only: an unconfirmed close keeps the record, Retiring.
         if (storeRegistry && storeOwnershipSerial != 0)
             storeRegistry->noteClosed(storeOwnershipSerial,
                                       released.startsWith(QLatin1String("store_closed=true")));
@@ -1101,7 +924,6 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
             if (--retiring[signIn.userId] <= 0)
                 retiring.remove(signIn.userId);
         }
-        // Checked on the GUI thread, where the client lives and dies.
         if (handedBack && QCoreApplication::instance()) {
             QMetaObject::invokeMethod(QCoreApplication::instance(), [sink] {
                 if (sink)
@@ -1127,22 +949,11 @@ void RustSdkMatrixClient::persistRetiredSessionTokens(const QString &restoringUs
     lightning::accounts::TokenStore *store = m_settings ? &settingsStore : nullptr;
     for (const RetiredSignIn &signIn : std::as_const(waiting)) {
         const QString slug = matrix::app_data::safeUserSlug(signIn.userId);
-        // A session of that very device running again already holds newer
-        // tokens than the one that retired. Not for the account a restore is
-        // about to read: its retired tokens are the newest there are.
-        // Evaluated only with a store, and short-circuited as it always was:
-        // tokenOwnerForRunningSession() reads account records.
         const bool restoring = !restoringUserId.isEmpty()
             && signIn.userId == restoringUserId;
         const bool sameDeviceRunning = store && !restoring && m_rustHandle && m_loggedIn
             && m_deviceId == signIn.deviceId
             && tokenOwnerForRunningSession() == signIn.userId;
-        // Signed out, removed, or signed in again as another device since:
-        // what was deleted must stay deleted (CLAUDE.md §6). Compare and swap:
-        // only over the pair this handle itself last wrote. Anything else
-        // there is newer (a later session's rotation, or a retirement that
-        // overran the settle wait) and must never be replaced by an older one.
-        // SENSITIVE: `entry` carries the tokens; never log it.
         const custody::HandbackEntry entry{
             signIn.userId, signIn.deviceId, signIn.expectedDigest,
             lightning::accounts::SessionTokenPair{signIn.accessToken, signIn.refreshToken}};
@@ -1175,19 +986,10 @@ void RustSdkMatrixClient::persistRetiredSessionTokens(const QString &restoringUs
             break;
         }
     }
-    // Labs only: a background host's last pair its retirement could not save
-    // (HostSignInRetirements::parkUnsaved, §18 round 1 MUST 1). Written here,
-    // by the same compare-and-swap and the worker's rule (the keyring may hold
-    // one of that host's own queued live pairs), right before THIS account's
-    // sign-in is read, and for no other account: a foreground retirement or
-    // a quit writes none (§18 round 2, R2-3; the pool writes the rest through
-    // its keyring worker, bounded, SessionPool::writeParked). Nothing is
-    // parked without Labs.
     if (m_liveAccountsLabs && !restoringUserId.isEmpty()) {
         const auto parked =
             lightning::accounts::HostSignInRetirements::process().takeUnsaved(restoringUserId);
         for (const auto &unsaved : parked) {
-            // SENSITIVE: `entry` carries the tokens; never log it.
             const custody::HandbackEntry entry{
                 unsaved.userId, unsaved.deviceId,
                 custody::handbackExpectedDigest(store, unsaved.userId, unsaved.expectedDigest,
@@ -1197,7 +999,6 @@ void RustSdkMatrixClient::persistRetiredSessionTokens(const QString &restoringUs
             qCInfo(lcRust) << "wrote a background account's last sign-in before reading it"
                            << "slug=" << matrix::app_data::safeUserSlug(unsaved.userId)
                            << "ok=" << (outcome == custody::Handback::Written);
-            // Refused again: kept for the next read, never dropped.
             if (outcome == custody::Handback::WriteFailed)
                 lightning::accounts::HostSignInRetirements::process().parkUnsaved(unsaved);
         }
@@ -1206,7 +1007,6 @@ void RustSdkMatrixClient::persistRetiredSessionTokens(const QString &restoringUs
 
 void RustSdkMatrixClient::scheduleRotatedTokenWrite()
 {
-    // 30 s, doubling, at most ten minutes apart.
     const int shift = std::min(m_tokenWriteAttempts, 5);
     m_tokenWriteRetry.start(std::min(m_tokenWriteRetryMs << shift, 600000));
 }
@@ -1219,8 +1019,6 @@ void RustSdkMatrixClient::retryRotatedTokenWrite()
     const QString owner = tokenOwnerForRunningSession();
     if (owner.isEmpty())
         return;
-    // SENSITIVE: never log `json` or `tokens`. The session's tokens now,
-    // which are newer than any the refused write carried.
     const QString json = takeRustString(mx_rust_final_session_tokens(m_rustHandle));
     const lightning::accounts::SessionTokenPair tokens = custody::parseFinalSessionTokens(json);
     const QString &access = tokens.accessToken;
@@ -1237,7 +1035,6 @@ void RustSdkMatrixClient::retryRotatedTokenWrite()
     }
     if (m_tokenWriteFailingFor.isValid()
         && m_tokenWriteFailingFor.elapsed() >= m_tokenWriteGiveUpMs) {
-        // Said once per spell; the next rotation starts retrying again.
         m_tokenWriteFailingFor.invalidate();
         qCWarning(lcRust) << "a rotated sign-in is still not saved after an hour "
                              "of retries; the keyring holds a used one, and the "
@@ -1260,17 +1057,12 @@ bool RustSdkMatrixClient::settleRetiringSignIn(const QString &userId)
         QMutexLocker lock(&retiredSignIns().mutex);
         retiring = retiredSignIns().retiring.contains(userId);
     }
-    // Labs: a background host of this account still handing its sign-in
-    // back. Never waited for here: that handback completes on this very
-    // thread, so a wait could only time out. The store claim refuses the open
-    // until it has; the click path awaits it (SessionPool's latch) first.
     if (m_liveAccountsLabs && lightning::accounts::HostSignInRetirements::process().contains(userId)) {
         qCInfo(lcRust) << "a background session of this account is still handing back its "
                           "sign-in"
                        << "slug=" << matrix::app_data::safeUserSlug(userId);
     }
     if (retiring) {
-        // Only a quick switch back to an account still closing waits here.
         qCInfo(lcRust) << "waiting for this account's previous session to "
                           "close before reading its sign-in"
                        << "slug=" << matrix::app_data::safeUserSlug(userId);
@@ -1287,8 +1079,6 @@ QString RustSdkMatrixClient::tokenOwnerForRunningSession() const
     if (!m_settings || m_userId.isEmpty() || m_deviceId.isEmpty())
         return {};
     QStringList candidates{ m_userId };
-    // The record holds the canonical id, which the server's raw answer may
-    // not be.
     matrix::app_data::AccountIdentity identity;
     if (matrix::app_data::resolveAccountIdentity(m_homeserver, m_userId, &identity))
         candidates << identity.userId;
@@ -1301,23 +1091,10 @@ bool RustSdkMatrixClient::waitForRustRetirement(int budgetMs)
     return rustRetirementPool().waitForDone(budgetMs);
 }
 
-// The GUI thread does not wait for retirement. Task shutdown and runtime
-// drop block until SQLite closes, so they run on a worker that owns the handle
-// from here on; this thread only stops polling, drops trackers and detaches
-// the pointer.
-//
-// This is safe only because Rust never calls back into C++: events are pulled
-// by pollRustEvents() on a timer, so a retiring client has no route to any
-// QObject. Callers about to delete the store must call
-// waitForRustRetirement() first.
 void RustSdkMatrixClient::applyPerHandleSettings(bool adopted)
 {
     if (!m_rustHandle)
         return;
-    // Receipt privacy defaults to public on a fresh bridge; re-apply the user's
-    // choice on every account switch. An adopted handle carries the
-    // background profile's values instead (receipts private, index-all held),
-    // so every value is written explicitly there, defaults included.
     if (m_readReceiptPrivacy != 0 || adopted)
         takeRustString(mx_rust_set_receipt_privacy(m_rustHandle,
                                                    m_readReceiptPrivacy));
@@ -1325,14 +1102,10 @@ void RustSdkMatrixClient::applyPerHandleSettings(bool adopted)
         takeRustString(mx_rust_timeline_set_threads_in_live(m_rustHandle, 1));
     if (m_unthreadedReceipts)
         takeRustString(mx_rust_set_unthreaded_receipts(m_rustHandle, 1));
-    // A fresh handle starts unheld; carry a call or scroll already under way.
     if (m_indexAllHold != 0 || adopted)
         takeRustString(mx_rust_search_index_all_hold(m_rustHandle,
                                                      m_indexAllHold));
-    // The Rust-side flag defaults off on a fresh handle; a registered media
-    // backend must survive account switches.
     if (m_callMediaCapable)
-        // The FFI returns an owned char*; discarding it would leak.
         takeRustString(mx_rust_calls_set_media_capable(
             m_rustHandle, static_cast<unsigned char>(1)));
 }
@@ -1342,22 +1115,16 @@ bool RustSdkMatrixClient::adoptLiveSession(
 {
     if (!ticket.valid())
         return false;
-    // Whatever this client still held is retired first; a handle and its
-    // queue are never shared across sessions.
     releaseRustHandle();
     m_freshLoginIdentity = {};
     m_freshBrowserRecord = {};
     m_loginSentBareUsername = false;
     m_restoredOffline = false;
-    // The ticket's identity is the account record's (canonical), so the
-    // token owner for a retirement below, and the login_ok handler, read it.
     m_homeserver = ticket.homeserver;
     m_userId = ticket.userId;
     m_deviceId = ticket.deviceId;
     m_rustHandle = ticket.handle;
     m_storePath = ticket.storePath;
-    // The pool already moved the record to Foreground on this serial: the
-    // store keeps one owning handle and is never claimed or opened again.
     m_storeOwnershipSerial = ticket.storeSerial;
     m_persistedAccessDigest = ticket.persistedDigest;
     // A new generation: every callback stamped by the previous foreground
@@ -1366,10 +1133,6 @@ bool RustSdkMatrixClient::adoptLiveSession(
     applyMediaStoreKey(ticket.slug);
     ensurePollTimer();
 
-    // A routed account (network profile) is never adopted: its background
-    // handle was built without the route the foreground applies, and a warm
-    // switch must not carry traffic past it. The pool refuses it first; this
-    // is the client's own guard, through the same normal retirement.
     const bool routed = m_settings && m_settings->networkRouteConfigured(ticket.userId);
     const QString refusal = routed
         ? QStringLiteral("error: routed account")
@@ -1377,34 +1140,21 @@ bool RustSdkMatrixClient::adoptLiveSession(
     if (!refusal.isEmpty()) {
         qCWarning(lcRust) << "adoption refused by the handle; falling back to a"
                              " cold restore" << "acct=" << ticket.slug;
-        // Retired through the normal path: m_userId/m_deviceId are set, so
-        // its final tokens are handed back to the keyring before the cold
-        // restore reads them.
         releaseRustHandle();
         m_loggedIn = false;
         m_userId.clear();
         m_deviceId.clear();
         return false;
     }
-    // Refused while the handle was Background; a foreground handle takes them.
-    applyPerHandleSettings(/*adopted=*/true);
+    applyPerHandleSettings(true);
     reconcileAdoptedTokens();
     qCInfo(lcRust) << "adopted a live background session" << "acct=" << ticket.slug;
     setState(Connecting);
-    // The promotion enqueued a token-free login_ok: the ordinary path reports
-    // loginSucceeded(), and startSync() then starts a foreground sync loop on
-    // the same Client.
     return true;
 }
 
 void RustSdkMatrixClient::reconcileAdoptedTokens()
 {
-    // Review M1: a rotation the SDK recorded after the background host's last
-    // drain is in the handle, not in the keyring, and adoption detached
-    // custody. Compare the live pair with what the host last persisted: write
-    // the newer pair once, and answer the newest ledger rotation either way so
-    // a refresh waiting inside matrix-sdk is released.
-    // SENSITIVE: never log `json` or the snapshot's tokens.
     const QString json = takeRustString(mx_rust_take_custody(m_rustHandle));
     const lightning::accounts::CustodySnapshot live =
         lightning::accounts::parseCustodyJson(json.toUtf8());
@@ -1444,17 +1194,12 @@ void RustSdkMatrixClient::releaseRustHandle()
     void *retiring = m_rustHandle;
     const QString typingRoom = m_typingRoom;
     m_typingRoom.clear();
-    // Whose sign-in this handle carries, captured before anything below can
-    // change it. Never kept on a sign-out: its completion deletes the tokens
-    // and nothing may write them back.
     RetiringSignIn signIn;
     signIn.userId = tokenOwnerForRunningSession();
     signIn.deviceId = m_deviceId;
     signIn.accessDigest = m_persistedAccessDigest;
     signIn.persist = !signIn.userId.isEmpty() && !m_lifecycle.signingOut()
         && !m_retireAsSignOut;
-    // Record-only: the store stays owned (Retiring) until the worker reports
-    // that it closed.
     const quint64 storeSerial = m_storeOwnershipSerial;
     lightning::accounts::StoreOwnershipRegistry *storeRegistry =
         storeSerial != 0 ? &storeOwnershipRegistry() : nullptr;
@@ -1462,11 +1207,8 @@ void RustSdkMatrixClient::releaseRustHandle()
         storeRegistry->noteReleasing(storeSerial);
     m_storeOwnershipSerial = 0;
     m_persistedAccessDigest.clear();
-    // The retiring worker writes whatever this was waiting to.
     m_tokenWriteRetry.stop();
     m_tokenWriteFailingFor.invalidate();
-    // Detached before the hand-off so nothing on this thread can reach the
-    // client the worker now owns.
     m_rustHandle = nullptr;
     m_handleGeneration = 0;
     m_storePath.clear();
@@ -1488,16 +1230,12 @@ void RustSdkMatrixClient::login(const QString &homeserver,
                                 const QString &user,
                                 const QString &password)
 {
-    // Report the specific reason resolveAccountIdentity refused rather than one
-    // generic "fields are required". The missing-scheme case gets an example,
-    // since "invalid URL" does not tell anyone to add https://.
     matrix::app_data::AccountIdentity identity;
     QString why;
     const bool resolved =
         matrix::app_data::resolveAccountIdentity(homeserver, user, &identity,
                                                  &why);
     if (!resolved || password.isEmpty()) {
-        // Split the two empty-input cases the resolver folds together.
         QString message;
         if (!resolved && homeserver.trimmed().isEmpty()) {
             message = tr("Enter a server, for example matrix.org.");
@@ -1505,9 +1243,6 @@ void RustSdkMatrixClient::login(const QString &homeserver,
             message = tr("Enter your username.");
         } else if (!resolved
                    && why == QLatin1String("invalid homeserver or empty user")) {
-            // Both fields are set and the resolver still refused the address.
-            // AuthManager normalises it first, so this needs a caller that
-            // did not.
             message = tr("That is not a server address. Enter one like matrix.org.");
         } else if (!resolved) {
             message = tr("That username is not a valid Matrix id. Use your "
@@ -1519,14 +1254,7 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         return;
     }
 
-    // A bare username is sent as typed and the server names the account
-    // (passwordLoginIdentifier), so the id resolved above, completed with the
-    // address's host, is only a stand-in until login_ok. When it is not saved
-    // but a saved account on this same address has this username, that record
-    // says where the account's store is: open it, never one built from the
-    // address.
     const bool bareUsername = !user.trimmed().startsWith(QLatin1Char('@'));
-    // The id resolved above names no saved account: it is only the stand-in.
     const bool standInIdentity = m_settings && bareUsername
         && m_settings->canonicalUserIdForTypedIdentity(identity.userId).isEmpty();
     bool bareUsernameLocatedRecord = false;
@@ -1557,12 +1285,6 @@ void RustSdkMatrixClient::login(const QString &homeserver,
             bareUsernameLocatedRecord = true;
         }
     }
-    // What the device-resume checks below compare with the record: the id as
-    // TYPED. The record lookup only locates the store; a case-folded match
-    // ("BK010" for @bk010) must not then pass the exact-id checks as the
-    // record's own id and carry its device into the sign-in, since @bk010
-    // and @BK010 can be different people. Typing the full id in that casing
-    // never resumes either. Empty (no resume) if the record's id is malformed.
     const QString typedUserId = bareUsernameLocatedRecord
         ? matrix::rust_session::typedUserIdOnSavedServer(user, identity.userId)
         : identity.userId;
@@ -1572,10 +1294,6 @@ void RustSdkMatrixClient::login(const QString &homeserver,
                        << "account=" << identity.slug;
     }
 
-    // Localparts are case-sensitive, so the typed casing is kept, but the saved
-    // record uses the server's canonical id. Find the account whose store this
-    // login should open: the canonical id when the typed casing maps onto one,
-    // else the typed id if it is itself saved.
     QString loginOwnerUserId;
     if (m_settings) {
         bool ambiguous = false;
@@ -1589,10 +1307,6 @@ void RustSdkMatrixClient::login(const QString &homeserver,
                 matrix::rust_session::StoreBlockReason::AmbiguousStoreCandidates));
             return;
         }
-        // The match locates the store only; it must not rewrite the identity
-        // sent to the homeserver, since @alice and @Alice can be different
-        // people. The server's answer settles the mapping in login_ok ->
-        // recordStoreLocation.
         matrix::app_data::AccountIdentity savedIdentity;
         if (!canonical.isEmpty()
             && m_settings->resolveSavedIdentity(canonical, &savedIdentity)) {
@@ -1607,16 +1321,12 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         } else {
             if (m_settings->hasSavedAccount(identity.userId))
                 loginOwnerUserId = identity.userId;
-            // Accounts from older builds may keep their store under a divergent
-            // directory; open the recorded one.
             matrix::app_data::bindStoreSlug(
                 &identity, m_settings->storeSlugFor(identity.userId));
         }
     }
     m_openingIdentity = identity;
 
-    // Slug flattening is not injective: refuse an identity that collides with a
-    // different saved account before contacting the server.
     if (m_settings && m_settings->accountSlugConflicts(identity.userId)) {
         qCWarning(lcRust) << "login refused: account slug collision"
                           << "slug=" << identity.slug;
@@ -1627,20 +1337,8 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         return;
     }
 
-    // Adoption must also run on the login path. Otherwise an account whose
-    // store sits under a divergent slug (typed casing, .well-known delegation)
-    // and has no readable session reaches here, finds nothing at the canonical
-    // path, and creates a new empty store, abandoning its Megolm keys.
     if (!pathExistsOrIsLink(identity.rustStorePath) && m_settings
         && !loginOwnerUserId.isEmpty()) {
-        // Adopt against the saved identity, not the typed one:
-        //  * hasSavedAccount() is an exact match, and a record saved as
-        //    "@mizerd:…" is not found by the typed "@Mizerd:…".
-        //  * The candidate scan excludes the identity's own slug, which for the
-        //    typed identity is exactly the divergent directory holding the
-        //    store.
-        // The resulting store slug is bound onto the typed identity, which
-        // still goes to the server unchanged.
         matrix::app_data::AccountIdentity adoptTarget;
         if (m_settings->resolveSavedIdentity(loginOwnerUserId, &adoptTarget)) {
             auto adoptionRefusal = matrix::rust_session::StoreBlockReason::None;
@@ -1648,8 +1346,6 @@ void RustSdkMatrixClient::login(const QString &homeserver,
                 matrix::app_data::bindStoreSlug(&identity,
                                                 adoptTarget.effectiveStoreSlug());
             if (adoptionRefusal != matrix::rust_session::StoreBlockReason::None) {
-                // Contested ownership: refuse rather than guess. Nothing was
-                // moved or deleted.
                 failWithBlockReason(adoptionRefusal, identity);
                 return;
             }
@@ -1657,13 +1353,6 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     }
 
     bool storeExists = pathExistsOrIsLink(identity.rustStorePath);
-    // Only the target account's own record is consulted; other signed-in
-    // accounts never block a login.
-    //
-    // Record existence and token readability are separate: an unreadable secret
-    // store (locked keyring, no session bus) must never look like "no account"
-    // and send a real store to orphan cleanup. The owner is resolved from the
-    // store directory, which also covers recorded and delegated slugs.
     const QString storeOwner = m_settings
         ? m_settings->accountOwningStoreSlug(identity.effectiveStoreSlug())
         : QString{};
@@ -1674,12 +1363,6 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     const bool targetTokenReadable = targetHasRecord
         && !m_settings->accessTokenFor(recordUserId).isEmpty();
     const bool targetHasSavedSession = targetHasRecord && targetTokenReadable;
-    // A block is reported under the account the store belongs to when the
-    // identity is only a bare username's stand-in that no record located but
-    // whose store is recorded for a saved account at that account's own path:
-    // a card or a reset for the stand-in matches no record, so a reset would
-    // move the account's store aside and keep its record. Anything else is
-    // reported as before.
     matrix::app_data::AccountIdentity blockIdentity = identity;
     if (standInIdentity && !bareUsernameLocatedRecord && !storeOwner.isEmpty()
         && storeOwner != identity.userId) {
@@ -1693,10 +1376,6 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         }
     }
 
-    // An orphaned store (exists, but no record could ever restore it) usually
-    // comes from an earlier failed login, since the directory is created before
-    // the server accepts the password. Clean it up rather than dead-ending the
-    // user on the reset prompt.
     if (storeExists && !targetHasRecord) {
         // Moved aside, never deleted: the store may hold the only copy of
         // someone's room keys.
@@ -1706,7 +1385,6 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         if (!waitForRustRetirement(kStoreCloseBudgetMs))
             qCWarning(lcRust) << "a retiring client still held a store open "
                                  "after the close budget";
-        // Labs: never moved while another handle holds it.
         m_storeClaimRefusalText.clear();
         const auto claim = storeOwnershipRegistry().claimForDeletion(identity.rustStorePath);
         if (claim != lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted) {
@@ -1732,12 +1410,6 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         ? m_settings->accountRecord(recordUserId)
               .value(QStringLiteral("deviceId")).toString()
         : QString{};
-    // The server provably ended the device this store belongs to, so it can
-    // never be restored again and "Open it" would only meet the revocation
-    // again. Move it aside, never delete it, and sign in as a new device.
-    // Anything short of that proof still ends in ExistingStoreNeedsRestore.
-    // Labs: also the proof a background host of this account recorded
-    // (RevocationProofs), by the same rule.
     if (storeExists && targetHasSavedSession
         && (matrix::rust_session::revokedDeviceMayBeReplaced(
                 recordUserId, targetSavedDeviceId, m_revokedUserId,
@@ -1748,24 +1420,15 @@ void RustSdkMatrixClient::login(const QString &homeserver,
             Q_EMIT loginFailed(storeMoveFailureText());
             return;
         }
-        // Used once, as the single slot is.
         if (m_liveAccountsLabs && m_revocationProofs)
             m_revocationProofs->clearHard(recordUserId);
         storeExists = false;
     }
-    // Remember fresh-store attempts so a failure can clean up after itself.
     m_freshLoginIdentity = storeExists ? matrix::app_data::AccountIdentity{}
                                        : identity;
-    // Durable before the SDK creates the store: a sign-in cancelled, quit or
-    // killed before the server answers leaves a store that is no account, and
-    // the next start must not report the settings file as having lost one (R6).
     if (m_freshLoginIdentity.isValid() && m_settings)
         m_settings->recordPendingSignIn(m_freshLoginIdentity);
     m_freshBrowserRecord = {};
-    // A record and store exist but the secret backend cannot be read. The
-    // session may be intact, so this must not be classified as "store with no
-    // session metadata" and routed to a destructive repair. The condition lives
-    // in RustSessionPolicy, where it is pure and tested.
     if (matrix::rust_session::unreadableSecretBlocksLogin(
             storeExists, targetHasRecord, targetTokenReadable,
             m_settings && m_settings->secretBackendUnavailable(),
@@ -1776,11 +1439,6 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         return;
     }
 
-    // The SDK reported a soft logout for exactly this account, homeserver and
-    // device: the server keeps the device, so sign in again AS it, into this
-    // same store, rather than sending the user to "Open it", which would only
-    // restore the dead token and meet the same answer. The typed homeserver
-    // must be the record's: the password and this device id go nowhere else.
     matrix::app_data::AccountIdentity recordIdentity;
     const bool recordResolved = m_settings
         && m_settings->resolveSavedIdentity(recordUserId, &recordIdentity);
@@ -1800,20 +1458,7 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         qCInfo(lcRust) << "password sign-in resumes the soft-logged-out device"
                        << "slug=" << identity.slug;
     }
-    // The store answered "no such item" (unreadableSecretBlocksLogin() above
-    // refused when it could not answer) for a sign-in this install saved for
-    // the recorded device and never removed: the keyring lost it (a reset, a
-    // Flatpak or snap keyring that changed), the account did not sign out. So
-    // never "a store with no sign-in" and its reset. Typed as exactly that
-    // account on its own homeserver, a password sign-in continues as that
-    // device, into this store, as after a soft logout; otherwise the card
-    // explains and nothing changes. A resumed device is checked against the
-    // server's published keys after it signs in, as a soft-logout resume is.
     bool resumeLostSignIn = false;
-    // A sign-in this install's adoption check declined (its copied token was
-    // another install's device) is the same case: this store is the recorded
-    // device's own and whole, only its sign-in is gone from the keyring. Its
-    // card asks for a sign-in; never the reset that deletes the store.
     if (block == matrix::rust_session::StoreBlockReason::MissingSessionMetadata
         && m_settings && storeExists && targetHasRecord && !targetTokenReadable
         && (m_settings->secretsWrittenHereForRecordedDevice(recordUserId)
@@ -1836,7 +1481,6 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     }
     if (block == matrix::rust_session::StoreBlockReason::ExistingStoreNeedsRestore
         && targetHasSavedSession) {
-        // Not an error state: the account is already usable on this device.
         qCInfo(lcRust) << "login redirected to switch"
                        << "slug=" << identity.slug;
         Q_EMIT loginFailed(matrix::rust_session::userMessage(block));
@@ -1848,8 +1492,6 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     }
 
     if (!ensureRustHandleForIdentity(identity)) {
-        // This attempt never started, so nothing may remain marked as its fresh
-        // store; the marker is armed only while an attempt is in flight.
         m_freshLoginIdentity = {};
         m_freshBrowserRecord = {};
         setState(Error);
@@ -1861,13 +1503,9 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     m_userId.clear();
     m_deviceId.clear();
     m_loggedIn = false;
-    // Empty unless this attempt resumes the soft-logged-out device.
     m_resumeDeviceId = (resumeSoftLoggedOut || resumeLostSignIn)
         ? targetSavedDeviceId : QString();
-    // A new attempt: reset what the previous one needed to open its store.
     m_restoredOffline = false;
-    // Log dedupe is per session, not per process, so a second broken account in
-    // the same run still logs. Reset wherever a session ends.
     m_ownIdentityKeyMismatchLogged = false;
     m_rooms.clear();
     m_roomOrder.clear();
@@ -1880,12 +1518,9 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     setState(Connecting);
 
     const QByteArray hsBytes = identity.homeserver.toUtf8();
-    // A bare username as typed; the server's answer names the account.
     const QByteArray userBytes =
         matrix::rust_session::passwordLoginIdentifier(user, identity).toUtf8();
     m_loginSentBareUsername = bareUsername;
-    // Convert once, then scrub the transit buffer, as the recovery-key and
-    // passphrase paths do. The QString belongs to the caller, which clears it.
     QByteArray passwordBytes = password.toUtf8();
     const QByteArray deviceBytes = m_resumeDeviceId.toUtf8();
     const QString result = takeRustString(mx_rust_login(m_rustHandle,
@@ -1893,7 +1528,6 @@ void RustSdkMatrixClient::login(const QString &homeserver,
                                                         userBytes.constData(),
                                                         passwordBytes.constData(),
                                                         deviceBytes.constData()));
-    // volatile so the dead-store optimizer cannot drop the zeroing.
     volatile char *raw = passwordBytes.data();
     for (int i = 0; i < passwordBytes.size(); ++i)
         raw[i] = 0;
@@ -1908,42 +1542,24 @@ void RustSdkMatrixClient::login(const QString &homeserver,
 
 bool RustSdkMatrixClient::detachSession()
 {
-    // Named scope so the stall tracer attributes the account switch; everything
-    // reached here, including the Rust teardown, is synchronous on the GUI
-    // thread.
     stalltrace::Scope stallScope("account-detach");
-    // A sign-out is in flight and its completion is the only path that deletes
-    // this account's token, record and store. Invalidating now would drop that
-    // completion and silently downgrade it to a local detach, so refuse.
     if (m_lifecycle.signingOut()) {
         qCWarning(lcRust) << "detach refused: sign-out still in flight";
         return false;
     }
-    // Account switch: end the local session without a server logout. The store,
-    // token and account record stay; restoreSession() reactivates them later.
     qCInfo(lcRust) << "detaching local session"
                    << "slug=" << matrix::app_data::safeUserSlug(m_userId);
-    // A detach abandons any running login attempt and drops its callbacks as
-    // stale, so its fresh-store marker must go with it.
     m_freshLoginIdentity = {};
     m_freshBrowserRecord = {};
     m_resumeDeviceId.clear();
     disarmResumedDeviceCheck();
     m_callSdpStore.clear();
-    // Stale callbacks from this session become unobservable immediately;
-    // releaseRustHandle() then retires the handle.
     m_lifecycle.invalidate();
     releaseRustHandle();
     clearLocalState();
     Q_EMIT loggedOut();
     return true;
 }
-
-// --- OAuth 2.0 / OIDC ------------------------------------------------------
-//
-// Phase A runs on m_authHandle, which has no store (see rust/src/oauth.rs).
-// Phase B, completeOAuthLogin(), is the only place that opens a store, after
-// the homeserver has named the account and device.
 
 bool RustSdkMatrixClient::ensureOAuthBootstrapHandle(const QString &homeserver)
 {
@@ -1955,8 +1571,6 @@ bool RustSdkMatrixClient::ensureOAuthBootstrapHandle(const QString &homeserver)
         return false;
     }
     applySignInRoute(m_authHandle, homeserver);
-    // Signing in from the login screen: there is no session handle, so the poll
-    // timer may be stopped.
     if (!m_pollTimer.isActive())
         m_pollTimer.start();
     return true;
@@ -1984,11 +1598,6 @@ void RustSdkMatrixClient::endOAuthAttempt()
 
 void RustSdkMatrixClient::discoverAuthMethods(const QString &homeserver)
 {
-    // Discovery and sign-in share the bootstrap handle, and
-    // ensureOAuthBootstrapHandle() destroys whatever is there. Re-probing
-    // mid-sign-in (e.g. editing the homeserver field) would discard the client
-    // holding this attempt's PKCE verifier/CSRF state or single-use SSO token
-    // context. The running attempt wins; the user can cancel it.
     if (m_oauthInFlight || m_ssoInFlight)
         return;
 
@@ -2005,8 +1614,6 @@ void RustSdkMatrixClient::discoverAuthMethods(const QString &homeserver)
     const QString result =
         takeRustString(mx_rust_oauth_discover(m_authHandle, hsBytes.constData()));
     if (!result.isEmpty()) {
-        // Discovery could not even start: report "nothing known" rather than
-        // guessing that password login works.
         Q_EMIT authMethodsDiscovered(hs, false, false, false);
     }
 }
@@ -2030,7 +1637,6 @@ void RustSdkMatrixClient::startOAuthAttempt(const QString &homeserver,
         return;
     }
     if (m_oauthInFlight) {
-        // A second attempt must not race the first; the user can cancel.
         return;
     }
 
@@ -2073,7 +1679,6 @@ void RustSdkMatrixClient::startOAuthAttempt(const QString &homeserver,
             takeRustString(mx_rust_oauth_abort(m_authHandle));
         endOAuthAttempt();
         releaseAuthHandle();
-        // access_denied is the ordinary "user said no", not a fault.
         Q_EMIT loginFailed(error == QLatin1String("access_denied")
                                ? tr("Sign-in was cancelled.")
                                : tr("The server refused the sign-in request."));
@@ -2113,15 +1718,11 @@ void RustSdkMatrixClient::cancelOAuthLogin()
         takeRustString(mx_rust_oauth_abort(m_authHandle));
     endOAuthAttempt();
     releaseAuthHandle();
-    // A resolved state, not silence: the UI must leave "Signing in".
     Q_EMIT loginFailed(tr("Sign-in was cancelled."));
 }
 
 void RustSdkMatrixClient::requestSsoProviders(const QString &homeserver)
 {
-    // On a handle of its own (m_providersHandle): it never replaces the one a
-    // running browser sign-in holds, and a sign-in started before the answer
-    // no longer takes the question with it.
     const QString hs = homeserver.trimmed();
     if (hs.isEmpty())
         return;
@@ -2130,8 +1731,6 @@ void RustSdkMatrixClient::requestSsoProviders(const QString &homeserver)
     if (!m_providersHandle)
         return;
     applySignInRoute(m_providersHandle, hs);
-    // From the login screen there is no session handle, so the poll timer may
-    // be stopped.
     if (!m_pollTimer.isActive())
         m_pollTimer.start();
     const QByteArray hsBytes = hs.toUtf8();
@@ -2150,7 +1749,6 @@ void RustSdkMatrixClient::drainProvidersEvents()
 {
     if (!m_providersHandle)
         return;
-    // One question, one answer: whatever else the handle says is dropped.
     for (int i = 0; i < 16 && m_providersHandle; ++i) {
         const QByteArray raw = takeRustBytes(mx_rust_poll_event(m_providersHandle));
         if (raw.isEmpty())
@@ -2171,12 +1769,10 @@ void RustSdkMatrixClient::drainProvidersEvents()
                          row.value(QStringLiteral("name")).toString());
             entry.insert(QStringLiteral("icon"),
                          row.value(QStringLiteral("icon")).toString());
-            // MSC2858 brand token; the login screen picks a bundled logo.
             entry.insert(QStringLiteral("brand"),
                          row.value(QStringLiteral("brand")).toString());
             providers.append(entry);
         }
-        // Released before emitting: a slot may ask again, on a new handle.
         releaseProvidersHandle();
         Q_EMIT ssoProvidersReceived(
             event.value(QStringLiteral("homeserver")).toString(),
@@ -2193,8 +1789,6 @@ void RustSdkMatrixClient::beginSsoLogin(const QString &homeserver,
         Q_EMIT loginFailed(tr("A homeserver is required."));
         return;
     }
-    // One browser sign-in at a time: SSO and OAuth would fight over the same
-    // bootstrap handle and client slot.
     if (m_ssoInFlight || m_oauthInFlight)
         return;
 
@@ -2281,7 +1875,6 @@ void RustSdkMatrixClient::cancelSsoLogin()
         takeRustString(mx_rust_sso_abort(m_authHandle));
     endSsoAttempt();
     releaseAuthHandle();
-    // A resolved state, never silence: the UI must leave "Signing in".
     Q_EMIT loginFailed(tr("Sign-in was cancelled."));
 }
 
@@ -2301,10 +1894,6 @@ void RustSdkMatrixClient::drainAuthEvents()
     if (!m_authHandle)
         return;
 
-    // Every emit below can reach a slot that releases this handle or starts
-    // the next request on a new one. Each branch that releases does so BEFORE
-    // it emits, and the drain ends once the handle it started on is gone, so
-    // nothing here can poll or release a handle it does not own.
     const quint64 generation = m_authHandleGeneration;
     for (int i = 0; i < 64; ++i) {
         if (!m_authHandle || m_authHandleGeneration != generation)
@@ -2320,7 +1909,6 @@ void RustSdkMatrixClient::drainAuthEvents()
 
         if (type == QLatin1String("auth_discovery")) {
             const QString homeserver = event.value(QStringLiteral("homeserver")).toString();
-            // `error` is set only when no client could be built for the server.
             const QJsonValue error = event.value(QStringLiteral("error"));
             QVariantMap details;
             details.insert(QStringLiteral("reachable"),
@@ -2331,9 +1919,6 @@ void RustSdkMatrixClient::drainAuthEvents()
                            event.value(QStringLiteral("oauth_can_create")).toBool());
             details.insert(QStringLiteral("accountManagementUrl"),
                            event.value(QStringLiteral("account_management_uri")).toString());
-            // Discovery is one-shot; drop the handle unless a sign-in is using
-            // it. Before emitting: a slot may start the next request, and a
-            // release after the emit destroyed THAT request's new handle.
             if (!m_oauthInFlight && !m_ssoInFlight)
                 releaseAuthHandle();
             Q_EMIT authDiscoveryDetails(homeserver, details);
@@ -2349,11 +1934,6 @@ void RustSdkMatrixClient::drainAuthEvents()
             const QString url = event.value(QStringLiteral("url")).toString();
             if (url.isEmpty())
                 continue;
-            // Open the browser here so the flow works even if the UI ignores
-            // the signal. A failed launch is reported, not fatal: timeout and
-            // Cancel stay available. HTTPS only: the URL comes from
-            // server-controlled discovery and openExternally would hand any
-            // scheme to a registered application.
             const QUrl launch(url);
             if (launch.scheme() != QLatin1String("https")
                 || launch.host().isEmpty()) {
@@ -2364,7 +1944,6 @@ void RustSdkMatrixClient::drainAuthEvents()
                 qCWarning(lcRust) << "browser sign-in: the browser could not be started";
                 Q_EMIT browserLaunchFailed();
             } else {
-                // No URL: it names the attempt's state and redirect.
                 qCInfo(lcRust) << "browser sign-in: authorization page handed to the browser";
             }
             Q_EMIT oauthBrowserUrlReady(url);
@@ -2372,7 +1951,6 @@ void RustSdkMatrixClient::drainAuthEvents()
         }
 
         if (type == QLatin1String("oauth_ok")) {
-            // SENSITIVE: carries access and refresh tokens. Never log `event`.
             const QString userId = event.value(QStringLiteral("user_id")).toString();
             const QString deviceId = event.value(QStringLiteral("device_id")).toString();
             const QString clientId = event.value(QStringLiteral("client_id")).toString();
@@ -2383,10 +1961,6 @@ void RustSdkMatrixClient::drainAuthEvents()
         }
 
         if (type == QLatin1String("oauth_registration_retry")) {
-            // The server rejected our client metadata and we re-register
-            // without the loopback port (RFC 8252 §7.3). Fixed reason token
-            // only; no URI, port, nonce or token. Distinguishes never retried /
-            // retried OK / refused again.
             qCInfo(lcRust) << "oauth client registration retried without the "
                               "loopback port reason="
                            << event.value(QStringLiteral("reason")).toString();
@@ -2394,8 +1968,6 @@ void RustSdkMatrixClient::drainAuthEvents()
         }
 
         if (type == QLatin1String("oauth_failed")) {
-            // Fixed tokens from rust/src/oauth.rs (oauth_failure_reason); the
-            // message is not logged, it can quote an endpoint.
             qCWarning(lcRust) << "browser sign-in failed flow=oauth stage="
                               << event.value(QStringLiteral("stage")).toString()
                               << "reason=" << event.value(QStringLiteral("reason")).toString();
@@ -2412,8 +1984,6 @@ void RustSdkMatrixClient::drainAuthEvents()
             const QString url = event.value(QStringLiteral("url")).toString();
             if (url.isEmpty())
                 continue;
-            // HTTPS only: the URL comes from server-controlled discovery and
-            // openExternally would hand any scheme to a registered application.
             const QUrl launch(url);
             if (launch.scheme() != QLatin1String("https")
                 || launch.host().isEmpty()) {
@@ -2431,7 +2001,6 @@ void RustSdkMatrixClient::drainAuthEvents()
         }
 
         if (type == QLatin1String("sso_ok")) {
-            // SENSITIVE: carries access and refresh tokens. Never log `event`.
             completeSsoLogin(
                 event.value(QStringLiteral("user_id")).toString(),
                 event.value(QStringLiteral("device_id")).toString(),
@@ -2441,7 +2010,6 @@ void RustSdkMatrixClient::drainAuthEvents()
         }
 
         if (type == QLatin1String("sso_failed")) {
-            // Fixed tokens from rust/src/sso.rs; the message is not logged.
             qCWarning(lcRust) << "browser sign-in failed flow=sso stage="
                               << event.value(QStringLiteral("stage")).toString()
                               << "reason=" << event.value(QStringLiteral("reason")).toString();
@@ -2463,9 +2031,6 @@ void RustSdkMatrixClient::completeOAuthLogin(const QString &userId,
                                              const QString &refreshToken)
 {
     const QString homeserver = m_oauthHomeserver;
-    // Phase A is over either way. Its handle is taken, not destroyed: if the
-    // checks below refuse this sign-in, it ends the session the server just
-    // issued (revokeRefusedSignIn).
     endOAuthAttempt();
     void *signInHandle = takeAuthHandle();
 
@@ -2498,9 +2063,6 @@ void RustSdkMatrixClient::completeOAuthLogin(const QString &userId,
                         deviceId, accessToken, refreshToken);
 }
 
-// Legacy SSO Phase B. Same account/store handling as adoptBrowserSession;
-// only the persisted auth type and restore call differ, since an SSO session
-// restores through matrix_auth().
 void RustSdkMatrixClient::completeSsoLogin(const QString &userId,
                                            const QString &deviceId,
                                            const QString &accessToken,
@@ -2542,8 +2104,6 @@ void *RustSdkMatrixClient::takeAuthHandle()
 {
     void *handle = m_authHandle;
     m_authHandle = nullptr;
-    // drainAuthEvents() stops at the generation change, so the drain that
-    // delivered oauth_ok/sso_ok never polls the handle taken here.
     ++m_authHandleGeneration;
     return handle;
 }
@@ -2563,12 +2123,8 @@ void RustSdkMatrixClient::revokeRefusedSignIn(void *signInHandle,
         mx_rust_destroy(signInHandle);
         return;
     }
-    // One at a time: an older refusal still waiting is given up.
     releaseRevokeHandle();
-    // The handle the sign-in ran on already carries its route; the account is
-    // named now, so its own route (if it is a saved one) is the one to use.
     applySignInRoute(signInHandle, homeserver, userId);
-    // Flow word and nothing else: no account, device or server.
     qCInfo(lcRust) << "browser sign-in not kept on this device; ending the "
                       "session the server issued for it"
                    << "flow=" << flow;
@@ -2611,7 +2167,6 @@ void RustSdkMatrixClient::drainRevokeEvents()
         if (event.value(QStringLiteral("type")).toString()
             != QLatin1String("refused_sign_in_revoked"))
             continue;
-        // A fixed word from rust/src/oauth.rs, never server text.
         qCInfo(lcRust) << "the refused sign-in's session at the server"
                        << "category="
                        << event.value(QStringLiteral("category")).toString();
@@ -2627,7 +2182,6 @@ bool RustSdkMatrixClient::startAdoptedSessionCheck(
     releaseWhoamiHandle();
     m_whoamiHandle = mx_rust_oauth_bootstrap_create();
     if (!m_whoamiHandle) {
-        // Cannot ask: proceed as before the check existed.
         m_adoptedSessionsChecked.insert(userId);
         return restoreSession();
     }
@@ -2671,12 +2225,10 @@ void RustSdkMatrixClient::drainWhoamiEvents()
             continue;
         releaseWhoamiHandle();
         const AdoptedSessionCheck check = std::exchange(m_adoptedSessionCheck, {});
-        // The account the user is opening may have changed meanwhile.
         if (!m_settings || check.userId.isEmpty()
             || m_settings->userId() != check.userId)
             return;
         const QString result = event.value(QStringLiteral("result")).toString();
-        // Not a secret, and only compared.
         const QString answeredDevice = event.value(QStringLiteral("device_id")).toString();
         const QString slug = matrix::app_data::safeUserSlug(check.userId);
         if (result == QLatin1String("device") && answeredDevice == check.deviceId) {
@@ -2712,9 +2264,6 @@ void RustSdkMatrixClient::drainWhoamiEvents()
                                   "Lightning on this computer. Sign in again."));
             return;
         } else {
-            // 401 (expired or ended) or no answer decides nothing: as before
-            // the check existed, once per account and process. A restore must
-            // never need a live server.
             m_adoptedSessionsChecked.insert(check.userId);
             qCInfo(lcRust) << "the adopted sign-in could not be checked; "
                               "restoring it unverified"
@@ -2739,11 +2288,7 @@ void RustSdkMatrixClient::adoptBrowserSession(
     const std::function<QString(const matrix::app_data::AccountIdentity &,
                                 const QString &)> &restore)
 {
-    // Phase B: the homeserver has named the account, so a store can be chosen.
 
-    // Every refusal from here on comes after the user signed in on the
-    // server's page, so it says what went wrong in plain words. Anything that
-    // can be known earlier is refused before the browser opens (AuthManager).
     if (userId.isEmpty() || deviceId.isEmpty() || accessToken.isEmpty()) {
         Q_EMIT loginFailed(tr("The server finished the sign-in but did not say "
                               "which account or device it was for. Nothing was "
@@ -2753,15 +2298,12 @@ void RustSdkMatrixClient::adoptBrowserSession(
 
     matrix::app_data::AccountIdentity identity;
     if (!matrix::app_data::resolveAccountIdentity(homeserver, userId, &identity)) {
-        // The address was checked before the browser opened, so this is the
-        // account name the server returned.
         Q_EMIT loginFailed(tr("The server signed you in as %1, an account name "
                               "Lightning can't store on this device. Nothing was "
                               "saved here.").arg(userId));
         return;
     }
 
-    // Use the store this account is recorded to use, as the password path does.
     QString savedDeviceId;
     bool hasSavedSession = false;
     if (m_settings) {
@@ -2779,9 +2321,6 @@ void RustSdkMatrixClient::adoptBrowserSession(
     const QString storePath = identity.rustStorePath;
     bool storeExists = QFileInfo::exists(storePath);
 
-    // Slug flattening is not injective: as login() does, refuse an account
-    // whose storage name collides with a different saved one. Without this,
-    // saveSession() below would write no record at all.
     if (m_settings && m_settings->accountSlugConflicts(identity.userId)) {
         qCWarning(lcRust) << "Browser sign-in refused: account slug collision"
                           << "slug=" << identity.slug;
@@ -2792,14 +2331,6 @@ void RustSdkMatrixClient::adoptBrowserSession(
         return;
     }
 
-    // A store with no saved account beside it (a rollback or removal that
-    // could not finish, a crash before the record was written, an older
-    // build) is moved aside exactly as login() does, never deleted, and the
-    // sign-in goes on. On a server with its own sign-in page there is no
-    // password form to reach login()'s own quarantine, so refusing was a dead
-    // end. Only when no saved account differs from this one by case alone and
-    // none records this store: on a case-insensitive file system it could be
-    // theirs.
     if (storeExists && !hasSavedSession && m_settings) {
         bool ambiguous = false;
         const QString variant =
@@ -2819,7 +2350,6 @@ void RustSdkMatrixClient::adoptBrowserSession(
         if (!waitForRustRetirement(kStoreCloseBudgetMs))
             qCWarning(lcRust) << "a retiring client still held a store open "
                                  "after the close budget";
-        // Labs: never moved while another handle holds it.
         m_storeClaimRefusalText.clear();
         const auto claim = storeOwnershipRegistry().claimForDeletion(identity.rustStorePath);
         if (claim != lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted) {
@@ -2842,9 +2372,6 @@ void RustSdkMatrixClient::adoptBrowserSession(
         }
     }
 
-    // As login(): the server provably ended the device this store belongs to,
-    // so it is moved aside, never deleted, and this sign-in gets a fresh one,
-    // even when the server names the same device id again.
     if (storeExists && hasSavedSession
         && (matrix::rust_session::revokedDeviceMayBeReplaced(
                 identity.userId, savedDeviceId, m_revokedUserId,
@@ -2867,11 +2394,6 @@ void RustSdkMatrixClient::adoptBrowserSession(
                           << "authType=" << authType
                           << "slug=" << identity.effectiveStoreSlug()
                           << "reason=" << matrix::rust_session::diagnosticName(reason);
-        // Every refusal left here names an exact saved record for this very
-        // account (a store without one was moved aside above), so the login
-        // screen's card is safe to offer and is the way out: open it or remove
-        // it (a session already here, D6), or rebuild it (a record with no
-        // device). Never a bare "sign in again" that cannot help.
         failWithBlockReason(reason, identity);
         return;
     }
@@ -2881,10 +2403,6 @@ void RustSdkMatrixClient::adoptBrowserSession(
     // and a stale value would target a different account's store.
     m_openingIdentity = identity;
 
-    // What this attempt creates, a failed restore takes back (login_failed
-    // below, and the synchronous failure at the end): only that. A record or
-    // store that existed before belongs to a session that may still work. The
-    // record is marked once saveSession() has really written it.
     m_freshLoginIdentity = storeExists ? matrix::app_data::AccountIdentity{}
                                        : identity;
     m_freshBrowserRecord = {};
@@ -2903,10 +2421,7 @@ void RustSdkMatrixClient::adoptBrowserSession(
     m_userId = identity.userId;
     m_deviceId = deviceId;
     m_loggedIn = false;
-    // A new attempt: reset what the previous one needed to open its store.
     m_restoredOffline = false;
-    // Log dedupe is per session, not per process, so a second broken account in
-    // the same run still logs. Reset wherever a session ends.
     m_ownIdentityKeyMismatchLogged = false;
     m_rooms.clear();
     m_roomOrder.clear();
@@ -2918,18 +2433,11 @@ void RustSdkMatrixClient::adoptBrowserSession(
     Q_EMIT roomsChanged();
     setState(Connecting);
 
-    // Record the session before restoring, so a crash mid-restore leaves a
-    // store with a matching record rather than an apparent orphan.
     if (m_settings) {
-        // authType routes restore: "oauth" goes to oauth().restore_session(),
-        // anything else (including "sso") to matrix_auth(). SSO is stored under
-        // its own name so the record stays truthful about the account's origin.
         m_settings->saveSession(identity.homeserver, identity.userId, deviceId,
                                 accessToken, refreshToken,
                                 authType, clientId);
         m_persistedAccessDigest = accessTokenDigest(accessToken);
-        // saveSession() writes no record when it refuses; then nothing may be
-        // left for a looser match to roll back later.
         if (!m_settings->hasSavedAccount(identity.userId)) {
             rollBackFailedAttempt(std::exchange(m_freshLoginIdentity, {}), {});
             setState(Error);
@@ -2940,9 +2448,6 @@ void RustSdkMatrixClient::adoptBrowserSession(
         if (!hasSavedSession)
             m_freshBrowserRecord = identity;
         m_settings->setSyncToken({});
-        // Record the store location (the store an account uses is recorded,
-        // never re-derived). The password path records it from login_ok, which
-        // OAuth does not reach.
         recordStoreLocation(identity);
     }
 
@@ -2966,16 +2471,10 @@ bool RustSdkMatrixClient::rollBackFailedAttempt(
 {
     bool complete = true;
     if (store.isValid()) {
-        // The store this attempt opened, and only that directory: a
-        // quarantined sibling (".orphaned-*") may hold the only copy of
-        // someone's room keys. Wait for the retiring handle first, as every
-        // other deleter does, or an open database survives on Windows.
         releaseRustHandle();
         if (!waitForRustRetirement(kStoreCloseBudgetMs))
             qCWarning(lcRust) << "a failed attempt's store was still open after the "
                                  "close budget";
-        // Labs: never deleted while another handle holds it (review L1); the
-        // attempt then reports incomplete. Unenforced, always granted.
         const auto claim = storeOwnershipRegistry().claimForDeletion(store.rustStorePath);
         if (claim != lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted) {
             reportStoreClaimRefused(int(claim), store.effectiveStoreSlug(), "attempt_cleanup");
@@ -2990,8 +2489,6 @@ bool RustSdkMatrixClient::rollBackFailedAttempt(
         }
     }
     if (record.isValid()) {
-        // Exactly the record this attempt wrote, with its tokens; a case
-        // variant or a slug neighbour is another account.
         if (m_settings && m_settings->hasSavedAccount(record.userId)) {
             bool matched = false;
             if (!clearPersistedAccount(record, &matched))
@@ -3016,8 +2513,6 @@ void RustSdkMatrixClient::armResumedDeviceCheck()
 
 void RustSdkMatrixClient::scheduleResumedDeviceCheck()
 {
-    // After the sync has run its first key uploads, so a store whose keys
-    // never went up is not mistaken for a lost device.
     const quint64 generation = ++m_resumedCheckGeneration;
     QTimer::singleShot(kResumedDeviceCheckDelayMs, this, [this, generation] {
         if (generation != m_resumedCheckGeneration
@@ -3028,7 +2523,6 @@ void RustSdkMatrixClient::scheduleResumedDeviceCheck()
         const QString error =
             takeRustString(mx_rust_check_resumed_device_key(m_rustHandle));
         if (!error.isEmpty()) {
-            // Not even asked: the same as no answer.
             if (m_resumedCheckAttempts < kResumedDeviceCheckAttempts)
                 scheduleResumedDeviceCheck();
             else
@@ -3069,10 +2563,6 @@ QString RustSdkMatrixClient::storeMoveFailureText() const
 bool RustSdkMatrixClient::moveRevokedDeviceStoreAside(
     const matrix::app_data::AccountIdentity &identity)
 {
-    // The revoked session's handle retires asynchronously and may still hold
-    // the store's SQLite files open; wait, as every mover and deleter does.
-    // Release only a handle on THIS store: during add-account another
-    // account's session is running, and a failed move must leave it intact.
     if (!m_storePath.isEmpty()
         && QFileInfo(m_storePath).absoluteFilePath()
                == QFileInfo(identity.rustStorePath).absoluteFilePath()) {
@@ -3081,7 +2571,6 @@ bool RustSdkMatrixClient::moveRevokedDeviceStoreAside(
     if (!waitForRustRetirement(kStoreCloseBudgetMs))
         qCWarning(lcRust) << "the revoked device's store was still open after "
                              "the close budget";
-    // Labs: never moved while another handle holds it.
     m_storeClaimRefusalText.clear();
     const auto claim = storeOwnershipRegistry().claimForDeletion(identity.rustStorePath);
     if (claim != lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted) {
@@ -3097,8 +2586,6 @@ bool RustSdkMatrixClient::moveRevokedDeviceStoreAside(
                    << "moved=" << !moved.isEmpty();
     if (pathExistsOrIsLink(identity.rustStorePath))
         return false;
-    // Used once: the store it proved dead is aside, and the next store at this
-    // path is the new session's, whatever device id the server gives it.
     if (m_revocationProofs) {
         m_revocationProofs->clearHard(m_revokedUserId);
         if (identity.userId != m_revokedUserId)
@@ -3124,30 +2611,20 @@ QString RustSdkMatrixClient::browserRestoreFailureText(bool rolledBack,
 
 bool RustSdkMatrixClient::restoreSession()
 {
-    // Named scope for the stall tracer, as in detachSession().
     stalltrace::Scope stallScope("session-restore");
-    // LIGHTNING_SWITCH_TRACE S7: entry to the mx_rust_restore dispatch, which
-    // is this function's last act on every path. A no-op with no trace open.
     lightning::switchtrace::StepScope switchTraceS7(lightning::switchtrace::Step::S7);
-    // A restore replaces whatever attempt was running; nothing of that
-    // attempt may be rolled back against the store this one opens.
     m_freshLoginIdentity = {};
     m_freshBrowserRecord = {};
     if (!m_settings || !m_settings->hasSession())
         return false;
 
     matrix::app_data::AccountIdentity identity;
-    // resolveSavedIdentity binds the recorded store location; the plain
-    // resolver is the fallback for sessions that predate recording.
     if (!m_settings->resolveSavedIdentity(m_settings->userId(), &identity)
         && !matrix::app_data::resolveAccountIdentity(
             m_settings->homeserverUrl(), m_settings->userId(), &identity)) {
-        // No safe identity could be derived, so there is no account to name.
         matrix::app_data::AccountIdentity unresolved;
         unresolved.userId = m_settings->userId();
         unresolved.homeserver = m_settings->homeserverUrl();
-        // An unparsable saved record is not "this store belongs to someone
-        // else"; report the specific reason.
         const auto reason =
             matrix::rust_session::StoreBlockReason::InvalidSavedIdentity;
         requireLocalReset(matrix::rust_session::diagnosticName(reason),
@@ -3161,20 +2638,8 @@ bool RustSdkMatrixClient::restoreSession()
     const QString hs = identity.homeserver;
     const QString userId = m_settings->userId();
     const QString deviceId = m_settings->deviceId();
-    // A session of this account still closing may have rotated its tokens
-    // since they were last written; those are the ones to present.
     settleRetiringSignIn(userId);
 
-    // The whole sign-in, read before anything changes, and above all before
-    // the running handle is released below: a switch to an account whose
-    // keyring cannot answer must not tear down the one that works. Each read
-    // can fail on its own after the access token's succeeded (a locked
-    // collection, a D-Bus timeout), and an empty answer from a read that
-    // FAILED is "cannot tell", never "this session has none" (CLAUDE.md §6).
-    // Taken for "none", the SDK got the access token alone; at the first 401
-    // (an OAuth access token lives minutes, so usually at once) it had no
-    // refresh token, broadcast UnknownToken, and the session was ended as
-    // signed out by the server: the repair card, over tokens that were fine.
     const bool oauthAccount = m_settings->isOAuthAccount(userId);
     QString accessToken;
     QString refreshToken;
@@ -3203,7 +2668,6 @@ bool RustSdkMatrixClient::restoreSession()
             matrix::rust_session::StoreBlockReason::SecretBackendUnavailable;
         Q_EMIT localSessionBlocked(matrix::rust_session::diagnosticName(reason),
                                    identity.userId, identity.homeserver);
-        // A session still running (another account's) keeps its own state.
         if (!m_loggedIn)
             setState(Error);
         Q_EMIT loginFailed(matrix::rust_session::userMessage(reason));
@@ -3215,8 +2679,6 @@ bool RustSdkMatrixClient::restoreSession()
     if (hs.isEmpty() || userId.isEmpty() || accessToken.isEmpty())
         return false;
 
-    // Repair installs where an older build left the store under the typed
-    // localpart casing, before deciding the store is missing.
     auto refusal = matrix::rust_session::StoreBlockReason::None;
     if (!pathExistsOrIsLink(identity.rustStorePath)) {
         adoptDivergentStoreIfUnambiguous(&identity, &refusal);
@@ -3234,8 +2696,6 @@ bool RustSdkMatrixClient::restoreSession()
         return false;
     }
 
-    // A sign-in copied from an item saved before install scoping is checked
-    // against the server first (password sessions; see AdoptedSessionCheck).
     if (m_settings->keyringItemsAdoptedUnverified(userId)
         && !m_adoptedSessionsChecked.contains(userId)) {
         if (!oauthAccount)
@@ -3252,9 +2712,6 @@ bool RustSdkMatrixClient::restoreSession()
         Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
         return false;
     }
-    // ensureRustHandleForIdentity() released the running handle; if it was
-    // this account's, its last tokens are the current ones: read them all
-    // again.
     if (settleRetiringSignIn(userId)) {
         if (const char *unreadable = readSignIn()) {
             refuseUnreadable(unreadable);
@@ -3269,10 +2726,7 @@ bool RustSdkMatrixClient::restoreSession()
     m_userId = userId;
     m_deviceId = deviceId;
     m_loggedIn = false;
-    // A new attempt: reset what the previous one needed to open its store.
     m_restoredOffline = false;
-    // Log dedupe is per session, not per process, so a second broken account in
-    // the same run still logs. Reset wherever a session ends.
     m_ownIdentityKeyMismatchLogged = false;
     m_rooms.clear();
     m_roomOrder.clear();
@@ -3288,20 +2742,12 @@ bool RustSdkMatrixClient::restoreSession()
     const QByteArray userBytes = userId.toUtf8();
     const QByteArray deviceBytes = deviceId.toUtf8();
     const QByteArray tokenBytes = accessToken.toUtf8();
-    // Carry the refresh token when there is one, so an expired access token can
-    // be renewed. Empty is normal for servers that issue none (read above).
     const QByteArray refreshBytes = refreshToken.toUtf8();
 
-    // A restart without logout must restore the existing device through the SDK
-    // API that owns this session type; routing OAuth through matrix_auth()
-    // would fail and lose refresh handling. The discriminator lives in
-    // QSettings so it stays readable when the keyring is not.
     QString result;
     if (oauthAccount) {
         const QByteArray clientBytes = oauthClientId.toUtf8();
         if (clientBytes.isEmpty()) {
-            // An OAuth account without a registration id cannot be restored;
-            // say so instead of falling back to the password path.
             setState(Error);
             Q_EMIT loginFailed(matrix::rust_session::userMessage(
                 matrix::rust_session::StoreBlockReason::MissingSessionMetadata));
@@ -3353,10 +2799,7 @@ bool RustSdkMatrixClient::restoreSessionFromFile(const QString &homeserver,
     m_userId = expectedUser;
     m_deviceId.clear();
     m_loggedIn = false;
-    // A new attempt: reset what the previous one needed to open its store.
     m_restoredOffline = false;
-    // Log dedupe is per session, not per process, so a second broken account in
-    // the same run still logs. Reset wherever a session ends.
     m_ownIdentityKeyMismatchLogged = false;
     m_rooms.clear();
     m_roomOrder.clear();
@@ -3389,16 +2832,11 @@ bool RustSdkMatrixClient::adoptDivergentStoreIfUnambiguous(
 {
     if (refusal)
         *refusal = matrix::rust_session::StoreBlockReason::None;
-    // The test harness pins an absolute store path; there is no per-account
-    // layout to adopt within.
     if (!identity || !m_storePathOverride.isEmpty() || !identity->isValid())
         return false;
 
     QStringList candidates =
         matrix::app_data::findCaseVariantStoreSlugs(*identity);
-    // Besides casing, older builds could split store and record under
-    // .well-known delegation (localpart paired with the homeserver URL's host).
-    // Reconstruct that slug and take it only if a store is really there.
     const QString delegated =
         matrix::app_data::delegatedHomeserverStoreSlug(*identity);
     if (!delegated.isEmpty() && !candidates.contains(delegated)) {
@@ -3409,8 +2847,6 @@ bool RustSdkMatrixClient::adoptDivergentStoreIfUnambiguous(
             candidates.append(delegated);
         }
     }
-    // A directory another saved account owns (by canonical slug or recorded
-    // location) is never ours. Uppercase localparts are valid identities.
     if (m_settings) {
         const QStringList saved = m_settings->savedAccountUserIds();
         candidates.removeIf([&](const QString &slug) {
@@ -3444,10 +2880,6 @@ bool RustSdkMatrixClient::adoptDivergentStoreIfUnambiguous(
         return false;
     }
 
-    // Recording, not relocating: the store holds the only copy of this
-    // account's Megolm keys, and pointing at it is reversible where moving is
-    // not. An SDK ownership rejection clears the record again (see
-    // login_failed).
     qCInfo(lcRust) << "adopting store recorded under a divergent slug"
                    << "from=" << source << "for=" << identity->slug;
     if (m_settings)
@@ -3463,7 +2895,6 @@ void RustSdkMatrixClient::recordStoreLocation(
         || !identity.isValid()) {
         return;
     }
-    // Taken from the directory actually opened, never re-derived.
     const QString opened = QFileInfo(m_storePath).absoluteFilePath();
     const QString slug = QFileInfo(QFileInfo(opened).path()).fileName();
     if (slug.isEmpty())
@@ -3486,13 +2917,10 @@ bool RustSdkMatrixClient::resetRustStore()
     if (storePath.isEmpty() || !QFileInfo::exists(storePath))
         return true;
 
-    // Wait for the retiring client's SQLite close before deleting; unlinking
-    // under an open connection leaves a half-deleted store.
     if (!waitForRustRetirement(kStoreCloseBudgetMs))
         qCWarning(lcRust) << "store close did not finish within the budget;"
                           << "deleting anyway";
 
-    // Labs: never deleted while another handle holds it.
     const auto claim = storeOwnershipRegistry().claimForDeletion(storePath);
     if (claim != lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted) {
         reportStoreClaimRefused(int(claim), QFileInfo(QFileInfo(storePath).path()).fileName(),
@@ -3518,13 +2946,8 @@ bool RustSdkMatrixClient::resetLocalSession(
     const matrix::app_data::AccountIdentity &requested,
     QString *message)
 {
-    // Reset the store this account really uses; resolving from the user id
-    // alone would delete the canonical slug and leave the divergent one.
     matrix::app_data::AccountIdentity identity = requested;
     if (m_settings && identity.isValid()) {
-        // clearSessionForAccount() matches case variants against the saved
-        // record, so the store lookup must use the same rule or the record is
-        // cleared while the store is left behind.
         const QString canonical =
             m_settings->canonicalUserIdForTypedIdentity(identity.userId);
         matrix::app_data::AccountIdentity saved;
@@ -3569,13 +2992,9 @@ bool RustSdkMatrixClient::resetLocalSession(
     releaseRustHandle();
     m_storePath.clear();
     clearLocalState();
-    // As in resetRustStore(): renaming the store under an open SQLite
-    // connection is the same race as deleting it.
     if (!waitForRustRetirement(kStoreCloseBudgetMs))
         qCWarning(lcRust) << "store close did not finish within the budget;"
                           << "quarantining anyway";
-    // Labs: neither the record nor the store is touched while another handle
-    // holds the store.
     const auto claim = storeOwnershipRegistry().claimForDeletion(identity.rustStorePath);
     if (claim != lightning::accounts::StoreOwnershipRegistry::ClaimVerdict::Granted) {
         reportStoreClaimRefused(int(claim), identity.slug, "local_reset");
@@ -3585,13 +3004,7 @@ bool RustSdkMatrixClient::resetLocalSession(
     }
     bool matchedRecord = false;
     const bool sessionOk = clearPersistedAccount(identity, &matchedRecord);
-    // Moved aside, not deleted: this repair acts on a belief that the store is
-    // unusable or foreign, which can be wrong. Explicit sign-out and account
-    // removal still delete (finishSignOut), since leaving key material there
-    // would be a data-at-rest defect.
     const auto files = matrix::app_data::quarantineAccountRustState(identity);
-    // Matching no record and deleting no store is a no-op and must not report
-    // success (a no-op secret clear and an absent store both look successful).
     const bool didSomething = matchedRecord || files.removedAnything();
     const bool ok = sessionOk && files.ok() && didSomething;
     qCInfo(lcRust) << "local Rust reset"
@@ -3610,8 +3023,6 @@ bool RustSdkMatrixClient::resetLocalSession(
                           "sign in again.");
         }
     } else if (sessionOk && files.ok() && !didSomething) {
-        // Nothing was wrong with the filesystem; this account is simply
-        // unknown. Never arm the reset UI for a no-op.
         if (message) {
             *message = tr("Lightning has no saved session or local data for "
                           "that account, so there was nothing to reset. Check "
@@ -3648,9 +3059,6 @@ void RustSdkMatrixClient::logout()
             &m_signOutIdentity, m_settings->storeSlugFor(m_signOutIdentity.userId));
     }
     m_signOutDeviceId = m_deviceId;
-    // Durable before anything below can take time (the server logout, the
-    // store close): a quit, crash or kill from here on is finished at the next
-    // start instead of leaving this store on disk (B044).
     if (m_settings && m_signOutIdentity.isValid())
         m_settings->recordPendingSignOut(m_signOutIdentity);
     qCInfo(lcRust) << "rust sign-out started"
@@ -3658,18 +3066,12 @@ void RustSdkMatrixClient::logout()
                    << "device_known=" << !m_signOutDeviceId.isEmpty();
     m_lifecycle.beginSignOut(m_handleGeneration);
 
-    // Queue typing=false before the join, while the client and sync transport
-    // still belong to this lifecycle.
     if (m_rustHandle && !m_typingRoom.isEmpty()) {
         const QByteArray room = m_typingRoom.toUtf8();
         takeRustString(mx_rust_send_typing(m_rustHandle, room.constData(), 0));
         m_typingRoom.clear();
     }
 
-    // Deterministic managed-task shutdown: Rust cancels and joins the timeline
-    // subscription, joins any in-flight room-key import (never delete the
-    // crypto store under a live write), and stops sync. The internal timeout is
-    // a last-resort boundary only.
     if (m_rustHandle) {
         const QString shutdown =
             takeRustString(mx_rust_shutdown_tasks(m_rustHandle));
@@ -3687,18 +3089,9 @@ void RustSdkMatrixClient::logout()
     stopSync();
 
     if (m_rustHandle) {
-        // The session type decides the sign-out, as it decides the restore.
-        // mx_rust_logout is POST /logout via matrix_auth(); an OAuth/OIDC
-        // server (MAS) revokes tokens through its RFC 7009 endpoint instead,
-        // which mx_rust_oauth_logout calls. Using the wrong one leaves the
-        // tokens live on the server. The discriminator lives in QSettings so it
-        // stays readable when the keyring is not.
         const bool oauthSession = m_settings
             && m_settings->isOAuthAccount(m_signOutIdentity.userId);
         if (oauthSession) {
-            // This is the dispatch result only; the revocation outcome arrives
-            // in the logged_out event's "result" field, as on the password
-            // lane.
             takeRustString(mx_rust_oauth_logout(m_rustHandle));
             qCInfo(lcRust) << "logout: oauth revocation dispatched";
         } else {
@@ -3714,8 +3107,6 @@ void RustSdkMatrixClient::startSync()
 {
     if (!m_loggedIn || !m_rustHandle)
         return;
-    // LIGHTNING_SWITCH_TRACE S9, ended by the first room list reset handled
-    // below (noteFirstReset). A no-op with no trace open.
     lightning::switchtrace::stepBegin(lightning::switchtrace::Step::S9);
     setState(Syncing);
     mx_rust_start_sync(m_rustHandle);
@@ -3784,17 +3175,13 @@ QStringList RustSdkMatrixClient::typingUsersFor(const QString &roomId) const
 
 QUrl RustSdkMatrixClient::mediaDownloadUrl(const QString &) const
 {
-    // Deliberately empty. Rust-backend media goes through the SDK's Media API
-    // (authenticated /_matrix/client/v1/media); the legacy builders produce
-    // unauthenticated /_matrix/media/v3 links that modern servers refuse and
-    // that would only end up handed to a browser.
     return {};
 }
 
 QUrl RustSdkMatrixClient::mediaThumbnailUrl(const QString &, int, int,
                                             bool) const
 {
-    return {}; // see mediaDownloadUrl — same audit decision
+    return {};
 }
 
 QString RustSdkMatrixClient::nextTxnId()
@@ -3841,8 +3228,6 @@ void RustSdkMatrixClient::sendTextMessage(const QString &roomId, const QString &
         return;
     }
 
-    // Rooms with a live SDK timeline send through Timeline::send: the SDK owns
-    // the local echo, send-state transitions and remote-echo reconciliation.
     if (timelineActiveFor(roomId)) {
         const QByteArray roomBytes = roomId.toUtf8();
         const QByteArray bodyBytes = body.toUtf8();
@@ -3878,8 +3263,6 @@ void RustSdkMatrixClient::sendTextMessage(const QString &roomId, const QString &
     }
 }
 
-// Outgoing @-mentions: the body carries matrix.to links and the id list lets
-// the SDK write m.mentions. Empty ids or no live timeline use the plain send.
 void RustSdkMatrixClient::sendTextMessage(const QString &roomId,
                                           const QString &body,
                                           const QStringList &mentionUserIds)
@@ -3919,9 +3302,6 @@ void RustSdkMatrixClient::sendTextMessage(const QString &roomId,
     }
 }
 
-// Replies, edits, reactions and redactions go through matrix-sdk-ui timeline
-// actions when the room's live timeline is open; relation JSON is never
-// hand-built in C++.
 void RustSdkMatrixClient::sendReply(const QString &roomId,
                                     const QString &replyToEventId,
                                     const QString &body)
@@ -4004,9 +3384,6 @@ void RustSdkMatrixClient::editMessage(const QString &roomId,
         editMessage(roomId, targetEventId, newBody);
         return;
     }
-    // Decompose the composite id here; it never crosses the FFI. The thread
-    // root selects the timeline holding the event, since the live room timeline
-    // hides threaded events.
     const bool inThread = isThreadTimelineId(roomId);
     const QString realRoom = inThread ? threadTimelineRoomId(roomId) : roomId;
     const QString threadRoot = inThread ? threadTimelineRootId(roomId) : QString();
@@ -4027,9 +3404,6 @@ void RustSdkMatrixClient::editMessage(const QString &roomId,
     }
 }
 
-// ---- Formatted sends. The spec overloads carry the full guard set; empty
-// specs fall back to the plain overloads. A non-empty spec is never silently
-// degraded: an honest refusal beats losing formatting behind the user's back.
 void RustSdkMatrixClient::sendTextMessage(const QString &roomId,
                                           const QString &body,
                                           const QStringList &mentionUserIds,
@@ -4053,11 +3427,6 @@ void RustSdkMatrixClient::sendTextMessage(const QString &roomId,
         return;
     }
     if (!timelineActiveFor(roomId)) {
-        // Send it anyway, plain. This is an ordinary message with no target
-        // event, so the room-level send can carry it. The composer attaches a
-        // spec to most messages, so refusing here would make a room without a
-        // live timeline impossible to type in; losing formatting on one message
-        // is the lesser harm.
         qCWarning(lcRust) << "no live timeline for" << roomId
                           << "— sending as plain text without the body spec";
         sendTextMessage(roomId, body);
@@ -4125,7 +3494,6 @@ void RustSdkMatrixClient::editMessage(const QString &roomId,
         refuseUntilTimelineReady("editMessage(formatted)");
         return;
     }
-    // Decompose the composite id here; it never crosses the FFI.
     const bool inThread = isThreadTimelineId(roomId);
     const QString realRoom = inThread ? threadTimelineRoomId(roomId) : roomId;
     const QString threadRoot = inThread ? threadTimelineRootId(roomId) : QString();
@@ -4152,15 +3520,10 @@ void RustSdkMatrixClient::redactEvent(const QString &roomId,
                                       const QString &eventId,
                                       const QString &reason)
 {
-    // The composite id never crosses the FFI. Redaction is addressed by event
-    // id through the room, so the real room is all Rust needs; the live room
-    // timeline would not find a thread reply.
     const QString realRoom = isThreadTimelineId(roomId)
         ? threadTimelineRoomId(roomId) : roomId;
     if (!timelineActiveFor(roomId)) {
         refuseUntilTimelineReady("redactEvent");
-        // Every request gets exactly one result: a bulk deletion waits for it
-        // before sending the next, and a refusal with no result stalled it.
         Q_EMIT redactionFinished(realRoom, eventId, false,
                                  QStringLiteral("not_ready"));
         return;
@@ -4172,8 +3535,6 @@ void RustSdkMatrixClient::redactEvent(const QString &roomId,
         m_rustHandle, roomBytes.constData(), targetBytes.constData(),
         reasonBytes.constData()));
     if (!result.isEmpty()) {
-        // Refused before any request (no session, not joined, a malformed
-        // id): Rust's own wording, logged here and never shown.
         qCWarning(lcRust) << "redaction refused before sending:" << result;
         const QString category = QStringLiteral("rejected");
         Q_EMIT errorOccurred(redactionFailureText(category));
@@ -4189,9 +3550,6 @@ void RustSdkMatrixClient::toggleReaction(const QString &roomId,
         refuseUntilTimelineReady("toggleReaction");
         return;
     }
-    // Decompose the composite id here; it never crosses the FFI. The thread
-    // root selects the timeline holding the event, since the live room timeline
-    // hides threaded events.
     const bool inThread = isThreadTimelineId(roomId);
     const QString realRoom = inThread ? threadTimelineRoomId(roomId) : roomId;
     const QString threadRoot = inThread ? threadTimelineRootId(roomId) : QString();
@@ -4212,9 +3570,6 @@ void RustSdkMatrixClient::toggleReaction(const QString &roomId,
 void RustSdkMatrixClient::removeMessageEdits(const QString &roomId,
                                              const QString &eventId)
 {
-    // Not gated on timelineActiveFor(): this reads relations through the room,
-    // and the menu may be open while the timeline is rebuilt. Rust re-validates
-    // the room and event id.
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty() || eventId.isEmpty())
         return;
     const QByteArray roomBytes = roomId.toUtf8();
@@ -4228,9 +3583,6 @@ void RustSdkMatrixClient::removeMessageEdits(const QString &roomId,
     }
 }
 
-// Polls. Votes and ends act on a poll in the current room or one of its
-// threads, so the live-timeline guard applies; Rust resolves the thread
-// target (open panel timeline, else a transient thread-focused one).
 void RustSdkMatrixClient::sendPollResponse(const QString &roomId,
                                            const QString &threadRootId,
                                            const QString &pollStartEventId,
@@ -4243,8 +3595,6 @@ void RustSdkMatrixClient::sendPollResponse(const QString &roomId,
     const QByteArray roomBytes = roomId.toUtf8();
     const QByteArray threadBytes = threadRootId.toUtf8();
     const QByteArray pollBytes = pollStartEventId.toUtf8();
-    // The FFI list is newline-joined; answer ids embedding newlines would split
-    // into non-matching ids, so they are dropped.
     QStringList safeIds;
     for (const QString &id : answerIds) {
         if (!id.contains(QLatin1Char('\n')))
@@ -4341,8 +3691,6 @@ void RustSdkMatrixClient::setKeepMediaOnDevice(bool enabled)
 
 void RustSdkMatrixClient::setReadReceiptPrivacy(int mode)
 {
-    // Remembered without a handle too: the setting is read at startup, before
-    // the bridge exists.
     m_readReceiptPrivacy = (mode < 0 || mode > 2) ? 0 : mode;
     if (!m_rustHandle)
         return;
@@ -4354,7 +3702,6 @@ void RustSdkMatrixClient::setReadReceiptPrivacy(int mode)
 
 void RustSdkMatrixClient::setThreadRepliesInLiveTimeline(bool inLive)
 {
-    // Remembered without a handle: the setting is applied before login.
     m_threadsInLive = inLive;
     if (!m_rustHandle)
         return;
@@ -4380,9 +3727,6 @@ void RustSdkMatrixClient::sendReadReceipt(const QString &roomId, const QString &
     if (roomId.isEmpty() || eventId.isEmpty()
         || m_lastReceiptSent.value(roomId) == eventId)
         return;
-    // Queued, never direct: the caller is usually the coordinator that would
-    // react to the failure by scheduling a retry, and must not be re-entered
-    // from inside its own send.
     const auto reportFailed = [this, roomId, eventId] {
         QMetaObject::invokeMethod(this, [this, roomId, eventId] {
             Q_EMIT readReceiptFailed(roomId, eventId);
@@ -4458,15 +3802,12 @@ void RustSdkMatrixClient::markRoomRead(const QString &roomId)
 
 void RustSdkMatrixClient::setRoomNotificationMode(const QString &roomId, int mode)
 {
-    // Mode 3 (account default) is a rule removal routed through
-    // clearRoomNotificationMode; it must not cross the FFI as a mode.
     if (!m_rustHandle || roomId.isEmpty() || mode < 0 || mode > 2) return;
     const QByteArray room = roomId.toUtf8();
     const QString result = takeRustString(mx_rust_set_room_notification_mode(
         m_rustHandle, room.constData(), mode));
     if (!result.isEmpty()) {
         qCWarning(lcRust) << "notification-mode command rejected";
-        // Nothing was sent: the same outcome as a failed write.
         Q_EMIT roomNotificationModeWriteFailed(roomId);
     }
 }
@@ -4474,7 +3815,6 @@ void RustSdkMatrixClient::setRoomNotificationMode(const QString &roomId, int mod
 void RustSdkMatrixClient::requestThreadParticipants(const QString &roomId,
                                                     const QString &rootEventId)
 {
-    // The composite thread-timeline id must never reach a protocol call.
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()
         || rootEventId.isEmpty() || isThreadTimelineId(roomId))
         return;
@@ -4541,7 +3881,6 @@ void RustSdkMatrixClient::setProfileBanner(const QString &localPath,
 {
     if (!m_loggedIn || !m_rustHandle)
         return;
-    // The path is never logged: it is a filesystem path the user picked.
     const QByteArray path = localPath.toUtf8();
     const QString result = takeRustString(
         mx_rust_set_profile_banner(m_rustHandle, path.constData(), opId));
@@ -4566,7 +3905,6 @@ void RustSdkMatrixClient::setProfileBio(const QString &text, quint64 opId)
 {
     if (!m_loggedIn || !m_rustHandle)
         return;
-    // The text is never logged: it is prose the user wrote about themselves.
     const QByteArray payload = text.toUtf8();
     const QString result = takeRustString(
         mx_rust_set_profile_bio(m_rustHandle, payload.constData(), opId));
@@ -4592,7 +3930,6 @@ void RustSdkMatrixClient::setRoomBanner(const QString &roomId,
 {
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
         return;
-    // The path is never logged: it is a filesystem path the user picked.
     const QByteArray target = roomId.toUtf8();
     const QByteArray path = localPath.toUtf8();
     const QString result = takeRustString(mx_rust_set_room_banner(
@@ -4611,16 +3948,12 @@ void RustSdkMatrixClient::fetchRoomBackground(const QString &roomId,
     const QByteArray target = roomId.toUtf8();
     const QString result = takeRustString(
         mx_rust_fetch_room_background(m_rustHandle, target.constData(), opId));
-    // The Rust side's sync errors are fixed texts (no id, path or content).
     if (!result.isEmpty())
         qCWarning(lcRust) << "room background read rejected op=" << opId
                           << "reason=" << result.left(120);
 }
 
 namespace {
-// A synchronous refusal of a background write, as a category the UI words.
-// rust/src/backdrop.rs returns stable tokens for its own checks; the session
-// and room checks are shared fixed texts.
 QString backgroundRefusalCategory(const QString &result)
 {
     QString reason = result;
@@ -4638,7 +3971,7 @@ QString backgroundRefusalCategory(const QString &result)
         return QStringLiteral("signed_out");
     return QStringLiteral("rejected");
 }
-} // namespace
+}
 
 void RustSdkMatrixClient::setRoomBackground(const QString &roomId,
                                             const QString &localPath,
@@ -4647,8 +3980,6 @@ void RustSdkMatrixClient::setRoomBackground(const QString &roomId,
 {
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
         return;
-    // Neither the path nor the content is logged: a user-picked path, and an
-    // mxc URI that names the picture.
     const QByteArray target = roomId.toUtf8();
     const QByteArray path = localPath.toUtf8();
     const QByteArray content = contentJson.toUtf8();
@@ -4656,7 +3987,6 @@ void RustSdkMatrixClient::setRoomBackground(const QString &roomId,
         m_rustHandle, target.constData(), path.constData(),
         content.constData(), opId));
     if (!result.isEmpty()) {
-        // Refused before anything was sent. Logged: this used to vanish.
         const QString category = backgroundRefusalCategory(result);
         qCWarning(lcRust) << "room background write rejected op=" << opId
                           << "stage=ffi category=" << category
@@ -4664,15 +3994,6 @@ void RustSdkMatrixClient::setRoomBackground(const QString &roomId,
         Q_EMIT roomBackgroundSet(opId, roomId, false, QVariantMap(), category);
     }
 }
-
-// ---------------------------------------------------------------------------
-// Personal chat backgrounds in account data (rust/src/bgsync.rs). Scopes are
-// "" or a room id; none of these log a path, a picture or a room id.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Synced preferences (rust/src/settingsync.rs). Nothing here logs content.
-// ---------------------------------------------------------------------------
 
 void RustSdkMatrixClient::readSyncedSettings(quint64 opId)
 {
@@ -4800,25 +4121,15 @@ void RustSdkMatrixClient::clearAllPersonalBackgrounds(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Stickers and custom emoji (MSC2545 image packs)
-// ---------------------------------------------------------------------------
-
 void RustSdkMatrixClient::fetchStickerPacks(const QString &roomId, quint64 opId,
                                             bool deep)
 {
     if (!m_loggedIn || !m_rustHandle)
         return;
-    // An empty room id asks for the global packs only.
     const QByteArray room = roomId.toUtf8();
     const QString result = takeRustString(
         mx_rust_stickers_fetch_packs(m_rustHandle, room.constData(), deep, opId));
     if (!result.isEmpty()) {
-        // A rejection must still answer, or the picker waits forever. An empty
-        // list is honest here: with the handle checked above, Rust can only
-        // refuse when there is no session, and then there are no packs. (A read
-        // that was accepted and then failed answers through the poll event
-        // instead.)
         qCWarning(lcRust) << "sticker pack request rejected";
         Q_EMIT stickerPacksReceived(opId, roomId, false, QVariantList());
     }
@@ -4832,8 +4143,6 @@ void RustSdkMatrixClient::sendSticker(const QString &roomId,
 {
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty() || url.isEmpty())
         return;
-    // Neither mxc nor body is logged: the body is pack-author alt text and an
-    // mxc identifies media.
     const QByteArray room = roomId.toUtf8();
     const QByteArray root = rootId.toUtf8();
     const QByteArray mxc = url.toUtf8();
@@ -4967,15 +4276,11 @@ void RustSdkMatrixClient::uploadStickerToUserPack(
         m_rustHandle, code.constData(), alt.constData(), path.constData(),
         use.constData(), opId));
     if (!result.isEmpty()) {
-        // A literal tag only: the rejection can echo the path, which contains
-        // the user's name.
         qCWarning(lcRust) << "sticker upload rejected";
         Q_EMIT stickerPackAddFinished(opId, false, QStringLiteral("rejected"),
                                       QString());
     }
 }
-
-// ── Policy lists ───────────────────────────────────────────────────────
 
 void RustSdkMatrixClient::fetchPolicyRules(const QString &roomId, quint64 opId)
 {
@@ -5007,7 +4312,6 @@ void RustSdkMatrixClient::writePolicyRule(const QString &roomId,
     const QString result = takeRustString(mx_rust_policy_write_rule(
         m_rustHandle, room.constData(), k.constData(), e.constData(),
         key.constData(), rec.constData(), why.constData(), opId));
-    // A synchronous refusal still reports; the caller holds an op slot.
     if (!result.isEmpty())
         Q_EMIT policyRuleWritten(opId, false, QStringLiteral("rejected"));
 }
@@ -5050,11 +4354,6 @@ void RustSdkMatrixClient::checkPolicyEntity(const QString &kind,
                                         e.constData(), opId));
 }
 
-// ── MSC4108 sign-in-another-device ─────────────────────────────────────
-//
-// The starters answer with the flow's generation as a decimal string;
-// anything else is an error message.
-
 quint64 RustSdkMatrixClient::qrLoginGenerate()
 {
     if (!m_loggedIn || !m_rustHandle)
@@ -5074,8 +4373,6 @@ quint64 RustSdkMatrixClient::qrLoginScan(const QString &payload)
 {
     if (!m_loggedIn || !m_rustHandle || payload.trimmed().isEmpty())
         return 0;
-    // Never logged: the payload carries the ephemeral public key and rendezvous
-    // URL of a channel about to receive this account's cross-signing secrets.
     const QByteArray data = payload.toUtf8();
     const QString result = takeRustString(
         mx_rust_qr_login_scan(m_rustHandle, data.constData()));
@@ -5121,7 +4418,6 @@ void RustSdkMatrixClient::editStickerPack(
     const QString result = takeRustString(mx_rust_stickers_edit_pack(
         m_rustHandle, room.constData(), key.constData(), dialect.constData(),
         verb.constData(), a.constData(), b.constData(), opId));
-    // A synchronous refusal still reports; the caller is waiting on the op id.
     if (!result.isEmpty()) {
         Q_EMIT stickerPackEditFinished(opId, false, QStringLiteral("rejected"),
                                        QString());
@@ -5134,8 +4430,6 @@ void RustSdkMatrixClient::addStickerToUserPack(
     const QString &usage, quint64 opId)
 {
     if (!m_loggedIn || !m_rustHandle || url.isEmpty()) {
-        // Answer anyway: a batch waits on this op, and silence would hold it
-        // until its watchdog.
         Q_EMIT stickerPackAddFinished(opId, false, QStringLiteral("rejected"),
                                       QString());
         return;
@@ -5179,7 +4473,6 @@ void RustSdkMatrixClient::clearRoomNotificationMode(const QString &roomId)
         mx_rust_clear_room_notification_mode(m_rustHandle, room.constData()));
     if (!result.isEmpty()) {
         qCWarning(lcRust) << "notification-mode clear rejected";
-        // Nothing was sent: the same outcome as a failed write.
         Q_EMIT roomNotificationModeWriteFailed(roomId);
     }
 }
@@ -5230,16 +4523,9 @@ void RustSdkMatrixClient::sendFile(const QString &, const QString &)
 }
 
 namespace {
-// Matches timeline::PAGINATION_BATCH on the Rust side.
 constexpr unsigned short kPaginationBatch = 20;
-// Ceiling for a fully filtered run; not a general page-size increase.
-// Unconditional large pages were measured to hurt rooms whose pages add rows
-// (overshoot and per-row ingest cost). This escalates only after a page whose
-// events were all filtered out (e.g. long MatrixRTC membership runs), where
-// there is nothing to overshoot, and drops back to the default as soon as a
-// page yields a row. See docs/timeline-scrolling.md.
 constexpr unsigned short kPaginationMaxBatch = 180;
-} // namespace
+}
 
 void RustSdkMatrixClient::loadOlderMessages(const QString &roomId)
 {
@@ -5267,9 +4553,6 @@ void RustSdkMatrixClient::loadOlderMessages(const QString &roomId)
         state.failureTransient = true;
         Q_EMIT paginationStateChanged(roomId);
     } else if (state.failed) {
-        // An accepted retry has left the terminal state; enter loading now
-        // rather than flashing the old error until Rust's loading event
-        // arrives.
         state.failed = false;
         state.failureTransient = false;
         Q_EMIT paginationStateChanged(roomId);
@@ -5315,8 +4598,6 @@ void RustSdkMatrixClient::retryFailedSend(const QString &roomId,
                                           const QString &transactionId)
 {
     if (isThreadTimelineId(roomId)) {
-        // A thread echo is a room send-queue entry; retry it through the room
-        // timeline, which outlives the thread panel.
         retryFailedSend(threadTimelineRoomId(roomId), transactionId);
         return;
     }
@@ -5337,7 +4618,6 @@ void RustSdkMatrixClient::cancelSend(const QString &roomId,
                                     const QString &transactionId)
 {
     if (isThreadTimelineId(roomId)) {
-        // As in retryFailedSend: a thread echo is a room send-queue entry.
         cancelSend(threadTimelineRoomId(roomId), transactionId);
         return;
     }
@@ -5372,8 +4652,6 @@ bool RustSdkMatrixClient::threadTimelineActiveFor(const QString &timelineId) con
 
 bool RustSdkMatrixClient::timelineReadyForPagination(const QString &roomId) const
 {
-    // Not yet pagination-ready: Rust's timeline_for() accepts requests only
-    // after the initial timeline_reset has adopted a live room generation.
     if (isThreadTimelineId(roomId))
         return m_rustHandle && m_threadTracker.readyForPagination(roomId);
     return m_rustHandle && !roomId.isEmpty()
@@ -5386,16 +4664,12 @@ void RustSdkMatrixClient::openRoomTimeline(const QString &roomId)
         return;
     clearThreadTimelineState();
     clearContextTimelineState();
-    // request() forgets the previous room without touching anything keyed by
-    // it, so retire the room being left here. Rust's timeline_closed is only
-    // the backstop; a rejected generation or released handle never delivers it.
     const QString leavingRequested = m_timelineTracker.requestedRoom();
     const QString leavingActive = m_timelineTracker.activeRoom();
     m_timelineTracker.request(roomId);
     retireRoomTimelineMirror(leavingRequested);
     retireRoomTimelineMirror(leavingActive);
     m_pagination.insert(roomId, PaginationState{});
-    // redactId() distinguishes rooms; a suffix of the id only shows the server.
     qCInfo(lcRust) << "timeline open room="
                    << matrix::e2ee::redactId(roomId);
     const QByteArray roomBytes = roomId.toUtf8();
@@ -5421,7 +4695,7 @@ qint64 monotonicMs()
     }();
     return clock.elapsed();
 }
-} // namespace
+}
 
 bool RustSdkMatrixClient::roomTimelineStillOpen(const QString &roomId) const
 {
@@ -5456,7 +4730,6 @@ bool RustSdkMatrixClient::admitRecoveryReopen(const QString &timelineId,
     case Budget::Verdict::Defer:
         break;
     }
-    // The one line to grep for when a room keeps reopening itself.
     qCWarning(lcRust) << "timeline recovery reopen capped reason=" << reason
                       << "timeline=" << matrix::e2ee::redactId(timelineId)
                       << "reopens=" << Budget::kMaxReopens
@@ -5465,7 +4738,6 @@ bool RustSdkMatrixClient::admitRecoveryReopen(const QString &timelineId,
     QTimer::singleShot(retryInMs, this,
                        [this, timelineId, reason, stillOpen = std::move(stillOpen),
                         reopen = std::move(reopen)] {
-        // Owed no more: the session ended (the budget was cleared).
         if (!m_recoveryReopens.takeDeferred(timelineId, monotonicMs()))
             return;
         if (!stillOpen()) {
@@ -5486,11 +4758,7 @@ bool RustSdkMatrixClient::reloadRoomTimelineAtLive(const QString &roomId)
 {
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
         return false;
-    // The reload produces a timeline_reset under a new generation, so reset
-    // pagination state or a stale "reached start" suppresses backfill.
     clearThreadTimelineState();
-    // Same retirement as an open. A reload of the current room is refused by
-    // retireRoomTimelineMirror(), so rows stay until the reset lands.
     const QString leavingRequested = m_timelineTracker.requestedRoom();
     const QString leavingActive = m_timelineTracker.activeRoom();
     m_timelineTracker.request(roomId);
@@ -5512,8 +4780,6 @@ bool RustSdkMatrixClient::reloadRoomTimelineAtLive(const QString &roomId)
     Q_EMIT paginationStateChanged(roomId);
     return true;
 }
-
-// ── SDK-backed thread timelines ─────────────────────────────────────────
 
 void RustSdkMatrixClient::openThread(const QString &roomId,
                                      const QString &rootEventId)
@@ -5628,7 +4894,6 @@ void RustSdkMatrixClient::retryDecryption(const QString &roomId)
 {
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
         return;
-    // A thread retry targets its parent room; Rust retries both timelines.
     const QString targetRoom = isThreadTimelineId(roomId)
         ? threadTimelineRoomId(roomId)
         : roomId;
@@ -5637,14 +4902,11 @@ void RustSdkMatrixClient::retryDecryption(const QString &roomId)
     if (now - last < 2000) {
         qCDebug(lcE2ee) << "retry coalesced" << "room="
                         << matrix::e2ee::redactId(targetRoom);
-        return;   // bounded: coalesce rapid repeat requests
+        return;
     }
     const QByteArray roomBytes = targetRoom.toUtf8();
     const QString result = takeRustString(mx_rust_timeline_retry_decryption(
         m_rustHandle, roomBytes.constData()));
-    // Stamp the coalescing window only after a successful dispatch. Rust
-    // refuses while a room open is in flight, and a failed attempt must not
-    // also suppress the user's own Retry, which shares this map.
     if (!result.isEmpty()) {
         qCInfo(lcRust) << "decryption retry NOT dispatched";
         qCDebug(lcE2ee) << "retry refused" << "room="
@@ -5653,7 +4915,6 @@ void RustSdkMatrixClient::retryDecryption(const QString &roomId)
         return;
     }
     m_lastDecryptionRetryMs.insert(targetRoom, now);
-    // Provenance: this serves both the Retry button and automatic triggers.
     qCInfo(lcRust) << "decryption retry dispatched";
     qCDebug(lcE2ee) << "retry dispatched" << "room="
                     << matrix::e2ee::redactId(targetRoom);
@@ -5696,15 +4957,11 @@ void RustSdkMatrixClient::markThreadRead(const QString &roomId,
                                          quint64 opId)
 {
     if (!m_rustHandle || roomId.isEmpty() || rootEventId.isEmpty()) {
-        // The caller queued this request; a silent return would leave it
-        // pending for good.
         Q_EMIT threadMarkReadFailed(roomId, rootEventId, opId);
         return;
     }
     const QByteArray roomBytes = roomId.toUtf8();
     const QByteArray rootBytes = rootEventId.toUtf8();
-    // A rejected call (no live thread timeline) is a failed read, not a
-    // silent one: the Activity bell must not clear on it.
     const QString error = takeRustString(mx_rust_thread_mark_read(
         m_rustHandle, roomBytes.constData(), rootBytes.constData(), opId));
     if (!error.isEmpty())
@@ -5739,7 +4996,7 @@ void RustSdkMatrixClient::handleThreadListReset(const QJsonObject &event)
 {
     const QString roomId = event.value(QStringLiteral("room_id")).toString();
     if (roomId != m_threadListRoom)
-        return;   // stale: list view moved to another room (or closed)
+        return;
     const auto generation = static_cast<quint64>(
         event.value(QStringLiteral("thread_list_generation")).toDouble(0));
     if (generation < m_threadListGeneration)
@@ -5827,18 +5084,10 @@ void RustSdkMatrixClient::clearThreadTimelineState()
     m_threadTracker.reset();
 }
 
-// Retire the room mirror as thread mirrors are retired: trimmed back to the
-// background bound, not dropped (see trimToBackgroundBound in
-// RustTimelineMirror.h). A room-to-room switch never reaches
-// closeRoomTimeline(), so every transition point calls this: both C++ ones,
-// the close, and Rust's timeline_closed. It is idempotent.
 void RustSdkMatrixClient::retireRoomTimelineMirror(const QString &roomId)
 {
     if (roomId.isEmpty())
         return;
-    // Never the room being read or opened: a re-open of the same room (the
-    // history-trim reload, Rust's close-then-open) keeps its rows until the new
-    // timeline_reset replaces them.
     if (roomId == m_timelineTracker.requestedRoom()
         || roomId == m_timelineTracker.activeRoom())
         return;
@@ -5895,8 +5144,6 @@ void RustSdkMatrixClient::handleThreadDiff(const QJsonObject &event)
     auto &mirror = m_timelines[timelineId];
     const DiffOutcome outcome =
         matrix::rust_timeline::applyTimelineDiff(mirror, event, timelineId);
-    // After the model signals; see handleTimelineDiff. The real room and the
-    // thread root, never the composite id.
     const auto notificationFacts = qScopeGuard([this, roomId, rootId, outcome] {
         emitDiffNotificationFacts(roomId, rootId, outcome);
     });
@@ -5926,8 +5173,6 @@ void RustSdkMatrixClient::handleThreadDiff(const QJsonObject &event)
         Q_EMIT eventsTruncatedTo(timelineId, outcome.length);
         break;
     case DiffOutcome::Invalid:
-        // Never apply a malformed/stale thread diff; recover with a fresh
-        // snapshot. No message bodies in this log line.
         qCWarning(lcRust) << "thread invalid diff rejected"
                           << "op=" << event.value(QStringLiteral("op")).toString()
                           << "mirror_size=" << mirror.size();
@@ -5987,7 +5232,6 @@ void RustSdkMatrixClient::handleThreadError(const QJsonObject &event)
     const QString category = event.value(QStringLiteral("category"))
                                  .toString(QStringLiteral("unknown"));
     qCWarning(lcRust) << "thread error category=" << category;
-    // Only the currently requested thread may surface the failure.
     if (m_threadTracker.requestedRoom() == timelineId
         || m_threadTracker.activeRoom() == timelineId) {
         clearThreadTimelineState();
@@ -6001,8 +5245,6 @@ void RustSdkMatrixClient::handleThreadClosed(const QJsonObject &event)
     const QString rootId =
         event.value(QStringLiteral("thread_root_id")).toString();
     const QString timelineId = threadTimelineId(roomId, rootId);
-    // Drop only the closed thread's mirror; a newer thread may already be
-    // requested under a different id.
     m_timelines.remove(timelineId);
     m_pagination.remove(timelineId);
     if (m_threadTracker.activeRoom() == timelineId
@@ -6010,8 +5252,6 @@ void RustSdkMatrixClient::handleThreadClosed(const QJsonObject &event)
         m_threadTracker.reset();
     qCInfo(lcRust) << "thread subscription stopped";
 }
-
-// ── Read-only event context view ────────────────────────────────────────
 
 void RustSdkMatrixClient::openEventContext(const QString &roomId,
                                            const QString &eventId)
@@ -6133,7 +5373,6 @@ void RustSdkMatrixClient::handleContextDiff(const QJsonObject &event)
         Q_EMIT eventsTruncatedTo(timelineId, outcome.length);
         break;
     case DiffOutcome::Invalid:
-        // Never apply a malformed diff; reopen for a fresh snapshot.
         qCWarning(lcRust) << "context invalid diff rejected mirror_size="
                           << mirror.size();
         if (admitRecoveryReopen(
@@ -6173,7 +5412,6 @@ void RustSdkMatrixClient::handleContextError(const QJsonObject &event)
     const QString category = event.value(QStringLiteral("category"))
                                  .toString(QStringLiteral("unknown"));
     qCWarning(lcRust) << "event context error category=" << category;
-    // Only the currently requested view may surface the failure.
     if (m_contextTracker.requestedRoom() == timelineId
         || m_contextTracker.activeRoom() == timelineId) {
         clearContextTimelineState();
@@ -6186,13 +5424,6 @@ void RustSdkMatrixClient::handleContextClosed(const QJsonObject &event)
     const QString timelineId = contextTimelineId(
         event.value(QStringLiteral("room_id")).toString(),
         event.value(QStringLiteral("event_id")).toString());
-    // Rust enqueues this for the view it replaced, ahead of the replacement's
-    // own reset, and it carries no generation. A reopen of the SAME event
-    // (invalid-diff recovery, close+reopen within one poll) therefore has the
-    // same id as the view being opened: resetting the tracker or dropping the
-    // mirror here would reject the new reset and freeze the view. Every
-    // C++-initiated close already cleared both synchronously, so only
-    // untracked leftovers are removed.
     if (m_contextTracker.activeRoom() != timelineId
         && m_contextTracker.requestedRoom() != timelineId)
         m_timelines.remove(timelineId);
@@ -6201,8 +5432,6 @@ void RustSdkMatrixClient::handleContextClosed(const QJsonObject &event)
 
 void RustSdkMatrixClient::closeRoomTimeline()
 {
-    // Thread timelines never outlive their room; Rust closes them on timeline
-    // close/open and the C++ mirrors drop now.
     clearThreadTimelineState();
     clearContextTimelineState();
     m_threadListRoom.clear();
@@ -6214,8 +5443,6 @@ void RustSdkMatrixClient::closeRoomTimeline()
         qCInfo(lcRust) << "timeline close room="
                        << matrix::e2ee::redactId(closingActive);
     }
-    // After reset(): retireRoomTimelineMirror() refuses the room the tracker
-    // still names, which is the room being closed.
     m_timelineTracker.reset();
     retireRoomTimelineMirror(closingRequested);
     retireRoomTimelineMirror(closingActive);
@@ -6223,7 +5450,6 @@ void RustSdkMatrixClient::closeRoomTimeline()
 
 void RustSdkMatrixClient::refuseSend(const char *op)
 {
-    // Genuinely unimplemented; only sendImage and sendFile reach this.
     qCWarning(lcRust) << "send refused: not implemented" << op;
     Q_EMIT errorOccurred(
         tr("Lightning cannot send that yet."));
@@ -6231,9 +5457,6 @@ void RustSdkMatrixClient::refuseSend(const char *op)
 
 void RustSdkMatrixClient::refuseUntilTimelineReady(const char *op)
 {
-    // These operations need a live SDK timeline for the room, which is
-    // transient while a room opens; they are implemented. Say so and suggest
-    // retrying.
     qCWarning(lcRust) << "send refused: no live timeline for the room" << op
                       << "active=" << m_timelineTracker.activeRoom()
                       << "requested=" << m_timelineTracker.requestedRoom();
@@ -6243,12 +5466,8 @@ void RustSdkMatrixClient::refuseUntilTimelineReady(const char *op)
 
 void RustSdkMatrixClient::pollRustEvents()
 {
-    // Stall attribution (no-op unless LIGHTNING_GUI_STALL_TRACE is set). The
-    // drain applies every queued diff on the GUI thread.
     stalltrace::Scope stallScope("rust-poll-drain");
 
-    // Phase A events first, unconditionally: a browser sign-in runs from the
-    // login screen, where there is no session handle.
     drainAuthEvents();
     drainProvidersEvents();
     drainRevokeEvents();
@@ -6259,9 +5478,6 @@ void RustSdkMatrixClient::pollRustEvents()
 
     const quint64 eventGeneration = m_handleGeneration;
 
-    // Drain the terminal command lane completely before the bounded bulk batch
-    // so media/GIF results are never starved behind a diff flood. The lane is
-    // bounded by the C++ in-flight discipline; 256 is a defensive cap.
     for (int i = 0; i < 256; ++i) {
         const QByteArray raw =
             takeRustBytes(mx_rust_poll_command_event(m_rustHandle));
@@ -6282,22 +5498,13 @@ void RustSdkMatrixClient::pollRustEvents()
                            << "type="
                            << event.value(QStringLiteral("type")).toString();
         }
-        // The handler can release the handle (a failed sign-in rolls back its
-        // attempt) or replace it; nothing more is polled from this one.
         if (!m_rustHandle || m_handleGeneration != eventGeneration)
             return;
     }
 
-    // Read once per tick; the drain runs up to 256 times.
     const bool traceSync = synctrace::enabled();
 
     m_coalesceTimelineInserts = true;
-    // Soft fairness cap per tick with a bounded extension for timeline diffs:
-    // one SDK transaction arrives as adjacent diffs (a receipt move is two
-    // Sets), and splitting them across ticks paints a visible flicker. Past the
-    // soft cap the drain continues only while timeline diffs keep coming. A
-    // pair can still straddle the hard cap, which only happens in
-    // hydration-scale bursts.
     constexpr int kSoftDrainCap = 64;
     constexpr int kHardDrainCap = 256;
     for (int i = 0; i < kHardDrainCap; ++i) {
@@ -6314,8 +5521,6 @@ void RustSdkMatrixClient::pollRustEvents()
         }
         const QJsonObject event = doc.object();
         const QString type = event.value(QStringLiteral("type")).toString();
-        // Only consecutive room-timeline diffs can share a transaction;
-        // preserve ordering across every other callback.
         if (type != QLatin1String("timeline_diff"))
             flushTimelineInsertBatch();
         if (m_lifecycle.acceptsActive(eventGeneration)) {
@@ -6324,7 +5529,7 @@ void RustSdkMatrixClient::pollRustEvents()
                    && m_lifecycle.acceptsShutdownCompletion(eventGeneration)) {
             handleRustEvent(event, eventGeneration);
             m_coalesceTimelineInserts = false;
-            return; // finishSignOut releases the handle being polled.
+            return;
         } else {
             qCInfo(lcRust) << "ignored stale callback"
                            << "type=" << type
@@ -6332,15 +5537,8 @@ void RustSdkMatrixClient::pollRustEvents()
                            << "active_generation="
                            << m_lifecycle.activeGeneration();
         }
-        // Sync liveness is recorded on drained events, never on the timer tick,
-        // which would report a healthy 100 ms gap through a total outage. The
-        // gap between real events shows whether a dead connection went
-        // unnoticed.
         if (traceSync)
             synctrace::noteSyncResponse();
-        // As above: a handler that released or replaced the handle ends the
-        // drain. Polling on reached the null handle 255 more times after a
-        // failed sign-in, each an "error:" string logged as a malformed event.
         if (!m_rustHandle || m_handleGeneration != eventGeneration)
             break;
         if (i >= kSoftDrainCap - 1 && type != QLatin1String("timeline_diff"))
@@ -6354,7 +5552,6 @@ void RustSdkMatrixClient::requireLocalReset(
     const QString &reasonCode,
     const matrix::app_data::AccountIdentity &identity)
 {
-    // Slug only; the user id travels in the signal but never reaches the log.
     qCWarning(lcRust) << "local session reset required reason=" << reasonCode
                       << "slug=" << matrix::app_data::safeUserSlug(identity.userId);
     Q_EMIT localSessionResetRequired(reasonCode, identity.userId,
@@ -6368,9 +5565,6 @@ void RustSdkMatrixClient::failWithBlockReason(
     qCWarning(lcRust) << "local session open blocked"
                       << "detail=" << matrix::rust_session::diagnosticName(reason)
                       << "slug=" << identity.slug;
-    // Only conditions a local reset can repair arm the destructive recovery UI.
-    // A missing store has nothing to delete; a revoked token needs a new
-    // sign-in.
     if (matrix::rust_session::suggestsLocalReset(reason)) {
         requireLocalReset(matrix::rust_session::diagnosticName(reason), identity);
     } else {
@@ -6389,8 +5583,6 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
     if (serverResult == QLatin1String("already_invalid")) {
         qCInfo(lcRust) << "rust server logout result=already_logged_out";
     } else if (serverResult == QLatin1String("failed")) {
-        // Diagnostic only: local cleanup is authoritative and the user is
-        // signing out anyway.
         qCWarning(lcRust) << "rust server logout result=failed"
                           << "message=" << serverMessage;
     } else {
@@ -6416,12 +5608,6 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
             qCWarning(lcRust) << "sign-out: the store was still open after the "
                                  "close budget; deleting anyway";
     }
-    // Use matchedRecord rather than the discarding overload: "target absent"
-    // and "reset completed" are different outcomes and must not both report
-    // success.
-    // Labs: never deleted while another handle holds the store. Then nothing
-    // is (the record and secrets stay too), the pending sign-out stays, and
-    // the next start finishes it.
     bool claimGranted = true;
     if (identity.isValid()) {
         const auto claim = storeOwnershipRegistry().claimForDeletion(identity.rustStorePath);
@@ -6435,22 +5621,10 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
     const auto files = (identity.isValid() && claimGranted)
         ? matrix::app_data::removeAccountRustState(identity)
         : matrix::app_data::RemovalSummary{0, 0, 1};
-    // The store and the secrets are gone: nothing is left for the next start
-    // to finish. Kept when either failed, so the next start tries again (B044):
-    // the reset prompt below is not enough on its own, since a keyring that
-    // stays locked would leave a possibly live token at rest with no record
-    // and nothing else naming it.
     if (m_settings && identity.isValid() && files.ok() && sessionOk)
         m_settings->clearPendingSignOut(identity.userId);
     const bool didSomething = matchedRecord || files.removedAnything();
     const bool ok = sessionOk && files.ok() && didSomething;
-    // Personal chat backgrounds: pictures this account chose, kept as files.
-    // A copy the user asked to keep on the homeserver comes back at the next
-    // sign-in; this device keeps none after a sign-out. Keyed on the RECORDED
-    // root (and the canonical one the controller writes to), and removed
-    // before the empty-directory check below, which they would otherwise
-    // defeat.
-    // A refused claim deletes nothing at all, these included (review L2).
     const auto backgrounds = (identity.isValid() && claimGranted)
         ? matrix::app_data::removePersonalBackgrounds(identity)
         : matrix::app_data::RemovalSummary{0, 0, 0};
@@ -6458,11 +5632,6 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
         qCWarning(lcRust) << "personal backgrounds sign-out cleanup FAILED slug="
                           << identity.slug << "failed=" << backgrounds.failed;
     }
-    // The RECORDED directory that held the store, once nothing is left in it
-    // (it outlived every sign-out, named after the account). Never recursive:
-    // anything still in it (the starred-GIF store and bridge badges are
-    // AppController's, deleted after loggedOut, which tries the canonical
-    // root again) keeps it. Reported, and deliberately not part of `ok`.
     const auto accountDir = (identity.isValid() && claimGranted)
         ? matrix::app_data::removeAccountRootIfEmpty(identity.accountRoot)
         : matrix::app_data::EmptyDirRemoval::Refused;
@@ -6536,7 +5705,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // active: those can differ, and the tokens would land on another
         // account.
         const QString tokenOwner = tokenOwnerForRunningSession();
-        // SENSITIVE: never log `rotated`.
         const lightning::accounts::SessionTokenPair rotated{
             event.value(QStringLiteral("access_token")).toString(),
             event.value(QStringLiteral("refresh_token")).toString()};
@@ -6546,7 +5714,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // session's tokens is skipped; the newer one follows it.
         QString currentAccess;
         if (m_rustHandle) {
-            // SENSITIVE: never log `current`.
             const QString current = takeRustString(mx_rust_final_session_tokens(m_rustHandle));
             currentAccess = custody::parseFinalSessionTokens(current).accessToken;
         }
@@ -6556,10 +5723,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         const custody::LiveWrite outcome = custody::writeLive(
             m_settings ? &settingsStore : nullptr, tokenOwner, currentAccess, rotated);
         const qint64 writeMs = writeTimer.elapsed();
-        // The rotation's own number, from matrix-sdk's save callback: the
-        // answer releases the refresh, which holds the request it will retry
-        // with the new access token until now (rust/src/sessiontokens.rs).
-        // A refused write answers too: the retry machinery below takes over.
         const qint64 generation = event.value(QStringLiteral("generation")).toInteger(0);
         const custody::PersistAnswer answer = custody::persistAnswerFor(outcome);
         if (generation > 0 && m_rustHandle && answer != custody::PersistAnswer::None) {
@@ -6593,9 +5756,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             m_tokenWriteFailingFor.invalidate();
             break;
         case custody::LiveWrite::WriteFailed:
-            // Not left to the next rotation (minutes away) or to the
-            // retirement write (only a clean quit reaches it). A new
-            // rotation restarts the retries even after a give-up.
             m_tokenWriteAttempts = 0;
             if (!m_tokenWriteFailingFor.isValid())
                 m_tokenWriteFailingFor.start();
@@ -6611,15 +5771,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("session_token_revoked")) {
-        // The credential died and the SDK could not renew it. Surface the
-        // revoked-credential state instead of looping sync failures. The local
-        // store is fine, so this must not arm a reset (as with M_UNKNOWN_TOKEN
-        // below).
-        // A soft logout keeps the device on the server, so signing in again
-        // may resume it with this store; only a hard one proves this store's
-        // device gone. A missing field proves neither: the old card, no proof.
-        // The classification itself is lightning::accounts::classifyRevocation
-        // (pure, and parity-tested against this handler's old inline logic).
         const QJsonValue softValue = event.value(QStringLiteral("soft_logout"));
         const QJsonValue hadRefresh = event.value(QStringLiteral("had_refresh_token"));
         lightning::accounts::RevocationEventFacts facts;
@@ -6630,16 +5781,8 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         facts.oauthSession = m_settings && !m_userId.isEmpty()
             && m_settings->isOAuthAccount(m_userId);
         const bool oauthSession = facts.oauthSession;
-        // had_refresh_token=false: matrix-sdk had no refresh token to try and
-        // gave up without asking the server (RefreshTokenRequired). If the
-        // keyring holds a refresh token for this OAuth sign-in, or cannot
-        // answer, the session simply never got it: the non-destructive
-        // keyring card, whose "Try again" restores with it, and no
-        // revocation. Absent from older events: unchanged below.
         bool keyringHoldsOrCannotTell = false;
         if (lightning::accounts::revocationNeedsKeyringProbe(facts)) {
-            // This account's own record, read now: the flag below is this
-            // read's answer and no earlier one's.
             QString owner = tokenOwnerForRunningSession();
             if (owner.isEmpty())
                 owner = m_openingIdentity.userId;
@@ -6651,13 +5794,8 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                     !stored.isEmpty() || m_settings->secretBackendUnavailable();
             }
         }
-        // Conclusively none: an OAuth session without a refresh token can
-        // never be continued from here, so it ends as before (hard, below);
-        // its next sign-in moves the store aside for a new device rather than
-        // leave "Remove", which deletes it, as the only way on.
         const lightning::accounts::RevocationClassification classified =
             lightning::accounts::classifyRevocation(facts, keyringHoldsOrCannotTell);
-        // Why, in one word, for the log lines below (RevocationProofs.h).
         lightning::accounts::SignOutFacts causeFacts;
         causeFacts.hadRefreshToken = facts.hadRefreshToken;
         if (event.value(QStringLiteral("rotations")).isDouble())
@@ -6685,11 +5823,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             Q_EMIT loginFailed(matrix::rust_session::userMessage(reason));
             return;
         }
-        // Otherwise an OAuth session either had its refresh refused by the
-        // authorization server or conclusively has no refresh token, and
-        // Lightning's browser sign-in never asks for this device again, so it
-        // counts as ended: the next sign-in moves the store aside for a new
-        // device (never deletes it).
         const bool hardLogout =
             classified.outcome == lightning::accounts::RevocationOutcome::Hard;
         const bool softLogout =
@@ -6697,21 +5830,17 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         if (hardLogout && !m_userId.isEmpty() && !m_deviceId.isEmpty()) {
             m_revokedUserId = m_userId;
             m_revokedDeviceId = m_deviceId;
-            // An ended device is never resumed, whatever was said before.
             if (m_softLogoutUserId == m_userId
                 && m_softLogoutDeviceId == m_deviceId) {
                 m_softLogoutUserId.clear();
                 m_softLogoutHomeserver.clear();
                 m_softLogoutDeviceId.clear();
             }
-            // Mirror only (never read in Phase 0); recordHard drops that
-            // account's soft proof for the same device, as above.
             if (m_revocationProofs)
                 m_revocationProofs->recordHard(m_userId, m_deviceId);
         } else if (softLogout && !m_userId.isEmpty() && !m_deviceId.isEmpty()
                    && !(m_revokedUserId == m_userId
                         && m_revokedDeviceId == m_deviceId)) {
-            // Normalized as login() normalizes the typed and recorded ones.
             matrix::app_data::AccountIdentity running;
             if (matrix::app_data::resolveAccountIdentity(m_homeserver, m_userId,
                                                          &running)) {
@@ -6726,16 +5855,9 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         const auto reason = softLogout
             ? matrix::rust_session::StoreBlockReason::AccessTokenExpired
             : matrix::rust_session::StoreBlockReason::AccessTokenRevoked;
-        // Only the running handle's token task sends this, so it is about the
-        // running session's account, not whatever login() last opened: an
-        // add-account attempt rewrites m_openingIdentity and can be refused
-        // with this handle still running.
         const QString revokedUser = m_loggedIn ? m_userId : m_openingIdentity.userId;
         const QString revokedServer =
             m_loggedIn ? m_homeserver : m_openingIdentity.homeserver;
-        // had_refresh_token=false: the session held none, so matrix-sdk gave
-        // up without asking the server (a sign-in restored without one);
-        // true: the server refused the one it had. Absent from older events.
         qCInfo(lcRust) << "session credential rejected and could not be renewed"
                        << "slug=" << matrix::app_data::safeUserSlug(revokedUser)
                        << "soft_logout=" << softLogoutReported
@@ -6771,8 +5893,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("token_trace")) {
-        // Rust's half of LIGHTNING_TOKEN_TRACE (sessiontokens.rs): words,
-        // counts and milliseconds by construction, never a token.
         if (tokenTraceEnabled())
             qCInfo(lcTokenTrace).noquote()
                 << "rust" << QString::fromUtf8(QJsonDocument(event).toJson(QJsonDocument::Compact));
@@ -6780,9 +5900,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("session_restored_offline")) {
-        // The session is real but the server did not answer. Enqueued before
-        // login_ok, so the connection state starts honest. Nothing account-
-        // identifying is logged.
         qCInfo(lcRust) << "session restored from the local store — the "
                           "homeserver could not be reached; rooms and "
                           "messages are the cached copy and sync will retry";
@@ -6791,26 +5908,14 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("login_ok")) {
-        // LIGHTNING_SWITCH_TRACE S8 ends here, before loginSucceeded fans out.
-        // The Rust "trace" object carries timings and counts only.
         if (lightning::switchtrace::active()) {
             const qint64 receivedWallMs = QDateTime::currentMSecsSinceEpoch();
             const QJsonValue trace = event.value(QStringLiteral("trace"));
             if (trace.isObject())
                 lightning::switchtrace::noteRustRestore(trace.toObject(), receivedWallMs);
         }
-        // A password sign-in (the only login_ok carrying a token) is saved
-        // below. One that sent a bare username chose its store before the
-        // server named the account, so this is the first point at which the
-        // store can be checked against the answer. An answer the records give
-        // another store, or a store the records give another account, saves
-        // nothing: a record pointed at this store would orphan the store
-        // holding that account's keys. What this attempt created goes, as
-        // after a failed sign-in; nothing else is touched. A full Matrix ID
-        // found its record before the store was chosen, as it always has.
         const QString answerUserId =
             event.value(QStringLiteral("user_id")).toString().trimmed();
-        // Read once: it belongs to the attempt this event ends.
         const bool sentBareUsername = std::exchange(m_loginSentBareUsername, false);
         if (sentBareUsername && m_settings && m_storePathOverride.isEmpty()
             && !m_storePath.isEmpty() && !answerUserId.isEmpty()
@@ -6846,7 +5951,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                 m_userId.clear();
                 m_deviceId.clear();
                 setState(Error);
-                // Releases the handle first; without a fresh store only that.
                 if (freshStore.isValid())
                     rollBackFailedAttempt(freshStore, {});
                 else
@@ -6868,13 +5972,9 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                 return;
             }
         }
-        // R6: the attempt as typed, whose unfinished-sign-in marker this
-        // answer settles below (the record may be under another id).
         const matrix::app_data::AccountIdentity attempt =
             std::exchange(m_freshLoginIdentity, {});
         m_freshBrowserRecord = {};
-        // SENSITIVE: this event carries `access_token`. Never log `event` or
-        // `accessToken`; the token goes only to SettingsManager::saveSession.
         matrix::app_data::AccountIdentity identity;
         if (matrix::app_data::resolveAccountIdentity(
                 event.value(QStringLiteral("homeserver")).toString(m_homeserver),
@@ -6885,8 +5985,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         m_userId = event.value(QStringLiteral("user_id")).toString(m_userId);
         m_deviceId = event.value(QStringLiteral("device_id")).toString(m_deviceId);
         m_loggedIn = !m_userId.isEmpty();
-        // A session running as that account again consumes the proof: its
-        // store is healthy now, even if the server re-issued the device id.
         if (m_loggedIn && m_userId == m_revokedUserId) {
             m_revokedUserId.clear();
             m_revokedDeviceId.clear();
@@ -6896,17 +5994,12 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             m_softLogoutHomeserver.clear();
             m_softLogoutDeviceId.clear();
         }
-        // Mirror, per account: the proofs of the account now running are
-        // consumed whether or not the single slot still named it.
         if (m_loggedIn && m_revocationProofs)
             m_revocationProofs->clear(m_userId);
-        // The SDK refuses a device its store does not hold, so this cannot
-        // differ; said aloud if it ever does.
         if (!m_resumeDeviceId.isEmpty() && m_deviceId != m_resumeDeviceId) {
             qCWarning(lcRust) << "a resumed sign-in came back as another device"
                               << "slug=" << matrix::app_data::safeUserSlug(m_userId);
         }
-        // Any other session disarms a pending check; a resumed one arms it.
         disarmResumedDeviceCheck();
         if (m_loggedIn && !m_resumeDeviceId.isEmpty()
             && m_deviceId == m_resumeDeviceId) {
@@ -6914,34 +6007,20 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         }
         m_resumeDeviceId.clear();
         const QString accessToken = event.value(QStringLiteral("access_token")).toString();
-        // SENSITIVE: a refresh token mints access tokens; it goes straight to
-        // the SecretStore and is never logged. Absent for non-refreshable
-        // sessions and on restore.
         const QString refreshToken = event.value(QStringLiteral("refresh_token")).toString();
         if (m_loggedIn && m_settings && !accessToken.isEmpty()) {
-            // Password login and restore only; OAuth sessions are saved by
-            // Phase B with the "oauth" auth type and client id.
             m_settings->saveSession(m_homeserver, m_userId, m_deviceId, accessToken,
                                     refreshToken);
             m_persistedAccessDigest = accessTokenDigest(accessToken);
             m_settings->setSyncToken({});
         }
-        // The homeserver decides the canonical user id, so a first login may
-        // have created the store under the typed casing (or the address's
-        // host, for a bare username) while the record uses the server's
-        // answer. Record where the store really is before anything derives a
-        // path from the record. Nothing is moved.
         if (m_loggedIn && !accessToken.isEmpty() && identity.isValid()
             && identity.userId == m_userId) {
             recordStoreLocation(identity);
         }
-        // The sign-in finished: its store has a record now (R6).
         if (m_loggedIn && m_settings && !accessToken.isEmpty())
             m_settings->clearPendingSignIn(attempt);
-        // The client exists now, so its media store has opened.
         refreshMediaKeepState();
-        // Offline unless the restore reached the server; otherwise the footer
-        // shows "Loading rooms…" over a complete list that will never load.
         setState(m_restoredOffline ? Offline : Disconnected);
         if (m_loggedIn)
             Q_EMIT loginSucceeded(m_userId);
@@ -6951,7 +6030,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("login_failed")) {
-        // LIGHTNING_SWITCH_TRACE: as login_ok. Timings and counts only.
         if (lightning::switchtrace::active()) {
             const qint64 receivedWallMs = QDateTime::currentMSecsSinceEpoch();
             const QJsonValue trace = event.value(QStringLiteral("trace"));
@@ -6960,25 +6038,14 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         }
         m_loginSentBareUsername = false;
         m_loggedIn = false;
-        // The soft-logout proof stays: a mistyped password may try again.
         const bool resumeAttempt = !m_resumeDeviceId.isEmpty();
         m_resumeDeviceId.clear();
-    // Log dedupe is per session, not per process, so a second broken account in
-    // the same run still logs. Reset wherever a session ends.
     m_ownIdentityKeyMismatchLogged = false;
         setState(Error);
-        // A failed fresh-store login must not leave a half-initialised store
-        // that poisons later attempts. Release the handle first so no SDK task
-        // owns it. The marker can outlive its attempt (detachSession drops that
-        // attempt's terminal event as stale), so only act if it names the store
-        // the live handle actually opened; otherwise a later failure could
-        // delete another account's store.
         const bool freshMatchesThisAttempt =
             m_freshLoginIdentity.isValid() && !m_storePath.isEmpty()
             && QFileInfo(m_freshLoginIdentity.rustStorePath).absoluteFilePath()
                    == QFileInfo(m_storePath).absoluteFilePath();
-        // A browser sign-in's record, written before its restore, goes with
-        // its store (D6). Only when it names the store this attempt opened.
         const bool browserRecordMatchesThisAttempt =
             m_freshBrowserRecord.isValid() && !m_storePath.isEmpty()
             && QFileInfo(m_freshBrowserRecord.rustStorePath).absoluteFilePath()
@@ -6993,8 +6060,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                    "account than this attempt; no store was removed";
             m_freshLoginIdentity = {};
         }
-        // Only what this attempt created; a store quarantined before it (by
-        // login() a moment ago, or by a repair) is never touched.
         const auto freshStore = matrix::app_data::AccountIdentity(
             std::exchange(m_freshLoginIdentity, {}));
         const bool rolledBack = (freshStore.isValid() || browserRecord.isValid())
@@ -7002,22 +6067,14 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             : true;
         const QString message = event.value(QStringLiteral("message")).toString(
             tr("Rust SDK login failed."));
-        // The reason reaches the UI as text only, and a failed startup restore
-        // shows just the login page; without this line it is lost.
         qCWarning(lcRust) << "sign-in or restore failed"
                           << "stage=" << event.value(QStringLiteral("stage")).toString()
                           << "reason=" << event.value(QStringLiteral("reason")).toString()
                           << "message=" << message.left(400);
         if (browserRecord.isValid()) {
-            // A browser sign-in's restore, after the user signed in on the
-            // server's page. What it created is gone, so no repair applies:
-            // say so, and that nothing blocks another try.
             Q_EMIT loginFailed(browserRestoreFailureText(rolledBack, message));
         } else if (resumeAttempt
                    && matrix::rust_session::isStoreOwnershipMismatch(message)) {
-            // A resume opened this account's own, healthy store and the
-            // server did not hand the same device back. Nothing here needs a
-            // reset and no recording is wrong: say so, and change nothing.
             qCWarning(lcRust) << "resumed sign-in not accepted by the store; "
                                  "nothing changed"
                               << "slug=" << m_openingIdentity.slug;
@@ -7025,9 +6082,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                 "Signing in again as this device did not work. Nothing on this "
                 "device was changed. Try again, or remove this account below."));
         } else if (matrix::rust_session::isStoreOwnershipMismatch(message)) {
-            // The SDK is the authority on store ownership: drop a
-            // divergent-directory recording it just rejected so the next start
-            // re-evaluates. Only the mapping is cleared; no store is touched.
             if (m_settings && !m_openingIdentity.userId.isEmpty()
                 && m_openingIdentity.storeSlug != m_openingIdentity.slug) {
                 qCWarning(lcRust) << "clearing rejected store recording"
@@ -7039,9 +6093,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             Q_EMIT loginFailed(matrix::rust_session::userMessage(
                 matrix::rust_session::StoreBlockReason::DifferentAccount));
         } else if (matrix::rust_session::isUnknownToken(message)) {
-            // The homeserver revoked this session. The local store is fine, and
-            // offering to delete it would destroy key material the user still
-            // needs.
             qCInfo(lcRust) << "saved session rejected by the homeserver"
                            << "slug=" << m_openingIdentity.slug;
             Q_EMIT localSessionBlocked(
@@ -7074,8 +6125,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             handleRoomsEvent(rooms);
             return;
         }
-        // LIGHTNING_SWITCH_TRACE: the JSON-to-RoomInfo parse and the
-        // synchronous model emit timed apart. Counts and timings only.
         const qint64 receivedWallMs = QDateTime::currentMSecsSinceEpoch();
         qint64 parseMs = -1;
         qint64 modelMs = -1;
@@ -7100,15 +6149,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         room->lowPriority = lowPriority;
         if (lowPriority)
             room->isFavourite = false;
-        // Both Classic's section and Channels' sort read this room registry.
         Q_EMIT roomsChanged();
         return;
     }
 
-    // Response-harvested recency (harvest_room_activity in rust/src/lib.rs).
-    // Timestamps only; it may raise a room's sort key and nothing else.
-    // roomUpdated, not roomsChanged: the registry order is untouched, and a
-    // structural refresh would re-resolve every avatar on each sync response.
     if (type == QLatin1String("room_activity")) {
         const QStringList moved = matrix::rust_rooms::applyRoomActivity(
             {m_rooms, m_roomOrder},
@@ -7127,7 +6171,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("latest_event_watch_report")) {
-        // Counts and timing only; evidence for tuning LATEST_EVENT_WATCH_CAP.
         qCDebug(lcRust) << "latest-event watch reconcile:"
                         << "elapsed_ms=" << event.value(QStringLiteral("elapsed_ms")).toInt()
                         << "watched=" << event.value(QStringLiteral("watched")).toInt()
@@ -7150,14 +6193,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
 
     if (type == QLatin1String("room_list_sync_state")) {
         const QString state = event.value(QStringLiteral("state")).toString();
-        // The classic path re-announces "running" on every /sync callback.
-        // Collapse repeats; distinct transitions are never coalesced, so
-        // reconnects still show.
         if (state == m_lastSyncState)
             return;
         m_lastSyncState = state;
         qCInfo(lcRust) << "sync state=" << state;
-        // Literal state names only — never server text.
         if (state == QLatin1String("running"))
             synctrace::noteSyncState("running");
         else if (state == QLatin1String("offline"))
@@ -7166,17 +6205,12 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             synctrace::noteSyncState("retrying");
         else if (state == QLatin1String("starting"))
             synctrace::noteSyncState("starting");
-        // A response arrived: the server is reachable, so release the Offline
-        // override.
         if (state == QLatin1String("running"))
             m_restoredOffline = false;
         if (state == QLatin1String("offline")) setState(Offline);
         else if (state == QLatin1String("starting") || state == QLatin1String("retrying"))
             setState(Syncing);
         else if (state == QLatin1String("running")) setState(Syncing);
-        // "retrying" maps to Syncing as well, so the connection state cannot
-        // say the server answered; this edge can (repeats are collapsed
-        // above).
         if (state == QLatin1String("running"))
             Q_EMIT homeserverReachable();
         return;
@@ -7189,9 +6223,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             Q_EMIT errorOccurred(tr("Matrix session is no longer authorized."));
             return;
         }
-        // Every other category is logged too, so a sync that could not start is
-        // distinguishable from a slow one. The category is a Rust literal,
-        // never server text.
         qCWarning(lcRust) << "room_list error category=" << category
                           << "— the sync supervisor is retrying";
         return;
@@ -7223,9 +6254,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         room->typingUserIds = users;
         const quint64 serial = ++m_typingSerial[roomId];
         if (!users.isEmpty()) {
-            // Expire a set nothing has refreshed (see m_typingSerial). The
-            // serial is the guard, so a newer set or an account change that
-            // cleared the rooms makes this a no-op.
             QTimer::singleShot(m_typingExpiryMs, this,
                                [this, roomId, serial, gen = m_lifecycle.activeGeneration()] {
                 if (!m_lifecycle.acceptsActive(gen)
@@ -7243,12 +6271,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("room_members_changed")) {
-        // Membership poke: reaches only the roster-refetch consumers via
-        // roomMemberEventSeen, never membersChanged (which repaints every
-        // loaded row). The m.room.member handler in Rust is limited to one poke
-        // per room per second. m.room.power_levels reuses this event
-        // unthrottled; it is human-paced and RoomInfoController single-flights
-        // its refetch.
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         if (m_rooms.contains(roomId))
             Q_EMIT roomMemberEventSeen(roomId);
@@ -7256,8 +6278,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("resumed_device_key")) {
-        // The answer about a resumed device (rust: resumed_device_key_state).
-        // Only for the session that resumed, while it is the one running.
         const QString userId = event.value(QStringLiteral("user_id")).toString();
         const QString deviceId = event.value(QStringLiteral("device_id")).toString();
         if (!resumedDeviceCheckIsFor(userId, deviceId))
@@ -7271,7 +6291,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             return;
         }
         if (state != QLatin1String("missing") && state != QLatin1String("different")) {
-            // No answer proves nothing: ask again, a bounded number of times.
             if (m_resumedCheckAttempts < kResumedDeviceCheckAttempts) {
                 scheduleResumedDeviceCheck();
             } else {
@@ -7281,14 +6300,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             }
             return;
         }
-        // The server answered and does not publish this store's key for the
-        // device: it was removed after the soft logout and the sign-in made a
-        // new one under the same id, which this store (keys already marked
-        // uploaded) would never give keys. It can never be this store's device
-        // again: end it with the hard proof, so the next sign-in moves the
-        // store aside and starts a new device, as for any ended device.
-        // Rust has already logged that re-created device out on the server,
-        // so a later restore (a restart too) meets the hard revocation.
         qCWarning(lcRust) << "the resumed device has no keys of this store on "
                              "the server; ending it for a new sign-in"
                           << "state=" << state
@@ -7315,8 +6326,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("direct_peer_avatar")) {
-        // A DM peer's member event (rust: the m.direct target's own join):
-        // the face that conversation wears now. Never our own.
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         const QString userId = event.value(QStringLiteral("user_id")).toString();
         if (m_rooms.contains(roomId) && !userId.isEmpty() && userId != m_userId) {
@@ -7328,15 +6337,9 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("room_preview_backfill")) {
-        // One bounded back-page found the last conversation event of a room
-        // whose newest known event was filtered churn (open-items 1708/2014).
-        // Only fills a BLANK row: a preview the room already has came from a
-        // newer producer, and activity is monotonic anyway.
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         const QString preview = matrix::preview::normalizePreviewText(
             event.value(QStringLiteral("preview")).toString());
-        // As in a room payload: a kind is worded here, the English text is the
-        // fallback for one this build does not know.
         matrix::preview::Kind kind = matrix::preview::kindFromWire(
             event.value(QStringLiteral("preview_kind")).toString());
         QString arg = kind == matrix::preview::Kind::Text
@@ -7350,9 +6353,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             arg.clear();
         }
         auto it = m_rooms.find(roomId);
-        // Blank, or still the placeholder from an earlier look at the same room
-        // (the key may have arrived since). By kind: the placeholder's words
-        // depend on the language it was written in.
         if (it != m_rooms.end()
             && (it->lastMessagePreview.isEmpty()
                 || it->previewKind == matrix::preview::Kind::Undecryptable)
@@ -7366,9 +6366,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("room_background_changed")) {
-        // org.lightning_matrix.room.background changed in sync (set or
-        // cleared). Sliding sync never delivers this type as state, so this
-        // timeline-observed poke is how an open room learns of it.
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         if (m_rooms.contains(roomId))
             Q_EMIT roomBackgroundChanged(roomId);
@@ -7376,9 +6373,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("room_pinned_changed")) {
-        // m.room.pinned_events changed remotely. No payload: the consumer
-        // re-reads the authoritative list, so remote and local pins share one
-        // path.
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         if (m_rooms.contains(roomId))
             Q_EMIT pinnedEventsChanged(roomId);
@@ -7386,10 +6380,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("room_tombstone_changed")) {
-        // This room was replaced. Unlike the pinned poke this carries the
-        // successor, which Rust took from the SDK's typed accessor. Nothing
-        // follows the upgrade here; joining happens only when the user
-        // activates the banner.
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         auto room = m_rooms.find(roomId);
         if (room == m_rooms.end()) return;
@@ -7404,9 +6394,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     if (type == QLatin1String("invite_state_update")) {
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         const QString state = event.value(QStringLiteral("state")).toString();
-        // The server has the answer; the room list learns it only from the
-        // next sync (a declined room leaves the list later still), and the
-        // bell must not keep the invite until then.
         if (state == QLatin1String("done") && !roomId.isEmpty()) {
             Q_EMIT inviteAnswered(
                 roomId, event.value(QStringLiteral("action")).toString()
@@ -7421,22 +6408,12 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
-    // rust/src/invites.rs: invitations the server no longer has (rejected on
-    // another device) were dropped from the store. A count only.
     if (type == QLatin1String("stale_invites_retired")) {
         qCInfo(lcRust) << "stale invitations retired count="
                        << event.value(QStringLiteral("count")).toInt();
         return;
     }
 
-    // rust/src/membership_lost.rs: a joined room the server confirmed we left
-    // elsewhere, were kicked or banned from. The store has already marked it,
-    // so the list drops it on its own; this says why. The name is read here
-    // first because the removal may be applied before this event.
-    // No account stamp in the payload, and none needed: like every sync
-    // event it is stamped with the generation of the handle that queued it,
-    // and a switch never polls that handle's queue again, so an old
-    // account's loss cannot close the same room id in the next one.
     if (type == QLatin1String("room_membership_lost")) {
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         if (roomId.isEmpty())
@@ -7456,10 +6433,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
 
     if (type == QLatin1String("read_marker_advanced")) {
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
-        // The receipt this room has outstanding, if any. The bridge names the
-        // event it sent when it can; without that (an older bridge, or the
-        // mark-as-read path, which receipts the newest event and so covers any
-        // earlier one) the outstanding receipt is the one that landed.
         const QString accepted =
             event.value(QStringLiteral("event_id")).toString(
                 m_lastReceiptSent.value(roomId));
@@ -7497,46 +6470,30 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         if (action == QLatin1String("mark_read"))
             Q_EMIT markRoomReadFailed(event.value(QStringLiteral("room_id")).toString());
         if (action == QLatin1String("read_receipt")) {
-            // Forget it so the same event can be sent again, and say so: the
-            // backend does not retry, so the caller must.
             const QString roomId = event.value(QStringLiteral("room_id")).toString();
             const QString outstanding = m_lastReceiptSent.value(roomId);
             const QString failed =
                 event.value(QStringLiteral("event_id")).toString(outstanding);
-            // Only the receipt that failed is forgotten: a newer one already
-            // in flight keeps its debounce entry.
             if (!outstanding.isEmpty() && outstanding == failed)
                 m_lastReceiptSent.remove(roomId);
             if (!roomId.isEmpty() && !failed.isEmpty())
                 Q_EMIT readReceiptFailed(roomId, failed);
         }
-        // reason: a fixed token from rust/src/roomaction.rs (status + errcode,
-        // or the transport class), never server prose; the room only redacted.
         const QString reason = event.value(QStringLiteral("reason")).toString();
         qCWarning(lcRust) << "room action failed category=" << action
                           << "reason=" << reason << "attempts="
                           << event.value(QStringLiteral("attempts")).toInt() << "room="
                           << matrix::e2ee::redactId(event.value(QStringLiteral("room_id")).toString());
-        // A write the user asked for must not fail silently: an unchanged list
-        // is indistinguishable from a slow sync. read_receipt stays silent on
-        // purpose; see matrix/RoomActionError.h.
         const QString message = matrix::room_action::userFacingError(action, reason);
         if (!message.isEmpty())
             Q_EMIT errorOccurred(message);
         return;
     }
 
-    // Server push-rule state for one room: an explicit user-defined rule or the
-    // resolved account default. Mode integers only, no rule JSON.
     if (type == QLatin1String("room_notification_mode")) {
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         const int mode = event.value(QStringLiteral("mode")).toInt(-1);
         if (roomId.isEmpty()) return;
-        // "Follow account default" succeeded: the room's rules were removed.
-        // That is a distinct outcome from a rule write, so it has its own
-        // signal; routing it through roomNotificationModeChanged would drop it
-        // or reconcile a rule with value 3, and a once-failed clear could never
-        // be acknowledged.
         if (event.value(QStringLiteral("followed_default")).toBool()) {
             Q_EMIT roomNotificationModeCleared(roomId);
             return;
@@ -7548,8 +6505,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
-    // A push-rule write failed. The device-local mode is kept; the signal lets
-    // the pickers say it is saved on this device only.
     if (type == QLatin1String("notification_mode_error")) {
         const QString roomId = event.value(QStringLiteral("room_id")).toString();
         if (roomId.isEmpty()) return;
@@ -7560,8 +6515,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
 
     if (type == QLatin1String("initial_sync_done")) {
         setInitialSyncDone(true);
-        // Fetch the server upload limit once per session so the composer can
-        // enforce m.upload.size before dispatching.
         if (!m_uploadLimitRequested && m_rustHandle) {
             m_uploadLimitRequested = true;
             takeRustString(mx_rust_fetch_upload_limit(m_rustHandle));
@@ -7582,14 +6535,11 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
-    // Live SDK timeline events.
     if (type == QLatin1String("timeline_reset")) {
         handleTimelineReset(event);
         return;
     }
     if (type == QLatin1String("timeline_diff")) {
-        // Sync-latency tracing at the sdk->bridge boundary, stamped on the Rust
-        // side. No-op unless LIGHTNING_SYNC_TRACE is set.
         if (synctrace::enabled()) {
             const quint64 traceId = synctrace::beginEvent(
                 event.value(QStringLiteral("room_id")).toString(),
@@ -7597,11 +6547,7 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                     event.value(QStringLiteral("trace_sdk_ms")).toDouble()));
             synctrace::noteBridge(traceId);
             handleTimelineDiff(event);
-            // The model has the row now.
             synctrace::noteModel(traceId);
-            // The UI stage is "the GUI thread finished this event-loop
-            // iteration", via a queued call. A proxy for presentation, not a
-            // frame callback; per-frame timing belongs to QSG_RENDER_TIMING.
             QMetaObject::invokeMethod(this, [traceId] {
                 synctrace::noteUi(traceId);
             }, Qt::QueuedConnection);
@@ -7614,7 +6560,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         handleTimelinePagination(event);
         return;
     }
-    // SDK-backed thread timeline events.
     if (type == QLatin1String("thread_reset")) {
         handleThreadReset(event);
         return;
@@ -7635,7 +6580,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         handleThreadClosed(event);
         return;
     }
-    // Read-only event context view.
     if (type == QLatin1String("context_reset")) {
         handleContextReset(event);
         return;
@@ -7682,9 +6626,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                          obj.value(QStringLiteral("verified")).toBool(false));
             entry.insert(QStringLiteral("crossSigned"),
                          obj.value(QStringLiteral("cross_signed")).toBool(false));
-            // What every trust label on the Sessions page reads: crossSigned
-            // for this session, verified for the others (Rust decides,
-            // `recovery::session_row_trusted`). Absent reads as untrusted.
             entry.insert(QStringLiteral("trusted"),
                          obj.value(QStringLiteral("trusted")).toBool(false));
             devices.append(entry);
@@ -7694,11 +6635,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
     if (type == QLatin1String("to_device_undecryptable")) {
-        // Separates "never arrived" from "arrived but this device cannot open
-        // it". matrix-sdk passes an undecryptable to-device event through as
-        // the raw `m.room.encrypted` envelope, which no handler listens for.
-        // Sanitized: a public Matrix id and a count only. The Rust handler
-        // cannot say which SDK cause it was.
         qCWarning(lcRust)
             << "a to-device message could not be decrypted sender="
             << event.value(QStringLiteral("sender")).toString()
@@ -7710,18 +6646,11 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
     if (type == QLatin1String("own_identity_key")) {
-        // A device whose published key is not its own cannot decrypt anything:
-        // peers encrypt to the server's copy, so room keys and call media keys
-        // addressed to us are unreadable while sending still works. Absent
-        // means "could not be established" and is not a fault; only an explicit
-        // false is.
         const QJsonValue matches =
             event.value(QStringLiteral("matches_server"));
         const bool established = matches.isBool();
         const bool agrees = established && matches.toBool();
         if (established && !agrees) {
-            // Once per transition, not per check, so the periodic backstop does
-            // not flood the log.
             if (!m_ownIdentityKeyMismatchLogged) {
                 m_ownIdentityKeyMismatchLogged = true;
                 qCCritical(lcRust)
@@ -7738,16 +6667,12 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
     if (type == QLatin1String("crypto_health")) {
-        // Forward verbatim (sanitized in Rust); AppController stamps the
-        // generation.
         QVariantMap snapshot = event.toVariantMap();
         snapshot.remove(QStringLiteral("type"));
         Q_EMIT cryptoHealthUpdated(snapshot);
         return;
     }
     if (type == QLatin1String("crypto_bootstrap")) {
-        // Sanitized observer state; the poll layer already rejected stale
-        // handles.
         Q_EMIT cryptoBootstrapEvent(
             event.value(QStringLiteral("kind")).toString(),
             event.value(QStringLiteral("state")).toString(),
@@ -7776,11 +6701,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         const QString category =
             event.value(QStringLiteral("category")).toString();
         qCWarning(lcRust) << "thread send state=failed category=" << category;
-        // The category decides the wording, so a reaction, sticker or poll vote
-        // in a thread is not reported as a failed thread reply. edit_rejected
-        // is deliberately not handled here: thread edits emit
-        // timeline_send_failed, whose branch carries "The edit could not be
-        // applied."
         if (category == QLatin1String("reaction_rejected")) {
             Q_EMIT errorOccurred(tr("The reaction could not be applied."));
             return;
@@ -7806,8 +6726,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         if (roomId.isEmpty() || eventId.isEmpty())
             return;
         const bool ok = event.value(QStringLiteral("ok")).toBool();
-        // A category from a fixed vocabulary; the SDK's error text never
-        // crosses the bridge (review S2).
         const QString category =
             ok ? QString()
                : event.value(QStringLiteral("category")).toString(
@@ -7825,8 +6743,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                 QStringLiteral("rejected"));
         qCWarning(lcRust) << "timeline send state=failed category=" << category;
         if (category == QLatin1String("reaction_rejected")) {
-            // There is no Retry for a reaction, so the message must not point
-            // at one.
             Q_EMIT errorOccurred(tr("The reaction could not be applied."));
             return;
         }
@@ -7834,9 +6750,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             Q_EMIT errorOccurred(tr("The message could not be deleted."));
             return;
         }
-        // Cancel categories are not send failures. `cancel_too_late` means the
-        // message did reach the server, so the fallback's "could not be sent,
-        // retry" would be wrong twice.
         if (category == QLatin1String("cancel_too_late")) {
             Q_EMIT errorOccurred(tr("That message had already been sent, so it "
                                     "could not be cancelled."));
@@ -7847,13 +6760,11 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             Q_EMIT errorOccurred(tr("That message could not be cancelled."));
             return;
         }
-        // The user's Retry just failed, so don't tell them to use Retry.
         if (category == QLatin1String("retry_target_missing")) {
             Q_EMIT errorOccurred(tr("That message is no longer available to "
                                     "retry."));
             return;
         }
-        // Neither has a Retry affordance, so the fallback's advice cannot help.
         if (category == QLatin1String("edit_rejected")) {
             Q_EMIT errorOccurred(tr("The edit could not be applied."));
             return;
@@ -7884,11 +6795,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         || type == QLatin1String("timeline_shutdown")) {
         qCInfo(lcRust) << "timeline subscription stopped"
                        << "kind=" << type;
-        // Rust closes the previous room's timeline on every open and on
-        // explicit close, naming it in `room_id` (timeline_shutdown carries
-        // none). This is the authoritative retirement point for the C++ mirror;
-        // it refuses the room the tracker wants, so a close-then-open of the
-        // same room keeps its rows.
         retireRoomTimelineMirror(
             event.value(QStringLiteral("room_id")).toString());
         return;
@@ -7915,18 +6821,11 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("key_backup_status")) {
-        // "attempted", then "ok" (the backup key is usable), "ok_no_backup"
-        // (secret storage held no key backup: no history restored),
-        // "nothing_restored" (it held neither a backup key nor this account's
-        // cross-signing keys) or "failed". A failure carries a category only;
-        // the text is ours and translated, never matrix-sdk's.
         const QString state = event.value(QStringLiteral("state")).toString();
         QString message;
         if (state == QLatin1String("failed")) {
             const QString category =
                 event.value(QStringLiteral("category")).toString();
-            // recover() verifies this session before it touches the key
-            // backup, so a failure can arrive with the session verified.
             const bool sessionVerified =
                 event.value(QStringLiteral("session_verified")).toBool(false);
             const bool becameVerified =
@@ -8003,7 +6902,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         const QString category =
             event.value(QStringLiteral("category")).toString(
                 QStringLiteral("import_failed"));
-        // Never log the raw message; category only.
         qCWarning(lcRust) << "room key import failed category=" << category;
         Q_EMIT roomKeyImportFailed(
             category,
@@ -8030,19 +6928,13 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
     if (type == QLatin1String("verification_sas_confirmed")) {
-        // Our confirmation registered; waiting for the peer's.
         Q_EMIT verificationSasConfirmed(
             event.value(QStringLiteral("flow_id")).toString());
         return;
     }
     if (type == QLatin1String("verification_qr_ready")) {
-        // Geometry only: `bits_b64` is the QR module grid, never the payload,
-        // which stays inside Rust. Nothing is logged, since the grid
-        // reconstructs it.
         const QString flowId = event.value(QStringLiteral("flow_id")).toString();
         const int modules = event.value(QStringLiteral("size")).toInt(0);
-        // Bound the geometry before decoding so an absurd size cannot drive an
-        // oversized base64 decode.
         if (modules <= 0 || modules > QrCodeStore::kMaxModules) {
             qCWarning(lcRust) << "verification QR grid rejected: bad geometry";
             return;
@@ -8050,8 +6942,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         const QByteArray bits = QByteArray::fromBase64(
             event.value(QStringLiteral("bits_b64")).toString().toLatin1(),
             QByteArray::Base64Encoding | QByteArray::AbortOnBase64DecodingErrors);
-        // Reject a malformed grid: an unscannable code presented as working is
-        // worse than no QR offer.
         const int stride = (modules + 7) / 8;
         if (bits.size() != stride * modules) {
             qCWarning(lcRust) << "verification QR grid rejected: bad geometry";
@@ -8094,22 +6984,14 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
     if (type == QLatin1String("verification_ready")) {
-        // Lets the UI tell "peer has not answered" from "handshake running".
         Q_EMIT verificationReady(
             event.value(QStringLiteral("flow_id")).toString());
         return;
     }
-    // Informational; sas_ready / done / cancelled carry every state the UI acts
-    // on.
     if (type == QLatin1String("verification_sas_started"))
         return;
 
     if (type == QLatin1String("sync_stalled")) {
-        // Deliberately not an error state by itself: a first full-state request
-        // on a large account can be slow. This leaves a log line for a wedged
-        // sync instead of an unexplained spinner. The classic lane follows a
-        // `no_progress` stall with `room_list_sync_state: offline` and, if it
-        // has to restart the loop, `sync_error` (issue #2); those set the state.
         const QString phase = event.value(QStringLiteral("phase")).toString();
         if (phase == QLatin1String("no_progress")) {
             qCWarning(lcRust) << "sync loop has delivered nothing, not even an error"
@@ -8126,21 +7008,12 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("sync_error")) {
-        // Only the active generation reaches here (shutdown callbacks were
-        // rejected in pollRustEvents), so M_UNKNOWN_TOKEN keeps its real error
-        // meaning.
         setState(Error);
         Q_EMIT errorOccurred(event.value(QStringLiteral("message")).toString(
             tr("Rust SDK sync failed.")));
         return;
     }
 
-    // Not an op result: the classic-sync repair cleared caches under a view
-    // that opened meanwhile (see MatrixClient::eventCacheRepaired). It reopens
-    // views, so only the RUNNING session may act on it: the gate above also
-    // lets a signing-out handle's completions through, and a reload request
-    // from that handle must not reopen anything in the next session (§9).
-    // Rust already drops it when its own `lifecycle` moved during the clear.
     if (type == QLatin1String("event_cache_repaired")) {
         if (!m_lifecycle.acceptsActive(eventGeneration)) {
             qCInfo(lcRust) << "event cache repair reload ignored: stale session"
@@ -8153,7 +7026,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
-    // Room-management / user-search / media command results.
     if (handleRoomCommandEvent(type, event))
         return;
 
@@ -8164,14 +7036,6 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
 
     if (type == QLatin1String("queue_overflow")) {
-        // Rust dropped events because the poll timer stalled. The queue is
-        // positional (timeline and room-list index diffs), so after dropping
-        // the oldest entries later ops address the wrong base, and dropped Sets
-        // or in-range inserts pass every bounds check. Treat the stream as
-        // untrusted and re-snapshot with the primitives used for detected
-        // damage: resync the room list and reload the open timeline. Both are
-        // idempotent, and the producer injects at most one marker per overflow
-        // episode.
         qCWarning(lcRust) << event.value(QStringLiteral("message")).toString()
                           << "— resyncing rooms and reloading the open room";
         Q_EMIT errorOccurred(event.value(QStringLiteral("message")).toString(
@@ -8195,7 +7059,6 @@ void RustSdkMatrixClient::handleRoomsEvent(const QJsonArray &rooms, qint64 *pars
     if (parseMs || modelMs)
         timed.start();
     matrix::rust_rooms::applyIndexReset({m_rooms, m_roomOrder}, rooms);
-    // The reset is the whole list: a room absent from it has left it.
     m_highlightGaps.forgetRoomsNotIn(
         QSet<QString>(m_roomOrder.cbegin(), m_roomOrder.cend()));
     observeHighlightCounts(rooms);
@@ -8210,11 +7073,6 @@ void RustSdkMatrixClient::handleRoomsEvent(const QJsonArray &rooms, qint64 *pars
 
 void RustSdkMatrixClient::handleRoomSnapshotEvent(const QJsonArray &rooms)
 {
-    // A snapshot is not an index base: it walks the whole state store in store
-    // order, while m_roomOrder follows the sliding-sync adapter's filtered,
-    // sorted vector. Rebuilding m_roomOrder from it misaddresses the next
-    // Set{index}. On classic sync there are no diffs and m_roomOrder is empty,
-    // so applySnapshot() defines the room set. See matrix::rust_rooms.
     matrix::rust_rooms::applySnapshot({m_rooms, m_roomOrder}, rooms);
     observeHighlightCounts(rooms);
     Q_EMIT roomsChanged();
@@ -8223,7 +7081,6 @@ void RustSdkMatrixClient::handleRoomSnapshotEvent(const QJsonArray &rooms)
 void RustSdkMatrixClient::observeHighlightCounts(const QJsonArray &rooms)
 {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    // Before the initial sync every count is history: it only sets baselines.
     const bool live = m_initialSyncDone;
     for (const QJsonValue &value : rooms) {
         const QJsonObject obj = value.toObject();
@@ -8251,7 +7108,6 @@ void RustSdkMatrixClient::flushHighlightGaps()
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const auto gaps = m_highlightGaps.takeDue(now);
     for (const auto &gap : gaps) {
-        // Counts only in the log; the room as a non-reversible hash.
         qCInfo(lcRust) << "highlights not delivered as events room="
                        << matrix::e2ee::redactId(gap.first)
                        << "count=" << gap.second;
@@ -8272,8 +7128,6 @@ void RustSdkMatrixClient::resetNotificationProducerState()
 
 RoomInfo RustSdkMatrixClient::roomInfoFromJson(const QJsonObject &obj) const
 {
-    // Merging rules live in matrix::rust_rooms so they can be tested without a
-    // handle; this wrapper merges over what this class already knows.
     const QString id = obj.value(QStringLiteral("id")).toString();
     return matrix::rust_rooms::roomInfoFromJson(obj, m_rooms.value(id));
 }
@@ -8281,9 +7135,6 @@ RoomInfo RustSdkMatrixClient::roomInfoFromJson(const QJsonObject &obj) const
 void RustSdkMatrixClient::handleRoomListDiff(const QJsonObject &event)
 {
     const QString type = event.value(QStringLiteral("type")).toString();
-    // A room leaving the list loses its highlight baseline (see
-    // HighlightGapTracker::forgetRoom). Removal ops name no room, so what they
-    // removed is read off the index space; a Set may replace a slot's room.
     const bool removes = type == QLatin1String("room_list_remove")
         || type == QLatin1String("room_list_pop_front")
         || type == QLatin1String("room_list_pop_back")
@@ -8313,12 +7164,6 @@ void RustSdkMatrixClient::handleRoomListDiff(const QJsonObject &event)
         return;
     }
 
-    // Never apply a mismatched diff; it corrupts the ordered registry. Ask the
-    // producer that owns the index space to re-emit its base:
-    // mx_rust_resync_rooms re-sets the dynamic adapter's filter, which yields a
-    // real Reset (a client.rooms() snapshot would be a different vector and
-    // keep the drift going). Room ids are public identifiers; `expected` is
-    // Rust's id at the index, `holding` ours.
     const QJsonObject roomObject = event.value(QStringLiteral("room")).toObject();
     const QString roomId = roomObject.value(QStringLiteral("id")).toString();
     const int index = event.value(QStringLiteral("index")).toInt(-1);
@@ -8348,7 +7193,6 @@ void RustSdkMatrixClient::handleSpacesEvent(const QJsonArray &spaces)
         present.insert(id);
         RoomInfo room = m_rooms.value(id);
         room.id = id; room.isSpace = true; room.membership = RoomInfo::Joined;
-        // As for a room (RustRoomRegistry): no direction overrides in a name.
         room.name = matrix::presentable_name::withoutDirectionalControls(
             object.value(QStringLiteral("name")).toString(room.name));
         room.avatarUrl = object.value(QStringLiteral("avatar_url")).toString(room.avatarUrl);
@@ -8380,15 +7224,7 @@ void RustSdkMatrixClient::handleSpacesEvent(const QJsonArray &spaces)
             if (!parentId.isEmpty()) room.parentSpaceIds.append(parentId);
         }
         m_rooms.insert(id, room);
-        // Deliberately not appended to m_roomOrder, which mirrors the SDK's
-        // room list one-for-one because every diff addresses it by index. Extra
-        // entries shift the indices and trigger a reject/resnapshot loop.
-        // rooms() still returns unordered m_rooms entries after the ordered
-        // ones.
     }
-    // A left Space is erased, not blanked: `present` is the complete
-    // joined-Space set. The rule and its index-space guard live with the
-    // function in RustRoomRegistry.cpp.
     const int retiredSpaces =
         matrix::rust_rooms::retireAbsentSpaces({m_rooms, m_roomOrder}, present);
     if (retiredSpaces > 0) {
@@ -8407,9 +7243,6 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
     const QString eventId = timelineEvent.eventId;
     if (roomId.isEmpty() || eventId.isEmpty())
         return;
-    // An edit is not a new message: its body is the "* " fallback. It never
-    // becomes the preview, moves the room or enters the mirror; the room
-    // list's latest event carries the new content.
     const bool isEdit = timelineEvent.isEdit;
 
     using matrix::rust_timeline::SyncRoute;
@@ -8418,35 +7251,20 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
     const SyncRoute route =
         matrix::rust_timeline::syncRouteFor(liveTimeline, timelineEvent);
 
-    // Rooms with a live SDK timeline are fed only through timeline_reset /
-    // timeline_diff; appending here would duplicate rows. Keep only the
-    // room-list preview update, and two notification-path facts the live
-    // timeline cannot supply.
     if (route == SyncRoute::PreviewOnly || route == SyncRoute::ObserveOnly) {
-        // The SDK timeline announces an undecryptable event too, but only
-        // this path is sure to see it arrive.
         if (timelineEvent.undecryptable)
             m_undecryptableSeen.insert(eventId, timelineEvent.backlog);
         auto roomIt = m_rooms.find(roomId);
         if (roomIt != m_rooms.end() && !isEdit) {
-            // Raw sync bodies can be multi-line; this writer must be one-line
-            // too.
             const QString body =
                 matrix::preview::normalizePreviewText(timelineEvent.body);
             if (!body.isEmpty())
                 roomIt->setPreviewText(body);
-            // The payload's own stamp: an event without one must not move the
-            // room to "now" (timelineEvent.timestamp falls back to it).
             roomIt->raiseActivity(timestampFromMs(static_cast<qint64>(
                 obj.value(QStringLiteral("timestamp_ms")).toDouble(0))));
             Q_EMIT roomUpdated(roomId);
         }
         if (route == SyncRoute::ObserveOnly) {
-            // The open room's live timeline hides threaded events, so nothing
-            // else announces a thread reply here unless that exact thread is
-            // open in the panel (whose copy consumers de-duplicate by id).
-            // Never eventAppended: TimelineModel would show it as a
-            // main-timeline row (CLAUDE.md section 8).
             timelineEvent.senderDisplayName =
                 displayNameFor(roomId, timelineEvent.sender);
             if (timelineEvent.undecryptable && timelineEvent.body.isEmpty()) {
@@ -8459,26 +7277,14 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         return;
     }
 
-    // This lightweight mirror does not aggregate relations. Once an edit
-    // arrives, only the next SDK snapshot can supply current messages, quotes
-    // and thread summaries. Do not flash the old copy while that snapshot loads.
     if (isEdit)
         m_timelines.remove(roomId);
 
-    // Mirror for an unopened room, bounded by kBackgroundMirrorCap, which
-    // bounds this de-dup scan too. The scan stays here so a duplicate does not
-    // re-emit eventAppended or raise the room's activity.
     auto &timeline = m_timelines[roomId];
     for (const auto &existing : timeline) {
         if (existing.eventId == eventId)
             return;
     }
-    // Remember every non-thread event forwarded from here, mirrored or not.
-    // The scan above only sees what the mirror still holds; an edit, a late
-    // decryption or a redaction drops the mirror, and a second delivery (a
-    // sliding-sync reset, a room re-entering the window) of the ORIGINAL would
-    // then be announced again and restore its pre-edit body. A thread reply is
-    // de-duplicated by its consumers, see below.
     const bool threadedReply = !timelineEvent.threadRootId.isEmpty()
         && timelineEvent.threadRootId != eventId;
     if (!threadedReply) {
@@ -8487,8 +7293,6 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
         m_forwardedEditIds.insert(eventId, false);
     }
 
-    // The replied-to sender, when the mirror holds the target: lets the
-    // Activity Center tell a reply to the user's own message from any other.
     if (!timelineEvent.replyToEventId.isEmpty()) {
         for (const auto &existing : std::as_const(timeline)) {
             if (existing.eventId == timelineEvent.replyToEventId) {
@@ -8499,17 +7303,11 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
     }
     timelineEvent.senderDisplayName = displayNameFor(roomId, timelineEvent.sender);
 
-    // Undecryptable events arrive with an empty body; show an honest
-    // placeholder. Nothing rewrites it here when keys arrive later: the bridge
-    // reports the decryption as `event_decrypted` (handleEventDecrypted), and
-    // an open timeline as a `set` diff.
     if (timelineEvent.undecryptable && timelineEvent.body.isEmpty()) {
         timelineEvent.body = tr("[unable to decrypt yet]");
         timelineEvent.type = TimelineEvent::Notice;
     }
 
-    // Recovery-lifecycle diagnostics for encrypted events only: redacted ids
-    // and error category, never bodies or ciphertext.
     if (timelineEvent.isEncrypted) {
         qCDebug(lcE2ee) << "encrypted-event"
                         << "room=" << matrix::e2ee::redactId(roomId)
@@ -8520,19 +7318,6 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
                                             : timelineEvent.errorKind);
     }
 
-    // A true thread reply never enters the main-timeline mirror. The mirror
-    // fills while a room is closed and TimelineModel::reload() reads it before
-    // the SDK timeline opens, so replies would flash as standalone rows (and
-    // stay, if the open failed). Filtered here rather than in the model, which
-    // derives thread roots and reply counts by counting replies in its own
-    // list. The signal is still emitted: it feeds notifications and the
-    // Activity Center, and a thread mention must still reach the user. An
-    // edit is kept out the same way (it would flash as a "* " row), and so is
-    // a poll start, which would render with no answers until the SDK timeline
-    // aggregates it.
-    //
-    // A thread reply is de-duplicated by its consumers (by event id), not
-    // here, exactly as before.
     if (route == SyncRoute::MirrorAndAppend)
         matrix::rust_timeline::appendBounded(timeline, timelineEvent);
     noteNotifiedEvent(roomId, timelineEvent);
@@ -8540,20 +7325,10 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
 
     auto roomIt = m_rooms.find(roomId);
     if (roomIt != m_rooms.end()) {
-        // What may move a room up the list is deliberately narrow. Opening a
-        // room delivers its backlog here as live appends, which must not
-        // reorder the list:
-        //   * virtual rows (dividers, read marker, timeline start) are not
-        //     activity;
-        //   * state changes are not activity (joins/leaves must not raise a
-        //     room);
-        //   * activity never moves backwards, so replayed history is harmless;
-        //   * an edit is not a new message.
         const bool countsAsActivity = roomrecency::raisesRecency(timelineEvent)
             && !isEdit
             && timelineEvent.type != TimelineEvent::StateChange;
         if (countsAsActivity) {
-            // A call row raises the room but has no body to preview.
             if (roomrecency::replacesPreview(timelineEvent))
                 setPreviewFrom(*roomIt, timelineEvent);
             roomIt->raiseActivity(timelineEvent.timestamp);
@@ -8574,8 +7349,6 @@ void RustSdkMatrixClient::noteNotifiedEvent(const QString &roomId,
         m_highlightGaps.noteBacklog(roomId, now);
         return;
     }
-    // A highlight the user is (or could be) told about. Without a verdict the
-    // client treats an intentional mention the same way.
     const bool highlighted = event.pushHighlight
         || (event.pushVerdict == TimelineEvent::PushVerdict::Unknown
             && (event.mentionsMe || event.mentionsRoom));
@@ -8590,7 +7363,6 @@ void RustSdkMatrixClient::emitDecryptedOnce(const QString &roomId,
     if (roomId.isEmpty() || !m_undecryptableSeen.take(event.eventId, &wasBacklog))
         return;
     event.roomId = roomId;
-    // History seen undecryptable is still history once readable.
     event.backlog = event.backlog || wasBacklog;
     noteNotifiedEvent(roomId, event);
     qCDebug(lcE2ee) << "late-decryption announced"
@@ -8605,15 +7377,10 @@ void RustSdkMatrixClient::handleEventDecrypted(const QJsonObject &event)
     const QString roomId = event.value(QStringLiteral("room_id")).toString();
     TimelineEvent decrypted = matrix::rust_timeline::syncEventFromPayload(
         event.value(QStringLiteral("event")).toObject(), roomId);
-    // Only a readable result is a decryption.
     if (roomId.isEmpty() || decrypted.eventId.isEmpty() || decrypted.undecryptable)
         return;
     decrypted.senderDisplayName = displayNameFor(roomId, decrypted.sender);
 
-    // A room with no open timeline: the background mirror still holds the
-    // placeholder row, which TimelineModel::reload() would show on the next
-    // open. Rewrite it in place (same id, same slot). An open timeline is
-    // owned by its own diffs.
     const bool liveTimeline = m_timelineTracker.activeRoom() == roomId
         || m_timelineTracker.requestedRoom() == roomId;
     if (!liveTimeline && decrypted.isEdit)
@@ -8639,17 +7406,11 @@ void RustSdkMatrixClient::handleEventRedacted(const QJsonObject &event)
     const QString redacts = event.value(QStringLiteral("redacts")).toString();
     if (roomId.isEmpty() || redacts.isEmpty())
         return;
-    // A late decryption of something already deleted must not announce it.
     m_undecryptableSeen.take(redacts);
 
     const bool liveTimeline = m_timelineTracker.activeRoom() == roomId
         || m_timelineTracker.requestedRoom() == roomId;
     if (liveTimeline) {
-        // A row of the open timeline is redacted by the SDK's own `set` diff,
-        // which emitDiffNotificationFacts reports; reporting it from here too
-        // would rewrite TimelineModel's row ahead of the SDK's view of it.
-        // Anything else (a reaction, an event outside the loaded window) has
-        // no row to rewrite.
         const auto mirrorIt = m_timelines.constFind(roomId);
         if (mirrorIt != m_timelines.cend()) {
             for (const auto &row : *mirrorIt) {
@@ -8658,9 +7419,6 @@ void RustSdkMatrixClient::handleEventRedacted(const QJsonObject &event)
             }
         }
     } else {
-        // A known message can be redacted locally. An unknown target may be
-        // an edit of a message, quote or thread summary held here; the SDK's
-        // next snapshot must restore that projection.
         bool found = false;
         auto mirrorIt = m_timelines.find(roomId);
         if (mirrorIt != m_timelines.end()) {
@@ -8687,8 +7445,6 @@ void RustSdkMatrixClient::emitDiffNotificationFacts(
     using matrix::rust_timeline::DiffOutcome;
     if (roomId.isEmpty())
         return;
-    // A thread timeline's rows carry the composite timeline id; consumers get
-    // the real room and the thread root.
     const auto forConsumers = [&](TimelineEvent item) {
         item.roomId = roomId;
         if (!threadRootId.isEmpty() && item.threadRootId.isEmpty()
@@ -8698,7 +7454,6 @@ void RustSdkMatrixClient::emitDiffNotificationFacts(
     };
     switch (outcome.kind) {
     case DiffOutcome::Appended:
-        // Already announced on eventAppended; only the bookkeeping is owed.
         for (const auto &item : outcome.items) {
             if (!item.isLocalEcho && !item.isVirtual())
                 noteNotifiedEvent(roomId, item);
@@ -8743,15 +7498,10 @@ void RustSdkMatrixClient::updateRoomPreviewFrom(
         if (!roomrecency::raisesRecency(event))
             continue;
         if (!roomrecency::replacesPreview(event)) {
-            // A call row raises the room but has no body: keep the preview and
-            // look no further.
             roomIt->raiseActivity(event.timestamp);
             Q_EMIT roomUpdated(roomId);
             return;
         }
-        // A state row names its actor; when the item carried no profile yet,
-        // the member cache may know the name (displayNameFor answers the raw
-        // id when it does not, which oneLineSummary never shows).
         QString actor;
         if (event.type == TimelineEvent::StateChange
             && event.senderDisplayName.isEmpty()) {
@@ -8768,8 +7518,6 @@ void RustSdkMatrixClient::updateRoomPreviewFrom(
 
 void RustSdkMatrixClient::handleTimelineReset(const QJsonObject &event)
 {
-    // Stall attribution: ingesting a batch rebuilds model rows. No-op unless
-    // LIGHTNING_GUI_STALL_TRACE is set.
     stalltrace::Scope stallScope("timeline-reset");
     const QString roomId = event.value(QStringLiteral("room_id")).toString();
     const auto generation = static_cast<quint64>(
@@ -8782,8 +7530,6 @@ void RustSdkMatrixClient::handleTimelineReset(const QJsonObject &event)
     }
 
     const QJsonArray items = event.value(QStringLiteral("items")).toArray();
-    // A jump-to-live history trim reports its outcome here (counts only).
-    // Logged so "nothing was released" is visible in a capture.
     if (event.contains(QStringLiteral("trimmed_from"))
         && !event.value(QStringLiteral("trimmed_from")).isNull()) {
         const int before =
@@ -8834,8 +7580,6 @@ void RustSdkMatrixClient::flushTimelineInsertBatch()
         items = timelineIt->mid(first, count);
         changedItems.reserve(m_timelineInsertBatchChangedIds.size());
         if (!m_timelineInsertBatchChangedIds.isEmpty()) {
-            // One pass builds the stable-id index, avoiding a per-id rescan on
-            // every pagination flush.
             QHash<QString, int> rowByStableId;
             rowByStableId.reserve(timelineIt->size());
             for (int row = 0; row < timelineIt->size(); ++row) {
@@ -8850,16 +7594,12 @@ void RustSdkMatrixClient::flushTimelineInsertBatch()
                 const int row = rowByStableId.value(stableId, -1);
                 if (row < 0)
                     continue;
-                // A later insertion may have brought this item into the new
-                // range, whose payload already includes the update.
                 if (row < first || row >= first + count)
                     changedItems.append({row, timelineIt->at(row)});
             }
         }
     }
 
-    // Clear before emitting: a synchronous model observer may switch rooms or
-    // otherwise re-enter the client, and must never see this batch as active.
     clearTimelineInsertBatch();
     if (items.size() != count) {
         qCWarning(lcRust) << "timeline insert batch lost mirror range"
@@ -8890,10 +7630,6 @@ void RustSdkMatrixClient::reportStaleTimelineDiffs()
 
 void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
 {
-    // Stall attribution, split by diff op: an in-place Set (reaction, edit,
-    // receipt, late decryption) and an insert (new message, pagination) have
-    // very different costs. Keyed on the op alone, which this function knows
-    // for certain. No-op unless LIGHTNING_GUI_STALL_TRACE is set.
     const QString diffOp = event.value(QStringLiteral("op")).toString();
     stalltrace::Scope stallScope(diffOp == QLatin1String("set")
                                      ? "timeline-diff-set"
@@ -8903,9 +7639,6 @@ void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
         event.value(QStringLiteral("room_generation")).toDouble(0));
     if (!m_timelineTracker.accepts(roomId, generation)) {
         flushTimelineInsertBatch();
-        // Counted rather than logged per diff: a superseded generation keeps
-        // delivering until its subscription stops. Reported once, by the first
-        // diff the new generation accepts.
         if (m_staleDiffGeneration != generation) {
             reportStaleTimelineDiffs();
             m_staleDiffGeneration = generation;
@@ -8922,9 +7655,6 @@ void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
     const bool sameBatch = m_timelineInsertBatchCount > 0
         && m_timelineInsertBatchRoom == roomId
         && m_timelineInsertBatchGeneration == generation;
-    // A page starts at index 0 (push_front) or 1 (after the SDK's TimelineStart
-    // sentinel). Later inserts may land inside or right after the new range
-    // (e.g. a date divider); the net mutation is still one contiguous range.
     const bool startsPaginationRange = m_timelineInsertBatchCount == 0
         && (insertionIndex == 0 || insertionIndex == 1);
     const bool extendsPaginationRange = sameBatch
@@ -8934,11 +7664,6 @@ void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
     const bool canBatchInsertion = m_coalesceTimelineInserts
         && insertionIndex >= 0
         && (startsPaginationRange || extendsPaginationRange);
-    // matrix-sdk-ui interleaves `set` diffs while building a page (dividers,
-    // receipts, profile/decryption refreshes). Flushing on each would split one
-    // page into many insert transactions, so defer valid sets: inside the range
-    // they fold into the payload, outside it they replay by stable id
-    // afterwards.
     const bool canDeferSet = m_coalesceTimelineInserts && sameBatch
         && op == QLatin1String("set");
     if (m_timelineInsertBatchCount > 0
@@ -8949,9 +7674,6 @@ void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
     auto &mirror = m_timelines[roomId];
     const DiffOutcome outcome =
         matrix::rust_timeline::applyTimelineDiff(mirror, event, roomId);
-    // The notification-path facts this diff implies go out after the model
-    // signals, on every path below including the batched ones: batching
-    // changes when the model hears about a row, not whether a message arrived.
     const auto notificationFacts = qScopeGuard([this, roomId, outcome] {
         emitDiffNotificationFacts(roomId, QString(), outcome);
     });
@@ -8982,13 +7704,8 @@ void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
                 m_timelineInsertBatchChangedIds.append(stableId);
             return;
         }
-        // An identity-less virtual item cannot be found again after rows shift.
-        // Publish the assembled page first, then let the Changed path update
-        // it.
     }
 
-    // An insert-like event can still fail validation; flush any valid batch
-    // before the recovery reset below.
     if (m_timelineInsertBatchCount > 0)
         flushTimelineInsertBatch();
 
@@ -9022,8 +7739,6 @@ void RustSdkMatrixClient::handleTimelineDiff(const QJsonObject &event)
         Q_EMIT eventsTruncatedTo(roomId, outcome.length);
         break;
     case DiffOutcome::Invalid:
-        // Never apply a malformed/stale diff; recover with a fresh snapshot. No
-        // message bodies in this log line.
         qCWarning(lcRust) << "timeline invalid diff rejected"
                           << "op=" << event.value(QStringLiteral("op")).toString()
                           << "index=" << event.value(QStringLiteral("index")).toInt(-1)
@@ -9062,13 +7777,6 @@ void RustSdkMatrixClient::handleTimelinePagination(const QJsonObject &event)
         state.failureTransient = false;
         state.reachedStart =
             event.value(QStringLiteral("reached_start")).toBool(false);
-        // Cumulative process-wide totals from the Rust timeline filter (deltas
-        // would race the async ingest). Across pages: `offered` and
-        // `droppedRtc` rising together is MatrixRTC churn; `offered` rising
-        // alone is hidden threads or aggregation; `offered` flat means the
-        // pages really were empty. Escalate while the filter eats whole pages.
-        // A concurrent thread-panel pagination can inflate the deltas, costing
-        // at most one larger page.
         {
             const quint64 offered = static_cast<quint64>(
                 event.value(QStringLiteral("filter_offered")).toDouble(0));
@@ -9088,22 +7796,16 @@ void RustSdkMatrixClient::handleTimelinePagination(const QJsonObject &event)
                 state.batchSize > 0 ? state.batchSize : kPaginationBatch;
             const bool fullyFiltered = offeredDelta > 0
                 && droppedDelta >= offeredDelta;
-            // Lets the controller skip waiting for rows that cannot arrive.
             state.lastFullyFiltered = fullyFiltered;
             if (!state.reachedStart && fullyFiltered) {
-                // Only matters when the SDK reaches a network gap; a page
-                // served from a stored chunk ignores the batch size.
                 state.batchSize = static_cast<unsigned short>(
                     qMin<quint64>(current * 3u, kPaginationMaxBatch));
             } else {
-                // Rows came through: back to the ordinary page size.
                 state.batchSize = 0;
             }
         }
         qCInfo(lcRust) << "timeline pagination complete reached_start="
                        << state.reachedStart
-                       // SDK pages the bridge walked for this one request;
-                       // more than one means it crossed filtered history.
                        << "walkedPages="
                        << event.value(QStringLiteral("walked_pages")).toInt(1)
                        << "nextBatch="
@@ -9138,8 +7840,6 @@ void RustSdkMatrixClient::handleTimelineRetryDecryption(const QJsonObject &event
     const int sessions = event.value(QStringLiteral("sessions")).toInt(0);
     qCInfo(lcRust) << "timeline retry decryption" << state
                    << "sessions=" << sessions;
-    // Redacted room id, state and a session count only; never session ids, keys
-    // or bodies.
     qCDebug(lcE2ee) << "retry-decryption" << "room=" << matrix::e2ee::redactId(roomId)
                     << "state=" << state << "sessions=" << sessions;
     if (state == QLatin1String("done"))
@@ -9186,7 +7886,6 @@ void RustSdkMatrixClient::handleSendFailed(const QJsonObject &event)
 
 void RustSdkMatrixClient::acknowledgeInterruptedSetup()
 {
-    // BackupController calls this once the report is on screen.
     if (m_rustHandle)
         mx_rust_acknowledge_interrupted_setup(m_rustHandle);
 }
@@ -9206,12 +7905,8 @@ void RustSdkMatrixClient::recoverFromBackup(const QString &recoveryKey)
     QByteArray keyBytes = recoveryKey.toUtf8();
     const QString result = takeRustString(mx_rust_recover_from_backup(
         m_rustHandle, keyBytes.constData()));
-    // Best-effort scrub of the recovery secret's transit buffer, as in
-    // importRoomKeys.
     keyBytes.fill('\0');
     if (!result.isEmpty()) {
-        // The only refusals are "not signed in" and a null argument; the text
-        // is Rust's English, so it goes to the log and ours to the user.
         qCWarning(lcRust) << "key backup recover not started:" << result;
         Q_EMIT keyBackupResult(QStringLiteral("failed"),
                                tr("Recovery could not start: this session is "
@@ -9336,13 +8031,10 @@ void RustSdkMatrixClient::refreshOwnDeviceStatus()
         obj.value(QStringLiteral("has_user_signing")).toBool(false));
 }
 
-// See the header and OwnDeviceKeyWatch for the policy.
 void RustSdkMatrixClient::checkOwnIdentityKey()
 {
     if (!m_loggedIn || !m_rustHandle)
         return;
-    // The answer arrives as an `own_identity_key` event. A dispatch error is
-    // not an answer; the tri-state stays unknown.
     const QString r =
         takeRustString(mx_rust_check_own_identity_key(m_rustHandle));
     if (!r.isEmpty())
@@ -9362,12 +8054,10 @@ void RustSdkMatrixClient::importRoomKeys(const QString &filePath,
                                    tr("No file selected."));
         return;
     }
-    // Convert once; keep no QString copy of the passphrase in C++.
     QByteArray pathBytes = filePath.toUtf8();
     QByteArray passphraseBytes = passphrase.toUtf8();
     const QString r = takeRustString(mx_rust_import_room_keys(
         m_rustHandle, pathBytes.constData(), passphraseBytes.constData()));
-    // Best-effort scrub; the passphrase is not kept anywhere in C++ after this.
     for (int i = 0; i < passphraseBytes.size(); ++i)
         passphraseBytes[i] = 0;
     if (!r.isEmpty()) {
@@ -9477,14 +8167,6 @@ void RustSdkMatrixClient::failPendingSend(const QString &transactionId, const QS
         Q_EMIT errorOccurred(tr("Send failed: %1").arg(message));
 }
 
-// ---------------------------------------------------------------------------
-// Conversation creation, membership, room editing, media bridge.
-//
-// Each command generates an op id, dispatches to Rust and returns the id (0
-// on synchronous rejection). Results arrive on the poll queue; stale handle
-// generations are rejected there and Rust stamps its lifecycle.
-// ---------------------------------------------------------------------------
-
 quint64 RustSdkMatrixClient::searchUsers(const QString &query, int limit)
 {
     if (!m_rustHandle || query.trimmed().isEmpty())
@@ -9518,9 +8200,6 @@ quint64 RustSdkMatrixClient::fetchUserProfile(const QString &userId)
 
 void RustSdkMatrixClient::setOwnDisplayName(const QString &name, quint64 opId)
 {
-    // Reported, never dropped, or the Settings editor spins forever. Posted
-    // rather than emitted inline: the caller records the op id after this
-    // returns.
     const auto refuse = [this, opId] {
         QMetaObject::invokeMethod(this, [this, opId] {
             Q_EMIT ownDisplayNameChanged(opId, false, QString());
@@ -9530,13 +8209,10 @@ void RustSdkMatrixClient::setOwnDisplayName(const QString &name, quint64 opId)
         refuse();
         return;
     }
-    // An empty payload means clear (Rust maps it to None). Never trimmed or
-    // filtered here; Rust bounds it by characters.
     const QByteArray payload = name.toUtf8();
     const QString result = takeRustString(mx_rust_set_display_name(
         m_rustHandle, payload.constData(), opId));
     if (!result.isEmpty()) {
-        // A literal tag only: the rejection can echo the submitted name.
         qCWarning(lcRust) << "display-name write rejected";
         refuse();
     }
@@ -9544,8 +8220,6 @@ void RustSdkMatrixClient::setOwnDisplayName(const QString &name, quint64 opId)
 
 void RustSdkMatrixClient::setOwnAvatar(const QString &localPath, quint64 opId)
 {
-    // Posted, not emitted inline: the caller records the op id after this
-    // returns.
     const auto refuse = [this, opId] {
         QMetaObject::invokeMethod(this, [this, opId] {
             Q_EMIT ownAvatarChanged(opId, false, QString());
@@ -9559,8 +8233,6 @@ void RustSdkMatrixClient::setOwnAvatar(const QString &localPath, quint64 opId)
     const QString result = takeRustString(mx_rust_set_own_avatar(
         m_rustHandle, payload.constData(), opId));
     if (!result.isEmpty()) {
-        // A literal tag only: the rejection can echo the path, which contains
-        // the user's name.
         qCWarning(lcRust) << "own-avatar write rejected";
         refuse();
     }
@@ -9602,8 +8274,6 @@ quint64 RustSdkMatrixClient::fetchMutualRooms(const QString &userId)
 
 quint64 RustSdkMatrixClient::fetchUrlPreview(const QString &url)
 {
-    // Rust enforces the scheme allow-list too; this keeps unsafe schemes from
-    // crossing the FFI at all.
     const QString lowered = url.trimmed().toLower();
     if (!m_rustHandle
         || !lowered.startsWith(QLatin1String("https://")))
@@ -9613,7 +8283,6 @@ quint64 RustSdkMatrixClient::fetchUrlPreview(const QString &url)
     const QString result = takeRustString(mx_rust_get_url_preview(
         m_rustHandle, target.constData(), opId));
     if (!result.isEmpty()) {
-        // No URL in the log.
         qCWarning(lcRust) << "url preview rejected";
         return 0;
     }
@@ -9624,7 +8293,6 @@ quint64 RustSdkMatrixClient::fetchLinkMedia(const QString &url,
                                             const QString &linkKey,
                                             int expect, int timeoutClass)
 {
-    // Rust re-checks all of this; unsafe schemes never cross the FFI.
     if (!m_rustHandle || !linkKey.startsWith(QLatin1String("link:"))
         || !url.trimmed().toLower().startsWith(QLatin1String("https://")))
         return 0;
@@ -9636,7 +8304,6 @@ quint64 RustSdkMatrixClient::fetchLinkMedia(const QString &url,
         static_cast<unsigned int>(qBound(0, expect, 1)),
         static_cast<unsigned int>(qBound(0, timeoutClass, 2)), opId));
     if (!result.isEmpty()) {
-        // A constant bridge reason; no URL.
         qCWarning(lcRust) << "link media fetch refused reason=" << result;
         return 0;
     }
@@ -9645,8 +8312,6 @@ quint64 RustSdkMatrixClient::fetchLinkMedia(const QString &url,
 
 quint64 RustSdkMatrixClient::gifGet(const QString &url)
 {
-    // https-only guard before the FFI. The URL carries the provider key, so it
-    // is never logged here or in Rust.
     if (!m_rustHandle || !url.trimmed().toLower().startsWith(QLatin1String("https://")))
         return 0;
     const quint64 opId = nextOpId();
@@ -9654,7 +8319,7 @@ quint64 RustSdkMatrixClient::gifGet(const QString &url)
     const QString result =
         takeRustString(mx_rust_gif_get(m_rustHandle, target.constData(), opId));
     if (!result.isEmpty()) {
-        qCWarning(lcRust) << "gif request rejected"; // no URL
+        qCWarning(lcRust) << "gif request rejected";
         return 0;
     }
     return opId;
@@ -9669,7 +8334,7 @@ quint64 RustSdkMatrixClient::gifDownload(const QString &url)
     const QString result = takeRustString(
         mx_rust_gif_download(m_rustHandle, target.constData(), opId));
     if (!result.isEmpty()) {
-        qCWarning(lcRust) << "gif download rejected"; // no URL
+        qCWarning(lcRust) << "gif download rejected";
         return 0;
     }
     return opId;
@@ -9790,8 +8455,6 @@ quint64 RustSdkMatrixClient::requestRoomOwnPermissions(const QString &roomId)
     const QByteArray room = roomId.toUtf8();
     const QString result = takeRustString(
         mx_rust_room_own_permissions(m_rustHandle, room.constData(), opId));
-    // A room the store does not hold is refused here; unknown, not an error
-    // worth a warning (the open room can be one the list has not listed yet).
     return result.isEmpty() ? opId : 0;
 }
 
@@ -9900,8 +8563,6 @@ quint64 RustSdkMatrixClient::requestModerationPlan(const QStringList &roomIds,
 {
     if (!m_rustHandle || roomIds.isEmpty() || userId.isEmpty())
         return 0;
-    // The same op encoding as moderateUser(); anything else is refused
-    // rather than defaulted.
     int code = -1;
     if (op == QLatin1String("kick"))
         code = 0;
@@ -10246,11 +8907,6 @@ quint64 RustSdkMatrixClient::eventAtTimestamp(const QString &roomId,
     return opId;
 }
 
-// ── Local message search ────────────────────────────────────────────────
-//
-// These answer through the poll loop, except forget/clear: synchronous SQLite
-// deletes, so a redacted message is never briefly still findable.
-
 quint64 RustSdkMatrixClient::localSearch(const QString &query,
                                          const QString &roomId,
                                          int limit, int offset)
@@ -10323,8 +8979,6 @@ quint64 RustSdkMatrixClient::startRoomExport(const QString &roomId, int mode,
         static_cast<unsigned long long>(qMax<qint64>(0, fromMs)),
         static_cast<unsigned long long>(qMax<qint64>(0, toMs)),
         static_cast<unsigned long long>(opId)));
-    // Refused synchronously (bad range, unknown room, no session): nothing
-    // will answer, so report no op at all.
     if (!error.isEmpty())
         return 0;
     return opId;
@@ -10396,7 +9050,6 @@ quint64 RustSdkMatrixClient::clearStoredMedia()
     const QString result = takeRustString(mx_rust_media_cache_clear(
         m_rustHandle, static_cast<unsigned long long>(opId)));
     if (!result.isEmpty()) {
-        // Refused before anything ran (no session): nothing was removed.
         qCWarning(lcRust) << "clear stored media rejected";
         return 0;
     }
@@ -10457,7 +9110,6 @@ bool RustSdkMatrixClient::clearSearchIndex()
 {
     if (!m_rustHandle)
         return false;
-    // An empty string is success; anything else is the refusal.
     return takeRustString(mx_rust_search_index_clear(m_rustHandle)).isEmpty();
 }
 
@@ -10469,8 +9121,6 @@ quint64 RustSdkMatrixClient::indexAllRooms(bool resumeOnly)
     const QString error = takeRustString(mx_rust_search_index_all_start(
         m_rustHandle, resumeOnly ? 1u : 0u,
         static_cast<unsigned long long>(opId)));
-    // Refused before anything ran (no session, index closed): no event will
-    // answer, so say so rather than leave the caller waiting.
     return error.isEmpty() ? opId : 0;
 }
 
@@ -10637,7 +9287,6 @@ quint64 RustSdkMatrixClient::upgradeRoom(const QString &roomId,
 quint64 RustSdkMatrixClient::setRoomAltAliases(const QString &roomId,
                                                const QStringList &aliases)
 {
-    // An empty list is meaningful: it clears every alternative alias.
     if (!m_rustHandle || roomId.isEmpty())
         return 0;
     const quint64 opId = nextOpId();
@@ -10651,8 +9300,6 @@ quint64 RustSdkMatrixClient::setRoomAltAliases(const QString &roomId,
 quint64 RustSdkMatrixClient::setRoomCanonicalAlias(const QString &roomId,
                                                    const QString &alias)
 {
-    // An empty alias is meaningful (it clears the canonical alias), so the
-    // empty string is accepted here.
     if (!m_rustHandle || roomId.isEmpty())
         return 0;
     const quint64 opId = nextOpId();
@@ -10760,11 +9407,6 @@ quint64 RustSdkMatrixClient::cancelKnock(const QString &roomId)
         mx_rust_cancel_knock(m_rustHandle, room.constData(), opId));
     return result.isEmpty() ? opId : 0;
 }
-
-// ── Voice-call signaling sends ─────────────────────────────────────────
-// SDP crosses once, into the FFI call, and is never logged, stored or
-// echoed. Results arrive as call_send_result; inbound observations as call_*
-// events (see CallSignal.h).
 
 quint64 RustSdkMatrixClient::callInvite(const QString &roomId,
                                         const QString &callId,
@@ -10944,8 +9586,6 @@ quint64 RustSdkMatrixClient::rtcTransports(const QString &roomId)
 {
     if (!m_rustHandle)
         return 0;
-    // An empty room id is legal: discovery is account-scoped and the room only
-    // adds the participant-advertised fallback focus.
     const quint64 opId = nextOpId();
     const QByteArray room = roomId.toUtf8();
     const QString result = takeRustString(
@@ -11002,8 +9642,6 @@ quint64 RustSdkMatrixClient::rtcSendMediaKey(const QString &roomId,
     if (!m_rustHandle || roomId.isEmpty() || keyBase64.isEmpty())
         return 0;
     const quint64 opId = nextOpId();
-    // SENSITIVE: keyBase64 is raw media key material. It goes straight into the
-    // FFI and is never logged, stored or echoed.
     const QByteArray room = roomId.toUtf8();
     const QByteArray key = keyBase64.toUtf8();
     const QByteArray targets = targetsJson.toUtf8();
@@ -11024,8 +9662,6 @@ quint64 RustSdkMatrixClient::sfuConnect(const QString &serviceUrl,
     const QByteArray room = roomId.toUtf8();
     const QString result = takeRustString(mx_rust_sfu_connect(
         m_rustHandle, url.constData(), room.constData(), opId));
-    // The Rust side tore down any previous session first; its queued
-    // reports are dropped from here on (see handleRoomCommandEvent).
     m_sfuConnectOp = result.isEmpty() ? opId : 0;
     m_sfuSessionGeneration = 0;
     return m_sfuConnectOp;
@@ -11087,7 +9723,6 @@ void RustSdkMatrixClient::sfuLocalDescription(const QString &kind,
                                               const QString &target,
                                               const QString &sdp)
 {
-    // SDP carries host IPs: opaque here, never logged.
     if (!m_rustHandle || sdp.isEmpty())
         return;
     const QByteArray k = kind.toUtf8();
@@ -11178,7 +9813,6 @@ void RustSdkMatrixClient::sfuMuteTrackFor(
 
 void RustSdkMatrixClient::sfuDisconnect()
 {
-    // Nothing the abandoned session still has queued may reach the caller.
     m_sfuConnectOp = 0;
     m_sfuSessionGeneration = 0;
     if (!m_rustHandle)
@@ -11199,8 +9833,6 @@ quint64 RustSdkMatrixClient::rtcSendCallReaction(
     const QByteArray membership = membershipEventId.toUtf8();
     const QByteArray emojiBytes = emoji.toUtf8();
     const QByteArray nameBytes = name.toUtf8();
-    // Rust checks known sound names against their emoji; an empty name uses
-    // Element Call's generic sound for a Unicode picker reaction.
     const QString result = takeRustString(mx_rust_rtc_send_call_reaction(
         m_rustHandle, room.constData(), membership.constData(),
         emojiBytes.constData(), nameBytes.constData(), opId));
@@ -11213,8 +9845,6 @@ quint64 RustSdkMatrixClient::rtcSetHandRaised(
 {
     if (!m_rustHandle || roomId.isEmpty())
         return 0;
-    // A raise annotates the membership and a lower redacts the raise's
-    // reaction; each needs its own id.
     if (raised ? membershipEventId.isEmpty() : reactionEventId.isEmpty())
         return 0;
     const quint64 opId = nextOpId();
@@ -11303,8 +9933,6 @@ quint64 RustSdkMatrixClient::requestCallTurnServers()
 
 void RustSdkMatrixClient::setCallMediaCapable(bool capable)
 {
-    // Cached so a recreated handle re-learns the mode instead of reverting to
-    // off while a media backend is registered.
     m_callMediaCapable = capable;
     if (m_rustHandle)
         takeRustString(mx_rust_calls_set_media_capable(
@@ -11401,12 +10029,9 @@ bool RustSdkMatrixClient::uiaSubmitPassword(quint64 uiaId,
 {
     if (!m_rustHandle || uiaId == 0 || password.isEmpty())
         return false;
-    // Convert once; keep no QString copy of the password in C++. Rust scrubs
-    // its own transit buffer.
     QByteArray passwordBytes = password.toUtf8();
     const QString result = takeRustString(mx_rust_uia_submit_password(
         m_rustHandle, uiaId, passwordBytes.constData()));
-    // volatile so the dead-store optimizer cannot drop the zeroing.
     volatile char *raw = passwordBytes.data();
     for (int i = 0; i < passwordBytes.size(); ++i)
         raw[i] = 0;
@@ -11438,13 +10063,11 @@ quint64 RustSdkMatrixClient::changePassword(const QString &currentPassword,
     if (!m_rustHandle || currentPassword.isEmpty() || newPassword.isEmpty())
         return 0;
     const quint64 opId = nextOpId();
-    // Convert once; keep no QString copy in C++. Rust scrubs its own copies.
     QByteArray currentBytes = currentPassword.toUtf8();
     QByteArray newBytes = newPassword.toUtf8();
     const QString result = takeRustString(mx_rust_change_password(
         m_rustHandle, currentBytes.constData(), newBytes.constData(),
         logoutDevices, opId));
-    // volatile so the dead-store optimizer cannot drop the zeroing.
     for (QByteArray *bytes : { &currentBytes, &newBytes }) {
         volatile char *raw = bytes->data();
         for (qsizetype i = 0; i < bytes->size(); ++i)
@@ -11461,21 +10084,14 @@ quint64 RustSdkMatrixClient::exportRoomKeys(const QString &filePath,
         return 0;
     const quint64 opId = nextOpId();
     const QByteArray pathBytes = filePath.toUtf8();
-    // Convert once; keep no QString copy in C++. Rust scrubs its own copy and
-    // the SDK holds its own in Zeroizing.
     QByteArray passphraseBytes = passphrase.toUtf8();
     const QString result = takeRustString(mx_rust_export_room_keys(
         m_rustHandle, pathBytes.constData(), passphraseBytes.constData(),
         opId));
-    // volatile so the dead-store optimizer cannot drop the zeroing.
     volatile char *raw = passphraseBytes.data();
     for (qsizetype i = 0; i < passphraseBytes.size(); ++i)
         raw[i] = 0;
     if (!result.isEmpty()) {
-        // Rust refused it before starting (invalid_path, already_running,
-        // not_signed_in, ...): a category, never the path or the passphrase.
-        // Answered on the next turn of the event loop, so the caller has
-        // recorded opId before the answer arrives.
         const QString category = result.startsWith(QLatin1String("error: "))
             ? result.mid(7) : QStringLiteral("failed");
         qCWarning(lcRust) << "room key export refused category=" << category;
@@ -11610,8 +10226,6 @@ quint64 RustSdkMatrixClient::sendAttachment(const QString &roomId,
         static_cast<unsigned long long>(qMax(0, width)),
         static_cast<unsigned long long>(qMax(0, height)),
         animated ? 1 : 0,
-        // Clamped rather than refused: a bad clock reading must not stop the
-        // send.
         static_cast<unsigned long long>(qMax<qint64>(0, durationMs)), replyBytes.constData(), opId));
     if (!result.isEmpty()) {
         qCWarning(lcRust) << "attachment send rejected";
@@ -11620,9 +10234,6 @@ quint64 RustSdkMatrixClient::sendAttachment(const QString &roomId,
     return opId;
 }
 
-// Same thumbnail contract as sendVideo: Rust copies the bytes before
-// returning and re-validates them by magic sniffing; a missing or rejected
-// thumbnail never fails the image send.
 quint64 RustSdkMatrixClient::sendImageWithThumbnail(const QString &roomId,
                                                     const QString &localPath,
                                                     const QString &mime,
@@ -11702,9 +10313,6 @@ quint64 RustSdkMatrixClient::sendThreadImageWithThumbnail(
     return opId;
 }
 
-// The poster crosses the FFI as raw bytes; Rust copies it before returning
-// and re-validates it by magic sniffing. A missing or rejected poster never
-// fails the video send.
 quint64 RustSdkMatrixClient::sendVideo(const QString &roomId,
                                        const QString &localPath,
                                        const QString &mime,
@@ -11806,7 +10414,6 @@ quint64 RustSdkMatrixClient::sendVoiceMessage(const QString &roomId,
         qCWarning(lcRust) << "voice send requires the open room timeline";
         return 0;
     }
-    // Clamp to the bridge scale; the FFI bounds the length.
     QByteArray amplitudes;
     amplitudes.reserve(waveform.size());
     for (int value : waveform)
@@ -11834,14 +10441,10 @@ quint64 RustSdkMatrixClient::sendThreadVoiceMessage(
     const QList<int> &waveform,
     const QString &replyToEventId)
 {
-    // A thread attachment with voice metadata, plus the MSC3245 duration. Not
-    // gated on timelineActiveFor(): it sends through the thread-focused
-    // timeline the panel already holds open.
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty()
         || rootEventId.isEmpty() || localPath.isEmpty() || mime.isEmpty()
         || durationMs <= 0)
         return 0;
-    // Clamp to the bridge scale; the FFI bounds the length.
     QByteArray amplitudes;
     amplitudes.reserve(waveform.size());
     for (int value : waveform)
@@ -11904,8 +10507,6 @@ quint64 RustSdkMatrixClient::sendAttachmentBytesToRoom(const QString &roomId,
 {
     if (!m_rustHandle || roomId.isEmpty() || bytes.isEmpty() || mime.isEmpty())
         return 0;
-    // No timelineActiveFor() gate: this variant exists for rooms whose timeline
-    // is not open. Room::send_attachment still encrypts for encrypted rooms.
     const quint64 opId = nextOpId();
     const QByteArray room = roomId.toUtf8();
     const QByteArray name = filename.toUtf8();
@@ -11997,16 +10598,11 @@ quint64 RustSdkMatrixClient::fetchMedia(const QString &mediaKey, int kind,
         return 0;
     const quint64 opId = nextOpId();
     const QByteArray key = mediaKey.toUtf8();
-    // Kinds: 0 full, 1 thumb, 2 list thumb. List thumbnails must not escalate
-    // to full thumbnails, which for an encrypted file without one means
-    // downloading the whole file.
     const QString result = takeRustString(mx_rust_media_fetch(
         m_rustHandle, key.constData(),
         static_cast<unsigned int>(qBound(0, kind, 2)), opId,
         static_cast<unsigned int>(qBound(0, timeoutClass, 2))));
     if (!result.isEmpty()) {
-        // Log synchronous refusals so a stuck placeholder is explainable. The
-        // reason is a constant bridge string; no key, path or body.
         qCWarning(lcRust) << "media fetch refused kind=" << kind
                                 << "reason=" << result;
         return 0;
@@ -12042,13 +10638,11 @@ void RustSdkMatrixClient::handleMediaReady(const QJsonObject &event)
     size_t len = 0;
     unsigned char *raw = mx_rust_media_take(m_rustHandle, opId, &len);
     if (!raw || len == 0) {
-        // Stale or already-taken payload; treat as a failed fetch.
         Q_EMIT mediaFailed(opId, event.value(QStringLiteral("key")).toString(),
                            event.value(QStringLiteral("kind")).toInt(),
                            QStringLiteral("gone"));
         return;
     }
-    // One bounded copy into Qt-owned memory, then release the Rust buffer.
     QByteArray bytes(reinterpret_cast<const char *>(raw),
                      static_cast<qsizetype>(len));
     mx_rust_media_free(raw, len);
@@ -12059,8 +10653,6 @@ void RustSdkMatrixClient::handleMediaReady(const QJsonObject &event)
 }
 
 namespace {
-// Shared camelCase reshape for one discovery row (directory entry or Space
-// child).
 QVariantMap discoveryRoomRow(const QJsonObject &row)
 {
     QVariantMap out;
@@ -12085,7 +10677,7 @@ QVariantMap discoveryRoomRow(const QJsonObject &row)
                row.value(QStringLiteral("is_space")).toBool());
     return out;
 }
-} // namespace
+}
 
 bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                                                  const QJsonObject &event)
@@ -12096,8 +10688,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     };
 
     if (type == QLatin1String("call_candidates")) {
-        // Media-capable mode only (gated in Rust and here): ICE for the engine.
-        // Never logged or rendered.
         if (!m_callMediaCapable)
             return true;
         QVariantList candidates;
@@ -12127,12 +10717,7 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("own")).toBool(), candidates);
         return true;
     }
-    // MatrixRTC (MSC4143) observation. Strings were bounded and sanitized in
-    // rust/src/rtc.rs; ids and the transport URL are opaque (compared, never
-    // logged or rendered raw).
     if (type == QLatin1String("rtc_session_changed")) {
-        // Payload-free poke; the owner re-reads, so remote and local changes
-        // share one parse path.
         Q_EMIT rtcSessionChanged(
             event.value(QStringLiteral("room_id")).toString());
         return true;
@@ -12181,9 +10766,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 row.value(QStringLiteral("avatar_mxc")).toString();
             participant.joinedAtMs = static_cast<qint64>(
                 row.value(QStringLiteral("created_ts")).toDouble());
-            // A sticky (MSC4143) membership has no expiry and Rust sends
-            // u64::MAX, which a double rounds above qint64's range; casting
-            // that is undefined. Anything that large means "never".
             const double expiresAt =
                 row.value(QStringLiteral("expires_at_ms")).toDouble();
             participant.expiresAtMs = !(expiresAt < 9.2e18)
@@ -12194,8 +10776,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 row.value(QStringLiteral("event_id")).toString();
             participant.ownUser =
                 !ownUser.isEmpty() && participant.userId == ownUser;
-            // Own device, not own user: the same account on another device is a
-            // genuine second participant.
             participant.ownDevice = participant.ownUser
                 && !ownDevice.isEmpty() && participant.deviceId == ownDevice;
             session.participants.append(participant);
@@ -12262,10 +10842,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("rtc_key_discarded")) {
-        // Why a media key was discarded; otherwise the receiver hears nothing
-        // and the sender sees a successful send. A cooldown rather than
-        // once-per-session, so a second call's fault is still reported without
-        // spamming on a wedged Olm session.
         static QHash<QString, qint64> lastSaid;
         const qint64 now = QDateTime::currentMSecsSinceEpoch();
         constexpr qint64 kCooldownMs = 60000;
@@ -12288,15 +10864,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type.startsWith(QLatin1String("sfu_"))) {
-        // One SFU session at a time, and nothing from an older one. The Rust
-        // side gates every report on its session generation, but a report
-        // queued before sfuDisconnect()/sfuConnect() bumped it is still in
-        // the event queue, and a call that reconnects runs sessions back to
-        // back: a late "closed", participant list or SDP from the session it
-        // abandoned must not reach the new one. The answer to a connect
-        // (authorized, or a failure before it) names its op id and so binds
-        // the session's generation; everything else must carry that
-        // generation.
         const quint64 generation = static_cast<quint64>(
             event.value(QStringLiteral("generation")).toDouble());
         if ((type == QLatin1String("sfu_state")
@@ -12320,9 +10887,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             }
             return true;
         }
-        // The main controller consumes id 0 through its existing typed
-        // signals. Every other connection is routed through this bounded
-        // media-only signal with both identity fields attached.
         if (m_callMediaCapable)
             Q_EMIT sfuConnectionEvent(event.toVariantMap());
         if (type == QLatin1String("sfu_command_dropped")) {
@@ -12356,7 +10920,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("sfu_state")) {
-        // Log LiveKit's DisconnectReason for a server-initiated leave.
         if (event.contains(QStringLiteral("reason"))) {
             qCInfo(lcRust) << "sfu leave reason="
                            << event.value(QStringLiteral("reason")).toInt()
@@ -12379,14 +10942,9 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             if (participant.value(QStringLiteral("identity"))
                     == event.value(QStringLiteral("identity")))
                 continue;
-            // Identity is intentionally absent from the log. This confirms
-            // what this connection advertised; SDP subscription is later.
             qCInfo(lcRust) << "sfu remote tracks announced serviceHostHash=" << service
                            << "count=" << participant.value(QStringLiteral("tracks")).toArray().size();
         }
-        // Server-injected-frame trailer, already capped in the bridge. Decoded
-        // strictly and re-bounded: a malformed value must disarm (empty), never
-        // arm a truncated trailer. Not secret, but not logged either.
         QByteArray sifTrailer;
         const QString sifB64 = event.value(QStringLiteral("sif_trailer")).toString();
         if (!sifB64.isEmpty() && sifB64.size() <= 128) {
@@ -12426,8 +10984,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("sfu_remote_description")) {
-        // Media transport only; gated in Rust and here so no SDP crosses
-        // without an engine.
         if (!m_callMediaCapable)
             return true;
         Q_EMIT sfuRemoteDescription(
@@ -12445,7 +11001,7 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("sfu_server_mute")) {
-        return true; // observed; the engine's own valve is authoritative
+        return true;
     }
     if (type == QLatin1String("rtc_send_result")) {
         Q_EMIT rtcSendFinished(
@@ -12463,8 +11019,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("rtc_hand_changed")) {
-        // Bounded in rust/src/rtc.rs. Ids are opaque: compared, never rendered
-        // or logged.
         Q_EMIT rtcHandChanged(
             event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("sender")).toString(),
@@ -12474,9 +11028,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("rtc_call_reaction")) {
-        // element-call's transient reaction. Bounded in Rust and reduced to a
-        // single cluster; rendered as plain text and attributed through the
-        // referenced membership, never through the sender alone.
         Q_EMIT rtcCallReactionReceived(
             event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("sender")).toString(),
@@ -12517,8 +11068,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             opId(), event.value(QStringLiteral("ok")).toBool(),
             event.value(QStringLiteral("username")).toString(),
             event.value(QStringLiteral("password")).toString(), uris,
-            // Clamp before narrowing: an out-of-range double->int64 cast is UB.
-            // Rust bounds it too.
             static_cast<qint64>(qBound(
                 0.0, event.value(QStringLiteral("ttl_seconds")).toDouble(),
                 86400.0)),
@@ -12526,9 +11075,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
 
-    // Voice-call signaling. Fields are public Matrix ids, closed-set strings
-    // sanitized in Rust, booleans, or sender-chosen opaque call/party ids
-    // (bounded, never logged or rendered). Never an SDP (see CallSignal.h).
     if (type == QLatin1String("call_send_result")) {
         Q_EMIT callSendFinished(
             opId(), event.value(QStringLiteral("ok")).toBool(),
@@ -12610,14 +11156,11 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         signal.targetEventId =
             event.value(QStringLiteral("target_event_id")).toString();
         if (signal.kind == CallSignal::Kind::RtcNotification) {
-            // Closed set: anything else is "not stated", which never rings
-            // more than a stated "notification" would.
             const QString notificationType =
                 event.value(QStringLiteral("notification_type")).toString();
             if (notificationType == QLatin1String("ring")
                 || notificationType == QLatin1String("notification"))
                 signal.notificationType = notificationType;
-            // Bounded here as well as in Rust; ids are only compared.
             constexpr int kMaxMentionIds = 256;
             const QJsonArray mentioned =
                 event.value(QStringLiteral("mentions_user_ids")).toArray();
@@ -12630,16 +11173,11 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             }
             signal.mentionsRoom =
                 event.value(QStringLiteral("mentions_room")).toBool(false);
-            // Decided in Rust against the WHOLE m.mentions list, which the
-            // bounded mentionUserIds may not hold.
             signal.mentionsMe =
                 event.value(QStringLiteral("mentions_me")).toBool(false);
         }
         if (signal.roomId.isEmpty() || signal.eventId.isEmpty())
-            return true; // malformed: drop, never dispatch a partial signal
-        // Media-capable mode only: the remote SDP goes into the bounded
-        // single-shot store, never onto the signal (CallSignal is SDP-free) and
-        // never into a log.
+            return true;
         if (m_callMediaCapable) {
             if (signal.kind == CallSignal::Kind::Invite) {
                 m_callSdpStore.insert(
@@ -12704,9 +11242,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                       raw.value(QStringLiteral("site_name")).toString());
         fields.insert(QStringLiteral("previewKind"),
                       raw.value(QStringLiteral("preview_kind")).toString());
-        // Which route produced this card: "server" or "client". Fields are
-        // mapped explicitly, so omitting this one would leave the UI unable to
-        // tell whether the member's IP reached the linked site.
         fields.insert(QStringLiteral("previewRoute"),
                       raw.value(QStringLiteral("preview_route")).toString());
         fields.insert(QStringLiteral("imageMxc"),
@@ -12722,8 +11257,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         fields.insert(QStringLiteral("imageSize"),
                       static_cast<qint64>(
                           raw.value(QStringLiteral("image_size")).toDouble()));
-        // A direct video link (preview_kind "direct_video") and whether a
-        // direct image or video is over what the link media fetch accepts.
         fields.insert(QStringLiteral("videoMime"),
                       raw.value(QStringLiteral("video_mime")).toString());
         fields.insert(QStringLiteral("videoSize"),
@@ -12740,8 +11273,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     }
 
     if (type == QLatin1String("gif_response")) {
-        // Provider data (no key, no Matrix ids); the GIF controller parses it
-        // into safe structs. Never logged.
         Q_EMIT gifResponse(
             opId(), event.value(QStringLiteral("ok")).toBool(false),
             event.value(QStringLiteral("status")).toInt(),
@@ -12759,8 +11290,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 event.value(QStringLiteral("category")).toString());
             return true;
         }
-        // One bounded copy into Qt-owned memory, then release the Rust buffer,
-        // as in media_ready.
         size_t len = 0;
         unsigned char *raw = mx_rust_media_take(m_rustHandle, op, &len);
         if (!raw || len == 0) {
@@ -12826,8 +11355,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     }
 
     if (type == QLatin1String("thread_participants")) {
-        // A failed lookup is forwarded as ok=false so the card keeps what it
-        // had rather than showing "nobody is in this thread".
         if (!event.value(QStringLiteral("ok")).toBool()) {
             Q_EMIT threadParticipantsReceived(
                 event.value(QStringLiteral("room_id")).toString(),
@@ -12931,8 +11458,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("room_background")) {
-        // Canonical content from rust/src/backdrop.rs (mxc-only url, clamped
-        // presentation); null becomes an empty map, meaning "none".
         Q_EMIT roomBackgroundReceived(
             static_cast<quint64>(
                 event.value(QStringLiteral("op_id")).toDouble(0)),
@@ -12943,8 +11468,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("room_background_set")) {
-        // stage/detail come from rust/src/backdrop.rs: the failing step and
-        // the HTTP status / Matrix errcode only (no server text, no URL).
         if (!event.value(QStringLiteral("ok")).toBool(false)) {
             qCWarning(lcRust)
                 << "room background write failed op="
@@ -12962,8 +11485,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("category")).toString());
         return true;
     }
-    // Personal backgrounds (rust/src/bgsync.rs). Entries carry no key and no
-    // url; the picture bytes arrive only through the parked media payload.
     if (type == QLatin1String("settings_sync_changed")) {
         Q_EMIT syncedSettingsChanged();
         return true;
@@ -12995,8 +11516,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("personal_backgrounds")) {
-        // The requests this read cost (account-data GETs, the switch GET
-        // counted only when not shared): the start-up cost is their sum.
         qCDebug(lcRust) << "personal background read op=" << opId()
                         << "gets=" << event.value(QStringLiteral("gets")).toInt();
         QStringList failed;
@@ -13060,9 +11579,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("sticker_packs")) {
-        // Validated and bounded in rust/src/stickers.rs (mxc-only urls,
-        // allowlisted mimetype, control characters stripped, caps). A plain
-        // transcription, so one place decides what a pack may contain.
         QVariantList packs;
         const QJsonArray rawPacks =
             event.value(QStringLiteral("packs")).toArray();
@@ -13239,7 +11755,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     }
     if (type == QLatin1String("policy_check")) {
         QVariantMap detail;
-        // Only the keys a match carries, so no stale reason is readable.
         if (event.value(QStringLiteral("matched")).toBool(false)) {
             detail.insert(QStringLiteral("roomId"),
                           event.value(QStringLiteral("room_id")).toString());
@@ -13261,8 +11776,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     if (type == QLatin1String("qr_login_progress")) {
         const QString step = event.value(QStringLiteral("step")).toString();
         QVariantMap detail;
-        // Only the keys this step carries, so no stale value from a previous
-        // step is readable.
         if (event.contains(QStringLiteral("qr_size"))) {
             detail.insert(QStringLiteral("qrSize"),
                           event.value(QStringLiteral("qr_size")).toInt());
@@ -13304,7 +11817,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         Q_EMIT stickerPackUploaded(
             static_cast<quint64>(event.value(QStringLiteral("op_id")).toDouble(0)),
             event.value(QStringLiteral("uploaded_url")).toString());
-        // and fall through to the ordinary add result below
     }
     if (type == QLatin1String("sticker_pack_add_result")) {
         Q_EMIT stickerPackAddFinished(
@@ -13316,8 +11828,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("presence_batch")) {
-        // Presentation-safe rows. ok=false means unknown for that user;
-        // PresenceManager decides, and nothing here fabricates "offline".
         QVariantList entries;
         const QJsonArray rows = event.value(QStringLiteral("entries")).toArray();
         for (const QJsonValue &row : rows) {
@@ -13334,15 +11844,11 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 entry.insert(QStringLiteral("currentlyActive"),
                              obj.value(QStringLiteral("currently_active"))
                                  .toBool(false));
-                // Absent or null last_active_ago_ms is -1 ("server sent none").
-                // toDouble() turns null into 0, which would render as "active
-                // just now".
                 entry.insert(
                     QStringLiteral("lastActiveAgoMs"),
                     static_cast<qlonglong>(
                         obj.value(QStringLiteral("last_active_ago_ms"))
                             .toDouble(-1.0)));
-                // The peer's status text, bounded and control-stripped in Rust.
                 entry.insert(QStringLiteral("statusMsg"),
                              obj.value(QStringLiteral("status_msg")).toString());
             } else {
@@ -13355,8 +11861,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
 
-    // Opt-in Rust-side trace lines (LIGHTNING_IO_TRACE): numbers and thread
-    // names only, logged here so --log-file captures them.
     if (type == QLatin1String("rust_trace")) {
         qInfo("%s", qPrintable(event.value(QStringLiteral("line")).toString()));
         return true;
@@ -13370,18 +11874,12 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     if (type == QLatin1String("presence_publish_failed")) {
         Q_EMIT presencePublishFailed(
             event.value(QStringLiteral("category")).toString(),
-            // Present only for rate_limited, and only when the server said; a
-            // null value reads as 0, which the receiver treats as "nothing
-            // said".
             event.value(QStringLiteral("retry_after_ms")).toVariant()
                 .toLongLong());
         return true;
     }
 
     if (type == QLatin1String("room_own_permissions")) {
-        // The open room's own posting facts. Only a real answer crosses: null
-        // (our own member not in the store, or not joined) stays absent, which
-        // reads as unknown downstream, where false would read as refused.
         QVariantMap facts;
         facts.insert(QStringLiteral("ownMembership"),
                      event.value(QStringLiteral("own_membership")).toString());
@@ -13393,8 +11891,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             v.isBool()) {
             facts.insert(QStringLiteral("canRedactOthers"), v.toBool());
         }
-        // The slash-command facts, the same way: a real bool crosses, null
-        // stays absent (unknown, so the command stays offered).
         static const struct { const char *wire; const char *key; } kModeration[] = {
             {"own_can_kick", "canKick"},
             {"own_can_ban", "canBan"},
@@ -13445,8 +11941,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             QStringLiteral("ownPowerLevel"),
             static_cast<qlonglong>(
                 event.value(QStringLiteral("own_power_level")).toDouble()));
-        // Room administration: remaining SDK-derived permissions plus the room
-        // state the admin surface renders.
         snapshot.insert(
             QStringLiteral("canChangePowerLevels"),
             event.value(QStringLiteral("own_can_change_power_levels")).toBool());
@@ -13467,10 +11961,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             static_cast<qlonglong>(
                 event.value(QStringLiteral("users_default_power_level"))
                     .toDouble()));
-        // The room's real m.room.power_levels thresholds, copied from a fixed
-        // key set chosen in Rust; the `events` map's own keys are sender-chosen
-        // and never cross. An absent key means unknown, never 0 (a real, common
-        // threshold); RoomInfoController::powerLevelKnown() asks.
         {
             static const char *const kPowerKeys[] = {
                 "ban", "invite", "kick", "redact",
@@ -13498,19 +11988,12 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         snapshot.insert(
             QStringLiteral("canUpgradeRoom"),
             event.value(QStringLiteral("own_can_upgrade")).toBool());
-        // Whether this account may write the call membership, so Join is not
-        // offered to a user who cannot.
-        // Only a real answer: null means our own member was not in the store,
-        // and an absent key reads as unknown downstream, where false would
-        // read as refused.
         if (const QJsonValue canPublish =
                 event.value(QStringLiteral("own_can_publish_rtc_membership"));
             canPublish.isBool()) {
             snapshot.insert(QStringLiteral("canPublishCallMembership"),
                             canPublish.toBool());
         }
-        // Posting and redacting others, from the SDK. Only a real answer: null
-        // (our own member not in the store) is unknown, as above.
         if (const QJsonValue v = event.value(QStringLiteral("own_can_send_message"));
             v.isBool()) {
             snapshot.insert(QStringLiteral("canSendMessages"), v.toBool());
@@ -13519,7 +12002,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             v.isBool()) {
             snapshot.insert(QStringLiteral("canRedactOthers"), v.toBool());
         }
-        // Also on an ok:false "not_joined" answer: why there is no roster.
         snapshot.insert(QStringLiteral("ownMembership"),
                         event.value(QStringLiteral("own_membership")).toString());
         snapshot.insert(QStringLiteral("joinRule"),
@@ -13527,14 +12009,10 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         snapshot.insert(
             QStringLiteral("canonicalAlias"),
             event.value(QStringLiteral("canonical_alias")).toString());
-        // The canonical parent Space, or an empty map.
         snapshot.insert(
             QStringLiteral("canonicalSpaceParent"),
             event.value(QStringLiteral("canonical_space_parent"))
                 .toObject().toVariantMap());
-        // Room access: history visibility, guest access, alt aliases, the
-        // restricted allow list, and two power gates not among the own_can_*
-        // flags.
         {
             const QJsonObject access =
                 event.value(QStringLiteral("access")).toObject();
@@ -13568,8 +12046,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         }
         snapshot.insert(QStringLiteral("category"),
                         event.value(QStringLiteral("category")).toString());
-        // A cache-only snapshot ahead of the synced roster under the same op;
-        // the controller renders it but keeps the op pending.
         snapshot.insert(QStringLiteral("partial"),
                         event.value(QStringLiteral("partial")).toBool());
         QVariantList members;
@@ -13599,8 +12075,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             members.append(entry);
         }
         snapshot.insert(QStringLiteral("members"), members);
-        // The roster also feeds the member cache behind displayNameFor() /
-        // avatarMxcFor() (mention chips, reply headers, thread summaries).
         const QString membersRoomId =
             event.value(QStringLiteral("room_id")).toString();
         if (event.value(QStringLiteral("ok")).toBool()) {
@@ -13609,7 +12083,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 const auto fetched = matrix::rust_timeline::membersFromPayload(rows);
                 for (auto it = fetched.constBegin(); it != fetched.constEnd();
                      ++it) {
-                    // Merge without clobbering known data with empty fields.
                     MemberInfo &slot = roomIt->members[it.key()];
                     slot.userId = it.key();
                     if (!it->displayName.isEmpty())
@@ -13617,13 +12090,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                     if (!it->avatarMxcUrl.isEmpty())
                         slot.avatarMxcUrl = it->avatarMxcUrl;
                 }
-                // A typist who is no longer joined (kicked, banned, left) gets
-                // no typing stop from the server, so the indicator would keep
-                // them for ever (B026). Only a full, untruncated roster can
-                // prove someone is absent. Pruned before membersChanged, whose
-                // handlers may touch m_rooms and invalidate roomIt. A typist
-                // who joined after this roster was read drops off until their
-                // next typing update: accepted, the gap is brief.
                 if (!event.value(QStringLiteral("partial")).toBool()
                     && !event.value(QStringLiteral("truncated")).toBool()
                     && !roomIt->typingUserIds.isEmpty()) {
@@ -13644,9 +12110,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                         Q_EMIT typingChanged(membersRoomId);
                     }
                 }
-                // One refresh per fetch: the partial snapshot primes the cache,
-                // but only the full roster emits membersChanged, which dirties
-                // every loaded row.
                 if (!event.value(QStringLiteral("partial")).toBool())
                     Q_EMIT membersChanged(membersRoomId);
             }
@@ -13688,8 +12151,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("sender")).toString(),
             event.value(QStringLiteral("key")).toString(),
             static_cast<qint64>(event.value(QStringLiteral("timestamp_ms")).toDouble()),
-            // True only when Rust found the target in its own store and it is
-            // ours; absent (an older bridge) is "not known".
             event.value(QStringLiteral("target_is_own")).toBool(false),
             event.value(QStringLiteral("backlog")).toBool(false));
         return true;
@@ -13860,9 +12321,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("room_bridges")) {
-        // MSC2346 bridge info is room state any sufficiently powered member can
-        // write; every string was sanitized in rust/src/bridges.rs. No user id
-        // is carried.
         QVariantList bridges;
         for (const QJsonValue &v :
              event.value(QStringLiteral("bridges")).toArray()) {
@@ -13893,8 +12351,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                   row.value(QStringLiteral("room_id")).toString() },
                 { QStringLiteral("sender"),
                   row.value(QStringLiteral("sender")).toString() },
-                // senderDisplayName, the key MessageSearchController reads for
-                // server search too.
                 { QStringLiteral("senderDisplayName"),
                   row.value(QStringLiteral("sender_name")).toString() },
                 { QStringLiteral("body"),
@@ -13944,7 +12400,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
     if (type == QLatin1String("search_index_all")) {
-        // Room ids and counters only (see mx_rust_search_index_all_start).
         const auto count = [&event](const char *key) {
             return static_cast<qint64>(
                 event.value(QLatin1String(key)).toDouble());
@@ -13965,7 +12420,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         status.insert(QStringLiteral("completeRooms"), count("complete_rooms"));
         status.insert(QStringLiteral("retryInMs"), count("retry_in_ms"));
         status.insert(QStringLiteral("elapsedMs"), count("elapsed_ms"));
-        // Index totals ride along only now and then; absent means unchanged.
         if (event.contains(QStringLiteral("messages"))) {
             status.insert(QStringLiteral("messages"), count("messages"));
             status.insert(QStringLiteral("indexedRooms"),
@@ -13999,12 +12453,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     if (type == QLatin1String("activity_seed")
         || type == QLatin1String("activity_seed_page")) {
         const bool page = type == QLatin1String("activity_seed_page");
-        // A failed fetch is not "no highlights": say so, so the caller can try
-        // again instead of treating the session as seeded.
-        // The caller retries with a backoff (5 s .. 160 s), so a server that
-        // refuses /notifications warned on every attempt. Warn once per run of
-        // failures; the repeats are info with their count. Process-wide, as
-        // there is one client per process.
         static int seedFailuresInARow = 0;
         if (!event.value(QStringLiteral("ok")).toBool(true)) {
             if (page) {
@@ -14042,14 +12490,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 { QStringLiteral("preview"), o.value(QStringLiteral("body")).toString() },
                 { QStringLiteral("threadRootId"),
                   o.value(QStringLiteral("thread_root_id")).toString() },
-                // The event's msgtype as sent ("m.text", "m.image", ...;
-                // empty for one the server could not show decrypted), so the
-                // preview can name media the way live rows do.
                 { QStringLiteral("msgtype"),
                   o.value(QStringLiteral("msgtype")).toString() },
-                // Not "mention": the seed is GET /notifications?only=highlight,
-                // which covers @room, keywords and server rules as well as
-                // personal mentions.
                 { QStringLiteral("kind"), QStringLiteral("highlight") },
             });
         }
@@ -14079,8 +12521,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     }
 
     if (type == QLatin1String("message_edit_history")) {
-        // SENSITIVE in encrypted rooms: revision bodies are plaintext.
-        // Forwarded to the open dialog only; never logged or cached.
         QVariantList revisions;
         for (const QJsonValue &v :
              event.value(QStringLiteral("revisions")).toArray()) {
@@ -14117,7 +12557,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     }
 
     if (type == QLatin1String("event_source")) {
-        // SENSITIVE: `json` is the decrypted event. Never log it.
         const QJsonObject enc = event.value(QStringLiteral("encryption")).toObject();
         Q_EMIT eventSourceReceived(
             event.value(QStringLiteral("room_id")).toString(),
@@ -14146,7 +12585,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     }
 
     if (type == QLatin1String("backup_action_result")) {
-        // SENSITIVE: `event` may carry a recovery key. Never log it.
         Q_EMIT backupActionFinished(
             opId(), event.value(QStringLiteral("action")).toString(),
             event.value(QStringLiteral("ok")).toBool(),
@@ -14302,7 +12740,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                        o.value(QStringLiteral("name")).toString());
             row.insert(QStringLiteral("isSpace"),
                        o.value(QStringLiteral("is_space")).toBool(false));
-            // Absent means not offered (the controller fails closed).
             if (o.contains(QStringLiteral("reason")))
                 row.insert(QStringLiteral("reason"),
                            o.value(QStringLiteral("reason")).toString());
@@ -14486,8 +12923,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             opId(),
             event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("user_id")).toString(),
-            // QJsonValue has no toLongLong(); real power levels are exactly
-            // representable as doubles.
             static_cast<qlonglong>(
                 event.value(QStringLiteral("level")).toDouble()),
             event.value(QStringLiteral("ok")).toBool(),
@@ -14500,8 +12935,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             opId(),
             event.value(QStringLiteral("room_id")).toString(),
             event.value(QStringLiteral("key")).toString(),
-            // QJsonValue has no toLongLong(); real power levels are exactly
-            // representable as doubles.
             static_cast<qlonglong>(
                 event.value(QStringLiteral("level")).toDouble()),
             event.value(QStringLiteral("ok")).toBool(),
@@ -14510,7 +12943,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     }
 
     if (type == QLatin1String("room_pinned")) {
-        // Re-shaped into camelCase like the member snapshot.
         QVariantList entries;
         const QJsonArray raw =
             event.value(QStringLiteral("entries")).toArray();
@@ -14554,7 +12986,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                         event.value(QStringLiteral("truncated")).toBool());
         snapshot.insert(QStringLiteral("category"),
                         event.value(QStringLiteral("category")).toString());
-        // The complete, uncapped id list; it answers "is this pinned?".
         QStringList ids;
         const QJsonArray rawIds = event.value(QStringLiteral("ids")).toArray();
         ids.reserve(rawIds.size());
@@ -14609,9 +13040,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     }
 
     if (type == QLatin1String("own_display_name_result")) {
-        // `error` is the server's sentence, collapsed and bounded in Rust;
-        // empty means nothing usable. The name is deliberately not in the
-        // payload.
         Q_EMIT ownDisplayNameChanged(
             opId(),
             event.value(QStringLiteral("ok")).toBool(),
@@ -14642,8 +13070,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     }
 
     if (type == QLatin1String("own_avatar_result")) {
-        // As own_display_name_result; the path is deliberately not in the
-        // payload.
         Q_EMIT ownAvatarChanged(
             opId(),
             event.value(QStringLiteral("ok")).toBool(),
@@ -14804,7 +13230,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     }
 
     if (type == QLatin1String("ignored_users_changed")) {
-        // Sync push (no op id): local and remote changes share one update path.
         QStringList users;
         const QJsonArray raw = event.value(QStringLiteral("users")).toArray();
         users.reserve(raw.size());
@@ -14827,8 +13252,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     }
 
     if (type == QLatin1String("uia_required")) {
-        // Sanitized challenge: stage names only, flattened for the "unsupported
-        // stage" display.
         QStringList stages;
         const QJsonArray flows = event.value(QStringLiteral("flows")).toArray();
         for (const QJsonValue &flow : flows) {
@@ -14868,8 +13291,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
 
-    // Room-key export: counts and a category only; the events never carry
-    // the path, the passphrase or key material.
     if (type == QLatin1String("room_key_export_progress")) {
         Q_EMIT roomKeyExportProgress(
             opId(), event.value(QStringLiteral("collected")).toInt());
@@ -14886,7 +13307,6 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         return true;
     }
 
-    // A category only; the event never carries a password.
     if (type == QLatin1String("password_change_result")) {
         Q_EMIT passwordChangeFinished(
             opId(), event.value(QStringLiteral("ok")).toBool(),

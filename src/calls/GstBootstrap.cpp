@@ -22,8 +22,6 @@ namespace {
 QString g_bundledPath;
 QString g_scannerPath;
 
-/// The AppImage's plugin directory, checked against what the AppRun hook
-/// exported. Filesystem side of appImageBundledPluginPath().
 QString appImageBundle()
 {
     const QByteArray appDir = qgetenv("APPDIR");
@@ -38,8 +36,6 @@ QString appImageBundle()
     return named;
 }
 
-/// The AppImage's scanner, checked against what the AppRun hook exported.
-/// Recorded, never set: the hook already exported it.
 QString appImageScanner()
 {
     const QByteArray appDir = qgetenv("APPDIR");
@@ -51,7 +47,6 @@ QString appImageScanner()
         QFile::decodeName(qgetenv("GST_PLUGIN_SCANNER")));
     if (named.isEmpty())
         return {};
-    // Executable as well as present, as applyBundledScannerPath() requires.
     const QFileInfo info(named);
     if (!info.isFile() || !info.isExecutable())
         return {};
@@ -63,19 +58,10 @@ void applyBundledPluginPath()
     const QString bundled = QDir(QCoreApplication::applicationDirPath())
                                 .absoluteFilePath(QStringLiteral("gstreamer-1.0"));
     if (!QFileInfo(bundled).isDir()) {
-        // Plugins are dlopen'd, and the compiled-in path is the builder's
-        // sysroot, so a packaged layout must be pointed at explicitly:
-        //   Windows   <install dir>/gstreamer-1.0/
-        //   macOS     Contents/MacOS/gstreamer-1.0, a symlink to
-        //             ../PlugIns/gstreamer-plugins (codesign refuses a plain
-        //             directory of dylibs in MacOS/)
-        // Not found here: possibly an AppImage, whose AppRun hook already
-        // configured GStreamer; record it for diagnostics.
         g_bundledPath = appImageBundle();
         g_scannerPath = appImageScanner();
-        return;   // otherwise a development build: leave the system alone
+        return;
     }
-    // An explicit override wins.
     if (!qEnvironmentVariableIsEmpty("GST_PLUGIN_PATH"))
         return;
     qputenv("GST_PLUGIN_PATH", QFile::encodeName(bundled));
@@ -85,15 +71,6 @@ void applyBundledPluginPath()
     g_bundledPath = bundled;
 }
 
-/// Collapses a known-harmless upstream assertion. GStreamer's device
-/// providers probe every ALSA PCM, and a device reporting a degenerate rate
-/// range triggers a CRITICAL `GstIntRange` pair per probe (dozens per call
-/// join). Not ours: gst-device-monitor-1.0 prints the same, and devices
-/// enumerate fine.
-///
-/// The first occurrence is always logged in full (we must still see any bad
-/// range we create ourselves), and repeats are only counted, with the count
-/// logged at milestones. Every other message is forwarded untouched.
 void installDeviceProbeNoiseCollapse()
 {
     static std::once_flag once;
@@ -112,7 +89,6 @@ void installDeviceProbeNoiseCollapse()
                             != nullptr);
                 if (isProbeNoise) {
                     const quint64 n = ++seen;
-                    // First occurrence in full; afterwards only milestones.
                     if (n == 1) {
                         qCWarning(lcGstBoot).nospace()
                             << "gstreamer device probe: " << message
@@ -136,19 +112,15 @@ void installDeviceProbeNoiseCollapse()
     });
 }
 
-} // namespace
+}
 
 bool ensureInitialised(QString *whyNot)
 {
     static std::once_flag once;
     static bool ok = false;
     std::call_once(once, [] {
-        // Before gst_init, always: the environment is read only during init.
         applyBundledPluginPath();
 #ifdef Q_OS_MACOS
-        // macOS only, guarded at the call so the function stays testable
-        // everywhere. Windows uses GStreamer's in-process fallback and Linux a
-        // system GStreamer with a correct compiled-in path.
         applyBundledScannerPath(QCoreApplication::applicationDirPath());
 #endif
         installDeviceProbeNoiseCollapse();
@@ -159,8 +131,6 @@ bool ensureInitialised(QString *whyNot)
             lightning::macaudio::registerSource();
 #endif
         if (error) {
-            // Upstream text about the local machine: category only, never the
-            // string or path.
             g_error_free(error);
         }
         if (ok) {
@@ -192,8 +162,6 @@ QString bundledPluginPath()
 
 bool applyBundledScannerPath(const QString &applicationDirPath)
 {
-    // GStreamer reads the versioned name first, then the plain one; an
-    // override in either wins.
     if (!qEnvironmentVariableIsEmpty("GST_PLUGIN_SCANNER_1_0")
         || !qEnvironmentVariableIsEmpty("GST_PLUGIN_SCANNER"))
         return false;
@@ -201,10 +169,6 @@ bool applyBundledScannerPath(const QString &applicationDirPath)
     if (scanner.isEmpty())
         return false;
     const QFileInfo info(scanner);
-    // Executable as well as present. An unsigned helper is SIGKILLed on Apple
-    // Silicon without a message, so this cannot prove it will run; the
-    // in-process fallback covers that, and `--call-media-status` reports what
-    // was found.
     if (!info.isFile() || !info.isExecutable())
         return false;
     const QByteArray encoded = QFile::encodeName(scanner);
@@ -253,7 +217,6 @@ QString appImageBundledScannerPath(const QString &appDir,
         return {};
     const QString wanted = QDir::cleanPath(QDir(appDir).absoluteFilePath(
         QStringLiteral("usr/libexec/gstreamer-1.0/gst-plugin-scanner")));
-    // A single path, not a list: GStreamer runs GST_PLUGIN_SCANNER verbatim.
     for (const QString &value : { scannerVersioned, scannerPlain }) {
         if (!value.isEmpty() && QDir::cleanPath(value) == wanted)
             return wanted;
@@ -261,5 +224,5 @@ QString appImageBundledScannerPath(const QString &appDir,
     return {};
 }
 
-} // namespace lightning::gst
+}
 

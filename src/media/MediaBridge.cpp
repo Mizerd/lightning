@@ -7,7 +7,6 @@
 #include "storage/PortableMode.h"
 #include "storage/ScratchFile.h"
 
-
 #include "app/GuiStallTracer.h"
 
 #include "matrix/MatrixClient.h"
@@ -30,9 +29,6 @@
 
 #include <cstring>
 
-// Media pipeline diagnostics (QT_LOGGING_RULES="lightning.media.debug=true").
-// Logs only sanitized key tags, byte counts, coarse MIME and timings; never
-// decrypted bytes, bodies, authenticated URLs, tokens or provider keys.
 Q_LOGGING_CATEGORY(lcMedia, "lightning.media")
 
 // Cache hits, off by default. mediaSource()/avatarSource() re-run on every
@@ -83,17 +79,14 @@ bool previewBytesMatchMime(const QByteArray &bytes, const QString &mimetype)
     if (mimetype == QLatin1String("image/webp"))
         return bytes.size() >= 12 && bytes.startsWith("RIFF")
             && bytes.mid(8, 4) == QByteArrayLiteral("WEBP");
-    // JPEG XL. Container form first: a container's payload starts with the bare
-    // codestream signature, so the short test would mis-match it.
     if (mimetype == QLatin1String("image/jxl")) {
         return bytes.startsWith(
                    QByteArrayLiteral("\x00\x00\x00\x0CJXL \r\n\x87\n"))
             || bytes.startsWith(QByteArrayLiteral("\xff\x0a"));
     }
-    // Fail closed: an unrecognised type is refused.
     return false;
 }
-} // namespace
+}
 
 MediaBridge::MediaBridge(QObject *parent)
     : QObject(parent)
@@ -101,8 +94,6 @@ MediaBridge::MediaBridge(QObject *parent)
     , m_playableMaxBytes(kPlayableCacheBytes)
 {
     m_failureClock.start();
-    // Connected first, so the active-save list is already current when any
-    // other listener of saveFinished (the QML banner, the cards) runs.
     connect(this, &MediaBridge::saveFinished, this,
             [this](bool, const QString &, const QString &mediaKey) {
                 removeActiveSave(mediaKey);
@@ -110,20 +101,13 @@ MediaBridge::MediaBridge(QObject *parent)
     m_animatedDir = std::make_unique<QTemporaryDir>(
         lightning::portable::mediaScratchRoot()
         + QStringLiteral("/lightning-animated-XXXXXX"));
-    // Marked live so another instance's stale-scratch sweep cannot delete this
-    // session's files; the sweep's one-hour mtime floor alone does not protect
-    // a long session.
     lightning::portable::holdScratchDirLive(m_animatedDir->path());
-    // Reclaims slots pinned by ops the backend never completes. The 5 s cadence
-    // only bounds reclaim latency; healthy fetches never reach the timeout.
     m_watchdog.setInterval(5000);
     m_watchdog.setTimerType(Qt::CoarseTimer);
     connect(&m_watchdog, &QTimer::timeout,
             this, &MediaBridge::checkInflightTimeouts);
     m_watchdog.start();
 
-    // One summary line per burst; 900 ms of quiet is past a room's avatar
-    // fan-out.
     m_burstSummary.setSingleShot(true);
     m_burstSummary.setInterval(900);
     m_burstSummary.setTimerType(Qt::CoarseTimer);
@@ -147,8 +131,6 @@ MediaBridge::MediaBridge(QObject *parent)
 
 MediaBridge::~MediaBridge()
 {
-    // Release the live mark before QTemporaryDir removes the directory, or
-    // QLockFile later fails to remove its own lock file at exit.
     if (m_animatedDir)
         lightning::portable::releaseScratchDir(m_animatedDir->path());
 }
@@ -196,12 +178,10 @@ bool MediaBridge::looksLikeMarkupOrCompressed(const QByteArray &bytes)
     // format starts with binary magic, so refusing a leading `<` or gzip has no
     // false positives and nothing to evade.
     qsizetype i = 0;
-    // A UTF-8 BOM and whitespace may precede an XML declaration.
     if (bytes.size() >= 3 && static_cast<unsigned char>(bytes.at(0)) == 0xEF
         && static_cast<unsigned char>(bytes.at(1)) == 0xBB
         && static_cast<unsigned char>(bytes.at(2)) == 0xBF)
         i = 3;
-    // Not std::isspace: locale-dependent, and UB for negative char values.
     const auto isXmlSpace = [](char c) {
         return c == ' ' || c == '\t' || c == '\r' || c == '\n';
     };
@@ -209,7 +189,6 @@ bool MediaBridge::looksLikeMarkupOrCompressed(const QByteArray &bytes)
         ++i;
     if (i < bytes.size() && bytes.at(i) == '<')
         return true;
-    // SVGZ: Qt's SVG handler decompresses gzip.
     if (bytes.size() >= 2 && static_cast<unsigned char>(bytes.at(0)) == 0x1F
         && static_cast<unsigned char>(bytes.at(1)) == 0x8B)
         return true;
@@ -224,7 +203,6 @@ bool MediaBridge::looksLikeAvContainer(const QByteArray &bytes)
         return static_cast<unsigned char>(bytes.at(i));
     };
     if (bytes.mid(4, 4) == QByteArrayLiteral("ftyp")) {
-        // ISO BMFF, but HEIC/AVIF images share the container.
         const QByteArray brand = bytes.mid(8, 4);
         if (brand == QByteArrayLiteral("avif")
             || brand == QByteArrayLiteral("avis")
@@ -232,15 +210,14 @@ bool MediaBridge::looksLikeAvContainer(const QByteArray &bytes)
             || brand == QByteArrayLiteral("heix")
             || brand == QByteArrayLiteral("mif1"))
             return false;
-        return true; // MP4/M4A/MOV
+        return true;
     }
     if (u8(0) == 0x1A && u8(1) == 0x45 && u8(2) == 0xDF && u8(3) == 0xA3)
-        return true; // Matroska/WebM
+        return true;
     if (bytes.startsWith("OggS"))
         return true;
     if (bytes.startsWith("RIFF")) {
         const QByteArray form = bytes.mid(8, 4);
-        // RIFF/WEBP is an image and stays acceptable.
         if (form == QByteArrayLiteral("AVI ")
             || form == QByteArrayLiteral("WAVE"))
             return true;
@@ -256,9 +233,6 @@ QString MediaBridge::cachedSource(const QString &cacheKey) const
     if (!m_cache.contains(cacheKey))
         return {};
     touch(cacheKey);
-    // "?r=<revision>" changes only on a byte insert, so a re-cached payload
-    // gets a new source and an Image in Error reloads. MediaImageProvider
-    // strips it.
     return QStringLiteral("image://lightning-media/")
         + QString::fromUtf8(QUrl::toPercentEncoding(cacheKey))
         + QStringLiteral("?r=")
@@ -359,7 +333,6 @@ qint64 MediaBridge::cacheBytesUsed() const
 
 void MediaBridge::touch(const QString &cacheKey) const
 {
-    // Caller holds m_cacheMutex.
     QList<QString> &lru = isAvatarClassKey(cacheKey) ? m_avatarLru : m_lru;
     lru.removeOne(cacheKey);
     lru.prepend(cacheKey);
@@ -370,17 +343,13 @@ void MediaBridge::insertCache(const QString &cacheKey, const QByteArray &bytes)
     QMutexLocker lock(&m_cacheMutex);
     const bool avatarClass = isAvatarClassKey(cacheKey);
     qint64 &classTotal = avatarClass ? m_cacheBytesAvatar : m_cacheBytesMain;
-    // An overwrite must retire the old payload's bytes first.
     if (const auto existing = m_cache.constFind(cacheKey);
         existing != m_cache.constEnd())
         classTotal -= existing.value().size();
     m_cache.insert(cacheKey, bytes);
     classTotal += bytes.size();
-    // Only a byte insert bumps the revision, so cache hits keep a stable URL.
     ++m_revision[cacheKey];
     touch(cacheKey);
-    // Evict LRU entries beyond this class's budget; avatar and main classes
-    // never evict each other.
     QList<QString> &lru = avatarClass ? m_avatarLru : m_lru;
     const qint64 limit = avatarClass ? m_avatarCacheLimit : m_cacheLimit;
     while (classTotal > limit && lru.size() > 1) {
@@ -389,15 +358,12 @@ void MediaBridge::insertCache(const QString &cacheKey, const QByteArray &bytes)
             continue;
         classTotal -= m_cache.value(victim).size();
         m_cache.remove(victim);
-        // Drop the evicted key's memoized hash too.
         m_contentHashCache.remove(victim);
     }
 }
 
 bool MediaBridge::alreadyPending(const QString &cacheKey) const
 {
-    // Save/star requests never populate the cache or emit mediaCached(), so an
-    // ordinary caller must not wait on one.
     for (const Pending &p : m_inflight) {
         if (p.cacheKey == cacheKey && !p.saveRequest && !p.starRequest)
             return true;
@@ -429,8 +395,6 @@ void MediaBridge::retry(const QString &cacheKey)
 qint64 MediaBridge::markExpiryMs(const QString &category,
                                  qint64 retryAfterMs) const
 {
-    // The circuit breaker told us how long it will refuse; asking sooner only
-    // earns another refusal.
     if (category == QLatin1String("server_unreachable") && retryAfterMs > 0)
         return retryAfterMs;
     return m_failureRetryMs;
@@ -480,7 +444,6 @@ void MediaBridge::sweepExpiredFailureMarks()
     if (m_failed.isEmpty())
         return;
     const qint64 now = m_failureClock.elapsed();
-    // Collect first: mediaRetryable handlers re-enter and mutate m_failed.
     QStringList retryable;
     for (auto it = m_failed.begin(); it != m_failed.end();) {
         if (!isPermanentCategory(it->category)
@@ -513,11 +476,6 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
                 qUtf8Printable(keyTag(cacheKey)));
         return cached;
     }
-    // Read-through across classes. The classes limit what a request may fetch
-    // (a 42x34 list tile never triggers a full encrypted download), not what it
-    // may reuse. Only the smallest class borrows, and only from larger ones:
-    // the reverse would render a row at the wrong size and move the reader
-    // during a prepend.
     if (kindValue == 2) {
         for (const int larger : { 1, 0 }) {
             const QString borrowed =
@@ -530,11 +488,8 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
             return borrowed;
         }
     }
-    // A link has no thumbnail of its own: a smaller class can only borrow the
-    // full payload above. Nothing to fetch, and nothing failed.
     if (kindValue != 0 && isLinkMediaKey(mediaKey))
         return {};
-    // A failure mark blocks re-dispatch so QML repolling cannot loop.
     if (failureBlocks(cacheKey)) {
         qCDebug(lcMediaTrace, "media %s suppressed=failure-mark(%s)",
                 qUtf8Printable(keyTag(cacheKey)),
@@ -547,7 +502,6 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
         request.cacheKey = cacheKey;
         request.mediaKey = mediaKey;
         request.kind = kindValue;
-        // Thumbnails are visible chrome; full static payloads wait behind them.
         request.priority = kindValue != 0 ? 1 : 2;
         qCDebug(lcMediaTrace, "media %s cache=miss dispatching",
                 qUtf8Printable(keyTag(cacheKey)));
@@ -570,16 +524,12 @@ QString MediaBridge::animatedSource(const QString &mediaKey, bool speculative)
         m_animatedLru.prepend(cacheKey);
         return QUrl::fromLocalFile(path).toString();
     }
-    // Interest sets record an outstanding fetch, so nothing is added on a path
-    // that dispatches none. A stranded key in m_animatedWanted makes
-    // cancelPlayable() return early forever.
     if (failureBlocks(cacheKey))
         return {};
     const QByteArray cached = cachedBytes(cacheKey);
     if (!cached.isEmpty()) {
         const QString written = writeAnimatedFile(cacheKey, cached);
         if (written.isEmpty()) {
-            // A demanding caller renders nothing else and is owed the answer.
             if (!speculative)
                 Q_EMIT mediaFetchFailed(cacheKey, QStringLiteral("invalid_gif"));
             return {};
@@ -587,9 +537,6 @@ QString MediaBridge::animatedSource(const QString &mediaKey, bool speculative)
         return QUrl::fromLocalFile(written).toString();
     }
     m_animatedWanted.insert(cacheKey);
-    // A demanding caller (confirmed GIF) is owed mediaFetchFailed when the
-    // bytes are not an animation. A speculative one (sticker) is not: its still
-    // Image already shows the bytes.
     if (!speculative)
         m_animatedDemanded.insert(cacheKey);
     if (!alreadyPending(cacheKey)) {
@@ -597,7 +544,6 @@ QString MediaBridge::animatedSource(const QString &mediaKey, bool speculative)
         request.cacheKey = cacheKey;
         request.mediaKey = mediaKey;
         request.kind = 0;
-        // Speculative autoplay prefetch; must not starve chrome or playback.
         request.priority = 3;
         dispatch(request);
     }
@@ -608,9 +554,6 @@ QString MediaBridge::mxcAnimatedSource(const QString &mxcUri)
 {
     if (!mxcUri.startsWith(QLatin1String("mxc://")) || !supported())
         return {};
-    // Distinct from the `mxcimg:<edge>:` still tile, which holds a server
-    // thumbnail of the same mxc. Not "mxc:"-prefixed, so it is charged to the
-    // main budget and never evicts avatars.
     const QString cacheKey = QStringLiteral("mxcanim:") + mxcUri;
     const QString path = m_animatedFiles.value(cacheKey);
     if (!path.isEmpty() && QFileInfo::exists(path)) {
@@ -622,26 +565,17 @@ QString MediaBridge::mxcAnimatedSource(const QString &mxcUri)
         return {};
     const QByteArray cached = cachedBytes(cacheKey);
     if (!cached.isEmpty()) {
-        // No signal on refusal: this caller never demands.
         const QString written = writeAnimatedFile(cacheKey, cached);
         return written.isEmpty() ? QString{} : QUrl::fromLocalFile(written).toString();
     }
-    // Registered only once a fetch is outstanding (see animatedSource()). Not
-    // added to m_animatedDemanded: a non-animation is answered with silence.
     m_animatedWanted.insert(cacheKey);
     if (!alreadyPending(cacheKey)) {
         Pending request;
         request.cacheKey = cacheKey;
         request.isMxc = true;
         request.mediaKey = mxcUri;
-        // For mxc requests `kind` is a C++-side classification only. 2
-        // (thumbnail class) enables the A/V-container refusal and skips
-        // playableSizeLearned.
         request.kind = 2;
-        // Size 0 makes media_fetch_mxc (rust/src/rooms.rs) request the original
-        // file rather than a single-frame server thumbnail.
         request.size = 0;
-        // Speculative: must not starve the still tiles.
         request.priority = 3;
         dispatch(request);
     }
@@ -671,7 +605,7 @@ QString MediaBridge::writeMotionFile(const QString &cacheKey,
             pixels = qint64(canvas.width()) * canvas.height();
     }
     if (m_motionVerdict.size() >= kMaxMotionVerdicts)
-        m_motionVerdict.clear(); // defensive bound; a verdict is re-learnable
+        m_motionVerdict.clear();
     m_motionVerdict.insert(cacheKey, pixels);
     if (pixels <= 0 || pixels > maxPixels)
         return {};
@@ -688,16 +622,12 @@ QString MediaBridge::avatarAnimationSource(const QString &mxcUri,
     const QString url = motionFileUrl(cacheKey, maxPixels);
     if (!url.isEmpty())
         return url;
-    // Known still, or an animation too large to play as an avatar: final for
-    // the session. An animation whose file was evicted is fetched again below.
     const auto verdict = m_motionVerdict.constFind(cacheKey);
     if (verdict != m_motionVerdict.constEnd()
         && (verdict.value() <= 0 || verdict.value() > maxPixels))
         return {};
     if (failureBlocks(cacheKey))
         return {};
-    // A server that answers thumbnails with the original (or implements
-    // MSC2705) already handed us the animation.
     const QByteArray thumb =
         cachedBytes(mxcCacheKey(mxcUri, kAvatarCanonicalEdge));
     if (lightning::animsniff::isAnimation(thumb)) {
@@ -706,8 +636,6 @@ QString MediaBridge::avatarAnimationSource(const QString &mxcUri,
                                  : QUrl::fromLocalFile(written).toString();
     }
     if (!explicitIntent) {
-        // Passive (autoplay) probes skip photos: a JPEG thumbnail cannot come
-        // from a GIF on Synapse. No thumbnail yet means no evidence either way.
         const bool jpegThumb = thumb.size() >= 3
             && static_cast<unsigned char>(thumb.at(0)) == 0xff
             && static_cast<unsigned char>(thumb.at(1)) == 0xd8
@@ -715,14 +643,12 @@ QString MediaBridge::avatarAnimationSource(const QString &mxcUri,
         if (thumb.isEmpty() || jpegThumb)
             return {};
     }
-    // Heavy lane either way: a whole original must not delay chrome.
     const int priority = explicitIntent ? 2 : 3;
     if (!alreadyPending(cacheKey)) {
         Pending request;
         request.cacheKey = cacheKey;
         request.isMxc = true;
         request.mediaKey = mxcUri;
-        // Thumbnail class for the A/V refusal; size 0 fetches the original.
         request.kind = 2;
         request.size = 0;
         request.priority = priority;
@@ -748,7 +674,6 @@ QString MediaBridge::wideAnimationSource(const QString &mxcUri)
     if (verdict != m_motionVerdict.constEnd()
         && (verdict.value() <= 0 || verdict.value() > maxPixels))
         return {};
-    // The banner's full payload, already fetched for the still picture.
     const QByteArray bytes = cachedBytes(mxcCacheKey(mxcUri, 0));
     if (bytes.isEmpty())
         return {};
@@ -764,8 +689,6 @@ QString MediaBridge::stagedAnimationSource(const QString &stagedUrl)
         return {};
     const QString token = stagedUrl.mid(prefix.size());
     constexpr qint64 maxPixels = lightning::animsniff::kBannerMaxPixels;
-    // Tokens are never reused, so a token's content hash is memoised: asking
-    // again for a playing picture neither re-reads nor re-hashes its bytes.
     QString cacheKey = m_stagedKeys.value(token);
     if (!cacheKey.isEmpty()) {
         const QString known = motionFileUrl(cacheKey, maxPixels);
@@ -776,8 +699,6 @@ QString MediaBridge::stagedAnimationSource(const QString &stagedUrl)
     if (bytes.isEmpty() || bytes.size() > kMotionMaxBytes)
         return {};
     if (cacheKey.isEmpty()) {
-        // Keyed by content, so the same picture staged twice shares one file
-        // and a different one never reuses another's verdict.
         cacheKey = QStringLiteral("motion:staged:") + QString::fromLatin1(
             QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
         if (m_stagedKeys.size() >= 64)
@@ -824,7 +745,6 @@ bool MediaBridge::claimMotionSlot(QObject *owner, bool intent)
     if (held != m_motionOwners.end()) {
         if (intent || !held->intent)
             return true;
-        // The intent ended: keep playing only as a passive holder.
         if (passiveMotionSlots() < kMaxMotionSlots) {
             held->intent = false;
             return true;
@@ -839,7 +759,6 @@ bool MediaBridge::claimMotionSlot(QObject *owner, bool intent)
         return false;
     MotionHolder holder;
     holder.intent = intent;
-    // The pointer is only a key here; it is never dereferenced after this.
     holder.destroyed = connect(owner, &QObject::destroyed, this,
                                [this, owner] { releaseMotionSlot(owner); });
     m_motionOwners.insert(owner, holder);
@@ -853,8 +772,6 @@ void MediaBridge::releaseMotionSlot(QObject *owner)
         return;
     disconnect(it->destroyed);
     m_motionOwners.erase(it);
-    // One announcement per event-loop turn: a page of avatars scrolled away at
-    // once would otherwise wake every waiting avatar once per freed slot.
     if (m_motionFreedPending)
         return;
     m_motionFreedPending = true;
@@ -877,39 +794,31 @@ QString MediaBridge::playableSource(const QString &mediaKey)
         m_playableLru.prepend(cacheKey);
         return QUrl::fromLocalFile(path).toString();
     }
-    ++m_playableWanted[cacheKey]; // refcounted
+    ++m_playableWanted[cacheKey];
     if (failureBlocks(cacheKey)) {
-        // No fetch will run; do not leave a phantom interest count.
         if (--m_playableWanted[cacheKey] <= 0)
             m_playableWanted.remove(cacheKey);
         return {};
     }
     const auto writing = m_playableWriting.find(cacheKey);
     if (writing != m_playableWriting.end()) {
-        // Coalesce onto the write already on the worker thread and require it
-        // to report failure. The interest count stays for the completion to
-        // retire.
         writing->notifyFailure = true;
         return {};
     }
     const QByteArray cached = cachedBytes(cacheKey);
     if (!cached.isEmpty()) {
-        // Empty mimetype: the container magic decides.
         if (beginPlayableWrite(cacheKey, mediaKey, cached, {}, true))
-            return {}; // materializing off-thread; QML re-asks on the signal
-        // Refused before any file was created: fall through to a fetch and keep
-        // the interest count, which the fetch's completion consumes.
+            return {};
     }
     if (!alreadyPending(cacheKey)) {
         Pending request;
         request.cacheKey = cacheKey;
         request.mediaKey = mediaKey;
         request.kind = 0;
-        request.timeoutClass = 1; // playable class (90s Rust / 100s watchdog)
-        request.priority = 0;     // the user pressed Play
+        request.timeoutClass = 1;
+        request.priority = 0;
         dispatch(request);
     } else {
-        // A queued speculative prefetch must not keep its lower class.
         promoteQueuedRequest(cacheKey, 0, 1);
     }
     return {};
@@ -922,7 +831,6 @@ void MediaBridge::prefetchPlayable(const QString &mediaKey, double sizeBytes,
         || mediaKey.contains(QLatin1String("send-queue.localhost"))
         || !supported())
         return;
-    // Only a declared, in-cap size is worth speculative bandwidth.
     const qint64 declared = static_cast<qint64>(sizeBytes);
     const qint64 cap = capBytes > 0 ? static_cast<qint64>(capBytes)
                                     : kSpeculativePlayableMaxBytes;
@@ -931,7 +839,6 @@ void MediaBridge::prefetchPlayable(const QString &mediaKey, double sizeBytes,
     const QString cacheKey = mediaCacheKey(mediaKey, 0);
     const QString path = m_playableFiles.value(cacheKey);
     if (!path.isEmpty() && QFileInfo::exists(path)) {
-        // Already materialized; only a pending poster hook may remain.
         if (m_posterWanted.remove(cacheKey))
             startPosterExtraction(mediaKey, path);
         return;
@@ -939,11 +846,9 @@ void MediaBridge::prefetchPlayable(const QString &mediaKey, double sizeBytes,
     if (failureBlocks(cacheKey))
         return;
     if (m_playableWriting.contains(cacheKey))
-        return; // already materializing off-thread for someone else
+        return;
     const QByteArray cached = cachedBytes(cacheKey);
     if (!cached.isEmpty()) {
-        // The write completion fires playableMediaReady and the poster hook. A
-        // prefetch is owed no failure signal.
         beginPlayableWrite(cacheKey, mediaKey, cached, {}, false);
         return;
     }
@@ -954,8 +859,8 @@ void MediaBridge::prefetchPlayable(const QString &mediaKey, double sizeBytes,
     request.cacheKey = cacheKey;
     request.mediaKey = mediaKey;
     request.kind = 0;
-    request.timeoutClass = 1; // playable-class bound fits the payload size
-    request.priority = 3;     // speculative — never crowds explicit intent
+    request.timeoutClass = 1;
+    request.priority = 3;
     qCDebug(lcMediaTrace, "prefetch %s (declared %lld bytes)",
             qUtf8Printable(keyTag(cacheKey)),
             static_cast<long long>(declared));
@@ -981,14 +886,8 @@ QString MediaBridge::videoPosterSource(const QString &mediaKey,
         startPosterExtraction(mediaKey, path);
         return {};
     }
-    // Materialize first (within the speculative cap), then extract once the
-    // file exists. Over-cap or unknown-size videos keep the placeholder until
-    // played.
     m_posterWanted.insert(playableKey);
     prefetchPlayable(mediaKey, sizeBytes, capBytes);
-    // If the prefetch declined, drop the hook: a hook with no delivery path
-    // leaks and vetoes later cancels. A write already on the worker thread
-    // counts as a delivery path.
     if (!alreadyPending(playableKey) && !m_playableFiles.contains(playableKey)
         && !m_playableWriting.contains(playableKey))
         m_posterWanted.remove(playableKey);
@@ -999,9 +898,6 @@ void MediaBridge::abortFetch(const QString &cacheKey)
 {
     m_prefetchWanted.remove(cacheKey);
     m_posterWanted.remove(cacheKey);
-    // Abandon a write already on the worker thread too. The writer discards the
-    // partial file and no completion is emitted; a fresh Play re-materializes
-    // from the cached bytes.
     if (m_playableWriting.remove(cacheKey) > 0 && m_playableWriter)
         m_playableWriter->cancel(cacheKey);
     for (int i = m_queue.size() - 1; i >= 0; --i) {
@@ -1022,7 +918,6 @@ void MediaBridge::abortFetch(const QString &cacheKey)
             break;
         }
     }
-    // No failure mark: a fresh Play must re-dispatch immediately.
     pump();
 }
 
@@ -1037,11 +932,9 @@ void MediaBridge::cancelPrefetch(const QString &mediaKey)
     if (mediaKey.isEmpty())
         return;
     const QString cacheKey = mediaCacheKey(mediaKey, 0);
-    // Somebody (a Play, a GIF row) wants these bytes now: not ours to drop.
     if (m_playableWanted.value(cacheKey, 0) > 0
         || m_animatedWanted.contains(cacheKey))
         return;
-    // Only a speculative fetch; an explicit one is cancelPlayable's.
     if (!m_prefetchWanted.contains(cacheKey))
         return;
     abortFetch(cacheKey);
@@ -1054,13 +947,10 @@ void MediaBridge::cancelPlayable(const QString &mediaKey)
     const QString cacheKey = mediaCacheKey(mediaKey, 0);
     const auto wanted = m_playableWanted.find(cacheKey);
     if (wanted == m_playableWanted.end())
-        return; // no playable consumer was waiting on this key
-    // Another card still waits on the same bytes.
+        return;
     if (--wanted.value() > 0)
         return;
     m_playableWanted.erase(wanted);
-    // A GIF row wanting the same bytes keeps the fetch alive. A poster hook or
-    // prefetch does not veto a user cancel; the poster can be re-derived later.
     if (m_animatedWanted.contains(cacheKey)) {
         m_prefetchWanted.remove(cacheKey);
         m_posterWanted.remove(cacheKey);
@@ -1090,15 +980,8 @@ void MediaBridge::startPosterExtraction(const QString &mediaKey,
 
 void MediaBridge::warmMultimediaBackend()
 {
-    // The first QVideoSink in a process costs ~1 s (Qt Multimedia backend init
-    // plus a hardware-decoder probe), and QML creates it on the GUI thread. Pay
-    // it on the extractor's worker thread once a playable file exists. Not
-    // reset by clear(): the initialization is process-global.
     if (m_multimediaWarmed)
         return;
-    // Only a GUI application can play inline, and the guiless media suites must
-    // never construct a decoder. Checked by class name to avoid a QtGui
-    // dependency.
     const QCoreApplication *app = QCoreApplication::instance();
     if (!app || !app->inherits("QGuiApplication"))
         return;
@@ -1109,13 +992,10 @@ void MediaBridge::warmMultimediaBackend()
 void MediaBridge::onPosterReady(const QString &mediaKey,
                                 const QByteArray &jpeg)
 {
-    // Session isolation: a queued completion can outlive the disconnect in
-    // clear(), so the tracking set, not the connection, is the authority.
     if (!m_posterExtracting.remove(mediaKey))
         return;
     const QString posterKey = mediaCacheKey(mediaKey, 1);
     if (jpeg.isEmpty()) {
-        // Permanent for this session; retry() (cover tap) clears it.
         m_failed.insert(posterKey, {QStringLiteral("rejected"),
                                     m_failureClock.elapsed()});
         Q_EMIT mediaFetchFailed(posterKey, QStringLiteral("rejected"));
@@ -1125,8 +1005,6 @@ void MediaBridge::onPosterReady(const QString &mediaKey,
     qCDebug(lcMediaTrace, "poster %s bytes=%lld",
             qUtf8Printable(keyTag(posterKey)),
             static_cast<long long>(jpeg.size()));
-    // Header-only decode: the poster has the video's display shape (rotation
-    // applied). The card only uses the ratio.
     {
         QBuffer buffer;
         buffer.setData(jpeg);
@@ -1151,32 +1029,24 @@ QString MediaBridge::playableExtensionFor(const QByteArray &bytes,
     const auto u8 = [&bytes](qsizetype i) {
         return static_cast<unsigned char>(bytes.at(i));
     };
-    // ISO BMFF (MP4/M4A/MOV): a size-prefixed "ftyp" box leads the file.
     if (bytes.mid(4, 4) == QByteArrayLiteral("ftyp"))
         return mime.startsWith(QLatin1String("audio/"))
             ? QStringLiteral("m4a") : QStringLiteral("mp4");
-    // Matroska/WebM: EBML magic.
     if (u8(0) == 0x1A && u8(1) == 0x45 && u8(2) == 0xDF && u8(3) == 0xA3)
         return mime.contains(QLatin1String("webm"))
             ? QStringLiteral("webm") : QStringLiteral("mkv");
-    // Ogg (Vorbis/Opus).
     if (bytes.startsWith("OggS"))
         return QStringLiteral("ogg");
-    // WAV: RIFF….WAVE.
     if (bytes.startsWith("RIFF")
         && bytes.mid(8, 4) == QByteArrayLiteral("WAVE"))
         return QStringLiteral("wav");
-    // FLAC.
     if (bytes.startsWith("fLaC"))
         return QStringLiteral("flac");
-    // MP3: ID3 tag or a bare MPEG frame sync with non-zero layer bits. ADTS AAC
-    // shares the sync but has layer 00.
     if (bytes.startsWith("ID3"))
         return QStringLiteral("mp3");
     if (u8(0) == 0xFF && (u8(1) & 0xE0) == 0xE0 && (u8(1) & 0x06) != 0
         && mime == QLatin1String("audio/mpeg"))
         return QStringLiteral("mp3");
-    // Raw AAC in ADTS framing, only when the metadata says AAC.
     if (u8(0) == 0xFF && (u8(1) & 0xF6) == 0xF0
         && (mime == QLatin1String("audio/aac")
             || mime == QLatin1String("audio/aacp")))
@@ -1187,22 +1057,16 @@ QString MediaBridge::playableExtensionFor(const QByteArray &bytes,
 QString MediaBridge::previewAnimatedSource(const QString &dataSource,
                                            const QString &mimetype)
 {
-    // GIF, or WebP (writeAnimatedFile keeps only an animated one).
     if ((mimetype != QLatin1String("image/gif")
          && mimetype != QLatin1String("image/webp"))
         || !dataSource.startsWith(QStringLiteral("data:") + mimetype
                                   + QStringLiteral(";base64,")))
         return {};
-    // Keyed on (length, hash with the per-process random seed): the memo must
-    // not pin the payload text (LinkPreviewController budgets those bytes),
-    // and an attacker cannot craft a collision against an unknown seed.
     const QPair<qsizetype, size_t> memoKey(
         dataSource.size(), qHash(dataSource, QHashSeed::globalSeed()));
     const auto memo = m_previewAnimMemo.constFind(memoKey);
     if (memo != m_previewAnimMemo.constEnd()) {
         const QString &url = memo->first;
-        // "" is a remembered "not an animation"; a file the bridge has since
-        // evicted falls through and is written again.
         if (url.isEmpty())
             return url;
         if (QFileInfo::exists(QUrl(url).toLocalFile())) {
@@ -1212,7 +1076,6 @@ QString MediaBridge::previewAnimatedSource(const QString &dataSource,
         }
     }
     ++m_previewDecodes;
-    // Bounded: a long scroll through link previews must not grow it for ever.
     if (m_previewAnimMemo.size() >= 256)
         m_previewAnimMemo.clear();
     const QByteArray bytes = QByteArray::fromBase64(
@@ -1234,8 +1097,6 @@ QString MediaBridge::previewAnimatedSource(const QString &dataSource,
             result = QUrl::fromLocalFile(path).toString();
         } else if (!animatedExtensionFor(bytes).isEmpty()
                    && bytes.size() <= kMaxAnimatedBytes) {
-            // An animation that could not be written (no directory, disk
-            // error) is transient: the next call tries again.
             return {};
         }
     }
@@ -1268,8 +1129,6 @@ QString MediaBridge::previewImageSource(const QString &dataSource,
 
 QString MediaBridge::avatarSource(const QString &mxcUri, int size)
 {
-    // One canonical fetch per identity; the render size never reaches the cache
-    // key. QML scales down.
     Q_UNUSED(size);
     if (!mxcUri.startsWith(QLatin1String("mxc://")) || !supported())
         return {};
@@ -1296,7 +1155,7 @@ QString MediaBridge::avatarSource(const QString &mxcUri, int size)
         request.mediaKey = mxcUri;
         request.kind = 2;
         request.size = edge;
-        request.priority = 1; // interactive chrome
+        request.priority = 1;
         qCDebug(lcMediaTrace, "avatar %s edge=%d cache=miss dispatching",
                 qUtf8Printable(keyTag(cacheKey)), edge);
         dispatch(request);
@@ -1312,8 +1171,6 @@ QString MediaBridge::wideImageSource(const QString &mxcUri)
 {
     if (!mxcUri.startsWith(QLatin1String("mxc://")) || !supported())
         return {};
-    // Full payload, not a square thumbnail. Edge 0 keeps it apart from the
-    // avatar entry for the same mxc.
     const QString cacheKey = mxcCacheKey(mxcUri, 0);
     const QString cached = cachedSource(cacheKey);
     if (!cached.isEmpty()) {
@@ -1330,7 +1187,7 @@ QString MediaBridge::wideImageSource(const QString &mxcUri)
         request.mediaKey = mxcUri;
         request.kind = 0;
         request.size = 0;
-        request.priority = 1; // interactive chrome, like an avatar
+        request.priority = 1;
         dispatch(request);
     } else {
         promoteQueuedRequest(cacheKey, 1, 0);
@@ -1353,11 +1210,6 @@ QImage MediaBridge::cachedAvatarImage(const QString &mxcUri) const
     QBuffer buffer(&bytes);
     if (!buffer.open(QIODevice::ReadOnly))
         return {};
-    // Same rule as MediaImageProvider (these are another user's avatar bytes
-    // for a notification icon): a recognised raster format is pinned with
-    // autodetection off, so the SVG handler is unreachable. An unrecognised
-    // format (e.g. HEIC via qmacheif) may autodetect only after the markup/gzip
-    // check has refused SVG and SVGZ.
     const lightning::imagefmt::RasterFormat *sniffed =
         lightning::imagefmt::sniffRaster(bytes);
     if (!sniffed && looksLikeMarkupOrCompressed(bytes))
@@ -1370,7 +1222,6 @@ QImage MediaBridge::cachedAvatarImage(const QString &mxcUri) const
     reader.setAutoTransform(true);
     reader.setAllocationLimit(64);
     const QSize natural = reader.size();
-    // An unreadable header means the size ceiling cannot apply.
     if (!natural.isValid())
         return {};
     if (natural.width() > 4096 || natural.height() > 4096)
@@ -1380,8 +1231,6 @@ QImage MediaBridge::cachedAvatarImage(const QString &mxcUri) const
 
 QString MediaBridge::mxcImageSource(const QString &mxcUri, int edge)
 {
-    // Non-avatar mxc images (link-preview thumbnails): caller's edge, "mxcimg:"
-    // prefix, main cache class, so they never evict avatars.
     if (!mxcUri.startsWith(QLatin1String("mxc://")) || !supported())
         return {};
     edge = qBound(64, edge, 1024);
@@ -1402,7 +1251,7 @@ QString MediaBridge::mxcImageSource(const QString &mxcUri, int edge)
         request.mediaKey = mxcUri;
         request.kind = 2;
         request.size = edge;
-        request.priority = 1; // interactive chrome
+        request.priority = 1;
         dispatch(request);
     } else {
         promoteQueuedRequest(cacheKey, 1, 0);
@@ -1422,7 +1271,6 @@ int MediaBridge::heavyInflightCount() const
 
 void MediaBridge::dispatch(const Pending &request)
 {
-    // Heavy work never takes the last slots; playback and chrome need headroom.
     const bool heavyBlocked =
         request.priority >= 2 && heavyInflightCount() >= kMaxHeavyConcurrent;
     if (m_inflight.size() >= kMaxConcurrent || heavyBlocked) {
@@ -1433,7 +1281,6 @@ void MediaBridge::dispatch(const Pending &request)
                 qUtf8Printable(keyTag(request.cacheKey)), request.priority,
                 static_cast<long long>(m_inflight.size()),
                 static_cast<long long>(m_queue.size()));
-        // Sample the peak where the queue grows; by completion it has drained.
         noteMediaActivity();
         return;
     }
@@ -1453,15 +1300,9 @@ void MediaBridge::dispatch(const Pending &request)
         opId = m_client->fetchMedia(tracked.mediaKey, tracked.kind,
                                     tracked.timeoutClass);
     if (opId == 0) {
-        // The backend could not start the fetch (session restoring/switching,
-        // or the item is not known yet). Transient: a permanent mark would
-        // poison the key for the whole session.
         ++m_statFailed;
         qCWarning(lcMedia, "fetch %s unavailable (backend returned opId=0)",
                   qUtf8Printable(keyTag(tracked.cacheKey)));
-        // Save/star failures use their own signals only: they share the "full:"
-        // key with the ordinary fetch, and mediaFetchFailed would tell a
-        // healthy consumer its fetch failed.
         if (tracked.saveRequest) {
             Q_EMIT saveFinished(false, tr("The file could not be downloaded."),
                                 tracked.mediaKey);
@@ -1485,14 +1326,11 @@ void MediaBridge::dispatch(const Pending &request)
 
 quint64 MediaBridge::dispatchLinkMedia(Pending &request)
 {
-    // Full payloads only: a link has no thumbnail of its own.
     if (request.kind != 0 || !m_linkResolver)
         return 0;
     const QVariantMap target = m_linkResolver(request.mediaKey);
     const QByteArray held = target.value(QStringLiteral("bytes")).toByteArray();
     if (!held.isEmpty()) {
-        // Queued, so it completes like a fetch: after dispatch() records the
-        // op, and dropped as stale if clear() or a cancel came first.
         const quint64 opId = m_nextLocalOpId++;
         const QString mediaKey = request.mediaKey;
         const QString mime = target.value(QStringLiteral("mime")).toString();
@@ -1506,16 +1344,12 @@ quint64 MediaBridge::dispatchLinkMedia(Pending &request)
     }
     if (!m_client)
         return 0;
-    // The homeserver's copy (a server-route preview): the site is not
-    // contacted again.
     const QString mxc = target.value(QStringLiteral("mxc")).toString();
     if (mxc.startsWith(QLatin1String("mxc://")))
         return m_client->fetchMxcThumbnail(mxc, 0, 0);
     const QString url = target.value(QStringLiteral("url")).toString();
     if (url.isEmpty())
         return 0;
-    // A third-party host over the open internet: at least the playable class
-    // (90 s Rust / 100 s watchdog), kept in step with the watchdog here.
     request.timeoutClass = qMax(request.timeoutClass, 1);
     return m_client->fetchLinkMedia(
         url, request.mediaKey,
@@ -1527,8 +1361,6 @@ void MediaBridge::pump()
     while (!m_queue.isEmpty() && m_inflight.size() < kMaxConcurrent) {
         const qint64 now = m_failureClock.elapsed();
         const int heavy = heavyInflightCount();
-        // Lowest priority value first, FIFO within a class; heavy entries are
-        // skipped while heavy slots are full.
         int chosen = -1;
         int oldest = -1;
         for (int i = 0; i < m_queue.size(); ++i) {
@@ -1541,26 +1373,21 @@ void MediaBridge::pump()
             if (chosen < 0 || p.priority < m_queue.at(chosen).priority)
                 chosen = i;
         }
-        // Starvation bound: chrome can delay speculative work but never park
-        // it.
         if (oldest >= 0
             && now - m_queue.at(oldest).enqueuedAtMs >= m_starvationMs)
             chosen = oldest;
         if (chosen < 0)
-            break; // only heavy-blocked work remains queued
+            break;
         dispatch(m_queue.takeAt(chosen));
     }
 }
 
 void MediaBridge::checkInflightTimeouts()
 {
-    // Expire failure marks on the same tick: QML does not repoll, so an avatar
-    // marked failed has no other recovery path.
     sweepExpiredFailureMarks();
     if (m_inflight.isEmpty())
         return;
     const qint64 now = m_failureClock.elapsed();
-    // Collect first: reclaiming mutates m_inflight and pump() may re-enter it.
     QList<quint64> expired;
     for (auto it = m_inflight.constBegin(); it != m_inflight.constEnd(); ++it) {
         const Pending &p = it.value();
@@ -1589,8 +1416,6 @@ void MediaBridge::checkInflightTimeouts()
             Q_EMIT mediaBytesForStar(request.mediaKey, false, {},
                                      QStringLiteral("timeout"));
         } else {
-            // Transient: QML shows a fallback now and re-dispatches after the
-            // interval. A late completion for this op is now a stale no-op.
             dropInterestSets(request.cacheKey);
             markFailed(request, QStringLiteral("timeout"));
             Q_EMIT mediaFetchFailed(request.cacheKey, QStringLiteral("timeout"));
@@ -1623,7 +1448,6 @@ QVariantMap MediaBridge::healthSnapshot() const
     out.insert(QStringLiteral("contentHashComputed"), m_statContentHashComputed);
     out.insert(QStringLiteral("failureMarks"),
                static_cast<qint64>(m_failed.size()));
-    // A count that never drains means a wedged worker-thread write.
     out.insert(QStringLiteral("pendingPlayableWrites"),
                static_cast<qint64>(m_playableWriting.size()));
     out.insert(QStringLiteral("cacheBytes"), cacheBytesUsed());
@@ -1639,8 +1463,6 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     Q_UNUSED(filename);
     const auto it = m_inflight.find(opId);
     if (it == m_inflight.end()) {
-        // Stale (sign-out, watchdog) or foreign: never repopulate the next
-        // account's cache.
         ++m_statDroppedStale;
         qCDebug(lcMedia, "ready opId=%llu suppressed=stale/foreign",
                 static_cast<unsigned long long>(opId));
@@ -1659,7 +1481,6 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
         return;
     }
     if (request.starRequest) {
-        // Export, not cache, like Save As; GifStarredStore validates.
         Q_EMIT mediaBytesForStar(request.mediaKey, true, bytes, QString());
         return;
     }
@@ -1679,9 +1500,6 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
         Q_EMIT mediaFetchFailed(request.cacheKey, QStringLiteral("rejected"));
         return;
     }
-    // Thumbnail-class results must be images. A server that cannot thumbnail
-    // may return the original, labelled with the parent's mimetype, so the
-    // bytes decide. Permanent: the server will answer the same way.
     if ((request.kind == 1 || request.kind == 2)
         && looksLikeAvContainer(bytes)) {
         ++m_statFailed;
@@ -1696,22 +1514,14 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     }
     ++m_statCompleted;
     m_failed.remove(request.cacheKey);
-    // Read, not consumed: materialization runs on the worker thread and a card
-    // may still cancel meanwhile. Paths that start no write drop both entries;
-    // the write completion drops them otherwise.
     const bool playableWanted = m_playableWanted.contains(request.cacheKey);
     const bool prefetchWanted = m_prefetchWanted.contains(request.cacheKey);
-    // Remember the sniffed A/V size so metadata-less events can prefetch (and
-    // get posters) in later sessions.
-    // Not for a link: that would be a record of which links were played.
     if (request.kind == 0 && !isLinkMediaKey(request.mediaKey)
         && looksLikeAvContainer(bytes))
         Q_EMIT playableSizeLearned(request.mediaKey,
                                    static_cast<qint64>(bytes.size()));
-    // A motion probe keeps only a file, and only for an animation.
     const bool motionProbe =
         request.cacheKey.startsWith(QLatin1String("motion:"));
-    // Large playables live on disk; caching them would evict every image.
     if (!motionProbe
         && !((playableWanted || prefetchWanted)
              && bytes.size() > kLargeCacheSkipBytes))
@@ -1725,9 +1535,6 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     m_burstBytes += static_cast<qint64>(bytes.size());
     noteMediaActivity();
     if (motionProbe) {
-        // A still original leaves only its verdict, so it is never fetched
-        // again this session and never enters this bridge's RAM cache (the
-        // SDK media store keeps its own copy; see avatarAnimationSource).
         if (!writeMotionFile(request.cacheKey, bytes,
                              lightning::animsniff::kAvatarMaxPixels)
                  .isEmpty())
@@ -1740,13 +1547,8 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
             Q_EMIT animatedMediaReady(request.cacheKey);
         else if (demanded)
             Q_EMIT mediaFetchFailed(request.cacheKey, QStringLiteral("invalid_gif"));
-        // A speculative asker gets silence; its still Image draws from
-        // mediaCached().
     }
     if (playableWanted || prefetchWanted) {
-        // playableMediaReady, warm-up and the poster hook fire from the write
-        // completion. Only a refusal (unknown container, over the bound) is
-        // terminal here.
         if (!beginPlayableWrite(request.cacheKey, request.mediaKey, bytes,
                                 mimetype, playableWanted)) {
             m_playableWanted.remove(request.cacheKey);
@@ -1776,22 +1578,17 @@ bool MediaBridge::beginPlayableWrite(const QString &cacheKey,
                                      const QString &mimetype,
                                      bool notifyFailure)
 {
-    // Coalesce: a second caller never starts a second write. The completion
-    // broadcasts playableMediaReady, and the failure obligation is the OR of
-    // all callers', so a Play joining a prefetch still gets a terminal answer.
     const auto existing = m_playableWriting.find(cacheKey);
     if (existing != m_playableWriting.end()) {
         existing->notifyFailure = existing->notifyFailure || notifyFailure;
         return true;
     }
-    // Refusals below happen before any byte reaches the worker, so no file
-    // exists.
     if (bytes.isEmpty() || bytes.size() > m_playableMaxBytes
         || !m_animatedDir || !m_animatedDir->isValid())
         return false;
     const QString extension = playableExtensionFor(bytes, mimetype);
     if (extension.isEmpty())
-        return false; // unknown container — fail closed, never materialize
+        return false;
     if (m_playableNameSalt.isEmpty())
         m_playableNameSalt = QUuid::createUuid().toString(QUuid::Id128);
     const QString name = QString::fromLatin1(QCryptographicHash::hash(
@@ -1802,7 +1599,7 @@ bool MediaBridge::beginPlayableWrite(const QString &cacheKey,
     const quint64 serial = ensurePlayableWriter()->write(
         cacheKey, path, bytes, m_sessionGeneration);
     if (serial == 0)
-        return false; // writer refused; nothing was created
+        return false;
     PendingPlayableWrite pending;
     pending.serial = serial;
     pending.mediaKey = mediaKey;
@@ -1819,21 +1616,16 @@ void MediaBridge::onPlayableWriteFinished(quint64 serial,
                                           const QString &path,
                                           quint64 generation, bool ok)
 {
-    // Isolation by tracking hash and generation, so a previous account's
-    // completion publishes nothing. The serial distinguishes a cancelled job
-    // from its replacement.
     const auto it = m_playableWriting.find(cacheKey);
     if (it == m_playableWriting.end() || it->serial != serial
         || generation != m_sessionGeneration) {
         if (ok)
-            QFile::remove(path); // orphan from a session that is over
+            QFile::remove(path);
         return;
     }
     const PendingPlayableWrite pending = it.value();
     m_playableWriting.erase(it);
     if (!ok) {
-        // The writer discarded its temp file. No failure mark: a disk error is
-        // not a verdict on the payload, and the consumer may retry.
         m_posterWanted.remove(cacheKey);
         m_playableWanted.remove(cacheKey);
         m_prefetchWanted.remove(cacheKey);
@@ -1841,7 +1633,6 @@ void MediaBridge::onPlayableWriteFinished(quint64 serial,
             Q_EMIT mediaFetchFailed(cacheKey, QStringLiteral("rejected"));
         return;
     }
-    // Only eviction unlinks remain on the GUI thread; keep them attributed.
     stalltrace::Scope stallScope("playable-write");
     registerPlayableFile(cacheKey, path, pending.bytes);
     m_playableWanted.remove(cacheKey);
@@ -1865,8 +1656,6 @@ void MediaBridge::registerPlayableFile(const QString &cacheKey,
     while ((total > m_playableMaxBytes
             || m_playableFiles.size() > m_playableMaxEntries)
            && m_playableLru.size() > 1) {
-        // Least-recent unpinned victim. If everything is pinned the cap is
-        // exceeded, bounded by the number of live players.
         int victimIndex = -1;
         for (int i = m_playableLru.size() - 1; i >= 1; --i) {
             if (!m_pinnedPlayables.contains(m_playableLru.at(i))) {
@@ -1891,7 +1680,6 @@ void MediaBridge::pinPlayable(const QString &mediaKey)
 {
     if (mediaKey.isEmpty())
         return;
-    // Refcounted: two cards can pin the same file.
     ++m_pinnedPlayables[mediaCacheKey(mediaKey, 0)];
 }
 
@@ -1902,7 +1690,7 @@ void MediaBridge::unpinPlayable(const QString &mediaKey)
     const QString cacheKey = mediaCacheKey(mediaKey, 0);
     const auto it = m_pinnedPlayables.find(cacheKey);
     if (it == m_pinnedPlayables.end())
-        return; // unbalanced unpin — floored, never negative
+        return;
     if (--it.value() <= 0)
         m_pinnedPlayables.erase(it);
 }
@@ -1914,15 +1702,10 @@ void MediaBridge::dropQueuedSpeculative()
     int dropped = 0;
     for (int i = m_queue.size() - 1; i >= 0; --i) {
         const Pending &p = m_queue.at(i);
-        // Keep entries a playableSource() caller coalesced onto ("full:" is
-        // shared by the animated and playable paths); dropping them would
-        // strand it.
         if (p.priority == 3 && !p.saveRequest && !p.starRequest
             && !m_playableWanted.contains(p.cacheKey)) {
             m_animatedWanted.remove(p.cacheKey);
             m_animatedDemanded.remove(p.cacheKey);
-            // Playable prefetches and poster hooks are equally stale after a
-            // room switch.
             m_prefetchWanted.remove(p.cacheKey);
             m_posterWanted.remove(p.cacheKey);
             m_queue.removeAt(i);
@@ -1938,10 +1721,6 @@ void MediaBridge::dropQueuedSpeculative()
 void MediaBridge::promoteQueuedRequest(const QString &cacheKey, int priority,
                                        int timeoutClass)
 {
-    // alreadyPending() suppresses duplicate requests, so an interactive caller
-    // landing on a speculative entry would inherit its class. Raise the entry's
-    // priority in place (keeping its starvation age) and widen its timeout
-    // class.
     for (int i = 0; i < m_queue.size(); ++i) {
         Pending &p = m_queue[i];
         if (p.cacheKey != cacheKey || p.saveRequest || p.starRequest)
@@ -1960,15 +1739,11 @@ QString MediaBridge::animatedExtensionFor(const QByteArray &bytes)
         return {};
     if (bytes.startsWith("GIF87a") || bytes.startsWith("GIF89a"))
         return QStringLiteral("gif");
-    // Only animated WebP: a still one must take the Image path. An animation
-    // carries a "VP8X" chunk with the animation bit (0x02) set.
     if (bytes.size() >= 21 && bytes.startsWith("RIFF")
         && std::memcmp(bytes.constData() + 8, "WEBP", 4) == 0
         && std::memcmp(bytes.constData() + 12, "VP8X", 4) == 0
         && (static_cast<unsigned char>(bytes.at(20)) & 0x02u) != 0)
         return QStringLiteral("webp");
-    // No APNG: Qt's PNG handler does not animate, so an AnimatedImage would
-    // show one frame while suppressing the still Image that already does.
     return {};
 }
 
@@ -1980,9 +1755,6 @@ QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
     if (extension.isEmpty() || bytes.size() > maxAnimatedBytes
         || !m_animatedDir || !m_animatedDir->isValid())
         return {};
-    // A new name for every write (see m_animatedWriteSerial): the same bytes
-    // written again after an eviction must be a new URL, or an item still
-    // showing the old one never reloads.
     const QString name = QString::fromLatin1(
         QCryptographicHash::hash(cacheKey.toUtf8(), QCryptographicHash::Sha256).toHex())
         + QLatin1Char('-') + QString::number(++m_animatedWriteSerial)
@@ -1996,8 +1768,6 @@ QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
         return {};
     if (file.write(bytes) != bytes.size() || !file.commit())
         return {};
-    // The key's previous file, if it is still there: gone unless something is
-    // showing it (the session's directory removal takes it then).
     const QString previous = m_animatedFiles.value(cacheKey);
     if (!previous.isEmpty() && previous != path && !isAnimationHeld(cacheKey))
         QFile::remove(previous);
@@ -2022,10 +1792,6 @@ QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
         total -= m_animatedSizes.take(victim);
         QFile::remove(m_animatedFiles.take(victim));
     }
-    // A hard ceiling over held files too: a timeline keeps every animated row
-    // it has loaded, so holds alone are bounded only by history. Past it the
-    // oldest held file goes as well; its viewer stops at its next loop, and
-    // Avatar and BannerMotion notice that and ask again.
     for (qsizetype i = m_animatedLru.size() - 1;
          i > 0
          && (total > kAnimatedHardCapBytes
@@ -2073,7 +1839,6 @@ bool MediaBridge::holdAnimation(QObject *owner, const QString &fileUrl)
     }
     AnimationHold hold;
     hold.cacheKey = cacheKey;
-    // The pointer is only a key here; it is never dereferenced after this.
     hold.destroyed = connect(owner, &QObject::destroyed, this,
                              [this, owner] { releaseAnimation(owner); });
     m_animationHolds.insert(owner, hold);
@@ -2091,7 +1856,6 @@ void MediaBridge::releaseAnimation(QObject *owner)
 
 void MediaBridge::dropInterestSets(const QString &cacheKey)
 {
-    // Terminal outcome: consumers were told, and a retry re-expresses interest.
     m_playableWanted.remove(cacheKey);
     m_animatedWanted.remove(cacheKey);
     m_animatedDemanded.remove(cacheKey);
@@ -2103,9 +1867,9 @@ void MediaBridge::markFailed(const Pending &request, const QString &category,
                              qint64 retryAfterMs)
 {
     if (request.saveRequest || request.starRequest)
-        return; // Save/star report through their own signal, not source state.
+        return;
     if (m_failed.size() >= kMaxFailureMarks)
-        m_failed.clear(); // defensive bound
+        m_failed.clear();
     m_failed.insert(request.cacheKey,
                     {category, m_failureClock.elapsed(), retryAfterMs});
 }
@@ -2113,9 +1877,6 @@ void MediaBridge::markFailed(const Pending &request, const QString &category,
 void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
                                 const QString &rawCategory)
 {
-    // The Rust circuit breaker reports "server_unreachable:<ms>", its
-    // remaining backoff. The wait is kept on the mark; consumers see the plain
-    // category.
     QString category = rawCategory;
     qint64 retryAfterMs = 0;
     static const QLatin1String kUnreachable("server_unreachable");
@@ -2123,7 +1884,6 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
         category = kUnreachable;
         bool ok = false;
         const qint64 ms = rawCategory.mid(kUnreachable.size() + 1).toLongLong(&ok);
-        // Bounded: a corrupt value must not pin a key for the session.
         if (ok && ms > 0)
             retryAfterMs = qMin<qint64>(ms, 10 * 60 * 1000);
     }
@@ -2156,10 +1916,6 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
     ++m_statFailed;
     ++m_burstFailed;
     noteMediaActivity();
-    // Failures keep their own line in the default category: rare and
-    // actionable.
-    // A refusal by the circuit breaker is expected for as long as the server
-    // is down, once per item: trace level, or the log is a wall of them.
     if (category == kUnreachable)
         qCDebug(lcMediaTrace, "failed %s category=%s retry_after_ms=%lld",
                 qUtf8Printable(keyTag(request.cacheKey)),
@@ -2170,9 +1926,6 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
                   qUtf8Printable(keyTag(request.cacheKey)),
                   qUtf8Printable(category));
     dropInterestSets(request.cacheKey);
-    // An original over the motion-probe size class can never play: final for
-    // the session, like a still, rather than a transient mark that expires
-    // into another full download.
     if (category == QLatin1String("too_large")
         && request.cacheKey.startsWith(QLatin1String("motion:"))) {
         if (m_motionVerdict.size() >= kMaxMotionVerdicts)
@@ -2193,21 +1946,15 @@ QString MediaBridge::sanitizedFileName(const QString &name)
         QStringLiteral("[\\\\/]")), Qt::SkipEmptyParts);
     if (!parts.isEmpty())
         out = parts.last();
-    // Format characters first (bidi overrides turn "r<RLO>txt.exe" into a name
-    // that reads as .txt), before the length cap can cut around them.
     out = matrix::presentable_name::withoutFormatCharacters(out);
-    // Control characters, including NUL.
     for (QChar &c : out) {
         if (c.unicode() < 0x20 || c.unicode() == 0x7f)
             c = QLatin1Char('_');
     }
-    // Refuse `..` only; a single leading dot is legitimate in a user-typed
-    // name.
     while (out == QLatin1String("..") || out.startsWith(QLatin1String("../"))
            || out.startsWith(QLatin1String("..\\")))
         out.remove(0, 2);
     out = out.trimmed();
-    // Windows reserved device names, whatever the suffix.
     static const QStringList reserved = {
         QStringLiteral("con"), QStringLiteral("prn"), QStringLiteral("aux"),
         QStringLiteral("nul"), QStringLiteral("com1"), QStringLiteral("com2"),
@@ -2221,8 +1968,6 @@ QString MediaBridge::sanitizedFileName(const QString &name)
     };
     if (reserved.contains(out.section(QLatin1Char('.'), 0, 0).toLower()))
         out.prepend(QStringLiteral("file-"));
-    // Bounded length (filesystems cap components at 255 bytes), keeping the
-    // suffix.
     if (out.size() > 120) {
         const int dot = out.lastIndexOf(QLatin1Char('.'));
         const QString suffix =
@@ -2236,8 +1981,6 @@ QString MediaBridge::sanitizedFileName(const QString &name)
 
 QString MediaBridge::suggestedSaveName(const QString &rawName) const
 {
-    // Never seed a save dialog's path with a sender-chosen string. Empty means
-    // no suggestion.
     if (rawName.trimmed().isEmpty())
         return {};
     const QString leaf = sanitizedFileName(rawName);
@@ -2278,10 +2021,8 @@ void MediaBridge::startSave(const QString &mediaKey, const QUrl &destination,
     request.saveRequest = true;
     request.saveDestination = destination;
     request.saveUniquify = uniquify;
-    request.timeoutClass = 2; // save class (270s Rust / 5min watchdog)
-    request.priority = 0;     // explicit user intent
-    // Recorded before dispatch(): a dispatch that fails at once reports
-    // saveFinished synchronously, and that must find the entry to remove.
+    request.timeoutClass = 2;
+    request.priority = 0;
     m_activeSaves.append({mediaKey,
                           sanitizedFileName(destination.fileName())});
     Q_EMIT activeSavesChanged();
@@ -2340,7 +2081,6 @@ void MediaBridge::cancelSave(const QString &mediaKey)
             ++it;
         }
     }
-    // Every request for this key is gone, so drop every entry for it.
     m_activeSaves.removeIf(
         [&](const ActiveSave &s) { return s.mediaKey == mediaKey; });
     Q_EMIT activeSavesChanged();
@@ -2356,13 +2096,11 @@ void MediaBridge::fetchFullForStar(const QString &mediaKey)
                                  QStringLiteral("unavailable"));
         return;
     }
-    // Usually cached already: an inline GIF fetched these exact bytes.
     const QByteArray cached = cachedBytes(mediaCacheKey(mediaKey, 0));
     if (!cached.isEmpty()) {
         Q_EMIT mediaBytesForStar(mediaKey, true, cached, QString());
         return;
     }
-    // Drop a duplicate star request (double tap); the one in flight answers.
     for (const Pending &p : m_inflight) {
         if (p.starRequest && p.mediaKey == mediaKey)
             return;
@@ -2376,8 +2114,8 @@ void MediaBridge::fetchFullForStar(const QString &mediaKey)
     request.mediaKey = mediaKey;
     request.kind = 0;
     request.starRequest = true;
-    request.timeoutClass = 2; // save class — an explicit user export
-    request.priority = 0;     // explicit user intent
+    request.timeoutClass = 2;
+    request.priority = 0;
     dispatch(request);
 }
 
@@ -2386,14 +2124,13 @@ QString MediaBridge::cachedFullContentHash(const QString &mediaKey) const
     if (mediaKey.isEmpty())
         return {};
     const QString cacheKey = mediaCacheKey(mediaKey, 0);
-    QByteArray bytes; // implicitly shared: the copy itself is O(1)
+    QByteArray bytes;
     quint32 rev = 0;
     {
         QMutexLocker lock(&m_cacheMutex);
         const auto it = m_cache.constFind(cacheKey);
         if (it == m_cache.constEnd())
             return {};
-        // No touch(): a read-only predicate must not reorder LRU eviction.
         rev = m_revision.value(cacheKey);
         const auto memoized = m_contentHashCache.constFind(cacheKey);
         if (memoized != m_contentHashCache.constEnd() && memoized->revision == rev)
@@ -2401,17 +2138,10 @@ QString MediaBridge::cachedFullContentHash(const QString &mediaKey) const
         bytes = it.value();
     }
 
-    // Hash outside the lock: m_cacheMutex is shared with the image-reader
-    // thread, and hashing several MiB would stall it. The COW copy keeps the
-    // bytes valid.
     const QString hex = QString::fromLatin1(
         QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
 
     QMutexLocker lock(&m_cacheMutex);
-    // Memoize only if the same buffer is still cached. Compare data pointers,
-    // not revisions: clear() resets m_revision, so a revision can repeat (ABA).
-    // Currently all callers run on the GUI thread, but a worker-thread hash
-    // would make this reachable.
     const auto after = m_cache.constFind(cacheKey);
     if (after != m_cache.constEnd()
         && after->constData() == bytes.constData()
@@ -2426,9 +2156,6 @@ void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes
                                 const QString &mediaKey, bool uniquify)
 {
     const QFileInfo chosen(destination.toLocalFile());
-    // Canonicalize the parent directory on its own, then join the sanitized
-    // leaf, so `../` in the name cannot move the target out of the chosen
-    // directory.
     const QDir parent(QFileInfo(chosen.absolutePath()).canonicalFilePath());
     if (!parent.exists()) {
         Q_EMIT saveFinished(false, tr("The destination is not writable."),
@@ -2437,8 +2164,6 @@ void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes
     }
     const QString leaf = sanitizedFileName(chosen.fileName());
     if (uniquify) {
-        // Created exclusively (NewOnly), so a name another process takes
-        // between the check and the write is skipped, never replaced.
         for (int n = 0; n < 1000; ++n) {
             const QString candidate =
                 parent.filePath(savenaming::numberedName(leaf, n));
@@ -2459,7 +2184,6 @@ void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes
                 return;
             }
             file.close();
-            // Windows mark-of-the-web; best effort, never fails the save.
             savenaming::markAsDownloaded(candidate);
             Q_EMIT saveCompleted(mediaKey,
                                  QFileInfo(candidate).absoluteFilePath());
@@ -2472,8 +2196,6 @@ void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes
     }
     const QString target = parent.filePath(leaf);
     QSaveFile file(target);
-    // A Flatpak's save portal grants the chosen file through the document
-    // portal, where a temporary file beside it may not be creatable.
     file.setDirectWriteFallback(true);
     if (!file.open(QIODevice::WriteOnly)) {
         Q_EMIT saveFinished(false, tr("The destination is not writable."),
@@ -2484,7 +2206,6 @@ void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes
         Q_EMIT saveFinished(false, tr("Writing the file failed."), mediaKey);
         return;
     }
-    // Windows mark-of-the-web; best effort, never fails the save.
     savenaming::markAsDownloaded(target);
     Q_EMIT saveCompleted(mediaKey, QFileInfo(target).absoluteFilePath());
     Q_EMIT saveFinished(true, tr("Saved."), mediaKey);
@@ -2492,9 +2213,6 @@ void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes
 
 void MediaBridge::clear()
 {
-    // Named for the stall tracer: this runs on the GUI thread inside the
-    // sign-out and account-switch fan-out, where a 6.7 s stall was seen once
-    // (2026-09-30) and could not be attributed.
     stalltrace::Scope stallScope("media-clear");
     {
         QMutexLocker lock(&m_cacheMutex);
@@ -2509,15 +2227,11 @@ void MediaBridge::clear()
         m_artworkCache.clear();
         m_artworkLru.clear();
         m_artworkBytes = 0;
-        // Revisions restart with the session.
         m_revision.clear();
-        // Memoized digests refer to bytes that are gone.
         m_contentHashCache.clear();
     }
     m_inflight.clear();
     m_queue.clear();
-    // Their requests are gone with the session; a stale "Saving…" would never
-    // be cleared. No saveFinished: nothing is owed to the next account.
     if (!m_activeSaves.isEmpty()) {
         m_activeSaves.clear();
         Q_EMIT activeSavesChanged();
@@ -2527,7 +2241,6 @@ void MediaBridge::clear()
     m_animatedSizes.clear();
     m_animatedLru.clear();
     m_previewAnimMemo.clear();
-    // The files are going with the directory below; a hold names nothing now.
     for (const AnimationHold &hold : std::as_const(m_animationHolds))
         disconnect(hold.destroyed);
     m_animationHolds.clear();
@@ -2542,50 +2255,30 @@ void MediaBridge::clear()
     m_prefetchWanted.clear();
     m_posterWanted.clear();
     m_posterExtracting.clear();
-    // An extraction still decoding must not deliver a poster from the previous
-    // account. Clearing m_posterExtracting above makes late completions inert;
-    // disconnecting and dropping the extractor tears down its decoder.
     if (m_posterExtractor) {
         disconnect(m_posterExtractor, nullptr, this, nullptr);
-        // Without waiting for the worker thread: the join can take ~1 s of Qt
-        // Multimedia init, and this runs on the GUI thread during an account
-        // switch.
         m_posterExtractor->retireWithoutWaiting();
         m_posterExtractor->deleteLater();
         m_posterExtractor = nullptr;
     }
-    m_pinnedPlayables.clear(); // the files the pins protected are gone too
-    // Session isolation for the write path: clearing the tracking hash makes
-    // late completions inert and the generation bump is a second guard.
-    // cancelAll() only requests cancellation, checked between chunks, so a
-    // final chunk may still land; the m_animatedDir reset below is what removes
-    // it. The writer itself is kept: it holds only a thread, no account data.
+    m_pinnedPlayables.clear();
     m_playableWriting.clear();
     ++m_sessionGeneration;
     if (m_playableWriter)
         m_playableWriter->cancelAll();
-    m_playableNameSalt.clear(); // next session gets fresh unguessable names
-    // Synchronous filesystem work (a recursive delete, a new directory, a
-    // lock file), attributed on its own: it can wait on a busy disk.
+    m_playableNameSalt.clear();
     stalltrace::Scope scratchScope("media-scratch-dir");
-    // Release the live mark before the directory is removed.
     if (m_animatedDir)
         lightning::portable::releaseScratchDir(m_animatedDir->path());
-    m_animatedDir.reset(); // recursively removes decrypted temporary files
+    m_animatedDir.reset();
     m_animatedDir = std::make_unique<QTemporaryDir>(
         lightning::portable::mediaScratchRoot()
         + QStringLiteral("/lightning-animated-XXXXXX"));
-    // The replacement is a new directory and needs its own mark.
     lightning::portable::holdScratchDirLive(m_animatedDir->path());
 }
 
 void MediaBridge::retryAvatar(const QString &mxcUri)
 {
-    // One key, named by the caller from the ACTIVE account's own record: the
-    // cache clear of an account transition drops a refused (opId 0) avatar
-    // request without telling its consumer, and this asks that consumer again.
-    // Never a list of whatever was refused before: that would let another
-    // account's mxc:// be requested through this session.
     if (mxcUri.isEmpty())
         return;
     const QString cacheKey = mxcCacheKey(mxcUri, kAvatarCanonicalEdge);
@@ -2595,7 +2288,5 @@ void MediaBridge::retryAvatar(const QString &mxcUri)
 
 void MediaBridge::onLoggedOut()
 {
-    // Decrypted media must not outlive the session, and no stale completion may
-    // repopulate the cache.
     clear();
 }

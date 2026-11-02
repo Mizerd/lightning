@@ -1,7 +1,3 @@
-// Moderation (kick / ban) through RoomInfoController: snapshot permission
-// ingestion (canKick/canBan/ownPowerLevel + per-member power levels), gating
-// on the SDK-derived flags, one-in-flight discipline, sanitized result
-// mapping, and stale-result rejection after a room switch.
 
 #include "app/RoomInfoController.h"
 #include "matrix/MatrixClient.h"
@@ -28,7 +24,6 @@ public:
     QString lastModReason;
     quint64 lastOpId = 0;
 
-    // MatrixClient pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -107,9 +102,6 @@ public:
         ++inviteCalls;
         lastInviteRoom = roomId;
         lastInvitees = userIds;
-        // Own op record: the roster refresh that follows a successful
-        // action bumps lastOpId again, so the shared field cannot
-        // identify the invite op.
         lastInviteOpId = nextOp++;
         lastOpId = lastInviteOpId;
         return lastInviteOpId;
@@ -119,8 +111,6 @@ public:
     QStringList lastInvitees;
     quint64 lastInviteOpId = 0;
 
-    // 0 = the backend refused before any request (the Rust gate's error
-    // string, as for an invitation before GitHub #28).
     quint64 leaveRoom(const QString &roomId) override
     {
         ++leaveCalls;
@@ -171,8 +161,6 @@ QVariantMap snapshotWithMembers(bool canKick, bool canBan, qlonglong ownPl,
 QVariantMap snapshotWithMembers(bool canKick, bool canBan, qlonglong ownPl,
                                 const QVariantList &members)
 {
-    // Default: the common configuration where unban is granted alongside
-    // ban (kick level <= ban level, so max(ban, kick) == ban).
     return snapshotWithMembers(canKick, canBan, ownPl, members,
                                canKick && canBan);
 }
@@ -184,7 +172,7 @@ QVariantMap snapshotWith(bool canKick, bool canBan, qlonglong ownPl)
         QVariantList{ memberRow(QStringLiteral("@bob:example.org"), 0) });
 }
 
-} // namespace
+}
 
 class RoomInfoModerationTest : public QObject
 {
@@ -213,9 +201,6 @@ private Q_SLOTS:
                  qlonglong(0));
     }
 
-    // The offer/dispatch policy lives in the controller, not QML: equal power,
-    // higher power, self, an unknown target and a negative-but-known level all
-    // resolve here.
     void canModerateEnforcesPowerLevelPolicy()
     {
         FakeClient client;
@@ -223,12 +208,10 @@ private Q_SLOTS:
         controller.setClient(&client);
         controller.setRoomId(QStringLiteral("!room:example.org"));
         const QVariantList members = {
-            memberRow(QStringLiteral("@me:example.org"), 100, /*isOwn=*/true),
+            memberRow(QStringLiteral("@me:example.org"), 100,true),
             memberRow(QStringLiteral("@below:example.org"), 50),
             memberRow(QStringLiteral("@equal:example.org"), 100),
             memberRow(QStringLiteral("@above:example.org"), 200),
-            // Element's "Restricted" role: a legal NEGATIVE level, which
-            // must read as known-and-below, never as "unknown".
             memberRow(QStringLiteral("@restricted:example.org"), -1),
         };
         Q_EMIT client.roomMembersReceived(
@@ -245,23 +228,16 @@ private Q_SLOTS:
                                         QStringLiteral("ban")));
         QVERIFY(!controller.canModerate(QStringLiteral("@me:example.org"),
                                         QStringLiteral("kick")));
-        // Unknown target (no snapshot row) fails closed.
         QVERIFY(!controller.canModerate(
             QStringLiteral("@stranger:example.org"), QStringLiteral("kick")));
-        // Unknown op fails closed.
         QVERIFY(!controller.canModerate(QStringLiteral("@below:example.org"),
                                         QStringLiteral("smite")));
 
-        // The dispatch path re-checks the same policy: an equal-power kick
-        // never reaches the client even though canKick is true.
         controller.kickMember(QStringLiteral("@equal:example.org"), {});
         QCOMPARE(client.kickCalls, 0);
         QVERIFY(!controller.moderationPending());
     }
 
-    // Unban is membership-aware: only banned members can be unbanned, and
-    // banned members can be neither kicked nor re-banned. Unban rides the
-    // ban power flag.
     void unbanIsOfferedOnlyForBannedMembers()
     {
         FakeClient client;
@@ -269,12 +245,12 @@ private Q_SLOTS:
         controller.setClient(&client);
         controller.setRoomId(QStringLiteral("!room:example.org"));
         const QVariantList members = {
-            memberRow(QStringLiteral("@me:example.org"), 100, /*isOwn=*/true),
+            memberRow(QStringLiteral("@me:example.org"), 100,true),
             memberRow(QStringLiteral("@joined:example.org"), 0),
             memberRow(QStringLiteral("@banned:example.org"), 0,
-                      /*isOwn=*/false, QStringLiteral("banned")),
+false, QStringLiteral("banned")),
             memberRow(QStringLiteral("@bannedadmin:example.org"), 100,
-                      /*isOwn=*/false, QStringLiteral("banned")),
+false, QStringLiteral("banned")),
         };
         Q_EMIT client.roomMembersReceived(
             client.lastOpId, QStringLiteral("!room:example.org"),
@@ -282,20 +258,16 @@ private Q_SLOTS:
 
         QVERIFY(controller.canModerate(QStringLiteral("@banned:example.org"),
                                        QStringLiteral("unban")));
-        // A banned member is already out: no kick, no second ban.
         QVERIFY(!controller.canModerate(QStringLiteral("@banned:example.org"),
                                         QStringLiteral("kick")));
         QVERIFY(!controller.canModerate(QStringLiteral("@banned:example.org"),
                                         QStringLiteral("ban")));
-        // A joined member cannot be "unbanned".
         QVERIFY(!controller.canModerate(QStringLiteral("@joined:example.org"),
                                         QStringLiteral("unban")));
-        // The strictly-below rule applies to unban too.
         QVERIFY(!controller.canModerate(
             QStringLiteral("@bannedadmin:example.org"),
             QStringLiteral("unban")));
 
-        // Dispatch reaches the client's unban call.
         controller.unbanMember(QStringLiteral("@banned:example.org"),
                                QStringLiteral("appeal accepted"));
         QCOMPARE(client.unbanCalls, 1);
@@ -306,9 +278,6 @@ private Q_SLOTS:
         QVERIFY(controller.moderationPending());
     }
 
-    // Unban's required level is max(ban, kick), so a room with kick above ban
-    // grants can_ban without can_unban. The flag comes from the SDK's
-    // PowerLevelAction::Unban, never derived from the ban flag.
     void unbanHasItsOwnPermissionFlag()
     {
         FakeClient client;
@@ -317,13 +286,12 @@ private Q_SLOTS:
         controller.setRoomId(QStringLiteral("!room:example.org"));
         const QVariantList members = {
             memberRow(QStringLiteral("@banned:example.org"), 0,
-                      /*isOwn=*/false, QStringLiteral("banned")),
+false, QStringLiteral("banned")),
         };
-        // canBan true, canUnban false — the kick-above-ban configuration.
         Q_EMIT client.roomMembersReceived(
             client.lastOpId, QStringLiteral("!room:example.org"),
             snapshotWithMembers(false, true, 100, members,
-                                /*canUnban=*/false));
+false));
         QVERIFY(!controller.canModerate(QStringLiteral("@banned:example.org"),
                                         QStringLiteral("unban")));
         controller.unbanMember(QStringLiteral("@banned:example.org"), {});
@@ -331,7 +299,6 @@ private Q_SLOTS:
         QVERIFY(!controller.moderationPending());
     }
 
-    // Invite-back rides ONLY a successful unban that asked for it.
     void unbanInviteBackFollowsSuccessOnly()
     {
         FakeClient client;
@@ -340,15 +307,14 @@ private Q_SLOTS:
         controller.setRoomId(QStringLiteral("!room:example.org"));
         const QVariantList members = {
             memberRow(QStringLiteral("@banned:example.org"), 0,
-                      /*isOwn=*/false, QStringLiteral("banned")),
+false, QStringLiteral("banned")),
         };
         Q_EMIT client.roomMembersReceived(
             client.lastOpId, QStringLiteral("!room:example.org"),
             snapshotWithMembers(true, true, 100, members));
 
-        // Failure path first: no invite is ever dispatched.
         controller.unbanMember(QStringLiteral("@banned:example.org"), {},
-                               /*inviteBack=*/true);
+true);
         QCOMPARE(client.unbanCalls, 1);
         Q_EMIT client.moderationFinished(client.lastOpId,
                                          QStringLiteral("!room:example.org"),
@@ -357,14 +323,12 @@ private Q_SLOTS:
                                          QStringLiteral("forbidden"));
         QCOMPARE(client.inviteCalls, 0);
 
-        // Success path: exactly one invite for exactly that user, and its
-        // result is reported under op "invite_back".
         Q_EMIT client.roomMembersReceived(client.lastOpId,
                                           QStringLiteral("!room:example.org"),
                                           snapshotWithMembers(true, true, 100,
                                                               members));
         controller.unbanMember(QStringLiteral("@banned:example.org"), {},
-                               /*inviteBack=*/true);
+true);
         const quint64 unbanOp = client.lastOpId;
         QSignalSpy done(&controller,
                         &RoomInfoController::moderationActionFinished);
@@ -388,13 +352,12 @@ private Q_SLOTS:
         }
         QVERIFY(sawInviteBack);
 
-        // Without the flag, a successful unban invites nobody.
         Q_EMIT client.roomMembersReceived(client.lastOpId,
                                           QStringLiteral("!room:example.org"),
                                           snapshotWithMembers(true, true, 100,
                                                               members));
         controller.unbanMember(QStringLiteral("@banned:example.org"), {},
-                               /*inviteBack=*/false);
+false);
         Q_EMIT client.moderationFinished(client.lastOpId,
                                          QStringLiteral("!room:example.org"),
                                          QStringLiteral("@banned:example.org"),
@@ -402,8 +365,6 @@ private Q_SLOTS:
         QCOMPARE(client.inviteCalls, 1);
     }
 
-    // The roster refresh after a successful action is client-initiated: sync
-    // never emits a members snapshot by itself.
     void successfulActionRefreshesRoster()
     {
         FakeClient client;
@@ -423,7 +384,6 @@ private Q_SLOTS:
                                          QStringLiteral("kick"), true, {});
         QCOMPARE(client.memberCalls, 2);
 
-        // A FAILED action does not refetch.
         Q_EMIT client.roomMembersReceived(client.lastOpId,
                                           QStringLiteral("!room:example.org"),
                                           snapshotWith(true, true, 100));
@@ -436,8 +396,6 @@ private Q_SLOTS:
         QCOMPARE(client.memberCalls, 2);
     }
 
-    // A synchronous dispatch rejection (op 0) reports a failure instead of
-    // arming the confirm surface forever.
     void synchronousRejectionReportsFailure()
     {
         FakeClient client;
@@ -493,7 +451,6 @@ private Q_SLOTS:
         QCOMPARE(client.lastModReason, QStringLiteral("spam"));
         QVERIFY(controller.moderationPending());
 
-        // A second action while one is pending is refused.
         controller.banMember(QStringLiteral("@bob:example.org"), {});
         QCOMPARE(client.banCalls, 0);
 
@@ -532,9 +489,6 @@ private Q_SLOTS:
             QStringLiteral("permission")));
     }
 
-    // GitHub #28: a leave the backend refused synchronously (op id 0) was
-    // dropped without a word, so "Leave room" on an invitation did nothing.
-    // Both entry points must report it.
     void aRefusedLeaveIsReportedNotSwallowed()
     {
         FakeClient client;
@@ -552,7 +506,6 @@ private Q_SLOTS:
         QVERIFY(!failed.at(0).at(1).toString().isEmpty());
         QCOMPARE(left.count(), 0);
 
-        // The info panel's own path carries its error in leaveError.
         controller.setRoomId(QStringLiteral("!room:example.org"));
         controller.leaveRoom();
         QCOMPARE(client.leaveCalls, 2);
@@ -560,7 +513,6 @@ private Q_SLOTS:
         QVERIFY(!controller.leaveError().isEmpty());
     }
 
-    // The accepted path is unchanged: an op id, then the result decides.
     void anAcceptedLeaveWaitsForItsResult()
     {
         FakeClient client;
@@ -604,10 +556,6 @@ private Q_SLOTS:
         QCOMPARE(done.count(), 0);
     }
 
-    // Break-it B026/B031: a kick or ban seen while a roster fetch was in
-    // flight was dropped, and that fetch may have read the store before the
-    // change, so the panel kept listing the removed member. The poke is now
-    // owed and paid once the fetch ends.
     void aMembershipPokeDuringAFetchIsFetchedAfterIt()
     {
         FakeClient client;
@@ -619,9 +567,8 @@ private Q_SLOTS:
         const quint64 inFlight = client.lastOpId;
 
         Q_EMIT client.roomMemberEventSeen(room);
-        QCOMPARE(client.memberCalls, 1); // never two fetches at once
+        QCOMPARE(client.memberCalls, 1);
 
-        // A partial answer does not end the op, so nothing is fetched yet.
         QVariantMap partial = snapshotWith(true, true, 100);
         partial.insert(QStringLiteral("partial"), true);
         Q_EMIT client.roomMembersReceived(inFlight, room, partial);
@@ -633,7 +580,6 @@ private Q_SLOTS:
         QTRY_COMPARE(client.memberCalls, 2);
         QVERIFY(controller.loading());
 
-        // Paid once: the next answer ends it without another fetch.
         Q_EMIT client.roomMembersReceived(client.lastOpId, room,
                                           snapshotWith(true, true, 100));
         QCoreApplication::processEvents();
@@ -641,7 +587,6 @@ private Q_SLOTS:
         QVERIFY(!controller.loading());
     }
 
-    // A debt for one room is never paid against the next.
     void anOwedFetchDoesNotFollowARoomSwitch()
     {
         FakeClient client;
@@ -658,9 +603,6 @@ private Q_SLOTS:
         QCOMPARE(client.memberCalls, 2);
     }
 
-    // The composer's gate and the moderators' Delete come from the SDK's
-    // answers in the snapshot. Unknown posts (a slow snapshot must not grey
-    // the composer out) and does not redact others.
     void sendAndRedactPermissionsComeFromTheSnapshot()
     {
         FakeClient client;
@@ -695,7 +637,6 @@ private Q_SLOTS:
         QVERIFY(controller.sendBlockedReason().isEmpty());
         QVERIFY(controller.canRedactOthers());
 
-        // A backend that does not report them: posting allowed, redacting not.
         controller.refreshMembers();
         Q_EMIT client.roomMembersReceived(client.lastOpId, room,
                                           snapshotWith(true, true, 50));
@@ -704,8 +645,6 @@ private Q_SLOTS:
         QVERIFY(controller.ownMembership().isEmpty());
     }
 
-    // Removed from the open room: the not-joined answer blocks the composer
-    // with its own reason and withdraws every moderation offer.
     void aNotJoinedAnswerBlocksSendingAndWithdrawsModeration()
     {
         FakeClient client;
@@ -743,13 +682,10 @@ private Q_SLOTS:
         QVERIFY(!controller.canRedactOthers());
         QVERIFY(!controller.canModerate(QStringLiteral("@bob:example.org"),
                                         QStringLiteral("kick")));
-        // Every flag, including the two clearSnapshot() once missed, and the
-        // call membership whose unknown value is permissive.
         QVERIFY(!controller.canChangeHistoryVisibility());
         QVERIFY(!controller.canChangeGuestAccess());
         QVERIFY(!controller.canPublishCallMembership());
 
-        // An ordinary failure says nothing about membership and changes none.
         controller.setRoomId(QStringLiteral("!other:example.org"));
         Q_EMIT client.roomMembersReceived(client.lastOpId,
                                           QStringLiteral("!other:example.org"),

@@ -9,9 +9,9 @@
 #include <algorithm>
 
 namespace {
-constexpr qint64 kMaxTimerMs = 24LL * 60 * 60 * 1000; // QTimer is 32-bit
+constexpr qint64 kMaxTimerMs = 24LL * 60 * 60 * 1000;
 constexpr int kMaxEntries = 64;
-} // namespace
+}
 
 ScheduledSendController::ScheduledSendController(QObject *parent)
     : QObject(parent)
@@ -56,15 +56,8 @@ void ScheduledSendController::setClient(MatrixClient *client)
                 e.delayId = delayId;
                 e.status = QStringLiteral("pending");
                 e.error.clear();
-                // Apply changes requested while the schedule was in flight.
                 applyDeferredChanges(e);
             } else if (category == QLatin1String("encrypted_unsupported")) {
-                // The server would hold the plaintext: fall back to the local
-                // queue and say so. This is also an encryption verdict from the
-                // SDK's own Room::encryption_state(), which overrides the
-                // RoomInfo cache used at schedule() time; marking the entry
-                // volatile makes persist() drop the row schedule() already
-                // wrote, so encrypted plaintext stays memory-only.
                 e.isVolatile = true;
                 becomeLocal(e);
                 e.error = tr("Kept in Lightning instead: the server cannot "
@@ -96,8 +89,6 @@ void ScheduledSendController::setClient(MatrixClient *client)
                     // would deliver it twice.
                     e.status = QStringLiteral("failed");
                     if (category == QLatin1String("not_found")) {
-                        // Nothing left on the server; a later Cancel is a local
-                        // removal.
                         e.delayId.clear();
                         e.error = tr("The server no longer holds this message; it "
                                      "may already have been sent. Check the room "
@@ -110,7 +101,6 @@ void ScheduledSendController::setClient(MatrixClient *client)
                     e.nextSendAtMs = -1;
                     e.hasNextText = false;
                 } else if (e.resubmitAfterCancel) {
-                    // The replacement, only now that the original is gone.
                     e.resubmitAfterCancel = false;
                     e.delayId.clear();
                     if (e.nextSendAtMs >= 0)
@@ -154,7 +144,6 @@ void ScheduledSendController::setClient(MatrixClient *client)
             if (ok) {
                 m_entries.removeAt(i);
             } else {
-                // Kept, and said plainly: "Send now" retries it.
                 e.status = QStringLiteral("failed");
                 e.error = tr("The room did not accept this message. It was "
                              "not sent.");
@@ -174,7 +163,6 @@ void ScheduledSendController::setClient(MatrixClient *client)
         }
     });
     connect(m_client, &MatrixClient::loggedOut, this, [this] {
-        // The next account loads ITS queue; this one's memory copy goes.
         clearAll();
         m_serverScheduling = -1;
         Q_EMIT supportChanged();
@@ -207,9 +195,8 @@ QVariantMap ScheduledSendController::bodySpecFor(const Entry &e) const
 bool ScheduledSendController::roomIsEncrypted(const QString &roomId) const
 {
     if (!m_client)
-        return true; // fail closed
+        return true;
     const RoomInfo info = m_client->roomInfo(roomId);
-    // Unknown encryption state fails closed, like the draft store.
     return info.encrypted || !info.encryptionKnown;
 }
 
@@ -307,7 +294,6 @@ void ScheduledSendController::persist()
         return;
     QVariantList rows;
     for (const Entry &e : m_entries) {
-        // Encrypted-room plaintext never touches disk.
         if (e.isVolatile)
             continue;
         QVariantMap m = toMap(e);
@@ -357,14 +343,10 @@ void ScheduledSendController::load()
                     changed = true;
                 }
             } else if (e.sendAtMs + kServerRetireGraceMs < now) {
-                // The server sent it at the deadline; nothing left to hold or
-                // cancel.
                 changed = true;
                 continue;
             }
         } else if (e.status == QLatin1String("sending")) {
-            // A row caught mid-dispatch by a crash is reported for the user to
-            // decide, never sent twice on a guess.
             e.status = QStringLiteral("failed");
             e.error = tr("Lightning closed while sending this. Check the room "
                          "before sending it again.");
@@ -451,7 +433,6 @@ void ScheduledSendController::beginServerCancel(Entry &e)
         ? m_client->updateScheduledMessage(e.delayId, QStringLiteral("cancel"))
         : 0;
     if (op == 0) {
-        // No way to reach the server: the entry stays as it is, honestly.
         e.status = QStringLiteral("failed");
         e.error = tr("The server could not be asked to cancel this message.");
         e.resubmitAfterCancel = false;
@@ -459,7 +440,7 @@ void ScheduledSendController::beginServerCancel(Entry &e)
         return;
     }
     e.op = op;
-    e.status = QStringLiteral("sending"); // busy until the server answers
+    e.status = QStringLiteral("sending");
 }
 
 void ScheduledSendController::applyDeferredChanges(Entry &e)
@@ -483,8 +464,6 @@ void ScheduledSendController::cancel(const QString &id)
         return;
     if (e->mode == QLatin1String("server")) {
         if (e->op != 0 && e->delayId.isEmpty()) {
-            // The schedule is still in flight: cancel once the server says what
-            // to cancel.
             e->cancelRequested = true;
             e->status = QStringLiteral("sending");
             Q_EMIT pendingChanged();
@@ -499,9 +478,8 @@ void ScheduledSendController::cancel(const QString &id)
             Q_EMIT pendingChanged();
             return;
         }
-        // A failed server entry with nothing on the server: plain removal.
     } else if (e->sendOp != 0) {
-        return; // a room send is in flight; the result decides
+        return;
     }
     m_entries.removeIf([&id](const Entry &x) { return x.id == id; });
     persist();
@@ -547,7 +525,6 @@ void ScheduledSendController::reschedule(const QString &id, qint64 sendAtMs)
         return;
     if (e->mode == QLatin1String("server")) {
         if (e->op != 0 && e->delayId.isEmpty()) {
-            // Applied once the delay id arrives (cancel, then resubmit).
             e->nextSendAtMs = sendAtMs;
             Q_EMIT pendingChanged();
             return;
@@ -555,9 +532,6 @@ void ScheduledSendController::reschedule(const QString &id, qint64 sendAtMs)
         if (busy(*e))
             return;
         if (!e->delayId.isEmpty()) {
-            // MSC4140's restart only re-arms the original timeout: a new
-            // deadline is a cancel plus a fresh delayed event, created only
-            // once the cancel succeeds.
             e->nextSendAtMs = sendAtMs;
             e->resubmitAfterCancel = true;
             beginServerCancel(*e);
@@ -565,8 +539,6 @@ void ScheduledSendController::reschedule(const QString &id, qint64 sendAtMs)
             Q_EMIT pendingChanged();
             return;
         }
-        // A failed server entry holds nothing on the server; make it local so
-        // the timer can fire it.
         becomeLocal(*e);
     } else if (e->sendOp != 0) {
         return;
@@ -597,7 +569,6 @@ void ScheduledSendController::updateText(const QString &id, const QString &body,
         if (busy(*e))
             return;
         if (!e->delayId.isEmpty()) {
-            // The server holds the old content: cancel, then replace.
             e->hasNextText = true;
             e->nextBody = trimmed;
             e->nextHtml = html;
@@ -628,7 +599,7 @@ void ScheduledSendController::armTimer()
             at = e.sendAtMs;
         else if (e.mode == QLatin1String("server") && !e.delayId.isEmpty()
                  && e.status == QLatin1String("pending"))
-            at = e.sendAtMs + kServerRetireGraceMs; // retirement tick
+            at = e.sendAtMs + kServerRetireGraceMs;
         if (at < 0)
             continue;
         if (earliest < 0 || at < earliest)
@@ -642,8 +613,6 @@ void ScheduledSendController::armTimer()
 void ScheduledSendController::fireDue()
 {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    // Server-held entries past their deadline were sent by the server; retire
-    // them even while disconnected.
     bool retired = false;
     for (int i = m_entries.size() - 1; i >= 0; --i) {
         const Entry &e = m_entries.at(i);
@@ -659,7 +628,6 @@ void ScheduledSendController::fireDue()
         Q_EMIT pendingChanged();
     }
     if (!connected()) {
-        // Not connected: nothing leaves; the connection handler retries.
         armTimer();
         return;
     }
@@ -683,15 +651,11 @@ void ScheduledSendController::dispatchLocal(Entry &e)
         Q_EMIT pendingChanged();
         return;
     }
-    // Marked and persisted before the send: the guard against a double dispatch
-    // across a crash or reconnect.
     e.status = QStringLiteral("sending");
     e.error.clear();
     persist();
     Q_EMIT pendingChanged();
     const QVariantMap spec = bodySpecFor(e);
-    // The room-level send works for any room and answers on roomSendFinished;
-    // the entry leaves only once the room accepts it.
     const quint64 op = m_client->sendRoomMessage(e.roomId, e.body, spec, e.mentionIds,
                                                  e.replyToEventId, e.threadRootId);
     if (op != 0) {

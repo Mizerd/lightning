@@ -1,16 +1,3 @@
-// The application shell must stay usable at the smallest window size the app
-// allows (Main.qml pins minimumWidth 640 / minimumHeight 360), measured
-// against the real MainScreen (rail + room list + timeline + composer):
-//
-//   * at the minimum width the composer's text field must keep a usable
-//     width, though every optional button in the input row keeps its own and
-//     the field is the only Layout.fillWidth item;
-//   * in a short window the composer must still grow for a multi-line draft
-//     (or an edit of a long message);
-//   * the Home pane, with a very long display name and Space name, keeps
-//     every visible child inside its card and the viewport (B032, B054), and
-//     says "No rooms match" rather than "Nothing here yet" under a room-list
-//     filter (B096).
 
 #include <QtTest/QtTest>
 
@@ -50,7 +37,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class NarrowShellLayoutTest : public QObject
 {
@@ -81,8 +68,6 @@ private:
         return findItem(m_window->contentItem(), QLatin1String(name));
     }
 
-    // Every visible descendant of `parent` that has an area, listed by name
-    // when its right or left edge is outside [0, limit] in `space`'s coordinates.
     static void collectOutside(QQuickItem *parent, QQuickItem *space,
                                qreal limit, QStringList &out)
     {
@@ -104,10 +89,6 @@ private:
         }
     }
 
-    // Every visible control (button, field, combo, check, switch) whose box,
-    // after the clip of each ancestor, still leaves [0, w] x [0, h] of the
-    // window. A clipped ancestor is how a scrolled-away row is meant to
-    // disappear, so only what is still VISIBLE after the clips counts.
     static void collectControlsOutsideWindow(QQuickItem *it, const QRectF &win,
                                              QStringList &out)
     {
@@ -160,7 +141,6 @@ private Q_SLOTS:
         delete m_controller;
     }
 
-    // The text field must keep a readable width at the minimum window size.
     void theComposerInputStaysReadableAtTheMinimumWidth()
     {
         auto *flick = item("composerInputFlick");
@@ -171,8 +151,6 @@ private Q_SLOTS:
                  "width");
     }
 
-    // A multi-line draft must keep growing the composer in a short window;
-    // the timeline yields the space, not the field the user is typing into.
     void theComposerGrowsForAMultiLineDraftInAShortWindow()
     {
         auto *flick = item("composerInputFlick");
@@ -194,11 +172,6 @@ private Q_SLOTS:
         QTest::qWait(60);
     }
 
-    // The small-window round: a window a quarter of a screen must not push a
-    // control off its own edge. Measured on the real MainScreen with a room
-    // open, at the application floor and at three common small sizes (the
-    // send-options chevron of the composer used to sit 18 px past the edge at
-    // the 640 floor).
     void everyControlStaysInsideTheWindowAtSmallSizes()
     {
         const QSize sizes[] = { QSize(640, 360), QSize(640, 720),
@@ -219,8 +192,6 @@ private Q_SLOTS:
         QTest::qWait(100);
     }
 
-    // Inside the window is not enough: the row's last button has to be inside
-    // the CARD that draws the composer (the chevron used to hang off its edge).
     void theComposerRowStaysInsideItsCardAtTheMinimumWidth()
     {
         m_window->resize(640, 360);
@@ -246,9 +217,6 @@ private Q_SLOTS:
         }
     }
 
-    // B032 / B054: a display name and a Space name of 300 characters at the
-    // 640 px minimum. Nothing may run past the card or the pane, the name
-    // elides, and the action buttons wrap instead of overflowing.
     void theHomePaneKeepsALongNameInsideItsCard()
     {
         QQmlComponent component(m_engine);
@@ -291,7 +259,6 @@ Item {
         QVERIFY2(outside.isEmpty(),
                  qPrintable(QStringLiteral("outside the pane: ")
                             + outside.join(QStringLiteral("; "))));
-        // Inside the CARD, not merely the pane: the card is 560 wide at most.
         const QRectF cr = pane->mapRectFromItem(
             card, QRectF(0, 0, card->width(), card->height()));
         for (const char *name : { "homeWelcomeRow", "homeActionsHolder" }) {
@@ -316,7 +283,6 @@ Item {
                  "the long Space name was not elided");
     }
 
-    // B096: a room-list filter with no match is not an empty account.
     void theHomePaneDoesNotCallAFilteredListEmpty()
     {
         QQmlComponent component(m_engine);
@@ -358,9 +324,6 @@ Item {
         clear.evaluate();
     }
 
-    // C08-F04 / F02: the Home pane scrolls by key, by scrollbar and by
-    // middle-click autoscroll when its card overflows. Old code: no
-    // scrollbar, keys did nothing, no scroller.
     void theHomePaneScrollsByKeysScrollbarAndMiddleClick()
     {
         QQmlComponent component(m_engine);
@@ -402,22 +365,19 @@ Item {
         QTest::keyClick(&win, Qt::Key_End);
         QTest::qWait(30);
         QVERIFY(qAbs(flick->property("contentY").toReal() - maxYNow()) < 1.0);
-        QTest::keyClick(&win, Qt::Key_Down);   // clamped at the end
+        QTest::keyClick(&win, Qt::Key_Down);
         QTest::qWait(30);
         QVERIFY(qAbs(flick->property("contentY").toReal() - maxYNow()) < 1.0);
         QTest::keyClick(&win, Qt::Key_Home);
         QTest::qWait(30);
         QCOMPARE(flick->property("contentY").toReal(), 0.0);
 
-        // A click on blank space focuses the pane so the keys work there.
         flick->setProperty("focus", false);
         win.contentItem()->forceActiveFocus();
         QTest::mouseClick(&win, Qt::LeftButton, Qt::NoModifier, QPoint(6, 120));
         QTest::qWait(30);
         QVERIFY2(flick->hasActiveFocus(), "a click did not focus the pane");
 
-        // Middle-click autoscroll: press at the blank left margin, travel
-        // down, and the content follows.
         QQuickItem *scroller = findItem(pane,
                                         QStringLiteral("homeMiddleClickScroller"));
         QVERIFY2(scroller, "no middle-click scroller on the Home pane");
@@ -427,8 +387,6 @@ Item {
         QTest::mouseRelease(&win, Qt::MiddleButton, Qt::NoModifier, QPoint(6, 200));
     }
 
-    // C08-F06: a keyboard-focused room-updates summary shows a ring; a mouse
-    // focus does not. Old code: border width 0 in both.
     void theRoomUpdatesSummaryDrawsAKeyboardFocusRing()
     {
         QQmlComponent component(m_engine);

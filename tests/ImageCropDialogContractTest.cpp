@@ -1,14 +1,3 @@
-// Every display image Lightning uploads goes through one crop dialog. A
-// source contract, because a new upload surface that skips the cropper looks
-// fine at runtime. Pinned:
-//   1. Every display-image FileDialog hands its result to an ImageCropDialog,
-//      and the sink moves into `onCropped`.
-//   2. There is one cropper: only ImageCropDialog.qml reaches `app.imageCrop`.
-//   3. The dialog previews through the staged-image provider and never points
-//      an Image at the chosen file; that is the SVG gate, and only a gate if
-//      it is the only route.
-//   4. Chat attachments are not cropped, and Save-As is not an upload.
-// Every sweep carries a found > 0 guard.
 
 #include <QDir>
 #include <QFile>
@@ -28,9 +17,6 @@ QString read(const QString &relative)
     return QString::fromUtf8(file.readAll());
 }
 
-/// Strip comments so prose cannot satisfy or defeat a ban. The `\n` in the
-/// trailing-comment class matters: a negated class matches newlines and
-/// would otherwise eat following lines.
 QString withoutComments(const QString &source)
 {
     QString out = source;
@@ -41,14 +27,11 @@ QString withoutComments(const QString &source)
     return out;
 }
 
-/// The object block declaring `id: <name>`, by brace matching rather than a
-/// fixed window, which a comment inside the block could push out of range.
 QString blockForId(const QString &source, const QString &id)
 {
     const int marker = source.indexOf(QStringLiteral("id: ") + id);
     if (marker < 0)
         return {};
-    // Walk back to the brace that opened this object.
     int open = source.lastIndexOf(QLatin1Char('{'), marker);
     if (open < 0)
         return {};
@@ -65,43 +48,33 @@ QString blockForId(const QString &source, const QString &id)
     return {};
 }
 
-/// One display-image upload site.
 struct Site
 {
     const char *file;
-    const char *pickerId;   // the FileDialog
-    const char *cropperId;  // the ImageCropDialog it opens
-    const char *role;       // "avatar" | "banner"
-    const char *sink;       // the call that actually uploads
+    const char *pickerId;
+    const char *cropperId;
+    const char *role;
+    const char *sink;
 };
 
-// Every display-image upload site. The count is asserted too, so a deleted
-// row fails loudly instead of reducing coverage.
 const Site kSites[] = {
-    // Room Information → the room's own avatar.
     { "RoomInfoPanel.qml", "avatarDialog", "avatarCrop", "avatar",
       "app.roomInfo.setRoomAvatar(" },
-    // Space Home card → the Space's avatar (m.room.avatar; a Space IS a room).
     { "TimelinePane.qml", "spaceAvatarDialog", "spaceAvatarCrop", "avatar",
       "app.roomInfo.setRoomAvatar(" },
-    // Space Home → the Space banner.
     { "TimelinePane.qml", "spaceBannerDialog", "spaceBannerCrop", "banner",
       "app.banners.setRoomBanner(" },
-    // Space settings → avatar.
     { "SpaceSettingsDialog.qml", "spaceAvatarFile", "spaceAvatarCrop", "avatar",
       "app.roomInfo.setRoomAvatar(" },
-    // Space settings → banner.
     { "SpaceSettingsDialog.qml", "spaceBannerFile", "spaceBannerCrop", "banner",
       "app.banners.setRoomBanner(" },
-    // Room creation → the picture applied after the room exists.
     { "NewConversationDialog.qml", "avatarFileDialog", "avatarCrop", "avatar",
       "root.roomAvatarPath =" },
-    // Settings → the account's own profile banner.
     { "SettingsScreen.qml", "bannerFileDialog", "ownBannerCrop", "banner",
       "app.banners.setOwnBanner(" },
 };
 
-} // namespace
+}
 
 class ImageCropDialogContractTest : public QObject
 {
@@ -115,7 +88,6 @@ private Q_SLOTS:
         QCOMPARE(int(std::size(kSites)), 7);
     }
 
-    // The picker chooses a file; it does not upload one.
     void everyUploadSitePicksIntoTheCropperAndNotIntoItsSink()
     {
         int checked = 0;
@@ -146,8 +118,6 @@ private Q_SLOTS:
         QCOMPARE(checked, int(std::size(kSites)));
     }
 
-    // The sink runs in onCropped, with the role that decides shape, mask and
-    // output cap.
     void everySiteUploadsTheCroppedResultUnderTheRightRole()
     {
         int checked = 0;
@@ -184,13 +154,12 @@ private Q_SLOTS:
         QCOMPARE(checked, int(std::size(kSites)));
     }
 
-    // One cropper; two would drift.
     void onlyTheSharedDialogTouchesTheCropper()
     {
         QDir dir(QStringLiteral(QML_DIR));
         const QStringList files = dir.entryList({ QStringLiteral("*.qml") },
                                                 QDir::Files);
-        QVERIFY(files.size() > 20);   // the sweep saw the tree
+        QVERIFY(files.size() > 20);
         int offenders = 0;
         QStringList names;
         for (const QString &name : files) {
@@ -207,9 +176,6 @@ private Q_SLOTS:
                                 .arg(names.join(QStringLiteral(", ")))));
     }
 
-    // The preview shows bytes the cropper already sniffed, via the
-    // staged-image provider; an Image on the user's file:// URL would hand an
-    // .svg to Qt's loader.
     void theDialogPreviewsThroughTheStagedProviderAndNeverTheChosenFile()
     {
         const QString source = read(QStringLiteral("ImageCropDialog.qml"));
@@ -225,9 +191,6 @@ private Q_SLOTS:
                      && !code.contains(QStringLiteral("source: root.fileUrl")),
                  "the preview points at the chosen file, so an SVG reaches "
                  "the image loader");
-        // The Image binds only to the staged URL, and `previewUrl` is written
-        // only from the gate's answer; a second writer would let the chosen
-        // path back in.
         QVERIFY2(code.contains(QStringLiteral("source: root.previewUrl")),
                  "the preview Image no longer draws the staged bytes");
         QCOMPARE(code.count(QStringLiteral("root.previewUrl =")), 2);
@@ -235,24 +198,18 @@ private Q_SLOTS:
                  "the preview URL no longer comes from the sniffing gate");
         QVERIFY2(code.contains(QStringLiteral("root.previewUrl = \"\"")),
                  "a refused file leaves the previous picture on screen");
-        // Nothing in the dialog touches a file:// URL.
         QVERIFY2(!code.contains(QStringLiteral("file://")),
                  "the dialog handles a raw file URL, which is the one thing "
                  "the staged provider exists to avoid");
-        // The crop is computed in C++, not here.
         QVERIFY2(code.contains(QStringLiteral("app.imageCrop.crop(")),
                  "the dialog no longer asks C++ to do the cropping");
         QVERIFY2(code.contains(QStringLiteral("app.imageCrop.maxEdgeForRole(")),
                  "the dialog invents its own output ceiling instead of taking "
                  "the one the role defines");
-        // However it closed, the staged bytes and decoded source are discarded.
         QVERIFY2(code.contains(QStringLiteral("app.imageCrop.discard()")),
                  "a closed dialog leaves the source staged");
     }
 
-    // An animation is previewed from the copy the cropper wrote after
-    // sniffing it, never the chosen file, and "Keep animation" uploads through
-    // the cropper too.
     void aKeptAnimationComesOnlyFromTheCropper()
     {
         const QString code =
@@ -271,7 +228,6 @@ private Q_SLOTS:
                  "the dialog decides by itself whether an animation fits");
     }
 
-    // A refused file is explained in the dialog, not swallowed.
     void aRefusalIsShownInTheDialogRatherThanSwallowed()
     {
         const QString code = withoutComments(read(QStringLiteral("ImageCropDialog.qml")));
@@ -287,8 +243,6 @@ private Q_SLOTS:
                  "the refusal has nowhere to render");
     }
 
-    // The circular mask is presentation only: Matrix avatars are square and
-    // clients draw their own circle, so the uploaded image stays square.
     void theCircularMaskIsPresentationAndTheOutputStaysSquare()
     {
         const QString code = withoutComments(read(QStringLiteral("ImageCropDialog.qml")));
@@ -298,14 +252,11 @@ private Q_SLOTS:
         QVERIFY2(code.contains(QStringLiteral("aspect: role === \"banner\" ? 3.0 : 1.0")),
                  "the aspect ratio no longer follows from the role, so a site "
                  "can pick a shape the sink does not expect");
-        // No mask on the output: the C++ side is handed a rectangle only.
         QVERIFY2(!code.contains(QStringLiteral("imageCrop.setCircular"))
                      && !code.contains(QStringLiteral("imageCrop.mask")),
                  "the circle escaped into the uploaded image");
     }
 
-    // AppTheme is the only token source, except the slider thumb, which is
-    // white on every theme (as the microphone slider documents).
     void theDialogPaintsFromThemeTokens()
     {
         const QString code = withoutComments(read(QStringLiteral("ImageCropDialog.qml")));
@@ -325,9 +276,6 @@ private Q_SLOTS:
                  "the dialog stopped painting from tokens altogether");
     }
 
-    // Deliberately not wired: chat pictures are not display images and are
-    // never silently cropped; Save-As is not an upload; the application icon
-    // is local and never reaches Matrix.
     void chatAttachmentsAndSaveAsAreDeliberatelyNotCropped()
     {
         struct Untouched { const char *file; const char *id; };
@@ -336,9 +284,6 @@ private Q_SLOTS:
             { "MessageComposerBar.qml", "pickAttachmentsDialog" },
             { "MessageComposerBar.qml", "pickFileDialog" },
             { "ThreadPanel.qml", "threadAttachDialog" },
-            // Saving media has no chooser in QML any more: app.downloads
-            // (DownloadsController) asks for a destination in C++, and
-            // nothing it writes is ever uploaded.
             { "SettingsScreen.qml", "appIconDialog" },
             { "SettingsScreen.qml", "importFileDialog" },
         };
@@ -363,8 +308,6 @@ private Q_SLOTS:
         }
         QCOMPARE(checked, int(std::size(kUntouched)));
     }
-    // Every banner surface uses the cropper's 3:1 ratio, or
-    // PreserveAspectCrop crops the user's chosen strip a second time.
     void everyBannerSurfaceUsesTheRatioTheCropperProduces()
     {
         struct Surface { const char *file; const char *what; };
@@ -385,7 +328,6 @@ private Q_SLOTS:
                                          QString::fromLatin1(s.what))));
         }
 
-        // The dialog itself must still be 3:1.
         const QString dialog = read(QStringLiteral("ImageCropDialog.qml"));
         QVERIFY(!dialog.isEmpty());
         QVERIFY2(dialog.contains(QStringLiteral("role === \"banner\" ? 3.0 : 1.0")),

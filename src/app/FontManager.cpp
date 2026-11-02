@@ -19,7 +19,6 @@ Q_LOGGING_CATEGORY(lcFonts, "lightning.fonts")
 
 namespace {
 
-// Bundled, so always present; every fallback lands here.
 const QString &defaultUiFamily()
 {
     static const QString family = QStringLiteral("Manrope");
@@ -32,8 +31,6 @@ const QString &defaultMonospaceFamily()
     return family;
 }
 
-// Bundled text faces in main.cpp's registration order. The icon and emoji
-// faces are excluded.
 QStringList bundled()
 {
     return { QStringLiteral("Manrope"),
@@ -45,8 +42,6 @@ QStringList bundled()
              QStringLiteral("JetBrains Mono") };
 }
 
-// A name we generated (SHA-256 hex plus extension). Checked when read back
-// from settings, so a hand-edited config cannot name an arbitrary path.
 bool isOwnImportName(const QString &name)
 {
     if (name.size() != 64 + 4)
@@ -62,7 +57,7 @@ bool isOwnImportName(const QString &name)
     return true;
 }
 
-} // namespace
+}
 
 FontManager::FontManager(SettingsManager *settings, QObject *parent)
     : QObject(parent)
@@ -70,7 +65,6 @@ FontManager::FontManager(SettingsManager *settings, QObject *parent)
 {
     refreshFamilyCache();
     if (m_settings) {
-        // The selection is per-account.
         connect(m_settings, &SettingsManager::uiFontChanged,
                 this, &FontManager::selectionChanged);
         connect(m_settings, &SettingsManager::monoFontChanged,
@@ -86,16 +80,12 @@ bool FontManager::looksLikeSfnt(const QByteArray &head)
     const uchar b1 = uchar(head.at(1));
     const uchar b2 = uchar(head.at(2));
     const uchar b3 = uchar(head.at(3));
-    // TrueType outlines.
     if (b0 == 0x00 && b1 == 0x01 && b2 == 0x00 && b3 == 0x00)
         return true;
-    // Legacy Apple tag.
     if (head.startsWith(QByteArrayLiteral("true")))
         return true;
-    // CFF outlines.
     if (head.startsWith(QByteArrayLiteral("OTTO")))
         return true;
-    // Collections and web wrappers are refused; see the header.
     return false;
 }
 
@@ -113,7 +103,6 @@ QString FontManager::importedFontsDir()
     return root + QLatin1String("/fonts");
 }
 
-// Emoji and icon faces, which must never be offered as a text face.
 bool FontManager::isNonTextFace(const QString &family)
 {
     static const char *const kNames[] = {
@@ -128,10 +117,6 @@ bool FontManager::isNonTextFace(const QString &family)
     return false;
 }
 
-// A family the interface may be set in: outline (a bitmap strike such as
-// cursor.pcf cannot be sized, so the whole UI ballooned and overlapped) and not
-// a rotated/vertical-only cut whose glyphs lie on
-// their side.
 bool FontManager::isUsableUiFace(const QString &family)
 {
     if (family.isEmpty() || family.startsWith(QLatin1Char('.')) || isNonTextFace(family))
@@ -151,7 +136,6 @@ bool FontManager::facesLatinText(const QString &family)
     const QRawFont raw = QRawFont::fromFont(probe);
     if (!raw.isValid())
         return false;
-    // Letters too: emoji faces carry digits as keycap bases.
     for (const char32_t c : { U'A', U'a', U'0', U'9' }) {
         if (!raw.supportsCharacter(c))
             return false;
@@ -167,7 +151,6 @@ void FontManager::refreshFamilyCache()
     for (const QString &family : installed)
         m_familyCache.append(family.toLower());
 
-    // Bundled first, then the host's families in QFontDatabase order.
     m_uiFamilies.clear();
     QSet<QString> seen;
     for (const QString &family : bundled()) {
@@ -187,7 +170,6 @@ void FontManager::refreshFamilyCache()
         monoSeen.insert(defaultMonospaceFamily().toLower());
     }
     for (const QString &family : installed) {
-        // Skip private/aliased faces and non-text faces.
         if (family.startsWith(QLatin1Char('.')))
             continue;
         if (!seen.contains(family.toLower()) && isUsableUiFace(family)) {
@@ -252,9 +234,8 @@ bool listHas(const QStringList &list, const QString &family)
     }
     return false;
 }
-} // namespace
+}
 
-// Available means "listed by this surface's picker", not merely installed.
 bool FontManager::uiFamilyAvailable() const
 {
     return listHas(m_uiFamilies, storedUiFamily());
@@ -285,7 +266,6 @@ QString FontManager::monospaceFamilyUnavailableReason() const
 
 QString FontManager::uiFamily() const
 {
-    // The stored value is never rewritten: a missing font may come back.
     const QString stored = storedUiFamily();
     return listHas(m_uiFamilies, stored) ? stored : defaultUiFamily();
 }
@@ -339,8 +319,6 @@ void FontManager::loadImportedFonts()
         const QString path = dir.isEmpty() ? QString()
                                            : dir + QLatin1Char('/') + name;
         QFile file(path);
-        // Re-apply the import gates: a record may have outlived its file, or
-        // the file may have been replaced.
         if (!path.isEmpty() && QFileInfo(path).isFile()
             && QFileInfo(path).size() > 0
             && QFileInfo(path).size() <= kMaxFontFileBytes
@@ -393,7 +371,6 @@ void FontManager::setImportError(const QString &category)
 
 bool FontManager::importFontFile(const QUrl &fileUrl)
 {
-    // Local files only; this class has no download path.
     if (!fileUrl.isValid() || !fileUrl.isLocalFile()) {
         setImportError(QStringLiteral("not_a_local_file"));
         return false;
@@ -408,7 +385,6 @@ bool FontManager::importFontFile(const QUrl &fileUrl)
         setImportError(QStringLiteral("not_a_file"));
         return false;
     }
-    // Bounded before anything is read.
     if (info.size() <= 0 || info.size() > kMaxFontFileBytes) {
         setImportError(info.size() <= 0 ? QStringLiteral("empty")
                                         : QStringLiteral("too_large"));
@@ -416,7 +392,6 @@ bool FontManager::importFontFile(const QUrl &fileUrl)
     }
     QStringList names = storedImportFileNames();
     if (names.size() >= kMaxImportedFonts) {
-        // Refuse rather than evict a font the user asked to keep.
         setImportError(QStringLiteral("store_full"));
         return false;
     }
@@ -441,8 +416,6 @@ bool FontManager::importFontFile(const QUrl &fileUrl)
         setImportError(QStringLiteral("no_store"));
         return false;
     }
-    // Content-addressed: duplicates collapse and the stored name carries
-    // nothing user-supplied.
     const QString digest = QString::fromLatin1(
         QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
     const QString suffix = info.fileName().endsWith(QLatin1String(".otf"),
@@ -467,8 +440,6 @@ bool FontManager::importFontFile(const QUrl &fileUrl)
         }
     }
 
-    // FreeType only ever sees our copy. A file it refuses, or one with no
-    // family name, is not recorded.
     const int handle = QFontDatabase::addApplicationFont(target);
     const QStringList families = handle >= 0
         ? QFontDatabase::applicationFontFamilies(handle) : QStringList();
@@ -521,7 +492,6 @@ bool FontManager::removeImportedFont(const QString &fileName)
     names.removeAll(fileName);
     writeImportFileNames(names);
     refreshFamilyCache();
-    // The selection is not rewritten; re-importing brings it back.
     Q_EMIT familiesChanged();
     Q_EMIT importedFontsChanged();
     Q_EMIT selectionChanged();
@@ -530,8 +500,6 @@ bool FontManager::removeImportedFont(const QString &fileName)
 
 QString FontManager::emojiFamily()
 {
-    // Resolved once. Colour faces first; the monochrome Noto Emoji last, as
-    // better than tofu. "" when none is installed.
     static const QString family = [] {
         static const char *const kCandidates[] = {
             "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji",

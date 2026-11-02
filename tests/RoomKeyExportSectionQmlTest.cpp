@@ -1,15 +1,3 @@
-// The Export room keys section's own handling of the passphrase, on the real
-// QML against the real controller (scripted client). Pins:
-//   * both fields are in Password echo mode;
-//   * the export button stays disabled for an empty, short, weak (as Element:
-//     below zxcvbn 3, mapped to rung 3) or mismatched pair, saying why when
-//     weak, and enables for a matching strong one;
-//   * starting an export hands the backend exactly the typed passphrase and
-//     the chosen file;
-//   * after the export starts, after the section hides, and when the account
-//     changes, both fields are empty AND have no undo history: clear() would
-//     keep it, so Ctrl+Z would bring a typed passphrase back;
-//   * the explanation of what the file is and how to keep it is on screen.
 
 #include "app/RoomKeyExportController.h"
 #include "matrix/MockMatrixClient.h"
@@ -44,7 +32,6 @@ public:
     }
 };
 
-// Stands in for app.accounts: only the signal the section listens to.
 class StubAccounts final : public QObject
 {
     Q_OBJECT
@@ -52,7 +39,6 @@ Q_SIGNALS:
     void activeUserIdChanged();
 };
 
-// Only what the section reads from `app`.
 class StubApp final : public QObject
 {
     Q_OBJECT
@@ -74,11 +60,11 @@ private:
     QObject *m_accounts;
 };
 
-constexpr int kPasswordEcho = 2; // TextInput.Password
+constexpr int kPasswordEcho = 2;
 
 const QString kPass = QStringLiteral("a-long-export-passphrase");
 
-} // namespace
+}
 
 class RoomKeyExportSectionQmlTest : public QObject
 {
@@ -174,8 +160,6 @@ private Q_SLOTS:
         for (QObject *f : fields)
             QCOMPARE(f->property("echoMode").toInt(), kPasswordEcho);
 
-        // The explanation and the safekeeping warning are there and say what
-        // matters.
         QObject *explain = root->findChild<QObject *>(
             QStringLiteral("roomKeyExportExplanation"));
         QObject *warn =
@@ -186,14 +170,11 @@ private Q_SLOTS:
         QVERIFY(warn->property("text").toString().contains(
             QStringLiteral("Anyone with this file")));
 
-        // Gating: nothing, short, mismatched, then a matching pair.
         QVERIFY(!button->property("enabled").toBool());
         QVERIFY(fill(pass, confirm, QStringLiteral("short"),
                      QStringLiteral("short")));
         QVERIFY(!button->property("enabled").toBool());
         wipe(fields);
-        // Long enough but weak, and matching: still blocked, as Element
-        // blocks below zxcvbn 3, and the strength line says why.
         QVERIFY(fill(pass, confirm, QStringLiteral("abcdefghij"),
                      QStringLiteral("abcdefghij")));
         QVERIFY(!button->property("enabled").toBool());
@@ -214,8 +195,6 @@ private Q_SLOTS:
         QVERIFY(fill(pass, confirm, kPass, kPass));
         QVERIFY(button->property("enabled").toBool());
 
-        // 1. A location is chosen: the export starts with exactly what was
-        //    typed, and the fields are wiped.
         QVERIFY2(allCanUndo(fields), qPrintable(state(fields)));
         const QUrl file =
             QUrl::fromLocalFile(dir.filePath(QStringLiteral("keys.txt")));
@@ -238,14 +217,12 @@ private Q_SLOTS:
         QCOMPARE(result->property("text").toString(),
                  RoomKeyExportController::describe(QString(), 12));
 
-        // 2. The section hides.
         QVERIFY(fill(pass, confirm, kPass, kPass));
         QVERIFY2(allCanUndo(fields), qPrintable(state(fields)));
         QVERIFY(root->setProperty("visible", false));
         QVERIFY2(emptyWithoutUndo(fields), qPrintable(state(fields)));
         QVERIFY(root->setProperty("visible", true));
 
-        // 3. The active account changes; the old result goes with it.
         QVERIFY(fill(pass, confirm, kPass, kPass));
         QVERIFY2(allCanUndo(fields), qPrintable(state(fields)));
         Q_EMIT accounts.activeUserIdChanged();

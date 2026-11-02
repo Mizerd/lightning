@@ -5,10 +5,6 @@
 
 namespace matrix::login_failure {
 
-// The fixed reason token rust/src/lib.rs attaches to a failed password
-// sign-in (HTTP status + errcode, the transport class, or a fixed word), if it
-// has the shape of one. It is shown as a support code, so nothing longer or
-// stranger than that vocabulary may reach the screen.
 inline bool isReasonToken(const QString &reason)
 {
     if (reason.isEmpty() || reason.size() > 64)
@@ -34,10 +30,6 @@ inline QString passwordText(const QString &reason, const QString &message)
     if (reason.endsWith(QLatin1String("_M_FORBIDDEN")))
         return QCoreApplication::translate("RustSdkMatrixClient",
                                            "Wrong username or password.");
-    // Synapse answers an unknown user with M_FORBIDDEN; Conduit and its forks
-    // say M_NOT_FOUND. A bare username is sent as typed and the server
-    // resolves it (rust_session::passwordLoginIdentifier), so this is the
-    // server's own answer about that name.
     if (reason.endsWith(QLatin1String("_M_NOT_FOUND")))
         return QCoreApplication::translate(
             "RustSdkMatrixClient",
@@ -50,8 +42,6 @@ inline QString passwordText(const QString &reason, const QString &message)
     if (reason.contains(QLatin1String("M_USER_DEACTIVATED")))
         return QCoreApplication::translate("RustSdkMatrixClient",
                                            "This account has been deactivated.");
-    // A server that did not answer in time is not one that cannot be reached
-    // (C48-F08).
     if (reason == QLatin1String("timeout"))
         return QCoreApplication::translate(
             "RustSdkMatrixClient",
@@ -80,4 +70,4 @@ inline QString passwordText(const QString &reason, const QString &message)
         "again.");
 }
 
-} // namespace matrix::login_failure
+}

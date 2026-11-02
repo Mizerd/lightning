@@ -47,9 +47,6 @@ StoreBlockReason passwordLoginBlockReason(
     if (targetSavedDeviceId.trimmed().isEmpty())
         return StoreBlockReason::MissingDeviceId;
 
-    // Password login creates a new device, and an existing SDK store may only
-    // be opened by restoring its exact saved device. The account should be
-    // activated from the switcher instead.
     return StoreBlockReason::ExistingStoreNeedsRestore;
 }
 
@@ -94,13 +91,9 @@ StoreBlockReason oauthLoginBlockReason(
     const QString &newDeviceId)
 {
     Q_UNUSED(target);
-    // Nothing on disk for this account: a first OAuth sign-in creates the
-    // store fresh, which is always safe.
     if (!storeExists)
         return StoreBlockReason::None;
 
-    // A store with no record beside it cannot be proven to belong to this
-    // account. Same verdict as the password path.
     if (!targetHasSavedSession)
         return StoreBlockReason::MissingSessionMetadata;
 
@@ -108,21 +101,13 @@ StoreBlockReason oauthLoginBlockReason(
     if (saved.isEmpty())
         return StoreBlockReason::MissingDeviceId;
 
-    // The authorization server must name the device; without it
-    // re-authorization cannot be told from a new device, and guessing is not
-    // allowed.
     const QString fresh = newDeviceId.trimmed();
     if (fresh.isEmpty())
         return StoreBlockReason::MissingDeviceId;
 
-    // Re-authorizing the device that owns this store (an expired session signed
-    // in again): restoring into it is correct. Device ids are opaque
-    // case-sensitive strings, so compare exactly.
     if (saved == fresh)
         return StoreBlockReason::None;
 
-    // A new device: the existing store belongs to the old one and must not be
-    // adopted.
     return StoreBlockReason::ExistingStoreNeedsRestore;
 }
 
@@ -203,7 +188,6 @@ bool signInAnswerCollidesWithSavedStore(const QString &answerUserId,
 {
     if (openedStorePath.isEmpty())
         return false;
-    // User ids exactly: @alice and @Alice can be two people.
     if (!openedStoreOwner.isEmpty() && openedStoreOwner != answerUserId)
         return true;
     if (!answerHasRecord || recordStorePath.isEmpty())
@@ -238,8 +222,6 @@ QString diagnosticName(StoreBlockReason reason)
     case StoreBlockReason::SecretBackendUnavailable:
         return QStringLiteral("secret_backend_unavailable");
     case StoreBlockReason::InvalidSavedIdentity:
-        // Stable token: restoreSession() emits it as a literal and the UI keys
-        // off it.
         return QStringLiteral("invalid_saved_account_identity");
     case StoreBlockReason::KeyringLostSession:
         return QStringLiteral("keyring_lost_session");
@@ -259,8 +241,6 @@ QString userMessage(StoreBlockReason reason)
     case StoreBlockReason::None:
         return {};
     case StoreBlockReason::MissingStoreForSavedSession:
-        // The store is not there, so there is nothing to reset; signing in
-        // again is the remedy.
         return msg("Lightning has a saved sign-in for this account but its "
                   "local encryption store is missing. Sign in again to "
                   "recreate it. Messages already on the server are not "
@@ -331,7 +311,6 @@ bool suggestsLocalReset(StoreBlockReason reason)
     // The sign-in may be fine and merely unreadable; deleting the store for a
     // locked keyring destroys room keys for nothing.
     case StoreBlockReason::SecretBackendUnavailable:
-    // The keyring lost the sign-in; the store is this account's own and whole.
     case StoreBlockReason::KeyringLostSession:
         return false;
     }
@@ -357,8 +336,6 @@ bool suggestsLocalResetForCode(const QString &reasonCode)
         if (diagnosticName(reason) == code)
             return suggestsLocalReset(reason);
     }
-    // Codes emitted outside the enum. `cleanup_incomplete` means a previous
-    // repair did not finish, so retrying it is the remedy.
     if (code == QLatin1String("cleanup_incomplete"))
         return true;
     if (code == QLatin1String("sdk_store_ownership_mismatch"))
@@ -388,4 +365,4 @@ bool isUnknownToken(const QString &message)
                             Qt::CaseInsensitive);
 }
 
-} // namespace matrix::rust_session
+}

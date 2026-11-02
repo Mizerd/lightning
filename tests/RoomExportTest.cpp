@@ -1,11 +1,3 @@
-// Exporting a room's loaded messages to a file.
-//
-// The renderers are pure (events in, string out), so no filesystem is
-// needed and the exact output shape is asserted.
-//
-// Encrypted-room plaintext is memory-only and an export is the one
-// deliberate exception: a decrypted body reaches the file only when the
-// caller passes the flag the UI sets after asking. Asserted both ways.
 
 #include "models/RoomExport.h"
 
@@ -41,15 +33,13 @@ roomexport::Options plainRoom()
     return o;
 }
 
-} // namespace
+}
 
 class RoomExportTest : public QObject
 {
     Q_OBJECT
 
 private Q_SLOTS:
-    // Captions survive in Text and JSON, and the file's dates are English
-    // whatever the default locale is. Both fail on the old code.
     void aCaptionIsKeptAndTheHeaderDatesAreEnglish()
     {
         const QLocale before;
@@ -74,12 +64,10 @@ private Q_SLOTS:
         QCOMPARE(row.value(QStringLiteral("caption")).toString(),
                  QStringLiteral("sunset picnic"));
 
-        // A caption equal to the filename is not a caption.
         events[0].body = QStringLiteral("sunset.png");
         QVERIFY(!roomexport::renderJson(events, plainRoom())
                      .contains(QStringLiteral("\"caption\"")));
 
-        // Withheld for an encrypted room without the opt-in.
         events[0].body = QStringLiteral("sunset picnic");
         roomexport::Options enc = plainRoom();
         enc.encrypted = true;
@@ -90,7 +78,6 @@ private Q_SLOTS:
         QLocale::setDefault(before);
     }
 
-    // ── What is a row, and what is not ───────────────────────────────────
     void virtualRowsAndUnsentEchoesAreNotConversation()
     {
         QList<TimelineEvent> events;
@@ -109,9 +96,6 @@ private Q_SLOTS:
         start.type = TimelineEvent::TimelineStart;
         events.append(start);
 
-        // A local echo has not been sent. Exporting it would put a message in
-        // the file that nobody else in the room has, and that may never
-        // arrive.
         TimelineEvent echo = message(QStringLiteral("local:1"),
                                      QStringLiteral("@me:example.org"),
                                      QStringLiteral("Me"),
@@ -132,14 +116,9 @@ private Q_SLOTS:
                  "an unsent local echo reached the file");
         QVERIFY2(!text.contains(QStringLiteral("never sent")),
                  "a failed send reached the file");
-        // And the count in the header is the same rule the rows use, so the
-        // file cannot claim a number it did not write.
         QVERIFY(text.contains(QStringLiteral("Events in this file: 1")));
     }
 
-    // C36-F03: room state is plaintext in an encrypted room, so it is not
-    // labelled as a withheld message; a state row with NO named sentence and
-    // an ordinary message still are.
     void aNamedStateRowIsNotWithheldInAnEncryptedRoom()
     {
         TimelineEvent created;
@@ -163,13 +142,10 @@ private Q_SLOTS:
         const QString text = roomexport::renderPlainText(events, options);
         QVERIFY(!text.contains(QStringLiteral("opaque-body-text")));
         QVERIFY(!text.contains(QStringLiteral("the secret plan")));
-        // Only the unnamed state row and the message are withheld; the named
-        // state row is written (on the old code all three were).
         QVERIFY2(text.count(QStringLiteral("[message withheld")) == 2,
                  qPrintable(text));
     }
 
-    // ── The encrypted-room exception, from both sides ────────────────────
     void anEncryptedRoomWithholdsEveryBodyUnlessItWasExplicitlyAllowed()
     {
         QList<TimelineEvent> events;
@@ -186,8 +162,6 @@ private Q_SLOTS:
         QVERIFY2(!withheld.contains(QStringLiteral("the secret plan")),
                  "an encrypted room's message text reached the file without "
                  "the caller ever asking for it");
-        // The row still EXISTS: who spoke and when survives, so the file is
-        // an honest record with a hole rather than a silent gap.
         QVERIFY(withheld.contains(QStringLiteral("Ann")));
         QVERIFY(withheld.contains(QStringLiteral("withheld")));
         QVERIFY(withheld.contains(QStringLiteral("ENCRYPTED")));
@@ -201,8 +175,6 @@ private Q_SLOTS:
         QCOMPARE(root.value(QStringLiteral("includes_message_text")).toBool(),
                  false);
 
-        // With the flag the text is written, which is the whole point of the
-        // exception — and the header says so in as many words.
         options.allowEncryptedPlaintext = true;
         const QString allowed = roomexport::renderPlainText(events, options);
         QVERIFY(allowed.contains(QStringLiteral("the secret plan")));
@@ -213,7 +185,6 @@ private Q_SLOTS:
                      .toBool(), true);
     }
 
-    // ── No media, and no dead links ──────────────────────────────────────
     void attachmentsExportAsANameAndNeverAsAnMxc()
     {
         TimelineEvent image = message(QStringLiteral("$img"),
@@ -231,8 +202,6 @@ private Q_SLOTS:
         QVERIFY2(text.contains(QStringLiteral("not included")),
                  "the file names an attachment without saying its bytes are "
                  "absent, so the name reads like an enclosure");
-        // An `mxc:` in a text file is a live-looking dead link: a reader of
-        // the file cannot resolve one without the account's token.
         QVERIFY2(!text.contains(QStringLiteral("mxc://")),
                  "an unresolvable media URL reached the file");
 
@@ -248,8 +217,6 @@ private Q_SLOTS:
                  QStringLiteral("image/png"));
     }
 
-    // An attachment's filename and type are decrypted content: the JSON
-    // must withhold them with the body when the opt-in was not given.
     void anEncryptedRoomsAttachmentNameIsWithheldInJson()
     {
         TimelineEvent image = message(QStringLiteral("$img"),
@@ -285,10 +252,6 @@ private Q_SLOTS:
                  QStringLiteral("secret-plan.pdf"));
     }
 
-    // ── The file says what it is ─────────────────────────────────────────
-    //
-    // Both limits are stated in the file itself, so a partial export is not
-    // mistaken for a whole history by a later reader.
     void theFileStatesItsOwnScope()
     {
         const QList<TimelineEvent> events = {
@@ -311,10 +274,6 @@ private Q_SLOTS:
                  QStringLiteral("!r:example.org"));
     }
 
-    // ── The suggested filename is a leaf ─────────────────────────────────
-    //
-    // A room name is chosen by somebody else and handed to a file dialog;
-    // same discipline as MediaBridge::sanitizedFileName.
     void aRoomNameCannotSuggestAPath()
     {
         roomexport::Options options = plainRoom();
@@ -334,7 +293,6 @@ private Q_SLOTS:
             QVERIFY2(name.endsWith(QStringLiteral(".txt")), qPrintable(name));
         }
 
-        // A control character is not a filename either.
         options.roomName = QStringLiteral("a\nb\tc");
         const QString cleaned = roomexport::suggestedFileName(
             options, roomexport::Format::Json);
@@ -342,16 +300,12 @@ private Q_SLOTS:
         QVERIFY(!cleaned.contains(QLatin1Char('\t')));
         QVERIFY(cleaned.endsWith(QStringLiteral(".json")));
 
-        // A nameless room falls back to its id's localpart, not to the id —
-        // which starts with '!' and carries a ':'.
         options.roomName = QString();
         const QString fallback = roomexport::suggestedFileName(
             options, roomexport::Format::PlainText);
         QVERIFY(fallback.startsWith(QStringLiteral("r-")));
         QVERIFY(!fallback.contains(QLatin1Char('!')));
 
-        // And a room named entirely out of forbidden characters still yields
-        // a usable name rather than a bare extension.
         options.roomId = QStringLiteral("!:");
         options.roomName = QStringLiteral("///");
         const QString last = roomexport::suggestedFileName(

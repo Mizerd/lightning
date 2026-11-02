@@ -34,7 +34,7 @@ int clampPoll(int pollIntervalMs)
     return qBound(kMinPollIntervalMs, pollIntervalMs, kMaxPollIntervalMs);
 }
 
-} // namespace
+}
 
 const char *waitResultName(WaitResult result)
 {
@@ -66,14 +66,14 @@ bool processIsRunning(qint64 pid)
     const bool haveCode = ::GetExitCodeProcess(handle, &exitCode) != 0;
     ::CloseHandle(handle);
     if (!haveCode)
-        return true; // cannot prove it is gone; assume alive
+        return true;
     return exitCode == STILL_ACTIVE;
 #else
     if (::kill(static_cast<pid_t>(pid), 0) == 0)
         return true;
     if (errno == EPERM)
-        return true; // alive, different owner
-    return false;    // ESRCH (or anything else we cannot interpret as alive)
+        return true;
+    return false;
 #endif
 }
 
@@ -92,7 +92,6 @@ WaitResult waitForProcessExit(qint64 pid, int timeoutMs, int pollIntervalMs)
     if (handle == nullptr) {
         const DWORD err = ::GetLastError();
         if (err == ERROR_ACCESS_DENIED) {
-            // We cannot wait on it, so degrade to the bounded poll below.
             QDeadlineTimer deadline(bound);
             while (!deadline.hasExpired()) {
                 if (!processIsRunning(pid))
@@ -101,7 +100,6 @@ WaitResult waitForProcessExit(qint64 pid, int timeoutMs, int pollIntervalMs)
             }
             return processIsRunning(pid) ? WaitResult::TimedOut : WaitResult::Exited;
         }
-        // Anything else (notably ERROR_INVALID_PARAMETER) means it is gone.
         return WaitResult::Exited;
     }
     const DWORD waited = ::WaitForSingleObject(handle, static_cast<DWORD>(bound));
@@ -127,4 +125,4 @@ WaitResult waitForProcessExit(qint64 pid, int timeoutMs, int pollIntervalMs)
 #endif
 }
 
-} // namespace updater
+}

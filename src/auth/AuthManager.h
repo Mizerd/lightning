@@ -16,69 +16,31 @@ class AuthManager : public QObject
 
     Q_PROPERTY(bool isLoggingIn READ isLoggingIn NOTIFY isLoggingInChanged)
     Q_PROPERTY(bool isLoggedIn READ isLoggedIn NOTIFY isLoggedInChanged)
-    /// A sign-out is waiting (bounded) for the call to be left first. The
-    /// account switcher, Add account and removal are refused meanwhile, and
-    /// the main screen says "Signing out…".
     Q_PROPERTY(bool logoutPending READ logoutPending NOTIFY logoutPendingChanged)
     Q_PROPERTY(QString currentUserId READ currentUserId NOTIFY isLoggedInChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
-    // Sign-in progress as a stable token for QML to branch on. Only stages
-    // the backend can actually observe are reported.
-    //
-    //   idle           no sign-in in flight
-    //   connecting     credentials accepted locally; SDK handle + local store
-    //                  are being opened
-    //   authenticating store is open, the homeserver request is in flight
-    //   starting_sync  the server accepted the login; sync is being started
-    //   ready          sync is running
     Q_PROPERTY(QString loginStage READ loginStage NOTIFY loginStageChanged)
 
-    // What this build can do, independent of any server.
     Q_PROPERTY(bool supportsPasswordLogin READ supportsPasswordLogin CONSTANT)
     Q_PROPERTY(bool supportsSsoLogin      READ supportsSsoLogin      CONSTANT)
     Q_PROPERTY(bool supportsOidcLogin     READ supportsOidcLogin     CONSTANT)
 
-    // What the entered homeserver advertises; all false until discovery
-    // completes.
-    //
-    //   idle       no homeserver resolved yet
-    //   probing    discovery in flight
-    //   done       the server answered
-    //   failed     the server could not be asked, or the text is not an
-    //              address (nothing is asked then)
     Q_PROPERTY(QString discoveryState READ discoveryState NOTIFY discoveryChanged)
-    // The address being asked, as normalizedServerAddress() gives it.
     Q_PROPERTY(QString discoveredHomeserver READ discoveredHomeserver NOTIFY discoveryChanged)
     Q_PROPERTY(bool serverOffersPassword READ serverOffersPassword NOTIFY discoveryChanged)
     Q_PROPERTY(bool serverOffersBrowserLogin READ serverOffersBrowserLogin NOTIFY discoveryChanged)
-    // The server offers legacy Matrix SSO (m.login.sso); see rust/src/sso.rs.
     Q_PROPERTY(bool serverOffersSso READ serverOffersSso NOTIFY discoveryChanged)
-    // SSO identity providers as {id, name, icon, brand} maps. Empty is common
-    // and means a single unnamed flow. `brand` is MSC2858's ("google", ...).
     Q_PROPERTY(QVariantList ssoProviders READ ssoProviders NOTIFY discoveryChanged)
-    // Why the state is "failed" or offers nothing: "" | "not_an_address" |
-    // "unreachable" | "unsupported" (answered, but no method this build has).
     Q_PROPERTY(QString discoveryProblem READ discoveryProblem NOTIFY discoveryChanged)
-    // The client API base URL the SDK resolved is plain http and not on this
-    // machine: a password and everything after it travel unencrypted. A
-    // warning only; a local development server needs http.
     Q_PROPERTY(bool serverConnectionInsecure READ serverConnectionInsecure
                    NOTIFY discoveryChanged)
-    // The server's own sign-in page can create an account (prompt=create).
     Q_PROPERTY(bool serverCanCreateAccount READ serverCanCreateAccount
                    NOTIFY discoveryChanged)
-    // The server's sign-in page publishes an account page (where a password
-    // is reset); openAccountPage() opens it.
     Q_PROPERTY(bool serverOffersAccountPage READ serverOffersAccountPage
                    NOTIFY discoveryChanged)
-    // True from the moment a browser sign-in starts until it resolves.
     Q_PROPERTY(bool browserLoginInProgress READ browserLoginInProgress
                    NOTIFY browserLoginInProgressChanged)
-    // The browser could not be handed this server's sign-in page (only an
-    // https page is handed on, or no browser started), so that attempt was
-    // ended. The screen then offers the server's password form, if it has
-    // one. Until the server is asked again.
     Q_PROPERTY(bool browserLoginUnavailable READ browserLoginUnavailable
                    NOTIFY discoveryChanged)
 
@@ -99,9 +61,6 @@ public:
     static QString normalizedServerAddress(const QString &typed);
 
     bool isLoggingIn() const { return m_loggingIn; }
-    // Whether the latest loginSucceeded came from a sign-in the user started
-    // here (password, browser/OAuth, SSO) rather than a restored session.
-    // Read from a loginSucceeded handler.
     bool lastSignInWasInteractive() const { return m_lastSignInInteractive; }
     bool isLoggedIn() const;
     QString currentUserId() const;
@@ -109,8 +68,6 @@ public:
     QString loginStage() const { return m_loginStage; }
 
     bool supportsPasswordLogin() const { return true; }
-    // Legacy SSO is built on the ungated get_sso_login_url/login_token
-    // primitives; the SDK's login_sso helper needs the unvendored axum feature.
     bool supportsSsoLogin() const;
     bool supportsOidcLogin() const;
 
@@ -130,29 +87,13 @@ public:
     bool browserLoginInProgress() const { return m_browserLoginInProgress; }
     bool browserLoginUnavailable() const { return m_browserLoginUnavailable; }
 
-    // True for a plain-http URL whose host is not this machine.
     static bool isInsecureRemoteUrl(const QString &url);
 
-    // Ask the homeserver what it offers. Answers through discoveryChanged.
-    // The server already answered (or being asked) is not asked again, so the
-    // choices do not blink when the field loses focus; `force` asks an
-    // answered one again, for an explicit commit (Enter in the field).
     Q_INVOKABLE void discoverAuthMethods(const QString &homeserver, bool force = false);
-    // Start an OAuth browser sign-in against the entered homeserver.
     Q_INVOKABLE void beginBrowserLogin(const QString &homeserver);
-    // The same flow, asking the server's page to create an account. Refused
-    // unless discovery said the server can.
     Q_INVOKABLE void beginBrowserSignUp(const QString &homeserver);
-    // Open the discovered server's account page in the browser. False when
-    // there is none.
     Q_INVOKABLE bool openAccountPage();
-    // User pressed Cancel, or closed the browser. Always resolves the UI.
     Q_INVOKABLE void cancelBrowserLogin();
-    // Cancel (or Escape) during any sign-in started here. A browser sign-in is
-    // cancelled in the backend. A password sign-in has no abort there: the
-    // screen is given back at once, and every new sign-in, password or
-    // browser, waits (bounded) for the abandoned request to answer; see
-    // m_abandonedLogin.
     Q_INVOKABLE void cancelLogin();
 
     Q_INVOKABLE void login(const QString &homeserver,
@@ -174,15 +115,10 @@ public:
     void setBeforeLogout(BeforeLogout hook) { m_beforeLogout = std::move(hook); }
     bool logoutPending() const { return m_logoutPending; }
     Q_INVOKABLE void restoreSession();
-    // Called by the sign-in form when a field is edited: an error about what
-    // was there no longer describes what is there.
     Q_INVOKABLE void clearLastError();
 
-    // Start a legacy Matrix SSO sign-in. `idpId` selects one advertised
-    // identity provider; empty means the server's default single flow.
     Q_INVOKABLE void beginSsoLogin(const QString &homeserver,
                                    const QString &idpId = QString());
-    // Retained name for the existing QML surface; OAuth/OIDC is one flow.
     Q_INVOKABLE void beginOidcLogin(const QString &homeserver);
 
 Q_SIGNALS:
@@ -196,12 +132,9 @@ Q_SIGNALS:
     void loginFailed(const QString &reason);
     void loggedOut();
     void logoutPendingChanged();
-    /// A deferred sign-out was dropped because its session is no longer the
-    /// current one; nothing was signed out.
     void logoutAbandoned();
 
 public:
-    // Test hook: shortens the abandoned-sign-in bound.
     void setAbandonedLoginBoundMsForTest(qint64 ms) { m_abandonedLoginBoundMs = ms; }
 
 private:
@@ -210,20 +143,11 @@ private:
     void setLoginStage(const QString &stage);
 
     void setBrowserLoginInProgress(bool v);
-    // What a browser attempt ended by a launch failure says.
     QString browserLaunchFailureText() const;
-    // True (and says so on the form) while a cancelled password sign-in's
-    // request may still answer; every sign-in start asks it first.
     bool refuseWhileAbandonedLoginRuns();
     static QString abandonedWaitText();
-    // Runs a discovery asked for while a browser sign-in was in flight.
     void runDeferredDiscovery();
-    // Refuses a sign-in whose server text is not an address, without asking
-    // the backend.
     void refuseServerAddress();
-    // False, with the reason shown, when the account record at the end of a
-    // browser sign-in would refuse this address: said before the browser
-    // opens, never after the user has signed in there.
     bool refuseBeforeTheBrowser(const QString &homeserver);
 
     MatrixClient *m_client = nullptr;
@@ -231,8 +155,6 @@ private:
 
     BeforeLogout m_beforeLogout;
     bool m_logoutPending = false;
-    // Bumped on every sign-in, restore and sign-out the client reports, so a
-    // deferred logout can tell "the same session" from "the same user id".
     quint64 m_sessionGeneration = 0;
     bool m_loggingIn = false;
     bool m_lastSignInInteractive = false;
@@ -245,34 +167,19 @@ private:
     bool m_serverSso = false;
     QVariantList m_ssoProviders;
     bool m_browserLoginInProgress = false;
-    // The running browser attempt's page could not be opened; it is being
-    // ended, and its answer is shown as that, not as "cancelled".
     bool m_browserLaunchFailed = false;
     bool m_browserLoginUnavailable = false;
-    // A sign-in made here failed, and AppController restores the account the
-    // user came from (add account). That restore's success must not wipe the
-    // failure off the form the user is still looking at.
     bool m_errorSurvivesRestore = false;
-    // Started when a password sign-in in flight was cancelled. Its request
-    // still runs in the backend: a new password sign-in would open the same
-    // store under it, and its answer would land in a browser sign-in started
-    // meanwhile. So every start waits for any terminal answer (the abandoned
-    // one, or a restore that replaced it), at most m_abandonedLoginBoundMs.
     QElapsedTimer m_abandonedLogin;
-    // Clears the "has not answered yet" line once the bound is over, so it
-    // does not outlive the wait it describes.
     QTimer m_abandonedWaitNote;
     // How long a new sign-in waits for a cancelled one to answer. The request
     // gave up in under two minutes in the 2026-10-15 break-it run (/login held
     // for 130 s: "reason= timeout"); past the bound the new attempt goes ahead
     // and replaces the old handle, rather than locking sign-in for the session.
     qint64 m_abandonedLoginBoundMs = 150 * 1000;
-    // A discovery asked for during a browser sign-in, run when it ends.
     bool m_discoveryDeferred = false;
     QString m_deferredDiscovery;
-    // The answer of a probe abandoned for text that asks nothing.
     bool m_dropNextDiscovery = false;
-    // authDiscoveryDetails() for the answer that follows it.
     QString m_detailsFor;
     QVariantMap m_details;
     bool m_serverReachable = true;

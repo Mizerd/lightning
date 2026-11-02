@@ -34,8 +34,6 @@
 
 namespace {
 
-// The schema builds before install scoping used; spelled out here rather than
-// shared, because older builds cannot change.
 const SecretSchema *olderBuildSchema()
 {
     static const SecretSchema schema = {
@@ -64,7 +62,6 @@ bool olderBuildStores(const QString &userId, const QString &key,
     return ok;
 }
 
-// What an older build reads; empty when nothing matches.
 QString olderBuildLooksUp(const QString &userId, const QString &key)
 {
     GError *err = nullptr;
@@ -81,7 +78,6 @@ QString olderBuildLooksUp(const QString &userId, const QString &key)
     return out;
 }
 
-// An older build's sign-out: every item of the account.
 void olderBuildSignsOut(const QString &userId)
 {
     GError *err = nullptr;
@@ -92,8 +88,6 @@ void olderBuildSignsOut(const QString &userId)
         g_error_free(err);
 }
 
-// What a launch whose libsecret used the Secret Service wrote, written through
-// the Secret Service API whatever this process's own backend is.
 bool secretServiceStores(const QString &userId, const QString &key,
                          const QString &install, const QString &value)
 {
@@ -120,7 +114,6 @@ bool secretServiceStores(const QString &userId, const QString &key,
     return ok;
 }
 
-// Items of this build's schema matching the given attributes.
 int countScoped(const QString &userId, const QString &install)
 {
     GHashTable *attributes =
@@ -144,7 +137,7 @@ int countScoped(const QString &userId, const QString &install)
     return count;
 }
 
-} // namespace
+}
 
 class LibSecretScopeTest : public QObject
 {
@@ -162,8 +155,6 @@ private Q_SLOTS:
     void aStoreReplacesItsOwnItem();
     void aLegacyDeleteRemovesOnlyTheLegacyItem();
 
-    // libsecret's backend is chosen per process inside a Flatpak or snap; an
-    // account is read in the one its record names (TwoBackendSecretStore).
     void aSignInRecordedInTheFileKeyringIsUnreadableFromTheSecretService();
     void aSignInRecordedInTheSecretServiceIsReadPastTheFileKeyring();
 
@@ -179,13 +170,10 @@ void LibSecretScopeTest::init()
     LibSecretStore probe;
     if (!probe.isAvailable())
         QSKIP("no usable Secret Service on the private bus");
-    // Every other case counts items through the Secret Service, which is not
-    // where libsecret's file backend keeps them.
     if (probe.backendKind() == QLatin1String("file")
         && qstrcmp(QTest::currentTestFunction(),
                    "aSignInRecordedInTheSecretServiceIsReadPastTheFileKeyring") != 0)
         QSKIP("libsecret's file backend; this case needs the Secret Service");
-    // A fresh account per case, so runs never see each other's items.
     m_user = QStringLiteral("@scope-%1:keyring.test")
                  .arg(QUuid::createUuid().toString(QUuid::Id128));
 }
@@ -252,8 +240,6 @@ void LibSecretScopeTest::olderBuildsNeitherSeeNorClearScopedItems()
     QVERIFY(flatpak.storeSecret(m_user, QStringLiteral("accessToken"),
                                 QStringLiteral("flatpak-access")));
 
-    // With no item of its own, an older build's search must find nothing: a
-    // subset match on a shared schema name would hand it this install's token.
     QCOMPARE(olderBuildLooksUp(m_user, QStringLiteral("accessToken")), QString());
 
     olderBuildSignsOut(m_user);
@@ -271,7 +257,6 @@ void LibSecretScopeTest::legacyItemsAreReadButNeverTouched()
     QCOMPARE(flatpak.readLegacySecret(m_user, QStringLiteral("accessToken")),
              QStringLiteral("legacy-access"));
     QVERIFY(!flatpak.lastReadFailed());
-    // This install's own items: absent until it writes some.
     QVERIFY(flatpak.readSecret(m_user, QStringLiteral("accessToken")).isEmpty());
 
     QVERIFY(flatpak.storeSecret(m_user, QStringLiteral("accessToken"),
@@ -338,16 +323,12 @@ void LibSecretScopeTest::aLegacyDeleteRemovesOnlyTheLegacyItem()
              QStringLiteral("flatpak-access"));
 }
 
-// A launch whose Secret portal did not answer: libsecret uses the Secret
-// Service, and the file keyring that holds the sign-in cannot be opened. Not a
-// miss, which would read as a lost sign-in.
 void LibSecretScopeTest::aSignInRecordedInTheFileKeyringIsUnreadableFromTheSecretService()
 {
     LibSecretStore flatpak;
     if (flatpak.backendKind() != QLatin1String("service"))
         QSKIP("this process's libsecret backend is not the Secret Service");
     flatpak.setInstallScope(QStringLiteral("install-a"));
-    // An older copy in the Secret Service, from before the file keyring.
     QVERIFY(flatpak.storeSecret(m_user, QStringLiteral("accessToken"),
                                 QStringLiteral("older-access")));
 
@@ -356,14 +337,10 @@ void LibSecretScopeTest::aSignInRecordedInTheFileKeyringIsUnreadableFromTheSecre
     QVERIFY(flatpak.readSecret(m_user, QStringLiteral("accessToken")).isEmpty());
     QVERIFY2(flatpak.lastReadFailed(),
              "a sign-in in a keyring this launch cannot open read as a miss");
-    // Its sign-out cannot reach the file keyring and does not claim it did;
-    // what the Secret Service held goes.
     QVERIFY(!flatpak.clearAccountSecrets(m_user));
     QCOMPARE(countScoped(m_user, QStringLiteral("install-a")), 0);
 }
 
-// The live 0.10.2 Flatpak finding: written by a launch on the Secret Service,
-// read by one on the file keyring.
 void LibSecretScopeTest::aSignInRecordedInTheSecretServiceIsReadPastTheFileKeyring()
 {
     LibSecretStore flatpak;
@@ -374,7 +351,6 @@ void LibSecretScopeTest::aSignInRecordedInTheSecretServiceIsReadPastTheFileKeyri
                                 QStringLiteral("install-a"),
                                 QStringLiteral("service-access")));
 
-    // libsecret's own choice, the file keyring, does not have it.
     QVERIFY(flatpak.readSecret(m_user, QStringLiteral("accessToken")).isEmpty());
     QVERIFY(!flatpak.lastReadFailed());
 
@@ -384,18 +360,15 @@ void LibSecretScopeTest::aSignInRecordedInTheSecretServiceIsReadPastTheFileKeyri
     QCOMPARE(flatpak.readSecret(m_user, QStringLiteral("accessToken")),
              QStringLiteral("service-access"));
     QVERIFY(!flatpak.lastReadFailed());
-    // Its writes stay beside it.
     QVERIFY(flatpak.storeSecret(m_user, QStringLiteral("refreshToken"),
                                 QStringLiteral("service-refresh")));
     QCOMPARE(countScoped(m_user, QStringLiteral("install-a")), 2);
 
-    // Something of the account's in the file keyring too.
     flatpak.setRecordedBackendLookup({});
     QVERIFY(flatpak.storeSecret(m_user, QStringLiteral("mediaStoreKey"),
                                 QStringLiteral("file-item")));
     QCOMPARE(countScoped(m_user, QStringLiteral("install-a")), 2);
 
-    // Its sign-out clears both.
     flatpak.setRecordedBackendLookup(
         [](const QString &) { return QStringLiteral("service"); });
     QVERIFY(flatpak.clearAccountSecrets(m_user));

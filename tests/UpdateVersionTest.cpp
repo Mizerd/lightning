@@ -1,8 +1,3 @@
-// Lightning secure update system: semantic version parsing and ordering.
-//
-// Pins the three behaviours a lexicographic compare gets wrong (0.10 above
-// 0.9, prerelease below release, build metadata irrelevant), and that
-// malformed input is reported rather than guessed.
 
 #include "update/Version.h"
 
@@ -22,7 +17,7 @@ Version mustParse(const QString &text)
     return *parsed;
 }
 
-} // namespace
+}
 
 class UpdateVersionTest : public QObject
 {
@@ -103,7 +98,6 @@ void UpdateVersionTest::rejectsMalformedInput_data()
 void UpdateVersionTest::rejectsMalformedInput()
 {
     QFETCH(QString, text);
-    // nullopt, never a guessed value: the caller must fail the check.
     QVERIFY(!Version::parse(text).has_value());
 }
 
@@ -123,7 +117,6 @@ void UpdateVersionTest::prereleaseSortsBelowItsRelease()
 {
     QVERIFY(mustParse("0.8.0-rc1") < mustParse("0.8.0"));
     QVERIFY(mustParse("0.8.0") > mustParse("0.8.0-rc1"));
-    // ...but still above the previous release.
     QVERIFY(mustParse("0.8.0-rc1") > mustParse("0.7.9"));
 }
 
@@ -142,7 +135,6 @@ void UpdateVersionTest::prereleaseIdentifiersFollowSemver()
                  qPrintable(ascending.at(i - 1) + QStringLiteral(" < ") + ascending.at(i)));
         QVERIFY(higher > lower);
     }
-    // Numeric identifiers sort below alphanumeric ones.
     QVERIFY(mustParse("1.0.0-1") < mustParse("1.0.0-alpha"));
 }
 
@@ -166,7 +158,7 @@ void UpdateVersionTest::reportsPrereleaseState()
 {
     QVERIFY(!mustParse("1.0.0").isPrerelease());
     QVERIFY(mustParse("1.0.0-rc1").isPrerelease());
-    QVERIFY(!mustParse("1.0.0+rc1").isPrerelease()); // build metadata is not a prerelease
+    QVERIFY(!mustParse("1.0.0+rc1").isPrerelease());
 }
 
 QTEST_APPLESS_MAIN(UpdateVersionTest)

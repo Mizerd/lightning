@@ -2,31 +2,13 @@ import QtQuick
 import QtQuick.Shapes
 import MatrixClient
 
-// A shell surface painted in one theme role: the flat colour, or the role's
-// gradient when the theme gives it one (a custom theme's own gradient, or
-// Settings -> Appearance -> Depth). One component instead of touching every
-// `color:` site: a host keeps its flat `color:` and lays this beneath its
-// children with `flatFill: false`, so nothing changes until a gradient
-// exists.
-//
-// Rectangular only (the shell grounds have no radius). Readability: every
-// stop is graded by CustomThemeStore::auditWithGradients, at the worst one.
 Item {
     id: root
 
-    // "background" | "sidebar" | "rail" | "surface" | "settingsPage" |
-    // "settingsNav" (CustomThemeStore::gradientRoles()).
     property string role: "background"
-    // Paint the flat colour when there is no gradient. A host that already
-    // paints its own flat colour sets this false and the item draws nothing
-    // until a gradient exists.
     property bool flatFill: true
-    // Depth only: a soft inner shade along one edge, where a raised
-    // neighbour meets this surface. "" | "left" | "right" | "top" | "bottom".
     property string innerShadowEdge: ""
 
-    // An explicit gradient (or null for none) instead of the live theme's,
-    // for previews of a theme that is not applied (the theme editor).
     property var specOverride: undefined
 
     readonly property var spec: specOverride !== undefined
@@ -41,9 +23,6 @@ Item {
         return spec.stops[Math.max(0, Math.min(_stopCount - 1, i))]
     }
 
-    // Where stop `i` sits along the gradient, 0..1. A spec without
-    // `positions` (every theme saved before the gradient bar, and Depth's)
-    // spreads its stops evenly.
     function _pos(i) {
         if (!hasGradient || _stopCount < 2)
             return 0
@@ -53,8 +32,6 @@ Item {
         return Math.max(0, Math.min(_stopCount - 1, i)) / (_stopCount - 1)
     }
 
-    // CSS convention: 0 points up, 90 right, 180 down. The gradient line
-    // passes through the centre and is long enough to reach both corners.
     readonly property real _angleRad: hasGradient && !_radial
                                       ? spec.angle * Math.PI / 180 : Math.PI
     readonly property real _dx: Math.sin(_angleRad)
@@ -99,7 +76,6 @@ Item {
         GradientStop { position: root._pos(root._stopCount - 1); color: root._stop(root._stopCount - 1) }
     }
 
-    // Subtle by construction: centred, reaching the far corners.
     RadialGradient {
         id: radialFill
         centerX: root.width / 2

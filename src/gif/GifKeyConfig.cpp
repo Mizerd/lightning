@@ -17,7 +17,6 @@ QString envVariableNameFor(const QString &providerId)
     return {};
 }
 
-// Strip one matching pair of surrounding quotes.
 QString unquoted(QString value)
 {
     if (value.size() >= 2) {
@@ -30,7 +29,7 @@ QString unquoted(QString value)
     return value;
 }
 
-} // namespace
+}
 
 QString keySourceName(KeySourceClass source)
 {
@@ -85,7 +84,6 @@ QHash<QString, QString> readEnvFile(const QString &path)
     QFile file(path);
     if (!file.exists() || !file.open(QIODevice::ReadOnly))
         return {};
-    // Env files are tiny; a defensive cap keeps a mistaken path harmless.
     return parseEnvAssignments(file.read(64 * 1024));
 }
 
@@ -131,4 +129,4 @@ ResolvedKey resolveProviderKeyDetailed(const QString &providerId)
     return resolved;
 }
 
-} // namespace gif
+}

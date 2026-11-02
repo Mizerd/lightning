@@ -3,35 +3,14 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// How the colour open in the theme editor is tied to the rest of the theme, as
-// something to act on rather than a sentence to read:
-//
-//   linked   "Linked to Panels and cards"   [Edit Panels and cards] [Unlink]
-//   own      "Own colour, part of Panels"   [Reset to group] [Apply to all ...]
-//
-// and, for a group, "Also changes N" with a Show toggle and "N keep their own
-// colour" with Include them. It holds no theme state: the editor sets the
-// properties and answers the signals, so the same row serves every role.
-//
-// Painted in the invariant editor tokens (see `editorCanvas` in AppTheme.qml).
 ColumnLayout {
     id: root
 
-    // The group this role belongs to ("" when it is a top-level colour).
     property string groupLabel: ""
-    // The role it is riding on right now ("" when it has a colour of its own
-    // or follows nothing).
     property string parentLabel: ""
-    // True while the role has a colour or gradient of its own to drop.
     property bool hasOwn: false
-    // Unlink copies the resolved colour; refused for a see-through one, whose
-    // alpha a stored colour cannot carry.
     property bool canUnlink: true
-    // At the Simple and Groups levels the way to a wider change is the more
-    // prominent button.
     property bool emphasizeParent: false
-    // Roles that change with this one, and how many of its group keep a
-    // colour of their own and so would not.
     property int alsoChanges: 0
     property int keepOwn: 0
     property bool showingDependents: false
@@ -45,7 +24,6 @@ ColumnLayout {
     objectName: "themeRoleLinks"
     spacing: AppTheme.spacing6
 
-    // A small self-contained button.
     component LinkButton: AbstractButton {
         id: btn
         property bool primary: false
@@ -94,7 +72,6 @@ ColumnLayout {
         }
     }
 
-    // The state, in one line.
     RowLayout {
         Layout.fillWidth: true
         visible: root.parentLabel.length > 0 || root.groupLabel.length > 0
@@ -110,8 +87,6 @@ ColumnLayout {
                 size: 16
                 color: AppTheme.editorTextSecondary
             }
-            // The mark an own colour carries in the list, so the two read as
-            // the same fact.
             Rectangle {
                 anchors.centerIn: parent
                 visible: root.parentLabel.length === 0
@@ -181,7 +156,6 @@ ColumnLayout {
         }
     }
 
-    // A group: what it carries with it.
     RowLayout {
         Layout.fillWidth: true
         visible: root.alsoChanges > 0

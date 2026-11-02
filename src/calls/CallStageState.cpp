@@ -5,15 +5,11 @@
 #include "calls/CallShareModel.h"
 
 namespace {
-/// One per participant is the natural ceiling; headroom covers sharers
-/// restarting within a call (each restart mints a new id).
 constexpr int kMaxDismissedShareIds = 128;
-} // namespace
+}
 
 CallStageState::CallStageState(QObject *parent) : QObject(parent)
 {
-    // Read once: the property is CONSTANT. Any non-empty value enables it,
-    // like the other opt-in traces.
     m_traceEnabled = !qEnvironmentVariableIsEmpty("LIGHTNING_CALL_TRACE");
 }
 
@@ -39,8 +35,6 @@ QString CallStageState::spotlightShareId() const
 {
     if (m_shares.isNull())
         return {};
-    // Newest first: rows are in arrival order, so the last row is the most
-    // recent share.
     const QStringList ids = m_shares->shareIds();
     for (int i = ids.size() - 1; i >= 0; --i) {
         if (!m_dismissedShareIds.contains(ids.at(i)))
@@ -78,7 +72,6 @@ void CallStageState::onSharesChanged()
 {
     const QString spotlight = spotlightShareId();
     const bool restorable = restorableShareAvailable();
-    // Always run the full-screen guard, even when nothing else changed.
     enforceFullScreenHasSurface();
     if (spotlight == m_lastSpotlightShareId && restorable == m_lastRestorable)
         return;
@@ -102,8 +95,6 @@ void CallStageState::enforceFullScreenHasSurface()
 
 void CallStageState::setFullScreen(bool fullScreen)
 {
-    // Refused with nothing focused: a full-screen black window is the worst
-    // outcome.
     if (fullScreen && !hasFocusedSurface())
         return;
     if (m_fullScreen == fullScreen)
@@ -146,9 +137,6 @@ void CallStageState::onShareEnded(const QString &shareId)
 
 void CallStageState::onShareAppeared(const QString &shareId)
 {
-    // A new share is not the one the user dismissed, so re-arm "auto". This
-    // cannot resurrect a dismissal: ended shares are pruned and a restart has
-    // a new id.
     Q_UNUSED(shareId);
     if (m_layoutPreference != QLatin1String("auto")) {
         m_layoutPreference = QStringLiteral("auto");
@@ -162,8 +150,6 @@ void CallStageState::dismissShare(const QString &shareId)
     if (shareId.isEmpty() || m_dismissedShareIds.contains(shareId))
         return;
     if (m_dismissedShareIds.size() >= kMaxDismissedShareIds) {
-        // Refuse rather than evict: evicting would silently un-dismiss a
-        // share.
         return;
     }
     m_dismissedShareIds.insert(shareId);
@@ -174,8 +160,6 @@ void CallStageState::restoreShare(const QString &shareId)
 {
     if (!m_dismissedShareIds.remove(shareId))
         return;
-    // Restoring asks to see the share, so a "grid" preference must not hide
-    // it.
     if (m_layoutPreference == QLatin1String("grid")) {
         m_layoutPreference = QStringLiteral("auto");
         Q_EMIT layoutPreferenceChanged();
@@ -206,7 +190,6 @@ void CallStageState::pin(const QString &identity)
         return;
     m_pinnedIdentity = identity;
     Q_EMIT pinnedIdentityChanged();
-    // Clearing the pin can empty the spotlight while full screen is up.
     enforceFullScreenHasSurface();
 }
 
@@ -219,7 +202,7 @@ void CallStageState::setLayoutPreference(const QString &mode)
 {
     if (mode != QLatin1String("auto") && mode != QLatin1String("grid")
         && mode != QLatin1String("spotlight")) {
-        return; // unknown modes are refused, never stored
+        return;
     }
     if (m_layoutPreference == mode)
         return;
@@ -236,9 +219,7 @@ void CallStageState::clear()
     m_pinnedIdentity.clear();
     m_layoutPreference = QStringLiteral("auto");
     m_dismissedShareIds.clear();
-    // The call ended; a full-screen window must not outlive it.
     m_fullScreen = false;
-    // Nor a floating call window.
     m_pictureInPicture = false;
     if (hadPip)
         Q_EMIT pictureInPictureChanged();

@@ -10,7 +10,6 @@ Dialog {
     id: root
     objectName: "reportMessageDialog"
     modal: true
-    // The shared modal scrim.
     Overlay.modal: Rectangle { color: AppTheme.modalScrim }
     focus: true
     standardButtons: Dialog.NoButton
@@ -59,7 +58,6 @@ Dialog {
                        + "one message. It is not sent to the message's "
                        + "author.")
             color: AppTheme.stormTextSecondary
-            // Body size with the shared leading for dialog paragraphs.
             font.pixelSize: AppTheme.textBody
             lineHeight: AppTheme.lineHeightBody
             lineHeightMode: Text.ProportionalHeight

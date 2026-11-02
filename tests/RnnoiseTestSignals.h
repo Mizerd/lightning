@@ -1,10 +1,5 @@
 #pragma once
 
-// Deterministic synthetic signals for the RNNoise tests (and for the standalone
-// sanity run recorded in third_party/rnnoise/PROVENANCE.md). Header-only, no Qt.
-// Own PRNG on purpose: std::normal_distribution is not specified bit-for-bit
-// across standard libraries and these numbers must be the same everywhere.
-
 #include <cmath>
 #include <cstdint>
 #include <vector>
@@ -21,16 +16,14 @@ public:
     explicit Rng(uint64_t seed) : m_s(seed ? seed : 0x9E3779B97F4A7C15ull) {}
     uint64_t next()
     {
-        // xorshift64*
         m_s ^= m_s >> 12;
         m_s ^= m_s << 25;
         m_s ^= m_s >> 27;
         return m_s * 0x2545F4914F6CDD1Dull;
     }
-    double uniform() { return double(next() >> 11) * (1.0 / 9007199254740992.0); } // [0,1)
+    double uniform() { return double(next() >> 11) * (1.0 / 9007199254740992.0); }
     double gauss()
     {
-        // Box-Muller
         double u1 = uniform();
         if (u1 < 1e-300)
             u1 = 1e-300;
@@ -51,7 +44,6 @@ inline std::vector<float> whiteNoise(int n, uint64_t seed, double rms)
     return v;
 }
 
-// Paul Kellet's economy pink filter on white noise, scaled to the given RMS.
 inline std::vector<float> pinkNoise(int n, uint64_t seed, double rms)
 {
     Rng r(seed);
@@ -75,13 +67,11 @@ inline std::vector<float> pinkNoise(int n, uint64_t seed, double rms)
 
 struct Voice
 {
-    std::vector<float> samples; // voiced signal, gaps are exact zeros
-    std::vector<char> on;       // 1 where a syllable is fully on (ramps excluded)
-    std::vector<char> gap;      // 1 where it is silent with margin (ramps excluded)
+    std::vector<float> samples;
+    std::vector<char> on;
+    std::vector<char> gap;
 };
 
-// Harmonic stack on a drifting f0 (~110-140 Hz) shaped by three formant-like
-// resonances, gated into syllables with raised-cosine edges.
 inline Voice syntheticVoice(int n, uint64_t seed, double peakRms)
 {
     Rng r(seed);
@@ -129,14 +119,14 @@ inline Voice syntheticVoice(int n, uint64_t seed, double peakRms)
             double s = 0;
             for (int h = 1; h * f0 < 5000.0; ++h) {
                 const double f = h * f0;
-                double a = 1.0 / h; // glottal tilt
+                double a = 1.0 / h;
                 for (int k = 0; k < 3; ++k) {
                     const double dx = (f - formant[k]) / bw[k];
                     a += gain[k] * std::exp(-0.5 * dx * dx) * 1.0;
                 }
                 s += a * std::sin(h * phase);
             }
-            raw[i] = s * e + 0.01 * r.gauss() * e; // tiny breathiness
+            raw[i] = s * e + 0.01 * r.gauss() * e;
             acc += raw[i] * raw[i];
             ++cnt;
         }
@@ -153,7 +143,7 @@ inline double energy(const std::vector<float> &x, const std::vector<char> &mask,
     double acc = 0;
     long cnt = 0;
     for (int i = from; i < to; ++i) {
-        const int j = i - shift; // mask index for output delayed by `shift`
+        const int j = i - shift;
         if (j < 0 || j >= int(mask.size()) || !mask[j])
             continue;
         acc += double(x[i]) * x[i];
@@ -167,4 +157,4 @@ inline double db(double powerRatio)
     return 10.0 * std::log10(powerRatio > 1e-30 ? powerRatio : 1e-30);
 }
 
-} // namespace rnnoise_test
+}

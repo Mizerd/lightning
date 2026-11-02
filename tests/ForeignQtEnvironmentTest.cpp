@@ -1,6 +1,3 @@
-// ForeignQtEnvironment.h: search paths a session exports for Qt 5 are dropped
-// before Qt reads them, Qt 6 and unrelated entries are kept, and a variable
-// left with nothing is unset rather than emptied.
 #include "app/ForeignQtEnvironment.h"
 
 #include <QtTest/QtTest>
@@ -73,7 +70,6 @@ private Q_SLOTS:
         qunsetenv("QT_QPA_PLATFORM_PLUGIN_PATH");
         const QStringList report = sanitizeForeignQtEnvironment();
         QCOMPARE(report.size(), 2);
-        // Unset, not emptied: an empty value is not the same to Qt.
         QVERIFY(!qEnvironmentVariableIsSet("QT_PLUGIN_PATH"));
         QCOMPARE(qgetenv("QML2_IMPORT_PATH"), QByteArray("/x/qt-6/qml"));
         QCOMPARE(qgetenv("QT_QPA_FONTDIR"), QByteArray("/fonts"));

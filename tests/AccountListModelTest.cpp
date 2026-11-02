@@ -1,11 +1,3 @@
-// Labs (concurrent live accounts): AccountListModel, the switcher rows for up
-// to a couple of hundred saved accounts. No secret is ever read to build them
-// (AccountManager::accounts() reads every account's token); sections and
-// order; the filter; needsSignIn from the record, the proof and the live
-// state; reaction to the signals that change a row and to none that only
-// change a badge. Also AccountManager's sessionRevokedChanged, and flag-off
-// parity of today's AccountManager rows. Every case names the naive version
-// it fails on.
 
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
@@ -23,7 +15,6 @@
 
 #include <memory>
 
-// Counts every read, so a case can prove the rows read no secret.
 class CountingSecretStore final : public SecretStore
 {
     Q_OBJECT
@@ -75,8 +66,6 @@ private:
 
 namespace {
 
-// Saved in this order within one second, so savedAccountUserIds() orders them
-// by id: a < b < c < d < e.
 const QString kA = QStringLiteral("@a-user:one.example");
 const QString kB = QStringLiteral("@b-user:one.example");
 const QString kC = QStringLiteral("@c-user:one.example");
@@ -100,7 +89,7 @@ QVariantMap rowFor(const QVariantList &rows, const QString &uid)
     return {};
 }
 
-} // namespace
+}
 
 class AccountListModelTest : public QObject
 {
@@ -138,7 +127,6 @@ private Q_SLOTS:
         m_store.reset();
     }
 
-    // QML binds these names (WP1-Q).
     void roleNamesMatchTheContract()
     {
         makeModel();
@@ -151,10 +139,6 @@ private Q_SLOTS:
             QCOMPARE(n.value(AccountListModel::UserIdRole + i), expected.at(i));
     }
 
-    // The switcher at about 200 accounts: building, filtering and refreshing
-    // the rows reads ZERO secrets, where today's accounts() reads one token
-    // per account. Naive version: needsSignIn = AccountManager::needsSignIn(),
-    // or rows copied from AccountManager::accounts().
     void twoHundredRowsReadNoSecret()
     {
         for (int i = 0; i < 200; ++i) {
@@ -184,16 +168,10 @@ private Q_SLOTS:
         QCOMPARE(m_store->reads, 0);
         QCOMPARE(rowFor(m_model->rowsSnapshot(), u7).value("needsSignIn").toBool(), true);
 
-        // The counter does see a token read: today's list reads every one.
         m_accounts->accounts();
         QVERIFY(m_store->reads >= 200);
     }
 
-    // Running first (the active account at its top, then Starting, Running
-    // and Stopping in saved order), then the others most recently live first.
-    // Naive versions: saved order throughout (today's menu), lastLiveAt
-    // ascending, or the running section sorted by lastLiveAt (rows jump while
-    // the menu is open, because a host rewrites it every ten minutes).
     void sectionsAndOrder()
     {
         saveFive();
@@ -214,17 +192,14 @@ private Q_SLOTS:
         QCOMPARE(rowFor(rows, kA).value("section").toString(), QStringLiteral("other"));
         QCOMPARE(rowFor(rows, kC).value("isActive").toBool(), true);
         QCOMPARE(rowFor(rows, kD).value("lastLiveAt").toLongLong(), qint64(200));
-        // The model's own rows say the same.
         for (int r = 0; r < rows.size(); ++r)
             QCOMPARE(m_model->data(m_model->index(r, 0), AccountListModel::UserIdRole).toString(),
                      idsOf(rows).at(r));
 
-        // A switch moves the new active account to the top (sessionChanged).
         QSignalSpy rowsChanged(m_model.get(), &AccountListModel::rowsChanged);
         m_settings->setActiveAccountUserId(kD);
         QVERIFY(rowsChanged.count() >= 1);
         QCOMPARE(idsOf(m_model->rowsSnapshot()).first(), kD);
-        // Stopping still holds the store: it stays in the running section.
         m_activity->setLiveState(kA, AccountActivityModel::Stopping);
         QCOMPARE(rowFor(m_model->rowsSnapshot(), kA).value("section").toString(),
                  QStringLiteral("running"));
@@ -233,8 +208,6 @@ private Q_SLOTS:
                  QStringLiteral("other"));
     }
 
-    // Case-insensitive substring on the display name and the user id. Naive
-    // versions: case-sensitive, or the id only.
     void filterMatchesNameAndIdIgnoringCase()
     {
         saveFive();
@@ -258,9 +231,6 @@ private Q_SLOTS:
         QCOMPARE(filterChanged.count(), 4);
     }
 
-    // needsSignIn = revoked this run || a revocation proof || the host said
-    // so. Naive version: today's token check, or the revoked flag alone (a
-    // proof from a host would then not show until the user clicked).
     void needsSignInFromFlagProofAndState()
     {
         saveFive();
@@ -278,10 +248,6 @@ private Q_SLOTS:
         QCOMPARE(rowFor(rows, kC).value("liveState").toInt(), int(AccountActivityModel::NeedsSignIn));
     }
 
-    // The rows follow the four signals that change one. keepRunning in
-    // particular emits NO accountsChanged (by design), so a model listening
-    // only to accountsChanged would show a stale switch. Naive version: the
-    // AccountManager wiring (accounts()/accountsChanged) alone.
     void rowsFollowPinsStatesAndRevocation()
     {
         saveFive();
@@ -293,7 +259,7 @@ private Q_SLOTS:
 
         m_settings->setKeepRunningFor(kD, true);
         QCOMPARE(rowsChanged.count(), 1);
-        QCOMPARE(reset.count(), 0);    // same order: one row changed in place
+        QCOMPARE(reset.count(), 0);
         QCOMPARE(changed.count(), 1);
         QCOMPARE(rowFor(m_model->rowsSnapshot(), kD).value("keepRunning").toBool(), true);
 
@@ -310,17 +276,11 @@ private Q_SLOTS:
         QCOMPARE(rowFor(m_model->rowsSnapshot(), kB).value("displayName").toString(),
                  QStringLiteral("Bee"));
 
-        // A change that moves nothing says nothing.
         m_settings->setKeepRunningFor(kD, true);
         m_activity->setLiveState(kD, AccountActivityModel::Running);
         QCOMPARE(rowsChanged.count(), 4);
     }
 
-    // rowsSnapshot() changes only with rowsChanged(), never with a badge.
-    // Naive version: a row carrying the badge (mentionCount from the activity
-    // model) refreshed on summaryChanged: QML re-reads the whole snapshot,
-    // and every delegate in the open menu, on every unread change of every
-    // background account.
     void aBadgeUpdateLeavesTheRowsAlone()
     {
         saveFive();
@@ -339,9 +299,6 @@ private Q_SLOTS:
         QCOMPARE(m_model->rowsSnapshot(), before);
     }
 
-    // Today's accounts() keys, same values (tokens present, no proof), plus
-    // the Labs roles. Naive version: different spellings, which would make
-    // every QML consumer that switches sources read blanks.
     void theSnapshotIsTodaysRowsPlusTheLabsRoles()
     {
         saveFive();
@@ -362,11 +319,6 @@ private Q_SLOTS:
         }
     }
 
-    // ---- AccountManager ----------------------------------------------------------
-
-    // Emitted beside accountsChanged, after it, on a real change only. Naive
-    // version: no signal (the Labs list then never shows a revocation), or
-    // one on every call.
     void sessionRevokedChangedFollowsAccountsChanged()
     {
         saveFive();
@@ -384,10 +336,6 @@ private Q_SLOTS:
                                       QStringLiteral("revoked ") + kA }));
     }
 
-    // Flag-off parity for today's switcher source: Labs keys stored for an
-    // account change nothing in accounts() or account(). Naive version:
-    // accountRecord() growing the new keys, which every QML row would then
-    // carry and every comparison of records would see move.
     void todaysAccountRowsIgnoreTheLabsKeys()
     {
         saveFive();
@@ -407,13 +355,6 @@ private Q_SLOTS:
     }
 
 private:
-    // la1-M L2: an account that is not revoked but whose keyring lost its
-    // token showed no "Needs sign-in" in the Labs switcher (today's menu reads
-    // every token on the GUI thread to say so). The probe answers off the
-    // GUI thread: lost -> the chip; "cannot tell" -> nothing; the active and
-    // running rows are never asked; answers are forgotten when a record
-    // changes. Still no secret read while building rows. Mutation: drop the
-    // m_lostSignIn term from needsSignIn and kB never shows the chip.
     void aProbedLostSignInShowsNeedsSignIn()
     {
         saveFive();
@@ -427,25 +368,21 @@ private:
             asked << uid;
             pending.insert(uid, std::move(done));
         });
-        // At most four at a time, never the active or a running account.
-        QCOMPARE(asked.size(), 3);   // kB, kD, kE (kA active, kC running)
+        QCOMPARE(asked.size(), 3);
         QVERIFY(!asked.contains(kA));
         QVERIFY(!asked.contains(kC));
         QCOMPARE(m_store->reads, 0);
         QVERIFY(!rowFor(m_model->rowsSnapshot(), kB).value("needsSignIn").toBool());
         QSignalSpy changed(m_model.get(), &AccountListModel::rowsChanged);
-        pending.take(kB)(true);    // the keyring answered: nothing there
-        pending.take(kD)(false);   // "cannot tell", or a token is there
+        pending.take(kB)(true);
+        pending.take(kD)(false);
         QVERIFY(changed.count() >= 1);
         QVERIFY(rowFor(m_model->rowsSnapshot(), kB).value("needsSignIn").toBool());
         QVERIFY(!rowFor(m_model->rowsSnapshot(), kD).value("needsSignIn").toBool());
-        // Each account is asked once while nothing changes.
         m_model->refresh();
         QCOMPARE(asked.count(kB), 1);
         QCOMPARE(asked.count(kD), 1);
         QCOMPARE(m_store->reads, 0);
-        // A late answer from before a record changed is ignored, and every
-        // account is asked again.
         std::function<void(bool)> stale = pending.take(kE);
         m_settings->updateAccountProfile(kE, QStringLiteral("E"), QString());
         m_settings->saveSession(QStringLiteral("https://one.example"), kB, QStringLiteral("DEV"),
@@ -465,7 +402,6 @@ private:
                 : QStringLiteral("https://one.example");
             m_settings->saveSession(hs, uid, QStringLiteral("DEV"), QStringLiteral("token-fixture"));
         }
-        // saveSession makes each one active; start from none.
         m_settings->setActiveAccountUserId(QString());
     }
 

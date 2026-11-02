@@ -1,7 +1,3 @@
-// CallSoundPlayer's liveness: a sound thread stuck on the sound server must
-// stop reporting sounds as playable, or the ringer keeps choosing its own
-// (silent) ring over the desktop's call sound. No sound effect is ever
-// created here, so no audio device is needed.
 #include "calls/CallSoundPlayer.h"
 #include "calls/CallSoundRebuild.h"
 #include "calls/PulseServerProbe.h"
@@ -29,7 +25,6 @@ Q_LOGGING_CATEGORY(lcCallSound, "lightning.calls.sound")
 
 namespace {
 #ifdef Q_OS_LINUX
-/// A listening unix socket at `path`, or -1.
 int listenAt(const QByteArray &path)
 {
     sockaddr_un address{};
@@ -49,10 +44,6 @@ int listenAt(const QByteArray &path)
 }
 #endif
 
-// A model of Qt 6.10+'s QSoundEffect engine pool
-// (QSoundEffectPrivateWithPlayer::getEngineFor): one engine per output ID,
-// held by weak reference, so a live engine is handed to every effect that
-// asks for that ID, dead or not.
 struct FakeEngine {
     bool dead = false;
 };
@@ -67,14 +58,11 @@ struct FakeEnginePool {
         return fresh;
     }
 };
-// An effect attaches to an engine as soon as it exists (its sample is
-// already decoded: Qt's sample cache answers at once).
 struct FakeEffect {
     std::shared_ptr<FakeEngine> engine;
 };
-} // namespace
+}
 
-// Stands in for CallDeviceController::audioOutputsChanged.
 class OutputListSource : public QObject
 {
     Q_OBJECT
@@ -87,12 +75,6 @@ class CallSoundPlayerTest : public QObject
     Q_OBJECT
 
 private slots:
-    // Windows 2026-10-07 (build 300): an RDP audio endpoint went away for
-    // 28 s and came back under the same ID; the reload rebuilt all 17 cues
-    // ("reloaded= 17") and every one stayed silent until a restart. The
-    // rebuilt effects were handed the engine whose stream had died, because
-    // an old effect still held it in Qt's pool when they asked. The reload
-    // must leave no old effect alive when it creates the first new one.
     void aReloadNeverHandsANewCueTheEngineThatDied()
     {
         const QStringList sounds{QStringLiteral("ring"),
@@ -100,9 +82,6 @@ private slots:
                                  QStringLiteral("hangup")};
         const QString output = QStringLiteral("rdp-endpoint");
 
-        // The control: the order the reload used before (each old effect
-        // released only after its successor exists, as deleteLater() did).
-        // It must reproduce the fault, or this model proves nothing.
         {
             FakeEnginePool pool;
             QHash<QString, FakeEffect *> effects;
@@ -151,10 +130,6 @@ private slots:
         qDeleteAll(effects);
     }
 
-    // The QSoundEffect cues use that order, free the old effects at once
-    // (deleteLater() keeps them, and their engine, alive past the creates),
-    // and with no speaker chosen leave the device unset so Qt 6.10+ follows
-    // the default instead of pinning the dying endpoint by its ID.
     void theQSoundEffectCuesReplaceEveryEffectBeforeCreatingAny()
     {
         QFile file(QStringLiteral(SOUNDS_DIR "/../../src/calls/CallSoundPlayer.cpp"));
@@ -188,43 +163,34 @@ private slots:
                  "from Qt 6.10 the cues pin the default output by its ID");
     }
 
-    // Measured 2026-09-25 on Qt 6.8.2: after a sound-server stall the sound
-    // thread never comes back. canPlay() must turn false within ~2 s of a job
-    // going unanswered, and true again if the thread catches up.
     void aStuckSoundThreadReportsNothingPlayable()
     {
         CallSoundPlayer player(CallSoundPlayer::ForTest{},
-                               /*offTheGuiThread=*/true);
+true);
         player.markReadyForTest(QStringLiteral("ring"));
         QVERIFY(player.canPlay(QStringLiteral("ring")));
 
-        // A quick job is answered and changes nothing.
         QSemaphore quick;
         player.postForTest([&quick] { quick.release(); });
         QVERIFY(quick.tryAcquire(1, 2000));
         QTest::qWait(2300);
         QVERIFY(player.canPlay(QStringLiteral("ring")));
 
-        // A job that blocks, as an open on a stalled server does.
         QSemaphore unblock;
         player.postForTest([&unblock] { unblock.acquire(); });
-        QVERIFY(player.canPlay(QStringLiteral("ring"))); // not yet 2 s
+        QVERIFY(player.canPlay(QStringLiteral("ring")));
         QTRY_VERIFY_WITH_TIMEOUT(!player.canPlay(QStringLiteral("ring")), 4000);
-        // Later cues queue behind it and do not make it look alive.
         player.postForTest([] {});
         QVERIFY(!player.canPlay(QStringLiteral("ring")));
 
-        // The thread catches up: the sound is playable again.
         unblock.release();
         QTRY_VERIFY_WITH_TIMEOUT(player.canPlay(QStringLiteral("ring")), 4000);
     }
 
-    // Qt 6.10+ keeps the effects on the GUI thread, where a job runs at once:
-    // there is nothing to wait on and readiness is the loaded state alone.
     void onTheGuiThreadReadinessIsTheLoadedState()
     {
         CallSoundPlayer player(CallSoundPlayer::ForTest{},
-                               /*offTheGuiThread=*/false);
+false);
         QVERIFY(!player.canPlay(QStringLiteral("ring")));
         bool ran = false;
         player.postForTest([&ran] { ran = true; });
@@ -233,20 +199,13 @@ private slots:
         QVERIFY(player.canPlay(QStringLiteral("ring")));
     }
 
-    // Measured live on Windows 2026-10-07: the audio endpoint went away, every
-    // cue went to Error ("call sound unusable"), and when the device came
-    // back nothing reloaded them, so the ringer stayed on the desktop's sound
-    // for the rest of the session. A changed output list must reload them,
-    // once per burst of changes (devices flap), and a burst that never goes
-    // quiet must still be answered.
     void aChangedOutputListReloadsTheCuesOncePerBurst()
     {
         CallSoundPlayer player(CallSoundPlayer::ForTest{},
-                               /*offTheGuiThread=*/false);
+false);
         player.setOutputChangeDebounceForTest(150, 600);
         QCOMPARE(player.soundReloadsForTest(), 0);
 
-        // A burst: one reload, after it goes quiet.
         for (int i = 0; i < 5; ++i) {
             player.audioOutputsChanged();
             QTest::qWait(30);
@@ -256,12 +215,9 @@ private slots:
         QTest::qWait(400);
         QCOMPARE(player.soundReloadsForTest(), 1);
 
-        // The next change is a new burst.
         player.audioOutputsChanged();
         QTRY_COMPARE_WITH_TIMEOUT(player.soundReloadsForTest(), 2, 2000);
 
-        // Changes every 100 ms for 1.5 s never go quiet for 150 ms, and are
-        // still answered: at the longest wait, then again.
         QElapsedTimer flapping;
         flapping.start();
         while (flapping.elapsed() < 1500) {
@@ -275,16 +231,10 @@ private slots:
                                 .arg(player.soundReloadsForTest() - 2)));
     }
 
-    // Live Windows FAIL 2026-10-07 (pipeline 290): the call's audio came back
-    // on CallDeviceController's output-change signal, and no cue (nor the
-    // notification chime) ever did: the player's own QMediaDevices was never
-    // told, and nothing was logged. The reload must follow a signal it is
-    // handed, ask the given answer about outputs when it is due, and skip
-    // while there are none.
     void theReloadFollowsTheSignalItIsHanded()
     {
         CallSoundPlayer player(CallSoundPlayer::ForTest{},
-                               /*offTheGuiThread=*/false);
+false);
         player.setOutputChangeDebounceForTest(100, 500);
         OutputListSource source;
         bool anyOutput = false;
@@ -295,7 +245,6 @@ private slots:
                                        return anyOutput;
                                    });
 
-        // The device went: a burst, one reload, told there is no output.
         for (int i = 0; i < 3; ++i) {
             Q_EMIT source.changed();
             QTest::qWait(20);
@@ -304,7 +253,6 @@ private slots:
         QCOMPARE(asked, 1);
         QVERIFY(!player.lastReloadHadOutputForTest());
 
-        // It came back.
         anyOutput = true;
         Q_EMIT source.changed();
         QTRY_COMPARE_WITH_TIMEOUT(player.soundReloadsForTest(), 2, 2000);
@@ -312,9 +260,6 @@ private slots:
         QVERIFY(player.lastReloadHadOutputForTest());
     }
 
-    // ...and the application hands it the device controller's signal, the
-    // one measured to arrive. Source scan: enableCallSounds() opens audio, so
-    // no test runs it.
     void theApplicationDrivesTheReloadFromTheDeviceController()
     {
         QFile file(QStringLiteral(SOUNDS_DIR "/../../src/app/AppController.cpp"));
@@ -334,8 +279,6 @@ private slots:
                  "output-change signal");
     }
 
-    // The notification chimes are bundled like every other sound, in the same
-    // format (48 kHz, 16-bit, stereo), and short enough to repeat all day.
     void theNotificationChimesAreBundledInTheCallSoundFormat()
     {
         const QStringList known = CallSoundPlayer::knownSounds();
@@ -358,9 +301,9 @@ private slots:
                                | (quint8(wav[at + 2]) << 16)
                                | (quint32(quint8(wav[at + 3])) << 24));
             };
-            QCOMPARE(u16(22), quint16(2));       // stereo
-            QCOMPARE(u32(24), quint32(48000));   // 48 kHz
-            QCOMPARE(u16(34), quint16(16));      // 16-bit
+            QCOMPARE(u16(22), quint16(2));
+            QCOMPARE(u32(24), quint32(48000));
+            QCOMPARE(u16(34), quint16(16));
             const double seconds = double(wav.size() - 44) / (48000.0 * 4.0);
             QVERIFY2(seconds >= 0.15 && seconds <= 0.5,
                      qPrintable(sound + QStringLiteral(" lasts %1 s")
@@ -368,20 +311,11 @@ private slots:
         }
     }
 
-    // Live FAIL 2026-10-07 (Flatpak, Qt 6.11.2): QSoundEffect freed a
-    // finished voice on the audio thread, and the GUI thread's glib event
-    // loop then spun for ever on the voice's closed eventfd ("Invalid socket
-    // ... disabling", 95 million lines, the call dead). Reproduced with
-    // QSoundEffect alone. On Linux from Qt 6.10 the cues are mixed into one
-    // output instead (CallSoundMixer; its behaviour is call-sound-pcm's).
-    // Source scan, because only a sound server shows the defect: what the
-    // player constructs is chosen by a constant true exactly there.
     void onLinuxFromQt610NoCueIsVoicedByQSoundEffect()
     {
         QFile file(QStringLiteral(SOUNDS_DIR "/../../src/calls/CallSoundPlayer.cpp"));
         QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
         const QString code = QString::fromUtf8(file.readAll());
-        // Every construction of the effects in the player.
         const QRegularExpression construct(
             QStringLiteral(R"(m_effects\s*=\s*new\s+(\w+)\s*\()"));
         QStringList built;
@@ -405,7 +339,6 @@ private slots:
                      "    else\n"
                      "        m_effects = new QSoundEffectCues(m_readiness);")),
                  "the cues are not chosen by that constant");
-        // ...and the mixer's side owns no QSoundEffect.
         const int begin = code.indexOf(QStringLiteral("class AudioSinkOutput"));
         const int end = code.indexOf(QStringLiteral("\nvoid CallSoundEffects::setReady"), begin);
         QVERIFY(begin >= 0 && end > begin);
@@ -415,11 +348,6 @@ private slots:
                  "the mixed cues use QSoundEffect");
     }
 
-    // Review 2026-10-16 (H1): the cue engine reopens a dead output on Qt's
-    // PulseAudio backend only once the server's socket answers. Found where
-    // libpulse finds a local server: every unix entry of $PULSE_SERVER (and
-    // nothing else when it is set), else the runtime paths; tcp is never
-    // "reachable", so it never reopens (silent, safe).
     void thePulseServerSocketIsFoundAsLibpulseFindsIt()
     {
         using lightning::calls::pulseServerSockets;
@@ -435,9 +363,6 @@ private slots:
         QCOMPARE(pulseServerSockets({}, {}, {}), QList<QByteArray>{});
     }
 
-    // Listening means a listener on THAT inode: a hard link (what a Flatpak's
-    // bind mount of the socket file amounts to) stops answering when the
-    // server makes a new socket at the path, and the path answers again.
     void aSocketAnswersOnlyWhileSomethingListensOnIt()
     {
 #ifndef Q_OS_LINUX
@@ -448,17 +373,17 @@ private slots:
         QVERIFY(dir.isValid());
         const QByteArray path = QFile::encodeName(dir.filePath(QStringLiteral("native")));
         const QByteArray bound = QFile::encodeName(dir.filePath(QStringLiteral("sandbox")));
-        QVERIFY(!unixSocketListening(path)); // no file
+        QVERIFY(!unixSocketListening(path));
         int server = listenAt(path);
         QVERIFY(server >= 0);
         QVERIFY(unixSocketListening(path));
         QCOMPARE(::link(path.constData(), bound.constData()), 0);
         QVERIFY(unixSocketListening(bound));
-        ::close(server); // the server goes away; its file stays
+        ::close(server);
         QVERIFY(!unixSocketListening(path));
         QVERIFY(!unixSocketListening(bound));
         QCOMPARE(::unlink(path.constData()), 0);
-        server = listenAt(path); // it comes back on a new socket
+        server = listenAt(path);
         QVERIFY(server >= 0);
         QVERIFY(unixSocketListening(path));
         QVERIFY2(!unixSocketListening(bound), "the old inode answered");
@@ -466,9 +391,6 @@ private slots:
 #endif
     }
 
-    // A socket that answers is not Qt connected (Qt 6.11.2 stops retrying
-    // after a connect that fails outright): Qt's PulseAudio thread must be
-    // running too, and it is found by its name while it runs only.
     void aThreadIsFoundByItsNameWhileItRuns()
     {
 #ifndef Q_OS_LINUX
@@ -480,7 +402,6 @@ private slots:
         QScopedPointer<QThread> thread(QThread::create([&release] { release.acquire(); }));
         thread->setObjectName(QStringLiteral("lt-gate-probe"));
         thread->start();
-        // Never destroyed running, even when a check below fails.
         const auto stopThread = qScopeGuard([&] {
             release.release();
             thread->wait(5000);
@@ -490,7 +411,6 @@ private slots:
         QVERIFY(thread->wait(5000));
         QTRY_VERIFY(!threadNamedRunning("lt-gate-probe"));
 
-        // Qt's own: its PulseAudio mainloop thread, by the name Qt 6.11 gives it.
         using lightning::calls::qtPulseThreadRunning;
         QCOMPARE(qtPulseThreadRunning(), threadNamedRunning("QPulseAudioEngi"));
         QSemaphore releaseQt;
@@ -507,9 +427,6 @@ private slots:
 #endif
     }
 
-    // The app's gate is both halves (a listening socket alone passed live
-    // while Qt had given up, and the reopen aborted), and it is set unless
-    // Qt names a backend other than PulseAudio.
     void theMixedCuesGateOnTheSocketAndOnQtsConnection()
     {
         QFile file(QStringLiteral(SOUNDS_DIR "/../../src/calls/CallSoundPlayer.cpp"));
@@ -533,10 +450,6 @@ private slots:
                  "the backend check is not keyed on Qt's own name for PulseAudio");
     }
 
-    // Follow-up to the review: Qt's connection is asked first, so a backend
-    // that gave up never costs a connection to the server (nor restarts a
-    // socket-activated one); and after 30 s of asking without it, one line,
-    // once.
     void theGateAsksQtFirstAndSaysOnceWhenItIsGone()
     {
         bool qt = false;
@@ -556,13 +469,12 @@ private slots:
         QCOMPARE(said, 1);
         now = 90000;
         QVERIFY(!gate());
-        QCOMPARE(said, 1); // once
+        QCOMPARE(said, 1);
         qt = true;
         QVERIFY(gate());
         QCOMPARE(socketAsked, 1);
         socket = false;
         QVERIFY(!gate());
-        // Absence is counted again from scratch after Qt came back.
         lightning::calls::PulseGate fresh([&] { return qt; }, [] { return true; },
                                           [&] { return now; }, [&] { ++said; }, 30000);
         qt = false;
@@ -576,8 +488,7 @@ private slots:
         QVERIFY(!fresh());
         now = 60000;
         QVERIFY(!fresh());
-        QCOMPARE(said, 1); // 20 s each side of the gap: not 30 s without a break
-        // The app says it once per process, without ids or paths.
+        QCOMPARE(said, 1);
         QFile file(QStringLiteral(SOUNDS_DIR "/../../src/calls/CallSoundPlayer.cpp"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString code = QString::fromUtf8(file.readAll());
@@ -593,11 +504,6 @@ private slots:
                  "the line is not said once per process");
     }
 
-    // Rokas 2026-10-07: the mixed cues keep the stream role QSoundEffect's
-    // engine gave them (media.role "Notification", so the desktop's
-    // notification volume governs them). Only Qt's private QPlatformAudioSink
-    // sets it, before start() creates the stream; a build without the
-    // private headers says so once. Measured on a live PipeWire node (pw-dump).
     void theMixedCuesAskForTheNotificationRole()
     {
         QFile file(QStringLiteral(SOUNDS_DIR "/../../src/calls/CallSoundPlayer.cpp"));
@@ -615,7 +521,6 @@ private slots:
         const int guard = output.lastIndexOf(
             QStringLiteral("#if defined(LIGHTNING_HAVE_QT_AUDIO_ROLE)"), role);
         QVERIFY2(guard >= 0, "the private call is not behind the CMake check");
-        // Private ABI: only into the very Qt it was built against.
         const int sameQt = output.indexOf(
             QStringLiteral("qstrcmp(qVersion(), QT_VERSION_STR) == 0"), guard);
         QVERIFY2(sameQt > guard && sameQt < role,
@@ -632,7 +537,6 @@ private slots:
                      && lists.contains(QStringLiteral("#include <QtMultimedia/private/qaudiosystem_p.h>"))
                      && lists.contains(QStringLiteral("LIGHTNING_HAVE_QT_AUDIO_ROLE=1")),
                  "CMake does not check for the private header before using it");
-        // The Flatpak may not ship without it (the KDE SDK 6.11 has it).
         QFile flatpak(QStringLiteral(SOUNDS_DIR "/../../packaging-ci/packaging/flatpak/"
                                      "org.lightning_matrix.Lightning.yaml.in"));
         QVERIFY(flatpak.open(QIODevice::ReadOnly));

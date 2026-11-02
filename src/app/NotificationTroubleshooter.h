@@ -29,32 +29,20 @@ public:
     enum DeliveryPath { NoPath, DesktopService, TrayBalloon };
     Q_ENUM(DeliveryPath)
 
-    // Everything the checks decide from; filled by the owner and by tests.
     struct Inputs {
         DeliveryPath delivery = NoPath;
         bool appEnabled = true;
         bool rulesKnown = false;
         bool masterMute = false;
-        // Empty: no room is open, so the room check is left out.
         QString roomId;
-        // -1 NOTHING IS STORED for this room on this device (it follows the
-        // account default), 0 all messages, 1 mentions and keywords, 2 muted,
-        // 3 follows the account default explicitly.
         int roomMode = -1;
-        // The account's default level for this room's kind (direct message or
-        // room): -1 unknown, 0 all messages, 1 mentions and keywords only. A
-        // room that follows the default is only as loud as this.
         int accountDefaultLevel = -1;
-        // Lightning's own tray icon exists and is visible right now. A tray
-        // balloon needs it; without it the tray path delivers nothing.
         bool trayIconShown = false;
-        // "linux", "windows" or "macos"; only picks the wording.
         QString platform;
     };
 
     explicit NotificationTroubleshooter(QObject *parent = nullptr);
 
-    // Where the answers come from. Set once by the owner.
     void setInputsProvider(std::function<Inputs(const QString &roomId)> provider)
     { m_provider = std::move(provider); }
     void setTestSender(std::function<void()> sender)
@@ -63,19 +51,13 @@ public:
     QVariantList checks() const { return m_checks; }
     bool hasRun() const { return m_hasRun; }
 
-    // Each entry: { id, title, status (Status), detail, fix } where `fix` is
-    // "" or the id of an action the page offers ("enableApp", "unmute").
     static QVariantList evaluate(const Inputs &inputs);
 
-    // What this machine can deliver through.
     static DeliveryPath probeDeliveryPath();
     static QString currentPlatform();
 
     Q_INVOKABLE void run(const QString &roomId);
-    // Forget the last results (an account switch: they described the other
-    // account).
     Q_INVOKABLE void reset();
-    // Shows a real notification through the normal delivery path.
     Q_INVOKABLE void sendTest();
 
 Q_SIGNALS:

@@ -1,8 +1,3 @@
-// Space moderation through SpaceModerationController against a fake client:
-// the plan request covers the Space first, only rooms the plan offers are
-// ever dispatched, steps run one at a time through the ordinary room
-// moderation calls, every step's outcome is reported, and the confirmation
-// text names what happens to the Space and to its rooms.
 
 #include "spaces/SpaceModerationController.h"
 #include "matrix/MatrixClient.h"
@@ -20,7 +15,6 @@ public:
     using MatrixClient::MatrixClient;
 
     quint64 nextOp = 1;
-    // Rooms whose moderation call is refused synchronously (returns 0).
     QStringList refuseSend;
 
     int planCalls = 0;
@@ -42,7 +36,6 @@ public:
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
     bool isLoggedIn() const override { return true; }
-    // Changed by a test to stand for another account becoming active.
     QString userId = QStringLiteral("@me:example.org");
     QString currentUserId() const override { return userId; }
     QString homeserverUrl() const override { return {}; }
@@ -99,7 +92,6 @@ public:
                       const QString &reason) override
     { return record(QStringLiteral("unban"), roomId, userId, reason); }
 
-    // Answers the step in flight, as the backend would.
     void answerLast(bool ok, const QString &category = QString())
     {
         const Sent &s = sent.constLast();
@@ -137,7 +129,7 @@ QVariantMap roomRow(const SpaceModerationController &c, const QString &roomId)
     return {};
 }
 
-} // namespace
+}
 
 class SpaceModerationControllerTest : public QObject
 {
@@ -147,8 +139,6 @@ private:
     FakeClient *m_client = nullptr;
     SpaceModerationController *m_ctl = nullptr;
 
-    // Begins a flow and answers its plan: the Space and A offered, B not a
-    // member, C outranks the viewer, D offered.
     void beginWithPlan(const QString &op, const QString &spaceReason = {})
     {
         m_ctl->begin(kSpace, QStringLiteral("Lounge"), kTarget,
@@ -173,7 +163,6 @@ private slots:
         m_ctl = new SpaceModerationController;
         m_ctl->setClient(m_client);
         m_ctl->setScopeResolver([](const QString &spaceId) {
-            // Deliberately without the Space: the controller puts it first.
             return spaceId == kSpace
                 ? QStringList{ kRoomA, kRoomB, kRoomC, kRoomD }
                 : QStringList{};
@@ -215,7 +204,6 @@ private slots:
         m_ctl->begin(kSpace, QString(), kTarget, QString(),
                      QStringLiteral("ban"));
         const quint64 op = m_client->lastPlanOpId;
-        // Another user, then another op id: neither may fill this flow.
         Q_EMIT m_client->moderationPlanReceived(
             op, QStringLiteral("@other:example.org"), QStringLiteral("ban"),
             false, QVariantList{ planRow(kSpace, QString()) });
@@ -226,8 +214,6 @@ private slots:
         QVERIFY(m_ctl->spaceRow().isEmpty());
     }
 
-    // Power-level gating: the backend's plan is the gate, and the view cannot
-    // talk the controller into a room the plan did not offer.
     void onlyOfferedRoomsAreEverDispatched()
     {
         beginWithPlan(QStringLiteral("ban"));
@@ -236,7 +222,6 @@ private slots:
         QCOMPARE(m_ctl->skippedRoomCount(), 2);
         QCOMPARE(m_ctl->selectedRoomCount(), 2);
 
-        // Selecting a room that is not offered changes nothing.
         m_ctl->setRoomSelected(kRoomC, true);
         m_ctl->setRoomSelected(kRoomB, true);
         QCOMPARE(roomRow(*m_ctl, kRoomC).value(QStringLiteral("selected")).toBool(),
@@ -247,7 +232,6 @@ private slots:
 
         m_ctl->confirm(QStringLiteral("  spam  "));
         QCOMPARE(m_ctl->phase(), QStringLiteral("running"));
-        // One step at a time.
         QCOMPARE(m_client->sent.size(), 1);
         m_client->answerLast(true);
         QCOMPARE(m_client->sent.size(), 2);
@@ -274,21 +258,17 @@ private slots:
     {
         beginWithPlan(QStringLiteral("kick"), QStringLiteral("no_permission"));
         QVERIFY(!m_ctl->spaceEligible());
-        // The confirmation must not promise a Space removal that will not
-        // happen.
         QVERIFY(m_ctl->title().contains(QStringLiteral("from rooms in")));
         QVERIFY(m_ctl->consequenceText().contains(
             QStringLiteral("space itself is unchanged")));
         QVERIFY(!m_ctl->consequenceText().contains(
             QStringLiteral("removed from the space")));
-        // Still confirmable for the rooms the viewer can act in.
         QVERIFY(m_ctl->canConfirm());
         m_ctl->confirm(QString());
         QCOMPARE(m_client->sent.constFirst().roomId, kRoomA);
         QCOMPARE(m_ctl->spaceRow().value(QStringLiteral("status")).toString(),
                  QStringLiteral("skipped"));
 
-        // With the cascade off there is nothing left to do.
         cleanup();
         init();
         beginWithPlan(QStringLiteral("kick"), QStringLiteral("no_permission"));
@@ -326,17 +306,14 @@ private slots:
         QCOMPARE(m_client->sent.at(1).roomId, kRoomA);
     }
 
-    // Every step reports its own outcome: a refusal in one room neither stops
-    // the others nor hides behind an overall success.
     void eachRoomReportsItsOwnOutcome()
     {
         m_client->refuseSend = { kRoomD };
         beginWithPlan(QStringLiteral("ban"));
         QSignalSpy finished(m_ctl, &SpaceModerationController::finished);
         m_ctl->confirm(QString());
-        m_client->answerLast(true);                          // Space
-        m_client->answerLast(false, QStringLiteral("forbidden")); // A
-        // D could not be sent at all; the flow still ends.
+        m_client->answerLast(true);
+        m_client->answerLast(false, QStringLiteral("forbidden"));
         QCOMPARE(m_ctl->phase(), QStringLiteral("done"));
         QCOMPARE(m_ctl->succeededCount(), 1);
         QCOMPARE(m_ctl->failedCount(), 2);
@@ -385,7 +362,6 @@ private slots:
         const auto step = m_client->sent.constLast();
         m_client->logout();
         QCOMPARE(m_ctl->phase(), QStringLiteral("idle"));
-        // The answer to the step already sent is not counted afterwards.
         Q_EMIT m_client->moderationFinished(step.opId, step.roomId,
                                             step.userId, step.op, true, {});
         QCOMPARE(m_ctl->succeededCount(), 0);
@@ -404,9 +380,7 @@ private slots:
         QCOMPARE(m_ctl->userId(), kTarget);
         QCOMPARE(m_ctl->phase(), QStringLiteral("running"));
         QCOMPARE(m_client->planCalls, 1);
-        // The refusal is visible, not silent.
         QVERIFY(m_ctl->notice().contains(QStringLiteral("still running")));
-        // And it goes once the running flow has finished.
         m_client->answerLast(true);
         m_client->answerLast(true);
         m_client->answerLast(true);
@@ -438,9 +412,6 @@ private slots:
         QCOMPARE(m_client->sent.size(), 1);
     }
 
-    // A step that never answers does not hold the (modal) dialog for the
-    // session: the watchdog marks it not known and the rest go on. No wall
-    // clock: the hook expires it.
     void aStepThatNeverAnswersDoesNotHoldTheDialog()
     {
         beginWithPlan(QStringLiteral("ban"));
@@ -454,7 +425,6 @@ private slots:
         QCOMPARE(m_ctl->spaceRow().value(QStringLiteral("status")).toString(),
                  QStringLiteral("unknown"));
         QCOMPARE(m_ctl->unknownCount(), 1);
-        // Its late answer is not counted.
         Q_EMIT m_client->moderationFinished(first.opId, first.roomId,
                                             first.userId, first.op, true, {});
         QCOMPARE(m_ctl->succeededCount(), 0);
@@ -465,8 +435,6 @@ private slots:
         QVERIFY(m_ctl->statusText().contains(QStringLiteral("1 not known")));
     }
 
-    // Rooms the backend ran out of time for are listed, never offered, and
-    // the status line says how many.
     void roomsNotCheckedInTimeAreNeverOffered()
     {
         m_ctl->begin(kSpace, QStringLiteral("Lounge"), kTarget,
@@ -500,7 +468,6 @@ private slots:
         QCOMPARE(rooms, (QStringList{ kSpace, kRoomA }));
     }
 
-    // A plan that never answers ends the wait instead of spinning for ever.
     void aPlanThatNeverAnswersFails()
     {
         m_ctl->setPlanTimeoutForTest(30);
@@ -509,7 +476,6 @@ private slots:
         QCOMPARE(m_ctl->phase(), QStringLiteral("planning"));
         QTRY_COMPARE_WITH_TIMEOUT(m_ctl->phase(), QStringLiteral("failed"), 10000);
         QVERIFY(m_ctl->statusText().contains(QStringLiteral("Nothing was changed")));
-        // A late answer does not revive it.
         Q_EMIT m_client->moderationPlanReceived(
             m_client->lastPlanOpId, kTarget, QStringLiteral("ban"), false,
             QVariantList{ planRow(kSpace, QString()) });
@@ -518,7 +484,6 @@ private slots:
         QVERIFY(m_client->sent.isEmpty());
     }
 
-    // An answer in time stops the watchdog.
     void aPlanThatAnswersIsNotFailedLater()
     {
         m_ctl->setPlanTimeoutForTest(30);
@@ -527,8 +492,6 @@ private slots:
         QCOMPARE(m_ctl->phase(), QStringLiteral("ready"));
     }
 
-    // What the user is asked to confirm: who, where, what happens to the
-    // Space, and that the rooms are a separate choice.
     void theConfirmationStatesTheConsequences()
     {
         beginWithPlan(QStringLiteral("kick"));
@@ -572,7 +535,6 @@ private slots:
         QSet<QString> texts;
         for (const QString &reason : reasons)
             texts.insert(SpaceModerationController::reasonText(reason));
-        // Distinct per reason, and none is the catch-all.
         QCOMPARE(texts.size(), reasons.size());
         QVERIFY(!texts.contains(SpaceModerationController::reasonText(
             QStringLiteral("something-new"))));

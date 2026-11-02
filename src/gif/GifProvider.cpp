@@ -10,8 +10,6 @@ namespace {
 
 QString ratingParam(Rating r) { return ratingToString(r); }
 
-// Shared client-side category shortcuts — plain search terms, presented as
-// tiles. Not claimed to be server-authoritative categories.
 const QStringList kCategoryShortcuts = {
     QStringLiteral("reactions"), QStringLiteral("celebrate"),
     QStringLiteral("laugh"),     QStringLiteral("love"),
@@ -21,8 +19,6 @@ const QStringList kCategoryShortcuts = {
     QStringLiteral("thanks"),    QStringLiteral("wow"),
 };
 
-// ── GIPHY ────────────────────────────────────────────────────────────────
-// Offset-based pagination; key is the `api_key` query parameter.
 class GiphyGifProvider final : public GifProvider {
 public:
     QString id() const override { return QStringLiteral("giphy"); }
@@ -125,7 +121,7 @@ public:
     }
 
     ParseOutcome parse(const QByteArray &json, Rating rating, int requestPage,
-                       int /*perPage*/) const override
+                       int) const override
     {
         return parseKlipy(json, rating, qMax(0, requestPage));
     }
@@ -135,12 +131,11 @@ private:
     {
         return QStringLiteral("https://api.klipy.com/api/v1/")
             + QString::fromUtf8(
-                QUrl::toPercentEncoding(apiKey)); // key is a path segment
+                QUrl::toPercentEncoding(apiKey));
     }
     static QUrlQuery pageQuery(Rating rating, int page, int perPage)
     {
         QUrlQuery q;
-        // KLIPY per_page is clamped to [8, 50]; pages are 1-based.
         q.addQueryItem(QStringLiteral("per_page"),
                        QString::number(std::clamp(perPage, 8, 50)));
         q.addQueryItem(QStringLiteral("page"), QString::number(qMax(0, page) + 1));
@@ -149,9 +144,9 @@ private:
     }
 };
 
-} // namespace
+}
 
-QString GifProvider::categoriesUrl(const QString & /*apiKey*/) const
+QString GifProvider::categoriesUrl(const QString &) const
 {
     return {};
 }
@@ -175,4 +170,4 @@ QStringList knownGifProviderIds()
     return { QStringLiteral("giphy"), QStringLiteral("klipy") };
 }
 
-} // namespace gif
+}

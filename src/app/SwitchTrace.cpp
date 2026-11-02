@@ -19,8 +19,6 @@ Q_LOGGING_CATEGORY(lcSwitchTrace, "lightning.switchtrace")
 namespace lightning::switchtrace {
 namespace {
 
-// The rule Rust's LIGHTNING_SYNC_TRACE / LIGHTNING_SWITCH_TRACE reader uses
-// (lib.rs), so both halves of one trace switch on together.
 bool envEnabled()
 {
     return enabledFromEnvValue(qgetenv("LIGHTNING_SWITCH_TRACE"));
@@ -41,13 +39,13 @@ struct OpenTrace {
 };
 
 struct State {
-    int enabledOverride = -1; // -1 env, 0 off, 1 on
+    int enabledOverride = -1;
     std::function<qint64()> clock;
     std::optional<OpenTrace> open;
     Record last;
     quint64 nextId = 1;
-    int lastLoggedIn = -1; // -1 never observed
-    qint64 intentMs = -1;  // noteIntent(), -1 none pending
+    int lastLoggedIn = -1;
+    qint64 intentMs = -1;
     QString intentSlug;
 };
 
@@ -98,7 +96,6 @@ const char *outcomeName(Outcome o)
     return "unknown";
 }
 
-// A missing or non-numeric key reads as -1 ("not measured").
 qint64 readMs(const QJsonObject &obj, const char *key)
 {
     const QJsonValue v = obj.value(QLatin1String(key));
@@ -111,7 +108,6 @@ qint64 pollLatency(qint64 enqueuedWallMs, qint64 receivedWallMs)
 {
     if (enqueuedWallMs < 0 || receivedWallMs <= 0)
         return -1;
-    // Wall clocks on both sides; a step backwards reads as 0, not negative.
     return std::max<qint64>(0, receivedWallMs - enqueuedWallMs);
 }
 
@@ -128,13 +124,10 @@ void maybeComplete()
         finish(Outcome::Ok);
 }
 
-} // namespace
+}
 
 bool enabledFromEnvValue(const QByteArray &raw)
 {
-    // Exactly Rust's reading, so a pathological value cannot switch on only
-    // one half: env::var fails (off) on bytes that are not UTF-8 and keeps a
-    // leading BOM; str::trim strips Unicode whitespace; then ASCII lowercase.
     QStringDecoder utf8(QStringDecoder::Utf8,
                         QStringDecoder::Flag::Stateless
                             | QStringDecoder::Flag::ConvertInitialBom);
@@ -205,7 +198,7 @@ void noteIntent(const QString &toUserId)
     const qint64 now = nowMs();
     const bool stale = s.intentMs < 0 || now - s.intentMs > kIntentMaxAgeMs;
     if (!stale && s.intentSlug == slug)
-        return; // the same switch re-entering keeps its T0
+        return;
     s.intentMs = now;
     s.intentSlug = slug;
 }
@@ -237,9 +230,9 @@ void stepEnd(Step step)
     OpenTrace &t = *state().open;
     const int i = indexOf(step);
     if (t.depth[i] == 0)
-        return; // unmatched
+        return;
     if (--t.depth[i] > 0)
-        return; // still inside an outer begin of the same step
+        return;
     const qint64 now = nowMs();
     const qint64 elapsed = std::max<qint64>(0, now - t.stepStart[i]);
     t.rec.steps[i] = std::max<qint64>(t.rec.steps[i], 0) + elapsed;
@@ -292,7 +285,6 @@ void noteFirstReset(int rooms, qint64 parseMs, qint64 modelMs,
     if (!active())
         return;
     OpenTrace &t = *state().open;
-    // Before startSync the reset can only be the previous account's.
     if (t.resetNoted || !t.s9Begun)
         return;
     t.resetNoted = true;
@@ -324,8 +316,6 @@ void markRoomInteractive()
     if (!active())
         return;
     OpenTrace &t = *state().open;
-    // S11 open implies the login (stepBegin gates it) and the first room's
-    // open; an abandoned S11 is closed, so its room's later fill is ignored.
     if (t.depth[indexOf(Step::S11)] == 0 || t.rec.roomInteractiveMs >= 0)
         return;
     stepEnd(Step::S11);
@@ -371,11 +361,9 @@ void markLoginSucceeded()
         return;
     OpenTrace &t = *state().open;
     if (t.loginSucceeded)
-        return; // the first success starts the deadline
+        return;
     t.loginSucceeded = true;
     t.loginSucceededMs = nowMs();
-    // The lazy check in active() needs a caller; this one closes a trace
-    // nothing touches again. Keyed on the id, so it cannot close a newer one.
     if (QCoreApplication *app = QCoreApplication::instance()) {
         const quint64 id = t.rec.id;
         QTimer::singleShot(int(kDeadlineMs), Qt::PreciseTimer, app, [id] {
@@ -473,4 +461,4 @@ void resetForTest()
     s.intentSlug.clear();
 }
 
-} // namespace lightning::switchtrace
+}

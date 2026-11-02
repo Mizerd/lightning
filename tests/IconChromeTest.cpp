@@ -1,8 +1,3 @@
-// Interface-chrome icon hygiene. Chrome glyphs come from the bundled Material
-// Symbols Rounded subset via qml/Icon.qml; emoji belong only in user content
-// and reactions. Checks (a) no emoji codepoints used as chrome in shell QML,
-// (b) every icon name used on Icon elements is in Icon.qml's map, and (c) the
-// subset font ships in the repo.
 
 #include <QDir>
 #include <QFile>
@@ -23,9 +18,6 @@ QString readAll(const QString &path)
 
 bool containsEmoji(const QString &text, QString *found)
 {
-    // Chrome-relevant emoji blocks: Misc Symbols & Pictographs, Emoticons,
-    // Transport, Supplemental Symbols, and legacy symbols rendered as colour
-    // emoji. Callers strip comments first (they may use them).
     for (int i = 0; i < text.size(); ) {
         const uint cp = text.at(i).isHighSurrogate() && i + 1 < text.size()
             ? QChar::surrogateToUcs4(text.at(i), text.at(i + 1))
@@ -43,16 +35,11 @@ bool containsEmoji(const QString &text, QString *found)
 
 QString stripCommentsAndTr(QString qml)
 {
-    // Remove comments and qsTr() literals: user-facing copy may carry any
-    // text; chrome glyph properties may not.
     qml.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
     qml.remove(QRegularExpression(QStringLiteral("qsTr\\(\"[^\"]*\"\\)")));
     return qml;
 }
 
-// Minimal TTF cmap reader (formats 4 and 12, big-endian per OpenType).
-// Returns every mapped codepoint, enough to prove an Icon.qml codepoint has a
-// glyph without a font database or Gui dependency.
 QSet<uint> fontCoveredCodepoints(const QString &path)
 {
     QSet<uint> covered;
@@ -120,7 +107,7 @@ QSet<uint> fontCoveredCodepoints(const QString &path)
     return covered;
 }
 
-} // namespace
+}
 
 class IconChromeTest : public QObject
 {
@@ -129,14 +116,10 @@ class IconChromeTest : public QObject
 private Q_SLOTS:
     void chromeFilesCarryNoEmojiGlyphs()
     {
-        // Shell surfaces whose glyphs must be Icon-based. EmojiPicker and the
-        // emoji catalogue legitimately contain emoji; message bodies are model
-        // data.
         const QStringList files = {
             QStringLiteral("Main.qml"), QStringLiteral("MainScreen.qml"),
             QStringLiteral("SpacesRail.qml"), QStringLiteral("RoomsPanel.qml"),
             QStringLiteral("RoomDelegate.qml"),
-            // The shared row menu; still shell glyphs.
             QStringLiteral("RoomActionsMenu.qml"),
             QStringLiteral("ChannelDelegate.qml"),
             QStringLiteral("TimelinePane.qml"),
@@ -173,9 +156,6 @@ private Q_SLOTS:
         QVERIFY(mapped.size() >= 40);
 
         QDir qmlDir(QStringLiteral(QML_DIR));
-        // Icon { name: "x" } and IconButton { iconName: "x" } must resolve in
-        // the map. Anchored on the Icon type: `name:` also names QML States
-        // (e.g. AppScrollBar's `State { name: "active" }`).
         const QRegularExpression useProp(
             QStringLiteral("icon[nN]ame:\\s*\"([a-z0-9_]+)\""));
         const QRegularExpression useIcon(
@@ -201,10 +181,6 @@ private Q_SLOTS:
         }
     }
 
-    // Glyph names chosen at runtime (returned from a function or bound from
-    // C++) have no literal for the sweep above. Both producers are swept by
-    // their own shape: the room-activity row's JS chooser and the Channels
-    // column's navigation rows (SpaceChannelModel).
     void everyRuntimeChosenIconNameIsMapped()
     {
         const QString iconQml = readAll(QStringLiteral(QML_DIR "/Icon.qml"));
@@ -242,7 +218,6 @@ private Q_SLOTS:
                          "nothing about it").arg(label)));
         };
 
-        // `return "glyph"` inside the activity row's chooser.
         const QString activity =
             readAll(QStringLiteral(QML_DIR "/RoomActivityDelegate.qml"));
         sweep(activity, QStringLiteral("RoomActivityDelegate.qml"),
@@ -250,8 +225,6 @@ private Q_SLOTS:
               QRegularExpression(
                   QStringLiteral("return \"([a-z0-9_]+)\"")));
 
-        // The file chooser's per-kind and per-place glyphs, and the ternaries
-        // its path bar and hidden-files toggle choose between.
         const QString chooser =
             readAll(QStringLiteral(QML_DIR "/FileChooserDialog.qml"));
         sweep(chooser, QStringLiteral("FileChooserDialog.qml"),
@@ -265,15 +238,12 @@ private Q_SLOTS:
                   QRegularExpression(QString::fromLatin1(side)));
         }
 
-        // SpaceChannelModel's `kIcon…` constants: the names live only there so
-        // this sweep finds all of them (matching call sites found none).
         const QString channels = readAll(
             QStringLiteral(QML_DIR "/../src/models/SpaceChannelModel.cpp"));
         sweep(channels, QStringLiteral("SpaceChannelModel.cpp"),
               QStringLiteral("kIconCreate"),
               QRegularExpression(QStringLiteral(
                   "kIcon\\w+ = \"([a-z0-9_]+)\"")));
-        // ...and call sites must use them, or a later literal is invisible.
         QVERIFY2(!channels.contains(QStringLiteral("iconName = QStringLiteral(")),
                  "a glyph name is written as a literal instead of a kIcon "
                  "constant, so nothing checks it against the icon subset");
@@ -289,10 +259,6 @@ private Q_SLOTS:
 
     void everyMappedIconIsInTheSubsetScript()
     {
-        // A name mapped in Icon.qml but absent from the subset script's ICONS
-        // list renders blank (the font lacks the glyph). The script checks its
-        // names against upstream codepoints, so map ⊆ script list keeps map
-        // and font in step.
         const QString iconQml = readAll(QStringLiteral(QML_DIR "/Icon.qml"));
         QVERIFY(!iconQml.isEmpty());
         const QString script = readAll(QStringLiteral(
@@ -321,9 +287,6 @@ private Q_SLOTS:
 
     void everyMappedCodepointHasAGlyphInTheSubsetFont()
     {
-        // Names in step are not enough: a wrong codepoint value still renders
-        // tofu (legacy Material Icons values differ from Material Symbols).
-        // Every mapped codepoint must be in the font's own cmap.
         const QSet<uint> covered = fontCoveredCodepoints(QStringLiteral(
             SOURCE_DIR "/data/fonts/MaterialSymbolsRounded-subset.ttf"));
         QVERIFY(covered.size() >= 40);

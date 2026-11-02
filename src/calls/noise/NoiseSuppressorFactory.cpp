@@ -20,8 +20,6 @@ namespace {
 std::unique_ptr<NoiseSuppressor> checked(std::unique_ptr<NoiseSuppressor> s,
                                          Mode expected)
 {
-    // A backend that reports failure, the wrong mode, or a frame size the
-    // element cannot frame for is no backend: pass-through instead.
     if (!s || !s->ok() || s->mode() != expected
         || s->frameSize() != kFrameSamples || s->latencySamples() < 0) {
         return nullptr;
@@ -29,7 +27,7 @@ std::unique_ptr<NoiseSuppressor> checked(std::unique_ptr<NoiseSuppressor> s,
     return s;
 }
 
-} // namespace
+}
 
 std::unique_ptr<NoiseSuppressor> createSuppressor(Mode mode)
 {
@@ -52,7 +50,6 @@ std::unique_ptr<NoiseSuppressor> createSuppressor(Mode mode)
 #endif
         }
     } catch (...) {
-        // An allocation failure in a backend constructor: pass-through.
     }
     return nullptr;
 }
@@ -79,4 +76,4 @@ bool backendCompiledIn(Mode mode)
     return false;
 }
 
-} // namespace calls::noise
+}

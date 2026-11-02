@@ -30,8 +30,6 @@ class ParagraphDirection : public QObject
                    NOTIFY documentChanged)
     Q_PROPERTY(bool leftToRight READ leftToRight WRITE setLeftToRight
                    NOTIFY leftToRightChanged)
-    // True while some paragraph reads right to left. A TextEdit as wide as its
-    // text cannot show right alignment; the host widens it on this.
     Q_PROPERTY(bool rightToLeft READ rightToLeft NOTIFY rightToLeftChanged)
 
 public:
@@ -43,12 +41,7 @@ public:
     void setLeftToRight(bool value);
     bool rightToLeft() const { return m_rightToLeft; }
 
-    // The direction of the first strong character (L, R or AL), or
-    // Qt::LayoutDirectionAuto when there is none. Code points, not UTF-16
-    // units: QQuickTextEdit reads an emoji's surrogate as left to right.
     static Qt::LayoutDirection paragraphDirection(QStringView text);
-    // Applies the rule above to `document` and returns whether some paragraph
-    // reads right to left. Changes nothing that is already right.
     static bool apply(QTextDocument *document, bool leftToRight);
 
 Q_SIGNALS:

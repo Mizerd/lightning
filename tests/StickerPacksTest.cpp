@@ -1,23 +1,3 @@
-// MSC2545 stickers and custom emoji: StickerPackManager policy.
-//
-// What this pins:
-//   * snapshot ingestion, and the usage narrowing (a pack's stickers and its
-//     emoticons are two different grids over one pack);
-//   * the selection rules: an unknown pack id is refused rather than mapped
-//     to the first pack, and a snapshot that drops the selected pack lands on
-//     one that has content;
-//   * `canSave`: a plain mxc only (an encrypted sticker has no url), never
-//     gated on data nobody fetched, and closed while a save is in flight;
-//   * the send destination is the one passed in, room and thread are
-//     separate calls, and a thread send never degrades to a room send;
-//   * custom-emoji lookup: prefix matching, one winner per shortcode with the
-//     account's own pack first, and a bounded result;
-//   * generation isolation: sign-out clears everything, and an answer to a
-//     request this manager no longer owns is dropped;
-//   * nothing asks the network on room navigation.
-//
-// Policy and wiring only, against a fake client: real `im.ponies.*` round
-// trips, the on-screen picker and Element interoperability are not exercised.
 
 #include "matrix/MatrixClient.h"
 #include "media/SvgRasterJob.h"
@@ -57,11 +37,9 @@ public:
     QString lastFetchRoom;
     quint64 lastFetchOp = 0;
     quint64 lastSaveOp = 0;
-    // The last send, captured exactly as it crossed.
     QString sendRoom, sendRoot, sendUrl, sendBody, sendMime;
     quint64 sendWidth = 0, sendHeight = 0, sendSize = 0;
     QString saveShortcode, saveUrl, saveBody, saveMime, saveUsage;
-    // The last file upload, as it crossed.
     int uploadCalls = 0;
     QString uploadPath;
     QString uploadShortcode, uploadUsage;
@@ -82,7 +60,6 @@ public:
         lastUploadOp = opId;
     }
 
-    // MatrixClient pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -212,7 +189,6 @@ public:
         roomPackShortcode = shortcode;
         lastRoomPackOp = opId;
     }
-    // Pack images fetched by their own mxc (export).
     QList<QPair<quint64, QString>> mxcFetches;
     quint64 nextFetchOp = 1000;
     quint64 fetchMxcThumbnail(const QString &mxc, int, int) override
@@ -294,8 +270,6 @@ const QString kMxcA = QStringLiteral("mxc://example.org/a");
 const QString kMxcB = QStringLiteral("mxc://example.org/b");
 const QString kMxcC = QStringLiteral("mxc://example.org/c");
 
-// A snapshot with a user pack (one sticker, one emoticon) and a room pack
-// (one sticker, one emoticon whose shortcode COLLIDES with the user pack's).
 QVariantList twoPacks()
 {
     return {
@@ -313,15 +287,13 @@ QVariantList twoPacks()
     };
 }
 
-} // namespace
+}
 
 class StickerPacksTest : public QObject
 {
     Q_OBJECT
 
 private Q_SLOTS:
-
-    // ---- capability -----------------------------------------------------
 
     void aBackendWithoutPacksOffersNothingAndNeverAsks()
     {
@@ -334,11 +306,8 @@ private Q_SLOTS:
         manager.refresh();
         manager.refreshIfStale();
         QCOMPARE(client.fetchCalls, 0);
-        // And nothing may be saved through a backend that has no packs.
         QVERIFY(!manager.canSave(kMxcA));
     }
-
-    // ---- snapshot + usage narrowing -------------------------------------
 
     void aSnapshotNarrowsToTheSelectedPackAndTheAskedForUsage()
     {
@@ -349,8 +318,6 @@ private Q_SLOTS:
 
         QCOMPARE(manager.packs()->count(), 2);
         QVERIFY(manager.loaded());
-        // The first pack with a STICKER is selected, and the grid holds that
-        // pack's stickers only — not its emoticon, and not the other pack's.
         QCOMPARE(manager.selectedPackId(), QStringLiteral("user"));
         QCOMPARE(manager.images()->count(), 1);
         QCOMPARE(manager.images()->get(0).value(QStringLiteral("shortcode"))
@@ -363,13 +330,9 @@ private Q_SLOTS:
                      .toString(),
                  QStringLiteral("wave"));
 
-        // Both packs hold one of each, so both are usable under either usage.
         QCOMPARE(manager.usablePackCount(), 2);
     }
 
-    // The pack editor lists editorImages. `images` is narrowed to the usage
-    // the picker shows, so editing through it hid a pack's emoji (and made an
-    // emoji-only pack read "no images"): C41-D01 / C41-F07.
     void theEditorListsEveryImageWhateverTheGridUsageIs()
     {
         FakeClient client;
@@ -383,7 +346,6 @@ private Q_SLOTS:
         QCOMPARE(manager.images()->count(), 1);
         QCOMPARE(manager.editorImages()->count(), 2);
 
-        // An emoji-only pack: the grid is empty, the editor is not.
         QVariantList only;
         only.append(pack(QStringLiteral("user"), QStringLiteral("user"),
                          QStringLiteral("Your pack"),
@@ -408,8 +370,6 @@ private Q_SLOTS:
                      .toString(),
                  QStringLiteral("dog"));
 
-        // A tab that quietly becomes a different tab is worse than one that
-        // does not move.
         manager.setSelectedPackId(QStringLiteral("room:!gone:example.org:"));
         QCOMPARE(manager.selectedPackId(),
                  QStringLiteral("room:!r:example.org:"));
@@ -423,8 +383,6 @@ private Q_SLOTS:
         manager.applySnapshotForTest(kRoom, false, twoPacks());
         manager.setSelectedPackId(QStringLiteral("room:!r:example.org:"));
 
-        // The room pack is gone, and the surviving pack's only sticker is
-        // what the grid must show.
         manager.applySnapshotForTest(kRoom, false,
             { pack(QStringLiteral("user"), QStringLiteral("user"),
                    QStringLiteral("Your pack"),
@@ -438,8 +396,6 @@ private Q_SLOTS:
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
-        // Emoticon-only pack FIRST: landing on it would open the picker on an
-        // empty grid while a populated pack sits one tab away.
         manager.applySnapshotForTest(kRoom, false,
             { pack(QStringLiteral("user"), QStringLiteral("user"),
                    QStringLiteral("Your pack"),
@@ -465,10 +421,6 @@ private Q_SLOTS:
                    QStringLiteral("Your pack"),
                    { noUrl, noCode,
                      image(QStringLiteral("cat"), kMxcA, true, false) }) });
-        // No url: nothing to show or send. An empty key is a malformed key
-        // another client wrote (Matrix v1.19: show it, let the user repair
-        // it); the sticker still sends by its url, but it is never offered as
-        // a typed `:shortcode:`.
         QCOMPARE(manager.images()->count(), 2);
         QCOMPARE(manager.editorImages()->count(), 2);
         const int validRole = manager.editorImages()->roleNames().key("keyValid");
@@ -480,17 +432,12 @@ private Q_SLOTS:
         QVERIFY(sawInvalid);
     }
 
-    // ---- saving ("add to my stickers") ----------------------------------
-
     void savingRefusesAnythingThatIsNotAPlainMxc()
     {
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
 
-        // An ENCRYPTED sticker carries an EncryptedFile and no url at all, so
-        // there is nothing a pack could hold. Same for anything a caller
-        // could otherwise assemble.
         QVERIFY(!manager.canSave(QString()));
         QVERIFY(!manager.canSave(QStringLiteral("https://example.org/a.png")));
         QVERIFY(!manager.canSave(QStringLiteral("file:///etc/passwd")));
@@ -508,8 +455,6 @@ private Q_SLOTS:
         StickerPackManager manager;
         manager.setClient(&client);
 
-        // Nothing has been fetched: gating here would grey the action out
-        // because nothing LOOKED.
         QVERIFY(!manager.loaded());
         QVERIFY(manager.canSave(kMxcA));
 
@@ -517,10 +462,8 @@ private Q_SLOTS:
                             QStringLiteral("image/png"), 128, 96, 4096);
         QCOMPARE(client.saveCalls, 1);
         QCOMPARE(client.saveUrl, kMxcA);
-        // The shortcode is derived from the BODY, not from an event id.
         QCOMPARE(client.saveShortcode, QStringLiteral("A cat"));
         QVERIFY(manager.saving());
-        // One at a time.
         QVERIFY(!manager.canSave(kMxcB));
         manager.saveSticker(kMxcB, QStringLiteral("dog"),
                             QStringLiteral("image/png"), 1, 1, 1);
@@ -543,10 +486,7 @@ private Q_SLOTS:
         QCOMPARE(finished.size(), 1);
         QCOMPARE(finished.at(0).at(0).toBool(), true);
         QCOMPARE(finished.at(0).at(2).toString(), QStringLiteral("cat"));
-        // Both destinations report here, so the report names which one.
         QCOMPARE(finished.at(0).at(3).toString(), QStringLiteral("account"));
-        // Nothing is applied optimistically: the authoritative pack is
-        // re-read after the write.
         QCOMPARE(client.fetchCalls, before + 1);
         QVERIFY(!manager.saving());
 
@@ -568,13 +508,11 @@ private Q_SLOTS:
         manager.setClient(&client);
         manager.applySnapshotForTest(kRoom, false, twoPacks());
 
-        QVERIFY(manager.isSaved(kMxcA));   // the user pack's sticker
-        QVERIFY(manager.isSaved(kMxcB));   // the user pack's emoticon
-        QVERIFY(!manager.isSaved(kMxcC));  // a ROOM pack's sticker
+        QVERIFY(manager.isSaved(kMxcA));
+        QVERIFY(manager.isSaved(kMxcB));
+        QVERIFY(!manager.isSaved(kMxcC));
         QVERIFY(!manager.isSaved(QString()));
     }
-
-    // ---- sending --------------------------------------------------------
 
     void aSendCarriesTheImageToTheDestinationItWasGiven()
     {
@@ -607,8 +545,6 @@ private Q_SLOTS:
         QCOMPARE(client.sendCalls, 1);
         QCOMPARE(client.sendRoot, root);
 
-        // A thread send with no root must fail, never fall back to the room
-        // timeline.
         manager.sendToThread(kRoom, QString(), manager.images()->get(0));
         QCOMPARE(client.sendCalls, 1);
     }
@@ -626,8 +562,6 @@ private Q_SLOTS:
         QCOMPARE(client.sendCalls, 0);
     }
 
-    // ---- custom emoji ---------------------------------------------------
-
     void emoticonLookupMatchesByPrefixDedupesAndIsBounded()
     {
         FakeClient client;
@@ -635,9 +569,6 @@ private Q_SLOTS:
         manager.setClient(&client);
         manager.applySnapshotForTest(kRoom, false, twoPacks());
 
-        // Only emoticons, never stickers. Both packs' `wave` are offered,
-        // each naming its pack (PACK-PRO-004 / PACK-UX-004): a collision is
-        // shown, never hidden behind the first pack.
         const QVariantList all = manager.findEmoticons(QString(), 50);
         QCOMPARE(all.size(), 2);
         QCOMPARE(all.at(0).toMap().value(QStringLiteral("shortcode")).toString(),
@@ -653,14 +584,12 @@ private Q_SLOTS:
         QVERIFY(manager.findEmoticons(QStringLiteral("zz"), 50).isEmpty());
         QCOMPARE(manager.findEmoticons(QString(), 0).size(), 2);
 
-        // A typed `:wave:` is ambiguous (two different images): it resolves
-        // to nothing rather than to the first pack's.
         QVERIFY(manager.uniqueEmoticonUrl(QStringLiteral("wave")).isEmpty());
         QVERIFY(manager.uniqueEmoticonUrl(QStringLiteral("cat")).isEmpty());
 
         const QVariantMap one = manager.emoticon(QStringLiteral("wave"));
         QCOMPARE(one.value(QStringLiteral("url")).toString(), kMxcB);
-        QVERIFY(manager.emoticon(QStringLiteral("cat")).isEmpty()); // a sticker
+        QVERIFY(manager.emoticon(QStringLiteral("cat")).isEmpty());
         QVERIFY(manager.emoticon(QString()).isEmpty());
     }
 
@@ -680,7 +609,6 @@ private Q_SLOTS:
             kRoom, false,
             { pack(QStringLiteral("user"), QStringLiteral("user"),
                    QStringLiteral("Your pack"), images) });
-        // A completion popup that can grow without limit covers the composer.
         QCOMPARE(manager.findEmoticons(QString(), 10000).size(), 64);
     }
 
@@ -707,8 +635,6 @@ private Q_SLOTS:
             { pack(QStringLiteral("user"), QStringLiteral("user"),
                    QStringLiteral("Your pack"), ownImages), space, local });
 
-        // Execute the picker's actual binding against the real C++ manager.
-        // On the old QML this returns only the first 32 account images.
         QFile picker(QFileInfo(QString::fromUtf8(__FILE__)).dir().filePath(
             QStringLiteral("../qml/EmojiPicker.qml")));
         QVERIFY(picker.open(QIODevice::ReadOnly));
@@ -725,7 +651,6 @@ private Q_SLOTS:
         engine.globalObject().setProperty(QStringLiteral("app"), app);
         QJSValue context = engine.newObject();
         context.setProperty(QStringLiteral("customEmojiOffered"), true);
-        // The binding builds its rows only while the full picker is open.
         context.setProperty(QStringLiteral("visible"), true);
         context.setProperty(QStringLiteral("compact"), false);
         engine.globalObject().setProperty(QStringLiteral("picker"), context);
@@ -739,14 +664,12 @@ private Q_SLOTS:
         QCOMPARE(reactions.at(80).toMap().value(QStringLiteral("packName")).toString(),
                  QStringLiteral("Space"));
         QCOMPARE(reactions.at(81).toMap().value(QStringLiteral("url")).toString(), kMxcC);
-        QVERIFY(manager.shortcodeForUrl(kMxcB).isEmpty()); // sticker only
+        QVERIFY(manager.shortcodeForUrl(kMxcB).isEmpty());
         QCOMPARE(manager.shortcodeForUrl(kMxcA), QStringLiteral("e0"));
         QCOMPARE(manager.emoticon(QStringLiteral("local")).value(QStringLiteral("url")).toString(),
                  kMxcC);
         QCOMPARE(manager.findEmoticons(QString(), 1000).size(), 64);
     }
-
-    // ---- refresh policy and generation isolation ------------------------
 
     void roomNavigationMarksTheSnapshotStaleAndAsksNothing()
     {
@@ -759,16 +682,13 @@ private Q_SLOTS:
         QCOMPARE(client.lastFetchRoom, kRoom);
         Q_EMIT client.stickerPacksReceived(client.lastFetchOp, kRoom, false, twoPacks());
 
-        // A second open over the SAME room re-reads nothing.
         manager.refreshIfStale();
         QCOMPARE(client.fetchCalls, 1);
 
-        // Walking through rooms issues no request at all...
         manager.setActiveRoomId(kOther);
         manager.setActiveRoomId(kRoom);
         manager.setActiveRoomId(kOther);
         QCOMPARE(client.fetchCalls, 1);
-        // ...and the next open picks the new room's packs up.
         manager.refreshIfStale();
         QCOMPARE(client.fetchCalls, 2);
         QCOMPARE(client.lastFetchRoom, kOther);
@@ -785,8 +705,6 @@ private Q_SLOTS:
         manager.refresh();
         QCOMPARE(client.fetchCalls, 1);
 
-        // The in-flight read predates whatever made the refresh due, so its
-        // answer is stale by construction and the owed one goes out.
         Q_EMIT client.stickerPacksReceived(client.lastFetchOp, QString(), false, twoPacks());
         QCOMPARE(client.fetchCalls, 2);
     }
@@ -799,7 +717,6 @@ private Q_SLOTS:
         manager.refresh();
         const quint64 op = client.lastFetchOp;
 
-        // Not our op — a stale request, or another surface's.
         Q_EMIT client.stickerPacksReceived(op + 99, QString(), false, twoPacks());
         QVERIFY(!manager.loaded());
         QCOMPARE(manager.packs()->count(), 0);
@@ -824,14 +741,10 @@ private Q_SLOTS:
         QCOMPARE(manager.images()->count(), 0);
         QVERIFY(manager.selectedPackId().isEmpty());
         QVERIFY(!manager.loaded());
-        // Packs are ACCOUNT DATA. The previous account's snapshot must never
-        // populate the next one.
         QVERIFY(!manager.isSaved(kMxcA));
         Q_EMIT client.stickerPacksReceived(op, QString(), false, twoPacks());
         QCOMPARE(manager.packs()->count(), 0);
     }
-
-    // ---- room-pack activation (im.ponies.emote_rooms) -------------------
 
     void turningARoomPackOnCarriesItsRoomAndStateKey()
     {
@@ -844,14 +757,10 @@ private Q_SLOTS:
                                    true);
         QCOMPARE(client.roomsSetCalls, 1);
         QCOMPARE(client.roomsSetRoom, QStringLiteral("!r:example.org"));
-        // The empty state key is the room's DEFAULT pack and is a real key,
-        // not a missing one.
         QVERIFY(client.roomsSetKey.isEmpty());
         QCOMPARE(client.roomsSetEnabled, true);
         QVERIFY(manager.togglingRoomPack());
 
-        // One at a time: two concurrent read-modify-writes of the same
-        // account-data event would race.
         manager.setRoomPackEnabled(QStringLiteral("room:!r:example.org:"),
                                    false);
         QCOMPARE(client.roomsSetCalls, 1);
@@ -864,10 +773,7 @@ private Q_SLOTS:
         manager.setClient(&client);
         manager.applySnapshotForTest(kRoom, false, twoPacks());
 
-        // A user pack is global by definition; writing its id into
-        // im.ponies.emote_rooms would invent a shape the MSC does not have.
         manager.setRoomPackEnabled(QStringLiteral("user"), true);
-        // And an id the snapshot does not hold at all.
         manager.setRoomPackEnabled(QStringLiteral("room:!gone:example.org:"),
                                    true);
         QCOMPARE(client.roomsSetCalls, 0);
@@ -888,13 +794,11 @@ private Q_SLOTS:
         Q_EMIT client.stickerPackRoomsSet(client.lastRoomsOp, true, QString(),
                                           QStringLiteral("!r:example.org"),
                                           QString(), true, QStringLiteral("none"));
-        // The authoritative snapshot is what moves the switch.
         QCOMPARE(client.fetchCalls, before + 1);
         QCOMPARE(done.size(), 1);
         QCOMPARE(done.at(0).at(0).toBool(), true);
         QVERIFY(!manager.togglingRoomPack());
 
-        // A refusal re-reads NOTHING and reports its category.
         manager.setRoomPackEnabled(QStringLiteral("room:!r:example.org:"),
                                    false);
         const int after = client.fetchCalls;
@@ -924,15 +828,11 @@ private Q_SLOTS:
         QCOMPARE(row.value(QStringLiteral("enabledGlobally")).toBool(), true);
         QCOMPARE(row.value(QStringLiteral("canManage")).toBool(), true);
 
-        // Both default to FALSE when the payload says nothing: an unknown
-        // permission must never be presented as permission.
         manager.applySnapshotForTest(kOther, false, twoPacks());
         const QVariantMap plain = manager.packs()->get(1);
         QCOMPARE(plain.value(QStringLiteral("enabledGlobally")).toBool(), false);
         QCOMPARE(plain.value(QStringLiteral("canManage")).toBool(), false);
     }
-
-    // ---- the room-state write (im.ponies.room_emotes) -------------------
 
     void addingToARoomPackIsRefusedWithoutAPermissionTheSnapshotReported()
     {
@@ -940,23 +840,17 @@ private Q_SLOTS:
         StickerPackManager manager;
         manager.setClient(&client);
 
-        // Nothing loaded: absence of the claim is NOT permission.
         QVERIFY(!manager.canSaveToRoom(kRoom, kMxcA));
 
-        // A snapshot that says nothing about the permission.
         manager.applySnapshotForTest(kRoom, false, twoPacks());
         QVERIFY(!manager.canSaveToRoom(kRoom, kMxcA));
         manager.saveStickerToRoom(kRoom, kMxcA, QStringLiteral("cat"),
                                   QStringLiteral("image/png"), 1, 1, 1);
         QCOMPARE(client.roomPackAddCalls, 0);
 
-        // A snapshot that DOES.
         manager.applySnapshotForTest(kRoom, true, twoPacks());
         QVERIFY(manager.canSaveToRoom(kRoom, kMxcA));
-        // ...but a permission learned about THIS room says nothing about
-        // another one.
         QVERIFY(!manager.canSaveToRoom(kOther, kMxcA));
-        // ...and the mxc rule still applies.
         QVERIFY(!manager.canSaveToRoom(
             kRoom, QStringLiteral("https://example.org/a.png")));
     }
@@ -973,16 +867,11 @@ private Q_SLOTS:
                                   QStringLiteral("image/png"), 128, 96, 4096);
         QCOMPARE(client.roomPackAddCalls, 1);
         QCOMPARE(client.roomPackRoom, kRoom);
-        // The empty key has no "default pack" meaning in Matrix v1.19
-        // (PACK-LTN-010): a room with no pack gets a NEW stable pack under a
-        // fresh, non-empty key.
         QCOMPARE(client.roomPackStateKey, QStringLiteral("stickers"));
         QCOMPARE(client.roomPackNs, QStringLiteral("stable"));
         QCOMPARE(client.roomPackShortcode, QStringLiteral("A cat"));
         QVERIFY(manager.saving());
 
-        // One save at a time, whichever pack it targets: both paths share the
-        // one in-flight slot and the one report.
         QVERIFY(!manager.canSave(kMxcB));
         Q_EMIT client.stickerPackAddFinished(client.lastRoomPackOp, false,
                                              QStringLiteral("forbidden"),
@@ -996,9 +885,6 @@ private Q_SLOTS:
 
     void aSaveTargetsTheRoomsExistingWritablePackInItsOwnDialect()
     {
-        // PACK-MIG-008 / PACK-UX-002: a legacy pack is written as legacy (no
-        // silent namespace move), a stable one is preferred, and the empty key
-        // is only targeted when that IS the existing pack's key.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1028,7 +914,6 @@ private Q_SLOTS:
         Q_EMIT client.stickerPackAddFinished(client.lastRoomPackOp, false,
                                              QStringLiteral("x"), QString());
 
-        // Edits and "use everywhere" carry the pack's dialect too.
         manager.renamePack(QStringLiteral("L"), QStringLiteral("New"));
         QCOMPARE(client.editNs, QStringLiteral("legacy"));
         Q_EMIT client.stickerPackEditFinished(client.lastEditOp, false,
@@ -1036,9 +921,6 @@ private Q_SLOTS:
         manager.setRoomPackEnabled(QStringLiteral("S"), true);
         QCOMPARE(client.roomsSetNs, QStringLiteral("stable"));
 
-        // A sticker never goes into an emoji-only pack (it would vanish from
-        // the sticker picker): the next writable sticker-capable pack, or a
-        // new one, takes it.
         QVariantMap emojiOnly = stable;
         emojiOnly.insert(QStringLiteral("id"), QStringLiteral("E"));
         emojiOnly.insert(QStringLiteral("stateKey"), QStringLiteral("animals"));
@@ -1051,7 +933,6 @@ private Q_SLOTS:
         Q_EMIT client.stickerPackAddFinished(client.lastRoomPackOp, false,
                                              QStringLiteral("x"), QString());
 
-        // A fresh key never collides with a key the room already uses.
         QVariantMap taken = stable;
         taken.insert(QStringLiteral("id"), QStringLiteral("T"));
         taken.insert(QStringLiteral("stateKey"), QStringLiteral("stickers"));
@@ -1066,9 +947,6 @@ private Q_SLOTS:
 
     void openingAPackSurfaceAfterNavigationReadsTheRoomDeeply()
     {
-        // Navigation reads shallow (no full room state); the first picker or
-        // manager open in that room must still read it deep, or the room's own
-        // packs stay invisible until a manual reload.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1080,16 +958,12 @@ private Q_SLOTS:
         QCOMPARE(client.fetchCalls, 2);
         QVERIFY(client.lastFetchDeep);
         Q_EMIT client.stickerPacksReceived(client.lastFetchOp, kRoom, false, twoPacks());
-        // Covered now: a second open asks for nothing.
         manager.refreshIfStale();
         QCOMPARE(client.fetchCalls, 2);
     }
 
     void aParentSpaceChangeRereadsTheSpacePacks()
     {
-        // PACK-PRO-023: a canonical Space's child list changing (or the room's
-        // own parent claim) can add or drop that Space's packs; the snapshot
-        // remembers which Spaces it walked and re-reads when one changes.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1106,9 +980,6 @@ private Q_SLOTS:
 
     void aSyncChangeRereadsOnceAndOnlyWhenItConcernsTheSnapshot()
     {
-        // PACK-LTN-002 / PACK-PER-008: another device's subscription edit or a
-        // member's pack edit updates an open picker, a burst coalesces into one
-        // read, and an unrelated room's pack change reads nothing.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1145,12 +1016,6 @@ private Q_SLOTS:
         QVERIFY(manager.revision() > afterSnapshot);
     }
 
-    // ── Pack management (MSC2545 CRUD) ──────────────────────────────────
-    //
-    // Four verbs share one op slot and one permission rule: each routes to the
-    // right store, the permission rule is asked before sending, and a second
-    // click cannot race the first.
-
     void anAccountPackIsAlwaysManageableAndARoomPackAsksThePowerLevel()
     {
         FakeClient client;
@@ -1162,7 +1027,6 @@ private Q_SLOTS:
                                     QStringLiteral("Cat Lovers"),
                                     { image(QStringLiteral("dog"), kMxcC,
                                             true, false) });
-        // Not manageable: the snapshot did not say this account may write it.
         manager.applySnapshotForTest(kRoom, false,
             { pack(QStringLiteral("user"), QStringLiteral("user"),
                    QStringLiteral("Your pack"),
@@ -1175,7 +1039,6 @@ private Q_SLOTS:
                  "the ABSENCE of the claim is not permission");
         QVERIFY(!manager.canManagePack(QStringLiteral("nosuchpack")));
 
-        // ...and with the claim present, it is.
         roomPack.insert(QStringLiteral("canManage"), true);
         manager.applySnapshotForTest(kRoom, true, { roomPack });
         QVERIFY(manager.canManagePack(QStringLiteral("room:!r:example.org:")));
@@ -1183,8 +1046,6 @@ private Q_SLOTS:
 
     void anUnmanageablePackSendsNothingAtAll()
     {
-        // The UI hides the actions, but the gate is HERE: a caller that did
-        // not ask must not reach the server and collect a refusal.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1217,19 +1078,13 @@ private Q_SLOTS:
         QCOMPARE(client.editCalls, 1);
         QCOMPARE(client.editAction, QStringLiteral("remove_image"));
         QCOMPARE(client.editArgA, QStringLiteral("cat"));
-        // An ACCOUNT pack carries no room: an empty room id is what selects
-        // the account-data store on the far side, so a stray room id here
-        // would write somebody's room instead.
         QVERIFY2(client.editRoom.isEmpty(),
                  "an account pack must not be routed to a room");
 
-        // One op slot: a second verb while the first is in flight sends
-        // nothing rather than racing it.
         manager.renamePack(QStringLiteral("user"), QStringLiteral("Mine"));
         QCOMPARE(client.editCalls, 1);
         QVERIFY(manager.editing());
 
-        // The answer frees it, and the next verb goes through.
         Q_EMIT client.stickerPackEditFinished(client.lastEditOp, true,
                                               QString(), QString());
         QVERIFY(!manager.editing());
@@ -1241,9 +1096,6 @@ private Q_SLOTS:
 
     void anEmptyPackNameIsSentRatherThanRefused()
     {
-        // Clearing the name is a REAL state — for a room pack it restores
-        // MSC2545's fallback to the room's own name. A guard that treated
-        // empty as "nothing to do" would make that unreachable.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1272,8 +1124,6 @@ private Q_SLOTS:
                                   QString());
         QCOMPARE(client.editCalls, 0);
 
-        // "" is a key a malformed pack can hold; repairing it must reach the
-        // backend (which answers not_found when there is no such key).
         manager.renameImageInPack(QStringLiteral("user"), QString(),
                                   QStringLiteral("dog"));
         QCOMPARE(client.editCalls, 1);
@@ -1292,8 +1142,6 @@ private Q_SLOTS:
 
     void aFailedEditDoesNotRereadAndReportsTheCategory()
     {
-        // Nothing was applied optimistically, so a refusal must leave the
-        // last known pack alone rather than emptying the picker.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1320,8 +1168,6 @@ private Q_SLOTS:
 
     void anAnswerForAnOldOperationIsIgnored()
     {
-        // A late answer from a previous edit must not free the slot the
-        // current one is holding, or the UI re-enables mid-flight.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1358,12 +1204,8 @@ private Q_SLOTS:
         QCOMPARE(info.value(QStringLiteral("displayName")).toString(),
                  QStringLiteral("Your pack"));
         QCOMPARE(info.value(QStringLiteral("canManage")).toBool(), true);
-        // An unknown id answers EMPTY rather than a map of blanks, so a
-        // caller cannot mistake it for a real pack it may edit.
         QVERIFY(manager.packInfo(QStringLiteral("nope")).isEmpty());
     }
-
-    // ---- uploading a picked file (SVG is rasterised on send) -----------------
 
     void cleanup() { lightning::svgraster::hooks() = {}; }
 
@@ -1385,15 +1227,13 @@ private Q_SLOTS:
                     "<circle cx='8' cy='8' r='7' fill='#fc0'/></svg>");
         }
         manager.uploadSticker(QUrl::fromLocalFile(svgPath), QString());
-        // The single-flight slot is held while it converts, nothing sent yet.
         QVERIFY(manager.saving());
         QCOMPARE(client.uploadCalls, 0);
         QTRY_COMPARE_WITH_TIMEOUT(client.uploadCalls, 1, 10000);
         QVERIFY(client.uploadPath != svgPath);
         QVERIFY(client.uploadPath.endsWith(QStringLiteral(".png")));
-        // 16x16 is below the sticker floor: drawn at 512, not upscaled.
         QCOMPARE(QImage(client.uploadPath).size(), QSize(512, 512));
-        QVERIFY(manager.saving());   // until the client answers
+        QVERIFY(manager.saving());
     }
 
     void aRefusedSvgStickerEndsTheOpWithItsReasonAndUploadsNothing()
@@ -1438,8 +1278,6 @@ private Q_SLOTS:
         QCOMPARE(client.uploadPath, pngPath);
     }
 
-    // ---- usage, shortcode validation, transfers ---------------------------
-
     void aSavedStickerIsAStickerAndAnUploadedEmojiIsAnEmoticon()
     {
         FakeClient client;
@@ -1465,7 +1303,6 @@ private Q_SLOTS:
         QCOMPARE(client.uploadUsage, QStringLiteral("emoticon"));
         Q_EMIT client.stickerPackAddFinished(client.lastUploadOp, true,
                                              QString(), QStringLiteral("cat"));
-        // An unknown spelling is a sticker, never an emoji.
         manager.uploadImage(QUrl::fromLocalFile(pngPath), QString(),
                             QStringLiteral("emoji!"));
         QCOMPARE(client.uploadUsage, QStringLiteral("sticker"));
@@ -1473,8 +1310,6 @@ private Q_SLOTS:
 
     void editsCarryTheExactKeyNotTheDisplayedName()
     {
-        // PACK-LTN-006: the editor used to send the DISPLAYED (repaired)
-        // shortcode, so removing `hello__world` asked for `hello_world`.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1506,8 +1341,6 @@ private Q_SLOTS:
                                     QStringLiteral("hello__world"));
         QCOMPARE(client.editArgA, QStringLiteral("hello__world"));
 
-        // An invalid key is never offered as typed text, and lookup by text is
-        // exact-case.
         const QVariantList completions = manager.findEmoticons(QString(), 10);
         for (const QVariant &row : completions)
             QVERIFY(row.toMap().value(QStringLiteral("key")).toString()
@@ -1518,8 +1351,6 @@ private Q_SLOTS:
 
     void anOpenEditorKeepsItsOwnPackWhenThePickerSelectionMoves()
     {
-        // PACK-UX-021: the editor's rows were the manager-wide selection, so a
-        // picker tab change swapped the rows under an open editor.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1530,10 +1361,8 @@ private Q_SLOTS:
         const int keyRole = rows->roleNames().key("key");
         QCOMPARE(rows->rowCount(), 2);
         QCOMPARE(rows->data(rows->index(0), keyRole).toString(), QStringLiteral("dog"));
-        // A refresh keeps it on the editor's pack too.
         manager.applySnapshotForTest(kRoom, false, twoPacks());
         QCOMPARE(rows->data(rows->index(0), keyRole).toString(), QStringLiteral("dog"));
-        // A description edit names the exact key and the pack's own store.
         manager.setImageDescription(QStringLiteral("user"), QStringLiteral("cat"),
                                     QStringLiteral("A sleepy cat"));
         QCOMPARE(client.editAction, QStringLiteral("set_body"));
@@ -1543,9 +1372,6 @@ private Q_SLOTS:
 
     void theMigrationPreviewSplitsByUsageAndARunReportsEachStep()
     {
-        // PACK-MIG-001/002/003: the preview comes from the snapshot (nothing
-        // is written by looking), counts each new pack, and names what must
-        // stay behind; a run is single-flight and re-reads afterwards.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1577,16 +1403,13 @@ private Q_SLOTS:
         QCOMPARE(done.count(), 1);
         QVERIFY(!manager.migrating());
         QVERIFY(!client.lastMigrateStartNew);
-        // Part-way still re-reads, so the packs that did land show up.
         QCOMPARE(client.fetchCalls, fetches + 1);
-        // The explicit "start a new pack room" choice reaches the backend.
         manager.migrateUserPack(true);
         QVERIFY(client.lastMigrateStartNew);
     }
 
     void aHiddenPackLeavesThePickersButNotTheRoomAndPersistsPerAccount()
     {
-        // PACK-UX-011: hiding is a local view choice, per account, persisted.
         QTemporaryDir dir;
         const QString state = dir.filePath(QStringLiteral("local.ini"));
         FakeClient client;
@@ -1596,19 +1419,17 @@ private Q_SLOTS:
         manager.applySnapshotForTest(kRoom, false, twoPacks());
         QCOMPARE(manager.findEmoticons(QString(), 50).size(), 2);
         manager.setPackHidden(QStringLiteral("room:!r:example.org:"), true);
-        QCOMPARE(client.editCalls, 0);           // nothing written to Matrix
-        QCOMPARE(client.roomsSetCalls, 0);       // no unsubscribe
+        QCOMPARE(client.editCalls, 0);
+        QCOMPARE(client.roomsSetCalls, 0);
         QCOMPARE(manager.findEmoticons(QString(), 50).size(), 1);
-        QCOMPARE(manager.packs()->count(), 2);   // still listed in settings
+        QCOMPARE(manager.packs()->count(), 2);
         QVERIFY(manager.isPackHidden(QStringLiteral("room:!r:example.org:")));
 
-        // Survives a new manager (restart), and a refresh keeps it hidden.
         StickerPackManager again;
         again.setLocalStatePath(state);
         again.setClient(&client);
         again.applySnapshotForTest(kRoom, false, twoPacks());
         QCOMPARE(again.findEmoticons(QString(), 50).size(), 1);
-        // Another account on the same device sees its own choice only.
         FakeClient other;
         other.userId = QStringLiteral("@other:example.org");
         StickerPackManager otherManager;
@@ -1620,9 +1441,6 @@ private Q_SLOTS:
 
     void customRecentsAndFavouritesAreLocalPerAccountAndSurviveAMissingPack()
     {
-        // PACK-REC-010, PACK-UX-012, PACK-PRO-057: separate from the Unicode
-        // recents, newest first, bounded, per account; an image whose pack is
-        // gone stays usable and is marked stale.
         QTemporaryDir dir;
         const QString state = dir.filePath(QStringLiteral("local.ini"));
         FakeClient client;
@@ -1633,7 +1451,7 @@ private Q_SLOTS:
         const QVariantMap wave = image(QStringLiteral("wave"), kMxcB, false, true);
         const QVariantMap cat = image(QStringLiteral("cat"), kMxcA, true, false);
         manager.recordCustomUse(wave);
-        manager.sendToRoom(kRoom, cat);  // a sticker send is a use
+        manager.sendToRoom(kRoom, cat);
         QVariantList recents = manager.customRecents();
         QCOMPARE(recents.size(), 2);
         QCOMPARE(recents.at(0).toMap().value(QStringLiteral("url")).toString(), kMxcA);
@@ -1650,7 +1468,6 @@ private Q_SLOTS:
         QVERIFY(manager.isFavourite(kMxcB));
         QCOMPARE(manager.reactionEmoticons().at(0).toMap()
                      .value(QStringLiteral("url")).toString(), kMxcB);
-        // The pack goes away: the favourite stays, marked stale, still sendable.
         manager.applySnapshotForTest(kRoom, false, {});
         const QVariantMap fav = manager.favourites().at(0).toMap();
         QCOMPARE(fav.value(QStringLiteral("url")).toString(), kMxcB);
@@ -1664,7 +1481,6 @@ private Q_SLOTS:
         otherManager.setLocalStatePath(state);
         otherManager.setClient(&other);
         QVERIFY(otherManager.customRecents().isEmpty());
-        // Junk is refused.
         manager.recordCustomUse({ { QStringLiteral("url"), QStringLiteral("https://x/y") } });
         QVERIFY(manager.customRecents().at(0).toMap().value(QStringLiteral("url"))
                     .toString().startsWith(QLatin1String("mxc://")));
@@ -1672,10 +1488,6 @@ private Q_SLOTS:
 
     void addingImagesToARoomPackUploadsEachAndRetriesWithoutReuploading()
     {
-        // PACK-UX-002/013/014, PACK-PRO-050: several files into the chosen
-        // (non-empty-key) pack, names from the files, one at a time, per-item
-        // outcome, and a failed pack write retried with the media it already
-        // uploaded.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1695,13 +1507,11 @@ private Q_SLOTS:
         QCOMPARE(client.roomUploadCalls, 1);
         QCOMPARE(client.roomUploadKey, QStringLiteral("animals"));
         QCOMPARE(client.roomUploadNs, QStringLiteral("stable"));
-        // `cat` is taken in the pack: proposed under a free name instead.
         QCOMPARE(client.roomUploadCode, QStringLiteral("cat-2"));
         Q_EMIT client.stickerPackAddFinished(client.lastRoomUploadOp, true, QString(),
                                              QStringLiteral("cat-2"));
         QCOMPARE(client.roomUploadCalls, 2);
         QCOMPARE(client.roomUploadCode, QStringLiteral("dog"));
-        // Media landed, the pack write failed: kept for Retry with its mxc.
         Q_EMIT client.stickerPackUploaded(client.lastRoomUploadOp,
                                           QStringLiteral("mxc://example.org/dogmedia"));
         Q_EMIT client.stickerPackAddFinished(client.lastRoomUploadOp, false,
@@ -1711,8 +1521,8 @@ private Q_SLOTS:
         Q_EMIT client.stickerPackAddFinished(client.lastRoomUploadOp, true, QString(),
                                              QStringLiteral("dog-2"));
         QCOMPARE(done.count(), 1);
-        QCOMPARE(done.at(0).at(3).toInt(), 2);   // added
-        QCOMPARE(done.at(0).at(5).toInt(), 1);   // failed
+        QCOMPARE(done.at(0).at(3).toInt(), 2);
+        QCOMPARE(done.at(0).at(5).toInt(), 1);
         QCOMPARE(manager.failedUploadCount(), 1);
 
         manager.retryFailedUploads();
@@ -1723,7 +1533,6 @@ private Q_SLOTS:
                                              QStringLiteral("dog"));
         QCOMPARE(manager.failedUploadCount(), 0);
 
-        // Without the permission nothing is sent.
         target.insert(QStringLiteral("canManage"), false);
         manager.applySnapshotForTest(kRoom, true, { target });
         manager.uploadImagesToPack(QStringLiteral("S"),
@@ -1733,8 +1542,6 @@ private Q_SLOTS:
 
     void anEditorCanTellWhatAnotherDeviceChanged()
     {
-        // PACK-PRO-045 / PACK-UX-023: the base taken at open, compared with a
-        // later snapshot, names what was added, removed and changed elsewhere.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1756,9 +1563,6 @@ private Q_SLOTS:
 
     void aRoomPackSharesAStandardRoomLinkAndItsKeyAndNothingPrivate()
     {
-        // PACK-LIVE-020 (text half), PACK-PRO-058: an ordinary matrix.to room
-        // link any client opens, the pack's name and exact key; nothing for
-        // the personal pack.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1778,8 +1582,6 @@ private Q_SLOTS:
         QVERIFY(!text.contains(QStringLiteral("mxc://")));
         QVERIFY(manager.shareText(QStringLiteral("user")).isEmpty());
 
-        // Copy link puts exactly that text on the clipboard (the GUI round
-        // could not read the private display's clipboard back).
         QGuiApplication::clipboard()->setText(QStringLiteral("before"));
         QVERIFY(manager.copyShareText(QStringLiteral("S")));
         QCOMPARE(QGuiApplication::clipboard()->text(), text);
@@ -1789,8 +1591,6 @@ private Q_SLOTS:
 
     void anUnreachablePackIsNamedByItsKeyNotLeftBlank()
     {
-        // Live run 2026-10-26: after leaving a subscribed pack's room the
-        // Settings row had an empty title.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1819,8 +1619,6 @@ private Q_SLOTS:
 
     void aRoomV12PackLinkCarriesOurServerAsVia()
     {
-        // Live run 2026-10-26: a room v12 id (`!<hash>`, no server part) gave
-        // a link with no via at all, which a non-member's client cannot use.
         FakeClient client;
         client.userId = QStringLiteral("@me:home.example");
         StickerPackManager manager;
@@ -1838,9 +1636,6 @@ private Q_SLOTS:
 
     void aPrivateImageIsUploadedOnlyAfterConfirmationAndNeverToAnotherAccount()
     {
-        // PACK-PRO-041 / PACK-LTN-032 / PACK-UX-015/016: the manager fetches
-        // the decrypted bytes only on the confirmed call; a cancel, an
-        // account switch or non-raster bytes upload nothing.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1848,21 +1643,18 @@ private Q_SLOTS:
         manager.setPrivateMediaFetch([&fetched](const QString &k) { fetched << k; });
         const QByteArray png = QByteArray("\x89PNG\r\n\x1A\n", 8) + QByteArray(40, 'p');
 
-        // Cancel before the bytes arrive: nothing is uploaded.
         manager.republishPrivateImage(QStringLiteral("key1"));
         QCOMPARE(fetched, QStringList{ QStringLiteral("key1") });
         manager.cancelRepublish();
         manager.onPrivateMediaBytes(QStringLiteral("key1"), true, png);
         QCOMPARE(client.uploadCalls, 0);
 
-        // Another account by the time the bytes land: nothing is uploaded.
         manager.republishPrivateImage(QStringLiteral("key2"));
         client.userId = QStringLiteral("@someone-else:example.org");
         manager.onPrivateMediaBytes(QStringLiteral("key2"), true, png);
         QCOMPARE(client.uploadCalls, 0);
         client.userId = QStringLiteral("@me:example.org");
 
-        // SVG (or anything not a plain raster) is refused.
         QSignalSpy refused(&manager, &StickerPackManager::saveFinished);
         manager.republishPrivateImage(QStringLiteral("key3"));
         manager.onPrivateMediaBytes(QStringLiteral("key3"), true,
@@ -1870,8 +1662,6 @@ private Q_SLOTS:
         QCOMPARE(client.uploadCalls, 0);
         QCOMPARE(refused.count(), 1);
 
-        // Confirmed and valid: one upload to the personal pack, of a file
-        // holding exactly those bytes.
         manager.republishPrivateImage(QStringLiteral("key4"));
         manager.onPrivateMediaBytes(QStringLiteral("key4"), true, png);
         QCOMPARE(client.uploadCalls, 1);
@@ -1879,12 +1669,10 @@ private Q_SLOTS:
         QVERIFY(written.open(QIODevice::ReadOnly));
         QCOMPARE(written.readAll(), png);
         written.close();
-        // Review S1: owner-only, and gone once the upload has answered.
         QCOMPARE(QFileInfo(client.uploadPath).permissions()
                      & (QFileDevice::ReadGroup | QFileDevice::ReadOther
                         | QFileDevice::WriteGroup | QFileDevice::WriteOther),
                  QFileDevice::Permissions());
-        // Review M1: the private message's caption never names the copy.
         QCOMPARE(client.uploadShortcode, QStringLiteral("sticker"));
         QVERIFY(!client.uploadBody.contains(QStringLiteral("cat")));
         Q_EMIT client.stickerPackAddFinished(client.lastUploadOp, true, QString(),
@@ -1894,12 +1682,6 @@ private Q_SLOTS:
 
     void searchOverTheLargestSnapshotStaysInteractive()
     {
-        // PACK-PER-001/002: the in-memory search the completion popup and the
-        // palette run on every keystroke, over the largest snapshot the
-        // backend allows (64 packs x 512 images), never waits on media. The
-        // target is p95 <= 50 ms; asserted as BEST of 7 under 50 ms so a loaded
-        // machine cannot flake it (CLAUDE.md: wall-clock assertions need
-        // headroom), and it measures ~1-3 ms on the dev box.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1924,7 +1706,6 @@ private Q_SLOTS:
             QVERIFY(!hits.isEmpty());
         }
         QVERIFY2(best < 50, qPrintable(QStringLiteral("best of 7: %1 ms").arg(best)));
-        // The reaction list (every image) also returns promptly.
         QElapsedTimer all;
         all.start();
         QCOMPARE(manager.reactionEmoticons().size(), 64 * 512);
@@ -1933,7 +1714,6 @@ private Q_SLOTS:
 
     void anotherAccountNeverRetriesThisOnesFailedUploads()
     {
-        // Review S3: a failed batch (with its uploaded mxc) is this account's.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -1951,13 +1731,11 @@ private Q_SLOTS:
         Q_EMIT client.stickerPackAddFinished(client.lastRoomUploadOp, false,
                                              QStringLiteral("network"), QString());
         QCOMPARE(manager.failedUploadCount(), 1);
-        // Another account becomes active in the same manager.
         client.userId = QStringLiteral("@other:example.org");
         const int before = client.roomUploadCalls;
         manager.retryFailedUploads();
         QCOMPARE(client.roomUploadCalls, before);
         QCOMPARE(manager.failedUploadCount(), 0);
-        // And a sign-out drops them outright.
         client.userId = QStringLiteral("@me:example.org");
         manager.applySnapshotForTest(kRoom, true, { target });
         manager.uploadImagesToPack(QStringLiteral("S"),
@@ -1971,10 +1749,6 @@ private Q_SLOTS:
 
     void anAccountSwitchKeepsLocalPackChoicesAndForgetAccountDropsThem()
     {
-        // Review S2 + recheck: the app switches accounts IN PLACE and the
-        // client emits loggedOut on every switch, so loggedOut must never
-        // delete local choices; only forgetAccount(userId), called from the
-        // real sign-out and removal paths, does.
         QTemporaryDir dir;
         const QString state = dir.filePath(QStringLiteral("local.ini"));
         FakeClient client;
@@ -1985,21 +1759,17 @@ private Q_SLOTS:
         manager.setPackHidden(QStringLiteral("user"), true);
         manager.recordCustomUse(image(QStringLiteral("wave"), kMxcB, false, true));
 
-        // A in-place switch A -> B -> A: loggedOut fires each time.
         Q_EMIT client.loggedOut();
         client.userId = QStringLiteral("@b:example.org");
-        QVERIFY(!manager.isPackHidden(QStringLiteral("user")));  // B has none
+        QVERIFY(!manager.isPackHidden(QStringLiteral("user")));
         Q_EMIT client.loggedOut();
         client.userId = QStringLiteral("@me:example.org");
         QVERIFY(manager.isPackHidden(QStringLiteral("user")));
         QCOMPARE(manager.customRecents().size(), 1);
 
-        // B's choices are independent, and removing B (a background account)
-        // leaves A's alone.
         manager.forgetAccount(QStringLiteral("@b:example.org"));
         QVERIFY(manager.isPackHidden(QStringLiteral("user")));
 
-        // Signing A out removes A's, from memory and from the file.
         manager.forgetAccount(QStringLiteral("@me:example.org"));
         QVERIFY(!manager.isPackHidden(QStringLiteral("user")));
         QVERIFY(manager.customRecents().isEmpty());
@@ -2009,8 +1779,6 @@ private Q_SLOTS:
 
     void theFileDialogsPathListReachesTheUpload()
     {
-        // NativeFileDialog's `selectedFiles` arrives in QML as a list of URL
-        // strings (not QUrl): both must reach the upload, one file per item.
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -2033,13 +1801,9 @@ private Q_SLOTS:
         QCOMPARE(client.roomUploadPath, QStringLiteral("/tmp/two.png"));
         Q_EMIT client.stickerPackAddFinished(client.lastRoomUploadOp, true, QString(),
                                              QStringLiteral("two"));
-        // The remote URL is never uploaded.
         QCOMPARE(client.roomUploadCalls, 2);
     }
 
-    // The QML wiring of the pack surfaces a GUI round could not drive (file
-    // dialog, encrypted-image dialog, thread popup, start-new action), pinned
-    // so a refactor cannot silently disconnect them.
     void thePackSurfacesAreWiredToTheirBackendCalls()
     {
         const auto read = [](const QString &name) {
@@ -2054,25 +1818,18 @@ private Q_SLOTS:
         QVERIFY(!editor.isEmpty() && !dialog.isEmpty() && !delegate.isEmpty()
                 && !thread.isEmpty());
 
-        // Add images: a multi-file dialog whose selection goes to the upload.
         QVERIFY(editor.contains(QStringLiteral("fileMode: \"openMany\"")));
         QVERIFY(editor.contains(QStringLiteral(
             "root.stickers.uploadImagesToPack(root.packId, selectedFiles)")));
-        // Copy link goes through the testable C++ copy.
         QVERIFY(editor.contains(QStringLiteral("root.stickers.copyShareText(root.packId)")));
-        // Our own upload is never "changed elsewhere": the comparison waits
-        // while it runs and the base is re-taken after it (live run).
         QVERIFY(editor.contains(QStringLiteral("&& !root.transferring")));
         const int finished = editor.indexOf(QStringLiteral("function onTransferFinished("));
         QVERIFY(finished >= 0);
         QVERIFY(editor.mid(finished, 700).contains(QStringLiteral("kind === \"upload\"")));
         QVERIFY(editor.mid(finished, 700).contains(QStringLiteral("rebaseTimer.restart()")));
-        // Start a new pack room: only from the explicit button, with `true`.
         QCOMPARE(editor.count(QStringLiteral("migrateUserPack(true)")), 1);
         QVERIFY(editor.contains(QStringLiteral("category === \"home_unavailable\"")));
 
-        // The encrypted-image dialog: exactly one call, from the confirm
-        // button, with the media key only (never the private body).
         QCOMPARE(dialog.count(QStringLiteral("republishPrivateImage(")), 1);
         QVERIFY(dialog.contains(QStringLiteral("republishPrivateImage(root.mediaKey)")));
         const int confirm = dialog.indexOf(QStringLiteral("privateImageRepublishConfirm"));
@@ -2082,8 +1839,6 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("republishLoader.item.ask(model.mediaKey || \"\")")));
         QVERIFY(!delegate.contains(QStringLiteral("ask(model.mediaKey || \"\", model.body")));
 
-        // Thread composer: the popup's whole entry (key, url, body) reaches
-        // emojiCompletionEdit, which records the choice for the thread send.
         QVERIFY(thread.contains(QStringLiteral("onChosen: (entry) => panel.acceptThreadEmoji(entry)")));
         QVERIFY(thread.contains(QStringLiteral("app.composer.emojiCompletionEdit(")));
         const int accept = thread.indexOf(QStringLiteral("function acceptThreadEmoji(entry)"));
@@ -2091,18 +1846,6 @@ private Q_SLOTS:
         QVERIFY(thread.mid(accept, 400).contains(QStringLiteral("editor.cursorPosition, entry)")));
     }
 
-    // PACK-PER opt-in probe. Skipped unless LIGHTNING_PACK_PERF=1 (it takes
-    // seconds and its numbers belong to the machine running it). Prints one
-    // "PACK-PER" line per measure with sample count and p50/p95/p99, and
-    // asserts the campaign targets with the stated headroom:
-    //   * snapshot apply, 64 packs x 512 images (the backend's caps):
-    //       p95 <= 100 ms (the warm-picker-open budget; the model reset is
-    //       the dominant non-network part of an open)
-    //   * search (completion / palette), 200 prefixes:  p95 <= 50 ms
-    //   * full reaction list (32768 rows):              p95 <= 250 ms
-    //   * soak: 300 switches across 4 accounts, each applying a snapshot and
-    //       recording uses: the last 50 cycles' p95 within 2x the first 50's
-    //       (no growth), recents bounded at 24 per account.
     void packPerformanceProbe()
     {
         if (qEnvironmentVariableIntValue("LIGHTNING_PACK_PERF") != 1)
@@ -2152,7 +1895,6 @@ private Q_SLOTS:
         QVERIFY(report("search-64x512", search) <= 50.0);
         QVERIFY(report("reaction-list-32768", reactions) <= 250.0);
 
-        // Soak: in-place switches across accounts, as the app does them.
         QList<qint64> cycles;
         for (int c = 0; c < 300; ++c) {
             client.userId = QStringLiteral("@acct%1:example.org").arg(c % 4);
@@ -2181,7 +1923,6 @@ private Q_SLOTS:
 
         QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
                                        QStringLiteral("kitten")).isEmpty());
-        // Renaming to itself is not a clash.
         QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
                                        QStringLiteral("cat")).isEmpty());
         QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"), QString())
@@ -2195,9 +1936,6 @@ private Q_SLOTS:
         QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
                                        QStringLiteral("caf\u00e9"))
                     .contains(QStringLiteral("letters")));
-        // Matrix v1.19 allows these; the old 64-char / no-`__` / no-leading
-        // separator rules were Lightning's own and refused valid names
-        // (PACK-PRO-006, PACK-LTN-007).
         QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
                                        QStringLiteral("-cat")).isEmpty());
         QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
@@ -2209,14 +1947,11 @@ private Q_SLOTS:
         QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
                                        QString(101, QLatin1Char('a')))
                     .contains(QStringLiteral("100")));
-        // Another image in the pack: exact and case-sensitive, so `WAVE` is
-        // a different name from `wave` (PACK-PRO-005).
         QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
                                        QStringLiteral("wave"))
                     .contains(QStringLiteral("already")));
         QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
                                        QStringLiteral("WAVE")).isEmpty());
-        // The same name in ANOTHER pack is fine.
         QVERIFY(manager.shortcodeError(QStringLiteral("room:!r:example.org:"),
                                        QStringLiteral("dog"),
                                        QStringLiteral("cat")).isEmpty());
@@ -2248,7 +1983,6 @@ private Q_SLOTS:
         QCOMPARE(found[1].toMap().value(QStringLiteral("shortcode")).toString(),
                  QStringLiteral("wave"));
         QVERIFY(!found[0].toMap().value(QStringLiteral("saved")).toBool());
-        // kMxcA is already in the account's pack.
         QVERIFY(found[2].toMap().value(QStringLiteral("saved")).toBool());
         QVERIFY(manager.emoticonsInHtml(QStringLiteral("<b>plain</b>")).isEmpty());
         QVERIFY(manager.emoticonsInHtml(QString()).isEmpty());
@@ -2274,7 +2008,6 @@ private Q_SLOTS:
         QCOMPARE(client.saveCalls, 1);
         QCOMPARE(client.saveUsage, QStringLiteral("emoticon"));
         QCOMPARE(client.saveUrl, QStringLiteral("mxc://example.org/n1"));
-        // Nothing else may start while the job runs.
         manager.saveEmoticons(found);
         QCOMPARE(client.saveCalls, 1);
 
@@ -2289,14 +2022,12 @@ private Q_SLOTS:
         QCOMPARE(finished.count(), 1);
         QCOMPARE(finished.first().at(0).toString(), QStringLiteral("emoji"));
         QVERIFY(finished.first().at(1).toBool());
-        QCOMPARE(finished.first().at(3).toInt(), 1);   // added
-        QCOMPARE(finished.first().at(4).toInt(), 2);   // skipped: dup + saved
-        QCOMPARE(finished.first().at(5).toInt(), 0);   // failed
+        QCOMPARE(finished.first().at(3).toInt(), 1);
+        QCOMPARE(finished.first().at(4).toInt(), 2);
+        QCOMPARE(finished.first().at(5).toInt(), 0);
         QCOMPARE(finished.first().at(6).toString(), QStringLiteral("one"));
         QVERIFY(!manager.transferring());
-        // The per-image notice is for single saves; a batch speaks once.
         QCOMPARE(saved.count(), 0);
-        // And the pack was re-read exactly because something was added.
         QVERIFY(client.fetchCalls >= 1);
     }
 
@@ -2339,9 +2070,8 @@ private Q_SLOTS:
         manager.exportPack(QStringLiteral("user"), QUrl::fromLocalFile(zipPath));
         QVERIFY(manager.transferring());
         QCOMPARE(manager.transferKind(), QStringLiteral("export"));
-        QCOMPARE(client.mxcFetches.size(), 2);   // both images, in flight together
+        QCOMPARE(client.mxcFetches.size(), 2);
         QCOMPARE(client.mxcFetches[0].second, kMxcA);
-        // A pack nobody asked about is not exported, and a second job waits.
         manager.exportPack(QStringLiteral("room:!r:example.org:"),
                            QUrl::fromLocalFile(dir.filePath(QStringLiteral("x.zip"))));
         QCOMPARE(client.mxcFetches.size(), 2);
@@ -2369,10 +2099,6 @@ private Q_SLOTS:
 
     void anExportIsAFrozenSnapshotWhateverSyncDoesMeanwhile()
     {
-        // PACK-LTN-035: the old export re-read the LIVE model on every batch
-        // and paired bytes with whatever row now sat at that index, so a sync
-        // that reordered or removed images mid-download put one image's bytes
-        // under another's name (or indexed past the allocation).
         FakeClient client;
         StickerPackManager manager;
         manager.setClient(&client);
@@ -2387,9 +2113,8 @@ private Q_SLOTS:
         const QString zipPath = dir.filePath(QStringLiteral("frozen.zip"));
         QSignalSpy finished(&manager, &StickerPackManager::transferFinished);
         manager.exportPack(QStringLiteral("user"), QUrl::fromLocalFile(zipPath));
-        QCOMPARE(client.mxcFetches.size(), 3);  // three in flight
+        QCOMPARE(client.mxcFetches.size(), 3);
 
-        // Sync lands: reordered, one removed, one added, renamed pack.
         manager.applySnapshotForTest(kRoom, false,
             { pack(QStringLiteral("user"), QStringLiteral("user"), QStringLiteral("Renamed"),
                    { img(QStringLiteral("z"), 9), img(QStringLiteral("d"), 4),
@@ -2398,7 +2123,6 @@ private Q_SLOTS:
         auto bytesFor = [](const QString &mxc) {
             return QByteArray("\x89PNG\r\n\x1A\n", 8) + mxc.toUtf8() + QByteArray(16, 'x');
         };
-        // Answer every fetch, in reverse order, by the mxc it asked for.
         for (int round = 0; round < 3 && finished.isEmpty(); ++round) {
             const auto fetches = client.mxcFetches;
             for (int i = fetches.size() - 1; i >= 0; --i)
@@ -2446,7 +2170,6 @@ private Q_SLOTS:
                                         1, 0, 1, QString())
                     .contains(QStringLiteral("could not be downloaded")));
 
-        // Nothing fetched: no file, and it says so.
         finished.clear();
         const QString none = dir.filePath(QStringLiteral("none.zip"));
         manager.exportPack(QStringLiteral("user"), QUrl::fromLocalFile(none));
@@ -2478,7 +2201,7 @@ private Q_SLOTS:
         QCOMPARE(finished.count(), 1);
         QVERIFY(finished.first().at(1).toBool());
         QCOMPARE(finished.first().at(3).toInt(), 1);
-        QCOMPARE(finished.first().at(4).toInt(), 1);   // skipped
+        QCOMPARE(finished.first().at(4).toInt(), 1);
         QFile f(zipPath);
         QVERIFY(f.open(QIODevice::ReadOnly));
         QVERIFY(!f.readAll().contains("<svg"));
@@ -2524,12 +2247,11 @@ private Q_SLOTS:
                                              QString());
         QCOMPARE(finished.count(), 1);
         QCOMPARE(finished.first().at(0).toString(), QStringLiteral("import"));
-        QVERIFY(finished.first().at(1).toBool());      // something was added
-        QCOMPARE(finished.first().at(3).toInt(), 1);   // added
-        QCOMPARE(finished.first().at(4).toInt(), 1);   // "cat" was already there
-        QCOMPARE(finished.first().at(5).toInt(), 1);   // one upload failed
+        QVERIFY(finished.first().at(1).toBool());
+        QCOMPARE(finished.first().at(3).toInt(), 1);
+        QCOMPARE(finished.first().at(4).toInt(), 1);
+        QCOMPARE(finished.first().at(5).toInt(), 1);
         QCOMPARE(finished.first().at(6).toString(), QStringLiteral("Friends"));
-        // The extracted files are gone with the job.
         QVERIFY(!QFileInfo::exists(lastPath));
         QVERIFY(!manager.transferring());
     }

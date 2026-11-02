@@ -1,17 +1,3 @@
-// Source-contract test for qml/SmoothWheelArea.qml, the shared component that
-// gives Settings and other panes the same wheel/touchpad feel as the room
-// timeline (TimelinePane's timelineWheelHandler, TimelineScrollController).
-//
-// Pins two things:
-//   1. The component never calls the stateful parts of the shared
-//      TimelineScrollController (wheelNotch/animateTo/pixelTargetY/
-//      wheelTargetY/cancel mutate app.timelineScroll's one motion state);
-//      only the pure notchDistance() and motionStep() may cross.
-//   2. The converted panes keep using the shared component rather than a
-//      bare Flickable/ListView/GridView with Qt's default wheel behaviour.
-//
-// The regression sweep covers only the converted files; several other panes
-// still have scroll surfaces without a WheelHandler.
 
 #include <QtTest/QtTest>
 
@@ -28,11 +14,6 @@ class ScrollConsistencyContractTest : public QObject
                                                : QString{};
     }
 
-    // Returns the balanced-brace block starting at the '{' that follows
-    // the first occurrence of `openToken` at or after `from`, e.g.
-    // balancedBlock(text, "Flickable {") returns "Flickable { ... }"
-    // with everything nested correctly accounted for. Empty string if
-    // `openToken` is not found or never closes.
     static QString balancedBlock(const QString &text, const QString &openToken,
                                   int from = 0)
     {
@@ -55,9 +36,6 @@ class ScrollConsistencyContractTest : public QObject
         return {};
     }
 
-    // The balanced block of `openToken` that contains `needle`. Scans
-    // backwards from the needle, because the id lives inside the block and a
-    // forward search would find the next opening token instead.
     static QString blockContaining(const QString &text, const QString &openToken,
                                    const QString &needle)
     {
@@ -68,13 +46,9 @@ class ScrollConsistencyContractTest : public QObject
         if (tokenAt < 0)
             return {};
         const QString block = balancedBlock(text, openToken, tokenAt);
-        // Only accept it if the block really does contain the anchor.
         return block.contains(needle) ? block : QString{};
     }
 
-    // Every "Flickable {" / "ListView {" / "GridView {" balanced block in
-    // `text`, in order of appearance. Used for the per-file regression
-    // sweep below.
     static QStringList allScrollSurfaceBlocks(const QString &text)
     {
         QStringList blocks;
@@ -97,40 +71,28 @@ class ScrollConsistencyContractTest : public QObject
     }
 
 private Q_SLOTS:
-    // ---- SmoothWheelArea.qml itself ----
 
     void componentExistsWithExpectedShape()
     {
         const QString src = read(QStringLiteral("SmoothWheelArea.qml"));
         QVERIFY(!src.isEmpty());
-        // Non-visual PointerHandler root — never an Item/MouseArea that
-        // could swallow clicks meant for content underneath it.
         QVERIFY(src.contains(QStringLiteral("WheelHandler {")));
         QVERIFY(src.contains(QStringLiteral("target: null")));
         QVERIFY(src.contains(QStringLiteral(
             "acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad")));
-        // Handles both wheel input classes, and always accepts.
         QVERIFY(src.contains(QStringLiteral("event.pixelDelta.y !== 0")));
         QVERIFY(src.contains(QStringLiteral("event.angleDelta.y !== 0")));
         QVERIFY(src.contains(QStringLiteral("event.accepted = true")));
-        // Clamps to the target's own live bounds on every write.
         QVERIFY(src.contains(QStringLiteral("function clampY(")));
         QVERIFY(src.contains(QStringLiteral("minContentY")));
         QVERIFY(src.contains(QStringLiteral("maxContentY")));
     }
 
-    // Only the pure per-notch-distance read may cross into the shared
-    // TimelineScrollController; its motion-mutating entry points would
-    // corrupt the timeline's own in-flight glide.
     void neverDrivesSharedControllerMotionState()
     {
         const QString src = read(QStringLiteral("SmoothWheelArea.qml"));
         QVERIFY(!src.isEmpty());
-        // The one permitted, side-effect-free read.
         QVERIFY(src.contains(QStringLiteral("controller.notchDistance(")));
-        // Every stateful entry point on the shared controller must be
-        // absent — not just unused, literally never named, so a future
-        // edit that reaches for the "obvious" API is caught immediately.
         for (const QString &forbidden :
              { QStringLiteral(".wheelNotch("), QStringLiteral(".animateTo("),
                QStringLiteral(".pixelTargetY("), QStringLiteral(".wheelTargetY("),
@@ -143,17 +105,10 @@ private Q_SLOTS:
                          "mutates app.timelineScroll's single instance of "
                          "motion state.").arg(forbidden)));
         }
-        // The glide is this instance's OWN ticker, never a reference into
-        // app.timelineScroll's motion-active flag.
         QVERIFY(src.contains(QStringLiteral("property Timer ticker:")));
         QVERIFY(!src.contains(QStringLiteral("app.timelineScroll.motionActive")));
-        // ...and it steps on the controller's real curve. motionStep is const
-        // and stateless, so sharing it cannot disturb the timeline, and it is
-        // the only way the two feel the same.
         QVERIFY(src.contains(QStringLiteral("controller.motionStep(")));
     }
-
-    // ---- Applied panes: each scroll surface carries the component ----
 
     void settingsScreenContentPaneUsesSmoothWheelArea()
     {
@@ -163,8 +118,6 @@ private Q_SLOTS:
                                              QStringLiteral("id: contentFlick"));
         QVERIFY(!block.isEmpty());
         QVERIFY(block.contains(QStringLiteral("SmoothWheelArea {")));
-        // The section-switch jump-to-top stops the glide first so a
-        // residual motion from the previous section cannot fight it.
         QVERIFY(block.contains(QStringLiteral("settingsWheelArea.stopGlide()")));
     }
 
@@ -183,7 +136,6 @@ private Q_SLOTS:
         QVERIFY(!src.isEmpty());
         const QString block = balancedBlock(src, QStringLiteral("Flickable {"));
         QVERIFY(!block.isEmpty());
-        // Named (C08): a key scroll stops its glide first.
         QVERIFY(block.contains(QStringLiteral("SmoothWheelArea { id: homeWheel }")));
     }
 
@@ -221,27 +173,18 @@ private Q_SLOTS:
         const QString block = blockContaining(src, QStringLiteral("GridView {"), QStringLiteral("id: emojiGrid"));
         QVERIFY(!block.isEmpty());
         QVERIFY(block.contains(QStringLiteral("SmoothWheelArea {}")));
-        // The horizontal category rail (a ScrollView) keeps Qt's default wheel
-        // behaviour, but uses the shared themed scroll bar.
         QVERIFY(src.contains(QStringLiteral("ScrollBar.horizontal: AppScrollBar")));
         QVERIFY(!src.contains(QStringLiteral("ScrollBar.horizontal.policy")));
     }
 
-    // RoomInfoPanel's scrollable surfaces (Overview as an explicit Flickable,
-    // since ScrollView wraps content in an unreachable Flickable; Pinned,
-    // People, Widgets) plus MediaBrowser's grid and list. The trailing counts
-    // make a new surface fail here until it gets the same wheel feel.
     void roomInfoPanelEveryScrollableSurfaceUsesSmoothWheelArea()
     {
         const QString src = read(QStringLiteral("RoomInfoPanel.qml"));
         QVERIFY(!src.isEmpty());
-        // The ScrollView this pane used for Overview is gone entirely.
         QVERIFY(!src.contains(QStringLiteral("ScrollView {")));
 
         const QString overview = blockContaining(src, QStringLiteral("Flickable {"), QStringLiteral("id: overviewFlick"));
         QVERIFY(!overview.isEmpty());
-        // Off while a combo's popup is open, so the wheel reaches the list
-        // and not the page beneath it (C33).
         QVERIFY(overview.contains(QStringLiteral("SmoothWheelArea { enabled: !overviewFlick.comboOpen }")));
 
         const QString pinned = blockContaining(
@@ -254,8 +197,6 @@ private Q_SLOTS:
         QVERIFY(!members.isEmpty());
         QVERIFY(members.contains(QStringLiteral("SmoothWheelArea {}")));
 
-        // The Media section lives in MediaBrowser.qml (grid and list), so it
-        // is checked there.
         const QString browser = read(QStringLiteral("MediaBrowser.qml"));
         QVERIFY2(!browser.isEmpty(), "MediaBrowser.qml is gone");
         const QString mediaGrid = blockContaining(
@@ -273,19 +214,10 @@ private Q_SLOTS:
         QVERIFY(!widgets.isEmpty());
         QVERIFY(widgets.contains(QStringLiteral("SmoothWheelArea {}")));
 
-        // Tripwire: adding a scrollable surface to either file fails this
-        // until the new one is named above.
         QCOMPARE(src.count(QStringLiteral("SmoothWheelArea {")), 4);
         QCOMPARE(browser.count(QStringLiteral("SmoothWheelArea {")), 2);
     }
 
-    // ---- Deliberate skips, documented ----
-
-    // The composer's own input box is a small (<= ~6 lines, 140px cap)
-    // TextArea.flickable — caret-follow scrolling, not a content pane.
-    // A coalescing glide would fight cursor positioning while typing, so
-    // it deliberately keeps Qt's default TextArea/Flickable wheel
-    // behaviour.
     void messageComposerBarInputSkipsSmoothWheelAreaByDesign()
     {
         const QString src = read(QStringLiteral("MessageComposerBar.qml"));
@@ -296,9 +228,6 @@ private Q_SLOTS:
         QVERIFY(!block.contains(QStringLiteral("SmoothWheelArea")));
     }
 
-    // The release-notes preview is a small read-only ScrollView around a
-    // TextArea whose internal Flickable is unreachable, so it keeps Qt's
-    // default wheel behaviour.
     void updateAvailableDialogReleaseNotesSkipsSmoothWheelAreaByDesign()
     {
         const QString src = read(QStringLiteral("UpdateAvailableDialog.qml"));
@@ -307,7 +236,6 @@ private Q_SLOTS:
         QVERIFY(!src.contains(QStringLiteral("SmoothWheelArea")));
     }
 
-    // The room timeline is the reference behaviour and must stay as it is.
     void timelinePaneIsUnchangedReferenceImplementation()
     {
         const QString src = read(QStringLiteral("TimelinePane.qml"));
@@ -316,11 +244,6 @@ private Q_SLOTS:
         QVERIFY(!src.contains(QStringLiteral("SmoothWheelArea")));
     }
 
-    // ---- Regression guard for the converted panes ----
-
-    // Any genuine scroll surface in a converted file (one with a visible
-    // ScrollBar.vertical, or for the ScrollBar-less panes any
-    // Flickable/ListView/GridView block) must carry the shared component.
     void noBareScrollSurfaceRegressionInConvertedPanes()
     {
         const QStringList convertedFiles = {

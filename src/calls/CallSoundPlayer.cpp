@@ -29,12 +29,9 @@
 #include <utility>
 
 #if defined(LIGHTNING_HAVE_QT_AUDIO_ROLE)
-// Private Qt Multimedia API, for the stream's role (see AudioSinkOutput).
-// CMake defines the macro only after compiling against this header.
 #include <QtMultimedia/private/qaudiosystem_p.h>
 #endif
 #if defined(LIGHTNING_HAVE_QT_AUDIO_BACKEND_NAME)
-// Private too: the name of the audio backend Qt chose (see MixerCues).
 #include <QtMultimedia/private/qplatformmediaintegration_p.h>
 #endif
 
@@ -42,7 +39,6 @@ Q_DECLARE_LOGGING_CATEGORY(lcCallSound)
 
 namespace {
 
-// Rendered by scripts/generate-call-sounds.py, embedded under qrc:/sounds.
 const QStringList kSounds = {
     QStringLiteral("join"),         QStringLiteral("leave"),
     QStringLiteral("connected"),    QStringLiteral("ended"),
@@ -55,8 +51,6 @@ const QStringList kSounds = {
     QStringLiteral("mention"),
 };
 
-// Settings sliders are perceptual; QSoundEffect takes linear gain. Map the
-// slider onto 40 dB: 100% = 0 dB, 70% = -12 dB, 50% = -20 dB, 0% = silence.
 float linearGain(qreal perceptual)
 {
     if (!(perceptual > 0.0))
@@ -86,30 +80,19 @@ constexpr bool kCuesMixed = false;
 std::atomic<bool> g_soundThreadStuck{false};
 std::atomic<int> g_exitStatus{0};
 
-/// A QCoreApplication post routine, added last, so it runs before Qt
-/// Multimedia's own teardown: everything of ours is already destroyed (and
-/// flushed) by the time the application object goes.
 void endWithoutTeardown()
 {
-    // _Exit skips the at-exit drain, and the lines just queued are the ones
-    // saying why the sound thread is stuck.
     lightning::logging::flushProcessLog(
         lightning::logging::AsyncLogSink::kFatalDrainMs);
     std::fflush(nullptr);
     std::_Exit(g_exitStatus.load());
 }
 
-} // namespace
+}
 
-/// Which sounds reached QSoundEffect::Ready; read on the GUI thread, written
-/// where the effects live.
 struct CallSoundReadiness {
     mutable QMutex mutex;
     QSet<QString> ready;
-    /// Liveness of the effects' thread: jobs posted and jobs finished, and
-    /// since when the oldest unfinished one has waited (-1: none). A thread
-    /// stuck on the sound server finishes nothing, and then no sound can be
-    /// relied on however "ready" it once was.
     QElapsedTimer clock;
     quint64 posted = 0;
     quint64 done = 0;
@@ -118,12 +101,9 @@ struct CallSoundReadiness {
 };
 
 namespace {
-/// How long a job may wait before the effects' thread counts as stuck.
 constexpr qint64 kStuckAfterMs = 2000;
-} // namespace
+}
 
-/// Where the cues are voiced. Lives where the effects live (see the header)
-/// and is only ever called there.
 class CallSoundEffects : public QObject
 {
 public:
@@ -134,17 +114,10 @@ public:
                       const QString &device) = 0;
     virtual void loop(const QString &sound, float gain,
                       const QString &device) = 0;
-    /// After the output list changed: make every unusable sound usable
-    /// again and resume a loop that was lost. Returns how many were
-    /// (re)loaded.
     virtual int reloadUnusable() = 0;
     virtual void stopAll() = 0;
 
 protected:
-    /// The call's chosen speaker (`wanted`, an output id) or the default.
-    /// Re-resolved on every cue so a device plugged in mid-session is used;
-    /// resolved where the effects live rather than on the GUI thread, since
-    /// asking the audio backend is exactly what can hang (Qt < 6.10).
     static QAudioDevice resolveOutput(const QString &wanted)
     {
         QAudioDevice target = QMediaDevices::defaultAudioOutput();
@@ -164,8 +137,6 @@ protected:
                          const QString &sound, bool ready);
 };
 
-/// Owns the QSoundEffects (everywhere but Linux with Qt 6.10 and later; see
-/// the header).
 class QSoundEffectCues final : public CallSoundEffects
 {
 public:
@@ -185,7 +156,6 @@ public:
 
     void play(const QString &sound, float gain, const QString &device) override
     {
-        // A one-shot of the looping sound would cut the loop short.
         if (sound == m_loopSound)
             return;
         QSoundEffect *e = effect(sound);
@@ -200,8 +170,6 @@ public:
     void loop(const QString &sound, float gain, const QString &device) override
     {
         if (sound == m_loopSound) {
-            // The controller re-asserts the loop on every state change:
-            // adjust the volume, never restart.
             if (QSoundEffect *e = m_effects.value(sound))
                 e->setVolume(gain);
             return;
@@ -223,16 +191,6 @@ public:
         e->play();
     }
 
-    /// After the output list changed. A QSoundEffect whose output went away
-    /// sits in Error, or stays Ready on an engine whose stream died with the
-    /// endpoint (see CallSoundRebuild.h), and nothing here ever moves it out
-    /// (setSource() with the same URL is a no-op). So every sound gets a new
-    /// effect, and a sound never loaded (no output at startup) is loaded now.
-    /// Every old effect is destroyed before the first new one is created:
-    /// one created beside a surviving old effect is handed the same pooled,
-    /// dead engine. A loop that was audible (or failed) resumes; one that
-    /// stopAll() silenced keeps its name and does not. Whether an output
-    /// exists was asked on the GUI thread. Returns how many were (re)loaded.
     int reloadUnusable() override
     {
         bool loopLost = false;
@@ -243,12 +201,8 @@ public:
         const int reloaded = callsound::replaceEveryEffect(
             m_effects, kSounds,
             [this](QSoundEffect *old) {
-                // Its status must no longer reach the readiness set: the new
-                // effect's does.
                 QObject::disconnect(old, nullptr, this, nullptr);
                 old->stop();
-                // Freed now, never deferred: its reference to the engine must
-                // be gone before the new effects ask the pool for one.
                 delete old;
             },
             [this](const QString &sound) { return effect(sound) != nullptr; });
@@ -257,8 +211,6 @@ public:
                 route(e, m_loopDevice);
                 e->setLoopCount(QSoundEffect::Infinite);
                 e->setVolume(m_loopGain);
-                // Played once loaded: QSoundEffect queues a play() that
-                // arrives while it is still loading.
                 e->play();
             }
         }
@@ -289,10 +241,6 @@ private:
                 else
                     readiness->ready.remove(sound);
             }
-            // Loud once: an unusable sound is otherwise silent, and the
-            // ringer then falls back to the desktop's call sound. (Worded so
-            // package validators' "failed to load" scan does not read it as
-            // a missing library.)
             if (e->status() == QSoundEffect::Error)
                 qCWarning(lcCallSound) << "call sound unusable sound=" << sound;
         });
@@ -303,13 +251,6 @@ private:
     static void route(QSoundEffect *e, const QString &wanted)
     {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
-        // No speaker chosen, or the chosen one is not connected: no device
-        // at all, which from Qt 6.10 means "the default, followed" -- the
-        // effect moves to whatever the default becomes on every output
-        // change. The default PINNED by its ID (what this did before) is not
-        // followed: such an effect stayed on its engine after the endpoint
-        // died, kept that engine alive in Qt's pool, and so handed it to
-        // effects built later for the same ID.
         const QAudioDevice target = chosenOutput(wanted);
         if (e->audioDevice() != target)
             e->setAudioDevice(target);
@@ -320,8 +261,6 @@ private:
 #endif
     }
 
-    /// The output `wanted` names, or a null device when none is wanted or
-    /// it is not connected.
     static QAudioDevice chosenOutput(const QString &wanted)
     {
         if (wanted.isEmpty())
@@ -341,7 +280,6 @@ private:
     QString m_loopDevice;
 };
 
-/// CueEngine's output in the app: one pull-mode QAudioSink.
 class AudioSinkOutput final : public CueOutput
 {
 public:
@@ -349,18 +287,8 @@ public:
                     QObject *parent)
         : CueOutput(parent), m_sink(new QAudioSink(device, format, this))
     {
-        // The ring buffer is refilled on this (the GUI) thread, so it is how
-        // long the GUI thread may stall before a loop stutters, and also the
-        // most a cue waits behind audio already mixed. See kRingBufferUs.
         m_sink->setBufferSize(format.bytesForDuration(kRingBufferUs));
-        // The stream's role, before start() creates the stream, exactly as
-        // QSoundEffect's own engine (QRtAudioEngine) does: PipeWire and
-        // PulseAudio then tag it media.role "Notification", so the desktop's
-        // notification volume still governs the cues. No public API does it.
 #if defined(LIGHTNING_HAVE_QT_AUDIO_ROLE)
-        // Private ABI, so only with the very Qt it was built against: a
-        // runtime update within 6.11.x is not caught by the loader, and
-        // setRole() is a virtual call into it.
         if (qstrcmp(qVersion(), QT_VERSION_STR) == 0) {
             if (QPlatformAudioSink *platform = QPlatformAudioSink::get(*m_sink)) {
                 platform->setRole(
@@ -391,7 +319,6 @@ public:
     void stop() override { m_sink->reset(); }
 
 private:
-    /// Once per process: the cues then carry Qt's default role.
     static void sayNoRole(const QString &why)
     {
         static bool said = false;
@@ -401,17 +328,8 @@ private:
         }
     }
 
-    // Measured 2026-10-07 (private PipeWire graph; the ring looping while the
-    // GUI thread was blocked once a second): 40 ms stuttered on every 50 ms
-    // block, 120 ms on none up to 100 ms and on every 200 ms one (about
-    // 95 ms of silence each). The price: a cue that starts while a loop
-    // keeps the output fed is heard about 150 ms after play() instead of
-    // about 65 (about 45 either way when the output is idle). Qt's default
-    // is 250 ms.
     static constexpr qint64 kRingBufferUs = 120000;
 
-    /// The device could not be opened or went away. An underrun is not that
-    /// (older Qt reports one when a pull source runs dry).
     void check()
     {
         const QAudio::Error error = m_sink->error();
@@ -430,8 +348,6 @@ private:
     bool m_failed = false;
 };
 
-/// Mixes the cues into one long-lived QAudioSink (Linux, Qt 6.10 and later;
-/// see the header and CallSoundMixer.h). Lives on the GUI thread.
 class MixerCues final : public CallSoundEffects
 {
 public:
@@ -511,7 +427,6 @@ private:
                 [] { return lightning::calls::pulseServerReachable(); },
                 [clock] { return clock->elapsed(); },
                 [] {
-                    // Once per process; no ids, no paths.
                     static bool said = false;
                     if (!std::exchange(said, true)) {
                         qCWarning(lcCallSound)
@@ -523,11 +438,6 @@ private:
         return h;
     }
 
-    /// Whether Qt's audio backend may be PulseAudio, the one whose new
-    /// streams abort while it has no connection. Asked of Qt where it can be
-    /// (private API, only with the very Qt it was built against); otherwise
-    /// not known, and assumed: the gate is safe on any backend, only slower,
-    /// and it never passes without a PulseAudio server.
     static bool qtAudioBackendMayBePulse()
     {
 #if defined(LIGHTNING_HAVE_QT_AUDIO_BACKEND_NAME)
@@ -594,18 +504,10 @@ CallSoundPlayer::CallSoundPlayer(std::function<QString()> callSpeakerId,
     , m_readiness(std::make_shared<CallSoundReadiness>())
 {
     startEffects(kEffectsOffTheGuiThread);
-    // Hotplug: an output that went away and came back (or one that appears
-    // for the first time) makes the unusable cues loadable again. A
-    // notification from Qt's backend, never a poll. A fallback only: on
-    // Windows 2026-10-07 this path never reloaded a cue, and AppController
-    // drives the reload through followOutputChanges().
     m_anyOutput = [] { return !QMediaDevices::audioOutputs().isEmpty(); };
     m_devices = new QMediaDevices(this);
     connect(m_devices, &QMediaDevices::audioOutputsChanged, this,
             &CallSoundPlayer::audioOutputsChanged);
-    // No output device (a headless session, a CI container): nothing can
-    // play, so skip the preload. canPlay() stays false and the ringer falls
-    // back to the desktop's sound; a later play() creates its effect lazily.
     if (QMediaDevices::audioOutputs().isEmpty()) {
         qCInfo(lcCallSound) << "call sounds unavailable: no audio output device";
         return;
@@ -621,8 +523,6 @@ CallSoundPlayer::~CallSoundPlayer()
         return;
     }
     post([](CallSoundEffects *effects) { effects->stopAll(); });
-    // Deleted on its own thread: a finishing QThread still runs the deferred
-    // deletes posted to it.
     m_effects->deleteLater();
     m_thread->quit();
     // Bounded: a sound server that stopped answering can hold the effects'
@@ -645,8 +545,6 @@ CallSoundPlayer::CallSoundPlayer(ForTest, bool offTheGuiThread)
     : QObject(nullptr)
     , m_readiness(std::make_shared<CallSoundReadiness>())
 {
-    // No preload: a test must never create a sound effect on a thread Qt
-    // 6.10+ does not allow; see the header.
     m_forTest = true;
     startEffects(offTheGuiThread);
 }
@@ -688,7 +586,6 @@ void CallSoundPlayer::post(std::function<void(CallSoundEffects *)> job)
         effects,
         [effects, readiness, job = std::move(job)] {
             job(effects);
-            // Acknowledged: the next job, if any, starts waiting now.
             QMutexLocker lock(&readiness->mutex);
             ++readiness->done;
             readiness->waitingSinceMs = readiness->posted == readiness->done
@@ -705,8 +602,6 @@ void CallSoundPlayer::postForTest(std::function<void()> job)
 
 void CallSoundPlayer::audioOutputsChanged()
 {
-    // Trailing edge: wait for the changes to go quiet, but answer a burst
-    // that never does once, after the longest wait.
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (m_outputChangeBurstStartMs < 0)
         m_outputChangeBurstStartMs = now;
@@ -720,11 +615,8 @@ void CallSoundPlayer::reloadAfterOutputChange()
 {
     m_outputChangeBurstStartMs = -1;
     ++m_soundReloads;
-    // Asked here, on the GUI thread, from whatever answered the signal.
     const bool anyOutput = m_anyOutput ? m_anyOutput() : true;
     m_lastReloadAnyOutput = anyOutput;
-    // Said every time, so a log tells "never told" from "told, nothing to
-    // do" (the first Windows run could not).
     qCInfo(lcCallSound) << "call sounds: the audio outputs changed (any="
                         << anyOutput << ")";
     if (m_forTest || !anyOutput)
@@ -745,13 +637,11 @@ void CallSoundPlayer::markReadyForTest(const QString &sound)
 }
 
 namespace {
-/// The call's chosen speaker id while in a call, else "" for the default.
-/// Read here, on the GUI thread, where the settings live.
 QString cueDevice(const std::function<QString()> &callSpeakerId, bool inCall)
 {
     return inCall && callSpeakerId ? callSpeakerId() : QString();
 }
-} // namespace
+}
 
 void CallSoundPlayer::play(const QString &sound, qreal volume, bool inCall)
 {
@@ -779,9 +669,6 @@ void CallSoundPlayer::loop(const QString &sound, qreal volume, bool inCall)
 bool CallSoundPlayer::canPlay(const QString &sound) const
 {
     QMutexLocker lock(&m_readiness->mutex);
-    // A thread that has not finished a job for a while cannot play anything,
-    // loaded or not. Saying so lets the caller fall back: the ringer then
-    // uses the desktop's call sound instead of ringing silently.
     const qint64 waiting = m_readiness->waitingSinceMs;
     if (waiting >= 0 && m_readiness->clock.elapsed() - waiting > kStuckAfterMs) {
         if (!m_readiness->saidStuck) {

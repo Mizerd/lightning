@@ -15,14 +15,6 @@ class SettingsManager;
 class CacheStore;
 class QJsonObject;
 
-// Experimental pure-C++ backend against the Client-Server HTTP API: login,
-// /sync, room list and timeline, backfill, local echo resolution, per-room
-// member names, media send/receive, replies, edits, redactions, reactions,
-// typing, read receipts, Spaces, thread replies, and a local SQLite cache.
-//
-// Not authoritative for modern Matrix: no E2EE (encrypted rooms are
-// read-only placeholders), no sliding sync, and legacy unauthenticated media
-// URLs.
 class CppHttpMatrixClient : public MatrixClient
 {
     Q_OBJECT
@@ -60,8 +52,6 @@ public:
     void sendReply(const QString &roomId,
                    const QString &replyToEventId,
                    const QString &body) override;
-    // Real m.thread relation, delivered as a thread event rather than a plain
-    // in-reply-to.
     void sendThreadReply(const QString &roomId,
                          const QString &threadRootEventId,
                          const QString &body) override;
@@ -84,14 +74,12 @@ public:
     bool paginating(const QString &roomId) const override;
 
 private:
-    // Session lifecycle helpers.
     void doWhoami();
     int loadCachedState();
     void openCacheFor(const QString &userId);
     void closeAndClearCache();
     void clearLocalSession(bool clearPersisted);
 
-    // Sync loop.
     void startNextSync();
     void handleSyncResponse(const QJsonObject &syncObj);
     void processJoinedRooms(const QJsonObject &joined);
@@ -99,11 +87,10 @@ private:
     void processTimelineEvent(const QString &roomId, const QJsonObject &evObj);
     void processEphemeral(const QString &roomId, const QJsonObject &ephemeral);
 
-    // Message helpers.
     void putSendJson(const QString &roomId,
-                     const QString &type,           // "m.room.message" or "m.reaction"
+                     const QString &type,
                      const QJsonObject &content,
-                     const QString &echoEventId,    // empty → no local-echo tracking
+                     const QString &echoEventId,
                      const QString &debugLabel);
     void redactByHttp(const QString &roomId,
                       const QString &eventId,
@@ -112,7 +99,6 @@ private:
                                const QString &body,
                                TimelineEvent::Type type) const;
 
-    // Utilities.
     void applyBearer(QNetworkRequest &request) const;
     void setState(ConnectionState);
     QUrl endpoint(const QString &path) const;
@@ -149,14 +135,12 @@ private:
     QPointer<QNetworkReply> m_syncReply;
     QTimer m_syncRetryTimer;
     int m_syncBackoffMs = 5000;
-    // True after the first /sync response is parsed; reset on login/logout.
-    // Lets QML show "Loading rooms…" until then.
     bool m_initialSyncDone = false;
 
     QHash<QString, RoomInfo> m_rooms;
     QHash<QString, QList<TimelineEvent>> m_timelines;
     QSet<QString> m_paginating;
-    QHash<QString, QString> m_lastReceiptSent;  // roomId → last eventId the server ACCEPTED a receipt for
+    QHash<QString, QString> m_lastReceiptSent;
 
     // txn_id -> (roomId, currentEventId). currentEventId starts as
     // "local:<txn>" and becomes the real event_id from the PUT response, so

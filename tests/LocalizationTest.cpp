@@ -1,9 +1,3 @@
-// Localization contract, in three parts that fail for different reasons:
-//   * the pure locale-matching policy;
-//   * the catalogs on disk: every shipped language has one, the build lists
-//     it, and no translation breaks a placeholder;
-//   * a compiled catalog loads and answers, including Qt plural forms (the
-//     reason an English catalog exists).
 
 #include "app/SettingsManager.h"
 #include "i18n/LocalizationManager.h"
@@ -34,8 +28,6 @@ QString readAll(const QString &path)
     return QString::fromUtf8(f.readAll());
 }
 
-// %1..%9 and %n as a set. Order is not compared: translators may reorder
-// numbered placeholders. Losing or inventing one is the defect.
 QSet<QString> placeholders(const QString &s)
 {
     QSet<QString> out;
@@ -112,7 +104,6 @@ QString summarizeKeys(const QSet<QString> &keys)
     return sorted.join(QLatin1Char('\n'));
 }
 
-
 struct PluralMessage {
     QString context;
     QString source;
@@ -121,7 +112,6 @@ struct PluralMessage {
     bool finished = false;
 };
 
-// The numerus="yes" messages of one catalog, with their forms.
 QList<PluralMessage> pluralMessages(const QString &path)
 {
     QFile file(path);
@@ -161,14 +151,12 @@ QList<PluralMessage> pluralMessages(const QString &path)
     return xml.hasError() ? QList<PluralMessage>() : out;
 }
 
-// "(s)", "(es)", "(ies)": the source spelling of a plural that a real form
-// replaces.
 bool readsLikeASourcePlural(const QString &text)
 {
     static const QRegularExpression suffix(QStringLiteral("\\((?:s|es|ies)\\)"));
     return suffix.match(text).hasMatch();
 }
-} // namespace
+}
 
 class LocalizationTest : public QObject
 {
@@ -183,12 +171,8 @@ private Q_SLOTS:
         QCoreApplication::setApplicationName(QStringLiteral("localization-test"));
     }
 
-    // ---- policy ----
-
     void regionalVariantsCollapseOntoTheirLanguage()
     {
-        // Both spellings Qt uses: '-' from uiLanguages(), '_' from
-        // QLocale::name().
         QCOMPARE(LocalizationManager::matchLanguageTag(QStringLiteral("es_ES")),
                  QStringLiteral("es"));
         QCOMPARE(LocalizationManager::matchLanguageTag(QStringLiteral("es_MX")),
@@ -218,8 +202,6 @@ private Q_SLOTS:
                      QStringLiteral("de"));
     }
 
-    // For Chinese the script decides: only Simplified ships, so a Traditional
-    // locale gets the English fallback rather than the wrong script.
     void chineseIsMatchedByScriptNotByRegion()
     {
         QCOMPARE(LocalizationManager::matchLanguageTag(QStringLiteral("zh_CN")),
@@ -248,8 +230,6 @@ private Q_SLOTS:
                  QStringLiteral("en"));
     }
 
-    // uiLanguages() is an ordered preference list: "Japanese, French,
-    // English" must reach French, not stop at the first entry.
     void thePreferenceListIsWalkedInOrder()
     {
         QCOMPARE(LocalizationManager::matchPreferenceList(
@@ -269,7 +249,6 @@ private Q_SLOTS:
             QCOMPARE(LocalizationManager::isRightToLeft(code),
                      code == QStringLiteral("ar"));
         }
-        // An unknown code must not claim a direction.
         QVERIFY(!LocalizationManager::isRightToLeft(QStringLiteral("he")));
         QVERIFY(!LocalizationManager::isRightToLeft(QStringLiteral("de")));
     }
@@ -289,8 +268,6 @@ private Q_SLOTS:
                  QStringLiteral("German"));
     }
 
-    // Sizes and numbers read the default QLocale. An English UI on a desktop
-    // whose own language is something else must not print "1,28 MiB".
     void theDefaultLocaleFollowsTheUiLanguageNotTheDesktop()
     {
         const QLocale before;
@@ -306,41 +283,30 @@ private Q_SLOTS:
             QCOMPARE(QLocale().language(), QLocale::English);
             QCOMPARE(QLocale().formattedDataSize(1340000).contains(QLatin1Char(',')), false);
         } else {
-            // The desktop's own regional variant is kept.
             QCOMPARE(QLocale().name(), QLocale::system().name());
         }
-        // The cases below start from "nothing stored".
         loc.setLanguage(QStringLiteral("system"));
         QLocale::setDefault(before);
     }
 
-    // ---- persistence ----
-
-    // "system" is a policy, not a language: storing the resolved code would
-    // stop following the desktop locale.
     void theStoredPolicySurvivesAndIsValidated()
     {
         SettingsManager settings;
         LocalizationManager loc(&settings);
 
-        // Nothing stored: follow the desktop.
         QCOMPARE(loc.language(), QStringLiteral("system"));
 
         loc.setLanguage(QStringLiteral("fr"));
         QCOMPARE(loc.language(), QStringLiteral("fr"));
         QCOMPARE(settings.language(), QStringLiteral("fr"));
 
-        // A fresh manager over the same store reads it back.
         LocalizationManager reopened(&settings);
         QCOMPARE(reopened.language(), QStringLiteral("fr"));
 
-        // A retired or corrupted value falls back to the policy, not to "en",
-        // which would pin the user to English.
         settings.setLanguage(QStringLiteral("tlh"));
         LocalizationManager rubbish(&settings);
         QCOMPARE(rubbish.language(), QStringLiteral("system"));
 
-        // Writing rubbish through the manager is refused the same way.
         loc.setLanguage(QStringLiteral("klingon"));
         QCOMPARE(loc.language(), QStringLiteral("system"));
     }
@@ -356,21 +322,14 @@ private Q_SLOTS:
         loc.setLanguage(QStringLiteral("es"));
         QCOMPARE(retranslate.count(), 1);
         QCOMPARE(changed.count(), 1);
-        // effectiveLanguage reports what is actually loaded: a language whose
-        // catalog is missing degrades to English. Either is correct here; a
-        // third value is not.
         QVERIFY2(loc.effectiveLanguage() == QStringLiteral("es")
                      || loc.effectiveLanguage() == QStringLiteral("en"),
                  qPrintable(loc.effectiveLanguage()));
         QCOMPARE(loc.language(), QStringLiteral("es"));
 
-        // Setting the same value again is not a change and must not trigger a
-        // retranslate.
         loc.setLanguage(QStringLiteral("es"));
         QCOMPARE(retranslate.count(), 1);
     }
-
-    // ---- catalogs on disk ----
 
     void everySupportedLanguageHasACatalogAndTheBuildListsIt()
     {
@@ -394,7 +353,6 @@ private Q_SLOTS:
                 repoFile(QStringLiteral("i18n/lightning_%1.ts").arg(code));
             QVERIFY2(QFile::exists(ts), qPrintable(ts));
         }
-        // Nothing is compiled that the picker does not offer.
         for (const QString &code : built) {
             QVERIFY2(LocalizationManager::isSupported(code),
                      qPrintable(QStringLiteral("CMake builds a catalog for "
@@ -403,9 +361,6 @@ private Q_SLOTS:
         }
     }
 
-    // Catalogs can agree with each other and still be stale against the
-    // source, leaving new strings in English. Extract the current source to a
-    // temporary catalog and compare lookup keys in both directions.
     void catalogsMatchTheCurrentSource()
     {
 #ifndef LIGHTNING_LUPDATE_EXECUTABLE
@@ -456,8 +411,6 @@ private Q_SLOTS:
 #endif
     }
 
-    // A translation that drops %1 loses data (e.g. the room name); one that
-    // invents %2 shows a literal "%2". lrelease accepts both.
     void translationsPreserveTheirPlaceholders()
     {
         int checked = 0;
@@ -481,8 +434,6 @@ private Q_SLOTS:
                     continue;
                 const QSet<QString> want = placeholders(sm.captured(1));
 
-                // Only finished translations ship (-nounfinished), so only
-                // those are checked.
                 static const QRegularExpression trRe(
                     QStringLiteral("<translation(?![^>]*type=\"unfinished\")[^>]*>"
                                    "(.*?)</translation>"),
@@ -494,7 +445,6 @@ private Q_SLOTS:
                 if (translated.trimmed().isEmpty())
                     continue;
 
-                // Each numerus form must satisfy the contract on its own.
                 static const QRegularExpression formRe(
                     QStringLiteral("<numerusform>(.*?)</numerusform>"),
                     QRegularExpression::DotMatchesEverythingOption);
@@ -524,12 +474,9 @@ private Q_SLOTS:
                 }
             }
         }
-        // Guards against passing because the regex stopped matching.
         QVERIFY2(checked > 0, "no finished translations were examined");
     }
 
-    // Product, protocol, library and file-format names are identifiers and
-    // must not be translated or transliterated.
     void translationsPreserveTechnicalNames()
     {
         const QStringList protectedNames = {
@@ -543,8 +490,6 @@ private Q_SLOTS:
             QStringLiteral("QSettings"), QStringLiteral("KWallet"),
             QStringLiteral("libsecret"), QStringLiteral("gnome-keyring"),
             QStringLiteral("xdg-desktop-portal"),
-            // The application binary. The persistent identity kept the old
-            // "matrix-client" spelling, but no user-visible string carries it.
             QStringLiteral("lightning-matrix"),
             QStringLiteral("WebP"), QStringLiteral("PNG"),
             QStringLiteral("JPEG"), QStringLiteral("GIF"),
@@ -610,10 +555,6 @@ private Q_SLOTS:
         QVERIFY2(checked > 100, "implausibly few technical names were checked");
     }
 
-    // ---- the compiled catalog ----
-
-    // English is the source language but still needs a catalog: without one a
-    // "%n room(s)" string renders "(s)" literally.
     void theCompiledEnglishCatalogSuppliesPluralForms()
     {
 #ifndef LIGHTNING_HAS_TRANSLATIONS
@@ -634,8 +575,6 @@ private Q_SLOTS:
         QVERIFY2(!one.contains(QStringLiteral("(s)")),
                  "the English UI would render a literal \"(s)\"");
 
-        // The Space home header counts JOINED rooms; the Rooms list below it
-        // lists unjoined ones too, so the two were not the same number.
         QCOMPARE(t.translate("TimelinePane", "%n joined room(s)",
                              "joined rooms inside a Space", 1),
                  QStringLiteral("%n joined room"));
@@ -644,10 +583,6 @@ private Q_SLOTS:
                  QStringLiteral("%n joined rooms"));
     }
 
-    // Every count in the English UI is a real plural. lrelease runs with
-    // -nounfinished, so an entry left "unfinished" (59 were, most with empty
-    // forms) is dropped from lightning_en.qm and Qt renders the source:
-    // "1 member(s)". The catalog side: finished, two forms, no "(s)".
     void everyEnglishPluralHasItsTwoForms()
     {
         const QList<PluralMessage> plurals =
@@ -665,8 +600,6 @@ private Q_SLOTS:
         QVERIFY2(offenders.isEmpty(), qPrintable(offenders.join(QLatin1Char('\n'))));
     }
 
-    // The compiled side, through the translator the app installs: no count of
-    // one or of three renders a "(s)".
     void noEnglishCountRendersASourcePlural()
     {
 #ifndef LIGHTNING_HAS_TRANSLATIONS
@@ -675,7 +608,6 @@ private Q_SLOTS:
         QTranslator en;
         QVERIFY(en.load(QStringLiteral(LIGHTNING_QM_DIR "/lightning_en.qm")));
         QVERIFY(QCoreApplication::installTranslator(&en));
-        // The report, exactly.
         QCOMPARE(QCoreApplication::translate("RoomInfoPanel", "%n member(s)", nullptr, 1),
                  QStringLiteral("1 member"));
         QCOMPARE(QCoreApplication::translate("RoomInfoPanel", "%n member(s)", nullptr, 3),
@@ -701,9 +633,6 @@ private Q_SLOTS:
 #endif
     }
 
-    // Smoke-test the Lithuanian catalog through the compiled artifact the app
-    // loads, pinning Matrix terminology that machine translation tends to
-    // turn into everyday words.
     void theCompiledLithuanianCatalogUsesMatrixTerminology()
     {
 #ifndef LIGHTNING_HAS_TRANSLATIONS
@@ -724,11 +653,6 @@ private Q_SLOTS:
                  QStringLiteral("Posistemė"));
     }
 
-    // ---- source discipline ----
-
-    // Flags only a user-visible property bound to a bare quoted literal, which
-    // is unambiguous; richer cases are left alone so the test stays quiet
-    // enough to keep enabled.
     void userVisibleQmlPropertiesAreTranslatable()
     {
         static const QRegularExpression bare(
@@ -736,17 +660,11 @@ private Q_SLOTS:
                            "Accessible\\.name|Accessible\\.description)"
                            "\\s*:\\s*\"([^\"]{2,})\"\\s*$"));
 
-        // Values deliberately not translated, each with a reason. Keyed by
-        // value rather than file:line, so moving a line reopens nothing.
         const QSet<QString> allowed = {
-            // The product name.
             QStringLiteral("Lightning"),
-            // An example homeserver URL; URLs are not translated.
             QStringLiteral("https://matrix.org"),
-            // File-format names, the same in every language.
             QStringLiteral("GIF"),
             QStringLiteral("SVG"),
-            // A keycap legend, matching the physical key.
             QStringLiteral("ESC"),
         };
 
@@ -763,7 +681,6 @@ private Q_SLOTS:
                 if (!m.hasMatch())
                     continue;
                 const QString value = m.captured(2);
-                // An empty-ish or symbol-only value is not prose.
                 static const QRegularExpression prose(
                     QStringLiteral("[A-Za-z]{2,}"));
                 if (!prose.match(value).hasMatch())

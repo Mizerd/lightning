@@ -1,10 +1,3 @@
-// Offscreen rendering proof for the button system: Style A bare icon buttons
-// have no background or border at rest and only the soft theme tint on hover;
-// Style B is the accent-soft chip; Style C is the accent fill for primary
-// actions. Keyboard focus draws the shared 2px ring inside the control's own
-// bounds, and the size ladder pins one box/corner/glyph triple per rung.
-// Pixels are compared against theme tokens read from the same scene, never
-// hard-coded hex, so every theme keeps the contract.
 
 #include <QtTest/QtTest>
 
@@ -117,7 +110,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class ButtonSystemTest : public QObject
 {
@@ -140,8 +133,6 @@ private:
         return it ? it->property("color").value<QColor>() : QColor();
     }
 
-    // Interior sample left of the glyph, vertically centred: inside the rounded
-    // rect, outside the icon's ink.
     QRect insideRect(QQuickItem *button) const
     {
         const QPointF p = button->mapToScene(QPointF(4, button->height() / 2));
@@ -173,14 +164,11 @@ private slots:
         QVERIFY(bare);
         const QImage img = m_window->grabWindow();
         QVERIFY(!img.isNull());
-        // Interior and edge midpoint show the window background: no fill,
-        // border or native frame.
         QVERIFY(channelDelta(sampleAvg(img, insideRect(bare)),
                              token("tokBackground")) <= kTolerance);
         const QPointF edge = bare->mapToScene(QPointF(1, bare->height() / 2));
         QVERIFY(channelDelta(sampleAvg(img, QRect(int(edge.x()), int(edge.y()), 1, 1)),
                              token("tokBackground")) <= kTolerance);
-        // The glyph itself uses the theme icon token.
         auto *icon = bare->property("contentItem").value<QQuickItem *>();
         QVERIFY(icon);
         QCOMPARE(icon->property("color").value<QColor>(), token("tokIcon"));
@@ -197,7 +185,6 @@ private slots:
         const QImage img = m_window->grabWindow();
         QVERIFY(channelDelta(sampleAvg(img, insideRect(bare)),
                              token("tokHover")) <= kTolerance);
-        // Move the pointer away so later grabs see the rest state.
         QTest::mouseMove(m_window, QPoint(5, 5));
         QTRY_VERIFY(!bare->property("hovered").toBool());
     }
@@ -227,9 +214,6 @@ private slots:
         auto *icon = fill->property("contentItem").value<QQuickItem *>();
         QVERIFY(icon);
         QCOMPARE(icon->property("color").value<QColor>(), token("tokOnAccent"));
-        // A rounded square, not a circle: (1,1) outside the 9px radius shows
-        // the background, while (8,8), which a 34px circle would leave
-        // uncovered, is filled.
         const QPointF corner = fill->mapToScene(QPointF(1, 1));
         QVERIFY(channelDelta(sampleAvg(img, QRect(int(corner.x()), int(corner.y()), 1, 1)),
                              token("tokBackground")) <= kTolerance);
@@ -257,9 +241,6 @@ private slots:
         QCOMPARE(button->property("iconSize").toInt(), 18);
     }
 
-    // The focus ring is inside the control's bounds: painted on its own first
-    // pixels and nothing outside, so hosts with little padding or clipping
-    // containers cannot cut or collide with it.
     void keyboardFocusDrawsTheRingInsideTheControl()
     {
         auto *bare = item("bareButton");
@@ -274,7 +255,6 @@ private slots:
                               token("tokFocusRing")) <= kTolerance,
                  "focus ring is not drawn on the control's own edge");
 
-        // Outside the bounds is still the window background on every side.
         for (const QPointF &outside : { QPointF(-2, bare->height() / 2),
                                         QPointF(bare->width() + 1, bare->height() / 2),
                                         QPointF(bare->width() / 2, -2) }) {
@@ -286,7 +266,6 @@ private slots:
         bare->setFocus(false);
     }
 
-    // One rung is one box, one corner and one glyph size.
     void sizeLadderPairsBoxCornerAndGlyph()
     {
         const struct { const char *name; qreal box; int glyph; } rungs[] = {
@@ -302,21 +281,16 @@ private slots:
             QCOMPARE(button->width(), rung.box);
             QCOMPARE(button->height(), rung.box);
             QCOMPARE(button->property("iconSize").toInt(), rung.glyph);
-            // Corners grow with the box and never repeat a smaller rung's.
             const int radius = button->property("radius").toInt();
             QVERIFY2(radius > lastRadius, rung.name);
             lastRadius = radius;
         }
     }
 
-    // A disabled-but-active button drops the accent chip; otherwise it reads
-    // as selected and available.
     void disabledActiveDropsTheAccentChip()
     {
         auto *button = item("disabledActiveButton");
         QVERIFY(button);
-        // Read the fill rather than sample it: on Indigo Night cardElevated and
-        // accentSoft are within this suite's pixel tolerance.
         auto *background = button->property("background").value<QQuickItem *>();
         QVERIFY(background);
         const QColor fill = background->property("color").value<QColor>();
@@ -325,8 +299,6 @@ private slots:
         QCOMPARE(fill, token("tokDisabledFill"));
     }
 
-    // The themed skin brightens the glyph on hover, as the Storm skin does;
-    // its background wash alone is too faint to see.
     void hoverBrightensTheGlyphOnTheThemedSkin()
     {
         auto *bare = item("bareButton");
@@ -349,7 +321,7 @@ private slots:
     void themeSwitchRetintsActiveStates()
     {
         const QColor indigoSoft = token("tokAccentSoft");
-        m_root->setProperty("themeMode", 10); // Deep Teal
+        m_root->setProperty("themeMode", 10);
         QTRY_VERIFY(token("tokAccentSoft") != indigoSoft);
         auto *chip = item("chipButton");
         QVERIFY(chip);

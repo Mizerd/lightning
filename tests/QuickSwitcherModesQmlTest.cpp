@@ -1,9 +1,3 @@
-// Offscreen behaviour test for the two-mode quick switcher: mode transitions
-// ('>' prefix in, lone backspace out, openCommandMode()), the command action
-// list (settings/sections/accounts/themes only, never leave/mute/files/
-// sign-out verbs), a real end-to-end theme action against settings.theme,
-// Escape dismissal, and a source pin that navigate-mode invite routing opens
-// (never accepts) invites.
 
 #include <QtTest/QtTest>
 
@@ -41,12 +35,10 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 namespace {
 
-// A German-like translator with deliberately FREE word choices: the hint must
-// be built from the real labels, so no translation may break its examples.
 class FreeGermanTranslator : public QTranslator
 {
 public:
@@ -73,7 +65,7 @@ public:
     bool isEmpty() const override { return false; }
 };
 
-} // namespace
+}
 
 class QuickSwitcherModesQmlTest : public QObject
 {
@@ -104,9 +96,6 @@ private:
             QStringLiteral("quickSwitcherCommandList"));
         if (!list)
             return nullptr;
-        // Offscreen popups may never get a polish pass scheduled for a
-        // list that became fillable after open — force the layout so
-        // delegates actually materialize before lookup.
         QMetaObject::invokeMethod(list, "forceLayout");
         QQuickItem *item = nullptr;
         QMetaObject::invokeMethod(list, "itemAtIndex",
@@ -122,8 +111,6 @@ private:
         return list ? list->property("count").toInt() : -1;
     }
 
-    // Full action-list titles from the model property (the ListView only
-    // instantiates the viewport, so delegate-walking would miss the tail).
     QStringList commandTitles() const
     {
         QStringList titles;
@@ -189,10 +176,8 @@ private slots:
         QVERIFY(field());
         QTest::keyClick(m_window, Qt::Key_Greater);
         QTRY_VERIFY(switcher()->property("commandMode").toBool());
-        // The trigger character never becomes query text.
         QCOMPARE(field()->property("text").toString(), QString());
 
-        // Backspacing the (already-stripped) lone '>' returns to navigate.
         QTest::keyClick(m_window, Qt::Key_Backspace);
         QTRY_VERIFY(!switcher()->property("commandMode").toBool());
         QVERIFY(switcher()->property("opened").toBool());
@@ -213,12 +198,7 @@ private slots:
         QTRY_VERIFY(switcher()->property("commandMode").toBool());
         QTRY_VERIFY(commandCount() > 0);
 
-        // Offscreen nothing requests a frame after the popup opens, and
-        // ListView delegate creation rides a frame's polish pass, so force one.
-        // Rows materialize a tick later.
         (void) m_window->grabWindow();
-        // Row items materialize a tick after count updates — harvest until
-        // the first action is visible.
         QTRY_VERIFY(commandTitles().contains(QStringLiteral("Open Settings")));
         const QStringList titles = commandTitles();
         QVERIFY(titles.contains(QStringLiteral("Saved messages")));
@@ -231,7 +211,6 @@ private slots:
         for (const QString &title : titles) {
             if (title.startsWith(QStringLiteral("Theme:")))
                 ++themeActions;
-            // Nothing without a backend may appear as a verb.
             QVERIFY2(!title.contains(QStringLiteral("Mute"),
                                      Qt::CaseInsensitive),
                      qPrintable(title));
@@ -245,8 +224,6 @@ private slots:
                                      Qt::CaseInsensitive),
                      qPrintable(title));
         }
-        // The 11 real themes (incl. Storm) plus "Match system" — sourced
-        // from AppTheme.themeList, so a new theme joins automatically.
         QCOMPARE(themeActions, 12);
         closeSwitcher();
     }
@@ -258,7 +235,6 @@ private slots:
         QTRY_VERIFY(switcher()->property("commandMode").toBool());
         QTRY_VERIFY(commandCount() > 0);
 
-        // Filter down to the Deep Teal action and activate it.
         QVERIFY(field());
         field()->setProperty("text", QStringLiteral("deep teal"));
         QTRY_VERIFY(commandCount() >= 1);
@@ -294,7 +270,6 @@ private:
         return switcher()->property("commandRows").value<QVariantList>().size();
     }
 
-    // Every example the footer shows, typed verbatim, must find an action.
     void checkHintExamplesWork(int minExamples)
     {
         QMetaObject::invokeMethod(m_root, "openCommand");
@@ -327,7 +302,6 @@ private slots:
         QVERIFY(rowsFor(QStringLiteral("open  privacy")) >= 1);
         QVERIFY(rowsFor(QStringLiteral("security privacy")) >= 1);
         QCOMPARE(rowsFor(QStringLiteral("indigo zzzz")), 0);
-        // Single word keeps substring behaviour.
         QVERIFY(rowsFor(QStringLiteral("priv")) >= 1);
         field()->setProperty("text", QString());
         closeSwitcher();
@@ -394,7 +368,6 @@ private slots:
         const QString content = QString::fromUtf8(file.readAll());
         QVERIFY(content.contains(QStringLiteral("app.openRoom(r.roomId)")));
         QVERIFY(!content.contains(QStringLiteral("acceptInvite")));
-        // The scope chips never offer a Files scope (no backend).
         QVERIFY(!content.contains(QStringLiteral("qsTr(\"Files\")")));
     }
 };

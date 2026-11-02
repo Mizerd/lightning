@@ -36,9 +36,6 @@ private Q_SLOTS:
 
     void init() { clearSettings(); }
 
-    // Fails with: Deps::proofs not pointed at m_revocationProofs (no proof
-    // in the controller's map); the hostSignInExpired connection removed (no
-    // notice); the notice raised per poll instead of once.
     void aRevokedBackgroundAccountRaisesOneNoticeAndKeepsItsProof()
     {
         ScriptedLabsBridge bridge;
@@ -67,21 +64,15 @@ private Q_SLOTS:
                                  10000);
         QVERIFY(app.liveAccountsStepsForTest().contains(
             QStringLiteral("revoked ") + kBob));
-        // One notice, not one per drainer tick.
         QTest::qWait(600);
         QCOMPARE(notifications->genericNoticeCountForTest(), noticesBefore + 1);
-        // Nothing deleted, nothing moved.
         QVERIFY(app.settings()->hasSavedAccount(kBob));
         QVERIFY(QFileInfo::exists(identity.rustStorePath + QStringLiteral("/marker")));
         QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
         QVERIFY(app.loggedIn());
-        // A revoked account is not restarted.
         QCOMPARE(bridge.callsFor(QStringLiteral("createBackground"), kBob), 1);
     }
 
-    // Two revoked background accounts both keep their proofs: the map is per
-    // account, unlike the client's single slot. Fails with: the pool writing
-    // proofs into a single-slot holder (the first is overwritten).
     void twoRevokedAccountsBothKeepTheirProofs()
     {
         ScriptedLabsBridge bridge;
@@ -107,12 +98,6 @@ private Q_SLOTS:
         QVERIFY(!app.accounts()->sessionRevoked(kAlice));
     }
 
-    // The notice is gated like every other generic notice, and names the
-    // account by its display name when the record has one, isolated (FSI ...
-    // PDI) because that name is server-controlled. Driven from the pool's
-    // signal, so it isolates the app's half. Fails with: the
-    // notificationsEnabled() check removed; the label read from the user id
-    // instead of the record; the isolation removed.
     void theNoticeIsGatedAndNamesTheAccount()
     {
         ScriptedLabsBridge bridge;

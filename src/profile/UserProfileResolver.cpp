@@ -82,11 +82,10 @@ void UserProfileResolver::onFinished(quint64 opId, bool ok,
     Q_UNUSED(category);
     const auto it = m_inFlight.find(opId);
     if (it == m_inFlight.end())
-        return; // somebody else's fetch (the controller asks for its own)
+        return;
     const QString asked = it.value();
     m_inFlight.erase(it);
     m_asking.remove(asked);
-    // An answer about a different user is a backend fault; not stored.
     if (!ok || (!userId.isEmpty() && userId != asked)) {
         m_failedAt.insert(asked, m_clock.elapsed());
         return;

@@ -1,12 +1,3 @@
-// The homeserver field accepts a server however it is typed: with or without
-// https://, any case, spaces, a trailing slash, a pasted API path or a pasted
-// Matrix ID. AuthManager turns it into one form for every sign-in path, and
-// that form must stay a server NAME for matrix-sdk's discovery, never a
-// guessed client API URL (https://matrix.org serves its API elsewhere).
-//
-// Before this, "matrix.org" was probed fine but refused by the password path
-// ("not a full URL"), and a browser sign-in with it completed in the browser
-// and was then refused at the end, when the session was saved.
 
 #include "auth/AuthManager.h"
 #include "matrix/MockMatrixClient.h"
@@ -21,7 +12,6 @@
 
 namespace {
 
-// Records what each sign-in path hands the backend, and never signs in.
 class RecordingClient : public MockMatrixClient
 {
     Q_OBJECT
@@ -63,8 +53,6 @@ public:
     {
         providerRequests.append(homeserver);
     }
-    // As RustSdkMatrixClient: a no-op unless that flow is running, and then
-    // a resolved answer, never silence.
     void cancelOAuthLogin() override
     {
         if (!std::exchange(oauthInFlight, false))
@@ -84,7 +72,6 @@ public:
     {
         Q_EMIT authMethodsDiscovered(homeserver, true, true, true);
     }
-    // As RustSdkMatrixClient does: the details, then the methods.
     void answer(const QString &homeserver, bool password, bool oauth, bool sso,
                 const QVariantMap &details)
     {
@@ -105,9 +92,6 @@ public:
         ssoInFlight = false;
         Q_EMIT loginFailed(QStringLiteral("Sign-in was cancelled."));
     }
-    // What the backend does with a sign-in page it will not hand on (not
-    // https), or a browser that would not start: it says so, then reports the
-    // page anyway.
     void refuseThePage(const QString &url)
     {
         Q_EMIT browserLaunchFailed();
@@ -154,13 +138,11 @@ QVariantMap details(bool reachable, const QString &resolved = QString(),
 
 const QString kNotAnAddress =
     QStringLiteral("That is not a server address. Enter one like matrix.org.");
-// What a cancelled password sign-in says: the request is abandoned, not
-// cancelled on the server, which may still complete it.
 const QString kStoppedWaiting =
     QStringLiteral("Stopped waiting for the server. If it still completes this "
                    "sign-in, the account may open on its own.");
 
-} // namespace
+}
 
 class ServerAddressInputTest : public QObject
 {
@@ -171,7 +153,6 @@ class ServerAddressInputTest : public QObject
 private slots:
     void initTestCase()
     {
-        // resolveAccountIdentity() derives store paths; keep them here.
         QVERIFY(m_dataHome.isValid());
         qputenv("XDG_DATA_HOME", m_dataHome.path().toUtf8());
         qputenv("HOME", m_dataHome.path().toUtf8());
@@ -202,14 +183,12 @@ private slots:
         QTest::newRow("matrix id, case, spaces")
             << QStringLiteral(" @Alice:Example.ORG ")
             << QStringLiteral("https://example.org");
-        // No scheme means https, even for a local name: http is never guessed.
         QTest::newRow("matrix id with port")
             << QStringLiteral("@alice:localhost:8008")
             << QStringLiteral("https://localhost:8008");
         QTest::newRow("bare with port")
             << QStringLiteral("localhost:8448")
             << QStringLiteral("https://localhost:8448");
-        // A typed http:// is kept exactly, never upgraded.
         QTest::newRow("http local")
             << QStringLiteral("http://localhost:8008")
             << QStringLiteral("http://localhost:8008");
@@ -222,7 +201,6 @@ private slots:
         QTest::newRow("ipv6")
             << QStringLiteral("https://[::1]:8448")
             << QStringLiteral("https://[::1]:8448");
-        // A homeserver can live under a path; only API paths are cut.
         QTest::newRow("subpath")
             << QStringLiteral("https://example.com/matrix/")
             << QStringLiteral("https://example.com/matrix");
@@ -243,11 +221,7 @@ private slots:
         QFETCH(QString, expected);
         const QString out = AuthManager::normalizedServerAddress(typed);
         QCOMPARE(out, expected);
-        // Stable: normalising the answer changes nothing.
         QCOMPARE(AuthManager::normalizedServerAddress(out), out);
-        // The account record accepts it as a browser sign-in's final step
-        // passes it, with the server's full user ID. That step refused a bare
-        // name after the browser had already signed the user in.
         matrix::app_data::AccountIdentity identity;
         QVERIFY(matrix::app_data::resolveAccountIdentity(
             out, QStringLiteral("@alice:example.org"), &identity));
@@ -272,7 +246,6 @@ private slots:
         QTest::newRow("scheme only") << QStringLiteral("https://");
         QTest::newRow("one slash") << QStringLiteral("https:/matrix.org");
         QTest::newRow("no slashes") << QStringLiteral("HTTP:matrix.org");
-        // A password typed into this field by mistake is not looked up.
         QTest::newRow("password with ?") << QStringLiteral("Summer2026?");
         QTest::newRow("password with #") << QStringLiteral("Pass#1word");
         QTest::newRow("password with /") << QStringLiteral("Winter/2026");
@@ -280,12 +253,10 @@ private slots:
         QTest::newRow("fullwidth") << QStringLiteral("\uFF30assword");
         QTest::newRow("not an api path") << QStringLiteral("example.com/_matrixish");
         QTest::newRow("empty port") << QStringLiteral("matrix.org:");
-        // A second scheme would make the host "https".
         QTest::newRow("doubled scheme") << QStringLiteral("https://https://matrix.org");
         QTest::newRow("doubled, mixed") << QStringLiteral("http://https://matrix.org");
         QTest::newRow("doubled, one slash") << QStringLiteral("https://https:/matrix.org");
         QTest::newRow("doubled, no colon") << QStringLiteral("https://http//matrix.org");
-        // Checked on the path "." and ".." resolve to.
         QTest::newRow("dots to a second host")
             << QStringLiteral("https://matrix.org/a/..//evil.com");
         QTest::newRow("dots out of an api path")
@@ -335,9 +306,6 @@ private slots:
         QCOMPARE(auth.discoveryState(), QStringLiteral("idle"));
     }
 
-    // Nothing is asked for such text, so the backend's probe of the previous
-    // server is still running; its answer must not bring that server's
-    // sign-in buttons back.
     void aLateAnswerForTheServerBeforeIsDropped()
     {
         RecordingClient client;
@@ -351,7 +319,6 @@ private slots:
         QVERIFY(!auth.serverOffersBrowserLogin());
         QVERIFY(!auth.serverOffersSso());
 
-        // A cleared field, asked twice (debounce, then editing finished).
         auth.discoverAuthMethods(QStringLiteral("example.org"));
         auth.discoverAuthMethods(QString());
         auth.discoverAuthMethods(QString());
@@ -359,16 +326,12 @@ private slots:
         QCOMPARE(auth.discoveryState(), QStringLiteral("idle"));
         QVERIFY(!auth.serverOffersBrowserLogin());
 
-        // Only that one answer is dropped: the next server's is shown.
         auth.discoverAuthMethods(QStringLiteral("example.org"));
         client.announce(QStringLiteral("https://example.org"));
         QCOMPARE(auth.discoveryState(), QStringLiteral("done"));
         QVERIFY(auth.serverOffersBrowserLogin());
     }
 
-    // The server text changes form; the user name and password go through
-    // untouched and in their own places. A pasted Matrix ID gives only its
-    // server, and never fills the user.
     void passwordSignInGetsTheNormalizedAddressAndUntouchedCredentials()
     {
         RecordingClient client;
@@ -397,13 +360,10 @@ private slots:
         QVERIFY(client.ssoStarts.isEmpty());
         QCOMPARE(failed.count(), 3);
         QCOMPARE(auth.lastError(), kNotAnAddress);
-        // Resolved, never left waiting.
         QVERIFY(!auth.isLoggingIn());
         QVERIFY(!auth.browserLoginInProgress());
     }
 
-    // Empty text still reaches the backend, whose own message asks for a
-    // homeserver.
     void anEmptyAddressStillReachesTheBackend()
     {
         RecordingClient client;
@@ -421,15 +381,12 @@ private slots:
         QCOMPARE(client.oauthStarts, QStringList{ QStringLiteral("https://matrix.org") });
         client.endAttempt();
 
-        // An explicit http:// stays http.
         auth.beginSsoLogin(QStringLiteral("HTTP://LOCALHOST:8008/"), QStringLiteral("idp"));
         QCOMPARE(client.ssoStarts.size(), 1);
         QCOMPARE(client.ssoStarts.at(0).first, QStringLiteral("http://localhost:8008"));
         QCOMPARE(client.ssoStarts.at(0).second, QStringLiteral("idp"));
     }
 
-    // A probe asked for during a browser sign-in runs when it ends, unless it
-    // is the server already on screen, however it was spelled.
     void aDeferredProbeOfTheSameServerSpelledDifferentlyIsNotRepeated()
     {
         RecordingClient client;
@@ -445,15 +402,12 @@ private slots:
         QVERIFY(client.discoveries.isEmpty());
         QCOMPARE(auth.discoveryState(), QStringLiteral("done"));
 
-        // A different server is still probed.
         auth.beginSsoLogin(QStringLiteral("matrix.org"), QString());
         auth.discoverAuthMethods(QStringLiteral("example.org"));
         client.endAttempt();
         QCOMPARE(client.discoveries, QStringList{ QStringLiteral("https://example.org") });
     }
 
-    // What the server's answer decides beyond its methods: a server with its
-    // own sign-in page that can create accounts and has an account page.
     void theServersOwnPageBringsSignUpAndItsAccountPage()
     {
         RecordingClient client;
@@ -468,8 +422,6 @@ private slots:
         QVERIFY(!auth.serverConnectionInsecure());
         QCOMPARE(auth.discoveryProblem(), QString());
 
-        // Such a server is signed in to on its page, as Element does, so its
-        // compatibility single sign-on is not asked about.
         QCoreApplication::processEvents();
         QVERIFY(client.providerRequests.isEmpty());
 
@@ -485,7 +437,6 @@ private slots:
         AuthManager auth(&client);
         QSignalSpy failed(&auth, &AuthManager::loginFailed);
         auth.discoverAuthMethods(QStringLiteral("example.org"));
-        // No prompt=create, and an account page that is not https.
         client.answer(QStringLiteral("https://example.org"), true, true, false,
                       details(true, QStringLiteral("https://example.org/"), false,
                               QStringLiteral("http://example.org/account/")));
@@ -497,7 +448,6 @@ private slots:
         QCOMPARE(failed.count(), 1);
         QVERIFY(!auth.browserLoginInProgress());
 
-        // prompt=create means nothing without the server's own page.
         RecordingClient other;
         AuthManager auth2(&other);
         auth2.discoverAuthMethods(QStringLiteral("example.org"));
@@ -526,8 +476,6 @@ private slots:
         auth.discoverAuthMethods(QStringLiteral("Summer2026?"));
         QCOMPARE(auth.discoveryProblem(), QStringLiteral("not_an_address"));
 
-        // Details for another server decide nothing about this one; without
-        // them a server offering nothing reads as unreachable.
         auth.discoverAuthMethods(QStringLiteral("third.example"));
         client.detailsOnly(QStringLiteral("https://elsewhere.example"), details(true));
         client.methodsOnly(QStringLiteral("https://third.example"), false, false, false);
@@ -557,9 +505,6 @@ private slots:
         QCOMPARE(AuthManager::isInsecureRemoteUrl(url), insecure);
     }
 
-    // The warning follows the RESOLVED base URL, not the typed scheme: a
-    // server name's well-known may point at plain http, and a typed http://
-    // may redirect to https.
     void theNotEncryptedWarningFollowsTheResolvedUrl()
     {
         RecordingClient client;
@@ -575,8 +520,6 @@ private slots:
         QVERIFY(!auth.serverConnectionInsecure());
     }
 
-    // Asking about the server already answered (or being asked) changes
-    // nothing: the choices do not blink when the field loses focus.
     void theSameServerIsNotAskedTwice()
     {
         RecordingClient client;
@@ -591,7 +534,6 @@ private slots:
         QCOMPARE(changed.count(), 0);
         QVERIFY(auth.serverOffersBrowserLogin());
 
-        // A failed one is asked again ("Try again").
         auth.discoverAuthMethods(QStringLiteral("example.org"));
         client.answer(QStringLiteral("https://example.org"), false, false, false,
                       details(false));
@@ -599,10 +541,6 @@ private slots:
         QCOMPARE(client.discoveries.size(), 3);
     }
 
-    // What the account record at the end of a browser sign-in would refuse is
-    // refused before the browser opens, never after the user signed in there
-    // and the server issued a device (sk.community typed without https://,
-    // reported 2026-09-29). Here: no data folder to keep an account in.
     void aSignInTheAccountRecordWouldRefuseStopsBeforeTheBrowser()
     {
 #ifdef Q_OS_WIN
@@ -628,7 +566,6 @@ private slots:
         QVERIFY2(error.contains(QStringLiteral("did not open your browser")), qPrintable(error));
         QVERIFY(!auth.browserLoginInProgress());
 
-        // With somewhere to keep it, the same sign-in goes ahead.
         auth.beginBrowserLogin(QStringLiteral("matrix.org"));
         QCOMPARE(client.oauthStarts, QStringList{ QStringLiteral("https://matrix.org") });
     }
@@ -643,8 +580,6 @@ private slots:
         QVERIFY(auth.lastError().isEmpty());
     }
 
-    // A backend without browser sign-in has nothing to ask: the password form
-    // shows at once, as it always did there.
     void aBackendWithoutBrowserSignInOffersThePasswordAtOnce()
     {
         PasswordOnlyClient client;
@@ -657,9 +592,6 @@ private slots:
         QCOMPARE(auth.discoveredHomeserver(), QStringLiteral("https://mock.local"));
     }
 
-    // A browser button names the discovered server ("Continue with
-    // matrix.org"), so it must sign in there, not wherever the field's text
-    // has moved on to since.
     void theBrowserButtonsActOnTheServerTheyName()
     {
         QFile file(QStringLiteral(QML_DIR "/LoginScreen.qml"));
@@ -669,19 +601,10 @@ private slots:
         QCOMPARE(qml.count(QStringLiteral("beginSsoLogin(app.auth.discoveredHomeserver")), 2);
         QVERIFY(!qml.contains(QStringLiteral("beginBrowserLogin(homeserverField")));
         QVERIFY(!qml.contains(QStringLiteral("beginSsoLogin(homeserverField")));
-        // A click does not end an edit of the field, so for the debounce's
-        // 700 ms the buttons would still belong to the last server.
-        // Continue with <server>, the unnamed and the named single sign-on
-        // buttons, and Create account.
         QCOMPARE(qml.count(QStringLiteral(
                      "enabled: !app.auth.isLoggingIn && !discoverDebounce.running")), 4);
     }
 
-    // Re-typing the address on screen and pressing Enter did nothing: the
-    // dedupe that keeps the choices from blinking on focus loss also swallowed
-    // an explicit commit, so a server whose answer had changed (a delegation
-    // fixed meanwhile) kept its old one for the session. Enter asks again;
-    // focus loss still does not, and a server being asked is not asked twice.
     void anExplicitCommitAsksAnAnsweredServerAgain()
     {
         RecordingClient client;
@@ -699,18 +622,12 @@ private slots:
                  QStringList({ QStringLiteral("https://matrix.org"),
                                QStringLiteral("https://matrix.org") }));
         QCOMPARE(auth.discoveryState(), QStringLiteral("probing"));
-        // The old answer is not shown against the new question.
         QVERIFY(!auth.serverOffersBrowserLogin());
 
         auth.discoverAuthMethods(QStringLiteral("matrix.org"), true);
         QCOMPARE(client.discoveries.size(), 2);
     }
 
-    // A failed add-account sign-in is followed by AppController restoring the
-    // account the user came from, and that restore's loginSucceeded cleared
-    // the error: the form the user was still on went blank, and the reason
-    // was left only in the status strip. One restore keeps it; anything after
-    // that clears it as before.
     void aFailedSignInHereSurvivesTheRestoreThatFollowsIt()
     {
         RecordingClient client;
@@ -728,7 +645,6 @@ private slots:
         Q_EMIT client.loginSucceeded(QStringLiteral("@alice:example.org"));
         QVERIFY(auth.lastError().isEmpty());
 
-        // A successful sign-in made here clears it at once.
         auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw"));
         Q_EMIT client.loginFailed(wrong);
         auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw2"));
@@ -737,7 +653,6 @@ private slots:
         QVERIFY(auth.lastSignInWasInteractive());
     }
 
-    // Editing a field clears the error about what was in it.
     void clearingTheErrorIsAskable()
     {
         RecordingClient client;
@@ -748,17 +663,12 @@ private slots:
         QVERIFY(auth.lastError().isEmpty());
     }
 
-    // A password sign-in to a slow server held the form until the request
-    // timed out: no Cancel, Change locked, Escape inert. Cancel gives it back
-    // at once. The backend has no abort for that request, so a new one (which
-    // would open the same store under it) waits for any terminal answer,
-    // bounded; that answer arrives like any other.
     void cancellingAPasswordSignInGivesTheFormBack()
     {
         RecordingClient client;
         AuthManager auth(&client);
         QSignalSpy failed(&auth, &AuthManager::loginFailed);
-        auth.cancelLogin(); // nothing in flight: nothing happens
+        auth.cancelLogin();
         QCOMPARE(failed.count(), 0);
 
         auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw"));
@@ -767,7 +677,6 @@ private slots:
         auth.cancelLogin();
         QVERIFY(!auth.isLoggingIn());
         QCOMPARE(auth.loginStage(), QStringLiteral("idle"));
-        // Nothing was cancelled on the server, and the line does not claim it.
         QCOMPARE(auth.lastError(), kStoppedWaiting);
         QCOMPARE(failed.count(), 1);
 
@@ -777,16 +686,11 @@ private slots:
             QVERIFY2(auth.lastError().contains(QStringLiteral("has not answered")),
                      qPrintable(QLatin1String(what) + QLatin1String(": ")
                                 + auth.lastError()));
-            // Nothing was attempted, so there is nothing for AppController
-            // to roll back.
             QCOMPARE(failed.count(), 1);
         };
         auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw2"));
         QCOMPARE(client.logins.size(), 1);
         refusedForTheWait("password");
-        // A browser sign-in runs on another handle, so nothing would replace
-        // the abandoned request and its answer would land in the middle of
-        // it: the browser, single sign-on and sign-up starts wait too.
         auth.beginBrowserLogin(QStringLiteral("matrix.org"));
         QVERIFY(client.oauthStarts.isEmpty());
         refusedForTheWait("browser");
@@ -797,16 +701,12 @@ private slots:
         QVERIFY(client.signUps.isEmpty());
         refusedForTheWait("sign-up");
 
-        // The abandoned request answers: shown as it is, and the wait ends.
         Q_EMIT client.loginFailed(QStringLiteral("Can't reach the server."));
         QCOMPARE(auth.lastError(), QStringLiteral("Can't reach the server."));
         auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw2"));
         QCOMPARE(client.logins.size(), 2);
         QVERIFY(auth.isLoggingIn());
 
-        // Add account: the restore AppController starts on the cancel replaces
-        // the abandoned request (a new handle), keeps "cancelled" on the form,
-        // and ends the wait.
         auth.cancelLogin();
         Q_EMIT client.loginSucceeded(QStringLiteral("@alice:example.org"));
         QCOMPARE(auth.lastError(), kStoppedWaiting);
@@ -819,8 +719,6 @@ private slots:
         QVERIFY(auth.browserLoginInProgress());
     }
 
-    // The "has not answered the cancelled sign-in yet" line described a wait
-    // that ends at the bound; it stayed on the form for minutes after.
     void theCancelledSignInWaitLineEndsWithTheWait()
     {
         RecordingClient client;
@@ -831,12 +729,10 @@ private slots:
         auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw2"));
         QVERIFY(auth.lastError().contains(QStringLiteral("has not answered")));
         QTRY_VERIFY2(auth.lastError().isEmpty(), qPrintable(auth.lastError()));
-        // And the next start goes ahead.
         auth.login(QStringLiteral("matrix.org"), QStringLiteral("bob"), QStringLiteral("pw2"));
         QCOMPARE(client.logins.size(), 2);
     }
 
-    // Cancel (and Escape) during a browser sign-in cancels it in the backend.
     void cancellingABrowserSignInCancelsItInTheBackend()
     {
         RecordingClient client;
@@ -849,12 +745,6 @@ private slots:
         QVERIFY(!auth.isLoggingIn());
     }
 
-    // A server offering a password AND a sign-in page the browser cannot be
-    // handed (a plain-http development server; only https pages are handed
-    // on) was a dead end: the attempt waited for its timeout under "Waiting
-    // for your browser...", beside an error advising "sign in another way"
-    // with no other way shown. The attempt ends, the error says what to do,
-    // and the server's page is marked unusable until it is asked again.
     void aRefusedSignInPageEndsTheAttempt()
     {
         RecordingClient client;
@@ -870,10 +760,8 @@ private slots:
         auth.beginBrowserLogin(hs);
         QVERIFY(auth.browserLoginInProgress());
         client.refuseThePage(hs + QStringLiteral("/authorize"));
-        // Nothing waits for a page that never opened.
         QVERIFY(auth.loginStage() != QLatin1String("waiting_for_browser"));
         QVERIFY(auth.browserLoginUnavailable());
-        // Ended on the next turn, outside the backend's event drain.
         QTRY_VERIFY(!auth.browserLoginInProgress());
         QCOMPARE(client.oauthCancels, 1);
         QVERIFY(!auth.isLoggingIn());
@@ -883,7 +771,6 @@ private slots:
                  qPrintable(auth.lastError()));
         QVERIFY(!auth.lastError().contains(QStringLiteral("cancelled")));
 
-        // A server with no password says only what happened.
         const QString other = QStringLiteral("http://127.0.0.1:18009");
         auth.discoverAuthMethods(other);
         QVERIFY(!auth.browserLoginUnavailable());
@@ -895,16 +782,11 @@ private slots:
                  qPrintable(auth.lastError()));
         QVERIFY(!auth.lastError().contains(QStringLiteral("password")));
 
-        // Asking the same server again forgets the refusal.
         QVERIFY(auth.browserLoginUnavailable());
         auth.discoverAuthMethods(other, true);
         QVERIFY(!auth.browserLoginUnavailable());
     }
 
-    // The one-time "index all messages now?" offer is made after a sign-in the
-    // user made here, never after a restore, and AuthManager is where the two
-    // are told apart. Old code had no such flag; a flag that simply read
-    // isLoggedIn() (or was never cleared) fails the restore half.
     void aSignInMadeHereIsInteractiveAndARestoreIsNot()
     {
         MockMatrixClient client;
@@ -916,7 +798,6 @@ private slots:
         QVERIFY2(auth.lastSignInWasInteractive(),
                  "a password sign-in made here did not count as interactive");
 
-        // A restore (launch, account switch) reaches the client directly.
         Q_EMIT client.loginSucceeded(QStringLiteral("@alice:mock.local"));
         QCOMPARE(signedIn.count(), 2);
         QVERIFY2(!auth.lastSignInWasInteractive(),

@@ -1,10 +1,3 @@
-// Development-only screenshot-demo dataset contract.
-//
-// MockMatrixClient::setScreenshotDemoMode(true) serves a deterministic scene
-// for screenshots. This pins its structure (Spaces, required room types, a
-// poll, a thread), determinism (stable event ids and fixed timestamps) and
-// safety (only fictional *.example identities, no network). Other tests never
-// enable this mode.
 #include "matrix/MockMatrixClient.h"
 #include "matrix/RoomInfo.h"
 #include "matrix/TimelineEvent.h"
@@ -58,29 +51,23 @@ private Q_SLOTS:
         c.setScreenshotDemoMode(true);
         const auto rooms = c.rooms();
 
-        // Encrypted 1:1 DM.
         const RoomInfo dm = roomById(rooms, QStringLiteral("!dm-maya:lightning.example"));
         QVERIFY(dm.isDirect);
         QVERIFY(dm.encrypted);
         QCOMPARE(dm.directUserId, QStringLiteral("@maya:lightning.example"));
 
-        // A pending invite with an inviter.
         const RoomInfo invite =
             roomById(rooms, QStringLiteral("!invite-founders:lightning.example"));
         QCOMPARE(invite.membership, RoomInfo::Invited);
-        // Actionable (not mid-accept/reject), so Accept/Reject are enabled.
         QVERIFY(!invite.invitePending);
         QVERIFY(!invite.inviterDisplayName.isEmpty());
 
-        // Unread + mention states for the room list.
         const RoomInfo design =
             roomById(rooms, QStringLiteral("!design-lounge:lightning.example"));
         QVERIFY(design.unreadCount > 0);
         QVERIFY(design.highlightCount > 0);
         QVERIFY(!design.typingUserIds.isEmpty());
 
-        // Every non-space room belongs to a Space or is a DM/invite; no room
-        // shows a raw id as its name.
         for (const auto &r : rooms)
             QVERIFY2(!r.name.startsWith(QLatin1Char('!')),
                      qUtf8Printable("room name looks like a raw id: " + r.name));
@@ -101,7 +88,7 @@ private Q_SLOTS:
             int mine = 0, total = 0;
             for (const auto &a : e.pollAnswers) { total += a.count; if (a.byMe) ++mine; }
             QVERIFY(total > 0);
-            QCOMPARE(mine, 1);   // exactly one selected option
+            QCOMPARE(mine, 1);
         }
         QCOMPARE(polls, 1);
     }
@@ -121,13 +108,10 @@ private Q_SLOTS:
             }
         }
         QVERIFY(!rootId.isEmpty());
-        // Like the Rust backend's live timeline, the room's main timeline
-        // carries no thread reply (CLAUDE.md §8)...
         for (const auto &e : tl)
             QVERIFY2(e.threadRootId.isEmpty(),
                      "a thread reply leaked into the main timeline");
 
-        // ...and the real thread path rebuilds root + replies.
         QSignalSpy reset(&c, &MockMatrixClient::timelineReset);
         c.openThread(dev, rootId);
         QVERIFY(reset.count() >= 1);
@@ -152,15 +136,12 @@ private Q_SLOTS:
         QVERIFY(!ta.isEmpty());
         QCOMPARE(ta.size(), tb.size());
         for (int i = 0; i < ta.size(); ++i) {
-            QCOMPARE(ta[i].eventId, tb[i].eventId);       // stable ids
-            QCOMPARE(ta[i].timestamp, tb[i].timestamp);   // fixed clock
+            QCOMPARE(ta[i].eventId, tb[i].eventId);
+            QCOMPARE(ta[i].timestamp, tb[i].timestamp);
         }
-        // Anchored to the deterministic demo clock (2026-07-23), never now().
         QCOMPARE(ta.first().timestamp.date(), QDate(2026, 7, 23));
     }
 
-    // The `mention-popup` scenario seeds the composer with "ma" and expects a
-    // real Design Lounge member (Maya Chen); pin that the fixture backs it.
     void designLoungeHasAMemberMatchingTheMentionPopupPrefix()
     {
         MockMatrixClient c;

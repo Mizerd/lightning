@@ -2,20 +2,12 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// A local Space folder's tile: a composite of up to four member Spaces'
-// avatars, which identifies the folder at a glance without a label. The
-// bundled icon subset has no folder glyph, so an empty folder shows its
-// name. Colours are theme tokens.
 Item {
     id: root
 
-    /// Up to four { spaceId, name, avatarUrl } maps, in the folder's order.
     property var members: []
-    /// Shown when the folder has no members left to preview.
     property string fallbackName: ""
-    /// Fallback-avatar colour key for the empty case.
     property string colorKey: ""
-    /// True while a drag is hovering this folder.
     property bool highlighted: false
 
     readonly property int memberCount: members ? members.length : 0
@@ -32,8 +24,6 @@ Item {
         z: 1
     }
 
-    // One member: a single larger tile, centred (a 2×2 grid with one cell
-    // filled looks broken).
     Loader {
         anchors.centerIn: parent
         active: root.memberCount === 1
@@ -49,7 +39,6 @@ Item {
         }
     }
 
-    // Two to four: the grid, filled from the top left in folder order.
     Grid {
         anchors.centerIn: parent
         visible: root.memberCount >= 2

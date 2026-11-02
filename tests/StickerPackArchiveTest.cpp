@@ -1,6 +1,3 @@
-// Sticker pack ZIP: what we write reads back identically, and what we read is
-// untrusted: hostile names, SVG, lying extensions, oversized entries, bad
-// manifests. Nothing here touches Matrix.
 
 #include "stickers/StickerPackArchive.h"
 
@@ -35,8 +32,6 @@ quint32 crc(const QByteArray &data)
 void le16(QByteArray &b, quint16 v) { b.append(char(v)); b.append(char(v >> 8)); }
 void le32(QByteArray &b, quint32 v) { le16(b, quint16(v)); le16(b, quint16(v >> 16)); }
 
-// A hand-made stored ZIP that accepts ANY entry name, which the production
-// writer never would.
 QByteArray zipOf(const QList<QPair<QByteArray, QByteArray>> &entries)
 {
     QByteArray out, central;
@@ -92,7 +87,7 @@ QString writeTemp(const QTemporaryDir &dir, const QString &name, const QByteArra
     return path;
 }
 
-}  // namespace
+}
 
 class StickerPackArchiveTest : public QObject
 {
@@ -107,7 +102,7 @@ private Q_SLOTS:
         QCOMPARE(extensionForBytes(kGif), QStringLiteral("gif"));
         QCOMPARE(extensionForBytes(kSvg), QString());
         QCOMPARE(extensionForBytes(QByteArray("\x1F\x8B", 2) + QByteArray(30, 'z')),
-                 QString());  // SVGZ
+                 QString());
         QCOMPARE(extensionForBytes(QByteArray()), QString());
     }
 
@@ -125,9 +120,6 @@ private Q_SLOTS:
 
     void validKeysTravelExactlyThroughAnArchive()
     {
-        // PACK-LTN-008: export used to repair every key (so `hello__world`
-        // came back as `hello_world`) and import folded case, refusing `cat`
-        // next to `Cat`.
         QVERIFY(isValidShortcode(QStringLiteral("hello__world")));
         QVERIFY(isValidShortcode(QString(100, QLatin1Char('x'))));
         QVERIFY(!isValidShortcode(QString(101, QLatin1Char('x'))));
@@ -198,7 +190,6 @@ private Q_SLOTS:
         QCOMPARE(r.pack.images[0].usage, QStringLiteral("sticker"));
         QCOMPARE(r.pack.images[1].usage, QStringLiteral("emoticon"));
         QCOMPARE(r.pack.images[2].usage, QStringLiteral("both"));
-        // An unknown usage reads back as the conservative one.
         QCOMPARE(r.pack.images[3].usage, QStringLiteral("sticker"));
         QCOMPARE(r.pack.images[1].mimetype, QStringLiteral("image/jpeg"));
         QFile f(r.pack.images[0].path);
@@ -256,7 +247,7 @@ private Q_SLOTS:
                  imageEntry(QStringLiteral("a"), QStringLiteral("images/a.png")),
                  imageEntry(QStringLiteral("b"), QStringLiteral("images/b.svg")),
                  imageEntry(QStringLiteral("good"), QStringLiteral("images/good.png"))})},
-            {"images/a.png", kSvg},     // lies about its extension
+            {"images/a.png", kSvg},
             {"images/b.svg", kSvg},
             {"images/good.png", kPng},
         });
@@ -310,7 +301,6 @@ private Q_SLOTS:
         QCOMPARE(int(readArchive(writeTemp(dir, QStringLiteral("3.zip"),
                                            zipOf({{"pack.json", manifest({}, QStringLiteral("somebody.else"))}})),
                                  work3.path()).error), int(ReadError::BadManifest));
-        // A newer format is refused, not guessed at.
         QCOMPARE(int(readArchive(writeTemp(dir, QStringLiteral("4.zip"),
                                            zipOf({{"pack.json", manifest({}, QStringLiteral("lightning.sticker-pack"), 2)}})),
                                  work4.path()).error), int(ReadError::BadManifest));
@@ -328,10 +318,9 @@ private Q_SLOTS:
         });
         const ReadResult r = readArchive(writeTemp(dir, QStringLiteral("n.zip"), zip), work.path());
         QCOMPARE(int(r.error), int(ReadError::None));
-        QCOMPARE(r.refused, 1);  // b clashes with a exactly (case-sensitive)
+        QCOMPARE(r.refused, 1);
         QCOMPARE(r.pack.images.size(), 2);
         QCOMPARE(r.pack.images[0].shortcode, QStringLiteral("Cat_Face"));
-        // An unusable name falls back to the file's own.
         QCOMPARE(r.pack.images[1].shortcode, QStringLiteral("c"));
     }
 
@@ -358,7 +347,6 @@ private Q_SLOTS:
         }
         entries.prepend({"pack.json", manifest(images)});
         const ReadResult r = readArchive(writeTemp(dir, QStringLiteral("many.zip"), zipOf(entries)), work.path());
-        // Over the entry cap the extractor itself refuses the archive.
         QVERIFY(r.error == ReadError::Unreadable
                 || r.pack.images.size() <= kMaxImages);
     }

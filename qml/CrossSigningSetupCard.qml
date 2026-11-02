@@ -3,33 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Cross-signing setup (Privacy & security).
-//
-// Without a cross-signing identity no session of the account can ever be
-// verified, and a recovery key has nothing to verify a new session with. This
-// card offers the one safe repair for each state the SDK reports
-// (app.cryptoHealth.crossSigningSetup):
-//
-//   not_set_up   - create the identity and store its keys in secret storage
-//                  ("setup_cross_signing"). Never replaces anything.
-//   unconfirmed  - this session holds keys the server has not confirmed (an
-//                  interrupted or cancelled setup). Setting up again uploads
-//                  them; it never replaces an identity the server has.
-//   keys_missing - an identity exists but this session lacks its keys. New keys
-//                  cannot be created without REPLACING the identity, so setup is
-//                  not offered. The way forward is another session or the
-//                  recovery key; replacing the identity is an explicit last
-//                  resort behind a second confirmation that says what is lost.
-//
-// Whether an existing recovery key is kept or replaced is never inferred here:
-// the backend checks secret storage itself and refuses with
-// "recovery_key_required" before changing anything, and this card then asks
-// for the current recovery key (kept) or an explicit "replace it" (consent
-// passed as an argument).
-//
-// The action itself, the password challenge and the OAuth approval are all in
-// app.backup (BackupController); nothing here touches Matrix state or keeps a
-// secret. The password and recovery-key fields wipe themselves on submit.
 Rectangle {
     id: root
     objectName: "crossSigningSetupCard"
@@ -40,14 +13,11 @@ Rectangle {
         app.backup && (app.backup.lastAction === "setup_cross_signing"
                        || app.backup.lastAction === "reset_cross_signing")
     readonly property bool working: app.backup && app.backup.busy && ownAction
-    // The backend found secret storage and needs the user's decision about its
-    // recovery key (or the key they entered did not unlock it).
     readonly property bool needsRecoveryChoice:
         ownAction && !app.backup.busy
         && (app.backup.errorCategory === "recovery_key_required"
             || app.backup.errorCategory === "recovery_key_wrong")
 
-    // "" | "reset" | "replace": which destructive button has been pressed once.
     property string pendingConfirm: ""
 
     // Closing Settings hides this card with the page; an armed destructive
@@ -110,8 +80,6 @@ Rectangle {
                            + "not replace the identity on its own.")
         }
 
-        // Password challenge: the server wants the account password before it
-        // accepts new signing keys.
         ColumnLayout {
             objectName: "crossSigningPasswordPrompt"
             Layout.fillWidth: true
@@ -155,7 +123,6 @@ Rectangle {
                         if (!enabled)
                             return
                         app.backup.submitPassword(passwordField.text)
-                        // Never kept in a QML property.
                         passwordField.text = ""
                     }
                 }
@@ -172,7 +139,6 @@ Rectangle {
             }
         }
 
-        // OAuth (MAS) account: approve in the browser while Lightning waits.
         ColumnLayout {
             objectName: "crossSigningApprovalPrompt"
             Layout.fillWidth: true
@@ -196,8 +162,6 @@ Rectangle {
                     storm: true
                     kind: "primary"
                     text: qsTr("Open approval page")
-                    // approvalUrl is only ever an https page (http on loopback):
-                    // BackupController refuses anything else before it is set.
                     onClicked: Qt.openUrlExternally(app.backup.approvalUrl)
                 }
                 AppButton {
@@ -218,13 +182,9 @@ Rectangle {
                      && app.backup.approvalUrl.length === 0
             color: AppTheme.stormTextMuted
             font.pixelSize: AppTheme.textBody
-            // Cancelling waits for the server's answer: an approval that already
-            // went through still completes, and that result is shown.
             text: app.backup && app.backup.cancelling ? qsTr("Cancelling…") : qsTr("Working…")
         }
 
-        // The account already has secret storage: keep its recovery key (enter
-        // it) or, only with explicit consent, replace it.
         ColumnLayout {
             objectName: "crossSigningRecoveryChoice"
             Layout.fillWidth: true
@@ -258,7 +218,6 @@ Rectangle {
                         root.pendingConfirm = ""
                         app.backup.runCrossSigning(app.backup.lastAction,
                                                    currentKeyField.text, false)
-                        // Never kept in a QML property.
                         currentKeyField.text = ""
                     }
                 }
@@ -297,8 +256,6 @@ Rectangle {
                         }
                         root.pendingConfirm = ""
                         currentKeyField.text = ""
-                        // The user's explicit consent, passed as an argument;
-                        // never inferred from the health snapshot.
                         app.backup.runCrossSigning(app.backup.lastAction, "", true)
                     }
                 }
@@ -337,8 +294,6 @@ Rectangle {
             text: app.backup ? app.backup.notice : ""
         }
 
-        // The one-time recovery key a setup that created or replaced secret
-        // storage returns. Shown here because this is where it was asked for.
         Rectangle {
             objectName: "crossSigningRecoveryKeyBox"
             Layout.fillWidth: true
@@ -388,7 +343,6 @@ Rectangle {
             }
         }
 
-        // Second confirmation text, shown after the first press.
         Label {
             objectName: "crossSigningConfirmText"
             Layout.fillWidth: true
@@ -413,9 +367,6 @@ Rectangle {
                      && !root.needsRecoveryChoice
             AppButton {
                 objectName: "setUpCrossSigningButton"
-                // Only when the server has no identity. With an identity this
-                // session cannot sign with, creating keys would replace it, and
-                // that is the reset button's job.
                 visible: root.setupState === "not_set_up" || root.setupState === "unconfirmed"
                 storm: true
                 kind: "primary"
@@ -427,10 +378,6 @@ Rectangle {
                                      : qsTr("Set up cross-signing")
                 onClicked: {
                     root.pendingConfirm = ""
-                    // Calls the real bootstrap: the SDK creates the identity
-                    // (or uploads the one an interrupted setup left), and the
-                    // keys go to secret storage. An existing recovery key is
-                    // never replaced from here: the backend asks first.
                     app.backup.runAction("setup_cross_signing")
                 }
             }

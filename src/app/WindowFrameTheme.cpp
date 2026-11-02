@@ -22,14 +22,12 @@ namespace lightning::windowframe {
 
 bool prefersDarkFrame(const QColor &window)
 {
-    // sRGB to linear, then Rec. 709 luminance (WCAG's relative luminance).
     const auto linear = [](double c) {
         return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
     };
     const QColor rgb = window.toRgb();
     const double y = 0.2126 * linear(rgb.redF())
         + 0.7152 * linear(rgb.greenF()) + 0.0722 * linear(rgb.blueF());
-    // L* = 50 is Y = 0.1842: the perceptual midpoint between black and white.
     return y < 0.1842;
 }
 
@@ -85,12 +83,8 @@ DwmSetWindowAttributeFn dwmSetWindowAttribute()
     return fn;
 }
 
-// DWMWA_USE_IMMERSIVE_DARK_MODE: 20 from Windows 10 20H1 (and on 11); the
-// same request was 19 on 1809 to 1909. Not in older SDK headers.
 constexpr DWORD kDarkModeAttribute = 20;
 constexpr DWORD kDarkModeAttributeBefore20H1 = 19;
-// What this window was last asked for, so a caption is redrawn only when the
-// answer changes.
 constexpr char kAppliedProperty[] = "_lightningDarkFrame";
 
 bool paletteIsDark()
@@ -100,7 +94,6 @@ bool paletteIsDark()
 
 void applyTo(QWindow *window, bool dark)
 {
-    // No native window yet: SurfaceCreated brings it here once there is.
     if (!window || !window->handle() || window->parent())
         return;
     const DwmSetWindowAttributeFn set = dwmSetWindowAttribute();
@@ -108,8 +101,6 @@ void applyTo(QWindow *window, bool dark)
         return;
     const HWND hwnd = reinterpret_cast<HWND>(window->winId());
     const BOOL value = dark ? TRUE : FALSE;
-    // What DWM holds for the window, asked rather than assumed: after Qt's own
-    // request the answer is the system scheme's, not ours.
     const DwmGetWindowAttributeFn get = dwmGetWindowAttribute();
     const auto heldNow = [&]() -> int {
         BOOL held = FALSE;
@@ -127,22 +118,17 @@ void applyTo(QWindow *window, bool dark)
     if (FAILED(set(hwnd, kDarkModeAttribute, &value, sizeof(value)))
         && FAILED(set(hwnd, kDarkModeAttributeBefore20H1, &value,
                       sizeof(value))))
-        return; // Windows before 1809: the frame stays as it is
+        return;
     const QVariant previous = window->property(kAppliedProperty);
     window->setProperty(kAppliedProperty, dark);
     const int after = heldNow();
     const bool overridden = before >= 0 && (before != 0) != dark;
-    // Logged when the answer changes, or when Qt had put the other one back
-    // since our last pass (the case this exists to expose), not on every
-    // deferral.
     if (!previous.isValid() || previous.toBool() != dark || overridden)
         qCInfo(lcWindowFrame).nospace()
             << "caption requested=" << frameModeName(dark) << " applied="
             << (after < 0 ? "unknown" : frameModeName(after != 0))
             << " found=" << (before < 0 ? "unknown" : frameModeName(before != 0))
             << " window=" << window->objectName();
-    // Windows 10 repaints a visible caption only on its next activation; a
-    // frame change repaints it now.
     if (window->isVisible()
         && (!previous.isValid() || previous.toBool() != dark || overridden))
         SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
@@ -171,8 +157,6 @@ protected:
         if (!isApp && !isWindow)
             return false;
         if (event->type() == QEvent::PlatformSurface) {
-            // The window was just created: Qt's creation-time request (system
-            // scheme) is already in, so ours can go in now as well as after.
             if (static_cast<QPlatformSurfaceEvent *>(event)->surfaceEventType()
                     != QPlatformSurfaceEvent::SurfaceCreated)
                 return false;
@@ -185,10 +169,6 @@ protected:
     }
 
 private:
-    // This runs BEFORE the event reaches the window, where Qt's plugin
-    // answers it with the system scheme; a zero-delay timer is delivered
-    // after that whole dispatch. One pending pass covers a burst (a palette
-    // change reaches the application and every window).
     void scheduleAfterQt()
     {
         if (m_pending)
@@ -202,7 +182,7 @@ private:
     bool m_pending = false;
 };
 
-} // namespace
+}
 #endif
 
 void install()
@@ -220,4 +200,4 @@ void install()
 #endif
 }
 
-} // namespace lightning::windowframe
+}

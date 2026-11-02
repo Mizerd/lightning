@@ -1,14 +1,3 @@
-// A Space's identity (name, topic, avatar) as the real compiled
-// SpaceSettingsDialog.qml renders it against a real SpaceManager.
-//
-// `root.info` must depend on the Space data, not just call
-// `app.spaces.spaceInfo(spaceId)` (a method call creates no dependency), or a
-// remote rename, topic or avatar change never reaches the open dialog.
-//
-// Offscreen QML fed by a fake client: a real homeserver and Element
-// interoperability are not tested. What is proved is that spacesChanged
-// reaches the dialog's rendered text, and that a subspace renders its own
-// state.
 
 #include <QtTest/QtTest>
 
@@ -28,9 +17,6 @@
 
 namespace {
 
-// A client that answers with a fixed room list and can be told to change it.
-// SpaceManager rebuilds on roomsChanged, which is production's own path for a
-// renamed or re-avatared Space.
 class SpaceFakeClient final : public MatrixClient
 {
     Q_OBJECT
@@ -123,7 +109,7 @@ constexpr const char *kChildId = "!space-child:example.org";
 constexpr const char *kParentRoomId = "!room-parent:example.org";
 constexpr const char *kChildRoomId = "!room-child:example.org";
 
-} // namespace
+}
 
 class SpaceIdentityQmlTest : public QObject
 {
@@ -152,8 +138,6 @@ private:
         return nullptr;
     }
 
-    // Popup contents live in the Overlay's visual tree, not the QObject parent
-    // chain, so findChild alone cannot see them.
     QQuickItem *item(const char *name) const
     {
         if (auto *hit = m_window->findChild<QQuickItem *>(QLatin1String(name)))
@@ -177,8 +161,6 @@ private:
         QCoreApplication::processEvents();
     }
 
-    // The canonical fixture: one root Space with one joined child Space, each
-    // with its OWN name, topic and avatar.
     void resetRooms()
     {
         RoomInfo parent = space(QString::fromLatin1(kParentId),
@@ -265,8 +247,6 @@ private slots:
             closeDialog();
     }
 
-    // A Space renamed under the open dialog updates the header, avatar and
-    // name/topic fields.
     void aRemoteRenameReachesTheOpenDialog()
     {
         openFor(QString::fromLatin1(kParentId));
@@ -281,7 +261,6 @@ private slots:
         QCOMPARE(topicField->property("text").toString(),
                  QStringLiteral("The parent topic"));
 
-        // Somebody else renames it and re-topics it; sync rebuilds the model.
         m_fake->roomList[0].name = QStringLiteral("Renamed Space");
         m_fake->roomList[0].topic = QStringLiteral("A newer topic");
         m_fake->announce();
@@ -295,9 +274,6 @@ private slots:
                  QStringLiteral("A newer topic"));
     }
 
-    // Live report against 0.10.2: the section nav filled the whole dialog
-    // and no page (General, Members, Permissions...) was visible. The body
-    // must get the width the nav does not use.
     void defaultRoomOrderEditorFitsAndStagesMoves()
     {
         openFor(QString::fromLatin1(kParentId));
@@ -322,8 +298,6 @@ private slots:
         closeDialog();
     }
 
-    // A save is not atomic: a failure mid-way leaves mixed keys, so the draft
-    // must stay dirty for a retry, and Save needs the permission regardless.
     void aFailedDefaultOrderSaveLeavesARetryPath()
     {
         openFor(QString::fromLatin1(kParentId));
@@ -332,7 +306,6 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(m_dialog, "moveDefaultChild",
             Q_ARG(QVariant, 0), Q_ARG(QVariant, 1)));
         QVERIFY(m_dialog->property("orderDirty").toBool());
-        // Without canManageSpaceChildren the button is off however dirty.
         QVERIFY(!m_controller->roomInfo()->canManageSpaceChildren());
         QVERIFY(!save->property("enabled").toBool());
 
@@ -340,7 +313,7 @@ private slots:
         Q_EMIT m_controller->spaces()->childOrderFinished(
             QString::fromLatin1(kParentId), false);
         QVERIFY(!m_dialog->property("orderPending").toBool());
-        QVERIFY(m_dialog->property("orderDirty").toBool());   // retry possible
+        QVERIFY(m_dialog->property("orderDirty").toBool());
         QVERIFY(!m_dialog->property("orderStatus").toString().isEmpty());
 
         m_dialog->setProperty("orderPending", true);
@@ -364,8 +337,6 @@ private slots:
         closeDialog();
     }
 
-    // The same fact for the picture: a Space's avatar is read from the model
-    // every time the model says it changed, not once when the dialog opened.
     void aRemoteAvatarChangeReachesTheOpenDialog()
     {
         openFor(QString::fromLatin1(kParentId));
@@ -383,9 +354,6 @@ private slots:
                      QStringLiteral("mxc://example.org/parent-v2"));
     }
 
-    // A half-typed name belongs to the person typing it. A remote change must
-    // land in the fields the user has NOT touched and leave the one they have
-    // alone — the rule the file already states for refreshName().
     void anEditInProgressSurvivesARemoteChange()
     {
         openFor(QString::fromLatin1(kParentId));
@@ -400,16 +368,12 @@ private slots:
         m_fake->announce();
         QCoreApplication::processEvents();
 
-        // The untouched field follows the Space...
         QTRY_COMPARE(topicField->property("text").toString(),
                      QStringLiteral("A newer topic"));
-        // ...and the edit in progress is not destroyed.
         QCOMPARE(nameField->property("text").toString(),
                  QStringLiteral("Half typed"));
     }
 
-    // A subspace is not its parent: opening the dialog on a child right after
-    // the parent renders the child's own name, topic and avatar.
     void aSubspaceRendersItsOwnIdentityNotItsParents()
     {
         openFor(QString::fromLatin1(kParentId));
@@ -428,8 +392,6 @@ private slots:
                  QStringLiteral("The child topic"));
     }
 
-    // ...and renaming the parent while the child's settings are open changes
-    // nothing on screen.
     void renamingTheParentDoesNotTouchTheOpenSubspace()
     {
         openFor(QString::fromLatin1(kChildId));
@@ -447,9 +409,6 @@ private slots:
                  QStringLiteral("Child Space"));
     }
 
-    // Reopening the dialog on the same Space re-snaps its fields
-    // (`onSpaceIdChanged` does not fire for an unchanged value), so an
-    // abandoned edit does not come back.
     void reopeningOnTheSameSpaceReSnapsTheFields()
     {
         openFor(QString::fromLatin1(kParentId));
@@ -459,7 +418,6 @@ private slots:
         QCoreApplication::processEvents();
         closeDialog();
 
-        // ...and the Space is renamed by somebody else while it is shut.
         m_fake->roomList[0].name = QStringLiteral("Renamed Space");
         m_fake->announce();
         QCoreApplication::processEvents();
@@ -469,8 +427,6 @@ private slots:
                  QStringLiteral("Renamed Space"));
     }
 
-    // A cleared avatar renders the initials fallback rather than the old
-    // picture.
     void aClearedAvatarClearsTheDialogsPicture()
     {
         openFor(QString::fromLatin1(kParentId));
@@ -485,11 +441,6 @@ private slots:
 
         QTRY_COMPARE(avatar->property("mxc").toString(), QString());
     }
-
-    // ── The model under all of the above ────────────────────────────────
-    //
-    // SpaceManager::spaceInfo / childRoomsDetailed / childSpaceIds decide
-    // whether a subspace shows its own state or its parent's.
 
     void spaceInfoAnswersForTheSpaceItWasAskedAbout()
     {
@@ -507,13 +458,9 @@ private slots:
                  QStringLiteral("mxc://example.org/child"));
         QCOMPARE(child.value(QStringLiteral("roomId")).toString(),
                  QString::fromLatin1(kChildId));
-        // A Space nobody joined is NOTHING, never the nearest one that exists.
         QVERIFY(spaces->spaceInfo(QStringLiteral("!absent:example.org")).isEmpty());
     }
 
-    // The hierarchy runs downward only: a subspace lists the rooms under
-    // itself, not the ancestor's. childRoomsDetailed on an ancestor is
-    // transitive by design (Channels uses directChildRoomsDetailed).
     void aSubspaceDoesNotInheritItsParentsRoomList()
     {
         SpaceManager *spaces = m_controller->spaces();
@@ -531,7 +478,6 @@ private slots:
         QVERIFY2(parentRooms.contains(QString::fromLatin1(kChildRoomId)),
                  "an ancestor's membership is transitive by design");
 
-        // Only the DIRECT children are the subspace tree, and only downward.
         QCOMPARE(spaces->childSpaceIds(QString::fromLatin1(kParentId)),
                  QStringList{ QString::fromLatin1(kChildId) });
         QVERIFY(spaces->childSpaceIds(QString::fromLatin1(kChildId)).isEmpty());

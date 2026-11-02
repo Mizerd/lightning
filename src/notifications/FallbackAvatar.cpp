@@ -31,7 +31,6 @@ QString initialsFor(const QString &name)
             cleaned.remove(0, 1);
         }
     }
-    // Markup tags carry no initial ("Alice <b>Bold</b>" -> "AB").
     static const QRegularExpression tags(QStringLiteral("<[^>]*>"));
     cleaned.replace(tags, QStringLiteral(" "));
 
@@ -61,7 +60,6 @@ QString initialsFor(const QString &name)
 QImage fallbackAvatar(const QString &name, const QString &colorKey, int edge,
                       int themeId)
 {
-    // Avatar.qml's _paletteKey: the identity key, else the display name.
     const QString paletteKey = colorKey.isEmpty() ? name : colorKey;
     if (edge <= 0 || paletteKey.isEmpty())
         return {};
@@ -80,8 +78,6 @@ QImage fallbackAvatar(const QString &name, const QString &colorKey, int edge,
     font.setBold(true);
     font.setPixelSize(qMax(1, int(edge * 0.42)));
     painter.setFont(font);
-    // The ink this disc can carry, as Avatar.qml picks it: half the slots are
-    // pale, and white on a pale disc is unreadable.
     painter.setPen(lightning::theme::discInk(
         lightning::theme::identityIndex(paletteKey),
         lightning::theme::anchorForTheme(themeId)));
@@ -91,4 +87,4 @@ QImage fallbackAvatar(const QString &name, const QString &colorKey, int edge,
     return image;
 }
 
-} // namespace lightning::notifications
+}

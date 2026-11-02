@@ -108,8 +108,6 @@ private slots:
         delete m_controller;
     }
 
-    // C63-F01: at a short window the nav scrolls, and About can be brought
-    // inside the column's own bounds.
     void theNavColumnScrollsToReachAbout()
     {
         m_window->setHeight(420);
@@ -132,7 +130,6 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // C63-F02: every section row is in the Tab chain.
     void navRowsTakeTabFocus()
     {
         openSection(QStringLiteral("account"));
@@ -173,7 +170,6 @@ private slots:
         QTRY_VERIFY(!outline->isVisible());
     }
 
-    // C63-F03: a confirm dialog starts on Cancel, so a lone Space cancels.
     void confirmDialogStartsOnCancel()
     {
         openSection(QStringLiteral("account"));
@@ -198,7 +194,6 @@ private slots:
         QTRY_VERIFY(!dialog->property("visible").toBool());
     }
 
-    // C63-F06: Escape in a percent box reverts it and stays in Settings.
     void escapeInAPercentBoxDoesNotCloseSettings()
     {
         openSection(QStringLiteral("appearance"));
@@ -219,7 +214,6 @@ private slots:
         m_controller->showMain();
     }
 
-    // C63-F05: the page scrolls from the keyboard.
     void pageKeysScrollTheSettingsPage()
     {
         openSection(QStringLiteral("appearance"));
@@ -238,8 +232,6 @@ private slots:
         QTRY_COMPARE(flick->property("contentY").toReal(), 0.0);
     }
 
-    // C63-F05 (review r1): the reported path - focus is elsewhere, the user
-    // clicks blank page area, then pages. The page must take the focus itself.
     void clickingBlankPageAreaThenPageDownScrolls()
     {
         openSection(QStringLiteral("appearance"));
@@ -250,7 +242,6 @@ private slots:
         flick->setProperty("contentY", 0.0);
         search->forceActiveFocus();
         QTRY_VERIFY(!flick->hasActiveFocus());
-        // Left gutter of the pane: outside the centred (max 860px) column.
         const QPointF blank = flick->mapToScene(QPointF(6, flick->height() / 2));
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
                           blank.toPoint());
@@ -260,8 +251,6 @@ private slots:
         QTRY_VERIFY(flick->property("contentY").toReal() > 100);
     }
 
-    // C63-F05 (review r1): End on a focused nav row scrolls the nav column,
-    // not the page behind it.
     void pageKeysOnANavRowScrollTheNavNotThePage()
     {
         m_window->setHeight(420);
@@ -415,7 +404,6 @@ private slots:
         auto *search = item("settingsSearchField");
         search->forceActiveFocus();
         QTest::keyClick(m_window, Qt::Key_Tab);
-        // Layout follows Appearance since the Appearance split (settings-ia.md).
         QCOMPARE(screen->property("section").toString(), QStringLiteral("layout"));
         QTest::keyClick(m_window, Qt::Key_Backtab, Qt::ShiftModifier);
         QCOMPARE(screen->property("section").toString(), QStringLiteral("appearance"));
@@ -530,7 +518,6 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
     }
 
-    // C63-F07: Menu opens the copy-link menu for the focused setting.
     void menuKeyOpensTheCopyLinkMenu()
     {
         openSection(QStringLiteral("appearance"));

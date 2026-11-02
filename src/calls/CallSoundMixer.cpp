@@ -9,14 +9,12 @@
 Q_DECLARE_LOGGING_CATEGORY(lcCallSound)
 
 namespace {
-/// Every bundled cue's rate (scripts/generate-call-sounds.py).
 constexpr int kSampleRate = 48000;
 /// A stall check this much later than its interval means the GUI thread was
 /// held up, and the outputs (refilled on it) with it: it judges nothing.
 constexpr qint64 kLateMarginMs = 400;
-/// The silence offered to verify an output (CueEngine::kProbeMs).
 constexpr qint64 kProbeFrames = qint64(kSampleRate) * CueEngine::kProbeMs / 1000;
-} // namespace
+}
 
 CueEngine::CueEngine(QStringList sounds, Hooks hooks, QObject *parent)
     : QObject(parent), m_sounds(std::move(sounds)), m_hooks(std::move(hooks))
@@ -40,7 +38,6 @@ void CueEngine::preload()
 
 void CueEngine::play(const QString &sound, float gain, const QString &wanted)
 {
-    // A one-shot of the looping sound would double it.
     if (sound == m_loopSound || !m_sounds.contains(sound))
         return;
     Lane *lane = laneFor(wanted);
@@ -56,8 +53,6 @@ void CueEngine::play(const QString &sound, float gain, const QString &wanted)
 void CueEngine::loop(const QString &sound, float gain, const QString &wanted)
 {
     if (sound == m_loopSound) {
-        // The controller re-asserts the loop on every state change: adjust
-        // the volume, never restart, never move.
         m_loopGain = gain;
         const auto it = m_lanes.find(m_loopLane);
         if (it != m_lanes.end())
@@ -72,7 +67,6 @@ void CueEngine::loop(const QString &sound, float gain, const QString &wanted)
     m_loopSound = sound;
     m_loopGain = gain;
     m_loopDevice = wanted;
-    // Kept even when there is no output now: it starts when there is one.
     if (Lane *lane = laneFor(wanted)) {
         startLoop(lane);
         wake(lane);
@@ -83,16 +77,11 @@ int CueEngine::reloadUnusable()
 {
     m_failed.clear();
     m_stallFailed.clear();
-    // A retry still pending belongs to the failures just cleared.
     ++m_retryGeneration;
     m_retryDue = false;
-    // The outputs open before this change; one opened by it below is new and
-    // has nothing to prove.
     QSet<QByteArray> before;
     for (const auto &[id, lane] : m_lanes)
         before.insert(id);
-    // Outputs whose device is gone. (A device that exists resolves to
-    // itself.)
     QList<QByteArray> gone;
     for (const auto &[id, lane] : m_lanes) {
         const std::optional<QByteArray> now =
@@ -105,8 +94,6 @@ int CueEngine::reloadUnusable()
 
     resumeLoop();
 
-    // The default device's output, as at preload; an idle output no cue
-    // goes to by default any more is closed (the normal teardown).
     Lane *defaultLane = laneFor(QString());
     QList<QByteArray> stale;
     for (const auto &[id, lane] : m_lanes) {
@@ -116,11 +103,6 @@ int CueEngine::reloadUnusable()
     for (const QByteArray &id : std::as_const(stale))
         closeLane(id);
 
-    // Every output kept is still the same stream, which the sound server
-    // may have dropped without a word (a restart): each is given something
-    // to take, so one that takes nothing is reopened before the next cue
-    // (onStallTick), as soon as the server allows it. A verdict from before
-    // this change no longer stands. Collected first: waking one can fail it.
     QList<QByteArray> kept;
     for (const auto &[id, lane] : m_lanes) {
         if (before.contains(id))
@@ -219,8 +201,6 @@ CueEngine::Lane *CueEngine::laneFor(const QString &wanted)
 CueEngine::Lane *CueEngine::openLane(const QByteArray &id,
                                      std::unique_ptr<callsound::CueMixer> carried)
 {
-    // Bounded: close the output used longest ago, one with nothing playing
-    // if there is one, never the loop's.
     while (int(m_lanes.size()) >= kMaxOutputs) {
         const Lane *victim = nullptr;
         for (const bool requireIdle : {true, false}) {
@@ -238,15 +218,11 @@ CueEngine::Lane *CueEngine::openLane(const QByteArray &id,
         closeLane(victim->id);
     }
 
-    // The cues' own format (48 kHz float), in stereo, else mono: what
-    // QSoundEffect's sample cache fell back to as well. Asked of this
-    // device, not of the default one.
     QAudioFormat format;
     format.setSampleFormat(QAudioFormat::Float);
     format.setSampleRate(kSampleRate);
     bool supported = false;
     for (const int channels : {2, 1}) {
-        // Sets the channel count too (and setChannelCount() would clear it).
         format.setChannelConfig(channels == 1 ? QAudioFormat::ChannelConfigMono
                                               : QAudioFormat::ChannelConfigStereo);
         if (m_hooks.supports(id, format)) {
@@ -282,7 +258,7 @@ CueEngine::Lane *CueEngine::openLane(const QByteArray &id,
             [this, output] { onOutputFailed(output); });
     output->start(raw->feed);
     if (!m_lanes.count(id))
-        return nullptr; // failed while starting
+        return nullptr;
     raw->idleTimer->start(m_idleSuspendMs);
     return raw;
 }
@@ -318,7 +294,6 @@ void CueEngine::onOutputFailed(CueOutput *output)
     m_lanes.erase(it);
     lane->idleTimer->stop();
     if (id == m_loopLane) {
-        // The loop starts again on the next output.
         m_loopLane.clear();
         m_loopVoice = 0;
     }
@@ -329,7 +304,7 @@ void CueEngine::onOutputFailed(CueOutput *output)
     QMetaObject::invokeMethod(
         output,
         [output, lane] {
-            Q_UNUSED(lane); // kept alive until here
+            Q_UNUSED(lane);
             output->stop();
             output->deleteLater();
         },
@@ -364,7 +339,6 @@ void CueEngine::onIdle(const QByteArray &id)
         lane->idleTimer->start(m_idleSuspendMs);
         return;
     }
-    // Nothing to play: stop the stream running, keep it open.
     if (!lane->output->suspended())
         lane->output->suspend();
 }
@@ -379,7 +353,6 @@ void CueEngine::watch(Lane *lane)
     }
     if (!m_stallTimer.isActive()) {
         m_lastStallTickMs = m_clock.elapsed();
-        // Often enough to see the server's socket answer without a break.
         m_stallTimer.start(qBound(10, m_stallMs / 5, 250));
     }
 }
@@ -394,18 +367,12 @@ void CueEngine::onStallTick()
     for (const auto &[id, lane] : m_lanes) {
         if (!lane->output)
             continue;
-        // Looked at whether or not it has anything left to take: one that
-        // took everything since the last look is idle now, and what it took
-        // must still clear what it was suspected of.
         const quint64 taken = lane->feed->bytesTaken();
         const bool tookSome = taken != lane->takenAtCheck;
         if (tookSome) {
             lane->dead = false;
             lane->probed = false;
         }
-        // Proven: it took more than any ring buffer holds (a dead output
-        // takes one and then nothing), which the silence it is offered when
-        // reopened makes it do.
         const quint64 proof =
             quint64(kProbeFrames) * sizeof(float) * lane->mixer->channels();
         if (lane->unproven && taken >= proof)
@@ -423,8 +390,6 @@ void CueEngine::onStallTick()
             stalled << id;
         }
     }
-    // Something waits for a stream: a dead output, or the retry of one that
-    // was given up.
     const bool waiting = !stalled.isEmpty() || m_retryDue;
     const bool settled = serverSettled(now, waiting, late);
     if (!watching && !m_retryDue)
@@ -446,8 +411,6 @@ void CueEngine::onStallTick()
             giveUpStalled(id);
             continue;
         }
-        // The silence an output change offered found it, or it stopped long
-        // enough ago; and the server allows a new stream (see the header).
         const bool due =
             lane->probed || now - lane->checkedAtMs >= m_reopenSettleMs;
         if (due && settled) {
@@ -465,18 +428,12 @@ bool CueEngine::serverSettled(qint64 now, bool waiting, bool late)
 {
     if (!m_hooks.serverReachable)
         return true;
-    // Measured only while something waits, so the window starts after the
-    // output was found dead (after the server went away), and never across a
-    // late check (unknown is not "without a break").
     if (!waiting || late) {
         m_serverLiveSinceMs = -1;
         m_gatePollMs = m_gatePollMinMs;
         m_nextGatePollMs = -1;
         return false;
     }
-    // While it says no, asked less and less often (a backend that never
-    // comes back is not polled 4 times a second for good); once it says yes,
-    // every tick, since the window needs dense samples.
     if (m_serverLiveSinceMs < 0 && m_nextGatePollMs >= 0 && now < m_nextGatePollMs)
         return false;
     if (!m_hooks.serverReachable()) {
@@ -504,18 +461,14 @@ void CueEngine::reopenStalled(const QByteArray &id)
     const int channels = mixer->channels();
     const bool loopHere = id == m_loopLane;
     const int loopVoice = m_loopVoice;
-    // The old stream is stopped before anything reads the mixer again; its
-    // feed (deleted with it) is never read after that.
     closeLane(id);
-    // Nothing it took was heard.
     mixer->rewindOneShots();
     ++m_outputsReopened;
     Lane *fresh = openLane(id, std::move(mixer));
     if (!fresh)
-        return; // said why, and marked the device failed
+        return;
     fresh->unproven = true;
     if (loopHere) {
-        // The same mixer (same channel count) still plays the loop's voice.
         if (fresh->mixer->channels() == channels && fresh->mixer->isPlaying(loopVoice)) {
             m_loopLane = id;
             m_loopVoice = loopVoice;
@@ -529,8 +482,6 @@ void CueEngine::reopenStalled(const QByteArray &id)
 
 void CueEngine::giveUpStalled(const QByteArray &id)
 {
-    // Worded so package validators' "failed to load" scan does not read it
-    // as a missing library.
     qCWarning(lcCallSound)
         << "call sound unusable: an output took no audio even after it was "
            "reopened; trying again in"
@@ -540,9 +491,6 @@ void CueEngine::giveUpStalled(const QByteArray &id)
     m_failed.insert(id);
     m_stallFailed.insert(id);
     refreshReadiness();
-    // No cue opens a stream on it meanwhile. When the retry is due it waits
-    // for the server like a reopen (onStallTick); an output change first
-    // clears it and makes this timer stale.
     QTimer::singleShot(m_stallRetryMs, this, [this, generation = m_retryGeneration] {
         if (generation != m_retryGeneration || m_stallFailed.isEmpty())
             return;
@@ -566,7 +514,6 @@ std::optional<callsound::Pcm> CueEngine::decoded(const QString &sound)
     const std::optional<QByteArray> wav = m_hooks.wav(sound);
     std::optional<callsound::Pcm> pcm =
         wav ? callsound::decodeWav(*wav) : std::nullopt;
-    // One rate for every voice: the mixer does not resample.
     if (pcm && pcm->format.sampleRate() != kSampleRate)
         pcm.reset();
     if (!pcm) {
@@ -575,8 +522,6 @@ std::optional<callsound::Pcm> CueEngine::decoded(const QString &sound)
                                << "(not bundled as 16-bit 48 kHz PCM)";
         return std::nullopt;
     }
-    // Not kept: pcm() keeps what is actually played, and the whole set would
-    // be 17 MB held by every session that never rings.
     m_decodable.insert(sound);
     return pcm;
 }

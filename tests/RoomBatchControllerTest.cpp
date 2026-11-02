@@ -107,7 +107,7 @@ private Q_SLOTS:
         batch.run(QStringLiteral("read"));
         QCOMPARE(client.readRequests, QStringList{QStringLiteral("!a:x")});
         QCOMPARE(batch.pending(), 2);
-        emit client.markRoomReadFailed(QStringLiteral("!b:x")); // wrong room cannot settle A
+        emit client.markRoomReadFailed(QStringLiteral("!b:x"));
         QCOMPARE(batch.pending(), 2);
         emit client.readMarkerAdvanced(QStringLiteral("!a:x"));
         QTRY_COMPARE(client.readRequests.size(), 2);

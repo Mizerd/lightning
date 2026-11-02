@@ -1,6 +1,3 @@
-// GlobalShortcutsPortal in a build without QtDBus (and, by the same path, a
-// desktop with no session bus): turning it on must say why it cannot work
-// instead of staying silent, and must never claim to be active (GitHub #47).
 
 #include "app/GlobalShortcutsPortal.h"
 #include "app/SettingsManager.h"
@@ -34,7 +31,7 @@ private Q_SLOTS:
         QCOMPARE(portal.state(), GlobalShortcutsPortal::Unavailable);
         QVERIFY(portal.statusText().contains(QStringLiteral("D-Bus")));
         QVERIFY(!portal.canConfigure());
-        portal.configure(); // must be a harmless no-op
+        portal.configure();
         portal.setEnabled(false);
         QCOMPARE(portal.state(), GlobalShortcutsPortal::Off);
         QCOMPARE(activated.count(), 0);

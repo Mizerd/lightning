@@ -57,7 +57,6 @@ QQuickItem *byName(QQuickItem *root, const QString &name)
     return nullptr;
 }
 
-/// Room rows: the delegates (RoomDelegate has showGroupDivider and a roomId).
 QList<QQuickItem *> rowsOf(QQuickItem *root)
 {
     QList<QQuickItem *> all;
@@ -81,9 +80,8 @@ bool ringShown(QQuickItem *row)
     return ring && ring->isVisible();
 }
 
-} // namespace
+}
 
-// Two compact rows in a bare list, for the compact-column cases.
 static constexpr const char *kCompactRows = R"QML(
 import QtQuick
 import MatrixClient
@@ -227,7 +225,6 @@ RoomsPanel { width: 380; height: 700 }
         qputenv("XDG_DATA_HOME", m_dataHome.path().toUtf8());
     }
 
-    // Old code: every row was its own tab stop (and none drew a ring).
     void theListIsOneTabStop()
     {
         Fixture f;
@@ -259,7 +256,6 @@ RoomsPanel { width: 380; height: 700 }
             return nullptr;
         };
 
-        // Tab lands on the first row.
         QQuickItem *first = rowsOf(f.item.get()).first();
         first->forceActiveFocus(Qt::TabFocusReason);
         QVERIFY(first->hasActiveFocus());
@@ -283,8 +279,6 @@ RoomsPanel { width: 380; height: 700 }
         QTest::keyClick(&f.window, Qt::Key_Home);
         QTRY_COMPARE_WITH_TIMEOUT(list->property("currentIndex").toInt(), 0, kTimeoutMs);
 
-        // Enter opens the focused (joined) row; it is a keyboard open, so the
-        // composer is not grabbed.
         QTest::keyClick(&f.window, Qt::Key_Down);
         QTRY_COMPARE_WITH_TIMEOUT(list->property("currentIndex").toInt(), 1, kTimeoutMs);
         QTRY_VERIFY_WITH_TIMEOUT(focused() != nullptr, kTimeoutMs);
@@ -296,8 +290,6 @@ RoomsPanel { width: 380; height: 700 }
         QCOMPARE(pointerOpen.count(), 0);
     }
 
-    // Old code: the list filled the whole column, so its scrollbar sat inside
-    // the SplitView divider's 4px grab mask.
     void theScrollBarIsClearOfTheDividerGrabMask()
     {
         Fixture f;
@@ -310,11 +302,6 @@ RoomsPanel { width: 380; height: 700 }
                                 .arg(f.item->width())));
     }
 
-    // The sort menu checks what the list does while nothing was ever chosen.
-    // Live 2026-10-26: in a Space with no rooms the "Invites" section header
-    // was drawn over the empty state ("InvRooms added to this Space…"). With
-    // no rows there is no header: none visible, and none overlapping the
-    // empty state's area.
     void anEmptyListDrawsNoSectionHeaderOverItsEmptyState()
     {
         Fixture f;
@@ -347,12 +334,6 @@ RoomsPanel { width: 380; height: 700 }
         f.controller->roomList()->setSearchQuery(QString());
     }
 
-    // Live 2026-10-26 (Classic, People filter, signing out one of two
-    // accounts): the list emptied, the remaining account's rows arrived, and
-    // a stale section label from the old rows was drawn again mid-list, a
-    // second "People" header over nothing. After the list empties and fills
-    // again, the visible headers are exactly the sections its rows have, each
-    // directly above that section's first row.
     void aListThatEmptiesAndRefillsDrawsOnlyItsOwnSectionHeaders()
     {
         Fixture f;
@@ -393,8 +374,6 @@ RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 900 }
                  "has a label below the first", kTimeoutMs);
         QTRY_VERIFY_WITH_TIMEOUT(visibleHeaders().size() >= 2, kTimeoutMs);
 
-        // A room from the LAST section, alone after the refill: its header
-        // must be the only one, at the top, not the old labels as well.
         QString name;
         const QString lastCategory = categories().last();
         for (int r = 0; r < model->rowCount() && name.isEmpty(); ++r) {
@@ -409,10 +388,8 @@ RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 900 }
         QCoreApplication::processEvents();
         model->setSearchQuery(name);
         QTRY_VERIFY_WITH_TIMEOUT(model->rowCount() >= 1, kTimeoutMs);
-        QTest::qWait(100); // layout and section placement settle
+        QTest::qWait(100);
         const QStringList now = categories();
-        // Distinct places, not items: the pinned CurrentLabelAtStart label
-        // may sit exactly on the first section's inline one.
         auto headerPlaces = [&] {
             QSet<int> ys;
             for (QQuickItem *h : visibleHeaders())
@@ -445,11 +422,6 @@ RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 900 }
         model->setSearchQuery(QString());
     }
 
-    // Live 2026-11-01 on 0.10.3 ("I have two Conversations tabs", also Rooms,
-    // Favourites and Low priority): ListView parks the label of a section
-    // that left the view hidden in its cache, and a `visible` binding on the
-    // delegate re-shows the parked item on the next count change, at its old
-    // place over the rows. No list emptying is involved here.
     void aParkedSectionHeaderStaysHiddenWhenTheCountChanges()
     {
         Fixture f;
@@ -483,12 +455,10 @@ RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 900 }
         };
         QTRY_VERIFY_WITH_TIMEOUT(headerPlaces() >= 2, kTimeoutMs);
 
-        // One section left, rows still present: the other label is parked.
         model->setSearchQuery(favourite);
         QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), 1, kTimeoutMs);
         QTRY_COMPARE_WITH_TIMEOUT(headerPlaces(), 1, kTimeoutMs);
 
-        // A count change that keeps rows is what re-showed it.
         model->setRoomFavourite(model->data(model->index(0, 0),
                                             RoomListModel::RoomIdRole).toString(),
                                 false);
@@ -512,7 +482,6 @@ RoomsPanel { width: 320; height: 700 }
 )QML", 320, 700));
         auto *button = byName(f.item.get(), QStringLiteral("favouritesShortcut"));
         QVERIFY(button && button->isVisible());
-        // Shown only where the backend can favourite at all.
         QVERIFY(f.controller->roomList()->roomFavouritesSupported());
         QFile panel(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/RoomsPanel.qml"));
         QVERIFY(panel.open(QIODevice::ReadOnly));
@@ -531,9 +500,6 @@ RoomsPanel { width: 320; height: 700 }
         QCOMPARE(f.controller->settings()->roomFilterMode(), 0);
     }
 
-    // Rows are recycled, so a row is not a room: scrolling under an open shared
-    // menu hands the row it was opened from to another room. The header and
-    // every action must keep to the room the menu was opened on.
     void aRecycledRowUnderAnOpenRoomMenuKeepsItsTargetRoom()
     {
         Fixture f;
@@ -577,8 +543,6 @@ RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 60 }
         QCOMPARE(leave.at(0).at(1).toString(), targetName);
     }
 
-    // The room leaving the list (a filter here, a real leave in use) takes the
-    // menu with it: nothing may still act on a row that is gone.
     void aRoomLeavingTheListClosesItsOpenMenu()
     {
         Fixture f;
@@ -594,7 +558,6 @@ RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 60 }
         QTRY_VERIFY(!menu->property("opened").toBool());
     }
 
-    // A failed background build must not cost the user the menu.
     void aMenuThatFailedToBuildStillOpens()
     {
         Fixture f;
@@ -632,7 +595,6 @@ Item {
             auto *entry = menu->findChild<QObject *>(QString::fromLatin1(name));
             return entry && entry->property("radioSelected").toBool();
         };
-        // What AppController hands the model while the setting is unset.
         f.controller->roomList()->setSortMode(-1);
 
         f.controller->spaces()->setActiveSpaceId(SpaceManager::allRoomsId());
@@ -648,7 +610,6 @@ Item {
                                 .arg(f.controller->spaces()->activeSpaceId())));
         QVERIFY(!checked("roomSortActivityItem"));
 
-        // An explicit Activity applies inside the Space as well.
         f.controller->roomList()->setSortMode(0);
         QVERIFY(checked("roomSortActivityItem"));
         QVERIFY(!checked("roomSortSpaceItem"));
@@ -685,7 +646,6 @@ RoomsPanel { objectName: "panel"; width: 380; height: 700 }
                                       kTimeoutMs);
             QTest::keyClick(&f.window, Qt::Key_Escape);
             QTRY_VERIFY_WITH_TIMEOUT(!popup->property("opened").toBool(), kTimeoutMs);
-            // The ring is back on the opener.
             QTRY_VERIFY2_WITH_TIMEOUT(button->hasActiveFocus()
                                           && button->property("visualFocus").toBool(),
                                       qPrintable(QStringLiteral("no focus ring on the button after Escape (key %1 focus=%2 visualFocus=%3)")
@@ -699,8 +659,6 @@ RoomsPanel { objectName: "panel"; width: 380; height: 700 }
         QTest::keyClick(&f.window, Qt::Key_Escape);
     }
 
-    // A tooltip has no observable state here (it is an attached property), so
-    // the rule is pinned in the source: not while its own menu is open.
     void theOptionsTooltipHidesWhileItsMenuIsOpen()
     {
         QFile file(QStringLiteral(QML_DIR "/RoomsPanel.qml"));
@@ -709,7 +667,6 @@ RoomsPanel { objectName: "panel"; width: 380; height: 700 }
         QVERIFY(src.contains(
             QStringLiteral("ToolTip.visible: hovered && !roomListSortMenu.opened")));
     }
-
 
     void compactRowsKeepAvatarBadgeAndTooltipInsideColumn()
     {
@@ -747,10 +704,6 @@ RoomsPanel { objectName: "panel"; width: 380; height: 700 }
         QCOMPARE(rows.first()->property("tooltipText").toString(), QStringLiteral("Alice"));
     }
 
-    // 0.10.3 hotfix: the Classic row's highlight flickered as the pointer
-    // crossed the avatar or the title, because the row's only HoverHandler
-    // sat on the chip BENEATH them and the children's own handlers (title
-    // tooltip, avatar motion) took the hover. The row holds it everywhere.
     void theRowHighlightHoldsAcrossTheWholeRow()
     {
         Fixture f;
@@ -762,7 +715,6 @@ RoomsPanel { objectName: "panel"; width: 380; height: 700 }
         auto *name = byName(row, QStringLiteral("roomNameLabel"));
         QVERIFY(chip && name);
         const QColor rest = chip->property("color").value<QColor>();
-        // Park the pointer on a different row first.
         QTest::mouseMove(&f.window, rows.at(1)->mapToScene(
             QPointF(row->width() / 2, row->height() / 2)).toPoint());
         QTRY_VERIFY(chip->property("color").value<QColor>() == rest);
@@ -817,7 +769,6 @@ RoomListCompactPresenter { width: 64; height: 320 }
         QVERIFY(classic->isVisible());
         QVERIFY(!channels->isVisible());
         QTRY_VERIFY_WITH_TIMEOUT(classic->property("count").toInt() >= 3, kTimeoutMs);
-        // The layout is a persisted setting the next case reads: put it back.
         auto *settings = f.controller->settings();
         const int savedLayout = settings->roomNavigationLayout();
         const auto restoreLayout = qScopeGuard(
@@ -859,13 +810,6 @@ RoomsPanel { width: 64; height: 700 }
         QVERIFY(!fullSearch->isVisible());
     }
 
-    // The real room-list divider in the real shell (live, 2026-10-27: a click
-    // on the compact divider and a double-click on the expanded one did
-    // nothing, and a Tab onto it showed no focus). SplitView filters its
-    // handles' pointer events and swallows the press, so the TapHandler that
-    // was inside the handle never fired; the gesture is now read from
-    // SplitHandle.pressed. Old code: the double-click leaves the list
-    // expanded, and there is no focus ring to find.
     void theRoomListDividerClicksDoubleClicksTabsAndKeys_data()
     {
         QTest::addColumn<int>("navigationLayout");
@@ -930,7 +874,6 @@ ApplicationWindow {
             QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, at());
         };
 
-        // Double-click on the expanded divider collapses it.
         click();
         QTest::qWait(qMin(60, interval / 4));
         click();
@@ -938,21 +881,18 @@ ApplicationWindow {
         QCOMPARE(settings->roomListWidth(), settings->roomListMinWidth());
         QTRY_COMPARE_WITH_TIMEOUT(rooms->width(), 64.0, kTimeoutMs);
 
-        // One click on the compact divider restores the remembered width.
         QTest::qWait(interval + 100);
         click();
         QTRY_VERIFY_WITH_TIMEOUT(!rooms->property("compact").toBool(), kTimeoutMs);
         QTRY_COMPARE_WITH_TIMEOUT(settings->roomListWidth(), 320, kTimeoutMs);
         QTRY_COMPARE_WITH_TIMEOUT(rooms->width(), 320.0, kTimeoutMs);
 
-        // One click on the expanded divider is not a double-click: nothing.
         QTest::qWait(interval + 100);
         click();
         QTest::qWait(interval + 300);
         QVERIFY(!rooms->property("compact").toBool());
         QCOMPARE(settings->roomListWidth(), 320);
 
-        // A real drag still resizes, and is not read as a click.
         const QPoint from = at();
         QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, from);
         for (int dx = 8; dx <= 48; dx += 8)
@@ -961,8 +901,6 @@ ApplicationWindow {
         QTRY_VERIFY_WITH_TIMEOUT(settings->roomListWidth() >= 350, kTimeoutMs);
         QVERIFY(!rooms->property("compact").toBool());
 
-        // Drag across the snap threshold. The presenter can turn compact at
-        // 211 px, but the whole SplitView child must finish at exactly 64.
         const QPoint narrowFrom = at();
         QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, narrowFrom);
         for (int dx = -40; dx >= -280; dx -= 40)
@@ -975,7 +913,6 @@ ApplicationWindow {
         QTRY_COMPARE_WITH_TIMEOUT(rooms->width(),
                                   double(settings->roomListExpandedWidth()), kTimeoutMs);
 
-        // Tab reaches the divider, and it shows that it has the focus.
         rooms->forceActiveFocus();
         bool reached = false;
         for (int i = 0; i < 200 && !reached; ++i) {
@@ -986,7 +923,6 @@ ApplicationWindow {
         QQuickItem *ring = byName(divider, QStringLiteral("roomListDividerFocusRing"));
         QVERIFY2(ring && ring->isVisible(), "the focused divider draws no focus ring");
 
-        // Home collapses, End restores, Return toggles.
         QTest::keyClick(window, Qt::Key_Home);
         QTRY_VERIFY_WITH_TIMEOUT(rooms->property("compact").toBool(), kTimeoutMs);
         QTRY_COMPARE_WITH_TIMEOUT(rooms->width(), 64.0, kTimeoutMs);

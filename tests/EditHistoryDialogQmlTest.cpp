@@ -1,8 +1,3 @@
-// The Edit history dialog on the real QML (offscreen), against stubs.
-// Pins C26-F01 / C26-F02:
-//   * an overflowing revision list scrolls by keyboard (Down, Page_Down,
-//     End, Home, Page_Up, Up) and a middle-click autoscroller covers it;
-//   * Return and Enter close the dialog (a Button alone answers Space only).
 
 #include <QDateTime>
 #include <QQmlComponent>
@@ -72,7 +67,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class EditHistoryDialogQmlTest : public QObject
 {
@@ -158,7 +153,7 @@ private Q_SLOTS:
         auto *w = qobject_cast<QQuickWindow *>(m_root);
         for (Qt::Key k : { Qt::Key_Return, Qt::Key_Enter }) {
             openIt();
-            QTest::keyClick(w, Qt::Key_Tab); // list -> Close button
+            QTest::keyClick(w, Qt::Key_Tab);
             QQuickItem *f = w->activeFocusItem();
             QVERIFY(f);
             QVERIFY2(f->property("text").toString() == QStringLiteral("Close"),

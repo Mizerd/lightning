@@ -1,13 +1,3 @@
-// Space Home keyboard and context-menu reach (swarm finding C10-F03, C10-F10).
-// Real SpaceLobby / SpaceMemberChip instances, driven by key events and
-// right-clicks. Pinned:
-//   * a joined lobby row is a Tab stop and Return, Enter or Space opens it;
-//     an unjoined row is not a stop (its Join button is);
-//   * a member chip is a Tab stop with an accessible name and Return opens
-//     its profile card; focus is drawn as a ring, not only a tint;
-//   * a selection box is a Tab stop and Space toggles it;
-//   * a subspace header opens the section menu from a right-click, Menu and
-//     Shift+F10; the root "Rooms" header has no menu.
 
 #include <QtTest/QtTest>
 
@@ -143,7 +133,6 @@ private Q_SLOTS:
             QTest::keyClick(h.window.get(), k);
             QCOMPARE(log(h), QStringLiteral("open:!general:x;"));
         }
-        // Unjoined rows never open, whatever has focus.
         h.root->setProperty("log", QString());
         rows[1]->forceActiveFocus();
         QTest::keyClick(h.window.get(), Qt::Key_Return);
@@ -214,11 +203,6 @@ private Q_SLOTS:
 
     void returnOnTheMenuButtonDoesNotFoldTheSection()
     {
-        // An unhandled key bubbles from the three-dot button to the header.
-        // This exercises the header's activeFocus guard only while AppButton
-        // ignores Return; once AppButton activates on Return (C10-F04) the
-        // button swallows the key and the assertion holds for that reason.
-        // The guard itself is covered by the header-focused half below.
         H h;
         QVERIFY(build(h));
         const auto btns = all(h.lobby, "spaceLobbySectionMenuButton");
@@ -228,7 +212,6 @@ private Q_SLOTS:
         QTest::keyClick(h.window.get(), Qt::Key_Return);
         QVERIFY2(!log(h).contains(QStringLiteral("collapse:")),
                  qPrintable(log(h)));
-        // The header itself still folds on Return.
         auto *hdr = all(h.lobby, "spaceLobbySectionHeader")[1];
         QCOMPARE(hdr->property("sectionId").toString(),
                  QStringLiteral("!subA:x"));
@@ -259,7 +242,6 @@ private Q_SLOTS:
         QObject *m = menu(h);
         QVERIFY(m);
 
-        // Right-click on the subspace header.
         QTest::mouseClick(h.window.get(), Qt::RightButton, {},
                           center(headers[1]) + QPoint(-100, 0));
         QTRY_VERIFY(m->property("opened").toBool());
@@ -269,7 +251,6 @@ private Q_SLOTS:
         QMetaObject::invokeMethod(m, "close");
         QTRY_VERIFY(!m->property("opened").toBool());
 
-        // Menu key, then Shift+F10, from the focused header.
         headers[1]->forceActiveFocus();
         QTest::keyClick(h.window.get(), Qt::Key_Menu);
         QTRY_VERIFY(m->property("opened").toBool());
@@ -281,7 +262,6 @@ private Q_SLOTS:
         QMetaObject::invokeMethod(m, "close");
         QTRY_VERIFY(!m->property("opened").toBool());
 
-        // The root "Rooms" header has no menu, by any route.
         QTest::mouseClick(h.window.get(), Qt::RightButton, {},
                           center(headers[0]) + QPoint(-100, 0));
         headers[0]->forceActiveFocus();

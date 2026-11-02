@@ -41,7 +41,6 @@ void MediaPlaybackController::requestTogglePlayPause()
 
 void MediaPlaybackController::stopAll()
 {
-    // Counts only — never event ids in logs.
     qCDebug(lcPlayback) << "stopAll; had owner:" << !m_audibleOwner.isEmpty();
     m_audibleOwner.clear();
     ++m_stopGeneration;
@@ -50,7 +49,6 @@ void MediaPlaybackController::stopAll()
 
 void MediaPlaybackController::setVideoPlaybackRate(qreal rate)
 {
-    // NaN fails both comparisons; it must not reach a player.
     if (!(rate > 0.0))
         rate = 1.0;
     rate = std::clamp(rate, 0.25, 4.0);
@@ -126,10 +124,8 @@ void MediaPlaybackController::forgetVideoPosition(const QString &mediaKey)
 
 void MediaPlaybackController::forgetResumePositions()
 {
-    // The speed is the user's preference, not the account's data; it stays.
     if (m_resume.isEmpty())
         return;
-    // Counts only, as stopAll: never event ids in logs.
     qCDebug(lcPlayback) << "forgetting resume positions:" << m_resume.size();
     m_resume.clear();
     m_resumeOrder.clear();

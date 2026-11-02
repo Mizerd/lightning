@@ -1,8 +1,3 @@
-// Source-scan contract for EmojiPicker: the Material-icon category rail, the
-// MenuSectionLabel heading over the active bucket, the hover/focus footer
-// preview, and no global skin-tone swatch (preferredTone is never consumed by
-// rendering; the per-emoji tone popup is the real mechanism). Complements
-// EmojiUiContractTest.cpp and re-checks the invariants it relies on.
 
 #include <QFile>
 #include <QRegularExpression>
@@ -83,7 +78,6 @@ private Q_SLOTS:
         QVERIFY(!src.isEmpty());
         QVERIFY(src.contains(QStringLiteral("dim: false")));
 
-        // The cell consumes its own press; a TapHandler here lets it through.
         const int cellIdx = src.indexOf(QStringLiteral("picker.choose(cell.emoji)"));
         QVERIFY2(cellIdx > 0, "the emoji cell's choose path is gone");
         const QString cellBlock = src.mid(qMax(0, cellIdx - 900), 1200);
@@ -95,16 +89,9 @@ private Q_SLOTS:
                  "the cell must take BOTH buttons: right-click opens skin "
                  "tones, and an unhandled right press is the original leak");
 
-        // The chrome keeps its all-buttons sink, below the content.
         QVERIFY2(src.contains(QStringLiteral("acceptedButtons: Qt.AllButtons")),
                  "the picker background must still sink presses on its chrome");
 
-        // Modality is not the barrier inside the picker. Scoped to the root
-        // picker, before the nested tone popup, which keeps its own modality.
-        // The composer picker is not modal (it would stop the timeline
-        // scrolling behind it); the reaction picker is, because it is placed
-        // at a point in a scrolling row and a press outside it must only
-        // dismiss it, never also drag the timeline.
         const int toneIdx = src.indexOf(QStringLiteral("id: tonePopup"));
         QVERIFY2(toneIdx > 0, "tonePopup is gone");
         const QString rootOnly = src.left(toneIdx);
@@ -113,8 +100,6 @@ private Q_SLOTS:
         QVERIFY(!rootOnly.contains(QStringLiteral("modal: true")));
         QVERIFY(!rootOnly.contains(QStringLiteral("modal: false")));
 
-        // The sink also covers the resize grab band, which is inside the
-        // popup but outside the panel.
         QVERIFY(src.contains(QStringLiteral(
             "anchors.leftMargin: -picker.leftInset")));
         QVERIFY(src.contains(QStringLiteral(
@@ -130,11 +115,7 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("app.stickers.refreshIfStale()")));
         QVERIFY(picker.contains(QStringLiteral("bridge.mxcImageSource(")));
         QVERIFY(picker.contains(QStringLiteral("picker.chooseCustom(customCell.modelData.url,")));
-        // PACK-LTN-029: the composer palette offers custom images too, and a
-        // composer pick carries the whole row (exact identity), not a URL.
         QVERIFY(picker.contains(QStringLiteral("readonly property bool customEmojiOffered: allowCustomEmoji && app.stickers.available")));
-        // Only the call picker turns custom images off (Element Call's
-        // reaction format has no image field); everywhere else they stay on.
         QVERIFY(picker.contains(QStringLiteral("property bool allowCustomEmoji: true")));
         QVERIFY(picker.contains(QStringLiteral("customChosen(row)")));
     }
@@ -143,9 +124,6 @@ private Q_SLOTS:
     {
         const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
         QVERIFY(!picker.isEmpty());
-        // No fixed width: the composer picker takes a share of the available
-        // space; the reaction picker defaults compact, in pixels, and the
-        // quick bar is content-sized.
         QVERIFY(picker.contains(QStringLiteral("widthFraction:")));
         QVERIFY(picker.contains(QStringLiteral("heightFraction:")));
         QVERIFY(picker.contains(QStringLiteral(
@@ -159,9 +137,6 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("padding: 0")));
     }
 
-    // The two contexts remember separate sizes: a share of the composer card
-    // means something else entirely as a share of the whole window, which is
-    // how one shared key made the reaction picker a 1000x740 board.
     void reactionAndComposerContextsHaveSeparateSizeKeys()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
@@ -169,10 +144,8 @@ private Q_SLOTS:
             "sizeSettingsKey: reactionMode ? \"reaction\" : \"picker\"")));
         QVERIFY(picker.contains(QStringLiteral(
             "readonly property bool reactionMode: mode === \"reaction\"")));
-        // The quick bar, and the way out of it.
         QVERIFY(picker.contains(QStringLiteral("objectName: \"reactionQuickBar\"")));
         QVERIFY(picker.contains(QStringLiteral("function expand(initialText)")));
-        // The context menu's "more" already offered the quick reactions.
         const QString delegate =
             read(QStringLiteral(QML_DIR "/MessageDelegate.qml"));
         QVERIFY(delegate.contains(QStringLiteral(
@@ -183,12 +156,9 @@ private Q_SLOTS:
     void categoryRailIsIconBasedNotGlyphStrip()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
-        // The old Unicode-glyph category map is gone.
-        QVERIFY(!picker.contains(QStringLiteral("◷"))); // ◷ (old "Recently Used")
-        QVERIFY(!picker.contains(QStringLiteral("☆"))); // ☺/☆-family leftovers
+        QVERIFY(!picker.contains(QStringLiteral("◷")));
+        QVERIFY(!picker.contains(QStringLiteral("☆")));
         QVERIFY(picker.contains(QStringLiteral("_categoryIcons")));
-        // Every category maps to a real Icon.qml glyph (checked against
-        // EmojiCatalog::kCategories).
         const QList<QPair<QString, QString>> expected = {
             { QStringLiteral("Recently Used"), QStringLiteral("schedule") },
             { QStringLiteral("Smileys & Emotion"), QStringLiteral("mood") },
@@ -212,12 +182,8 @@ private Q_SLOTS:
     void noGlobalSkinToneSwatch()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
-        // The only tone mechanism is the shared per-emoji popup
-        // (openTonePopupFor / tonePopup), never a header control.
         QVERIFY(picker.contains(QStringLiteral("function openTonePopupFor(")));
         QVERIFY(picker.contains(QStringLiteral("id: tonePopup")));
-        // No other control beside the search field sets preferredTone outside
-        // the tone popup's Repeater.
         const int searchStart = picker.indexOf(QStringLiteral("AppTextField {"));
         const int searchEnd = picker.indexOf(QStringLiteral("ScrollView {"), searchStart);
         QVERIFY(searchStart >= 0 && searchEnd > searchStart);
@@ -236,27 +202,19 @@ private Q_SLOTS:
     void gridUsesDesignTokenCellsAndFooterPreviewsHoverAndFocus()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
-        // The cell size is fixed, not the column count: as many columns as
-        // emojiCellSize cells fit, sharing the width. A fixed 8 columns made
-        // 125 px cells in a large picker.
         QVERIFY(picker.contains(QStringLiteral(
             "1, Math.floor(width / AppTheme.emojiCellSize))")));
         QVERIFY(picker.contains(QStringLiteral("cellWidth: Math.floor(width / columns)")));
         QVERIFY(!picker.contains(QStringLiteral("cellWidth: Math.floor(width / 8)")));
         QVERIFY(picker.contains(QStringLiteral("cellHeight: AppTheme.emojiCellSize")));
         QVERIFY(picker.contains(QStringLiteral("font.pixelSize: AppTheme.emojiGlyphSize")));
-        // The footer previews the hovered/focused cell.
         QVERIFY(picker.contains(QStringLiteral("property string previewEmoji")));
         QVERIFY(picker.contains(QStringLiteral("property string previewName")));
         QVERIFY(picker.contains(QStringLiteral("onHoveredChanged")));
         QVERIFY(picker.contains(QStringLiteral("onActiveFocusChanged")));
-        // No fabricated :shortcode:; the catalogue TSV has no such column.
         QVERIFY(!picker.contains(QStringLiteral(":shortcode:")));
     }
 
-    // B008: the tone popup is modal, so it must also OWN the keys. Without
-    // `focus: true` and a focused first tile, Escape and typing went to a dead
-    // item behind it and the picker could not be closed from the keyboard.
     void theTonePopupTakesAndReturnsKeyboardFocus()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
@@ -274,13 +232,10 @@ private Q_SLOTS:
         QVERIFY2(tone.mid(closed).contains(
                      QStringLiteral("search.forceActiveFocus()")),
                  "closing must hand focus back to the search field");
-        // Tiles are driven by arrows and Enter, not by Tab alone.
         QVERIFY(tone.contains(QStringLiteral("Keys.onLeftPressed")));
         QVERIFY(tone.contains(QStringLiteral("Keys.onReturnPressed")));
     }
 
-    // B070: Enter in the search field picks the first result, and the
-    // "select" hint is advertised only while there is something to select.
     void enterInTheSearchFieldPicksTheFirstResult()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
@@ -292,17 +247,13 @@ private Q_SLOTS:
         QVERIFY(fn > 0);
         const int end = picker.indexOf(QStringLiteral("function choose(emoji"), fn);
         QVERIFY(end > fn);
-        // Code only: the function's own comment names the call it avoids.
         QString body;
         const QStringList bodyLines = picker.mid(fn, end - fn).split(QLatin1Char('\n'));
         for (const QString &line : bodyLines) {
             if (!line.trimmed().startsWith(QLatin1String("//")))
                 body += line + QLatin1Char('\n');
         }
-        // A pending debounced query is applied first, or Enter would choose
-        // from the previous result list.
         QVERIFY(body.contains(QStringLiteral("searchTimer.running")));
-        // Row 0 comes from the model: a reset leaves no delegate to read.
         QVERIFY2(!body.contains(QStringLiteral("itemAtIndex(")),
                  "a delegate does not exist yet right after the flushed reset");
         QVERIFY(body.contains(QStringLiteral("m.data(m.index(0, 0)")));
@@ -312,8 +263,6 @@ private Q_SLOTS:
                  "the select hint must be gated on a target existing");
     }
 
-    // Behaviours the layout changes must not disturb (also pinned in
-    // EmojiUiContractTest).
     void preservedInvariantsSurviveTheRedesign()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
@@ -325,32 +274,22 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("variantsFor")));
         QVERIFY(!picker.contains(QStringLiteral("http://"))
                 && !picker.contains(QStringLiteral("https://")));
-        // recordUse happens before emojiChosen, so no listener sees an
-        // unrecorded selection.
         const int chooseStart = picker.indexOf(QStringLiteral("function choose(emoji)"));
         const int recordAt = picker.indexOf(QStringLiteral("recordUse(emoji)"), chooseStart);
         const int emitAt = picker.indexOf(QStringLiteral("emojiChosen(emoji)"), chooseStart);
         QVERIFY(chooseStart >= 0 && recordAt > chooseStart && emitAt > recordAt);
         QVERIFY(picker.contains(QStringLiteral("if (closeAfterSelection) close()")));
-        // Per-cell keyboard operability.
         QVERIFY(picker.contains(QStringLiteral("Keys.onReturnPressed: picker.choose(emoji)")));
         QVERIFY(picker.contains(QStringLiteral("Keys.onSpacePressed: picker.choose(emoji)")));
         QVERIFY(picker.contains(QStringLiteral("Keys.onMenuPressed: if (hasSkinTones) openVariants()")));
-        // Two distinct empty states.
         QVERIFY(picker.contains(QStringLiteral("No recently used emoji")));
         QVERIFY(picker.contains(QStringLiteral("No emoji found")));
-        // anchorPoint and the placement clamp live in the shared AnchoredPopup
-        // base; a local placeInsideWindow()/anchorPoint would shadow its
-        // bindings and restore place-once behaviour.
         QVERIFY(picker.contains(QStringLiteral("AnchoredPopup {")));
         QVERIFY(!picker.contains(QStringLiteral("function placeInsideWindow()")));
         QVERIFY(!picker.contains(QStringLiteral("property point anchorPoint")));
         QVERIFY(!picker.contains(QStringLiteral("parent: Overlay.overlay")));
     }
 
-    // AnchoredPopup computes no absolute overlay position: the popup is
-    // parented to its anchor and expressed in its coordinates, so Qt's popup
-    // positioner (which follows the parent and all ancestors) keeps them rigid.
     void anchoredPopupIsParentedToItsAnchorNotPositionedOverIt()
     {
         const QString base = read(QStringLiteral(QML_DIR "/AnchoredPopup.qml"));
@@ -359,13 +298,10 @@ private Q_SLOTS:
         QVERIFY(base.contains(QStringLiteral(
             "parent: anchorItem ? anchorItem : overlayItem")));
 
-        // No coordinate mapping, revision counter or deferred correction.
         QVERIFY(!base.contains(QStringLiteral("mapToItem")));
         QVERIFY(!base.contains(QStringLiteral("Qt.callLater")));
         QVERIFY(!base.contains(QStringLiteral("placementRevision")));
 
-        // Bottom-right pinned: right edges flush, bottom one hairline gap above
-        // the anchor.
         QVERIFY(base.contains(QStringLiteral(
             "readonly property real anchoredX: anchorItem "
             "? Math.max(0, anchorItem.width - width) : 0")));
@@ -375,17 +311,13 @@ private Q_SLOTS:
         QVERIFY(base.contains(QStringLiteral("value: root.anchoredY")));
         QVERIFY(base.contains(QStringLiteral("when: root.anchorItem !== null")));
 
-        // Never wider than the anchor, nor taller than the room above it.
         QVERIFY(base.contains(QStringLiteral("return anchorItem.width")));
         QVERIFY(base.contains(QStringLiteral("room -= anchorItem.height + anchorGap")));
         QVERIFY(base.contains(QStringLiteral("? autoWidth : maxWidth * effectiveWidthFraction")));
         QVERIFY(base.contains(QStringLiteral("? autoHeight : maxHeight * effectiveHeightFraction")));
-        // A point-placed popup resizes from the corner away from its point.
         QVERIFY(base.contains(QStringLiteral(
             "anchorItem ? \"topLeft\" : (placedAbove ? \"topRight\" : \"bottomRight\")")));
 
-        // A popup with no anchor item is placed once from its point and only
-        // clamped afterwards.
         const int clampAt = base.indexOf(QStringLiteral("function clampInsideWindow()"));
         QVERIFY(clampAt >= 0);
         const int endAt = base.indexOf(QStringLiteral("Connections {"), clampAt);
@@ -397,8 +329,6 @@ private Q_SLOTS:
         QVERIFY(base.contains(QStringLiteral("if (!root.anchorItem)\n                root.placeAtPoint()")));
     }
 
-    // Both overlay pickers resize by a corner grip, and the size survives a
-    // restart.
     void pickersAreResizableAndRememberTheirSize()
     {
         const QString base = read(QStringLiteral(QML_DIR "/AnchoredPopup.qml"));
@@ -407,22 +337,16 @@ private Q_SLOTS:
         const QString gif = read(QStringLiteral(QML_DIR "/GifPicker.qml"));
         QVERIFY(!base.isEmpty() && !grip.isEmpty());
 
-        // No detach: with the bottom-right corner pinned, a bigger size grows
-        // up and left and stays snapped to the composer.
         QVERIFY(!base.contains(QStringLiteral("detached")));
         QVERIFY(base.contains(QStringLiteral("function resizeTo(w, h)")));
         QVERIFY(base.contains(QStringLiteral("function endResize()")));
         QVERIFY(base.contains(QStringLiteral(
             "userWidthFraction = Math.max(0.08, Math.min(1, w / maxWidth))")));
-        // Persists a share of the available space, so the picker tracks the
-        // window and both pickers share one value.
         QVERIFY(base.contains(QStringLiteral("app.settings.setPickerShare(sizeSettingsKey")));
         QVERIFY(base.contains(QStringLiteral(
             "app.settings.pickerWidthShare(root.sizeSettingsKey) / 1000")));
         QVERIFY(base.contains(QStringLiteral("Math.round(userWidthFraction * 1000)")));
 
-        // The grip sits on the popup's movable corner, and moving that corner
-        // away from the popup grows it: the sign follows the corner.
         QVERIFY(grip.contains(QStringLiteral("DragHandler {")));
         QVERIFY(grip.contains(QStringLiteral("target: null")));
         QVERIFY(!grip.contains(QStringLiteral("MouseArea")));
@@ -435,30 +359,17 @@ private Q_SLOTS:
         QVERIFY(grip.contains(QStringLiteral("grip.popup.beginResize()")));
         QVERIFY(grip.contains(QStringLiteral("Qt.SizeFDiagCursor")));
         QVERIFY(grip.contains(QStringLiteral("Qt.SizeBDiagCursor")));
-        // A recognisable handle, legible beside the focused search field (whose
-        // focus ring is drawn in that corner): its own inset fill and border,
-        // lifting to the accent when engaged.
         QVERIFY(grip.contains(QStringLiteral(
             "readonly property bool engaged: gripHover.hovered || dragHandler.active")));
-        // Nested quarter-arcs concentric with the panel's corner radius,
-        // parallel to the border and inside the padding band, clear of the
-        // search field's focus ring; no bordered button in the header.
         QVERIFY(grip.contains(QStringLiteral("property real arcCentre")));
         QVERIFY(grip.contains(QStringLiteral("property real outerRadius")));
-        // Tangential segments, never a clipped ring: QtQuick.Shapes is not
-        // linked and Canvas paints nothing offscreen (see StormNode.qml /
-        // TrustCard.qml), and a clip has square edges.
         QVERIFY(!grip.contains(QStringLiteral("clip: true")));
         QVERIFY(grip.contains(QStringLiteral("Math.cos(angle)")));
         QVERIFY(grip.contains(QStringLiteral("Math.sin(angle)")));
         QVERIFY(grip.contains(QStringLiteral("rotation: angle * 180 / Math.PI + 90")));
-        // Bolt colour at rest, not only on hover.
         QVERIFY(grip.contains(QStringLiteral("color: AppTheme.bolt")));
         QVERIFY(grip.contains(QStringLiteral("property real strokeWidth: 2.5")));
 
-        // Both pickers mount it as a corner ornament, outside the header
-        // layout, so it displaces nothing, and out over a grab band so a
-        // press just outside the drawn corner still resizes.
         for (const QString &picker : { emoji, gif }) {
             const int at = picker.indexOf(QStringLiteral("PopupResizeGrip {"));
             QVERIFY(at >= 0);
@@ -470,8 +381,6 @@ private Q_SLOTS:
             QVERIFY(block.contains(QStringLiteral("outerRadius:")));
             QVERIFY(!block.contains(QStringLiteral("Layout.alignment")));
         }
-        // The emoji picker's grip follows the popup's free corner, placed by
-        // x/y: toggling anchors between edges stretched it to full height.
         {
             const int at = emoji.indexOf(QStringLiteral("PopupResizeGrip {"));
             const QString block = emoji.mid(at, 1300);
@@ -484,51 +393,33 @@ private Q_SLOTS:
         }
         QVERIFY(!gif.contains(QStringLiteral("Layout.leftMargin: 14")));
 
-        // Every size is a share of the available space, including a dragged
-        // one.
         QVERIFY(base.contains(QStringLiteral(
             "readonly property real effectiveWidthFraction")));
         QVERIFY(base.contains(QStringLiteral("maxWidth * effectiveWidthFraction")));
         QVERIFY(base.contains(QStringLiteral("maxHeight * effectiveHeightFraction")));
         QVERIFY(!base.contains(QStringLiteral("property real userWidth:")));
-        // The composer's two pickers share one remembered value, coherent
-        // because both are a share of the composer card. The reaction picker
-        // keeps its own (reactionAndComposerContextsHaveSeparateSizeKeys).
         QVERIFY(gif.contains(QStringLiteral("sizeSettingsKey: \"picker\"")));
         QVERIFY(emoji.contains(QStringLiteral(
             "sizeSettingsKey: reactionMode ? \"reaction\" : \"picker\"")));
     }
 
-    // Button-opened pickers anchor to an item, never a snapshotted point.
     void callersAnchorToTheItemNotASnapshottedPoint()
     {
         const QString composer = read(QStringLiteral(QML_DIR "/MessageComposerBar.qml"));
         const QString thread = read(QStringLiteral(QML_DIR "/ThreadPanel.qml"));
         QVERIFY(!composer.isEmpty() && !thread.isEmpty());
-        // Anchored to the composer card, not the button: parenting to the card
-        // keeps it rigid on top of the card with a hairline gap.
         QVERIFY(composer.contains(QStringLiteral("emojiPicker.anchorItem = composerCard")));
         QVERIFY(composer.contains(QStringLiteral("gifPicker.anchorItem = composerCard")));
         QVERIFY(thread.contains(QStringLiteral(
             "threadGifPicker.anchorItem = threadMiniComposer")));
-        // The thread button maps into overlay coordinates, not `panel`, which
-        // would offset the picker by the thread panel's inset.
         QVERIFY(thread.contains(QStringLiteral(
             "threadEmojiPicker.anchorItem = threadMiniComposer")));
         QVERIFY(!thread.contains(QStringLiteral("threadEmojiPicker.anchorPoint")));
-        // None of the four button-opened pickers snapshots a point. Reaction
-        // pickers still do: they open at a point inside a scrolling row and are
-        // only re-clamped on resize.
         QVERIFY(!composer.contains(QStringLiteral("gifPicker.anchorPoint")));
         QVERIFY(!composer.contains(QStringLiteral("emojiPicker.anchorPoint")));
         QVERIFY(!thread.contains(QStringLiteral("threadGifPicker.anchorPoint")));
     }
 
-    // ── C39 round 1: keyboard, wheel, autoscroll and reset contracts ──
-    // Source scans over EmojiPicker.qml, each pinning one reported defect.
-
-    // C39-F05: the grid is ONE tab stop. A per-cell stop made Tab walk every
-    // emoji (160 in Smileys) before leaving.
     void theGridIsOneTabStopNotOnePerCell()
     {
         const QString src = pickerSource();
@@ -540,12 +431,8 @@ private Q_SLOTS:
         QVERIFY(cell.contains(QStringLiteral("activeFocusOnTab: false")));
     }
 
-    // C39-F06: the cell's generic key handler accepts by default, which hid
-    // Escape from the popup's CloseOnEscape. It must opt out first.
     void theCellKeyHandlerDoesNotSwallowEscape()
     {
-        // F06 CAUSE UNVERIFIED: that Keys.onPressed accepts by default is a
-        // hypothesis (Qt resets the event first). This only pins the opt-out.
         const QString src = pickerSource();
         const QRegularExpression re(QStringLiteral(
             "Keys\\.onPressed:\\s*\\(event\\)\\s*=>\\s*\\{\\s*event\\.accepted\\s*=\\s*false"));
@@ -553,7 +440,6 @@ private Q_SLOTS:
                                            "with event.accepted = false");
     }
 
-    // C39-F07 and D06: Page/Home/End and Up off the first row.
     void theGridHandlesPageHomeEndAndUpFromRowZero()
     {
         const QString src = pickerSource();
@@ -564,14 +450,11 @@ private Q_SLOTS:
         }
         QVERIFY(src.contains(QStringLiteral("keyNavigationWraps: false")));
         QVERIFY(!src.contains(QStringLiteral("keyNavigationWraps: true")));
-        // Up from row 0 lands in the search field.
         QVERIFY(between(src, QStringLiteral("case Qt.Key_Up:"),
                         QStringLiteral("case Qt.Key_Home:"))
                     .contains(QStringLiteral("search.forceActiveFocus()")));
     }
 
-    // C39-F04: a right press on a cell with no skin tones is consumed and
-    // does nothing; it must not fall through to choose().
     void rightClickOnAPlainEmojiDoesNotPick()
     {
         const QString src = pickerSource();
@@ -581,7 +464,6 @@ private Q_SLOTS:
                  "right-click must open tones or do nothing");
     }
 
-    // C39-F01: middle-click autoscroll over the grid, like the timeline.
     void theGridHasMiddleClickAutoscroll()
     {
         const QString src = pickerSource();
@@ -591,8 +473,6 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("view: emojiGrid")));
     }
 
-    // C39-F08: wheel over the heading and the footer scrolls the grid, and the
-    // category rail scrolls horizontally for a narrow picker (D04).
     void wheelOutsideTheGridStillScrollsIt()
     {
         const QString src = pickerSource();
@@ -601,7 +481,6 @@ private Q_SLOTS:
         QVERIFY(src.contains(QStringLiteral("scrollTarget: railScroll.contentItem")));
     }
 
-    // C39-D01: a new category or query starts at its first emoji.
     void aNewBucketStartsAtItsFirstEmoji()
     {
         const QString src = pickerSource();
@@ -611,7 +490,6 @@ private Q_SLOTS:
         QVERIFY(src.contains(QStringLiteral("function onSearchTextChanged()")));
     }
 
-    // C39-D05: no category is highlighted while a query is active.
     void theRailIsDeselectedWhileSearching()
     {
         const QString src = pickerSource();
@@ -620,8 +498,6 @@ private Q_SLOTS:
                     .match(src).hasMatch());
     }
 
-    // C39-D07 and D09: the tone strip returns focus to its cell and names the
-    // tone in the footer instead of a tooltip.
     void theToneStripReturnsFocusAndUsesTheFooter()
     {
         const QString src = pickerSource();
@@ -631,7 +507,6 @@ private Q_SLOTS:
         QVERIFY(tone.contains(QStringLiteral("picker.previewName = modelData.name")));
     }
 
-    // C39-D08: a reaction picker opens on recents, not the last category.
     void aReactionPickerOpensOnRecents()
     {
         const QString src = pickerSource();
@@ -639,16 +514,12 @@ private Q_SLOTS:
                                      QStringLiteral("background: Item {"));
         QVERIFY(open.contains(QStringLiteral("if (reactionMode)")));
         QVERIFY(open.contains(QStringLiteral("\"Recently Used\"")));
-        // The MRU may hold only entries rebuild() drops: test the grid, not
-        // recentEmoji.length, and fall back when it is empty.
         QVERIFY2(!open.contains(QStringLiteral("recentEmoji")),
                  "must not decide on the raw MRU length");
         QVERIFY(QRegularExpression(QStringLiteral(
                     "emojiCatalog\\.count\\s*===\\s*0")).match(open).hasMatch());
     }
 
-    // C39 r2 (review D09 regression): closing the tone strip clears the
-    // footer preview its tone tiles wrote.
     void closingTheToneStripClearsTheFooterPreview()
     {
         const QString src = pickerSource();

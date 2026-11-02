@@ -1,8 +1,3 @@
-// Source-scan contracts for three small break-it fixes whose components cannot
-// be loaded standalone (they need the whole `app` context): the shortcut row's
-// stale conflict error (B093), the rooms column's saved width (B115) and the
-// event-source dialog's long lines (B136). Each case asserts the property the
-// fix introduced, so removing it fails the case.
 
 #include <QFile>
 #include <QtTest>
@@ -16,7 +11,6 @@ QString read(const QString &name)
     return QString::fromUtf8(f.readAll());
 }
 
-// Body of the first `{ ... }` opening at or after `from`.
 QString bracedBody(const QString &s, int from)
 {
     const int open = s.indexOf(QLatin1Char('{'), from);
@@ -36,8 +30,6 @@ class KeyboardFocusWidgetsContractTest : public QObject
 {
     Q_OBJECT
 private Q_SLOTS:
-    // B093: Escape, Cancel and focus loss all end a capture through
-    // endCapture(); the rejected chord's message must go with it.
     void endingACaptureClearsTheConflictError()
     {
         const QString row = read(QStringLiteral("ShortcutRow.qml"));
@@ -50,8 +42,6 @@ private Q_SLOTS:
                  "endCapture() must clear captureError");
     }
 
-    // B115: the rooms column is persisted only after a real divider drag. A
-    // width the layout forced (window squeezed) is not a choice.
     void theRoomListWidthIsSavedOnlyAfterARealDrag()
     {
         const QString shell = read(QStringLiteral("MainScreen.qml"));
@@ -63,13 +53,10 @@ private Q_SLOTS:
             "onWidthChanged: if (!SplitView.view.resizing && widthSaver.dragged)")),
             "a layout-forced width change must not arm the saver");
         QVERIFY(from.contains(QStringLiteral("property bool dragged: false")));
-        // `dragged` is raised only from the divider's own resizing edge.
         const int conn = from.indexOf(QStringLiteral("function onResizingChanged()"));
         QVERIFY(conn > 0);
         const QString handler = bracedBody(from, conn);
         QVERIFY(handler.contains(QStringLiteral("widthSaver.dragged = true")));
-        // Spent after one save, and the binding restored (SplitView breaks it
-        // while dragging).
         const int timer = from.indexOf(QStringLiteral("id: widthSaver"));
         QVERIFY(timer > 0);
         const QString saver = bracedBody(from, timer - 20);
@@ -77,8 +64,6 @@ private Q_SLOTS:
         QVERIFY(saver.contains(QStringLiteral("Qt.binding")));
     }
 
-    // B136: JSON lines wrap at the viewport instead of being clipped behind a
-    // faded horizontal bar.
     void eventSourceJsonWrapsInsteadOfClipping()
     {
         const QString dlg = read(QStringLiteral("EventSourceDialog.qml"));

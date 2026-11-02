@@ -16,8 +16,6 @@ void ParagraphDirection::setDocument(QQuickTextDocument *document)
     QObject::disconnect(m_contentsConnection);
     m_quickDocument = document;
     m_textDocument = document ? document->textDocument() : nullptr;
-    // Every setText replaces the whole document (formats included), and
-    // contentsChanged follows each replacement once it is complete.
     if (m_textDocument) {
         m_contentsConnection = connect(m_textDocument, &QTextDocument::contentsChanged,
                                        this, &ParagraphDirection::update);
@@ -98,7 +96,6 @@ bool ParagraphDirection::apply(QTextDocument *document, bool leftToRight)
 
 void ParagraphDirection::update()
 {
-    // The format changes below report contentsChanged themselves.
     if (m_updating)
         return;
     m_updating = true;

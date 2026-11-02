@@ -10,27 +10,19 @@
 namespace lightning::theme {
 namespace {
 
-// Alternates deep and pale: within one 190-degree family hue alone does not
-// separate adjacent slots. Hence the initials ink is chosen per disc.
 constexpr std::array<double, kIdentitySlots> kLightness = {
     0.30, 0.56, 0.38, 0.62, 0.33, 0.58, 0.42, 0.60, 0.35,
 };
 
-// Degrees of hue the nine slots span, centred on the theme's accent.
 constexpr double kArcDegrees = 190.0;
 
-// Magenta and hot pink are the loudest discs at these lightnesses. Saturation
-// is damped rather than the hue moved: rotating or narrowing the arc collapses
-// several themes onto one family or breaks the all-pairs separation gate.
 constexpr double kMagentaLowDegrees = 290.0;
 constexpr double kMagentaHighDegrees = 350.0;
 constexpr double kMagentaDamping = 0.55;
 
-// Yellow-green, the brightest part of the wheel, damped the same way.
 constexpr double kLimeLowDegrees = 62.0;
 constexpr double kLimeHighDegrees = 108.0;
 constexpr double kLimeDamping = 0.55;
-
 
 double channelLinear(double c)
 {
@@ -57,8 +49,6 @@ const QColor &darkInk()
     return ink;
 }
 
-// Pale slots carry less chroma, so they read as a tint of the theme rather
-// than as a second accent competing with it.
 double saturationFor(double lightness, double accentSaturation)
 {
     const double base = (0.34 + accentSaturation * 0.45)
@@ -92,7 +82,7 @@ int clampSlot(int index)
     return index;
 }
 
-} // namespace
+}
 
 int identityIndex(const QString &key)
 {
@@ -112,7 +102,6 @@ QColor discColor(int index, const QColor &accent)
     const int slot = clampSlot(index);
     double lightness = kLightness[size_t(slot)];
     QColor disc = slotColor(slot, accent, lightness);
-    // Push the disc away from mid-tone until an ink clears 4.5:1 on it.
     const bool preferWhite = lightness <= 0.5;
     for (int guard = 0; guard < 24; ++guard) {
         const QColor ink = preferWhite ? QColor(Qt::white) : darkInk();
@@ -139,9 +128,6 @@ QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces,
 {
     const int slot = clampSlot(index);
 
-    // Same anchor as the discs, but a wider arc: at text lightness nine inks
-    // 23.75 degrees apart are not distinguishable, whatever the lightness
-    // pattern. A filled disc can afford a tighter family than thin text.
     const double accentHue = accent.hueF() < 0.0 ? 0.0 : accent.hueF();
     constexpr double kInkArcDegrees = 340.0;
     const double offset = (double(slot) / double(kIdentitySlots - 1) - 0.5)
@@ -150,16 +136,11 @@ QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces,
     if (hue < 0.0)
         hue += 1.0;
 
-    // More chroma than the discs: thin strokes wash out at disc saturation.
     double saturation = 0.80;
-    // Only a light magenta easing: the disc-strength damping would erase the
-    // chroma that separates adjacent name inks.
     const double degrees = hue * 360.0;
     if (degrees >= kMagentaLowDegrees && degrees <= kMagentaHighDegrees)
         saturation *= 0.88;
 
-    // Direction is decided by the surfaces, not a dark/light flag, so custom
-    // themes work too.
     double meanLuminance = 0.0;
     for (const QColor &surface : surfaces)
         meanLuminance += relativeLuminance(surface);
@@ -176,11 +157,6 @@ QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces,
     const double bump = double((slot * 2) % kIdentitySlots)
                         / double(kIdentitySlots - 1) * kInkSpread;
 
-
-    // Saturation is not eased toward the extremes: near the top of the
-    // lightness range it is what keeps hues apart.
-    // Quantised to 8 bits before measuring, so the measured colour is the
-    // one that ships.
     const auto build = [&](double l, double sat) {
         const QColor exact =
             QColor::fromHslF(float(hue), float(sat), float(l)).toRgb();
@@ -193,8 +169,6 @@ QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces,
         return worst;
     };
 
-    // Adjust lightness first; spend chroma, which separates identities, only
-    // when lightness has run out.
     double lightness = darkGround ? 0.70 : 0.40;
     for (int guard = 0; guard < 48; ++guard) {
         if (worstContrast(build(lightness, saturation)) >= minContrast)
@@ -230,7 +204,7 @@ QColor legibleChoice(const QColor &chosen, const QList<QColor> &surfaces,
 
     QColor ink = quantise(chosen);
     if (surfaces.isEmpty() || worstContrast(ink) >= minContrast)
-        return ink;   // already legible here; leave it exactly as chosen
+        return ink;
 
     double meanLuminance = 0.0;
     for (const QColor &surface : surfaces)
@@ -238,7 +212,6 @@ QColor legibleChoice(const QColor &chosen, const QList<QColor> &surfaces,
     meanLuminance /= double(surfaces.size());
     const bool darkGround = meanLuminance < 0.18;
 
-    // Hue and saturation are held; only lightness moves.
     const double hue = chosen.hueF() < 0.0 ? 0.0 : chosen.hueF();
     const double saturation = chosen.hslSaturationF();
     double lightness = chosen.lightnessF();
@@ -255,24 +228,20 @@ QColor legibleChoice(const QColor &chosen, const QList<QColor> &surfaces,
 
 QColor anchorForTheme(int themeId)
 {
-    // The header's rule, pre-applied to qml/AppTheme.qml's literals.
     switch (themeId) {
-    case 1:  return QColor(0x1D, 0x57, 0xFF);   // Lightning Light  bg 212 / accent 225
-    case 2:  return QColor(0x1D, 0x57, 0xFF);   // Lightning Dark   214 / 225
-    case 3:  return QColor(0x2E, 0x6E, 0xEB);   // Graphite         neutral bg
-    case 4:  return QColor(0x1D, 0x57, 0xFF);   // Midnight         216 / 225
-    case 5:  return QColor(0x5E, 0x81, 0xAC);   // Nordic           neutral bg
-    case 6:  return QColor(0x8F, 0x73, 0xE9);   // Purple Dusk      248 / 254
-    case 7:  return QColor(0xA3, 0x4C, 0x00);   // Warm              37 /  28
-    case 8:  return QColor(0x00, 0x77, 0x57);   // Moss Light       135 / 164
-    case 9:  return QColor(0x4A, 0x4E, 0xED);   // Indigo Night     neutral bg
-    case 10: return QColor(0x27, 0xC2, 0xAD);   // Deep Teal        180 / 172
-    // Storm: the navy shell, not the yellow accent (233 vs 46 degrees).
+    case 1:  return QColor(0x1D, 0x57, 0xFF);
+    case 2:  return QColor(0x1D, 0x57, 0xFF);
+    case 3:  return QColor(0x2E, 0x6E, 0xEB);
+    case 4:  return QColor(0x1D, 0x57, 0xFF);
+    case 5:  return QColor(0x5E, 0x81, 0xAC);
+    case 6:  return QColor(0x8F, 0x73, 0xE9);
+    case 7:  return QColor(0xA3, 0x4C, 0x00);
+    case 8:  return QColor(0x00, 0x77, 0x57);
+    case 9:  return QColor(0x4A, 0x4E, 0xED);
+    case 10: return QColor(0x27, 0xC2, 0xAD);
     case 11: return QColor(0x02, 0x05, 0x1D);
     default: break;
     }
-    // System (0) resolves as AppTheme does. A custom theme (12) falls back to
-    // the brand shell, since its override lives in QML.
     if (themeId == 0 && qGuiApp
         && QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Light) {
         return QColor(0x00, 0x77, 0x57);
@@ -280,4 +249,4 @@ QColor anchorForTheme(int themeId)
     return QColor(0x02, 0x05, 0x1D);
 }
 
-} // namespace lightning::theme
+}

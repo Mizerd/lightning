@@ -34,7 +34,6 @@ void BackgroundDrainer::removeHost(BackgroundSessionHost *host)
             break;
         }
     }
-    // Retirement deletes the host later; never drained again meanwhile.
     updateTimer();
 }
 
@@ -46,7 +45,6 @@ void BackgroundDrainer::setElapsedForTest(std::function<qint64()> elapsedSinceTi
 int BackgroundDrainer::tick()
 {
     stalltrace::Scope stallScope("bg-drain");
-    // Hosts retired since the last tick.
     m_hosts.removeIf([](const QPointer<BackgroundSessionHost> &h) { return h.isNull(); });
     if (m_hosts.isEmpty()) {
         m_next = 0;
@@ -78,19 +76,11 @@ int BackgroundDrainer::tick()
             break;
         }
     }
-    // Every host the budget did not reach still has its token step this
-    // tick: two atomic loads, and custody only when a rotation waits. A
-    // refresh waits for that answer (sessiontokens' DRAIN_STALL is 500 ms),
-    // so it must never sit behind other accounts' heavy work (§18 round 1,
-    // L6). Only the heavy work (takes, the queue) is budgeted.
     for (int i = stoppedAfter + 1; i < count; ++i) {
         const QPointer<BackgroundSessionHost> host = pass.at((start + i) % count);
         if (host)
             host->drainTokensOnly();
     }
-    // Round-robin: the next tick starts with the first host after the last
-    // one drained (a full pass: the one after this pass's first) that is
-    // still here.
     const int nextOffset = stoppedAfter + 1 < count ? stoppedAfter + 1 : 1;
     m_next = 0;
     for (int k = 0; k < count; ++k) {
@@ -113,4 +103,4 @@ void BackgroundDrainer::updateTimer()
         m_timer.start();
 }
 
-} // namespace lightning::accounts
+}

@@ -1,25 +1,3 @@
-// The row's right rail is shared: the hover action bar and the read-receipt
-// facepile anchor to the same edge from opposite ends of a row, and on a
-// short row the facepile (same z, later in the document) covered the bar's
-// buttons.
-//
-// Also covered, all in Bubbles: the sender header, body text, media cards and
-// reactions must stay inside (or under) their own bubble, and an own bubble
-// must leave the receipt rail clear.
-//
-// And the body's right-to-left paragraphs (2026-09-30: an all-Arabic
-// paragraph read left-aligned): each paragraph takes its own direction and
-// starts at the edge it reads from.
-//
-// And the inks drawn ON an own bubble (#25: an own image's caption used the
-// page's secondary grey on the accent fill): every one meets 4.5:1 against
-// the bubble on all eleven presets.
-//
-// And moderator Delete (break-it B025) is granted from the open room's own
-// facts, with no room panel open.
-//
-// These are geometric assertions on the real delegate, not a source scan: a
-// scan cannot see an overlap.
 #include <QtTest/QtTest>
 
 #include <QQmlApplicationEngine>
@@ -66,8 +44,6 @@ class MessageRailCollisionTest : public QObject
         QQuickItem *root = nullptr;
     };
 
-    /// A complete role map, so the production delegate binds without
-    /// undefined-property warnings. Same shape MediaPlaceholderQmlTest uses.
     static QVariantMap baseFixture()
     {
         QVariantMap f;
@@ -120,7 +96,6 @@ class MessageRailCollisionTest : public QObject
         return f;
     }
 
-    /// `count` other readers, in the shape the strip's chips expect.
     static QVariantList receipts(int count)
     {
         QVariantList out;
@@ -137,7 +112,6 @@ class MessageRailCollisionTest : public QObject
         return out;
     }
 
-    /// `count` reaction pills, in the shape the Flow's chips expect.
     static QVariantList reactions(int count)
     {
         static const char *keys[] = {"\xf0\x9f\x91\x8d", "\xf0\x9f\x8e\x89",
@@ -179,9 +153,6 @@ class MessageRailCollisionTest : public QObject
         out.window->resize(800, 480);
         out.root->setParentItem(out.window->contentItem());
         out.root->setWidth(rowWidth);
-        // Bubbles is a direct-room layout and the flag normally comes from the
-        // host view. Set it before the first layout pass, or the content caps
-        // lag a frame behind.
         if (direct)
             QQmlProperty::write(out.root, QStringLiteral("isDirectRoom"), true);
         out.window->show();
@@ -190,9 +161,6 @@ class MessageRailCollisionTest : public QObject
         return true;
     }
 
-    /// The action bar is created on hover, which needs a live timelineView.
-    /// Forcing the Loader is enough for a geometry question: its x and width
-    /// come from anchors and the reserve, not `visible`.
     static QQuickItem *forceActionBar(QQuickItem *root)
     {
         auto *loader = root->findChild<QQuickItem *>(
@@ -214,8 +182,6 @@ class MessageRailCollisionTest : public QObject
         return item->mapToItem(reference, QPointF(0, 0)).x();
     }
 
-    /// "مرحبا بالعالم": short, so it never wraps and a body as wide as its
-    /// own text stays narrower than the column.
     static QString arabic()
     {
         return QStringLiteral("\u0645\u0631\u062D\u0628\u0627 "
@@ -229,8 +195,6 @@ class MessageRailCollisionTest : public QObject
         return quick ? quick->textDocument() : nullptr;
     }
 
-    /// Where a paragraph's first character is drawn: the right end of its
-    /// line when it reads right to left.
     static qreal paragraphStartIn(QQuickItem *textEdit, const QTextBlock &block,
                                   QQuickItem *reference)
     {
@@ -241,7 +205,6 @@ class MessageRailCollisionTest : public QObject
         return textEdit->mapToItem(reference, r.topLeft()).x();
     }
 
-    /// WCAG 2.1 relative luminance and contrast ratio.
     static double relativeLuminance(const QColor &c)
     {
         auto lin = [](double v) {
@@ -256,7 +219,6 @@ class MessageRailCollisionTest : public QObject
         const double lb = relativeLuminance(b);
         return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
     }
-    /// What `ink` drawn at `alpha` over the opaque `ground` renders as.
     static QColor over(const QColor &ink, double alpha, const QColor &ground)
     {
         return QColor::fromRgbF(
@@ -264,7 +226,6 @@ class MessageRailCollisionTest : public QObject
             float(alpha * ink.greenF() + (1.0 - alpha) * ground.greenF()),
             float(alpha * ink.blueF() + (1.0 - alpha) * ground.blueF()));
     }
-    /// The opacity an item is painted at, up to (not including) `ground`.
     static double opacityUpTo(QQuickItem *item, QQuickItem *ground)
     {
         double o = 1.0;
@@ -272,8 +233,6 @@ class MessageRailCollisionTest : public QObject
             o *= it->opacity();
         return o;
     }
-    /// First item in the VISUAL tree with this objectName: Loader content
-    /// and Repeater delegates are not always QObject children.
     static QQuickItem *findVisual(QQuickItem *parent, const QString &name)
     {
         if (!parent)
@@ -315,9 +274,6 @@ private Q_SLOTS:
         QVERIFY(!bubbleLayout->property("mentionBarVisible").toBool());
     }
 
-    // Isolate the settings store: these build a real AppController, hence a
-    // real SettingsManager, which resolves its file from the application
-    // identity. Same two guards MediaPlaceholderQmlTest documents.
     void initTestCase()
     {
         QVERIFY(m_configHome.isValid());
@@ -347,11 +303,6 @@ private Q_SLOTS:
                 << layout << false << 1000 << QStringLiteral("reactions");
             QTest::newRow(qPrintable(QStringLiteral("%1-thread-and-edited").arg(layout)))
                 << layout << false << 1000 << QStringLiteral("thread-edited");
-            // A one-line caption puts the summary card and "edited" marker at
-            // the SAME HEIGHT as the notice beside the card (measured on the
-            // old 300x84 notice: band y
-            // 34-118, summary y 88-124), so only their horizontal clearance
-            // keeps the notice off them.
             QTest::newRow(qPrintable(QStringLiteral("%1-thread-and-edited-short").arg(layout)))
                 << layout << false << 1000 << QStringLiteral("thread-edited-short");
         }
@@ -395,9 +346,6 @@ private Q_SLOTS:
         }
         f[QStringLiteral("readReceipts")] = receipts(5);
         f[QStringLiteral("readReceiptsTotal")] = 5;
-        // An otherwise identical row without a download key must have the
-        // same geometry. The previous permanent 312px rail fails this check
-        // even before any download starts (and moves own bubbles left).
         Delegate reference;
         QVERIFY(build(app, f, reference, width, layout == 1));
         f[QStringLiteral("mediaKey")] = QStringLiteral("rail-file");
@@ -435,9 +383,6 @@ private Q_SLOTS:
         };
         auto *card = findVisual(d.root, QStringLiteral("fileCard"));
         auto *referenceCard = findVisual(reference.root, QStringLiteral("fileCard"));
-        // A row builds its notice only while it has a download (a Loader in
-        // MessageDelegate): a file card with no download carries none, so it
-        // adds no Text and no geometry bindings to the timeline.
         const QString noticeName = QStringLiteral("attachmentDownloadNotice");
         QVERIFY(!findVisual(d.root, noticeName));
         QVERIFY(!findVisual(reference.root, noticeName));
@@ -461,30 +406,12 @@ private Q_SLOTS:
         const QRectF captionRectBefore = rect(body, d.root);
         const QRectF cardBefore = rect(card, d.root);
         QVERIFY(heightBefore > 0);
-        // A harmless type: a file that can run programs is never beside its
-        // card (its warning is the pane card's; tst_AttachmentDownloadNotice).
         app.downloads()->download(QStringLiteral("rail-file"),
                                   QStringLiteral("original-name.pdf"), {});
         QVERIFY(!app.downloads()->items().isEmpty());
-        // Unloaded again when the download is dismissed: hold it weakly.
         QPointer<QQuickItem> notice;
         QTRY_VERIFY((notice = findVisual(d.root, noticeName)) != nullptr);
         QVERIFY(!findVisual(reference.root, noticeName));
-        // C3b (live, 2026-10-18): the notice is a 34px strip beside the card,
-        // so it fits a PLAIN file-card row (57px Modern, 77 Bubbles, 56
-        // Compact), which the old 300x84 notice under the toolbar's band never
-        // did ("none" was expected false here and every live trial showed the
-        // corner). It takes the band centred on the card or, in a taller row,
-        // the band just below the toolbar's, right of the content column
-        // (left of an own bubble). The own Bubbles case measures the current
-        // space beside the card; the other cases retain their measured table.
-        // A wide caption is below the card, so only shared bands count.
-        // At 520px the toolbar's band covers the centred one in the flat
-        // layouts, except Compact's tall row (card from x 8).
-        // Reactions and the thread summary sit under the content, never
-        // beside the card; the `occupied` loop asserts no overlap, and the
-        // short thread row's proof below asserts the horizontal clearance.
-        // Flat-layout measurements: 2026-10-18-fx2 notes.
         const bool fits = layout == 1 && own
             ? cardBefore.left() - notice->property("margin").toReal()
                 - notice->property("gap").toReal()
@@ -509,10 +436,8 @@ private Q_SLOTS:
                 occupied.append(chip);
         }
         if (caption == QLatin1String("reactions")) {
-            QVERIFY(!body->isVisible()); // the reproducer is file-only
-            QCOMPARE(occupied.size(), 121); // every reaction plus the Add chip
-            // Wrapped over several lines, all under the card: the band beside
-            // the card stays free, so the notice is there and touches none.
+            QVERIFY(!body->isVisible());
+            QCOMPARE(occupied.size(), 121);
             QVERIFY(occupied.last()->y() > occupied.first()->y() + 2 * occupied.first()->height());
             QVERIFY(notice->isVisible());
             QVERIFY(std::none_of(occupied.cbegin(), occupied.cend(), [&](QQuickItem *chip) {
@@ -526,8 +451,6 @@ private Q_SLOTS:
             QVERIFY(edited && edited->isVisible());
             occupied << summary << edited;
             if (caption == QLatin1String("thread-edited-short")) {
-                // The metadata is level with the band (y ~105 against the
-                // notice's 34 down), so only x separates them.
                 const QRectF candidate = rect(notice, d.root);
                 const QRectF meta = rect(summary, d.root).united(rect(edited, d.root));
                 QVERIFY(meta.right() < candidate.left());
@@ -543,7 +466,6 @@ private Q_SLOTS:
             else
                 QVERIFY(band.left() > cardBefore.right());
             QVERIFY(band.top() >= cardBefore.top());
-            // Beside the card: the two bands meet.
             QVERIFY(band.top() < cardBefore.bottom() && band.bottom() > cardBefore.top());
             QVERIFY(!rect(bar, d.root).intersects(band));
             QVERIFY(!rect(pile, d.root).intersects(band));
@@ -554,10 +476,7 @@ private Q_SLOTS:
             QCOMPARE(rect(notice, view).top(), beforeScroll.top() - 70);
             QCOMPARE(rect(notice, view).left(), beforeScroll.left());
         }
-        // Scroll the whole row away: exactly the pane owns the item. No
-        // height/width/anchor adjustment is needed when ownership changes.
         view->setProperty("contentY", 2500);
-        // Still built (the row still has the download), just not claiming.
         QVERIFY(notice);
         QTRY_VERIFY(!notice->isVisible());
         QTRY_COMPARE(paneCount(), 1);
@@ -569,7 +488,6 @@ private Q_SLOTS:
         const int id = app.downloads()->items().value(0).toMap()
                            .value(QStringLiteral("id")).toInt();
         app.downloads()->dismiss(id);
-        // Nothing left to show: the row unloads its notice altogether.
         QTRY_VERIFY(notice.isNull());
         QVERIFY(!findVisual(d.root, noticeName));
         QTRY_COMPARE(paneCount(), 0);
@@ -583,10 +501,6 @@ private Q_SLOTS:
         d.root->setParentItem(d.window->contentItem());
     }
 
-    // Settings > Appearance > Message spacing: Compact, Cozy and Roomy move the
-    // gap above a sender's first message and above each continuation line, in
-    // every layout, by exactly the amounts the theme declares. Cozy is the
-    // shipped spacing (no change).
     void messageSpacingMovesTheGapInEveryLayout_data()
     {
         QTest::addColumn<int>("layout");
@@ -607,8 +521,6 @@ private Q_SLOTS:
             Delegate d;
             if (!build(app, f, d, kRowWidth, layout == 1))
                 return -1.0;
-            // The spacing reaches the delegate through the theme singleton of
-            // its own engine (Main.qml's Binding is not loaded here).
             QQmlComponent comp(d.engine.get());
             comp.setData(QByteArray(
                              "import QtQuick\nimport MatrixClient\n"
@@ -632,8 +544,6 @@ private Q_SLOTS:
             const QString what = QStringLiteral("layout %1, %2")
                 .arg(layout).arg(leader ? "sender's first message" : "continuation");
             QVERIFY2(compact > 0 && cozy > 0 && roomy > 0, qPrintable(what));
-            // Base gap above the row, then what each mode adds to it
-            // (AppTheme.messageGroupGapExtra / messageContinuationGapExtra).
             const qreal base = leader ? (layout == 2 ? 2 : 12)
                                       : (layout == 2 ? 0 : 1);
             const qreal compactExtra = leader ? -4 : -1;
@@ -644,10 +554,6 @@ private Q_SLOTS:
         }
     }
 
-    // Break-it B061: a pending local echo showed the whole hover bar, and
-    // Reply / More did nothing (there is no server event to act on yet). No
-    // bar is offered until the event has a server id; a sent row under the
-    // same pointer still gets one, so the case can tell the two apart.
     void aPendingLocalEchoOffersNoActionBar()
     {
         AppController app(AppController::MockBackend);
@@ -683,7 +589,7 @@ private Q_SLOTS:
             QVariantMap f = baseFixture();
             f.insert(QStringLiteral("isOwn"), true);
             f.insert(QStringLiteral("isLocalEcho"), true);
-            f.insert(QStringLiteral("status"), 1);   // Sending
+            f.insert(QStringLiteral("status"), 1);
             f.insert(QStringLiteral("eventId"), pendingId);
             f.insert(QStringLiteral("itemId"), QStringLiteral("echo-item"));
             Delegate d;
@@ -704,9 +610,6 @@ private Q_SLOTS:
         }
     }
 
-    // Break-it B073: the file card's kind read "PLAIN" for text/plain and
-    // "compressed-tar" for application/x-compressed-tar. Common families get
-    // a word; an unknown long subtype says "File" rather than leaking raw MIME.
     void aFileCardNamesItsKindInWords_data()
     {
         QTest::addColumn<QString>("mime");
@@ -751,22 +654,14 @@ private Q_SLOTS:
         QVERIFY2(subtitle, "no fileCardSubtitle on the card");
         QVERIFY2(subtitle->property("text").toString().endsWith(label),
                  qPrintable(subtitle->property("text").toString()));
-        // The kind can fall back to the sender's mimetype: never AutoText.
         QCOMPARE(subtitle->property("textFormat").toInt(), 0);
     }
 
-    // Break-it B101: with the Search panel narrowing the timeline, a reader's
-    // avatar sat on the last letters of "...about quokka". The reserve was a
-    // rightMargin on a non-fill (Fixed) Layout item, which only widens the
-    // column's minimum: the body kept its full width and ran under the pile.
-    // Bodies from just under the column width to several lines, in steps
-    // smaller than the pile, so one of them lands in the band where the
-    // natural width fits the column but not the column minus the pile.
     void theLastLineClearsTheReceiptPileOnANarrowRow()
     {
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(0);   // Modern
+        app.settings()->setMessageLayout(0);
         const QString sentence = QStringLiteral(
             "second encrypted message about quokka and the other quokka ");
         int checked = 0;
@@ -798,10 +693,6 @@ private Q_SLOTS:
         QCOMPARE(checked, 46);
     }
 
-    // Break-it B114: a long own display name ran off the row (and under the
-    // hover bar) instead of eliding, and took the timestamp with it. The
-    // header's cap was honoured by its Loader, but the name inside was a
-    // Fixed Layout item that could not shrink to it.
     void aLongSenderNameElidesInsideTheHeaderCap_data()
     {
         QTest::addColumn<bool>("own");
@@ -813,7 +704,7 @@ private Q_SLOTS:
         QFETCH(bool, own);
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(0);   // Modern
+        app.settings()->setMessageLayout(0);
         QVariantMap f = baseFixture();
         f.insert(QStringLiteral("isOwn"), own);
         f.insert(QStringLiteral("senderDisplayName"),
@@ -849,10 +740,6 @@ private Q_SLOTS:
                  "the header runs past its content column");
     }
 
-    // Break-it B127: a sticker whose media failed showed "Sticker failed to
-    // load — click to retry" wrapped into a ~64px tile, four or more lines
-    // spilling above and below it over the neighbouring rows. Every glyph the
-    // failed tile draws stays inside the tile.
     void aFailedStickerKeepsItsErrorInsideItsTile_data()
     {
         QTest::addColumn<int>("edge");
@@ -881,9 +768,6 @@ private Q_SLOTS:
         QCOMPARE(tile->width(), qreal(edge));
         QCOMPARE(tile->height(), qreal(edge));
 
-        // Every visible text item (the label and the glyph) inside the tile.
-        // Walked before anything names the new error item, so the old
-        // wrapped sentence fails here, on geometry.
         int drawn = 0;
         std::function<void(QQuickItem *)> walk = [&](QQuickItem *it) {
             for (QQuickItem *c : it->childItems()) {
@@ -913,16 +797,9 @@ private Q_SLOTS:
         auto *error = findVisual(tile, QStringLiteral("stickerError"));
         QVERIFY2(error && error->isVisible(),
                  "the failed tile shows no error state");
-        // The explanation is still there, as the tooltip.
         QVERIFY(QQmlProperty::read(tile, QStringLiteral("loadFailed")).toBool());
     }
 
-    // Break-it B025 follow-up: moderator Delete on another member's message
-    // read the grant from app.roomInfo only, which is on the open room only
-    // while the info panel inspects it, so in the default path Delete was
-    // never offered. The open room's own facts (app.openRoomPermissions, read
-    // on every open) now decide with no panel open; another room's answer
-    // never grants here, and a refusal withdraws the grant.
     void moderatorDeleteIsOfferedWithNoRoomPanelOpen()
     {
         AppController app(AppController::MockBackend);
@@ -948,7 +825,6 @@ private Q_SLOTS:
         f.insert(QStringLiteral("body"), QStringLiteral("hello"));
         Delegate d;
         QVERIFY(build(app, f, d));
-        // No panel: the room-info controller describes no room at all.
         QVERIFY2(app.roomInfo()->roomId() != room,
                  "the fixture opened the info panel; this case is about the "
                  "path where nobody has");
@@ -957,7 +833,6 @@ private Q_SLOTS:
                  "a moderator is not offered Delete on another member's "
                  "message until the room's info panel has been opened");
 
-        // The SDK withdraws the grant (a demotion pokes the room).
         QVariantMap demoted = grant;
         demoted.insert(QStringLiteral("canRedactOthers"), false);
         mock->setOwnPermissionsForTest(room, demoted);
@@ -965,8 +840,6 @@ private Q_SLOTS:
         QVERIFY(!QQmlProperty::read(d.root, QStringLiteral("canRedactOthers"))
                      .toBool());
 
-        // One room's grant never carries into another: the facts follow the
-        // switch and are cleared before the new room's answer lands.
         mock->setOwnPermissionsForTest(room, grant);
         QTRY_VERIFY_WITH_TIMEOUT(facts->canRedactOthers(), kSignalTimeoutMs);
         app.setCurrentRoomId(other);
@@ -978,9 +851,6 @@ private Q_SLOTS:
                      .toBool());
     }
 
-    // Break-it B027/B067 support: a failed echo said only "failed". It names
-    // the SDK's coarse category, so a refused send (permissions, size) does
-    // not read like a dropped connection that Retry would fix.
     void aFailedEchoSaysWhyItFailed_data()
     {
         QTest::addColumn<QString>("category");
@@ -998,7 +868,7 @@ private Q_SLOTS:
         f.insert(QStringLiteral("isOwn"), true);
         f.insert(QStringLiteral("isLocalEcho"), true);
         f.insert(QStringLiteral("eventId"), QString());
-        f.insert(QStringLiteral("status"), 2);   // Failed
+        f.insert(QStringLiteral("status"), 2);
         f.insert(QStringLiteral("sendErrorCategory"), category);
         Delegate d;
         QVERIFY(build(app, f, d));
@@ -1008,12 +878,6 @@ private Q_SLOTS:
         QVERIFY2(text.contains(phrase), qPrintable(text));
     }
 
-    // Review of break-it B065: a table is laid out at its columns' minimum
-    // widths however narrow the column is, so a remote table painted past the
-    // body, over the receipt rail and out of the row. What is drawn of the
-    // body must end inside the content column and short of the facepile: the
-    // sanitizer flattens a table past its bound, and a bounded table that is
-    // still wider than a narrow row is clipped.
     void aWideTableStaysInsideItsColumn_data()
     {
         QTest::addColumn<int>("columns");
@@ -1028,12 +892,11 @@ private Q_SLOTS:
         QFETCH(bool, rendersAsTable);
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(0);   // Modern
+        app.settings()->setMessageLayout(0);
         QString raw = QStringLiteral("<table><tr>");
         for (int c = 0; c < columns; ++c)
             raw += QStringLiteral("<td>WWWWWW</td>");
         raw += QStringLiteral("</tr></table>");
-        // What the model hands the delegate: the sanitizer's output.
         const QString html = MessageHtml::sanitize(
             raw, nullptr, QString(),
             MessageHtml::MentionStyle{QString(), QString(),
@@ -1058,12 +921,10 @@ private Q_SLOTS:
         QVERIFY2(pile && pile->width() > 0, "no receipt facepile in the row");
         QTextDocument *doc = documentOf(body);
         QVERIFY(doc);
-        // The width the document is laid out to, whatever the item's width.
         const qreal laidOut =
             std::max(doc->size().width(),
                      body->property("contentWidth").toReal());
         if (rendersAsTable) {
-            // Otherwise this row proves nothing about the clip.
             QVERIFY2(laidOut > body->width() + 1,
                      qPrintable(QStringLiteral(
                          "the bounded table is laid out %1 wide in a %2 body; "
@@ -1087,12 +948,6 @@ private Q_SLOTS:
                      .arg(body->clip())));
     }
 
-    // §18 review N1/N2, measured where it matters: the cells Qt itself builds
-    // from the sanitizer's output, every QTextTable in the document (nested
-    // ones included) as rows x columns. On the round-2 sanitizer the escape
-    // rows built 496, 496, 496, 496, 6528, 497, 497 and 93,601 cells
-    // (QTextDocument, Qt 6.11.2), against a bound of 400 per body. The last row is the control:
-    // a legal 400-cell table must still be built, or this probe sees nothing.
     void qtBuildsNoMoreTableCellsThanTheBodyBudget_data()
     {
         QTest::addColumn<QString>("html");
@@ -1142,10 +997,6 @@ private Q_SLOTS:
                    + rows30
                    + QStringLiteral("</table></li></ul></td></tr></table>")
             << qint64(0);
-        // Review round 3: an emitted </br> or </hr> closed the <b> opened
-        // after it, so the sender's </b> walked out of the inner table and
-        // its 383 rows were built 16 wide (6,145 cells measured on the
-        // round-3 sanitizer). Not emitted now: 1 x 16 + 384 x 1 = 400.
         QTest::newRow("</br> escape")
             << QStringLiteral("<table><tr>") + cells15
                    + QStringLiteral("<td><b><table><tr><td><br><b></br></b>")
@@ -1184,11 +1035,6 @@ private Q_SLOTS:
         QVERIFY2(widest <= 16, qPrintable(QString::number(widest)));
     }
 
-    // Reported 2026-10-20 on a ~1790px window: Modern body text wrapped at
-    // 720px (a literal on the body) inside a 760px content column, leaving an
-    // empty band to the right of every message. Modern and Compact text, and
-    // the reply quote above it, now run to the row's right edge; a narrow row
-    // (600) is the control, where nothing changes.
     static QString longParagraph()
     {
         return QStringLiteral(
@@ -1234,8 +1080,6 @@ private Q_SLOTS:
         const qreal edge = rightEdgeIn(row, d.root);
         const qreal bodyRight = rightEdgeIn(body, d.root);
         const qreal quoteRight = rightEdgeIn(quote, d.root);
-        // The column reaches the edge and the wrapped lines use it: a line
-        // ends at most one long word short of the column.
         const qreal painted = body->property("contentWidth").toReal();
         QVERIFY2(bodyRight >= edge - 1.0 && bodyRight <= edge + 0.5,
                  qPrintable(QStringLiteral(
@@ -1251,9 +1095,6 @@ private Q_SLOTS:
                      .arg(width).arg(quoteRight).arg(edge)));
     }
 
-    // The receipt facepile still keeps the text clear on a wide row, and the
-    // clearance is the pile's own width, not a column cap: the body ends
-    // within one gap of where the faces begin.
     void wideRowTextStopsAtTheReceiptPile_data()
     {
         QTest::addColumn<int>("layout");
@@ -1291,9 +1132,6 @@ private Q_SLOTS:
                      .arg(bodyRight).arg(pileLeft - bodyRight).arg(pileLeft)));
     }
 
-    // Full-width text must not reopen the 2026-09-14 collision: on a SHORT
-    // wide row the hover bar still ends before the facepile, and the body
-    // still ends before the facepile.
     void theActionBarClearsTheReceiptPileOnAWideShortRow_data()
     {
         QTest::addColumn<int>("layout");
@@ -1332,7 +1170,6 @@ private Q_SLOTS:
                  "the body runs under the facepile on a short wide row");
     }
 
-    // Bubbles keep a readable bubble: a wide DM is not one slab of text.
     void aWideBubbleKeepsItsReadableWidth_data()
     {
         QTest::addColumn<bool>("own");
@@ -1349,7 +1186,7 @@ private Q_SLOTS:
         f.insert(QStringLiteral("isOwn"), own);
         f.insert(QStringLiteral("body"), longParagraph());
         Delegate d;
-        QVERIFY(build(app, f, d, 1500, /*direct=*/true));
+        QVERIFY(build(app, f, d, 1500,true));
         d.window->resize(1540, 600);
         QCoreApplication::processEvents();
         QVERIFY(d.root->property("bubbleMode").toBool());
@@ -1365,7 +1202,6 @@ private Q_SLOTS:
                                 .arg(bubble->width())));
     }
 
-    // A short row with receipts: the bar must end before the facepile begins.
     void theActionBarClearsTheReceiptPileOnAShortRow()
     {
         AppController app(AppController::MockBackend);
@@ -1393,9 +1229,6 @@ private Q_SLOTS:
                      .arg(barRight).arg(pileLeft)));
     }
 
-    // Element's "sent" check rides the same rail as the facepile, so it must
-    // be arbitrated the same way: on a short row the action bar ends before
-    // the check begins (the facepile lesson, applied to its sibling).
     void theSentCheckClearsTheActionBarOnAShortRow()
     {
         AppController app(AppController::MockBackend);
@@ -1420,12 +1253,9 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral(
                      "the action bar (ends at %1) runs into the sent check "
                      "(starts at %2)").arg(barRight).arg(checkLeft)));
-        // Inside the row, not hanging off its edge.
         QVERIFY(rightEdgeIn(check, d.root) <= d.root->width() + 1.0);
     }
 
-    // A row that does not carry the flag, or whose readers are shown, draws no
-    // check; readers replace it rather than sitting beside it.
     void theSentCheckGivesWayToReaders()
     {
         AppController app(AppController::MockBackend);
@@ -1451,21 +1281,18 @@ private Q_SLOTS:
                  "the sent check is drawn beside the readers it gives way to");
     }
 
-    // Bubbles: the check sits in the receipt band below the own bubble.
     void anOwnBubbleClearsTheSentCheck()
     {
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(1);   // Bubbles
+        app.settings()->setMessageLayout(1);
 
         QVariantMap f = baseFixture();
         f.insert(QStringLiteral("isOwn"), true);
         f.insert(QStringLiteral("sentReceipt"), true);
 
         Delegate d;
-        // Direct before the first layout pass (see build()), or the row's
-        // height is measured for the non-bubble layout.
-        QVERIFY(build(app, f, d, kRowWidth, /*direct=*/true));
+        QVERIFY(build(app, f, d, kRowWidth,true));
         QVERIFY(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool());
 
         auto *bubble = d.root->findChild<QQuickItem *>(
@@ -1482,7 +1309,6 @@ private Q_SLOTS:
         QVERIFY(d.root->boundingRect().contains(checkRect));
         QVERIFY(!checkRect.intersects(bubbleRect));
     }
-
 
     void theCollapsedPileShowsThreeFacesAndAPill_data()
     {
@@ -1516,7 +1342,6 @@ private Q_SLOTS:
         if (overflow > 0)
             QCOMPARE(pill->childItems().first()->property("text").toString(),
                      QStringLiteral("+%1").arg(overflow));
-        // 18px faces overlapping by 6: a face every 12px, plus the pill.
         qreal want = 18 + (faces - 1) * 12;
         if (overflow > 0)
             want += -6 + pill->width();
@@ -1525,9 +1350,6 @@ private Q_SLOTS:
                                 .arg(pile->width()).arg(want)));
     }
 
-    // Hover is a lift, not a fan: the face under the pointer rises 4px and
-    // swells, its neighbours rise 4px * 0.45^distance, and not one reservation,
-    // width or position moves.
     void hoveringAFaceLiftsItAndItsNeighboursAndMovesNothing()
     {
         AppController app(AppController::MockBackend);
@@ -1556,7 +1378,6 @@ private Q_SLOTS:
         for (QQuickItem *c : chips)
             chipX.append(c->x());
 
-        // A real pointer over the middle face.
         const QPointF mid = chips[1]->mapToScene(QPointF(9, 9));
         QTest::mouseMove(d.window.get(), QPoint(10, 10));
         QTest::mouseMove(d.window.get(), mid.toPoint());
@@ -1567,11 +1388,9 @@ private Q_SLOTS:
         QTRY_VERIFY(qAbs(chips[2]->property("liftNow").toReal() - 1.8) < 0.05);
         QTRY_VERIFY(qAbs(chips[1]->scale() - 1.05) < 0.001);
         QCOMPARE(chips[0]->scale(), 1.0);
-        // The nearer a face, the higher it stacks.
         QVERIFY(chips[1]->z() > chips[0]->z());
         QVERIFY(chips[1]->z() > chips[2]->z());
 
-        // Nothing moved.
         QCOMPARE(pile->width(), width0);
         QCOMPARE(pile->x(), x0);
         for (int i = 0; i < chips.size(); ++i)
@@ -1583,18 +1402,12 @@ private Q_SLOTS:
         QCOMPARE(d.root->property("contentInnerCap").toReal(), content0);
         QCOMPARE(d.root->height(), height0);
 
-        // Leaving the stack puts everything back.
         QTest::mouseMove(d.window.get(), QPoint(700, 440));
         QTRY_COMPARE(pile->property("hoverIndex").toInt(), -1);
         QTRY_VERIFY(qAbs(chips[1]->property("liftNow").toReal()) < 0.05);
         QTRY_VERIFY(qAbs(chips[1]->scale() - 1.0) < 0.001);
     }
 
-    // Rokas, 2026-10-14: with the pointer on the LOWER edge of a face the
-    // centre face flickered. The hover belonged to the face, the face rises
-    // 4px, so its hit area left the pointer, hover dropped, the face fell
-    // back, and so on. On the old code hoverIndex alternates 1 / -1 here
-    // (and a gap between faces gave -1 too); the hover is row-wide now.
     void thePointerOnTheLowerEdgeOfAFaceDoesNotFlicker()
     {
         AppController app(AppController::MockBackend);
@@ -1609,16 +1422,12 @@ private Q_SLOTS:
         const QList<QQuickItem *> chips = receiptChips(pile);
         QCOMPARE(chips.size(), 3);
 
-        // Lower edge of the middle face, inside its unlifted box but well
-        // within the 4px it rises. Floored, so rounding cannot land the
-        // pointer on the row's exclusive bottom edge.
         const QPointF edgeF = pile->mapToScene(
             QPointF(chips[1]->x() + 9, pile->height() - 1.5));
         const QPoint edgeP(int(std::floor(edgeF.x())), int(std::floor(edgeF.y())));
         QTest::mouseMove(d.window.get(), QPoint(10, 10));
         QTest::mouseMove(d.window.get(), edgeP);
         QTRY_COMPARE(pile->property("hoverIndex").toInt(), 1);
-        // Hold still for the whole 350ms lift and well past it, sampling.
         for (int i = 0; i < 40; ++i) {
             QTest::qWait(16);
             QTest::mouseMove(d.window.get(), edgeP);
@@ -1626,7 +1435,6 @@ private Q_SLOTS:
         }
         QVERIFY(qAbs(chips[1]->property("liftNow").toReal() - 4.0) < 0.05);
 
-        // The gap between two faces is the nearest face, never "none".
         const QPointF gap = pile->mapToScene(
             QPointF(chips[1]->x() - 3, pile->height() - 1.5));
         QTest::mouseMove(d.window.get(),
@@ -1637,7 +1445,6 @@ private Q_SLOTS:
         }
     }
 
-    // A face opens that reader's profile; the pill opens the list.
     void aFaceOpensTheProfileAndThePillOpensTheList()
     {
         AppController app(AppController::MockBackend);
@@ -1684,7 +1491,6 @@ private Q_SLOTS:
                  QStringLiteral("@r1:mock.local"));
     }
 
-    // Enter on the focused pile is a key path to the list, not a mouse-only one.
     void theFacepileIsAKeyboardFocusStop()
     {
         AppController app(AppController::MockBackend);
@@ -1700,10 +1506,6 @@ private Q_SLOTS:
                  "the facepile cannot be reached with Tab");
     }
 
-    // Reported on Windows: clicking a message pinned it, but clicking the
-    // EMPTY right side of another message did not move the pin, because only
-    // the bubble carried a tap handler. Every layout, wide rows so the right
-    // side is genuinely outside the bubble.
     void aClickOnTheFarRightOfARowMovesThePinToThatRow_data()
     {
         QTest::addColumn<int>("layout");
@@ -1734,7 +1536,6 @@ private Q_SLOTS:
             QCoreApplication::processEvents();
         }
 
-        // A stand-in view both rows share: the pin lives there.
         QQmlComponent comp(a.engine.get());
         comp.setData("import QtQuick\nQtObject { property string pinnedActionsKey: \"\";"
                      " property string hoveredActionsKey: \"\" }",
@@ -1751,7 +1552,6 @@ private Q_SLOTS:
             QTest::mouseClick(d.window.get(), Qt::LeftButton, Qt::NoModifier,
                               p.toPoint());
         };
-        // Row A: click inside its text.
         auto *bubbleA = a.root->findChild<QQuickItem *>(
             QStringLiteral("messageContentColumn"));
         QVERIFY(bubbleA);
@@ -1760,10 +1560,6 @@ private Q_SLOTS:
         QTRY_COMPARE(view->property("pinnedActionsKey").toString(),
                      QStringLiteral("row-a"));
 
-        // Row B: the far right of the row. Outside the bubble in Bubbles; in
-        // Modern/Compact the content column runs to the row's right edge
-        // (2026-10-20), so the probe is the column's own and the pin must
-        // move all the same.
         auto *bubbleB = b.root->findChild<QQuickItem *>(
             QStringLiteral("messageContentColumn"));
         auto *presB = b.root->findChild<QQuickItem *>(
@@ -1781,8 +1577,6 @@ private Q_SLOTS:
                                   QStringLiteral("row-b"), 2000);
     }
 
-    // It is a reservation, not a permanent indent: on a tall row the bar keeps
-    // the row's corner.
     void aTallRowKeepsTheBarInTheCorner()
     {
         AppController app(AppController::MockBackend);
@@ -1822,20 +1616,15 @@ private Q_SLOTS:
                      .arg(tallRight).arg(shortRight)));
     }
 
-    // Bubbles: the identity header belongs inside the bubble. Its width cap
-    // must not be derived from the bubble, which is sized from the header's
-    // own column (Qt resolves that loop by pinning the header to one pixel).
     void aBubbleContainsItsOwnSenderHeader()
     {
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(1);   // Bubbles
+        app.settings()->setMessageLayout(1);
 
         QVariantMap f = baseFixture();
         Delegate d;
         QVERIFY(build(app, f, d));
-        // Bubbles applies to DIRECT rooms only, and the flag normally comes
-        // from the host view this delegate has none of.
         QQmlProperty::write(d.root, QStringLiteral("isDirectRoom"), true);
         QCoreApplication::processEvents();
         QVERIFY2(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool(),
@@ -1862,10 +1651,6 @@ private Q_SLOTS:
                      .arg(headerRight).arg(bubbleRight)));
     }
 
-    // Bubbles: both the sent check and reader faces belong in a measured
-    // footer below a short own bubble. On the old code the pile's bottom was
-    // at the row's bottom and its top was above the bubble's bottom; the
-    // below-bubble assertion fails for either fixture.
     void anOwnBubblePlacesItsReceiptBelow_data()
     {
         QTest::addColumn<bool>("readByOthers");
@@ -1877,7 +1662,7 @@ private Q_SLOTS:
         QFETCH(bool, readByOthers);
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(1);   // Bubbles
+        app.settings()->setMessageLayout(1);
 
         QVariantMap f = baseFixture();
         f.insert(QStringLiteral("isOwn"), true);
@@ -1931,13 +1716,11 @@ private Q_SLOTS:
                  "the receipt overlaps the hover action bar on a short row");
     }
 
-    // Receipt updates on one existing delegate must not move later timeline
-    // rows. The footer is reserved even before the check or faces appear.
     void anOwnBubbleKeepsItsHeightAsReceiptsChange()
     {
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(1);   // Bubbles
+        app.settings()->setMessageLayout(1);
 
         QVariantMap f = baseFixture();
         f.insert(QStringLiteral("isOwn"), true);
@@ -1985,14 +1768,11 @@ private Q_SLOTS:
         QVERIFY(!strip->isVisible());
     }
 
-    // O:2370: in Bubbles the hover bar sat at the row's top-right, exactly
-    // where a short own bubble is right-aligned, and hid it. Fails on the old
-    // code: the bar's rect and the bubble's rect intersect.
     void theActionBarDoesNotCoverAShortOwnBubble()
     {
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(1);   // Bubbles
+        app.settings()->setMessageLayout(1);
 
         QVariantMap f = baseFixture();
         f.insert(QStringLiteral("isOwn"), true);
@@ -2023,9 +1803,6 @@ private Q_SLOTS:
         QVERIFY(barRect.left() >= 0);
     }
 
-    // ── Bubbles geometry ─────────────────────────────────────────────────
-
-    /// The union of every reaction pill and the add chip, in row coords.
     static QRectF chipBand(QQuickItem *root)
     {
         QRectF acc;
@@ -2045,8 +1822,6 @@ private Q_SLOTS:
         return acc;
     }
 
-    /// Everything `bubbleContent` lays out is inset by `bubblePad`, so the
-    /// bubble's INNER right edge is what a child may reach.
     static qreal innerRight(QQuickItem *root, QQuickItem *bubble)
     {
         const qreal pad =
@@ -2054,13 +1829,11 @@ private Q_SLOTS:
         return bubble->mapToItem(root, QPointF(bubble->width(), 0)).x() - pad;
     }
 
-    // Bubbles: reactions on an own message hang under that (right-aligned)
-    // bubble, not at the row's left edge.
     void ownBubbleReactionsHangUnderTheirBubble()
     {
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(1);   // Bubbles
+        app.settings()->setMessageLayout(1);
 
         QVariantMap f = baseFixture();
         f.insert(QStringLiteral("isOwn"), true);
@@ -2077,8 +1850,6 @@ private Q_SLOTS:
         QVERIFY2(!band.isNull(), "the fixture produced no reaction chips");
 
         const qreal bubbleLeft = leftEdgeIn(bubble, d.root);
-        // One chip run (220px, the Flow's own minimum band) is the widest
-        // separation that still reads as "these belong to that message".
         QVERIFY2(band.right() >= bubbleLeft - 240.0,
                  qPrintable(QStringLiteral(
                      "the reaction chips end at %1 but the own bubble starts "
@@ -2087,13 +1858,6 @@ private Q_SLOTS:
                      .arg(band.right()).arg(bubbleLeft)));
     }
 
-    // 0.10.3 hotfix (reported by WildRage): in Bubbles an own message with
-    // reactions had a wide empty band between its bubble and the pill row,
-    // because the receipt footer band was reserved whether or not anything
-    // sat in it. The gap is the design spacing (the layout's 2 + the Flow's
-    // top margin) in every layout and every receipt state, and a receipt that
-    // coexists with reactions shares the pills' line, right aligned, clear of
-    // the last pill.
     static qreal reactionGap(QQuickItem *root)
     {
         auto *bubble = root->findChild<QQuickItem *>(
@@ -2162,8 +1926,6 @@ private Q_SLOTS:
         setReceipts(3, false);
         QVERIFY(strip->isVisible());
         expectGap("readers present");
-        // Receipt and pills share a line, receipt on the right and clear of
-        // the pills.
         const QRectF band = chipBand(d.root);
         const QPointF pt = pile->mapToItem(d.root, QPointF(0, 0));
         const QRectF pileRect(pt, QSizeF(pile->width(), pile->height()));
@@ -2186,18 +1948,14 @@ private Q_SLOTS:
         expectGap("sent check left");
     }
 
-    // Bubbles: the body stays inside the bubble's padding (`bubblePad` is 10
-    // in Bubbles, 0 elsewhere), so its cap must be the inner width.
     void aBubbleContainsItsOwnBodyText()
     {
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(1);   // Bubbles
+        app.settings()->setMessageLayout(1);
 
         QVariantMap f = baseFixture();
         f.insert(QStringLiteral("isOwn"), true);
-        // One unbroken run, so the body is laid out AT its cap rather than
-        // at a word boundary below it.
         f.insert(QStringLiteral("body"), QString(220, QLatin1Char('W')));
 
         Delegate d;
@@ -2225,13 +1983,11 @@ private Q_SLOTS:
                      .arg(bodyRight).arg(d.root->width())));
     }
 
-    // Bubbles: a media card stays inside the bubble on a narrow row, so its
-    // cap must be the inner width too.
     void aNarrowBubbleContainsItsFileCard()
     {
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(1);   // Bubbles
+        app.settings()->setMessageLayout(1);
 
         QVariantMap f = baseFixture();
         f.insert(QStringLiteral("isOwn"), true);
@@ -2269,14 +2025,11 @@ private Q_SLOTS:
                      .arg(cardRight).arg(d.root->width())));
     }
 
-    // Bubbles: the header cap mirrors the whole bubble cap, including
-    // `bubbleReceiptInset`, so on a narrow row with a facepile the header
-    // cannot be wider than the bubble.
     void aNarrowBubbleWithReceiptsContainsItsSenderHeader()
     {
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(1);   // Bubbles
+        app.settings()->setMessageLayout(1);
 
         QVariantMap f = baseFixture();
         f.insert(QStringLiteral("readReceipts"), receipts(4));
@@ -2311,15 +2064,11 @@ private Q_SLOTS:
                      .arg(headerRight).arg(leftEdgeIn(pile, d.root))));
     }
 
-    // An all-Arabic paragraph starts at the column's right edge. It read
-    // left-aligned: right-aligned inside a body exactly as wide as its text.
-    // A leading emoji changes nothing (TextEdit reads its surrogate as left to
-    // right). A left-to-right line with an Arabic run keeps its own width.
     void aRightToLeftParagraphStartsAtTheColumnsRightEdge()
     {
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(0);   // Modern
+        app.settings()->setMessageLayout(0);
 
         const QStringList bodies = {
             arabic(),
@@ -2347,7 +2096,6 @@ private Q_SLOTS:
                          .arg(start).arg(rightEdgeIn(column, d.root))));
         }
 
-        // Control: left to right, and not widened.
         QVariantMap g = baseFixture();
         g.insert(QStringLiteral("body"), QStringLiteral("Mixed: hello 123 ")
                                              + arabic() + QStringLiteral(" world"));
@@ -2368,14 +2116,11 @@ private Q_SLOTS:
                      .arg(mixed->width()).arg(mixed->implicitWidth())));
     }
 
-    // Each paragraph reads in its own direction, whichever comes first. The
-    // TextEdit took one direction for the whole message from its first
-    // paragraph.
     void eachParagraphTakesItsOwnDirection()
     {
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(0);   // Modern
+        app.settings()->setMessageLayout(0);
 
         const QString english = QStringLiteral("Hello world");
         const QList<QStringList> orders = {
@@ -2419,14 +2164,11 @@ private Q_SLOTS:
         }
     }
 
-    // Bubbles: a right-to-left body starts at the bubble's inner right edge
-    // (here the sender header, not the text, sets the bubble's width) and
-    // stays inside the bubble.
     void aRightToLeftBodyStartsAtItsBubblesInnerRightEdge()
     {
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(1);   // Bubbles
+        app.settings()->setMessageLayout(1);
 
         QVariantMap f = baseFixture();
         f.insert(QStringLiteral("body"), arabic());
@@ -2453,19 +2195,11 @@ private Q_SLOTS:
         QVERIFY(rightEdgeIn(body, d.root) <= innerRight(d.root, bubble) + 0.6);
     }
 
-    // Bubbles: the secondary text drawn ON an own bubble is readable on every
-    // preset (#25). An own image's caption took the page's textSecondary over
-    // the accent fill: 1.04:1 on Lightning Light, 1.16 on Moss Light, 1.27 on
-    // Warm, 4.19 on Purple Dusk. The quoted reply line (onAccentMuted under a
-    // 0.85 fade: 4.00 on Moss Light, 4.14 on Purple Dusk) and the "(edited)"
-    // status line are held to the same floor. Measures the ink the real
-    // delegate resolves, at the opacity it is painted with, over the fill the
-    // bubble resolves, and asserts the count of distinct fills it saw.
     void textOnAnOwnBubbleIsReadableOnEveryPreset()
     {
         AppController app(AppController::MockBackend);
         QVERIFY(app.settings());
-        app.settings()->setMessageLayout(1);   // Bubbles
+        app.settings()->setMessageLayout(1);
 
         QVariantMap f = baseFixture();
         f.insert(QStringLiteral("isOwn"), true);
@@ -2474,7 +2208,6 @@ private Q_SLOTS:
         f.insert(QStringLiteral("mediaHeight"), 200);
         f.insert(QStringLiteral("mediaMimetype"), QStringLiteral("image/png"));
         f.insert(QStringLiteral("mediaFilename"), QStringLiteral("lake.png"));
-        // Differs from the filename, so it renders once as a caption.
         f.insert(QStringLiteral("body"),
                  QStringLiteral("Sunset over the lake"));
         f.insert(QStringLiteral("replyToEventId"), QStringLiteral("$quoted"));
@@ -2490,9 +2223,6 @@ private Q_SLOTS:
         QVERIFY2(QQmlProperty::read(d.root, QStringLiteral("mediaCaptionBody"))
                      .toBool(),
                  "the fixture's body is not read as a caption");
-        // Bubbles is switched on after creation (isDirectRoom), and the quote
-        // line's opacity has a 90 ms Behavior: let it settle, or the case
-        // measures the animation's start.
         QTest::qWait(300);
 
         auto *bubble = d.root->findChild<QQuickItem *>(
@@ -2556,8 +2286,6 @@ private Q_SLOTS:
                              QStringLiteral("AppTheme.mode = 0"));
         reset.evaluate();
         QCOMPARE(checked, 11);
-        // Eleven presets share nine own-bubble fills (the three Lightning
-        // palettes use one blue). Fewer means the palette never changed.
         QVERIFY2(fills.size() >= 8,
                  qPrintable(QStringLiteral("only %1 distinct own-bubble fills "
                                            "were measured")
@@ -2565,7 +2293,6 @@ private Q_SLOTS:
     }
 
 private:
-    /// The visible receipt faces, in order.
     static QList<QQuickItem *> receiptChips(QQuickItem *pile)
     {
         QList<QQuickItem *> out;

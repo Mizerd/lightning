@@ -1,9 +1,3 @@
-// BackupController's cross-signing flow state machine: the password challenge
-// that setup/reset may raise, the OAuth approval URL (https only), the honest
-// "keys_unavailable" failure (an identity exists that this session cannot sign
-// with; Lightning does not replace it on its own), a cancel that waits for the
-// backend's own report, the explicit choice about an existing recovery key,
-// and that the password and recovery key are neither kept nor shown after use.
 
 #include <QtTest/QtTest>
 
@@ -60,7 +54,7 @@ public:
     bool acceptSubmit = true;
 };
 
-} // namespace
+}
 
 class BackupControllerTest : public QObject
 {
@@ -74,8 +68,6 @@ private Q_SLOTS:
         c.setClient(&client);
         c.runAction(QStringLiteral("setup_cross_signing"));
         QCOMPARE(client.actions, QStringList{QStringLiteral("setup_cross_signing")});
-        // Through the cross-signing entry point, with no key and no consent:
-        // the backend decides, never this side.
         QCOMPARE(client.crossSigningCalls,
                  QStringList{QStringLiteral("setup_cross_signing")});
         QCOMPARE(client.recoveryKeyLength, 0);
@@ -137,7 +129,6 @@ private Q_SLOTS:
         Q_EMIT client.uiaRequired(op, false, false, { QStringLiteral("m.login.sso") });
         QCOMPARE(client.cancelledFor, op);
         QVERIFY(!c.passwordRequired());
-        // Stopped, and waiting for the backend to say what stopping left.
         QVERIFY(c.busy());
         QVERIFY(c.cancelling());
         Q_EMIT client.backupActionFinished(op, QStringLiteral("setup_cross_signing"),
@@ -147,9 +138,6 @@ private Q_SLOTS:
         QVERIFY(c.error().contains(QStringLiteral("management page")));
     }
 
-    // Cancel asks the backend to stop and stays busy until it reports: the
-    // review found Cancel cleared the op at once and said "Nothing was
-    // changed" while the job ran on.
     void cancelWaitsForTheBackendAndReportsWhatItSays()
     {
         FakeBackupClient client;
@@ -165,7 +153,6 @@ private Q_SLOTS:
         QVERIFY(c.busy());
         QVERIFY(c.cancelling());
         QVERIFY(c.error().isEmpty());
-        // The one-at-a-time guard still holds while the backend winds down.
         c.runAction(QStringLiteral("setup_cross_signing"));
         QCOMPARE(client.actions.size(), 1);
         Q_EMIT client.backupActionFinished(op, QStringLiteral("setup_cross_signing"),
@@ -178,9 +165,6 @@ private Q_SLOTS:
         QCOMPARE(stale.count(), 1);
     }
 
-    // The review's MAJOR 2: the browser approval lands after Cancel was
-    // pressed. The job completed on the server, so its recovery key must be
-    // shown, not dropped as a stale op.
     void cancelDuringApprovalThenALateOkResultIsShown()
     {
         FakeBackupClient client;
@@ -195,7 +179,6 @@ private Q_SLOTS:
         QCOMPARE(client.cancelledFor, op);
         QVERIFY(c.approvalUrl().isEmpty());
         QVERIFY(c.busy());
-        // A late approval event for the cancelled op does not reopen the page.
         Q_EMIT client.crossSigningApprovalRequired(
             op, QStringLiteral("https://mas.example/approve"));
         QVERIFY(c.approvalUrl().isEmpty());
@@ -208,8 +191,6 @@ private Q_SLOTS:
         QVERIFY(!c.notice().isEmpty());
     }
 
-    // A cancelled RESET already replaced this session's keys locally; the
-    // text must say what actually happened, not "nothing was changed".
     void aCancelledResetSaysWhatHappened()
     {
         FakeBackupClient client;
@@ -228,9 +209,6 @@ private Q_SLOTS:
         QVERIFY(!c.error().contains(QStringLiteral("Nothing was changed")));
     }
 
-    // A reset that failed after it started already replaced this session's
-    // keys locally; whatever the backend reports, the text must say what
-    // happened and never "Nothing was changed".
     void aFailedResetNeverSaysNothingWasChanged()
     {
         FakeBackupClient client;
@@ -258,8 +236,6 @@ private Q_SLOTS:
                                            QStringLiteral("reset_failed"));
         QVERIFY(c.error().contains(QStringLiteral("kept your existing cross-signing identity")));
 
-        // Lost keys say so and name the way out; a device that could not be
-        // signed points at "Finish setting up", never at another reset.
         c.runAction(QStringLiteral("reset_cross_signing"));
         Q_EMIT client.backupActionFinished(client.lastOp,
                                            QStringLiteral("reset_cross_signing"),
@@ -283,8 +259,6 @@ private Q_SLOTS:
         QVERIFY(c.error().contains(QStringLiteral("unreadable")));
     }
 
-    // The approval page goes to the system browser: https only (http only on
-    // loopback), checked before it is ever exposed to QML.
     void onlyASecureApprovalPageIsExposed()
     {
         QVERIFY(BackupController::isSafeApprovalUrl(
@@ -313,8 +287,6 @@ private Q_SLOTS:
         QVERIFY(!c.busy());
     }
 
-    // An existing recovery key is kept (the user enters it) or replaced only
-    // with explicit consent; the choice travels to the backend as arguments.
     void anExistingRecoveryKeyNeedsAnExplicitChoice()
     {
         FakeBackupClient client;
@@ -346,13 +318,11 @@ private Q_SLOTS:
                                            QStringLiteral("setup_cross_signing"),
                                            true, QStringLiteral("EsTx new"), QString());
 
-        // Both at once is a contradiction and never reaches the backend.
         const int before = client.crossSigningCalls.size();
         c.dismissRecoveryKey();
         c.runCrossSigning(QStringLiteral("setup_cross_signing"),
                           QStringLiteral("EsTx current key"), true);
         QCOMPARE(client.crossSigningCalls.size(), before);
-        // Only the two cross-signing actions take this path.
         c.runCrossSigning(QStringLiteral("reset_key"), QString(), true);
         QCOMPARE(client.crossSigningCalls.size(), before);
         QVERIFY(client.actions.count(QStringLiteral("reset_key")) == 0);
@@ -378,9 +348,6 @@ private Q_SLOTS:
         QVERIFY(c.recoveryKey().isEmpty());
     }
 
-    // An identity this session cannot sign with is never replaced silently:
-    // the failure says so and names the way out, and carries a category QML can
-    // branch on without parsing prose.
     void keysUnavailableIsExplainedNotRetriedAsAReset()
     {
         FakeBackupClient client;
@@ -394,7 +361,6 @@ private Q_SLOTS:
         QCOMPARE(c.errorCategory(), QStringLiteral("keys_unavailable"));
         QVERIFY(c.error().contains(QStringLiteral("will not replace")));
         QVERIFY(c.error().contains(QStringLiteral("recovery key")));
-        // Exactly one action ran: no automatic follow-up reset.
         QCOMPARE(client.actions.size(), 1);
         QVERIFY(!c.busy());
     }
@@ -424,7 +390,6 @@ private Q_SLOTS:
         QVERIFY(!c.error().isEmpty());
     }
 
-    // ---- Sign-out key-loss warning (SDK facts only) -----------------------
     static QVariantList sessions(bool otherVerified)
     {
         return {
@@ -433,9 +398,6 @@ private Q_SLOTS:
         };
     }
 
-    // The backup_exists_on_server argument is CryptoHealthModel::TriState:
-    // 0 unknown, 1 no, 2 yes. State strings are the ones Rust really emits
-    // (backup_state_name): the SDK has no "disabled" backup state.
     void signOutRiskIsCheckingUntilTheSdkAnswers()
     {
         FakeBackupClient client;
@@ -447,8 +409,6 @@ private Q_SLOTS:
                                      QStringLiteral("done"), 0, 0);
         QCOMPARE(c.signOutKeyRisk(QStringLiteral("enabled"), 2, {})
                      .value("level").toString(), QStringLiteral("ok"));
-        // A new request invalidates the old answer: a stale "ok" must not
-        // describe the next dialog opening.
         c.requestProgress();
         QCOMPARE(c.signOutKeyRisk(QStringLiteral("enabled"), 2, {})
                      .value("level").toString(), QStringLiteral("checking"));
@@ -460,8 +420,7 @@ private Q_SLOTS:
         client.nextProgressId = 7;
         BackupController c;
         c.setClient(&client);
-        c.requestProgress(); // request 7
-        // An answer to request 6 arrives first: ignored.
+        c.requestProgress();
         Q_EMIT client.backupProgress(QStringLiteral("enabled"),
                                      QStringLiteral("done"), 0, 0, 6);
         QVERIFY(!c.progressAnswered());
@@ -481,16 +440,12 @@ private Q_SLOTS:
             Q_EMIT client.backupProgress(backup, upload, done, total);
             return c.signOutKeyRisk(recovery, onServer, {});
         };
-        // No backup at all: the server holds none. Rust reports the local
-        // state as "unknown" then, which must NOT hide it.
         QCOMPARE(level("unknown", "unknown", 0, 0, 1, "disabled").value("level"),
                  QVariant("no_backup"));
         QVERIFY(level("unknown", "unknown", 0, 0, 1, "enabled").value("warns").toBool());
         const auto up = level("enabled", "uploading", 3, 10, 2, "enabled");
         QCOMPARE(up.value("level"), QVariant("uploading"));
         QCOMPARE(up.value("pendingKeys").toLongLong(), qint64(7));
-        // Review L6: right after setup, enable() returns before the upload has
-        // started; the store's counts still show keys the backup lacks.
         const auto justEnabled = level("enabled", "idle", 0, 40, 2, "enabled");
         QCOMPARE(justEnabled.value("level"), QVariant("uploading"));
         QCOMPARE(justEnabled.value("pendingKeys").toLongLong(), qint64(40));
@@ -499,9 +454,6 @@ private Q_SLOTS:
                  QVariant("uploading"));
         QCOMPARE(level("enabled", "done", 0, 0, 2, "disabled").value("level"),
                  QVariant("no_recovery"));
-        // "Not known" is never reported as "no backup" nor as "fine": a state
-        // we could not read, an upload the SDK did not report in time, an
-        // upload that failed, a backup still being set up.
         QCOMPARE(level("unknown", "unknown", 0, 0, 0, "enabled").value("level"),
                  QVariant("unknown"));
         QCOMPARE(level("unknown", "unknown", 0, 0, 2, "enabled").value("level"),
@@ -514,8 +466,6 @@ private Q_SLOTS:
                  QVariant("unknown"));
         QCOMPARE(level("creating", "idle", 0, 0, 2, "enabled").value("level"),
                  QVariant("unknown"));
-        // Backed up and recoverable: no warning. "incomplete" is a recovery
-        // key held elsewhere, so signing out loses nothing more.
         QVERIFY(!level("enabled", "done", 0, 0, 2, "enabled").value("warns").toBool());
         QVERIFY(!level("enabled", "idle", 0, 0, 2, "incomplete").value("warns").toBool());
     }
@@ -529,15 +479,10 @@ private Q_SLOTS:
                                      QStringLiteral("unknown"), 0, 0);
         QCOMPARE(c.signOutKeyRisk(QStringLiteral("disabled"), 1, sessions(false))
                      .value("otherVerifiedDevices").toInt(), 0);
-        // The current session is "verified" by construction in the SDK and
-        // must never count as a second copy of the keys.
         QCOMPARE(c.signOutKeyRisk(QStringLiteral("disabled"), 1, sessions(true))
                      .value("otherVerifiedDevices").toInt(), 1);
     }
 
-    // An enable aborted by teardown after secret storage existed never
-    // reported; the next session's backend finds its marker and sends op 0.
-    // Before, op 0 was dropped and the user was told nothing.
     void anInterruptedSetupFromAnEarlierSessionIsReported()
     {
         FakeBackupClient client;
@@ -552,11 +497,8 @@ private Q_SLOTS:
         QVERIFY(c.recoveryKey().isEmpty());
         QVERIFY(!c.busy());
         QCOMPARE(stale.count(), 1);
-        // Shown, so the backend may drop its marker (review N3).
         QCOMPARE(client.acknowledged, 1);
 
-        // Op 0 stays no operation of ours for anything else, and never
-        // replaces what an operation in flight will report.
         c.runAction(QStringLiteral("create_backup"));
         QVERIFY(c.busy());
         Q_EMIT client.backupActionFinished(0, QStringLiteral("enable"), false,
@@ -567,10 +509,7 @@ private Q_SLOTS:
         QVERIFY(c.busy());
         QVERIFY(c.error().isEmpty());
         QVERIFY(c.recoveryKey().isEmpty());
-        // Queued, not shown: not acknowledged yet.
         QCOMPARE(client.acknowledged, 1);
-        // The operation reports; the queued report follows it, and only now
-        // is it acknowledged.
         Q_EMIT client.backupActionFinished(client.lastOp,
                                            QStringLiteral("create_backup"), true,
                                            QString(), QString());
@@ -579,9 +518,6 @@ private Q_SLOTS:
         QCOMPARE(client.acknowledged, 2);
     }
 
-    // Review N3: a report queued behind an operation and lost to a sign-out is
-    // never acknowledged, so the backend keeps its marker and the next session
-    // reports it again.
     void aQueuedInterruptedSetupLostToSignOutIsNotAcknowledged()
     {
         FakeBackupClient client;
@@ -597,9 +533,6 @@ private Q_SLOTS:
         QVERIFY(c.error().isEmpty());
     }
 
-    // A mistyped recovery key showed matrix-sdk's own English text ("The MAC
-    // check for the secret storage key failed", or a Base58 error quoting the
-    // bad character). Every category has its own translated sentence.
     void everyRecoveryFailureHasItsOwnPlainText()
     {
         const QStringList categories = {
@@ -627,7 +560,6 @@ private Q_SLOTS:
         QVERIFY(BackupController::recoveryFailureText(
                     QStringLiteral("recovery_key_wrong"))
                     .contains(QStringLiteral("does not unlock")));
-        // An unknown category is never shown raw.
         QCOMPARE(BackupController::recoveryFailureText(
                      QStringLiteral("something_new")), fallback);
     }

@@ -1,6 +1,3 @@
-// Several attachments sent together go out one at a time, in tray order: the
-// SDK send queue fixes its order when a file has been read and cached, so
-// dispatching every row at once lets a small file overtake a large one.
 
 #include "matrix/MatrixClient.h"
 #include "models/MessageComposer.h"
@@ -57,8 +54,6 @@ public:
 
     bool supportsAttachmentSend() const override { return true; }
     qint64 maxUploadSize() const override { return serverLimit; }
-    // Shares `lastDurationMs` with the video path: what matters is the
-    // duration the send declared, so players do not show "0:00".
     QString lastFilePath;
     int lastFileWidth = 0;
     int lastFileHeight = 0;
@@ -80,12 +75,8 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
-    // The reply target the most recent attachment send of ANY kind carried;
-    // "" for a plain send. Proves the reply survives every send path.
     QString lastReplyTo;
     QString lastCaption;
-    // Records what the video send path declared, so a test can prove the
-    // poster and geometry reached the client.
     int videoSends = 0;
     QByteArray lastThumbnail;
     int lastThumbWidth = 0;
@@ -113,7 +104,6 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
-    // Records the still-image-with-thumbnail path (an SVG's PNG preview).
     int imageThumbSends = 0;
     int lastImageWidth = 0;
     int lastImageHeight = 0;
@@ -153,7 +143,6 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
-    // Records the voice send so a test can prove the preflight ran first.
     int voiceSends = 0;
     QString lastVoiceRoom;
     quint64 sendVoiceMessage(const QString &roomId, const QString &,
@@ -183,7 +172,6 @@ QString writeFile(const QTemporaryDir &dir, const QString &name,
     return path;
 }
 
-// Minimal valid 1x1 PNG.
 QByteArray tinyPng()
 {
     QByteArray png = QByteArray::fromHex(
@@ -193,7 +181,7 @@ QByteArray tinyPng()
     return png;
 }
 
-} // namespace
+}
 
 class AttachmentOrderTest : public QObject
 {
@@ -215,7 +203,6 @@ private Q_SLOTS:
         QCOMPARE(composer.attachments()->rowCount(), 3);
 
         composer.send();
-        // Only the first is in flight; the others wait for its result.
         QCOMPARE(client.fileSends, 1);
         QVERIFY(client.lastFilePath.endsWith(QStringLiteral("a.bin")));
 
@@ -223,7 +210,6 @@ private Q_SLOTS:
         QCOMPARE(client.fileSends, 2);
         QVERIFY(client.lastFilePath.endsWith(QStringLiteral("b.bin")));
 
-        // A failed row does not strand the ones behind it.
         Q_EMIT client.attachmentQueueFinished(client.lastOpId, room, false,
                                               QStringLiteral("rejected"));
         QCOMPARE(client.fileSends, 3);
@@ -244,8 +230,6 @@ private Q_SLOTS:
         composer.send();
         QCOMPARE(client.fileSends, 1);
 
-        // The tray belongs to the room, but a row the user already sent must
-        // not be dropped with it.
         composer.setRoomId(QStringLiteral("!other:example.org"));
         QCOMPARE(client.fileSends, 2);
     }

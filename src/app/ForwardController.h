@@ -37,12 +37,10 @@ class ForwardController : public QObject
     Q_PROPERTY(QString previewText READ previewText NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(QString error READ error NOTIFY changed)
-    /// A multi-message forward is in progress or has finished with results.
     Q_PROPERTY(bool selectionActive READ selectionActive NOTIFY changed)
     Q_PROPERTY(int progressDone READ progressDone NOTIFY changed)
     Q_PROPERTY(int progressTotal READ progressTotal NOTIFY changed)
     Q_PROPERTY(int failureCount READ failureCount NOTIFY changed)
-    /// [{roomId, eventId, message}] — WHICH pair failed, not just how many.
     Q_PROPERTY(QVariantList failures READ failures NOTIFY changed)
     Q_PROPERTY(QString forwardMode READ forwardMode NOTIFY changed)
     Q_PROPERTY(bool selecting READ selecting NOTIFY changed)
@@ -51,9 +49,7 @@ class ForwardController : public QObject
 public:
     explicit ForwardController(QObject *parent = nullptr);
 
-    // A forward in flight never survives into another account.
     void setClient(MatrixClient *client);
-    // Decrypting media fetch shared with save/star.
     void setMediaBridge(MediaBridge *bridge);
 
     bool active() const { return m_active; }
@@ -63,38 +59,22 @@ public:
     bool busy() const { return m_busy; }
     QString error() const { return m_error; }
 
-    // Opens the picker. `sourceRoomId` must be the real room id, never the
-    // composite thread-timeline id. Sets `error` and stays inactive for
-    // content that cannot be forwarded.
     Q_INVOKABLE void begin(const QString &sourceRoomId,
                           const QString &sourceEventId,
                           const QVariantMap &snapshot);
     Q_INVOKABLE void cancel();
-    // Dispatches the send for the frozen snapshot. Ignored while inactive or
-    // busy, guarding against double activation.
     Q_INVOKABLE void forwardTo(const QString &targetRoomId);
 
-    // ── Multi-message, multi-destination forwarding ─────────────────────
-    //
-    // N snapshots to M destinations; each pair succeeds or fails on its own.
-    // Destinations are {roomId, threadRootId}: a thread root makes the copy a
-    // thread reply in the target, a relation the target itself owns.
-    /// Enter/leave selection mode; the timeline shows checkboxes while set.
     Q_INVOKABLE void beginSelecting(const QString &sourceRoomId);
     Q_INVOKABLE void cancelSelecting();
-    /// Add or remove one message, capturing its snapshot at click time.
     Q_INVOKABLE void toggleSelected(const QString &eventId,
                                     const QVariantMap &snapshot);
     Q_INVOKABLE bool isSelected(const QString &eventId) const;
 
     Q_INVOKABLE void beginSelection(const QString &sourceRoomId,
                                     const QVariantList &snapshots);
-    /// "content" (a clean copy) or "context" (attributed with sender, room and
-    /// time). Context discloses the source room and sender, so it is never the
-    /// default.
     Q_INVOKABLE void setForwardMode(const QString &mode);
     Q_INVOKABLE void sendSelection(const QVariantList &targets);
-    /// Re-dispatch only the pairs that failed.
     Q_INVOKABLE void retryFailures();
 
     bool selectionActive() const { return m_selectionActive; }
@@ -107,28 +87,20 @@ public:
     int selectedCount() const { return int(m_selectionSnapshots.size()); }
 
 public:
-    // Strips path structure, control characters and leading dots. Public for
-    // tests.
     static QString sanitizedForwardFilename(const QString &raw);
 
 Q_SIGNALS:
     void changed();
-    // Emitted only once the send is dispatched; AppController opens the room.
     void forwarded(const QString &targetRoomId);
-    // A dispatched forward was refused by the server.
     void forwardFailed(const QString &targetRoomId, const QString &message);
 
 private Q_SLOTS:
-    // Matched by op id against m_dispatchedSends; other ops are ignored.
     void onAttachmentQueueFinished(quint64 opId, const QString &roomId,
                                    bool ok, const QString &category);
-    // Broadcast for every key in flight; only the pending key is handled.
     void onMediaBytesForStar(const QString &mediaKey, bool ok,
                              const QByteArray &bytes, const QString &category);
 
 private:
-    // Drops all in-progress state and bumps m_generation, invalidating any
-    // outstanding media fetch.
     void resetToIdle();
     void setError(const QString &message);
     static bool snapshotIsMedia(const QVariantMap &snapshot);
@@ -148,7 +120,6 @@ private:
     // Frozen at begin() — never re-read from a live model.
     QVariantMap m_snapshot;
 
-    // ── Selection state ──────────────────────────────────────────────
     struct Pending {
         QVariantMap snapshot;
         QString eventId;
@@ -169,16 +140,11 @@ private:
     QVariantList m_failures;
     int m_progressDone = 0;
     int m_progressTotal = 0;
-    /// One send at a time, so a large selection cannot saturate the link.
     bool m_pumpBusy = false;
 
-    // Bumped by resetToIdle(); a media answer from an older generation is
-    // dropped rather than sent to the current target.
     quint64 m_generation = 0;
     quint64 m_pendingGeneration = 0;
     QString m_pendingMediaKey;
-    // Dispatched media sends, op id -> target room. Survives resetToIdle() so
-    // a later refusal is still reported; one entry per send.
     QHash<quint64, QString> m_dispatchedSends;
     QString m_pendingTargetRoomId;
 };

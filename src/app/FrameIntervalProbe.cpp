@@ -14,7 +14,6 @@ double FrameIntervalStats::percentile(double p) const
     QVector<double> sorted = m_samples;
     std::sort(sorted.begin(), sorted.end());
     const double clamped = std::clamp(p, 0.0, 100.0);
-    // Nearest rank: ceil(p/100 * n), 1-based.
     int rank = int(std::ceil(clamped / 100.0 * sorted.size()));
     rank = std::clamp(rank, 1, int(sorted.size()));
     return sorted.at(rank - 1);

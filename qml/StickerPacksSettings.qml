@@ -3,18 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings -> Appearance: emoji and sticker packs (Matrix v1.19 image packs,
-// with the older im.ponies.* format still read and edited in place).
-//
-// Lists the packs this account can use right now: its own, the ones turned on
-// for use everywhere, the open room's, and those of the room's Spaces. Per
-// room pack: a "Use everywhere" switch and Manage. A room the account may
-// edit can get a new pack here. Nothing here is optimistic: each action waits
-// for the backend and the list is re-read.
-//
-// Packs of rooms and Spaces you are not in the middle of are not discovered:
-// that would be one state read per joined room. Open the room or Space, or
-// enable its pack from the sticker picker, and it appears here.
 ColumnLayout {
     id: section
     objectName: "stickerPacksSettings"
@@ -26,10 +14,8 @@ ColumnLayout {
 
     property string notice: ""
     property bool noticeIsError: false
-    // A Create was pressed; its editFinished is ours to report.
     property bool creating: false
 
-    // Why a subscribed pack could not be read, in the user's words.
     function unavailableText(reason) {
         if (reason === "not_joined")
             return qsTr("you are not in its room")
@@ -40,8 +26,6 @@ ColumnLayout {
         return qsTr("could not be loaded")
     }
 
-    // A fresh read whenever this page is shown; a no-op when the snapshot is
-    // current.
     onVisibleChanged: if (visible && available) stickers.refreshIfStale()
     Component.onCompleted: if (visible && available) stickers.refreshIfStale()
 
@@ -135,8 +119,6 @@ ColumnLayout {
                         var where = packRow.source !== "room" ? qsTr("Your pack")
                                   : packRow.fromSpace ? qsTr("Space pack")
                                   : qsTr("Room pack")
-                        // The older im.ponies format, said once and plainly;
-                        // the protocol names live in the docs.
                         if (packRow.packNamespace === "legacy")
                             where += " · " + qsTr("older format")
                         if (!packRow.available)
@@ -154,8 +136,6 @@ ColumnLayout {
                 }
             }
 
-            // Only a room's pack has anything to turn on; your own is always
-            // yours. Follows the snapshot re-read after the write.
             AppSwitch {
                 objectName: "stickerPackUseEverywhereSwitch"
                 visible: packRow.source === "room"
@@ -173,16 +153,12 @@ ColumnLayout {
             }
             Label {
                 id: useEverywhereLabel
-                // Dropped on a narrow page so the pack's name keeps its room
-                // (C41-F14); the switch keeps its accessible name and tooltip.
                 visible: packRow.source === "room" && section.width >= 460
                 text: qsTr("Use everywhere")
                 color: AppTheme.stormTextSecondary
                 font.pixelSize: AppTheme.textMeta
             }
 
-            // A local view choice: the pack stays in the room and any
-            // subscription stays as it is; it just is not offered here.
             AppButton {
                 objectName: "stickerPackHideButton"
                 text: packRow.hidden ? qsTr("Show") : qsTr("Hide")
@@ -200,19 +176,13 @@ ColumnLayout {
                 text: qsTr("Manage")
                 kind: "ghost"
                 size: "sm"
-                // An unreadable pack has nothing to manage; its row keeps the
-                // Use everywhere switch so the stale reference can be removed.
                 enabled: section.available && packRow.available
                          && !section.stickers.editing
                          && !section.stickers.transferring
                 onClicked: {
-                    // The editor edits whichever pack the manager has selected.
                     section.stickers.selectedPackId = packRow.packId
                     editor.stickers = section.stickers
                     editor.restoreTo = manageButton
-                    // The manager's rule, not the model role: the role is the
-                    // ROOM permission and is false for the account's own pack,
-                    // which is always writable (C41-D01, C41-F06).
                     editor.openFor(packRow.packId, packRow.displayName,
                                    section.stickers.canManagePack(packRow.packId))
                 }
@@ -220,9 +190,6 @@ ColumnLayout {
         }
     }
 
-    // A new, empty pack in the open room (stable format, a fresh state key),
-    // for a room this account may edit. Images are added from the picker or
-    // the editor.
     RowLayout {
         id: createRow
         objectName: "stickerPackCreateRow"
@@ -350,7 +317,6 @@ ColumnLayout {
                 section.notice =
                     qsTr("That could not be changed. Try again in a moment.")
             else if (section.stickers.lastMirrorFailed())
-                // Two writes, not one transaction: say which half landed.
                 section.notice = qsTr("Saved. Older apps on your other "
                                       + "devices may not see this change yet.")
             else

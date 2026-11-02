@@ -1,6 +1,3 @@
-// Opt-in measurement: supply a hardware-free private graph and a separate
-// 690 Hz application. The 1500 Hz far-end tone uses the REAL SFU receive bin
-// in this process, including its production output sink (testSink=false).
 #include "calls/GstBootstrap.h"
 #include "calls/SfuMediaEngine.h"
 #include "calls/ShareAudioSources.h"
@@ -108,7 +105,6 @@ int main(int argc, char **argv)
     }
     QString source = plan.description;
     if (control) {
-        // Deliberately broken pre-fix fallback: positive echo control.
         source = QStringLiteral("pulsesrc name=sharesrc device=@DEFAULT_MONITOR@");
     } else if (plan.kind == lightning::shareaudio::SystemCapture::Kind::PerApplication) {
         const auto listing = lightning::shareaudio::enumerate(

@@ -40,19 +40,12 @@ Rectangle {
     property Item row: null
     property Item toolbar: null
     property Item receipts: null
-    // In Bubbles this is the bubble; elsewhere, the visible content children
-    // (the transparent full-width column itself is not occupied space).
     property var contentItems: []
-    // Other painted/interactive items, including chips outside the content
-    // column. Use their mapped bounds, not the transparent Flow's width.
     property var collisionItems: []
     property bool ownBubble: false
     property string mediaKey: ""
     property string surface: "main"
     property bool eligible: true
-    // Every download of this attachment, oldest first (app.downloads order).
-    // The notice shows the newest; an older one of the same file stays on the
-    // pane card (DownloadNotices.unclaimed), so each is shown once.
     property var items: []
     readonly property var item: items.length > 0 ? items[items.length - 1] : null
 
@@ -60,9 +53,6 @@ Rectangle {
     readonly property bool done: item !== null && item.state === "done"
     readonly property bool failed: item !== null && item.state === "failed"
     readonly property bool risky: item !== null && item.risky === true
-    // Which controls the state shows. Read these, never the buttons'
-    // `visible`: that is the effective visibility, which follows the
-    // notice's own, which follows `fits`, which follows the width.
     readonly property bool showsOpen: done && item.canOpen === true
     readonly property bool showsFolder: done
     readonly property bool showsRetry: failed
@@ -91,8 +81,6 @@ Rectangle {
             : qsTranslate("DownloadsCard", "Saved")
     }
 
-    // mapToItem alone does not subscribe to intermediate ancestors' offsets.
-    // Read them explicitly so headers, captions and layout changes stay bound.
     function rectInRow(target) {
         if (!target || !row) return Qt.rect(0, 0, 0, 0)
         for (var ancestor = target; ancestor && ancestor !== row;
@@ -104,10 +92,6 @@ Rectangle {
     readonly property rect attachmentRect: rectInRow(attachment)
     readonly property rect toolbarRect: rectInRow(toolbar)
     readonly property rect receiptRect: rectInRow(receipts)
-    // The content's horizontal extent within one band (top..bottom): only
-    // what shares the band can be beside the notice. A caption BELOW the card
-    // spans the whole row in Modern/Compact (text is not width-capped), and
-    // counting it at every height left no room beside the card at all.
     function contentRectIn(top, bottom) {
         var left = attachmentRect.x
         var right = left + attachmentRect.width
@@ -126,20 +110,13 @@ Rectangle {
 
     readonly property int margin: AppTheme.spacing4
     readonly property int gap: AppTheme.spacing12
-    // Shorter than a file card (54), so it fits beside one in a row that has
-    // nothing else in it. Constant across states: a download that finishes
-    // never stops fitting.
     readonly property int stripHeight: 34
     readonly property int maxWidth: 320
-    // The narrowest the finished layout can be (icon, Open, Show in folder,
-    // Dismiss, no status text). Every state is measured against it, so the
-    // claim does not move when a download finishes.
     readonly property real minWidth:
         strip.anchors.leftMargin + strip.anchors.rightMargin
         + statusBox.implicitWidth + openButton.implicitWidth
         + folderButton.implicitWidth + closeButton.implicitWidth
         + strip.spacing * 3
-    // What the current state's controls need without the status text.
     readonly property real fixedWidth:
         strip.anchors.leftMargin + strip.anchors.rightMargin
         + statusBox.implicitWidth + closeButton.implicitWidth
@@ -152,8 +129,6 @@ Rectangle {
 
     height: stripHeight
 
-    // The lazy hover toolbar's band, even before it exists (its 28px buttons
-    // and 2px padding; barWidth is the Loader's own estimate).
     readonly property rect toolbarBand: {
         if (!toolbar)
             return Qt.rect(0, 0, 0, 0)
@@ -163,12 +138,6 @@ Rectangle {
                        w, Math.max(32, toolbarRect.height))
     }
 
-    // Where the notice goes, and whether it fits there. Two candidate bands
-    // beside the card: centred on it, and just below the toolbar's band (a
-    // row with a sender header or a caption has room there, and the toolbar
-    // then does not narrow it). The one that fits wins; when both do, the one
-    // with more room, then the centred one. One binding over geometry the
-    // notice does not affect, so no loop.
     function placeAt(top) {
         var bottom = top + stripHeight
         var out = { y: top, x: 0, width: 0, span: 0, label: false, fits: false }
@@ -176,13 +145,9 @@ Rectangle {
             return out
         if (top < margin || bottom + margin > row.height)
             return out
-        // Beside the card: the notice's band must meet the card's.
         if (bottom <= attachmentRect.y
             || top >= attachmentRect.y + attachmentRect.height)
             return out
-        // Things that can share the band beside the card: the toolbar (and
-        // 4px under it), and the receipt faces, which lift 4px and scale 5%
-        // on hover, so with a gap.
         var obstacles = []
         if (toolbar && toolbarBand.width > 0
             && top < toolbarBand.y + toolbarBand.height + AppTheme.spacing4
@@ -202,7 +167,6 @@ Rectangle {
         var end = ownBubble ? contentRect.x - gap : row.width - margin
         for (var i = 0; i < obstacles.length; ++i) {
             var o = obstacles[i]
-            // One over the start of the span leaves no span at all.
             if (!ownBubble && o.x <= start && o.x + o.width > start)
                 return out
             if (o.x + o.width > start && o.x < end)
@@ -211,9 +175,6 @@ Rectangle {
         out.span = Math.max(0, end - start)
         if (out.span < minWidth)
             return out
-        // The status text when it has room for a few words or all of it;
-        // otherwise the icon's tooltip and accessible name carry it and the
-        // notice is just its controls.
         var w = Math.min(naturalWidth, out.span)
         out.label = w - fixedWidth - strip.spacing
                     >= Math.min(40, statusLabel.implicitWidth)
@@ -257,11 +218,6 @@ Rectangle {
         eligible && fits && !risky && items.length > 0 && mediaKey !== ""
     readonly property bool owned:
         wants && DownloadNotices.owner(mediaKey) === token
-    // The claim this notice holds, as it was made. A row's media key or
-    // surface can change in place (the event is replaced, the view is reused),
-    // and a release must name what was CLAIMED, not what the bindings say now:
-    // releasing the new key left the old one claimed by nobody visible, and
-    // its download was shown nowhere.
     property string claimedKey: ""
     property string claimedSurface: ""
     function syncClaim() {
@@ -285,8 +241,6 @@ Rectangle {
         if (claimedKey !== "")
             DownloadNotices.setClaim(claimedKey, token, claimedSurface, false)
     }
-    // Shown beside its card at least once: the pane card keeps it until the
-    // user dismisses or opens it, wherever it goes next.
     onOwnedChanged: if (owned && item) DownloadNotices.markShownBeside(item.id)
     onItemChanged: if (owned && item) DownloadNotices.markShownBeside(item.id)
     visible: owned
@@ -297,7 +251,6 @@ Rectangle {
     border.width: 1
     border.color: AppTheme.borderSubtle
 
-    // A soft shadow so it reads as floating beside the card.
     Rectangle {
         z: -1
         anchors.fill: parent
@@ -334,7 +287,6 @@ Rectangle {
                 size: 18
                 color: notice.failed ? AppTheme.danger : AppTheme.success
             }
-            // The status, also when its label is hidden for width.
             Accessible.role: Accessible.StaticText
             Accessible.name: notice.statusText
             HoverHandler { id: statusHover }
@@ -364,7 +316,6 @@ Rectangle {
             objectName: "downloadOpenButton"
             visible: notice.showsOpen
             size: "sm"
-            // No 72px floor here: every pixel beside the card counts.
             minWidth: 0
             kind: "primary"
             text: qsTranslate("DownloadsCard", "Open")

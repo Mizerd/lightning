@@ -7,17 +7,6 @@ import "LeaveAdminCheck.js" as AdminCheck
 Rectangle {
     id: root
 
-    // Every attachment download from this pane, its thread panel, its
-    // context view and the Room Information panel. `ask` is "Save as…";
-    // otherwise Element's Download: straight into the downloads folder unless
-    // the user asked to always choose (app.downloads decides). The name and
-    // type are the sender's; app.downloads sanitizes them and fixes the
-    // extension from the type.
-    // `surface` names where the click happened ("main", "thread", "context");
-    // empty from the image viewer and Room Information. The same event can be
-    // on screen in two surfaces, and its notice is shown once, in this one
-    // (DownloadNotices); an item no on-screen file card claims is shown by the
-    // pane-level fallback card instead.
     function startDownload(mediaKey, filename, mime, ask, surface) {
         if (!mediaKey || mediaKey.length === 0 || !app.downloads)
             return
@@ -39,24 +28,14 @@ Rectangle {
         anchors.fill: parent
         role: "timelineBackground"
         flatFill: false
-        // The room list sits above this pane in Depth.
         innerShadowEdge: "left"
     }
 
-    // Routes Home's create actions to the room list's shared new-conversation
-    // dialog. options: {addToSpace: bool} preselects placement in the active
-    // Space.
     signal newConversationRequested(string mode, var options)
-    // The find bar found nothing in this room and the reader asked for every
-    // room instead; MainScreen opens the global search with this query.
     signal searchAllRoomsRequested(string query)
-    // Home's "Explore rooms"; MainScreen opens the room list's Discover dialog.
     signal discoverRoomsRequested()
 
     property var currentRoom: ({})
-    // Bumped on every SpaceManager change: bindings that read a Space's
-    // name through spaceName() (a call, so no dependency of its own) read
-    // this too, or the Space Home title kept the old name after a rename.
     property int spacesTick: 0
     Connections {
         target: (typeof app !== "undefined" && app) ? app.spaces : null
@@ -71,9 +50,6 @@ Rectangle {
         && messageComposer.activeEditor().enabled
         && !messageComposer.activeEditor().readOnly
 
-    // While the thread panel holds a thread the room timeline and composer
-    // step aside (composerFocusable/timelineFocusable are false), so the
-    // same shortcuts drive the panel's composer and message selection.
     readonly property bool threadPanelHoldsKeys:
         app.thread.active && threadPanel.visible
         && app.currentScreen === 1 && app.loggedIn && !app.accountSwitching
@@ -111,23 +87,12 @@ Rectangle {
 
     property string keyboardSelectedEventId: ""
     property string resumeSelectedEventId: ""
-    // The message selection is remembered per room apart from the viewport
-    // ("When returning to a conversation"): restoring one never moves or
-    // implies the other. selectionRoomId is the room a selection belongs to,
-    // so the save never lands on the room being switched to.
     property string selectionRoomId: ""
-    // A saved selection waiting for its row to be loaded in the reopened
-    // room; applied by the count observer below, never by scrolling to it.
     property string pendingReturnSelection: ""
-    // Outline the restored selection without taking keyboard focus (the
-    // "Show the message selection outline when returning" choice).
     property bool restoredSelectionOutline: false
     function rememberSelection() {
         var id = root.keyboardSelectedEventId !== ""
                  ? root.keyboardSelectedEventId : root.resumeSelectedEventId
-        // Only a real selection is saved: the clears below (room switch,
-        // an event leaving the model) are bookkeeping, not the reader
-        // deselecting.
         if (id !== "" && root.selectionRoomId !== ""
                 && root.selectionRoomId === app.currentRoomId)
             app.pagination.saveSelection(root.selectionRoomId, id)
@@ -139,7 +104,6 @@ Rectangle {
         if (id === "" || !app.timeline || app.timeline.rowForStableId(id) < 0)
             return
         root.pendingReturnSelection = ""
-        // A selection the reader made since the room opened wins.
         if (root.keyboardSelectedEventId !== ""
                 || root.resumeSelectedEventId !== "")
             return
@@ -150,9 +114,6 @@ Rectangle {
         }
     }
 
-    // Inline thread style: narrowing to a thread is how a thread is opened
-    // here, so the composer (which now sends into it) takes the keyboard, as
-    // the thread panel's does when it opens.
     Connections {
         target: app.timeline
         property string lastRoot: ""
@@ -160,7 +121,6 @@ Rectangle {
             var rootId = app.timeline.threadFilterRootId || ""
             if (rootId !== "" && rootId !== lastRoot)
                 Qt.callLater(function() {
-                    // The pane may be gone by the time this runs.
                     if (root)
                         root.focusComposerForTyping()
                 })
@@ -193,8 +153,6 @@ Rectangle {
         timeline.cancelWheelMotion()
         timeline.noteReaderTookControl()
         timeline.forceActiveFocus()
-        // Resume an existing selection only if it is still in this viewport.
-        // Scrolling while composing must not cause a jump back into history.
         if (root.keyboardSelectedEventId === "")
             root.keyboardSelectedEventId = root.resumeSelectedEventId
         var row = timeline.viewRowForStableId(root.keyboardSelectedEventId)
@@ -230,15 +188,6 @@ Rectangle {
             root.applyReturnSelection()
         }
     }
-    // The current room is an invite not yet accepted (opened from Activity or
-    // a notification; the room list opens only joined rooms). It gets the
-    // invite card instead of a timeline and composer: sending to a room you
-    // have not joined fails with nothing to retry (break-it B037). Read from
-    // the room list's record of the room, or from the roster's own
-    // membership; either one missing means "not an invite", today's view.
-    // The open room is an invitation whose picture the account does not
-    // allow yet (MSC4278 invite_avatars, fail-closed): every avatar of it
-    // drawn here, the header included, shows the letter tile instead.
     readonly property bool inviteAvatarWithheld:
         root.invitePreview
         && !(app.accountPrefs && app.accountPrefs.inviteAvatarsAllowed)
@@ -248,16 +197,8 @@ Rectangle {
             || (!!app.roomInfo && app.roomInfo.roomId === app.currentRoomId
                 && (app.roomInfo.ownMembership === "invite"
                     || app.roomInfo.ownMembership === "invited")))
-    // Whether the room had unread messages when it was OPENED. A snapshot:
-    // the read receipt clears the live count about a second later, while the
-    // reader's place (m.fully_read) stays where it was for the visit. With no
-    // read-marker row in the loaded rows it means the marker lies further
-    // back, which the first-unread pill can still reach.
     property bool openedWithUnread: false
-    // A bounded hunt for the marker ran out without finding it this visit.
     property bool firstUnreadHuntFailed: false
-    // Tells the reader, for a few seconds, that the hunt gave up (C13-F02):
-    // before this the pill simply vanished after a click that moved nothing.
     property bool firstUnreadNoteShown: false
     onFirstUnreadHuntFailedChanged: {
         firstUnreadNoteShown = firstUnreadHuntFailed
@@ -272,13 +213,6 @@ Rectangle {
         firstUnreadHuntFailed = false
         noteLoadedReadMarker()
     }
-    // The snapshot only stands in for a marker the reader has not SEEN
-    // loaded. Once the read-marker row has been in the loaded rows this visit
-    // the pill follows that row alone: when it goes away (m.fully_read moved
-    // on window deactivation, room leave, or from another device) the pill
-    // goes with it, instead of promising a jump the hunt cannot land.
-    // Checked against the model's own room, so rows still belonging to the
-    // previous room cannot clear the new room's snapshot.
     function noteLoadedReadMarker() {
         if (openedWithUnread && app.timeline
                 && app.timeline.roomId === app.currentRoomId
@@ -292,9 +226,6 @@ Rectangle {
         function onCountChanged() { root.noteLoadedReadMarker() }
         function onRoomIdChanged() { root.noteLoadedReadMarker() }
     }
-    // Lightning wrote m.fully_read for this room (the window lost focus with
-    // the reader at the bottom): nothing unread is left above the loaded rows,
-    // so the deep-marker pill would only start a hunt that cannot land.
     Connections {
         target: app.readReceipts
         function onFullyReadMarkerMoved(roomId) {
@@ -304,42 +235,19 @@ Rectangle {
     }
     property bool infoOpen: false
     property bool searchOpen: false
-    // The thread side surface is open when a thread panel or the room's Threads
-    // list is showing.
     readonly property bool threadSurfaceOpen: app.thread.active
                                               || app.thread.listOpen
-    // Settings > Threads open in: Main view. The same ThreadPanel instance and
-    // the same thread session; only the layout changes (the room column stays
-    // alive underneath, keeping its scroll position, and reports itself not
-    // visible, so the room is not read while the thread covers it). A focused
-    // thread only: the room's Threads list stays beside the room.
     readonly property bool threadInMainView:
         app.thread.active && app.settings.threadPlacement === 1
-    /// A live MatrixRTC call in this room owns the column. One condition, read
-    /// by the stage's Loader and by everything the stage replaces, so the two
-    /// cannot disagree and split the column between them.
-    ///
-    /// Excludes picture-in-picture: SfuVideoRouter holds one sink per track and
-    /// the last attach owns it, so a built stage would go black behind the PiP
-    /// and stay black after it closes. Unloading the stage releases its sinks.
     readonly property bool callStageOwnsColumn:
         app.groupCall.active && app.groupCall.roomId === app.currentRoomId
         && !(app.groupCall.stageState
              && app.groupCall.stageState.pictureInPicture)
 
-    // Call panel height: 40% of the column for voice, 70% once anything sends
-    // video, clamped to [220 px, 75%]. A drag stores the user's height for the
-    // session; video appearing still nudges it up once (see
-    // onCallPanelHasVideoChanged). Collapsed, the panel is a one-line strip.
     property bool callPanelCollapsed: false
-    /// < 0: no user preference, follow the automatic height.
     property real callPanelUserHeight: -1
-    /// Drag origin: a DragHandler reports a translation, not a position.
     property real callPanelDragBase: 0
-    /// Collapsed strip height: the compact control row plus the panel margins.
-    /// Anything smaller clips the controls.
     readonly property real callPanelCollapsedHeight: 64
-    /// Read off the stage, which already owns this derivation.
     readonly property bool callPanelHasVideo:
         callStageHost.active && callStageHost.item
         ? !callStageHost.item.voiceOnly : false
@@ -352,28 +260,16 @@ Rectangle {
            ? root.callPanelAutoHeight
            : clampCallPanelHeight(root.callPanelUserHeight))
 
-    /// Minimum height for a panel showing video, asked of the stage (it knows
-    /// its header, dock and margins). Falls back to a flat number while the
-    /// stage is not loaded.
     readonly property real callPanelVideoFloor:
         callStageHost.active && callStageHost.item
         ? callStageHost.item.minimumUsefulHeight : 220
 
     function clampCallPanelHeight(value) {
-        // The floor yields to a small column so the timeline never disappears.
-        // A panel showing video asks for more (0.6 rather than 0.45 of the
-        // pane) so a share is not squeezed to a sliver.
         var floor = root.callPanelHasVideo
             ? Math.min(root.callPanelVideoFloor,
                        Math.max(64, root.height * 0.6))
             : Math.min(220, Math.max(64, root.height * 0.45))
         var ceiling = Math.max(floor, root.height * 0.75)
-        // What the rest of the column needs, so the composer is never pushed
-        // below the window: the room header, the call controls, the divider,
-        // the composer itself and a sliver of timeline. In a short window
-        // (a quarter of a screen) the 0.6 / 0.7 shares above do not leave
-        // that, and the column used to overflow its bottom edge, taking the
-        // message box out of reach during a call.
         var reserve = roomHeaderBand.height + timelineCallHeaderBar.height + 9
                       + (messageComposer.visible ? messageComposer.height : 0)
                       + 64
@@ -383,8 +279,6 @@ Rectangle {
         return Math.max(floor, Math.min(value, ceiling))
     }
 
-    // One-shot grow when a share or camera arrives; afterwards the user's own
-    // height wins again.
     onCallPanelHasVideoChanged: {
         if (!root.callPanelHasVideo || root.callPanelUserHeight < 0)
             return
@@ -393,14 +287,10 @@ Rectangle {
             root.callPanelUserHeight = target
     }
 
-    // Collapse is per call: the next call must not start collapsed.
     onCallStageOwnsColumnChanged: {
         if (!root.callStageOwnsColumn)
             root.callPanelCollapsed = false
     }
-    // Exactly one right-side surface is open: the thread surface wins, then the
-    // info/member panel. All open/close paths go through the two underlying
-    // states and their exclusivity handlers.
     readonly property string rightPanelState:
         threadSurfaceOpen ? "thread"
         : (searchOpen ? "search" : (infoOpen ? "info" : "none"))
@@ -423,7 +313,6 @@ Rectangle {
             middleClickScroller.stop()
     }
 
-    // F6 target (C74-F01): the composer, when there is one to type in.
     function focusComposer() {
         if (!messageComposer.visible || !messageComposer.enabled)
             return false
@@ -431,8 +320,6 @@ Rectangle {
         return true
     }
 
-    // Member/info panel and thread panel are mutually exclusive. The exclusion
-    // lives on the state properties so every open path goes through it.
     onThreadSurfaceOpenChanged: {
         if (threadSurfaceOpen) {
             infoOpen = false
@@ -457,21 +344,14 @@ Rectangle {
         app.thread.closeList()
     }
 
-    // The member panel is the one right-side surface that follows the reader
-    // from room to room. Only a deliberate open or close writes the choice: a
-    // room switch or Settings closes the panel without meaning "stop showing
-    // members", so those paths never call this.
     function rememberMemberPanel() {
         app.settings.memberPanelOpen =
             root.infoOpen && infoPanel.section === "people"
     }
-    // Re-opens the member panel for the current room when it was left open.
     function restoreMemberPanel() {
         if (!app.settings.memberPanelOpen || app.currentRoomId === ""
                 || !app.roomInfo.supported)
             return
-        // A remembered panel is not worth hiding the room behind it in a
-        // window too narrow to show both; opening it is an explicit act there.
         if (root.width > 0 && !sideSurface.infoBeside)
             return
         infoPanel.openForRoom(app.currentRoomId)
@@ -492,7 +372,6 @@ Rectangle {
         rememberMemberPanel()
     }
 
-    // Room information on its overview section, opened (never toggled shut).
     function openRoomOverview() {
         if (app.currentRoomId === "" || !app.roomInfo.supported)
             return
@@ -518,7 +397,6 @@ Rectangle {
         searchOpen = true
     }
 
-    // Header toggle for the thread surface (list or open thread).
     function toggleThreadSurface() {
         if (threadSurfaceOpen) {
             if (app.thread.active)
@@ -529,7 +407,6 @@ Rectangle {
         }
     }
 
-    // Opens the side panel on the Pinned section (mirrors toggleMemberPanel).
     function togglePinnedPanel() {
         if (app.currentRoomId === "" || !app.roomInfo.supported)
             return
@@ -543,7 +420,6 @@ Rectangle {
         rememberMemberPanel()
     }
 
-    // Opens the side panel on the People section.
     function toggleMemberPanel() {
         if (app.currentRoomId === "" || !app.roomInfo.supported)
             return
@@ -560,9 +436,6 @@ Rectangle {
 
     Connections {
         target: app
-        // Full-view Settings hides the chat shell. The info panel and its
-        // section are remembered and restored on return; the find bar is
-        // closed.
         property bool infoOpenBeforeSettings: false
         property string infoSectionBeforeSettings: ""
         function onCurrentScreenChanged() {
@@ -582,15 +455,12 @@ Rectangle {
         function onCurrentRoomIdChanged() {
             refreshCurrentRoom()
             snapshotOpenedUnread()
-            // A find session belongs to the room it was opened in.
             if (root.findOpen) {
                 root.findOpen = false
                 root.findHistoryMode = false
                 app.messageSearch.query = ""
                 findField.text = ""
             }
-            // Wheel motion and middle-click autoscroll must not continue into
-            // the new room.
             timeline.cancelWheelMotion()
             root.stopAutoscroll()
             timeline.firstUnreadSeen = false
@@ -599,24 +469,14 @@ Rectangle {
             timeline.viewAnchorId = ""
             timeline.viewAnchorOffset = 0
             timeline.viewAnchorLastY = 0
-            // A room switch closes the right-side panel, except the member
-            // panel, which the reader asked to keep.
             root.infoOpen = false
             root.searchOpen = false
             root.restoreMemberPanel()
         }
     }
 
-    // Find in the loaded timeline, plus an explicit History mode (see below).
-    // The two modes never mix results.
     property bool findOpen: false
-    // History mode searches the local index by default, which covers decrypted
-    // text and so works in encrypted rooms. Server search stays available where
-    // the server can read the room, because it covers history this client has
-    // never seen; the source is a visible choice, not a silent fallback.
     property bool findHistoryMode: false
-    // Server search needs an affirmatively unencrypted room; an encryption
-    // state that has not synced yet does not qualify.
     readonly property bool serverSearchAvailable:
         app.messageSearch.supported
         && root.currentRoom.encryptionKnown === true
@@ -632,10 +492,6 @@ Rectangle {
         app.timeline.beginSearch(findField.text)
         findField.forceActiveFocus()
         findField.selectAll()
-        // The bar became visible in this same turn. Re-assert the focus once
-        // the turn has run, so keys typed straight after Ctrl+F land in the
-        // field even if the first request was dropped (break-it B103, seen
-        // once and not reproduced: a hypothesis, so this is a backstop).
         findFocusTimer.restart()
     }
     Timer {
@@ -647,15 +503,7 @@ Rectangle {
                 findField.forceActiveFocus()
         }
     }
-    // The match the view last landed on. The model re-emits searchChanged
-    // whenever the match COUNT moves (a page of history, a live message),
-    // keeping the selected match by event id; landing again on every such emit
-    // pulled a reader who had scrolled away back to the match and re-centred
-    // it in the middle of pagination (break-it B092). Land when the selection
-    // itself moves, or when the reader asks (typing, stepping).
     property string findScrolledEventId: ""
-    // Next/previous match. An explicit step always lands, even when it
-    // selects the match already landed on (a single match).
     function stepFind(forward) {
         root.findScrolledEventId = ""
         if (forward)
@@ -668,8 +516,6 @@ Rectangle {
         root.findHistoryMode = false
         app.messageSearch.query = ""
         app.timeline.endSearch()
-        // The field is about to become invisible; hand focus back to the
-        // timeline rather than leaving the focus scope empty.
         timeline.forceActiveFocus()
     }
     function scrollToSearchMatch() {
@@ -677,13 +523,9 @@ Rectangle {
         root.findScrolledEventId = eventId
         if (eventId === "") return
         timeline.diagNavigationShape("find-before")
-        // The match may be an older row still being paced out, or behind the
-        // row window; release both first or the jump resolves to nothing.
         timeline.releasePendingRows()
         var sourceRow = app.timeline.rowForStableId(eventId)
         if (sourceRow < 0) {
-            // Matches come from the loaded rows, so this means the rows moved
-            // under the search. Say so rather than returning silently.
             console.warn("timeline find match not in the loaded rows"
                          + " srcRows=" + app.timeline.count
                          + " matches=" + app.timeline.searchResultCount)
@@ -702,8 +544,6 @@ Rectangle {
         timeline.beginNavigationLanding(sourceRow, 0, true)
     }
     Shortcut {
-        // Spelled explicitly rather than StandardKey.Find so the binding can be
-        // shown and rebound.
         sequences: {
             var _rev = app.shortcuts.bindingRevision
             return [app.shortcuts.sequenceFor("room.find")]
@@ -711,12 +551,6 @@ Rectangle {
         enabled: app.currentRoomId !== ""
         onActivated: root.openFind()
     }
-    // Next/previous find result, like Enter / Shift+Enter in the find field but
-    // from anywhere in the window. Enabled on searchActive, the exact condition
-    // the GIF picker's Shortcut is DISABLED on (MessageComposerBar): find-
-    // previous shares Ctrl+Shift+G with it and the two gates are exclusive
-    // (the registry's m_exclusive). History mode has no stepping, so the key is
-    // swallowed there rather than falling through to the GIF picker.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -735,13 +569,6 @@ Rectangle {
                  && app.timeline.searchActive
         onActivated: { if (!root.findHistoryMode) root.stepFind(false) }
     }
-    // Room info panel sections. These call the same functions as the header
-    // buttons.
-    //
-    // Gated on app.currentScreen === 1: MainScreen stays loaded under Settings
-    // and Shortcuts match by window, not visibility. Ctrl+U also underlines in
-    // the composer (EditorContext), which takes it while focused; that is a
-    // shadow, not an ambiguity.
     Shortcut {
         sequences: {
             var _rev = app.shortcuts.bindingRevision
@@ -767,7 +594,6 @@ Rectangle {
         }
     }
 
-    // Escape closes the room info panel first, then any pinned toolbar.
     Shortcut {
         sequence: "Escape"
         // Two enabled Shortcuts on one sequence are ambiguous and Qt fires
@@ -808,7 +634,6 @@ Rectangle {
         function onDataChanged() { refreshCurrentRoom() }
         function onModelReset() { refreshCurrentRoom() }
     }
-    // Read state on focus change is handled by the timeline's maybeMarkRead().
     Component.onCompleted: {
         refreshCurrentRoom()
         snapshotOpenedUnread()
@@ -821,11 +646,6 @@ Rectangle {
         onClosed: timeline.releaseTransientInteraction("viewer")
     }
 
-    // One reaction picker, one sender-profile popover and one read-receipt list
-    // for the whole timeline; rows pass plain data, never object references.
-    // The target event id is captured at open; a room or account switch closes
-    // them. The bridge delivers the newest 16 readers with the true total, so
-    // the list ends with "+N more" rather than inventing names.
     AnchoredPopup {
         id: receiptListPopover
         objectName: "receiptListPopover"
@@ -838,12 +658,9 @@ Rectangle {
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         padding: AppTheme.spacing12
-        // Open upward: the chips sit at a message's bottom edge.
         preferAbove: true
         onOpened: timeline.claimTransientInteraction("readers")
         onClosed: timeline.releaseTransientInteraction("readers")
-        // Content-sized, capped at half the window; past the cap the list
-        // scrolls.
         width: Math.min(280, maxWidth)
         height: {
             var want = (contentItem ? contentItem.implicitHeight : 0)
@@ -852,16 +669,12 @@ Rectangle {
                                overlayItem ? overlayItem.height * 0.5 : 400)
             return Math.max(Math.min(want, cap), 96)
         }
-        // Shared floating-popover surface; otherwise the Basic style draws an
-        // unthemed box.
         background: Rectangle {
             color: AppTheme.stormPanel
             border.color: AppTheme.stormBorder
             border.width: 2
             radius: AppTheme.menuRadius + 6
         }
-        // Today: time; this week: weekday + time; older: date + time. 0 means
-        // the receipt had no timestamp, so render nothing.
         function formatReadTime(tsMs) {
             if (!tsMs || tsMs <= 0)
                 return ""
@@ -893,13 +706,10 @@ Rectangle {
                 objectName: "receiptReaderList"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                // A ListView reports 0 by default; the card sizes from this.
                 implicitHeight: contentHeight
                 clip: true
                 spacing: 2
                 model: receiptListPopover.readers
-                // Themed bar. The stock Basic ScrollBar paints from the OS
-                // palette and does not follow the Lightning theme.
                 ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
                 delegate: Item {
                     id: readerDelegate
@@ -907,8 +717,6 @@ Rectangle {
                     width: ListView.view.width
                     height: readerRow.implicitHeight + AppTheme.spacing8
                     objectName: "receiptReaderRow"
-                    // A row is a button: click, Enter or Space opens that
-                    // reader's profile beside the row.
                     activeFocusOnTab: true
                     Accessible.role: Accessible.Button
                     Accessible.name: readerDelegate.modelData.displayName
@@ -998,7 +806,6 @@ Rectangle {
                 }
                 footer: Label {
                     visible: receiptListPopover.unnamed > 0
-                    // An invisible footer still counts toward contentHeight.
                     height: visible ? implicitHeight : 0
                     width: ListView.view ? ListView.view.width : 0
                     text: qsTr("…and %n more (names not loaded)", "",
@@ -1023,16 +830,11 @@ Rectangle {
         }
         onClosed: {
             timeline.emojiPickerOpen = false
-            // Release the tone level first; while the tone popup is up the
-            // owner is "tone".
             timeline.releaseTransientInteraction("tone")
             timeline.releaseTransientInteraction("picker")
             targetEventId = ""
         }
-        // The skin-tone popup owns row interaction while it is open.
         onToneOpened: timeline.claimTransientInteraction("tone")
-        // Both close orders converge: if the picker closes first it releases
-        // "tone" itself and this handler matches nothing.
         onToneClosed: timeline.releaseTransientInteraction("tone", "picker")
         onEmojiChosen: (emoji) => {
             if (targetEventId !== "")
@@ -1046,16 +848,12 @@ Rectangle {
         onOpened: timeline.claimTransientInteraction("profile")
         onClosed: timeline.releaseTransientInteraction("profile")
     }
-    // Room-scoped invite. Separate from Space Home's instance so neither
-    // inherits the other's target room.
     InvitePeopleDialog {
         id: roomInviteDialog
         objectName: "roomInviteDialog"
         parent: Overlay.overlay
     }
 
-    // MSC3030 jump to date. Stays open until the server answers, since a server
-    // without the endpoint is an outcome the user must be told about.
     JumpToDateDialog {
         id: jumpToDateDialog
         parent: Overlay.overlay
@@ -1070,19 +868,11 @@ Rectangle {
         exportRoomDialog.openDialog()
     }
 
-    // Closes every floating surface anchored to or captured from a timeline
-    // row. Also called when content is discarded without a room change (the
-    // jump-to-live history trim resets the model), where no switch signal
-    // fires.
     function closeRowAnchoredSurfaces() {
         sharedReactionPicker.close()
         senderProfilePopover.close()
         receiptListPopover.close()
-        // The viewer holds decoded pixels and a stale entries snapshot.
         imageViewer.close()
-        // Reset transient row-interaction ownership, in case a surface was
-        // destroyed without releasing its claim; otherwise the action bar could
-        // never show again.
         timeline.transientInteractionOwner = ""
     }
 
@@ -1099,29 +889,20 @@ Rectangle {
             }
         }
     }
-    // About -> Reset local cache empties the SDK event cache under the OPEN
-    // room. Its timeline then holds nothing and nothing asks it to refill, so
-    // it stayed blank until the user left the room and came back (~25 s
-    // measured). Reopen it in place.
     Connections {
         target: app.about
         function onEventCacheWasCleared() {
             if (app.currentRoomId !== "")
                 app.reloadCurrentRoomTimeline()
-            // The open thread's timeline is cut from the same cache.
             if (app.thread.active)
                 app.thread.reopen()
         }
     }
-    // Screenshot-demo hooks. Inert in a non-demo build (null target).
     Connections {
         target: app.demo
         enabled: app.screenshotDemoActive
         function onDemoOpenMessageContextMenu() {
             var tries = Math.min(timeline.count, 40)
-            // Prefer a plain-text row sent by the demo account: canEditEvent()
-            // is the same gate the Edit menu item uses, so the menu shows Edit
-            // and Delete.
             for (var i = 0; i < tries; ++i) {
                 var eventId = timeline.eventIdAtViewRow(i)
                 if (eventId !== "" && app.timeline.canEditEvent(eventId)) {
@@ -1132,9 +913,6 @@ Rectangle {
                     }
                 }
             }
-            // Fall back to any instantiated row, newest first.
-            // openContextMenu() ignores virtual rows and rows without an event
-            // id.
             for (var j = 0; j < tries; ++j) {
                 var item = timeline.itemAtViewRow(j)
                 if (item && item.openContextMenu) {
@@ -1145,8 +923,6 @@ Rectangle {
             }
         }
         function onDemoOpenMemberProfile() {
-            // A fictional demo member; the popover only renders caller-supplied
-            // fields.
             timeline.openSenderProfile({
                 userId: "@maya:lightning.example",
                 displayName: "Maya Chen",
@@ -1156,15 +932,10 @@ Rectangle {
                 isOwn: false
             })
         }
-        // Drives the find bar through the real openFind() path. Setting the
-        // text after openFind() fires onTextChanged -> updateSearch, as typing
-        // does.
         function onDemoOpenFindBar(query) {
             root.openFind()
             findField.text = query
         }
-        // Opens Room Information and Find in History mode through the real
-        // controls, so a capture cannot show a state the app has no path to.
         function onDemoOpenFindBarHistory(query) {
             root.openFind()
             findField.text = query
@@ -1182,12 +953,8 @@ Rectangle {
                 infoPanel.section = section
         }
     }
-    // Per-card outcomes. The downloads card (below) reports each download
-    // itself, with Open / Show in folder, so the strip at the timeline's foot
-    // no longer repeats it.
     Connections {
         target: app.mediaBridge
-        // Arrives just before saveFinished for the same key.
         function onSaveCancelled(mediaKey) {
             timeline.cancelledKey = mediaKey
         }
@@ -1195,13 +962,8 @@ Rectangle {
             timeline.noteSaveFinished(ok, mediaKey)
         }
     }
-    // GIF save/unsave failures via an auto-clearing strip.
-    // `message` is already translated and ready to display.
     Connections {
         target: app.gif.starredStore
-        // Failures only: on success the star itself fills or empties.
-        // "already_starred" is reported as ok; MessageDelegate refreshes the
-        // star regardless of `ok`.
         function onStarFinished(mediaKey, ok, category, message) {
             if (ok)
                 return
@@ -1218,9 +980,6 @@ Rectangle {
     ColumnLayout {
         id: roomColumn
         objectName: "roomColumn"
-        // When the thread or search panel (sideSurface.width) and the 320px
-        // timeline minimum cannot coexist, that surface takes the pane; the
-        // room stays alive underneath.
         visible: !((root.threadSurfaceOpen && !sideSurface.threadBeside)
                    || (root.searchOpen && !sideSurface.beside)
                    || sideSurface.infoTakesPane)
@@ -1229,7 +988,6 @@ Rectangle {
         Layout.minimumWidth: 320
         spacing: 0
 
-        // Room header: 60px, 34px avatar, 34x34 icon buttons.
         Rectangle {
             id: roomHeaderBand
             objectName: "roomHeaderBand"
@@ -1239,9 +997,6 @@ Rectangle {
             // would sit over the messages and be unclickable (e.g. a topic with
             // newlines).
             clip: true
-            // The pane tone, not the card tone, so the composer card lifts off
-            // it and the header runs continuous with the room list (whose
-            // top, under Depth, is the gradient's first stop).
             color: AppTheme.roomHeader
             RowLayout {
                 id: header
@@ -1250,32 +1005,13 @@ Rectangle {
                 anchors.rightMargin: AppTheme.spacing20
                 spacing: AppTheme.spacing12
 
-                // When the header cannot fit everything, the title wins: it is
-                // the only indication of which room this is, while every action
-                // icon can fold into the overflow menu. The icon row cannot
-                // shrink (a nested RowLayout's minimum is the sum of its
-                // children), so without folding the whole shortfall lands on
-                // the title.
-                //
-                // The budget reads header.width (from anchors.fill), never a
-                // layout-derived width, so it cannot feed back into the row it
-                // sizes.
-
-                // The title's floor (about fifteen characters in its own font)
-                // plus the encryption lock and its gap on the same row.
                 readonly property real identityFloor:
                     Math.round(AppTheme.scaled(AppTheme.textTitle) * 9)
                     + AppTheme.spacingS + 14
-                // How many 34px icons fit beside the title at its floor. Width
-                // 0 during load means no limit, so the overflow button does not
-                // flash on open.
                 readonly property int actionSlots: {
                     if (width <= 0)
                         return 99
-                    // 34 is IconButton's "lg" size.
                     var step = 34 + AppTheme.spacing6
-                    // `size`, not `width`: the layout assigns width, so reading
-                    // it here would make the budget depend on the row it sizes.
                     var budget = width
                                  - (roomHeaderAvatar.visible
                                     ? roomHeaderAvatar.size + spacing : 0)
@@ -1285,15 +1021,10 @@ Rectangle {
                         0, Math.floor((budget + AppTheme.spacing6) / step))
                 }
 
-                // The peer of an unambiguous 1:1 DM (the room list's rule:
-                // identityColorKey is the partner's MXID exactly then), else
-                // "". Drives the presence dot and the profile taps.
                 readonly property string dmPeerId:
                     root.currentRoom.isDirect === true
                     && (root.currentRoom.identityColorKey || "").charAt(0) === "@"
                     ? root.currentRoom.identityColorKey : ""
-                // The timeline's profile card; it fills name and avatar from
-                // the roster or the global profile.
                 function openPeerProfile() {
                     if (dmPeerId === "")
                         return
@@ -1317,8 +1048,6 @@ Rectangle {
                          ? "" : (root.currentRoom.avatarUrl || "")
                     colorKey: root.currentRoom.identityColorKey
                               || app.currentRoomId
-                    // People/DMs are circles; rooms and Spaces are rounded
-                    // squares.
                     circle: root.currentRoom.isDirect === true
 
                     // A DM's avatar opens the peer's profile. WithinBounds
@@ -1339,10 +1068,6 @@ Rectangle {
                     Accessible.ignored: header.dmPeerId === ""
                     Accessible.onPressAction: header.openPeerProfile()
 
-                    // The peer's presence on 1:1 DMs only; a group DM or room
-                    // watches nobody and renders nothing. Bottom-right, the
-                    // usual corner, and inside the avatar's bounds so it never
-                    // reaches the title beside it or the band's clip.
                     PresenceDot {
                         objectName: "roomHeaderPresenceDot"
                         anchors.bottom: parent.bottom
@@ -1357,18 +1082,8 @@ Rectangle {
                     objectName: "roomHeaderIdentity"
                     spacing: 2
                     Layout.fillWidth: true
-                    // The whole band's height, so the card is one click target
-                    // and not a strip as tall as its text. The contents are
-                    // centred between the two stretch items below.
                     Layout.fillHeight: true
-                    // A column's maximum is the sum of its children's, and a
-                    // room with no topic has only the name's row (itself capped
-                    // at the name's width), so without this the column hugged
-                    // the name and the empty run beside it belonged to nothing.
                     Layout.maximumWidth: 16777215
-                    // Lets a narrow header take width from the name, which
-                    // elides, rather than from the action icons, which the band
-                    // would clip.
                     Layout.minimumWidth: 0
                     Item { Layout.fillHeight: true }
                     RowLayout {
@@ -1383,8 +1098,6 @@ Rectangle {
                                     return root.currentRoom.name
                                 if (app.currentRoomId !== "")
                                     return app.currentRoomId
-                                // With no room open, Space Home shows the
-                                // Space's name.
                                 var _dep = root.spacesTick
                                 if (app.spaces
                                         && app.spaces.activeSpaceId.length > 0
@@ -1399,18 +1112,9 @@ Rectangle {
                             font.weight: AppTheme.weightBold
                             elide: Label.ElideRight
                             maximumLineCount: 1
-                            // fillWidth so a narrow header can shrink the name;
-                            // maximumWidth is the text's own width so a short
-                            // name hugs its text and the lock sits beside it.
                             Layout.fillWidth: true
-                            // Ceiled: a Layout assigns integer widths, and a
-                            // fractional implicitWidth would elide by a
-                            // fraction of a pixel.
                             Layout.maximumWidth: Math.ceil(implicitWidth)
 
-                            // A DM's name opens the peer's profile, not Room
-                            // Information. WithinBounds takes the exclusive
-                            // grab from the column's handler below.
                             TapHandler {
                                 objectName: "roomHeaderTitleTap"
                                 enabled: header.dmPeerId !== ""
@@ -1445,10 +1149,6 @@ Rectangle {
                         }
                     }
                     Label {
-                        // One line: a topic is free text and often contains
-                        // newlines, and Text breaks on an explicit newline
-                        // regardless of elide, which would push the header past
-                        // its 60px band.
                         text: (root.currentRoom.topic || "")
                                   .replace(/\s+/g, " ").trim()
                         // Untrusted server text. Label defaults to AutoText, so
@@ -1468,8 +1168,6 @@ Rectangle {
                     TapHandler {
                         objectName: "roomHeaderIdentityTap"
                         enabled: app.currentRoomId !== "" && app.roomInfo.supported
-                        // A DM's name is the profile's; excluded here too so
-                        // one tap never does both.
                         onTapped: (eventPoint) => {
                             if (header.dmPeerId !== ""
                                     && roomHeaderTitle.contains(
@@ -1480,53 +1178,28 @@ Rectangle {
                         }
                     }
                 }
-                // Named for a geometric test.
                 Item { objectName: "roomHeaderSpacer"; Layout.fillWidth: true }
                 RowLayout {
                     id: roomHeaderActions
                     objectName: "roomHeaderActions"
                     spacing: AppTheme.spacing6
-                    // fillWidth: false, because a nested layout defaults to
-                    // true and the band clips, so losing the competition for
-                    // width would cut the icons. Deliberately no
-                    // `Layout.minimumWidth: implicitWidth`: it is a
-                    // self-reference through the layout engine and destabilises
-                    // geometry. The identity column's minimumWidth: 0 is what
-                    // gives way instead.
                     Layout.fillWidth: false
 
-                    // Declaration order is the drawn order; foldOrder is the
-                    // priority order, least important first, ranked by how else
-                    // the action is reachable. Room info is also opened by
-                    // tapping the header identity; pinned, members and search
-                    // have panel sections or shortcuts; voice call has no other
-                    // route and folds last. Everything folded appears in the
-                    // overflow menu.
                     readonly property var foldOrder: [
                         "roomInfoButton", "pinnedMessagesButton",
                         "memberPanelButton", "timelineSearchButton",
                         "threadRepliesToggleButton",
                         "threadsViewButton", "startVoiceCallButton"]
-                    // The buttons themselves, so `available` is read from the
-                    // one place each rule is written. A property read inside a
-                    // binding is tracked; a function call would not be.
                     readonly property var actionButtons: [
                         startVoiceCallButton, pinnedMessagesButton,
                         threadRepliesToggleButton,
                         threadsViewButton, timelineSearchButton,
                         memberPanelButton, roomInfoButton]
-                    // Each button declares `available` (its own gate), `folded`
-                    // (this list), `actionLabel` (shared by its accessible name
-                    // and overflow row) and `visible: available && !folded`.
-                    // The keyboard shortcut follows `available`, so a folded
-                    // action still works.
                     readonly property var foldedActions: {
                         var live = []
                         for (var i = 0; i < actionButtons.length; ++i)
                             if (actionButtons[i].available)
                                 live.push(actionButtons[i].objectName)
-                        // One slot is always the More button (it carries
-                        // the room's own options as well as folded icons).
                         var keep = Math.max(0, header.actionSlots - 1)
                         if (live.length <= keep)
                             return []
@@ -1546,23 +1219,13 @@ Rectangle {
                             roomHeaderActions.foldedActions
                                 .indexOf(objectName) >= 0
                         visible: available && !folded
-                        // 1:1 DMs only for the legacy lane, since m.call.invite
-                        // rings every member. Idle/Ended only: one call at a
-                        // time. AppController decides the lane (MatrixRTC where
-                        // available, legacy 1:1 as the audio-only DM fallback);
-                        // the button is absent when neither can carry a call.
                         property bool available:
                             app.currentRoomId !== ""
                             && app.canStartCall(app.currentRoomId)
-                            // canStartCall is a Q_INVOKABLE, so the binding
-                            // records no dependency; callGateRevision
-                            // re-evaluates it when RTC state lands.
                             && app.callGateRevision >= 0
                             && !app.groupCall.active
                             && (app.calls.state === CallController.Idle
                                 || app.calls.state === CallController.Ended)
-                        // Visibility already asks whether either lane can carry
-                        // a call, so the button is never shown dead.
                         enabled: true
                         iconName: "call"
                         property string actionLabel: qsTr("Start a voice call")
@@ -1572,8 +1235,6 @@ Rectangle {
                         ToolTip.delay: 500
                         onClicked: app.startCall(app.currentRoomId, false)
                     }
-                    // How the call is placed: voice or video, and which call
-                    // type the button uses. Part of the call button's slot.
                     AbstractButton {
                         id: callFormatChevron
                         objectName: "callFormatChevron"
@@ -1603,7 +1264,6 @@ Rectangle {
                         onClicked: callFormatMenu.popup(
                             callFormatChevron, 0, callFormatChevron.height)
                     }
-                    // Shown only when the room has pins.
                     IconButton {
                         id: pinnedMessagesButton
                         objectName: "pinnedMessagesButton"
@@ -1627,9 +1287,6 @@ Rectangle {
                         ToolTip.delay: 500
                         onClicked: root.togglePinnedPanel()
                     }
-                    // Inline thread style: thread replies in the room
-                        // timeline, or the room without them (roots keep their
-                        // summary card). One switch for every room, a setting.
                     IconButton {
                         id: threadRepliesToggleButton
                         objectName: "threadRepliesToggleButton"
@@ -1664,7 +1321,6 @@ Rectangle {
                             app.currentRoomId !== "" && app.thread.supported
                         iconName: "forum"
                         active: root.threadSurfaceOpen
-                        // 0 / 1 unread in a thread / 2 mention in a thread.
                         readonly property int threadUnread:
                             app.thread.roomThreadUnread
                         property string actionLabel: threadUnread === 2
@@ -1684,9 +1340,6 @@ Rectangle {
                         Rectangle {
                             objectName: "threadsUnreadDot"
                             visible: threadsViewButton.threadUnread > 0
-                            // A 1 px gap in the background colour parts it
-                            // from the icon; the ringed dot sits inside it,
-                            // centred where it always was.
                             width: 11
                             height: 11
                             radius: 5.5
@@ -1699,7 +1352,6 @@ Rectangle {
                                 radius: height / 2
                                 color: threadsViewButton.threadUnread === 2
                                        ? AppTheme.mentionDot : AppTheme.unreadDot
-                                // The theme's colour, its contrast in the ring.
                                 border.width: AppTheme.badgeDotRingWidth
                                 border.color: threadsViewButton.threadUnread === 2
                                               ? AppTheme.mentionDotRing
@@ -1760,11 +1412,6 @@ Rectangle {
                         ToolTip.delay: 500
                         onClicked: root.toggleRoomInfo()
                     }
-                    // The More button: the room's own options (chat
-                    // background, room settings) and every action that did
-                    // not fit. Always there for an open room, so those options
-                    // are found in the same place at every width. Drawn last
-                    // so the remaining icons keep their positions.
                     IconButton {
                         id: roomHeaderOverflowButton
                         objectName: "roomHeaderOverflowButton"
@@ -1773,28 +1420,18 @@ Rectangle {
                         active: roomHeaderOverflowMenu.opened
                         Accessible.name: qsTr("More room actions")
                         ToolTip.text: qsTr("More room actions")
-                        // Not over its own open menu (GUI check 2026-10-07:
-                        // the tip covered the first row).
                         ToolTip.visible: hovered && !roomHeaderOverflowMenu.opened
                         ToolTip.delay: 500
-                        // Right edges aligned: the button sits at the window's
-                        // right edge, so a left-aligned menu was pushed back by
-                        // the window and ended flush against its border.
                         onClicked: roomHeaderOverflowMenu.popup(
                             roomHeaderOverflowButton,
                             roomHeaderOverflowButton.width
                             - roomHeaderOverflowMenu.width,
                             roomHeaderOverflowButton.height + AppTheme.spacing4)
                     }
-                    // A Popup is not an Item, so it costs the row no width.
-                    // A sibling of the chevron's button rather than its child,
-                    // because the overflow row opens it with the chevron folded.
                     CallFormatMenu {
                         id: callFormatMenu
                         roomId: app.currentRoomId
                     }
-                    // Each entry binds to its button; `folded` is only set on
-                    // an available action.
                     AppMenu {
                         id: roomHeaderOverflowMenu
                         objectName: "roomHeaderOverflowMenu"
@@ -1805,9 +1442,6 @@ Rectangle {
                             text: startVoiceCallButton.actionLabel
                             onTriggered: startVoiceCallButton.clicked()
                         }
-                        // The chevron folds with the call button and is the
-                        // only way to a video call or the call type. Deferred
-                        // because this menu is still closing when it triggers.
                         AppMenuItem {
                             objectName: "overflowCallOptions"
                             visible: startVoiceCallButton.folded
@@ -1867,7 +1501,6 @@ Rectangle {
                             text: threadRepliesToggleButton.actionLabel
                             onTriggered: threadRepliesToggleButton.clicked()
                         }
-                        // The room's own options, at every width.
                         AppMenuItem {
                             objectName: "roomHeaderChatBackground"
                             visible: !!app.backdrops
@@ -1878,7 +1511,6 @@ Rectangle {
                                              root.currentRoom.name || "")
                         }
                     }
-                    // Hosted here; a Popup costs the row no width.
                     ChatBackgroundDialog {
                         id: roomChatBackgroundDialog
                         objectName: "roomChatBackgroundDialog"
@@ -1889,8 +1521,6 @@ Rectangle {
 
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.headerDivider }
 
-        // Inline thread style: what the timeline is narrowed to, and the way
-        // back to every message. A band of its own, so it covers no row.
         Rectangle {
             id: threadFilterBar
             objectName: "threadFilterBar"
@@ -1937,9 +1567,6 @@ Rectangle {
                 }
                 AppButton {
                     objectName: "threadFilterClearButton"
-                    // Leaving one thread returns to the room as the reader
-                    // keeps it (replies hidden or not); with no thread open,
-                    // the button is the hide switch itself.
                     text: threadFilterBar.rootId !== ""
                           ? qsTr("Back to the room")
                           : qsTr("Show thread replies")
@@ -1960,13 +1587,6 @@ Rectangle {
             }
         }
 
-        // The docked "now playing" strip (design-media U1), in a band of its
-        // own right under the room header, above the call bars and the
-        // timeline, so it covers no message: the timeline is shorter instead,
-        // and since that is pinned to its bottom edge the newest rows do not
-        // move. Shown while any clip is loaded and the player is docked;
-        // Main.qml hosts the popped-out card, and the strip for screens
-        // without this column.
         VoicePlayerBar {
             id: voiceDock
             objectName: "voicePlayerDock"
@@ -1975,19 +1595,13 @@ Rectangle {
             shown: root.voiceDockShown
         }
 
-        // In-call controls under the room header, for both the legacy 1:1 lane
-        // and MatrixRTC. Zero height when no call is live in this room.
         CallHeaderBar {
             id: timelineCallHeaderBar
             objectName: "timelineCallHeaderBar"
             Layout.fillWidth: true
-            // Opens the room's side panel rather than a second participant
-            // list.
             onParticipantsRequested: root.infoOpen = !root.infoOpen
         }
 
-        // A 1:1 video call's picture. Bounded like the call panel, so the
-        // timeline keeps fillHeight.
         Loader {
             id: legacyCallVideoHost
             objectName: "legacyCallVideoHost"
@@ -2003,38 +1617,21 @@ Rectangle {
             sourceComponent: LegacyCallVideo {}
         }
 
-        // The call panel sits at the top of the column with the timeline
-        // scrolling beneath it and a draggable divider between. It takes a
-        // bounded, explicitly assigned height rather than fillHeight, so the
-        // two never split the column.
-        //
-        // The reader's position does not move when a call starts: the timeline
-        // is a rotated Flickable whose content is pinned to the bottom edge,
-        // and only its height changes. Shrinking the panel far enough makes the
-        // Flickable clamp, like a window resize. Growing the timeline can enter
-        // the near-top pagination band and trigger a backfill, as making the
-        // window taller does.
         Loader {
             id: callStageHost
             objectName: "timelineCallStageHost"
             Layout.fillWidth: true
-            // Bounded, never fillHeight: the timeline below keeps that.
             Layout.preferredHeight: active ? root.callPanelHeight : 0
             active: root.callStageOwnsColumn
             visible: active
             sourceComponent: CallStage {
                 objectName: "timelineCallStage"
                 collapsed: root.callPanelCollapsed
-                // Opens the room's side panel, like the header bar's button.
                 onParticipantsRequested: root.infoOpen = !root.infoOpen
                 onCollapseToggled: root.callPanelCollapsed = !root.callPanelCollapsed
             }
         }
 
-        // Divider that resizes the call panel. Hand-rolled rather than a
-        // SplitView to avoid restructuring the timeline's ColumnLayout. A
-        // release moves nothing and emits no heightChanged, so the height is
-        // committed on the falling edge of the drag's `active`.
         Item {
             objectName: "callPanelDivider"
             Layout.fillWidth: true
@@ -2063,14 +1660,10 @@ Rectangle {
                     if (dividerDrag.active) {
                         root.callPanelDragBase = root.callPanelHeight;
                     } else {
-                        // Falling edge: the only moment that can commit the
-                        // gesture.
                         root.callPanelUserHeight =
                                 root.clampCallPanelHeight(root.callPanelHeight);
                     }
                 }
-                // activeTranslation resets on each new drag, which suits
-                // base-plus-delta.
                 onActiveTranslationChanged: {
                     if (!dividerDrag.active)
                         return;
@@ -2081,9 +1674,6 @@ Rectangle {
             }
         }
 
-        // "N people in call". A Layout child so persistent state reflows the
-        // timeline rather than covering messages. Observational only; zero
-        // height with no call.
         RoomCallBanner {
             objectName: "timelineRoomCallBanner"
             Layout.fillWidth: true
@@ -2093,13 +1683,6 @@ Rectangle {
             roomId: app.currentRoomId
         }
 
-        // Room upgrade banner. Lightning does not follow a tombstone
-        // automatically: the old room stays readable and the successor is
-        // offered, since switching discards navigation and draft state and
-        // anyone with the power level can send the tombstone.
-        //
-        // A Layout child so it reflows the timeline. The wording is Lightning's
-        // own; the tombstone's free-text body never crosses the FFI.
         Rectangle {
             id: roomUpgradeBanner
             objectName: "roomUpgradeBanner"
@@ -2108,8 +1691,6 @@ Rectangle {
             Layout.rightMargin: AppTheme.spacing16
             Layout.topMargin: AppTheme.spacing8
             Layout.bottomMargin: AppTheme.spacing8
-            // A room can be both a successor and a predecessor, so the rows are
-            // independent.
             readonly property bool showUpgraded: app.roomUpgrade.upgraded
             readonly property bool showPredecessor:
                 app.roomUpgrade.predecessorRoomId.length > 0
@@ -2163,8 +1744,6 @@ Rectangle {
                     }
                 }
 
-                // Shown in the old room, so the user sees why Continue failed
-                // without having been moved.
                 Text {
                     objectName: "roomUpgradeError"
                     Layout.fillWidth: true
@@ -2185,8 +1764,6 @@ Rectangle {
                     spacing: AppTheme.spacingS
                     visible: roomUpgradeBanner.showPredecessor
 
-                    // Carries its own glyph because both rows can be visible at
-                    // once.
                     Icon {
                         Layout.alignment: Qt.AlignVCenter
                         name: "arrow_back"
@@ -2210,8 +1787,6 @@ Rectangle {
                         objectName: "roomUpgradePreviousButton"
                         text: qsTr("Previous room")
                         kind: "secondary"
-                        // No join step: the user was already in the
-                        // predecessor.
                         onClicked: app.roomUpgrade.goToPredecessor()
                         Accessible.role: Accessible.Button
                         Accessible.name: qsTr("Open the previous room")
@@ -2220,19 +1795,10 @@ Rectangle {
             }
         }
 
-        // "Part of <Space> - Join space". The open room names a canonical
-        // parent Space (m.space.parent) the user has not joined, e.g. they
-        // followed a link to the room alone. Dismissal is remembered per room
-        // for the session. Fails closed: the roster controller may still point
-        // at another room.
         Rectangle {
             id: spaceParentBanner
             objectName: "spaceParentBanner"
             property var dismissedRooms: ({})
-            // This banner's own join: the discovery signals are global, and
-            // their error line lives in a dialog that is not open here. On
-            // success AppController selects the Space in the rail and the
-            // user stays in this room (joinSpaceKeepingRoom).
             property string joiningSpaceId: ""
             property string joinError: ""
             readonly property bool joining: joiningSpaceId.length > 0
@@ -2251,7 +1817,6 @@ Rectangle {
                 }
             }
             onSpaceIdChanged: joinError = ""
-            // Metadata is needed even when the info panel has never opened.
             function followRoom() {
                 if (app.currentRoomId !== "" && app.roomInfo.supported)
                     app.roomInfo.roomId = app.currentRoomId
@@ -2304,7 +1869,6 @@ Rectangle {
                 Text {
                     objectName: "spaceParentBannerText"
                     Layout.fillWidth: true
-                    // A Space's name is remote text: plain, never markup.
                     textFormat: Text.PlainText
                     text: spaceParentBanner.joinError.length > 0
                           ? qsTr("Could not join: %1").arg(spaceParentBanner.joinError)
@@ -2346,11 +1910,6 @@ Rectangle {
             }
         }
 
-        // Find bar, a floating card with a fixed compact height so opening or
-        // focusing it never reflows anything else. A Layout child rather than
-        // an overlay: the timeline's onHeightChanged already preserves the
-        // reading position across a find-bar resize, while an overlay would
-        // cover the newest message.
         Rectangle {
             id: findBar
             objectName: "timelineFindBar"
@@ -2370,10 +1929,6 @@ Rectangle {
                 anchors.fill: parent
                 anchors.margins: AppTheme.spacingS
                 spacing: AppTheme.spacingS
-            // One row from 520 px of bar up. Narrower, the mode toggle and
-            // Jump to date take a row of their own above the field, counter and
-            // buttons: in one row they ran 160 px past a 288 px bar, which
-            // squeezed the field to nothing and put Close outside the card.
             GridLayout {
                 id: findRow
                 objectName: "timelineFindRow"
@@ -2382,14 +1937,11 @@ Rectangle {
                 columns: narrow ? 5 : 8
                 columnSpacing: AppTheme.spacingS
                 rowSpacing: AppTheme.spacingS
-                // Loaded-messages find vs history search.
                 SegmentedControl {
                     id: findModeToggle
                     objectName: "findModeToggle"
                     visible: root.findHistoryAvailable
                     dense: true
-                    // Explicitly false: a nested RowLayout defaults to
-                    // fillWidth and would leave a gap before the field.
                     Layout.fillWidth: false
                     model: [
                         { label: qsTr("Loaded"), value: "loaded" },
@@ -2402,13 +1954,7 @@ Rectangle {
                             return
                         root.findHistoryMode = wantHistory
                         if (wantHistory) {
-                            // Refresh index stats when the bar opens; otherwise
-                            // the coverage line can read "nothing indexed"
-                            // above results the index just returned.
                             app.messageSearch.refreshIndexStats()
-                            // Prefer the local index: it works in encrypted
-                            // rooms and needs no round trip. Server search is
-                            // chosen explicitly below.
                             app.messageSearch.source =
                                 app.messageSearch.localAvailable
                                 ? "local" : "server"
@@ -2424,8 +1970,6 @@ Rectangle {
                         findField.forceActiveFocus()
                     }
                 }
-                // Jump to date lives with Find: both answer "where is that
-                // message", and the header row is already crowded.
                 IconButton {
                     objectName: "jumpToDateButton"
                     implicitWidth: 28; implicitHeight: 28
@@ -2439,8 +1983,6 @@ Rectangle {
                     ToolTip.delay: 500
                     onClicked: jumpToDateDialog.openDialog()
                 }
-                // Fills out the first row when the bar is narrow, so the field
-                // starts the second one whichever of the two above is shown.
                 Item {
                     visible: findRow.narrow
                     Layout.fillWidth: true
@@ -2464,14 +2006,9 @@ Rectangle {
                         if (!root.findOpen)
                             return
                         if (root.findHistoryMode) {
-                            // The controller is shared with the global search
-                            // dialog, which rescopes it; re-assert this room on
-                            // every dispatch.
                             app.messageSearch.roomId = app.currentRoomId
                             app.messageSearch.query = text
                         } else {
-                            // A new query lands on its match even when it
-                            // selects the one already landed on.
                             root.findScrolledEventId = ""
                             app.timeline.updateSearch(text)
                         }
@@ -2490,8 +2027,6 @@ Rectangle {
                 Label {
                     objectName: "timelineFindCount"
                     visible: !root.findHistoryMode
-                    // Whitespace is not a query: the model trims it and
-                    // searches nothing, so it is not "No matches" either.
                     text: app.timeline.searchResultCount > 0
                           ? qsTr("%1 of %2").arg(app.timeline.searchCurrentPosition)
                                             .arg(app.timeline.searchResultCount)
@@ -2531,10 +2066,6 @@ Rectangle {
                 }
             }
 
-            // Nothing matched here: say so in the room's own terms and offer
-            // the wider search, rather than leaving a bare "No matches" in the
-            // counter. History mode already has its own "no results" line, so
-            // only the offer is added there.
             RowLayout {
                 id: findNoMatchesRow
                 objectName: "findNoMatchesRow"
@@ -2558,8 +2089,6 @@ Rectangle {
                 AppButton {
                     objectName: "findSearchAllRoomsButton"
                     kind: "ghost"
-                    // The keyword is the reader's own text; a long one is cut
-                    // so the button cannot outgrow the bar.
                     text: qsTr("Search all rooms for '%1'").arg(
                               findNoMatchesRow.keyword.length > 40
                               ? findNoMatchesRow.keyword.substring(0, 40) + "…"
@@ -2572,10 +2101,6 @@ Rectangle {
                 }
             }
 
-            // History results, plus what the search covers. A local index
-            // answers from what it holds, so show the indexed count and offer
-            // to index further back; otherwise "no results" reads as "never
-            // said".
             RowLayout {
                 objectName: "findLocalCoverageRow"
                 Layout.fillWidth: true
@@ -2597,9 +2122,6 @@ Rectangle {
                             return qsTr("Type at least %1 characters.")
                                 .arg(app.messageSearch.minLocalChars)
                         var n = app.messageSearch.indexedMessages
-                        // Stats arrive on their own signal, so a zero count
-                        // while results are shown is not an empty index. Say
-                        // nothing rather than something false.
                         if (n <= 0 && app.messageSearch.count > 0)
                             return ""
                         if (n <= 0)
@@ -2618,7 +2140,6 @@ Rectangle {
                     objectName: "findIndexRoomButton"
                     text: qsTr("Index this room")
                     kind: "ghost"
-                    // One at a time: two runs would race for the same rows.
                     enabled: !app.messageSearch.indexing
                              && app.currentRoomId !== ""
                     ToolTip.text: qsTr("Fetch this room's older messages so "
@@ -2629,8 +2150,6 @@ Rectangle {
                                    app.currentRoomId)
                 }
             }
-            // Server search stays reachable where the server can read the room.
-            // A choice, not a fallback, so "no results" has one meaning.
             SegmentedControl {
                 objectName: "findSourceToggle"
                 dense: true
@@ -2681,8 +2200,6 @@ Rectangle {
                     HoverHandler { id: historyHover }
                     TapHandler {
                         onTapped: {
-                            // Paginates until the event is loaded, then centres
-                            // and highlights it.
                             app.recordSearchResult(app.currentRoomId,
                                                    historyRow.eventId)
                             app.pagination.jumpToEvent(historyRow.eventId)
@@ -2704,7 +2221,6 @@ Rectangle {
                         RowLayout {
                             Layout.fillWidth: true
                             Label {
-                                // Untrusted text: never markup.
                                 textFormat: Text.PlainText
                                 text: historyRow.senderDisplayName.length > 0
                                       ? historyRow.senderDisplayName
@@ -2729,7 +2245,6 @@ Rectangle {
                             }
                         }
                         Label {
-                            // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             text: historyRow.body
@@ -2764,20 +2279,12 @@ Rectangle {
             }
         }
 
-        // Timeline
         Item {
             id: timelineArea
-            // Stays visible through a call; the call panel has a bounded
-            // height.
             visible: true
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            // The room's chat background (shared by the room or its Space, or
-            // this account's own), behind every row. Rows are transparent;
-            // bubbles and cards keep their own surfaces. Draws nothing for a
-            // room without one. See ChatBackdrop.qml for the readability
-            // treatment.
             ChatBackdrop {
                 id: chatBackdrop
                 anchors.fill: parent
@@ -2789,9 +2296,6 @@ Rectangle {
                             : 1
             }
 
-            // Moved by timeline.resumeRowHover() to give Qt one dirty item, so
-            // it re-delivers hover to a resting pointer after a scroll. Never
-            // drawn and never hit: invisible, zero-size.
             Item {
                 id: hoverResyncProbe
                 objectName: "timelineHoverResyncProbe"
@@ -2800,41 +2304,13 @@ Rectangle {
                 height: 0
             }
 
-            // Solid timeline: every loaded row is a real item in one Column, so
-            // contentHeight and row positions are measured. No height
-            // estimates, no delegate recycling.
-            //
-            // This replaced a reversed TableView, which rebuilt the whole
-            // viewport on any insert (RebuildOption::ViewportOnly) and needed
-            // estimated content heights that disagreed with the real layout.
-            // Here older history is a proxy append at the column's tail, so no
-            // positioned item moves and pagination needs no contentY
-            // correction. The cost is that the whole loaded window is
-            // instantiated, as in Element; rows arrive ~20 per page and hidden
-            // rows take zero height. See docs/timeline-scrolling.md.
             Flickable {
                 id: timeline
                 enabled: !root.invitePreview
-                // Media band: the row index range allowed to fetch pictures now
-                // (MessageDelegate.mediaInBand). Not bound to contentY, which
-                // would re-run a comparison in every row on every scroll frame;
-                // it moves only on load, reset, resize, gesture settle and
-                // content growth under an open band. An index range because a
-                // delegate's own y inside its Loader is 0. Permissive until the
-                // first refresh.
                 property int mediaBandFirstRow: 0
                 property int mediaBandLastRow: 2147483647
-                // Decoded pictures only need a few viewports around the reader.
-                // This is separate from the fetch band: that band's open newest
-                // side protects late media height changes and pagination.
                 property int mediaRetainFirstRow: 0
                 property int mediaRetainLastRow: 2147483647
-                // The band's far edge lies past the loaded rows, so rows still
-                // landing (the history fill, the paced reveal) belong inside
-                // it. At the live edge nothing moves contentY while they land,
-                // so no settle re-derives it: an open band was frozen at the
-                // rows present when it was computed and pictures on screen
-                // waited for the first gesture (2026-09-29).
                 property bool mediaBandOpen: true
                 function refreshMediaBand() {
                     if (count <= 0) {
@@ -2846,18 +2322,6 @@ Rectangle {
                         return
                     }
                     var h = Math.max(height, 400)
-                    // Never close the band on the newest side: a picture
-                    // loading late between the reader and the live edge would
-                    // grow below the reader and move them. Only history beyond
-                    // 2.5 viewports waits.
-                    // Open is a GEOMETRY fact: the far edge lies past the
-                    // content. Not "the last row found is the last row":
-                    // viewRowAtContentY answers only rows the Column lays out,
-                    // so with the oldest loaded rows hidden (room activity
-                    // off) it is below count - 1 even with the edge beyond
-                    // everything, the band read closed, growth stopped asking
-                    // and history-fill pictures stayed grey until a gesture
-                    // (the 2026-09-29 defect, back through a side door).
                     var far = contentY + h * 2.5
                     var last = viewRowAtContentY(far)
                     mediaBandFirstRow = 0
@@ -2869,10 +2333,6 @@ Rectangle {
                     mediaRetainLastRow = Math.max(mediaRetainFirstRow,
                         (far >= contentHeight || last < 0) ? count - 1 : last)
                 }
-                // Content grew under an open band: re-derive it at most every
-                // 100 ms, and never mid-gesture (the settle does that). Once the
-                // content reaches past the far edge the band closes and growth
-                // stops asking.
                 Timer {
                     id: mediaBandGrowth
                     interval: 100
@@ -2882,10 +2342,6 @@ Rectangle {
                             timeline.refreshMediaBand()
                     }
                 }
-                // Programmatic landings (jump to event, first unread, glides)
-                // do not touch the wheel/drag settle timer, so every contentY
-                // change restarts this; the band moves 300 ms after the last
-                // change.
                 Timer {
                     id: mediaBandSettle
                     interval: 300
@@ -2895,37 +2351,17 @@ Rectangle {
                 objectName: "timelineListView"
                 anchors.fill: parent
                 clip: true
-                // Rotated viewport with counter-rotated rows: proxy row 0
-                // (newest) sits at the bottom and history extends upward.
                 rotation: 180
                 flickableDirection: Flickable.VerticalFlick
-                // The view keeps laying out under the gate so viewport fill and
-                // positioning run against real geometry; the loading surface
-                // covers it.
                 opacity: presentationReady ? 1 : 0
-                // The proxy exposes rows newest-to-oldest; the source stays
-                // chronological.
                 readonly property int count: rowRepeater.count
                 contentWidth: width
                 contentHeight: rowColumn.height
 
-                // Row range allowed to activate heavy content. Computed once
-                // per turn so each row does two integer comparisons instead of
-                // a per-pixel float binding across hundreds of delegates. One
-                // viewport of slack on each side.
                 property int visibleFirstRow: 0
                 property int visibleLastRow: -1
-                // The rows actually on screen, without the slack above: the
-                // newest (physical bottom) and the oldest (physical top).
-                // Updated with the range above, so never bound to contentY.
-                // Defaults mean "nothing measured yet": no row is on screen.
                 property int viewportNewestRow: 0
                 property int viewportOldestRow: -1
-                // Where the read-marker row is, for the first-unread pill:
-                // its view row (negative while the row window withholds it at
-                // the newest end, >= count while not yet exposed at the oldest
-                // end), whether it is on screen, and whether it lies below the
-                // viewport (newer than every row shown).
                 readonly property bool firstUnreadLoaded:
                     !!app.timeline && app.timeline.firstUnreadRow >= 0
                 readonly property int firstUnreadViewRow:
@@ -2939,21 +2375,12 @@ Rectangle {
                     && firstUnreadViewRow <= viewportOldestRow
                 readonly property bool firstUnreadBelow:
                     firstUnreadLoaded && firstUnreadViewRow < viewportNewestRow
-                // The marker has been on screen this visit: the reader has
-                // reached their place. Back at the live edge after that, every
-                // row below the marker has passed through the viewport, so
-                // there is nothing left to jump to. Cleared on a room switch
-                // and when the marker row goes away or moves.
                 property bool firstUnreadSeen: false
                 property string firstUnreadSeenId: ""
-                // Seen, and still the same marker row (a moved m.fully_read
-                // is a new place the reader has not reached).
                 readonly property bool firstUnreadPassed:
                     firstUnreadSeen && firstUnreadLoaded
                     && firstUnreadSeenId === app.timeline.stableIdAt(
                            app.timeline.firstUnreadRow)
-                // Only once the room is presented: before that the viewport
-                // rows can still describe a layout the reader never saw.
                 function noteFirstUnreadSeen() {
                     if (!firstUnreadOnScreen || !presentationReady)
                         return
@@ -2969,9 +2396,6 @@ Rectangle {
                         firstUnreadSeenId = ""
                     }
                 }
-                // A child Timer rather than Qt.callLater: a queued callLater
-                // can fire after teardown (room switch, logout) and throw.
-                // restart() coalesces requests.
                 Timer {
                     id: visibleRowRangeTimer
                     interval: 0
@@ -2989,8 +2413,6 @@ Rectangle {
                     var last = viewRowAtContentY(contentY + height * 2)
                     visibleFirstRow = first < 0 ? 0 : first
                     visibleLastRow = last < 0 ? count - 1 : last
-                    // At the live edge contentY sits below row 0 by the
-                    // margin; clamp so the newest row still counts.
                     var newest = viewRowAtContentY(Math.max(0, contentY))
                     viewportNewestRow = newest < 0 ? 0 : newest
                     viewportOldestRow = viewRowAtPhysicalTop()
@@ -2998,22 +2420,12 @@ Rectangle {
                 function scheduleVisibleRowRange() {
                     visibleRowRangeTimer.restart()
                 }
-                // Same shape as visibleRowRangeTimer above, for the same
-                // reason: onModelReset() used to close its settle step with a
-                // bare Qt.callLater(function() { timeline.recomputePresen...
-                // }), and that queued closure ran after window close/logout/
-                // app quit destroyed `timeline`, logging
-                // "recomputePresentationReady is not a function" on every
-                // session end. A child Timer is destroyed together with
-                // `timeline`, so a torn-down pane leaves nothing queued to
-                // fire.
                 Timer {
                     id: presentationResetSettledTimer
                     interval: 0
                     onTriggered: {
                         timeline.presentationResetPending = false
                         timeline.recomputePresentationReady()
-                        // Includes the jump-to-live trim's reload (B020).
                         timeline.diagNavigationShape("reset-settled")
                     }
                 }
@@ -3024,31 +2436,15 @@ Rectangle {
                     // range, so inset the content directly. The rotation swaps
                     // left and right, harmless while equal.
                     x: timeline.leftMargin
-                    // Rows can be built before the pane has a width, and a
-                    // non-positive width measures a wrapped body as enormously
-                    // tall. Fall back to a normal column width until then.
                     width: {
                         var available = timeline.width - timeline.leftMargin
                                       - timeline.rightMargin
                         return available > 0 ? available : 640
                     }
-                    // Delegates own sender-group spacing so continuations stay
-                    // visually joined.
                     spacing: 0
 
-                    // Records how many rows the last positioning pass covered,
-                    // so jump paths know when a delegate's y can be trusted
-                    // (see navigationGeometryReady()). Nothing binds to it, so
-                    // writing it here cannot loop.
                     onPositioningComplete: {
                         timeline.layoutRowsAtLastPass = timeline.count
-                        // The Column has re-positioned the current children, so
-                        // contentHeight now describes the new snapshot and
-                        // presentationGeometryStale may clear. A 0 ms timer is
-                        // not equivalent: it could fire while contentHeight
-                        // still described the previous room and open the gate
-                        // on a one-item snapshot. Unlike onContentHeightChanged
-                        // this also fires when the new height equals the old.
                         if (timeline.presentationGeometryStale) {
                             timeline.presentationGeometryStale = false
                             timeline.recomputePresentationReady()
@@ -3065,28 +2461,10 @@ Rectangle {
                         delegate: MessageDelegate {
                             width: rowColumn.width
                             rotation: 180
-                            // No attached view exists inside a Repeater, so
-                            // inject it. The height-seed/recycling API is
-                            // deliberately withheld so the delegate uses its
-                            // natural height.
                             timelineView: timeline
-                            // An index-range test, never geometry; see
-                            // visibleFirstRow.
                             rowOnScreen: index >= timeline.visibleFirstRow
                                          && index <= timeline.visibleLastRow
-                            // Qt Quick delivers each wheel and hover event by
-                            // walking every instantiated row, and skips a
-                            // subtree only when it is invisible, disabled,
-                            // or clips and misses the point. Invisible would
-                            // collapse the Column and clip doubles render
-                            // cost (stencil nodes, measured), so rows beyond
-                            // the activation range are disabled: the walk
-                            // stops at their root instead of visiting every
-                            // descendant, and delivery cost stops growing
-                            // with the history loaded. They are off screen
-                            // and cannot be pointed at.
                             enabled: rowOnScreen
-                            // Same for the media band.
                             mediaInBand: index >= timeline.mediaBandFirstRow
                                          && index <= timeline.mediaBandLastRow
                             mediaPixmapRetained:
@@ -3096,11 +2474,6 @@ Rectangle {
                     }
                 }
 
-                // No height model: the Column measures itself and appends
-                // cannot move a positioned item. Lightning owns the scroll
-                // position (writes contentY clamped to wheelMinY/wheelMaxY);
-                // StopAtBounds keeps a native wheel event from overshooting or
-                // rubber-banding past that clamp.
                 boundsBehavior: Flickable.StopAtBounds
                 topMargin: AppTheme.spacingM
                 bottomMargin: AppTheme.spacingM
@@ -3113,13 +2486,7 @@ Rectangle {
                 leftMargin: AppTheme.spacingM
                 rightMargin: AppTheme.spacingM + avatarGutter
 
-                // Read defensively: several suites construct this pane without
-                // `app`, and an undefined read would break the wheel handler.
                 readonly property bool smoothScrollingEnabled: {
-                    // Coerce explicitly: a stub settings object yields
-                    // undefined, and assigning undefined to a bool warns (the
-                    // GIF picker suites treat that as a failure). Defaults to
-                    // true.
                     if (typeof app === "undefined" || !app || !app.settings)
                         return true
                     var v = app.settings.smoothScrolling
@@ -3128,17 +2495,8 @@ Rectangle {
 
                 property bool stickToBottom: true
 
-                // Bottom-follow is latched to user intent: recomputed only on
-                // user input (wheel/drag/settle), never on async content
-                // growth, so a reader who scrolled up stays disengaged until
-                // they return to the end, jump to latest or open a room.
-                // Proximity must never re-pin them. The slack is less than one
-                // line, so scrolling up to re-read always disengages.
                 readonly property real bottomFollowSlack: 8
                 function atBottomEdge() {
-                    // While the row window hides the live edge, the physical
-                    // bottom is not the newest message, so it is not "at
-                    // bottom".
                     if (rowWindowSkip > 0)
                         return false
                     return atYBeginning
@@ -3148,30 +2506,10 @@ Rectangle {
                     app.timelineView && app.timelineView.windowSkip !== undefined
                     ? app.timelineView.windowSkip : 0
 
-                // Initial-hydration gate: a freshly opened room stays covered
-                // by the loading surface until the content fills the viewport
-                // or the backend reports the initial fill settled (batch
-                // landed, start of history, stopped, failed). The guard timer
-                // is only a safety valve for a hung backend. Monotonic per room
-                // generation.
                 property bool presentationReady: app.currentRoomId === ""
-                // Set while a room reset is in flight. Rows are built
-                // synchronously, so contentHeight moves during the reset and
-                // recomputing the gate then would read the outgoing room's
-                // state and open on a one-item snapshot.
                 property bool presentationResetPending: false
-                // True from a model reset until the Column produces geometry
-                // for the new snapshot. While stale, fillsViewport is
-                // untrustworthy; the settled/guard paths still open the gate.
                 property bool presentationGeometryStale: false
-                // Whether the view held rows when the last reset was announced
-                // (see onModelAboutToBeReset).
                 property bool presentationResetHadRows: false
-                // True from a reset whose saved viewport is historical until
-                // that restore has landed (or failed, or the reader took
-                // over). The model reset pins to the newest row, so opening
-                // the gate before this clears would present the latest
-                // messages for a frame or more before the saved spot.
                 property bool restoreHoldsGate: false
                 function releaseRestoreHold() {
                     if (!restoreHoldsGate)
@@ -3196,18 +2534,12 @@ Rectangle {
                         presentationGuard.stop()
                         return
                     }
-                    // contentHeight is only meaningful once the pane has a
-                    // height and the Column has re-laid-out since the last
-                    // reset; before that it still describes the outgoing rows.
                     var fillsViewport = count > 0 && height > 0
                                         && !presentationGeometryStale
                                         && contentHeight >= height - 1
                     if (fillsViewport || app.pagination.initialContentSettled) {
                         presentationReady = true
                         presentationGuard.stop()
-                        // When following the latest message, present with one
-                        // deferred end-anchor; otherwise the anchor restore has
-                        // already positioned the saved spot.
                         if (stickToBottom)
                             scrollToEndTimer.restart()
                     }
@@ -3229,63 +2561,20 @@ Rectangle {
                     target: app.pagination
                     function onStateChanged() {
                         timeline.recomputePresentationReady()
-                        // The fill's next page follows the controller going
-                        // idle rather than a 250 ms retry timer; rows land
-                        // before the controller finishes a batch, so the timer
-                        // added one wait per page on first open.
                         if (!app.pagination.busy)
                             timeline.maybeFillViewport()
                     }
                 }
 
-                // Persistent viewport anchor: the first visible stable item id
-                // plus its pixel offset. Every coalesced content-height change
-                // re-aligns to it, so async row growth (media, late decryption,
-                // previews, profiles) does not move the message being read.
-                // This is the only position-preserving mechanism; bottom-pinned
-                // and in-motion states have their own.
                 property string viewAnchorId: ""
                 property real viewAnchorOffset: 0
-                // The anchor row's content y at its last measurement. Re-based
-                // on every application so the next delta only covers new
-                // growth.
                 property real viewAnchorLastY: 0
-                // Row count at the last anchor measurement. Distinguishes an
-                // insertion (the displaced-anchor path) from the reader merely
-                // scrolling away from the anchor, where re-capturing is the
-                // cheap, correct answer.
                 property int viewAnchorCount: 0
-                // Row index and content height at the last measurement. When an
-                // insertion displaces the anchor out of the cache, a rising row
-                // index proves rows were inserted above and the height growth
-                // says how much, so the correction needs no delegate built
-                // (building one sweeps delegate creation and media requests
-                // across every row it passes).
                 property int viewAnchorRow: -1
-                // The anchor row's kind (MessageDelegate.rowKind), for the
-                // scroll recorder only: an idle restore that rides the oldest
-                // edge page after page (live 2026-10-26, `w=anchor-restore`,
-                // +2190 px per page, `scroll incident code=oldest-bound`)
-                // cannot be told apart from a correct hold without knowing
-                // whether the anchor was a message or a virtual row.
                 property string viewAnchorKind: ""
                 property real viewAnchorContentHeight: 0
-                // Diagnostic only: originY also moves when the height estimate
-                // is revised, so recording it beside the row index lets a trace
-                // tell the two causes apart.
                 property real viewAnchorOriginY: 0
                 function captureViewAnchor() {
-                    // A newest-end insertion not yet reconciled: settle it
-                    // against the anchor first, on current geometry, or this
-                    // capture would adopt the displaced position as the
-                    // reader's own (live: the settle's capture landing between
-                    // an append's relayout and its coalesced maintain left the
-                    // reader 23 px off the oldest row, `activeDeferrals=1
-                    // materializedMaxAbsDelta=0 topDist=23`). Paths that paid
-                    // for their own insertions, or that place the reader
-                    // deliberately, zero the counter first. Active input only:
-                    // idle, the coalesced maintainViewAnchor() is still due and
-                    // a capture here is what a finished drag wants to adopt.
                     if (newestEndInsertedRows > 0 && viewAnchorId !== ""
                             && !stickToBottom && count > 0
                             && userScrollActive && !moving && !scrollBarHeld) {
@@ -3331,15 +2620,6 @@ Rectangle {
                     if (scrollTrace)
                         viewAnchorOriginY = originY
                 }
-                // Rows the view model inserted at its NEWEST end (view row 0)
-                // since maintainViewAnchor() last ran: the proof a live hold
-                // requires. Not the anchor's rising row index: that says rows
-                // went in somewhere newer than the anchor, not which rows, and
-                // a sum over the k newest rows matches any insertion of k
-                // equally tall rows (review round 1). The index can also lose
-                // the race: the anchor re-captured between the insertion and
-                // the relayout that moves it (live: `row=113 anchorRow=113
-                // count=114 anchorCount=114 delta=23`).
                 property int newestEndInsertedRows: 0
                 Connections {
                     target: app.timelineView
@@ -3351,19 +2631,7 @@ Rectangle {
                         timeline.newestEndInsertedRows = 0
                     }
                 }
-                // A glide heading for newer rows is not held: it is usually on
-                // its way to the live edge (Jump to latest, End, wheel notches
-                // down), and the hold translates the glide's TARGET too, so it
-                // would stop one message short of the bottom with follow-latest
-                // and read receipts off (review round 1: contentY 44, stick
-                // false, against -12 / true without the hold). Unheld, the
-                // glide lands on its own target as before. Set where a glide
-                // starts: the wheel notch, beginWheelTo() and goToLatest().
                 property bool glideTowardsNewer: false
-                // The height of the rows the model inserted at its newest end
-                // since the anchor's last measurement, when exactly those rows
-                // account for how far the anchor moved (`delta`); otherwise 0.
-                // See the active branch of maintainViewAnchor().
                 function insertedBelowAnchorHeight(delta, newestInserted) {
                     if (moving || scrollBarHeld || navigationPendingRow >= 0)
                         return 0
@@ -3375,9 +2643,6 @@ Rectangle {
                     var sum = 0
                     for (var r = 0; r < newestInserted; ++r) {
                         var item = itemAtViewRow(r)
-                        // A built row of zero height (a collapsed or hidden
-                        // row) contributes nothing; an unbuilt one leaves the
-                        // measurement unproven.
                         if (!item)
                             return 0
                         sum += Math.max(0, item.height)
@@ -3390,22 +2655,15 @@ Rectangle {
                         return
                     viewAnchorScheduled = true
                     Qt.callLater(function() {
-                        // The pane may be gone by the time this runs.
                         if (!timeline) return
                         viewAnchorScheduled = false
                         timeline.maintainViewAnchor()
                     })
                 }
                 function maintainViewAnchor() {
-                    // Consumed by every run, whichever branch it takes.
                     var newestInserted = newestEndInsertedRows
                     newestEndInsertedRows = 0
                     if (viewAnchorId === "" || stickToBottom) {
-                        // Diagnostics: distinguish "ran with nothing to
-                        // correct" from "never engaged". The two early returns
-                        // are counted separately: no anchor captured yet, and a
-                        // correction scheduled while scrolled up then dropped
-                        // on return to bottom. An empty id wins when both hold.
                         if (scrollTrace) {
                             if (viewAnchorId === "")
                                 diagNoAnchorReturns += 1
@@ -3414,20 +2672,9 @@ Rectangle {
                         }
                         return
                     }
-                    // The single anchor-correction mechanism for every change
-                    // that moves the anchor row (pagination prepend,
-                    // re-measurement, late decryption, previews). It runs once
-                    // per coalesced onContentHeightChanged regardless of cause.
-                    // Do not add a second capture/restore path for pagination
-                    // or a pagination stand-down guard here: two mechanisms
-                    // writing contentY is what caused the earlier scroll bugs.
-                    // See docs/timeline-scrolling.md.
                     var row = viewRowForStableId(viewAnchorId)
                     var it = row >= 0 ? itemAtViewRow(row) : null
                     var anchorY = anchorPositionForItem(it)
-                    // Diagnostics: on a proven insertion before the anchor,
-                    // pair the originY shift with the whole-content delta so a
-                    // trace can compare the two.
                     if (scrollTrace && row > viewAnchorRow && viewAnchorRow >= 0) {
                         var insertedRowsForOriginDiag = row - viewAnchorRow
                         var originShiftForDiag = viewAnchorOriginY - originY
@@ -3454,26 +2701,7 @@ Rectangle {
                     }
                     if (!it && row >= 0 && !moving && !userScrollActive
                         && row > viewAnchorRow && viewAnchorRow >= 0) {
-                        // Displaced by an insertion above the reader (the row
-                        // index rose). Idle only: during active input this
-                        // estimate can cancel an entire wheel gesture, so it
-                        // falls through to the measurement-only re-capture
-                        // below.
-                        //
-                        // Positive net only. `grew` is a whole-content delta; a
-                        // negative value is dominated by estimate noise or a
-                        // below-viewport shrink, which this cannot correct.
-                        // Skipping is the better approximation, and a skipped
-                        // shrink is absorbed at settle by captureViewAnchor().
-                        // viewAnchorLastY is not advanced when skipped, or the
-                        // returning delegate would produce a jump. An appended
-                        // live row in the same turn is included too; accepted
-                        // as one row's worth of error.
                         var grew = contentHeight - viewAnchorContentHeight
-                        // Diagnostics: record every entry, including skipped
-                        // negatives, to show whether |grew| stays proportional
-                        // to insertedRows. Gated on scrollTrace so it survives
-                        // past the triggering gesture.
                         if (scrollTrace) {
                             diagDisplacedFirings += 1
                             var insertedRowsForDiag = row - viewAnchorRow
@@ -3511,13 +2739,6 @@ Rectangle {
                         return
                     }
                     if (!it) {
-                        // Unresolvable: the id no longer exists (redaction,
-                        // local-echo id change) or a native drag owns the view.
-                        // Re-measuring writes no position, so it is safe
-                        // mid-gesture. Diagnostics split by whether the id
-                        // still resolves: row < 0 is a stale id; row >= 0 is a
-                        // delegate evicted with no proof of insertion. Counters
-                        // are not reset on a room switch.
                         if (userScrollActive) {
                             var deferredDisplaced = row > viewAnchorRow
                                     && viewAnchorRow >= 0
@@ -3535,26 +2756,7 @@ Rectangle {
                         return
                     }
                     if (userScrollActive) {
-                        // Moving contentY by the anchor row's own movement
-                        // holds the message on screen while rows around it
-                        // resize.
                         var deferredDelta = anchorY - viewAnchorLastY
-                        // The one active-input case that IS a displacement of
-                        // the reader, and can be told apart from every other
-                        // reason anchorY moves: the model inserted rows at its
-                        // NEWEST end (rowsInserted at row 0, counted since the
-                        // last run) and the anchor moved by exactly the
-                        // measured height of those rows. That is a live message
-                        // landing below the reader. Hold them, as the idle
-                        // restore already does (decided 2026-10-18, open item
-                        // O3). Measured without this: a reader parked at the
-                        // oldest row, a message landing inside the 250 ms
-                        // settle tail, `materializedMaxAbsDelta=23
-                        // activeDeferrals=1 netY=0` and topDist 0 -> 23. Never
-                        // during a native drag or a held scroll bar (their own
-                        // position wins on the next move), never for a glide
-                        // heading newer (see glideTowardsNewer), never while a
-                        // navigation landing is pending, positive only.
                         var heldDelta = insertedBelowAnchorHeight(
                                     deferredDelta, newestInserted)
                         if (heldDelta > 0) {
@@ -3563,8 +2765,6 @@ Rectangle {
                                 diagLiveInsertHeldSum += heldDelta
                             }
                             setPositionY(Math.min(wheelMaxY(), contentY + heldDelta), "anchor-hold")
-                            // Translate an in-flight glide rather than letting
-                            // it pull the reader back.
                             app.timelineScroll.translateActiveMotion(heldDelta)
                             captureViewAnchor()
                             return
@@ -3578,20 +2778,9 @@ Rectangle {
                             if (!selfDrivenScrollActive)
                                 diagDragDeferrals += 1
                         }
-                        // No write while input owns the viewport. Applying this
-                        // delta was tried twice and pulled the reader both
-                        // ways, during loading and during ordinary scrolling:
-                        // anchorY also moves for reasons that are not
-                        // displacement of the reader. Do not re-enable it
-                        // without a measurement that separates the two. Accept
-                        // the live layout position and re-base; settle captures
-                        // the final position.
                         captureViewAnchor()
                         return
                     }
-                    // Idle: nothing competes for contentY, so an absolute
-                    // restore to the captured offset is safe and equivalent to
-                    // the relative form.
                     var desired = anchorY + viewAnchorOffset
                     var lo = wheelMinY()
                     var hi = wheelMaxY()
@@ -3609,9 +2798,6 @@ Rectangle {
                         viewAnchorOriginY = originY
                 }
 
-                // MessageDelegate view contract: the room timeline resolves
-                // stable-id actions against app.timeline and never suppresses a
-                // row as a pinned thread root.
                 property var timelineModel: app.timeline
                 readonly property string keyboardSelectedEventId:
                     activeFocus || root.restoredSelectionOutline
@@ -3626,9 +2812,6 @@ Rectangle {
                         && item.y + item.height > contentY
                 }
 
-                // Older starts at the newest visible row; newer starts at the
-                // oldest. The first message key after paging selects that edge
-                // without moving the viewport or skipping a message.
                 function selectVisibleMessage(direction) {
                     var first = Math.max(0, viewRowAtContentY(contentY))
                     var candidate = ""
@@ -3681,14 +2864,8 @@ Rectangle {
                     root.stopAutoscroll()
                     cancelWheelMotion()
                     noteReaderTookControl()
-                    // The timeline's own jump-to-latest bookkeeping: live edge
-                    // exposed, follow-latest saved, anchor baseline retired,
-                    // receipts re-evaluated. Bounded, so a distant jump does
-                    // not instantiate the whole skipped backlog.
                     settleAtLatest(true)
                     selectNewestVisibleMessage()
-                    // Allow a cleared presentation window to expose row zero,
-                    // but never overwrite a subsequent step/page command.
                     enteringMessageNavigation = true
                     messageNavigationEntry.restart()
                 }
@@ -3702,8 +2879,6 @@ Rectangle {
                     root.stopAutoscroll()
                     cancelWheelMotion()
                     noteReaderTookControl()
-                    // Extending the newest end translates the coordinate
-                    // system. Preserve the requested displacement across it.
                     if (target < contentY && nearWindowNewEdge()) {
                         var beforeExtension = contentY
                         extendRowWindowAtNewEnd()
@@ -3724,9 +2899,6 @@ Rectangle {
                         target = item.y
                     else if (item.y + item.height > contentY + height)
                         target = item.y + item.height - height
-                    // An older edge step may otherwise cut the newest visible
-                    // message at the physical bottom. Start at the next whole
-                    // message boundary while keeping the selected row in view.
                     if (target > contentY + 0.5 && item.height < height) {
                         var first = Math.max(0, viewRowAtContentY(target))
                         for (var candidate = first; candidate <= row; ++candidate) {
@@ -3750,10 +2922,6 @@ Rectangle {
                     if (selectionDetached || !messageIntersectsViewport(row)) {
                         if (selectVisibleMessage(direction))
                             return true
-                        // No eligible row is visible. Continue beyond the
-                        // viewport instead of repeating the same empty search.
-                        // Newer includes the row at contentY: it may end just
-                        // before the viewport and be the nearest valid target.
                         row = viewRowAtContentY(contentY) + (direction < 0 ? 1 : 0)
                     }
                     for (var next = row + direction;
@@ -3818,9 +2986,6 @@ Rectangle {
                     }
                     return true
                 }
-                // The selected row's own delegate runs the action, so the
-                // hotkeys and the context menu cannot disagree (eligibility,
-                // the delete confirm).
                 function runSelectedMessageAction(action) {
                     stopEntrySelection()
                     var row = viewRowForStableId(root.keyboardSelectedEventId)
@@ -3830,11 +2995,6 @@ Rectangle {
                     return !!item && !!item.runSelectionAction
                            && item.runSelectionAction(action)
                 }
-                // Every jump/search/permalink path calls this before addressing
-                // a row by id. It must restore the live edge: releaseAll()
-                // lifts the pacing cap but keeps the row window's skip, so a
-                // jump to a recent message would find no row. clearWindow()
-                // resets the skip and releases the backlog.
                 function releasePendingRows() {
                     if (!app.timelineView)
                         return
@@ -3843,11 +3003,6 @@ Rectangle {
                     else if (app.timelineView.releaseAll)
                         app.timelineView.releaseAll()
                 }
-                // View row <-> source row, anchored on the source total minus
-                // the row window's skip, never on `count`: the proxy paces new
-                // history out over a few frames, and deriving from `count`
-                // would renumber visible rows while a page drains. Getting this
-                // wrong fails silently ("no such row").
                 function sourceRowForViewRowAtCount(row, rowCount) {
                     return row < 0 || row >= rowCount
                             ? -1
@@ -3875,34 +3030,14 @@ Rectangle {
                     return viewRowForSourceRow(
                                 app.timeline.rowForStableId(stableId))
                 }
-                // Every loaded row is instantiated, so this is a direct lookup.
                 function itemAtViewRow(row) {
                     return row < 0 || row >= count
                             ? null : rowRepeater.itemAt(row)
                 }
-                // A row the Column does not lay out: a positioner skips a
-                // child that is invisible OR has no width or height (Qt's
-                // documented rule), which is every hidden room-activity row,
-                // collapsed group member, suppressed divider and thread root
-                // here (they are visible with height 0, or invisible). Its y
-                // is whatever it was last given, 0 if it was never laid out,
-                // so it says nothing about where anything is. (A hidden
-                // COLUMN hides every row; visibility alone is then not held
-                // against them, as before.)
                 function rowSkippedByLayout(item) {
                     return !item || item.height <= 0 || item.width <= 0
                            || (rowColumn.visible && !item.visible)
                 }
-                // Binary search over real geometry: the rows the Column lays
-                // out are in ascending y, and only those are searched. A
-                // hidden row is never the answer, and its stale y must not
-                // steer the search either: hidden activity rows at y 0 once
-                // pulled the answer up to a hidden row far above the
-                // viewport, so viewportOldestRow named rows nobody could see
-                // (seen live 2026-10-20: 34 for a physical top on row 23;
-                // rows 27-34 were collapsed activity: visible, height 0, y 0).
-                // A probe that lands on a hidden row uses the nearest laid-out
-                // row at or below it; a run of hidden rows costs its length.
                 function viewRowAtContentY(y) {
                     var lo = 0
                     var hi = count - 1
@@ -3921,13 +3056,10 @@ Rectangle {
                                                : null
                         }
                         if (probe < lo) {
-                            // [lo, mid] holds no laid-out row: none of it can
-                            // be the answer.
                             lo = mid + 1
                         } else if (item.y > y) {
                             hi = probe - 1
                         } else {
-                            // probe+1..mid are hidden: never the answer.
                             best = probe
                             lo = mid + 1
                         }
@@ -3935,33 +3067,20 @@ Rectangle {
                     return best
                 }
                 function viewRowAtPhysicalTop() {
-                    // Rotated: the physical top of the viewport is the far end
-                    // of the range.
                     return viewRowAtContentY(
                         contentY + Math.max(0, height - topMargin - 1))
                 }
-                // Rotated view: a row's logical bottom edge is its physical
-                // top. Anchor that edge so height changes keep the message
-                // under the reader.
                 function anchorPositionForItem(item) {
                     return item ? item.y + item.height : 0
                 }
-                // Row 0 is the newest and sits at content y 0 (the physical
-                // bottom), so following the latest is just the low bound.
                 function positionViewAtLatest() {
                     setPositionY(wheelMinY(), "follow-latest")
                 }
-                // How far into the viewport a navigation target lands. A third
-                // of the viewport in shows context on both sides. Uses the same
-                // measured geometry and clamp as positionViewAtViewRow(); not a
-                // second anchor mechanism.
                 readonly property real navigationInsetFraction: 0.33
                 function positionViewAtNavigationTarget(row) {
                     var item = itemAtViewRow(row)
                     if (!item)
                         return false
-                    // Put the row's physical top at the viewport's physical
-                    // top, then move it down by the inset.
                     var target = anchorPositionForItem(item) - height
                                  + topMargin + height * navigationInsetFraction
                     var lo = wheelMinY()
@@ -3969,28 +3088,10 @@ Rectangle {
                     setPositionY(target < lo ? lo : (target > hi ? hi : target), "navigation")
                     return true
                 }
-                // Navigation diagnostics, counts only (never an event id). Both
-                // failure paths used to return silently.
-                // diagWindowUnmeasuredRows: rows still measuring zero after a
-                // layout flush when the row window corrected contentY; non-zero
-                // means a window move threw the reader.
                 property int diagWindowUnmeasuredRows: 0
                 property int diagNavigationLandings: 0
                 property int diagNavigationUnresolved: 0
-                // Jumps the reader overrode by scrolling before they landed. A
-                // large count relative to diagNavigationLandings means targets
-                // take too long to build.
                 property int diagNavigationAbandoned: 0
-                // Opt-in (LIGHTNING_SCROLL_TRACE) shape of the loaded rows
-                // around a navigation, for break-it B020/B021 (rows missing
-                // after jump to latest; rows drawn out of order after a find
-                // jump). Separates the layers: dupIds counts event ids the
-                // SOURCE model holds twice (an SDK/diff problem, nothing the
-                // view can cause); yInversions counts built rows whose y does
-                // not follow the row before them (the Column has not
-                // positioned them, so they draw over other rows: a view
-                // problem). Counts only, never an event id. O(rows), and only
-                // while tracing.
                 function diagNavigationShape(tag) {
                     if (!scrollTrace || !app.timeline)
                         return
@@ -4028,50 +3129,22 @@ Rectangle {
                                  + " firstUnreadSrc="
                                  + app.timeline.firstUnreadRow)
                 }
-                // Geometry half of onTargetLocated. releasePendingRows() can
-                // insert hundreds of rows in one turn, and a row created this
-                // turn is unmeasured until polish (y == 0, height == 0), so
-                // landing immediately would clamp to the newest end.
-                // navigationGeometryReady() requires the row to be measured and
-                // the last Column layout pass to cover the current row set.
-                //
-                // Then write contentY exactly once; no correction loop. A newer
-                // jump replaces a pending one.
                 property int navigationPendingRow: -1
-                // The target's stable id, authoritative while the landing
-                // waits. navigationPendingRow is only the fallback when the
-                // model has no id.
                 property string navigationPendingId: ""
                 property real navigationPendingOffset: 0
                 property bool navigationPendingHighlight: false
                 property int navigationPendingAttempts: 0
-                // Attempts since the landing was armed, never reset by the
-                // convergence re-arm; the ceiling that stops it waiting
-                // forever.
                 property int navigationTotalAttempts: 0
-                // "<rows>/<laidOutRows>" at the previous attempt. A change
-                // means the view is still converging and re-arms the budget.
                 property string navigationLastShape: ""
-                // Row count covered by the Column's last completed positioning
-                // pass (from its positioningComplete signal). Differing from
-                // `count` means every y is from the previous shape.
                 property int layoutRowsAtLastPass: 0
                 function navigationGeometryReady(item) {
                     if (!item)
                         return false
-                    // A deliberately hidden row is measured at zero and never
-                    // grows, so do not wait for it.
                     if (item.height <= 0 && item.visible)
                         return false
                     return layoutRowsAtLastPass === count
                 }
-                // ~200 ms of frames, counted in ticks rather than wall clock so
-                // a slow tick does not burn the budget.
                 readonly property int maxNavigationLandingAttempts: 12
-                // Absolute ceiling, ~2 s. While the reader scrolls, the row set
-                // and layout pass change constantly and would re-arm the budget
-                // forever, so the landing would eventually fire mid-gesture as
-                // a teleport.
                 readonly property int maxNavigationLandingTicks: 120
                 Timer {
                     id: navigationLandingTimer
@@ -4079,19 +3152,12 @@ Rectangle {
                     repeat: false
                     onTriggered: timeline.tryLandNavigationTarget()
                 }
-                // One backward page per tick while hunting the read marker. 240
-                // ms because each tick is a network pagination. See
-                // goToFirstUnread().
                 Timer {
                     id: firstUnreadRetryTimer
                     interval: 240
                     repeat: false
                     onTriggered: timeline.landOnFirstUnread()
                 }
-                // Genuine input abandons a jump that has not landed, or it
-                // could yank the view later. Called only from pointer input
-                // (wheel, drag, flick, autoscroll), never from a programmatic
-                // write.
                 function abandonNavigationLanding() {
                     if (navigationPendingRow < 0 && navigationPendingId === "")
                         return
@@ -4103,27 +3169,9 @@ Rectangle {
                     navigationLandingTimer.stop()
                     ++diagNavigationAbandoned
                 }
-                // True once the reader has moved this room's view. Cleared on
-                // model reset.
                 property bool readerControlledSinceReset: false
-                // Bumped when the reader takes the view. onTargetLocated
-                // captures it when it QUEUES a landing and re-checks it when
-                // the queued closure RUNS — checking reader control only at
-                // scheduling time left one event-loop turn in which a wheel
-                // notch could be overruled by a landing it had already
-                // cancelled (the master prompt's P0 deferred-navigation race,
-                // SC34). A model reset does NOT bump it: a located target is
-                // held by stable id and still lands across a same-room
-                // snapshot (aLocatedTargetKeepsItsIdWhenRowsShiftBeforeThe
-                // Landing); in another room the id simply does not resolve.
                 property int navigationEpoch: 0
-                // Bumped by every model reset, so a restore queued by one
-                // reset never runs after a newer one (A -> B -> A, SC36).
                 property int resetEpoch: 0
-                // Single entry point for "the reader is driving". Also reaches
-                // the controller: a scroll-anchor restore can spend seconds
-                // paginating before it arms a landing, which would then
-                // teleport the reader back to where the room opened.
                 function noteReaderTookControl() {
                     readerControlledSinceReset = true
                     ++navigationEpoch
@@ -4131,50 +3179,31 @@ Rectangle {
                     if (app.pagination)
                         app.pagination.cancelNavigation()
                     abandonNavigationLanding()
-                    // The unread hunt pages the timeline too, so a gesture
-                    // cancels it.
                     firstUnreadPagesLeft = 0
                     firstUnreadRetryTimer.stop()
                 }
-                // Called by a nested scroller (CodeBlock's wheelRouter) for
-                // each wheel event with motion that it keeps for itself: the
-                // reader is scrolling, so do what timelineWheelHandler does
-                // before it moves anything (stop an autoscroll, cancel a
-                // pending jump or landing).
                 function nestedWheelTaken() {
                     root.stopAutoscroll()
                     timeline.noteReaderTookControl()
                 }
                 function beginNavigationLanding(row, pixelOffset, highlight,
                                                 knownStableId) {
-                    // Hold the target by stable id, not row number: a
-                    // pagination batch during the wait renumbers source rows.
-                    // Resolved back to a row on each attempt via
-                    // rowForStableId().
-                    // `knownStableId` is the target's id read in the turn the
-                    // controller located it: a history page or live event
-                    // landing before this call renumbers rows, and reading the
-                    // id from `row` then names a different, older message.
                     navigationPendingId = knownStableId
                                           ? knownStableId
                                           : (app.timeline
                                              ? app.timeline.stableIdAt(row)
                                              : "")
-                    // Fallback for a model that cannot give a stable id.
                     navigationPendingRow = row
                     navigationPendingOffset = pixelOffset
                     navigationPendingHighlight = highlight
                     navigationPendingAttempts = 0
                     navigationTotalAttempts = 0
                     navigationLastShape = ""
-                    // Try immediately: an already-exposed target lands this
-                    // turn.
                     tryLandNavigationTarget()
                 }
                 function tryLandNavigationTarget() {
                     if (navigationPendingRow < 0)
                         return false
-                    // Re-derive the row on every attempt.
                     const row = navigationPendingId !== ""
                                 && app.timeline
                                 ? app.timeline.rowForStableId(
@@ -4182,23 +3211,12 @@ Rectangle {
                                 : navigationPendingRow
                     const viewRow = row >= 0 ? viewRowForSourceRow(row) : -1
                     let item = viewRow >= 0 ? itemAtViewRow(viewRow) : null
-                    // Measured, but the last positioning pass covered a
-                    // different row set. While history streams in, a matching
-                    // pass may never arrive before the budget runs out, so
-                    // request one: forceLayout() synchronously flushes existing
-                    // children without building anything. Once per attempt, and
-                    // only with a measured item.
                     if (item && !navigationGeometryReady(item)
                             && (item.height > 0 || !item.visible)) {
                         rowColumn.forceLayout()
                         item = itemAtViewRow(viewRow)
                     }
                     if (!navigationGeometryReady(item)) {
-                        // Bound on convergence, not wall clock: under load the
-                        // timer keeps firing while nothing progresses. The
-                        // budget is only spent on attempts that saw no change
-                        // in the row set or laid-out row set, so an impossible
-                        // target still gives up promptly.
                         const shape = count + "/" + layoutRowsAtLastPass
                         if (shape !== navigationLastShape) {
                             navigationLastShape = shape
@@ -4215,9 +3233,6 @@ Rectangle {
                         navigationPendingId = ""
                         releaseRestoreHold()
                         ++diagNavigationUnresolved
-                        // Report instead of returning silently. Counts and view
-                        // shape only, never an event id; the geometry fields
-                        // separate "never built" from "never measured".
                         console.warn("timeline navigation target unresolved"
                                      + " sourceRow=" + row
                                      + " viewRow=" + viewRow
@@ -4228,16 +3243,9 @@ Rectangle {
                                      + " built=" + (item ? 1 : 0)
                                      + " rowH=" + (item ? item.height : -1)
                                      + " laidOutRows=" + layoutRowsAtLastPass
-                                     // Ticks well under the ceiling: the target
-                                     // can never be measured. At the ceiling:
-                                     // the view never stopped changing.
                                      + " ticks=" + navigationTotalAttempts)
                         return false
                     }
-                    // A height that settled after the last pass (image, link
-                    // preview) leaves a polish pending and every y below it
-                    // short. The positioner's forceLayout() flushes that
-                    // synchronously, builds nothing, and runs once per jump.
                     rowColumn.forceLayout()
                     const pixelOffset = navigationPendingOffset
                     const highlight = navigationPendingHighlight
@@ -4247,24 +3255,15 @@ Rectangle {
                     if (highlight) {
                         positionViewAtNavigationTarget(viewRow)
                     } else if (isNaN(pixelOffset)) {
-                        // A restored selection with no offset of its own
-                        // (it is not the saved anchor): centred.
                         positionViewAtViewRow(viewRow, true)
                     } else {
                         positionViewAtViewRow(viewRow, false)
                         setPositionY(anchorPositionForItem(item) + pixelOffset, "saved-restore")
                     }
-                    // Follow-latest comes from where the landing put the
-                    // reader. A target in the newest screenful (a notification
-                    // for the latest message) clamps to the live edge; forcing
-                    // false there left read receipts off and let the unread
-                    // divider push that message under the bottom edge.
                     stickToBottom = atBottomEdge()
                     ++diagNavigationLandings
                     releaseRestoreHold()
                     saveRoomPosition()
-                    // The landing placed the reader on current geometry; rows
-                    // released for it are not a displacement to hold.
                     newestEndInsertedRows = 0
                     captureViewAnchor()
                     diagNavigationShape("landed")
@@ -4274,8 +3273,6 @@ Rectangle {
                     var item = itemAtViewRow(row)
                     if (!item)
                         return
-                    // Place the row's physical top at the viewport's physical
-                    // top (or middle when centering), on measured geometry.
                     var target = centered
                             ? anchorPositionForItem(item)
                               - (height + item.height) / 2
@@ -4287,77 +3284,38 @@ Rectangle {
                 property string suppressRootEventId: ""
                 property bool threadContext: false
 
-                // The message whose action toolbar is pinned open by a click;
-                // one at a time. Keyed by SDK item id or event id.
                 property string pinnedActionsKey: ""
-                // The row under the pointer. Only one action bar may show: a
-                // pinned row keeps its bar only while nothing else is hovered.
                 property string hoveredActionsKey: ""
-                // Row hover is suspended while the viewport moves under a
-                // resting pointer (wheel or keyboard glide, flick, held scroll
-                // bar, latched autoscroll). Otherwise the hovered row changes
-                // every few frames, and each change flips `visible` on the
-                // row's highlight and action bar. Since Qt 6.7 any visibility
-                // or z change marks the window's child-window stacking order
-                // dirty, and the next polish walks EVERY item in the window
-                // (QQuickWindowPrivate::updateChildWindowStackingOrder), so a
-                // scroll frame cost grew with the rows loaded: measured live
-                // at 70-75% of the GUI thread while scrolling with the pointer
-                // over the timeline, and absent with it elsewhere. Offscreen
-                // has no pointer, which is why no earlier capture saw it.
-                // MessageDelegate disables its row HoverHandler on this, which
-                // clears `hovered`; resumeRowHover() hands hover back.
                 readonly property bool rowHoverSuspended:
                     viewportMotionActive || middleClickScroller.active
                 onRowHoverSuspendedChanged: {
                     if (!rowHoverSuspended)
                         resumeRowHover()
                 }
-                // Qt re-delivers hover to a resting pointer only on a frame
-                // that has a dirty item (frame-synchronous hover in
-                // QQuickDeliveryAgentPrivate). Re-enabling a handler dirties
-                // nothing, and the motion's last frame is already drawn, so
-                // without this the row under the pointer stays unhovered until
-                // the mouse moves. Moving an invisible zero-size item dirties
-                // one item and costs one frame; it changes no visibility or z.
                 function resumeRowHover() {
                     hoverResyncProbe.x = hoverResyncProbe.x === 0 ? 1 : 0
                 }
                 property bool emojiPickerOpen: false
-                // Single owner of transient row interaction: "" or one of
-                // "picker" | "tone" | "menu" | "profile" | "readers" |
-                // "viewer". While set, no row shows its action bar and hover
-                // cannot claim one. Not solved with z: a covered bar is still
-                // hit-testable.
                 property string transientInteractionOwner: ""
                 function claimTransientInteraction(owner) {
                     if (!owner || owner.length === 0)
                         return
-                    // Clear, not cover: the bar is gone, not merely hidden.
                     hoveredActionsKey = ""
                     pinnedActionsKey = ""
                     transientInteractionOwner = owner
                 }
-                // Release only what you own: the tone popup and its picker
-                // close in an order the popups decide.
                 function releaseTransientInteraction(owner, fallback) {
                     if (transientInteractionOwner !== owner)
                         return
                     transientInteractionOwner = fallback ? fallback : ""
                 }
-                // Guarded here rather than in the delegate's HoverHandler so
-                // every writer of the key is covered.
                 onHoveredActionsKeyChanged: {
                     if (transientInteractionOwner !== ""
                         && hoveredActionsKey !== "")
                         hoveredActionsKey = ""
                 }
-                // Drives the link-preview privacy gate in each MessageDelegate.
                 property bool roomEncrypted: root.currentRoom.encrypted === true
-                // Bubbles layout applies to direct messages only.
                 property bool isDirectRoom: root.currentRoom.isDirect === true
-                // The media-preview policy's "private rooms" (non-public join
-                // rule); "" while unknown.
                 property string roomJoinRule: root.currentRoom.joinRule || ""
                 property var expandedStateGroups: ({})
                 function saveRoomPosition() {
@@ -4394,17 +3352,12 @@ Rectangle {
                     expandedStateGroups = next
                 }
 
-                // Delegate entry points into the media UI, kept on the view so
-                // delegates need no external ids.
                 property var openImage: function(mediaKey, httpUrl) {
                     imageViewer.openFor(mediaKey || "", httpUrl)
                 }
                 property var openArtwork: function(source, title) {
                     imageViewer.openArtwork(source, title)
                 }
-                // Shared picker / profile entry points; the event id is
-                // captured at open. The picker opens as its quick bar unless
-                // the caller already offered quick reactions (`expanded`).
                 property var openReactionPicker: function(eventId, point, expanded) {
                     if (!eventId || eventId.length === 0)
                         return
@@ -4413,23 +3366,12 @@ Rectangle {
                     sharedReactionPicker.openExpanded = expanded === true
                     sharedReactionPicker.open()
                 }
-                // Makes the reaction picker and a message context menu mutually
-                // exclusive: both are Popup.Item in the same overlay, so the
-                // last opened covers the other, and z cannot fix it. Lives on
-                // the view because delegates only reach the pane through
-                // `timelineView`. Contract: MessageDelegate.openContextMenu()
-                // calls this before assigning menuEventId.
                 property var closeTransientRowSurfaces: function() {
                     root.closeRowAnchoredSurfaces()
                 }
                 property var openSenderProfile: function(member, anchor) {
                     senderProfilePopover.openFor(member, anchor)
                 }
-                // Shared reply navigation. Delegates reach the view only
-                // through `timelineView`, so the same reply preview works in
-                // the room and the thread panel.
-                // PaginationController::jumpToEvent remains the single history
-                // loader.
                 property var navigateToEvent: function(eventId) {
                     if (!eventId || eventId.length === 0)
                         return
@@ -4439,13 +3381,6 @@ Rectangle {
                 }
                 readonly property string navigationHighlightEventId:
                     app.pagination.highlightedEventId
-                // Must live on this Flickable: delegates reach the pane only
-                // through `timelineView`, and a pane-root function is
-                // unreachable.
-                // `eventId` (optional) asks the model for the cumulative
-                // "Seen by" set: everyone who read that message or any later
-                // one. Without it, or when the model cannot answer, the
-                // caller's own list is shown as given.
                 property var openReceiptList: function(readers, totalOthers,
                                                        point, eventId) {
                     var list = readers || []
@@ -4469,8 +3404,6 @@ Rectangle {
                     var details = timelineModel.messageDetails(eventId)
                     if (!details.eventId) return
                     var previewText = timelineModel.replyPreviewForEvent(eventId)
-                    // Inline thread style: a reply to a thread message stays in
-                    // its thread (as MessageDelegate.beginReply).
                     app.composer.beginReply(eventId,
                         details.senderName || details.senderId,
                         (previewText || "").substring(0, 80),
@@ -4489,14 +3422,9 @@ Rectangle {
                 property var saveMedia: function(mediaKey, filename, mime, ask) {
                     root.startDownload(mediaKey, filename, mime, ask, "main")
                 }
-                // Per-card save feedback: the last finished key for a brief
-                // flash (the bridge's savingKeys say what is in flight). Keyed,
-                // so no card shows another save's outcome.
                 property string saveInFlightKey: ""
                 property string lastSavedKey: ""
                 property bool lastSaveOk: true
-                // The user cancelled it: not a failure, and Download stays
-                // offered.
                 property bool lastSaveCancelled: false
                 property string cancelledKey: ""
                 Timer {
@@ -4509,8 +3437,6 @@ Rectangle {
                     lastSavedKey = ""
                 }
                 function noteSaveFinished(ok, mediaKey) {
-                    // Keyed by the bridge's completion, so overlapping saves
-                    // flash the right card.
                     if (!mediaKey || mediaKey === "")
                         return
                     if (saveInFlightKey === mediaKey)
@@ -4536,63 +3462,29 @@ Rectangle {
                     onTriggered: timeline.scrollToEndDeferred()
                 }
                 function scrollToEndDeferred() {
-                    // Never fight an in-flight wheel motion; its settle pass
-                    // recomputes follow-latest.
                     if (count > 0 && stickToBottom && !wheelAnimating)
                         positionViewAtLatest()
                 }
 
-                // TimelineScrollController supplies wheel speed and keyboard
-                // paging.
                 property bool wheelAnimating: app.timelineScroll.motionActive
 
-                // The scroll bar's handle is held. The bar sits outside the
-                // rotated Flickable and writes contentY itself, so `moving`
-                // never says so.
                 readonly property bool scrollBarHeld: timelineScrollBar.pressed
 
-                // True while user input owns the viewport: native drag/flick,
-                // a held scroll bar, wheel/keyboard animation, or touchpad
-                // deltas (settle timer). No anchor correction may be written
-                // then. The held bar was missing (C26): with nothing here true
-                // during a drag, every page landing ran the IDLE restore of
-                // maintainViewAnchor() against the drag, yanking the reader
-                // back to an old anchor (`inputs=scrollbar anchorCorrections=91
-                // topDist=7490`, the handle held at the top of the track).
                 readonly property bool userScrollActive:
                     moving || scrollBarHeld || wheelAnimating
                     || scrollSettleTimer.running
 
-                // Speculative media work (full-payload prefetch and poster
-                // extraction) waits until the view settles: rows swept through
-                // during a gesture would otherwise each pull a full payload and
-                // write temp files on the GUI thread. userScrollActive includes
-                // the 250 ms settle tail. Thumbnails are not gated; they are
-                // what the reader is looking at.
                 readonly property bool speculativeMediaAllowed:
                     !userScrollActive
 
-                // True only while a drag/flick or wheel/keyboard animation owns
-                // contentY. Deliberately not userScrollActive, which includes
-                // the settle tail: applyRowWindow() runs inside that timer's
-                // onTriggered, where `running` is still true, so that guard
-                // would stop the row window from ever applying.
                 readonly property bool viewportMotionActive:
                     moving || scrollBarHeld || wheelAnimating
 
-                // True only while Lightning itself drives contentY. Diagnostic
-                // only: no active input path receives an anchor write.
                 readonly property bool selfDrivenScrollActive:
                     !moving && !scrollBarHeld
                     && (wheelAnimating || scrollSettleTimer.running)
 
-                // Per-gesture scroll diagnostics, off unless
-                // LIGHTNING_SCROLL_TRACE is set. One summary line per
-                // wheel/touchpad gesture at settle. No message content, ids or
-                // URLs are logged.
                 readonly property bool scrollTrace: app.timelineScroll.scrollTraceEnabled
-                // Ten-second counts include idle time at the live edge, which
-                // gesture-only summaries and the frame probe cannot describe.
                 property int perfMediaCached: 0
                 property int perfPreviewRefreshes: 0
                 function notePreviewRefresh() {
@@ -4628,44 +3520,15 @@ Rectangle {
                 property int diagEvents: 0
                 property int diagPixelEvents: 0
                 property int diagAngleEvents: 0
-                // diagAnchorCorrections counts only the idle absolute-restore
-                // path in maintainViewAnchor(). Counters reset at print, so
-                // idle restores between gestures (media hydration, late
-                // decryption) carry into the next line. diagGrowthCorrections
-                // counts displaced-anchor writes after input went idle. Active
-                // deltas are recorded in activeDeferred* and never applied.
                 property int diagAnchorCorrections: 0
                 property int diagGrowthCorrections: 0
-                // Rows instantiated in the Column.
                 property int diagRowCount: 0
-                // Per-outcome counters for maintainViewAnchor() (displaced,
-                // capture fallback, drag deferral, materialized, idle restore),
-                // so a real trace can show which branch ran and whether each
-                // correction was proportionate.
-                //
-                // Outcome counters are gated on scrollTrace, not diagActive,
-                // and drained only when printed, so a correction landing after
-                // settle appears on the next line instead of being lost. Read
-                // them as "since the previous line".
-                //
-                // diagNoAnchorReturns / diagStickToBottomReturns separate
-                // "never engaged" from "nothing to correct". A bottom-pinned
-                // gesture moves neither; stickToBottom returns count
-                // corrections dropped on return to bottom.
-                // diagUnresolvedIdFallbacks (id no longer resolves) is split
-                // from diagEvictedNoInsertFallbacks (delegate evicted, no
-                // insertion proven).
-                //
-                // The max-abs fields store the signed value of the largest |x|
-                // sample.
                 property int diagNoAnchorReturns: 0
                 property int diagStickToBottomReturns: 0
                 property int diagDisplacedFirings: 0
                 property real diagDisplacedAppliedSum: 0
                 property real diagDisplacedMaxAbsGrew: 0
                 property int diagDisplacedMaxAbsGrewRows: 0
-                // Paired samples in both directions, so two unrelated firings
-                // are not conflated.
                 property real diagDisplacedMaxAbsGrewOriginShift: 0
                 property real diagDisplacedMaxAbsOriginShift: 0
                 property real diagDisplacedMaxAbsOriginShiftContentDelta: 0
@@ -4696,19 +3559,12 @@ Rectangle {
                             > Math.abs(diagActiveDeferredMaxAbs))
                         diagActiveDeferredMaxAbs = delta
                 }
-                // Which inputs drove this gesture (wheel, autoscroll,
-                // scrollbar), and how the near-top band answered them:
-                // dispatches made, and in-band samples the approach budget
-                // refused (non-zero names a top that stopped loading).
                 property string diagInputs: ""
                 property int diagAutoscrollSteps: 0
                 property int diagScrollbarMoves: 0
                 property int diagScrollbarTopHolds: 0
                 property int diagTopRequests: 0
                 property int diagTopBudgetBlocked: 0
-                // Live insertions newer than the anchor held during active
-                // input (maintainViewAnchor). Drained at print, like the anchor
-                // counters.
                 property int diagLiveInsertHolds: 0
                 property real diagLiveInsertHeldSum: 0
                 function diagNoteInput(kind) {
@@ -4754,8 +3610,6 @@ Rectangle {
                         diagWindowNewEndExtensions = 0
                     }
                 }
-                // Wall clock spent in one wheel event: distinguishes a large
-                // timeline from individually expensive rows.
                 property real diagGestureStartMs: 0
                 property real diagWorstNotchMs: 0
                 function diagStateRowCount() {
@@ -4777,11 +3631,7 @@ Rectangle {
                     if (spent > diagWorstNotchMs)
                         diagWorstNotchMs = spent
                 }
-                // applyRowWindow() calls that changed the window this gesture.
-                // Zero next to a large rows/srcRows gap means the window is not
-                // applying.
                 property int diagWindowApplications: 0
-                // Newest-end window extensions taken during motion.
                 property int diagWindowNewEndExtensions: 0
                 function diagFlushGesture() {
                     if (!scrollTrace || !diagActive)
@@ -4837,26 +3687,13 @@ Rectangle {
                         + " prependMaxAbsOriginShiftDContentH=" + Math.round(diagPrependMaxAbsOriginShiftContentDelta)
                         + " prependMaxAbsOriginShiftPath=" + diagPrependMaxAbsOriginShiftPath
                         + " rows=" + count
-                        // Row window state: `rows` is instantiated, srcRows is
-                        // loaded; rows == srcRows with a deep reader means the
-                        // window is bounding nothing. winSkip is how many
-                        // newest rows are withheld.
                         + " srcRows=" + (app.timeline ? app.timeline.count : -1)
                         + " winSkip=" + rowWindowSkip
                         + " winApplies=" + diagWindowApplications
                         + " winExtendNew=" + diagWindowNewEndExtensions
-                        // Non-zero: the row window corrected contentY using
-                        // rows that still measured zero after a layout flush.
                         + " winUnmeasured=" + diagWindowUnmeasuredRows
-                        // gestureMs is wall clock across the gesture;
-                        // worstNotchMs is the slowest single wheel event.
-                        // stateRows/stateGroups show how much of a large row
-                        // count is collapsed room activity.
                         + " gestureMs=" + Math.round(Date.now() - diagGestureStartMs)
                         + " worstNotchMs=" + Math.round(diagWorstNotchMs)
-                        // -1 means unavailable, never zero. Guarded: throwing
-                        // here would abort the whole line
-                        // (scrollTraceLineIncludesAllPerBranchFields).
                         + " stateRows=" + diagStateRowCount()
                         + " stateGroups=" + diagStateGroupCount()
                         + " contentH=" + Math.round(contentHeight)
@@ -4893,28 +3730,15 @@ Rectangle {
                     diagPrependMaxAbsOriginShiftPath = "none"
                 }
 
-                // Valid contentY range including scroll margins, the pagination
-                // header and a shifted origin.
                 function wheelMinY() { return originY - topMargin }
                 function wheelMaxY() {
                     var maxY = originY + contentHeight + bottomMargin - height
                     var minY = wheelMinY()
                     return maxY < minY ? minY : maxY
                 }
-                // Row window: bounds the instantiated rows, since render and
-                // polish cost grow with loaded rows. Safety constraints:
-                //   * started only when the reader is settled; subsequent
-                //     bounded steps stop when a new gesture starts;
-                //   * a generous runway below the reader, so a downward gesture
-                //     cannot reach the window's low edge;
-                //   * the correction restores the reader's own anchor event's
-                //     screen offset, and bails before mutating anything if it
-                //     cannot be resolved;
-                //   * atBottomEdge() refuses while the window hides the live
-                //     edge.
-                readonly property int windowRunwayRows: 220   // below reader
-                readonly property int windowMarginRows: 120   // above reader
-                readonly property int windowMinRows: 320      // never below
+                readonly property int windowRunwayRows: 220
+                readonly property int windowMarginRows: 120
+                readonly property int windowMinRows: 320
                 property int pendingWindowSkip: -1
                 property int pendingWindowOldest: -1
                 property int pendingWindowTotal: -1
@@ -4927,10 +3751,6 @@ Rectangle {
                 function applyRowWindow() {
                     if (!app.timelineView || !app.timelineView.setWindow)
                         return
-                    // Settled only, and not while the timeline is still
-                    // presenting. viewportMotionActive rather than
-                    // userScrollActive: the only caller is the settle timer's
-                    // handler, where the timer still reads as running.
                     if (viewportMotionActive || !presentationReady)
                         return
                     if (app.pagination && app.pagination.busy)
@@ -4941,8 +3761,6 @@ Rectangle {
                             app.timelineView.clearWindow()
                         return
                     }
-                    // Absolute offsets from the newest source row: the proxy's
-                    // skip plus the view row.
                     const skip = rowWindowSkip
                     const absNewestVisible = skip + Math.max(0, visibleFirstRow)
                     const absOldestVisible =
@@ -4954,22 +3772,11 @@ Rectangle {
                     wantRows = Math.max(windowMinRows, wantRows)
                     if (wantSkip + wantRows > total)
                         wantRows = total - wantSkip
-                    // Hysteresis: only move for a change worth a structural op.
-                    // wantSkip === 0 is exempt: closing to the live edge
-                    // approaches 0 in steps, and the last few rows could
-                    // otherwise never be closed.
                     const rows = count
                     if (wantSkip !== 0
                         && Math.abs(wantSkip - skip) < 40
                         && Math.abs(wantRows - rows) < 40)
                         return
-                    // Thrash guard: releasing rows at the oldest end can put
-                    // the reader inside the near-top band, which would backfill
-                    // exactly what was released. Decided on measured height,
-                    // since the band is 2.5 viewports and the margin is a row
-                    // count. If so, keep the tail and take only the skip
-                    // change. These are current view rows: the released tail
-                    // starts at (wantSkip - skip) + wantRows.
                     const tailFirst = (wantSkip - skip) + wantRows
                     if (tailFirst < rows) {
                         let tailRelease = 0
@@ -4978,9 +3785,6 @@ Rectangle {
                             if (tailItem)
                                 tailRelease += tailItem.height
                         }
-                        // Threshold on the enter band, not the exit one:
-                        // crossing into it is what dispatches a backfill, and
-                        // the exit threshold over-fires.
                         if (distanceFromTop() - tailRelease
                             <= nearTopEnterDistance)
                             wantRows = rows - (wantSkip - skip)
@@ -5013,21 +3817,9 @@ Rectangle {
                         pendingWindowSkip = -1
                         return
                     }
-                    // Hold the reader's own row at the same screen offset,
-                    // measured before and after. Summing the heights of
-                    // released rows does not work: they are at the far end from
-                    // a reader in history and may be unmaterialised or
-                    // unmeasured. The anchor is resolved by stable id, so it
-                    // survives renumbering, and it is on screen so never
-                    // released. Unlike a Qt.callLater snap, forceLayout() below
-                    // flushes synchronously, so the anchor is re-read from the
-                    // new geometry.
                     const anchorRow = Math.max(0, viewRowAtContentY(contentY))
                     const anchorItem = itemAtViewRow(anchorRow)
                     const anchorEventId = eventIdAtViewRow(anchorRow)
-                    // An unresolvable reader row means an incoherent view
-                    // (mid-reset); applying a structural change there dumps the
-                    // reader. Bail.
                     if (!anchorItem || anchorEventId === "")
                     {
                         pendingWindowSkip = -1
@@ -5035,14 +3827,9 @@ Rectangle {
                     }
                     const anchorOffset = anchorItem.y - contentY
 
-                    // The mutation itself can move contentY (the Flickable
-                    // clamps against the shorter content) before the exact
-                    // write below: attribute that to the trim as well.
                     const writerBeforeTrim = positionWriter
                     positionWriter = "window-trim"
                     app.timelineView.setWindow(wantSkip, wantRows)
-                    // A row created this turn reads zero height until the
-                    // positioner has run.
                     rowColumn.forceLayout()
                     positionWriter = writerBeforeTrim
 
@@ -5052,15 +3839,11 @@ Rectangle {
                     if (movedItem) {
                         setPositionY(movedItem.y - anchorOffset, "window-trim")
                     } else {
-                        // Should be impossible for an on-screen row; count it
-                        // rather than apply a correction computed from nothing.
                         ++diagWindowUnmeasuredRows
                         pendingWindowSkip = -1
                         return
                     }
                     ++diagWindowApplications
-                    // Rows the window re-exposed at its newest end are paid
-                    // for by the anchor-offset write above.
                     newestEndInsertedRows = 0
                     updateStickAndPaginate()
                     captureViewAnchor()
@@ -5071,40 +3854,18 @@ Rectangle {
                         pendingWindowSkip = -1
                 }
 
-                // followStateApplies: false for an input event that could not
-                // move the position (a notch into a bound it already sits on);
-                // such an event must not change follow-latest, or a room too
-                // short to scroll would show a jump pill that never clears. The
-                // near-top check still runs: a reader pinned at the oldest row
-                // wants more history.
                 function updateStickAndPaginate(followStateApplies) {
                     if (followStateApplies !== false)
                         stickToBottom = atBottomEdge()
-                    // Edge-latched: re-arms the bounded backfill once per
-                    // approach to the top.
                     checkNearTopEdge(true)
                 }
-                // Can input in this direction move the position? towardsOlder
-                // is increasing contentY. Evaluated before dispatch, because
-                // the wheel engine clamps its own target and reports an active
-                // motion either way.
                 function wheelCanMove(towardsOlder) {
                     return towardsOlder ? contentY < wheelMaxY() - 0.5
                                         : contentY > wheelMinY() + 0.5
                 }
 
-                // Coalesce near-top backfill onto the next turn: contentY fires
-                // every frame and on header height toggles, which produced
-                // bursts of near_top requests. The controller still
-                // single-flights and bounds empty pages.
                 property bool nearTopCheckScheduled: false
                 property bool nearTopCheckUserInitiated: false
-                // The window's newest edge gives rows back during motion, not
-                // only at settle; otherwise a downward gesture stops at the
-                // window's synthetic bottom. extendWindowAtNewEnd() returns
-                // false when the skip is already 0. The chunk is modest because
-                // these rows are built synchronously (3-7 ms each); the
-                // settle-time applyRowWindow() releases the surplus again.
                 readonly property int windowNewEndExtendRows: 3
                 Timer {
                     id: rowWindowExtendTimer
@@ -5117,8 +3878,6 @@ Rectangle {
                             start()
                     }
                 }
-                // One viewport of remaining runway, so rows exist before the
-                // reader arrives.
                 function nearWindowNewEdge() {
                     return rowWindowSkip > 0
                            && contentY - wheelMinY() < Math.max(1, height * 3)
@@ -5133,11 +3892,6 @@ Rectangle {
                     if (app.timelineView.extendWindowAtNewEnd(
                                 windowNewEndExtendRows) !== true)
                         return false
-                    // Restored rows land at the head and push every kept row by
-                    // their summed height. That sum is only exact after layout:
-                    // a row created this turn measures zero. Uncorrected, the
-                    // glide handler would re-enter every frame and consume the
-                    // whole skip.
                     let shift = 0
                     const added = count - before
                     rowColumn.forceLayout()
@@ -5151,17 +3905,9 @@ Rectangle {
                     }
                     if (shift !== 0) {
                         setPositionY(contentY + shift, "window-extend")
-                        // Translate an in-flight glide rather than cancelling
-                        // it, preserving the remaining distance.
                         app.timelineScroll.translateActiveMotion(shift)
                     }
-                    // One exact write, no deferred follow-up: a Qt.callLater
-                    // snap runs before the Column relayout and reads a stale y.
                     ++diagWindowNewEndExtensions
-                    // Re-base the anchor on the corrected geometry: these rows
-                    // were inserted newer than it and are already paid for, so
-                    // maintainViewAnchor() must not hold the reader for them a
-                    // second time.
                     newestEndInsertedRows = 0
                     captureViewAnchor()
                     if (rowWindowSkip > 0 && !rowWindowExtendTimer.running)
@@ -5169,26 +3915,15 @@ Rectangle {
                     return true
                 }
 
-                // True when the window was holding rows back and has now
-                // released more. Rows older than the window's oldest exposed
-                // row are already loaded.
                 function extendRowWindowAtOldEnd() {
                     if (!app.timelineView
                         || !app.timelineView.extendWindowAtOldEnd)
                         return false
-                    // The proxy decides: only it can tell the window's cap from
-                    // the pacing backlog. `rowWindowSkip + count < total` is
-                    // also true during the initial paced reveal and swallowed
-                    // near-top requests.
                     return app.timelineView.extendWindowAtOldEnd(
                                windowMarginRows) === true
                 }
 
                 function maybeRequestNearTop(userInitiated) {
-                    // Capture the anchor at request time if there is none;
-                    // otherwise a reader scrolling continuously has no anchor
-                    // until settle and prepends compensate nothing. Once per
-                    // dispatched request, never per delta.
                     if (!stickToBottom && viewAnchorId === "")
                         captureViewAnchor()
                     if (userInitiated)
@@ -5197,7 +3932,6 @@ Rectangle {
                         return
                     nearTopCheckScheduled = true
                     Qt.callLater(function() {
-                        // The pane may be gone by the time this runs.
                         if (!timeline) return
                         nearTopCheckScheduled = false
                         var ui = nearTopCheckUserInitiated
@@ -5207,46 +3941,14 @@ Rectangle {
                     })
                 }
 
-                // Near-top pagination is edge-triggered with hysteresis: latch
-                // on entering the band and re-arm only after leaving a wider
-                // exit band, so one approach sends at most one user request and
-                // the controller bounds continuation through filtered pages. A
-                // visible prepend pushes the reader below the exit band,
-                // re-arming for the next approach. These are distances from the
-                // earliest loaded row, not contentY thresholds. Several
-                // viewports of runway keep ahead of a fast upward wheel.
                 readonly property real nearTopEnterDistance: height * 2.5
                 readonly property real nearTopExitDistance: height * 3.25
                 property bool nearTopArmed: true
-                // One approach to the top loads a bounded number of rows. The
-                // anchor holds the reader on the same row as pages land, the
-                // fromTop <= 1 clause bypasses the ratchet, and each productive
-                // page re-arms the latch, which together would walk the whole
-                // room. Moving past nearTopExitDistance and back starts a new
-                // approach with a fresh budget.
                 readonly property int nearTopApproachRowBudget: 240
                 property int nearTopRowsThisApproach: 0
-                // A request budget too, because empty pages (heavily filtered
-                // history, e.g. call rooms) never spend the row budget. Larger
-                // than rows per page: this is the outer bound on one approach,
-                // not a tight cap.
                 readonly property int nearTopApproachRequestBudget: 24
                 property int nearTopRequestsThisApproach: 0
-                // How far the viewport top sits below the earliest loaded row.
-                // Proximity bands must use this, never raw contentY: contentY
-                // is an offset from originY, which moves as history loads, so a
-                // contentY threshold is not a proximity test at all and can be
-                // permanently true or false. Live, that made the settle re-arm
-                // fire after every gesture and reset the controller's
-                // filtered-page bound each time, loading history on every
-                // scroll.
                 function distanceFromTop() { return wheelMaxY() - contentY }
-                // The closest distanceFromTop() reached during this visit to
-                // the band: a ratchet, not the distance at the last dispatch.
-                // Only motion strictly closer to the top than the reader has
-                // already been can fetch, so scrolling up and then slightly
-                // down does not load a page. Reset to Infinity on leaving via
-                // the exit band or returning to the bottom.
                 property real nearTopRequestDistance: Infinity
                 function checkNearTopEdge(userInitiated) {
                     if (stickToBottom) {
@@ -5258,26 +3960,11 @@ Rectangle {
                     }
                     var fromTop = distanceFromTop()
                     if (fromTop <= nearTopEnterDistance) {
-                        // The progress gate is at the dispatch, not the settle
-                        // re-arm. Consuming the latch requires being pinned
-                        // against the top or being strictly closer than the
-                        // ratchet, which a downward sample cannot satisfy.
                         if (nearTopArmed
                             && (fromTop <= 1
                                 || fromTop < nearTopRequestDistance - 1)) {
-                            // Local rows first: with a row window active, the
-                            // reader can reach its oldest exposed row while
-                            // older history is already loaded. Re-expose
-                            // instead of asking the server. Does not consume
-                            // nearTopArmed (no request is made). The proxy
-                            // paces the extension, and settle re-trims behind
-                            // the reader.
                             if (extendRowWindowAtOldEnd())
                                 return
-                            // The budget bounds the automatic chain and sits
-                            // below the local re-exposure, so running out never
-                            // strands the reader at the window's boundary. The
-                            // ratchet still runs.
                             if (nearTopRowsThisApproach
                                     < nearTopApproachRowBudget
                                 && nearTopRequestsThisApproach
@@ -5291,25 +3978,16 @@ Rectangle {
                                 ++diagTopBudgetBlocked
                             }
                         }
-                        // Ratchet after the gate has read the old value, on
-                        // every in-band sample including ones that did not
-                        // dispatch.
                         if (fromTop < nearTopRequestDistance)
                             nearTopRequestDistance = fromTop
                     } else if (fromTop >= nearTopExitDistance) {
                         nearTopArmed = true
                         nearTopRequestDistance = Infinity
-                        // Leaving ends the approach; returning later gets a
-                        // fresh budget.
                         nearTopRowsThisApproach = 0
                         nearTopRequestsThisApproach = 0
                     }
                 }
 
-                // An explicit, continuous ask for older history (a scroll bar
-                // handle grabbed, an autoscroll started) is its own approach to
-                // the top: fresh row/request budget and an armed latch, or a
-                // reader who already spent one on the wheel is never served.
                 function beginExplicitTopApproach() {
                     nearTopArmed = true
                     nearTopRequestDistance = Infinity
@@ -5318,28 +3996,9 @@ Rectangle {
                     explicitTopStartRows = count
                     explicitTopCeilingLogged = false
                 }
-                // Ceiling on what one explicit gesture may add by renewing the
-                // budget: rows INSTANTIATED (count, not loaded) since it began.
-                // Every row is a delegate in the un-virtualized Column and the
-                // frame cost tracks them (~3 ms at ~108 rows, ~14 ms at ~916,
-                // docs/timeline-scrolling.md), and the row window trims only at
-                // settle, never mid-gesture. 600 keeps a gesture that starts
-                // near the fill's 240 rows under that measured 900-row frame.
-                // Past it the automatic budget applies again; letting go and
-                // starting a new gesture renews it once the settle has trimmed.
                 readonly property int explicitTopRowCeiling: 600
                 property int explicitTopStartRows: 0
                 property bool explicitTopCeilingLogged: false
-                // Held against the oldest loaded row and still asking for more
-                // (handle at the top of the track, autoscroll pointer above its
-                // anchor): the automatic-chain budget does not apply, since it
-                // exists to stop a PARKED reader walking the whole room. Measured
-                // without it (C26): an autoscroll pinned at the top of a room of
-                // one-line messages stopped after the 240-row budget,
-                // `topBudgetBlocked=719 reachedStart=0`, because a pinned reader
-                // never leaves the exit band that renews it. Renewed only while
-                // no page is in flight, so it never stacks requests, and only
-                // up to explicitTopRowCeiling rows per gesture.
                 function renewPinnedTopBudget() {
                     if (app.pagination && app.pagination.busy)
                         return
@@ -5360,18 +4019,10 @@ Rectangle {
                 }
 
                 function cancelWheelMotion() {
-                    // Cancelling retires a pending follow-latest arrival, or it
-                    // could later yank a reader who has taken over.
                     followLatestOnArrival = false
                     app.timelineScroll.cancel()
                 }
 
-                // Keyboard reveal (C74-F03): scroll just far enough that `row`
-                // is inside the viewport. The view is rotated 180 degrees but
-                // contentY and contentItem coordinates are not, and mapToItem
-                // accounts for the row's own counter-rotation, so the overlap
-                // test is rotation-agnostic. A row taller than the viewport
-                // shows its first-read (visually top) edge.
                 function revealRow(row) {
                     if (!row || !row.visible || height <= 0)
                         return false
@@ -5399,35 +4050,17 @@ Rectangle {
                     return true
                 }
 
-                // Jump to latest glides when near the bottom and stays instant
-                // beyond that. Uses the same coalescing motion as the wheel and
-                // PageUp/PageDown (app.timelineScroll.animateTo), which every
-                // scroll guard already handles. Beyond the threshold a glide
-                // would be a blur; Element does not animate this at all.
                 property int smoothJumpViewports: 4
                 property bool followLatestOnArrival: false
                 onWheelAnimatingChanged: {
                     if (wheelAnimating || !followLatestOnArrival)
                         return
                     followLatestOnArrival = false
-                    // If the reader redirected mid-glide, that intent wins;
-                    // never pin.
                     if (!atBottomEdge())
                         return
                     settleAtLatest()
                 }
-                // Follow-latest bookkeeping shared by both paths.
-                // `bounded` (keyboard entry to message selection) replaces a
-                // distant historical window with a bare live one instead of
-                // inserting the skipped range just to discard it. Only while
-                // the view is settled and no page is in flight; otherwise it
-                // is the ordinary release.
                 function settleAtLatest(bounded) {
-                    // The live edge must be exposed first: under an active
-                    // window wheelMinY() is the window's newest row, not the
-                    // newest message. This is also the fallback when the
-                    // history trim refuses, so it cannot rely on the trim's
-                    // reset.
                     if (bounded === true && presentationReady
                             && !(app.pagination && app.pagination.busy)
                             && app.timelineView
@@ -5438,15 +4071,11 @@ Rectangle {
                         releasePendingRows()
                     }
                     stickToBottom = true
-                    // Positioning row zero can re-seed the position frame, so a
-                    // surviving anchor baseline would measure across two
-                    // frames.
                     viewAnchorId = ""
                     viewAnchorLastY = 0
                     app.pagination.saveFollowingLatest(app.currentRoomId)
                     positionViewAtLatest()
                     Qt.callLater(function() {
-                        // The pane may be gone by the time this runs.
                         if (!timeline) return
                         positionViewAtLatest()
                         app.readReceipts.reevaluate()
@@ -5455,10 +4084,7 @@ Rectangle {
                 }
 
                 function beginWheelTo(targetY) {
-                    // Keyboard/programmatic motion also owns contentY; end any
-                    // autoscroll.
                     root.stopAutoscroll()
-                    // Clamp: keyboard callers pass an unclamped target.
                     var lo = wheelMinY()
                     var hi = wheelMaxY()
                     targetY = targetY < lo ? lo : (targetY > hi ? hi : targetY)
@@ -5466,32 +4092,17 @@ Rectangle {
                     app.timelineScroll.animateTo(targetY, contentY, lo, hi,
                                                  height)
                     updateStickAndPaginate()
-                    // Upward intent leaves follow-latest; applied last so the
-                    // recompute above cannot re-enable it.
                     if (targetY > contentY + 0.5) {
                         stickToBottom = false
-                        // Also retire a pending follow-latest arrival:
-                        // animateTo() on an active motion does not re-toggle
-                        // motionActive, so no arrival handler fires on a
-                        // mid-glide redirect.
                         followLatestOnArrival = false
                     }
                     scrollSettleTimer.restart()
                 }
 
-                // Keyboard navigation: viewport-relative distances, independent
-                // of wheel speed, through the single coalescing motion so key
-                // repeats never queue. Only fires while the timeline has active
-                // focus.
-                function keyboardPage(direction) {   // -1 up, +1 down
-                    // Paging is the reader driving. Here rather than in
-                    // beginWheelTo(), which programmatic callers also use.
+                function keyboardPage(direction) {
                     noteReaderTookControl()
-                    // Rotated: increasing contentY moves toward older rows.
                     beginWheelTo(contentY - direction * height * 0.9)
                 }
-                // Home jumps directly (like End), then recomputes
-                // pagination/follow-latest and saves one settled anchor.
                 function goToEarliestLoaded() {
                     root.stopAutoscroll()
                     cancelWheelMotion()
@@ -5499,12 +4110,6 @@ Rectangle {
                     updateStickAndPaginate()
                     scrollSettleTimer.restart()
                 }
-                // Jump to the first unread message. The SDK places a
-                // read-marker virtual row from m.fully_read. It has no event
-                // id, so this goes through beginNavigationLanding(), which
-                // holds a row by stable id across paginations. When the marker
-                // is not loaded, page backwards and re-ask, bounded like the
-                // reply jump.
                 property int firstUnreadPagesLeft: 0
                 readonly property int maxFirstUnreadPages: 8
                 function goToFirstUnread() {
@@ -5518,31 +4123,14 @@ Rectangle {
                     if (row >= 0) {
                         firstUnreadPagesLeft = 0
                         stickToBottom = false
-                        // A reader deep in history has the marker in the
-                        // newest rows the row window withholds (or, rarely,
-                        // in the oldest rows not yet exposed). The landing
-                        // can only reach exposed rows, so it spent its whole
-                        // attempt budget and logged "target unresolved"
-                        // (break-it B033). Expose them first, as every other
-                        // jump does.
                         if (viewRowForSourceRow(row) < 0)
                             releasePendingRows()
-                        // Placed like a reply jump: the divider a third of the
-                        // way down, the unread messages below it, clamped to
-                        // the content. The old `false` path wrote
-                        // contentY = rowTop + height * 0.25, which is the
-                        // saved-anchor convention (contentY minus the row's
-                        // physical top), so the divider landed a quarter of a
-                        // viewport BELOW the bottom edge and the reader saw
-                        // only older messages (break-it B060, B033).
                         beginNavigationLanding(row, 0, true)
                         return
                     }
                     if (firstUnreadPagesLeft <= 0
                             || !app.pagination
                             || app.pagination.reachedStart) {
-                        // Bounded and not found: stop offering a jump that
-                        // cannot land (the pill's deep-marker case).
                         firstUnreadPagesLeft = 0
                         root.firstUnreadHuntFailed = true
                         return
@@ -5555,32 +4143,17 @@ Rectangle {
                     root.stopAutoscroll()
                     cancelWheelMotion()
                     diagNavigationShape("latest-before")
-                    // Rotated: the newest row is at wheelMinY().
                     var lo = wheelMinY()
                     var distance = contentY - lo
-                    // With a row window active, wheelMinY() is the window's
-                    // synthetic edge, not the live edge, so a glide would land
-                    // short and leave the jump pill up. A windowed reader is
-                    // deep in history anyway; take the far path.
                     if (height > 0 && distance > 0 && rowWindowSkip === 0
                         && distance <= height * smoothJumpViewports) {
                         followLatestOnArrival = true
                         glideTowardsNewer = true
                         app.timelineScroll.animateTo(lo, contentY, lo,
                                                      wheelMaxY(), height)
-                        // The settle pass recomputes pagination and anchoring,
-                        // as for a wheel gesture.
                         scrollSettleTimer.restart()
                         return
                     }
-                    // Far from the bottom: like Element's jumpToLiveTimeline(),
-                    // rebuild at the live edge and discard the paginated
-                    // backlog. Only as an explicit user action. The trim
-                    // refuses on its own (wrong backend, no room,
-                    // mid-pagination, too few rows), falling through to the
-                    // ordinary jump. onModelReset() handles the landing. Commit
-                    // follow-latest only if the dispatch succeeded; a failed
-                    // send never produces a reset.
                     if (app.trimHistoryAndJumpToLive()) {
                         stickToBottom = true
                         app.pagination.saveFollowingLatest(app.currentRoomId)
@@ -5589,11 +4162,6 @@ Rectangle {
                     settleAtLatest()
                 }
                 activeFocusOnTab: true
-                // Rebindable movement (the registry's TimelineContext rows).
-                // The message box forwards the same ids, see
-                // MessageComposerBar.timelineKeyRequested. Home jumps to the
-                // earliest LOADED row and the pagination pass that follows
-                // loads older history when the reader is at the top.
                 function runKeyAction(actionId) {
                     switch (actionId) {
                     case "timeline.pageUp":      keyboardPage(-1); return true
@@ -5613,10 +4181,6 @@ Rectangle {
                         event.accepted = true
                         return
                     }
-                    // Shift+PgUp jumps to the oldest unread message (reserved
-                    // in the registry). A Keys handler rather than a Shortcut:
-                    // a window Shortcut would take the key before the focused
-                    // item.
                     if (event.key === Qt.Key_PageUp
                             && (event.modifiers & Qt.ShiftModifier)) {
                         goToFirstUnread()
@@ -5635,7 +4199,6 @@ Rectangle {
                     case Qt.Key_End:
                         goToLatest(); event.accepted = true; break
                     case Qt.Key_Space:
-                        // Shift+Space pages up, Space pages down.
                         keyboardPage((event.modifiers & Qt.ShiftModifier) ? -1 : 1)
                         event.accepted = true; break
                     default:
@@ -5661,19 +4224,12 @@ Rectangle {
                     }
                 }
 
-                // TimelineScrollController drives wheel and keyboard motion;
-                // QML applies each frame against the live bounds.
                 Connections {
                     target: app.timelineScroll
                     function onWheelPositionChanged(y) {
                         var lo = timeline.wheelMinY()
-                        // A glide can also reach the window's synthetic newest
-                        // edge; give the rows back rather than settling at a
-                        // false bottom.
                         if (y <= lo && timeline.rowWindowSkip > 0
                             && timeline.extendRowWindowAtNewEnd()) {
-                            // The extension moved contentY and translated the
-                            // motion, so this frame's y is stale. Drop it.
                             return
                         }
                         var hi = timeline.wheelMaxY()
@@ -5684,15 +4240,11 @@ Rectangle {
                     }
                     function onWheelMotionSettled() {
                         timeline.updateStickAndPaginate()
-                        // Refresh the anchor as soon as wheel motion ends, so a
-                        // late height change cannot re-align to a position the
-                        // reader has left.
                         timeline.captureViewAnchor()
                         scrollSettleTimer.restart()
                     }
                 }
 
-                // Save the settled position once input stops.
                 Timer {
                     id: scrollSettleTimer
                     objectName: "scrollSettleTimer"
@@ -5703,22 +4255,12 @@ Rectangle {
                         timeline.updateStickAndPaginate()
                         timeline.saveRoomPosition()
                         timeline.captureViewAnchor()
-                        // Start a bounded trim after settle. Its timer checks
-                        // motion before every subsequent step.
                         timeline.applyRowWindow()
-                        // A completed gesture near the top re-arms the edge;
-                        // otherwise backfill stops in a filtered room once the
-                        // controller's strike budget is spent. The re-arm is
-                        // unconditional within the band because
-                        // checkNearTopEdge() owns the progress gate; a
-                        // direction test here let up-then-down fetch and
-                        // stranded a reader parked at the exact top.
                         if (!timeline.stickToBottom
                             && !app.pagination.reachedStart
                             && timeline.distanceFromTop()
                                <= timeline.nearTopEnterDistance)
                             timeline.nearTopArmed = true
-                        // Single settle point: emit one diagnostic summary.
                         timeline.diagFlushGesture()
                     }
                 }
@@ -5726,54 +4268,25 @@ Rectangle {
                 WheelHandler {
                     id: timelineWheelHandler
                     objectName: "timelineWheelHandler"
-                    // Single pointer-wheel owner. Loading older history extends
-                    // the far edge, so visible rows do not move under it.
                     target: null
                     acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                     onWheel: (event) => {
-                        // A new gesture invalidates a settle-time trim target.
                         timeline.pendingWindowSkip = -1
                         rowWindowTrimTimer.stop()
-                        // Timed only while LIGHTNING_SCROLL_TRACE is set.
                         var notchStartMs = timeline.scrollTrace ? Date.now() : 0
-                        // Stop any autoscroll; a wheel notch also owns
-                        // contentY.
                         root.stopAutoscroll()
-                        // Also cancel a pending jump, or it would teleport the
-                        // view once its target becomes measurable.
                         timeline.noteReaderTookControl()
-                        // A positive delta on either axis is the older
-                        // direction on this rotated view.
                         var towardsOlder = event.pixelDelta.y !== 0
                                 ? event.pixelDelta.y > 0
                                 : event.angleDelta.y > 0
-                        // Extend the window before computing the motion, so the
-                        // notch clamps against the extended geometry.
                         if (!towardsOlder && timeline.nearWindowNewEdge())
                             timeline.extendRowWindowAtNewEnd()
-                        // Evaluated before dispatch; see wheelCanMove().
                         var canMove = timeline.wheelCanMove(towardsOlder)
                         var minY = timeline.wheelMinY()
                         var maxY = timeline.wheelMaxY()
-                        // Content shorter than the viewport cannot scroll, so
-                        // the near-top trigger never fires; once the fill
-                        // budget is spent, a wheel toward older history is the
-                        // request. User-initiated, so the controller re-arms
-                        // its cap.
                         if (towardsOlder && !canMove && maxY <= minY + 0.5
                                 && app.pagination && !app.pagination.reachedStart)
                             app.pagination.requestNearTop(true)
-                        // A continuous source (touchpad on Wayland, phased
-                        // scroll on macOS) is pixel input for the whole
-                        // gesture, including frames with pixelDelta 0. Qt
-                        // Wayland rounds each frame to whole pixels, carries
-                        // the remainder, and still sends angleDelta; treating a
-                        // px=0 frame as a notch made slow swipes jerk and
-                        // travel farther than fast ones. A px=0 continuous
-                        // frame moves nothing. Discriminate on `phase`, not
-                        // device type: Qt Wayland can report a mouse wheel as
-                        // TouchPad. Wheels, X11 and Windows touchpads are
-                        // NoScrollPhase and keep the notch path.
                         var continuousSource = event.phase !== Qt.NoScrollPhase
                         if (event.pixelDelta.y !== 0
                                 || (continuousSource && event.angleDelta.y !== 0)) {
@@ -5788,19 +4301,9 @@ Rectangle {
                             scrollSettleTimer.restart()
                         } else if (event.angleDelta.y !== 0
                                    && !timeline.smoothScrollingEnabled) {
-                            // Smooth scrolling off: land the notch at once,
-                            // same distance. notchDistance() is the only
-                            // stateless call on the controller; wheelTargetY()
-                            // and pixelTargetY() mutate its shared motion
-                            // state.
                             timeline.cancelWheelMotion()
                             var per = app.timelineScroll.notchDistance(
                                 timeline.height)
-                            // Not negated: wheelTargetY() negates internally
-                            // and the smooth branch passes -angleDelta to
-                            // cancel it, since upward is increasing contentY
-                            // here. notchDistance() does no negation, so
-                            // negating it would invert the wheel.
                             var jump = (event.angleDelta.y / 120.0) * per
                             timeline.setPositionY(Math.max(
                                 minY, Math.min(maxY, timeline.contentY + jump)),
@@ -5811,7 +4314,6 @@ Rectangle {
                             timeline.diagNoteEvent(true)
                             scrollSettleTimer.restart()
                         } else if (event.angleDelta.y !== 0) {
-                            // Rotated: a negative delta is towards newer.
                             timeline.glideTowardsNewer = event.angleDelta.y < 0
                             app.timelineScroll.wheelNotch(
                                 -event.angleDelta.y, timeline.contentY,
@@ -5819,8 +4321,6 @@ Rectangle {
                             timeline.updateStickAndPaginate(canMove)
                             if (event.angleDelta.y > 0 && canMove) {
                                 timeline.stickToBottom = false
-                                // Wheeling up mid-glide retires a pending
-                                // follow-latest arrival.
                                 timeline.followLatestOnArrival = false
                             }
                             timeline.diagNoteEvent(false)
@@ -5831,16 +4331,11 @@ Rectangle {
                     }
                 }
 
-                // A drag or flick owns contentY; cancel any glide. Only native
-                // input reaches these.
                 onDragStarted: { cancelWheelMotion(); noteReaderTookControl() }
                 onFlickStarted: { cancelWheelMotion(); noteReaderTookControl() }
 
                 Component.onDestruction: cancelWheelMotion()
 
-                // Read state is decided by ReadReceiptCoordinator in C++. QML
-                // reports only whether the timeline is on screen and following
-                // the bottom.
                 Binding {
                     target: app.readReceipts
                     property: "timelineVisible"
@@ -5852,8 +4347,6 @@ Rectangle {
                     property: "nearBottom"
                     value: timeline.stickToBottom
                 }
-                // Active-room notification suppression uses the same signals as
-                // read receipts.
                 Binding {
                     target: app
                     property: "activeRoomAtLatest"
@@ -5861,10 +4354,6 @@ Rectangle {
                            && timeline.Window.active === true
                            && timeline.stickToBottom
                 }
-                // The binding above is false until the view settles, while
-                // opening a room delivers its recent history as live appends;
-                // without this the room being read would notify for every
-                // message it loads.
                 Binding {
                     target: app
                     property: "activeRoomHydrating"
@@ -5872,64 +4361,16 @@ Rectangle {
                            && timeline.Window.active === true
                 }
 
-                // Request another batch while the content cannot fill the
-                // viewport (a short snapshot never scrolls, so a scroll trigger
-                // alone would deadlock). The controller enforces budget,
-                // no-progress stop and single-flight. Coalesced onto the next
-                // turn: the pagination header changes contentHeight itself, and
-                // dispatching directly caused a binding loop.
                 property bool viewportFillCheckScheduled: false
-                // The fill loop is self-healing, not only geometry-triggered.
-                // Two ordinary things leave it with no trigger: request() drops
-                // a dispatch while one is in flight, and a batch can insert
-                // rows that render at zero height (routine activity while
-                // hidden), so no geometry signal fires. With content shorter
-                // than the viewport, every input path is then a no-op and the
-                // room cannot be scrolled.
-                //
-                // This counter's subject is "the dispatch went nowhere", not
-                // "the page brought nothing back"; a completed empty page is
-                // counted by viewportFillEmptyPages instead.
-                //
-                // Bounded twice: this counter caps consecutive re-arms (the
-                // controller's budget is not spent by a dropped dispatch), and
-                // the controller's budget latches fillStopped (this counter
-                // alone would not stop a backend returning invisible rows).
-                // reachedStart/failed end it too.
                 readonly property int maxViewportFillRetries: 8
-                /// Pages that added rows but no visible height. Generous, since
-                /// each advances the cursor through a collapsed run toward real
-                /// messages, but bounded.
-                // Each page is a round trip plus twenty instantiated rows on
-                // every open, so this stays small (~240 hidden events). Past
-                // it, scrolling up on the short content pulls the next page.
                 readonly property int maxInvisibleFillRetries: 12
-                // Hard cap on rows the fill may load, whatever their
-                // visibility. A page that adds a little height counts as
-                // progress and resets the invisible-page budget, so without
-                // this a collapsed run growing one line per page could
-                // instantiate hundreds of rows. Deeper history is left to the
-                // reader's own scrolling.
                 readonly property int maxViewportFillRows: 240
-                /// Pages the backend completed that added no row and did not
-                /// reach the start: history the timeline filter empties
-                /// (MatrixRTC membership churn). Unlike a dispatch that went
-                /// nowhere, the cursor advanced. Matches
-                /// PaginationController::kMaxFilteredRunStrikes so neither side
-                /// stops first. Affordable because an empty page instantiates no
-                /// delegates and skips the completion settle.
                 readonly property int maxEmptyFillPages: 60
                 property int viewportFillInvisibleRetries: 0
                 property int viewportFillEmptyPages: 0
                 property int viewportFillRetries: 0
-                /// contentHeight at the previous attempt, or -1. The budget is
-                /// spent on attempts that did not make the content taller.
                 property real viewportFillLastHeight: -1
-                /// Loaded row count at the previous attempt, or -1.
                 property int viewportFillLastRows: -1
-                /// app.pagination.emptyFillPages at the previous attempt, or -1.
-                /// The counter is monotonic within a room, so a change means a
-                /// page actually completed.
                 property int viewportFillLastEmptyPages: -1
                 Timer {
                     id: viewportFillRetryTimer
@@ -5942,7 +4383,6 @@ Rectangle {
                         return
                     viewportFillCheckScheduled = true
                     Qt.callLater(function() {
-                        // The pane may be gone by the time this runs.
                         if (!timeline) return
                         viewportFillCheckScheduled = false
                         if (app.currentRoomId === ""
@@ -5956,17 +4396,10 @@ Rectangle {
                             viewportFillRetryTimer.stop()
                             return
                         }
-                        // Decide nothing while a page is in flight: every
-                        // geometry signal calls this, and calls between request
-                        // and completion saw no growth only because the page
-                        // had not arrived. The retry timer is re-armed so a
-                        // page that moves no geometry still wakes this up.
                         if (app.pagination.busy) {
                             viewportFillRetryTimer.restart()
                             return
                         }
-                        // Names which bound declined the fill, including the
-                        // controller's.
                         function declineReason() {
                             if (app.pagination.reachedStart) return "reachedStart"
                             if (app.pagination.fillStopped) return "fillStopped"
@@ -5974,13 +4407,6 @@ Rectangle {
                             if ((app.timeline ? app.timeline.count : 0)
                                     >= maxViewportFillRows)
                                 return "rowBudget"
-                            // An empty timeline is not a reason to stop:
-                            // maxViewportFillRetries counts pages that added no
-                            // rows, exactly what filtered history produces.
-                            // While empty, leave the decision to the
-                            // controller's own terminators, which set
-                            // fillStopped (checked at the top of this
-                            // function).
                             if (viewportFillRetries >= maxViewportFillRetries
                                     && (app.timeline ? app.timeline.count : 0) > 0)
                                 return "noProgressBudget"
@@ -5991,15 +4417,6 @@ Rectangle {
                                 return "emptyPageBudget"
                             return ""
                         }
-                        // Two kinds of progress, only one visible. A page that
-                        // added rows is progress even with no added pixels (a
-                        // collapsed state run can hold contentHeight far below
-                        // the viewport), and gets the generous bound; a page
-                        // that added nothing gets the small one. Expanding an
-                        // activity group must never be required to reach older
-                        // messages. The request is gated by the check, so there
-                        // is one request per completed page, not one per
-                        // geometry signal.
                         var loadedRows = app.timeline ? app.timeline.count : 0
                         var emptyPages = app.pagination
                                 ? app.pagination.emptyFillPages : 0
@@ -6007,27 +4424,18 @@ Rectangle {
                                 && contentHeight > viewportFillLastHeight + 1
                         var grewRows = viewportFillLastRows >= 0
                                 && loadedRows > viewportFillLastRows
-                        // The third kind: a page that completed and inserted
-                        // nothing, detected by the controller's monotonic
-                        // counter moving. Not the same as a dispatch that went
-                        // nowhere.
                         var walkedFilteredHistory =
                                 viewportFillLastEmptyPages >= 0
                                 && emptyPages > viewportFillLastEmptyPages
                         if (grewHeight) {
-                            // Visible history gained: nothing spent.
                             viewportFillRetries = 0
                             viewportFillInvisibleRetries = 0
                             viewportFillEmptyPages = 0
                         } else if (grewRows) {
-                            // Invisible progress: keep going, but not forever.
                             viewportFillRetries = 0
                             viewportFillEmptyPages = 0
                             ++viewportFillInvisibleRetries
                         } else if (walkedFilteredHistory) {
-                            // Filtered progress gets the larger budget (no
-                            // delegates). It does not refund the invisible
-                            // budget; each run bounds its own.
                             viewportFillRetries = 0
                             ++viewportFillEmptyPages
                         }
@@ -6063,12 +4471,7 @@ Rectangle {
                         viewportFillRetryTimer.restart()
                     })
                 }
-                // Any delegate height settling changes contentHeight. One
-                // coalesced reaction: stay pinned to the newest event while
-                // following, otherwise hold the anchor.
                 onContentHeightChanged: {
-                    // Any Column relayout after the reset reflects the new
-                    // model's delegates.
                     presentationGeometryStale = false
                     if (mediaBandOpen && !userScrollActive)
                         mediaBandGrowth.start()
@@ -6086,8 +4489,6 @@ Rectangle {
                     refreshMediaBand()
                     maybeFillViewport()
                     recomputePresentationReady()
-                    // Viewport resizes keep the reading position: pinned stays
-                    // pinned, an anchored reader keeps the anchored message.
                     if (stickToBottom) {
                         if (count > 0)
                             scrollToEndTimer.restart()
@@ -6096,70 +4497,40 @@ Rectangle {
                     }
                 }
 
-                // Prepend compensation is handled by the persistent view anchor
-                // (maintainViewAnchor(), via onContentHeightChanged), like any
-                // other height change above the reader. Do not reintroduce a
-                // pagination-specific anchor.
-
                 Connections {
                     target: app.pagination
                     function onPaginationCompleted(insertedCount, reachedStart,
                                                    willContinue) {
-                        // Spend the approach's row budget on rows landing while
-                        // the reader is in the near-top band. Measured before
-                        // the early return so continuing batches are paid for;
-                        // skipped at the live edge, where the viewport fill has
-                        // its own cap.
                         if (insertedCount > 0 && !timeline.stickToBottom
                                 && timeline.distanceFromTop()
                                    <= timeline.nearTopEnterDistance)
                             timeline.nearTopRowsThisApproach += insertedCount
                         if (insertedCount <= 0 || reachedStart || willContinue)
                             return
-                        // A productive page moved the history edge: start a
-                        // fresh ratchet so upward motion can prefetch the next
-                        // page. No position write.
                         timeline.nearTopArmed = true
                         timeline.nearTopRequestDistance =
                                 timeline.distanceFromTop()
                     }
                     function onTargetLocated(row, pixelOffset, highlight) {
-                        // `highlight` distinguishes a reply jump (true) from a
-                        // scroll-anchor restore (false). A gesture cancels
-                        // every pending jump via noteReaderTookControl(); this
-                        // also drops a restore that resolves just after the
-                        // reader took over. Reply jumps issued after a gesture
-                        // still land.
                         if (!highlight && timeline.readerControlledSinceReset) {
                             ++timeline.diagNavigationAbandoned
                             timeline.releaseRestoreHold()
                             return
                         }
-                        // Reply navigation takes control immediately.
                         timeline.cancelWheelMotion()
                         root.stopAutoscroll()
-                        // Read now: `row` is only valid in this turn.
                         var locatedId = app.timeline
                                         ? app.timeline.stableIdAt(row) : ""
                         var epoch = timeline.navigationEpoch
                         Qt.callLater(function() {
-                            // The pane may be gone by the time this runs.
                             if (!timeline) return
-                            // Re-validated when it runs, not only when it was
-                            // queued: input in between owns the view now. A later explicit jump re-arms
-                            // normally; this cancels only the obsolete one.
                             if (timeline.navigationEpoch !== epoch) {
                                 ++timeline.diagNavigationAbandoned
                                 if (!highlight)
                                     timeline.releaseRestoreHold()
                                 return
                             }
-                            // The target may be older than the paced-out rows
-                            // or behind the row window.
                             timeline.releasePendingRows()
-                            // See beginNavigationLanding(): landing in this
-                            // turn was a silent no-op for targets not yet
-                            // exposed.
                             timeline.beginNavigationLanding(row, pixelOffset,
                                                             highlight,
                                                             locatedId)
@@ -6170,15 +4541,11 @@ Rectangle {
                         timeline.cancelWheelMotion()
                         root.stopAutoscroll()
                         timeline.stickToBottom = true
-                        // Same frame-rebase reason as goToLatest().
                         timeline.viewAnchorId = ""
                         timeline.viewAnchorLastY = 0
                         scrollToEndTimer.restart()
                     }
                 }
-                // Your own message always brings you back to the newest, as in
-                // Element and Discord: the reader sent it to the conversation
-                // and expects to see it land, however far up they were.
                 Connections {
                     target: app.composer
                     function onOwnMessageSent() {
@@ -6193,12 +4560,8 @@ Rectangle {
                             scrollToEndTimer.restart()
                             return
                         }
-                        // Capture the anchor right before the reflow and
-                        // correct right after, on the same deferred turn,
-                        // rather than waiting for onContentHeightChanged.
                         timeline.captureViewAnchor()
                         Qt.callLater(function() {
-                            // The pane may be gone by the time this runs.
                             if (!timeline) return
                             timeline.maintainViewAnchor()
                             timeline.maybeFillViewport()
@@ -6206,14 +4569,7 @@ Rectangle {
                     }
                 }
 
-                // The one open row menu, handed over by
-                // MessageDelegate.openContextMenu(). It is positioned once, so
-                // any content movement closes it.
                 property var openRowMenu: null
-                // Every position write Lightning makes goes through here with
-                // a fixed writer reason, so the opt-in incident recorder
-                // (app.timelineScroll.scrollRecorderEnabled) can attribute
-                // a jump to its writer. Behaviour is exactly `contentY = y`.
                 property string positionWriter: ""
                 function setPositionY(y, writer) {
                     var previous = positionWriter
@@ -6247,16 +4603,7 @@ Rectangle {
                         viewAnchorId !== "" ? viewAnchorKind : "",
                         viewAnchorId !== "" && viewAnchorRow >= 0
                             ? count - 1 - viewAnchorRow : -1)
-                    // The anomaly the user reported: the view snapping to the
-                    // oldest loaded edge from more than a screen away, by a
-                    // writer that is neither the reader's input nor an
-                    // explicit navigation. A legitimate window trim moves
-                    // contentY by thousands too, but it is tagged and keeps
-                    // the reader's row still, so it is not a candidate.
                     var jump = Math.abs(contentY - oldY)
-                    // A history shorter than about a screen has no "top"
-                    // to teleport to: leaving deep history for a short room
-                    // lands on its only edge and is not a candidate.
                     if (jump > height && contentY >= maxY - 2
                             && maxY - minY > height
                             && writer !== "navigation" && writer !== "keyboard"
@@ -6276,28 +4623,17 @@ Rectangle {
                         stale.close()
                     }
                     mediaBandSettle.restart()
-                    // Unconditional: the activation range tracks programmatic
-                    // moves too.
                     scheduleVisibleRowRange()
-                    // React to user-driven movement only. A native wheel need
-                    // not expose `moving`; the passive observer keeps the
-                    // settle timer active.
                     if (!userScrollActive) return
                     stickToBottom = atBottomEdge()
-                    // Backfill as the user approaches the top, edge-latched
-                    // with hysteresis.
                     checkNearTopEdge(true)
                 }
                 onCountChanged: {
                     scheduleVisibleRowRange()
-                    // A new event arrived or the timeline reset; follow the
-                    // bottom.
                     recomputePresentationReady()
                     if (stickToBottom) scrollToEndTimer.restart()
                 }
                 onMovementEnded: {
-                    // Scrolling settled: recompute at-bottom (return to bottom
-                    // clears unread via the nearBottom binding).
                     refreshMediaBand()
                     stickToBottom = atBottomEdge()
                     saveRoomPosition()
@@ -6307,33 +4643,20 @@ Rectangle {
                     refreshMediaBand()
                     scrollToEndTimer.restart()
                     maybeFillViewport()
-                    // The pane may be created while a room is already loaded.
                     if (app.currentRoomId !== "" && count > 0)
                         presentationGuard.restart()
                     recomputePresentationReady()
                 }
-                // A room switch or fresh snapshot opens at the bottom.
                 Connections {
                     target: app.timeline
-                    // Captured before the reset reaches the proxy: were there
-                    // old rows whose delegates could linger? If not (first room
-                    // of the session), arming the staleness gate would only
-                    // delay the fast open.
                     function onModelAboutToBeReset() {
                         timeline.presentationResetHadRows = timeline.count > 0
                     }
                     function onModelReset() {
-                        // Cancel wheel motion and autoscroll from the previous
-                        // room.
                         timeline.cancelWheelMotion()
                         timeline.refreshMediaBand()
-                        // The rows just measured belong to the outgoing room or
-                        // are not laid out yet: re-derive on the new layout.
                         timeline.mediaBandOpen = true
                         root.stopAutoscroll()
-                        // Any reset discards the rows these surfaces came from,
-                        // including a same-room jump-to-live trim that fires no
-                        // switch cleanup.
                         root.closeRowAnchoredSurfaces()
                         timeline.stickToBottom = true
                         timeline.pinnedActionsKey = ""
@@ -6341,36 +4664,24 @@ Rectangle {
                         timeline.viewAnchorId = ""
                         timeline.viewAnchorOffset = 0
                         timeline.viewAnchorLastY = 0
-                        // Re-arm the near-top edge for the new room.
                         timeline.nearTopArmed = true
                         timeline.nearTopRequestDistance = Infinity
                         timeline.nearTopRowsThisApproach = 0
                         timeline.nearTopRequestsThisApproach = 0
                         timeline.expandedStateGroups = ({})
-                        // The marker of the new snapshot has not been seen,
-                        // and the measured viewport rows belong to the old
-                        // one.
                         timeline.firstUnreadSeen = false
                         timeline.firstUnreadSeenId = ""
                         timeline.viewportNewestRow = 0
                         timeline.viewportOldestRow = -1
-                        // Fresh fill-retry budget for the new room.
                         timeline.viewportFillRetries = 0
                         timeline.viewportFillInvisibleRetries = 0
                         timeline.viewportFillLastHeight = -1
                         timeline.viewportFillLastRows = -1
                         viewportFillRetryTimer.stop()
-                        // A pending landing belongs to the snapshot it was
-                        // resolved against.
                         timeline.navigationPendingRow = -1
                         timeline.navigationPendingId = ""
                         navigationLandingTimer.stop()
-                        // A fresh room's anchor restore is welcome.
                         timeline.readerControlledSinceReset = false
-                        // Re-engage the gate. Recompute after this dispatch
-                        // settles: the pagination controller's reset slot may
-                        // run later, and reading its previous state here could
-                        // open the gate on a one-item snapshot.
                         timeline.presentationReady = false
                         timeline.presentationResetPending = true
                         timeline.presentationGeometryStale =
@@ -6384,24 +4695,18 @@ Rectangle {
                             restoreHoldGuard.restart()
                         else
                             restoreHoldGuard.stop()
-                        // A newer reset (A -> B -> A before this turn runs)
-                        // queues its own restore; only the newest may ask.
                         var resetEpoch = ++timeline.resetEpoch
                         var readerEpoch = timeline.navigationEpoch
                         Qt.callLater(function() {
-                            // The pane may be gone by the time this runs.
                             if (!timeline || !app
                                     || timeline.resetEpoch !== resetEpoch
                                     || timeline.navigationEpoch !== readerEpoch)
                                 return
-                            // "When returning to a conversation": previous
-                            // position, latest, or the selected message.
                             app.pagination.restoreConversation(
                                 app.currentRoomId,
                                 app.settings.conversationReturnMode)
                         })
                         Qt.callLater(function() {
-                            // The pane may be gone by the time this runs.
                             if (timeline)
                                 timeline.maybeFillViewport()
                         })
@@ -6409,15 +4714,6 @@ Rectangle {
                     }
                 }
 
-                // Pagination trigger at the top; duplicate and reached-start
-                // suppression live in the controller. Not edge-latched through
-                // checkNearTopEdge(): that latch returns early while
-                // stickToBottom, and a freshly opened room too short to scroll
-                // relies on this passive edge for its first fill. It is bounded
-                // anyway: atYBeginning only fires on a real false->true
-                // transition, userInitiated=false cannot reset the controller's
-                // empty-strike counter, request() is single-flight, and a
-                // productive page ends the run.
                 onAtYEndChanged: {
                     if (atYEnd)
                         maybeRequestNearTop(false)
@@ -6427,14 +4723,8 @@ Rectangle {
                 // (paginationHeader), not list content, so toggling it never
                 // changes timeline geometry.
 
-                // No attached ScrollBar or empty-state label here: children of
-                // the rotated Flickable render mirrored or upside down. Both
-                // are unrotated siblings.
             }
 
-            // Timeline scrollbar, outside the rotated Flickable. The visual top
-            // is wheelMaxY (oldest) and the bottom wheelMinY (newest); the
-            // mapping inverts both ways so dragging works.
             AppScrollBar {
                 id: timelineScrollBar
                 objectName: "timelineScrollBar"
@@ -6459,25 +4749,15 @@ Rectangle {
                     if (pressed) {
                         timeline.diagNoteInput("scrollbar")
                         timeline.beginExplicitTopApproach()
-                        // A press is already the reader taking the view
-                        // (SC09): a pending jump or restore must not land
-                        // under a handle held still, then fight the drag.
                         timeline.cancelWheelMotion()
                         timeline.noteReaderTookControl()
                     } else {
-                        // A drag ends like any gesture: the settle saves the
-                        // position, captures the anchor where the reader now
-                        // is, applies the row window and emits the trace line.
                         scrollSettleTimer.restart()
                     }
                 }
                 function handleFraction() {
                     return (1 - size) > 0 ? position / (1 - size) : 0
                 }
-                // Holding the handle at the top while a page lands moves no
-                // handle, so positionChanged never fires again and the
-                // reader stops loading. While held at the top, follow the new
-                // oldest row and ask again.
                 Timer {
                     id: scrollBarTopHold
                     objectName: "timelineScrollBarTopHold"
@@ -6485,27 +4765,21 @@ Rectangle {
                     repeat: true
                     running: timelineScrollBar.pressed
                     onTriggered: {
-                        // frac 0 is the top of the track (oldest row).
                         if (timelineScrollBar.handleFraction() > 0.001)
                             return
                         if (timeline.scrollTrace)
                             ++timeline.diagScrollbarTopHolds
-                        // Holding the handle at the top is an explicit ask
-                        // for more; the automatic-chain budget is not.
                         timeline.renewPinnedTopBudget()
                         timeline.setPositionY(timeline.wheelMaxY(), "bar-top-hold")
                         timeline.updateStickAndPaginate()
                     }
                 }
                 onPositionChanged: {
-                    // Only follow the handle while the user holds it.
                     if (!pressed)
                         return
                     var frac = handleFraction()
                     timeline.diagNoteInput("scrollbar")
                     timeline.cancelWheelMotion()
-                    // Dragging the handle retires an unlanded jump, like the
-                    // wheel.
                     timeline.noteReaderTookControl()
                     timeline.setPositionY(timeline.wheelMaxY() - frac * span, "bar-drag")
                     timeline.updateStickAndPaginate()
@@ -6515,7 +4789,6 @@ Rectangle {
             Binding {
                 target: timelineScrollBar
                 property: "position"
-                // Yields while dragged.
                 when: !timelineScrollBar.pressed
                 restoreMode: Binding.RestoreNone
                 value: {
@@ -6528,16 +4801,9 @@ Rectangle {
                 }
             }
 
-            // Pagination loading/failure indicator: a top overlay, never list
-            // content, so Loading cannot change contentHeight or flip
-            // atYBeginning. Height tracks the PaginationController state
-            // directly (no local mirror). objectName "paginationHeader" is used
-            // by TimelinePaneQmlTest.
             Item {
                 objectName: "paginationHeader"
                 anchors.top: parent.top
-                // Under the First unread pill, which is centred at the same
-                // spot and sat over it. Clear of it at the corner it moves to.
                 anchors.topMargin: jumpToFirstUnreadButton.visible
                                    ? jumpToFirstUnreadButton.y
                                      + jumpToFirstUnreadButton.height
@@ -6552,10 +4818,6 @@ Rectangle {
                 visible: app.currentRoomId !== ""
                          && app.pagination.presentationState
                             !== PaginationController.Hidden
-                // Loading is a thin bar along the top edge: the pill that used
-                // to say it sat over the first message's text on every room
-                // open, since a loaded timeline fills the viewport up to the
-                // header. Only Failed, which needs its Retry link, keeps a pill.
                 AppProgressBar {
                     objectName: "paginationLoadingBar"
                     visible: app.pagination.presentationState
@@ -6602,9 +4864,6 @@ Rectangle {
                             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             font.weight: AppTheme.weightMedium
                         }
-                        // An inline link (AppTheme.link, not accent). An
-                        // AbstractButton rather than a Label with a MouseArea,
-                        // so it is focusable and accessible.
                         AbstractButton {
                             id: paginationRetryButton
                             objectName: "paginationRetryButton"
@@ -6639,8 +4898,6 @@ Rectangle {
                                 font.weight: AppTheme.weightMedium
                                 font.underline: true
                             }
-                            // Cursor only; accepting buttons would swallow the
-                            // clicks.
                             MouseArea {
                                 anchors.fill: parent
                                 acceptedButtons: Qt.NoButton
@@ -6651,10 +4908,6 @@ Rectangle {
                 }
             }
 
-            // Home surface when nothing is selected, over the hidden timeline
-            // (which stays present for tests and to resume instantly). A real
-            // selected Space gets its management surface; pseudo-spaces keep
-            // Home.
             readonly property bool spaceViewActive:
                 app.currentRoomId === ""
                 && app.spaces && app.spaces.activeSpaceId.length > 0
@@ -6670,16 +4923,10 @@ Rectangle {
                 onDiscoverRequested: root.discoverRoomsRequested()
             }
 
-            // Middle-click autoscroll. A sibling of the rotated Flickable (a
-            // child would get mirrored coordinates); drives contentY through
-            // the same bounds as the wheel, `inverted` because newer messages
-            // are at lower contentY.
             MiddleClickScroller {
                 id: middleClickScroller
                 objectName: "timelineMiddleClickScroller"
                 anchors.fill: parent
-                // Above the pills and the pagination header while latched, so
-                // the click that ends it lands here too.
                 z: middleClickScroller.latched ? 30 : 2
                 visible: app.currentRoomId !== "" && timeline.presentationReady
                 view: timeline
@@ -6688,54 +4935,31 @@ Rectangle {
                 property real lastMediaBandMs: 0
                 minYFunc: function() { return timeline.wheelMinY() }
                 maxYFunc: function() { return timeline.wheelMaxY() }
-                // Cancel a wheel glide once at gesture start. stickToBottom is
-                // derived from the real position, so scrolling back down
-                // re-arms follow-latest.
                 onActiveChanged: if (active) {
                     timeline.cancelWheelMotion()
-                    // Starting an autoscroll is the reader taking the view.
                     timeline.noteReaderTookControl()
                     timeline.beginExplicitTopApproach()
                 }
                 onScrolled: {
                     timeline.diagNoteInput("autoscroll")
-                    // Pointer beyond the dead zone, and which way. Rotated
-                    // view: above the anchor is towards older history.
                     var travel = middleClickScroller.pointerY
                                  - middleClickScroller.anchorY
                     var steering = Math.abs(travel) > middleClickScroller.deadZone
                     if (steering && travel < 0
                             && timeline.distanceFromTop() <= 1)
                         timeline.renewPinnedTopBudget()
-                    // Towards newer under a row window: give rows back at the
-                    // window's newest edge as the wheel does, or the scroll
-                    // pins against a synthetic bottom (C26, measured
-                    // `pinnedSteps=958 winSkip=424 winExtendNew=0`).
                     if (steering && travel > 0 && timeline.nearWindowNewEdge())
                         timeline.extendRowWindowAtNewEnd()
-                    // The media band moves at settle, which a running
-                    // autoscroll never reaches; re-derive it at most twice a
-                    // second so pictures the reader passes are not left as
-                    // placeholders for the whole gesture. Index range only,
-                    // nothing bound to contentY.
                     var now = Date.now()
                     if (now - middleClickScroller.lastMediaBandMs >= 500) {
                         middleClickScroller.lastMediaBandMs = now
                         timeline.refreshMediaBand()
                     }
                     timeline.updateStickAndPaginate()
-                    // The scroller writes contentY directly, leaving
-                    // Flickable.moving false, so without this userScrollActive
-                    // stays false for the whole gesture: no anchor capture, and
-                    // the idle branch of maintainViewAnchor() would restore the
-                    // pre-gesture position on the next height change.
-                    // Restarting the settle timer gives autoscroll the same
-                    // settle path as the wheel.
                     scrollSettleTimer.restart()
                 }
             }
 
-            // Space Home: never an ordinary room timeline/composer.
             Loader {
                 objectName: "spaceHomeLoader"
                 anchors.fill: parent
@@ -6744,8 +4968,6 @@ Rectangle {
                 sourceComponent: spaceHomeComponent
             }
 
-            // Room-loading surface shown while the presentation gate holds the
-            // timeline back: one quiet loading row, no partial rows.
             Item {
                 objectName: "timelineLoadingSurface"
                 anchors.fill: parent
@@ -6768,10 +4990,6 @@ Rectangle {
                 }
             }
 
-            // Empty room: a start-of-conversation block with the room's
-            // identity and actions. An unrotated sibling of the timeline.
-            // `count === 0 && presentationReady` means nothing is loaded, not
-            // that the room has no history, so the wording stays modest.
             Item {
                 objectName: "timelineEmptyState"
                 anchors.fill: parent
@@ -6816,14 +5034,11 @@ Rectangle {
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                     }
-                    // Only when the SDK says the room is encrypted.
                     RowLayout {
                         Layout.alignment: Qt.AlignHCenter
                         spacing: AppTheme.spacingXS
                         visible: root.currentRoom.encrypted === true
                         Icon {
-                            // Neutral, not green: a room-state fact, not a
-                            // trust claim.
                             name: "lock"
                             size: 14
                             color: AppTheme.textMuted
@@ -6843,8 +5058,6 @@ Rectangle {
                             objectName: "emptyRoomInviteButton"
                             kind: "primary"
                             text: qsTr("Invite people")
-                            // Fails closed: the roster controller may point at
-                            // another room.
                             visible: app.roomInfo
                                      && app.roomInfo.supported
                                      && app.roomInfo.roomId === app.currentRoomId
@@ -6861,25 +5074,10 @@ Rectangle {
                 }
             }
 
-            // Jump to first unread, at the top (mirror of the jump-to-latest
-            // pill). Offered when the marker row is loaded (the jump is exact)
-            // and also when the room was opened with unread messages but the
-            // marker lies above the loaded rows: goToFirstUnread() then pages
-            // back for it, bounded, and the pill withdraws if that runs out or
-            // the start of the room is reached. (Shift+PgUp is the same jump.)
-            // A loaded marker that is ON SCREEN needs no jump, and neither
-            // does one the reader has already reached this visit once they
-            // are back at the live edge (Element hides its pill the same way
-            // while the marker is visible). Before this it showed for as long
-            // as the marker row existed, over the divider itself and at the
-            // bottom of a room already read (break-it B060, B033).
             AbstractButton {
                 id: jumpToFirstUnreadButton
                 enabled: !root.invitePreview
                 objectName: "jumpToFirstUnreadButton"
-                // Centred, except once the room's true start is loaded: the
-                // "Beginning of conversation" label is centred at the very
-                // top and the pill sat over it (C13-F08).
                 anchors.top: parent.top
                 anchors.topMargin: AppTheme.spacingM
                 x: (app.pagination && app.pagination.reachedStart)
@@ -6910,8 +5108,6 @@ Rectangle {
                 Rectangle {
                     anchors.fill: parent
                     radius: height / 2
-                    // The unread colour, matching the divider and badges;
-                    // accent belongs to jump-to-latest.
                     color: jumpToFirstUnreadButton.down
                            ? Qt.darker(AppTheme.unreadBadge, 1.2)
                            : jumpToFirstUnreadButton.hovered
@@ -6925,9 +5121,6 @@ Rectangle {
                     Icon {
                         objectName: "jumpToFirstUnreadIcon"
                         anchors.verticalCenter: parent.verticalCenter
-                        // Points at the target: up while the marker is older
-                        // than the rows shown (or not loaded yet), down once
-                        // the reader has scrolled above it.
                         name: timeline.firstUnreadBelow ? "expand_more"
                                                         : "expand_less"
                         size: 18
@@ -6963,10 +5156,6 @@ Rectangle {
                 objectName: "firstUnreadFailedNote"
                 anchors.top: parent.top
                 anchors.topMargin: AppTheme.spacingM
-                // Same placement rule as the pill: the hunt very often fails
-                // BECAUSE the start was reached, and then the centred
-                // "Beginning of conversation" label is where a centred note
-                // would sit (C13-F08).
                 readonly property bool atStart:
                     app.pagination && app.pagination.reachedStart
                 x: atStart ? parent.width - width - AppTheme.spacingM
@@ -6996,8 +5185,6 @@ Rectangle {
                 }
             }
 
-            // Jump-to-latest pill with an optional new-message count. An
-            // AbstractButton so click() and visible drive the scroll tests.
             AbstractButton {
                 id: jumpToLatestButton
                 enabled: !root.invitePreview
@@ -7006,12 +5193,6 @@ Rectangle {
                 anchors.bottom: parent.bottom
                 anchors.rightMargin: AppTheme.spacingM + 12
                 anchors.bottomMargin: AppTheme.spacingM + 8
-                // Hidden as soon as the trip home starts: stickToBottom only
-                // flips on arrival on the glide path. Kept up whenever the row
-                // window withholds newest rows, whatever follow-latest says:
-                // the bottom of the view is then not the newest message
-                // (break-it B020; a trim dispatched by goToLatest() sets
-                // stickToBottom before its reset restores the live edge).
                 visible: app.currentRoomId !== ""
                          && ((!timeline.stickToBottom
                               && !timeline.followLatestOnArrival)
@@ -7029,7 +5210,6 @@ Rectangle {
                 ToolTip.text: qsTr("Return to the newest message")
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
-                // Shared with the End key.
                 onClicked: timeline.goToLatest()
 
                 Rectangle {
@@ -7071,7 +5251,6 @@ Rectangle {
                 }
             }
 
-            // A jump (search hit, reply, pin) paging back to an older target.
             Rectangle {
                 objectName: "jumpProgress"
                 visible: app.pagination.navigating
@@ -7133,13 +5312,9 @@ Rectangle {
                 }
             }
 
-            // Read-only view of a message that is not in the loaded timeline,
-            // fetched with its surroundings. Covers the timeline; closing it
-            // returns to the live timeline untouched.
             InvitePreviewCard {
                 id: invitePreviewCard
                 anchors.fill: parent
-                // Over the timeline and its pills, under the context view.
                 z: 90
                 visible: root.invitePreview
                 roomId: app.currentRoomId
@@ -7147,7 +5322,6 @@ Rectangle {
                 topic: root.currentRoom.topic || ""
                 inviter: root.currentRoom.inviter || ""
                 avatarUrl: root.currentRoom.avatarUrl || ""
-                // The same MSC4278 gate as the room list's invite row.
                 showAvatar: !!app.accountPrefs
                             && app.accountPrefs.inviteAvatarsAllowed
                 colorKey: root.currentRoom.identityColorKey || ""
@@ -7155,8 +5329,6 @@ Rectangle {
                 isSpace: root.currentRoom.isSpace === true
                 pending: root.currentRoom.invitePending === true
                 errorText: root.currentRoom.inviteError || ""
-                // The room list's own invite actions, the same calls its
-                // Accept / Reject buttons make.
                 onAcceptRequested: app.roomList.acceptInvite(app.currentRoomId)
                 onDeclineRequested: app.roomList.rejectInvite(app.currentRoomId)
             }
@@ -7178,17 +5350,12 @@ Rectangle {
             }
         }
 
-        // Typing indicator: a constant-height slot, so appearing and
-        // disappearing never resizes the timeline viewport. Only the label's
-        // opacity changes.
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: app.currentRoomId !== ""
                 ? Math.max(typingLabel.implicitHeight, typingMetrics.height) + 6
                 : 0
             visible: app.currentRoomId !== ""
-            // Transparent over a gradient ground, which a flat strip would
-            // cut across.
             color: paneGround.hasGradient ? "transparent" : AppTheme.timelineBackground
             FontMetrics {
                 id: typingMetrics
@@ -7197,7 +5364,6 @@ Rectangle {
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
             }
             Label {
-                // Untrusted text: never markup.
                 textFormat: Text.PlainText
                 id: typingLabel
                 anchors.left: parent.left
@@ -7207,7 +5373,6 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 text: app.timeline.typingText
                 opacity: text.length > 0 ? 1 : 0
-                // Keep the empty state out of the accessibility tree.
                 Accessible.ignored: text.length === 0
                 elide: Text.ElideRight
                 color: AppTheme.textMuted
@@ -7218,8 +5383,6 @@ Rectangle {
             }
         }
 
-        // Save As feedback (auto-clears). Zero layout height: the banner
-        // overflows upward over the timeline instead of pushing it.
         Item {
             Layout.fillWidth: true
             Layout.preferredHeight: 0
@@ -7265,8 +5428,6 @@ Rectangle {
             timelineModel: app.timeline
         }
 
-        // Selection bar for multi-message forwarding, above the composer.
-        // Escape and Cancel both leave the mode.
         Rectangle {
             objectName: "messageSelectionBar"
             visible: app.forward.selecting === true
@@ -7313,8 +5474,6 @@ Rectangle {
             }
             Shortcut {
                 sequence: "Escape"
-                // Honour the autoscroll and screen gates here too (same key,
-                // same window).
                 enabled: app.forward.selecting === true
                          && app.currentScreen === 1
                          && !middleClickScroller.active
@@ -7327,39 +5486,24 @@ Rectangle {
             id: messageComposer
             objectName: "messageComposer"
             Layout.fillWidth: true
-            // Visible during a call: the timeline stays on screen. Hidden
-            // while the read-only context view is open: nothing is sent from
-            // there. Hidden for a pending invite too: nothing can be sent
-            // before joining (the invite card offers Accept instead).
             visible: app.currentRoomId !== "" && !app.eventContext.active
                      && !root.invitePreview
             onTimelineKeyRequested: (actionId) => timeline.runKeyAction(actionId)
         }
-        // The composer comes back when the view closes; give it the keyboard
-        // again instead of leaving focus on nothing.
         Connections {
             target: app.eventContext
             function onStateChanged() {
                 if (!app.eventContext.active && app.currentRoomId !== "")
                     Qt.callLater(function() {
-                        // The pane may be gone by the time this runs.
                         if (messageComposer)
                             messageComposer.focusEditor()
                     })
             }
-            // "Jump to latest" in the context view promises the newest
-            // message. Closing the overlay alone uncovered the live timeline
-            // wherever it had been left, short of the newest rows with the
-            // jump pill up (break-it B120: latestRequested had no consumer).
             function onLatestRequested() {
                 if (app.currentRoomId !== "")
                     contextLatestTimer.restart()
             }
         }
-        // After the turn in which the composer reappears and the timeline's
-        // height changes, so the newest row is measured against the final
-        // viewport. A child Timer, not Qt.callLater, so a pane torn down in
-        // between leaves nothing queued.
         Timer {
             id: contextLatestTimer
             interval: 0
@@ -7371,54 +5515,27 @@ Rectangle {
         }
     }
 
-    // Side surfaces: ONE geometry for every right-hand panel, read by the
-    // panels, by roomColumn's visibility, by the resize grab and by
-    // chatDropArea, so none of them can drift (they used to repeat literals:
-    // 340/660 for threads, 360/700 for search, 320 in the drop area for Room
-    // information). All of it follows Settings > Appearance > Side panel
-    // width (SettingsManager clamps it to 240-640). Reads only root.width and
-    // the setting, never the layout it drives, so it cannot form a binding
-    // loop.
     QtObject {
         id: sideSurface
-        // Thread and search panels: the stored width, never under 260, and
-        // never so wide that the timeline column (Layout.minimumWidth 320)
-        // plus the panel's 1px divider overflow the pane.
         readonly property int width:
             Math.max(260, Math.min(app.settings.sidePanelWidth,
                                    root.width - 320 - 1))
-        // Beside the timeline only while the timeline keeps its 320px; below
-        // that (a pane under 581px) the surface takes the whole pane.
         readonly property bool beside: root.width - 1 - width >= 320
-        // The thread panel is beside the room only when the reader keeps
-        // threads in the side panel; Main view gives it the whole pane.
         readonly property bool threadBeside: beside && !root.threadInMainView
-        // Room information keeps its own floor for the conversation (420)
-        // and its >= 700 gate; the same setting drives it.
         readonly property int infoWidth:
             Math.max(260, Math.min(app.settings.sidePanelWidth,
                                    root.width - 420))
         readonly property bool infoBeside: root.width >= 700
-        // Below that Room Information takes the whole pane, as the thread and
-        // search surfaces do, instead of vanishing: in a window a quarter of a
-        // screen the header's Room Information button used to do nothing at
-        // all. The panel's own close button gives the room back.
         readonly property bool infoTakesPane:
             root.infoOpen && root.width > 0 && !infoBeside
     }
 
-    // The thread and search panels' divider, also their resize grab: it
-    // writes the same setting as Room Information's grab, so every side panel
-    // shares one width. One item serves both because they are exclusive
-    // (rightPanelState) and an invisible layout child takes no space, so it
-    // always sits immediately left of whichever is open.
     Item {
         id: sidePanelResizer
         objectName: "sidePanelResizeHandle"
         visible: (root.threadSurfaceOpen && sideSurface.threadBeside)
                  || (root.searchOpen && sideSurface.beside)
         Layout.fillHeight: true
-        // One pixel; the grab area is the handlers' margin, as infoResizer.
         implicitWidth: 1
 
         Rectangle {
@@ -7435,9 +5552,6 @@ Rectangle {
             margin: 4
             target: null
             yAxis.enabled: false
-            // The width the reader SEES at the press, not the stored one: a
-            // stored width wider than the window allows would otherwise eat
-            // the first part of the drag with no visible change.
             property int startWidth: 0
             onActiveChanged: {
                 if (active)
@@ -7446,8 +5560,6 @@ Rectangle {
             onTranslationChanged: {
                 if (!active)
                     return
-                // The panel is on the right, so dragging left widens it.
-                // SettingsManager clamps the stored value.
                 app.settings.sidePanelWidth =
                     Math.round(startWidth - translation.x)
             }
@@ -7457,15 +5569,12 @@ Rectangle {
         id: threadPanel
         objectName: "threadPanel"
         visible: root.threadSurfaceOpen
-        // Lets the panel's header offer the other placement.
         inMainView: root.threadInMainView
         Layout.fillHeight: true
         Layout.preferredWidth: sideSurface.threadBeside ? sideSurface.width
                                                         : root.width
         Layout.fillWidth: root.threadSurfaceOpen && !sideSurface.threadBeside
         onCloseRequested: {
-            // Closing the thread collapses the right side; Room Information is
-            // not restored implicitly.
             root.closeThreadSurface()
         }
         openImage: function(mediaKey, httpUrl) {
@@ -7479,17 +5588,11 @@ Rectangle {
         }
     }
 
-    // Room Information side panel. The divider is also the resize grab. Width
-    // persists in SettingsManager::sidePanelWidth, which clamps it.
     Item {
         id: infoResizer
         objectName: "roomInfoResizeHandle"
         visible: root.infoOpen && !sideSurface.infoTakesPane
         Layout.fillHeight: true
-        // One pixel, not a band: a wider band has no colour that is right
-        // beside panes that change colour along their height. The grab area
-        // comes from the handlers' `margin` instead (same as MainScreen's
-        // SplitView handle).
         implicitWidth: 1
 
         Rectangle {
@@ -7500,7 +5603,6 @@ Rectangle {
         }
         HoverHandler {
             id: infoHover
-            // Grab area without painted width.
             margin: 4
             cursorShape: Qt.SplitHCursor
         }
@@ -7509,7 +5611,6 @@ Rectangle {
             margin: 4
             target: null
             yAxis.enabled: false
-            // Width at grab: translation is cumulative from the press.
             property int startWidth: 0
             onActiveChanged: {
                 if (active)
@@ -7518,7 +5619,6 @@ Rectangle {
             onTranslationChanged: {
                 if (!active)
                     return
-                // The panel is on the right, so dragging left widens it.
                 app.settings.sidePanelWidth =
                     Math.round(startWidth - translation.x)
             }
@@ -7528,17 +5628,11 @@ Rectangle {
         id: infoPanel
         objectName: "roomInfoPanel"
         Layout.fillHeight: true
-        // Capped by the space actually available, not only the stored width,
-        // which can outlive a wider window; otherwise the row overflows off the
-        // right edge. 420 is the conversation's floor; the panel's is 260, and
-        // the >= 700 gate keeps them from fighting (sideSurface.infoWidth,
-        // which chatDropArea reads too).
         Layout.preferredWidth: root.infoOpen
                                ? (sideSurface.infoTakesPane ? root.width
                                                             : sideSurface.infoWidth)
                                : 0
         Layout.fillWidth: sideSurface.infoTakesPane
-        // Beside the chat when there is room, over it when there is not.
         visible: root.infoOpen
         onCloseRequested: {
             root.infoOpen = false
@@ -7548,8 +5642,6 @@ Rectangle {
             imageViewer.openAt(entries, index)
         onSaveMediaRequested: (mediaKey, filename) =>
             root.startDownload(mediaKey, filename, "", false)
-        // Pins often lie outside the loaded window; reuse
-        // PaginationController::jumpToEvent, the single navigation path.
         onJumpToEventRequested: (eventId) => {
             if (eventId !== "")
                 app.pagination.jumpToEvent(eventId)
@@ -7557,9 +5649,6 @@ Rectangle {
         onExportRoomRequested: root.openExportRoom()
     }
 
-    // Room message search side panel. Same geometry and divider/grab as the
-    // thread panel (sideSurface, sidePanelResizer): it used to be a fixed
-    // 360px with its own 700px threshold, ignoring "Side panel width".
     SearchPanel {
         id: searchPanel
         objectName: "roomSearchPanel"
@@ -7581,18 +5670,13 @@ Rectangle {
         }
     }
 
-    } // RowLayout
+    }
 
-    // Space Home: the management surface for a selected Space. Hierarchy data
-    // is SpaceManager state; "Add existing room" sends the real state event and
-    // the list updates when sync confirms.
     Component {
         id: spaceHomeComponent
         Rectangle {
             id: spaceHome
             objectName: "spaceHomePane"
-            // The pane ground, not the raised card tone; cards inside use
-            // surface/cardElevated.
             color: AppTheme.timelineBackground
 
             readonly property string spaceId:
@@ -7602,25 +5686,12 @@ Rectangle {
             // C++ call, and a binding through a function call does not track
             // what it reads.
             property var lobbySections: []
-            // Joined subspaces with a lobby section. The SDK's /hierarchy
-            // listing is one level deep, so each is asked separately.
             property var lobbySubspaceIds: []
-            // /hierarchy rows by space id: the only source of topics for
-            // unjoined rooms, and of member counts and suggested flags.
             property var hierarchyBySpace: ({})
-            // /hierarchy has not answered yet: show "Loading rooms…", not "No
-            // rooms yet".
             property bool homeLoading: false
             property var loadingIds: ({})
-            // Unjoined /hierarchy children across this Space and its subspaces.
-            // Used by onSpaceJoined to tell this lobby's joins from others.
             property var unjoinedChildren: []
             property string addNotice: ""
-            // The room whose "waiting for the server to confirm" notice is
-            // showing. The notice is a pending state: it clears when sync
-            // lists the room as a child (refresh(), on spacesChanged), or
-            // after addConfirmTimer as a backstop, instead of staying until
-            // the reader switches Space.
             property string pendingAddRoomId: ""
             function clearPendingAddNotice() {
                 if (pendingAddRoomId === "")
@@ -7640,15 +5711,7 @@ Rectangle {
                 target: app.spaces
                 function onSettingsDialogOpened() { spaceHome.settingsOpen = false }
             }
-            // A Space is a Matrix room, so it has a real member list (the same
-            // roster Room Information reads, already pointed at this Space).
-            // Follows the same remembered choice as the room member panel,
-            // so a Space opened while members are shown lists them too. Bound,
-            // never assigned: the button writes the setting.
             readonly property bool peopleOpen: app.settings.memberPanelOpen
-            // Joined members only: a banned, invited or departed member is
-            // not one of the people in this Space, and a chip says nothing
-            // about membership.
             readonly property var spacePeople:
                 app.roomInfo ? (app.roomInfo.joinedMembers || []) : []
 
@@ -7662,9 +5725,6 @@ Rectangle {
 
             Connections {
                 target: app.discovery
-                // Joining a sub-space from the offers below drills into it. The
-                // signal is global (the Discover dialog emits it too), so only
-                // drill for one of this Space's own offers.
                 function onSpaceJoined(joinedId) {
                     if (!app.spaces)
                         return
@@ -7685,8 +5745,6 @@ Rectangle {
                     clearPendingAddNotice()
                 lobbySubspaceIds = app.spaces
                                  ? app.spaces.lobbySubspaceIds(spaceId) : []
-                // A subspace that appeared since the Home opened has not been
-                // asked about.
                 if (app.discovery.supported) {
                     for (var i = 0; i < lobbySubspaceIds.length; ++i) {
                         if (app.discovery.spaceChildrenState(
@@ -7697,8 +5755,6 @@ Rectangle {
                 }
                 refreshUnjoined()
             }
-            // RoomDiscoveryController is single-flight per space, so these do
-            // not drop one another.
             function requestHierarchy() {
                 if (spaceId === "" || !app.discovery.supported)
                     return
@@ -7706,7 +5762,6 @@ Rectangle {
                 for (var i = 0; i < lobbySubspaceIds.length; ++i)
                     app.discovery.refreshSpaceChildren(lobbySubspaceIds[i])
             }
-            // After a join or knock, re-ask only the space(s) listing it.
             function requestHierarchyFor(roomId) {
                 if (spaceId === "" || !app.discovery.supported)
                     return
@@ -7748,13 +5803,6 @@ Rectangle {
                 unjoinedChildren = out
                 scheduleRebuild()
             }
-            // Coalesced to one lobbySections() call per event-loop turn. A
-            // child Timer, not Qt.callLater: a queued callLater outlives the
-            // pane, and a hierarchy answer landing just before the reader
-            // leaves the Home (opening a room, switching Space) ran
-            // rebuildLobby()/scheduleRebuild() in a destroyed context
-            // ("scheduleRebuild is not a function"). The Timer dies with
-            // spaceHome, so nothing is left queued.
             function scheduleRebuild() { lobbyRebuildTimer.restart() }
             Timer {
                 id: lobbyRebuildTimer
@@ -7802,9 +5850,6 @@ Rectangle {
                 spaceLobby.closeMenus()
                 refresh()
                 requestHierarchy()
-                // Point RoomInfoController at the space while its Home is
-                // shown: the Invite gate and settings card read it. A Space
-                // never becomes app.currentRoomId, so nothing contends.
                 if (spaceId !== "" && app.roomInfo)
                     app.roomInfo.roomId = spaceId
             }
@@ -7822,8 +5867,6 @@ Rectangle {
                                    changedSpaceId) >= 0)
                         unjoinedRefreshTimer.restart()
                 }
-                // Re-read the hierarchy so the offer disappears; the joined
-                // list updates via sync.
                 function onRoomJoined(roomId) {
                     spaceHome.requestHierarchyFor(roomId)
                 }
@@ -7864,8 +5907,6 @@ Rectangle {
                         addConfirmTimer.restart()
                     else
                         addConfirmTimer.stop()
-                    // Clears the notice at once when the child is already
-                    // listed (an existing child is a no-op success).
                     spaceHome.refresh()
                 }
                 function onChildRemoveFinished(spaceId, roomId, ok) {
@@ -7878,7 +5919,6 @@ Rectangle {
                         : qsTr("The room could not be removed — you may "
                                + "not have permission.")
                     spaceHome.refresh()
-                    // The cached /hierarchy still lists it: re-ask.
                     suggestRefreshCoalesce.restart()
                 }
                 function onChildSuggestedFinished(spaceId, roomId,
@@ -7891,9 +5931,6 @@ Rectangle {
                             qsTr("The suggested flag could not be changed "
                                  + "— you may not have permission.")
                     }
-                    // The suggested flag lives on /hierarchy rows, so refetch
-                    // (never applied optimistically). Coalesced:
-                    // refreshSpaceChildren is single-flight with no queue.
                     suggestRefreshCoalesce.restart()
                 }
             }
@@ -7908,26 +5945,15 @@ Rectangle {
                 clip: true
                 ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
 
-                // Space banner, under the event type Sable writes (see
-                // rust/src/banner.rs). Shown only when there is one or this
-                // account could add one.
                 Rectangle {
                     id: spaceBannerCard
                     objectName: "spaceHomeBanner"
-                    // Full-bleed, with the height taken from the image's own
-                    // aspect ratio so the whole picture shows without cropping;
-                    // bounded so an extreme image cannot take over or vanish.
-                    // Outside the centred 880px column, whose width would
-                    // change the shape.
                     readonly property real bannerAspect:
                         (spaceBannerImage.status === Image.Ready
                          && spaceBannerImage.implicitHeight > 0)
                         ? (spaceBannerImage.implicitWidth
                            / spaceBannerImage.implicitHeight)
                         : 0
-                    // Cropped by default: a fixed strip, as Sable renders it.
-                    // Expanded uses the picture's aspect ratio. App-wide and
-                    // remembered.
                     readonly property bool expanded:
                         app.settings.spaceBannerExpanded
                     x: 0
@@ -7936,7 +5962,6 @@ Rectangle {
                         ? Math.max(120, Math.min(420, width / bannerAspect))
                         : 190)
                     clip: true
-                    // Hidden when the user turned banners off.
                     visible: app.settings.spaceBannersVisible
                              && (bannerMxc.length > 0 || canEdit)
                     color: AppTheme.cardElevated
@@ -7950,16 +5975,11 @@ Rectangle {
                     readonly property bool canEdit: {
                         if (!app.banners || spaceHome.spaceId === "")
                             return false
-                        // Same revision dependency as bannerMxc: false until
-                        // the room answers, so the control is never offered on
-                        // a guess.
                         var _dep = app.banners.revision
                         return app.banners.canSetRoomBanner(
                             spaceHome.spaceId)
                     }
 
-                    // Asked once per Space per session; the write path re-asks
-                    // itself.
                     onVisibleChanged: if (visible) spaceBannerCard.ask()
                     Component.onCompleted: spaceBannerCard.ask()
                     function ask() {
@@ -7971,7 +5991,6 @@ Rectangle {
                         function onSpaceIdChanged() { spaceBannerCard.ask() }
                     }
 
-                    // Empty state: theme tones only.
                     Rectangle {
                         anchors.fill: parent
                         visible: !spaceBannerImage.visible
@@ -7986,19 +6005,12 @@ Rectangle {
                     Image {
                         id: spaceBannerImage
                         anchors.fill: parent
-                        // Expanded: the box already has the picture's shape, so
-                        // Fit shows all of it. Cropped: Crop fills the fixed
-                        // strip.
                         fillMode: spaceBannerCard.expanded
                                   ? Image.PreserveAspectFit
                                   : Image.PreserveAspectCrop
-                        // Bounded decode; scaling preserves the aspect ratio
-                        // read above.
                         sourceSize.width: 1600
                         asynchronous: true
                         visible: status === Image.Ready
-                        // Under a playing animation this first frame would
-                        // show through its transparent pixels.
                         opacity: spaceBannerMotion.shown ? 0 : 1
                         readonly property string mxc:
                             spaceBannerCard.bannerMxc
@@ -8022,8 +6034,6 @@ Rectangle {
                             }
                         }
                     }
-                    // An animated banner plays over the still one, from the
-                    // same bytes.
                     BannerMotion {
                         id: spaceBannerMotion
                         objectName: "spaceBannerMotion"
@@ -8032,8 +6042,6 @@ Rectangle {
                         stillReady: spaceBannerImage.status === Image.Ready
                         fillMode: spaceBannerImage.fillMode
                     }
-                    // A wash under the controls keeps their contrast on any
-                    // image.
                     Rectangle {
                         anchors.fill: parent
                         visible: spaceBannerImage.visible
@@ -8053,45 +6061,29 @@ Rectangle {
                         currentFolder: app.defaultFileDialogFolder()
                         fileMode: "open"
                         nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)") ]
-                        // The crop dialog decides what is uploaded and refuses
-                        // anything but the five raster formats before
-                        // rendering.
                         onAccepted: spaceBannerCrop.openFor(selectedFile)
                     }
                     ImageCropDialog {
                         id: spaceBannerCrop
                         role: "banner"
-                        // Pass the URL as-is; stripping "file://" here breaks
-                        // Windows paths.
                         onCropped: function (file) {
                             app.banners.setRoomBanner(
                                 spaceHome.spaceId, file.toString())
                         }
                     }
 
-                    // All banner controls in one cluster on a scrim, as icons
-                    // with tooltips: a control drawn on an arbitrary picture
-                    // needs its own background. Uses the media-chrome tokens
-                    // the GIF and size pills use.
                     Rectangle {
                         objectName: "spaceBannerControls"
                         anchors.right: parent.right
                         anchors.top: parent.top
                         anchors.margins: AppTheme.spacing8
                         radius: height / 2
-                        // Media-chrome token: this reads on top of an arbitrary
-                        // picture.
                         color: AppTheme.scrimSurface
                         border.width: 1
                         border.color: AppTheme.overlayScrim
                         readonly property int pad: AppTheme.spacing4
                         implicitWidth: bannerControlRow.implicitWidth + pad * 2
                         implicitHeight: bannerControlRow.implicitHeight + pad * 2
-                        // Visibility from the conditions, never from the
-                        // children's `visible`: visible is effective
-                        // visibility, so while the pill is hidden every child
-                        // reports false and a sum of them can never turn it
-                        // back on.
                         visible: spaceBannerCard.bannerMxc.length > 0
                                  || spaceBannerCard.canEdit
 
@@ -8161,9 +6153,6 @@ Rectangle {
                                 enabled: !app.banners.busy
                                 implicitWidth: 28; implicitHeight: 28
                                 radius: 14
-                                // Washed danger tone from the media chrome;
-                                // AppTheme.danger is tuned for theme surfaces,
-                                // not photographs.
                                 iconColorOverride: AppTheme.dangerInk
                                 iconName: "delete"
                                 iconSize: 17
@@ -8177,8 +6166,6 @@ Rectangle {
                         }
                     }
 
-                    // A refusal is reported in place; nothing was applied
-                    // optimistically.
                     Label {
                         anchors.left: parent.left
                         anchors.bottom: parent.bottom
@@ -8201,9 +6188,6 @@ Rectangle {
 
                 ColumnLayout {
                     id: spaceCol
-                    // Measured against the Flickable, not `parent`: a Flickable
-                    // reparents children to contentItem, which mis-centred the
-                    // column.
                     width: Math.min(880,
                                     spaceScroll.width - AppTheme.spacing24 * 2)
                     x: Math.round((spaceScroll.width - width) / 2)
@@ -8221,7 +6205,6 @@ Rectangle {
                             name: spaceHome.info.name || ""
                             mxc: spaceHome.info.avatarUrl || ""
                             colorKey: spaceHome.spaceId
-                            // Opening a Space is intent: probe any format.
                             prominent: true
                         }
                         ColumnLayout {
@@ -8238,10 +6221,6 @@ Rectangle {
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true
                             }
-                            // Whole, selectable, links clickable, as in room
-                            // info (TopicText escapes everything else). No
-                            // three-line elision: a TextEdit cannot elide, and
-                            // a cut-off topic could not be copied.
                             TopicText {
                                 objectName: "spaceHomeTopic"
                                 visible: (spaceHome.info.topic || "").length > 0
@@ -8253,10 +6232,6 @@ Rectangle {
                                 text: {
                                     var c = spaceHome.info.childCount || 0
                                     var u = spaceHome.info.unreadTotal || 0
-                                    // Rooms the user has joined, subspaces
-                                    // included: the Rooms list below also
-                                    // lists rooms not yet joined, so a bare
-                                    // "%n rooms" here disagreed with it.
                                     var line = qsTr("%n joined room(s)",
                                                     "joined rooms inside a Space", c)
                                     if (u > 0)
@@ -8271,20 +6246,9 @@ Rectangle {
                         }
                     }
 
-                    // A Flow, not a RowLayout: which buttons are present
-                    // depends on permissions, and a RowLayout does not wrap, so
-                    // a narrow pane cut buttons off. A Flow is already
-                    // left-aligned, so there is no fillWidth spacer.
                     Flow {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacingS
-                        // Create and Add both end in an m.space.child write,
-                        // so both need the power to send it. Offered to a
-                        // member without it, Add failed after the click and
-                        // Create made the room first and then failed to place
-                        // it, leaving a stray top-level room (break-it B006).
-                        // Element hides these for such a member too. The
-                        // per-child Remove/Suggest controls use the same gate.
                         AppButton {
                             objectName: "spaceCreateRoomButton"
                             kind: "primary"
@@ -8292,9 +6256,6 @@ Rectangle {
                             visible: app.conversations
                                      && app.conversations.supported
                                      && spaceHome.canManageChildren
-                            // Re-read at click time, so a power change
-                            // between render and click still cannot ask for
-                            // a placement the server will refuse.
                             onClicked: root.newConversationRequested(
                                            "room",
                                            { addToSpace:
@@ -8302,9 +6263,6 @@ Rectangle {
                         }
                         AppButton {
                             objectName: "spaceInviteButton"
-                            // Same invite path and server-side permission gate
-                            // as a room; shown only when the roster says we may
-                            // invite.
                             visible: app.roomInfo
                                      && app.roomInfo.roomId === spaceHome.spaceId
                                      && app.roomInfo.canInvite
@@ -8324,8 +6282,6 @@ Rectangle {
                         }
                         AppButton {
                             objectName: "spacePeopleButton"
-                            // Only when the roster is this Space's;
-                            // app.roomInfo may still point at a room.
                             visible: app.roomInfo
                                      && app.roomInfo.roomId === spaceHome.spaceId
                             text: spaceHome.peopleOpen
@@ -8335,11 +6291,6 @@ Rectangle {
                             onClicked: {
                                 const opening = !spaceHome.peopleOpen
                                 app.settings.memberPanelOpen = opening
-                                // The card is at the END of the column, so in
-                                // a large Space it opens below the fold; an
-                                // explicit click brings it into view. Only the
-                                // click: the remembered flag at load does not
-                                // scroll anything.
                                 if (opening)
                                     spacePeopleCard.reveal()
                                 else
@@ -8353,8 +6304,6 @@ Rectangle {
                             onClicked:
                                 spaceHome.settingsOpen = !spaceHome.settingsOpen
                         }
-                        // Bring back a banner hidden from its own corner, so
-                        // hiding is not one-way.
                         AppButton {
                             objectName: "spaceBannerShowButton"
                             visible: !app.settings.spaceBannersVisible
@@ -8376,8 +6325,6 @@ Rectangle {
                         wrapMode: Text.WordWrap
                     }
 
-                    // Space settings, through the same permission-gated
-                    // room-edit backend.
                     Rectangle {
                         visible: spaceHome.settingsOpen
                         Layout.fillWidth: true
@@ -8387,8 +6334,6 @@ Rectangle {
                         border.width: 1
                         implicitHeight: settingsCol.implicitHeight
                                         + AppTheme.spacing16 * 2
-                        // roomInfo is bound to the space for the Space Home's
-                        // lifetime (see Component.onCompleted below).
                         NativeFileDialog {
                             id: spaceAvatarDialog
                             purpose: "image"
@@ -8401,8 +6346,6 @@ Rectangle {
                         ImageCropDialog {
                             id: spaceAvatarCrop
                             role: "avatar"
-                            // m.room.avatar through the same backend as a
-                            // room's avatar.
                             onCropped: function (file) {
                                 app.roomInfo.setRoomAvatar(file)
                             }
@@ -8427,9 +6370,6 @@ Rectangle {
                                 AppButton {
                                     objectName: "spaceChangeAvatarButton"
                                     text: qsTr("Change avatar…")
-                                    // canEditAvatar is the room's real required
-                                    // level for m.room.avatar, from the member
-                                    // snapshot.
                                     enabled: app.roomInfo
                                              && app.roomInfo.canEditAvatar
                                              && !app.roomInfo.editPending
@@ -8462,10 +6402,6 @@ Rectangle {
                                 font.weight: AppTheme.menuSectionWeight
                                 font.letterSpacing: AppTheme.menuSectionTracking
                             }
-                            // Same draft/dirty/permission contract as
-                            // SpaceSettingsDialog (SpaceTextEditRow): an
-                            // unchanged value is not offered for re-sending,
-                            // and the target is re-checked at submission.
                             SpaceTextEditRow {
                                 id: spaceNameRow
                                 Layout.fillWidth: true
@@ -8555,11 +6491,6 @@ Rectangle {
                         }
                     }
 
-                    // The Space's own rooms, then a collapsible section per
-                    // subspace, each row with its topic. Presentation lives in
-                    // SpaceLobby.qml and sections are built by
-                    // SpaceManager::lobbySections(); this block feeds it and
-                    // routes its requests to app calls.
                     SpaceLobby {
                         id: spaceLobby
                         Layout.fillWidth: true
@@ -8575,12 +6506,10 @@ Rectangle {
                             spaceHome.childFilter = text
                             spaceHome.scheduleRebuild()
                         }
-                        // A tap on a lobby row: ready to type (GitHub #29).
                         onOpenRoomRequested: (roomId) => {
                             app.openRoom(roomId)
                             app.requestComposerFocus(roomId)
                         }
-                        // A joined sub-space drills into its own Home.
                         onOpenSpaceRequested: (roomId) =>
                             app.spaces.activeSpaceId = roomId
                         onJoinRequested: (roomId, via, isSpace) =>
@@ -8604,21 +6533,9 @@ Rectangle {
                         }
                     }
 
-                    // Space members, from the roster Room Information reads.
-                    // AFTER the lobby, at the end of the column: in a large
-                    // Space a roster laid out above the channels pushed them
-                    // off-screen (support chat 2026-10-20). The button that
-                    // toggles it stays in the header row.
                     Rectangle {
                         id: spacePeopleCard
                         objectName: "spacePeopleCard"
-                        // An explicit "People" click scrolls Space Home just
-                        // far enough to show the card's top (with up to half a
-                        // viewport of it), never past the end and never
-                        // upward. Pending until the column has laid the
-                        // newly visible card out (contentHeight follows the
-                        // layout's next polish), and only briefly, so a later
-                        // roster load cannot scroll the page on its own.
                         property bool revealPending: false
                         function reveal() {
                             revealPending = true
@@ -8628,9 +6545,6 @@ Rectangle {
                         function tryReveal() {
                             if (!revealPending || !visible || height <= 0)
                                 return
-                            // Not laid out yet: a card that has never been
-                            // shown still sits at y 0, above the lobby it
-                            // follows. onYChanged retries once it is placed.
                             if (y < spaceLobby.y + spaceLobby.height)
                                 return
                             const top = spaceCol.y + y
@@ -8648,8 +6562,6 @@ Rectangle {
                                                     - spaceScroll.height
                                                     + AppTheme.spacing24)
                             spaceScroll.contentY = Math.min(maxY, target)
-                            // Done unless the content was still too short
-                            // (contentHeight not yet grown by the card).
                             if (target <= maxY)
                                 revealPending = false
                         }
@@ -8703,7 +6615,6 @@ Rectangle {
                                 Layout.fillWidth: true
                                 spacing: AppTheme.spacing8
                                 Repeater {
-                                    // Bounded: the Flow is not virtualized.
                                     model: spaceHome.spacePeople.slice(0, 60)
                                     delegate: SpaceMemberChip {
                                         spaceId: spaceHome.spaceId
@@ -8724,8 +6635,6 @@ Rectangle {
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
                                 visible: spaceHome.spacePeople.length > 60
-                                // Disclose the cap rather than silently
-                                // truncating.
                                 text: qsTr("Showing the first 60 of %1.")
                                       .arg(spaceHome.spacePeople.length)
                                 color: AppTheme.textMuted
@@ -8736,19 +6645,14 @@ Rectangle {
                 }
             }
 
-            // Child-removal confirmation. Removes the hierarchy relation only,
-            // never the room.
             Popup {
                 id: removeChildConfirm
-                // Driven by the list's selection: one confirm for N rooms.
                 property var roomIds: []
                 parent: Overlay.overlay
                 anchors.centerIn: parent
                 modal: true
                 focus: true
                 padding: AppTheme.spacing16
-                // Storm surface plus the shared modal scrim, like other
-                // confirms.
                 Overlay.modal: Rectangle { color: AppTheme.modalScrim }
                 background: Rectangle {
                     color: AppTheme.stormPanel
@@ -8802,7 +6706,6 @@ Rectangle {
                 }
             }
 
-            // Leave confirmation. Leaving a Space never touches its rooms.
             Popup {
                 id: leaveSpaceConfirm
                 parent: Overlay.overlay
@@ -8834,9 +6737,6 @@ Rectangle {
                         font.family: AppTheme.menuFont
                         font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                     }
-                    // The one administrator leaving strands the Space, as in
-                    // a room's leave dialog. The roster is the Space's own
-                    // only while the shared room-info controller follows it.
                     Label {
                         objectName: "spaceLeaveLastAdminNote"
                         Layout.fillWidth: true
@@ -8883,8 +6783,6 @@ Rectangle {
                 }
             }
 
-            // Add-existing-room picker: joined non-Space rooms, filtered, with
-            // existing children marked and un-addable.
             Popup {
                 id: addRoomPopup
                 objectName: "spaceAddRoomPopup"
@@ -9017,16 +6915,11 @@ Rectangle {
         }
     }
 
-    // The voice/audio player: docked here as `voiceDock` (in roomColumn),
-    // popped out as Main.qml's window-level card, which survives Settings.
-    // Main.qml reads these two.
     readonly property bool voiceDockShown: app.voicePlayback.active
         && app.settings.voicePlayerDocked && roomColumn.visible
     function focusVoiceDock() {
         voiceDock.focusPlayer()
     }
-    // The popped-out card in this pane's coordinates, for the downloads card
-    // to stand clear of (it lives in Main.qml, at window level).
     Item {
         id: voiceCardProxy
         visible: false
@@ -9057,8 +6950,6 @@ Rectangle {
             target: app.voicePlayback
             function onCurrentChanged() { voiceCardProxy.refresh() }
         }
-        // The pane itself moving (a resized room list, the window) moves the
-        // mirrored rectangle too.
         Connections {
             target: root
             function onXChanged() { voiceCardProxy.refresh() }
@@ -9083,24 +6974,12 @@ Rectangle {
         }
         return null
     }
-    // Downloads no timeline row shows (app.downloads owns them, so they
-    // survive a room switch): the image viewer's and media history's saves, a
-    // non-primary gallery item, a collapsed or off-screen row, any failure
-    // or risky-file warning without a card on screen. Bottom-left of the same
-    // safe area, the corner opposite the mini-player's default, so never over
-    // the Spaces rail, the account and settings buttons, the header or the
-    // composer. A download a file card shows is not repeated here.
     PaneDownloadsCard {
         id: downloadsCard
         z: 299
         safeArea: root.chatSafeArea
-        // The popped-out player card (mirrored into this pane's
-        // coordinates); when it rests in this corner the downloads stand
-        // above it.
         avoid: voiceCardProxy
     }
-    // The chat column between the room header (and call bars) and the
-    // composer, in this item's coordinates.
     readonly property rect chatSafeArea: {
         if (!roomColumn.visible)
             return Qt.rect(0, AppTheme.headerBandHeight, root.width,
@@ -9112,21 +6991,15 @@ Rectangle {
             + (legacyCallVideoHost.visible ? legacyCallVideoHost.height : 0)
             + (callStageHost.visible ? callStageHost.height : 0)
             + (voiceDock.visible ? voiceDock.height : 0)
-        // The timeline's own bottom edge, so the bars between it and the
-        // composer (typing indicator, forward selection) stay clear.
         var bottom = roomColumn.y + timelineArea.y + timelineArea.height
-        // The notice strip overflows upward over the timeline's foot.
         if (saveResult.text.length > 0)
             bottom -= saveResult.implicitHeight + AppTheme.spacing8
-        // Clear the jump-to-latest button, which sits in the same corner.
         if (jumpToLatestButton.visible)
             bottom -= jumpToLatestButton.height + AppTheme.spacingM + 8
         return Qt.rect(roomColumn.x, top, roomColumn.width,
                        Math.max(0, bottom - top))
     }
 
-    // Files dragged anywhere over the chat queue as composer attachments.
-    // DropArea only consumes drag events.
     DropArea {
         id: chatDropArea
         objectName: "chatDropArea"
@@ -9170,7 +7043,6 @@ Rectangle {
         }
     }
     Rectangle {
-        // Mirrors the drop area's thread-excluding geometry.
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.bottom: parent.bottom

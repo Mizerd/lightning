@@ -3,30 +3,16 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The theme menu under the editor's top bar: the list of saved themes (the
-// current one marked), its name, and New / Duplicate / Share / Import / Delete.
-// It replaces the chips, name field and Manage drawer that used to take the
-// editor's left column.
-//
-// It holds no theme state. The editor passes what to show and answers the
-// signals; Delete asks before it acts, in the panel, and the editor owns the
-// answer.
-//
-// Painted in the invariant editor tokens (see `editorCanvas` in AppTheme.qml).
 ColumnLayout {
     id: root
 
-    // [{ id, name, baseTheme, overrideCount }], as CustomThemeStore.themes.
     property var themes: []
     property string activeId: ""
-    // The current theme's name, edited in place.
     property string themeName: ""
     property bool canDuplicate: true
-    // False once the collection is full.
     property bool canCreate: true
     property bool canDelete: true
     property bool confirmingDelete: false
-    // The field focus lands on when the menu opens.
     readonly property alias nameField: nameField
 
     signal themeRequested(string id)
@@ -42,7 +28,6 @@ ColumnLayout {
     objectName: "themeMenuPanel"
     spacing: AppTheme.spacing8
 
-    // Self-contained button, so this file depends on no other file's parts.
     component MenuButton: Rectangle {
         id: btn
         property string text: ""
@@ -105,12 +90,6 @@ ColumnLayout {
         elide: Label.ElideRight
     }
 
-    // One row per saved theme; the list scrolls past seven.
-    // The current theme's row, scrolled into view: with more than seven
-    // themes it was off-screen on open and the check mark could not be seen.
-    // Reveal only on open and on an active-id change, plus once more while the
-    // list is still being filled; a later themes change (Duplicate, an edit)
-    // must not yank a list the user has scrolled elsewhere.
     property bool revealPending: true
     function revealCurrent() {
         if (!root.revealPending)
@@ -120,9 +99,6 @@ ColumnLayout {
             if (root.themes[i].id === root.activeId) { at = i; break }
         }
         const item = at >= 0 ? themeRows.itemAt(at) : null
-        // A delegate that was just (re)built sits at y 0 until the layout
-        // pass runs; a row that is not the first one cannot really be there,
-        // so wait for the layout (listColumn.onHeightChanged) instead.
         if (!item || (at > 0 && item.y <= 0))
             return
         root.revealPending = false
@@ -210,7 +186,6 @@ ColumnLayout {
                         anchors.leftMargin: AppTheme.spacing8
                         anchors.rightMargin: AppTheme.spacing8
                         spacing: AppTheme.spacing8
-                        // The preset it sits on, in its own colours.
                         Row {
                             spacing: 1
                             Repeater {
@@ -264,7 +239,6 @@ ColumnLayout {
             }
         }
     }
-    // Middle-click autoscroll, as in the timeline and the room list.
     MiddleClickScroller {
         anchors.fill: parent
         objectName: "themeMenuMiddleClickScroller"
@@ -278,7 +252,6 @@ ColumnLayout {
         color: AppTheme.editorBorder
     }
 
-    // The theme's name, edited in place; a shared theme needs a name.
     Label {
         Layout.fillWidth: true
         text: qsTr("Name")
@@ -314,7 +287,6 @@ ColumnLayout {
             Accessible.role: Accessible.EditableText
             Accessible.name: qsTr("Theme name")
             text: root.themeName
-            // Tab or the menu opening lands on a name ready to be replaced.
             onActiveFocusChanged: if (nameField.activeFocus) nameField.selectAll()
             // Committed as typed: editingFinished is not reliably reached (a
             // click outside takes no focus, and closing the menu destroys
@@ -370,8 +342,6 @@ ColumnLayout {
         }
     }
 
-    // Delete, confirmed inline: a deleted theme cannot be undone, and its
-    // history goes with it.
     ColumnLayout {
         Layout.fillWidth: true
         visible: root.confirmingDelete

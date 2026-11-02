@@ -1,14 +1,3 @@
-// The Export room dialog, loaded for real (offscreen) against a stub `app`
-// carrying a real RoomExportController over a scripted client. Pins:
-//   * the dialog loads without QML warnings of its own;
-//   * HTML is a format and the default; Text and JSON remain;
-//   * the four ranges exist when history can be read, and only the loaded
-//     range when it cannot;
-//   * the attachment controls exist only for HTML, the count field only for
-//     "latest" and the date fields only for "dates";
-//   * bad counts, dates and size limits are refused before a file is picked;
-//   * the encrypted-room opt-in is off on every open;
-//   * picking a file hands startRoomExport exactly the chosen options.
 
 #include "matrix/MatrixClient.h"
 #include "models/RoomExportController.h"
@@ -32,7 +21,6 @@ public:
     bool walk = true;
     bool supportsRoomExportWalk() const override { return walk; }
 
-    // Pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -63,7 +51,6 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-// Stands in for app.roomList: only findRoom.
 class StubRoomList final : public QObject
 {
     Q_OBJECT
@@ -79,7 +66,6 @@ public:
     }
 };
 
-// Only what the dialog reads from `app`.
 class StubApp final : public QObject
 {
     Q_OBJECT
@@ -155,7 +141,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class ExportRoomDialogQmlTest : public QObject
 {
@@ -190,7 +176,6 @@ private:
         QTRY_VERIFY(m_dialog->property("visible").toBool());
     }
 
-    // A `var` property holding a JS array reads back as a QJSValue.
     static QVariant plain(const QVariant &value)
     {
         if (value.metaType() == QMetaType::fromType<QJSValue>())
@@ -284,7 +269,6 @@ private Q_SLOTS:
         QCOMPARE(m_dialog->property("rangeMode").toString(),
                  QStringLiteral("loaded"));
 
-        // Without a history walk only the loaded range is offered.
         m_client.walk = false;
         Q_EMIT m_client.loginSucceeded(QStringLiteral("@me:example.org"));
         QTRY_COMPARE(stringList(m_dialog, "rangeValues"),
@@ -335,24 +319,19 @@ private Q_SLOTS:
         QVERIFY(inputProblem().isEmpty());
 
         m_dialog->setProperty("rangeMode", QStringLiteral("dates"));
-        QVERIFY(!inputProblem().isEmpty()); // both empty
+        QVERIFY(!inputProblem().isEmpty());
         from->setProperty("text", QStringLiteral("2026-02-01"));
         to->setProperty("text", QStringLiteral("2026-01-01"));
-        QVERIFY(!inputProblem().isEmpty()); // reversed
+        QVERIFY(!inputProblem().isEmpty());
         to->setProperty("text", QStringLiteral("2026-03-01"));
         QVERIFY(inputProblem().isEmpty());
 
         size->setProperty("text", QStringLiteral("0"));
         QVERIFY(!inputProblem().isEmpty());
-        // Not an HTML export with attachments: the size limit is irrelevant.
         m_dialog->setProperty("format", QStringLiteral("text"));
         QVERIFY(inputProblem().isEmpty());
     }
 
-    // C36-F01: a calendar-impossible date is refused inline, and an input
-    // problem is withdrawn when the input is corrected. Fails on the old
-    // code: the pattern-only check accepted 2026-13-45 and nothing cleared
-    // the failure line.
     void impossibleDatesAreRefusedAndTheProblemClearsOnEdit()
     {
         openDialog();
@@ -363,7 +342,7 @@ private Q_SLOTS:
             from->setProperty("text", QString::fromLatin1(bad));
             QVERIFY2(!inputProblem().isEmpty(), bad);
         }
-        from->setProperty("text", QStringLiteral("2028-02-29")); // leap day
+        from->setProperty("text", QStringLiteral("2028-02-29"));
         QVERIFY(inputProblem().isEmpty());
 
         from->setProperty("text", QStringLiteral("2026-13-45"));
@@ -374,7 +353,6 @@ private Q_SLOTS:
         QVERIFY(m_dialog->property("failure").toString().isEmpty());
     }
 
-    // C36-F02: the dialog is capped to the window and its content scrolls.
     void aWindowShorterThanTheDialogCapsItAndScrolls()
     {
         openDialog();
@@ -392,9 +370,6 @@ private Q_SLOTS:
         window->resize(original);
     }
 
-    // C36 r2 M1: Tab onto a control below the fold scrolls it into view.
-    // Fails on code without ensureVisible: contentY stays 0 and the Confirm
-    // button sits below the viewport.
     void keyboardFocusScrollsTheFocusedControlIntoView()
     {
         openDialog();
@@ -422,10 +397,6 @@ private Q_SLOTS:
         window->resize(original);
     }
 
-    // B131/B135. A finished export used to close the dialog without a word,
-    // and the scope sentence called state events "messages". Fails on the
-    // old code: onFinished(ok) closed the dialog, and no success label or
-    // Show-in-folder button existed.
     void aSuccessfulExportStaysOpenAndSaysSo()
     {
         openDialog();
@@ -446,7 +417,6 @@ private Q_SLOTS:
         QVERIFY(visible("exportRoomShowInFolder"));
         QVERIFY(!visible("exportRoomFailure"));
 
-        // A failure replaces it, and a reopen starts clean.
         Q_EMIT m_exporter.finished(false, QStringLiteral("Could not write."));
         QTRY_VERIFY(!visible("exportRoomSuccess"));
         QVERIFY(visible("exportRoomFailure"));
@@ -475,9 +445,6 @@ private Q_SLOTS:
         m_rooms.encrypted = false;
     }
 
-    // The opt-in sentence is long; it must wrap inside the notice and not run
-    // past the dialog's edge. Fails on the old code: the box was as wide as
-    // its one-line label.
     void theEncryptedOptInLabelStaysInsideTheNotice()
     {
         m_rooms.encrypted = true;
@@ -513,7 +480,6 @@ private Q_SLOTS:
         QCOMPARE(m_app->lastSizeMb, 64);
         QVERIFY(!m_app->lastEncryptedText);
 
-        // Text never asks for attachments, whatever the checkbox says.
         m_dialog->setProperty("format", QStringLiteral("text"));
         QVERIFY(QMetaObject::invokeMethod(save, "accepted"));
         QCOMPARE(m_app->lastFormat, QStringLiteral("text"));

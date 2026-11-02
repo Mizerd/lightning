@@ -33,15 +33,12 @@ QVariantMap resultRow(const QString &roomId, const QString &eventId,
     return row;
 }
 
-// A local-search backend whose corpus size and page size the test controls:
-// it records every LIMIT the controller asks for and answers with as many
-// rows as an index of `available` matches would.
 class PagedLocalSearchClient final : public MockMatrixClient
 {
     Q_OBJECT
 public:
-    QList<int> limits;   // every LIMIT asked for, in order
-    int available = 0;   // how many matches the index holds
+    QList<int> limits;
+    int available = 0;
 
     quint64 localSearch(const QString &query, const QString &roomId,
                         int limit, int offset) override
@@ -69,9 +66,6 @@ private:
     quint64 m_fakeOp = 1000000;
 };
 
-// A local index that answers with exactly the rows it is given, which carry
-// what the real index carries: text, msgtype, sender, time. No hasLink, no
-// isSticker, no mentionUserIds.
 class FixedLocalSearchClient final : public MockMatrixClient
 {
     Q_OBJECT
@@ -92,7 +86,6 @@ private:
     quint64 m_fakeOp = 2000000;
 };
 
-// A server whose every page is a miss and which always has another page.
 class EndlessServerClient final : public MockMatrixClient
 {
     Q_OBJECT
@@ -118,20 +111,16 @@ public:
 private:
     quint64 m_fakeOp = 3000000;
 };
-} // namespace
+}
 
 class MessageSearchControllerTest : public QObject
 {
     Q_OBJECT
 
-    // The index-all offer remembers its answer in SettingsManager; keep that
-    // file out of the real configuration.
     QTemporaryDir m_configHome;
 
     static QString alice() { return QStringLiteral("@alice:mock.local"); }
 
-    // An account record, as a real sign-in writes before loginSucceeded. The
-    // token is a fixture, not a credential.
     static void recordAccount(SettingsManager &settings, const QString &userId)
     {
         settings.saveSession(QStringLiteral("https://mock.local"), userId,
@@ -244,8 +233,6 @@ private Q_SLOTS:
         model.setQuery(QStringLiteral("x"));
         QTRY_COMPARE(model.state(), QStringLiteral("results"));
         model.setRoomId(QStringLiteral("!general:mock.local"));
-        // A different scope answers a different question: everything the
-        // global scope produced is gone.
         QCOMPARE(model.state(), QStringLiteral("idle"));
         QCOMPARE(model.rowCount(), 0);
     }
@@ -366,10 +353,6 @@ private Q_SLOTS:
         QTRY_COMPARE(model.state(), QStringLiteral("idle"));
         QCOMPARE(model.rowCount(), 0);
     }
-    // ── Indexing under a live result list must refresh it ────────────────
-    //
-    // Both a background sweep and an explicit "Index this room" must refresh
-    // the visible results, the latter even when it wrote nothing.
     void indexingUnderALiveResultListRefreshesIt()
     {
         MockMatrixClient client;
@@ -382,14 +365,11 @@ private Q_SLOTS:
         model.setQuery(QStringLiteral("Welcome"));
         QTRY_VERIFY(model.rowCount() > 0);
 
-        // A SWEEP that grew the index re-runs the query.
         int before = 0;
         QSignalSpy searches(&client, &MatrixClient::localSearchFinished);
         Q_EMIT client.searchIndexSwept(1, 1, 5, 999, 1);
         QTRY_VERIFY_WITH_TIMEOUT(searches.count() > before, kSignalTimeoutMs);
 
-        // A sweep that grew NOTHING must not re-run — the guard has to be the
-        // index growing, or the timer turns into a five-minute query loop.
         before = searches.count();
         Q_EMIT client.searchIndexSwept(2, 1, 0, 999, 1);
         QTest::qWait(120);
@@ -402,11 +382,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(searches.count() > before, kSignalTimeoutMs);
     }
 
-    // ── The date bounds, isolated ────────────────────────────────────────
-    //
-    // Rows differ only by timestamp and only the bounds are set, so this fails
-    // if either clause goes or flips. The upper bound is exclusive, so "before
-    // 1 Jan" means all of 31 Dec; `atUpperBound` pins that.
     void dateBoundsAloneDecideWhichRowsSurvive()
     {
         MockMatrixClient client;
@@ -442,13 +417,10 @@ private Q_SLOTS:
         for (int i = 0; i < model.rowCount(); ++i)
             kept << model.rowAt(i).value(QStringLiteral("eventId")).toString();
         std::sort(kept.begin(), kept.end());
-        // Lower bound INCLUSIVE, upper bound EXCLUSIVE.
         QCOMPARE(kept, (QStringList{ QStringLiteral("$atLowerBound"),
                                      QStringLiteral("$inside") }));
     }
 
-    // The local index returns text only. Link and Sticker used to remove EVERY
-    // local row (hasLink / isSticker were never set), mentions likewise.
     void theLinkFilterWorksOnLocalRowsByTheirBody()
     {
         FixedLocalSearchClient client;
@@ -474,8 +446,6 @@ private Q_SLOTS:
                  QStringLiteral("$a"));
     }
 
-    // Stickers and mentions cannot be known for a local row: they are declared
-    // unsupported and IGNORED, never allowed to empty the list.
     void filtersTheLocalIndexCannotEvaluateAreDeclaredAndIgnored()
     {
         FixedLocalSearchClient client;
@@ -502,13 +472,11 @@ private Q_SLOTS:
         QTRY_COMPARE(model.state(), QStringLiteral("results"));
         QCOMPARE(model.rowCount(), 1);
 
-        // On the server both are real filters again.
         model.setSource(QStringLiteral("server"));
         QVERIFY(model.unsupportedFilters().isEmpty());
         QVERIFY(model.ignoredFilters().isEmpty());
     }
 
-    // 4 pages of misses with more history left: not "no results".
     void aFilteredServerSearchThatRanOutOfBudgetSaysSo()
     {
         EndlessServerClient client;
@@ -527,22 +495,16 @@ private Q_SLOTS:
         QVERIFY(model.scanLimited());
         QVERIFY(model.canLoadMore());
 
-        // Searching further scans another budget.
         model.loadMore();
         QTRY_COMPARE(client.pagesServed, 8);
         QVERIFY(model.scanLimited());
 
-        // Without client-side filters it is never scan-limited.
         model.setFilters(QVariantMap());
         model.setQuery(QStringLiteral("plain2"));
         QTRY_COMPARE(model.state(), QStringLiteral("results"));
         QVERIFY(!model.scanLimited());
     }
 
-    // A local page is full relative to what it asked for, not to kLocalPage.
-    // "Load more" re-runs local search with a bigger limit (rows + 50), so
-    // comparing against the constant made an exhausted index look like it
-    // had more, and the list kept auto-loading.
     void aLocalPageIsFullOnlyRelativeToWhatItAskedFor()
     {
         PagedLocalSearchClient client;
@@ -552,8 +514,6 @@ private Q_SLOTS:
         model.setClient(&client);
         QCOMPARE(model.source(), QStringLiteral("local"));
 
-        // The index holds EXACTLY one page: the first page comes back full,
-        // which is the only evidence there is and it does say "maybe more".
         client.available = 50;
         model.setQuery(QStringLiteral("needle"));
         QTRY_COMPARE(model.state(), QStringLiteral("results"));
@@ -561,7 +521,6 @@ private Q_SLOTS:
         QCOMPARE(client.limits, (QList<int>{ 50 }));
         QVERIFY(model.canLoadMore());
 
-        // "More" asks for 100 and gets 50 — the index has no more to give.
         model.loadMore();
         QCOMPARE(model.state(), QStringLiteral("loading_more"));
         QCOMPARE(client.limits, (QList<int>{ 50, 100 }));
@@ -571,8 +530,6 @@ private Q_SLOTS:
                  "a 50-row answer to a 100-row request is an exhausted "
                  "index, and offering More again is the paging spin");
 
-        // ...and a page that genuinely IS full still offers more, so the
-        // fix cannot have been "always stop after the second page".
         client.available = 500;
         model.setQuery(QStringLiteral("needle2"));
         QTRY_VERIFY(client.limits.size() == 3);
@@ -592,7 +549,7 @@ private Q_SLOTS:
     {
         PagedLocalSearchClient client;
         QVERIFY(login(client));
-        client.available = 60;          // more than one page, fewer than two
+        client.available = 60;
         MessageSearchController model;
         model.setDebounceMs(0);
         model.setClient(&client);
@@ -603,22 +560,13 @@ private Q_SLOTS:
         model.setQuery(QStringLiteral("needle"));
         QTRY_COMPARE(model.state(), QStringLiteral("no_results"));
         QCOMPARE(model.rowCount(), 0);
-        // 50 raw rows came back against a limit of 50: full, so there may be
-        // more even though the reader sees nothing.
         QVERIFY(model.canLoadMore());
 
         model.loadMore();
         QTRY_VERIFY(!model.canLoadMore());
-        // The second request asked for 100 — 50 RAW rows plus a page — and
-        // the index answered 60, which is short and therefore exhaustion.
         QCOMPARE(client.limits, (QList<int>{ 50, 100 }));
     }
 
-    // ── The two producers must spell the sender the same way ─────────────
-    //
-    // Server and local results both reach the model through
-    // senderDisplayName. Asserts the value, since an empty string is the
-    // failure.
     void aLocalResultCarriesItsSenderThroughToTheModel()
     {
         MockMatrixClient client;
@@ -644,9 +592,6 @@ private Q_SLOTS:
                  "a local row lost its sender display name — the producers "
                  "and MessageSearchController disagree on the key");
     }
-    // A hit whose row carries no avatar (every local-index row, and a server
-    // hit whose profile_info omitted the sender) must show the sender's global
-    // profile, and must repaint when it arrives. Old code never asked.
     void aRowWithNoAvatarGetsTheSendersGlobalProfile()
     {
         MockMatrixClient client;
@@ -670,7 +615,6 @@ private Q_SLOTS:
         QTRY_COMPARE(model.state(), QStringLiteral("results"));
         const QModelIndex idx = model.index(0);
         QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
-        // First read asks; nothing is known yet.
         QVERIFY(model.data(idx, MessageSearchController::SenderAvatarUrlRole)
                     .toString().isEmpty());
         QTRY_VERIFY(changed.count() > 0);
@@ -679,16 +623,6 @@ private Q_SLOTS:
                  QStringLiteral("mxc://mock.local/bob"));
     }
 
-    // ── "Index all rooms" ────────────────────────────────────────────────
-    //
-    // Old code: the controller had no index-all state and MatrixClient no
-    // API to drive a pass, so none of these compiled. Each also pins what a
-    // naive port would get wrong, named in its comment.
-
-    // The controller mirrors the backend's pass and derives what the UI shows:
-    // the room by NAME, an estimate from the pass's own pace, and which states
-    // are under way. Storing `state` alone fails the name, the estimate and
-    // the resumable checks; treating "held" as stopped fails the second block.
     void indexAllStateFollowsTheBackendsProgress()
     {
         MockMatrixClient client;
@@ -700,7 +634,7 @@ private Q_SLOTS:
         QCOMPARE(client.indexAllStarts, QList<bool>{ false });
         QTRY_COMPARE(model.indexAllState(), QStringLiteral("running"));
         QVERIFY(model.indexAllActive());
-        QCOMPARE(model.indexAllEtaMs(), qint64(-1));   // no room finished yet
+        QCOMPARE(model.indexAllEtaMs(), qint64(-1));
 
         QVariantMap status = progress(QStringLiteral("running"), 2, 4);
         status.insert(QStringLiteral("currentRoomId"),
@@ -717,10 +651,8 @@ private Q_SLOTS:
                      && model.indexAllRoomName()
                             != QStringLiteral("!general:mock.local"),
                  "the room in progress was not shown by its name");
-        // 30 s per finished room, two rooms left.
         QCOMPARE(model.indexAllEtaMs(), qint64(60000));
 
-        // Waiting for a call or on the server is still a pass under way.
         for (const char *state : { "held", "backoff" }) {
             Q_EMIT client.searchIndexAllProgress(
                 1, progress(QString::fromLatin1(state), 2, 4));
@@ -742,9 +674,6 @@ private Q_SLOTS:
         QVERIFY(!model.indexAllActive());
     }
 
-    // A pass that settles re-runs a local query on screen; one still running
-    // does not, or every page would repaint the list being read. Re-running on
-    // every progress event fails the first half.
     void aSettledIndexAllPassRefreshesALiveResultList()
     {
         MockMatrixClient client;
@@ -766,10 +695,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(searches.count() > 0, kSignalTimeoutMs);
     }
 
-    // A pass that settles must ask the backend for the stored totals: the
-    // progress status carries "messages" only on some events, so without the
-    // request the panel keeps saying "Nothing is indexed yet." Removing the
-    // refreshIndexStats() call at the settle fails this.
     void aSettledIndexAllPassRequestsFreshIndexStats()
     {
         MockMatrixClient client;
@@ -780,15 +705,12 @@ private Q_SLOTS:
         QSignalSpy stats(&client, &MatrixClient::searchIndexStatsReceived);
         Q_EMIT client.searchIndexAllProgress(1, progress(QStringLiteral("running"), 1, 3));
         QTest::qWait(60);
-        QCOMPARE(stats.count(), 0);   // mid-pass: no extra traffic
+        QCOMPARE(stats.count(), 0);
 
         Q_EMIT client.searchIndexAllProgress(1, progress(QStringLiteral("done"), 0, 0));
         QTRY_VERIFY_WITH_TIMEOUT(stats.count() > 0, kSignalTimeoutMs);
     }
 
-    // A call and a scroll hold the pass independently; releasing one must not
-    // release the other. A setter that forwards only the latest reason fails
-    // the first comparison.
     void indexAllHoldsReachTheBackendAsOneBitSet()
     {
         MockMatrixClient client;
@@ -802,14 +724,11 @@ private Q_SLOTS:
         model.setIndexAllHold(MatrixClient::IndexAllHoldCall, false);
         QCOMPARE(client.indexAllHold, unsigned(MatrixClient::IndexAllHoldScroll));
 
-        // A hold in force carries over to a new backend.
         MockMatrixClient next;
         model.setClient(&next);
         QCOMPARE(next.indexAllHold, unsigned(MatrixClient::IndexAllHoldScroll));
     }
 
-    // On sync the app asks only to CONTINUE: a pass must never start by
-    // itself. Calling indexAllRooms() there (resumeOnly false) fails both.
     void aResumeOnSyncNeverStartsAFreshPass()
     {
         MockMatrixClient client;
@@ -823,16 +742,11 @@ private Q_SLOTS:
         QVERIFY(answers.wait(kSignalTimeoutMs));
         QCOMPARE(model.indexAllState(), QStringLiteral("idle"));
 
-        client.mockIndexAllPending = true;   // interrupted last session
+        client.mockIndexAllPending = true;
         model.resumeIndexAllIfPending();
         QTRY_COMPARE(model.indexAllState(), QStringLiteral("running"));
     }
 
-    // ── The one-time offer after a sign-in ───────────────────────────────
-    //
-    // Shown once after a sign-in made here, and the answer is remembered —
-    // on disk, per account. An offer that ignored the stored answer, or kept
-    // it in memory only, fails the re-read.
     void theIndexAllOfferIsMadeOnceAfterASignInMadeHere()
     {
         SettingsManager settings;
@@ -845,7 +759,7 @@ private Q_SLOTS:
         QSignalSpy offerChanged(&model,
                                 &MessageSearchController::indexAllOfferChanged);
 
-        model.offerIndexAllAfterSignIn(alice(), /*interactiveSignIn=*/true);
+        model.offerIndexAllAfterSignIn(alice(),true);
         QVERIFY(model.indexAllOffered());
         QCOMPARE(offerChanged.count(), 1);
 
@@ -854,8 +768,6 @@ private Q_SLOTS:
         QVERIFY2(client.indexAllStarts.isEmpty(), "No started a pass");
         QCOMPARE(settings.indexAllOfferAnswer(alice()), QStringLiteral("no"));
 
-        // The same account signing in here again is not asked again, even by
-        // a fresh settings object reading the file.
         SettingsManager reread;
         model.setSettings(&reread);
         model.offerIndexAllAfterSignIn(alice(), true);
@@ -863,10 +775,6 @@ private Q_SLOTS:
         model.setSettings(nullptr);
     }
 
-    // Never for a restored session, and a restore (an account switch)
-    // withdraws an offer armed for the account before it. An account with no
-    // record cannot remember an answer, so it is not asked either. Offering
-    // on every loginSucceeded fails the first check.
     void aRestoredSessionIsNeverOfferedIndexAll()
     {
         SettingsManager settings;
@@ -877,7 +785,7 @@ private Q_SLOTS:
         model.setClient(&client);
         model.setSettings(&settings);
 
-        model.offerIndexAllAfterSignIn(alice(), /*interactiveSignIn=*/false);
+        model.offerIndexAllAfterSignIn(alice(),false);
         QVERIFY2(!model.indexAllOffered(), "a restored session was offered");
         QVERIFY2(settings.indexAllOfferAnswer(alice()).isEmpty(),
                  "a restore consumed the one offer");
@@ -895,7 +803,6 @@ private Q_SLOTS:
         QVERIFY2(!model.indexAllOffered(),
                  "an account with no record was offered");
 
-        // Sign-out withdraws it too.
         model.offerIndexAllAfterSignIn(alice(), true);
         QVERIFY(model.indexAllOffered());
         client.logout();
@@ -903,7 +810,6 @@ private Q_SLOTS:
         model.setSettings(nullptr);
     }
 
-    // Yes starts the pass (a fresh one, not a resume) and is remembered.
     void yesToTheIndexAllOfferStartsThePass()
     {
         SettingsManager settings;
@@ -924,7 +830,6 @@ private Q_SLOTS:
         model.setSettings(nullptr);
     }
 
-    // A result found by its file name says so: the name rides to the view.
     void aLocalResultCarriesItsAttachmentFileName()
     {
         FixedLocalSearchClient client;

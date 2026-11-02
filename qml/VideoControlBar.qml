@@ -4,31 +4,9 @@ import QtQuick.Layouts
 import QtMultimedia
 import MatrixClient
 
-// Shared video control bar for the inline card and the expanded overlay, over
-// the video on a bottom scrim, so its inks are scrim-constant.
-//
-// Speed has ONE source of truth: every bar shows the PLAYER's rate. The card
-// and the overlay used to keep an index each, so the expanded bar read "1×"
-// over a video playing at 1.5×. A choice is also stored as the session's
-// video speed (app.playback.videoPlaybackRate), so the next player starts at
-// it.
-//
-// Width ladder, so the seek track keeps a scrubbable width (at least 120 px,
-// tests/qml/tst_VideoPlayer.qml) on a 260 px portrait card, where it used to
-// be ~45 px:
-//   full     (>= 400, and always in the expanded view): time inline, speed,
-//            close
-//   compact  (< 400): the time moves to its own line above the track, and
-//            close leaves the bar (`closeInBar`): the card draws it in its
-//            top-right corner
-//   tight    (< 280): speed yields too; expanding reaches it
 FocusScope {
     id: bar
 
-    // An icon button for a scrim: hover is a pale wash of the scrim itself.
-    // IconButton's themed hover fill is a LIGHT plate on a light theme, and
-    // the white scrim glyph on it was ~1.3:1. The focus ring is white on the
-    // dark scrim: the theme's accent ring measured 1.76:1 against it.
     component ScrimIconButton: IconButton {
         id: sib
         background: Rectangle {
@@ -51,21 +29,14 @@ FocusScope {
     // The AudioOutput is not reachable through MediaPlayer from QML; passed
     // explicitly.
     required property var audio
-    // Re-acquire the one-audible-owner slot on play.
     property string ownerKey: ""
     property bool showExpand: true
     property bool showClose: true
-    // The expanded view: larger type and buttons for a stage that can be
-    // 1400 px wide, and never compact.
     property bool large: false
-    // The length the event declares (info.duration), shown until the player
-    // reports its own. 0 when the sender declared none.
     property real declaredDurationMs: 0
-    // The player's length once known, else the declared one, else 0.
     readonly property real knownDurationMs:
         player && player.duration > 0 ? player.duration
                                       : Math.max(0, declaredDurationMs || 0)
-    // "open_in_full" on the card, "close_fullscreen" in the overlay.
     property string expandIcon: "open_in_full"
     signal expandRequested()
     signal closeRequested()
@@ -84,27 +55,16 @@ FocusScope {
         !!player && player.playbackState === MediaPlayer.PlayingState
     readonly property bool compact: !large && width < 400
     readonly property bool tight: !large && width < 280
-    // False in a compact bar: the host shows its own close (the card's
-    // top-right corner) so the track keeps its width.
     readonly property bool closeInBar: showClose && !compact
-    // A menu or popup of this bar is open. The host keeps the bar shown while
-    // it is: the speed menu takes the pointer's hover, and a bar that faded
-    // left the menu floating with no visible owner.
     readonly property bool menuOpen:
         speedMenu.visible || volumeControl.wantVolumeOpen || trackMenu.visible
 
-    // Embedded tracks (M-F08). The menu exists only when there is a choice:
-    // more than one audio track, or any subtitle track. Qt reports what the
-    // backend found in the container; nothing is searched for or downloaded,
-    // and the attachment's Matrix caption is unrelated to these.
     readonly property var audioTracks:
         player && player.audioTracks ? player.audioTracks : []
     readonly property var subtitleTracks:
         player && player.subtitleTracks ? player.subtitleTracks : []
     readonly property bool hasTrackChoice:
         audioTracks.length > 1 || subtitleTracks.length > 0
-    // A track's name: its language and title when the container says,
-    // otherwise its position. Plain text; the container is foreign data.
     function trackLabel(meta, index) {
         var parts = []
         if (meta) {
@@ -119,7 +79,6 @@ FocusScope {
                                 : qsTr("Track %1").arg(index + 1)
     }
 
-    // The rate the player is really running at.
     readonly property real rate:
         player && player.playbackRate > 0 ? player.playbackRate : 1.0
     readonly property string rateLabel: "" + Math.round(rate * 100) / 100
@@ -129,7 +88,6 @@ FocusScope {
     readonly property real positionMs: player ? (player.position || 0) : 0
     readonly property string timeText:
         formatPosition(positionMs) + " / " + formatTotal(knownDurationMs)
-    // What a screen reader says for the position: "1:04 of 3:00".
     readonly property string timeSpoken:
         knownDurationMs > 0
         ? qsTr("%1 of %2").arg(formatPosition(positionMs))
@@ -158,7 +116,6 @@ FocusScope {
         if (!ms || ms < 0) ms = 0
         return bar.clockText(Math.round(ms / 1000))
     }
-    // An unknown length reads "–:–": "0:00" would claim the clip is empty.
     function formatTotal(ms) {
         return ms > 0 ? bar.formatDuration(ms) : "–:–"
     }
@@ -173,14 +130,11 @@ FocusScope {
         } else {
             if (ownerKey.length > 0)
                 app.playback.acquire(ownerKey)
-            // Play after the end starts over rather than at the last frame.
             if (player.mediaStatus === MediaPlayer.EndOfMedia)
                 player.position = 0
             bar.gatedPlay(player)
         }
     }
-    // Keyboard focus into the bar: the play button once there is something
-    // to play, else the bar itself, whose key map works either way.
     function focusPlayButton() {
         if (playButton.enabled)
             playButton.forceActiveFocus(Qt.TabFocusReason)
@@ -198,10 +152,6 @@ FocusScope {
             target = Math.min(player.duration, target)
         player.position = target
     }
-    // Keyboard volume: the same path as the slider, so the level is
-    // remembered. Up is an explicit unmute (an initially muted card counts as
-    // unmuted by the user); Down on a muted card lowers the level and keeps
-    // the mute: only Up or M unmutes.
     function stepVolume(delta) {
         if (!audio)
             return
@@ -217,7 +167,6 @@ FocusScope {
         audio.muted = v <= 0
         volumeControl.rememberVolume(v)
     }
-    // Speed through the player, and remembered for the session.
     function applyRate(r) {
         if (player)
             player.playbackRate = r
@@ -225,10 +174,6 @@ FocusScope {
                 && app.playback.videoPlaybackRate !== undefined)
             app.playback.videoPlaybackRate = r
     }
-    // One key map for the inline card and the expanded view: Space/K play,
-    // Left/Right ±5 s, Home to the start, Up/Down volume, M mute, F expand
-    // (or leave the expanded view). Returns whether it took the key. Keys
-    // with Ctrl, Alt or Meta stay with the app's shortcuts.
     function handleKey(event) {
         if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier
                                | Qt.MetaModifier))
@@ -240,8 +185,6 @@ FocusScope {
             return true
         case Qt.Key_Return:
         case Qt.Key_Enter: {
-            // Basic's buttons take Space only. Return clicks the focused
-            // button, as it does on the cover.
             var f = bar.Window.activeFocusItem
             if (f && f !== bar && typeof f.animateClick === "function"
                     && f.enabled) {
@@ -277,21 +220,13 @@ FocusScope {
         }
         return false
     }
-    // Reaches here from any control in the bar that does not use the key
-    // itself (buttons take Space and Return as a click).
     Keys.onPressed: (event) => {
         if (bar.handleKey(event))
             event.accepted = true
     }
 
-    // The scrim starts above the bar and is darkest under the inks, so time,
-    // speed and glyphs stay readable over a bright frame. The old 40 px ramp
-    // from transparent left the label row at roughly 40% over cyan, yellow or
-    // magenta video.
     Rectangle {
         objectName: "videoBarScrim"
-        // The expanded view sits on an opaque backdrop below the picture:
-        // nothing to darken there.
         visible: !bar.large
         anchors.left: parent.left
         anchors.right: parent.right
@@ -299,8 +234,6 @@ FocusScope {
         height: bar.height + 32
         gradient: Gradient {
             GradientStop { position: 0.0; color: "transparent" }
-            // Dark on every theme: the bar sits over arbitrary video.
-            // scrimSurface is the shared chrome-over-media value.
             GradientStop {
                 position: 0.4
                 color: Qt.alpha(AppTheme.scrimSurface, 0.45)
@@ -309,14 +242,11 @@ FocusScope {
         }
     }
 
-    // Compact: the time on its own line, above the track.
     Label {
         id: compactTime
         objectName: bar.compact ? "videoTimeLabel" : ""
         visible: bar.compact
         anchors.left: parent.left
-        // Aligned with the start of the seek track: the row's margin, the
-        // play button, the row spacing and the slider's own padding.
         anchors.leftMargin: AppTheme.spacing6 + bar.buttonSize + row.spacing
                             + seekSlider.leftPadding
         anchors.bottom: row.top
@@ -359,8 +289,6 @@ FocusScope {
         Slider {
             id: seekSlider
             objectName: "videoSeekSlider"
-            // Time runs left to right in every locale (as in every player),
-            // so Left = -5 s stays true under a right-to-left layout.
             LayoutMirroring.enabled: false
             Layout.fillWidth: true
             Layout.minimumWidth: 40
@@ -376,12 +304,6 @@ FocusScope {
             Accessible.name: qsTr("Seek position")
             Accessible.description: bar.timeSpoken
             onMoved: if (bar.player) bar.player.position = value
-            // Where a click would land, shown while hovering the track, and
-            // the destination while dragging. A time only: no frame is
-            // decoded for it.
-            // Explicit: a Control's default follows the platform's hover
-            // hint, which is off on some (offscreen, touch-first) and then
-            // takes the handler's hover with it.
             hoverEnabled: true
             HoverHandler { id: seekHover }
             readonly property real hoverMs: {
@@ -400,8 +322,6 @@ FocusScope {
                 visible: seekSlider.enabled && seekSlider.hoverMs >= 0
                          && !!bar.player && bar.player.duration > 0
                 text: bar.formatPosition(seekSlider.hoverMs)
-                // A clock we compute, drawn plain like every explicit
-                // ToolTip whose text is not a literal (ToolTipPlainTextQmlTest).
                 contentItem: Text {
                     text: seekTimeTip.text
                     textFormat: Text.PlainText
@@ -421,8 +341,6 @@ FocusScope {
                 value: Math.min(bar.positionMs, seekSlider.to)
                 restoreMode: Binding.RestoreNone
             }
-            // Five-second steps, as in the expanded view; the stock step is
-            // a tenth of the clip.
             Keys.onLeftPressed: (event) => {
                 bar.seekBy(-5000)
                 event.accepted = true
@@ -431,8 +349,6 @@ FocusScope {
                 bar.seekBy(5000)
                 event.accepted = true
             }
-            // Scrim-styled track and handle; the Basic track vanishes over
-            // video.
             background: Rectangle {
                 x: seekSlider.leftPadding
                 y: seekSlider.topPadding + seekSlider.availableHeight / 2 - 2
@@ -479,13 +395,9 @@ FocusScope {
             audio: bar.audio
             scrim: true
             sliderObjectName: "videoVolumeSlider"
-            // The bar's own Up/Down (Up unmutes, Down keeps a mute).
             arrowKeysStepLevel: false
             iconSize: bar.large ? 22 : 18
             implicitWidth: bar.buttonSize; implicitHeight: bar.buttonSize
-            // Tab lands here and opens the level popup; Up/Down (handled by
-            // the bar) move the level, so the slider is keyboard-reachable
-            // without entering the popup.
             Accessible.description: bar.audio
                 ? qsTr("Volume %1%").arg(Math.round(
                       (bar.audio.muted ? 0 : bar.audio.volume) * 100))
@@ -495,7 +407,6 @@ FocusScope {
             id: speedButton
             objectName: "videoSpeedButton"
             visible: !bar.tight
-            // Wide enough for its label at any text scale ("1.75×" at 150%).
             implicitWidth: Math.max(bar.large ? 44 : 38,
                                     rateText.implicitWidth + 10)
             implicitHeight: bar.buttonSize
@@ -520,9 +431,6 @@ FocusScope {
                     objectName: "videoSpeedLabel"
                     anchors.centerIn: parent
                     text: bar.rateLabel + "×"
-                    // Scrim ink at every rate: accent text on video was
-                    // unreadable on saturated frames. A changed rate is
-                    // marked by the accent rule underneath.
                     color: AppTheme.scrimInkStrong
                     font.pixelSize: bar.timePixelSize
                     font.weight: AppTheme.weightBold
@@ -583,15 +491,6 @@ FocusScope {
         }
     }
 
-    // Opens UPWARD from the speed button, over the video, at its laid-out
-    // height. It used to be placed with popup(button, 0, -height - 4), and
-    // `height` was read before the menu had ever been laid out, so the offset
-    // was a few pixels and the menu dropped over the button and the composer
-    // below the card. A binding follows the real height instead, floored by
-    // the height the rows will take, so even the first frame is placed right.
-    // Audio tracks (when more than one) and subtitles with Off, opening
-    // upward like the speed menu. Selecting keeps position and play state:
-    // the player switches the stream in place.
     AppMenu {
         id: trackMenu
         objectName: "videoTracksMenu"
@@ -604,9 +503,6 @@ FocusScope {
         x: trackButton.mirrored ? 0 : Math.round(trackButton.width - width)
         y: -Math.max(height, rows * AppTheme.menuItemHeight + topPadding
                                 + bottomPadding) - 4
-        // ONE Repeater, in menu order. Repeater delegates are appended after
-        // every statically declared item, so separate headings above separate
-        // Repeaters rendered both headings first and every track after them.
         Repeater {
             model: {
                 var rows = []
@@ -667,15 +563,10 @@ FocusScope {
         objectName: "videoSpeedMenu"
         parent: speedButton
         menuWidth: 120
-        // A press on the speed button is not "outside": it would close the
-        // menu on press and the click would open it again. The button's own
-        // click toggles it instead.
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
         readonly property real expectedHeight:
             bar.rates.length * AppTheme.menuItemHeight + topPadding
             + bottomPadding
-        // Over the video: leftwards from the button, rightwards when the row
-        // is mirrored and the button sits at the left end.
         x: speedButton.mirrored ? 0 : Math.round(speedButton.width - width)
         y: -Math.max(height, expectedHeight) - 4
         Repeater {

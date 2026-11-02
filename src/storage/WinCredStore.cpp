@@ -18,16 +18,12 @@ Q_LOGGING_CATEGORY(lcWinCred, "matrix.secret.wincred")
 
 namespace {
 
-// Deterministic target name: "Lightning/secret/<userId>/<key>". The Matrix
-// user id is a public identifier; the secret itself lives only in the
-// encrypted CredentialBlob. Never place a token in the target name.
 std::wstring targetName(const QString &userId, const QString &key)
 {
     return QStringLiteral("Lightning/secret/%1/%2")
         .arg(userId, key).toStdWString();
 }
 
-// Trailing-'*' prefix filter matching every key stored under one account.
 std::wstring accountPrefixFilter(const QString &userId)
 {
     return QStringLiteral("Lightning/secret/%1/*").arg(userId).toStdWString();
@@ -38,11 +34,10 @@ QString winErr(DWORD code)
     return QStringLiteral("Win32 error %1").arg(static_cast<qulonglong>(code));
 }
 
-} // namespace
+}
 
 WinCredStore::WinCredStore(QObject *parent) : SecretStore(parent)
 {
-    // Credential Manager is always present for an interactive Windows user.
     m_available = true;
     qCInfo(lcWinCred) << "Windows secure credential store active";
 }
@@ -62,7 +57,7 @@ bool WinCredStore::storeSecret(const QString &userId,
 {
     m_lastError.clear();
     std::wstring target = targetName(userId, key);
-    const QByteArray blob = value.toUtf8();   // token bytes — never logged
+    const QByteArray blob = value.toUtf8();
 
     CREDENTIALW cred;
     ZeroMemory(&cred, sizeof(cred));
@@ -117,7 +112,7 @@ bool WinCredStore::deleteSecret(const QString &userId, const QString &key)
     if (!CredDeleteW(target.c_str(), CRED_TYPE_GENERIC, 0)) {
         const DWORD e = GetLastError();
         if (e == ERROR_NOT_FOUND)
-            return true;   // nothing to remove == success (matches libsecret)
+            return true;
         setError(winErr(e));
         return false;
     }
@@ -133,7 +128,7 @@ bool WinCredStore::clearAccountSecrets(const QString &userId)
     if (!CredEnumerateW(filter.c_str(), 0, &count, &creds)) {
         const DWORD e = GetLastError();
         if (e == ERROR_NOT_FOUND)
-            return true;   // no secrets for this account
+            return true;
         setError(winErr(e));
         return false;
     }
@@ -153,7 +148,7 @@ bool WinCredStore::clearAccountSecrets(const QString &userId)
     return ok;
 }
 
-#else // HAVE_WINCRED
+#else
 
 WinCredStore::WinCredStore(QObject *parent) : SecretStore(parent) {}
 WinCredStore::~WinCredStore() = default;
@@ -168,4 +163,4 @@ QString WinCredStore::readSecret(const QString &, const QString &) const { retur
 bool WinCredStore::deleteSecret(const QString &, const QString &) { return false; }
 bool WinCredStore::clearAccountSecrets(const QString &) { return false; }
 
-#endif // HAVE_WINCRED
+#endif

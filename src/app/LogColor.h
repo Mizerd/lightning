@@ -14,11 +14,6 @@
 
 namespace lightning {
 
-// Colours for a person reading the log in a terminal. stderr only: the log
-// files format their own lines and never see these escapes.
-
-// The de facto rules: NO_COLOR (https://no-color.org) and TERM=dumb opt out,
-// and a QT_MESSAGE_PATTERN is the user's own format.
 inline bool logColorWanted(bool stderrIsTerminal, const QByteArray &noColor,
                            const QByteArray &term, const QByteArray &pattern)
 {
@@ -43,7 +38,6 @@ inline bool stderrTakesLogColor()
 #ifdef Q_OS_WIN
     if (!_isatty(_fileno(stderr)))
         return false;
-    // Without this a Windows console prints the escapes as text.
     HANDLE handle = GetStdHandle(STD_ERROR_HANDLE);
     DWORD mode = 0;
     return GetConsoleMode(handle, &mode)
@@ -53,4 +47,4 @@ inline bool stderrTakesLogColor()
 #endif
 }
 
-} // namespace lightning
+}

@@ -1,13 +1,6 @@
-// Lightning secure update system: install-type identity.
-//
-// The install type decides whether Lightning may install anything at all, so
-// every detection branch is exercised through the injectable environment.
 
 #include "update/InstallType.h"
 
-// Header-only: modeFromString() and isSelfInstallable() are inline, so this
-// test links no updater source. It is here to prove that the application's
-// install-type policy and the helper's own mode policy cannot drift apart.
 #include "updater/UpdaterArgs.h"
 
 #include <QHash>
@@ -44,7 +37,6 @@ const QList<InstallType> kAllTypes{
     InstallType::MacosDmg,      InstallType::Development,   InstallType::Unknown,
 };
 
-// A fully synthetic environment: nothing is read from the real process.
 InstallEnvironment makeEnvironment(const QHash<QString, QString> &variables,
                                    const QSet<QString> &existingPaths,
                                    const QString &compileTimeId)
@@ -56,8 +48,6 @@ InstallEnvironment makeEnvironment(const QHash<QString, QString> &variables,
     environment.pathExists = [existingPaths](const QString &path) {
         return existingPaths.contains(path);
     };
-    // In this fixture every existing path is taken to carry the AppImage
-    // magic; appImageClaimNeedsTheAppImageMagic overrides the hook to say no.
     environment.looksLikeAppImage = [existingPaths](const QString &path) {
         return existingPaths.contains(path);
     };
@@ -65,9 +55,6 @@ InstallEnvironment makeEnvironment(const QHash<QString, QString> &variables,
     return environment;
 }
 
-// The same, plus an install marker and the platform switch that decides
-// whether the marker is consulted at all. Injecting the platform is what lets
-// one host exercise both the Windows branch and the non-Windows branch.
 InstallEnvironment makeMarkerEnvironment(const QString &markerContents,
                                          const QString &compileTimeId,
                                          bool windowsPlatform,
@@ -82,7 +69,7 @@ InstallEnvironment makeMarkerEnvironment(const QString &markerContents,
     return environment;
 }
 
-} // namespace
+}
 
 class UpdateInstallTypeTest : public QObject
 {
@@ -126,25 +113,13 @@ private slots:
     void appImageMagicIsReadFromTheFile();
 };
 
-// ── The portable strategy must be proven, never reached by fallback ─────
-//
-// windows-portable is the compiled-in value for all three Windows packages;
-// only the installer's `.lightning-install-type` corrects it. An installed
-// copy whose marker is missing must not fall through to portable (which swaps
-// the whole directory), so portable needs `portable.marker` as positive
-// evidence and otherwise reports Unknown: the update is offered but not
-// applied.
 void UpdateInstallTypeTest::portableIsRefusedWithoutItsOwnMarker()
 {
-    // A real portable copy: no install-type marker, but portable.marker is
-    // there. Unchanged behaviour.
     const InstallDetection genuine = detectInstall(makeMarkerEnvironment(
         QString(), QStringLiteral("windows-portable"), true, true));
     QCOMPARE(genuine.type, InstallType::WindowsPortable);
     QVERIFY(genuine.automaticInstallAllowed);
 
-    // An installed copy whose marker write failed: same compiled-in value,
-    // but no portable.marker. It must NOT be treated as portable.
     const InstallDetection installed = detectInstall(makeMarkerEnvironment(
         QString(), QStringLiteral("windows-portable"), true, false));
     QVERIFY2(installed.type != InstallType::WindowsPortable,
@@ -153,13 +128,11 @@ void UpdateInstallTypeTest::portableIsRefusedWithoutItsOwnMarker()
     QVERIFY2(!installed.automaticInstallAllowed,
              "an unproven install type must not apply an update");
 
-    // An explicit marker still wins outright: that is the installer speaking.
     const InstallDetection declared = detectInstall(makeMarkerEnvironment(
         QStringLiteral("windows-setup"), QStringLiteral("windows-portable"),
         true, false));
     QCOMPARE(declared.type, InstallType::WindowsSetup);
 
-    // And nothing here touches other platforms.
     const InstallDetection linux = detectInstall(makeMarkerEnvironment(
         QString(), QStringLiteral("linux-appimage"), false, false));
     QCOMPARE(linux.type, InstallType::LinuxAppImage);
@@ -215,13 +188,9 @@ void UpdateInstallTypeTest::automaticInstallPolicyIsExplicit_data()
     QTest::newRow("linux-appimage") << int(InstallType::LinuxAppImage) << true;
     QTest::newRow("linux-deb") << int(InstallType::LinuxDeb) << true;
     QTest::newRow("linux-rpm") << int(InstallType::LinuxRpm) << true;
-    // The updater helper has no macOS strategy, so Lightning must not offer
-    // one either: planForMode(macos-dmg) returns UnsupportedPlatform and
-    // isSelfInstallable(MacosDmg) is false.
     QTest::newRow("macos-dmg") << int(InstallType::MacosDmg) << false;
     QTest::newRow("linux-flatpak") << int(InstallType::LinuxFlatpak) << false;
     QTest::newRow("linux-snap") << int(InstallType::LinuxSnap) << false;
-    // dnf updates a COPR install; the in-app installer must not compete.
     QTest::newRow("linux-rpm-repo") << int(InstallType::LinuxRpmRepo) << false;
     QTest::newRow("development") << int(InstallType::Development) << false;
     QTest::newRow("unknown") << int(InstallType::Unknown) << false;
@@ -241,20 +210,15 @@ void UpdateInstallTypeTest::packageManagedIsFlatpakSnapAndTheDnfRepositoryOnly()
         const bool expected = type == InstallType::LinuxFlatpak
             || type == InstallType::LinuxSnap || type == InstallType::LinuxRpmRepo;
         QCOMPARE(isPackageManaged(type), expected);
-        // "managed by %1" always has a name to show, and only then.
         QCOMPARE(!packageManagerName(type).isEmpty(), expected);
         managed += expected ? 1 : 0;
     }
     QCOMPARE(managed, 3);
     QCOMPARE(packageManagerName(InstallType::LinuxFlatpak), QStringLiteral("Flatpak"));
     QCOMPARE(packageManagerName(InstallType::LinuxSnap), QStringLiteral("Snap"));
-    // dnf or zypper, decided by the running system (next case).
     QCOMPARE(packageManagerName(InstallType::LinuxRpmRepo), repositoryRpmManager());
 }
 
-// COPR builds linux-rpm-repo for Fedora and openSUSE chroots alike, so the
-// tool named to the user comes from the system: zypper only where it exists
-// and no dnf does.
 void UpdateInstallTypeTest::aRepositoryRpmOnOpenSuseIsZyppers()
 {
     const auto only = [](const QStringList &present) {
@@ -266,10 +230,8 @@ void UpdateInstallTypeTest::aRepositoryRpmOnOpenSuseIsZyppers()
     QCOMPARE(repositoryRpmManager(only({zypper})), QStringLiteral("zypper"));
     QCOMPARE(repositoryRpmManager(only({dnf})), QStringLiteral("dnf"));
     QCOMPARE(repositoryRpmManager(only({dnf5})), QStringLiteral("dnf"));
-    // A Fedora machine with zypper installed from its repositories is dnf's.
     QCOMPARE(repositoryRpmManager(only({zypper, dnf})), QStringLiteral("dnf"));
     QCOMPARE(repositoryRpmManager(only({zypper, dnf5})), QStringLiteral("dnf"));
-    // Neither: keep naming dnf, the COPR default.
     QCOMPARE(repositoryRpmManager(only({})), QStringLiteral("dnf"));
 }
 
@@ -294,8 +256,6 @@ void UpdateInstallTypeTest::aRepositoryRpmIsUpdatedByDnfAndADownloadedOneIsNot()
              "the GitLab .rpm keeps its automatic install");
     QVERIFY(!isPackageManaged(downloaded.type));
 
-    // The diagnostic override may name it, but it never authorises anything
-    // and never outranks what the package was built as.
     const InstallDetection overridden = detectInstall(makeEnvironment(
         { { QStringLiteral("LIGHTNING_INSTALL_TYPE_OVERRIDE"), QStringLiteral("linux-rpm-repo") } },
         {}, QStringLiteral("linux-rpm")));
@@ -340,7 +300,6 @@ void UpdateInstallTypeTest::unsetCompileTimeValueIsDevelopment()
 
 void UpdateInstallTypeTest::unrecognisedCompileTimeValueIsUnknown()
 {
-    // Never assumed to be a development build, and never installable.
     const InstallDetection detection =
         detectInstall(makeEnvironment({}, {}, QStringLiteral("linux-fooix")));
     QCOMPARE(detection.type, InstallType::Unknown);
@@ -367,8 +326,6 @@ void UpdateInstallTypeTest::flatpakInfoFileIsDetected()
 
 void UpdateInstallTypeTest::flatpakContainerVariableIsDetected()
 {
-    // Flatpak exports container=flatpak; $FLATPAK_ID is the usual evidence,
-    // this is the second one that needs no file at all.
     const InstallDetection detection = detectInstall(makeEnvironment(
         { { QStringLiteral("container"), QStringLiteral("flatpak") } }, {},
         QStringLiteral("linux-deb")));
@@ -434,7 +391,6 @@ void UpdateInstallTypeTest::appImageNeedsAnExistingPath()
 
 void UpdateInstallTypeTest::runtimeEvidenceOverridesCompileTimeValue()
 {
-    // The very same .deb-built binary really is running inside Flatpak.
     const InstallDetection detection = detectInstall(
         makeEnvironment({ { QStringLiteral("FLATPAK_ID"), QStringLiteral("net.example.App") } },
                         {}, QStringLiteral("linux-deb")));
@@ -449,7 +405,6 @@ void UpdateInstallTypeTest::diagnosticOverrideNeverAuthorisesInstallation()
         {}, QStringLiteral("development")));
     QCOMPARE(detection.type, InstallType::LinuxDeb);
     QVERIFY(detection.diagnosticOverride);
-    // linux-deb is normally installable; the override is not an authority.
     QVERIFY(canInstallAutomatically(detection.type));
     QVERIFY(!detection.automaticInstallAllowed);
 }
@@ -462,7 +417,6 @@ void UpdateInstallTypeTest::diagnosticOverrideDoesNotBeatConcreteBuildMetadata()
     QCOMPARE(detection.type, InstallType::LinuxDeb);
     QVERIFY(!detection.diagnosticOverride);
 
-    // An override naming something this build does not know is ignored.
     const InstallDetection nonsense = detectInstall(makeEnvironment(
         { { QStringLiteral("LIGHTNING_INSTALL_TYPE_OVERRIDE"), QStringLiteral("nonsense") } },
         {}, QString()));
@@ -479,7 +433,6 @@ void UpdateInstallTypeTest::developmentChecksAreOptIn()
         { { QStringLiteral("LIGHTNING_ALLOW_DEV_UPDATE_CHECK"), QStringLiteral("1") } }, {},
         QString()));
     QVERIFY(on.developmentCheckAllowed);
-    // Checking is permitted; installing still is not.
     QVERIFY(!on.automaticInstallAllowed);
 
     const InstallDetection wrongValue = detectInstall(makeEnvironment(
@@ -490,11 +443,9 @@ void UpdateInstallTypeTest::developmentChecksAreOptIn()
 
 void UpdateInstallTypeTest::installMarkerSelectsAmongTheWindowsPackages()
 {
-    // The whole reason the marker exists: one Windows build ships as an MSI,
-    // a setup EXE and a portable ZIP, and only the installer knows which.
     const InstallDetection portable = detectInstall(makeMarkerEnvironment(
         QStringLiteral("windows-portable"), QStringLiteral("windows-msi"),
-        /*windowsPlatform=*/true));
+true));
     QCOMPARE(portable.type, InstallType::WindowsPortable);
     QVERIFY(!portable.diagnosticOverride);
     QVERIFY(portable.automaticInstallAllowed);
@@ -503,7 +454,6 @@ void UpdateInstallTypeTest::installMarkerSelectsAmongTheWindowsPackages()
         QStringLiteral("windows-setup"), QStringLiteral("windows-msi"), true));
     QCOMPARE(setup.type, InstallType::WindowsSetup);
 
-    // Runtime ecosystem evidence still outranks it.
     InstallEnvironment flatpak = makeMarkerEnvironment(QStringLiteral("windows-msi"),
                                                        QStringLiteral("windows-msi"), true);
     flatpak.readEnv = [](const char *name) -> QString {
@@ -520,9 +470,6 @@ void UpdateInstallTypeTest::installMarkerIsIgnoredOffWindows_data()
     QTest::addColumn<QString>("compileTimeId");
     QTest::addColumn<int>("expected");
 
-    // The defect: a stray marker file beside an AppImage flipped a genuine
-    // linux-appimage install to linux-deb, which then asked for a PolicyKit
-    // password and handed apt-get a package that was never installed here.
     QTest::newRow("deb-marker-beside-appimage")
         << "linux-deb" << "linux-appimage" << int(InstallType::LinuxAppImage);
     QTest::newRow("rpm-marker-beside-deb")
@@ -543,17 +490,15 @@ void UpdateInstallTypeTest::installMarkerIsIgnoredOffWindows()
 
     const InstallDetection detection =
         detectInstall(makeMarkerEnvironment(marker, compileTimeId,
-                                            /*windowsPlatform=*/false));
+false));
     QCOMPARE(detection.type, static_cast<InstallType>(expected));
 }
 
 void UpdateInstallTypeTest::installMarkerNeverNamesANonWindowsType()
 {
-    // Even ON Windows the marker only selects among the three Windows
-    // packages; it is not a general-purpose install-type override.
     const InstallDetection detection = detectInstall(makeMarkerEnvironment(
         QStringLiteral("linux-deb"), QStringLiteral("windows-msi"),
-        /*windowsPlatform=*/true));
+true));
     QCOMPARE(detection.type, InstallType::WindowsMsi);
 
     const InstallDetection nonsense = detectInstall(makeMarkerEnvironment(
@@ -565,19 +510,8 @@ void UpdateInstallTypeTest::installMarkerNeverNamesANonWindowsType()
     QCOMPARE(empty.type, InstallType::WindowsSetup);
 }
 
-// A per-machine MSI or setup installation must be upgraded in the per-machine
-// context, elevated. The scope marker is read only for the two installer
-// types, only on Windows, and only as the exact word "machine"; a missing
-// marker stays per-user.
 void UpdateInstallTypeTest::scopeMarkerMakesAWindowsInstallerCopyPerMachine_data()
 {
-    // The compile-time id is the type marker too, so every row lands on the
-    // type it names on every platform, and the off-Windows rows reach an
-    // MSI/setup type where a missing Windows guard would show.
-    //
-    // `registered` is what HKLM names as a per-machine directory. "machine" is
-    // believed only when it names this directory: the marker alone is
-    // user-writable in a per-user installation.
     QTest::addColumn<QString>("typeMarker");
     QTest::addColumn<QString>("scopeMarker");
     QTest::addColumn<QString>("registered");
@@ -599,8 +533,6 @@ void UpdateInstallTypeTest::scopeMarkerMakesAWindowsInstallerCopyPerMachine_data
         << "windows-setup" << "machine" << here << true << false << setup << machine;
     QTest::newRow("setup-machine-crlf-trimmed")
         << "windows-setup" << "machine\r\n" << here << true << false << setup << machine;
-    // The spoof: a per-user install whose own marker says "machine". Nothing
-    // in HKLM names it, so it stays per-user and no UAC prompt is raised.
     QTest::newRow("machine-marker-without-hklm-registration-is-user")
         << "windows-setup" << "machine" << QString() << true << false << setup << user;
     QTest::newRow("machine-marker-registered-elsewhere-is-user")
@@ -613,12 +545,8 @@ void UpdateInstallTypeTest::scopeMarkerMakesAWindowsInstallerCopyPerMachine_data
         << "windows-setup" << "MACHINE" << here << true << false << setup << user;
     QTest::newRow("setup-prefix-is-not-machine")
         << "windows-setup" << "machines" << here << true << false << setup << user;
-    // Portable has no installer to own a context: the word means nothing there.
     QTest::newRow("portable-ignores-it")
         << "windows-portable" << "machine" << here << true << true << portable << user;
-    // Off Windows the file is a stray, exactly like the type marker -- even
-    // beside a build whose compile-time type IS an MSI or setup, and even with
-    // a matching registration.
     QTest::newRow("off-windows-setup-ignores-it")
         << "windows-setup" << "machine" << here << false << false << setup << user;
     QTest::newRow("off-windows-msi-ignores-it")
@@ -647,17 +575,12 @@ void UpdateInstallTypeTest::scopeMarkerMakesAWindowsInstallerCopyPerMachine()
         return registered.isEmpty() ? QStringList() : QStringList{registered};
     };
     const InstallDetection detection = detectInstall(environment);
-    // The row reached the type it is about; otherwise the scope assertion
-    // below would be testing a branch that never runs.
     QCOMPARE(int(detection.type), expectedType);
     QCOMPARE(int(detection.scope), expectedScope);
-    // The scope never changes WHAT is installed, only in which context.
     QVERIFY(detection.automaticInstallAllowed);
     if (!windowsPlatform) {
-        // Off Windows the marker is not even consulted.
         QCOMPARE(reads, 0);
     } else if (typeMarker != QLatin1String("windows-portable")) {
-        // And where it can decide, the hook really was the thing deciding.
         QVERIFY(reads > 0);
     }
 }
@@ -690,27 +613,19 @@ void UpdateInstallTypeTest::registeredDirectoryComparisonIgnoresOnlyTheInsignifi
 
 void UpdateInstallTypeTest::scopeIdsMatchTheHelperOption()
 {
-    // The application writes installScopeId() into --install-scope and the
-    // helper maps it back with its own copy of the two words.
     QCOMPARE(installScopeId(InstallScope::User),
              updater::installScopeToString(updater::InstallScope::User));
     QCOMPARE(installScopeId(InstallScope::Machine),
              updater::installScopeToString(updater::InstallScope::Machine));
     QCOMPARE(installScopeId(InstallScope::Machine), QStringLiteral("machine"));
-    // A default-constructed detection is per-user: nothing asks for elevation
-    // unless a marker said so.
     QCOMPARE(int(InstallDetection().scope), int(InstallScope::User));
 }
 
 void UpdateInstallTypeTest::automaticInstallAgreesWithTheUpdaterHelper()
 {
-    // Lightning must never offer an automatic install for a mode the helper
-    // refuses at argument parsing (ModeNotSelfInstallable), and never withhold
-    // one the helper would perform.
     for (const InstallType type : kAllTypes) {
         const QString id = installTypeId(type);
         const updater::UpdaterMode mode = updater::modeFromString(id);
-        // Every canonical install-type id is also a canonical helper mode.
         QVERIFY2(mode != updater::UpdaterMode::Invalid, qPrintable(id));
         const bool offered = canInstallAutomatically(type);
         const bool accepted = updater::isSelfInstallable(mode);
@@ -723,12 +638,8 @@ void UpdateInstallTypeTest::automaticInstallAgreesWithTheUpdaterHelper()
     }
 }
 
-
 void UpdateInstallTypeTest::appImageClaimNeedsTheAppImageMagic()
 {
-    // $APPIMAGE is an environment variable and it becomes the updater's
-    // --target: the file that is chmod +x'd and replaced. An existing path
-    // that is NOT an AppImage does not make this an AppImage install.
     const QString path = QStringLiteral("/home/user/notes.txt");
     InstallEnvironment environment =
         makeEnvironment({ { QStringLiteral("APPIMAGE"), path } }, { path }, QString());
@@ -737,7 +648,6 @@ void UpdateInstallTypeTest::appImageClaimNeedsTheAppImageMagic()
     QCOMPARE(refused.type, InstallType::Development);
     QVERIFY(!refused.automaticInstallAllowed);
 
-    // A hand-built environment that never set the hook accepts nothing.
     environment.looksLikeAppImage = nullptr;
     QCOMPARE(detectInstall(environment).type, InstallType::Development);
 }

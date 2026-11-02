@@ -1,17 +1,3 @@
-// Behavioural suite for qml/TopicText.qml, the room and Space topic renderer.
-//
-// Reported: "you cannot select the text on room information tab ... when
-// trying to copy paste something from there its just impossible", and the
-// topic's URLs were plain text where Element links them. Until this component
-// the Overview topic was a Label: no selection, no links. Pinned against the
-// real component inside a Flickable, driven with real mouse and key events:
-//   * a URL in the topic (http(s) and a bare www. host) is a link, and a click
-//     on it reaches MediaManager::openWebUrl; a Matrix room link opens in-app;
-//   * a drag selects and opens nothing, even when it starts on a link;
-//   * after a click, Ctrl+A and Ctrl+C copy the whole topic;
-//   * no scheme but http(s) is ever a link, and markup in a topic is text;
-//   * a wheel over the topic still scrolls the panel around it.
-// The last case pins that room info and Space Home render their topics with it.
 
 #include <QtTest/QtTest>
 
@@ -43,7 +29,6 @@ private:
         std::unique_ptr<LinkPreviewController> linkPreviews;
         std::unique_ptr<QObject> app;
         std::unique_ptr<QQuickWindow> window;
-        // Destroyed before the engine and the `app` its bindings reach.
         std::unique_ptr<QObject> rootOwner;
         QQuickItem *flick = nullptr;
         QQuickItem *topic = nullptr;
@@ -69,8 +54,6 @@ private:
                     for (const auto &e : errors)
                         h.warnings << e.toString();
                 });
-        // `app` stand-in: the real linkifier, and recorders where the app would
-        // launch a browser or navigate.
         h.linkPreviews = std::make_unique<LinkPreviewController>();
         QQmlComponent appComponent(h.engine.get());
         appComponent.setData(R"(
@@ -153,7 +136,6 @@ Flickable {
         return h.topic->height() > 0;
     }
 
-    // Window coordinates of the first point whose link is `href`, or (-1, -1).
     static QPoint linkPoint(const Harness &h, const QString &href)
     {
         for (qreal y = 2; y < h.topic->height(); y += 3) {
@@ -163,7 +145,6 @@ Flickable {
                                           Q_RETURN_ARG(QString, at),
                                           Q_ARG(qreal, x), Q_ARG(qreal, y));
                 if (at == href) {
-                    // A little inside the anchor, not on its first pixel.
                     return h.topic->mapToScene(QPointF(x + 4, y)).toPoint();
                 }
             }
@@ -231,7 +212,6 @@ private Q_SLOTS:
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // Routed as a message body routes it: in the app, not the browser.
     void aMatrixRoomLinkOpensInTheApp()
     {
         Harness h;
@@ -261,7 +241,6 @@ private Q_SLOTS:
         drag(h.window.get(), onLink, onLink + QPoint(80, 0));
         QVERIFY2(!selectedText(h).isEmpty(), "a drag from a link selected nothing");
         QCOMPARE(h.webOpens(), 0);
-        // Selecting did not scroll the panel.
         QCOMPARE(h.flick->property("contentY").toReal(), 0.0);
     }
 
@@ -272,7 +251,6 @@ private Q_SLOTS:
             "Welcome. Rules: https://example.org/rules\nBe kind.");
         QVERIFY(build(h, topic));
 
-        // A click on plain text focuses the topic and opens nothing.
         QTest::mouseClick(h.window.get(), Qt::LeftButton, Qt::NoModifier,
                           h.topic->mapToScene(QPointF(2, 6)).toPoint());
         QVERIFY(h.topic->hasActiveFocus());
@@ -286,8 +264,6 @@ private Q_SLOTS:
         QCOMPARE(QGuiApplication::clipboard()->text(), topic);
     }
 
-    // Reported (C14-F07): with focus in another field, a click on the topic and
-    // then Ctrl+A / Ctrl+C acted on THAT field. The press must move focus.
     void aClickTakesFocusFromAnotherField()
     {
         Harness h;
@@ -310,7 +286,6 @@ private Q_SLOTS:
         QVERIFY(other->property("selectedText").toString().isEmpty());
     }
 
-    // Reported (C14-F08): a right click on the topic opened nothing.
     void aRightClickOffersCopyCopyLinkAndSelectAll()
     {
         Harness h;
@@ -325,8 +300,6 @@ private Q_SLOTS:
         QVERIFY(menu());
         QVERIFY(!menu()->property("visible").toBool());
 
-        // Off a link, nothing selected: Copy and Copy link are disabled,
-        // Select all is not.
         QTest::mouseClick(h.window.get(), Qt::RightButton, Qt::NoModifier,
                           h.topic->mapToScene(QPointF(2, 6)).toPoint());
         QTRY_VERIFY(menu()->property("visible").toBool());
@@ -338,7 +311,6 @@ private Q_SLOTS:
         QMetaObject::invokeMethod(menu(), "close");
         QTRY_VERIFY(!menu()->property("visible").toBool());
 
-        // On the link: Copy link is enabled and copies the href, never opening it.
         QMetaObject::invokeMethod(h.topic, "deselect");
         QCOMPARE(selectedText(h), QString());
         const QPoint onLink = linkPoint(h, href);
@@ -346,7 +318,6 @@ private Q_SLOTS:
         QTest::mouseClick(h.window.get(), Qt::RightButton, Qt::NoModifier, onLink);
         QTRY_VERIFY(menu()->property("visible").toBool());
         QVERIFY(item("topicCopyLinkItem")->property("enabled").toBool());
-        // Copy follows the selection, not the link under the pointer.
         QVERIFY(!item("topicCopyItem")->property("enabled").toBool());
         QGuiApplication::clipboard()->setText(QStringLiteral("sentinel"));
         QMetaObject::invokeMethod(item("topicCopyLinkItem"), "triggered");
@@ -362,7 +333,6 @@ private Q_SLOTS:
             "javascript:alert(1) data:text/html,x file:///etc/passwd "
             "ftp://example.org <a href=\"javascript:alert(2)\">x</a>")));
         QCOMPARE(linkPixels(h), 0);
-        // The markup is shown as text, not interpreted.
         QString shown;
         const int start = 0;
         const int end = h.topic->property("length").toInt();
@@ -386,8 +356,6 @@ private Q_SLOTS:
         QTRY_VERIFY(h.flick->property("contentY").toReal() > 0.0);
     }
 
-    // The source half: the reported panel and its Space sibling render their
-    // topics with TopicText. On the old code both were Labels.
     void roomInfoAndSpaceHomeRenderTheTopicWithTopicText()
     {
         const QString panel = readQml(QStringLiteral("RoomInfoPanel.qml"));
@@ -408,7 +376,6 @@ private Q_SLOTS:
         QVERIFY(pane.mid(home, 300).contains(
             QStringLiteral("plainText: spaceHome.info.topic")));
 
-        // Links go through the validated gate, never straight to a launcher.
         const QString component = readQml(QStringLiteral("TopicText.qml"));
         QVERIFY(component.contains(QStringLiteral("app.linkPreviews.linkifiedTopic(")));
         QVERIFY(component.contains(QStringLiteral("app.media.openWebUrl(link)")));

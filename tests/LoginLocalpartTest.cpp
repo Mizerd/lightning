@@ -1,18 +1,3 @@
-// A bare username signs in when the server address is not the server name
-// (break-it rerun 2026-10-16: server http://127.0.0.1:18008 whose server name
-// is localhs.test; "bk010" got "There is no account with that username" while
-// "@bk010:localhs.test" and an API login with user=bk010 both worked).
-//
-// The client completed the username with the ADDRESS's host and sent
-// "@bk010:127.0.0.1:18008", an account that does not exist. The spec's way,
-// and every mainstream client's, is to send the typed username as the
-// m.id.user identifier and let the server name the account; the record, and
-// the store it records, then follow the server's answer (CLAUDE.md §6).
-//
-// Real RustSdkMatrixClient, SettingsManager and Rust login, against a loopback
-// homeserver that knows exactly one account, @bk010:localhs.test, and answers
-// like Continuwuity: 404 M_NOT_FOUND for any identifier that is not it. A
-// fixture keyring, never the host's.
 
 #include "app/SettingsManager.h"
 #include "matrix/RustSdkMatrixClient.h"
@@ -39,8 +24,6 @@ namespace {
 constexpr auto kCanonical = "@bk010:localhs.test";
 constexpr auto kPassword = "synthetic-fixture-only";
 
-// A keyring in a hash. No Q_OBJECT: it adds nothing to SecretStore's
-// meta-object.
 class FixtureSecrets final : public SecretStore
 {
 public:
@@ -75,12 +58,6 @@ private:
     QHash<QString, QString> m_values;
 };
 
-// One account, @bk010:localhs.test, served from an address whose host is
-// 127.0.0.1. A password login names it by its localpart or its full id;
-// anything else is "This account does not exist." Each login asked is
-// recorded by the identifier and the device id it carried (empty when it
-// asked for a new device); a device id asked for is the one granted.
-// Everything else is 404.
 class LocalpartHomeserver : public QObject
 {
 public:
@@ -172,7 +149,7 @@ private:
     QHash<QTcpSocket *, QByteArray> m_buffers;
 };
 
-} // namespace
+}
 
 class LoginLocalpartTest : public QObject
 {
@@ -180,7 +157,6 @@ class LoginLocalpartTest : public QObject
 
     QTemporaryDir m_home;
 
-    // Every SDK store directory under the data root, absolute and cleaned.
     static QStringList storesOnDisk()
     {
         QStringList out;
@@ -200,8 +176,6 @@ class LoginLocalpartTest : public QObject
         return QDir::cleanPath(QFileInfo(path).absoluteFilePath());
     }
 
-    // A saved, signed-in account on `server` whose store holds a stand-in
-    // key database; returns that database's path.
     static QString saveSignedIn(SettingsManager &settings, const QString &server)
     {
         settings.saveSession(server, QString::fromLatin1(kCanonical),
@@ -218,10 +192,6 @@ class LoginLocalpartTest : public QObject
         return keys.fileName();
     }
 
-    // The keyring lost the sign-in of a saved account this install signed in
-    // itself: a record, its store directory (empty, so a client that did
-    // continue as the device could open it and send the login), and no
-    // token. The state a lost-sign-in resume answers.
     static bool saveWithLostSignIn(SettingsManager &settings, FixtureSecrets &secrets,
                                    const QString &server)
     {
@@ -256,8 +226,6 @@ private slots:
         QDir(m_home.path() + QStringLiteral("/data")).removeRecursively();
     }
 
-    // The reported case. The server receives the username as typed, names the
-    // account, and the record and its store follow that answer.
     void aBareUsernameIsSentAsTypedAndTheServerNamesTheAccount()
     {
         LocalpartHomeserver homeserver;
@@ -276,12 +244,10 @@ private slots:
             QTRY_VERIFY_WITH_TIMEOUT(!succeeded.isEmpty() || !failed.isEmpty(), 30000);
             QVERIFY2(failed.isEmpty(),
                      qPrintable(failed.value(0).value(0).toString()));
-            // Old code: "@bk010:127.0.0.1:<port>", completed with the address.
             QCOMPARE(homeserver.loginIdentifiers, QStringList{QStringLiteral("bk010")});
             QCOMPARE(succeeded.first().at(0).toString(), canonical);
             QCOMPARE(client.currentUserId(), canonical);
 
-            // Saved under the server's answer, never under the stand-in.
             QVERIFY(settings.hasSavedAccount(canonical));
             QVERIFY(!settings.hasSavedAccount(
                 QStringLiteral("@bk010:127.0.0.1:%1").arg(port)));
@@ -291,8 +257,6 @@ private slots:
                          .toString(),
                      QStringLiteral("NEWDEVICE"));
 
-            // The record names the one store that exists, which every reader
-            // (restore, sign-out, removal) resolves through it.
             matrix::app_data::AccountIdentity record;
             QVERIFY(settings.resolveSavedIdentity(canonical, &record));
             QCOMPARE(storesOnDisk(), QStringList{clean(record.rustStorePath)});
@@ -301,13 +265,11 @@ private slots:
             QVERIFY(client.detachSession());
         }
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
-        // Detaching keeps the account and its store.
         matrix::app_data::AccountIdentity record;
         QVERIFY(settings.resolveSavedIdentity(canonical, &record));
         QVERIFY(QFileInfo::exists(record.rustStorePath));
     }
 
-    // A full Matrix ID still goes as typed.
     void aFullMatrixIdIsSentAsTyped()
     {
         LocalpartHomeserver homeserver;
@@ -335,10 +297,6 @@ private slots:
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
     }
 
-    // The account is saved for this address already. The username finds it
-    // from its record, so the sign-in is the "already signed in here" redirect
-    // it is for the full id: no password goes to the server, no new device,
-    // and no store is built from the address beside the real one.
     void aBareUsernameFindsTheAccountSavedForThisAddress()
     {
         LocalpartHomeserver homeserver;
@@ -364,8 +322,6 @@ private slots:
                          matrix::rust_session::StoreBlockReason::ExistingStoreNeedsRestore));
         }
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
-        // Old code: one login with "@bk010:127.0.0.1:<port>", into a store
-        // built from the address.
         QCOMPARE(homeserver.loginsAnswered, 0);
         QCOMPARE(settings.accessTokenFor(canonical), QStringLiteral("tok-old"));
         QCOMPARE(settings.accountRecord(canonical).value(QStringLiteral("deviceId"))
@@ -406,7 +362,6 @@ private slots:
             QVERIFY(succeeded.isEmpty());
             QCOMPARE(homeserver.loginIdentifiers, QStringList{QStringLiteral("bk010")});
             const QString message = failed.first().at(0).toString();
-            // Old code: "There is no account with that username …".
             QVERIFY2(message.contains(canonical)
                          && message.contains(QStringLiteral("already on this device")),
                      qPrintable(message));
@@ -414,8 +369,6 @@ private slots:
             QVERIFY(client.currentUserId().isEmpty());
         }
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
-        // The saved account, untouched: its token, device, recorded store and
-        // keys; and nothing new on disk.
         QCOMPARE(settings.savedAccountUserIds(), QStringList{canonical});
         QCOMPARE(settings.accessTokenFor(canonical), QStringLiteral("tok-old"));
         QCOMPARE(settings.accountRecord(canonical).value(QStringLiteral("deviceId"))
@@ -429,10 +382,6 @@ private slots:
         QCOMPARE(storesOnDisk(), storesBefore);
     }
 
-    // The control for the next case: typed exactly as the saved account, a
-    // bare username whose sign-in the keyring lost continues as the
-    // account's own device, as the full id does. Proves the fixture reaches
-    // the resume, so the next case's "no resume" is about the casing.
     void anExactBareUsernameContinuesAsTheDeviceTheKeyringLost()
     {
         LocalpartHomeserver homeserver;
@@ -457,13 +406,6 @@ private slots:
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
     }
 
-    // §18 review of this fix: "BK010" found @bk010:localhs.test by a
-    // case-insensitive match and the identity BECAME the record, so the
-    // exact-id resume checks compared the record with itself and the sign-in
-    // carried @bk010's device id to the server for a name that can be another
-    // account. A folded match locates the store and never resumes: the same
-    // answer as typing @BK010:localhs.test, the lost-sign-in card, and no
-    // password and no device id sent anywhere.
     void aCaseFoldedBareUsernameNeverContinuesAsTheSavedDevice()
     {
         LocalpartHomeserver homeserver;
@@ -483,7 +425,6 @@ private slots:
             client.login(server, QStringLiteral("BK010"), QString::fromLatin1(kPassword));
             QTRY_VERIFY_WITH_TIMEOUT(!succeeded.isEmpty() || !failed.isEmpty(), 30000);
             QVERIFY(succeeded.isEmpty());
-            // Before the fix: one login, "BK010" with device_id OLDDEVICE.
             QCOMPARE(homeserver.loginsAnswered, 0);
             QVERIFY(homeserver.loginDeviceIds.isEmpty());
             QCOMPARE(failed.first().at(0).toString(),
@@ -498,12 +439,6 @@ private slots:
         QCOMPARE(storesOnDisk(), storesBefore);
     }
 
-    // A bare username the records do not locate (the address is spelled with
-    // another scheme) whose stand-in store directory is the one recorded for
-    // a saved account. The block names that account, so its reset card acts
-    // on the record and the store together; for the stand-in id it matched
-    // no record and would have moved the account's store aside and kept the
-    // record pointing at nothing.
     void aBlockOnAStandInStoreNamesTheAccountItIsRecordedFor()
     {
         const quint16 port = 18008;
@@ -516,7 +451,6 @@ private slots:
         settings.setSecretStore(&secrets);
         settings.saveSession(server, canonical, QStringLiteral("OLDDEVICE"),
                              QStringLiteral("tok-old"));
-        // As a first bare-username sign-in records it.
         settings.setStoreSlugFor(canonical, standInSlug);
         QCOMPARE(settings.storeSlugFor(canonical), standInSlug);
         matrix::app_data::AccountIdentity record;
@@ -540,7 +474,6 @@ private slots:
             RustSdkMatrixClient client(&settings);
             QSignalSpy failed(&client, &MatrixClient::loginFailed);
             QSignalSpy reset(&client, &RustSdkMatrixClient::localSessionResetRequired);
-            // Nothing listens here: the block is decided before any request.
             client.login(QStringLiteral("https://127.0.0.1:%1").arg(port),
                          QStringLiteral("bk010"), QString::fromLatin1(kPassword));
             QTRY_VERIFY_WITH_TIMEOUT(!failed.isEmpty(), 30000);
@@ -548,22 +481,14 @@ private slots:
                      matrix::rust_session::userMessage(
                          matrix::rust_session::StoreBlockReason::MissingSessionMetadata));
             QCOMPARE(reset.size(), 1);
-            // Before: "@bk010:127.0.0.1:18008", which names no record.
             QCOMPARE(reset.first().at(1).toString(), canonical);
             QCOMPARE(reset.first().at(2).toString(), record.homeserver);
         }
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
-        // Reported, never acted on: the record and its store are as they were.
         QCOMPARE(settings.storeSlugFor(canonical), standInSlug);
         QVERIFY(QFileInfo(record.rustStorePath).isDir());
     }
 
-    // R6: login() records the sign-in as unfinished before the SDK creates
-    // its store, so a store left by a sign-in that never got an answer (a
-    // cancel, a quit, a kill) is not counted at the next start as an account
-    // the settings file lost. A failed attempt rolls its store back and the
-    // next start drops the marker; a finished one leaves none, although the
-    // marker is the typed stand-in's and the record the server's.
     void aSignInIsUnfinishedUntilItsAnswerIsRecorded()
     {
         LocalpartHomeserver homeserver;
@@ -582,14 +507,11 @@ private slots:
             RustSdkMatrixClient client(&settings);
             QSignalSpy succeeded(&client, &MatrixClient::loginSucceeded);
             QSignalSpy failed(&client, &MatrixClient::loginFailed);
-            // An account the server does not have: refused after the store
-            // was created.
             client.login(server, QStringLiteral("nobody"), QString::fromLatin1(kPassword));
             QTRY_VERIFY_WITH_TIMEOUT(!succeeded.isEmpty() || !failed.isEmpty(), 30000);
             QVERIFY(succeeded.isEmpty());
         }
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
-        // Old code: none, so a store left by a kill here was a "lost" account.
         QCOMPARE(markers().size(), 1);
         {
             SettingsManager next;

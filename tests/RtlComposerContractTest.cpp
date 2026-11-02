@@ -1,6 +1,3 @@
-// C80 swarm round 1: source contracts for four defects found in the language
-// sweep (Arabic RTL, Russian, Hindi). Each case fails on the tree before the
-// fix: it asserts text that only the fixed source contains.
 
 #include <QtTest/QtTest>
 
@@ -19,17 +16,13 @@ class RtlComposerContractTest : public QObject
     }
 
 private slots:
-    // Tab inside the message box inserted a tab character and focus never left.
     void tabInTheComposerMovesFocusInsteadOfTyping()
     {
         const QString src = read(QStringLiteral("MessageComposerBar.qml"));
         QVERIFY(!src.isEmpty());
-        // Both editors (plain and rich) move on with Tab (C37 owns the
-        // composer's Tab; Shift+Tab leaves by Qt's own focus chain).
         QCOMPARE(src.count(QStringLiteral("richInput.nextItemInFocusChain(true)")), 1);
         QCOMPARE(src.count(QStringLiteral(" input.nextItemInFocusChain(true)")), 1);
         QCOMPARE(src.count(QStringLiteral("next.forceActiveFocus(Qt.TabFocusReason)")), 2);
-        // No Tab handler may fall through to the default (a typed tab).
         int at = 0;
         int handlers = 0;
         while ((at = src.indexOf(QStringLiteral("Keys.onTabPressed"), at)) >= 0) {
@@ -43,7 +36,6 @@ private slots:
         QCOMPARE(handlers, 2);
     }
 
-    // The active bar and the paddings are physical; they must swap under RTL.
     void theSettingsOutlineBarFollowsTheReadingDirection()
     {
         const QString src = read(QStringLiteral("SettingsNavOutline.qml"));
@@ -54,7 +46,6 @@ private slots:
         QVERIFY(src.contains(QStringLiteral("parent.width - width - (AppTheme.spacing12 - 1)")));
     }
 
-    // An implicit left follows the text's direction; an explicit one mirrors.
     void roomListNamesAndPreviewsAlignWithTheLayoutDirection()
     {
         const QString src = read(QStringLiteral("RoomDelegate.qml"));
@@ -71,7 +62,6 @@ private slots:
                  "the room name label has no explicit alignment");
     }
 
-    // "Message #room" with an LTR name in an RTL sentence needs isolates.
     void theRoomPlaceholderIsolatesTheRoomNameInRtl()
     {
         const QString src = read(QStringLiteral("MessageComposerBar.qml"));

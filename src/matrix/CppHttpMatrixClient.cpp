@@ -60,7 +60,7 @@ QString percentPath(const QString &segment)
     return QString::fromUtf8(QUrl::toPercentEncoding(segment));
 }
 
-} // namespace
+}
 
 CppHttpMatrixClient::CppHttpMatrixClient(SettingsManager *settings, QObject *parent)
     : MatrixClient(parent)
@@ -72,7 +72,6 @@ CppHttpMatrixClient::CppHttpMatrixClient(SettingsManager *settings, QObject *par
         if (m_syncActive)
             startNextSync();
     });
-    // A preview kept as a kind is worded again in the new UI language.
     QObject::connect(AppLocale::instance(), &AppLocale::changed, this, [this] {
         QStringList changed;
         for (auto it = m_rooms.begin(); it != m_rooms.end(); ++it) {
@@ -114,8 +113,6 @@ void CppHttpMatrixClient::setState(ConnectionState s)
     m_state = s;
     Q_EMIT connectionStateChanged(m_state);
 }
-
-// -------- session lifecycle --------
 
 void CppHttpMatrixClient::openCacheFor(const QString &userId)
 {
@@ -238,8 +235,6 @@ void CppHttpMatrixClient::login(const QString &homeserver,
         }
         if (m_settings) {
             m_settings->saveSession(m_homeserver, m_userId, m_deviceId, m_accessToken);
-            // A fresh login starts with a since-less sync; drop any previous
-            // resume token for this MXID.
             m_settings->setSyncToken({});
         }
         // A fresh session gets a fresh cache so a different user never sees the
@@ -270,8 +265,6 @@ bool CppHttpMatrixClient::restoreSession()
 
     setState(Connecting);
     openCacheFor(m_userId);
-    // m_cache is null when the cache could not be opened at all; that local
-    // failure says nothing about the server-side /sync token.
     const bool cacheOpened = static_cast<bool>(m_cache);
     const int cachedVisibleRoomCount = loadCachedState();
     if (cacheOpened && cachedVisibleRoomCount == 0 && !m_syncToken.isEmpty()) {
@@ -386,8 +379,6 @@ void CppHttpMatrixClient::clearLocalSession(bool clearPersisted)
     setState(Disconnected);
 }
 
-// -------- sync loop --------
-
 void CppHttpMatrixClient::startSync()
 {
     if (!m_loggedIn || m_syncActive)
@@ -414,8 +405,6 @@ void CppHttpMatrixClient::startNextSync()
     if (!m_syncActive || !m_loggedIn)
         return;
 
-    // The initial (since-less) sync uses timeout=0 so the server answers
-    // immediately; later syncs long-poll with 30 s.
     const bool initial = m_syncToken.isEmpty();
 
     QUrl url = endpoint(QStringLiteral("/sync"));
@@ -423,8 +412,6 @@ void CppHttpMatrixClient::startNextSync()
     q.addQueryItem(QStringLiteral("timeout"),
                    initial ? QStringLiteral("0") : QStringLiteral("30000"));
     if (initial) {
-        // Redundant for a spec-compliant since-less sync, but harmless and
-        // useful for homeservers that are conservative about initial state.
         q.addQueryItem(QStringLiteral("full_state"), QStringLiteral("true"));
     } else {
         q.addQueryItem(QStringLiteral("since"), m_syncToken);
@@ -433,8 +420,6 @@ void CppHttpMatrixClient::startNextSync()
 
     QNetworkRequest req(url);
     applyBearer(req);
-    // 30 s server-side long-poll plus streaming; the 60 s cap avoids hangs on
-    // stalled TLS connections.
     req.setTransferTimeout(initial ? 30000 : 60000);
 
     qCInfo(lcHttp) << "sync request:"
@@ -513,15 +498,11 @@ void CppHttpMatrixClient::handleSyncResponse(const QJsonObject &obj)
     if (!joined.isEmpty())
         processJoinedRooms(joined);
 
-    // Mark the initial sync done after the first response even if `join` was
-    // empty, so QML can switch from "Loading rooms…" to an empty state.
     if (!m_initialSyncDone) {
         m_initialSyncDone = true;
         qCInfo(lcHttp) << "initial sync complete; rooms in memory ="
                        << m_rooms.size();
         Q_EMIT initialSyncDoneChanged();
-        // Emit on the first response so bound models treat "0 rooms" as real
-        // state.
         Q_EMIT roomsChanged();
     }
 }
@@ -564,14 +545,9 @@ void CppHttpMatrixClient::processStateEvent(RoomInfo &room, const QJsonObject &e
         room.members.insert(stateKey, m);
         if (m_cache) m_cache->saveMember(room.id, m);
     } else if (type == QLatin1String("m.room.create")) {
-        // Spaces: a room is a Space when its creation content has type
-        // "m.space".
         const QString roomType = content.value(QStringLiteral("type")).toString();
         room.isSpace = (roomType == QLatin1String("m.space"));
     } else if (type == QLatin1String("m.space.child")) {
-        // Space hierarchy edges: the state_key is the child room id. An active
-        // edge has a non-empty `via`; a removed edge has empty content or no
-        // `via`.
         const QString childRoomId = ev.value(QStringLiteral("state_key")).toString();
         if (childRoomId.isEmpty()) return;
         const auto via = content.value(QStringLiteral("via")).toArray();
@@ -582,9 +558,6 @@ void CppHttpMatrixClient::processStateEvent(RoomInfo &room, const QJsonObject &e
         } else {
             room.childRoomIds.removeAll(childRoomId);
         }
-        // Deliberately not setting `spaceId` on the child: SpaceManager builds
-        // membership from childRoomIds, which stays consistent when a room is
-        // in several Spaces.
     }
 }
 
@@ -611,14 +584,10 @@ void CppHttpMatrixClient::applyRedaction(const QString &roomId,
     auto tlIt = m_timelines.find(roomId);
     if (tlIt == m_timelines.end()) return;
 
-    // A redaction may target a reaction, which must then be removed from its
-    // parent's reaction list.
     QString parentEventId;
     QString reactionKey;
     bool wasMineReaction = false;
     for (auto &e : *tlIt) {
-        // A reaction whose myEventId matches means the redacted event is a
-        // reaction.
         for (const auto &r : e.reactions) {
             if (r.myEventId == redactedEventId) {
                 parentEventId  = e.eventId;
@@ -653,7 +622,6 @@ void CppHttpMatrixClient::applyRedaction(const QString &roomId,
         }
     }
 
-    // Otherwise redact the message event itself.
     for (auto &e : *tlIt) {
         if (e.eventId == redactedEventId) {
             e.redacted = true;
@@ -728,14 +696,12 @@ void CppHttpMatrixClient::processTimelineEvent(const QString &roomId,
 {
     const QString type = ev.value(QStringLiteral("type")).toString();
 
-    // Redactions are handled as a special top-level type in Matrix.
     if (type == QLatin1String("m.room.redaction")) {
         const QString target = ev.value(QStringLiteral("redacts")).toString();
         applyRedaction(roomId, target);
         return;
     }
 
-    // Reactions are annotations, not message content — apply and stop.
     if (type == QLatin1String("m.reaction")) {
         const auto content = ev.value(QStringLiteral("content")).toObject();
         const auto rel = content.value(QStringLiteral("m.relates_to")).toObject();
@@ -761,7 +727,6 @@ void CppHttpMatrixClient::processTimelineEvent(const QString &roomId,
     const auto relatesTo = content.value(QStringLiteral("m.relates_to")).toObject();
     const QString relType = relatesTo.value(QStringLiteral("rel_type")).toString();
 
-    // Edits: apply and suppress the wrapper event from the visible timeline.
     if (relType == QLatin1String("m.replace")) {
         const QString target  = relatesTo.value(QStringLiteral("event_id")).toString();
         const auto newContent = content.value(QStringLiteral("m.new_content")).toObject();
@@ -804,8 +769,6 @@ void CppHttpMatrixClient::processTimelineEvent(const QString &roomId,
 
             const bool encFile = content.contains(QStringLiteral("file"));
             if (encFile) {
-                // Encrypted media is not supported by this backend; show a
-                // placeholder rather than fetching ciphertext.
                 te.body = tr("[encrypted media - E2EE not implemented yet]");
                 te.mediaMxcUrl.clear();
             } else {
@@ -821,29 +784,21 @@ void CppHttpMatrixClient::processTimelineEvent(const QString &roomId,
                     .value(QStringLiteral("thumbnail_url")).toString();
             }
         } else {
-            return; // unsupported msgtype
+            return;
         }
 
-        // Thread relation: the event_id is the thread root. The event may also
-        // carry m.in_reply_to (is_falling_back, for non-thread-aware clients);
-        // populate both and let the thread badge take priority.
         if (relType == QLatin1String("m.thread")) {
             te.threadRootId = relatesTo.value(QStringLiteral("event_id")).toString();
         }
 
-        // Reply metadata from m.in_reply_to, for plain replies and thread
-        // fallbacks.
         const auto inReply = relatesTo.value(QStringLiteral("m.in_reply_to")).toObject();
         te.replyToEventId = inReply.value(QStringLiteral("event_id")).toString();
-        // Thread replies show the thread badge, not the reply strip; the
-        // fallback id stays available in replyToEventId.
         if (!te.threadRootId.isEmpty()) {
             te.replyToEventId.clear();
         }
         enrichReplyPreview(te);
     }
 
-    // Dedup our own echoes.
     const auto unsignedObj = ev.value(QStringLiteral("unsigned")).toObject();
     const QString txnId = unsignedObj.value(QStringLiteral("transaction_id")).toString();
     if (!txnId.isEmpty() && m_pendingSends.contains(txnId)) {
@@ -905,7 +860,6 @@ void CppHttpMatrixClient::processJoinedRooms(const QJsonObject &joined)
         const auto timelineObj = roomObj.value(QStringLiteral("timeline")).toObject();
         const auto timelineEvents = timelineObj.value(QStringLiteral("events")).toArray();
 
-        // State events can also appear in the timeline for this batch.
         for (const auto &v : timelineEvents) {
             const auto e = v.toObject();
             const QString t = e.value(QStringLiteral("type")).toString();
@@ -915,14 +869,12 @@ void CppHttpMatrixClient::processJoinedRooms(const QJsonObject &joined)
                 t == QLatin1String("m.room.encryption") ||
                 t == QLatin1String("m.room.canonical_alias") ||
                 t == QLatin1String("m.room.member") ||
-                // Spaces state can arrive in either bucket.
                 t == QLatin1String("m.room.create") ||
                 t == QLatin1String("m.space.child")) {
                 processStateEvent(room, e);
             }
         }
 
-        // Pagination token for backfill.
         const QString prev = timelineObj.value(QStringLiteral("prev_batch")).toString();
         if (!prev.isEmpty())
             room.prevBatchToken = prev;
@@ -937,7 +889,6 @@ void CppHttpMatrixClient::processJoinedRooms(const QJsonObject &joined)
         if (room.name.isEmpty())
             room.name = roomId;
 
-        // Emit membership change if members updated.
         const auto oldRoom = m_rooms.value(roomId);
         const bool membersChangedFlag = oldRoom.members.size() != room.members.size();
 
@@ -946,14 +897,10 @@ void CppHttpMatrixClient::processJoinedRooms(const QJsonObject &joined)
         for (const auto &v : timelineEvents)
             processTimelineEvent(roomId, v.toObject());
 
-        // Refresh preview from newest event.
         const auto &tl = m_timelines[roomId];
         if (!tl.isEmpty()) {
             const auto &last = tl.last();
             RoomInfo &stored = m_rooms[roomId];
-            // A deleted message is a kind, not words: the cache keeps it as
-            // one, so it reads in the current language after a switch or a
-            // restart (the words used to be persisted).
             if (last.body.isEmpty() && last.redacted)
                 stored.setPreview(matrix::preview::Kind::Removed);
             else
@@ -962,7 +909,6 @@ void CppHttpMatrixClient::processJoinedRooms(const QJsonObject &joined)
             stored.lastActivity = last.timestamp;
         }
 
-        // Ephemeral: typing.
         processEphemeral(roomId,
                          roomObj.value(QStringLiteral("ephemeral")).toObject());
 
@@ -974,8 +920,6 @@ void CppHttpMatrixClient::processJoinedRooms(const QJsonObject &joined)
             Q_EMIT roomUpdated(roomId);
         if (membersChangedFlag) {
             Q_EMIT membersChanged(roomId);
-            // The roster-refetch consumers listen to the poke signal; this
-            // backend's sync detection serves both meanings.
             Q_EMIT roomMemberEventSeen(roomId);
         }
     }
@@ -983,8 +927,6 @@ void CppHttpMatrixClient::processJoinedRooms(const QJsonObject &joined)
     if (structureChanged)
         Q_EMIT roomsChanged();
 }
-
-// -------- queries --------
 
 QList<RoomInfo> CppHttpMatrixClient::rooms() const
 {
@@ -1046,8 +988,6 @@ QUrl CppHttpMatrixClient::mediaThumbnailUrl(const QString &mxcUrl,
     return matrix::media::thumbnailUrl(m_homeserver, mxcUrl, width, height, crop);
 }
 
-// -------- send / edit / redact / react --------
-
 QString CppHttpMatrixClient::nextTxnId()
 {
     return QStringLiteral("m%1.%2")
@@ -1076,8 +1016,6 @@ TimelineEvent CppHttpMatrixClient::buildOwnEcho(const QString &roomId,
     return e;
 }
 
-// Common PUT /rooms/{id}/send/{type}/{txnId} helper. If echoEventId is
-// non-empty, tracks it in m_pendingSends and updates its status on response.
 void CppHttpMatrixClient::putSendJson(const QString &roomId,
                                        const QString &type,
                                        const QJsonObject &content,
@@ -1227,11 +1165,6 @@ void CppHttpMatrixClient::sendThreadReply(const QString &roomId,
         return;
     }
 
-    // Thread relation per spec: { rel_type: "m.thread", event_id: <root>,
-    // is_falling_back: true, m.in_reply_to: { event_id:
-    // <latest-in-thread-or-root> } } The fallback lets non-thread-aware clients
-    // render an in-reply-to chain. Use the newest server-confirmed reply in the
-    // thread as the target, else the root.
     QString fallbackReplyTarget = threadRootEventId;
     {
         const auto tlIt = m_timelines.constFind(roomId);
@@ -1249,8 +1182,6 @@ void CppHttpMatrixClient::sendThreadReply(const QString &roomId,
     TimelineEvent echo = buildOwnEcho(roomId, body, TimelineEvent::TextMessage);
     echo.eventId       = QLatin1String("local:") + nextTxnId();
     echo.threadRootId  = threadRootEventId;
-    // No replyToEventId on the echo: the thread chip already shows the context,
-    // and a reply strip would duplicate it.
     m_timelines[roomId].append(echo);
     if (m_cache) m_cache->appendEvent(echo);
     Q_EMIT eventAppended(roomId, echo);
@@ -1281,7 +1212,6 @@ void CppHttpMatrixClient::editMessage(const QString &roomId,
             "Cannot send to encrypted rooms yet: E2EE backend is not implemented."));
         return;
     }
-    // Apply the edit optimistically to the local echo.
     applyEdit(roomId, targetEventId, newBody);
 
     const QJsonObject newContent{
@@ -1292,7 +1222,6 @@ void CppHttpMatrixClient::editMessage(const QString &roomId,
         { QStringLiteral("rel_type"), QStringLiteral("m.replace") },
         { QStringLiteral("event_id"), targetEventId },
     };
-    // Per spec: fallback body prefixed with "* ".
     const QJsonObject content{
         { QStringLiteral("msgtype"),        QStringLiteral("m.text") },
         { QStringLiteral("body"),           QStringLiteral("* ") + newBody },
@@ -1333,7 +1262,6 @@ void CppHttpMatrixClient::redactByHttp(const QString &roomId,
             const QString error = tr("Redaction failed: %1").arg(
                 extractMatrixError(reply->readAll(), reply->errorString()));
             Q_EMIT errorOccurred(error);
-            // The result carries a category, never the server's text.
             const int status = reply->attribute(
                 QNetworkRequest::HttpStatusCodeAttribute).toInt();
             const QString category = status == 429 ? QStringLiteral("rate_limited")
@@ -1345,7 +1273,6 @@ void CppHttpMatrixClient::redactByHttp(const QString &roomId,
         } else {
             Q_EMIT redactionFinished(roomId, eventId, true, {});
         }
-        // Actual event mutation arrives via /sync as m.room.redaction.
     });
 }
 
@@ -1366,7 +1293,6 @@ void CppHttpMatrixClient::toggleReaction(const QString &roomId,
             "Cannot send to encrypted rooms yet: E2EE backend is not implemented."));
         return;
     }
-    // Already reacted with this key: redact our reaction instead.
     const auto tlIt = m_timelines.constFind(roomId);
     if (tlIt != m_timelines.constEnd()) {
         for (const auto &e : *tlIt) {
@@ -1380,7 +1306,6 @@ void CppHttpMatrixClient::toggleReaction(const QString &roomId,
             break;
         }
     }
-    // Otherwise send a new reaction.
     const QJsonObject relates{
         { QStringLiteral("rel_type"), QStringLiteral("m.annotation") },
         { QStringLiteral("event_id"), targetEventId },
@@ -1443,8 +1368,6 @@ void CppHttpMatrixClient::sendReadReceipt(const QString &roomId,
     QNetworkRequest req(url);
     applyBearer(req);
     QNetworkReply *reply = m_nam->post(req, QByteArray("{}"));
-    // The account the receipt was sent for: an answer arriving after sign-out
-    // or an account change records and announces nothing.
     const QString sentFor = m_userId;
     QObject::connect(reply, &QNetworkReply::finished, this,
                      [this, reply, roomId, eventId, sentFor] {
@@ -1459,8 +1382,6 @@ void CppHttpMatrixClient::sendReadReceipt(const QString &roomId,
         Q_EMIT readReceiptAccepted(roomId, eventId);
     });
 }
-
-// -------- media send --------
 
 void CppHttpMatrixClient::sendImage(const QString &roomId, const QString &localPath)
 {
@@ -1483,13 +1404,11 @@ void CppHttpMatrixClient::sendImage(const QString &roomId, const QString &localP
     const QString mime = matrix::media::mimetypeForFile(localPath);
     const QString fileName = fi.fileName();
 
-    // Optimistic local echo.
     TimelineEvent echo = buildOwnEcho(roomId, fileName, TimelineEvent::Image);
     echo.eventId       = QLatin1String("local:") + nextTxnId();
     echo.mediaFilename = fileName;
     echo.mediaMimetype = mime;
     echo.mediaSize     = fi.size();
-    // Try to read dimensions cheaply (image only).
     QImage tmp(localPath);
     if (!tmp.isNull()) {
         echo.mediaWidth  = tmp.width();
@@ -1513,7 +1432,7 @@ void CppHttpMatrixClient::sendImage(const QString &roomId, const QString &localP
 
     const QString echoEventId = echo.eventId;
     QNetworkReply *reply = m_nam->post(req, file);
-    file->setParent(reply); // deleted with the reply
+    file->setParent(reply);
 
     QObject::connect(reply, &QNetworkReply::finished, this,
                      [this, reply, roomId, echoEventId, fileName, mime,
@@ -1547,7 +1466,6 @@ void CppHttpMatrixClient::sendImage(const QString &roomId, const QString &localP
                 break;
             }
         }
-        // Now send the message event referencing the mxc URI.
         QJsonObject info{
             { QStringLiteral("mimetype"), mime },
             { QStringLiteral("size"),     static_cast<qint64>(size) },
@@ -1657,8 +1575,6 @@ void CppHttpMatrixClient::sendFile(const QString &roomId, const QString &localPa
     });
 }
 
-// -------- pagination --------
-
 void CppHttpMatrixClient::loadOlderMessages(const QString &roomId)
 {
     if (!m_loggedIn) return;
@@ -1713,14 +1629,11 @@ void CppHttpMatrixClient::loadOlderMessages(const QString &roomId)
             rIt->prevBatchToken = endToken;
         if (m_cache) m_cache->saveRoom(*rIt);
 
-        // /messages with dir=b is newest-first; convert to chronological order
-        // and dedup against what is loaded.
         QList<TimelineEvent> prepended;
         QSet<QString> existingIds;
         for (const auto &e : m_timelines[roomId])
             existingIds.insert(e.eventId);
 
-        // Walk from oldest to newest.
         for (auto it = chunk.end(); it != chunk.begin();) {
             --it;
             const auto ev = it->toObject();
@@ -1728,7 +1641,6 @@ void CppHttpMatrixClient::loadOlderMessages(const QString &roomId)
             if (type != QLatin1String("m.room.message") &&
                 type != QLatin1String("m.room.encrypted"))
                 continue;
-            // Skip edit wrappers; their targets may not be loaded yet.
             const auto content = ev.value(QStringLiteral("content")).toObject();
             const auto rel = content.value(QStringLiteral("m.relates_to")).toObject();
             if (rel.value(QStringLiteral("rel_type")).toString()
@@ -1774,7 +1686,6 @@ void CppHttpMatrixClient::loadOlderMessages(const QString &roomId)
                 } else {
                     continue;
                 }
-                // Thread relation on backfilled events.
                 if (rel.value(QStringLiteral("rel_type")).toString()
                         == QLatin1String("m.thread")) {
                     te.threadRootId = rel.value(QStringLiteral("event_id")).toString();
@@ -1782,8 +1693,6 @@ void CppHttpMatrixClient::loadOlderMessages(const QString &roomId)
                 const auto inReply = rel.value(QStringLiteral("m.in_reply_to")).toObject();
                 te.replyToEventId = inReply.value(QStringLiteral("event_id")).toString();
                 if (!te.threadRootId.isEmpty()) {
-                    // As in /sync: thread events use the badge, not the reply
-                    // strip.
                     te.replyToEventId.clear();
                 }
             }
@@ -1791,7 +1700,6 @@ void CppHttpMatrixClient::loadOlderMessages(const QString &roomId)
             prepended.append(te);
         }
 
-        // Prepend to in-memory timeline in chronological order.
         if (!prepended.isEmpty()) {
             auto &tl = m_timelines[roomId];
             for (int i = prepended.size() - 1; i >= 0; --i)
@@ -1800,7 +1708,6 @@ void CppHttpMatrixClient::loadOlderMessages(const QString &roomId)
                 for (const auto &e : prepended)
                     m_cache->appendEvent(e);
             }
-            // Now that older events are loaded, backfill reply previews.
             for (auto &e : m_timelines[roomId]) {
                 if (!e.replyToEventId.isEmpty() && e.replyToPreview.isEmpty())
                     enrichReplyPreview(e);

@@ -3,31 +3,16 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The theme editor at its Simple level: start from a preset, change four base
-// colours, and see one readability verdict. Everything else in the theme is
-// worked out from those four through the groups the other levels show, so a
-// newcomer can make a theme without meeting the full list of colours.
-//
-// It holds no theme state. The editor passes what to show and answers the
-// signals; a base colour opens in the same picker as any other colour.
-//
-// Painted in the invariant editor tokens (see `editorCanvas` in AppTheme.qml).
 Flickable {
     id: root
 
-    // [{ key, label, color }]: the base colours, in the order shown.
     property var swatches: []
-    // [{ key, label, color }]: the surfaces that can be a gradient.
     property var gradientRoles: []
-    // The base preset in use, and the choice of presets: [{ id, name }].
     property int baseTheme: 0
     property var bases: []
-    // The audit's verdict, in the editor's own words.
     property int problems: 0
     property int unchecked: 0
-    // True when the conversation background is dark, for the one-line mood.
     property bool dark: true
-    // The role currently open in the picker, marked on its swatch.
     property string openRole: ""
 
     signal roleRequested(string key)
@@ -40,8 +25,6 @@ Flickable {
     contentHeight: column.implicitHeight
     boundsBehavior: Flickable.StopAtBounds
 
-    // Keyboard focus below the fold used to be invisible: Tab moved on to a
-    // control the panel had not scrolled to. Follow the focused control.
     function ensureVisible(item) {
         if (!item || item === root)
             return
@@ -66,7 +49,6 @@ Flickable {
     }
     // A click on the panel's own text gives it the keys below.
     TapHandler { onTapped: root.forceActiveFocus(Qt.MouseFocusReason) }
-    // Keys no focused control handles scroll the panel.
     Keys.onPressed: (e) => {
         const maxY = Math.max(0, root.contentHeight - root.height)
         const page = Math.max(40, root.height - 40)
@@ -191,7 +173,6 @@ Flickable {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.baseRequested(card.modelData.id)
-                        // A narrow panel elides names ("Lightning ..." twice).
                         ToolTip.visible: containsMouse && cardLabel.truncated
                         ToolTip.delay: 400
                         ToolTip.text: card.modelData.name
@@ -279,7 +260,6 @@ Flickable {
             font.pixelSize: AppTheme.textMeta
         }
 
-        // The one verdict. The pairs themselves are in the report it opens.
         Rectangle {
             id: pill
             objectName: "themeSimpleReadability"
@@ -341,8 +321,6 @@ Flickable {
             }
         }
 
-        // Gradients are found here, and again as the Fill choice on every
-        // surface that can take one.
         Heading {
             visible: root.gradientRoles.length > 0
             text: qsTr("Gradients")

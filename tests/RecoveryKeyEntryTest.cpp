@@ -1,10 +1,3 @@
-// The recovery-key route to verifying a session (GitHub #22), the stale
-// crypto-backend text, and the platform-aware secret-store advice.
-//
-// RecoveryKeyEntry is driven against a fake `app` so the test sees exactly
-// what the component hands the backend: the key goes out once and the field is
-// wiped, only the instance that submitted reacts to the outcome, and nothing
-// is marked trusted by the QML itself.
 
 #include <QtTest/QtTest>
 
@@ -30,7 +23,6 @@ QString readFile(const QString &path)
     return QString::fromUtf8(f.readAll());
 }
 
-// Stand-in for app.accounts: only the active account is read.
 class FakeAccounts : public QObject
 {
     Q_OBJECT
@@ -41,7 +33,6 @@ Q_SIGNALS:
     void activeUserIdChanged();
 };
 
-// Stand-in for the slice of AppController the component reads.
 class FakeApp : public QObject
 {
     Q_OBJECT
@@ -65,7 +56,6 @@ public:
 Q_SIGNALS:
     void recoveryStateChanged(const QString &state, const QString &message);
     void trustChanged();
-    // The session ended or another one began (sign-out, account switch).
     void loggedInChanged();
 };
 
@@ -95,7 +85,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class RecoveryKeyEntryTest : public QObject
 {
@@ -151,12 +141,10 @@ private slots:
         m_app.keys.clear();
         submit(QStringLiteral("firstField"), QStringLiteral("EsTx test key"));
         QCOMPARE(m_app.keys, QStringList{QStringLiteral("EsTx test key")});
-        // The key does not stay in a QML property.
         QCOMPARE(find(QStringLiteral("firstField"))->property("text").toString(),
                  QString());
         QCOMPARE(statusOf(QStringLiteral("firstField")),
                  QStringLiteral("Recovery started"));
-        // The sibling instance neither shows nor reacts to it.
         QCOMPARE(statusOf(QStringLiteral("secondField")), QString());
     }
 
@@ -166,11 +154,9 @@ private slots:
         m_app.trustRefreshes = 0;
         m_app.trustState = QStringLiteral("Verified");
         Q_EMIT m_app.recoveryStateChanged(QStringLiteral("ok"), QString());
-        // The first instance is the one still waiting from the previous case.
         QVERIFY(statusOf(QStringLiteral("firstField"))
                     .contains(QStringLiteral("now verified")));
         QCOMPARE(statusOf(QStringLiteral("secondField")), QString());
-        // One refresh, not one per instance on the page.
         QCOMPARE(m_app.healthRefreshes, 1);
         QCOMPARE(m_app.trustRefreshes, 1);
     }
@@ -194,13 +180,9 @@ private slots:
         const QString text = statusOf(QStringLiteral("firstField"));
         QVERIFY(text.contains(QStringLiteral("Wrong key.")));
         QVERIFY(!text.contains(QStringLiteral("secret-ish")));
-        // The field is usable again for another attempt.
         QVERIFY(find(QStringLiteral("firstField"))->property("enabled").toBool());
     }
 
-    // recover() returning Ok restored nothing when secret storage held no
-    // backup key, and the panel said "Recovery complete" (open-items, recovery
-    // and key backup: four known defects).
     void aRecoveryThatRestoredNoHistoryDoesNotSayComplete()
     {
         m_app.trustState = QStringLiteral("Verified");
@@ -218,12 +200,9 @@ private slots:
         text = statusOf(QStringLiteral("firstField"));
         QVERIFY2(text.contains(QStringLiteral("nothing was restored")), qPrintable(text));
         QVERIFY2(!text.contains(QStringLiteral("Recovery complete")), qPrintable(text));
-        // It was a real answer from the SDK: re-read what may have changed.
         QCOMPARE(m_app.healthRefreshes, refreshesBefore + 2);
     }
 
-    // A restore whose session ended never reports, and the panel stayed at
-    // "Restoring…" with the field disabled for good.
     void aRestoreCutOffByTheSessionEndingDoesNotWedge()
     {
         submit(QStringLiteral("secondField"), QStringLiteral("key three"));
@@ -237,16 +216,12 @@ private slots:
         QVERIFY(button->property("text").toString() != QStringLiteral("Restoring…"));
         const QString text = statusOf(QStringLiteral("secondField"));
         QVERIFY2(text.contains(QStringLiteral("session ended")), qPrintable(text));
-        // The idle sibling is untouched, and a late answer from the dead
-        // session is not adopted.
         const QString first = statusOf(QStringLiteral("firstField"));
         Q_EMIT m_app.recoveryStateChanged(QStringLiteral("ok"), QString());
         QCOMPARE(statusOf(QStringLiteral("secondField")), text);
         QCOMPARE(statusOf(QStringLiteral("firstField")), first);
     }
 
-    // Review L7: a restore cut off by a switch to ANOTHER account is cleared
-    // without a word; that account never asked for it.
     void aRestoreCutOffByAnAccountSwitchIsClearedSilently()
     {
         m_app.accountsFake.userId = QStringLiteral("@a:example.org");
@@ -257,14 +232,11 @@ private slots:
         Q_EMIT m_app.loggedInChanged();
         QCOMPARE(statusOf(QStringLiteral("firstField")), QString());
         QVERIFY(find(QStringLiteral("firstField"))->property("enabled").toBool());
-        // A late answer from the old account is not adopted either.
         Q_EMIT m_app.recoveryStateChanged(QStringLiteral("ok"), QString());
         QCOMPARE(statusOf(QStringLiteral("firstField")), QString());
         m_app.accountsFake.userId.clear();
     }
 
-    // Review M2: a failure can follow the session being verified, so the
-    // panel re-reads trust and health on failure too.
     void aFailureRereadsTrustAndHealth()
     {
         const int health = m_app.healthRefreshes;
@@ -286,14 +258,11 @@ private slots:
         QVERIFY(src.contains(QStringLiteral("TextInput.Password")));
     }
 
-    // GitHub #22: every start-verification affordance also offers the key.
     void everyVerifySurfaceOffersTheRecoveryKey()
     {
         const QString settings = readFile(QStringLiteral(QML_DIR "/SettingsScreen.qml"));
         QVERIFY(!settings.isEmpty());
         const int offers = settings.count(QStringLiteral("Use recovery key instead"));
-        // The crypto-health card, the plain verify row, and the Sessions
-        // card's own wiring (the TrustCard button text lives in TrustCard).
         QVERIFY2(offers >= 2, qPrintable(QString::number(offers)));
         QVERIFY(settings.contains(QStringLiteral("onRecoveryRequested")));
         QVERIFY(settings.contains(QStringLiteral("showRecoveryOption")));
@@ -307,8 +276,6 @@ private slots:
         QVERIFY(prompt.contains(QStringLiteral("Use recovery key instead")));
     }
 
-    // recover() verifies this session only when the self-signing key is in
-    // secret storage, so no recovery-key button may promise verification.
     void recoveryKeyButtonsDoNotPromiseVerification()
     {
         int seen = 0;
@@ -333,12 +300,9 @@ private slots:
         const QString flat = QString(settings).replace(QRegularExpression(
             QStringLiteral("\"\\s*\\+\\s*\\n\\s*\"")), QString());
         QVERIFY(flat.contains(QStringLiteral("and verifies this session")));
-        // The Settings search anchor still resolves to a real field.
         QVERIFY(settings.contains(QStringLiteral("fieldObjectName: \"recoveryInputField\"")));
     }
 
-    // Reported on macOS: "v0.5.6" and "not implemented yet" in a build that has
-    // had both for a long time.
     void cryptoBackendTextCarriesNoVersionOrStaleClaims()
     {
         for (const char *name : { "rust", "http", "mock" }) {
@@ -357,9 +321,6 @@ private slots:
         QVERIFY(!src.contains(QStringLiteral("not implemented")));
     }
 
-    // The Keychain backend cannot run off a Mac, so its two data-loss rules are
-    // pinned by scan: a failed write must not have deleted the old token first,
-    // and a "success" it does not understand is inconclusive, not a miss.
     void keychainStoreNeverDeletesBeforeItWrites()
     {
         const QString src = readFile(QStringLiteral(SRC_DIR "/storage/MacKeychainStore.cpp"));
@@ -382,12 +343,9 @@ private slots:
         const QString settings = readFile(QStringLiteral(QML_DIR "/SettingsScreen.qml"));
         const int adviceAt = settings.indexOf(QStringLiteral("Install a Secret Service provider"));
         QVERIFY(adviceAt > 0);
-        // The Linux-only remedy sits behind a platform test.
         const QString before = settings.mid(qMax(0, adviceAt - 900), 900);
         QVERIFY(before.contains(QStringLiteral("Qt.platform.os")));
         QVERIFY(before.contains(QStringLiteral("\"osx\"")));
-        // And the success line no longer names the Secret Service on a
-        // platform that has none.
         QVERIFY(!settings.contains(
             QStringLiteral("stored via the system Secret Service")));
     }

@@ -20,7 +20,6 @@
 #endif
 
 #ifndef LIGHTNING_INSTALL_TYPE
-// Nothing was baked in: this is a source/development build.
 #define LIGHTNING_INSTALL_TYPE "development"
 #endif
 
@@ -33,7 +32,6 @@ struct InstallTypeEntry {
     const char *label;
 };
 
-// Ids are the manifest's artifact keys and the helper's --mode values.
 constexpr InstallTypeEntry kInstallTypes[] = {
     { InstallType::WindowsMsi, "windows-msi", "Windows installer (MSI)" },
     { InstallType::WindowsSetup, "windows-setup", "Windows setup" },
@@ -63,8 +61,6 @@ bool isConcretePackageType(InstallType type)
     return type != InstallType::Development && type != InstallType::Unknown;
 }
 
-// The three Windows packages built from one tree: the only values the install
-// marker may select.
 bool isWindowsPackageType(InstallType type)
 {
     return type == InstallType::WindowsMsi || type == InstallType::WindowsSetup
@@ -78,8 +74,6 @@ QString envValue(const InstallEnvironment &environment, const char *name)
     return environment.readEnv(name);
 }
 
-// Long form of a path, so an 8.3 short name cannot defeat the HKLM comparison.
-// Unchanged when unresolvable or off Windows.
 QString longPathName(const QString &path)
 {
 #ifdef Q_OS_WIN
@@ -101,7 +95,7 @@ bool envIsSet(const InstallEnvironment &environment, const char *name)
     return !value.isEmpty();
 }
 
-} // namespace
+}
 
 QString installScopeId(InstallScope scope)
 {
@@ -141,7 +135,6 @@ bool canInstallAutomatically(InstallType type)
     case InstallType::Development:
     case InstallType::Unknown:
         return false;
-    // The helper has no macOS strategy.
     case InstallType::MacosDmg:
         return false;
     case InstallType::WindowsMsi:
@@ -197,7 +190,6 @@ bool fileLooksLikeAppImage(const QString &path)
     const QByteArray head = file.read(11);
     if (head.size() < 11)
         return false;
-    // ELF magic, then the AppImage signature at offset 8: 'A' 'I' <type>.
     return head.startsWith(QByteArrayLiteral("\x7f" "ELF"))
         && head.at(8) == 'A' && head.at(9) == 'I'
         && (head.at(10) == 0x01 || head.at(10) == 0x02);
@@ -211,8 +203,6 @@ InstallEnvironment defaultInstallEnvironment()
             return {};
         return qEnvironmentVariable(name);
     };
-    // sandboxenv::pathPresent, not QFileInfo::exists: /.flatpak-info is an
-    // unlinked bind-mounted file that Qt reports as absent.
     environment.pathExists = [](const QString &path) {
         return sandboxenv::pathPresent(path);
     };
@@ -226,13 +216,11 @@ InstallEnvironment defaultInstallEnvironment()
                                  + QLatin1String(lightning::portable::kMarkerFileName));
     };
     environment.readInstallMarker = []() -> QString {
-        // Only beside the running executable, never a search path.
         const QString path = QCoreApplication::applicationDirPath()
                 + QLatin1Char('/') + QLatin1String(kInstallMarkerFileName);
         QFile marker(path);
         if (!marker.open(QIODevice::ReadOnly | QIODevice::Text))
             return {};
-        // Canonical ids are short; never read a large file.
         return QString::fromLatin1(marker.read(64)).trimmed();
     };
     environment.readInstallScopeMarker = []() -> QString {
@@ -247,7 +235,6 @@ InstallEnvironment defaultInstallEnvironment()
     environment.readMachineInstallDirs = []() -> QStringList {
         QStringList dirs;
 #ifdef Q_OS_WIN
-        // 64-bit view: both installers are x64.
         const QSettings machine(QStringLiteral("HKEY_LOCAL_MACHINE\\Software\\Mizerd\\Lightning"),
                                 QSettings::Registry64Format);
         for (const char *name : {"InstallDir", "MsiInstallDir"}) {
@@ -289,7 +276,6 @@ InstallDetection detectInstall(const InstallEnvironment &environment)
         return environment.pathExists ? environment.pathExists(path) : false;
     };
 
-    // 1. Runtime ecosystem evidence.
     std::optional<InstallType> runtimeType;
     if (envIsSet(environment, "FLATPAK_ID")
         || envValue(environment, "container") == QLatin1String("flatpak")
@@ -312,8 +298,6 @@ InstallDetection detectInstall(const InstallEnvironment &environment)
         environment.compileTimeId.isEmpty() ? std::optional<InstallType>(InstallType::Development)
                                             : installTypeFromId(environment.compileTimeId);
 
-    // 2. The Windows installer's marker: only when no runtime claimed the
-    // process, only on Windows, and only for the Windows package types.
     std::optional<InstallType> markerType;
     if (!runtimeType && environment.windowsPlatform && environment.readInstallMarker) {
         const QString marker = environment.readInstallMarker().trimmed();
@@ -330,10 +314,8 @@ InstallDetection detectInstall(const InstallEnvironment &environment)
     } else if (markerType) {
         detection.type = *markerType;
     } else if (compileTime && isConcretePackageType(*compileTime)) {
-        // 3. Explicit build metadata from the packaging pipeline.
         detection.type = *compileTime;
     } else {
-        // 4. Diagnostic override; never authorizes installation.
         const QString overrideId = envValue(environment, "LIGHTNING_INSTALL_TYPE_OVERRIDE");
         const std::optional<InstallType> overrideType =
             overrideId.isEmpty() ? std::nullopt : installTypeFromId(overrideId);
@@ -341,10 +323,8 @@ InstallDetection detectInstall(const InstallEnvironment &environment)
             detection.type = *overrideType;
             detection.diagnosticOverride = true;
         } else if (compileTime) {
-            // 5. Compile-time fallback (development when unset).
             detection.type = *compileTime;
         } else {
-            // An unrecognised compile-time value is Unknown, not development.
             detection.type = InstallType::Unknown;
         }
     }
@@ -361,8 +341,6 @@ InstallDetection detectInstall(const InstallEnvironment &environment)
         detection.type = InstallType::Unknown;
     }
 
-    // Scope, for the two installer-owned types only. "machine" requires HKLM to
-    // name this directory (the marker is user-writable; see InstallType.h).
     if (environment.windowsPlatform && environment.readInstallScopeMarker
         && (detection.type == InstallType::WindowsMsi
             || detection.type == InstallType::WindowsSetup)
@@ -398,4 +376,4 @@ InstallType detectInstallType()
     return detectInstall().type;
 }
 
-} // namespace lightning::update
+}

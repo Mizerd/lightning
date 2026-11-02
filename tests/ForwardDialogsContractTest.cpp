@@ -1,12 +1,3 @@
-// C27 source contract for the forward and event-source dialogs. Each case
-// names the defect it pins and flips on the pre-fix source.
-//   F11  a room chosen and then filtered out stays chosen: the dialog must
-//        say how many rooms Send will use.
-//   F15  the selection dialog listed invites; joined rooms only.
-//   F12  no-match copy, and rows that Tab can reach.
-//   F13  the focused Send button scrolls its row into view.
-//   F14  a shrunken filtered list returns to the top; middle-click scroll.
-//   F06/F08  event source viewer: middle-click scroll and keyboard reach.
 
 #include <QFile>
 #include <QRegularExpression>

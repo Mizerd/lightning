@@ -17,7 +17,6 @@ void MatrixGifTransport::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::gifResponse, this,
                 &MatrixGifTransport::finished);
-        // Every download result is relayed; consumers match their own op ids.
         connect(m_client, &MatrixClient::gifDownloadFinished, this,
                 [this](quint64 opId, bool ok, const QByteArray &bytes,
                        const QString &, int, int, qint64,

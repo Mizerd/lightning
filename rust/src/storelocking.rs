@@ -1,5 +1,3 @@
-//! SDK leases are unnecessary only while the application owns its OS profile lock.
-//! Keep the SDK's multi-process protection for callers without that guarantee.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -19,9 +17,6 @@ pub(crate) fn config() -> CrossProcessLockConfig {
     config_for_profile_lock(profile_lock_held())
 }
 
-/// Whether this process owns the OS profile lock, so no other process can
-/// have an account's store files open. cachelayout.rs moves the caches only
-/// then.
 pub(crate) fn profile_lock_held() -> bool {
     PROFILE_LOCK_HELD.load(Ordering::Acquire)
 }
@@ -30,8 +25,6 @@ fn config_for_profile_lock(held: bool) -> CrossProcessLockConfig {
     if held {
         CrossProcessLockConfig::SingleProcess
     } else {
-        // The SDK's default "main" is shared by every process. A lease holder
-        // must identify this process, otherwise both processes can renew it.
         CrossProcessLockConfig::multi_process(format!("lightning-{}", std::process::id()))
     }
 }

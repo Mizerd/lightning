@@ -20,10 +20,6 @@ private Q_SLOTS:
         QVERIFY(picker.contains("variantsFor"));
         QVERIFY(!picker.contains("http://") && !picker.contains("https://"));
     }
-    // Big emoji: a body of only 1-3 user-perceived emoji renders large (60px,
-    // 48px in compact/thread). The delegate asks the C++ catalogue for the
-    // count (grapheme clusters plus catalogue lookup), never a QML regex or
-    // code-point count.
     void bigEmojiContract()
     {
         const QString delegate = read(QStringLiteral(QML_DIR "/MessageDelegate.qml"));
@@ -32,10 +28,6 @@ private Q_SLOTS:
         QVERIFY(delegate.contains("bigEmoji"));
     }
 
-    // Every surface that draws an emoji names the face. Qt's per-character
-    // fallback is version-dependent: Qt 6.8 (bundled in the AppImage) picks a
-    // monochrome face where 6.11 picks the colour one, while naming the family
-    // gives colour on both. Asserted per file, so one surface losing it fails.
     void emojiSurfacesNameTheFace()
     {
         struct Surface { const char *file; const char *glyph; };
@@ -49,8 +41,6 @@ private Q_SLOTS:
             QVERIFY2(!src.isEmpty(),
                      qPrintable(QStringLiteral("could not read %1").arg(
                          QString::fromLatin1(s.file))));
-            // The glyph binding must still be there, or this asserts a family
-            // on a surface that no longer draws emoji.
             QVERIFY2(src.contains(QLatin1String(s.glyph)),
                      qPrintable(QStringLiteral("%1 no longer binds %2").arg(
                          QString::fromLatin1(s.file),
@@ -60,17 +50,11 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("%1 draws an emoji without naming "
                                                "the resolved emoji face").arg(
                          QString::fromLatin1(s.file))));
-            // `font.families` is a C++ QFont API, not a QML font property;
-            // assigning a list is a load-time error that a source scan is the
-            // cheap guard against.
             QVERIFY2(!src.contains(QLatin1String("font.families")),
                      qPrintable(QStringLiteral("%1 assigns font.families, which "
                                                "does not exist in QML").arg(
                          QString::fromLatin1(s.file))));
         }
-        // The candidate list lives in FontManager::emojiFamily() (which also
-        // feeds the application font's fallback) and must lead with colour
-        // faces. Path derived from QML_DIR.
         const QString catalog =
             read(QStringLiteral(QML_DIR "/../src/app/FontManager.cpp"));
         QVERIFY(!catalog.isEmpty());
@@ -83,9 +67,6 @@ private Q_SLOTS:
                  "the monochrome fallback must come after the colour faces");
     }
 
-    // Texts that set `font.family` to a single face (room names, headers,
-    // sender names, reply quotes, member rows) need the emoji face registered
-    // as Qt's fallback at startup, before the QML engine exists.
     void startupRegistersTheEmojiFaceAsQtsFallback()
     {
         const QString mainSource =
@@ -107,22 +88,14 @@ private Q_SLOTS:
         const QString thread = read(QStringLiteral(QML_DIR "/ThreadPanel.qml"));
         QVERIFY(!delegate.contains("reactionPalette"));
         QVERIFY(!delegate.contains("[\"👍\""));
-        // One shared reaction picker per view, never per row; the delegate
-        // routes through the view with the event id captured at open.
         QVERIFY(!delegate.contains("EmojiPicker {"));
         QVERIFY(delegate.contains(
             "root.openReactionPickerFor(root.eventIdForActions()"));
         QVERIFY(delegate.contains(
             "root.timelineView.openReactionPicker(eventId, p, expanded === true)"));
-        // The main timeline's picker uses the room composer: that pane is the
-        // room.
         QCOMPARE(pane.count("app.composer.reactTo(targetEventId, emoji)"), 1);
-        // The thread panel routes through its own model: app.composer's live
-        // room timeline hides threaded events, so reactions there did nothing.
         QCOMPARE(thread.count("app.thread.model.toggleReaction(targetEventId, emoji)"), 1);
         QVERIFY(pane.contains("sharedReactionPicker.targetEventId = eventId"));
-        // The composer's picker inserts into whichever editor owns the caret
-        // (markdown TextArea or WYSIWYG), never the hidden one.
         QVERIFY(composer.contains("var editor = root.activeEditor()"));
         QVERIFY(composer.contains("return root.richMode ? richInput : input"));
         QVERIFY(composer.contains("editor.selectionStart"));

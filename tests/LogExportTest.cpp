@@ -1,9 +1,3 @@
-// Log export: the sanitizer, the rolling log's bounds, the zip, and what an
-// exported file actually contains.
-//
-// Every sanitizer case plants the SECRET in the input and asserts the output
-// does not contain it, and ALSO asserts a neighbouring harmless fact survived:
-// a sanitizer that returns an empty string passes the first half alone.
 #include <QtTest/QtTest>
 
 #include <QDir>
@@ -45,7 +39,6 @@ QString sanitize(const QString &line, const lx::SanitizeOptions &o = opts())
     return lx::sanitizeLine(line, o).value_or(QStringLiteral("<DROPPED>"));
 }
 
-// Counts device writes: the cost the rolling log's coalescing is for.
 class CountingDevice : public QIODevice
 {
 public:
@@ -81,8 +74,7 @@ QByteArray sampleRawLog()
         "2026-10-13T10:00:06.000Z info matrix.calls: call state active\n");
 }
 
-
-} // namespace
+}
 
 class LogExportTest : public QObject
 {
@@ -94,7 +86,6 @@ private:
 private Q_SLOTS:
     void initTestCase()
     {
-        // Never the developer's real settings.
         QCoreApplication::setOrganizationName(QStringLiteral("LogExportTest"));
         QCoreApplication::setApplicationName(QStringLiteral("log-export-test"));
         QSettings::setDefaultFormat(QSettings::IniFormat);
@@ -110,8 +101,6 @@ private Q_SLOTS:
     }
     void cleanup() { lx::stopRollingLog(); }
 
-    // ---- opt-in ------------------------------------------------------------
-
     void theLogIsOffByDefaultAndCreatesNothing()
     {
         QTemporaryDir tmp;
@@ -122,7 +111,6 @@ private Q_SLOTS:
         QVERIFY(!controller.keepLog());
         QVERIFY(!lx::rollingLogRunning());
         QVERIFY(lx::rollingLogSink() == nullptr);
-        // What main() does at start with the setting at its default:
         if (lx::keepLogEnabled())
             lx::startRollingLog(dir);
         QVERIFY(!QFileInfo::exists(dir));
@@ -139,7 +127,7 @@ private Q_SLOTS:
 
         controller.setKeepLog(true);
         QVERIFY(controller.keepLog());
-        QVERIFY(lx::keepLogEnabled());      // persisted for the next start
+        QVERIFY(lx::keepLogEnabled());
         QVERIFY(lx::rollingLogRunning());
         auto *sink = lx::rollingLogSink();
         QVERIFY(sink);
@@ -153,8 +141,6 @@ private Q_SLOTS:
         QVERIFY(!lx::keepLogEnabled());
         QVERIFY(!lx::rollingLogRunning());
         QVERIFY(lx::rollingLogSink() == nullptr);
-        // The detached sink refuses further lines, and the file keeps what
-        // it had.
         QVERIFY(!sink->log(QtInfoMsg, "t", QStringLiteral("after off")));
         const QByteArray kept = lx::readRecentLog(dir, 1 << 20);
         QVERIFY(kept.contains("while on"));
@@ -188,7 +174,6 @@ private Q_SLOTS:
         QVERIFY(lx::rollingLogRunning());
         QVERIFY(!lx::readRecentLog(dir, 1 << 20).contains("old"));
         lx::stopRollingLog();
-        // Off: deleting what an earlier session left behind.
         {
             lx::RollingLogDevice dev(dir, lx::RollingLimits{});
             QVERIFY(dev.open(QIODevice::WriteOnly));
@@ -198,8 +183,6 @@ private Q_SLOTS:
         QVERIFY(!lx::rollingLogRunning());
         QVERIFY(lx::RollingLogDevice::logFiles(dir).isEmpty());
     }
-
-    // ---- sanitizer ---------------------------------------------------------
 
     void matrixIdsBecomeCodes()
     {
@@ -215,14 +198,12 @@ private Q_SLOTS:
             QVERIFY2(!out.contains(QLatin1String(secret)), secret);
         }
         QVERIFY(out.contains(QLatin1String("matrix.app: open room=!")));
-        // The sigil survives, so a reader can still tell a room from a user.
         static const QRegularExpression user(QStringLiteral("user=(@[0-9a-f]{8})\\b"));
         static const QRegularExpression again(QStringLiteral("twice=(@[0-9a-f]{8})\\b"));
         const auto a = user.match(out);
         const auto b = again.match(out);
         QVERIFY2(a.hasMatch() && b.hasMatch(), qPrintable(out));
-        QCOMPARE(a.captured(1), b.captured(1));       // correlates inside one export
-        // ... and differs under another salt: not a global pseudonym.
+        QCOMPARE(a.captured(1), b.captured(1));
         const QString other = sanitize(line, opts("another-salt"));
         QVERIFY(user.match(other).captured(1) != a.captured(1));
     }
@@ -292,7 +273,6 @@ private Q_SLOTS:
             QVERIFY2(!out.contains(QLatin1String(secret)),
                      qPrintable(QString::fromLatin1(secret) + " in " + out));
         }
-        // The host is the useful part of "which server is unreachable".
         QVERIFY(out.contains(QLatin1String("matrix.example.org")));
         QVERIFY(out.contains(QLatin1String("proxy.example.net")));
         QVERIFY(out.contains(QLatin1String("failed")));
@@ -317,7 +297,6 @@ private Q_SLOTS:
                  QStringLiteral("<DROPPED>"));
         QCOMPARE(sanitize(ts + QStringLiteral("info matrix.app: {\"formatted_body\": \"<b>hi\"}")),
                  QStringLiteral("<DROPPED>"));
-        // Neighbours that merely share a prefix or a word are kept.
         QVERIFY(sanitize(ts + QStringLiteral("info lightning.e2eeish: ok")) != QStringLiteral("<DROPPED>"));
         QVERIFY(sanitize(ts + QStringLiteral("info matrix.app: bodyLen=12 ok")) != QStringLiteral("<DROPPED>"));
         QVERIFY(sanitize(ts + QStringLiteral("info matrix.app: screen change 1 -> 2")).contains(QLatin1String("screen change")));
@@ -366,8 +345,6 @@ private Q_SLOTS:
         QCOMPARE(lx::lastLines(QString(), 5), QString());
     }
 
-    // ---- rolling log -------------------------------------------------------
-
     void rollingLogStaysInsideItsBounds()
     {
         QTemporaryDir tmp;
@@ -390,16 +367,14 @@ private Q_SLOTS:
         qint64 total = 0;
         for (const QString &f : files) {
             const qint64 sz = QFileInfo(f).size();
-            // A file closes at the first batch that crosses the bound.
             QVERIFY2(sz <= lim.maxFileBytes + 200, qPrintable(f));
             total += sz;
         }
-        // 200 lines * ~200 bytes = 40 kB written; the set holds a fraction.
         QVERIFY2(total <= lim.maxTotalBytes + lim.maxFileBytes, qPrintable(QString::number(total)));
         QVERIFY(files.size() >= 2);
         const QByteArray recent = lx::readRecentLog(dir, 1 << 20);
-        QVERIFY(recent.contains("line-199"));   // the newest survived
-        QVERIFY(!recent.contains("line-0."));   // the oldest was pruned
+        QVERIFY(recent.contains("line-199"));
+        QVERIFY(!recent.contains("line-0."));
     }
 
     void rollingLogHonoursTheFileCountBound()
@@ -461,7 +436,6 @@ private Q_SLOTS:
         QCOMPARE(lx::readRecentLog(tmp.path() + QStringLiteral("/missing"), 100), QByteArray());
     }
 
-    // The disk-write cost: a trickle of lines is one write per interval.
     void coalescingTurnsATrickleIntoFewWrites()
     {
         const auto drive = [](int coalesceMs) {
@@ -485,13 +459,12 @@ private Q_SLOTS:
             return std::tuple<int, qint64, int>{writes, flushMs, int(bytes.count('\n'))};
         };
         const auto [coalescedWrites, flushMs, lines] = drive(400);
-        QCOMPARE(lines, 60);                  // nothing lost
+        QCOMPARE(lines, 60);
         QVERIFY2(coalescedWrites <= 5, qPrintable(QString::number(coalescedWrites)));
         QVERIFY2(flushMs < 300, qPrintable(QString::number(flushMs)));
         const auto [plainWrites, ignored, plainLines] = drive(0);
         Q_UNUSED(ignored)
         QCOMPARE(plainLines, 60);
-        // The control: without coalescing the same trickle costs many more.
         QVERIFY2(plainWrites > coalescedWrites * 3, qPrintable(QString::number(plainWrites)));
     }
 
@@ -507,8 +480,6 @@ private Q_SLOTS:
         sink.shutdown(2000);
         QVERIFY(raw->snapshot().contains("held"));
     }
-
-    // ---- zip ---------------------------------------------------------------
 
     void zipRoundTripsStoredAndDeflatedEntries()
     {
@@ -566,8 +537,6 @@ private Q_SLOTS:
         QVERIFY2(p.exitCode() == 0, p.readAllStandardError().constData());
     }
 
-    // ---- the export --------------------------------------------------------
-
     void theExportedFileHoldsNothingSecretAndSomethingUseful()
     {
         lx::ExportInputs in;
@@ -601,8 +570,6 @@ private Q_SLOTS:
         QVERIFY(all.contains(QLatin1String("hs.example.org")));
         QVERIFY(all.contains(QLatin1String("version: 0.10.0")));
         QVERIFY(all.contains(QLatin1String("no messages, passwords or keys")));
-        // Three lines removed by rule (e2ee, body, ... recovery_key is
-        // redacted in place, not dropped).
         QCOMPARE(r.stats.droppedSensitiveCategory, 1);
         QCOMPARE(r.stats.droppedMessageBody, 1);
         QVERIFY(r.sanitizedLog.contains(QLatin1String("2 removed")));

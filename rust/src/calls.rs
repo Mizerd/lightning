@@ -1,19 +1,3 @@
-//! Voice-call signalling: legacy 1:1 VoIP (MSC2746, `m.call.*` version 1)
-//! plus a narrow MatrixRTC lane (`m.rtc.notification` in, `m.rtc.decline`
-//! out). Signalling only; media lives in the C++ engine.
-//!
-//! Sends go through `Room::send`, which encrypts in encrypted rooms. Inbound
-//! handlers live for the sync loop's lifetime behind
-//! `EventHandlerDropGuard`s so none fires into a later account's queue; C++
-//! `SessionLifecycleGuard` also drops stale entries at dequeue.
-//!
-//! Privacy: SDP (host IPs, often the hostname) is never logged and crosses
-//! the FFI only in media-capable mode; otherwise offers and answers cross as
-//! `has_offer`/`has_answer` plus a sanitized type. Hangup reasons are a
-//! closed set (`_Custom` becomes "unknown"), and errors cross only as
-//! `classify_room_error` categories. `call_id`/`party_id`/`selected_party_id`
-//! are sender-chosen (ruma does not validate VoipId), bounded by `wire_id`
-//! (an id failing the bound drops the event), and never logged or rendered.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -64,10 +48,8 @@ use crate::timeline::TimelineRegistry;
 use crate::warm_rooms::SubscriptionSet;
 use crate::{enqueue, RustClient};
 
-/// Call sends run on the room-action pool (joined at sign-out): bounded.
 const CALL_SEND_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// MSC2746 recommends 60 s; anything outside this window is a caller bug.
 const MIN_INVITE_LIFETIME_MS: u64 = 5_000;
 const MAX_INVITE_LIFETIME_MS: u64 = 300_000;
 
@@ -81,8 +63,6 @@ fn parse_voip_id(value: &str, what: &str) -> Result<OwnedVoipId, String> {
     Ok(OwnedVoipId::from(trimmed))
 }
 
-/// Bound for a sender-chosen id. Real ids are short tokens; oversized or
-/// control-laden ids are hostile and drop the whole event.
 const MAX_WIRE_ID_LEN: usize = 255;
 fn wire_id(value: &str) -> Option<&str> {
     if value.is_empty() || value.len() > MAX_WIRE_ID_LEN {
@@ -94,8 +74,6 @@ fn wire_id(value: &str) -> Option<&str> {
     Some(value)
 }
 
-/// An optional wire id (v0 events have no party id): absent stays "",
-/// present but hostile drops the event.
 fn optional_wire_id(value: Option<&str>) -> Option<String> {
     match value {
         None => Some(String::new()),
@@ -110,8 +88,6 @@ fn require_sdp(sdp: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Session-description type: "offer" and "answer" are spec values;
-/// anything else is sender text and crosses as "other".
 fn session_type_str(session_type: &str) -> &'static str {
     match session_type {
         "offer" => "offer",
@@ -141,12 +117,8 @@ fn sdp_offers_video(sdp: &str) -> bool {
     false
 }
 
-/// A sane stream metadata map names a handful of streams.
 const MAX_STREAM_METADATA_ENTRIES: usize = 8;
 
-/// The engine's `{stream id: {purpose, audio_muted, video_muted}}`, or empty
-/// for "" (an engine that names no stream, which keeps a peer's fallback for
-/// clients without metadata). Malformed input is a local bug: refused.
 fn parse_stream_metadata(json: &str) -> Result<BTreeMap<String, StreamMetadata>, String> {
     if json.trim().is_empty() {
         return Ok(BTreeMap::new());
@@ -161,9 +133,6 @@ fn parse_stream_metadata(json: &str) -> Result<BTreeMap<String, StreamMetadata>,
     Ok(map)
 }
 
-/// What the peer says about its camera and microphone stream, as two closed
-/// booleans: stream ids stay on this side. Sender-chosen content, so bounded
-/// and only ever displayed as a state. `None`: the peer sent no metadata.
 fn usermedia_muted(metadata: &BTreeMap<String, StreamMetadata>) -> Option<(bool, bool)> {
     metadata
         .values()
@@ -191,7 +160,6 @@ fn voip_version_str(version: &VoipVersionId) -> &'static str {
     }
 }
 
-/// Closed inbound set; `_Custom` collapses to "unknown".
 pub(crate) fn reason_str(reason: &Reason) -> &'static str {
     match reason {
         Reason::IceFailed => "ice_failed",
@@ -205,9 +173,6 @@ pub(crate) fn reason_str(reason: &Reason) -> &'static str {
     }
 }
 
-/// Closed outbound set. "replaced" is what matrix-js-sdk sends for a
-/// glare-replaced call; it becomes ruma's `_Custom` value only from this
-/// match.
 pub(crate) fn reason_from_code(code: &str) -> Result<Reason, String> {
     Ok(match code {
         "user_hangup" => Reason::UserHangup,
@@ -220,20 +185,8 @@ pub(crate) fn reason_from_code(code: &str) -> Result<Reason, String> {
     })
 }
 
-/// Bound on the mentioned user ids forwarded with an MSC4075 announcement.
-/// The C++ side only compares them with our own id.
 const MAX_RTC_MENTION_IDS: usize = 256;
 
-/// Who an MSC4075 announcement addresses, and how, as the bridge forwards it
-/// from BOTH notification types (the stable `m.rtc.notification` here, the
-/// unstable one in `rtc.rs`): `notification_type` is a closed set, and
-/// anything but `ring` is `notification`, which announces a call and never
-/// rings; `mentions_user_ids` / `mentions_room` are its `m.mentions`. Sender
-/// content, so it only narrows who rings: dropping it made every
-/// announcement ring every member of the room.
-///
-/// `mentions_me` is decided here, against the WHOLE list, so the bound on the
-/// forwarded ids can never drop the one that names this account.
 pub(crate) fn rtc_notification_addressing(
     notification_type: &str,
     mentions: Option<&Mentions>,
@@ -267,7 +220,6 @@ pub(crate) fn rtc_notification_addressing(
     fields
 }
 
-/// The `call_rtc_notification` record for a stable `m.rtc.notification`.
 fn rtc_notification_payload(
     ev: &OriginalSyncRtcNotificationEvent,
     room_id: &str,
@@ -309,9 +261,6 @@ fn intent_str(intent: Option<&CallIntent>) -> &'static str {
     }
 }
 
-/// Shared send tail: run on the room-action pool with a bounded timeout,
-/// then report `call_send_result { op_id, ok, category, call_id, event_id }`.
-/// Never logs or forwards SDK error text.
 fn spawn_call_send<F>(bridge: &RustClient, op_id: u64, call_id: String, send: F)
 where
     F: std::future::Future<
@@ -346,9 +295,6 @@ where
     });
 }
 
-/// Whether an event could belong to a call still ringing. A catch-up delivers
-/// old call events too, and each subscription change costs a member refetch
-/// across the whole set.
 fn is_fresh(origin_server_ts: matrix_sdk::ruma::MilliSecondsSinceUnixEpoch) -> bool {
     let now = u64::from(matrix_sdk::ruma::MilliSecondsSinceUnixEpoch::now().get());
     now.saturating_sub(u64::from(origin_server_ts.get())) <= MAX_INVITE_LIFETIME_MS
@@ -379,8 +325,6 @@ async fn subscribe_call_room(
     }
 }
 
-/// Send `m.call.invite` (VoIP v1). The SDP is a required opaque parameter;
-/// an empty one is refused synchronously.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_invite(
     bridge: &RustClient,
@@ -428,7 +372,6 @@ pub(crate) fn send_invite(
     Ok(())
 }
 
-/// Send `m.call.answer` (VoIP v1), for signalling completeness.
 pub(crate) fn send_answer(
     bridge: &RustClient,
     room_id: String,
@@ -459,8 +402,6 @@ pub(crate) fn send_answer(
     Ok(())
 }
 
-/// Send `m.call.negotiate`: an offer or answer on a call already set up
-/// (voice to video, a hold). The SDP is required and opaque, as in an invite.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn send_negotiate(
     bridge: &RustClient,
@@ -498,11 +439,6 @@ pub(crate) fn send_negotiate(
     Ok(())
 }
 
-/// `content` as JSON, with the stream metadata exactly as the engine wrote it.
-/// ruma omits a `false` mute, and matrix-js-sdk MERGES each update over what it
-/// holds, so an unmute sent through ruma's type never unmutes: Element showed
-/// Lightning muted for the rest of the call. Sent as raw content for that
-/// reason alone; `Room::send_raw` encrypts exactly as `send` does.
 fn with_explicit_metadata<T: serde::Serialize>(
     content: &T,
     stream_metadata: &str,
@@ -516,8 +452,6 @@ fn with_explicit_metadata<T: serde::Serialize>(
     Ok(raw)
 }
 
-/// Send `m.call.sdp_stream_metadata_changed`: a mute changed and nothing needs
-/// negotiating.
 pub(crate) fn send_stream_metadata(
     bridge: &RustClient,
     room_id: String,
@@ -546,7 +480,6 @@ pub(crate) fn send_stream_metadata(
     Ok(())
 }
 
-/// Send `m.call.reject` (VoIP v1 only; v0 peers only understand hangup).
 pub(crate) fn send_reject(
     bridge: &RustClient,
     room_id: String,
@@ -565,7 +498,6 @@ pub(crate) fn send_reject(
     Ok(())
 }
 
-/// Send `m.call.hangup` with a reason from the closed outbound set.
 pub(crate) fn send_hangup(
     bridge: &RustClient,
     room_id: String,
@@ -586,8 +518,6 @@ pub(crate) fn send_hangup(
     Ok(())
 }
 
-/// Send `m.call.select_answer`, naming the party whose answer the caller
-/// locked onto (MSC2746 multi-device rule).
 pub(crate) fn send_select_answer(
     bridge: &RustClient,
     room_id: String,
@@ -608,8 +538,6 @@ pub(crate) fn send_select_answer(
     Ok(())
 }
 
-/// Decline an `m.rtc.notification` ring. The SDK builds the content
-/// (`Room::make_decline_call_event`).
 pub(crate) fn rtc_decline(
     bridge: &RustClient,
     room_id: String,
@@ -630,18 +558,12 @@ pub(crate) fn rtc_decline(
     Ok(())
 }
 
-/// Keeps every call handler registered for the sync loop's lifetime;
-/// dropping it unregisters them.
 pub(crate) struct CallHandlerGuards {
     _guards: Vec<EventHandlerDropGuard>,
 }
 
-/// Bound on the SDP carried into C++ memory; real ones are a few KB and
-/// events are capped at 64 KiB.
 const MAX_CARRIED_SDP_LEN: usize = 128 * 1024;
 
-/// The remote SDP for C++, only in media-capable mode, bounded, and only
-/// when present. `None` omits the field.
 fn carried_sdp(media_capable: &AtomicBool, sdp: &str) -> Option<String> {
     if !media_capable.load(Ordering::Relaxed) {
         return None;
@@ -653,7 +575,6 @@ fn carried_sdp(media_capable: &AtomicBool, sdp: &str) -> Option<String> {
     Some(trimmed.to_owned())
 }
 
-/// Bounds for ICE candidates in either direction.
 const MAX_CANDIDATES_PER_EVENT: usize = 32;
 const MAX_CANDIDATE_LINE_LEN: usize = 1024;
 const MAX_SDP_MID_LEN: usize = 64;
@@ -669,8 +590,6 @@ fn carried_candidate_line(line: &str) -> Option<&str> {
     Some(line)
 }
 
-/// Send `m.call.candidates`. The JSON list comes from C++ (our own
-/// candidates) and is re-validated and bounded anyway.
 pub(crate) fn send_candidates(
     bridge: &RustClient,
     room_id: String,
@@ -724,10 +643,6 @@ pub(crate) fn send_candidates(
     Ok(())
 }
 
-/// Fetch the homeserver's TURN servers (`/voip/turnServer`). The short-lived
-/// credentials cross once, feed the media engine's ICE config, and are never
-/// logged or persisted. Only servers the homeserver names are used; no
-/// third-party STUN fallback that would leak the user's IP.
 pub(crate) fn fetch_turn_servers(
     bridge: &RustClient,
     op_id: u64,
@@ -783,8 +698,6 @@ fn classify_turn_failure(err: &matrix_sdk::HttpError) -> &'static str {
 
     use matrix_sdk::ruma::api::error::DeserializationError;
 
-    // Valid JSON that lacks the fields (Synapse's `{}`) is an answer; a body
-    // that is not JSON at all (a captive portal's HTML page) is not.
     let empty_answer = match err {
         HttpError::Api(api) => match &**api {
             FromHttpResponseError::Deserialization(DeserializationError::Json(json)) => {
@@ -801,14 +714,11 @@ fn classify_turn_failure(err: &matrix_sdk::HttpError) -> &'static str {
     )
 }
 
-/// The pure half of `classify_turn_failure`, for tests. `empty_answer`: an
-/// accepted status whose body is JSON naming no server.
 fn turn_failure_category(
     server_error: bool,
     empty_answer: bool,
     message: &str,
 ) -> &'static str {
-    // A Matrix error from the server (403, 429, 404 M_UNRECOGNIZED...).
     if server_error {
         return classify_room_error(message);
     }
@@ -818,8 +728,6 @@ fn turn_failure_category(
     "network"
 }
 
-/// Whether a serde_json failure means "valid JSON, fields missing" (Synapse's
-/// `{}`) rather than "not JSON".
 fn json_error_is_empty_answer(err: &serde_json::Error) -> bool {
     err.classify() == serde_json::error::Category::Data
 }
@@ -840,7 +748,6 @@ fn invite_payload(
     else {
         return None;
     };
-    // SDP crosses only in media-capable mode (see carried_sdp).
     let mut payload = json!({
         "type": "call_invite",
         "lifecycle": timelines.lifecycle(),
@@ -931,7 +838,7 @@ fn candidates_payload(
         let Some(line) =
             carried_candidate_line(&candidate.candidate)
         else {
-            continue; // hostile line: skip, keep the rest
+            continue;
         };
         let mut entry = json!({ "candidate": line });
         if let Some(mid) = candidate
@@ -965,9 +872,6 @@ fn candidates_payload(
         "candidates": entries,
     }))}
 
-/// Register inbound observers for call-signalling events. They ride the
-/// normal sync dispatch (sliding and classic), independent of any open
-/// timeline; call state is fed only from here.
 pub(crate) fn register_handlers(
     client: &Client,
     events: &EventQueue,
@@ -1255,7 +1159,6 @@ pub(crate) fn register_handlers(
                 let subscriptions = Arc::clone(&subscriptions);
                 let room_list = Arc::clone(&room_list);
                 async move {
-                    // Candidates are host IPs; outside media-capable mode nothing crosses.
                     if !media_capable.load(Ordering::Relaxed) {
                         return;
                     }
@@ -1351,8 +1254,6 @@ mod tests {
 
     #[test]
     fn the_stable_notification_forwards_its_type_and_mentions() {
-        // Before: the stable handler forwarded neither, so every announcement
-        // reached CallController as a ring.
         let ev = stable_notification(json!({
             "notification_type": "notification",
             "sender_ts": 1_000,
@@ -1364,7 +1265,6 @@ mod tests {
         assert_eq!(payload["notification_type"], json!("notification"));
         assert_eq!(payload["mentions_user_ids"], json!(["@me:x"]));
         assert_eq!(payload["mentions_room"], json!(false));
-        // The rest of the record is unchanged.
         assert_eq!(payload["event_id"], json!("$announce:x"));
         assert_eq!(payload["sender"], json!("@caller:x"));
         assert_eq!(payload["lifetime_ms"], json!(30_000));
@@ -1385,7 +1285,6 @@ mod tests {
     #[test]
     fn mentions_me_is_decided_on_the_whole_list_before_the_bound() {
         let me = UserId::parse("@me:x").expect("valid user id");
-        // We are listed past the forwarding bound: still addressed.
         let mut ids: Vec<_> = (0..(MAX_RTC_MENTION_IDS + 10))
             .map(|i| UserId::parse(format!("@u{i}:x")).expect("valid user id"))
             .collect();
@@ -1397,7 +1296,6 @@ mod tests {
             Some(MAX_RTC_MENTION_IDS)
         );
         assert_eq!(fields["mentions_me"], json!(true));
-        // Not listed, no mentions, or no own id: not addressed.
         let others = Mentions::with_user_ids([UserId::parse("@them:x").unwrap()]);
         let fields = rtc_notification_addressing("ring", Some(&others), Some(&me));
         assert_eq!(fields["mentions_me"], json!(false));
@@ -1405,7 +1303,6 @@ mod tests {
         assert_eq!(fields["mentions_me"], json!(false));
         let fields = rtc_notification_addressing("ring", Some(&many), None);
         assert_eq!(fields["mentions_me"], json!(false));
-        // And the stable payload carries it, judged against our own id.
         let ev = stable_notification(json!({
             "notification_type": "ring",
             "sender_ts": 1_000,
@@ -1419,10 +1316,8 @@ mod tests {
 
     #[test]
     fn notification_addressing_is_a_closed_set_and_bounded() {
-        // A type nobody defined never rings.
         let fields = rtc_notification_addressing("RING!", None, None);
         assert_eq!(fields["notification_type"], json!("notification"));
-        // No m.mentions addresses nobody.
         assert_eq!(fields["mentions_user_ids"], json!([]));
         assert_eq!(fields["mentions_room"], json!(false));
 
@@ -1449,7 +1344,6 @@ mod tests {
         }
         let empty = serde_json::from_str::<Turn>("{}").unwrap_err();
         assert!(json_error_is_empty_answer(&empty));
-        // A captive portal's page is not an answer from the homeserver.
         let html = serde_json::from_str::<Turn>("<html><body>Login</body></html>")
             .unwrap_err();
         assert!(!json_error_is_empty_answer(&html));
@@ -1457,17 +1351,14 @@ mod tests {
 
     #[test]
     fn an_empty_turn_answer_is_none_configured_not_network() {
-        // Synapse with no TURN answers `200 {}`.
         assert_eq!(
             turn_failure_category(false, true, "missing field `username`"),
             "none_configured"
         );
-        // A transport failure stays transient.
         assert_eq!(
             turn_failure_category(false, false, "error sending request"),
             "network"
         );
-        // A Matrix error keeps its own category.
         assert_eq!(
             turn_failure_category(true, false, "M_LIMIT_EXCEEDED: slow down"),
             "rate_limited"
@@ -1531,7 +1422,6 @@ mod tests {
         assert_eq!(reason_str(&Reason::UserHangup), "user_hangup");
         assert_eq!(reason_str(&Reason::InviteTimeout), "invite_timeout");
         assert_eq!(reason_str(&Reason::UserBusy), "user_busy");
-        // Sender-chosen free text collapses.
         let custom = Reason::from("libwebrtc exploded at 10.0.0.7");
         assert_eq!(reason_str(&custom), "unknown");
     }
@@ -1567,15 +1457,12 @@ mod tests {
 
     #[test]
     fn invite_payload_shape_carries_no_sdp() {
-        // Pins the sanitizers the invite payload is built from; the SDP itself is
-        // never a payload field.
         let description = SessionDescription::new(
             "offer".to_owned(),
             "v=0\r\nc=IN IP4 192.168.1.4".to_owned(),
         );
         assert_eq!(session_type_str(&description.session_type), "offer");
         assert!(!description.sdp.is_empty());
-        // Only coarse booleans cross.
         assert!(!description.sdp.trim().is_empty());
     }
 
@@ -1587,7 +1474,6 @@ mod tests {
         assert!(wire_id("evil\ninjection").is_none());
         assert!(wire_id("literal-backslash-\\x07").is_some());
         assert!(wire_id("real\u{7}bell").is_none());
-        // Optional form: absence is empty, hostile drops.
         assert_eq!(optional_wire_id(None), Some(String::new()));
         assert_eq!(optional_wire_id(Some("ok")), Some("ok".to_owned()));
         assert_eq!(optional_wire_id(Some("bad\nid")), None);
@@ -1609,7 +1495,7 @@ mod tests {
         assert!(carried_candidate_line(
             "candidate:0 1 UDP 2122252543 192.168.1.4 47279 typ host")
             .is_some());
-        assert!(carried_candidate_line("").is_some()); // end-of-candidates
+        assert!(carried_candidate_line("").is_some());
         assert!(carried_candidate_line("evil\nline").is_none());
         assert!(carried_candidate_line(&"x".repeat(2000)).is_none());
     }

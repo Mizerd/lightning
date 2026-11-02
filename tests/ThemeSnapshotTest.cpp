@@ -1,21 +1,3 @@
-// Offscreen visual-verification suite: renders representative surfaces
-// headlessly (QT_QPA_PLATFORM=offscreen) and asserts colour properties on
-// sampled pixels.
-//
-// What this proves:
-//   * each design theme paints its own background/sidebar/surface/accent
-//     tokens (a light theme is never rendered near-black, and vice versa);
-//   * a real Fusion-styled ComboBox popup inherits the themed application
-//     palette rather than the system palette;
-//   * a real Button and TextField chrome follow the theme;
-//   * initials avatars render on their deterministic palette colour.
-//
-// Snapshots are written to $LIGHTNING_SNAPSHOT_DIR (or the build dir) as PNGs
-// for inspection.
-//
-// Delegate-heavy views are not pixel-asserted: the offscreen QPA does not
-// incubate view delegates deterministically. The QML contract tests and the
-// structural checks at the end of this file cover them.
 
 #include <QtTest/QtTest>
 
@@ -35,8 +17,6 @@
 
 namespace {
 
-// The three flagship design themes plus one legacy light + one legacy dark,
-// so the assertions exercise both polarities and the fallback token routing.
 struct ThemeCase {
     int id;
     const char *name;
@@ -60,8 +40,6 @@ QString snapshotDir()
     return dir;
 }
 
-// Average colour over a small sample rectangle (robust against single-pixel
-// AA fringing at borders).
 QColor sampleAvg(const QImage &img, const QRect &r)
 {
     long long rs = 0, gs = 0, bs = 0, n = 0;
@@ -83,7 +61,7 @@ int channelDelta(const QColor &a, const QColor &b)
                 qAbs(a.blue() - b.blue()));
 }
 
-} // namespace
+}
 
 class ThemeSnapshotTest : public QObject
 {
@@ -92,11 +70,6 @@ class ThemeSnapshotTest : public QObject
 private:
     QQmlEngine m_engine;
 
-    // Builds one probe scene for a theme as a real ApplicationWindow, so the
-    // Fusion-styled chrome (and crucially its popups) resolve exactly the way
-    // they do in the running app (Main.qml). Mirrors Main.qml's palette
-    // binding, then lays out labelled swatches for the key tokens plus a real
-    // Button, TextField and ComboBox. Deterministic geometry: 300x360.
     QObject *buildWindow(int themeId)
     {
         const char *qml = R"QML(
@@ -194,7 +167,7 @@ ApplicationWindow {
             delete component;
             return nullptr;
         }
-        component->setParent(obj); // component lifetime tied to the window
+        component->setParent(obj);
         return obj;
     }
 
@@ -213,9 +186,6 @@ private Q_SLOTS:
             QTest::newRow(t.name) << t.id << QString::fromLatin1(t.name) << t.light;
     }
 
-    // Render each theme, save a PNG artifact, and assert the sampled swatch
-    // pixels match the theme's own tokens (proving the theme actually applied
-    // and, for light themes, that nothing rendered near-black).
     void eachThemePaintsItsOwnTokens()
     {
         QFETCH(int, themeId);
@@ -229,7 +199,6 @@ private Q_SLOTS:
         QObject *scene = owner.get();
         window->show();
 
-        // Open the ComboBox popup so its chrome participates in the grab.
         if (auto *combo = childByName(scene, QStringLiteral("probeCombo"))) {
             if (QObject *popup = combo->property("popup").value<QObject *>())
                 QMetaObject::invokeMethod(popup, "open");
@@ -244,9 +213,6 @@ private Q_SLOTS:
         QVERIFY2(shot.save(path), qUtf8Printable(
             QStringLiteral("could not save %1").arg(path)));
 
-        // --- assertions on sampled swatches ---
-        // Read the QML-resolved token colours straight off the items so the
-        // expected value always tracks AppTheme, never a hard-coded hex.
         auto tokenColor = [&](const char *obj) {
             QQuickItem *it = childByName(scene, QString::fromLatin1(obj));
             return it ? it->property("color").value<QColor>() : QColor();
@@ -270,8 +236,6 @@ private Q_SLOTS:
             qUtf8Printable(QStringLiteral("%1: accent rendered %2 expected %3")
                 .arg(name, accentPix.name(), accentTok.name())));
 
-        // Polarity guard: a light theme's surface must be light, a dark
-        // theme's dark.
         const int surfaceLuma = qRound(0.299 * surfacePix.red()
             + 0.587 * surfacePix.green() + 0.114 * surfacePix.blue());
         if (light)
@@ -283,9 +247,6 @@ private Q_SLOTS:
                 QStringLiteral("%1: dark theme surface too light (luma %2)")
                     .arg(name).arg(surfaceLuma)));
 
-        // Avatar renders on a saturated identity colour, not a flat
-        // neutral — the discs follow the theme, but a theme must never
-        // flatten them into the surface they sit on.
         QVERIFY2(avatarTok.isValid() && avatarTok.saturation() > 40,
             qUtf8Printable(QStringLiteral("%1: avatar palette colour %2 not vivid")
                 .arg(name, avatarTok.name())));
@@ -293,10 +254,6 @@ private Q_SLOTS:
         window->hide();
     }
 
-    // A Fusion ComboBox popup resolves its palette from the application
-    // palette, which an ApplicationWindow item palette does not reach. After
-    // AppController::applyControlPalette the popup must follow the theme
-    // polarity; this drives the real method and reads the popup's palette.
     void comboPopupFollowsAppliedThemePalette_data()
     {
         QTest::addColumn<int>("themeId");
@@ -317,8 +274,6 @@ private Q_SLOTS:
         window->show();
         QTest::qWait(30);
 
-        // Apply the theme to the application palette exactly as the running
-        // app does, using the tokens the window resolved.
         AppController controller(AppController::MockBackend);
         QVariantMap roles;
         roles.insert(QStringLiteral("window"), owner->property("tokWindow"));
@@ -346,8 +301,6 @@ private Q_SLOTS:
             return qRound(0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue());
         };
         const int wl = luma(windowTok);
-        // The popup paints from Base (the list background) and Window; both
-        // must now share the theme's polarity rather than the default light.
         const int bl = luma(popupBase);
         const int pwl = luma(popupWindow);
         QVERIFY2(qAbs(wl - bl) < 96 && qAbs(wl - pwl) < 96, qUtf8Printable(
@@ -363,8 +316,6 @@ private Q_SLOTS:
     }
 };
 
-// Real Qt Quick item creation (even offscreen) needs a QGuiApplication,
-// matching main.cpp's application class.
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);

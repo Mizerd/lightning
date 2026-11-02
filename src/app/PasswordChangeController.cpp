@@ -6,7 +6,6 @@
 
 #include <algorithm>
 
-// Outcomes and categories only; never a password or the server's text.
 Q_LOGGING_CATEGORY(lcPasswordChange, "lightning.account.password")
 
 PasswordChangeController::PasswordChangeController(QObject *parent)
@@ -21,7 +20,7 @@ void PasswordChangeController::setClient(MatrixClient *client)
     if (m_client)
         m_client->disconnect(this);
     m_client = client;
-    onLoggedOut(); // nothing of the previous client survives
+    onLoggedOut();
     if (m_client) {
         connect(m_client, &MatrixClient::passwordChangeProbed, this,
                 &PasswordChangeController::onProbed);
@@ -47,7 +46,6 @@ bool PasswordChangeController::available() const
 
 QString PasswordChangeController::mode() const
 {
-    // An OAuth (MAS) account has no password Lightning could send.
     if (m_oauthCheck && m_oauthCheck())
         return QStringLiteral("external");
     if (m_probeKnown && !m_canChange) {
@@ -59,7 +57,6 @@ QString PasswordChangeController::mode() const
 
 void PasswordChangeController::refresh()
 {
-    // The OAuth check may have changed with the active account.
     Q_EMIT stateChanged();
     m_probeWanted = true;
     if (!available() || m_probeOp != 0)
@@ -76,7 +73,6 @@ bool PasswordChangeController::changePassword(const QString &currentPassword,
 {
     if (!available() || busy() || mode() != QLatin1String("form"))
         return false;
-    // Refused here, before anything reaches the backend.
     const QString problem =
         localProblem(currentPassword, newPassword, confirmPassword);
     if (!problem.isEmpty()) {
@@ -116,7 +112,6 @@ QString PasswordChangeController::localProblem(const QString &currentPassword,
         return QStringLiteral("empty");
     if (newPassword != confirmPassword)
         return QStringLiteral("mismatch");
-    // Characters, not UTF-16 units, and without copying the password.
     const auto characters = std::count_if(
         newPassword.cbegin(), newPassword.cend(),
         [](QChar c) { return !c.isLowSurrogate(); });
@@ -172,7 +167,6 @@ void PasswordChangeController::onProbed(quint64 opId, bool known,
 void PasswordChangeController::onFinished(quint64 opId, bool ok,
                                           const QString &category)
 {
-    // A stale or foreign answer (after a sign-out, or another account's).
     if (opId == 0 || opId != m_changeOp)
         return;
     m_changeOp = 0;
@@ -205,9 +199,6 @@ void PasswordChangeController::onLoggedOut()
 
 void PasswordChangeController::onLoggedIn()
 {
-    // A store reset ends a session without loggedOut; a new session can never
-    // answer an op of the old one (the generation filter drops it), so a
-    // change or probe still pending here would stay "busy" for ever.
     if (m_changeOp != 0 || m_probeOp != 0) {
         m_changeOp = 0;
         m_probeOp = 0;

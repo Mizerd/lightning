@@ -3,30 +3,13 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Space settings, and the same permission editor when Room Information opens
-// a room's power levels. Both target ordinary Matrix rooms.
-//
-// A Space is a Matrix room: every control writes ordinary room state through
-// RoomInfoController, gated on the real required power level for that event,
-// and never applied optimistically (the roster is re-read after each write).
-//
-// Not offered: name colours, fonts and per-Space appearance, which are not
-// Matrix state and would be private storage no other client or device sees.
-// Sticker packs (im.ponies.room_emotes, MSC2545) are real state and simply not
-// built here yet. The banner is a real state event
-// (page.codeberg.everypizza.room.banner, rust/src/banner.rs) chosen so other
-// clients read it.
 AppDialog {
     id: root
     objectName: "spaceSettingsDialog"
 
-    /// The Matrix room being edited (a Space unless roomMode is true).
     property string spaceId: ""
-    // Room Information opens this same editor at its Permissions section.
     property bool roomMode: false
     property string roomName: ""
-    /// Where app.roomInfo pointed when this opened, restored on close: the
-    /// controller is shared with Room Information and Space Home.
     property string _restoreRoomId: ""
     property int section: 0
 
@@ -60,12 +43,10 @@ AppDialog {
             root.orderStatus = ok
                 ? qsTr("Default order saved. Your personal room order still takes precedence.")
                 : qsTr("Could not save the complete order. Some rooms may have moved; save again to retry, or reload the order.")
-            // A failed save may be half applied: keep the draft so it can be retried.
             if (ok) root.orderDirty = false
         }
     }
 
-    // No title: this dialog draws its own header.
     title: ""
     modal: true
     parent: Overlay.overlay
@@ -74,9 +55,6 @@ AppDialog {
     width: Math.min(940, Overlay.overlay ? Overlay.overlay.width - 80 : 940)
     height: Math.min(660, Overlay.overlay ? Overlay.overlay.height - 80 : 660)
 
-    /// Bumped on every SpaceManager change; read in `info`, which calls
-    /// app.spaces.spaceInfo() and would otherwise depend only on spaceId, so
-    /// remote renames and avatar/topic changes would never reach the dialog.
     property int spacesTick: 0
     readonly property var info: {
         var _dep = root.spacesTick
@@ -85,8 +63,6 @@ AppDialog {
         return app.spaces && spaceId.length > 0
                ? app.spaces.spaceInfo(spaceId) : ({})
     }
-    // True only when the roster on screen is this Space's; app.roomInfo is
-    // shared, and another room's permissions must not gate these controls.
     readonly property bool infoIsOurs:
         app.roomInfo && app.roomInfo.roomId === root.spaceId
 
@@ -101,30 +77,19 @@ AppDialog {
         section = 0
         if (app.spaces)
             app.spaces.noteSettingsDialogOpened(targetSpaceId)
-        // `section` does not change when reopening on tab 0, so reset the
-        // shared scroller explicitly.
         bodyFlick.contentY = 0
         memberError = ""
         memberFilter.text = ""
         membershipCombo.currentIndex = 0
         sortCombo.currentIndex = 0
-        // Re-snap every mirrored field on each open: onSpaceIdChanged does not
-        // fire when reopening the same Space.
         nameField.reset()
         topicField.reset()
         aliasField.resetForSpace()
         joinRuleCombo.refreshRule()
-        // Refresh, not request: the banner is a custom state event that sliding
-        // sync does not deliver, so read it on every open (a deliberate action
-        // on one Space).
         if (app.banners)
             app.banners.refreshRoom(targetSpaceId)
-        // The same for the shared chat background: without this read the
-        // editor never learned that this account may set it.
         if (app.backdrops)
             app.backdrops.refreshScope(targetSpaceId)
-        // Asked once per session, so the delete is offered only to a server
-        // administrator.
         if (app.roomClosure)
             app.roomClosure.checkServerAdmin()
         orderPending = app.spaces.childOrderPending(targetSpaceId)
@@ -148,10 +113,8 @@ AppDialog {
         open()
     }
 
-    // The Flickable behind the body's ScrollView.
     readonly property Flickable bodyFlick: bodyScroll.contentItem
 
-    // Scrolls the body so `item` is fully visible, when it lives inside it.
     function ensureVisibleInBody(item) {
         var f = root.bodyFlick
         if (!f || !item || !f.contentItem)
@@ -168,8 +131,6 @@ AppDialog {
             f.contentY = Math.max(0, top - 8)
         else if (bottom > f.contentY + f.height)
             f.contentY = Math.min(maxY, bottom - f.height + 8)
-        // Horizontal axis: a wide section scrolls sideways (minContentWidth),
-        // so a control at the row end must be brought into view too.
         var left = item.mapToItem(f.contentItem, 0, 0).x
         var right = left + item.width
         var maxX = Math.max(0, f.contentWidth - f.width)
@@ -179,7 +140,6 @@ AppDialog {
             f.contentX = Math.min(maxX, right - f.width + 8)
     }
 
-    // One scroller serves all four tabs: each opens at its top.
     onSectionChanged: bodyFlick.contentY = 0
 
     onClosed: {
@@ -236,8 +196,6 @@ AppDialog {
     ] : [
         {
             title: qsTr("Users"),
-            // Notes are group-level: a per-row Label whose text can be "" would
-            // keep ItemObservesViewport forever.
             note: qsTr("The level every member starts at. Raising it grants "
                        + "EVERYONE in the space everything at that level."),
             rows: [
@@ -254,7 +212,6 @@ AppDialog {
         },
         {
             title: qsTr("Moderation"),
-            // Matrix has no separate unban level (it is max(ban, kick)).
             note: "",
             rows: [
                 { key: "invite", label: qsTr("Invite") },
@@ -292,7 +249,6 @@ AppDialog {
     contentItem: ColumnLayout {
         spacing: 0
 
-        // Header: which Space, which section, and close
         RowLayout {
             Layout.fillWidth: true
             Layout.bottomMargin: AppTheme.spacing12
@@ -325,7 +281,6 @@ AppDialog {
                 color: AppTheme.stormBorder
             }
             Label {
-                // Untrusted text: never markup.
                 textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: root.sections[root.section].label
@@ -353,10 +308,6 @@ AppDialog {
             Layout.fillHeight: true
             spacing: AppTheme.spacing16
 
-            // Section nav. A nested layout fills its row by default, and the
-            // body below reports no implicit width, so without this the nav
-            // took the whole dialog and every section's page had none
-            // (reported against 0.10.2: "Permissions not showing in spaces").
             ColumnLayout {
                 objectName: "spaceSettingsNav"
                 Layout.fillWidth: false
@@ -389,8 +340,6 @@ AppDialog {
                             cursorShape: Qt.PointingHandCursor
                         }
                         TapHandler { onTapped: root.section = navRow.sectionIndex }
-                        // Keyboard: Tab reaches the rows, Up/Down move between
-                        // them and Return/Space/Enter select.
                         activeFocusOnTab: true
                         function _goto(i) {
                             var n = root.roomMode ? 1 : root.sections.length
@@ -425,7 +374,6 @@ AppDialog {
                                                       : AppTheme.stormTextMuted
                             }
                             Label {
-                                // Untrusted text: never markup.
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: navRow.modelData.label
@@ -449,7 +397,6 @@ AppDialog {
                 color: AppTheme.stormBorder
             }
 
-            // Section body
             Item {
                 id: bodyHost
                 Layout.fillWidth: true
@@ -460,15 +407,10 @@ AppDialog {
                 objectName: "spaceSettingsBodyScroll"
                 anchors.fill: parent
                 clip: true
-                // Room for the overlay scrollbar, so it does not sit on the
-                // right edge of the cards.
                 rightPadding: AppTheme.spacing8
-                // The Members and Permissions rows need about this much;
-                // below it the page scrolls sideways instead of clipping.
                 readonly property real minContentWidth:
                     (root.section === 1 || root.section === 2) ? 500 : 0
                 contentWidth: Math.max(availableWidth, minContentWidth)
-                // Page keys scroll when focus is on the page itself.
                 activeFocusOnTab: true
                 Keys.onPressed: (event) => {
                     var f = bodyFlick
@@ -492,9 +434,6 @@ AppDialog {
                     width: parent ? parent.width : 0
                     spacing: AppTheme.spacing16
 
-                    // Shown while the roster is not loaded: every gate below
-                    // depends on it, and unexplained disabled controls look
-                    // like a permission refusal.
                     Label {
                         Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacing12
@@ -511,7 +450,6 @@ AppDialog {
                                      + "arrive.")
                     }
 
-                    // ══ GENERAL ══
                     ColumnLayout {
                         Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacing12
@@ -525,14 +463,11 @@ AppDialog {
                             currentFolder: app.defaultFileDialogFolder()
                             fileMode: "open"
                             nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)")]
-                            // The crop dialog decides what is uploaded and
-                            // refuses non-raster files before rendering.
                             onAccepted: spaceAvatarCrop.openFor(selectedFile)
                         }
                         ImageCropDialog {
                             id: spaceAvatarCrop
                             role: "avatar"
-                            // m.room.avatar, exactly as for a room.
                             onCropped: function (file) {
                                 app.roomInfo.setRoomAvatar(file)
                             }
@@ -549,8 +484,6 @@ AppDialog {
                         ImageCropDialog {
                             id: spaceBannerCrop
                             role: "banner"
-                            // Pass the URL as-is; stripping "file://" breaks
-                            // Windows paths.
                             onCropped: function (file) {
                                 app.banners.setRoomBanner(root.spaceId,
                                                           file.toString())
@@ -617,8 +550,6 @@ AppDialog {
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMeta
                                 }
-                                // Shared with the inline Space Home card:
-                                // one draft/dirty/permission contract.
                                 SpaceTextEditRow {
                                     id: nameField
                                     Layout.fillWidth: true
@@ -658,8 +589,6 @@ AppDialog {
                                              && app.roomInfo.canEditTopic
                                     pending: root.infoIsOurs
                                              && app.roomInfo.editPending
-                                    // No length test: a topic may be cleared,
-                                    // a name may not.
                                     buttonText: qsTr("Save")
                                     fieldObjectName: "spaceSettingsTopicField"
                                     buttonObjectName: "spaceSettingsTopicSaveButton"
@@ -672,10 +601,6 @@ AppDialog {
                             }
                         }
 
-                        // Banner: a real state event matching the reference
-                        // client's type (see rust/src/banner.rs). Permission
-                        // comes from the banner manager, since this custom type
-                        // has its own required level.
                         MenuSectionLabel {
                             text: qsTr("Banner")
                             visible: bannerCard.visible
@@ -704,8 +629,6 @@ AppDialog {
                             readonly property bool canEdit: {
                                 if (!app.banners || root.spaceId === "")
                                     return false
-                                // False until the room replies, so the control
-                                // is never offered on a guess.
                                 var _dep = app.banners.revision
                                 return app.banners.canSetRoomBanner(root.spaceId)
                             }
@@ -718,8 +641,6 @@ AppDialog {
 
                                 Rectangle {
                                     Layout.fillWidth: true
-                                    // 3:1, the ratio ImageCropDialog crops to,
-                                    // so the preview matches what was saved.
                                     implicitHeight: Math.round(width / 3)
                                     radius: AppTheme.radiusMd
                                     clip: true
@@ -734,9 +655,6 @@ AppDialog {
                                         opacity: bannerPreviewMotion.shown ? 0 : 1
                                         readonly property string mxc:
                                             bannerCard.bannerMxc
-                                        // A counter the binding reads, never an
-                                        // assignment to `source`, which would
-                                        // destroy the binding.
                                         property int resolveTick: 0
                                         source: {
                                             var _tick = resolveTick
@@ -745,9 +663,6 @@ AppDialog {
                                                    ? app.mediaBridge.wideImageSource(mxc)
                                                    : ""
                                         }
-                                        // Connections only listen once the
-                                        // dialog is complete; see the profile
-                                        // banner preview in SettingsScreen.qml.
                                         Component.onCompleted: {
                                             if (mxc.length > 0
                                                     && source.toString().length === 0)
@@ -761,10 +676,6 @@ AppDialog {
                                                     && bannerPreview.source.toString().length === 0)
                                                     bannerPreview.resolveTick++
                                             }
-                                            // An expired transient failure mark:
-                                            // re-ask, as Avatar.qml does. The bridge
-                                            // re-arms the mark on failure, so this
-                                            // cannot hammer the backend.
                                             function onMediaRetryable(key) {
                                                 if (key.endsWith(":" + bannerPreview.mxc)
                                                     && bannerPreview.source.toString().length === 0)
@@ -779,10 +690,6 @@ AppDialog {
                                         mxc: bannerPreview.mxc
                                         stillReady: bannerPreview.status === Image.Ready
                                     }
-                                    // "No banner" only when true: the preview
-                                    // is also invisible while loading and after
-                                    // a failed fetch, and those render as the
-                                    // empty panel.
                                     Label {
                                         objectName: "spaceSettingsNoBanner"
                                         anchors.centerIn: parent
@@ -823,8 +730,6 @@ AppDialog {
                                     Item { Layout.fillWidth: true }
                                 }
 
-                                // A refusal is reported in place; nothing was
-                                // applied optimistically.
                                 Label {
                                     Layout.fillWidth: true
                                     visible: !!app.banners
@@ -842,8 +747,6 @@ AppDialog {
                             }
                         }
 
-                        // The Space's shared chat background: shown behind
-                        // every room in the Space that has none of its own.
                         MenuSectionLabel {
                             text: qsTr("Chat background")
                             visible: chatBackgroundCard.visible
@@ -993,7 +896,6 @@ AppDialog {
                                     enabled: root.infoIsOurs
                                              && app.roomInfo.canChangeJoinRule
                                              && !app.roomInfo.editPending
-                                    // Index order must match ruleValues.
                                     model: [
                                         qsTr("Invited people only"),
                                         qsTr("Anyone with the link"),
@@ -1001,8 +903,6 @@ AppDialog {
                                     ]
                                     readonly property var ruleValues:
                                         ["invite", "public", "knock"]
-                                    // An explicit mirror so a rejected write
-                                    // snaps back to what the Space holds.
                                     property int displayedIndex: 0
                                     function refreshRule() {
                                         var idx = ruleValues.indexOf(
@@ -1016,9 +916,6 @@ AppDialog {
                                             joinRuleCombo.ruleValues[index])
                                     }
                                 }
-                                // Only invite/public/knock are settable: a
-                                // restricted rule needs an allow-rule list this
-                                // surface cannot build.
                                 Label {
                                     Layout.fillWidth: true
                                     visible: accessCol.restricted
@@ -1100,8 +997,6 @@ AppDialog {
                             }
                         }
 
-                        // Advanced. The version is read from the SDK
-                        // (Room::version()), never parsed from m.room.create.
                         MenuSectionLabel {
                             text: qsTr("Advanced")
                             visible: root.infoIsOurs
@@ -1153,13 +1048,8 @@ AppDialog {
                                                  + "m.room.tombstone can "
                                                  + "upgrade this space.")
                                 }
-                                // Upgrade, gated on the tombstone power; opens
-                                // a confirmation.
                                 AppButton {
                                     objectName: "spaceUpgradeButton"
-                                    // Not gated on app.roomUpgrade.upgraded,
-                                    // which describes the active room, not this
-                                    // Space.
                                     visible: root.infoIsOurs
                                              && app.roomInfo.canUpgradeRoom
                                     kind: "secondary"
@@ -1186,8 +1076,6 @@ AppDialog {
                             font.pixelSize: AppTheme.textMeta
                         }
 
-                        // Leave, as on the Space Home's inline card: the two
-                        // settings surfaces offer the same exit.
                         RowLayout {
                             Layout.fillWidth: true
                             Layout.topMargin: AppTheme.spacing12
@@ -1226,9 +1114,6 @@ AppDialog {
                             }
                         }
 
-                        // Close, and for a server administrator delete.
-                        // Matrix has no delete for a room's own admins, so
-                        // "close" is offered and never called one.
                         MenuSectionLabel {
                             Layout.fillWidth: true
                             Layout.topMargin: AppTheme.spacing12
@@ -1269,8 +1154,6 @@ AppDialog {
                             AppButton {
                                 id: deleteSpaceButton
                                 objectName: "spaceDeleteButton"
-                                // Only after the server said this account is
-                                // one of its administrators.
                                 visible: !!app.roomClosure
                                          && app.roomClosure.serverAdmin === "yes"
                                 kind: "danger"
@@ -1285,7 +1168,6 @@ AppDialog {
                         RoomCloseDialog { id: spaceCloseDialog }
                     }
 
-                    // ══ MEMBERS ══
                     ColumnLayout {
                         id: membersSection
                         Layout.fillWidth: true
@@ -1304,9 +1186,6 @@ AppDialog {
                         readonly property bool alphabetical:
                             sortCombo.currentIndex === 1
 
-                        // joinedCount is computed in Rust over the whole
-                        // roster, so it stays honest above the snapshot cap
-                        // (hence the truncation line below).
                         Label {
                             Layout.fillWidth: true
                             text: root.infoIsOurs
@@ -1329,8 +1208,6 @@ AppDialog {
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
                         }
-                        // Says when the list holds fewer members than the
-                        // count.
                         Label {
                             objectName: "spaceSettingsMemberTruncationNotice"
                             Layout.fillWidth: true
@@ -1363,8 +1240,6 @@ AppDialog {
                                 objectName: "spaceSettingsMembershipCombo"
                                 storm: true
                                 Layout.preferredWidth: 130
-                                // Pure view state, so a plain currentIndex is
-                                // fine.
                                 model: [
                                     qsTr("Everyone"),
                                     qsTr("Joined"),
@@ -1393,7 +1268,6 @@ AppDialog {
                             }
                         }
 
-                        // A refused role change, from the member menu.
                         Label {
                             objectName: "spaceSettingsMemberError"
                             Layout.fillWidth: true
@@ -1406,9 +1280,6 @@ AppDialog {
                             font.pixelSize: AppTheme.textMeta
                         }
 
-                        // Grouped by role; buckets come from C++
-                        // (memberRoleGroups), so a custom level gets its own
-                        // group.
                         Label {
                             objectName: "spaceSettingsMembersEmpty"
                             Layout.fillWidth: true
@@ -1462,8 +1333,6 @@ AppDialog {
 
                                         readonly property string uid:
                                             modelData.userId || ""
-                                        // Split on the first colon: a server name
-                                        // may carry a port.
                                         readonly property int _colon:
                                             uid.indexOf(":")
                                         readonly property string localpart:
@@ -1476,10 +1345,7 @@ AppDialog {
                                             memberMenu.opened
                                             && memberMenu.targetUserId === uid
 
-                                        // Right-click anywhere on the row opens the
-                                        // same menu as the button.
                                         TapHandler {
-                                            // Touch has no buttons, so a tap would fire this too.
                                             acceptedButtons: Qt.RightButton
                                             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                                             onTapped: (eventPoint) => root.openMemberMenu(
@@ -1510,8 +1376,6 @@ AppDialog {
                                                 font.family: AppTheme.uiFont
                                                 font.pixelSize: AppTheme.textBody
                                             }
-                                            // Role chip for anyone above the default
-                                            // level, from the member's real level.
                                             StatusChip {
                                                 objectName: "spaceMemberRoleChip"
                                                 readonly property var level:
@@ -1526,8 +1390,6 @@ AppDialog {
                                                          || app.roomInfo.roleLabelForLevel(level)
                                                        : ""
                                             }
-                                            // Invited and banned rows are listed (a
-                                            // hidden ban cannot be lifted) and marked.
                                             Label {
                                                 visible: memberRow.modelData.membership
                                                          === "invited"
@@ -1544,11 +1406,9 @@ AppDialog {
                                                 font.family: AppTheme.uiFont
                                                 font.pixelSize: AppTheme.textMicro
                                             }
-                                            // Localpart over server, stacked right.
                                             ColumnLayout {
                                                 spacing: 0
                                                 Label {
-                                                    // Untrusted text: never markup.
                                                     textFormat: Text.PlainText
                                                     Layout.alignment: Qt.AlignRight
                                                     text: memberRow.localpart
@@ -1557,7 +1417,6 @@ AppDialog {
                                                     font.pixelSize: AppTheme.textMicro
                                                 }
                                                 Label {
-                                                    // Untrusted text: never markup.
                                                     textFormat: Text.PlainText
                                                     Layout.alignment: Qt.AlignRight
                                                     visible: memberRow.server.length > 0
@@ -1567,8 +1426,6 @@ AppDialog {
                                                     font.pixelSize: AppTheme.textMicro
                                                 }
                                             }
-                                            // Kept in the layout while hidden so rows
-                                            // do not shift under the pointer.
                                             IconButton {
                                                 id: memberMenuButton
                                                 objectName: "spaceMemberMenuButton"
@@ -1585,8 +1442,6 @@ AppDialog {
                                                     memberRow.modelData,
                                                     memberMenuButton, 0,
                                                     memberMenuButton.height + 2)
-                                                // Menu key and Shift+F10 open
-                                                // the same menu.
                                                 Keys.onMenuPressed: clicked()
                                                 Keys.onPressed: (event) => {
                                                     if (event.key === Qt.Key_F10
@@ -1604,7 +1459,6 @@ AppDialog {
                         }
                     }
 
-                    // ══ PERMISSIONS ══
                     ColumnLayout {
                         Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacing12
@@ -1617,8 +1471,6 @@ AppDialog {
                             color: AppTheme.stormTextMuted
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
-                            // The offer policy, stated, so a disabled control
-                            // does not look like a bug.
                             text: root.roomMode
                                   ? qsTr("You can only require a level at or below your own, and only set a member's role below your own — never for someone at or above it. A room using a custom level shows that number.")
                                   : qsTr("You can only require a level at or below your own, and only set a member's role below your own — never for someone at or above it. A space using a custom level shows that number rather than being relabelled.")
@@ -1635,8 +1487,6 @@ AppDialog {
                                   ? qsTr("You don't have permission to change roles or permissions in this room.")
                                   : qsTr("You don't have permission to change roles or permissions in this space.")
                         }
-                        // No thresholds from the backend means unknown, never
-                        // "everything is 0".
                         Label {
                             objectName: "spaceSettingsMatrixUnavailable"
                             Layout.fillWidth: true
@@ -1664,7 +1514,6 @@ AppDialog {
                                   ? app.roomInfo.powerMatrixError : ""
                         }
 
-                        // The power-level matrix
                         Repeater {
                             model: root.permissionGroups
                             delegate: ColumnLayout {
@@ -1681,8 +1530,6 @@ AppDialog {
                                     text: permGroup.modelData.title
                                 }
 
-                                // Only for the two groups with a warning; a
-                                // Loader so no empty Label exists.
                                 Loader {
                                     Layout.fillWidth: true
                                     active: permGroup.modelData.note.length > 0
@@ -1706,8 +1553,6 @@ AppDialog {
 
                                         readonly property string permKey:
                                             modelData.key
-                                        // Method calls create no dependency; hence
-                                        // the tick.
                                         readonly property bool known: {
                                             var _t = root.rosterTick
                                             return root.infoIsOurs
@@ -1721,10 +1566,6 @@ AppDialog {
                                                          permRow.permKey)
                                                    : -1
                                         }
-                                        // The presets plus the room's current
-                                        // value when it is none of them, so the
-                                        // control shows the truth. The field
-                                        // beside it sets arbitrary values.
                                         readonly property var levelOptions: {
                                             var d = root.infoIsOurs
                                                     ? app.roomInfo.usersDefaultPowerLevel
@@ -1752,7 +1593,6 @@ AppDialog {
                                         }
 
                                         Label {
-                                            // Untrusted text: never markup.
                                             textFormat: Text.PlainText
                                             Layout.fillWidth: true
                                             elide: Label.ElideRight
@@ -1783,9 +1623,6 @@ AppDialog {
                                             enabled: root.infoIsOurs
                                                      && app.roomInfo.canChangePowerLevels
                                                      && !app.roomInfo.powerMatrixPending
-                                            // Explicit mirror via syncToValue, never
-                                            // currentIndex: indexOfValue(), which is
-                                            // -1 at creation and would clamp to 0.
                                             function snapBack() {
                                                 if (permRow.known)
                                                     levelCombo.syncToValue(
@@ -1799,8 +1636,6 @@ AppDialog {
                                             }
                                         }
 
-                                        // An arbitrary level, which a room may
-                                        // legitimately use.
                                         AppTextField {
                                             id: customLevel
                                             objectName: "spacePermCustom_"
@@ -1824,10 +1659,6 @@ AppDialog {
                                                 text.trim().length === 0
                                                 ? -1000
                                                 : parseInt(text.trim(), 10)
-                                            // Return applies, as the check
-                                            // beside it does; that button is
-                                            // disabled (so unreachable by Tab)
-                                            // until the field holds a level.
                                             onAccepted: if (applyLevel.enabled)
                                                             applyLevel.clicked()
                                         }
@@ -1839,9 +1670,6 @@ AppDialog {
                                             iconName: "check"
                                             implicitWidth: 28
                                             implicitHeight: 28
-                                            // The controller re-checks before
-                                            // dispatch; asking here avoids offering a
-                                            // write the server must refuse.
                                             enabled: root.infoIsOurs
                                                      && !isNaN(customLevel.parsedLevel)
                                                      && app.roomInfo.canSetPowerLevelKey(
@@ -1858,8 +1686,6 @@ AppDialog {
                                             }
                                         }
 
-                                        // A rejection re-reads the roster, the
-                                        // tick fires, and this snaps back.
                                         Connections {
                                             target: root
                                             function onRosterTickChanged() {
@@ -1871,7 +1697,6 @@ AppDialog {
                             }
                         }
 
-                        // Member roles
                         MenuSectionLabel {
                             Layout.fillWidth: true
                             Layout.topMargin: AppTheme.spacing12
@@ -1884,8 +1709,6 @@ AppDialog {
                                 if (!(root.infoIsOurs
                                       && app.roomInfo.canChangePowerLevels))
                                     return []
-                                // Joined members only: a banned or invited
-                                // user holds no role to change.
                                 return app.roomInfo.filterMembers("").filter(
                                     function (m) {
                                         return m.membership !== "banned"
@@ -1935,9 +1758,6 @@ AppDialog {
                                     storm: true
                                     size: "sm"
                                     text: qsTr("Admin")
-                                    // canSetPowerLevel fails closed on an
-                                    // unknown target (levels may be negative,
-                                    // so absence is the unknown state).
                                     enabled: app.roomInfo.canSetPowerLevel(
                                                  roleRow.uid, 100)
                                              && !app.roomInfo.powerLevelPending
@@ -2015,7 +1835,6 @@ AppDialog {
                         }
                     }
 
-                    // ══ DEVELOPER TOOLS ══
                     ColumnLayout {
                         Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacing12
@@ -2033,8 +1852,6 @@ AppDialog {
                                        + "the space.")
                         }
 
-                        // Hidden clipboard relay, as in RoomInfoPanel,
-                        // CodeBlock and MessageDelegate.
                         TextEdit {
                             id: devCopyHelper
                             visible: false
@@ -2057,8 +1874,6 @@ AppDialog {
                                     { k: qsTr("Join rule"),
                                       v: root.infoIsOurs
                                          ? app.roomInfo.joinRule : "" },
-                                    // A creator's level is the bridge's 2^53
-                                    // sentinel, not a number to show.
                                     { k: qsTr("Your power level"),
                                       v: !root.infoIsOurs ? ""
                                          : app.roomInfo.ownPowerLevel >= 9007199254740992
@@ -2109,7 +1924,6 @@ AppDialog {
                                     enabled: devRow.modelData.v.length > 0
                                     Accessible.name: qsTr("Copy %1")
                                                          .arg(devRow.modelData.k)
-                                    // "Copied" for a moment after a click.
                                     property bool justCopied: false
                                     Timer {
                                         id: copiedTimer
@@ -2132,10 +1946,6 @@ AppDialog {
                             }
                         }
 
-                        // Not yet: listing state event types and counts needs a
-                        // bounded Rust reader that returns only [{type,
-                        // count}]; raw member events must never cross the
-                        // bridge.
                         Label {
                             Layout.fillWidth: true
                             Layout.topMargin: AppTheme.spacing8
@@ -2152,17 +1962,12 @@ AppDialog {
                 }
             }
 
-            // Middle-click autoscroll, as in the timeline and room list.
             MiddleClickScroller {
                 objectName: "spaceSettingsMiddleClickScroller"
                 anchors.fill: parent
                 view: bodyFlick
             }
 
-            // Keyboard focus follows into view: a Tab onto a control below
-            // the fold scrolls to it instead of acting on something unseen.
-            // A mouse click into a partly visible field nudges by at most the
-            // 8 px margin; accepted (focusReason is not available here).
             Connections {
                 target: bodyHost.Window.window
                 function onActiveFocusItemChanged() {
@@ -2176,11 +1981,6 @@ AppDialog {
         }
     }
 
-    // ── Member actions ──
-    //
-    // One menu for every row, from the ⋯ button or a right-click. What it
-    // offers is captured at open from app.roomInfo, which is this Space's
-    // roster while infoIsOurs; the controllers re-check at dispatch.
     property string memberError: ""
     Connections {
         target: app.roomInfo
@@ -2210,8 +2010,6 @@ AppDialog {
             if (seen[level] === true)
                 continue
             seen[level] = true
-            // canSetPowerLevel refuses the current level; list it anyway,
-            // marked, so the menu shows where they stand.
             var settable = app.roomInfo.canSetPowerLevel(uid, level)
             if (!settable && level !== current)
                 continue
@@ -2220,8 +2018,6 @@ AppDialog {
                            current: level === current,
                            settable: settable })
         }
-        // Only the current level and nothing to change it to is no choice.
-        // A banned or invited user holds no role to change.
         var notJoined = member.membership === "banned"
                         || member.membership === "invited"
         memberMenu.roleOptions = options.length > 1 && !notJoined ? options : []
@@ -2275,7 +2071,6 @@ AppDialog {
         AppMenuItem {
             objectName: "spaceMemberKick"
             visible: memberMenu.canKick
-            // A hidden item stays in the keyboard chain unless disabled.
             enabled: memberMenu.canKick
             danger: true
             iconName: "person_remove"
@@ -2287,7 +2082,6 @@ AppDialog {
         AppMenuItem {
             objectName: "spaceMemberBan"
             visible: memberMenu.canBan
-            // A hidden item stays in the keyboard chain unless disabled.
             enabled: memberMenu.canBan
             danger: true
             iconName: "block"
@@ -2299,7 +2093,6 @@ AppDialog {
         AppMenuItem {
             objectName: "spaceMemberUnban"
             visible: memberMenu.canUnban
-            // A hidden item stays in the keyboard chain unless disabled.
             enabled: memberMenu.canUnban
             iconName: "undo"
             text: qsTr("Unban…")
@@ -2307,7 +2100,6 @@ AppDialog {
                                               memberMenu.targetUserId,
                                               memberMenu.targetName, "unban")
         }
-        // Says why the menu is empty rather than showing nothing.
         AppMenuItem {
             objectName: "spaceMemberNoActions"
             visible: memberMenu.roleOptions.length === 0
@@ -2333,14 +2125,9 @@ AppDialog {
         // A grant at or above your own level cannot be taken back.
         readonly property bool irreversible:
             root.infoIsOurs && !isOwn && level >= app.roomInfo.ownPowerLevel
-        // Neither can lowering your own: nobody may raise themselves. A
-        // creator (v12, 2^53 from the bridge) cannot be lowered at all.
         readonly property bool selfDemotion:
             root.infoIsOurs && isOwn && level < app.roomInfo.ownPowerLevel
             && app.roomInfo.ownPowerLevel < 9007199254740992
-        // The new level is below what changing roles needs here.
-        // rosterTick: the two calls are Q_INVOKABLEs, which a binding does
-        // not track; the tick moves on every roster refresh.
         readonly property bool losesRoleControl: {
             var _t = root.rosterTick
             return selfDemotion
@@ -2416,32 +2203,25 @@ AppDialog {
         id: memberAction
     }
 
-    /// The host owns the invite dialog, like the clipboard proxy and the leave
-    /// confirmation.
     signal inviteRequested(string spaceId)
 
-    // A Space change always wins over a half-typed value; a roster refresh only
-    // re-snaps untouched fields.
     onSpaceIdChanged: {
         nameField.reset()
         topicField.reset()
         aliasField.resetForSpace()
         joinRuleCombo.refreshRule()
-        // The banner read happens in openFor() only.
     }
     Connections {
         target: app.roomInfo
         function onMembersChanged() {
             aliasField.refreshAlias()
             joinRuleCombo.refreshRule()
-            // Every binding that calls a controller method depends on this.
             root.rosterTick++
         }
     }
     Connections {
         target: app.spaces
         function onSpacesChanged() {
-            // The tick first: `info` holds the old value until it re-evaluates.
             root.spacesTick++
         }
     }

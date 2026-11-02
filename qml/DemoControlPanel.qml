@@ -4,18 +4,11 @@ import QtQuick.Layouts
 import QtQuick.Window
 import MatrixClient
 
-// Development-only screenshot-demo control panel, loaded by Main.qml only
-// when app.screenshotDemoActive. A floating overlay: a collapsed pill that
-// expands into scenario / account / room / theme / appearance / window-size
-// selectors, toggles and reset/navigation actions. Ctrl+Shift+D (Main.qml)
-// toggles app.demo.controlsVisible.
 Item {
     id: root
     objectName: "demoControlPanel"
     anchors.fill: parent
     z: 100
-    // Hidden entirely when controls are hidden or there is no demo controller
-    // (defensive; app.demo is non-null in a demo build).
     visible: app.screenshotDemoActive && !!app.demo && app.demo.controlsVisible
 
     property bool expanded: false
@@ -49,7 +42,6 @@ Item {
         border.color: AppTheme.border
         border.width: 1
 
-        // ── Collapsed pill ──
         RowLayout {
             id: collapsed
             visible: !root.expanded
@@ -80,7 +72,6 @@ Item {
             }
         }
 
-        // ── Expanded panel ──
         ColumnLayout {
             id: expandedCol
             visible: root.expanded
@@ -109,7 +100,6 @@ Item {
                     ToolTip.text: qsTr("Hide (Ctrl+Shift+D restores)") }
             }
 
-            // Status line.
             Label {
                 Layout.fillWidth: true
                 visible: !!root.demo

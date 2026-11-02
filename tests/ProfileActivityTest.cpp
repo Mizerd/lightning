@@ -1,10 +1,3 @@
-// Typed m.room.member profile changes: the bridge sends the typed change and
-// an empty body, and the sentence is built here (translatable, with the
-// actor's resolved display name).
-//
-// The sentence matrix plus two safety rules: names are untrusted plain text
-// that never becomes markup, and a change we cannot phrase degrades to a
-// general form instead of printing empty quotes.
 
 #include "matrix/MatrixClient.h"
 #include "models/TimelineModel.h"
@@ -30,7 +23,6 @@ TimelineEvent makeProfileChange(const QString &eventId,
     e.type = TimelineEvent::StateChange;
     e.stateKind = QStringLiteral("member_profile");
     e.stateTarget = kActor;
-    // What the bridge actually sends for this row kind.
     e.body = QString();
     e.profileNameChange = kind;
     e.profileNameOld = oldName;
@@ -40,7 +32,6 @@ TimelineEvent makeProfileChange(const QString &eventId,
     return e;
 }
 
-// Minimal scripted backend, matching the pattern in TimelineModelDiffTest.cpp.
 class FakeClient : public MatrixClient
 {
     Q_OBJECT
@@ -95,7 +86,7 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-} // namespace
+}
 
 class ProfileActivityTest : public QObject
 {
@@ -170,8 +161,6 @@ void ProfileActivityTest::clearedNeverPrintsEmptyQuotes()
         TimelineModel::profileChangeDescription(e, QStringLiteral("Bobby"));
 
     QCOMPARE(sentence, QStringLiteral("Bobby cleared their display name."));
-    // The whole point of the "cleared" branch: an empty pair of quotes would
-    // claim the user set their name to nothing.
     QVERIFY(!sentence.contains(QString::fromUtf8("“”")));
 }
 
@@ -188,7 +177,6 @@ void ProfileActivityTest::avatarOnlyStatesOnlyTheAvatar()
 
 void ProfileActivityTest::nameAndAvatarCombineInOneSentence()
 {
-    // One row, one sentence — never two rows and never a dropped fact.
     const TimelineEvent changed = makeProfileChange(
         QStringLiteral("$p0"), QStringLiteral("changed"),
         QStringLiteral("Bob"), QStringLiteral("Bobby"), true);
@@ -225,9 +213,6 @@ void ProfileActivityTest::nothingKnownFallsBackToUpdatedTheirProfile()
 
 void ProfileActivityTest::claimedNameChangeWithoutNamesDegradesHonestly()
 {
-    // A change is claimed but a name is missing (the bridge bounds both
-    // strings, and an old-name-less change is legal). The sentence must not
-    // invent quotes around nothing.
     for (const QString &kind : { QStringLiteral("changed"),
                                  QStringLiteral("set") }) {
         const TimelineEvent missingNew =
@@ -246,7 +231,6 @@ void ProfileActivityTest::claimedNameChangeWithoutNamesDegradesHonestly()
                                                      QStringLiteral("Bob")),
              QStringLiteral("Bob updated their profile."));
 
-    // Whitespace is not a name either.
     const TimelineEvent blank =
         makeProfileChange(QStringLiteral("$p2"), QStringLiteral("set"),
                           QString(), QStringLiteral("   "));
@@ -257,8 +241,6 @@ void ProfileActivityTest::claimedNameChangeWithoutNamesDegradesHonestly()
 
 void ProfileActivityTest::unicodeNamesRoundTripIntact()
 {
-    // Emoji, a ZWJ sequence, combining marks and a non-Latin script must
-    // survive verbatim — no ASCII filter, no code-unit truncation.
     const QString oldName =
         QString::fromUtf8("\U0001F469\u200D\U0001F4BB Ada");
     const QString newName = QString::fromUtf8("Ada\u0301 \u10D0\u10D1 \u2764");
@@ -273,9 +255,6 @@ void ProfileActivityTest::unicodeNamesRoundTripIntact()
 
 void ProfileActivityTest::longNamesAreCarriedVerbatim()
 {
-    // The bridge bounds names at 255 chars; the presentation layer does not
-    // truncate a second time (a second bound would silently disagree with
-    // the first). Elision is the delegate's job.
     const QString longName = QString(255, QLatin1Char('n'));
     const TimelineEvent e = makeProfileChange(
         QStringLiteral("$p0"), QStringLiteral("set"), QString(), longName);
@@ -283,15 +262,11 @@ void ProfileActivityTest::longNamesAreCarriedVerbatim()
         TimelineModel::profileChangeDescription(e, QStringLiteral("Bob"));
 
     QVERIFY(sentence.contains(longName));
-    // 255 from the name itself plus the single 'n' in "display name" — the
-    // sentence carried the whole thing, not a clipped prefix.
     QCOMPARE(sentence.count(QLatin1Char('n')), longName.size() + 1);
 }
 
 void ProfileActivityTest::markupInANameIsNeverRichText()
 {
-    // A display name is attacker-chosen text. The sentence carries it verbatim
-    // and the row renders as PlainText; nothing here builds markup.
     const QString hostile =
         QStringLiteral("<b>bold</b><img src=x onerror=alert(1)>");
     const TimelineEvent e = makeProfileChange(
@@ -302,9 +277,6 @@ void ProfileActivityTest::markupInANameIsNeverRichText()
     QVERIFY(sentence.contains(hostile));
     QVERIFY(!sentence.contains(QStringLiteral("&lt;")));
 
-        // The row never offers a formatted body. The fixture must know the
-        // actor's name, or the row falls back to the localpart and the
-        // comparison measures the resolver instead of the markup.
     m_client->displayNames.insert(kActor, QStringLiteral("Bob"));
     m_client->mirror = { e };
     m_model->setRoomId(kRoom);
@@ -317,9 +289,6 @@ void ProfileActivityTest::markupInANameIsNeverRichText()
 
 void ProfileActivityTest::modelRowsPhraseThemselvesFromTypedFields()
 {
-    // The bridge sends an EMPTY body for this row kind, so a reader that
-    // still takes `body` straight off the event renders a blank row. Both
-    // surfaces that show the sentence must go through the same helper.
     m_client->displayNames.insert(kActor, QStringLiteral("Bob"));
     m_client->mirror = {
         makeProfileChange(QStringLiteral("$p0"), QStringLiteral("changed"),
@@ -348,7 +317,6 @@ void ProfileActivityTest::modelRowsPhraseThemselvesFromTypedFields()
 
 void ProfileActivityTest::actorIsTheResolvedNameNeverABareMxid()
 {
-    // Unresolved: the localpart, never "@bob:example.org".
     m_client->mirror = {
         makeProfileChange(QStringLiteral("$p0"), QStringLiteral("cleared"),
                           QStringLiteral("Bobby"), QString()),
@@ -359,7 +327,6 @@ void ProfileActivityTest::actorIsTheResolvedNameNeverABareMxid()
     QCOMPARE(unresolved, QStringLiteral("bob cleared their display name."));
     QVERIFY(!unresolved.contains(kActor));
 
-    // Resolved: the room member name.
     m_client->displayNames.insert(kActor, QStringLiteral("Bobby B"));
     Q_EMIT m_client->membersChanged(kRoom);
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::BodyRole).toString(),
@@ -380,8 +347,6 @@ void ProfileActivityTest::backendPhrasedRowsKeepTheirOwnSentence()
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::BodyRole).toString(),
              QStringLiteral("Grace changed their display name."));
 
-    // A row that carries typed fields is phrased here even if some backend
-    // also sent a body — the typed form is the translatable one.
     TimelineEvent typed = makeProfileChange(
         QStringLiteral("$p1"), QStringLiteral("cleared"),
         QStringLiteral("Grace"), QString());

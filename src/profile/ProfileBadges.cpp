@@ -22,7 +22,7 @@ const QVector<ProfileBadges::Badge> &table()
     return kBadges;
 }
 
-} // namespace
+}
 
 ProfileBadges::ProfileBadges(QObject *parent)
     : QObject(parent)

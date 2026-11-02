@@ -8,8 +8,6 @@ namespace matrix::media_store_key {
 
 namespace {
 
-// Exactly the encoding resolve() writes. Anything else is somebody else's
-// value or a damaged one, and is left alone.
 QByteArray decode(const QString &value)
 {
     if (value.size() != kKeyBytes * 2)
@@ -35,7 +33,7 @@ void scrub(QString &text)
     text.clear();
 }
 
-} // namespace
+}
 
 Resolution read(const SecretStore *store, const QString &userId)
 {
@@ -43,18 +41,11 @@ Resolution read(const SecretStore *store, const QString &userId)
     if (!store || userId.trimmed().isEmpty())
         return out;
     QString value = store->readSecret(userId, QLatin1String(kSecretName));
-    // isAvailable() is a construction-time probe; lastReadFailed() is the
-    // outcome of this read (a keyring that locked later, a dropped bus).
     if (!store->isAvailable() || store->lastReadFailed()) {
         scrub(value);
         return out;
     }
     if (value.isEmpty()) {
-        // Only a store that can vouch for its misses proves there is none.
-        // The insecure fallback standing in for a native store vouched for
-        // THIS miss by not reporting lastReadFailed() above: it holds other
-        // secrets for the account, so the account lives there (see the
-        // header). A secure store has no such per-read verdict.
         const bool vouched =
             !store->missesAreInconclusive() || !store->isSecure();
         out.found = vouched ? Found::Absent : Found::Unreadable;
@@ -63,7 +54,7 @@ Resolution read(const SecretStore *store, const QString &userId)
     QByteArray key = decode(value);
     scrub(value);
     if (key.size() != kKeyBytes)
-        return out; // malformed: never overwritten
+        return out;
     out.found = Found::Present;
     out.key = key;
     scrub(key);
@@ -76,7 +67,6 @@ Resolution resolve(SecretStore *store, const QString &userId, bool mayCreate)
     if (out.found != Found::Absent || !mayCreate)
         return out;
 
-    // The second witness (see the header): the account's token is there.
     QString token = store->readSecret(userId, QLatin1String(kAccessTokenName));
     const bool tokenAnswered = !store->lastReadFailed() && !token.isEmpty();
     scrub(token);
@@ -134,4 +124,4 @@ const char *describe(const Resolution &resolution)
     return "unreadable";
 }
 
-} // namespace matrix::media_store_key
+}

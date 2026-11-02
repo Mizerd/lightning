@@ -40,38 +40,20 @@ class GifPreviewCache : public QObject
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("GifPreviewCache is exposed via app.gif.previews")
-    // Bumped whenever a source appears or the cache is cleared; bindings that
-    // call source() read it to re-evaluate.
     Q_PROPERTY(int revision READ revision NOTIFY revisionChanged)
 
 public:
     explicit GifPreviewCache(QObject *parent = nullptr);
     ~GifPreviewCache() override;
 
-    // Not owned. Reconnecting is allowed.
     void setTransport(GifTransport *transport);
 
-    // file:// URL of the validated copy of `url`, or "" while it downloads
-    // (revisionChanged follows) or when it was refused. Only https .gif URLs
-    // on the provider CDNs are fetched. `still` jumps the preview queue.
     Q_INVOKABLE QString source(const QString &url, bool still = false);
-    // The URLs `owner` (a grid tile) is showing. Held copies are never
-    // evicted, and a fetch nobody holds any more is dropped if it has not
-    // started. Replaces the owner's previous set; released when it is
-    // destroyed.
     Q_INVOKABLE void hold(QObject *owner, const QStringList &urls);
-    // Drops every fetch that has not started (picker closed).
     Q_INVOKABLE void dropQueued();
-    // A picker opened (true) or closed (false). Inactive, source() fetches
-    // nothing and queued fetches are dropped; opening re-evaluates sources.
     void setActive(bool active);
     bool isActive() const { return m_active; }
-    // Frees the slots of fetches older than kFetchTimeoutMs. The backend
-    // drops a result silently once its session is gone, so without this a
-    // lost answer would hold its slot for the life of the process. Runs on a
-    // timer while fetches are in flight.
     void expireStaleFetches();
-    // Drops everything, including the files (session ended).
     Q_INVOKABLE void clear();
 
     int revision() const { return m_revision; }
@@ -91,9 +73,7 @@ public:
     void setRetryAfterMsForTest(qint64 ms) { m_retryAfterMs = ms; }
 
     static constexpr int kMaxConcurrent = 6;
-    // A picker preview; the sendable original has its own, larger bound.
     static constexpr qint64 kMaxPreviewBytes = 8 * 1024 * 1024;
-    // Above the Rust request timeout, so only a lost answer reaches it.
     static constexpr qint64 kFetchTimeoutMs = 2 * 60 * 1000;
 
 Q_SIGNALS:
@@ -119,8 +99,8 @@ private:
         QString path;
         qint64 bytes = 0;
     };
-    QHash<QString, Entry> m_files; // url -> validated copy
-    QList<QString> m_lru;          // front = most recent
+    QHash<QString, Entry> m_files;
+    QList<QString> m_lru;
     qint64 m_totalBytes = 0;
 
     QQueue<QString> m_stillQueue;
@@ -129,13 +109,13 @@ private:
         QString url;
         qint64 startedMs = 0;
     };
-    QHash<quint64, Fetch> m_inflight; // op id -> fetch
+    QHash<quint64, Fetch> m_inflight;
     QTimer m_watchdog;
     qint64 m_fetchTimeoutMs = kFetchTimeoutMs;
     bool m_active = false;
 
-    QHash<QObject *, QStringList> m_holders; // never dereferenced
-    QHash<QString, int> m_holds;             // url -> holder count
+    QHash<QObject *, QStringList> m_holders;
+    QHash<QString, int> m_holds;
 
     struct Failure {
         qint64 atMs = 0;
@@ -149,6 +129,5 @@ private:
     qint64 m_maxBytes = 64 * 1024 * 1024;
     static constexpr int kMaxFailureMarks = 512;
     qint64 m_retryAfterMs = 60 * 1000;
-    // Re-evaluates sources once transient failures may be retried.
     QTimer m_retryTimer;
 };

@@ -4,29 +4,15 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// Session verification as a focused centred modal, so the emojis to compare are
-// always on screen. Storm centred-modal chrome (as MemberProfilePopover); the
-// body is VerificationPanel, the one flow presentation. It follows
-// AppController's verification state rather than being opened by hand: it opens
-// whenever a flow exists (including incoming requests) and does not self-close
-// on a terminal state, so the result can be read.
 Popup {
     id: root
     modal: true
     width: Math.min(440, (parent ? parent.width : 440) - 2 * AppTheme.spacing16)
     padding: 0
-    // Take keyboard focus: without it Tab/Space/Enter act on the page behind
-    // the scrim and Escape never reaches the popup. A modal Popup also keeps
-    // Tab inside itself once it holds active focus.
     focus: true
-    // Never taller than the window: the body scrolls instead, so Cancel stays
-    // reachable at small window sizes.
     height: Math.min(implicitHeight,
                      (parent ? parent.height : implicitHeight)
                      - 2 * AppTheme.spacing16)
-    // Escape must not abandon a live flow: NoAutoClose while non-terminal, so
-    // the only way out is Cancel (which tells the SDK); once ended,
-    // Dismiss/Escape.
     closePolicy: root.flowIsLive ? Popup.NoAutoClose
                                  : (Popup.CloseOnEscape
                                     | Popup.CloseOnPressOutside)
@@ -39,15 +25,9 @@ Popup {
         && app.verificationState !== "done"
         && app.verificationState !== "cancelled"
         && !app.verificationState.startsWith("failed")
-    // Any flow state, live or terminal and unread. A failure raised before a
-    // flow id exists (no cross-signing identity, send failed, signed out) sets
-    // a state without verificationActive and must still be shown.
     readonly property bool flowPresent:
         app.verificationActive || app.verificationState !== ""
 
-    // No "open me" entry point: callers start a flow and the state opens the
-    // dialog. Mirrors flowPresent (not just its rising edge, which latched and
-    // could never reopen); the else-branch makes Dismiss close it.
     function _syncOpenState() {
         if (flowPresent) {
             if (!opened)
@@ -60,8 +40,6 @@ Popup {
     onOpened: verificationPanel.focusPrimary()
     Component.onCompleted: _syncOpenState()
 
-    // Closing a finished flow means the same as Dismiss: cancelVerification(),
-    // which is guarded so a late cancel cannot repaint a success.
     onClosed: {
         if (!flowIsLive && app.verificationState !== "")
             app.cancelVerification()
@@ -107,7 +85,6 @@ Popup {
             width: scroller.width
             spacing: 0
 
-            // Header: title and a close affordance only when closing is allowed.
             RowLayout {
                 Layout.fillWidth: true
                 Layout.margins: AppTheme.spacing16
@@ -142,8 +119,6 @@ Popup {
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textBody
-                // Says what verification is for. Pre-verification copy: it
-                // contradicts a failure, so it goes once the flow ended badly.
                 visible: app.verificationState !== "cancelled"
                          && !app.verificationState.startsWith("failed")
                 text: qsTr("Verifying proves this device is really yours, so "

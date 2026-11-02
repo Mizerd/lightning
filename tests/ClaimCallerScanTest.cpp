@@ -1,19 +1,3 @@
-// Live accounts Phase 1, R1-H4: every store entry point claims the store.
-//
-// A source contract over RustSdkMatrixClient.cpp and AppController.cpp: every
-// call that opens a store (mx_rust_create) has a StoreOwnershipRegistry
-// claimOpen( earlier in the SAME function, and every call that moves aside or
-// deletes one (quarantineRustStore, quarantineAccountRustState,
-// removeAccountRustState, removeAttemptRustStore) has a claimForDeletion(
-// earlier in the same function. Unenforced (Labs off) both claims are Phase 0's bookkeeping and
-// grant everything, so this costs the default path nothing; enforced, a store
-// another handle owns is never opened, moved or deleted.
-//
-// The scan COUNTS the call sites it found per file and compares them with the
-// expected numbers: a scan that silently matched fewer sites would pass on
-// broken code. A new call site fails here until it has its claim and the
-// count below is raised. A target built without LIGHTNING_SOURCE_DIR FAILS
-// rather than skips: a skipped scan reads green (review L3).
 #include <QFile>
 #include <QRegularExpression>
 #include <QString>
@@ -22,8 +6,6 @@
 
 namespace {
 
-// Comments out, string and character literals kept as spaces of the same
-// length (positions stay stable). Raw strings R"d( ... )d" included.
 QString stripCommentsAndStrings(const QString &src)
 {
     QString out = src;
@@ -86,8 +68,6 @@ struct Violation {
     int line = 0;
 };
 
-// Every definition in these files opens with "{" alone at column 0 and closes
-// with "}" at column 0; a call's function is the region around it.
 QList<Violation> unclaimedCalls(const QString &stripped, const QRegularExpression &call,
                                 const QString &claim, int *found)
 {
@@ -140,7 +120,7 @@ const QRegularExpression &deletionCall()
     return re;
 }
 
-} // namespace
+}
 
 class ClaimCallerScanTest : public QObject
 {
@@ -150,14 +130,9 @@ private Q_SLOTS:
     void theScannerCatchesAnUnclaimedCall();
     void everyRustClientStoreEntryPointClaimsFirst();
     void everyAppControllerStoreDeletionClaimsFirst();
-    // Flag-off parity, at the source: every Labs-only branch in the client is
-    // behind the Labs switch, so with it off each path is Phase 0's.
     void theClientsLabsBranchesAreGated();
 };
 
-// The scanner must be able to fail: an unclaimed call, a claim in ANOTHER
-// function, a claim AFTER the call, and a claim only in a comment or a string
-// are all violations; a claim before the call in the same function is not.
 void ClaimCallerScanTest::theScannerCatchesAnUnclaimedCall()
 {
     const QString source = QStringLiteral(
@@ -177,15 +152,15 @@ void ClaimCallerScanTest::theScannerCatchesAnUnclaimedCall()
     const QList<Violation> deletions =
         unclaimedCalls(stripped, deletionCall(), QStringLiteral("claimForDeletion("), &found);
     QCOMPARE(found, 5);
-    QCOMPARE(deletions.size(), 4);   // a, c, d, h; e is claimed
+    QCOMPARE(deletions.size(), 4);
     QCOMPARE(deletions.at(0).call, QStringLiteral("removeAccountRustState"));
     QCOMPARE(deletions.at(1).call, QStringLiteral("quarantineRustStore"));
     QCOMPARE(deletions.at(2).call, QStringLiteral("quarantineAccountRustState"));
     QCOMPARE(deletions.at(3).call, QStringLiteral("removeAttemptRustStore"));
     const QList<Violation> opens =
         unclaimedCalls(stripped, openCall(), QStringLiteral("claimOpen("), &found);
-    QCOMPARE(found, 2);              // mx_rust_create_dm is not a store open
-    QCOMPARE(opens.size(), 1);       // f
+    QCOMPARE(found, 2);
+    QCOMPARE(opens.size(), 1);
 }
 
 void ClaimCallerScanTest::everyRustClientStoreEntryPointClaimsFirst()
@@ -204,7 +179,6 @@ void ClaimCallerScanTest::everyRustClientStoreEntryPointClaimsFirst()
         qWarning("RustSdkMatrixClient.cpp:%d: %s without claimOpen( before it", v.line,
                  qPrintable(v.call));
     QVERIFY(unclaimedOpens.isEmpty());
-    // ensureRustHandleForStorePath is the one foreground open.
     QCOMPARE(opens, 1);
 
     int deletions = 0;
@@ -214,9 +188,6 @@ void ClaimCallerScanTest::everyRustClientStoreEntryPointClaimsFirst()
         qWarning("RustSdkMatrixClient.cpp:%d: %s without claimForDeletion( before it", v.line,
                  qPrintable(v.call));
     QVERIFY(unclaimed.isEmpty());
-    // login and browser-sign-in quarantines, the revoked-device move-aside,
-    // the local reset, finishSignOut, the interrupted sign-outs at start and
-    // a failed attempt's own store (rollBackFailedAttempt, review L1).
     QCOMPARE(deletions, 7);
 }
 
@@ -230,7 +201,7 @@ void ClaimCallerScanTest::everyAppControllerStoreDeletionClaimsFirst()
     const QString stripped = stripCommentsAndStrings(source);
     int opens = 0;
     QVERIFY(unclaimedCalls(stripped, openCall(), QStringLiteral("claimOpen("), &opens).isEmpty());
-    QCOMPARE(opens, 0);   // AppController never creates a store handle itself
+    QCOMPARE(opens, 0);
     int deletions = 0;
     const QList<Violation> unclaimed = unclaimedCalls(
         stripped, deletionCall(), QStringLiteral("claimForDeletion("), &deletions);
@@ -238,13 +209,10 @@ void ClaimCallerScanTest::everyAppControllerStoreDeletionClaimsFirst()
         qWarning("AppController.cpp:%d: %s without claimForDeletion( before it", v.line,
                  qPrintable(v.call));
     QVERIFY(unclaimed.isEmpty());
-    // removeAccountLocalState (and its Labs variant, if it deletes itself).
     QVERIFY2(deletions >= 1, "the scan found no store deletion in AppController.cpp");
 }
 
 namespace {
-// The text of one RustSdkMatrixClient member, from its signature to the next
-// column-0 "}".
 QString memberBody(const QString &source, const QString &signature)
 {
     const qsizetype start = source.indexOf(signature);
@@ -253,7 +221,7 @@ QString memberBody(const QString &source, const QString &signature)
     const qsizetype end = source.indexOf(QLatin1String("\n}"), start);
     return source.mid(start, (end < 0 ? source.size() : end) - start);
 }
-} // namespace
+}
 
 void ClaimCallerScanTest::theClientsLabsBranchesAreGated()
 {
@@ -263,7 +231,6 @@ void ClaimCallerScanTest::theClientsLabsBranchesAreGated()
     const QString source = stripCommentsAndStrings(
         readSource(QStringLiteral("src/matrix/RustSdkMatrixClient.cpp")));
     QVERIFY(!source.isEmpty());
-    // The per-account proofs answer nothing unless Labs is on.
     for (const char *helper : {"bool RustSdkMatrixClient::labsHardProofAllowsReplace(",
                                "bool RustSdkMatrixClient::labsSoftProofAllowsResume("}) {
         const QString body = memberBody(source, QLatin1String(helper));
@@ -272,19 +239,13 @@ void ClaimCallerScanTest::theClientsLabsBranchesAreGated()
         const qsizetype read = body.indexOf(QLatin1String("m_revocationProofs->"));
         QVERIFY2(guard > 0 && read > guard, helper);
     }
-    // Nothing else in the client reads a proof: the single-slot fields stay
-    // the only thing the flag-off path decides on.
     const QRegularExpression proofRead(QStringLiteral("m_revocationProofs->(hardFor|softFor)\\("));
     QCOMPARE(int(source.count(proofRead)), 2);
-    // Every use of the host retirements is behind the switch: in the
-    // condition of an `if (m_liveAccountsLabs && ...)` or inside the
-    // statement it guards (the handback replay before a read, §18 round 1).
     QList<QPair<qsizetype, qsizetype>> guarded;
     {
         const QLatin1String guardText("if (m_liveAccountsLabs &&");
         for (qsizetype at = source.indexOf(guardText); at >= 0;
              at = source.indexOf(guardText, at + 1)) {
-            // The condition's closing parenthesis.
             qsizetype i = at + 3;
             int depth = 0;
             for (; i < source.size(); ++i) {
@@ -320,17 +281,13 @@ void ClaimCallerScanTest::theClientsLabsBranchesAreGated()
             inside = inside || (m.capturedStart() > span.first && m.capturedStart() < span.second);
         QVERIFY2(inside, "a host-retirement check outside the Labs switch");
     }
-    // The click path's check and the parked-handback replay (take, re-park).
     QCOMPARE(hostChecks, 3);
-    // The open claim refuses only when the registry is enforced, and the
-    // unenforced record is made after the create, exactly where Phase 0 made it.
     const QString open = memberBody(
         source, QStringLiteral("bool RustSdkMatrixClient::ensureRustHandleForStorePath("));
     const qsizetype enforcedClaim = open.indexOf(QLatin1String("if (claimsEnforced) {"));
     const qsizetype create = open.indexOf(QLatin1String("mx_rust_create("));
     const qsizetype phase0Record = open.indexOf(QLatin1String("if (!claimsEnforced)"));
     QVERIFY(enforcedClaim > 0 && create > enforcedClaim && phase0Record > create);
-    // setEnforced(true) has one caller, the Labs switch.
     QCOMPARE(int(source.count(QLatin1String("setEnforced("))), 1);
     const QString labs = memberBody(source, QStringLiteral("void RustSdkMatrixClient::setLiveAccountsLabs("));
     QVERIFY(labs.contains(QLatin1String("setEnforced(true)")));

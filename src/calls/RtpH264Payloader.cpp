@@ -15,7 +15,7 @@ namespace {
 
 constexpr gint kClockRate = 90000;
 constexpr guint8 kNalTypeMask = 0x1f;
-constexpr guint8 kNalHeaderMask = 0xe0; // F and NRI
+constexpr guint8 kNalHeaderMask = 0xe0;
 constexpr guint8 kFuA = 28;
 constexpr guint8 kFuStart = 0x80;
 constexpr guint8 kFuEnd = 0x40;
@@ -91,7 +91,6 @@ std::vector<Nal> splitNals(const guint8 *data, gsize size)
     return nals;
 }
 
-/// Appends one packet: `prefix` then `size` bytes of `body`.
 bool addPacket(GstBufferList *packets, GstBuffer *timing, const guint8 *prefix,
                guint prefixSize, const guint8 *body, gsize size, bool marker)
 {
@@ -149,7 +148,7 @@ GstFlowReturn handleBuffer(GstRTPBasePayload *payload, GstBuffer *buffer)
         const guint8 indicator =
             static_cast<guint8>((nal[0] & kNalHeaderMask) | kFuA);
         const guint8 type = nal[0] & kNalTypeMask;
-        gsize offset = 1; // the NAL header travels in the FU bytes
+        gsize offset = 1;
         while (ok && offset < size) {
             const gsize take = std::min(maxFragment, size - offset);
             const bool end = offset + take >= size;
@@ -195,7 +194,7 @@ void lightning_rtp_h264_pay_init(LightningRtpH264Pay *self)
                  lightning::rtp::kRtpPayloadMtu, nullptr);
 }
 
-} // namespace
+}
 
 namespace lightning::rtp {
 
@@ -210,4 +209,4 @@ void registerH264Payloader()
 
 const char *h264PayloaderName() { return "lightningrtph264pay"; }
 
-} // namespace lightning::rtp
+}

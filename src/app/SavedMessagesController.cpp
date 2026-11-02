@@ -24,7 +24,6 @@ SavedMessagesController::SavedMessagesController(QObject *parent) : QObject(pare
     m_resolveTimeout.setSingleShot(true);
     m_resolveTimeout.setInterval(15000);
     connect(&m_resolveTimeout, &QTimer::timeout, this, [this] {
-        // A refused or dropped event-source request must release the queue.
         for (Ref &ref : m_refs) {
             if (m_resolving.contains(key(ref.roomId, ref.eventId))) {
                 ref.resolved = true;
@@ -294,8 +293,6 @@ void SavedMessagesController::receive(const QVariantMap &content, bool present)
 bool SavedMessagesController::parseRefs(const QVariantMap &content, bool present,
                                         QVector<Ref> &next) const
 {
-    // An existing but empty {} (another client clearing it) is an empty
-    // list; no write can be built from it without the strict shape below.
     const QVariantList raw = content.value(QStringLiteral("entries")).toList();
     if (!content.isEmpty()
         && (content.size() != 2

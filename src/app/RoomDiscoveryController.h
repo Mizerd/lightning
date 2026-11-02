@@ -12,9 +12,6 @@
 
 class MatrixClient;
 
-// Discover / Join Room: identifier resolution and preview, join, knock, knock
-// withdrawal, and Space children (joined and unjoined). Operations are keyed by
-// op id and sign-out clears them all. Protocol behaviour is the SDK's.
 class RoomDiscoveryController : public QObject
 {
     Q_OBJECT
@@ -22,9 +19,7 @@ class RoomDiscoveryController : public QObject
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(RoomDirectorySearchModel* directory READ directory CONSTANT)
-    // "idle" | "resolving" | "resolved" | "failed"
     Q_PROPERTY(QString resolveState READ resolveState NOTIFY resolveChanged)
-    // The last resolution result map (see MatrixClient::roomTargetResolved).
     Q_PROPERTY(QVariantMap resolved READ resolved NOTIFY resolveChanged)
 
 public:
@@ -39,31 +34,19 @@ public:
     QString resolveState() const { return m_resolveState; }
     QVariantMap resolved() const { return m_resolved; }
 
-    // Resolve #alias / !roomid / matrix: URI / matrix.to permalink into a
-    // previewed target. Supersedes any earlier unanswered resolution.
     Q_INVOKABLE void resolve(const QString &input);
     Q_INVOKABLE void clearResolved();
 
-    // Join by id or alias (via may be empty). On success waits, bounded, for
-    // the room to appear in the list, then emits roomJoined / spaceJoined.
     Q_INVOKABLE void join(const QString &target, const QStringList &via,
                           bool isSpace);
-    // As join(..., true), for a Space joined from a room that is open: the
-    // user stays in that room and spaceJoinedInPlace() is emitted instead of
-    // spaceJoined().
     Q_INVOKABLE void joinSpaceKeepingRoom(const QString &target,
                                           const QStringList &via);
-    // Knock with an optional reason. Success emits knockSent.
     Q_INVOKABLE void knock(const QString &target, const QStringList &via,
                            const QString &reason);
-    // Withdraw a pending knock (room list row action). Emits knockCancelled.
     Q_INVOKABLE void cancelKnock(const QString &roomId);
 
-    // Space children including unjoined rows. Results are cached per space
-    // until refreshed; read with spaceChildren()/spaceChildrenState().
     Q_INVOKABLE void refreshSpaceChildren(const QString &spaceId);
     Q_INVOKABLE QVariantList spaceChildren(const QString &spaceId) const;
-    // "" (never asked) | "loading" | "ready" | "failed"
     Q_INVOKABLE QString spaceChildrenState(const QString &spaceId) const;
 
     Q_INVOKABLE void clearError();
@@ -73,14 +56,11 @@ Q_SIGNALS:
     void busyChanged();
     void errorMessageChanged();
     void resolveChanged();
-    // The joined room is listed (or the wait elapsed): open it.
     void roomJoined(const QString &roomId);
     // A joined m.space room must be selected in the rail, never given a
     // message timeline.
     void spaceJoined(const QString &spaceId);
-    // Same, for joinSpaceKeepingRoom(): select it, leave the open room alone.
     void spaceJoinedInPlace(const QString &spaceId);
-    // Unlike the shared errorMessage, names the join target that failed.
     void joinFailed(const QString &target, const QString &message);
     void knockSent(const QString &roomId);
     void knockCancelled(const QString &roomId);
@@ -106,7 +86,6 @@ private:
                       bool isSpace);
     void beginWaitForRoom(const QString &roomId, bool isSpace);
     void finishWaitForRoom();
-    // Failure category to user-facing text; never raw server text.
 public:
     static QString describeJoinCategory(const QString &category);
 
@@ -126,13 +105,12 @@ private:
     bool m_waitingForRoom = false;
     bool m_awaitedIsSpace = false;
     bool m_keepRoomOnJoin = false;
-    // The target of the in-flight join, so its failure can name itself.
     QString m_joinTarget;
     QString m_awaitedRoomId;
     QTimer m_roomWaitTimeout;
 
     struct SpaceChildrenEntry {
-        QString state; // "loading" | "ready" | "failed"
+        QString state;
         QVariantList rows;
         quint64 pendingOp = 0;
     };

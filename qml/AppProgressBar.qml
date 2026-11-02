@@ -2,15 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// Lightning progress bar. `value` is 0..1; `indeterminate` runs the sweep.
-//
-// Styled like the app's sliders (bolt fill on stormInset, pill ends) instead
-// of Basic's body-text grey on a hairline grey, so bars and sliders read as
-// one family.
 ProgressBar {
     id: root
 
-    // For hosts painting over media/scrim rather than a theme surface.
     property bool scrim: false
 
     from: 0
@@ -30,7 +24,6 @@ ProgressBar {
         implicitHeight: 4
         clip: true
 
-        // Determinate: one filled pill whose width tracks `position`.
         Rectangle {
             visible: !root.indeterminate
             width: parent.width * root.position
@@ -52,8 +45,6 @@ ProgressBar {
             height: parent.height
             radius: AppTheme.radiusPill
             color: root.scrim ? AppTheme.scrimInkStrong : AppTheme.bolt
-            // With reduced motion, a static half-filled bar that still reads as
-            // busy.
             x: AppTheme.reducedMotion ? 0 : -width
             XAnimator on x {
                 running: root.indeterminate && root.visible

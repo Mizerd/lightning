@@ -33,13 +33,11 @@ const SecretSchema *scopedSchema()
             { "install", SECRET_SCHEMA_ATTRIBUTE_STRING },
             { nullptr,   SECRET_SCHEMA_ATTRIBUTE_STRING },
         },
-        // reserved
         0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
     };
     return &schema;
 }
 
-// Builds before install scoping. Read only: any install may still use it.
 const SecretSchema *legacySchema()
 {
     static const SecretSchema schema = {
@@ -49,7 +47,6 @@ const SecretSchema *legacySchema()
             { "key",     SECRET_SCHEMA_ATTRIBUTE_STRING },
             { nullptr,   SECRET_SCHEMA_ATTRIBUTE_STRING },
         },
-        // reserved
         0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
     };
     return &schema;
@@ -64,9 +61,6 @@ QByteArray toUtf8(const QString &s) { return s.toUtf8(); }
 
 constexpr auto kNoScope = "no install scope set";
 
-// The attributes the password API builds from its arguments, for the Secret
-// Service API, which takes them as a table. A null key matches every key of
-// the account.
 GHashTable *scopedAttributes(const QByteArray &userId, const QByteArray *key,
                              const QByteArray &install)
 {
@@ -82,7 +76,7 @@ GHashTable *scopedAttributes(const QByteArray &userId, const QByteArray *key,
     return attributes;
 }
 
-} // namespace
+}
 
 LibSecretStore::LibSecretStore(QObject *parent)
     : TwoBackendSecretStore(parent)
@@ -94,8 +88,6 @@ LibSecretStore::~LibSecretStore() = default;
 
 void LibSecretStore::probe()
 {
-    // Try to reach the Secret Service. On headless / CI systems this fails
-    // and we mark ourselves unavailable so the factory can fall back.
     GError *err = nullptr;
     SecretService *svc = secret_service_get_sync(SECRET_SERVICE_NONE,
                                                  nullptr, &err);
@@ -109,11 +101,6 @@ void LibSecretStore::probe()
     }
     g_object_unref(svc);
 
-    // Reaching the service is not permission to use it: under Ubuntu Touch's
-    // AppArmor confinement gnome-keyring answers on the bus but denies
-    // Secret.Service.OpenSession. Probe with a real (harmless) lookup, which
-    // uses the same session path as every read and write; a miss is success,
-    // only an error means unusable.
     GError *probeErr = nullptr;
     gchar *probeValue = secret_password_lookup_sync(
         scopedSchema(), nullptr, &probeErr,
@@ -146,22 +133,10 @@ struct BackendAnswer {
     QByteArray typeName;
     bool done = false;
 };
-} // namespace
+}
 
 void LibSecretStore::detectBackendKind()
 {
-    // The password API's own choice, asked the way it asks it: libsecret picks
-    // the file backend inside a Flatpak or snap whose Secret portal answers,
-    // and the Secret Service otherwise, once per process. On a private
-    // context, so nothing else is dispatched while waiting, and bounded: a
-    // portal that never answers leaves the kind unknown, never the start hung.
-    // On a timeout the answer is abandoned (its context is never iterated
-    // again, so its callback never runs) and the small struct is leaked.
-    //
-    // secret_backend_get() is exported since libsecret 0.20 but declared only
-    // in a header libsecret keeps out of <libsecret/secret.h> as "subject to
-    // change", so it is looked up at run time: an older or changed libsecret
-    // leaves the kind unknown instead of failing to link or start.
     using BackendGet = void (*)(int, GCancellable *, GAsyncReadyCallback, gpointer);
     using BackendGetFinish = GObject *(*)(GAsyncResult *, GError **);
     static const auto backendGet =
@@ -175,7 +150,7 @@ void LibSecretStore::detectBackendKind()
     auto *answer = new BackendAnswer;
     answer->loop = g_main_loop_new(context, FALSE);
     backendGet(
-        0 /* SECRET_BACKEND_NONE */, nullptr,
+        0, nullptr,
         [](GObject *, GAsyncResult *result, gpointer data) {
             auto *answer = static_cast<BackendAnswer *>(data);
             GObject *backend = backendGetFinish(result, nullptr);
@@ -196,7 +171,6 @@ void LibSecretStore::detectBackendKind()
         },
         answer->loop, nullptr);
     g_source_attach(timeout, context);
-    // A backend libsecret already holds may answer before the loop runs.
     if (!answer->done)
         g_main_loop_run(answer->loop);
     g_source_destroy(timeout);
@@ -232,7 +206,6 @@ bool LibSecretStore::storeIn(Backend backend, const QString &userId,
         setError(QStringLiteral("libsecret unavailable"));
         return false;
     }
-    // An unscoped write would be an item no install can find again.
     if (installScope().isEmpty()) {
         setError(QLatin1String(kNoScope));
         return false;
@@ -247,7 +220,6 @@ bool LibSecretStore::storeIn(Backend backend, const QString &userId,
     gboolean ok = FALSE;
     if (backend == Backend::Service) {
         GHashTable *attributes = scopedAttributes(u, &k, i);
-        // As the password API stores it.
         SecretValue *secret = secret_value_new(v.constData(), -1, "text/plain");
         ok = secret_service_store_sync(nullptr, scopedSchema(), attributes,
                                        SECRET_COLLECTION_DEFAULT,
@@ -287,8 +259,6 @@ QString LibSecretStore::readFrom(Backend backend, const QString &userId,
         m_lastReadFailed = true;
         return {};
     }
-    // Not "no such secret": this install's items exist, it just cannot name
-    // them yet (CLAUDE.md §6).
     if (installScope().isEmpty()) {
         setError(QLatin1String(kNoScope));
         m_lastReadFailed = true;
@@ -306,7 +276,6 @@ QString LibSecretStore::readFrom(Backend backend, const QString &userId,
             nullptr, scopedSchema(), attributes, nullptr, &err);
         g_hash_table_unref(attributes);
         if (secret) {
-            // Text only, as the password API reads it.
             if (const gchar *text = secret_value_get_text(secret))
                 out = QString::fromUtf8(text);
             secret_value_unref(secret);
@@ -327,13 +296,10 @@ QString LibSecretStore::readFrom(Backend backend, const QString &userId,
     if (err) {
         setError(QString::fromUtf8(err->message));
         g_error_free(err);
-        // The backend could not answer (locked collection, dropped session
-        // bus, a Secret Service not running): not "no such secret".
         m_lastReadFailed = true;
         qCWarning(lcLibSecret) << "readSecret failed:" << m_lastError;
         return {};
     }
-    // The lookup completed. Absent is a real answer, not a failure.
     m_lastReadFailed = false;
     return out;
 }
@@ -401,7 +367,6 @@ bool LibSecretStore::clearFrom(Backend backend, const QString &userId,
         setError(QStringLiteral("libsecret unavailable"));
         return false;
     }
-    // Without the scope this clear would match every install's items.
     if (installScope().isEmpty()) {
         setError(QLatin1String(kNoScope));
         return false;
@@ -410,9 +375,6 @@ bool LibSecretStore::clearFrom(Backend backend, const QString &userId,
     const QByteArray u = toUtf8(userId);
     const QByteArray k = key ? toUtf8(*key) : QByteArray();
     const QByteArray i = toUtf8(installScope());
-    // Without `key`: every entry of this account in this install. Legacy items
-    // and other installs' items do not match (different schema name, or a
-    // different install attribute).
     if (backend == Backend::Service) {
         GHashTable *attributes = scopedAttributes(u, key ? &k : nullptr, i);
         secret_service_clear_sync(nullptr, scopedSchema(), attributes, nullptr,
@@ -437,12 +399,10 @@ bool LibSecretStore::clearFrom(Backend backend, const QString &userId,
         g_error_free(err);
         return false;
     }
-    // A clear that matched nothing returns FALSE without an error: there was
-    // nothing to remove, which is success.
     return true;
 }
 
-#else // HAVE_LIBSECRET
+#else
 
 LibSecretStore::LibSecretStore(QObject *parent) : TwoBackendSecretStore(parent) {}
 LibSecretStore::~LibSecretStore() = default;
@@ -458,4 +418,4 @@ QString LibSecretStore::readLegacySecret(const QString &, const QString &) const
 bool LibSecretStore::deleteLegacySecret(const QString &, const QString &) { return false; }
 bool LibSecretStore::clearFrom(Backend, const QString &, const QString *) { return false; }
 
-#endif // HAVE_LIBSECRET
+#endif

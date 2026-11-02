@@ -18,9 +18,7 @@ class NetworkRouteController : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString userId READ userId NOTIFY changed)
-    // False while no saved account is active (nothing to attach a route to).
     Q_PROPERTY(bool available READ available NOTIFY changed)
-    // {kind: "none"|"http"|"socks5", host, port, username, hasPassword}
     Q_PROPERTY(QVariantMap route READ route NOTIFY changed)
 
 public:
@@ -30,9 +28,6 @@ public:
     bool available() const;
     QVariantMap route() const;
 
-    // Stores the route for the active account. `kind` "none" removes it.
-    // `replacePassword` false keeps the stored one (for the same username).
-    // Returns "" or an error code (matrix::network_route::save()).
     Q_INVOKABLE QString save(const QString &kind, const QString &host, int port,
                              const QString &username, const QString &password,
                              bool replacePassword);

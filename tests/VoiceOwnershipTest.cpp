@@ -16,9 +16,6 @@
 
 namespace {
 
-// State-only stand-in for the capture chain. Mirrors the real recorder's
-// contract exactly where it matters: start() refuses unless Idle and does
-// NOT emit failed() for that refusal.
 class FakeRecorder : public VoiceRecorder
 {
 public:
@@ -35,7 +32,7 @@ public:
     {
         ++startCalls;
         if (isRecording || isProcessing)
-            return false;          // busy: refused, and silent (no failed())
+            return false;
         if (!deviceAvailable) {
             Q_EMIT failed(QStringLiteral("no device"));
             return false;
@@ -52,7 +49,7 @@ public:
     }
 };
 
-} // namespace
+}
 
 class VoiceOwnershipTest : public QObject
 {
@@ -64,7 +61,6 @@ private Q_SLOTS:
         QStandardPaths::setTestModeEnabled(true);
     }
 
-    // A successful start takes ownership; nothing owns the recorder before.
     void ownershipIsTakenOnlyAfterASuccessfulStart()
     {
         AppController app(AppController::MockBackend);
@@ -77,9 +73,6 @@ private Q_SLOTS:
         QVERIFY(rec->isRecording);
     }
 
-    // A start that fails for a real hardware/encoder reason must leave NO
-    // owner behind — otherwise the composer would show a recording pill for
-    // a recorder that never started.
     void afailedStartLeavesNoOwner()
     {
         AppController app(AppController::MockBackend);
@@ -92,9 +85,6 @@ private Q_SLOTS:
         QVERIFY(!app.voiceRecordingBusy());
     }
 
-    // Record in the room composer, then press the thread mic: the thread
-    // start is refused and the room keeps ownership, its pill, cancel button
-    // and ready() arming.
     void asecondComposerCannotStealALiveRecording()
     {
         AppController app(AppController::MockBackend);
@@ -105,17 +95,12 @@ private Q_SLOTS:
         QCOMPARE(app.voiceOwner(), QStringLiteral("room"));
 
         QVERIFY(!app.startVoiceRecording(QStringLiteral("thread")));
-        // Ownership unchanged — this is the whole point.
         QCOMPARE(app.voiceOwner(), QStringLiteral("room"));
-        // And the recorder is still running, not cancelled or restarted.
         QVERIFY(rec->isRecording);
         QCOMPARE(rec->cancelCalls, 0);
-        // Distinguishable from "no microphone", so the UI can say so.
         QVERIFY(app.voiceRecordingBusy());
     }
 
-    // The same during the finalizing window: the owner that pressed Send
-    // stays armed, or its ready() would reach nobody.
     void aliveRecordingIsNotStolenWhileFinalizing()
     {
         AppController app(AppController::MockBackend);
@@ -124,15 +109,13 @@ private Q_SLOTS:
 
         QVERIFY(app.startVoiceRecording(QStringLiteral("room")));
         rec->isRecording = false;
-        rec->isProcessing = true;      // stop() pressed; deriving waveform
+        rec->isProcessing = true;
 
         QVERIFY(!app.startVoiceRecording(QStringLiteral("thread")));
         QCOMPARE(app.voiceOwner(), QStringLiteral("room"));
         QVERIFY(app.voiceRecordingBusy());
     }
 
-    // Releasing lets the other composer record; ownership then moves
-    // cleanly. Also proves the refusal is not permanent.
     void ownershipMovesOnceTheRecorderIsFree()
     {
         AppController app(AppController::MockBackend);
@@ -148,8 +131,6 @@ private Q_SLOTS:
         QCOMPARE(app.voiceOwner(), QStringLiteral("thread"));
     }
 
-    // Ownership is a send authorisation: an unrecognised owner must never
-    // hold it, and must not start a recording either.
     void anUnknownOwnerIsRefused()
     {
         AppController app(AppController::MockBackend);

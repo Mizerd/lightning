@@ -1,20 +1,3 @@
-//! Deleting a room as a homeserver administrator (Synapse's admin API).
-//!
-//! Matrix has no client-server API for deleting a room. A Synapse server
-//! administrator can: `DELETE /_synapse/admin/v2/rooms/{roomId}` removes every
-//! member on that server, purges the server's copy of the room and can block
-//! it from being joined again. Members on other servers keep the room and
-//! their copy of its history.
-//!
-//! Only reached when the user opens a delete surface, never in the
-//! background. Whether the account is an administrator is asked of the server
-//! (`/_synapse/admin/v1/users/{self}/admin`), which refuses non-admins; any
-//! answer but an explicit `{"admin": true}` reads as "not an administrator".
-//! Deployments that hide `/_synapse/admin` behind their proxy (Synapse's own
-//! advice) or use MAS answer an error, so the delete is simply not offered.
-//!
-//! The access token goes to the same homeserver as every other request, over
-//! the SDK's own transport, and is never logged or stored.
 
 use std::sync::Arc;
 
@@ -32,25 +15,11 @@ use serde_json::json;
 use crate::rooms::require_client;
 use crate::{enqueue, RustClient};
 
-/// One admin API round trip.
 const ADMIN_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-/// Between delete-status reads.
 const ADMIN_DELETE_POLL: std::time::Duration = std::time::Duration::from_secs(2);
-/// How long to follow one delete. Past it the server keeps going and the UI
-/// says the outcome is not known yet.
 const ADMIN_DELETE_FOLLOW: std::time::Duration = std::time::Duration::from_secs(600);
-/// Admin API bodies are small; anything larger is cut.
 const ADMIN_BODY_CAP: usize = 65_536;
 
-/// Marks a room this server has deleted as left in the local store, as
-/// matrix-sdk's own leave handling does for the room info (it also clears a
-/// pending key bundle in the crypto store, deliberately not done here: §6, and
-/// that record only matters for a joined room), so it goes from the room list
-/// now and stays gone after a restart. The server purged the room, so no leave can be
-/// sent for it, and its forced leave reaches this client only when sync wins
-/// the race with the purge. Not forgotten: that would also clear the event
-/// cache under a timeline that may still be open, and /forget targets a room
-/// the server no longer has. A left room is never listed.
 pub(crate) async fn mark_deleted_room_left(
     room: &matrix_sdk::BaseRoom,
 ) -> Result<(), matrix_sdk::StoreError> {
@@ -66,14 +35,6 @@ pub(crate) async fn mark_deleted_room_left(
     .await
 }
 
-/// Account data that tells the user's OTHER sessions a room was deleted.
-///
-/// The deleting session marks the room left in its own store, but the server
-/// purged the room, so no leave ever reaches a different device of the same
-/// user, a session that was offline during the delete, or one that outlived
-/// the follow window. Without this they keep a Joined room that no sync will
-/// mention again. The content is room ids the user themself deleted: no
-/// secrets, no keys, no message data. Capped, oldest dropped first.
 pub(crate) const DELETED_ROOMS_TYPE: &str = "org.lightning_matrix.deleted_rooms";
 const DELETED_ROOMS_CAP: usize = 100;
 
@@ -84,8 +45,6 @@ pub(crate) struct DeletedRoomsEventContent {
     pub rooms: Vec<String>,
 }
 
-/// `existing` plus `room_id`, deduplicated, newest last, at most the cap.
-/// Pure and unit-tested.
 pub(crate) fn merge_deleted_rooms(existing: &[String], room_id: &str) -> Vec<String> {
     let mut out: Vec<String> = existing.iter().filter(|r| r.as_str() != room_id).cloned().collect();
     out.push(room_id.to_owned());
@@ -95,14 +54,8 @@ pub(crate) fn merge_deleted_rooms(existing: &[String], room_id: &str) -> Vec<Str
     out
 }
 
-/// Record a completed delete in account data so other sessions follow it. A
-/// failure is silent on purpose: it only loses the cross-session courtesy.
 async fn record_deleted_room(client: &Client, room_id: &str) {
     let Some(own) = client.user_id().map(ToOwned::to_owned) else { return };
-    // The SERVER's copy, not the local one: another session may have written
-    // since this one last synced, and a read-modify-write on a stale copy would
-    // drop its entries. 404 is an empty list; any other failure aborts the
-    // write rather than clobber what could not be read.
     let get = get_global_account_data::v3::Request::new(
         own.clone(),
         GlobalAccountDataEventType::from(DELETED_ROOMS_TYPE),
@@ -130,9 +83,6 @@ fn account_data_config() -> matrix_sdk::config::RequestConfig {
     matrix_sdk::config::RequestConfig::new().disable_retry().timeout(ADMIN_REQUEST_TIMEOUT)
 }
 
-/// The listed rooms this session still holds as JOINED. Invited rooms are
-/// left alone: a purged room leaves no live invite, and an invite is not ours
-/// to hide on the strength of a list.
 fn held_listed(
     get_room: &impl Fn(&RoomId) -> Option<matrix_sdk::BaseRoom>,
     listed: &[String],
@@ -166,8 +116,6 @@ async fn apply_deleted_rooms(
     changed
 }
 
-/// The rooms the server says we are joined to, or `None` if it could not be
-/// asked (then nothing is hidden: a guess must not hide a live room).
 async fn server_joined_rooms(client: &Client) -> Option<std::collections::HashSet<String>> {
     let response = client
         .send(matrix_sdk::ruma::api::client::membership::joined_rooms::v3::Request::new())
@@ -177,8 +125,6 @@ async fn server_joined_rooms(client: &Client) -> Option<std::collections::HashSe
     Some(response.joined_rooms.iter().map(ToString::to_string).collect())
 }
 
-/// Another session deleted a room (or our own write came back): drop it here
-/// too. Marking is idempotent, so the echo of our own write is a no-op.
 pub(crate) fn install_deleted_room_handler(
     client: &Client,
     events: crate::EventQueueRef,
@@ -189,8 +135,6 @@ pub(crate) fn install_deleted_room_handler(
             let listed = ev.content.rooms.clone();
             async move {
                 let held = held_listed(&|id| client.get_room(id).map(|r| (*r).clone()), &listed);
-                // One request per delivery, and only when a listed room is
-                // actually held.
                 if held.is_empty() {
                     return;
                 }
@@ -230,10 +174,6 @@ fn admin_url(base: &url::Url, segments: &[&str]) -> Result<String, String> {
     Ok(url.to_string())
 }
 
-/// Reads the answer to "is this account a server administrator?":
-/// `(admin, detail)`. Only a 200 with `"admin": true` is yes; 403 is the
-/// server saying no; anything else means the API is not reachable here.
-/// Pure and unit-tested.
 fn admin_answer(status: u16, body: &str) -> (bool, &'static str) {
     if status == 200 {
         let admin = serde_json::from_str::<serde_json::Value>(body)
@@ -248,19 +188,11 @@ fn admin_answer(status: u16, body: &str) -> (bool, &'static str) {
     (false, "unavailable")
 }
 
-/// The delete id from the answer to a delete request, or a coarse category.
-/// `body` is None when it could not be read. A 200 means Synapse accepted
-/// and scheduled the purge, so a 200 without a usable id is "unknown" (it
-/// started, but cannot be followed), never a refusal; so is a 502/503/504,
-/// which a proxy in front of Synapse answers for a request that may have
-/// reached it. Pure and unit-tested.
 fn delete_started(status: u16, body: Option<&str>) -> Result<String, &'static str> {
     match status {
         200 => body
             .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok())
             .and_then(|v| v.get("delete_id").and_then(|d| d.as_str()).map(str::to_owned))
-            // Synapse's ids are random letters; anything else is not used
-            // in a URL.
             .filter(|id| {
                 !id.is_empty()
                     && id.len() <= 255
@@ -277,9 +209,6 @@ fn delete_started(status: u16, body: Option<&str>) -> Result<String, &'static st
     }
 }
 
-/// One delete-status answer: `(status, removed, failed_to_remove)`. The
-/// status is one of Synapse's four words; anything else is `None`. Pure and
-/// unit-tested.
 fn delete_status(body: &str) -> Option<(&'static str, usize, usize)> {
     let v: serde_json::Value = serde_json::from_str(body).ok()?;
     let status = match v.get("status")?.as_str()? {
@@ -299,16 +228,10 @@ fn delete_status(body: &str) -> Option<(&'static str, usize, usize)> {
     Some((status, count("kicked_users"), count("failed_to_kick_users")))
 }
 
-/// Why a request produced no answer: "network" when it never reached the
-/// server (no connection), "unknown" when it may have (a timeout or a lost
-/// response), so the outcome cannot be known.
 fn transport_category(connect: bool) -> &'static str {
     if connect { "network" } else { "unknown" }
 }
 
-/// The status and body of one admin request. The body is None when it could
-/// not be read whole or is longer than ADMIN_BODY_CAP (not an answer Synapse
-/// gives); the status still counts.
 async fn send(
     client: &matrix_sdk::Client,
     request: reqwest::RequestBuilder,
@@ -337,9 +260,6 @@ async fn send(
     Ok((status, Some(String::from_utf8_lossy(&bytes).into_owned())))
 }
 
-// Whether the signed-in account is a server administrator. Result event:
-// server_admin_status { op_id, admin, detail } where detail is "",
-// "not_admin" or "unavailable".
 pub(crate) fn server_admin_status(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
     let own = client
@@ -356,7 +276,6 @@ pub(crate) fn server_admin_status(bridge: &RustClient, op_id: u64) -> Result<(),
     bridge.spawn_room_action(async move {
         let request = client.http_client().get(url).timeout(ADMIN_REQUEST_TIMEOUT);
         let (admin, detail) = match send(&client, request).await {
-            // An unreadable 200 is asked again later, not believed.
             Ok((200, None)) => (false, "unavailable"),
             Ok((status, body)) => admin_answer(status, body.as_deref().unwrap_or("")),
             Err(_) => (false, "unavailable"),
@@ -375,16 +294,6 @@ pub(crate) fn server_admin_status(bridge: &RustClient, op_id: u64) -> Result<(),
     Ok(())
 }
 
-// Delete `room_id` from this homeserver through the admin API: every local
-// member is removed and the server's copy is purged; with `block`, local
-// users cannot join it again. Follows the delete until it completes, fails or
-// ADMIN_DELETE_FOLLOW passes. Result events: admin_room_delete_progress
-// { op_id, room_id, status } on each change, then admin_room_delete_result
-// { op_id, room_id, status, ok, removed, failed_to_remove, category } where
-// status "following" means the server had not finished when we stopped
-// following it, and "unknown" that Lightning cannot say what happened: the
-// delete request got no answer (or a gateway error), the server accepted it
-// without a usable id, or no status read ever answered.
 pub(crate) fn admin_delete_room(
     bridge: &RustClient,
     room_id: String,
@@ -395,8 +304,6 @@ pub(crate) fn admin_delete_room(
     let parsed = RoomId::parse(&room_id).map_err(|_| "invalid room id".to_owned())?;
     let base = client.homeserver();
     let delete_url = admin_url(&base, &["_synapse", "admin", "v2", "rooms", parsed.as_str()])?;
-    // Built with serde so nothing can inject a field. purge is Synapse's
-    // default, stated so the request says what it does.
     let body = serde_json::to_vec(&json!({ "block": block, "purge": true }))
         .map_err(|_| "invalid request".to_owned())?;
     let events = Arc::clone(&bridge.events);
@@ -442,7 +349,6 @@ pub(crate) fn admin_delete_room(
             &base,
             &["_synapse", "admin", "v2", "rooms", "delete_status", delete_id.as_str()],
         ) else {
-            // Unreachable for a validated id; still never silent.
             if timelines.lifecycle_current(lifecycle) {
                 enqueue(&events, result("following", false, 0, 0, ""));
             }
@@ -450,8 +356,6 @@ pub(crate) fn admin_delete_room(
         };
         let until = tokio::time::Instant::now() + ADMIN_DELETE_FOLLOW;
         let mut last = "";
-        // Whether any status read answered: without one, "still deleting"
-        // would be a guess.
         let mut heard = false;
         loop {
             if !timelines.lifecycle_current(lifecycle) {
@@ -484,12 +388,8 @@ pub(crate) fn admin_delete_room(
                                 .ok()
                                 .and_then(|id| client.get_room(&id))
                             {
-                                // A store error leaves the room listed until
-                                // sync catches up: the old behaviour.
                                 let _ = mark_deleted_room_left(&room).await;
                             }
-                            // Tell the user's other sessions (see
-                            // `DELETED_ROOMS_TYPE`).
                             record_deleted_room(&client, &room_id).await;
                         }
                         let category = if status == "failed" { "server" } else { "" };
@@ -535,8 +435,6 @@ mod tests {
 
     use super::*;
 
-    // Every id is one percent-encoded path segment: nothing can climb out of
-    // the admin path or add a query.
     #[test]
     fn admin_urls_keep_each_id_in_one_segment() {
         let base = url::Url::parse("https://matrix.example.org/").unwrap();
@@ -553,7 +451,6 @@ mod tests {
         assert!(admin_url(&base, &["_synapse", ".."]).is_err());
         assert!(admin_url(&base, &["_synapse", "."]).is_err());
         assert!(admin_url(&base, &["_synapse", ""]).is_err());
-        // A homeserver behind a path prefix keeps it.
         let prefixed = url::Url::parse("https://example.org/matrix/").unwrap();
         assert_eq!(
             admin_url(&prefixed, &["_synapse", "admin"]).unwrap(),
@@ -561,7 +458,6 @@ mod tests {
         );
     }
 
-    // Only an explicit true is an administrator.
     #[test]
     fn only_an_explicit_true_is_an_administrator() {
         assert_eq!(admin_answer(200, r#"{"admin": true}"#), (true, ""));
@@ -573,13 +469,11 @@ mod tests {
             admin_answer(403, r#"{"errcode":"M_FORBIDDEN","error":"You are not a server admin"}"#),
             (false, "not_admin")
         );
-        // A proxy that hides the admin API, or a server without it.
         assert_eq!(admin_answer(404, ""), (false, "unavailable"));
         assert_eq!(admin_answer(400, ""), (false, "unavailable"));
         assert_eq!(admin_answer(500, r#"{"admin": true}"#), (false, "unavailable"));
     }
 
-    // A request that may have reached the server is "unknown", not a failure.
     #[test]
     fn only_a_refused_connection_is_a_plain_network_failure() {
         assert_eq!(transport_category(true), "network");
@@ -589,15 +483,12 @@ mod tests {
     #[test]
     fn a_delete_starts_only_with_a_delete_id() {
         assert_eq!(delete_started(200, Some(r#"{"delete_id":"abc"}"#)), Ok("abc".to_owned()));
-        // A 200 is an accepted delete: without a usable id it is unknown,
-        // never "refused".
         assert_eq!(delete_started(200, Some(r#"{"delete_id":""}"#)), Err("unknown"));
         assert_eq!(delete_started(200, Some("{}")), Err("unknown"));
         assert_eq!(delete_started(200, Some(r#"{"delete_id":".."}"#)), Err("unknown"));
         assert_eq!(delete_started(200, Some(r#"{"delete_id":"a/b"}"#)), Err("unknown"));
         assert_eq!(delete_started(200, None), Err("unknown"));
         assert_eq!(delete_started(400, None), Err("invalid"));
-        // A proxy's gateway answers may hide a delete that reached Synapse.
         assert_eq!(delete_started(502, None), Err("unknown"));
         assert_eq!(delete_started(503, Some("")), Err("unknown"));
         assert_eq!(delete_started(504, None), Err("unknown"));
@@ -608,8 +499,6 @@ mod tests {
         assert_eq!(delete_started(429, Some("")), Err("rate_limited"));
     }
 
-    // A deleted room is marked left in the local store, in memory and on
-    // disk, so it leaves the room list now and after a restart.
     #[tokio::test]
     async fn a_deleted_room_is_left_in_the_local_store() {
         use matrix_sdk::cross_process_lock::CrossProcessLockConfig;
@@ -651,7 +540,6 @@ mod tests {
             .map(|r| r.room_id().to_owned())
             .collect();
         assert_eq!(joined, vec![kept.clone()]);
-        // Saved, so a restart reads it as left too.
         let stored = client
             .state_store()
             .get_room_infos(&RoomLoadSettings::default())
@@ -662,12 +550,9 @@ mod tests {
             .find(|i| i.room_id() == &*gone)
             .expect("stored");
         assert_eq!(info.state(), RoomState::Left);
-        // Idempotent.
         mark_deleted_room_left(&room).await.expect("again");
         assert_eq!(room.state(), RoomState::Left);
 
-        // Another session's delete arrives as account data: only the listed,
-        // held, Joined rooms go; an unknown or malformed id is skipped.
         let other = RoomId::parse("!other:example.org").unwrap();
         let other_room = client.get_or_create_room(&other, RoomState::Joined);
         let back = RoomId::parse("!back:example.org").unwrap();
@@ -680,16 +565,12 @@ mod tests {
         ];
         let held = held_listed(&|id| client.get_room(id), &listed);
         assert_eq!(held.len(), 2);
-        // `!back` was deleted without block and joined again: the server still
-        // lists it, so it must NOT be hidden. `!other` is gone from the server.
         let server_joined: std::collections::HashSet<String> =
             ["!back:example.org", "!kept:example.org"].iter().map(|s| (*s).to_owned()).collect();
         assert!(apply_deleted_rooms(&held, &server_joined).await);
         assert_eq!(other_room.state(), RoomState::Left);
         assert_eq!(back_room.state(), RoomState::Joined);
         assert_eq!(client.get_room(&kept).unwrap().state(), RoomState::Joined);
-        // A second delivery changes nothing, and nothing is held that is
-        // already Left.
         let held = held_listed(&|id| client.get_room(id), &listed);
         assert_eq!(held.len(), 1);
         assert!(!apply_deleted_rooms(&held, &server_joined).await);

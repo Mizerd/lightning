@@ -2,17 +2,12 @@ import QtQuick
 import QtQuick.Layouts
 import MatrixClient
 
-// The persistent "Voice connected" strip in the navigation column, so the user
-// can browse other rooms without ending the call and get back to it.
 Rectangle {
     id: root
 
     objectName: "voiceConnectedBar"
-    /// Emitted when the user asks to return to the call surface.
     signal returnToCallRequested
 
-    // Only while the call is elsewhere; inside its room the call controls are
-    // already at the top of the conversation.
     visible: app.groupCall.active && !(app.currentScreen === 1 && app.groupCall.roomId === app.currentRoomId)
     implicitHeight: visible ? content.implicitHeight + AppTheme.spacing8 * 2 : 0
     height: implicitHeight
@@ -41,7 +36,6 @@ Rectangle {
                 Icon {
                     name: "call"
                     size: 14
-                    // Green while connected, warning while reconnecting.
                     color: app.groupCall.state === SfuCallController.Connected ? AppTheme.success : AppTheme.warning
                 }
                 Text {
@@ -58,12 +52,9 @@ Rectangle {
                 }
             }
             Text {
-                // Remote or externally chosen text: never markup.
                 textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: {
-                    // findRoom is a plain C++ call; this re-reads when the
-                    // call's room changes, the only input that can change it.
                     if (!app.roomList || app.groupCall.roomId.length === 0)
                         return "";
                     var room = app.roomList.findRoom(app.groupCall.roomId);

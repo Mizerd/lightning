@@ -1,11 +1,3 @@
-// Executed proof for the C74 keyboard / accessibility round. The production
-// QML cannot be loaded whole (it needs the `app` context), so each case lifts
-// the production source text of the code under test out of the real .qml file
-// and runs it in a minimal scene with real items, real focus and real key
-// events. A change that removes or breaks the production code fails the case:
-// the marker lookup fails, or the behaviour does.
-//
-// QML_DIR can be overridden with KBNAV_QML_DIR (a mutation / old-tree run).
 
 #include <QtTest/QtTest>
 
@@ -32,8 +24,6 @@ QString readFile(const QString &name)
     return QString::fromUtf8(f.readAll());
 }
 
-// Text from `from` (inclusive) up to `to` (exclusive), empty if either marker
-// is missing.
 QString slice(const QString &file, const QString &from, const QString &to)
 {
     const QString s = readFile(file);
@@ -46,7 +36,7 @@ QString slice(const QString &file, const QString &from, const QString &to)
     return s.mid(a, b - a);
 }
 
-} // namespace
+}
 
 class KeyboardNavigationQmlTest : public QObject
 {
@@ -82,7 +72,6 @@ private:
     {
         if (auto *it = m_root->findChild<QQuickItem *>(QLatin1String(n)))
             return it;
-        // Repeater / inline-component items are visual children only.
         QList<QQuickItem *> found;
         if (auto *w = window())
             collect(w->contentItem(), QLatin1String(n), found);
@@ -121,8 +110,6 @@ private Q_SLOTS:
         m_root = nullptr;
     }
 
-    // C74-F06: Return / Enter activate the shared button types, and a
-    // checkable one still toggles (click() runs the whole sequence).
     void returnActivatesButtons()
     {
         const QString scene = QStringLiteral(R"QML(
@@ -162,8 +149,6 @@ ApplicationWindow {
         QCOMPARE(w->property("appClicks").toInt(), 2);
     }
 
-    // C74-F01: F6 / Shift+F6 cycle the shell's regions. The production
-    // functions are lifted out of MainScreen.qml.
     void f6CyclesTheRegions()
     {
         const QString body = slice(QStringLiteral("MainScreen.qml"),
@@ -211,29 +196,21 @@ Window {
         QCOMPARE(focusName(), QStringLiteral("composerStop"));
         QTest::keyClick(w, Qt::Key_F6, Qt::ShiftModifier);
         QCOMPARE(focusName(), QStringLiteral("roomsStop"));
-        // A hidden region is skipped.
         auto *rooms = named("roomsStop")->parentItem();
         rooms->setVisible(false);
         named("railStop")->forceActiveFocus();
         QTest::keyClick(w, Qt::Key_F6);
         QCOMPARE(focusName(), QStringLiteral("composerStop"));
         rooms->setVisible(true);
-        // No writable composer: the chat pane's first tab stop.
         named("timelinePane")->setProperty("hasComposer", false);
         named("roomsStop")->forceActiveFocus();
         QTest::keyClick(w, Qt::Key_F6);
         QCOMPARE(focusName(), QStringLiteral("rowStop"));
-        // Ctrl+F6 is not ours.
         named("railStop")->forceActiveFocus();
         QTest::keyClick(w, Qt::Key_F6, Qt::ControlModifier);
         QCOMPARE(focusName(), QStringLiteral("railStop"));
     }
 
-    // MASTER-3 M3 / recheck N1: the unverified-session card is a region while
-    // it shows. It is NOT inside the shell (it lives on the window overlay),
-    // so the shell is handed it, and F6 pressed inside it is forwarded back.
-    // Both production blocks are lifted: MainScreen's region code and the
-    // card's F6 hand-off.
     void f6ReachesAndLeavesTheVerifyCard()
     {
         const QString body = slice(QStringLiteral("MainScreen.qml"),
@@ -284,22 +261,17 @@ ApplicationWindow {
         named("composerStop")->forceActiveFocus();
         QTest::keyClick(w, Qt::Key_F6);
         QCOMPARE(focusName(), QStringLiteral("cardStop"));
-        // F6 inside the card leaves it (the cycle wraps to the rail).
         QTest::keyClick(w, Qt::Key_F6);
         QCOMPARE(focusName(), QStringLiteral("railStop"));
         QTest::keyClick(w, Qt::Key_F6, Qt::ShiftModifier);
         QCOMPARE(focusName(), QStringLiteral("cardStop"));
         QTest::keyClick(w, Qt::Key_F6, Qt::ShiftModifier);
         QCOMPARE(focusName(), QStringLiteral("composerStop"));
-        // A hidden card is not a region.
         named("card")->setProperty("shouldShow", false);
         QTest::keyClick(w, Qt::Key_F6);
         QCOMPARE(focusName(), QStringLiteral("railStop"));
     }
 
-    // C74-F03: Up/Down walk between ROWS (skipping the other tab stops in a
-    // row), stop at the end of THIS list instead of wrapping into another
-    // timeline, and ask the view to reveal the row.
     void rowNavigationStaysInOneList()
     {
         const QString fn = slice(QStringLiteral("MessageDelegate.qml"),
@@ -360,11 +332,9 @@ Window {
         ok = callBool(a1, "focusNeighbourRow", true);
         QVERIFY(ok);
         QVERIFY(a2->hasActiveFocus());
-        // The next row in the window's chain belongs to another list.
         ok = callBool(a2, "focusNeighbourRow", true);
         QVERIFY2(!ok, "must not hop into another timeline");
         QVERIFY(a2->hasActiveFocus());
-        // Backwards, and every successful move asked the view to reveal.
         ok = callBool(a2, "focusNeighbourRow", false);
         QVERIFY(ok);
         QVERIFY(a1->hasActiveFocus());
@@ -374,7 +344,6 @@ Window {
                                         QStringLiteral("messageDelegateRoot:a1")}));
     }
 
-    // C74-F03: the reveal scrolls the rotated timeline just far enough.
     void revealRowScrollsTheRotatedView()
     {
         const QString fn = slice(QStringLiteral("TimelinePane.qml"),
@@ -427,24 +396,22 @@ Window {
             return top >= y - 0.5 && top + 100 <= y + 400 + 0.5;
         };
         QCOMPARE(tl->property("contentY").toReal(), 0.0);
-        QVERIFY(!reveal(1));                       // already inside: no scroll
+        QVERIFY(!reveal(1));
         QCOMPARE(tl->property("contentY").toReal(), 0.0);
-        QVERIFY(reveal(10));                       // far below the viewport
+        QVERIFY(reveal(10));
         QVERIFY(inView(10));
         QCOMPARE(tl->property("contentY").toReal(), 708.0);
         QVERIFY(tl->property("cancels").toInt() >= 1);
         QVERIFY(tl->property("updates").toInt() >= 1);
-        QVERIFY(reveal(2));                        // now above it
+        QVERIFY(reveal(2));
         QVERIFY(inView(2));
         QCOMPARE(tl->property("contentY").toReal(), 192.0);
-        QVERIFY(reveal(19));                       // clamped to the last position
+        QVERIFY(reveal(19));
         QCOMPARE(tl->property("contentY").toReal(), 1600.0);
         QVERIFY(inView(19));
-        QVERIFY(!reveal(19));                      // idempotent
+        QVERIFY(!reveal(19));
     }
 
-    // C74-F08: closing Settings returns the focus to what held it before,
-    // and the answer does not depend on the order in which the shell hides.
     void closingSettingsRestoresFocus()
     {
         const QString tracker = slice(QStringLiteral("Main.qml"),
@@ -500,15 +467,11 @@ Window {
         QTRY_VERIFY2(focusName() == QLatin1String("settingsField"), qPrintable(focusName()));
         call(1);
         QTRY_COMPARE(focusName(), QStringLiteral("composer"));
-        // Another opener: the rail held the focus this time.
         named("rail")->forceActiveFocus();
         call(2);
         QTRY_COMPARE(focusName(), QStringLiteral("settingsField"));
         call(1);
         QTRY_COMPARE(focusName(), QStringLiteral("rail"));
-        // The hostile order: the shell is already hidden (its focus gone) by
-        // the time Settings reports visible. Reading activeFocusItem there
-        // returns nothing useful; the tracked item must still come back.
         named("composer")->forceActiveFocus();
         QCOMPARE(focusName(), QStringLiteral("composer"));
         named("mainScreen")->setVisible(false);
@@ -517,7 +480,6 @@ Window {
         call(1);
         named("mainScreen")->setVisible(true);
         QTRY_COMPARE(focusName(), QStringLiteral("composer"));
-        // The remembered item went away while Settings was open: the page.
         named("composer")->forceActiveFocus();
         call(2);
         QTRY_COMPARE(focusName(), QStringLiteral("settingsField"));
@@ -527,7 +489,6 @@ Window {
                      qPrintable(focusName()));
     }
 
-    // Robust source facts the scenes above cannot show: each affordance exists.
     void focusRingsAndNamesExist()
     {
         const QString m = readFile(QStringLiteral("MessageDelegate.qml"));

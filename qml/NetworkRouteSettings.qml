@@ -17,8 +17,6 @@ ColumnLayout {
     readonly property var ctl: typeof app !== "undefined" && app ? app.networkRoute : null
     readonly property var route: section.ctl ? section.ctl.route : ({})
     readonly property bool hasPassword: !!section.route.hasPassword
-    // What the form shows: the combo's choice, not the stored one, so the
-    // fields appear as soon as a proxy kind is picked.
     readonly property bool proxyChosen: kindCombo.currentValue !== "none"
     property string result: ""
     property bool saved: false
@@ -31,7 +29,6 @@ ColumnLayout {
         passwordField.text = ""
     }
     function save() {
-        // An empty password field keeps the stored one (same username).
         var replace = passwordField.text.length > 0
         section.result = section.ctl.save(kindCombo.currentValue, hostField.text.trim(),
                                           parseInt(portField.text, 10) || 0,
@@ -135,7 +132,6 @@ ColumnLayout {
             enabled: userField.text.trim().length > 0
             echoMode: TextInput.Password
             inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
-            // Never the stored value: only whether there is one.
             placeholderText: section.hasPassword
                              && userField.text.trim() === (section.route.username || "")
                              ? qsTr("Password saved (type to replace)")

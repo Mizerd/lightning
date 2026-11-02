@@ -1,9 +1,3 @@
-// Labs (concurrent live accounts): AccountActivityModel, the per-account
-// badge rows the background hosts feed. Epoch-stamped summaries (a late
-// result from a retired host is refused, also after removal), one-row
-// updates that never reset the model, "only a Running account shows
-// anything", and totals that leave the active account out. Every case names
-// the naive version it fails on.
 
 #include "models/AccountActivityModel.h"
 
@@ -50,7 +44,7 @@ int rowOf(const AccountActivityModel &m, const QString &uid)
     return -1;
 }
 
-} // namespace
+}
 
 class AccountActivityModelTest : public QObject
 {
@@ -70,7 +64,6 @@ private Q_SLOTS:
         m_model.reset();
     }
 
-    // QML binds these names (WP1-Q); a rename is a silent blank badge.
     void roleNamesMatchTheContract()
     {
         const QHash<int, QByteArray> names = m_model->roleNames();
@@ -92,9 +85,6 @@ private Q_SLOTS:
         QCOMPARE(a.value("hasUnread").toBool(), false);
     }
 
-    // A badge update is ONE row's dataChanged. Naive version: rebuild the
-    // list with a model reset, which re-creates every delegate in the open
-    // account menu on every summary.
     void aSummaryIsOneRowNeverAReset()
     {
         m_model->setLiveState(kA, AccountActivityModel::Running);
@@ -120,15 +110,11 @@ private Q_SLOTS:
         QCOMPARE(inserted.count(), 0);
         QCOMPARE(removed.count(), 0);
 
-        // The same summary again changes nothing and says nothing.
         QVERIFY(m_model->setSummary(kB, 1, sum(3, 1)));
         QCOMPARE(changed.count(), 1);
         QCOMPARE(summary.count(), 1);
     }
 
-    // A summary older than the row's epoch is a late result from a retired
-    // host. Naive version: last writer wins, so a retiring host's final take
-    // overwrites the new host's fresh counts.
     void aLateSummaryIsRefused()
     {
         m_model->setLiveState(kA, AccountActivityModel::Running);
@@ -140,19 +126,13 @@ private Q_SLOTS:
         QCOMPARE(roleOf(*m_model, kA, AccountActivityModel::MentionCountRole).toInt(), 1);
         QCOMPARE(changed.count(), 0);
         QCOMPARE(summary.count(), 0);
-        // The same epoch is the same host: accepted.
         QVERIFY(m_model->setSummary(kA, 5, sum(4, 0)));
         QCOMPARE(roleOf(*m_model, kA, AccountActivityModel::UnreadRoomsRole).toInt(), 4);
-        // A newer one raises the bar.
         QVERIFY(m_model->setSummary(kA, 6, sum(1, 0)));
         QVERIFY(!m_model->setSummary(kA, 5, sum(7, 0)));
         QCOMPARE(m_model->epochOf(kA), quint64(6));
     }
 
-    // Zero the counts, keep the row and its state, raise the epoch. Naive
-    // versions: remove the row (the switcher loses the account's state), or
-    // zero without raising the epoch (the retired host's next take restores
-    // stale counts).
     void resetZeroesAndRaisesTheEpoch()
     {
         m_model->setLiveState(kA, AccountActivityModel::Running);
@@ -168,20 +148,10 @@ private Q_SLOTS:
         QCOMPARE(summary.count(), 1);
         QVERIFY(!m_model->setSummary(kA, 2, sum(5, 2)));
         QVERIFY(m_model->setSummary(kA, 3, sum(1, 0)));
-        // A reset with an older epoch is itself late.
         m_model->resetAccount(kA, 1);
         QCOMPARE(roleOf(*m_model, kA, AccountActivityModel::UnreadRoomsRole).toInt(), 1);
     }
 
-    // Removal is a tombstone (contract §6.3, DECISION 7: activity->
-    // removeAccount() runs BEFORE pool->retireForRemoval(), so the retiring
-    // host still reports Stopping and NotLive, and may still deliver a last
-    // summary). Nothing it reports may bring the row back, at any epoch;
-    // only an explicit reopen by a new host does. Naive versions: a floor
-    // that only summaries check (setLiveState(Stopping) re-creates the row,
-    // which then sits in the "running" section), or a removal that leaves no
-    // trace when the account had no row yet (a Starting host that had not
-    // reported creates one afterwards).
     void aRemovedAccountStaysRemoved()
     {
         m_model->setLiveState(kA, AccountActivityModel::Running);
@@ -195,8 +165,6 @@ private Q_SLOTS:
         QCOMPARE(m_model->rowCount(), 0);
         QVERIFY(m_model->isRemoved(kA));
 
-        // The retiring host walks Stopping -> NotLive and delivers a last
-        // take, at its own epoch and at a later one: all refused.
         m_model->setLiveState(kA, AccountActivityModel::Stopping);
         m_model->setLiveState(kA, AccountActivityModel::Running);
         QVERIFY(!m_model->setSummary(kA, 4, sum(3, 1)));
@@ -208,14 +176,11 @@ private Q_SLOTS:
         QCOMPARE(m_model->activityFor(kA).value("liveState").toInt(),
                  int(AccountActivityModel::NotLive));
         QCOMPARE(m_model->totalsExcluding(QString()).unreadRooms, 0);
-        // resetAccount() (a retire's cleanup) never lifts a removal.
         m_model->resetAccount(kA, 5);
         QVERIFY(m_model->isRemoved(kA));
         m_model->setLiveState(kA, AccountActivityModel::Stopping);
         QCOMPARE(m_model->rowCount(), 0);
 
-        // An account removed while it had no row (a Starting host that had
-        // reported nothing) is tombstoned all the same.
         QVERIFY(!m_model->isRemoved(kB));
         m_model->removeAccount(kB);
         QVERIFY(m_model->isRemoved(kB));
@@ -224,42 +189,28 @@ private Q_SLOTS:
         QCOMPARE(m_model->rowCount(), 0);
         QCOMPARE(inserted.count(), 0);
 
-        // Reopen: a new host for the re-added account, at the pool's epoch.
-        // Below the floor it is refused and the tombstone stays: 3 is below
-        // the removed row's epoch (4), and 4 is below the 5 the post-removal
-        // resetAccount() raised the floor to.
         QVERIFY(!m_model->reopenAccount(kA, 3));
         QVERIFY(m_model->isRemoved(kA));
         QVERIFY(!m_model->reopenAccount(kA, 4));
         QVERIFY(m_model->isRemoved(kA));
         QVERIFY(m_model->reopenAccount(kA, 6));
         QVERIFY(!m_model->isRemoved(kA));
-        QVERIFY(m_model->isRemoved(kB)); // one account's reopen is not another's
+        QVERIFY(m_model->isRemoved(kB));
         m_model->setLiveState(kA, AccountActivityModel::Running);
         QCOMPARE(m_model->rowCount(), 1);
         QCOMPARE(m_model->epochOf(kA), quint64(6));
-        // The old host's epoch is still late for the new row.
         QVERIFY(!m_model->setSummary(kA, 5, sum(3, 1)));
         QCOMPARE(roleOf(*m_model, kA, AccountActivityModel::UnreadRoomsRole).toInt(), 0);
         QVERIFY(m_model->setSummary(kA, 6, sum(1, 0)));
         QCOMPARE(roleOf(*m_model, kA, AccountActivityModel::UnreadRoomsRole).toInt(), 1);
 
-        // Reopening an account that was never removed changes nothing.
         QVERIFY(m_model->reopenAccount(kC, 0));
         QCOMPARE(m_model->rowCount(), 1);
         QCOMPARE(m_model->epochOf(kC), quint64(0));
     }
 
-    // Review round 2 (N1): reopenAccount(uid, epochFor(uid)) must succeed on
-    // the two paths where the pool's epoch did NOT move between the row's
-    // last epoch and the removal. Naive version: the removal sets the floor
-    // to the row's epoch + 1, so the re-added account's reopen is refused for
-    // good and it never gets a row again in that process.
     void aReAddedAccountReopensAtThePoolsEpoch()
     {
-        // (a) A row created by setLiveState() alone, at epoch 0, for an
-        // account that never ran a host (keyring locked); removed while not
-        // live, so the pool's epoch is still 0.
         m_model->setLiveState(kB, AccountActivityModel::KeyringLocked);
         QCOMPARE(m_model->epochOf(kB), quint64(0));
         m_model->removeAccount(kB);
@@ -270,38 +221,31 @@ private Q_SLOTS:
         QVERIFY(m_model->setSummary(kB, 0, sum(2, 1)));
         QCOMPARE(roleOf(*m_model, kB, AccountActivityModel::UnreadRoomsRole).toInt(), 2);
 
-        // (b) The documented protocol: the host ran at 2 and retired (the
-        // pool bumped to 3 and called resetAccount(uid, 3)); the account is
-        // then removed while not live, which bumps nothing.
         m_model->setLiveState(kC, AccountActivityModel::Running);
         QVERIFY(m_model->setSummary(kC, 2, sum(4, 0)));
         m_model->resetAccount(kC, 3);
         m_model->setLiveState(kC, AccountActivityModel::NotLive);
         m_model->removeAccount(kC);
         QVERIFY(m_model->isRemoved(kC));
-        QVERIFY(!m_model->reopenAccount(kC, 2)); // below the row's epoch
+        QVERIFY(!m_model->reopenAccount(kC, 2));
         QVERIFY(m_model->isRemoved(kC));
         QVERIFY(m_model->reopenAccount(kC, 3));
         QVERIFY(!m_model->isRemoved(kC));
         m_model->setLiveState(kC, AccountActivityModel::Running);
         QCOMPARE(m_model->epochOf(kC), quint64(3));
-        // The retired host's epoch is still late for the new row.
         QVERIFY(!m_model->setSummary(kC, 2, sum(4, 0)));
         QCOMPARE(roleOf(*m_model, kC, AccountActivityModel::UnreadRoomsRole).toInt(), 0);
         QVERIFY(m_model->setSummary(kC, 3, sum(1, 0)));
         QCOMPARE(roleOf(*m_model, kC, AccountActivityModel::UnreadRoomsRole).toInt(), 1);
     }
 
-    // DECISION §14.5: a paused, stopped or non-live account shows nothing.
-    // Naive version: the roles read the stored summary whatever the state,
-    // so a paused account keeps a badge from hours ago.
     void onlyARunningAccountShowsItsSummary()
     {
         QSignalSpy summary(m_model.get(), &AccountActivityModel::summaryChanged);
         QSignalSpy live(m_model.get(), &AccountActivityModel::liveStateChanged);
-        QVERIFY(m_model->setSummary(kA, 1, sum(2, 3, 1, true))); // creates a NotLive row
+        QVERIFY(m_model->setSummary(kA, 1, sum(2, 3, 1, true)));
         QCOMPARE(m_model->rowCount(), 1);
-        QCOMPARE(summary.count(), 0); // nothing visible changed
+        QCOMPARE(summary.count(), 0);
         QCOMPARE(roleOf(*m_model, kA, AccountActivityModel::MentionCountRole).toInt(), 0);
         QCOMPARE(roleOf(*m_model, kA, AccountActivityModel::HasUnreadRole).toBool(), false);
         QCOMPARE(m_model->activityFor(kA).value("mentionCount").toInt(), 0);
@@ -331,12 +275,9 @@ private Q_SLOTS:
             QCOMPARE(m_model->totalsExcluding(QString()).accountsWithActivity, 0);
             m_model->setLiveState(kA, AccountActivityModel::Running);
         }
-        // Every hide and every show was announced: QML reads activityFor()
-        // only from these handlers.
         QCOMPARE(summary.count(), 1 + 2 * 6);
     }
 
-    // hasUnread is an unread room or an invite; a mention alone is a number.
     void hasUnreadIsAnUnreadRoomOrAnInvite()
     {
         m_model->setLiveState(kA, AccountActivityModel::Running);
@@ -352,9 +293,6 @@ private Q_SLOTS:
         QCOMPARE(roleOf(*m_model, kA, AccountActivityModel::InvitesRole).toInt(), 0);
     }
 
-    // The rail dot counts OTHER accounts; the foreground has its own badges.
-    // Naive version: sum every row, so the foreground's own unread lights
-    // "new messages on other accounts".
     void totalsLeaveTheActiveAccountOut()
     {
         for (const QString &uid : { kA, kB, kC })
@@ -374,19 +312,16 @@ private Q_SLOTS:
         QCOMPARE(t.mentions, 1);
         QCOMPARE(t.accountsWithActivity, 2);
 
-        // A change on the active account moves no total.
         QVERIFY(m_model->setSummary(kA, 0, sum(7, 4)));
         QCOMPARE(totals.count(), 1);
-        // A change elsewhere does.
         QVERIFY(m_model->setSummary(kC, 0, sum(0, 2)));
         QCOMPARE(totals.count(), 2);
         QCOMPARE(m_model->otherAccountsWithActivity(), 2);
         m_model->setActiveUserId(kC);
-        QCOMPARE(m_model->otherAccountsWithActivity(), 2); // A and B
+        QCOMPARE(m_model->otherAccountsWithActivity(), 2);
         QCOMPARE(m_model->totalsExcluding(kC).mentions, 4);
     }
 
-    // updatedAtMs moves with a real change only.
     void updatedAtFollowsTheClock()
     {
         qint64 clock = 1000;

@@ -53,8 +53,6 @@ quint64 RetirementLatches::await(const QString &userId, int budgetMs,
     const quint64 ticket = m_nextTicket++;
     m_waiters.append(Waiter{ticket, userId, QDeadlineTimer(budgetMs), std::move(done)});
     if (!m_latches.contains(userId)) {
-        // Free now; answered on the next turn so the caller's own state is
-        // settled before its callback runs.
         QTimer::singleShot(0, this, [this, userId] { answer(userId, true); });
     }
     updateTimer();
@@ -93,8 +91,6 @@ void RetirementLatches::answer(const QString &userId, bool free)
 
 void RetirementLatches::pollNow()
 {
-    // Releases first, so a waiter whose latch frees on the same poll its
-    // budget ends is answered "free".
     QStringList freed;
     for (auto it = m_latches.begin(); it != m_latches.end();) {
         // -1 (a path Rust could not resolve) proves nothing: still held.
@@ -117,7 +113,6 @@ void RetirementLatches::pollNow()
             expired.append(waiter.userId);
     }
     for (const QString &uid : std::as_const(expired)) {
-        // Only the waiters whose own budget ran out.
         QList<Waiter> late;
         for (qsizetype i = 0; i < m_waiters.size();) {
             if (m_waiters.at(i).userId == uid && m_waiters.at(i).deadline.hasExpired()) {
@@ -145,4 +140,4 @@ void RetirementLatches::updateTimer()
         m_poll.stop();
 }
 
-} // namespace lightning::accounts
+}

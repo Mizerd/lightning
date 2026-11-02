@@ -1,14 +1,3 @@
-// Chat backgrounds and surface depth.
-//
-// The wire format is covered in rust/src/backdrop.rs. This is the policy half:
-//   * which background a room shows (precedence and the two opt-outs);
-//   * that an answer from another session or another read never lands;
-//   * that the scrim keeps the timeline's ink readable on EVERY shipped
-//     preset, checked by an independent recomputation here, and that the naive
-//     alternative (a fixed 50% dim) would not;
-//   * that a picked picture is re-encoded with nothing of the original file;
-//   * that gradients are sanitised, round-trip, and are graded at their worst
-//     stop, and that "Depth" passes every readability check on every preset.
 
 #include "app/CustomThemeStore.h"
 #include "app/SettingsManager.h"
@@ -42,10 +31,6 @@
 
 namespace {
 
-// ---- an independent contrast implementation --------------------------------
-// Deliberately NOT BackdropMath's: the floor is verified by a second
-// implementation, so a shared bug cannot certify itself.
-
 double channel(int v)
 {
     const double c = v / 255.0;
@@ -71,8 +56,6 @@ QColor over(const QColor &top, double alpha, const QColor &bottom)
     auto ch = [alpha](int a, int b) { return int(std::lround(alpha * a + (1 - alpha) * b)); };
     return QColor(ch(t.red(), u.red()), ch(t.green(), u.green()), ch(t.blue(), u.blue()));
 }
-
-// ---- the eleven presets, read from AppTheme.qml as CustomThemeTest does ----
 
 QString appTheme()
 {
@@ -143,11 +126,6 @@ QString colorLiteral(const QString &qml, const QString &name)
     return m.hasMatch() ? m.captured(1).toUpper() : QString();
 }
 
-// AppTheme's `elementGroups` table: per-element role -> the paletteForTheme()
-// key it follows until it is given a colour. The resolver adds every element
-// the audit grades (`timelineBackground`, `roomList`, the labels ...); a
-// fixture without them hands the audit a palette it can grade almost nothing
-// in, which is how these gradient cases once passed vacuously.
 QHash<QString, QString> elementGroupsTable(const QString &qml)
 {
     QHash<QString, QString> out;
@@ -167,8 +145,6 @@ QHash<QString, QString> elementGroupsTable(const QString &qml)
     return out;
 }
 
-// paletteForTheme()'s spellings and fallbacks, as CustomThemeTest resolves
-// them, so the audit reads the same object QML hands it.
 QVariantMap resolvedPalette(const QHash<QString, QString> &raw,
                             const QString &dangerFill)
 {
@@ -193,7 +169,6 @@ QVariantMap resolvedPalette(const QHash<QString, QString> &raw,
     fallback("selectedText", raw.value(QStringLiteral("textPrimary")));
     fallback("otherBubble", raw.value(QStringLiteral("cardElevated")));
     fallback("unreadBadge", raw.value(QStringLiteral("accent")));
-    // Every per-element role resolves to its group, as the resolver does.
     QHash<QString, QString> groups = elementGroupsTable(appTheme());
     groups.insert(QStringLiteral("embedSurface"), QStringLiteral("cardElevated"));
     groups.insert(QStringLiteral("roomSelected"), QStringLiteral("selected"));
@@ -202,7 +177,6 @@ QVariantMap resolvedPalette(const QHash<QString, QString> &raw,
         if (p.contains(it.value()))
             p.insert(it.key(), p.value(it.value()));
     }
-    // The badge fills and inks paletteForTheme() derives after that loop.
     badgerules::addDerived(p);
     return p;
 }
@@ -218,8 +192,6 @@ QImage solid(const QColor &c, int w = 64, int h = 40)
     img.fill(c);
     return img;
 }
-
-// ---- a client that records what it is asked ---------------------------------
 
 struct Ask {
     QString scope;
@@ -274,8 +246,6 @@ RoomInfo room(const QString &id, bool space = false,
     return r;
 }
 
-// Content as a room carries it: dim/blur/tint are INTEGER percentages
-// (canonical JSON has no floats).
 QVariantMap shared(const QString &url, int dim = 20)
 {
     return QVariantMap{
@@ -290,8 +260,6 @@ const QString kRoom = QStringLiteral("!room:example.org");
 const QString kSpace = QStringLiteral("!space:example.org");
 const QString kParent = QStringLiteral("!parent:example.org");
 
-// A real GIF: a w x h canvas with `frames` 1x1 frames and an optional comment
-// extension of `padding` bytes (metadata the kept animation must lose).
 QByteArray makeGif(int w, int h, int frames, int padding = 0)
 {
     QByteArray g("GIF89a");
@@ -330,11 +298,6 @@ QByteArray makeGif(int w, int h, int frames, int padding = 0)
     return g;
 }
 
-
-// A real n x n GIF whose frames are each ONE solid colour (index 0 = black,
-// 1 = white), full canvas, `delayCs` hundredths of a second apart. The pixel
-// data is LZW with a clear code after every two pixels, which keeps the code
-// width at three bits throughout and so needs no dictionary.
 QByteArray solidFramesGif(int n, const QList<int> &colours, int delayCs = 10)
 {
     QByteArray g("GIF89a");
@@ -364,10 +327,10 @@ QByteArray solidFramesGif(int n, const QList<int> &colours, int delayCs = 10)
         QList<int> codes;
         for (int i = 0; i < n * n; ++i) {
             if (i % 2 == 0)
-                codes.append(4);   // clear
+                codes.append(4);
             codes.append(colour);
         }
-        codes.append(5);           // end of information
+        codes.append(5);
         QByteArray data;
         quint32 acc = 0;
         int bits = 0;
@@ -393,8 +356,6 @@ QByteArray solidFramesGif(int n, const QList<int> &colours, int delayCs = 10)
     return g;
 }
 
-// True when this Qt can decode the fixture at all (a build without the GIF
-// plugin skips the animation cases rather than failing them).
 bool canDecode(const QByteArray &bytes)
 {
     QByteArray copy = bytes;
@@ -404,7 +365,7 @@ bool canDecode(const QByteArray &bytes)
     return !reader.read().isNull();
 }
 
-} // namespace
+}
 
 class ChatBackdropTest : public QObject
 {
@@ -428,10 +389,6 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // ---- precedence --------------------------------------------------------
-
-    // personal room > shared room > shared Space (nearest first) > personal
-    // default > none. Each step removes the winner and checks the next.
     void precedenceIsPersonalRoomThenRoomThenSpaceThenDefault()
     {
         backdrop::ResolveInput in;
@@ -449,7 +406,7 @@ private Q_SLOTS:
         in.sharedRoom.clear();
         r = backdrop::resolve(kRoom, in);
         QCOMPARE(r.source, QStringLiteral("space"));
-        QCOMPARE(r.scopeId, kSpace);   // the NEAREST Space, not the root
+        QCOMPARE(r.scopeId, kSpace);
         in.sharedSpaces[0].second.clear();
         r = backdrop::resolve(kRoom, in);
         QCOMPARE(r.scopeId, kParent);
@@ -459,8 +416,6 @@ private Q_SLOTS:
         QCOMPARE(backdrop::resolve(kRoom, in).source, QStringLiteral("none"));
     }
 
-    // The opt-outs remove BOTH shared levels and nothing else: the personal
-    // default shows instead, and a personal room choice is never affected.
     void theOptOutsRemoveOnlyTheSharedLevels()
     {
         backdrop::ResolveInput in;
@@ -479,8 +434,6 @@ private Q_SLOTS:
         QCOMPARE(backdrop::resolve(kRoom, in).source, QStringLiteral("personal-room"));
     }
 
-    // A room in two Spaces inherits from the one the user is browsing; then
-    // that Space's ancestors, nearest first; a parent cycle terminates.
     void theSpaceChainFollowsTheActiveSpaceAndSurvivesACycle()
     {
         QHash<QString, QStringList> children{
@@ -494,7 +447,6 @@ private Q_SLOTS:
                  QStringList{ QStringLiteral("!a") });
         QCOMPARE(backdrop::spaceChain(kRoom, children, order, QStringLiteral("!root")),
                  (QStringList{ QStringLiteral("!b"), QStringLiteral("!root") }));
-        // A cycle root -> b -> root must not spin.
         children[QStringLiteral("!b")].append(QStringLiteral("!root"));
         const QStringList chain =
             backdrop::spaceChain(kRoom, children, order, QStringLiteral("!b"));
@@ -503,8 +455,6 @@ private Q_SLOTS:
         QCOMPARE(backdrop::spaceChain(QStringLiteral("!lonely"), children, order, {}),
                  QStringList());
     }
-
-    // ---- the controller: asking, stale answers, opt-outs --------------------
 
     void aRoomAndItsSpacesAreAskedOnceAndPermissionIsNeverGuessed()
     {
@@ -520,9 +470,9 @@ private Q_SLOTS:
         QVERIFY(!backdrops.canSetShared(kRoom));
 
         backdrops.requestRoom(kRoom);
-        QCOMPARE(client.asks.size(), 3);   // room, Space, parent Space
+        QCOMPARE(client.asks.size(), 3);
         backdrops.requestRoom(kRoom);
-        QCOMPARE(client.asks.size(), 3);   // within the refresh interval
+        QCOMPARE(client.asks.size(), 3);
 
         QSignalSpy revisions(&backdrops, &ChatBackdropController::revisionChanged);
         Q_EMIT client.roomBackgroundReceived(client.opFor(kParent), kParent,
@@ -544,8 +494,6 @@ private Q_SLOTS:
         QCOMPARE(revisions.count(), 2);
     }
 
-    // An answer this session did not ask for, or for a different room than the
-    // op was for, never lands; nor does one that arrives after sign-out.
     void staleAndMismatchedAnswersAreDropped()
     {
         FakeBackdropClient client;
@@ -565,7 +513,6 @@ private Q_SLOTS:
                                              true, false);
         QCOMPARE(backdrops.sharedFor(QStringLiteral("!other:example.org")), QVariantMap());
 
-        // Sign-out between the ask and the answer.
         Q_EMIT client.loggedOut();
         Q_EMIT client.roomBackgroundReceived(op, kRoom,
                                              shared(QStringLiteral("mxc://e.org/x")),
@@ -574,12 +521,6 @@ private Q_SLOTS:
         QVERIFY(!backdrops.canSetShared(kRoom));
     }
 
-    // VM test 2026-10-07: a background another member set while the room was
-    // OPEN appeared only after leaving and re-opening it, because the shared
-    // state was read on open alone (rate-limited) and nothing listened to
-    // sync. A change observed in sync must re-read the open room at once, and
-    // a Space's change must reach the rooms that inherit it. Old code: no
-    // second ask, the room keeps showing "none".
     void aChangeInSyncRereadsTheOpenRoomAndItsSpaceAtOnce()
     {
         FakeBackdropClient client;
@@ -587,7 +528,7 @@ private Q_SLOTS:
         ChatBackdropController backdrops;
         backdrops.setClient(&client);
         backdrops.requestRoom(kRoom);
-        QCOMPARE(client.asks.size(), 2);   // the room and its Space
+        QCOMPARE(client.asks.size(), 2);
         Q_EMIT client.roomBackgroundReceived(client.opFor(kRoom), kRoom,
                                              QVariantMap(), false, false);
         Q_EMIT client.roomBackgroundReceived(client.opFor(kSpace), kSpace,
@@ -595,7 +536,6 @@ private Q_SLOTS:
         QCOMPARE(backdrops.backdropFor(kRoom).value(QStringLiteral("source")).toString(),
                  QStringLiteral("none"));
 
-        // Set in the open room, well inside the open-time refresh interval.
         Q_EMIT client.roomBackgroundChanged(kRoom);
         QCOMPARE(client.asks.size(), 3);
         QCOMPARE(client.asks.last().scope, kRoom);
@@ -608,7 +548,6 @@ private Q_SLOTS:
         QCOMPARE(b.value(QStringLiteral("mxc")).toString(), QStringLiteral("mxc://e.org/new"));
         QCOMPARE(revisions.count(), 1);
 
-        // Cleared again, then the Space gets a picture: the room inherits it.
         Q_EMIT client.roomBackgroundChanged(kRoom);
         Q_EMIT client.roomBackgroundReceived(client.opFor(kRoom), kRoom,
                                              QVariantMap(), false, false);
@@ -621,31 +560,25 @@ private Q_SLOTS:
         QCOMPARE(b.value(QStringLiteral("source")).toString(), QStringLiteral("space"));
         QCOMPARE(b.value(QStringLiteral("scopeId")).toString(), kSpace);
 
-        // A room this session never showed costs no request.
         const qsizetype before = client.asks.size();
         Q_EMIT client.roomBackgroundChanged(QStringLiteral("!elsewhere:example.org"));
         QCOMPARE(client.asks.size(), before);
 
-        // A change while a read is in flight reads once more when it lands,
-        // since the answer in flight may predate the change.
         Q_EMIT client.roomBackgroundChanged(kRoom);
         QCOMPARE(client.asks.size(), before + 1);
         Q_EMIT client.roomBackgroundChanged(kRoom);
-        QCOMPARE(client.asks.size(), before + 1);   // one read per scope
+        QCOMPARE(client.asks.size(), before + 1);
         Q_EMIT client.roomBackgroundReceived(client.opFor(kRoom), kRoom,
                                              QVariantMap(), false, false);
         QCOMPARE(client.asks.size(), before + 2);
         QCOMPARE(client.asks.last().scope, kRoom);
 
-        // Answers belong to the session: after sign-out nothing re-reads.
         Q_EMIT client.loggedOut();
         const qsizetype afterSignOut = client.asks.size();
         Q_EMIT client.roomBackgroundChanged(kRoom);
         QCOMPARE(client.asks.size(), afterSignOut);
     }
 
-    // A non-mxc url can never become a background, even if a backend let one
-    // through; a newer schema is reported, not rendered.
     void onlyMxcRendersAndANewerSchemaIsReported()
     {
         FakeBackdropClient client;
@@ -661,7 +594,7 @@ private Q_SLOTS:
 
         backdrops.refreshScope(kRoom);
         Q_EMIT client.roomBackgroundReceived(client.opFor(kRoom), kRoom, QVariantMap(),
-                                             true, /*unsupportedVersion=*/true);
+                                             true,true);
         QVERIFY(backdrops.sharedUnsupported(kRoom));
         QCOMPARE(backdrops.backdropFor(kRoom).value(QStringLiteral("kind")).toString(),
                  QStringLiteral("none"));
@@ -675,7 +608,7 @@ private Q_SLOTS:
         ChatBackdropController backdrops;
         backdrops.setSettings(&settings);
         backdrops.setClient(&client);
-        QVERIFY(backdrops.showShared());   // default ON
+        QVERIFY(backdrops.showShared());
         backdrops.requestRoom(kRoom);
         Q_EMIT client.roomBackgroundReceived(client.opFor(kRoom), kRoom,
                                              shared(QStringLiteral("mxc://e.org/r")),
@@ -696,9 +629,6 @@ private Q_SLOTS:
                  QStringLiteral("room"));
     }
 
-    // A presentation-only change re-sends the SAME picture and uploads
-    // nothing; clearing sends no url and no path; a write answered for another
-    // op does not land.
     void sharedWritesReuseThePictureAndClearSendsNothing()
     {
         FakeBackdropClient client;
@@ -715,7 +645,6 @@ private Q_SLOTS:
         QVERIFY(client.lastPath.isEmpty());
         QVERIFY(client.lastContent.contains(QStringLiteral("mxc://e.org/r")));
         QVERIFY(backdrops.busy());
-        // Busy: a second write is refused until the first answers.
         backdrops.clearShared(kRoom);
         QCOMPARE(client.writes.size(), 1);
 
@@ -752,7 +681,6 @@ private Q_SLOTS:
         Q_EMIT client.roomBackgroundReceived(client.opFor(kRoom), kRoom,
                                              shared(QStringLiteral("mxc://e.org/r"), 30),
                                              true, false);
-        // Read back in the app's units.
         QCOMPARE(backdrops.sharedFor(kRoom).value(QStringLiteral("presentation")).toMap()
                      .value(QStringLiteral("dim")).toDouble(), 0.3);
 
@@ -787,7 +715,6 @@ private Q_SLOTS:
         QCOMPARE(p.value(QStringLiteral("blur")).toInt(), 20);
         QCOMPARE(p.value(QStringLiteral("tint")).toInt(), 10);
 
-        // The pure conversions agree both ways and clamp.
         const QVariantMap wire = backdrop::presentationToWire(
             { { QStringLiteral("dim"), 2.0 }, { QStringLiteral("tint"), 0.333 } });
         QCOMPARE(wire.value(QStringLiteral("dim")).toInt(), 100);
@@ -800,14 +727,6 @@ private Q_SLOTS:
         QCOMPARE(back.value(QStringLiteral("tint")).toDouble(), 0.25);
     }
 
-    // ---- picking a picture --------------------------------------------------
-
-    // An SVG is not a background as SVG: it is converted to a PNG at screen
-    // scale first, and only that PNG is previewed and stored. Whatever it is
-    // named, and however hostile, nothing SVG reaches the decoder (§6); the
-    // magic-byte gate behind it is unchanged. A valid picture is re-encoded
-    // with none of the original's text chunks (where a camera or an editor puts
-    // GPS and comments).
     void svgIsConvertedAndMetadataNeverSurvives()
     {
         QTemporaryDir dir;
@@ -833,14 +752,12 @@ private Q_SLOTS:
             QTRY_COMPARE_WITH_TIMEOUT(prepared.count(), 1, 10000);
             const QVariantMap done = prepared.first().first().toMap();
             QVERIFY(done.value(QStringLiteral("ok")).toBool());
-            // At the 2560 screen-scale floor, not the 40x20 it declared.
             QCOMPARE(done.value(QStringLiteral("width")).toInt(), 2560);
             QCOMPARE(done.value(QStringLiteral("height")).toInt(), 1280);
             QVERIFY(!backdrops.prepared().isEmpty());
         }
         backdrops.discardPrepared();
 
-        // A hostile SVG is refused with its reason and prepares nothing.
         const QString trap = dir.filePath(QStringLiteral("trap.svg"));
         {
             QFile svg(trap);
@@ -859,7 +776,6 @@ private Q_SLOTS:
                     .contains(QStringLiteral("links to other files")));
         QVERIFY(backdrops.prepared().isEmpty());
 
-        // Discarding while a conversion runs drops its answer.
         prepared.clear();
         QVERIFY(backdrops.prepareImage(QUrl::fromLocalFile(svgPath))
                     .value(QStringLiteral("pending")).toBool());
@@ -868,7 +784,6 @@ private Q_SLOTS:
         QCOMPARE(prepared.count(), 0);
         QVERIFY(backdrops.prepared().isEmpty());
 
-        // A remote URL is never read.
         r = backdrops.prepareImage(QUrl(QStringLiteral("https://example.org/a.png")));
         QVERIFY(!r.value(QStringLiteral("ok")).toBool());
 
@@ -879,10 +794,9 @@ private Q_SLOTS:
                  qPrintable(r.value(QStringLiteral("error")).toString()));
         QCOMPARE(r.value(QStringLiteral("width")).toInt(), 300);
 
-        // Read the encoded bytes back through the upload path.
         FakeBackdropClient client;
         client.roomList = { room(kRoom) };
-        backdrops.setClient(&client);   // clears the session, so prepare again
+        backdrops.setClient(&client);
         r = backdrops.prepareImageForTesting(marked);
         QVERIFY(r.value(QStringLiteral("ok")).toBool());
         backdrops.requestRoom(kRoom);
@@ -893,10 +807,9 @@ private Q_SLOTS:
         QFile uploaded(client.lastPath);
         QVERIFY(uploaded.open(QIODevice::ReadOnly));
         const QByteArray bytes = uploaded.readAll();
-        QVERIFY(bytes.startsWith("\x89PNG"));   // alpha -> PNG
+        QVERIFY(bytes.startsWith("\x89PNG"));
         QVERIFY2(!bytes.contains("GPS-SECRET"),
                  "the original file's text chunk reached the upload");
-        // The content names what was measured, not what the file claimed.
         QVERIFY(client.lastContent.contains(QStringLiteral("\"w\":300")));
         QVERIFY(client.lastContent.contains(QStringLiteral("image/png")));
     }
@@ -912,11 +825,6 @@ private Q_SLOTS:
                  qRound(1000.0 * ChatBackdropController::kMaxEdge / 3000.0));
     }
 
-    // ---- animated pictures ------------------------------------------------------
-
-    // An animated GIF within the bounds is kept as an animation, not flattened
-    // to its first frame, and loses its comment on the way. Fails on the old
-    // code, which re-encoded every picture to a JPEG/PNG still.
     void anAnimatedGifIsKeptWithItsMetadataStripped()
     {
         const QByteArray gif = makeGif(64, 32, 3, 600);
@@ -929,7 +837,6 @@ private Q_SLOTS:
         const QVariantMap r = backdrops.prepareBytesForTesting(gif);
         QVERIFY(r.value(QStringLiteral("ok")).toBool());
         QVERIFY(r.value(QStringLiteral("animated")).toBool());
-        // The canvas, not the 1x1 first frame.
         QCOMPARE(r.value(QStringLiteral("width")).toInt(), 64);
         QCOMPARE(r.value(QStringLiteral("height")).toInt(), 32);
 
@@ -947,11 +854,9 @@ private Q_SLOTS:
         QVERIFY(client.lastContent.contains(QStringLiteral("image/gif")));
     }
 
-    // Too big a canvas, a still and a one-frame GIF all stay stills.
     void onlyAnAnimationWithinTheBoundsIsKept()
     {
         ChatBackdropController backdrops;
-        // A still is re-encoded as before.
         QVariantMap r = backdrops.prepareImageForTesting(solid(QColor(10, 20, 30), 40, 20));
         QVERIFY(r.value(QStringLiteral("ok")).toBool());
         QVERIFY(!r.value(QStringLiteral("animated")).toBool());
@@ -971,7 +876,6 @@ private Q_SLOTS:
             QVERIFY(r.value(QStringLiteral("ok")).toBool());
             QVERIFY(!r.value(QStringLiteral("animated")).toBool());
         }
-        // Over the byte bound: padded past kMaxAnimatedBytes.
         const QByteArray heavy = makeGif(32, 32, 2,
             int(ChatBackdropController::kMaxAnimatedBytes) + 1024);
         if (canDecode(heavy)) {
@@ -980,9 +884,6 @@ private Q_SLOTS:
         }
     }
 
-    // The scrim is planned for the worst sampled frame: stats merged from a
-    // white frame and a black frame contain both, where the first frame alone
-    // would leave the other unplanned for.
     void animationStatsCoverEveryFrame()
     {
         const QImage white = solid(QColor(255, 255, 255), 16, 16);
@@ -998,10 +899,6 @@ private Q_SLOTS:
         QVERIFY(!backdrop::measureFrames({ QImage() }).measured);
     }
 
-    // The scrim of a GIF whose frames are black THEN white covers the white
-    // frame: GIF and WebP handlers cannot jumpToImage(), so a sampler that
-    // jumps measures frame 0 only and plans for black. Fails on a first-frame
-    // measure (its alpha equals the black-only still's, below the white one's).
     void aLaterWhiteFrameRaisesTheScrim()
     {
         const QByteArray gif = solidFramesGif(8, { 0, 1 });
@@ -1030,9 +927,6 @@ private Q_SLOTS:
                  "the white frame was not measured: scrim planned for frame 0");
     }
 
-    // A flashing animation (most frames paced 2-4 cs) and an endless one stay
-    // first-frame stills. 0 and 1 cs play at 100 ms in Qt and in browsers, so
-    // an ordinary GIF written that way MUST be kept.
     void aFlashingOrEndlessAnimationStaysAStill()
     {
         ChatBackdropController backdrops;
@@ -1053,9 +947,6 @@ private Q_SLOTS:
         }
     }
 
-    // The pacing walker applies the LAST graphic-control extension before each
-    // image, like a decoder: slow dummy extensions in front of a real 3 cs one
-    // cannot dilute it, and extensions after the last frame count for nothing.
     void theGifPacingIsTheLastExtensionBeforeEachImage()
     {
         namespace sniff = lightning::animsniff;
@@ -1070,21 +961,17 @@ private Q_SLOTS:
         QCOMPARE(timing.frames, 4);
         QCOMPARE(timing.counted, 4);
         QVERIFY2(sniff::timingTooBusy(timing), "dummy extensions diluted the pacing");
-        // Slow extensions AFTER the last frame are not frames' pacing.
         QByteArray trailing = fast;
-        trailing.chop(1);   // the trailer
+        trailing.chop(1);
         for (int i = 0; i < 12; ++i)
             trailing.append(slow);
         trailing.append(char(0x3b));
         QVERIFY2(sniff::timingTooBusy(sniff::animationTiming(trailing)),
                  "extensions after the last frame diluted the pacing");
-        // A frame with no extension of its own inherits the previous delay.
         QVERIFY(!sniff::timingTooBusy(sniff::animationTiming(
             solidFramesGif(8, { 0, 1, 0, 1 }, 10))));
     }
 
-    // WebP pacing is read inside the RIFF container only (chunks appended past
-    // its size are never played), and a 0 ms duration counts as fast.
     void theWebpPacingStopsAtTheRiffEnd()
     {
         namespace sniff = lightning::animsniff;
@@ -1115,7 +1002,6 @@ private Q_SLOTS:
             return out;
         };
         QVERIFY(sniff::isAnimatedWebp(webp({ 100, 100 }, {})));
-        // Two slow frames, then ten fast ones past the container's end.
         const sniff::AnimationTiming outside =
             sniff::animationTiming(webp({ 100, 100 }, { 20, 20, 20, 20, 20, 20, 20, 20, 20, 20 }));
         QCOMPARE(outside.frames, 2);
@@ -1127,10 +1013,6 @@ private Q_SLOTS:
         QVERIFY(!sniff::timingTooBusy(sniff::animationTiming(webp({ 100, 80, 60 }, {}))));
     }
 
-    // ~60 frames, black up to frame 48 and white after: the sample (which
-    // cannot decode past 48 frames) sees only black. On the encode path that
-    // animation stays a still; on the shared-background measure path the scrim
-    // is planned at the worst case, so it is at least the white-only one.
     void anAnimationTheSamplerCannotFullySeeIsNotPlannedFromItsFirstPart()
     {
         QList<int> colours;
@@ -1159,8 +1041,6 @@ private Q_SLOTS:
                  "the white frames after the cut were not planned for");
     }
 
-    // Only a token this controller staged may be written to a scratch file;
-    // a composer/thread/cropper token in the same store is not its to give.
     void onlyItsOwnStagedTokensAreOwned()
     {
         StagedImageStore store;
@@ -1182,10 +1062,6 @@ private Q_SLOTS:
         QVERIFY(!backdrops.ownsStagedToken(mine));
     }
 
-    // The QML half, as a contract: the animation is an AnimatedImage in a
-    // Loader that is torn down unless every gate holds, it holds its file, the
-    // still beneath is never removed, and a hover or blurred backdrop never
-    // animates. (The component loads in QmlComponentLoadTest.)
     void theBackdropAnimatesOnlyUnderEveryGate()
     {
         QFile f(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/ChatBackdrop.qml"));
@@ -1193,7 +1069,6 @@ private Q_SLOTS:
         const QString qml = QString::fromUtf8(f.readAll());
         QVERIFY(qml.contains(QStringLiteral("AnimatedImage {")));
         QVERIFY(qml.contains(QStringLiteral("AnimationFileHold {}")));
-        // Every gate sits in the one binding that activates the Loader.
         const int wants = qml.indexOf(QStringLiteral("readonly property bool _wantsMotion"));
         QVERIFY(wants > 0);
         const QString binding = qml.mid(wants, 420);
@@ -1203,23 +1078,12 @@ private Q_SLOTS:
         QVERIFY(binding.contains(QStringLiteral("_windowShown")));
         QVERIFY(binding.contains(QStringLiteral("picture.status === Image.Ready")));
         QVERIFY(qml.contains(QStringLiteral("active: root._wantsMotion")));
-        // The still Image is still there and only fades under a shown motion.
         QVERIFY(qml.contains(QStringLiteral("id: picture")));
         QVERIFY(qml.contains(QStringLiteral("opacity: root.motionShown ? 0 : 1")));
-        // Assigning to a bound property is a one-way door: the file source is
-        // always a binding.
         QVERIFY(qml.contains(QStringLiteral("source: root._motionSrc")));
         QVERIFY(!qml.contains(QStringLiteral("motionImage.source =")));
     }
 
-    // ---- the scrim ------------------------------------------------------------
-
-    // With nothing measured the scrim assumes pure white AND pure black under
-    // the text. On every shipped preset the plan must be feasible, and every
-    // opacity from the floor up must keep textPrimary, textSecondary and
-    // textMuted at 4.5:1 over both, verified here independently. A fixed 50%
-    // scrim of the plain ground must fail on every preset, which is what makes
-    // the floor load-bearing.
     void theWorstCaseScrimKeepsEveryInkReadableOnEveryPreset()
     {
         const auto presets = presetPalettes(appTheme());
@@ -1244,7 +1108,6 @@ private Q_SLOTS:
                                 .arg(it.key()).arg(plan.floor);
                 continue;
             }
-            // Unmeasured: no tint is ever applied.
             QCOMPARE(plan.tint, 0.0);
             for (int k = int(std::lround(plan.floor * 100)); k <= 100; ++k) {
                 const double a = k / 100.0;
@@ -1273,10 +1136,6 @@ private Q_SLOTS:
         QCOMPARE(naiveFailures, 11);
     }
 
-    // Measuring buys visibility honestly: a mid-tone picture needs less scrim
-    // than the worst case on every preset; a picture with large white and
-    // black areas needs the worst case; specks under 1% are tolerated, 5% are
-    // not. The measured floor is verified against every sample independently.
     void aMeasuredPictureGetsItsOwnFloorAndItIsVerifiedPerSample()
     {
         const auto presets = presetPalettes(appTheme());
@@ -1290,7 +1149,6 @@ private Q_SLOTS:
         }
         const backdrop::ImageStats split = backdrop::measure(halves);
 
-        // 0.5% white specks on grey: tolerated. 5%: not.
         const auto speckled = [](double share) {
             QImage img = solid(QColor(128, 128, 128), 48, 48);
             const int n = int(std::lround(48 * 48 * share));
@@ -1325,11 +1183,9 @@ private Q_SLOTS:
                 failures << QStringLiteral("%1: 0.5%% specks moved the floor %2 -> %3")
                                 .arg(it.key()).arg(mid.floor).arg(few.floor);
             const bool dark = isDark(p.value(QStringLiteral("background")));
-            // White specks are the worst case only under light ink.
             if (dark && !(many.floor > mid.floor + 0.02))
                 failures << QStringLiteral("%1: 5%% specks ignored (%2 vs %3)")
                                 .arg(it.key()).arg(many.floor).arg(mid.floor);
-            // Independent per-sample verification of the grey plan.
             for (const QRgb px : grey.samples) {
                 const QColor drawn = over(mid.color, mid.floor, QColor::fromRgb(px));
                 for (const QColor &ink : inks) {
@@ -1344,8 +1200,6 @@ private Q_SLOTS:
         QCOMPARE(checked, 11);
     }
 
-    // The dominant colour may tint the scrim, never past kMaxTint, and the
-    // tinted plan is verified like any other.
     void aTintedScrimStaysBoundedAndReadable()
     {
         const auto presets = presetPalettes(appTheme());
@@ -1373,8 +1227,6 @@ private Q_SLOTS:
         QCOMPARE(checked, 11);
     }
 
-    // `dim` can only ADD scrim: whatever a shared event says, the drawn
-    // opacity is never below the floor.
     void dimNeverGoesBelowTheFloor()
     {
         QCOMPARE(backdrop::scrimAlpha(0.6, 0.0), 0.6);
@@ -1387,13 +1239,11 @@ private Q_SLOTS:
               { QStringLiteral("blur"), 9.0 },
               { QStringLiteral("fit"), QStringLiteral("stretch") },
               { QStringLiteral("evil"), 1 } });
-        QCOMPARE(p.value(QStringLiteral("dim")).toDouble(), 0.2);   // string -> default
+        QCOMPARE(p.value(QStringLiteral("dim")).toDouble(), 0.2);
         QCOMPARE(p.value(QStringLiteral("blur")).toDouble(), 1.0);
         QCOMPARE(p.value(QStringLiteral("fit")).toString(), QStringLiteral("cover"));
         QVERIFY(!p.contains(QStringLiteral("evil")));
     }
-
-    // ---- gradients --------------------------------------------------------------
 
     void gradientsAreSanitisedLikeColours()
     {
@@ -1406,7 +1256,6 @@ private Q_SLOTS:
         QVERIFY(!ok({ { QStringLiteral("stops"),
                         QVariantList{ QStringLiteral("#111111"), QStringLiteral("#222222"),
                                       QStringLiteral("#333333"), QStringLiteral("#444444") } } }));
-        // Translucent or named colours are refused, never guessed at.
         QVERIFY(!ok({ { QStringLiteral("stops"),
                         QVariantList{ QStringLiteral("#80112233"), QStringLiteral("#445566") } } }));
         QVERIFY(!ok({ { QStringLiteral("stops"),
@@ -1420,7 +1269,6 @@ private Q_SLOTS:
         QCOMPARE(s.value(QStringLiteral("stops")).toStringList().first(),
                  QStringLiteral("#112233"));
 
-        // Only surface roles; ink never carries a gradient.
         const QVariantMap all = CustomThemeStore::sanitizeGradients(
             { { QStringLiteral("background"), QVariantMap{ { QStringLiteral("stops"), two } } },
               { QStringLiteral("textPrimary"), QVariantMap{ { QStringLiteral("stops"), two } } },
@@ -1430,9 +1278,6 @@ private Q_SLOTS:
         QVERIFY(!CustomThemeStore::roleTakesGradient(QStringLiteral("ownBubbleText")));
     }
 
-    // A theme saved before gradients existed loads unchanged; a gradient
-    // survives save, reload and export/import; a share with only gradients is
-    // a real theme.
     void gradientsAreBackwardsCompatibleAndRoundTrip()
     {
         {
@@ -1475,10 +1320,6 @@ private Q_SLOTS:
         QVERIFY(!reloaded.gradients().contains(QStringLiteral("sidebar")));
     }
 
-    // Stop positions (the gradient bar) are an optional, additive key: an even
-    // spread is never stored, so every theme saved or shared before the bar
-    // round-trips byte for byte; anything malformed is dropped, not repaired;
-    // and a share carrying them survives export and import.
     void gradientStopPositionsAreOptionalAndRoundTrip()
     {
         const QVariantList three{ QStringLiteral("#101010"), QStringLiteral("#202020"),
@@ -1490,12 +1331,9 @@ private Q_SLOTS:
                              { QStringLiteral("positions"), positions } })
                 .value(QStringLiteral("positions")).toList();
         };
-        // Uneven positions are kept (two decimals), in order.
         const QVariantList kept = positionsOf(QVariantList{ 0.0, 0.3141, 1.0 }, three);
         QCOMPARE(kept.size(), 3);
         QCOMPARE(kept.at(1).toDouble(), 0.31);
-        // Even, absent, short, out of order, out of range and non-numeric
-        // positions all leave the old format.
         QVERIFY(positionsOf(QVariantList{ 0.0, 0.5, 1.0 }, three).isEmpty());
         QVERIFY(positionsOf(QVariant(), three).isEmpty());
         QVERIFY(positionsOf(QVariantList{ 0.0, 1.0 }, three).isEmpty());
@@ -1503,9 +1341,7 @@ private Q_SLOTS:
         QVERIFY(positionsOf(QVariantList{ -0.1, 0.5, 1.2 }, three).isEmpty());
         QVERIFY(positionsOf(QVariantList{ QStringLiteral("0"), 0.2, 1.0 }, three).isEmpty());
         QVERIFY(positionsOf(QVariantList{ 0.0, 1.0 }, two).isEmpty());
-        // Two stops may be pulled in from the ends.
         QCOMPARE(positionsOf(QVariantList{ 0.2, 0.9 }, two).size(), 2);
-        // Stops alone still sanitise to exactly the old shape.
         const QVariantMap plain = CustomThemeStore::sanitizeGradient(
             QVariantMap{ { QStringLiteral("stops"), three } });
         QCOMPARE(plain.keys(), (QStringList{ QStringLiteral("angle"),
@@ -1529,9 +1365,6 @@ private Q_SLOTS:
                      .value(QStringLiteral("positions")).toList().size(), 3);
     }
 
-    // A gradient is graded at its worst stop: the flat palette passes, the
-    // same background with one dark stop under dark ink fails, and the row
-    // names that stop.
     void readabilityUsesTheWorstStop()
     {
         const auto presets = presetPalettes(appTheme());
@@ -1553,9 +1386,6 @@ private Q_SLOTS:
         bool namedStop = false;
         for (const QVariant &row : bad) {
             const QVariantMap m = row.toMap();
-            // The conversation's ground is the `timelineBackground` element,
-            // which paints the `background` group's gradient until it has its
-            // own; the finding names the element that is drawn.
             if (m.value(QStringLiteral("bg")).toString()
                 == QLatin1String("timelineBackground"))
                 namedStop = namedStop || m.value(QStringLiteral("stop")).toInt() == 1;
@@ -1563,10 +1393,6 @@ private Q_SLOTS:
         QVERIFY(namedStop);
     }
 
-    // "Depth" on every preset: background, room list and rail all get their
-    // two stops and every readability check still passes at the worst stop.
-    // Pointing the shift TOWARDS the ink instead must fail somewhere, or this
-    // test could not see a wrong direction.
     void depthPassesEveryCheckOnEveryPreset()
     {
         const QString qml = appTheme();

@@ -19,10 +19,8 @@
 namespace {
 Q_LOGGING_CATEGORY(lcDownloads, "lightning.files.downloads")
 
-// Finished items kept for the card; older ones fall off.
 constexpr int kMaxFinishedItems = 6;
 
-// `path` (clean, absolute) is `root` or inside it.
 bool isUnder(const QString &path, const QString &root)
 {
     if (root.isEmpty() || path.isEmpty())
@@ -33,9 +31,6 @@ bool isUnder(const QString &path, const QString &root)
     return path == r || path.startsWith(r + QLatin1Char('/'));
 }
 
-// The forms a path is compared in: as given, and with its deepest existing
-// ancestor resolved through symlinks (/home -> /var/home on Silverblue; the
-// bridge canonicalizes the folder it writes into).
 QStringList pathForms(const QString &path)
 {
     QStringList forms;
@@ -65,19 +60,12 @@ QStringList pathForms(const QString &path)
     return forms;
 }
 
-// The one form that decides: the path with its deepest existing ancestor
-// resolved through symlinks. The as-typed form must not: a symlink inside a
-// grant that points into the sandbox-private tree would pass on its name
-// while the bytes land in the tmpfs.
 QString decidingForm(const QString &path)
 {
     const QStringList forms = pathForms(path);
     return forms.isEmpty() ? QString() : forms.constLast();
 }
 
-// Flatpak's `host` grant exposes everything but these (its reserved list):
-// the runtime's and the OS's own trees, a private /tmp, and /var and /run
-// except the user-data parts of them.
 bool reservedFromHostGrant(const QString &path)
 {
     static const QStringList reserved{
@@ -91,7 +79,6 @@ bool reservedFromHostGrant(const QString &path)
         if (isUnder(path, r))
             return true;
     }
-    // /lib, /lib32, /lib64, /libx32, ...
     if (path.startsWith(QLatin1String("/lib")))
         return true;
     if (isUnder(path, QStringLiteral("/var"))
@@ -116,7 +103,7 @@ bool anyUnder(const QStringList &forms, const QString &root)
     }
     return false;
 }
-} // namespace
+}
 
 bool DownloadsController::sandboxBlocksDownloads(const Sandbox &sandbox)
 {
@@ -139,7 +126,6 @@ bool DownloadsController::sandboxBlocksDownloads(const Sandbox &sandbox)
             || base == QLatin1String("xdg-download"))
             writable = true;
     }
-    // A negation later on the line ("!xdg-download") wins over a grant.
     for (QString entry : entries) {
         entry = entry.trimmed();
         if (entry == QLatin1String("!xdg-download")
@@ -155,15 +141,12 @@ bool DownloadsController::pathReachesHost(const Sandbox &sandbox,
 {
     if (path.isEmpty())
         return false;
-    // A Snap's $HOME is on the host, and what AppArmor does not allow fails
-    // to write rather than landing somewhere private.
     if (!sandbox.flatpak)
         return true;
     const QString canonical = decidingForm(path);
     const QStringList forms{canonical};
     if (savenaming::isDocumentPortalPath(canonical))
         return true;
-    // The app's own folder is bind-mounted from the host.
     if (!sandbox.appId.isEmpty() && !sandbox.home.isEmpty()
         && anyUnder(forms, sandbox.home + QStringLiteral("/.var/app/")
                                + sandbox.appId))
@@ -183,7 +166,6 @@ bool DownloadsController::pathReachesHost(const Sandbox &sandbox,
             continue;
         const QString base = entry.section(QLatin1Char(':'), 0, 0);
         const QString mode = entry.section(QLatin1Char(':'), 1);
-        // A read-only grant cannot hold a save.
         if (mode == QLatin1String("ro") || negated.contains(base))
             continue;
         QString root;
@@ -198,7 +180,7 @@ bool DownloadsController::pathReachesHost(const Sandbox &sandbox,
             const QString sub = base.section(QLatin1Char('/'), 1);
             const QString dir = sandbox.xdgDirs.value(name);
             if (dir.isEmpty())
-                continue; // xdg-config, xdg-run, ...: not where a save goes
+                continue;
             root = sub.isEmpty() ? dir : dir + QLatin1Char('/') + sub;
         } else if (base.startsWith(QLatin1String("~/"))) {
             if (sandbox.home.isEmpty())
@@ -301,9 +283,6 @@ DownloadsController::DownloadsController(MediaBridge *bridge,
                 &DownloadsController::onSaveCancelled);
         connect(m_bridge, &MediaBridge::saveFinished, this,
                 &DownloadsController::onSaveFinished);
-        // MediaBridge::clear() (sign-out, account switch) drops its saves
-        // without finishing them. Swept a turn later, after any synchronous
-        // saveFinished has been handled.
         connect(m_bridge, &MediaBridge::activeSavesChanged, this, [this] {
             QTimer::singleShot(0, this, [this] {
                 if (!m_bridge)
@@ -395,12 +374,8 @@ void DownloadsController::startDirect(const QString &mediaKey,
                                       const QString &mime)
 {
     const QString folder = downloadFolder();
-    // A folder only the sandbox can see is no place for it either: the file
-    // would be gone when the app quits. Checked before mkpath, which would
-    // otherwise create the folder in the sandbox's private home.
     if (folder.isEmpty() || !m_bridge || !pathReachesHost(m_sandbox, folder)
         || !QDir().mkpath(folder)) {
-        // Nowhere to put it without asking.
         startAsking(mediaKey, rawName, mime);
         return;
     }
@@ -442,12 +417,7 @@ void DownloadsController::startAsking(const QString &mediaKey,
         const QFileInfo info(local);
         const QString leaf = info.fileName();
         const QString fixed = savenaming::ensureExtension(leaf, extension);
-        // A file the save portal granted lives in the document portal's FUSE
-        // mount, where only that exact name is writable.
         if (fixed != leaf && !savenaming::isDocumentPortalPath(local)) {
-            // The user removed the extension; it goes back. The dialog
-            // confirmed overwriting the name it saw, not this one, so a
-            // taken name is numbered rather than replaced.
             const QString dir = info.absolutePath();
             local = QDir(dir).filePath(savenaming::uniqueFileName(dir, fixed));
         }
@@ -548,8 +518,6 @@ void DownloadsController::onSaveCompleted(const QString &mediaKey,
     item->hostPath.clear();
     if (!m_launcher || !savenaming::isDocumentPortalPath(path))
         return;
-    // The folder the card names is the real one, once the portal says where
-    // the document lives; its own parent is a document id.
     const int id = item->id;
     QPointer<DownloadsController> self(this);
     m_launcher->resolveHostPath(path, [self, id, path](const QString &host) {
@@ -559,8 +527,6 @@ void DownloadsController::onSaveCompleted(const QString &mediaKey,
         if (!resolved || resolved->path != path)
             return;
         resolved->hostPath = host;
-        // Before saveFinished, the row is still "saving" and is published
-        // with it; after it, this is news.
         if (resolved->state != State::Saving)
             Q_EMIT self->itemsChanged();
     });
@@ -568,8 +534,6 @@ void DownloadsController::onSaveCompleted(const QString &mediaKey,
 
 void DownloadsController::onSaveCancelled(const QString &mediaKey)
 {
-    // cancelSave() abandons every request for the key; it is gone from the
-    // list, not failed. The saveFinished that follows finds nothing.
     const qsizetype before = m_items.size();
     m_items.removeIf([&](const Item &item) {
         return item.state == State::Saving && item.mediaKey == mediaKey;
@@ -585,7 +549,7 @@ void DownloadsController::onSaveFinished(bool ok, const QString &message,
     if (!item)
         return;
     if (ok && item->path.isEmpty())
-        ok = false; // written somewhere we were not told about
+        ok = false;
     item->state = ok ? State::Done : State::Failed;
     item->message = message;
     trim();
@@ -625,8 +589,6 @@ QVariantList DownloadsController::items() const
         case State::Done: state = QStringLiteral("done"); break;
         case State::Failed: state = QStringLiteral("failed"); break;
         }
-        // Never the document portal's id folder: savedFolderName() names
-        // the real one when the portal said, and nothing otherwise.
         const QString folderName = !item.path.isEmpty()
             ? savenaming::savedFolderName(item.path, item.hostPath)
             : (item.asked || folder.isEmpty() ? QString()
@@ -671,8 +633,6 @@ bool DownloadsController::showInFolder(int id)
         path, [self, id](const QString &how) {
             if (!self || how != QLatin1String("failed"))
                 return;
-            // Said on the row, not silently nothing (a sandbox with no
-            // portal to show a document-portal file's folder).
             if (Item *shown = self->itemById(id)) {
                 shown->revealFailed = true;
                 Q_EMIT self->itemsChanged();

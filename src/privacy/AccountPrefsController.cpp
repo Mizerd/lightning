@@ -10,7 +10,6 @@ using namespace AccountPrefs;
 AccountPrefsController::AccountPrefsController(QObject *parent)
     : QObject(parent)
 {
-    // Uses within a short burst (picking several reactions) are one write.
     m_emojiFlush.setSingleShot(true);
     m_emojiFlush.setInterval(1500);
     connect(&m_emojiFlush, &QTimer::timeout, this, [this] {
@@ -46,9 +45,6 @@ void AccountPrefsController::setClient(MatrixClient *client)
     connect(m_client, &MatrixClient::accountPrefReadFailed, this,
             [this](const QString &type, const QString &) {
         if (type == QLatin1String(kMediaPreviewType)) {
-            // Unknown, not absent: a choice not yet known stays unknown, so
-            // media stays collapsed and invite avatars withheld; one already
-            // known is kept.
             return;
         }
         if (type == QLatin1String(kInvitePermissionType))
@@ -68,9 +64,6 @@ void AccountPrefsController::setClient(MatrixClient *client)
         m_inviteUnstable = ok && unstable;
         Q_EMIT changed();
     });
-    // The SDK's store holds the account data from the last session, so a
-    // read right after sign-in answers at once; the second one, after the
-    // first sync, picks up what changed while this device was away.
     connect(m_client, &MatrixClient::loginSucceeded, this,
             [this](const QString &) { reset(); refresh(); });
     connect(m_client, &MatrixClient::initialSyncDoneChanged, this, [this] {
@@ -103,8 +96,6 @@ void AccountPrefsController::setEmojiCatalog(EmojiCatalog *emoji)
 
 void AccountPrefsController::reset()
 {
-    // Back to the MSC defaults: nothing of the previous account may decide
-    // what this one loads.
     m_emojiFlush.stop();
     m_emojiRetry.stop();
     m_emojiAttempts = 0;
@@ -211,18 +202,13 @@ void AccountPrefsController::applyInviteRead(const QString &type,
 {
     if (m_inviteHeld.contains(type)) {
         if (content == m_inviteHeld.value(type)) {
-            // The server agrees with what we wrote.
             m_inviteHeld.remove(type);
             m_inviteHeldMisses.remove(type);
         } else if (++m_inviteHeldMisses[type] <= kMaxHeldMisses) {
-            // Most likely a read issued before the write landed: keep the
-            // confirmed write and ask once more.
             if (m_client)
                 m_client->readAccountPref(type);
             return;
         } else {
-            // It keeps disagreeing: something else changed it. The server
-            // is the truth.
             m_inviteHeld.remove(type);
             m_inviteHeldMisses.remove(type);
         }
@@ -246,8 +232,6 @@ void AccountPrefsController::setMediaPreviews(const QString &mode)
         return;
     MediaPreview next = m_media;
     next.mediaPreviews = mode;
-    // Choosing "Private rooms only" in this build is choosing it under the
-    // non-public meaning the setting now describes; the guard ends here.
     if (mode == QLatin1String("private"))
         next.privateMeansNonPublic = true;
     writeMedia(next);
@@ -268,8 +252,6 @@ void AccountPrefsController::writeMedia(const MediaPreview &next)
         return;
     m_media = next;
     m_writeFailed = false;
-    // Built on the account's own copy, so fields other clients own and our
-    // private-rooms marker are carried over.
     m_mediaInFlight = composeMediaPreview(m_mediaContent, next.mediaPreviews,
                                           next.inviteAvatars,
                                           next.privateMeansNonPublic);
@@ -283,8 +265,6 @@ void AccountPrefsController::onRead(const QString &type, bool present,
 {
     if (type == QLatin1String(kInvitePermissionType)
         || type == QLatin1String(kInvitePermissionUnstableType)) {
-        // A server read (rust/src/accountprefs.rs reads these two from the
-        // server, never the store, so "absent" here is the server's answer).
         applyInviteRead(type, present ? content : QVariantMap());
         Q_EMIT changed();
         return;
@@ -296,12 +276,11 @@ void AccountPrefsController::onRead(const QString &type, bool present,
                 m_mediaHolding = false;
                 m_mediaHeldMisses = 0;
             } else if (++m_mediaHeldMisses <= kMaxHeldMisses) {
-                // Most likely a read issued before our write landed.
                 if (m_client)
                     m_client->readAccountPref(type);
                 return;
             } else {
-                m_mediaHolding = false;   // it keeps disagreeing: the server wins
+                m_mediaHolding = false;
                 m_mediaHeldMisses = 0;
             }
         }
@@ -317,11 +296,6 @@ void AccountPrefsController::onRead(const QString &type, bool present,
         m_emojiContent = present ? content : QVariantMap();
         QList<EmojiCount> incoming = present ? parseRecentEmoji(content)
                                              : QList<EmojiCount>();
-        // An echo of an earlier write can arrive inside the flush window (or a
-        // write is waiting to be retried); it must not replace bumps that were
-        // not written yet. Our unwritten list keeps its recency order and the
-        // higher total per emoji; entries only the account has follow. Not
-        // exact multi-device counting: account data has no merge.
         if (m_emojiFlush.isActive() || m_emojiRetry.isActive()) {
             QList<EmojiCount> merged = m_emojiServer;
             for (const EmojiCount &theirs : std::as_const(incoming)) {
@@ -357,9 +331,6 @@ void AccountPrefsController::onRead(const QString &type, bool present,
 void AccountPrefsController::onWritten(const QString &type, bool ok)
 {
     if (type == QLatin1String(kRecentEmojiType)) {
-        // A failed recents write is retried, bounded (3 attempts, growing
-        // delay), and never reported as synced (PACK-REC-008). A success ends
-        // the retry chain.
         if (ok) {
             m_emojiAttempts = 0;
             m_emojiRetry.stop();
@@ -379,16 +350,12 @@ void AccountPrefsController::onWritten(const QString &type, bool ok)
             --m_invitePending;
         const QVariantMap written = m_inviteInFlight.take(type);
         if (ok) {
-            // Confirmed: the account holds what we wrote. Shown at once and
-            // held against a read that was already in flight (applyInviteRead).
             setInviteContent(type, written);
             m_inviteHeld.insert(type, written);
             m_inviteHeldMisses.remove(type);
         } else {
             m_inviteWriteFailed = true;
         }
-        // Confirm against the server (a failure included, in case part of it
-        // landed).
         if (m_client)
             m_client->readAccountPref(type);
         Q_EMIT changed();
@@ -400,8 +367,6 @@ void AccountPrefsController::onWritten(const QString &type, bool ok)
         m_mediaConfirmed = m_media;
         m_mediaContent = m_mediaInFlight;
         m_mediaKnown = true;
-        // Held until a server read agrees (a read already in flight carries
-        // the old value).
         m_mediaHeld = m_mediaInFlight;
         m_mediaHolding = true;
         m_mediaHeldMisses = 0;
@@ -420,7 +385,6 @@ void AccountPrefsController::onEmojiUsed(const QString &emoji)
     if (!m_client)
         return;
     if (!m_emojiRead) {
-        // Never write a list built from nothing over the account's own.
         if (m_emojiPending.size() < 32)
             m_emojiPending.append(emoji);
         m_client->readAccountPref(QString::fromLatin1(kRecentEmojiType));

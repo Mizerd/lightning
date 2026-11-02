@@ -10,62 +10,37 @@
 class MatrixClient;
 class MessageSearchController;
 
-/// What the About page and its Developer tools need from the app: a copyable
-/// version summary, what the homeserver says about itself, the "Reset local
-/// cache" action and a read-only account-data browser.
-///
-/// Reset local cache clears ONLY things that can be rebuilt from the server:
-/// the SDK's event cache, the media cache and the local search index. It never
-/// touches the crypto store, the state store or the credentials (CLAUDE.md §6),
-/// and it is not a sign-out. The account-data browser shows secret types
-/// (secret storage, cross-signing, backup) as a type name only: the content
-/// is redacted in Rust before it reaches this class.
 class AboutController : public QObject
 {
     Q_OBJECT
 
-    /// Version, commit, platform and package kind, one per line.
     Q_PROPERTY(QString versionSummary READ versionSummary
                    NOTIFY versionSummaryChanged)
     Q_PROPERTY(QString reportIssueUrl READ reportIssueUrl CONSTANT)
-    /// The GStreamer runtime the call engine would load; empty in a build
-    /// without the call engine.
     Q_PROPERTY(QString gstreamerVersion READ gstreamerVersion CONSTANT)
 
-    /// "idle" | "loading" | "ready" | "failed" | "unsupported".
     Q_PROPERTY(QString homeserverState READ homeserverState
                    NOTIFY homeserverChanged)
-    /// { address, softwareName, softwareVersion, versions[], features[],
-    /// category }; empty until the first answer.
     Q_PROPERTY(QVariantMap homeserver READ homeserver NOTIFY homeserverChanged)
 
-    /// "idle" | "running" | "done" | "failed".
     Q_PROPERTY(QString resetState READ resetState NOTIFY resetChanged)
-    /// Plain-language outcome of the last reset, empty while idle.
     Q_PROPERTY(QString resetSummary READ resetSummary NOTIFY resetChanged)
 
-    /// "idle" | "loading" | "ready" | "failed" | "unsupported".
     Q_PROPERTY(QString accountDataState READ accountDataState
                    NOTIFY accountDataChanged)
-    /// [{ type, redacted, json, cut }], sorted by type.
     Q_PROPERTY(QVariantList accountDataEntries READ accountDataEntries
                    NOTIFY accountDataChanged)
     Q_PROPERTY(bool accountDataTruncated READ accountDataTruncated
                    NOTIFY accountDataChanged)
-    /// The room the listing is for; empty is the global account data.
     Q_PROPERTY(QString accountDataRoomId READ accountDataRoomId
                    NOTIFY accountDataChanged)
     Q_PROPERTY(QString accountDataError READ accountDataError
                    NOTIFY accountDataChanged)
 
-    /// Bumped whenever a user's session list arrives or is dropped, so a QML
-    /// binding that calls userClients() re-evaluates.
     Q_PROPERTY(int userClientsRevision READ userClientsRevision
                    NOTIFY userClientsChanged)
 
 public:
-    /// How long a clear step may stay silent before the reset reads as not
-    /// finished.
     static constexpr int kResetWaitMs = 60 * 1000;
     /// How long a compaction report is waited for after the clear. Longer than
     /// the Rust side's own compaction budget (COMPACT_BUDGET, 90 s in
@@ -75,15 +50,10 @@ public:
                   "the UI must outwait the compaction budget");
 
     explicit AboutController(QObject *parent = nullptr);
-    /// Test seam: shorter waits.
     void setWaitsForTest(int resetMs, int compactionMs);
 
     void setClient(MatrixClient *client);
-    /// The search index is cleared through its own controller so the
-    /// Settings counters stay true.
     void setSearch(MessageSearchController *search) { m_search = search; }
-    /// The install kind's label ("AppImage", "Debian package" ...), supplied
-    /// by the update manager that detects it.
     void setPackageKind(const QString &label);
     void setGstreamerVersion(const QString &version) { m_gstreamerVersion = version; }
     QString gstreamerVersion() const { return m_gstreamerVersion; }
@@ -100,15 +70,10 @@ public:
     QString accountDataRoomId() const { return m_accountDataRoom; }
     QString accountDataError() const { return m_accountDataError; }
 
-    /// Copies versionSummary() to the clipboard.
     Q_INVOKABLE void copyVersion();
-    /// Asks the homeserver again.
     Q_INVOKABLE void refreshHomeserver();
-    /// Event cache, media cache and search index; see the class comment.
     Q_INVOKABLE void resetLocalCache();
-    /// Lists the account data; global for an empty `roomId`.
     Q_INVOKABLE void loadAccountData(const QString &roomId = QString());
-    /// Drops what the browser holds (closing the Developer tools).
     Q_INVOKABLE void clearAccountData();
 
     /// Developer mode: which sessions a user has, as far as this device's
@@ -117,13 +82,9 @@ public:
     /// for a user only after the refresh interval (30 s), and never while an
     /// ask is on the way.
     Q_INVOKABLE void requestUserClients(const QString &userId);
-    /// { state: "idle"|"loading"|"ready"|"failed", devices: [{deviceId,
-    /// name}] }. `name` is empty when the owner set none.
     Q_INVOKABLE QVariantMap userClients(const QString &userId) const;
-    /// Forgets every user's sessions (Developer mode switched off, sign-out).
     Q_INVOKABLE void clearUserClients();
     int userClientsRevision() const { return m_clientsRevision; }
-    /// Tests: how old an answer must be before it is asked again.
     void setUserClientsRefreshMs(qint64 ms) { m_clientsRefreshMs = ms; }
 
 Q_SIGNALS:
@@ -166,14 +127,10 @@ private:
     quint64 m_mediaOp = 0;
     quint64 m_eventCacheOp = 0;
     QStringList m_resetFailed;
-    // Compaction is its own, later report per store (a clear that succeeded is
-    // never made to look unfinished by a slow VACUUM). `expected`: a clear
-    // succeeded on a backend that reports compaction, so a report is due.
     struct Compaction {
         quint64 op = 0;
         bool expected = false;
         bool got = false;
-        // The wait ran out with no report (a backend task that died sends none).
         bool gaveUp = false;
         QString outcome;
         qint64 before = 0;
@@ -182,8 +139,6 @@ private:
     Compaction m_eventCompaction;
     Compaction m_mediaCompaction;
     qint64 m_keptFilesFreed = 0;
-    // The summary without the disk sentence, which is recomposed as
-    // compaction reports arrive.
     QString m_clearSummary;
     QTimer m_compactionWatchdog;
     QStringList m_resetDone;
@@ -199,8 +154,6 @@ private:
 
     QHash<QString, QVariantMap> m_userClients;
     QHash<quint64, QString> m_userClientOps;
-    /// Ops asked to refresh an answer already shown: a failure keeps that
-    /// answer rather than replacing it with "failed".
     QSet<quint64> m_userClientRefreshOps;
     QHash<QString, qint64> m_userClientAskedMs;
     qint64 m_clientsRefreshMs = 30000;

@@ -1,56 +1,3 @@
-//! Joined rooms the server no longer has the user in.
-//!
-//! A room left from another session, or one the user was kicked or banned
-//! from, reaches this client only if sync mentions it again. matrix-sdk-base
-//! moves a room out of `Joined` only when a sliding sync response carries the
-//! room with our own `m.room.member` in `required_state`
-//! (`response_processors/room/msc4186/mod.rs`, `membership()`); a room that
-//! merely stops being mentioned stays `Joined` in the store for ever, and the
-//! room list's non-left filter keeps showing it.
-//!
-//! Measured 2026-10-16 against Continuwuity 26.9.1 (simplified MSC3575, the
-//! same list request `RoomListService` sends): after a `/leave` from another
-//! device, a kick and a ban alike, the very next response drops the list's
-//! `count` by one and names no room at all, no `required_state`, no timeline.
-//! A room subscription for that room returns nothing either, a fresh
-//! connection never mentions it, and `GET .../state/m.room.member/{me}` is a
-//! 404. So the room stayed in Conversations with an enabled composer, through
-//! restarts (break-it rerun section 4 F3, and B034 "kicked while viewing").
-//!
-//! The server does answer the question when asked directly, so this asks:
-//!
-//! 1. `GET /joined_rooms` names the rooms the server has us joined to. A room
-//!    the store holds as joined and that is missing there is a CANDIDATE only:
-//!    absence is not evidence (a race with a join, a server quirk).
-//! 2. A one-shot `/sync` with `since=0`, filtered to just the candidates and
-//!    `include_leave`, returns each room we really left under `rooms.leave`
-//!    with our own membership event (`leave` or `ban`, and who sent it). Only
-//!    that positive answer retires a room; a room the answer lists as joined,
-//!    or does not mention, is left alone. `set_presence=offline`, so asking
-//!    never marks the user online (see presence.rs).
-//!
-//!    NEVER WITHOUT `since`. On Continuwuity 26.9.1 a v3 `/sync` with no
-//!    `since` hands back the device's pending to-device messages AND DELETES
-//!    THEM: measured, the next v3 call returned none and the sliding sync
-//!    `to_device` extension never delivered them. That is where room keys,
-//!    MatrixRTC media keys, verification and key requests arrive, so one pass
-//!    would have silently dropped whatever was in flight. With `since=0` the
-//!    same request still lists the left rooms under `rooms.leave` (left,
-//!    kicked and banned alike) and deletes nothing: measured, two calls in a
-//!    row each returned the three pending messages and sliding sync then
-//!    delivered all three. On Synapse `0` is not a stream token, so the
-//!    request fails and the pass fails closed (Synapse delivers the leave
-//!    over sliding sync itself); NOT measured there.
-//!
-//! The retirement is local: the room is marked left (or banned) in the store,
-//! exactly as `serveradmin::mark_deleted_room_left` does, and the room list's
-//! non-left filter drops it. Nothing is sent to the room.
-//!
-//! When to ask: the sliding sync list's server-side `count`. It is read on the
-//! first load (a restart after a leave), whenever it FALLS (the measured shape
-//! of a leave), and whenever the store holds more rooms than the server counts
-//! (a leave and a join in one window). On a server that delivers leaves
-//! (Synapse) the store and the server agree and a pass is one `/joined_rooms`.
 
 use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
@@ -77,31 +24,21 @@ use serde::Deserialize;
 
 use crate::EventQueueRef;
 
-/// After a count change, so the response that moved it has been processed.
 const SETTLE: Duration = Duration::from_secs(2);
-/// Passes are at least this far apart; a trigger inside the gap waits for it.
 const MIN_PASS_GAP: Duration = Duration::from_secs(30);
-/// One question each; never retried (the next trigger is the retry).
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
-/// Rooms one confirmation asks about. More wait for the next pass.
 const CONFIRM_CAP: usize = 50;
-/// How often to look for a (re)built room list service.
 const SERVICE_POLL: Duration = Duration::from_secs(2);
 /// The confirmation's `since`. Present so the server treats the request as
 /// incremental and acknowledges (deletes) no to-device message; see the
 /// module doc for the measurement.
 const CONFIRM_SINCE: &str = "0";
 
-/// How the server says we lost a room.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Loss {
-    /// Our own leave, from another session.
     Left,
-    /// A leave someone else sent: kicked.
     Kicked,
-    /// Banned.
     Banned,
-    /// Listed under `rooms.leave` with no readable membership event.
     Gone,
 }
 
@@ -116,16 +53,12 @@ impl Loss {
     }
 }
 
-/// Decides, from the server's list count, whether a pass is worth asking.
 #[derive(Debug, Default)]
 pub(crate) struct Trigger {
     last_count: Option<u32>,
 }
 
 impl Trigger {
-    /// Pure. `local` is how many rooms the store lists (joined, invited or
-    /// knocked). True on the first count, on any fall, and while the store
-    /// lists more than the server counts.
     pub(crate) fn observe(&mut self, server_count: u32, local: usize) -> bool {
         let first = self.last_count.is_none();
         let fell = self.last_count.is_some_and(|last| server_count < last);
@@ -134,7 +67,6 @@ impl Trigger {
     }
 }
 
-/// Pure: the rooms the store holds as joined that the server does not list.
 pub(crate) fn candidates<'a>(
     held_joined: impl IntoIterator<Item = &'a OwnedRoomId>,
     server_joined: &HashSet<OwnedRoomId>,
@@ -165,15 +97,12 @@ struct MemberEvent {
     content: MemberContent,
 }
 
-/// Our own membership in one event, if it is one: (membership, sender).
 fn own_membership<T>(raw: &Raw<T>, me: &UserId) -> Option<(String, String)> {
     let event: MemberEvent = raw.deserialize_as_unchecked().ok()?;
     (event.kind == "m.room.member" && event.state_key.as_deref() == Some(me.as_str()))
         .then_some((event.content.membership, event.sender))
 }
 
-/// Pure: what one `rooms.leave` entry says about how we lost the room. The
-/// newest own membership wins: the timeline's last, else the state's.
 pub(crate) fn loss_from_left_room(room: &v3::LeftRoom, me: &UserId) -> Loss {
     let from_timeline = room
         .timeline
@@ -198,14 +127,10 @@ pub(crate) fn loss_from_left_room(room: &v3::LeftRoom, me: &UserId) -> Loss {
                 Loss::Kicked
             }
         }
-        // `rooms.leave` is the server's word that we are out; an event we
-        // cannot read does not change that, it only hides how.
         _ => Loss::Gone,
     }
 }
 
-/// Pure: the candidates the answer confirms lost. A room the answer lists as
-/// joined or invited, or does not mention, is not.
 pub(crate) fn confirmed_losses(
     leave: &BTreeMap<OwnedRoomId, v3::LeftRoom>,
     candidates: &[OwnedRoomId],
@@ -230,8 +155,6 @@ async fn fetch_server_joined(client: &Client) -> Option<HashSet<OwnedRoomId>> {
     Some(response.joined_rooms.into_iter().collect())
 }
 
-/// The filter that asks only about `rooms`, including the ones we left, with
-/// the one newest event each (our own leave, for a left room).
 pub(crate) fn confirm_filter(rooms: &[OwnedRoomId]) -> FilterDefinition {
     let mut timeline = RoomEventFilter::default();
     timeline.limit = Some(UInt::from(1u32));
@@ -276,8 +199,6 @@ async fn fetch_left(
     Some(response.rooms.leave)
 }
 
-/// Marks a still-joined room left (or banned) in the local store. Returns
-/// whether it changed anything: a sync that moved the room meanwhile wins.
 pub(crate) async fn retire_locally(room: &Room, loss: Loss) -> bool {
     if room.state() != RoomState::Joined {
         return false;
@@ -303,7 +224,6 @@ pub(crate) async fn retire_locally(room: &Room, loss: Loss) -> bool {
     saved.is_ok() && retired
 }
 
-/// Retires every confirmed loss and tells C++ about each. Returns how many.
 pub(crate) async fn apply_losses(
     client: &Client,
     losses: &[(OwnedRoomId, Loss)],
@@ -334,9 +254,6 @@ pub(crate) async fn apply_losses(
     retired
 }
 
-/// One pass against the server's two answers: `joined` (`/joined_rooms`) and
-/// `left` (the confirmation, asked about the candidates only). Fails closed:
-/// an unanswered question retires nothing. Returns how many rooms it retired.
 pub(crate) async fn reconcile_with<J, JF, L, LF>(
     client: &Client,
     events: &EventQueueRef,
@@ -369,7 +286,6 @@ where
     retired
 }
 
-/// One pass against the live server.
 pub(crate) async fn reconcile_once(client: &Client, events: &EventQueueRef) -> usize {
     let asker = client.clone();
     reconcile_with(
@@ -395,9 +311,6 @@ fn current_service(slot: &Mutex<Option<Arc<RoomListService>>>) -> Option<Arc<Roo
     slot.lock().ok().and_then(|guard| guard.clone())
 }
 
-/// Runs for the life of a sync session (the caller drops it with the sync).
-/// Never returns. Idle while no sliding sync room list exists (classic sync
-/// delivers `rooms.leave` itself).
 pub(crate) async fn run_membership_reconciler(
     client: Client,
     events: EventQueueRef,
@@ -416,8 +329,6 @@ pub(crate) async fn run_membership_reconciler(
         };
         let mut loading = list.loading_state();
         loop {
-            // A rebuilt service ends this list's stream only when the old one
-            // is dropped, so look for a replacement while waiting.
             let next = tokio::select! {
                 next = loading.next() => next,
                 _ = tokio::time::sleep(SERVICE_POLL) => {
@@ -432,7 +343,6 @@ pub(crate) async fn run_membership_reconciler(
                 continue;
             };
             tokio::time::sleep(SETTLE).await;
-            // The newest count after settling, not the one that woke us.
             let RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(count) } =
                 loading.get()
             else {
@@ -463,8 +373,6 @@ mod tests {
     use serde_json::json;
     use std::collections::VecDeque;
 
-    /// Puts `rooms` into the store as joined, the way a sliding sync response
-    /// naming a room without `invite_state` does.
     async fn joined(client: &Client, rooms: &[&RoomId]) {
         let mut response = v5::Response::new("pos-1".to_owned());
         for room in rooms {
@@ -503,7 +411,6 @@ mod tests {
         Arc::new(Mutex::new(VecDeque::new()))
     }
 
-    /// The `room_membership_lost` events, by room.
     fn lost(events: &EventQueueRef) -> BTreeMap<String, String> {
         events
             .lock()
@@ -542,28 +449,22 @@ mod tests {
     #[test]
     fn the_newest_own_membership_says_how_the_room_was_lost() {
         let me = user_id!("@me:example.org");
-        // Our own leave from another session.
         let left = left_room(vec![member("@me:example.org", "@me:example.org", "leave")], vec![]);
         assert_eq!(loss_from_left_room(&left, me), Loss::Left);
-        // A leave someone else sent is a kick.
         let kicked = left_room(vec![member("@me:example.org", "@mod:example.org", "leave")], vec![]);
         assert_eq!(loss_from_left_room(&kicked, me), Loss::Kicked);
-        // A ban, read from state when the timeline has none of ours.
         let banned = left_room(
             vec![member("@other:example.org", "@other:example.org", "join")],
             vec![member("@me:example.org", "@mod:example.org", "ban")],
         );
         assert_eq!(loss_from_left_room(&banned, me), Loss::Banned);
-        // The timeline is newer than the state.
         let rejoined_then_kicked = left_room(
             vec![member("@me:example.org", "@mod:example.org", "leave")],
             vec![member("@me:example.org", "@me:example.org", "join")],
         );
         assert_eq!(loss_from_left_room(&rejoined_then_kicked, me), Loss::Kicked);
-        // Someone else's membership is not ours.
         let other = left_room(vec![member("@other:example.org", "@mod:example.org", "ban")], vec![]);
         assert_eq!(loss_from_left_room(&other, me), Loss::Gone);
-        // Listed under rooms.leave with nothing readable: still out.
         assert_eq!(loss_from_left_room(&left_room(vec![], vec![]), me), Loss::Gone);
     }
 
@@ -580,17 +481,12 @@ mod tests {
         assert_eq!(request.timeout, Some(Duration::ZERO));
     }
 
-    // A v3 /sync with no `since` deletes the device's pending to-device
-    // messages on Continuwuity (room keys, MatrixRTC keys, verification). The
-    // confirmation must always carry one, and it must be the token measured
-    // to acknowledge nothing.
     #[test]
     fn the_confirmation_never_goes_out_without_a_since() {
         let rooms = vec![room_id!("!a:example.org").to_owned()];
         let request = confirm_request(&rooms);
         assert!(request.since.is_some(), "a since-less v3 /sync consumes to-device messages");
         assert_eq!(request.since.as_deref(), Some("0"));
-        // And on the wire, not just in the struct.
         use matrix_sdk::ruma::api::{auth_scheme::SendAccessToken, OutgoingRequest, SupportedVersions};
         let versions = SupportedVersions::from_parts(&["v1.11".to_owned()], &BTreeMap::new());
         let http = request
@@ -607,9 +503,6 @@ mod tests {
         );
     }
 
-    // Section 4 F3 / B034. The server drops a room it no longer has us in
-    // from the list and never names it again; only its own answer retires a
-    // room, and only the rooms it confirms.
     #[tokio::test]
     async fn a_room_left_elsewhere_is_retired_only_on_the_servers_word() {
         let server = MatrixMockServer::new().await;
@@ -628,7 +521,6 @@ mod tests {
             (left.to_owned(), left_room(vec![member(&me, &me, "leave")], vec![])),
             (kicked.to_owned(), left_room(vec![member(&me, "@mod:example.org", "leave")], vec![])),
             (banned.to_owned(), left_room(vec![member(&me, "@mod:example.org", "ban")], vec![])),
-            // Not asked about: must not be touched even if listed.
             (still.to_owned(), left_room(vec![member(&me, &me, "leave")], vec![])),
         ]
         .into_iter()
@@ -666,7 +558,6 @@ mod tests {
         assert_eq!(lost[kicked.as_str()], "kicked");
         assert_eq!(lost[banned.as_str()], "banned");
 
-        // The room list drops them: the store no longer lists them.
         let listed: HashSet<OwnedRoomId> = client
             .rooms()
             .iter()
@@ -676,7 +567,6 @@ mod tests {
         assert_eq!(listed, ids(&[still, unmentioned]));
     }
 
-    // Nothing missing from /joined_rooms: the confirmation is never asked.
     #[tokio::test]
     async fn a_server_that_agrees_costs_one_question() {
         let server = MatrixMockServer::new().await;
@@ -719,7 +609,6 @@ mod tests {
         assert!(lost(&events).is_empty());
     }
 
-    // A sync that moved the room meanwhile wins over a stale answer.
     #[tokio::test]
     async fn only_a_joined_room_is_retired() {
         let server = MatrixMockServer::new().await;
@@ -733,17 +622,6 @@ mod tests {
         assert_eq!(room.state(), RoomState::Left);
     }
 
-    /// End to end against a real homeserver: a sliding sync room list, the
-    /// reconciler as the sync thread runs it, and three rooms lost three ways
-    /// (our own leave from a second device, a kick, a ban) plus one kept.
-    /// Two to-device messages are pending for the member's device while the
-    /// passes ask (nothing consumes to-device until the end), and the SDK must
-    /// still receive both afterwards: a since-less confirmation deletes them
-    /// on Continuwuity.
-    /// Runs only with `--ignored` and LIGHTNING_LIVE_MEMBERSHIP=1, with
-    /// LIGHTNING_TEST_HOMESERVER, LIGHTNING_TEST_USER / _PASSWORD (the member)
-    /// and LIGHTNING_TEST_PEER_USER / _PASSWORD (the room creator). Use test
-    /// accounts on a test server only (scratch/localhs).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "live homeserver; set LIGHTNING_LIVE_MEMBERSHIP=1 and credentials env"]
     async fn live_rooms_lost_elsewhere_leave_the_store() {
@@ -787,8 +665,6 @@ mod tests {
             rooms.push(room_id);
         }
         let (kept, left, kicked, banned) = (&rooms[0], &rooms[1], &rooms[2], &rooms[3]);
-        // A to-device message for the member's own device, left pending on
-        // the server: nothing below consumes to-device until the very end.
         let member_device = member.device_id().unwrap().to_owned();
         let send_probe = |n: u64| {
             let peer = peer.clone();
@@ -809,8 +685,6 @@ mod tests {
             }
         };
         send_probe(1).await;
-        // Left from the other device BEFORE the list starts: the restart case,
-        // which only the first-load pass can catch.
         other_device.send(leave_room::v3::Request::new(left.clone())).await.unwrap();
 
         let service = Arc::new(RoomListService::new(member.clone()).await.unwrap());
@@ -825,8 +699,6 @@ mod tests {
         let reconciler = tokio::spawn(run_membership_reconciler(
             member.clone(), Arc::clone(&events), slot,
         ));
-        // The first-load pass retires the room left while nothing was running,
-        // and only that one.
         let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
         while member.get_room(left).unwrap().state() != RoomState::Left {
             assert!(tokio::time::Instant::now() < deadline, "first-load pass did not run");
@@ -836,7 +708,6 @@ mod tests {
             assert_eq!(member.get_room(room).unwrap().state(), RoomState::Joined);
         }
 
-        // Pending again for the pass the kick and ban set off.
         send_probe(2).await;
         peer.send(kick_user::v3::Request::new(kicked.clone(), me.clone())).await.unwrap();
         peer.send(ban_user::v3::Request::new(banned.clone(), me.clone())).await.unwrap();
@@ -859,8 +730,6 @@ mod tests {
         reconciler.abort();
         sync.abort();
 
-        // Both passes asked while the probes were pending; the SDK's own
-        // to-device sync must still receive both.
         let seen = Arc::new(Mutex::new(HashSet::<u64>::new()));
         let record = Arc::clone(&seen);
         member.add_event_handler(move |event: Raw<AnyToDeviceEvent>| {

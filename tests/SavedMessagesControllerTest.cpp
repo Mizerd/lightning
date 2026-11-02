@@ -97,8 +97,6 @@ private Q_SLOTS:
         QCOMPARE(saved.count(), 3);
     }
 
-    // Another device removed $gone after our last read; our save of $y must
-    // not write $gone back (only this operation's own change is applied).
     void aSaveDoesNotResurrectAnItemAnotherDeviceRemoved()
     {
         SavedFakeClient client;
@@ -118,7 +116,6 @@ private Q_SLOTS:
             content({ref(QStringLiteral("$keep")), ref(QStringLiteral("$gone"))}));
         QCOMPARE(saved.count(), 2);
         saved.save(QStringLiteral("!room:example.org"), QStringLiteral("$y"), {});
-        // The fresh read before the write: $gone was removed elsewhere.
         Q_EMIT client.accountPrefRead(client.lastType, true,
             content({ref(QStringLiteral("$keep"))}));
         QStringList written;
@@ -128,7 +125,6 @@ private Q_SLOTS:
         QCOMPARE(written, (QStringList{QStringLiteral("$keep"), QStringLiteral("$y")}));
     }
 
-    // Another client clearing the data to {} is an empty list, not a lockout.
     void anEmptyObjectIsAnEmptyList()
     {
         SavedFakeClient client;

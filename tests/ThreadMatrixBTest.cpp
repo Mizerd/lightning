@@ -1,7 +1,3 @@
-// T38: an input method owns keys while a thread editor has uncommitted text.
-// This source contract checks both QML editors because the regression was a
-// missing guard in their separate Keys.onPressed handlers. Removing either
-// guard makes this test fail against the pre-fix ThreadPanel.qml.
 
 #include <QFile>
 #include <QRegularExpression>

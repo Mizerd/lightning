@@ -2,25 +2,16 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// A selectable preview of one room-list navigation layout. A diagram drawn from
-// AppTheme tokens, not a live instance (which would need a room list and
-// avatars). Classic: tall rows with a preview line; Channels: a category header
-// with short indented rows.
 AbstractButton {
     id: root
 
     property string title: ""
     property string subtitle: ""
-    /// "classic" | "channels"
     property string variant: "classic"
     property bool current: false
-    /// A one-line tile: a small diagram beside the title and subtitle, for a
-    /// settings row (Settings > Layout). The full card stacks them.
     property bool compact: false
 
     implicitWidth: 200
-    // Grows with its text; 152 (56 compact) is a floor so both cards match
-    // when the text fits.
     implicitHeight: Math.max(root.compact ? 56 : 152, cardBody.implicitHeight)
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
@@ -51,7 +42,6 @@ AbstractButton {
         padding: root.compact ? AppTheme.spacing8 : AppTheme.spacing12
         verticalItemAlignment: Grid.AlignVCenter
 
-        // The diagram
         Rectangle {
             width: root.compact ? 72 : root.width - AppTheme.spacing12 * 2
             height: root.compact ? 40 : 76
@@ -59,8 +49,6 @@ AbstractButton {
             color: AppTheme.sidebar
             clip: true
 
-            // Classic: four tall rows, each a name bar over a preview bar, with
-            // an avatar disc.
             Column {
                 visible: root.variant === "classic"
                 anchors.fill: parent
@@ -99,8 +87,6 @@ AbstractButton {
                 }
             }
 
-            // Channels: a category header, short indented rows, and a second
-            // category.
             Column {
                 visible: root.variant === "channels"
                 anchors.fill: parent
@@ -112,8 +98,6 @@ AbstractButton {
                     delegate: Column {
                         required property int index
                         spacing: 3
-                        // The category bar: short and dim, like the real
-                        // header.
                         Rectangle {
                             width: 40
                             height: 3
@@ -126,7 +110,6 @@ AbstractButton {
                             delegate: Row {
                                 required property int index
                                 spacing: 4
-                                // Indent, matching the real row's depth.
                                 Item {
                                     width: 8
                                     height: 1
@@ -158,11 +141,9 @@ AbstractButton {
             width: root.compact
                    ? root.width - 72 - cardBody.spacing - cardBody.padding * 2
                    : root.width - AppTheme.spacing12 * 2
-            // Behind a Loader: set by the host and empty at creation.
             Loader {
                 active: root.title.length > 0
                 sourceComponent: Label {
-                    // Untrusted text: never markup.
                     textFormat: Text.PlainText
                     text: root.title
                     color: AppTheme.stormText
@@ -173,7 +154,6 @@ AbstractButton {
             Loader {
                 active: root.subtitle.length > 0
                 sourceComponent: Label {
-                    // Untrusted text: never markup.
                     textFormat: Text.PlainText
                     width: cardTexts.width
                     text: root.subtitle

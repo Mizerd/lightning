@@ -3,19 +3,13 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Home / no-room surface, shown in the timeline region when no room is
-// selected; TimelinePane hides the composer here. A welcome, the primary
-// create/find actions and a short list of recent conversations. The actions
-// route to the room list's shared new-conversation dialog.
 Item {
     id: root
     objectName: "homePane"
 
-    // Routed to the room list's new-conversation dialog by MainScreen.
     signal newMessageRequested()
     signal createRoomRequested()
     signal createSpaceRequested()
-    // Discover / Join (the room list's dialog), browse mode.
     signal discoverRequested()
 
     // `account()` is a Q_INVOKABLE, so a binding on it would miss renames and
@@ -27,15 +21,12 @@ Item {
     property var activeAccount: null
     function refreshActiveAccount() {
         var uid = app.accounts ? app.accounts.activeUserId : ""
-        // The account first, so the one intermediate state between these writes
-        // already greets correctly.
         root.activeAccount = (app.accounts && uid.length > 0)
             ? app.accounts.account(uid) : null
         root.activeUserId = uid
     }
     Connections {
         target: app.accounts
-        // Both the selection moving and the active record changing.
         function onAccountsChanged() { root.refreshActiveAccount() }
         function onActiveUserIdChanged() { root.refreshActiveAccount() }
     }
@@ -50,7 +41,6 @@ Item {
                 ? activeAccount.displayName : ""
         if (n.length > 0)
             return n
-        // Localpart fallback (@user:hs -> user), never a bare MXID.
         var id = activeUserId
         if (id.length === 0)
             return qsTr("there")
@@ -60,8 +50,6 @@ Item {
         return colon > 0 ? id.substring(0, colon) : id
     }
 
-    // Recomputed from the model rather than a Repeater over the whole room
-    // list, so hidden rows never fetch avatars.
     property var recentModel: []
     property var spacesModel: []
     function refreshRecent() {
@@ -74,8 +62,6 @@ Item {
         refreshRecent()
     }
     onVisibleChanged: if (visible) refreshRecent()
-    // Coalesce bursty room-list updates so each sync tick doesn't rebuild the
-    // sections and their avatars.
     Timer {
         id: refreshCoalesce
         interval: 250
@@ -91,16 +77,12 @@ Item {
         function onDataChanged() { refreshCoalesce.restart() }
     }
 
-    // Compact "3:24 PM / Yesterday / Mon / 12 Jun" recency label.
     function activityLabel(when) {
         if (!when || isNaN(when.getTime()) || when.getTime() <= 0)
             return ""
         var now = new Date()
         var days = Math.floor((now - when) / 86400000)
         if (when.toDateString() === now.toDateString())
-            // The app-wide clock setting, as a Qt format string from C++. Read
-            // as a property so bindings depend on it; this label re-renders
-            // when its caller's binding next does.
             return Qt.formatTime(when, app.settings.clockTimeFormat)
         if (days < 2) return qsTr("Yesterday")
         if (days < 7) return Qt.locale(AppLocale.name).toString(when, "ddd")
@@ -110,8 +92,6 @@ Item {
     readonly property bool offline:
         app.connectionStatus === qsTr("Offline — retrying")
         || app.connectionStatus === qsTr("Not connected")
-    // "Error" is not "offline": the server answered and sync still stopped,
-    // which reconnecting does not fix, so it gets words of its own.
     readonly property bool syncFailed: app.connectionStatus === qsTr("Error")
     readonly property string connectionNotice: syncFailed
         ? qsTr("Lightning can't sync with your server. Your rooms stay "
@@ -123,22 +103,14 @@ Item {
                       : qsTr("You appear to be offline. Reconnecting — "
                              + "your rooms stay available."))
                    : "")
-    // A network route (Settings > Account > Network): a failure may be the
-    // proxy, and nothing reconnects around it (docs/network-profiles.md).
     readonly property bool routed: !!app.networkRoute && !!app.networkRoute.route
         && (app.networkRoute.route.kind || "none") !== "none"
 
-    // "Chat background" in Make it yours: this account's own picture behind
-    // every room.
     ChatBackgroundDialog {
         id: homeBackgroundDialog
         objectName: "homeChatBackgroundDialog"
     }
 
-    // The one-time "index encrypted messages" card floats over the bottom-right
-    // corner (Main.qml's overlay stack, ~200 px tall). While it is offered the
-    // content is centred in, and can scroll clear of, the space above it, so it
-    // never covers the empty-state card.
     readonly property int cornerPromptReserve:
         (app.messageSearch && app.messageSearch.indexAllOffered) ? 232 : 0
 
@@ -151,16 +123,11 @@ Item {
                        + root.cornerPromptReserve
         boundsBehavior: Flickable.StopAtBounds
         clip: true
-        // Same wheel/touchpad feel as the room timeline; see
-        // qml/SmoothWheelArea.qml.
         SmoothWheelArea { id: homeWheel }
         ScrollBar.vertical: AppScrollBar {
             objectName: "homeScrollBar"
             policy: ScrollBar.AsNeeded
         }
-        // Keyboard scrolling. A key a focused button does not take reaches
-        // here through the parent chain; a click on blank space focuses the
-        // pane so the keys work from there too (C08-F04).
         function scrollKey(key) {
             var max = Math.max(0, contentHeight - height)
             var y = contentY
@@ -173,7 +140,6 @@ Item {
             case Qt.Key_Down: y = contentY + 48; break
             default: return false
             }
-            // A key jump must not fight a wheel glide still in flight.
             homeWheel.stopGlide()
             contentY = Math.max(0, Math.min(max, y))
             return true
@@ -194,12 +160,9 @@ Item {
                          - implicitHeight) / 2)
             spacing: AppTheme.spacing20
 
-            // Brand + welcome
             RowLayout {
                 objectName: "homeWelcomeRow"
                 Layout.alignment: Qt.AlignHCenter
-                // Bounded to the card: a long display name elides instead of
-                // pushing the row past the pane.
                 Layout.maximumWidth: card.width
                 spacing: AppTheme.spacing12
                 Avatar {
@@ -251,16 +214,11 @@ Item {
                 lineHeightMode: Text.ProportionalHeight
             }
 
-            // Connection notice (offline, or sync stopped), informational
-            // only: cached rooms stay reachable and the status bar carries
-            // the detail.
             Rectangle {
                 objectName: "homeOfflineNotice"
                 visible: root.connectionNotice !== ""
                 Layout.fillWidth: true
                 radius: AppTheme.radiusMd
-                // The warning chip family, so fill, border and icon share one
-                // ink.
                 color: AppTheme.chipWarningFill
                 border.color: AppTheme.chipWarningBorder
                 border.width: 1
@@ -275,8 +233,6 @@ Item {
                         objectName: "homeConnectionNoticeText"
                         Layout.fillWidth: true
                         text: root.connectionNotice
-                        // textPrimary: secondary ink on the 14% status tint is
-                        // below AA on the light themes.
                         color: AppTheme.textPrimary
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         wrapMode: Text.WordWrap
@@ -286,7 +242,6 @@ Item {
                 }
             }
 
-            // Actionable security state only; silent when all is fine.
             Rectangle {
                 objectName: "homeSecurityCard"
                 visible: app.cryptoBootstrap
@@ -308,7 +263,6 @@ Item {
                         text: app.cryptoBootstrap
                               ? app.cryptoBootstrap.statusMessage : ""
                         textFormat: Text.PlainText
-                        // As above: secondary ink on accentSoft is below AA.
                         color: AppTheme.textPrimary
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         wrapMode: Text.WordWrap
@@ -317,11 +271,6 @@ Item {
                     }
                     AppButton {
                         objectName: "homeSecurityButton"
-                        // The destination depends on the phase:
-                        // NoBackupAvailable needs to create a backup
-                        // (Sessions); ManualRecoveryRequired and
-                        // IdentityIncomplete need the recovery key field
-                        // (Privacy & security).
                         readonly property bool wantsRecoveryInput:
                             app.cryptoBootstrap
                             && (app.cryptoBootstrap.phase
@@ -336,10 +285,6 @@ Item {
                 }
             }
 
-            // Primary actions (shared Lightning buttons).
-            // A Flow inside a full-width holder: the buttons wrap onto a second
-            // row when the card is narrow (minimum window, large zoom or text
-            // scale) and stay centred when they fit on one.
             Item {
                 id: actionsHolder
                 objectName: "homeActionsHolder"
@@ -349,8 +294,6 @@ Item {
                     id: actionsFlow
                     objectName: "homeActionsFlow"
                     anchors.horizontalCenter: parent.horizontalCenter
-                    // Natural one-row width of the visible buttons, capped at
-                    // the card.
                     readonly property real oneRow: {
                         var w = 0, n = 0
                         for (var i = 0; i < children.length; ++i) {
@@ -390,7 +333,6 @@ Item {
                 }
             }
 
-            // Quick-switcher hint.
             RowLayout {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: AppTheme.spacingXS
@@ -400,15 +342,12 @@ Item {
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.textMeta
                 }
-                // The shared keycap chip, as in the room-list search field.
-                // `storm: false`: this surface uses the user's theme.
                 MenuKeycap {
                     keys: "Ctrl+K"
                     storm: false
                 }
             }
 
-            // Jump back in: recent conversations.
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.topMargin: AppTheme.spacingS
@@ -424,14 +363,9 @@ Item {
                 }
                 Repeater {
                     model: root.recentModel
-                    // AbstractButton for real keyboard focus and press states.
                     delegate: AbstractButton {
                         id: recentRow
                         required property var modelData
-                        // Mute state, as RoomDelegate: a muted room is silent everywhere (as in
-                        // Element), so no mention pill, no unread pill, no bold name. Re-queried
-                        // when the id changes and when settings announce a write. `app` can be
-                        // undefined while a delegate is created inside a change handler.
                         property int notificationMode: 0
                         readonly property bool muted: notificationMode === 2
                         function refreshNotificationMode() {
@@ -502,7 +436,6 @@ Item {
                                              : AppTheme.weightMedium
                                 elide: Label.ElideRight
                             }
-                            // Last-activity recency.
                             Label {
                                 text: root.activityLabel(
                                           recentRow.modelData.lastActivity)
@@ -511,8 +444,6 @@ Item {
                                 font.family: AppTheme.uiFont
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             }
-                            // Mention badge, with the same tokens as the room
-                            // list (mentionBadgeFill / unreadCountFill).
                             Rectangle {
                                 objectName: "homeMentionBadge"
                                 visible: !recentRow.muted
@@ -534,7 +465,6 @@ Item {
                                     font.weight: AppTheme.weightBold
                                 }
                             }
-                            // Unread dot / count.
                             Rectangle {
                                 objectName: "homeUnreadBadge"
                                 visible: !recentRow.muted
@@ -542,7 +472,6 @@ Item {
                                 radius: height / 2
                                 color: (recentRow.modelData.unreadCount || 0) > 0
                                        ? AppTheme.unreadCountFill : AppTheme.unreadDot
-                                // A dot carries its contrast in a ring.
                                 border.width: (recentRow.modelData.unreadCount || 0) > 0
                                               ? 0 : AppTheme.badgeDotRingWidth
                                 border.color: AppTheme.unreadDotRing
@@ -567,7 +496,6 @@ Item {
                 }
             }
 
-            // Spaces shortcut strip (the rail stays the main navigation).
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.topMargin: AppTheme.spacingS
@@ -586,7 +514,6 @@ Item {
                     spacing: AppTheme.spacingXS
                     Repeater {
                         model: root.spacesModel
-                        // A real button, as with the recent rows.
                         delegate: AbstractButton {
                             id: spacePill
                             required property var modelData
@@ -599,16 +526,11 @@ Item {
                             leftPadding: AppTheme.spacing10
                             rightPadding: AppTheme.spacing10
                             implicitHeight: 32
-                            // Capped at the strip: a long Space name elides in
-                            // the pill instead of running off the window.
                             width: Math.min(implicitWidth, parent ? parent.width
                                                                   : implicitWidth)
                             Accessible.role: Accessible.Button
                             Accessible.name: qsTr("Open Space %1")
                                 .arg(modelData.name || "")
-                            // Select and reveal: a nested Space has no rail row
-                            // unless its ancestors are expanded, so revealSpace
-                            // opens the chain and scrolls the rail to it.
                             onClicked: {
                                 if (!modelData.roomId)
                                     return
@@ -621,7 +543,6 @@ Item {
 
                             background: Rectangle {
                                 radius: AppTheme.radiusPill
-                                // Marks the Space you're already in.
                                 color: spacePill.current
                                        ? AppTheme.accentSoft
                                      : spacePill.down
@@ -644,7 +565,6 @@ Item {
                                 }
                             }
 
-                            // The full name when the label had to elide.
                             ToolTip.text: spacePill.modelData.name || ""
                             ToolTip.visible: spacePill.hovered
                                              && spacePillLabel.truncated
@@ -677,10 +597,6 @@ Item {
                 }
             }
 
-            // Make it yours: themes (colours, gradients), the chat background
-            // and the profile, one click from Home instead of three screens
-            // deep. "All settings" keeps the general entry the old Settings
-            // button gave.
             ColumnLayout {
                 objectName: "homePersonalise"
                 Layout.fillWidth: true
@@ -704,7 +620,6 @@ Item {
                         text: qsTr("Theme and colours")
                         Accessible.description:
                             qsTr("Themes, custom colours and gradients")
-                        // Where gradients live is the question this answers.
                         ToolTip.text: qsTr("Themes, custom colours and gradients")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
@@ -736,7 +651,6 @@ Item {
                 }
             }
 
-            // Empty-account onboarding, explaining the primary actions above.
             Rectangle {
                 id: homeOnboarding
                 objectName: "homeOnboarding"
@@ -744,8 +658,6 @@ Item {
                 Layout.fillWidth: true
                 Layout.topMargin: AppTheme.spacingS
                 radius: AppTheme.radiusMd
-                // The sidebar filter narrows "Jump back in"; an empty result
-                // under a filter is not an empty account.
                 readonly property bool filtered:
                     !!app.roomList && (app.roomList.searchQuery || "").length > 0
                 color: AppTheme.cardElevated

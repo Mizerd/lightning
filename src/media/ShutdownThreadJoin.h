@@ -19,4 +19,4 @@ inline bool quitAndJoinWorkerForShutdown(QThread *thread, int budgetMs)
     return false;
 }
 
-} // namespace lightning::media
+}

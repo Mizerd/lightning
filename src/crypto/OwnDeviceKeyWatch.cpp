@@ -33,8 +33,6 @@ bool OwnDeviceKeyWatch::checkDue(qint64 nowMs) const
 {
     if (m_lastDispatchMs < 0)
         return true;
-    // A clock that went backwards (suspend/resume, an NTP step) must not
-    // wedge the watch until it catches up.
     if (nowMs < m_lastDispatchMs)
         return true;
     return (nowMs - m_lastDispatchMs) >= kMinIntervalMs;
@@ -45,4 +43,4 @@ void OwnDeviceKeyWatch::noteDispatched(qint64 nowMs)
     m_lastDispatchMs = nowMs;
 }
 
-} // namespace matrix::crypto
+}

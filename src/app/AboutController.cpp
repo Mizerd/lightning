@@ -28,24 +28,18 @@ QString categoryText(const QString &category)
     return AboutController::tr("The homeserver did not give a usable answer.");
 }
 
-} // namespace
+}
 
 AboutController::AboutController(QObject *parent)
     : QObject(parent)
 {
-    // A reset step that never answers must not leave the button spinning.
     m_resetWatchdog.setSingleShot(true);
     m_resetWatchdog.setInterval(kResetWaitMs);
     connect(&m_resetWatchdog, &QTimer::timeout, this,
             [this] { finishReset(true); });
-    // Compaction is reported after the clear and has its own, longer wait. It
-    // never feeds the reset watchdog above.
     m_compactionWatchdog.setSingleShot(true);
     m_compactionWatchdog.setInterval(kCompactionWaitMs);
     connect(&m_compactionWatchdog, &QTimer::timeout, this, [this] {
-        // Nothing more is waited for. A store that has not reported by now
-        // will not (the backend task that would have sent it is gone), so it
-        // is worded as silent, not as still working, and shows no figures.
         for (Compaction *c : {&m_eventCompaction, &m_mediaCompaction}) {
             if (c->expected && !c->got)
                 c->gaveUp = true;
@@ -80,12 +74,10 @@ void AboutController::setClient(MatrixClient *client)
                         m_keptFilesFreed += keptBytes;
                     onMediaCleared(opId, ok);
                 });
-        // After the step's own completion signal, on its own schedule.
         connect(m_client, &MatrixClient::cacheCompacted, this,
                 &AboutController::onCacheCompacted);
         connect(m_client, &MatrixClient::eventCacheCleared, this,
                 &AboutController::onEventCacheCleared);
-        // Another account's server, listing and reset must not carry over.
         connect(m_client, &MatrixClient::loggedOut, this,
                 &AboutController::onLoggedOut);
     }
@@ -107,8 +99,6 @@ QString AboutController::versionSummary() const
     const QString kind = !m_packageKind.isEmpty()
         ? m_packageKind
         : QStringLiteral(LIGHTNING_ARTIFACT_KIND);
-    // Labels are translated; the values (version, commit, platform, package
-    // kind) stay raw so a pasted report is still unambiguous.
     return QStringLiteral("Lightning %1\n%2: %3\n%4: %5\n%6: %7")
         .arg(QStringLiteral(APP_VERSION), tr("Commit"), shortCommit(),
              tr("Platform"), platform, tr("Package"), kind);
@@ -180,8 +170,6 @@ void AboutController::resetLocalCache()
         ++m_resetPending;
     else
         m_resetFailed.append(tr("event cache"));
-    // The index clears synchronously, through the controller that owns its
-    // counters, and says whether it did.
     if (m_search && m_search->clearIndex())
         m_resetDone.append(tr("search index"));
     else
@@ -210,8 +198,6 @@ void AboutController::onCacheCompacted(quint64 opId, const QString &store,
     Compaction *c = store == QLatin1String("event_cache") ? &m_eventCompaction
         : store == QLatin1String("media_store")           ? &m_mediaCompaction
                                                            : nullptr;
-    // Matched to the clear that asked for it: a late report from an earlier
-    // reset or another account lands nowhere.
     if (!c || opId == 0 || !c->expected || c->got || c->op != opId)
         return;
     c->got = true;
@@ -223,11 +209,6 @@ void AboutController::onCacheCompacted(quint64 opId, const QString &store,
 
 QString AboutController::reclaimSummary() const
 {
-    // The sizes are the databases' footprint on disk, measured by the backend.
-    // Only a store that finished contributes: an unfinished compaction has no
-    // "after" yet (the VACUUM keeps running after a timeout), and "not
-    // applicable" (no SQLite store: in-memory media, no media key) is neither
-    // a figure nor a failure (CLAUDE.md section 6: absent is not failed).
     qint64 before = m_keptFilesFreed;
     qint64 after = 0;
     bool measured = m_keptFilesFreed > 0;
@@ -277,7 +258,6 @@ QString AboutController::reclaimSummary() const
 
 void AboutController::refreshSummary()
 {
-    // Only a fully successful clear carries a disk sentence.
     if (m_resetState != QLatin1String("done"))
         return;
     QString text = m_clearSummary;
@@ -294,9 +274,6 @@ void AboutController::onEventCacheCleared(quint64 opId, bool ok)
 {
     if (opId == 0 || opId != m_eventCacheOp)
         return;
-    // A compaction report is due for a clear that succeeded, from a backend
-    // that reports it. Opened before the step is counted finished so the
-    // summary composed on the last step already waits for it.
     if (ok && m_client && m_client->reportsCacheCompaction())
         m_eventCompaction = {m_eventCacheOp, true, false, {}, 0, 0};
     m_eventCacheOp = 0;
@@ -333,8 +310,6 @@ void AboutController::finishReset(bool timedOut)
         const QString reclaimed = reclaimSummary();
         if (!reclaimed.isEmpty())
             m_resetSummary += QLatin1Char(' ') + reclaimed;
-        // A compaction still due is waited for on its own clock; the clear
-        // itself is finished and stays "done".
         if ((m_eventCompaction.expected && !m_eventCompaction.got)
             || (m_mediaCompaction.expected && !m_mediaCompaction.got))
             m_compactionWatchdog.start();
@@ -351,10 +326,6 @@ void AboutController::finishReset(bool timedOut)
                                   m_resetFailed.join(QStringLiteral(", ")));
     }
     Q_EMIT resetChanged();
-    // After the state change, so a listener reads the finished reset. A
-    // refused or failed clear step is not in m_resetDone: nothing to reload.
-    // A watchdog on ANOTHER step does not undo an event-cache clear that
-    // already succeeded.
     if (m_resetDone.contains(tr("event cache")))
         Q_EMIT eventCacheWasCleared();
 }
@@ -404,9 +375,6 @@ void AboutController::requestUserClients(const QString &userId)
 {
     if (!m_client || userId.isEmpty())
         return;
-    // A failed lookup may be asked again, and so may an answered one once it
-    // is older than the refresh interval (a device that joined since reads
-    // "no record" otherwise); one on the way is not.
     const auto known = m_userClients.constFind(userId);
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     bool refresh = false;
@@ -423,7 +391,6 @@ void AboutController::requestUserClients(const QString &userId)
     const quint64 op = m_client->requestUserClients(userId);
     m_userClientAskedMs.insert(userId, now);
     if (refresh) {
-        // Keep showing the old answer; the new one replaces it on arrival.
         if (op != 0) {
             m_userClientOps.insert(op, userId);
             m_userClientRefreshOps.insert(op);
@@ -457,8 +424,6 @@ void AboutController::onUserClients(quint64 opId, const QVariantMap &result)
     const QString userId = op.value();
     m_userClientOps.erase(op);
     const bool wasRefresh = m_userClientRefreshOps.remove(opId);
-    // A background refresh that fails leaves the answer the reader already
-    // has; replacing it with "failed" blanked a good list over a blip.
     if (wasRefresh && !result.value(QStringLiteral("ok")).toBool()
         && m_userClients.contains(userId))
         return;

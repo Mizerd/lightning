@@ -3,13 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings → Labs: "Playing X" game activity. Experimental and OFF by
-// default. While a game runs, only its NAME is published, as the presence
-// status ("Playing Hades II"), unless the user has set a status of their own,
-// which always comes first (Discord's order).
-// Nothing is sent while presence sharing is off. The process list never
-// leaves this machine. Everything here is local policy over app.settings;
-// detection and publishing live in GameActivity / PresenceManager.
 ColumnLayout {
     id: root
     objectName: "gameActivitySettings"
@@ -19,7 +12,6 @@ ColumnLayout {
     readonly property bool featureOn: !!app.settings && app.settings.gameActivityEnabled
     readonly property string current: app.gameActivity ? app.gameActivity.currentGame : ""
 
-    // One editable list of short strings kept in a settings property.
     component ListEditor: ColumnLayout {
         id: editor
         property var items: []
@@ -34,7 +26,6 @@ ColumnLayout {
         // own double-click interval: two keyboard removals in a row, or two
         // deliberate clicks a beat apart, are never swallowed.
         property double lastPointerRemoveMs: 0
-        // An unsent draft must not outlive the page it was typed on.
         onVisibleChanged: if (!visible) entryField.text = ""
 
         Repeater {
@@ -60,9 +51,6 @@ ColumnLayout {
                     Accessible.name: qsTr("%1: %2").arg(editor.removeLabel).arg(modelData)
                     objectName: "listRemoveButton"
                     onClicked: {
-                        // visualFocus is true only for focus that arrived
-                        // from the keyboard; a mouse click gives activeFocus
-                        // alone.
                         const keyboard = visualFocus
                         const now = Date.now()
                         if (!keyboard) {
@@ -71,9 +59,6 @@ ColumnLayout {
                                 return
                             editor.lastPointerRemoveMs = now
                         }
-                        // The focused delegate is destroyed by the change, and
-                        // so is the context this handler runs in: hand focus
-                        // to the field FIRST, so Tab continues from here.
                         if (keyboard)
                             entryField.forceActiveFocus()
                         var next = editor.items.slice()
@@ -94,11 +79,6 @@ ColumnLayout {
                 placeholderText: editor.placeholder
                 Accessible.name: editor.placeholder
                 onAccepted: addButton.clicked()
-                // Escape cancels a draft instead of closing Settings over it.
-                // SettingsScreen owns an unconditional Escape Shortcut, and a
-                // Shortcut is dispatched BEFORE the focused item sees the
-                // key: without claiming the override, the handler below is
-                // never reached and Settings closes over the draft.
                 Keys.onShortcutOverride: (event) => {
                     if (event.key === Qt.Key_Escape && text.length > 0)
                         event.accepted = true
@@ -136,7 +116,6 @@ ColumnLayout {
         text: qsTr("Show the game I'm playing")
         checked: root.featureOn
         onToggled: app.settings.gameActivityEnabled = checked
-        // Keyboard focus ring: the stock CheckBox draws none that is visible.
         Rectangle {
             objectName: "activityCheckFocusRing"
             anchors.fill: parent

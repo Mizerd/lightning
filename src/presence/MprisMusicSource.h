@@ -1,7 +1,5 @@
 #pragma once
 
-// Linux: what Spotify plays, from its MPRIS interface on the session bus.
-// Only built with QtDBus (HAVE_QT_DBUS); src/presence/MusicSource.cpp picks it.
 #ifdef HAVE_QT_DBUS
 
 #include <QDBusConnection>
@@ -29,9 +27,7 @@ class MprisMusicSource : public MusicSource
 {
     Q_OBJECT
 public:
-    // The user's session bus and Spotify's name.
     explicit MprisMusicSource(QObject *parent = nullptr);
-    // Test seam: a private bus and a fake player's name.
     MprisMusicSource(const QDBusConnection &bus, const QString &service,
                      QObject *parent = nullptr);
     ~MprisMusicSource() override;
@@ -42,7 +38,6 @@ public:
 
     bool running() const { return m_running; }
     void setPollIntervalForTest(int ms) { m_poll.setInterval(ms); }
-    // GetAll calls sent since construction (a test proves "stopped = silent").
     int requestsSent() const { return m_requests; }
 
 private Q_SLOTS:
@@ -64,8 +59,6 @@ private:
     QTimer m_poll;
     bool m_running = false;
     bool m_subscribed = false;
-    // False after the bus said the name has no owner; true again when an
-    // owner appears or the player signals. Unknown at start reads as true.
     bool m_hasOwner = true;
     int m_generation = 0;
     int m_requests = 0;
@@ -74,4 +67,4 @@ private:
     musicdetect::NowPlaying m_now;
 };
 
-#endif   // HAVE_QT_DBUS
+#endif

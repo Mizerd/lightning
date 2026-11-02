@@ -16,13 +16,10 @@ namespace {
 
 struct EnumState {
     std::vector<std::wstring> titles;
-    // pid -> is Spotify.exe, so each process is opened at most once a pass.
     std::unordered_map<DWORD, bool> isSpotify;
     int windowsSeen = 0;
 };
 
-// Bounds one pass: a desktop has hundreds of top-level windows, never this
-// many, and a pathological one cannot make a 5 s poll expensive.
 constexpr int kMaxWindows = 4096;
 constexpr int kMaxTitles = 16;
 
@@ -62,31 +59,23 @@ BOOL CALLBACK collect(HWND window, LPARAM param)
         it = state->isSpotify.emplace(pid, processIsSpotify(pid)).first;
     if (!it->second)
         return TRUE;
-    // Only Spotify's own UI windows (Chromium Embedded: Chrome_WidgetWin_*),
-    // not its helper and IME windows. GetClassNameW reads the class without
-    // messaging the window. Visibility is NOT required on purpose: Spotify
-    // closed to the tray hides its main window and keeps naming it.
     wchar_t cls[64];
     const int clsLen = GetClassNameW(window, cls, static_cast<int>(sizeof(cls) / sizeof(cls[0])));
     if (clsLen <= 0 || std::wcsncmp(cls, L"Chrome_WidgetWin_", 17) != 0)
         return TRUE;
-    // Another process's window: GetWindowTextW copies the system's caption
-    // and sends nothing.
     wchar_t buffer[512];
     const int copied = GetWindowTextW(window, buffer,
                                       static_cast<int>(sizeof(buffer) / sizeof(buffer[0])));
     if (copied <= 0)
         return TRUE;
     std::wstring caption(buffer, static_cast<size_t>(copied));
-    // Only "Artist - Title" captions count; "Spotify Premium" and empty
-    // helper captions are dropped here already.
     if (caption.find(L" - ") == std::wstring::npos)
         return TRUE;
     state->titles.push_back(std::move(caption));
     return TRUE;
 }
 
-}   // namespace
+}
 
 std::vector<std::wstring> spotifyWindowTitles()
 {
@@ -95,7 +84,7 @@ std::vector<std::wstring> spotifyWindowTitles()
     return std::move(state.titles);
 }
 
-}   // namespace spotifywin
+}
 
 #else
 
@@ -103,6 +92,6 @@ namespace spotifywin {
 
 std::vector<std::wstring> spotifyWindowTitles() { return {}; }
 
-}   // namespace spotifywin
+}
 
 #endif

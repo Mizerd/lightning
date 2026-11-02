@@ -60,17 +60,12 @@ private slots:
         const QString llvm = QStringLiteral("llvmpipe");
         QVERIFY(!shouldShowSoftwareRendererNotice(llvm, "", "", "0.10.0",
                                                   "0.10.0"));
-        // A newer version asks again.
         QVERIFY(shouldShowSoftwareRendererNotice(llvm, "", "", "0.10.0",
                                                  "0.10.1"));
-        // A GPU never asks, whatever was stored.
         QVERIFY(!shouldShowSoftwareRendererNotice("NVIDIA GeForce", "", "", "",
                                                   "0.10.0"));
     }
 
-    // VM test 2026-10-07: the notice said "common with the AppImage on NixOS"
-    // on a .deb and an .rpm in virtual machines. NixOS is named only on
-    // NixOS, the AppImage only for an AppImage.
     void theNoticeNamesOnlyThePlatformItIsOn()
     {
         QVERIFY(isNixOsProductType(QStringLiteral("nixos")));
@@ -85,16 +80,10 @@ private slots:
                  QStringLiteral("appimage"));
         QCOMPARE(softwareRendererContextId(softwareRendererContext(false, true)),
                  QStringLiteral("nixos"));
-        // A deb/rpm/Flatpak/Snap in a VM: neither.
         QCOMPARE(softwareRendererContextId(softwareRendererContext(false, false)),
                  QStringLiteral("generic"));
     }
 
-    // The QML half: the NixOS-AppImage sentence and its "How to fix" link
-    // (a NixOS AppImage page) are tied to that one context, and the text is
-    // chosen from the context the controller publishes. Read as text; fails
-    // on the old Main.qml, whose single sentence named the NixOS AppImage
-    // unconditionally.
     void theQmlWordsTheNoticeFromTheContext()
     {
         QFile file(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/Main.qml"));
@@ -114,8 +103,6 @@ private slots:
                  "the notice must read the platform context");
         const QString nixAppImage = QStringLiteral("with the AppImage on NixOS");
         QCOMPARE(notice.count(nixAppImage), 1);
-        // The sentence sits in the "appimage-nixos" branch, and there is a
-        // default branch that names neither.
         const qsizetype branch = notice.indexOf(QStringLiteral("case \"appimage-nixos\":"));
         QVERIFY(branch >= 0);
         const qsizetype sentence = notice.indexOf(nixAppImage);
@@ -126,7 +113,6 @@ private slots:
         const QString generic = notice.mid(fallback, notice.indexOf(QLatin1Char('}'), fallback) - fallback);
         QVERIFY(!generic.contains(QStringLiteral("NixOS")));
         QVERIFY(!generic.contains(QStringLiteral("AppImage")));
-        // The help link is the NixOS AppImage page: only offered there.
         const qsizetype help = notice.indexOf(
             QStringLiteral("objectName: \"softwareRendererNoticeHelpButton\""));
         QVERIFY(help > 0);

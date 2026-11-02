@@ -66,7 +66,6 @@ bool GameActivity::active() const
 void GameActivity::reconfigure()
 {
     if (!active()) {
-        // Off: stop everything and take the name back at once.
         ++m_generation;
         m_timer.stop();
         m_pending.clear();
@@ -74,7 +73,6 @@ void GameActivity::reconfigure()
         setCurrent({});
         return;
     }
-    // Hiding the current game must act immediately, not at the next scan.
     const QStringList hidden = m_settings->gameActivityHidden();
     if (!m_current.isEmpty() && gamedetect::isHidden(m_current, hidden))
         setCurrent({});
@@ -82,7 +80,6 @@ void GameActivity::reconfigure()
         m_timer.start();
         startScan();
     }
-    // A changed custom list is applied to the next scan.
 }
 
 void GameActivity::rescanNow()
@@ -108,7 +105,6 @@ void GameActivity::startScan()
         const auto procs = gamedetect::scanProcRoot(procRoot);
         QStringList names = gamedetect::detectGames(procs, *steam, catalog);
 #ifdef Q_OS_WIN
-        // Fullscreen only confirms which known game is in front.
         if (names.size() > 1)
             names = gamedetect::preferForeground(
                 names,
@@ -122,7 +118,7 @@ void GameActivity::startScan()
             return;
         self->m_inFlight = false;
         if (gen != self->m_generation || !self->active())
-            return;   // disabled or reconfigured while the scan ran
+            return;
         self->applyDetected(names);
     };
 
@@ -152,8 +148,6 @@ void GameActivity::applyDetected(const QStringList &names)
             break;
         }
     }
-    // A game that is still running keeps the status even when another
-    // appears first in the list.
     if (!m_current.isEmpty() && names.contains(m_current)
         && !gamedetect::isHidden(m_current, hidden))
         candidate = m_current;

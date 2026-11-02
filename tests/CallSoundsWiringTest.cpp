@@ -46,8 +46,6 @@ public:
     }
     void loop(const QString &sound, qreal, bool) override
     {
-        // The controller re-asserts its loop on every state change; only a
-        // change is an event.
         if (sound == m_log->loop)
             return;
         m_log->loop = sound;
@@ -60,8 +58,6 @@ private:
     bool m_ringerLoaded;
 };
 
-// AppController announces at most one ring per sender per 30 s, so a second
-// call in one case must come from someone else.
 CallSignal invite(const QString &callId,
                   const QString &sender = QStringLiteral("@peer:mock.local"))
 {
@@ -117,8 +113,6 @@ QVariantMap participant(const QString &identity, bool sharing = false)
     return row;
 }
 
-// A client whose membership retractions are dispatched and answered on
-// demand, like the Rust bridge; MockMatrixClient refuses them (op 0).
 class RetractingClient : public MockMatrixClient
 {
 public:
@@ -146,7 +140,7 @@ QVariantMap departed(const QString &identity)
     return row;
 }
 
-} // namespace
+}
 
 class CallSoundsWiringTest : public QObject
 {
@@ -177,8 +171,6 @@ private:
         return log;
     }
 
-    /// Move the group call to `state` as the controller does: the state, then
-    /// its signal.
     static void groupState(AppController &controller,
                            SfuCallController::State state)
     {
@@ -204,14 +196,11 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // The notification chime goes through the call sound player, on the real
-    // controller: the plain sound for a message, the other for a mention,
-    // nothing in a call or while a call rings.
     void theNotificationChimeIsRoutedThroughTheCallSounds()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(login(controller));
-        auto log = install(controller, /*ringerLoaded=*/true);
+        auto log = install(controller,true);
         auto *notices = controller.notificationsForTest();
 
         QVERIFY(notices->playOwnSoundForTest(false));
@@ -220,7 +209,6 @@ private Q_SLOTS:
                  (QStringList{ QStringLiteral("play:message"),
                                QStringLiteral("play:mention") }));
 
-        // A ringing call silences it.
         log->events.clear();
         auto *client = mock(controller);
         QVERIFY(client);
@@ -232,13 +220,11 @@ private Q_SLOTS:
         QTRY_COMPARE(log->loop, QString());
         QVERIFY(notices->playOwnSoundForTest(true));
 
-        // A sink that has not loaded the sound plays nothing, and says so.
-        auto quiet = install(controller, /*ringerLoaded=*/false);
+        auto quiet = install(controller,false);
         QVERIFY(!notices->playOwnSoundForTest(false));
         QVERIFY(quiet->events.isEmpty());
     }
 
-    // The setting that picks whose sound follows live into the manager.
     void theSoundSourceSettingReachesTheNotificationManager()
     {
         AppController controller(AppController::MockBackend);
@@ -249,18 +235,15 @@ private Q_SLOTS:
         QCOMPARE(notices->soundSource(), NotificationManager::SourceSystem);
         controller.settings()->setNotificationSoundSource(0);
         QCOMPARE(notices->soundSource(), NotificationManager::SourceLightning);
-        // An unknown value reads as the default, never as the last source.
         controller.settings()->setNotificationSoundSource(7);
         QCOMPARE(controller.settings()->notificationSoundSource(), 0);
     }
 
-    // With Lightning's own ringer loaded, an announced ring loops it and the
-    // desktop card goes silent (no themed-sound re-post).
     void ownRingerRingsAndTheCardGoesSilent()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(login(controller));
-        auto log = install(controller, /*ringerLoaded=*/true);
+        auto log = install(controller,true);
         auto *client = mock(controller);
         QVERIFY(client);
         auto *notices = controller.notificationsForTest();
@@ -268,11 +251,9 @@ private Q_SLOTS:
         client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
         QCOMPARE(controller.calls()->state(), CallController::State::Ringing);
         QCOMPARE(log->loop, QStringLiteral("ring"));
-        // The card is still shown; only its sound moved to us.
         QCOMPARE(notices->activeCallIdForTest(), QStringLiteral("call-1"));
         QVERIFY(!notices->callRingActiveForTest());
 
-        // Every way a ring ends stops it; here, the caller hangs up.
         client->emitCallSignalForTest(hangup(QStringLiteral("call-1")));
         QCOMPARE(log->loop, QString());
         QCOMPARE(log->events,
@@ -292,19 +273,17 @@ private Q_SLOTS:
         QCOMPARE(log->loop, QString());
     }
 
-    // Where the ringer did not load, the desktop's sound is kept.
     void anUnloadedRingerKeepsTheDesktopSound()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(login(controller));
-        auto log = install(controller, /*ringerLoaded=*/false);
+        auto log = install(controller,false);
         mock(controller)->emitCallSignalForTest(
             invite(QStringLiteral("call-1")));
         QCOMPARE(log->loop, QString());
         QVERIFY(controller.notificationsForTest()->callRingActiveForTest());
     }
 
-    // The ring switch silences both ringers.
     void theRingSwitchSilencesBoth()
     {
         AppController controller(AppController::MockBackend);
@@ -318,12 +297,11 @@ private Q_SLOTS:
         QVERIFY(!controller.notificationsForTest()->callRingActiveForTest());
     }
 
-    // A muted room produces call state but never rings.
     void aMutedRoomDoesNotRing()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(login(controller));
-        controller.settings()->setRoomNotificationMode(kRoom, 2 /*Muted*/);
+        controller.settings()->setRoomNotificationMode(kRoom, 2);
         auto log = install(controller, true);
         mock(controller)->emitCallSignalForTest(
             invite(QStringLiteral("call-1")));
@@ -331,15 +309,11 @@ private Q_SLOTS:
         QCOMPARE(log->loop, QString());
     }
 
-    // ---- Silence: per call, like Element ----
-
-    // Silencing stops our loop only: the call still rings, the card stays and
-    // it can still be answered.
     void silenceStopsTheLoopAndLeavesTheCallRinging()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(login(controller));
-        auto log = install(controller, /*ringerLoaded=*/true);
+        auto log = install(controller,true);
         CallSoundController *sounds = controller.callSounds();
         QSignalSpy ringingChanged(sounds,
                                   &CallSoundController::ringingCallIdChanged);
@@ -348,8 +322,6 @@ private Q_SLOTS:
         QCOMPARE(log->loop, QStringLiteral("ring"));
         QCOMPARE(sounds->ringingCallId(), QStringLiteral("call-1"));
         QVERIFY(ringingChanged.count() >= 1);
-        // The card offers Silence while our ringer sounds, and is itself
-        // silent.
         auto *notices = controller.notificationsForTest();
         QVERIFY(notices->callSilenceOfferedForTest());
         QVERIFY(!notices->callSoundActiveForTest());
@@ -360,18 +332,13 @@ private Q_SLOTS:
         QVERIFY(sounds->isRingSilenced(QStringLiteral("call-1")));
         QCOMPARE(controller.calls()->state(), CallController::State::Ringing);
         QCOMPARE(notices->activeCallIdForTest(), QStringLiteral("call-1"));
-        // ...and then loses its Silence button.
         QVERIFY(!notices->callSilenceOfferedForTest());
-        // Declining afterwards works and plays nothing new.
         QVERIFY(controller.calls()->rejectIncoming());
         QCOMPARE(log->events,
                  (QStringList{ QStringLiteral("loop:ring"),
                                QStringLiteral("loop:") }));
     }
 
-    // Only the call ringing now can be silenced: an empty id, another id, or a
-    // call no longer ringing are refused, as is a card action that is not
-    // exactly "silence" or targets another notification.
     void aStaleOrOtherIdCannotSilence()
     {
         AppController controller(AppController::MockBackend);
@@ -388,7 +355,6 @@ private Q_SLOTS:
         QCOMPARE(log->loop, QStringLiteral("ring"));
         QVERIFY(!sounds->isRingSilenced(QStringLiteral("call-0")));
 
-        // The card: exact action key, exact notification id.
         notices->setActiveCallNotificationIdForTest(42);
         const QStringList crafted{ QStringLiteral("Silence"),
                                    QStringLiteral("silence "),
@@ -405,10 +371,8 @@ private Q_SLOTS:
             notices, "onActionInvoked", Q_ARG(quint32, 7u),
             Q_ARG(QString, QStringLiteral("silence"))));
         QCOMPARE(log->loop, QStringLiteral("ring"));
-        // Nothing above touched the call.
         QCOMPARE(controller.calls()->state(), CallController::State::Ringing);
 
-        // The real one, through the card, reaches the same entry point.
         QVERIFY(QMetaObject::invokeMethod(
             notices, "onActionInvoked", Q_ARG(quint32, 42u),
             Q_ARG(QString, QStringLiteral("silence"))));
@@ -416,14 +380,11 @@ private Q_SLOTS:
         QVERIFY(sounds->isRingSilenced(QStringLiteral("call-1")));
         QCOMPARE(controller.calls()->state(), CallController::State::Ringing);
 
-        // An ended call cannot be silenced afterwards.
         mock(controller)->emitCallSignalForTest(
             hangup(QStringLiteral("call-1")));
         QVERIFY(!sounds->silenceRing(QStringLiteral("call-1")));
     }
 
-    // Re-announcing a silenced call restarts neither ringer: not our loop,
-    // and not the card's themed sound where that is the ringer.
     void aReannouncedSilencedCallStaysSilent()
     {
         AppController controller(AppController::MockBackend);
@@ -434,8 +395,6 @@ private Q_SLOTS:
         QVERIFY(controller.callSounds()->silenceRing(QStringLiteral("call-1")));
         QCOMPARE(log->loop, QString());
 
-        // A different sender key, so the per-sender cooldown cannot swallow
-        // the re-announcement.
         Q_EMIT controller.calls()->incomingCallStarted(
             kRoom, QStringLiteral("call-1"),
             QStringLiteral("@peer2:mock.local"), 60000);
@@ -447,8 +406,6 @@ private Q_SLOTS:
         QVERIFY(!notices->callRingActiveForTest());
         QVERIFY(!notices->callSilenceOfferedForTest());
 
-        // The controller itself refuses the silenced call, even from a caller
-        // that did not check first.
         controller.callSounds()->startIncomingRing(QStringLiteral("call-1"));
         QCOMPARE(log->loop, QString());
         QCOMPARE(controller.callSounds()->ringingCallId(), QString());
@@ -458,12 +415,10 @@ private Q_SLOTS:
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(login(controller));
-        auto log = install(controller, /*ringerLoaded=*/false);
+        auto log = install(controller,false);
         auto *notices = controller.notificationsForTest();
         mock(controller)->emitCallSignalForTest(
             invite(QStringLiteral("call-1")));
-        // The desktop's themed sound is the ringer and the card offers Silence;
-        // our loop never started.
         QCOMPARE(log->loop, QString());
         QVERIFY(notices->callRingActiveForTest());
         QVERIFY(notices->callSoundActiveForTest());
@@ -477,12 +432,10 @@ private Q_SLOTS:
         QVERIFY(!notices->callSoundActiveForTest());
         QCOMPARE(notices->activeCallIdForTest(), QStringLiteral("call-1"));
 
-        // A late join-gate answer redraws the card: still silent.
         notices->setCallAcceptOffered(QStringLiteral("call-1"), true, false);
         QVERIFY(!notices->callSoundActiveForTest());
         QVERIFY(!notices->callRingActiveForTest());
 
-        // A re-announcement does not bring the themed sound back.
         Q_EMIT controller.calls()->incomingCallStarted(
             kRoom, QStringLiteral("call-1"),
             QStringLiteral("@peer2:mock.local"), 60000);
@@ -490,7 +443,6 @@ private Q_SLOTS:
         QVERIFY(!notices->callRingActiveForTest());
     }
 
-    // Silence covers one call; the next one rings.
     void aNewCallRingsAfterASilencedOne()
     {
         AppController controller(AppController::MockBackend);
@@ -514,9 +466,6 @@ private Q_SLOTS:
         QVERIFY(controller.notificationsForTest()->callSilenceOfferedForTest());
     }
 
-    // The in-app prompt offers Silence only while our ringer sounds for the
-    // ringing call, and its handler reaches the controller. Loaded for real,
-    // so typos and unresolved tokens fail here.
     void thePromptOffersSilenceOnlyWhileOurRingerRings()
     {
         AppController controller(AppController::MockBackend);
@@ -538,7 +487,6 @@ private Q_SLOTS:
                 "incomingCallPromptSilence"));
         QVERIFY(button);
         QVERIFY(!root->property("silenceOffered").toBool());
-        // Icon-only: its accessible name and tooltip are its only words.
         QVERIFY(!QQmlProperty::read(button, QStringLiteral("Accessible.name"),
                                     qmlContext(button))
                      .toString()
@@ -550,27 +498,19 @@ private Q_SLOTS:
 
         mock(controller)->emitCallSignalForTest(
             invite(QStringLiteral("call-1")));
-        // The decision, not the button's `visible`, which is effective
-        // visibility and false for a card loaded with no window.
         QTRY_VERIFY_WITH_TIMEOUT(root->property("silenceOffered").toBool(),
                                  kSignalTimeoutMs);
 
-        // The button's own handler.
         QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
         QCOMPARE(log->loop, QString());
         QVERIFY(controller.callSounds()->isRingSilenced(
             QStringLiteral("call-1")));
         QTRY_VERIFY_WITH_TIMEOUT(!root->property("silenceOffered").toBool(),
                                  kSignalTimeoutMs);
-        // The card is still up: silencing is not dismissing.
         QVERIFY(root->property("shouldShow").toBool());
         QVERIFY(controller.calls()->rejectIncoming());
     }
 
-    // Dismiss on the in-app card stops THIS device's ringer and withdraws the
-    // desktop card, and declines nothing (live Flatpak FAIL 2026-10-07: the
-    // card went, the ring went on for 87.8 s). Fails on the old tree, where
-    // Dismiss only set dismissedCallId.
     void theDismissButtonStopsOurRingerAndSendsNothing()
     {
         AppController controller(AppController::MockBackend);
@@ -600,21 +540,15 @@ private Q_SLOTS:
                                  kSignalTimeoutMs);
 
         QVERIFY(QMetaObject::invokeMethod(dismiss, "clicked"));
-        // Our ringer stopped, and stays stopped for this call.
         QCOMPARE(log->loop, QString());
         QCOMPARE(controller.callSounds()->ringingCallId(), QString());
         QVERIFY(controller.callSounds()->isRingSilenced(
             QStringLiteral("call-1")));
-        // The desktop card is withdrawn.
         QCOMPARE(notices->activeCallIdForTest(), QString());
-        // The in-app card is hidden for this call.
         QVERIFY(!root->property("shouldShow").toBool());
-        // Nothing went on the wire: the call still rings (for the caller and
-        // our other devices) and can still be declined.
         QCOMPARE(controller.calls()->state(), CallController::State::Ringing);
         QVERIFY(controller.calls()->rejectIncoming());
 
-        // A crafted or stale id cannot dismiss another call.
         QVERIFY(!controller.callSounds()->dismissRing(QStringLiteral("call-1")));
         QVERIFY(!controller.callSounds()->dismissRing(QString()));
     }
@@ -640,8 +574,8 @@ private Q_SLOTS:
         QVERIFY(!call->active());
         QCOMPARE(rtcClient.retractedRooms, QStringList{ kRoom });
         QVERIFY(call->membershipWritesPending());
-        QCOMPARE(loggedOut.count(), 0); // still signed in: it can be sent
-        controller.auth()->logout();    // a second press waits with the first
+        QCOMPARE(loggedOut.count(), 0);
+        controller.auth()->logout();
         QCOMPARE(loggedOut.count(), 0);
 
         rtcClient.answer(rtcClient.lastOp, true);
@@ -650,7 +584,6 @@ private Q_SLOTS:
         QCOMPARE(rtcClient.retractedRooms.size(), 1);
     }
 
-    // A server that never answers cannot hold the sign-out.
     void signOutDuringACallIsBoundedWhenTheServerNeverAnswers()
     {
         RetractingClient rtcClient;
@@ -667,10 +600,6 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(loggedOut.count(), 1, 8000);
     }
 
-    // A retraction still in its retry chain when the sign-out bound expires
-    // is abandoned with the session: the app's one client serves the next
-    // account, and a retry would send the old account's retraction under it.
-    // Fails on the first fpfix patch, whose retry fired after the logout.
     void aFailedRetractionIsNeverRetriedAfterTheSignOut()
     {
         RetractingClient rtcClient;
@@ -684,21 +613,18 @@ private Q_SLOTS:
 
         controller.auth()->logout();
         QCOMPARE(rtcClient.retractedRooms.size(), 1);
-        // Transient failures: retried after 2 s, then 4 s.
         rtcClient.answer(rtcClient.lastOp, false, QStringLiteral("network"));
         QTRY_COMPARE_WITH_TIMEOUT(rtcClient.retractedRooms.size(), 2, 4000);
         rtcClient.answer(rtcClient.lastOp, false, QStringLiteral("network"));
-        QVERIFY(call->membershipWritesPending()); // a retry is armed
+        QVERIFY(call->membershipWritesPending());
         QCOMPARE(loggedOut.count(), 0);
 
-        // The 4 s bound expires first; the retry would fire ~2 s later.
         QTRY_COMPARE_WITH_TIMEOUT(loggedOut.count(), 1, 8000);
         QVERIFY(!call->membershipWritesPending());
         QTest::qWait(3000);
         QCOMPARE(rtcClient.retractedRooms.size(), 2);
     }
 
-    // Without a call, sign-out is immediate, exactly as before.
     void signOutWithoutACallIsImmediate()
     {
         AppController controller(AppController::MockBackend);
@@ -713,7 +639,7 @@ private Q_SLOTS:
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(login(controller));
-        install(controller, /*ringerLoaded=*/false);
+        install(controller,false);
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
         QSignalSpy created(&engine, &QQmlApplicationEngine::objectCreated);
@@ -732,9 +658,6 @@ private Q_SLOTS:
         QVERIFY(controller.calls()->rejectIncoming());
     }
 
-    // The group lane: connect, the existing room, a newcomer, controls, a
-    // share, a leave and our own exit, through the controller's signals and
-    // real participant model.
     void aGroupCallPlaysTheRightCuesInOrder()
     {
         AppController controller(AppController::MockBackend);
@@ -747,7 +670,6 @@ private Q_SLOTS:
         groupState(controller, SfuCallController::State::Preparing);
         groupState(controller, SfuCallController::State::Connecting);
         groupState(controller, SfuCallController::State::Connected);
-        // The room as it was when we arrived: no chorus.
         call->ingestParticipantsForTest(
             { participant(QStringLiteral("me")),
               participant(QStringLiteral("bob")),
@@ -762,28 +684,25 @@ private Q_SLOTS:
 
         call->setMicrophoneMuted(true);
         QCOMPARE(log->events.last(), QStringLiteral("play:mute"));
-        // Deafen while muted: one cue, the deafen one.
         call->setDeafened(true);
         QCOMPARE(log->events.last(), QStringLiteral("play:deafen"));
         const int beforeDeafenedJoin = log->events.size();
         clock += 1000;
         call->ingestParticipantsForTest({ participant(QStringLiteral("erin")) });
         QTest::qWait(20);
-        QCOMPARE(log->events.size(), beforeDeafenedJoin); // deafened: silent
+        QCOMPARE(log->events.size(), beforeDeafenedJoin);
         call->setDeafened(false);
         QCOMPARE(log->events.last(), QStringLiteral("play:undeafen"));
 
         clock += 1000;
         call->ingestParticipantsForTest(
-            { participant(QStringLiteral("bob"), /*sharing=*/true) });
+            { participant(QStringLiteral("bob"),true) });
         QTRY_COMPARE(log->events.last(), QStringLiteral("play:share-start"));
 
         clock += 1000;
         call->ingestParticipantsForTest({ departed(QStringLiteral("carol")) });
         QTRY_COMPARE(log->events.last(), QStringLiteral("play:leave"));
 
-        // Our exit: one "ended"; emptying the model on the way out is not
-        // everyone leaving.
         const int beforeExit = log->events.size();
         call->leave();
         QTest::qWait(20);
@@ -791,7 +710,6 @@ private Q_SLOTS:
                  QStringList{ QStringLiteral("play:ended") });
     }
 
-    // The master switch reaches the controller live via the settings signal.
     void theMasterSwitchIsHonouredLive()
     {
         AppController controller(AppController::MockBackend);
@@ -821,7 +739,7 @@ private Q_SLOTS:
         QCOMPARE(s->ringerVolume(), 100);
         s->setCallSoundVolume(-5);
         QCOMPARE(s->callSoundVolume(), 0);
-        s->setCallSoundVolume(0); // unchanged: no signal
+        s->setCallSoundVolume(0);
         QCOMPARE(changed.count(), 2);
     }
 

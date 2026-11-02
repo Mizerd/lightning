@@ -31,7 +31,6 @@ void GifPreviewCache::setTransport(GifTransport *transport)
         return;
     if (m_transport)
         m_transport->disconnect(this);
-    // Results for the old transport's ops can no longer arrive.
     m_inflight.clear();
     m_watchdog.stop();
     m_transport = transport;
@@ -46,7 +45,6 @@ void GifPreviewCache::setTransport(GifTransport *transport)
 
 bool GifPreviewCache::acceptableUrl(const QString &url)
 {
-    // The hosts and suffix a send accepts; Rust checks them again.
     return gif::isSendableGifUrlForHosts(
         url, { QStringLiteral(".giphy.com"), QStringLiteral(".klipy.com") });
 }
@@ -56,7 +54,6 @@ QString GifPreviewCache::source(const QString &url, bool still)
     if (url.isEmpty())
         return {};
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    // The demo catalogue is bundled into the binary.
     if (url.startsWith(QLatin1String("qrc:/")))
         return url;
 #endif
@@ -73,7 +70,6 @@ QString GifPreviewCache::source(const QString &url, bool still)
     if (!m_active || failureBlocks(url))
         return {};
     if (isQueuedOrInflight(url)) {
-        // A still asked for by a preview request that is still queued.
         if (still && m_previewQueue.removeOne(url))
             m_stillQueue.enqueue(url);
         return {};
@@ -117,8 +113,6 @@ void GifPreviewCache::setHeld(QObject *owner, const QStringList &urls)
         m_stillQueue.removeOne(url);
         m_previewQueue.removeOne(url);
     }
-    // An owner with nothing held stays registered: its destroyed()
-    // connection is still live.
     m_holders.insert(owner, next);
     evict();
 }
@@ -138,7 +132,6 @@ void GifPreviewCache::setActive(bool active)
         dropQueued();
         return;
     }
-    // Tiles asked while closed and got nothing queued; ask again.
     bump();
 }
 
@@ -160,16 +153,14 @@ void GifPreviewCache::expireStaleFetches()
 
 void GifPreviewCache::clear()
 {
-    // Holds survive: the tiles still exist and ask again.
     dropQueued();
-    // Late results for these ops are ignored.
     m_inflight.clear();
     m_watchdog.stop();
     m_failed.clear();
     m_files.clear();
     m_lru.clear();
     m_totalBytes = 0;
-    m_dir.reset(); // removes the files
+    m_dir.reset();
     bump();
 }
 
@@ -227,13 +218,12 @@ void GifPreviewCache::onDownloadFinished(quint64 opId, bool ok,
 {
     const auto it = m_inflight.find(opId);
     if (it == m_inflight.end())
-        return; // a send's download, or dropped by clear()
+        return;
     const QString url = it->url;
     m_inflight.erase(it);
     if (m_inflight.isEmpty())
         m_watchdog.stop();
     if (!ok) {
-        // "gone": the backend had no bytes to hand over for the op.
         const bool transient = category == QLatin1String("timeout")
             || category == QLatin1String("network")
             || category == QLatin1String("gone")
@@ -265,7 +255,6 @@ QString GifPreviewCache::store(const QString &url, const QByteArray &bytes)
         QCryptographicHash::hash(url.toUtf8(), QCryptographicHash::Sha256)
             .toHex()) + QStringLiteral(".gif");
     const QString path = m_dir->filePath(name);
-    // A session temp file: no fsync (storage/ScratchFile.h), owner-only.
     lightning::scratch::ScratchFile file(path);
     if (!file.open())
         return {};

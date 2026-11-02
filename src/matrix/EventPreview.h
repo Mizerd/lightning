@@ -7,32 +7,14 @@
 
 struct TimelineEvent;
 
-// One-line event summaries for side surfaces (room list, DM list, desktop
-// notifications). Bodies are free-form (newlines, markdown, MSC3381 poll
-// fallbacks) and must never define side-surface geometry, so every consumer
-// goes through this choke point instead of forwarding `body`.
 namespace matrix::preview {
 
-// Semantic one-line summary by event type: "Poll: <question>",
-// "Voice message", "File: <name>", "Sticker", "Unable to decrypt",
-// "Message removed", media labels, else the normalized body. A room-state
-// row names its actor by `actorLabel` (else the event's senderDisplayName,
-// else the localpart), never by the raw user id; see actorSentence.
-/// The room list's words for a last message that cannot be decrypted. Rust
-/// sends a FLAG, never this text, so a real body that reads the same cannot
-/// look like the placeholder.
 QString undecryptablePreview();
-/// The room list's words for a room whose newest event is our own join and
-/// which has no message yet (a DM just accepted, a room just created). Also a
-/// Rust FLAG, worded here in the UI language.
 QString ownJoinPreview();
 
 QString oneLineSummary(const TimelineEvent &event,
                        const QString &actorLabel = QString());
 
-/// What oneLineSummary() says, as a kind and its argument (PreviewToken.h),
-/// for a surface that keeps the preview and must word it again when the UI
-/// language changes (the room list). render(kind, arg) == oneLineSummary().
 struct Token {
     Kind kind = Kind::Text;
     QString arg;
@@ -59,7 +41,6 @@ inline QString actorSentence(const QString &sentence,
 {
     if (actorUserId.isEmpty() || !sentence.startsWith(actorUserId))
         return sentence;
-    // A whole id only: "@al" must not match "@alice:...".
     if (sentence.size() > actorUserId.size()) {
         const QChar next = sentence.at(actorUserId.size());
         if (next != QLatin1Char(' ') && next != QLatin1Char('\''))
@@ -72,26 +53,10 @@ inline QString actorSentence(const QString &sentence,
     return name + sentence.mid(actorUserId.size());
 }
 
-// Presentation normalization, for summaries and plain-text previews (the
-// Rust latest-event path):
-//   - matrix.to markdown links reduce to their label ("[@x](…)" -> "@x"),
-//   - newlines and line/paragraph separators become spaces,
-//   - whitespace runs collapse,
-//   - the result is bounded with a trailing ellipsis.
-// A reply quote elides to its available width in the timeline, so its cap
-// only keeps a pathological body out of the model.
 inline constexpr int kReplyPreviewMaxChars = 320;
 
 QString normalizePreviewText(const QString &text, int maxChars = 120);
 
-// Removes the legacy rich-reply fallback from a PLAIN body: a first line
-// opening "> <@" (emotes: "> * <@"), every following "> "-prefixed or bare
-// ">" line (nested quotes included), closed by an EMPTY line. Anything
-// without that separator is returned unchanged, so a message that merely
-// starts with a quote survives. Also drops a leading <mx-reply>...</mx-reply>
-// block from an HTML body. normalizePreviewText() applies the plain rule
-// itself; call this directly for text that is matched rather than shown
-// (Activity keywords). The Rust twin is `timeline::strip_reply_fallback`.
 QString stripReplyFallback(const QString &body);
 
-} // namespace matrix::preview
+}

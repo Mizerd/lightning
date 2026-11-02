@@ -1,6 +1,3 @@
-// Which call sound plays when: CallSoundPolicy alone, no audio. Each case
-// asserts the exact cue list, since a merely non-empty list cannot say which
-// branch produced it.
 #include <QtTest/QtTest>
 
 #include "calls/CallSoundPolicy.h"
@@ -17,7 +14,6 @@ Roster roster(std::initializer_list<QString> identities)
     return r;
 }
 
-/// A policy already settled in a connected group call with `remotes`.
 Policy connectedWith(const Roster &remotes, qint64 &clock)
 {
     Policy p;
@@ -29,7 +25,7 @@ Policy connectedWith(const Roster &remotes, qint64 &clock)
     return p;
 }
 
-} // namespace
+}
 
 class CallSoundPolicyTest : public QObject
 {
@@ -46,7 +42,6 @@ private Q_SLOTS:
                  QList<Cue>{ Cue::Ended });
     }
 
-    // Element Web's rule: nothing had started, so nothing "ends".
     void aJoinThatNeverConnectedEndsSilently()
     {
         Policy p;
@@ -54,8 +49,6 @@ private Q_SLOTS:
         QCOMPARE(p.groupPhaseChanged(GroupPhase::Ended, 10), QList<Cue>{});
     }
 
-    // The people already in the room arrive as one roster at connect;
-    // announcing them would play a join per person.
     void theRoomAlreadyThereIsNotAnnounced()
     {
         Policy p;
@@ -63,11 +56,9 @@ private Q_SLOTS:
         p.groupPhaseChanged(GroupPhase::Connected, 1000);
         QCOMPARE(p.rosterChanged(roster({ "a", "b", "c" }), 1100),
                  QList<Cue>{});
-        // Still inside the settle window: a straggler is baseline too.
         QCOMPARE(p.rosterChanged(roster({ "a", "b", "c", "d" }),
                                  1000 + Policy::kSettleMs - 1),
                  QList<Cue>{});
-        // After it, a real arrival is news.
         QCOMPARE(p.rosterChanged(roster({ "a", "b", "c", "d", "e" }),
                                  1000 + Policy::kSettleMs + 10),
                  QList<Cue>{ Cue::Join });
@@ -84,8 +75,6 @@ private Q_SLOTS:
                  QList<Cue>{ Cue::Leave });
     }
 
-    // Several people in one update are one cue, and so is a burst within the
-    // throttle window.
     void aBurstIsOneCue()
     {
         qint64 t = 0;
@@ -103,19 +92,16 @@ private Q_SLOTS:
     void aLargeCallIsQuiet()
     {
         qint64 t = 0;
-        // Seven others plus us: eight, still announced.
         Policy p = connectedWith(roster({ "a", "b", "c", "d", "e", "f" }), t);
         QCOMPARE(p.rosterChanged(roster({ "a", "b", "c", "d", "e", "f", "g" }),
                                  t),
                  QList<Cue>{ Cue::Join });
         t += 1000;
-        // Nine: silent.
         QCOMPARE(p.rosterChanged(
                      roster({ "a", "b", "c", "d", "e", "f", "g", "h" }), t),
                  QList<Cue>{});
     }
 
-    // A reconnect drops and re-adds people who never went anywhere.
     void aReconnectIsNotEveryoneLeavingAndComingBack()
     {
         qint64 t = 0;
@@ -140,7 +126,6 @@ private Q_SLOTS:
                  QList<Cue>{ Cue::Unmute });
     }
 
-    // Deafen changes both flags (it mutes too): one press, one cue.
     void deafenIsOneCueNotTwo()
     {
         qint64 t = 0;
@@ -151,8 +136,6 @@ private Q_SLOTS:
                  QList<Cue>{ Cue::Undeafen });
     }
 
-    // The lobby, and a controller resetting flags on the way out, are not
-    // actions to confirm.
     void controlsOutsideACallAreSilent()
     {
         Policy p;
@@ -164,8 +147,6 @@ private Q_SLOTS:
                  QList<Cue>{});
     }
 
-    // Deafened: nothing others do makes a sound; your own actions still
-    // confirm.
     void deafenSilencesTheRoomButNotYourOwnActions()
     {
         qint64 t = 0;
@@ -180,9 +161,6 @@ private Q_SLOTS:
         QCOMPARE(p.localShareChanged(true), QList<Cue>{ Cue::ShareStart });
         QCOMPARE(p.localAudioChanged(Lane::Group, true, false),
                  QList<Cue>{ Cue::Undeafen });
-        // The room is audible again. `a` is still sharing with a hand up; a
-        // roster that dropped those flags would be a real share stop, which is
-        // not this case.
         sharing.insert(QStringLiteral("c"), RemoteParticipant{});
         QCOMPARE(p.rosterChanged(sharing, t + 2000),
                  QList<Cue>{ Cue::Join });
@@ -198,14 +176,12 @@ private Q_SLOTS:
         r["b"].handRaised = true;
         QCOMPARE(p.rosterChanged(r, t + 1000),
                  QList<Cue>{ Cue::HandRaised });
-        // Lowering a hand is not an event anybody needs to hear.
         r["b"].handRaised = false;
         QCOMPARE(p.rosterChanged(r, t + 2000), QList<Cue>{});
         r["a"].sharing = false;
         QCOMPARE(p.rosterChanged(r, t + 3000), QList<Cue>{ Cue::ShareStop });
     }
 
-    // A sharer who leaves is one event: the leave.
     void leavingMidShareIsOnlyALeave()
     {
         qint64 t = 0;
@@ -257,21 +233,17 @@ private Q_SLOTS:
                  QList<Cue>{});
     }
 
-    // A cue suppressed by a switch does not use up the throttle window of the
-    // next one.
     void aSuppressedCueDoesNotConsumeTheThrottle()
     {
         qint64 t = 0;
         Policy p = connectedWith(roster({ "a" }), t);
-        p.localAudioChanged(Lane::Group, true, true); // deafened
+        p.localAudioChanged(Lane::Group, true, true);
         QCOMPARE(p.rosterChanged(roster({ "a", "b" }), t), QList<Cue>{});
         p.localAudioChanged(Lane::Group, false, false);
         QCOMPARE(p.rosterChanged(roster({ "a", "b", "c" }), t + 10),
                  QList<Cue>{ Cue::Join });
     }
 
-    // A share carrying the whole output mix would carry our cues into the
-    // call, so nothing plays while it is live.
     void nothingLeaksIntoACapturedOutputMix()
     {
         qint64 t = 0;
@@ -284,8 +256,6 @@ private Q_SLOTS:
         QCOMPARE(p.localAudioChanged(Lane::Group, false, false),
                  QList<Cue>{ Cue::Unmute });
     }
-
-    // ---- loops ----
 
     void anIncomingRingRingsAndBecomesCallWaitingInACall()
     {
@@ -300,8 +270,6 @@ private Q_SLOTS:
         QCOMPARE(p.desiredLoop(), Loop::None);
     }
 
-    // The ring follows the ring switch, applied by whoever announces it, not
-    // the in-call master switch or deafen.
     void theRingIgnoresTheInCallSwitches()
     {
         Policy p;
@@ -361,7 +329,6 @@ private Q_SLOTS:
         QCOMPARE(p.desiredLoop(), Loop::None);
     }
 
-    // Every cue and loop names a distinct file the generator renders.
     void everySoundHasADistinctName()
     {
         QSet<QString> names;
@@ -379,8 +346,6 @@ private Q_SLOTS:
         QCOMPARE(soundName(Loop::None), QString());
     }
 
-    // A chat notification's chime asks the call state: quiet in a call, while
-    // anything rings, and while a share captures the output mix.
     void aNotificationChimeIsQuietInsideACallAndWhileRinging()
     {
         Policy idle;

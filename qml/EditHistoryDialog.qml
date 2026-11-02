@@ -3,13 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// A message's edit history: the original and every m.replace the SDK holds
-// or can fetch, in order, with the current one marked. Nothing is invented:
-// undecryptable and redacted revisions say so, and a fetch failure is stated
-// rather than shown as a complete-looking list.
-//
-// Revisions are plaintext in an encrypted room: held in this dialog's
-// property while open and dropped on close.
 Dialog {
     id: root
     objectName: "editHistoryDialog"
@@ -24,15 +17,11 @@ Dialog {
     anchors.centerIn: parent
     padding: AppTheme.spacing16
 
-    // The timeline model this dialog asks (room or thread panel).
     property var timelineModel: null
     property string eventId: ""
     property var revisions: []
     property bool loading: false
     property bool failed: false
-    // The server was unreachable (cache answered) or had more revisions than
-    // one page. Shown, since the missing rows are the oldest and a truncated
-    // list would look complete.
     property bool partial: false
 
     function openFor(model, id) {
@@ -76,9 +65,6 @@ Dialog {
 
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
-        // Return/Enter closes: this dialog has one action, and a Button alone
-        // answers Space only (C26-F02). On the content Item (a Popup is not
-        // an Item), so it also fires with the Close button focused.
         Keys.onReturnPressed: root.close()
         Keys.onEnterPressed: root.close()
         Label {
@@ -123,8 +109,6 @@ Dialog {
                 anchors.fill: parent
                 clip: true
                 activeFocusOnTab: true
-                // Keyboard scrolling (C26-F01): a plain ListView has no key
-                // handling of its own without a current-item highlight.
                 function scrollByPx(dy) {
                     const lo = list.originY
                     const hi = Math.max(lo, list.originY + list.contentHeight - list.height)

@@ -1,21 +1,3 @@
-// Room administration through RoomInfoController: member power levels, join
-// rule and canonical alias. Pins:
-//   * the extended snapshot fields (canChangePowerLevels / canPinMessages /
-//     canChangeJoinRule / canChangeAlias / usersDefaultPowerLevel / joinRule
-//     / canonicalAlias) land on the controller;
-//   * canSetPowerLevel enforces the Matrix rules the server will apply:
-//     never grant above your own level, never act on a peer at or above it,
-//     self-demotion only, and fail closed for an unknown target;
-//   * custom numeric levels are neither rounded into a preset nor relabelled;
-//   * the write is not optimistic: the roster is re-read afterwards, on
-//     success and on rejection;
-//   * the join rule accepts only the three rules that carry no allow list,
-//     and a no-op is not sent;
-//   * a bare alias localpart is completed with the account's own server, and
-//     an empty alias (clearing it) is a legitimate value.
-//
-// Policy and wiring only: real state-event round trips against a homeserver
-// are not exercised here.
 
 #include "app/RoomInfoController.h"
 #include "matrix/MatrixClient.h"
@@ -44,7 +26,6 @@ public:
     quint64 lastOpId = 0;
     quint64 lastPowerOpId = 0;
 
-    // MatrixClient pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -106,7 +87,6 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
-    // Room access.
     int restrictedCalls = 0;
     QStringList lastAllowed;
     QString lastHistoryVisibility;
@@ -213,7 +193,6 @@ QVariantMap adminSnapshot(qlonglong ownPl, const QVariantList &members,
     s.insert(QStringLiteral("usersDefaultPowerLevel"), usersDefault);
     s.insert(QStringLiteral("joinRule"), joinRule);
     s.insert(QStringLiteral("canonicalAlias"), alias);
-    // Room access: gates on, a plain configuration.
     s.insert(QStringLiteral("canChangeHistoryVisibility"), true);
     s.insert(QStringLiteral("canChangeGuestAccess"), true);
     s.insert(QStringLiteral("historyVisibility"), QStringLiteral("shared"));
@@ -231,14 +210,13 @@ const QString kBob = QStringLiteral("@bob:example.org");
 const QString kMod = QStringLiteral("@mod:example.org");
 const QString kPeer = QStringLiteral("@peer:example.org");
 
-} // namespace
+}
 
 class RoomPowerLevelsTest : public QObject
 {
     Q_OBJECT
 
 private:
-    // Own level 100 (admin), Bob 0, a moderator at 50, a peer at 100.
     static void seed(RoomInfoController &ctl, FakeClient &client,
                      qlonglong ownPl = 100, bool canChangePl = true,
                      qlonglong usersDefault = 0)
@@ -247,7 +225,7 @@ private:
         Q_EMIT client.roomMembersReceived(
             client.lastOpId, kRoom,
             adminSnapshot(ownPl,
-                          { memberRow(kMe, ownPl, /*isOwn=*/true),
+                          { memberRow(kMe, ownPl,true),
                             memberRow(kBob, usersDefault),
                             memberRow(kMod, 50),
                             memberRow(kPeer, 100) },
@@ -264,7 +242,7 @@ private Q_SLOTS:
         Q_EMIT client.roomMembersReceived(
             client.lastOpId, kRoom,
             adminSnapshot(100, { memberRow(kMe, 100, true) }, true,
-                          /*usersDefault=*/5, QStringLiteral("knock"),
+5, QStringLiteral("knock"),
                           QStringLiteral("#room:example.org")));
 
         QVERIFY(ctl.canChangePowerLevels());
@@ -282,19 +260,13 @@ private Q_SLOTS:
         FakeClient client;
         RoomInfoController ctl;
         ctl.setClient(&client);
-        seed(ctl, client, /*ownPl=*/100);
+        seed(ctl, client,100);
 
-        // Promote a member below you, up to your own level: allowed.
         QVERIFY(ctl.canSetPowerLevel(kBob, 50));
         QVERIFY(ctl.canSetPowerLevel(kBob, 100));
-        // Above your own level: you cannot grant authority you lack.
         QVERIFY(!ctl.canSetPowerLevel(kBob, 101));
-        // A peer AT your level is not yours to change.
         QVERIFY(!ctl.canSetPowerLevel(kPeer, 0));
-        // A no-op is not an action worth offering.
         QVERIFY(!ctl.canSetPowerLevel(kMod, 50));
-        // Unknown target fails closed — levels may legitimately be
-        // negative, so no sentinel can stand in for "unknown".
         QVERIFY(!ctl.canSetPowerLevel(QStringLiteral("@ghost:example.org"), 50));
         QVERIFY(!ctl.canSetPowerLevel(QString(), 50));
     }
@@ -304,11 +276,10 @@ private Q_SLOTS:
         FakeClient client;
         RoomInfoController ctl;
         ctl.setClient(&client);
-        seed(ctl, client, /*ownPl=*/100);
+        seed(ctl, client,100);
 
         QVERIFY(ctl.canSetPowerLevel(kMe, 50));
         QVERIFY(ctl.canSetPowerLevel(kMe, 0));
-        // Nothing in Matrix lets a user raise their own level.
         QVERIFY(!ctl.canSetPowerLevel(kMe, 100));
     }
 
@@ -317,7 +288,7 @@ private Q_SLOTS:
         FakeClient client;
         RoomInfoController ctl;
         ctl.setClient(&client);
-        seed(ctl, client, /*ownPl=*/100, /*canChangePl=*/false);
+        seed(ctl, client,100,false);
 
         QVERIFY(!ctl.canChangePowerLevels());
         QVERIFY(!ctl.canSetPowerLevel(kBob, 50));
@@ -336,13 +307,10 @@ private Q_SLOTS:
             adminSnapshot(100,
                           { memberRow(kMe, 100, true),
                             memberRow(kBob, 42),
-                            // Element's "Restricted" is a real, negative,
-                            // legitimate level.
                             memberRow(kMod, -1) }));
 
         QCOMPARE(ctl.powerLevelFor(kBob), 42);
         QCOMPARE(ctl.powerLevelFor(kMod), -1);
-        // The label must show the number, never round 42 into "Moderator".
         const QString label = ctl.roleLabelForLevel(42);
         QVERIFY2(label.contains(QStringLiteral("42")),
                  "an unconventional level must render as its number");
@@ -357,10 +325,8 @@ private Q_SLOTS:
         FakeClient client;
         RoomInfoController ctl;
         ctl.setClient(&client);
-        // A room whose users_default is 10: a member sitting at 10 IS an
-        // ordinary member there, not a custom level.
-        seed(ctl, client, /*ownPl=*/100, /*canChangePl=*/true,
-             /*usersDefault=*/10);
+        seed(ctl, client,100,true,
+10);
         QCOMPARE(ctl.usersDefaultPowerLevel(), 10);
         QCOMPARE(ctl.roleLabelForLevel(10), QStringLiteral("Member"));
         QCOMPARE(ctl.powerLevelFor(kBob), 10);
@@ -381,17 +347,14 @@ private Q_SLOTS:
         QCOMPARE(client.lastPowerUser, kBob);
         QCOMPARE(client.lastPowerLevel, 50);
         QVERIFY(ctl.powerLevelPending());
-        // The snapshot has NOT changed: nothing is applied locally.
         QCOMPARE(ctl.powerLevelFor(kBob), 0);
-        // One in flight at a time.
         QVERIFY(!ctl.canSetPowerLevel(kMod, 0));
 
         Q_EMIT client.powerLevelChangeFinished(client.lastPowerOpId, kRoom,
                                                kBob, 50, true, QString());
         QVERIFY(!ctl.powerLevelPending());
         QCOMPARE(finished.size(), 1);
-        QVERIFY(finished.at(0).at(3).toBool());          // ok
-        // Authoritative roster re-read rather than a local write.
+        QVERIFY(finished.at(0).at(3).toBool());
         QCOMPARE(client.memberCalls, membersBefore + 1);
     }
 
@@ -411,9 +374,8 @@ private Q_SLOTS:
                                                QStringLiteral("forbidden"));
 
         QCOMPARE(finished.size(), 1);
-        QVERIFY(!finished.at(0).at(3).toBool());         // ok
-        QVERIFY(!finished.at(0).at(4).toString().isEmpty()); // message
-        // The UI must not be left showing an optimistic value.
+        QVERIFY(!finished.at(0).at(3).toBool());
+        QVERIFY(!finished.at(0).at(4).toString().isEmpty());
         QCOMPARE(ctl.powerLevelFor(kBob), 0);
         QCOMPARE(client.memberCalls, membersBefore + 1);
     }
@@ -443,14 +405,10 @@ private Q_SLOTS:
         seed(ctl, client);
         QCOMPARE(ctl.joinRule(), QStringLiteral("invite"));
 
-        // Restricted carries an allow-rule list this surface cannot build;
-        // sending it with an empty list would silently lock the room to
-        // invite-only while claiming otherwise.
         ctl.setJoinRule(QStringLiteral("restricted"));
         ctl.setJoinRule(QStringLiteral("nonsense"));
         QCOMPARE(client.joinRuleCalls, 0);
 
-        // A no-op is not sent either.
         ctl.setJoinRule(QStringLiteral("invite"));
         QCOMPARE(client.joinRuleCalls, 0);
 
@@ -459,8 +417,6 @@ private Q_SLOTS:
         QCOMPARE(client.lastJoinRule, QStringLiteral("public"));
     }
 
-    // ── Room access ───────────────────────────────────────────────────
-
     void restrictedJoinRuleCarriesTheAllowListAndRefusesAnEmptyOne()
     {
         FakeClient client;
@@ -468,15 +424,11 @@ private Q_SLOTS:
         ctl.setClient(&client);
         seed(ctl, client);
 
-        // Empty allow list: refused HERE, nothing sent — an empty list would
-        // lock the room to invite-only while claiming otherwise.
         ctl.setRestrictedJoinRule(QStringLiteral("restricted"), {});
         QCOMPARE(client.restrictedCalls, 0);
         QVERIFY(!ctl.editError().isEmpty());
         QVERIFY(!ctl.editPending());
 
-        // Non-room tokens are dropped, duplicates collapse, the kind rides
-        // along.
         ctl.setRestrictedJoinRule(
             QStringLiteral("knock_restricted"),
             { QStringLiteral("!space:example.org"), QStringLiteral("junk"),
@@ -486,8 +438,6 @@ private Q_SLOTS:
         QCOMPARE(client.lastAllowed,
                  QStringList{ QStringLiteral("!space:example.org") });
         QVERIFY(ctl.editPending());
-        // A successful write re-reads the roster (the rule rides the
-        // member snapshot).
         const int before = client.memberCalls;
         Q_EMIT client.roomEditFinished(client.lastOpId, kRoom,
                                        QStringLiteral("join_rule"), true,
@@ -504,9 +454,9 @@ private Q_SLOTS:
         QCOMPARE(ctl.historyVisibility(), QStringLiteral("shared"));
         QCOMPARE(ctl.guestAccess(), QStringLiteral("forbidden"));
 
-        ctl.setHistoryVisibility(QStringLiteral("everyone")); // not a value
+        ctl.setHistoryVisibility(QStringLiteral("everyone"));
         QVERIFY(client.lastHistoryVisibility.isEmpty());
-        ctl.setHistoryVisibility(QStringLiteral("shared"));   // unchanged
+        ctl.setHistoryVisibility(QStringLiteral("shared"));
         QVERIFY(client.lastHistoryVisibility.isEmpty());
         ctl.setHistoryVisibility(QStringLiteral("world_readable"));
         QCOMPARE(client.lastHistoryVisibility, QStringLiteral("world_readable"));
@@ -518,7 +468,6 @@ private Q_SLOTS:
         ctl.setGuestAccess(QStringLiteral("can_join"));
         QCOMPARE(client.lastGuestAccess, QStringLiteral("can_join"));
 
-        // Without the gate the setter is inert.
         Q_EMIT client.roomEditFinished(client.lastOpId, kRoom,
                                        QStringLiteral("guest_access"), true,
                                        QString());
@@ -544,24 +493,20 @@ private Q_SLOTS:
         QCOMPARE(client.directoryRequests, 1);
         Q_EMIT client.roomDirectoryVisibilityReceived(kRoom, true, true);
         QCOMPARE(ctl.directoryPublished(), 1);
-        // Another room's answer is ignored.
         Q_EMIT client.roomDirectoryVisibilityReceived(
             QStringLiteral("!other:example.org"), true, false);
         QCOMPARE(ctl.directoryPublished(), 1);
-        // A failed read is "unknown", never a guessed value.
         Q_EMIT client.roomDirectoryVisibilityReceived(kRoom, false, false);
         QCOMPARE(ctl.directoryPublished(), -1);
 
         Q_EMIT client.roomDirectoryVisibilityReceived(kRoom, true, false);
         ctl.setDirectoryPublished(true);
         QCOMPARE(client.lastDirectoryPublished, 1);
-        // A successful write re-reads rather than assumes.
         Q_EMIT client.roomEditFinished(client.lastOpId, kRoom,
                                        QStringLiteral("directory_visibility"),
                                        true, QString());
         QCOMPARE(client.directoryRequests, 2);
 
-        // Leaving the room forgets the answer.
         ctl.setRoomId(QStringLiteral("!other:example.org"));
         QCOMPARE(ctl.directoryPublished(), -1);
     }
@@ -576,8 +521,6 @@ private Q_SLOTS:
         ctl.setAltAliases({ QStringLiteral("lounge"),
                             QStringLiteral("#lounge:example.org"),
                             QStringLiteral("#other:example.org") });
-        // "lounge" completes to the account's server and collapses with
-        // its explicit twin.
         QCOMPARE(client.lastAltAliases,
                  (QStringList{ QStringLiteral("#lounge:example.org"),
                                QStringLiteral("#other:example.org") }));
@@ -594,9 +537,6 @@ private Q_SLOTS:
         ctl.setClient(&client);
         seed(ctl, client);
 
-        // Join rule rides the MEMBER snapshot, and nothing refetches that
-        // for a state change which is not a membership change — so the
-        // successful write must ask for it explicitly.
         ctl.setJoinRule(QStringLiteral("public"));
         int before = client.memberCalls;
         Q_EMIT client.roomEditFinished(client.lastOpId, kRoom,
@@ -604,7 +544,6 @@ private Q_SLOTS:
                                        QString());
         QCOMPARE(client.memberCalls, before + 1);
 
-        // A failed write changed nothing, so there is nothing to re-read.
         ctl.setJoinRule(QStringLiteral("knock"));
         before = client.memberCalls;
         Q_EMIT client.roomEditFinished(client.lastOpId, kRoom,
@@ -621,7 +560,6 @@ private Q_SLOTS:
         ctl.setClient(&client);
         seed(ctl, client);
 
-        // Typing "#name:server" by hand is not something to require.
         ctl.setCanonicalAlias(QStringLiteral("lounge"));
         QCOMPARE(client.aliasCalls, 1);
         QCOMPARE(client.lastAlias, QStringLiteral("#lounge:example.org"));
@@ -629,7 +567,6 @@ private Q_SLOTS:
         Q_EMIT client.roomEditFinished(client.lastOpId, kRoom,
                                        QStringLiteral("canonical_alias"), true,
                                        QString());
-        // A fully-qualified alias is passed through untouched.
         ctl.setCanonicalAlias(QStringLiteral("#other:elsewhere.example"));
         QCOMPARE(client.aliasCalls, 2);
         QCOMPARE(client.lastAlias, QStringLiteral("#other:elsewhere.example"));
@@ -637,8 +574,6 @@ private Q_SLOTS:
         Q_EMIT client.roomEditFinished(client.lastOpId, kRoom,
                                        QStringLiteral("canonical_alias"), true,
                                        QString());
-        // Clearing is a real value, not an empty-input no-op — but only when
-        // there IS an alias to clear.
         Q_EMIT client.roomMembersReceived(
             client.lastOpId, kRoom,
             adminSnapshot(100, { memberRow(kMe, 100, true) }, true, 0,
@@ -649,10 +584,6 @@ private Q_SLOTS:
         QCOMPARE(client.lastAlias, QString());
     }
 
-    // break-it s03: "#bad name:localhs.test" went to the server, which
-    // registered it, and the room published it. Refused here now, with a
-    // sentence, before anything is sent. Fails on the old controller, which
-    // completed and sent every value.
     void anAddressThisClientWouldNotAcceptIsNeverSent()
     {
         FakeClient client;
@@ -669,14 +600,14 @@ private Q_SLOTS:
                  ctl.editError());
 
         const QStringList refused{
-            QStringLiteral("bad name"),          // completed, still a space
+            QStringLiteral("bad name"),
             QStringLiteral("a#b"),
             QStringLiteral("a,b"),
             QStringLiteral("tab\there"),
             QStringLiteral("zero") + QChar(0x200B) + QStringLiteral("width"),
             QStringLiteral("rlo") + QChar(0x202E) + QStringLiteral("x"),
-            QStringLiteral("#:example.org"),     // nothing before the server
-            QStringLiteral("#lounge:"),          // nothing after the colon
+            QStringLiteral("#:example.org"),
+            QStringLiteral("#lounge:"),
             QStringLiteral("#") + QString(260, QLatin1Char('a'))
                 + QStringLiteral(":example.org"),
         };
@@ -685,13 +616,10 @@ private Q_SLOTS:
             QVERIFY2(client.aliasCalls == 0, qPrintable(bad));
             QVERIFY2(!ctl.aliasProblem(bad).isEmpty(), qPrintable(bad));
         }
-        // An alternative address is held to the same rule.
         ctl.setAltAliases({ QStringLiteral("#bad name:example.org") });
         QVERIFY(client.lastAltAliases.isEmpty());
         QVERIFY(!ctl.editPending());
 
-        // Still accepted: a bare localpart, a full address, a port, non-ASCII,
-        // and an empty field (which clears, and is not a problem).
         for (const QString &good :
              { QStringLiteral("lounge"), QStringLiteral("#lounge:example.org"),
                QStringLiteral("#lounge:example.org:8448"),
@@ -703,9 +631,6 @@ private Q_SLOTS:
         QCOMPARE(client.lastAlias, QStringLiteral("#lounge:example.org"));
     }
 
-    // The rule must not lock a room out of its own list: an alternative
-    // address another client published under looser rules passes as it is,
-    // so a different entry can still be added or removed beside it.
     void anExistingLooseAlternativeAddressDoesNotBlockTheList()
     {
         FakeClient client;

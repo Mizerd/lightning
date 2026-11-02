@@ -20,14 +20,10 @@ namespace savenaming {
 
 namespace {
 
-// Bounded below 255 bytes for every filesystem, with room for " (999)".
 constexpr int kMaxLeafChars = 120;
 
 const QHash<QString, QString> &mimeTable()
 {
-    // The types Matrix clients actually send. Fixed, so a save on Windows (Qt's
-    // built-in MIME database) and on Linux (the system's shared-mime-info)
-    // suggest the same name.
     static const QHash<QString, QString> table = {
         {QStringLiteral("image/jpeg"), QStringLiteral("jpg")},
         {QStringLiteral("image/jpg"), QStringLiteral("jpg")},
@@ -111,8 +107,6 @@ const QSet<QString> &tableExtensions()
         QSet<QString> s;
         for (const QString &ext : mimeTable())
             s.insert(ext);
-        // Extensions that are not any table entry's preferred one but are
-        // every bit as common.
         for (const char *ext : {"jpeg", "tif", "htm", "mpeg", "mpg", "m4v",
                                 "oga", "tgz", "bz2", "xz", "zst"})
             s.insert(QString::fromLatin1(ext));
@@ -130,14 +124,11 @@ const QStringList &compoundSuffixes()
     return list;
 }
 
-// Extensions whose opening can run code: native executables, installers and
-// packages, scripts, shortcuts and launchers on Windows, macOS and Linux.
 const QSet<QString> &riskyExtensions()
 {
     static const QSet<QString> set = [] {
         QSet<QString> s;
         for (const char *ext : {
-                 // Windows executables, installers and script hosts
                  "exe", "com", "scr", "pif", "cpl", "msi", "msix", "msixbundle",
                  "appx", "appxbundle", "msp", "mst", "bat", "cmd", "ps1",
                  "psm1", "psd1", "ps1xml", "psc1", "vbs", "vbe", "vb", "js",
@@ -146,23 +137,16 @@ const QSet<QString> &riskyExtensions()
                  "url", "website", "appref-ms", "application", "settingcontent-ms",
                  "library-ms", "searchconnector-ms", "xbap", "xll", "dll", "sys",
                  "drv", "ocx", "jar", "jnlp", "hlp",
-                 // macOS
                  "app", "dmg", "pkg", "mpkg", "command", "tool", "terminal",
                  "workflow", "action", "scpt", "applescript", "webloc",
                  "fileloc", "inetloc",
-                 // Linux and Unix
                  "sh", "bash", "zsh", "csh", "ksh", "fish", "run", "bin",
                  "out", "elf", "so", "appimage", "desktop", "deb", "rpm",
                  "snap", "flatpak", "flatpakref", "flatpakrepo", "apk", "xapk",
                  "kwinscript", "plasmoid",
-                 // Interpreted scripts a desktop may hand to an interpreter
                  "py", "pyw", "pyc", "pl", "rb", "php", "lua", "tcl",
-                 // Documents a browser opens with active content (script),
-                 // outside any Matrix client's sandbox
                  "html", "htm", "xhtml", "shtml", "xht", "mht", "mhtml",
                  "svg", "svgz",
-                 // Windows disk images and containers: what is inside them
-                 // loses the mark-of-the-web, so SmartScreen never sees it
                  "iso", "img", "vhd", "vhdx",
              })
             s.insert(QString::fromLatin1(ext));
@@ -225,7 +209,6 @@ const QSet<QString> &riskyMimeTypes()
 
 QString lowerMime(const QString &mime)
 {
-    // Parameters ("text/plain; charset=utf-8") are not part of the type.
     return mime.section(QLatin1Char(';'), 0, 0).trimmed().toLower();
 }
 
@@ -241,12 +224,11 @@ bool mimeDatabaseKnowsSuffix(const QString &suffix)
     return false;
 }
 
-} // namespace
+}
 
 QString sanitizeLeaf(const QString &raw)
 {
     QString out = raw;
-    // Both separators, whatever the platform: `..\..\x` is one leaf on Unix.
     const QStringList parts = out.split(
         QRegularExpression(QStringLiteral("[\\\\/]")), Qt::SkipEmptyParts);
     out = parts.isEmpty() ? QString() : parts.last();
@@ -264,7 +246,6 @@ QString sanitizeLeaf(const QString &raw)
     out = out.trimmed();
     if (out.isEmpty())
         return {};
-    // Windows reserved device names, whatever the extension.
     static const QSet<QString> reserved = {
         QStringLiteral("con"), QStringLiteral("prn"), QStringLiteral("aux"),
         QStringLiteral("nul"), QStringLiteral("com1"), QStringLiteral("com2"),
@@ -276,15 +257,12 @@ QString sanitizeLeaf(const QString &raw)
         QStringLiteral("lpt9"), QStringLiteral("conin$"),
         QStringLiteral("conout$"),
     };
-    // A trailing-space stem ("CON .txt") is the device too: Win32 drops the
-    // spaces before the lookup.
     if (reserved.contains(out.section(QLatin1Char('.'), 0, 0).trimmed().toLower()))
         out.prepend(QStringLiteral("file-"));
     if (out.size() > kMaxLeafChars) {
         const QString ext = extensionOf(out);
         const QString suffix = ext.isEmpty() ? QString()
                                              : QStringLiteral(".") + ext;
-        // Keep the original spelling of the suffix.
         const QString kept = out.right(suffix.size());
         out = out.left(kMaxLeafChars - kept.size()).trimmed() + kept;
     }
@@ -414,12 +392,11 @@ bool isRiskyToOpen(const QString &fileName, const QString &mime)
     if (riskyMimeTypes().contains(lowerMime(mime)))
         return true;
     QString leaf = QFileInfo(fileName).fileName();
-    // What Windows would actually open: trailing dots and spaces dropped.
     while (leaf.endsWith(QLatin1Char('.')) || leaf.endsWith(QLatin1Char(' ')))
         leaf.chop(1);
     const int dot = leaf.lastIndexOf(QLatin1Char('.'));
     if (dot <= 0)
-        return true; // no extension: the desktop would decide by content
+        return true;
     const QString suffix = leaf.mid(dot + 1).toLower();
     if (suffix.isEmpty())
         return true;
@@ -438,9 +415,6 @@ bool markAsDownloaded(const QString &path)
 #if defined(Q_OS_WIN)
     if (path.isEmpty())
         return false;
-    // An NTFS alternate data stream beside the file. Best effort: FAT/exFAT
-    // and network shares have no streams, and a failure only means
-    // SmartScreen treats the file as local, as before.
     const std::wstring stream =
         QDir::toNativeSeparators(path).toStdWString() + L":Zone.Identifier";
     HANDLE h = CreateFileW(stream.c_str(), GENERIC_WRITE, 0, nullptr,
@@ -474,8 +448,6 @@ QStringList saveDialogFilters(const QString &leaf)
 
 namespace {
 
-// The document-portal mount `path` lies in, or empty. The path's parts below
-// it follow in `rest`.
 QString documentPortalRoot(const QString &rawPath, const QString &runtimeDir,
                            QStringList *rest)
 {
@@ -492,8 +464,6 @@ QString documentPortalRoot(const QString &rawPath, const QString &runtimeDir,
             roots << runtime + QStringLiteral("/doc");
     }
     roots << QStringLiteral("/run/flatpak/doc");
-    // A Snap's $XDG_RUNTIME_DIR is /run/user/<uid>/snap.<name>, and the doc
-    // mount is not under it.
     static const QRegularExpression userRun(
         QStringLiteral("^(/run/user/[0-9]+/doc)(/|$)"));
     const QRegularExpressionMatch m = userRun.match(path);
@@ -515,7 +485,7 @@ QString documentPortalRoot(const QString &rawPath, const QString &runtimeDir,
     return {};
 }
 
-} // namespace
+}
 
 bool isDocumentPortalPath(const QString &path, const QString &runtimeDir)
 {
@@ -532,7 +502,6 @@ QString documentPortalId(const QString &path, const QString &runtimeDir)
     QStringList rest;
     if (documentPortalRoot(path, runtimeDir, &rest).isEmpty())
         return {};
-    // The host's view lists every app's documents under by-app/<app>/.
     if (rest.value(0) == QLatin1String("by-app"))
         rest = rest.mid(2);
     return rest.value(0);
@@ -550,8 +519,6 @@ QString savedFolderName(const QString &path, const QString &hostPath,
         return {};
     QString shown = path;
     if (isDocumentPortalPath(path, runtimeDir)) {
-        // The real location, when the portal said; a host path that is
-        // itself in the mount names nothing better.
         if (hostPath.isEmpty() || !QDir::isAbsolutePath(hostPath)
             || isDocumentPortalPath(hostPath, runtimeDir))
             return {};
@@ -569,4 +536,4 @@ QString savedFolderName(const QString &path, const QString &hostPath)
                            qEnvironmentVariable("XDG_RUNTIME_DIR"));
 }
 
-} // namespace savenaming
+}

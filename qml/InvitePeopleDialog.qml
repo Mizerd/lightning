@@ -3,37 +3,23 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Invite users into a joined room. Opened from Room Information's People tab,
-// only when the SDK permission (RoomMember::can_invite) allows. Selected users
-// are deduplicated and shown as chips ({id, name, avatar}); results are shown
-// per user (pending/ok/failed) and one failure never discards the others.
-// inviteUsers() dispatches a plain user-id list.
 Dialog {
     id: root
     objectName: "invitePeopleDialog"
     modal: true
-    // The shared modal scrim, not the Basic style's default dim.
     Overlay.modal: Rectangle { color: AppTheme.modalScrim }
     standardButtons: Dialog.NoButton
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     width: Math.min(480, parent ? parent.width - AppTheme.spacing24 * 2 : 480)
-    // Clamp to the window and let the body scroll, so a long invite list can't
-    // push the title and footer off screen.
     height: Math.min(implicitHeight,
                      parent ? parent.height - AppTheme.spacing24 * 2 : implicitHeight)
     anchors.centerIn: parent
     padding: AppTheme.spacing16
 
     property string roomId: ""
-    property var selectedUsers: [] // [{id, name, avatar}]
+    property var selectedUsers: []
     property bool batchDone: false
-    // Recent one-to-one conversations of the active account, taken ONCE when
-    // the dialog opens, so a sync cannot reorder the list under the pointer.
     property var recentSnapshot: []
-    // What the picker offers: the snapshot minus whoever is selected, already
-    // in the destination (only when its own roster is loaded; unknown stays
-    // unknown and the server decides), banned there (a one-click invite would
-    // not unban them), or ignored.
     readonly property var suggestedPeople: {
         var out = []
         var ignored = app.moderation ? app.moderation.ignoredUsers : []
@@ -51,9 +37,6 @@ Dialog {
         return out
     }
 
-    // The room being invited to, from the live room-list record at open time:
-    // name in the title, address below. Falls back to a generic title; nothing
-    // is fabricated.
     readonly property var roomRecord: roomId !== ""
                                       ? app.roomList.findRoom(roomId) : ({})
     readonly property string roomDisplayName:
@@ -85,8 +68,6 @@ Dialog {
         target: app.conversations
         function onInviteBatchCompleted(okCount, failCount) {
             root.batchDone = true
-            // Membership updates arrive via sync; Room Information refreshes
-            // from membersChanged.
         }
     }
 
@@ -96,13 +77,6 @@ Dialog {
         radius: AppTheme.radiusLg
     }
 
-    // True when the invitee is already joined/invited per the loaded member
-    // snapshot (best-effort; the server decides).
-    // Only the roster of the room being invited TO counts. app.roomInfo
-    // follows the OPEN room, so inviting into a Space from the rail used to be
-    // checked against whatever room happened to be open: someone in that room
-    // was refused as "already a member" of the Space, and someone already in
-    // the Space was let through.
     function membershipOf(userId) {
         if (!app.roomInfo || app.roomInfo.roomId !== root.roomId)
             return ""
@@ -124,10 +98,7 @@ Dialog {
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
 
-        // Themed header instead of Dialog.title, which Basic renders as its own
-        // unthemed bar.
         Label {
-            // Remote or externally chosen text: never markup.
             textFormat: Text.PlainText
             Layout.fillWidth: true
             text: root.roomDisplayName.length > 0
@@ -140,9 +111,7 @@ Dialog {
             elide: Label.ElideRight
         }
 
-        // Room address under the title, only when real.
         Label {
-            // Remote or externally chosen text: never markup.
             textFormat: Text.PlainText
             visible: root.roomAddress.length > 0
             Layout.fillWidth: true
@@ -193,7 +162,6 @@ Dialog {
         }
 
         Label {
-            // Remote or externally chosen text: never markup.
             textFormat: Text.PlainText
             id: alreadyLabel
             property string userId: ""
@@ -213,8 +181,6 @@ Dialog {
             lineHeightMode: Text.ProportionalHeight
         }
 
-        // ── Token chips + per-user results (scrolls when height-constrained,
-        // like NewConversationDialog's tabFlick) ──
         Flickable {
             id: inviteBodyFlick
             Layout.fillWidth: true
@@ -225,8 +191,6 @@ Dialog {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-            // Same wheel/touchpad feel as the room timeline; see
-            // qml/SmoothWheelArea.qml.
             SmoothWheelArea {}
 
             ColumnLayout {
@@ -234,7 +198,6 @@ Dialog {
                 width: inviteBodyFlick.width
                 spacing: AppTheme.spacing12
 
-                // Selected users before dispatch, as token chips.
                 Flow {
                     Layout.fillWidth: true
                     spacing: AppTheme.spacing6
@@ -268,16 +231,11 @@ Dialog {
                                     colorKey: chip.modelData.id
                                 }
                                 Label {
-                                    // Remote or externally chosen text: never
-                                    // markup.
                                     textFormat: Text.PlainText
                                     text: chip.label
                                     color: AppTheme.stormText
                                     font.pixelSize: AppTheme.textBody
                                     font.weight: AppTheme.weightStrong
-                                    // A Flow wraps between chips, never inside
-                                    // one, so cap a long name/MXID to keep a
-                                    // chip within the dialog.
                                     Layout.maximumWidth: 280
                                     elide: Label.ElideMiddle
                                 }
@@ -288,8 +246,6 @@ Dialog {
                                     radius: AppTheme.radiusPill
                                     iconName: "close"
                                     iconSize: 12
-                                    // Muted rest-state ink for the remove
-                                    // glyph.
                                     Accessible.name: qsTr("Remove %1").arg(chip.label)
                                     onClicked: {
                                         var next = root.selectedUsers.slice()
@@ -302,7 +258,6 @@ Dialog {
                     }
                 }
 
-                // Per-user progress/result once dispatched.
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: AppTheme.spacing4
@@ -313,13 +268,9 @@ Dialog {
                             Layout.fillWidth: true
                             spacing: AppTheme.spacing8
                             Label {
-                                // Remote or externally chosen text: never
-                                // markup.
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: modelData.userId
-                                // Identity ink, so a specific MXID is easy to
-                                // pick out.
                                 color: AppTheme.userColor(modelData.userId)
                                 elide: Label.ElideMiddle
                                 font.pixelSize: AppTheme.textBody
@@ -367,8 +318,6 @@ Dialog {
                 Accessible.name: qsTr("Cancel")
                 onClicked: root.close()
             }
-            // The shared primary button (it has had an icon slot since the
-            // custom one here was written); the only submit step.
             AppButton {
                 objectName: "invitePeopleSubmitButton"
                 storm: true

@@ -11,8 +11,6 @@ namespace {
 // still names the dead directory solves half the problem.
 constexpr const char *kTemporaryVariables[] = {"TMPDIR", "TMP", "TEMP", "TEMPDIR"};
 
-// The AppImage runtime's mount point prefix. AppRun exports APPDIR as that
-// directory, which distinguishes "mounted by the runtime" from "unpacked".
 constexpr QLatin1String kMountPrefix(".mount_");
 
 QString lastPathSegment(const QString &path)
@@ -24,7 +22,7 @@ QString lastPathSegment(const QString &path)
     return slash < 0 ? trimmed : trimmed.mid(slash + 1);
 }
 
-} // namespace
+}
 
 QList<RelaunchEnvironmentChange> relaunchEnvironmentChanges(
     bool appImageInstall,
@@ -52,12 +50,10 @@ QList<RelaunchEnvironmentChange> relaunchEnvironmentChanges(
     if (!appImageInstall)
         return changes;
 
-    // Already decided by whoever started us; their choice wins.
     if (!value(QStringLiteral("APPIMAGE_EXTRACT_AND_RUN")).isEmpty())
         return changes;
 
     const QString appDir = value(QStringLiteral("APPDIR"));
-    // No APPDIR is no evidence; do not impose extraction on a guess.
     if (appDir.isEmpty())
         return changes;
     if (lastPathSegment(appDir).startsWith(kMountPrefix))
@@ -72,4 +68,4 @@ QList<RelaunchEnvironmentChange> relaunchEnvironmentChanges(
     return changes;
 }
 
-} // namespace updater
+}

@@ -26,8 +26,6 @@
 #include <QThread>
 
 #include <qt_windows.h>
-// qt_windows.h may define WIN32_LEAN_AND_MEAN, which keeps shellapi.h out of
-// windows.h.
 #include <shellapi.h>
 
 #include <cstring>
@@ -36,14 +34,12 @@
 
 namespace {
 
-// Deliberately not a theme token: the badge sits in the OS tray, not our window.
 const QColor kBadgeFill = QColor(0xE5, 0x48, 0x4D);
 const QColor kBadgeInk = QColor(0xFF, 0xFF, 0xFF);
 
-// Several sizes so the tray host picks a sharp one instead of scaling.
 constexpr int kBadgeSizes[] = { 16, 22, 24, 32, 48, 64 };
 
-} // namespace
+}
 
 QPixmap TrayIcon::badged(const QPixmap &base, const QString &label)
 {
@@ -53,11 +49,6 @@ QPixmap TrayIcon::badged(const QPixmap &base, const QString &label)
     QPainter painter(&out);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
-    // QPainter on a pixmap works in device-independent units (it scales by
-    // devicePixelRatio itself), so the geometry must be derived from the
-    // LOGICAL size. At a non-1 ratio (interface zoom) QIcon::pixmap() returns
-    // size*dpr physical pixels, and using those here pushes the disc past
-    // the corner and clips it (#23).
     const qreal dpr = out.devicePixelRatio() > 0 ? out.devicePixelRatio() : 1.0;
     const QSizeF logical(out.width() / dpr, out.height() / dpr);
     const qreal side = qMin(logical.width(), logical.height());
@@ -81,28 +72,15 @@ QPixmap TrayIcon::badged(const QPixmap &base, const QString &label)
     return out;
 }
 
-
 QPixmap TrayIcon::macTemplateBadged(const QPixmap &base, const QString &label)
 {
     if (base.isNull() || label.isEmpty())
         return base;
-    // Painted on a QImage, never on `base` (or a copy of it) directly: a
-    // QPixmap's platform backing store is not guaranteed to carry a real
-    // alpha channel. Measured on the offscreen QPA platform this dev shell's
-    // tests run under (Qt 6.11.2): QPainter(&pixmap) makes EVERY
-    // CompositionMode_Clear draw \u2014 fillRect, drawEllipse, drawText alike \u2014 a
-    // silent no-op, because the platform pixmap reports
-    // hasAlphaChannel()==false however the source image was formatted. A
-    // QImage always has one, and painting there start to finish, converting
-    // to QPixmap only once at the end, preserves it losslessly (verified
-    // with a standalone probe: 0 pixels cleared painting on a QPixmap, 100/100
-    // cleared painting the same operation on a QImage first).
     QImage image =
         base.toImage().convertToFormat(QImage::Format_ARGB32_Premultiplied);
     QPainter painter(&image);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
-    // Logical units, as in badged(): the painter scales by the ratio itself.
     const qreal dpr =
         image.devicePixelRatio() > 0 ? image.devicePixelRatio() : 1.0;
     const QSizeF logical(image.width() / dpr, image.height() / dpr);
@@ -112,16 +90,12 @@ QPixmap TrayIcon::macTemplateBadged(const QPixmap &base, const QString &label)
     const QRectF circle(logical.width() - diameter,
                         logical.height() - diameter, diameter, diameter);
 
-    // Clear a moat first: in a template, badge and mark share one ink and
-    // would fuse where they touch.
     const qreal moat = qMax<qreal>(1.0, side * 0.08);
     painter.setCompositionMode(QPainter::CompositionMode_Clear);
     painter.setPen(Qt::NoPen);
     painter.setBrush(Qt::black);
     painter.drawEllipse(circle.adjusted(-moat, -moat, moat, moat));
 
-    // AppKit ignores the colour; opaque black keeps it correct without the
-    // template treatment too.
     painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
     painter.setBrush(QColor(0, 0, 0, 255));
     painter.drawEllipse(circle);
@@ -130,7 +104,6 @@ QPixmap TrayIcon::macTemplateBadged(const QPixmap &base, const QString &label)
         return QPixmap::fromImage(image);
     }
 
-    // Knock the digit out of the disc; white ink would vanish in a template.
     QFont font = QGuiApplication::font();
     font.setBold(true);
     font.setPixelSize(qMax(6, qRound(diameter * 0.68)));
@@ -145,9 +118,6 @@ QPixmap TrayIcon::macTemplateBadged(const QPixmap &base, const QString &label)
 #ifdef Q_OS_MACOS
 namespace {
 
-// Qt's cocoa backend picks the largest pixmap no taller than
-// (NSStatusBar.thickness - 4) * dpr; thickness is 22 or 24, so these are exact
-// hits at 1x and 2x, with 16 as a floor and 32 for 1.5x.
 constexpr int kTemplateSizes[] = { 16, 18, 20, 22, 32, 36, 40, 44 };
 
 QString templateResource(int size)
@@ -158,8 +128,6 @@ QString templateResource(int size)
         .arg(size);
 }
 
-/// The badged template icon, or null when the asset is not in this binary's
-/// resources (test targets); the caller then keeps the colour icon.
 QIcon macTemplateIcon(const QString &label)
 {
     QIcon icon;
@@ -172,13 +140,12 @@ QIcon macTemplateIcon(const QString &label)
     return icon;
 }
 
-} // namespace
-#endif // Q_OS_MACOS
+}
+#endif
 
 TrayIcon::TrayIcon(QObject *parent)
     : QObject(parent)
 {
-    // Qt sends LanguageChange to the application object only.
     if (qApp)
         qApp->installEventFilter(this);
 }
@@ -186,8 +153,6 @@ TrayIcon::TrayIcon(QObject *parent)
 TrayIcon::~TrayIcon()
 {
 #ifdef Q_OS_WIN
-    // The icon goes first (NIM_DELETE takes its balloon with it), then the
-    // HICON that balloon was showing.
     delete m_icon;
     m_icon = nullptr;
     releaseBalloonIcon();
@@ -218,21 +183,8 @@ void TrayIcon::setEnabled(bool enabled)
     if (!platformSupportsTray())
         return;
 
-    // A left click brings the window back; the right-click menu adds the way
-    // to quit that close-to-tray otherwise leaves only to Ctrl+Q (GitHub #17).
-    //
-    // The XEmbed fallback (X11 without a StatusNotifier watcher) and the menu
-    // are QWidgets, which is why the process must be a QApplication (see
-    // main.cpp).
     m_icon = new QSystemTrayIcon(this);
-    // refreshIcon() so an icon created while unread starts with its badge.
     refreshIcon();
-    // macOS must NOT attach the menu: with one, NSStatusBarButtonCell pops it
-    // up itself and Qt's menu-tracking observer asks NSApp.currentEvent for a
-    // clickCount; on macOS 26/27 that event is a SysDefined scene action and
-    // AppKit throws NSInternalInconsistencyException, killing the process as
-    // the tray was used (GitHub #34). Without a menu Qt reports the click from
-    // the button action, a real mouse event, and we show the QMenu ourselves.
     const bool nativeMenu = closebehavior::trayUsesNativeMenu(closebehavior::kIsMac);
     if (nativeMenu)
         m_icon->setContextMenu(contextMenu());
@@ -242,7 +194,6 @@ void TrayIcon::setEnabled(bool enabled)
                     raw, closebehavior::kIsMac,
                     QGuiApplication::queryKeyboardModifiers() & Qt::MetaModifier);
                 if (activationOpensOwnMenu(reason, nativeMenu)) {
-                    // Not from inside the status button's action dispatch.
                     QTimer::singleShot(0, this, [this] { popUpMenu(); });
                     return;
                 }
@@ -306,8 +257,6 @@ void TrayIcon::popUpMenu()
     if (!m_icon)
         return;
     QMenu *menu = contextMenu();
-    // Under the status item when Qt knows where it is, else at the pointer
-    // (which, for a click on the menu bar, is on it).
     const QRect geometry = m_icon->geometry();
     const QPoint at = geometry.isValid()
         ? QPoint(geometry.left(), geometry.bottom())
@@ -321,7 +270,6 @@ QString TrayIcon::badgeLabel(int count, bool anyUnread)
         return QStringLiteral("9+");
     if (count > 0)
         return QString::number(count);
-    // Unread without a count: claim only what is known.
     if (anyUnread)
         return QStringLiteral("\u2022");
     return QString{};
@@ -336,7 +284,6 @@ void TrayIcon::setUnread(int count, bool anyUnread)
     m_unread = clamped;
     m_anyUnread = anyUnread;
     refreshTooltip();
-    // Rasterise only when the displayed badge changes.
     if (badgeLabel(m_unread, m_anyUnread) != before)
         refreshIcon();
 }
@@ -347,9 +294,6 @@ void TrayIcon::refreshIcon()
         return;
     const QString label = badgeLabel(m_unread, m_anyUnread);
 #ifdef Q_OS_MACOS
-    // The macOS menu bar wants a monochrome template image, which Qt's cocoa
-    // backend sets via setIsMask(true). If the asset is missing, fall through
-    // to the colour icon rather than clearing the entry.
     QIcon templated = macTemplateIcon(label);
     if (!templated.isNull()) {
         templated.setIsMask(true);
@@ -369,7 +313,6 @@ void TrayIcon::refreshIcon()
             continue;
         badged.addPixmap(TrayIcon::badged(pixmap, label));
     }
-    // An empty QIcon would clear the tray entry.
     m_icon->setIcon(badged.isNull() ? base : badged);
 }
 
@@ -397,7 +340,6 @@ QString TrayIcon::tooltipText(const QString &account, int unread, bool anyUnread
         text += QLatin1Char('\n')
             + tr("%n unread message(s)", "system tray tooltip", unread);
     } else if (anyUnread) {
-        // The badge shows the countless dot; say the same in words.
         text += QLatin1Char('\n')
             + tr("Unread messages", "system tray tooltip, unread rooms without a count");
     }
@@ -434,9 +376,6 @@ int TrayIcon::balloonTimeoutMs(bool isMac)
 
 int TrayIcon::balloonHoldMsFor(int durationSeconds)
 {
-    // Windows' own default when the setting cannot be read; capped at its
-    // longest choice (5 minutes). The margin covers the fade-out, which is
-    // still on screen and clickable.
     constexpr int kDefaultSeconds = 5;
     constexpr int kLongestSeconds = 300;
     constexpr int kMarginMs = 1000;
@@ -482,9 +421,6 @@ bool TrayIcon::showMessage(const QString &title, const QString &body,
     if (showNativeBalloon(title, body, image, platformSound))
         return true;
 #else
-    // macOS: Qt's NSUserNotification sets no soundName, so it is already
-    // silent (qcocoasystemtrayicon.mm, Qt 6.11.2). A Linux tray balloon
-    // carries no sound of its own.
     Q_UNUSED(platformSound);
 #endif
     const int kMillis = balloonTimeoutMs(closebehavior::kIsMac);
@@ -505,14 +441,6 @@ static_assert(TrayIcon::kBalloonUser == NIIF_USER);
 static_assert(TrayIcon::kBalloonNoSound == NIIF_NOSOUND);
 static_assert(TrayIcon::kBalloonLargeIcon == NIIF_LARGE_ICON);
 
-// How Qt 6.11.2 registers a QSystemTrayIcon (qwindowssystemtrayicon.cpp):
-// uID is the constant q_uNOTIFYICONID = 0 (no NIF_GUID), on a hidden
-// top-level window (deliberately NOT HWND_MESSAGE: message-only windows miss
-// "TaskbarCreated") titled "QTrayIconMessageWindow", whose class is
-// "Qt<version>[d][namespace]TrayIconMessageWindowClass[uuid]", created on the
-// GUI thread. One such window per QSystemTrayIcon. Its window procedure turns
-// NIN_BALLOONUSERCLICK on that window into messageClicked(), so a balloon
-// raised here routes its click exactly as Qt's own.
 constexpr UINT kQtTrayIconId = 0;
 constexpr wchar_t kQtTrayWindowTitle[] = L"QTrayIconMessageWindow";
 constexpr wchar_t kQtTrayWindowClassPart[] = L"TrayIconMessageWindowClass";
@@ -525,9 +453,6 @@ struct TrayWindowSearch {
 BOOL CALLBACK findQtTrayWindow(HWND hwnd, LPARAM param)
 {
     auto *search = reinterpret_cast<TrayWindowSearch *>(param);
-    // The class name first: it is read without a message. Only then the
-    // title, which is a WM_GETTEXT; safe, because EnumThreadWindows offers
-    // only windows of the calling (GUI) thread, so it cannot block on another.
     wchar_t className[256] = {};
     if (GetClassNameW(hwnd, className, 256) <= 0
         || !std::wcsstr(className, kQtTrayWindowClassPart))
@@ -541,8 +466,6 @@ BOOL CALLBACK findQtTrayWindow(HWND hwnd, LPARAM param)
     return TRUE;
 }
 
-// Qt's supportsMessages(): with balloon tips switched off by policy Qt shows
-// nothing, and neither do we. An absent key (usual on Windows 10+) means on.
 bool balloonTipsEnabled()
 {
     const QSettings advanced(
@@ -552,8 +475,6 @@ bool balloonTipsEnabled()
     return advanced.value(QStringLiteral("EnableBalloonTips"), 1).toInt() != 0;
 }
 
-// A QString into a fixed NOTIFYICONDATAW field, NUL included, as Qt's
-// qStringToLimitedWCharArray, but never splitting a surrogate pair at the cut.
 template <size_t N>
 void copyLimited(const QString &in, wchar_t (&target)[N])
 {
@@ -567,9 +488,6 @@ void copyLimited(const QString &in, wchar_t (&target)[N])
 
 enum class BalloonPath { Native, NoQtWindow, Ambiguous, Refused, WrongThread };
 
-// Which path the balloons take, logged once per path for the life of the
-// process (category matrix.notify, as NotificationManager's own lines). Never
-// the title or body.
 void logPathOnce(BalloonPath path)
 {
     static unsigned logged = 0;
@@ -605,7 +523,7 @@ void logPathOnce(BalloonPath path)
     }
 }
 
-} // namespace
+}
 
 void TrayIcon::releaseBalloonIcon()
 {
@@ -617,8 +535,6 @@ void TrayIcon::releaseBalloonIcon()
 
 void TrayIcon::hideNativeBalloon()
 {
-    // As showNativeBalloon(): only Qt's tray window on this (the GUI) thread
-    // is a safe and unambiguous target.
     if (QThread::currentThread() != thread())
         return;
     TrayWindowSearch search;
@@ -631,8 +547,6 @@ void TrayIcon::hideNativeBalloon()
     data.cbSize = sizeof(data);
     data.hWnd = search.found;
     data.uID = kQtTrayIconId;
-    // "To remove a balloon notification from the UI, ... set the NIF_INFO
-    // flag in uFlags and set szInfo to an empty string" (Shell_NotifyIconW).
     data.uFlags = NIF_INFO | NIF_SHOWTIP;
     Shell_NotifyIconW(NIM_MODIFY, &data);
 }
@@ -640,14 +554,12 @@ void TrayIcon::hideNativeBalloon()
 bool TrayIcon::showNativeBalloon(const QString &title, const QString &body,
                                  const QImage &image, bool platformSound)
 {
-    // Qt's tray window lives on the GUI thread, and only a window of the
-    // calling thread may be asked its title without risking a block.
     if (QThread::currentThread() != thread()) {
         logPathOnce(BalloonPath::WrongThread);
         return false;
     }
     if (!balloonTipsEnabled())
-        return true; // what Qt's own call would have shown: nothing
+        return true;
 
     TrayWindowSearch search;
     EnumThreadWindows(GetCurrentThreadId(), findQtTrayWindow,
@@ -657,8 +569,6 @@ bool TrayIcon::showNativeBalloon(const QString &title, const QString &body,
         return false;
     }
     if (search.matches > 1) {
-        // Another QSystemTrayIcon in the process: which window is ours is
-        // unknowable from outside Qt.
         logPathOnce(BalloonPath::Ambiguous);
         return false;
     }
@@ -668,13 +578,8 @@ bool TrayIcon::showNativeBalloon(const QString &title, const QString &body,
     data.cbSize = sizeof(data);
     data.hWnd = search.found;
     data.uID = kQtTrayIconId;
-    // As Qt: NIF_SHOWTIP keeps the standard tooltip under
-    // NOTIFYICON_VERSION_4, which Qt set on the icon after NIM_ADD.
     data.uFlags = NIF_INFO | NIF_SHOWTIP;
-    // Shares a union with uVersion and is ignored since Vista (the
-    // accessibility timeout decides); Qt's value anyway.
     data.uTimeout = 10000;
-    // As Qt: a title with an empty body still shows.
     QString message = body;
     if (message.isEmpty() && !title.isEmpty())
         message = QStringLiteral(" ");
@@ -694,10 +599,9 @@ bool TrayIcon::showNativeBalloon(const QString &title, const QString &body,
         logPathOnce(BalloonPath::Refused);
         return false;
     }
-    // The previous balloon's icon is no longer on screen.
     releaseBalloonIcon();
     m_balloonIcon = icon;
     logPathOnce(BalloonPath::Native);
     return true;
 }
-#endif // Q_OS_WIN
+#endif

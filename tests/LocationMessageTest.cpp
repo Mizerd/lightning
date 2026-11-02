@@ -29,14 +29,13 @@ QJsonObject locationItem(const QString &body, double lat, double lon,
 
 const QString kRoom = QStringLiteral("!r:example.org");
 
-} // namespace
+}
 
 class LocationMessageTest : public QObject
 {
     Q_OBJECT
 
 private Q_SLOTS:
-    // A location arrives as its own row kind, not text or a file.
     void aLocationIsItsOwnRowKind()
     {
         const TimelineEvent e = matrix::rust_timeline::eventFromItemJson(
@@ -45,12 +44,9 @@ private Q_SLOTS:
         QVERIFY(e.locationHasPoint);
         QVERIFY(qAbs(e.locationLat - 51.5008) < 1e-9);
         QVERIFY(qAbs(e.locationLon - (-0.1247)) < 1e-9);
-        // The body survives: surfaces that do not know locations (search,
-        // notifications, room-list preview) show it instead.
         QCOMPARE(e.body, QStringLiteral("Big Ben"));
     }
 
-    // Absent coordinates must not become 0,0.
     void anUnreadablePointLeavesTheCoordinatesAbsentRatherThanAtZero()
     {
         const TimelineEvent e = matrix::rust_timeline::eventFromItemJson(
@@ -60,8 +56,6 @@ private Q_SLOTS:
                  "an absent point must not read as a valid one");
     }
 
-    // A genuine 0,0 (equator at the prime meridian) is a real place and not
-    // the absent case, which is why a flag is used rather than a magic value.
     void aGenuineZeroPointIsARealPlace()
     {
         const TimelineEvent e = matrix::rust_timeline::eventFromItemJson(
@@ -82,8 +76,6 @@ private Q_SLOTS:
         QVERIFY(a.locationLive);
         QVERIFY(a.locationLiveActive);
 
-        // An expired live share is not a current one; showing it as current
-        // would place someone where they may have left long ago.
         live.insert(QStringLiteral("locationLiveActive"), false);
         const TimelineEvent b = matrix::rust_timeline::eventFromItemJson(live, kRoom);
         QVERIFY(b.locationLive);

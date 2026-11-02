@@ -1,9 +1,3 @@
-// Live accounts Phase 1: the background hosts' own retirement pool (R1-H6).
-// Live hosts + 1 threads (at most 6), separate from the foreground client's,
-// blocking FFIs only on its workers, results back on the GUI thread, and a
-// quit path that can deliver them with the event loop stopped.
-//
-// UNRUN when written (WP agents do not build); the lead runs it offscreen.
 #include "accounts/HostRetirementPool.h"
 #include "support/FakeRustBridge.h"
 #ifdef ENABLE_RUST_SDK_BACKEND
@@ -61,13 +55,10 @@ void HostRetirementPoolTest::threadsAreLiveHostsPlusOneCappedAtSix()
     QCOMPARE(pool.maxThreadCount(), HostRetirementPool::kMaxThreads);
 }
 
-// Two hosts retiring at once run at the same time, and no blocking call ever
-// runs on the GUI thread. Asserted as an overlap the fake counts, never as a
-// wall-clock total (review L15: a loaded machine stretches any duration).
 void HostRetirementPoolTest::retirementsRunInParallelOffTheGuiThread()
 {
     FakeRustBridge fake;
-    fake.setRetireDelayMs(500);   // shutdown and destroy each: 1 s per retirement
+    fake.setRetireDelayMs(500);
     HostRetirementPool pool(&fake);
     pool.setLiveHostCount(2);
     void *a = newHandle(fake, QStringLiteral("/stores/a"));
@@ -84,7 +75,6 @@ void HostRetirementPoolTest::retirementsRunInParallelOffTheGuiThread()
     }
     QCOMPARE(pool.activeJobs(), 2);
     QTRY_COMPARE_WITH_TIMEOUT(done, 2, 10000);
-    // Each half sleeps 500 ms: sequential retirements never overlap.
     QCOMPARE(fake.maxConcurrentBlocking(), 2);
     for (QThread *t : callbackThreads)
         QCOMPARE(t, QCoreApplication::instance()->thread());
@@ -110,10 +100,6 @@ void HostRetirementPoolTest::persistReadsFinalTokensBetweenShutdownAndDestroy()
         ran = true;
     });
     QTRY_VERIFY_WITH_TIMEOUT(ran, 5000);
-    // Sync has stopped before the tokens are read, and they are read before
-    // the client is gone.
-    // The token ledger is retained before the destroy and read after it
-    // (24a485c5's rule, for a background handle).
     QCOMPARE(fake.log(kept), (QStringList{QStringLiteral("createBackground"),
                                           QStringLiteral("shutdownTasks"),
                                           QStringLiteral("finalSessionTokens"),
@@ -124,11 +110,8 @@ void HostRetirementPoolTest::persistReadsFinalTokensBetweenShutdownAndDestroy()
     QCOMPARE(got.finalTokens.accessToken, QStringLiteral("final-access-fixture"));
     QCOMPARE(got.finalTokens.refreshToken, QStringLiteral("final-refresh-fixture"));
     QVERIFY(!got.rotatedWhileClosing);
-    QCOMPARE(fake.ledgerRetains(kept), 0);   // released
+    QCOMPARE(fake.ledgerRetains(kept), 0);
 
-    // A rotation landed between final_session_tokens and the destroy (an SDK
-    // task still held the Client): the ledger's newer pair is the one handed
-    // back. Mutation: without the ledger read this keeps the consumed pair.
     auto *late = static_cast<FakeHandle *>(newHandle(fake, QStringLiteral("/stores/late")));
     fake.setFinalTokens(late, QStringLiteral("before-close-access"),
                         QStringLiteral("before-close-refresh"));
@@ -146,7 +129,6 @@ void HostRetirementPoolTest::persistReadsFinalTokensBetweenShutdownAndDestroy()
     QCOMPARE(got.finalTokens.refreshToken, QStringLiteral("rotated-while-closing-refresh"));
     QCOMPARE(fake.ledgerRetains(late), 0);
 
-    // persist=false (a removal, a revocation): never read.
     auto *dropped = static_cast<FakeHandle *>(newHandle(fake, QStringLiteral("/stores/dropped")));
     ran = false;
     pool.retire(HostRetirementPool::RetireJob{dropped, QStringLiteral("d"), false},
@@ -179,8 +161,6 @@ void HostRetirementPoolTest::anUnconfirmedCloseIsReported()
     QVERIFY(!closed);
 }
 
-// R1-H6: a host taking long to close never occupies the foreground's two
-// retirement threads, nor the global pool anything else uses.
 void HostRetirementPoolTest::aSlowHostRetirementLeavesTheForegroundPoolAlone()
 {
     FakeRustBridge fake;
@@ -196,16 +176,12 @@ void HostRetirementPoolTest::aSlowHostRetirementLeavesTheForegroundPoolAlone()
     QElapsedTimer waited;
     waited.start();
     QVERIFY(RustSdkMatrixClient::waitForRustRetirement(0));
-    // Did not wait for the 1.5 s retirement: well under it, loose for a
-    // loaded machine (§18 round 1, L10).
     QVERIFY(waited.elapsed() < 750);
 #endif
     QVERIFY(!ran);
     QTRY_VERIFY_WITH_TIMEOUT(ran, 10000);
 }
 
-// At quit the event loop is blocked: the GUI halves are run by
-// deliverFinishedNow(), exactly once, never again from the loop.
 void HostRetirementPoolTest::quitDeliversFinishedJobsWithoutTheEventLoop()
 {
     FakeRustBridge fake;
@@ -215,7 +191,7 @@ void HostRetirementPoolTest::quitDeliversFinishedJobsWithoutTheEventLoop()
                                               QStringLiteral("q"), true},
                 [&](const HostRetirementPool::RetireOutcome &) { ++runs; });
     QVERIFY(pool.waitForDone(5000));
-    QCOMPARE(runs, 0);   // posted, not yet run
+    QCOMPARE(runs, 0);
     pool.deliverFinishedNow();
     QCOMPARE(runs, 1);
     QCOMPARE(pool.activeJobs(), 0);
@@ -234,8 +210,6 @@ void HostRetirementPoolTest::resultsAreDroppedWhenThePoolIsGone()
         pool->retire(HostRetirementPool::RetireJob{newHandle(fake, QStringLiteral("/stores/gone")),
                                                    QStringLiteral("g"), false},
                      [&](const HostRetirementPool::RetireOutcome &) { ++runs; });
-        // Destroyed while the job runs: the destructor waits for its worker,
-        // and the queued delivery finds no pool.
     }
     QCoreApplication::processEvents();
     QCoreApplication::sendPostedEvents();
@@ -258,23 +232,19 @@ void HostRetirementPoolTest::hostSignInRetirementsCountPerAccount()
     QVERIFY2(r.contains(a), "one of two retirements of the account still pending");
     r.end(a);
     QVERIFY(!r.contains(a));
-    r.end(b);   // unknown: nothing
+    r.end(b);
     QVERIFY(!r.contains(b));
     r.begin(QString());
     QVERIFY(!r.contains(QString()));
 }
 
-// Review H1: mx_rust_destroy_and_report frees the client, and stop_sync (or a
-// server sign-out) holds it while it waits. A retirement asked while either is
-// still running on another thread runs after it returned, on the handle's own
-// queue; another handle is never held up by it.
 void HostRetirementPoolTest::aDestroyNeverOvertakesABlockingCallOnTheSameHandle()
 {
     FakeRustBridge fake;
     fake.setStopSyncDelayMs(1500);
     fake.setLogoutDelayMs(1500);
     HostRetirementPool pool(&fake);
-    pool.setLiveHostCount(4);   // threads to spare: only the order can serialise them
+    pool.setLiveHostCount(4);
     auto *stopped = static_cast<FakeHandle *>(newHandle(fake, QStringLiteral("/stores/stopped")));
     auto *signedOut = static_cast<FakeHandle *>(newHandle(fake, QStringLiteral("/stores/signed-out")));
     auto *other = static_cast<FakeHandle *>(newHandle(fake, QStringLiteral("/stores/other")));
@@ -287,8 +257,6 @@ void HostRetirementPoolTest::aDestroyNeverOvertakesABlockingCallOnTheSameHandle(
         pool.retire(HostRetirementPool::RetireJob{h, QStringLiteral("h"), false},
                     [&](const HostRetirementPool::RetireOutcome &) { ++retired; });
     }
-    // The other handle's retirement is not queued behind them (the log is
-    // read under the fake's lock).
     const QString destroy = QStringLiteral("destroyAndReport");
     QTRY_VERIFY_WITH_TIMEOUT(fake.log(other).contains(destroy), 1000);
     QVERIFY(!fake.log(stopped).contains(destroy));

@@ -3,26 +3,14 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// "Chat background…" from the places people look for it: the room header's
-// More menu, a room's right-click menu and Home. It hosts the same
-// ChatBackgroundEditor that Room information, Space settings and Settings ->
-// Appearance host, so nothing here writes on its own: the editor's Apply does.
-//
-//   openForRoom(id, name)  the room's background (shared or only me);
-//   openForDefault()       this account's own picture behind every room.
-//
-// The editor is rebuilt on every open (Loader on `visible`), so a picture
-// picked and abandoned last time is not still pending the next time.
 AppDialog {
     id: root
     objectName: "chatBackgroundDialog"
-    // A themed surface: the editor uses the theme's inks, not Storm's.
     storm: false
     parent: Overlay.overlay
     width: Math.min(560, parent ? parent.width - AppTheme.spacing24 * 2 : 560)
     standardButtons: Dialog.Close
 
-    /// "room" or "default" (ChatBackgroundEditor's scopeKind).
     property string scopeKind: "room"
     property string roomId: ""
     property string roomName: ""
@@ -45,7 +33,6 @@ AppDialog {
 
     title: root.scopeKind === "default" || root.roomName.length === 0
            ? qsTr("Chat background")
-           // The room's name is remote text; AppDialog's title is plain text.
            : qsTr("Chat background for %1").arg(root.roomName)
 
     contentItem: Item {
@@ -86,7 +73,6 @@ AppDialog {
         }
         contentWidth: width
         contentHeight: column.implicitHeight
-        // Scrolls rather than growing past the window.
         implicitHeight: Math.min(column.implicitHeight,
                                  root.parent ? root.parent.height * 0.7 : 520)
         boundsBehavior: Flickable.StopAtBounds
@@ -135,8 +121,6 @@ AppDialog {
                              + "and gradients for the whole window are themes.")
             }
 
-            // The two neighbouring places: one picture for every room, and
-            // themes (where colours and gradients live).
             Flow {
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing8
@@ -163,7 +147,6 @@ AppDialog {
             }
         }
       }
-      // Middle-click autoscroll, a sibling of the view like the timeline's.
       MiddleClickScroller {
           objectName: "chatBackgroundDialogMiddleClickScroller"
           anchors.fill: parent

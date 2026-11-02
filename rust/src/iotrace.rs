@@ -1,15 +1,3 @@
-//! Opt-in disk-write attribution (`LIGHTNING_IO_TRACE=1`).
-//!
-//! 2026-10-07 the SDK threads wrote ~1.5 MB/s for the first minutes after
-//! start (docs/open-items.md, "Sustained disk writes"). Whether that settles
-//! after catch-up is not known, and attributing it needs ptrace, which yama
-//! scope 1 blocks. Linux keeps per-thread I/O counters in
-//! `/proc/self/task/<tid>/io`, readable without ptrace, so this logs, every
-//! 10 s, the bytes each thread NAME wrote since the last line and the
-//! cumulative total. Numbers only: no paths, ids or content. Off unless the
-//! variable is set; Linux only (elsewhere it does nothing). Lines travel as
-//! `rust_trace` events and are logged by the Qt side, so `--log-file` captures
-//! them (the bridge's `eprintln!` does not reach it).
 
 use std::collections::BTreeMap;
 use std::sync::Once;
@@ -17,8 +5,6 @@ use std::time::Duration;
 
 const PERIOD: Duration = Duration::from_secs(10);
 
-/// `write_bytes` from the text of a `/proc/<pid>/task/<tid>/io` file: bytes
-/// this thread caused to be sent to storage (not the page-cache `wchar`).
 pub(crate) fn parse_write_bytes(io_text: &str) -> Option<u64> {
     io_text
         .lines()
@@ -26,9 +12,6 @@ pub(crate) fn parse_write_bytes(io_text: &str) -> Option<u64> {
         .and_then(|v| v.trim().parse().ok())
 }
 
-/// Per-thread-name growth between two samples (`name -> bytes`), dropping
-/// names that wrote nothing. A counter that went backwards (a thread id
-/// reused under the same name) counts as zero rather than wrapping.
 pub(crate) fn growth(prev: &BTreeMap<String, u64>, now: &BTreeMap<String, u64>) -> BTreeMap<String, u64> {
     now.iter()
         .filter_map(|(name, &n)| {
@@ -38,7 +21,6 @@ pub(crate) fn growth(prev: &BTreeMap<String, u64>, now: &BTreeMap<String, u64>) 
         .collect()
 }
 
-/// One log line; numbers and thread names only.
 pub(crate) fn trace_line(t_secs: u64, wrote: u64, total: u64, parts: &[String]) -> String {
     format!("io-trace t={t_secs}s wrote={wrote} total={total} threads=[{}]", parts.join(" "))
 }
@@ -70,8 +52,6 @@ fn sample() -> BTreeMap<String, u64> {
 /// (accounts come and go; the sampler is per process), cleared by none.
 static SINK: std::sync::Mutex<Option<crate::EventQueueRef>> = std::sync::Mutex::new(None);
 
-/// Start the sampler once per process when `LIGHTNING_IO_TRACE` is set, and
-/// point it at this bridge's queue.
 pub(crate) fn start_if_enabled(events: crate::EventQueueRef) {
     static ONCE: Once = Once::new();
     if std::env::var_os("LIGHTNING_IO_TRACE").is_none() {

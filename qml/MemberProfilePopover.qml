@@ -4,28 +4,6 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// Member profile card, a Sable-style ANCHORED popover: callers use
-// `parent: Overlay.overlay` and openFor(member, anchor). The card opens beside
-// the clicked name, avatar, pill or row (anchor: an Item, or a rect
-// {x, y, width, height} in overlay coordinates), flips to the other side and
-// clamps to stay inside the window, and without an anchor centres itself.
-// Non-modal: it closes on Escape (the first Escape belongs to an open popup)
-// and on an outside press, and a press on another name simply replaces it.
-//
-// Shows banner, avatar, display name in identity ink, full MXID, bio (MSC4440
-// over MSC4133), chips (homeserver, Share, membership with the presence dot,
-// power-level chips), Message, an overflow menu and room-scoped moderation.
-//   * Presence is the dot, which carries its own sentence on hover
-//     (PresenceDot.statusText). The membership chip carries the one fact the
-//     dot cannot: presence known to be unavailable.
-//   * The bio is remote free text: always Text.PlainText, on top of the
-//     stripping in rust/src/bio.rs. Never rich text or a link target (§6): an
-//     embedded <img> would be fetched for every viewer.
-//   * The badge is decoration from a fixed local table: not Matrix state,
-//     moderation or verification, and its accessible description says so.
-// Features without a backend are omitted rather than shown disabled (calls,
-// Verified chip, shared rooms, nickname). A mutual-rooms count would need a
-// /members request per joined room.
 Popup {
     id: root
     modal: false
@@ -33,18 +11,14 @@ Popup {
     width: 340
     padding: 0
 
-    // Gap between the anchor and the card, and the minimum margin to the
-    // window edge.
     readonly property int anchorGap: 8
     readonly property int edgeMargin: 8
-    // The last anchor rect in overlay coordinates; null = centre.
     property var anchorRect: null
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     // A popup sees Escape only while it holds focus, and nothing on the card
     // takes it when it opens.
     focus: true
 
-    // Rect of `anchor` (an Item or a plain rect) in overlay coordinates.
     function _rectOf(anchor) {
         if (!anchor)
             return null
@@ -60,8 +34,6 @@ Popup {
         return null
     }
 
-    // Beside the anchor: right of it when it fits, else left, else clamped;
-    // top-aligned with it and clamped vertically. Always inside the window.
     function place() {
         var ov = root.parent
         if (!ov)
@@ -100,28 +72,16 @@ Popup {
     property string avatarMxc: ""
     property bool isOwn: false
 
-    // Moderation state: "" | "kick" | "ban", the confirm surface showing.
     property string modAction: ""
     property string modError: ""
-    // Unban option: send an invite after a successful unban.
     property bool inviteBackChecked: true
-    // The offer policy is RoomInfoController::canModerate (SDK permission,
-    // target row known, not self, strictly below the viewer's level). Captured
-    // at openFor(); the controller re-checks at dispatch. Scoped to the
-    // snapshot being for the room currently open.
     property bool showKick: false
     property bool showBan: false
     property bool showUnban: false
 
-    // The member's power level and the role changes the viewer may make.
-    // Captured for presentation; re-checked by the controller at dispatch.
     property string roleLabel: ""
     property var roleOptions: []
     property string roleError: ""
-    // The role the badge chips show. The `role` snapshot a caller passed is
-    // taken once at openFor(); the power level is live (it follows a role
-    // change made while the card is open) and exists for a card opened from
-    // the timeline, whose caller has no roster row. "" falls back to `role`.
     property string liveRole: ""
     readonly property string badgeRole: liveRole.length > 0 ? liveRole : role
 
@@ -135,9 +95,6 @@ Popup {
         _refreshRole(scoped)
     }
 
-    // The same rule the roster applies (the SDK's suggested role): at or above
-    // 100 administrator, at or above 50 moderator, creator from 2^53; any
-    // custom level in between takes the tier below it.
     function _roleForLevel(level) {
         return level >= 9007199254740992 ? "creator"
                : level >= 100 ? "administrator"
@@ -151,7 +108,6 @@ Popup {
             liveRole = ""
             return
         }
-        // A banned or departed user is offered Unban / Invite, not a promotion.
         if (membership === "banned" || membership === "left") {
             roleLabel = ""
             roleOptions = []
@@ -161,8 +117,6 @@ Popup {
         var current = app.roomInfo.powerLevelFor(userId)
         liveRole = _roleForLevel(current)
         roleLabel = app.roomInfo.roleLabelForLevel(current)
-        // Conventional presets plus the room's own users_default; duplicates
-        // collapse.
         var candidates = [app.roomInfo.usersDefaultPowerLevel, 50, 100]
         var seen = {}
         var out = []
@@ -171,9 +125,6 @@ Popup {
             if (seen[level] === true)
                 continue
             seen[level] = true
-            // Offer only what the viewer may set (canSetPowerLevel applies the
-            // room's permission and the rules about peers at or above your
-            // level).
             if (!app.roomInfo.canSetPowerLevel(userId, level))
                 continue
             out.push({ level: level,
@@ -182,10 +133,6 @@ Popup {
         roleOptions = out
     }
 
-    // The same member profile the list row shows. A display name with no
-    // visible character (spaces, format characters, Hangul or Braille
-    // fillers, variation selectors, tag characters) would draw an empty title,
-    // so it falls back to the localpart like an absent one.
     readonly property string visibleName:
         hasVisibleText(displayName)
         ? displayName
@@ -201,12 +148,6 @@ Popup {
         return stripped.length > 0
     }
 
-    // Accessible attaches to the contentItem: Popup is not an Item.
-
-    // Fill in what the caller did not know from the room's roster, so every
-    // call site (including a mention link with only a user id) gets name and
-    // avatar. Nothing is fabricated: an unknown user keeps an empty name
-    // (visibleName falls back to the localpart) and an empty avatar (initials).
     function _fillFromRoster() {
         if (userId.length === 0)
             return
@@ -215,8 +156,6 @@ Popup {
             return
         if (!app.roomInfo)
             return
-        // The reader's room explicitly: app.roomInfo.roomId may point
-        // elsewhere.
         var row = app.roomInfo.memberFor(userId, app.currentRoomId)
         if (!row || !row.userId)
             return
@@ -226,12 +165,8 @@ Popup {
             avatarMxc = row.avatarUrl || ""
         if (membership.length === 0)
             membership = row.membership || ""
-        // `role` is not derived here; the role block below renders the
-        // controller's own reading of the power level.
     }
 
-    // For a user the roster cannot name, ask the global profile. A per-room
-    // name still wins when there is one.
     function _fillFromServer() {
         if (userId.length === 0 || typeof app === "undefined" || !app.userProfiles)
             return
@@ -277,12 +212,6 @@ Popup {
         inviteBackChecked = true
         policyReason = ""
         policyMatched = false
-        // Scope the room-info controller to the reader's room.
-        // _refreshModeration() rightly refuses admin controls unless it is
-        // scoped here, and otherwise only Room Information, People, Pinned and
-        // Search set that scope, so a card opened from the timeline showed no
-        // Kick/Ban/Role. The answer arrives through the existing
-        // onMembersChanged connection.
         if (app.roomInfo && app.currentRoomId.length > 0
             && app.roomInfo.roomId !== app.currentRoomId)
             app.roomInfo.roomId = app.currentRoomId
@@ -301,9 +230,6 @@ Popup {
             root.forceActiveFocus(Qt.PopupFocusReason)
     }
 
-    // Opens straight onto the confirm step for `op` ("kick", "ban" or
-    // "unban") when the viewer may do it; otherwise the plain card, whose
-    // controls say what is possible.
     function openForAction(member, op, anchor) {
         openFor(member, anchor)
         if ((op === "kick" && showKick) || (op === "ban" && showBan)
@@ -311,14 +237,9 @@ Popup {
             modAction = op
     }
 
-    // Policy lists: whether a list this account follows covers the person,
-    // asked on open. Acting on it is the ordinary Ignore item; nothing acts
-    // automatically (docs/feature-contracts.md, "Policy lists").
     property bool policyMatched: false
     property string policyReason: ""
 
-    // Account-wide ignore (m.ignored_user_list), recomputed on the controller's
-    // revision since a binding cannot observe a Q_INVOKABLE.
     property bool userIgnored: false
     property string ignoreNotice: ""
     property bool ignoreNoticeError: false
@@ -351,32 +272,20 @@ Popup {
     }
 
     function startOrOpenDm() {
-        // Reuse an existing DM from the SDK's m.direct projection, otherwise
-        // create a new encrypted DM.
         app.conversations.checkExistingDm(userId)
         var existing = app.conversations.existingDms
         if (existing.length > 0) {
             app.openRoom(existing[0].roomId)
-            // "Message" means type now (GitHub #29).
             app.requestComposerFocus(existing[0].roomId)
         } else
-            // Skips the dialog's "may not exist" lookup: this card is about
-            // someone met in a room, and it closes at once, so a not-found
-            // prompt raised from here would have nowhere to show.
             app.conversations.startDirectMessageAnyway(userId)
         close()
     }
 
-    // Presence known to be unavailable: the backend has none, or the server
-    // refused it (PresenceManager's latch). Unanswered is unknown and renders
-    // nothing, never a fabricated Offline.
     readonly property bool presenceUnavailable:
         root.opened && root.userId !== "" && app.presence
             ? app.presence.unavailable : false
 
-    // Derived facts the card renders
-
-    // The homeserver half of the address.
     readonly property string homeserver: {
         var i = root.userId.indexOf(":")
         return i >= 0 && i + 1 < root.userId.length
@@ -389,9 +298,6 @@ Popup {
         : root.membership === "banned" ? qsTr("Banned")
         : root.membership
 
-    // The bio. "" covers no bio, not asked yet and a server without extended
-    // profiles, and all render as nothing (M_NOT_FOUND is not an error). A pure
-    // read on the manager's revision; asking happens on the open edge.
     readonly property string bioText: {
         if (!root.opened || root.userId === "" || !app.bio)
             return ""
@@ -399,8 +305,6 @@ Popup {
         return app.bio.bioFor(root.userId)
     }
 
-    // Decorative thank-you badge; not Matrix state, a permission or
-    // verification.
     readonly property string badgeLabel:
         app.badges && root.userId !== ""
             ? app.badges.labelFor(root.userId) : ""
@@ -408,15 +312,12 @@ Popup {
         app.badges && root.userId !== ""
             ? app.badges.descriptionFor(root.userId) : ""
 
-    // Clipboard actions
-
     function _copy(text, notice) {
         if (!text || text.length === 0)
             return
         idClipboard.text = text
         idClipboard.selectAll()
         idClipboard.copy()
-        // Cleared immediately (RoomsPanel/SpacesRail convention).
         idClipboard.text = ""
         copiedNotice.text = notice
         copiedNotice.visible = true
@@ -427,8 +328,6 @@ Popup {
         root._copy(root.userId, qsTr("Matrix ID copied"))
     }
 
-    // The public matrix.to profile link, percent-encoded like
-    // MentionTokenizer::matrixToUrl so it matches a sent mention.
     function copyProfileLink() {
         if (root.userId.length === 0)
             return
@@ -436,7 +335,6 @@ Popup {
                    qsTr("Profile link copied"))
     }
 
-    // One chip-shaped button for Share and the overflow.
     component ProfileChipButton: AbstractButton {
         id: chipButton
         property string iconName: ""
@@ -450,12 +348,9 @@ Popup {
         Accessible.name: accessibleName.length > 0 ? accessibleName : label
         Keys.onReturnPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }
         Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }
-        // Icon-only chips (the overflow) name themselves on hover.
         ToolTip.text: accessibleName
         ToolTip.visible: hovered && label.length === 0 && accessibleName.length > 0
         ToolTip.delay: 500
-        // Centred in a wrapper: a Control stretches its contentItem, and a Row
-        // lays out from x=0, so the content hugged the left edge.
         contentItem: Item {
             implicitWidth: chipRow.implicitWidth
             implicitHeight: chipRow.implicitHeight
@@ -495,8 +390,6 @@ Popup {
         }
     }
 
-    // Shadow: the effect and its source must be siblings inside one background
-    // Item; MultiEffect cannot anchor across the Popup background boundary.
     background: Item {
         Rectangle {
             id: popoverBackground
@@ -518,23 +411,15 @@ Popup {
         }
     }
 
-    // Asking is a side effect, so it happens on the open edge.
-    // ProfileBannerManager deduplicates per user per session.
     onOpenedChanged: {
-        // A reopened card must not keep keyboard focus on the action last used
-        // (Space would then fire a stale, invisible Ban or role change).
         if (opened && contentItem)
             contentItem.forceActiveFocus()
         if (!opened || userId.length === 0)
             return
         if (app.banners)
             app.banners.request(userId)
-        // Same for the bio; ProfileBioManager deduplicates and refuses on a
-        // server without extended profiles.
         if (app.bio)
             app.bio.request(userId)
-        // A policy check reads every followed list, so it happens on the open
-        // edge.
         if (app.policy && app.policy.available && !isOwn)
             app.policy.check("user", userId)
     }
@@ -547,29 +432,18 @@ Popup {
         Item {
             id: header
             Layout.fillWidth: true
-            // Cover the avatar's bottom edge: the halo hangs 34px below the
-            // banner.
             implicitHeight: Math.max(banner.height + 28,
                                      avatarWrap.y + avatarWrap.height)
 
-            // Canvas-painted so the 120° angle and ~70% stop can be expressed
-            // exactly.
             Canvas {
                 id: banner
                 objectName: "profileBanner"
-                // Antialias the painted rounded corners.
                 antialiasing: true
-                // Inset by the popover's border so the frame draws around the
-                // banner.
                 readonly property int frame: popoverBackground.border.width
                 x: frame
                 y: frame
                 width: parent.width - 2 * frame
-                // 3:1, the ratio the cropper produces (ImageCropDialog.aspect,
-                // via ProfileBannerManager), so the crop the user chose is
-                // exactly what shows.
                 height: Math.round(width / 3)
-                // Banner gradient: stormSelection → stormPanel at 120°.
                 property color c1: AppTheme.stormSelection
                 property color c2: AppTheme.stormPanel
                 property int cornerRadius: Math.max(0, AppTheme.radiusLg - frame)
@@ -596,8 +470,6 @@ Popup {
                     ctx.quadraticCurveTo(w, 0, w, rr)
                     ctx.lineTo(w, h)
                     ctx.closePath()
-                    // CSS-style angle (0deg = up, clockwise) as a canvas
-                    // gradient direction.
                     var angle = 120 * Math.PI / 180
                     var dx = Math.sin(angle)
                     var dy = -Math.cos(angle)
@@ -607,19 +479,12 @@ Popup {
                         cx - dx * length / 2, cy - dy * length / 2,
                         cx + dx * length / 2, cy + dy * length / 2)
                     grad.addColorStop(0, c1)
-                    // Stop at ~70% so the destination tone takes over before
-                    // the bottom.
                     grad.addColorStop(0.7, c2)
                     ctx.fillStyle = grad
                     ctx.fill()
                 }
             }
 
-            // The user's own banner (MSC4427) over the gradient, shown only
-            // when it resolves. Fetched through the media bridge; the value is
-            // always an mxc URI (Rust drops anything else), so it cannot point
-            // at an arbitrary host. The mask rounds only the top corners
-            // (`clip` cannot); the bottom meets the card body.
             Item {
                 id: bannerCornerMask
                 anchors.fill: banner
@@ -647,10 +512,6 @@ Popup {
                 layer.effect: MultiEffect {
                     maskEnabled: true
                     maskSource: bannerCornerMask
-                    // The ramp that maps mask alpha 0 -> 0 and 1 -> 1 is
-                    // threshold 0.5 with spread 1 (per qquickmultieffect.cpp,
-                    // the low ramp runs from (t - 1)(1 + s) + 1 to t(1 + s)).
-                    // The defaults give a hard step and jagged corners.
                     maskThresholdMin: 0.5
                     maskSpreadAtMin: 1.0
                     maskThresholdMax: 1.0
@@ -664,8 +525,6 @@ Popup {
                     asynchronous: true
                     cache: true
                     visible: status === Image.Ready
-                    // Under a playing animation this first frame would show
-                    // through its transparent pixels.
                     opacity: bannerMotion.shown ? 0 : 1
                     readonly property string mxc: {
                         if (!root.opened || !app.banners)
@@ -688,15 +547,10 @@ Popup {
                         target: app.mediaBridge
                         enabled: bannerImage.mxc.length > 0
                         function onMediaCached(key) {
-                            // Cache keys end with the mxc; only this banner's
-                            // completion matters.
                             if (key.endsWith(":" + bannerImage.mxc)
                                 && bannerImage.source.toString().length === 0)
                                 bannerImage.resolveTick++
                         }
-                        // An expired transient failure mark: re-ask, as
-                        // Avatar.qml does. The bridge re-arms the mark on
-                        // failure, so this cannot hammer the backend.
                         function onMediaRetryable(key) {
                             if (key.endsWith(":" + bannerImage.mxc)
                                 && bannerImage.source.toString().length === 0)
@@ -704,8 +558,6 @@ Popup {
                         }
                     }
                 }
-                // An animated banner plays over the still one, from the same
-                // bytes.
                 BannerMotion {
                     id: bannerMotion
                     objectName: "profileBannerMotion"
@@ -715,10 +567,6 @@ Popup {
                 }
             }
 
-            // Storm §3.6 corner watermark: one oversized outline bolt, clipped
-            // by its own banner-sized container. Only over the gradient, never
-            // over the user's own banner; bound to the image's readiness so it
-            // does not blink out early.
             Item {
                 anchors.fill: banner
                 clip: true
@@ -734,13 +582,10 @@ Popup {
                 }
             }
 
-            // 56px avatar overlapping the banner's bottom-left, on a slightly
-            // larger panel-coloured disc that reads as a ring.
             Item {
                 id: avatarWrap
                 x: AppTheme.spacing16
                 y: banner.height - 28
-                // A 2px ring.
                 width: 60
                 height: 60
                 Rectangle {
@@ -755,10 +600,8 @@ Popup {
                     mxc: root.avatarMxc
                     name: root.visibleName
                     colorKey: root.userId
-                    // Opening the card is intent: probe any format.
                     prominent: true
                 }
-                // Watched only while open (the userId gate).
                 PresenceDot {
                     id: avatarPresenceDot
                     objectName: "profileAvatarPresenceDot"
@@ -768,16 +611,11 @@ Popup {
                     dotSize: 12
                     ring: AppTheme.stormPanel
                     userId: root.opened ? root.userId : ""
-                    // The dot's own tooltip would open above it, over the
-                    // avatar, so a custom tip sits to the right instead.
                     hoverStatus: false
                     HoverHandler {
                         id: avatarDotHover
                         enabled: avatarPresenceDot.visible
                     }
-                    // A tip of our own: a ToolTip cannot declare a text format,
-                    // and the status is member-written text that must render as
-                    // plain text.
                     Timer {
                         id: avatarTipDelay
                         interval: 300
@@ -788,7 +626,6 @@ Popup {
                         id: avatarPresenceTip
                         objectName: "profileAvatarPresenceTip"
                         parent: avatarWrap
-                        // Beside the dot it explains.
                         x: avatarPresenceDot.x + avatarPresenceDot.width
                            + AppTheme.spacing4
                         y: Math.round(avatarPresenceDot.y
@@ -829,8 +666,6 @@ Popup {
             Layout.bottomMargin: AppTheme.spacing16
             spacing: AppTheme.spacing8
 
-            // The person's status text (presence status_msg) when the last poll
-            // carried one. Remote text, bounded in Rust, rendered plain.
             Label {
                 objectName: "profileStatusMessage"
                 Layout.fillWidth: true
@@ -850,7 +685,6 @@ Popup {
                 font: app.textFontWithEmoji(AppTheme.uiFont, AppTheme.scaled(13))
             }
 
-            // Identity row: name (+ badge) and MXID.
             RowLayout {
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing8
@@ -864,17 +698,10 @@ Popup {
                         spacing: AppTheme.spacing6
 
                         Label {
-                            // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             objectName: "profileDisplayName"
                             Layout.fillWidth: true
-                            // No minimum width: a Layout whose children's
-                            // minimums exceed the parent overflows rather than
-                            // shrinking them. The name has the whole line since
-                            // Message moved to its own row.
                             text: root.visibleName
-                            // Identity ink, hashed from the MXID like the
-                            // timeline name and avatar.
                             color: AppTheme.userColor(root.userId)
                             font.family: AppTheme.menuFont
                             font.pixelSize: AppTheme.textTitle
@@ -886,15 +713,9 @@ Popup {
                             ToolTip.delay: 500
                         }
 
-                        // Thank-you badge (decorative, local): tinted with the
-                        // holder's own identity ink, with no verification or
-                        // moderation vocabulary, and an accessible description
-                        // that says so. A Loader: almost nobody has one, and a
-                        // Label born with "" stays a viewport observer.
                         Loader {
                             active: root.badgeLabel.length > 0
                             visible: active
-                            // The badge gives way: capped, and its text elides.
                             Layout.maximumWidth: AppTheme.scaled(160)
                             sourceComponent: Rectangle {
                                 readonly property color ink:
@@ -906,8 +727,6 @@ Popup {
                                     AppTheme.chipHeight,
                                     badgeText.implicitHeight + 2 * AppTheme.spacing2)
                                 radius: AppTheme.chipRadius
-                                // Soft-chip treatment: the ink at 14% with a
-                                // 32% border.
                                 color: Qt.alpha(ink, 0.14)
                                 border.width: 1
                                 border.color: Qt.alpha(ink, 0.32)
@@ -938,7 +757,6 @@ Popup {
                     }
 
                     Label {
-                        // Remote text: never markup.
                         textFormat: Text.PlainText
                         objectName: "profileUserId"
                         Layout.fillWidth: true
@@ -946,13 +764,9 @@ Popup {
                         color: AppTheme.stormTextMuted
                         font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.fontMonoXS
-                        // Wrapped, not elided: the MXID must stay exact.
-                        // WrapAnywhere because it has no spaces.
                         wrapMode: Text.WrapAnywhere
                         maximumLineCount: 2
                         elide: Label.ElideRight
-                        // The text is not selectable, so a double click
-                        // copies the exact id.
                         MouseArea {
                             objectName: "profileUserIdCopyArea"
                             anchors.fill: parent
@@ -968,17 +782,11 @@ Popup {
                 }
 
             }
-            // Primary Message action, full width under the identity (as in
-            // Sable and Discord), so the name does not compete with it for the
-            // line. Mirrors AppButton's accent styling locally for the
-            // chat_bubble icon.
             AbstractButton {
                 id: messageButton
                 text: qsTr("Message")
                 visible: !root.isOwn && app.conversations.supported
-                // Centred on the identity block.
                 Layout.fillWidth: true
-                // Sized to its own content.
                 implicitWidth: messageContent.implicitWidth
                                + 2 * AppTheme.spacing12
                 implicitHeight: 32
@@ -991,9 +799,6 @@ Popup {
                 Keys.onReturnPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }
                 Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }
 
-                // Spacer-centred: a control stretches its contentItem, so
-                // centerIn on the layout does nothing. The one bolt fill on
-                // this surface; boltInk is its ink.
                 contentItem: RowLayout {
                     id: messageContent
                     spacing: AppTheme.spacing6
@@ -1030,18 +835,11 @@ Popup {
                 }
             }
 
-            // Bio card (MSC4440 over MSC4133): remote free text, bounded and
-            // stripped in Rust and rendered as PlainText only (§6). No bio, not
-            // asked yet and no server support all render nothing. A Loader for
-            // the same reason as the badge.
             Loader {
                 Layout.fillWidth: true
                 active: root.bioText.length > 0
                 visible: active
                 sourceComponent: Rectangle {
-                    // A second bound on top of Rust's, for bios stored before
-                    // bounding existed: twelve lines, the rest clipped (a
-                    // TextEdit cannot elide).
                     implicitHeight: Math.min(bioLabel.implicitHeight,
                                              bioMetrics.lineSpacing * 12)
                                     + 2 * AppTheme.spacing12
@@ -1054,11 +852,7 @@ Popup {
                         id: bioMetrics
                         font: bioLabel.font
                     }
-                    // Selectable and copyable, like a message body, but plain
-                    // text only: no links, since MSC4440's own example embeds
-                    // markup a rich renderer would act on.
                     TextEdit {
-                        // Not `bioText`, the popover property this reads.
                         id: bioLabel
                         objectName: "profileBioText"
                         anchors.left: parent.left
@@ -1068,7 +862,6 @@ Popup {
                         anchors.leftMargin: AppTheme.spacing12
                         anchors.rightMargin: AppTheme.spacing12
                         text: root.bioText
-                        // Never StyledText or RichText.
                         textFormat: Text.PlainText
                         readOnly: true
                         selectByMouse: true
@@ -1086,25 +879,16 @@ Popup {
                 }
             }
 
-            // Developer mode only: the user's sessions and the names their
-            // owner gave them (draws nothing otherwise).
             UserClientsInfo {
                 userId: root.userId
             }
 
-            // Chip row: facts and light actions, wrapping rather than eliding,
-            // since a clipped domain misleads.
             Flow {
-                // Not `chipRow`: that id exists inside ProfileChipButton and
-                // would shadow this one.
                 id: profileChipRow
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing6
-                // One height for every chip: a Flow top-aligns, and StatusChip
-                // and ProfileChipButton differ by a few pixels.
                 readonly property int uniformHeight: AppTheme.chipHeight + 6
 
-                // The homeserver half of the address; informational.
                 StatusChip {
                     objectName: "profileHomeserverChip"
                     height: profileChipRow.uniformHeight
@@ -1115,8 +899,6 @@ Popup {
                     label: root.homeserver
                 }
 
-                // Copies the public matrix.to profile link; the notice names
-                // what was copied.
                 ProfileChipButton {
                     height: profileChipRow.uniformHeight
                     objectName: "profileShareButton"
@@ -1126,12 +908,9 @@ Popup {
                     onClicked: root.copyProfileLink()
                 }
 
-                // Membership with the shared presence dot; unknown presence
-                // hides the dot.
                 Rectangle {
                     objectName: "profileMembershipChip"
                     visible: root.membershipLabel.length > 0
-                    // Same height as the other chips.
                     height: profileChipRow.uniformHeight
                     implicitWidth: membershipRow.implicitWidth
                                    + 2 * AppTheme.chipPaddingH
@@ -1164,8 +943,6 @@ Popup {
                             textFormat: Text.PlainText
                         }
                     }
-                    // When presence is known to be unavailable the dot renders
-                    // nothing; say so here, on the always-present chip.
                     ToolTip.text: chipPresenceDot.statusText.length > 0
                                   ? chipPresenceDot.statusText
                                   : qsTr("Presence unavailable")
@@ -1183,8 +960,6 @@ Popup {
                            ? qsTr("Presence unavailable") : "")
                 }
 
-                // Administrator / Moderator keep their tones: real power
-                // levels.
                 StatusChip {
                     height: profileChipRow.uniformHeight
                     visible: root.badgeRole === "administrator" || root.badgeRole === "creator"
@@ -1207,7 +982,6 @@ Popup {
                     label: qsTr("You")
                 }
 
-                // Overflow: only actions that exist (ignore, copy id).
                 ProfileChipButton {
                     height: profileChipRow.uniformHeight
                     objectName: "profileOverflowButton"
@@ -1215,31 +989,20 @@ Popup {
                     label: ""
                     accessibleName: qsTr("More actions")
                     onClicked: {
-                        // Asked for on open: cached membership only, but still
-                        // an FFI call.
                         app.roomInfo.requestMutualRooms(root.userId)
                         profileOverflowMenu.popup(0, height + 2)
                     }
                     AppMenu {
                         id: profileOverflowMenu
                         menuWidth: 240
-                        // Bounded so the menu never exceeds the screen; Qt's
-                        // Menu scrolls once it has a height. Rust also caps the
-                        // list at MAX_MUTUAL_ROOMS.
                         height: Math.min(implicitHeight, 420)
 
-                        // Rooms in common. Absent rather than empty: it reads
-                        // only what the store holds, so "none known" is not
-                        // "none". A Loader: a hidden Menu row must take no
-                        // space, and `height: visible ? implicitHeight : 0` on
-                        // a wrapping Label is a binding loop.
                         Loader {
                             active: !root.isOwn
                                     && app.roomInfo.mutualRooms.length > 0
                             visible: active
                             sourceComponent: MenuSectionLabel {
                                 objectName: "profileMutualRoomsHeader"
-                                // Matches AppMenuItem's left padding.
                                 leftPadding: AppTheme.menuItemPadding + 6
                                 rightPadding: AppTheme.menuItemPadding
                                 text: qsTr("Rooms in common")
@@ -1261,7 +1024,6 @@ Popup {
                                 }
                             }
                         }
-                        // AppMenuSeparator collapses its height when hidden.
                         AppMenuSeparator {
                             visible: !root.isOwn
                                      && app.roomInfo.mutualRooms.length > 0
@@ -1278,13 +1040,10 @@ Popup {
                         AppMenuItem {
                             objectName: "profileIgnoreButton"
                             visible: !root.isOwn && app.moderation.supported
-                            // A write is already in flight.
                             enabled: !app.moderation.busy
                             danger: !root.userIgnored
                             text: root.userIgnored ? qsTr("Unignore user")
                                                    : qsTr("Ignore user")
-                            // The scope: m.ignored_user_list is account-wide,
-                            // not this room.
                             Accessible.description: root.userIgnored
                                 ? qsTr("Stop ignoring %1 in every room")
                                   .arg(root.visibleName)
@@ -1306,10 +1065,6 @@ Popup {
                     }
                 }
             }
-            // Role / power level. Always the member's real level (a non-preset
-            // value is "Custom (N)"). Buttons offer only levels the viewer may
-            // set; a server rejection is shown rather than hidden by an
-            // optimistic repaint.
             ColumnLayout {
                 objectName: "profileRoleBlock"
                 visible: root.roleLabel.length > 0 && root.modAction === ""
@@ -1326,7 +1081,6 @@ Popup {
                         font.weight: AppTheme.weightBold
                     }
                     Label {
-                        // Untrusted text: never markup.
                         textFormat: Text.PlainText
                         Layout.fillWidth: true
                         text: root.roleLabel
@@ -1364,8 +1118,6 @@ Popup {
                                 text: roleButton.modelData.label
                                 textFormat: Text.PlainText
                                 horizontalAlignment: Text.AlignHCenter
-                                // A bare Label contentItem fills the button and
-                                // Text top-aligns by default.
                                 verticalAlignment: Text.AlignVCenter
                                 color: roleButton.enabled
                                        ? AppTheme.stormTextSecondary
@@ -1386,9 +1138,6 @@ Popup {
                             }
                             Keys.onReturnPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }
                             Keys.onEnterPressed: (event) => { event.accepted = true; if (!event.isAutoRepeat) clicked() }
-                            // Confirm first: promoting someone to your own
-                            // level cannot be undone, since Matrix refuses
-                            // changes at or above your own level.
                             onClicked: {
                                 root.roleError = ""
                                 roleConfirm.openFor(modelData.level,
@@ -1469,22 +1218,13 @@ Popup {
 
                     property int pendingLevel: 0
                     property string pendingLabel: ""
-                    // A grant at or above your own level cannot be taken back;
-                    // say so.
                     readonly property bool irreversible:
                         app.roomInfo && !root.isOwn
                         && roleConfirm.pendingLevel >= app.roomInfo.ownPowerLevel
-                    // Neither can lowering your own: nobody may raise
-                    // themselves. A creator (v12, 2^53 from the bridge)
-                    // cannot be lowered at all.
                     readonly property bool selfDemotion:
                         app.roomInfo && root.isOwn
                         && roleConfirm.pendingLevel < app.roomInfo.ownPowerLevel
                         && app.roomInfo.ownPowerLevel < 9007199254740992
-                    // The new level is below what changing roles needs here.
-                    // The two calls are Q_INVOKABLEs, which a binding does not
-                    // track; reading ownPowerLevel subscribes it to the
-                    // roster's membersChanged.
                     readonly property bool losesRoleControl: {
                         var _roster = app.roomInfo ? app.roomInfo.ownPowerLevel : 0
                         return roleConfirm.selfDemotion
@@ -1508,7 +1248,6 @@ Popup {
                         spacing: AppTheme.spacing12
                         Label {
                             Layout.fillWidth: true
-                            // Chosen by its owner: never markup.
                             textFormat: Text.PlainText
                             wrapMode: Text.WordWrap
                             text: qsTr("Set %1 to %2 in this room?")
@@ -1591,9 +1330,6 @@ Popup {
                 }
             }
 
-            // Moderation row: kick/ban are outline-danger, unban an ordinary
-            // outline. Hidden entirely when the viewer lacks the power or it
-            // cannot be established.
             RowLayout {
                 visible: (root.showKick || root.showBan || root.showUnban)
                          && root.modAction === ""
@@ -1639,7 +1375,6 @@ Popup {
                                 color: modButton.modInk
                             }
                             Label {
-                                // Untrusted text: never markup.
                                 textFormat: Text.PlainText
                                 text: modButton.modelData.label
                                 color: modButton.modInk
@@ -1649,8 +1384,6 @@ Popup {
                             }
                             Item { Layout.fillWidth: true }
                         }
-                        // Matches AppButton's storm danger treatment
-                        // (stormDangerSoft hover on a 30% outline).
                         background: Rectangle {
                             radius: AppTheme.radiusTile
                             color: (modButton.hovered || modButton.down)
@@ -1675,9 +1408,6 @@ Popup {
                 }
             }
 
-            // A followed moderation list covers this person: shown as
-            // information with the list's reason (plain text). Ignore is the
-            // user's decision.
             Label {
                 objectName: "profilePolicyNotice"
                 visible: root.policyMatched && !root.isOwn
@@ -1695,9 +1425,6 @@ Popup {
                 wrapMode: Text.Wrap
             }
 
-            // Account-wide ignore report. The action lives in the overflow
-            // menu; the report must be on the card, since the menu closes on
-            // selection.
             Label {
                 visible: root.ignoreNotice.length > 0 && root.modAction === ""
                 Layout.fillWidth: true
@@ -1711,14 +1438,12 @@ Popup {
                 Accessible.name: text
             }
 
-            // Inline confirm surface: optional reason + Confirm/Cancel.
             ColumnLayout {
                 visible: root.modAction !== ""
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing6
 
                 Label {
-                    // Untrusted text: never markup.
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
                     text: root.modAction === "kick"
@@ -1739,7 +1464,6 @@ Popup {
                     Layout.fillWidth: true
                     storm: true
                     placeholderText: qsTr("Reason (optional)")
-                    // Return submits, as the confirm button beside it does.
                     onAccepted: if (modConfirmButton.enabled) modConfirmButton.clicked()
                 }
                 RowLayout {
@@ -1829,13 +1553,9 @@ Popup {
                     else
                         root.modError = message
                 }
-                // A roster refresh while open can change what may be offered.
                 function onMembersChanged() {
                     root._refreshModeration()
                 }
-                // The new level arrives with the roster refresh; this only
-                // reports a failure. Stays open on success so the new role is
-                // visible.
                 function onPowerLevelActionFinished(roomId, userId, level, ok,
                                                     message) {
                     if (userId !== root.userId)
@@ -1848,7 +1568,6 @@ Popup {
                 id: copiedNotice
                 objectName: "profileCopiedNotice"
                 visible: false
-                // Set by _copy(): names what went to the clipboard.
                 text: ""
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta

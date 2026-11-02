@@ -3,18 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// One account row in the account switcher.
-//
-// A fixed-height row whose height is handed in by the list (`rowHeight`), so
-// the list's viewport and content always agree. Per-account crypto state is
-// only known for the active account, so it lives in AccountMenu's status
-// strip, not here.
-//
-// Density follows MentionPopup's person row: 28 px avatar, name, mono id
-// beneath. Selection uses the room list's idiom: a rounded `selected` chip in
-// a 4 px gutter plus a 3 px bolt left edge.
-//
-// No access token, device secret or local path is ever displayed.
 Item {
     id: root
     objectName: "identityCard"
@@ -24,37 +12,21 @@ Item {
     property string displayName: ""
     property string userId: ""
     property string avatarMxc: ""
-    // Kept for compatibility and always 0: no caller sets it. Per-account
-    // activity arrives through the four properties below (Labs, concurrent
-    // accounts), copied by the switcher from AccountActivityModel; with Labs
-    // off they keep their defaults and no badge renders.
     property int unreadCount: 0
-    // Mentions and highlights on this account; a number badge.
     property int mentionCount: 0
-    // Unread rooms or invites but no mention; a dot.
     property bool activityDot: false
-    // `mentionCount` is a lower bound ("N+").
     property bool mentionsLowerBound: false
-    // AccountActivityModel.LiveState; 0 (NotLive) outside Labs.
     property int liveState: 0
     property bool needsSignIn: false
     property bool healthWarning: false
 
-    // The row height, set by the list so viewport and content can't disagree.
-    // Nothing inside may grow it; content is centred and elided.
     property int rowHeight: AppTheme.scaled(44)
 
     signal activated()
     signal removeRequested()
 
-    // Focus is on the row or on its remove button. The list scrolls the row
-    // into view on it, so Tab never lands on a row nobody can see.
     readonly property bool focusWithin: root.activeFocus || removeButton.activeFocus
 
-    // The pointer is "within" the row when over it or over a control on it.
-    // MouseArea.containsMouse alone loses hover to a control above it, which
-    // would hide the affordance the pointer came for; a HoverHandler doesn't
-    // compete with children.
     readonly property bool pointerWithin: cardHover.hovered
                                           || cardMouse.containsMouse
                                           || removeButton.hovered
@@ -69,14 +41,10 @@ Item {
     readonly property string visibleName:
         root.displayName.length > 0 ? root.displayName : root.localpart
 
-    // Accounts can share a display name across homeservers, so the id is what
-    // tells them apart. Exposed so a test can check it isn't truncated.
     readonly property alias identityLabel: idLabel
 
     implicitWidth: 280
     implicitHeight: rowHeight
-    // Exposed so a test can see a scale the row can't carry, rather than it
-    // being silently clipped.
     readonly property real textColumnHeight: textColumn.implicitHeight
 
     Accessible.role: Accessible.Button
@@ -84,8 +52,6 @@ Item {
     Accessible.name: root.active
         ? qsTr("Active account, %1, %2").arg(root.visibleName).arg(root.userId)
         : qsTr("Switch to %1, %2").arg(root.visibleName).arg(root.userId)
-    // The live state and the badge are appended only when there is one, so
-    // outside Labs the description is exactly what it always was.
     Accessible.description: {
         const base = root.active ? qsTr("This is the active account")
             : (root.needsSignIn ? qsTr("Needs sign-in")
@@ -105,18 +71,11 @@ Item {
     Keys.onEnterPressed: root.activated()
     Keys.onSpacePressed: root.activated()
 
-    // The surface this row sits on (AccountMenu paints `stormCanvas`). The row
-    // fill is composited onto it to derive text inks.
     property color hostSurface: AppTheme.stormCanvas
 
-    // The pixels actually under the text: the chip over the host surface, with
-    // the chip's own alpha (`hover` is translucent in some palettes).
     readonly property color rowFill: AppTheme.flatten(rowChip.color,
                                                       root.hostSurface)
 
-    // ── Selection / hover chip (RoomDelegate's idiom): a rounded chip inset in
-    // a 4 px gutter. selected / selectedHover / hover are distinct in every
-    // palette, so a hovered row never looks active.
     Rectangle {
         id: rowChip
         objectName: "identityCardRowChip"
@@ -130,7 +89,6 @@ Item {
                : (root.pointerWithin ? AppTheme.hover : "transparent")
     }
 
-    // Active marker 1 of 3: the bolt edge bar in the chip's gutter.
     Rectangle {
         objectName: "identityCardActiveEdge"
         visible: root.active
@@ -181,17 +139,12 @@ Item {
                 circle: true
                 name: root.visibleName
                 mxc: root.avatarMxc
-                // The only place that sets this: MediaBridge fetches through
-                // the active client, so an inactive account's avatar can't be
-                // fetched here. `avatarUrlFor` returns "" when nothing was
-                // stored, leaving initials.
                 fallbackSource: (typeof app !== "undefined" && app
                                  && app.accountAvatars && root.userId.length > 0)
                                 ? app.accountAvatars.avatarUrlFor(root.userId)
                                 : ""
                 colorKey: root.userId
             }
-            // Active marker 2 of 3: the bolt avatar ring.
             Rectangle {
                 objectName: "identityCardAvatarRing"
                 visible: root.active
@@ -212,16 +165,9 @@ Item {
 
             Label {
                 objectName: "identityCardName"
-                // Remote or externally chosen text: never markup.
                 textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: root.visibleName
-                // stormText so the name/id pair stays a clear hierarchy on
-                // every palette (the secondary ink is nearly the id's colour on
-                // light themes). The active row is distinguished by chip, edge,
-                // ring, tick and weight, not ink. Derived against the actual
-                // row fill, which only changes it where needed (hovered active
-                // row on Nordic).
                 color: AppTheme.legibleInkOn(AppTheme.stormText, root.rowFill)
                 font.family: AppTheme.menuFont
                 font.pixelSize: AppTheme.scaled(AppTheme.textBody)
@@ -232,22 +178,13 @@ Item {
             Label {
                 id: idLabel
                 objectName: "identityCardUserId"
-                // Remote or externally chosen text: never markup.
                 textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: root.userId
-                // Derived against the fill this row is actually painting (rest,
-                // hover, selected or selectedHover), since the loud fills fail
-                // AA with the plain token on several palettes. A single ink for
-                // all four states would invert the name/id hierarchy (see
-                // legibleInkOn in AppTheme). A token that already clears its
-                // fill is returned unchanged. This line is the only thing
-                // separating accounts that share a display name.
                 color: AppTheme.legibleInkOn(root.active
                                              ? AppTheme.stormTextSecondary
                                              : AppTheme.stormTextMuted,
                                              root.rowFill)
-                // Mono for a Matrix ID.
                 font.family: AppTheme.monoFont
                 font.pixelSize: AppTheme.scaled(AppTheme.fontMonoXS)
                 elide: Label.ElideMiddle
@@ -263,13 +200,6 @@ Item {
             Layout.alignment: Qt.AlignVCenter
             Accessible.ignored: true
         }
-        // The account's activity (Labs): a mention count, or a dot. The rule,
-        // including "nothing on the active row" and "nothing unless
-        // running", is AccountActivityBadge's. Faded under the pointer, where
-        // the remove button is revealed — opacity only, like that button, so
-        // the slot is kept and the name and id do not re-elide under the
-        // cursor. Its words are already in the row's Accessible.description,
-        // so the badge itself is not announced a second time.
         AccountActivityBadge {
             id: activityBadge
             objectName: "identityCardActivityBadge"
@@ -283,8 +213,6 @@ Item {
             opacity: root.pointerWithin ? 0 : 1
             Accessible.ignored: true
         }
-        // Active marker 3 of 3: the tick (an "ACTIVE" chip would cost the id
-        // width).
         Icon {
             objectName: "identityCardActiveTick"
             visible: root.active
@@ -297,23 +225,15 @@ Item {
         ToolButton {
             id: removeButton
             objectName: "identityCardRemoveButton"
-            // Revealed on hover or when the row or button has focus; a real tab
-            // stop while revealed.
             readonly property bool revealed:
                 !root.active && (root.pointerWithin || root.activeFocus
                                  || removeButton.activeFocus)
-            // The slot is held on every inactive row and only the opacity
-            // changes, so revealing the button doesn't re-elide the id under
-            // the cursor.
             visible: !root.active
             opacity: revealed ? 1 : 0
-            // Disabled while hidden, so an invisible button can't remove an
-            // account or trap focus.
             enabled: revealed
             activeFocusOnTab: !root.active
             Accessible.ignored: !revealed
             Layout.alignment: Qt.AlignVCenter
-            // A 30 px hit target; fits the 44 px row.
             implicitWidth: 30
             implicitHeight: 30
             Accessible.name: qsTr("Remove account %1").arg(root.userId)
@@ -329,9 +249,6 @@ Item {
                 radius: AppTheme.radiusSm
                 color: removeButton.hovered ? AppTheme.stormSelection
                                             : "transparent"
-                // The row's own ring disappears once focus moves to this
-                // button, so without this nothing in the popup shows where
-                // focus is (C51-F01).
                 Rectangle {
                     objectName: "identityCardRemoveFocusRing"
                     visible: removeButton.visualFocus

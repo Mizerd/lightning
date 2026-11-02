@@ -2,30 +2,12 @@ import QtQuick
 import QtQuick.Effects
 import MatrixClient
 
-// The Storm Band, a port of storm-band-export.html's mountStormBand(). Tiles
-// and sprites come from C++ (StormBandPainter, an exact port of the reference's
-// painters) via image://storm-band/<layer>?bg=..&accent=.., so a given
-// (background, accent) pair matches the reference. This file reproduces the
-// layer stack, geometry and keyframe timings:
-//
-//   gradient(static) sky(1536/620s) moon shoot(23s) far(662/265s)
-//   mist(1090/128s) mid(794/158s) spire(1282/104s) bolts(6)+blooms
-//   front(1438/58s) rain(320/2.1s diagonal) horizon embers(11)
-//
-// and the container's 5-stop alpha mask (0 -> .18@14% -> .55@30% -> .85@44% ->
-// 1@58%), a MultiEffect mask over the whole composite, so the band dissolves
-// into whatever is behind it. Each animated element loops a 0..1 `phase` mapped
-// through kf(), linear interpolation between keyframe stops as CSS does.
-// Reduced motion rests every phase at 0 (the static scene); the band also
-// pauses while off-screen, hidden or minimized. Decorative only: no handlers
-// and `enabled: false`.
 Item {
     id: root
 
     implicitHeight: 190
     enabled: false
 
-    // The reference's inputs: bg is the colour of the page behind the band.
     property color backdropColor: AppTheme.background
     readonly property color accentColor: AppTheme.accent
 
@@ -36,7 +18,6 @@ Item {
                                         !== Window.Minimized
     readonly property bool animating: root.onScreen && !AppTheme.reducedMotion
 
-    // Provider URL plumbing
     function hex2(v) {
         var h = Math.max(0, Math.min(255, Math.round(v * 255))).toString(16)
         return h.length < 2 ? "0" + h : h
@@ -55,8 +36,6 @@ Item {
         return "image://storm-band/" + layer + root.themeQuery
     }
 
-    // CSS-style keyframes: frames is [[t, value], ...] sorted by t,
-    // interpolated linearly.
     function kf(phase, frames) {
         if (phase <= frames[0][0])
             return frames[0][1]
@@ -71,7 +50,6 @@ Item {
         return frames[frames.length - 1][1]
     }
 
-    // sb-strikeA / sb-strikeB / sb-ember opacity curves, verbatim.
     readonly property var strikeA:
         [[0, 0], [.84, 0], [.844, 1], [.85, .12], [.856, .95], [.866, .08],
          [.874, 0], [1, 0]]
@@ -80,9 +58,6 @@ Item {
          [1, 0]]
     readonly property var emberCurve: [[0, 0], [.12, .9], [.7, .6], [1, 0]]
 
-    // Bolts: [left fraction, width css px, cycle ms, delay ms, curve, bloom].
-    // Tips land at y=158 (the ridge) in the 190px band; sprite height = w * 74
-    // / 46.
     readonly property var boltDefs: [
         { xf: .17, w: 78, cycle: 9400,  delay: 0,     curve: "A", bloom: "bloomA", sprite: "bolt1" },
         { xf: .38, w: 62, cycle: 13700, delay: 2600,  curve: "B", bloom: "bloomB", sprite: "bolt2" },
@@ -91,15 +66,12 @@ Item {
         { xf: .89, w: 72, cycle: 27900, delay: 3700,  curve: "A", bloom: "bloomB", sprite: "bolt5" },
         { xf: .05, w: 52, cycle: 31400, delay: 11500, curve: "B", bloom: "bloomC", sprite: "bolt6" }
     ]
-    // Embers: [left %, bottom px, cycle s, delay s], 11 rising motes.
     readonly property var emberDefs:
         [[9, 24, 9, 0], [17, 30, 12.5, 2.4], [26, 20, 10.8, 5.1],
          [34, 28, 14, 1.2], [43, 22, 11.4, 6.8], [51, 32, 13.2, 3.6],
          [60, 18, 10.2, 8.1], [68, 26, 15.3, 4.4], [77, 21, 12.1, 9.6],
          [85, 29, 13.9, 2.1], [94, 23, 11.7, 7.3]]
 
-    // Phase driver: pause(delay) once, then loop 0..1 over one cycle (CSS
-    // animation-delay + infinite linear). Stopped, the phase rests at 0.
     component PhaseDriver: SequentialAnimation {
         id: driver
         property Item item
@@ -119,8 +91,6 @@ Item {
         }
     }
 
-    // A scrolling tile strip: repeat-x at 132px tall, bottom-aligned, offset
-    // animating 0 -> -tileW.
     component Scroller: Item {
         id: sc
         property string layerKey
@@ -143,7 +113,6 @@ Item {
                 from: 0; to: -sc.tileW
                 duration: sc.cycleMs
                 loops: Animation.Infinite
-                // Stopped: offset 0.
                 onRunningChanged: if (!running) strip.x = 0
             }
             Repeater {
@@ -167,7 +136,6 @@ Item {
     readonly property bool maskable:
         root.GraphicsInfo.api !== GraphicsInfo.Software
 
-    // The scene renders through the reference's alpha mask.
     Item {
         id: scene
         objectName: "stormBandScene"
@@ -177,12 +145,10 @@ Item {
         layer.effect: MultiEffect {
             maskEnabled: true
             maskSource: maskGradient
-            // Threshold 0 with full spread uses the mask's alpha directly.
             maskThresholdMin: 0.0
             maskSpreadAtMin: 1.0
         }
 
-        // gradient: transparent -> sky1 30% -> sky2 64% -> sky3 100%.
         Image {
             anchors.fill: parent
             source: root.tileUrl("gradient")
@@ -191,7 +157,6 @@ Item {
 
         Scroller { layerKey: "sky"; tileW: 1536; cycleMs: 620000 }
 
-        // moon: left 11%, top 62, 36x36, opacity .9, static.
         Image {
             x: scene.width * 0.11
             y: 62
@@ -201,9 +166,6 @@ Item {
             source: root.tileUrl("moon")
         }
 
-        // shooting star: left 8%, top 48, 60x24; sb-shoot 23s, hidden 82% of
-        // the cycle, then a 6% sweep of translate(300px, 96px) with a fade to
-        // (330, 106).
         Image {
             id: shoot
             property real phase: 0
@@ -224,8 +186,6 @@ Item {
         Scroller { layerKey: "mid";   tileW: 794;  cycleMs: 158000 }
         Scroller { layerKey: "spire"; tileW: 1282; cycleMs: 104000 }
 
-        // Six bolts, each with a ground bloom sharing its strike curve
-        // (radial-gradient(170px 120px at (left+1)% 78%)).
         Repeater {
             model: root.boltDefs
             Item {
@@ -248,8 +208,6 @@ Item {
                     source: root.tileUrl(bolt.modelData.bloom)
                 }
                 Image {
-                    // The sprite carries an 8px baked-glow pad around the 46x74
-                    // art (StormBandPainter::kBoltPad).
                     x: scene.width * bolt.modelData.xf
                        - 8 * bolt.spriteScale
                     y: (158 - bolt.boltH) - 8 * bolt.spriteScale
@@ -269,8 +227,6 @@ Item {
 
         Scroller { layerKey: "front"; tileW: 1438; cycleMs: 58000 }
 
-        // rain: a 320x132 tile repeating both ways, offset animating (-320,
-        // +396) per 2.1s.
         Item {
             id: rainLayer
             anchors.fill: parent
@@ -304,7 +260,6 @@ Item {
             }
         }
 
-        // horizon: accent bloom along the bottom 70px.
         Image {
             anchors.left: parent.left
             anchors.right: parent.right
@@ -314,8 +269,6 @@ Item {
             source: root.tileUrl("horizon")
         }
 
-        // 11 rising embers: 2x2 motes translating (-9, -54) per cycle with the
-        // sb-ember opacity curve.
         Repeater {
             model: root.emberDefs
             Image {
@@ -338,8 +291,6 @@ Item {
         }
     }
 
-    // The container mask as a texture: linear-gradient(to bottom, 0, .18 14%,
-    // .55 30%, .85 44%, 1 58%).
     Rectangle {
         id: maskGradient
         anchors.fill: parent
@@ -355,9 +306,6 @@ Item {
         }
     }
 
-    // Software renderer only: the mask's complement (1 - alpha) in the colour
-    // of the page behind the band, which dissolves the scene the same way when
-    // that page is flat (it is: backdropColor is the reference's input).
     Rectangle {
         objectName: "stormBandSoftwareFade"
         anchors.fill: parent

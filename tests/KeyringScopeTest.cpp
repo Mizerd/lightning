@@ -1,16 +1,3 @@
-// Two installs of Lightning on one computer (the Flatpak and a .deb, say) share
-// one Secret Service but keep separate account records and SDK stores. Each
-// must keep its own tokens: one install's sign-in must not overwrite the
-// other's, and one install's sign-out must not delete the other's. Sessions
-// saved before install scoping are copied, never taken from someone else or
-// deleted.
-//
-// The fake keyring below behaves as gnome-keyring was measured to behave
-// (2026-09-29, gnome-keyring 50.0 / libsecret 0.21.7): lookups and clears match
-// a SUBSET of attributes, a store replaces an item with the exact same
-// attributes. The fake store maps an unset install scope to the pre-scoping
-// layout, which is what LibSecretStore did before, so this suite run against
-// the unscoped SettingsManager shows the collision it guards.
 
 #include "app/SettingsManager.h"
 #include "storage/AppDataPaths.h"
@@ -43,7 +30,6 @@ struct Item {
     QString secret;
 };
 
-// One desktop session's Secret Service.
 class FakeKeyring
 {
 public:
@@ -134,7 +120,6 @@ Attributes scopedAttrs(const QString &userId, const QString &key,
             {QStringLiteral("install"), install}};
 }
 
-// What a build from before install scoping does to the keyring.
 void olderBuildSignsIn(FakeKeyring &keyring, const QString &userId,
                        const QString &access, const QString &refresh,
                        const QString &clientId)
@@ -150,9 +135,6 @@ void olderBuildSignsOut(FakeKeyring &keyring, const QString &userId)
                    {QStringLiteral("user_id"), userId}});
 }
 
-// LibSecretStore over the fake keyring. With no install scope it behaves as
-// the pre-scoping backend did.
-// No Q_OBJECT: it adds no meta-object of its own (as InMemorySecretStore).
 class SharedKeyringStore final : public SecretStore
 {
 public:
@@ -211,9 +193,7 @@ public:
     QString backendKind() const override { return kind; }
 
     bool failStores = false;
-    // Which of libsecret's backends answers this "process".
     QString kind;
-    // Refuse writes of this one key only.
     QString failKey;
 
 private:
@@ -298,9 +278,6 @@ protected:
     }
 
 private:
-    // libsecret's password API goes where the process landed; the Secret
-    // Service API always reaches the Secret Service. Nothing reaches the file
-    // keyring from a process on the Secret Service.
     FakeKeyring *keyringFor(Backend backend) const
     {
         if (backend == Backend::Service)
@@ -313,7 +290,6 @@ private:
     QString m_kind;
 };
 
-// A store that lives inside one install (Credential Manager, portable file).
 class PerInstallStore final : public SecretStore
 {
 public:
@@ -347,7 +323,7 @@ private:
     QHash<QString, QString> m_values;
 };
 
-} // namespace
+}
 
 class KeyringScopeTest : public QObject
 {
@@ -357,7 +333,6 @@ private Q_SLOTS:
     void initTestCase();
     void init();
 
-    // Regression cases: each fails on the unscoped SettingsManager.
     void theInstallIdIsCreatedOnceAndKeptAcrossRestarts();
     void twoInstallsSignedInToOneAccountKeepTheirOwnTokens();
     void signingOutOfOneInstallLeavesTheOtherSignedIn();
@@ -370,23 +345,16 @@ private Q_SLOTS:
     void aTokenRefreshBeforeTheCopyKeepsTheWholeSession();
     void signingOutOfAnAdoptedSessionRemovesTheSharedCopyOfItsToken();
 
-    // Guards for the new code's own failure paths.
     void aCopyThatCannotBeWrittenStillReadsTheSharedItem();
     void aCopyInterruptedPartWayKeepsReadingOneWholeSession();
     void anOlderBuildSigningInAgainIsNeverHandedTheStaleToken();
     void signingOutLeavesASharedItemHoldingAnotherToken();
     void aStoreInsideOneInstallIsNotScoped();
 
-    // A refused rotation write never leaves a newer access token over an
-    // older refresh token.
     void aRefusedRefreshTokenWriteLeavesTheWholeOldPair();
 
-    // Instrumentation: which keyring holds a sign-in.
     void aSignInRecordsTheKeyringThatHoldsItAndALaunchReadingAnotherSaysSo();
 
-    // A sandbox whose Secret portal came or went between launches (live
-    // 0.10.2 Flatpak finding F1, docs/open-items.md): each account is read in
-    // the keyring its record names.
     void aSignInTheSecretServiceHoldsIsReadThereWhenALaterLaunchGetsTheFileKeyring();
     void aSignInTheFileKeyringHoldsIsUnreadableNotLostWhenThePortalDidNotAnswer();
     void aSecretServiceNotUpYetIsTransientAndTheNextReadFindsTheSignIn();
@@ -394,8 +362,6 @@ private Q_SLOTS:
     void aSignInSavedBeforeTheRecordIsRecordedWhereItIsFound();
 
 private:
-    // Each install has its own settings file, as the Flatpak and a native
-    // build do. QSettings binds its file when constructed.
     static void useInstall(const QString &name)
     {
         QCoreApplication::setApplicationName(name);
@@ -408,8 +374,6 @@ private:
         settings->setSecretStore(store);
         return settings;
     }
-    // An account record written by a build from before install scoping,
-    // without any keyring write.
     static void seedOlderRecord(const QString &install, const QString &userId,
                                 const QString &deviceId,
                                 const QString &authType)
@@ -474,14 +438,12 @@ void KeyringScopeTest::theInstallIdIsCreatedOnceAndKeptAcrossRestarts()
     QVERIFY2(!id.isEmpty(), "a shared store was left unscoped");
     QCOMPARE(installIdOf(QStringLiteral("keyring-flatpak")), id);
 
-    // A restart of the same install reads the same id.
     flatpak.reset();
     SharedKeyringStore restartedStore(&keyring);
     auto restarted =
         openInstall(QStringLiteral("keyring-flatpak"), &restartedStore);
     QCOMPARE(restartedStore.installScope(), id);
 
-    // Another install on the same computer gets its own.
     SharedKeyringStore debStore(&keyring);
     auto deb = openInstall(QStringLiteral("keyring-deb"), &debStore);
     QVERIFY(!debStore.installScope().isEmpty());
@@ -501,7 +463,6 @@ void KeyringScopeTest::twoInstallsSignedInToOneAccountKeepTheirOwnTokens()
                          QStringLiteral("flatpak-refresh"),
                          QStringLiteral("oauth"),
                          QStringLiteral("flatpak-client"));
-    // The .deb signs in second: before scoping this overwrote the Flatpak's.
     deb->saveSession(kHs, kUser, QStringLiteral("DEBDEV"),
                      QStringLiteral("deb-access"),
                      QStringLiteral("deb-refresh"), QStringLiteral("oauth"),
@@ -512,7 +473,6 @@ void KeyringScopeTest::twoInstallsSignedInToOneAccountKeepTheirOwnTokens()
     QCOMPARE(flatpak->oauthClientIdFor(kUser), QStringLiteral("flatpak-client"));
     QCOMPARE(deb->accessTokenFor(kUser), QStringLiteral("deb-access"));
 
-    // A token refresh in one install stays there.
     QVERIFY(deb->updateSessionTokens(kUser, QStringLiteral("deb-access-2"),
                                      QStringLiteral("deb-refresh-2")));
     QCOMPARE(flatpak->accessTokenFor(kUser), QStringLiteral("flatpak-access"));
@@ -520,7 +480,6 @@ void KeyringScopeTest::twoInstallsSignedInToOneAccountKeepTheirOwnTokens()
     QCOMPARE(deb->accessTokenFor(kUser), QStringLiteral("deb-access-2"));
     QCOMPARE(deb->refreshTokenFor(kUser), QStringLiteral("deb-refresh-2"));
 
-    // And the restarts read the same.
     flatpak.reset();
     SharedKeyringStore flatpakAgain(&keyring);
     auto restarted = openInstall(QStringLiteral("keyring-flatpak"), &flatpakAgain);
@@ -552,7 +511,6 @@ void KeyringScopeTest::signingOutOfOneInstallLeavesTheOtherSignedIn()
     QCOMPARE(deb->accessTokenFor(kUser), QStringLiteral("deb-access"));
     QCOMPARE(deb->refreshTokenFor(kUser), QStringLiteral("deb-refresh"));
     QCOMPARE(deb->oauthClientIdFor(kUser), QStringLiteral("deb-client"));
-    // Nothing of the Flatpak's is left behind.
     QCOMPARE(keyring.items.size(), 3);
 }
 
@@ -564,7 +522,6 @@ void KeyringScopeTest::anOlderBuildsSignOutCannotReachTheseItems()
     flatpak->saveSession(kHs, kUser, QStringLiteral("FLATPAKDEV"),
                          QStringLiteral("flatpak-access"));
 
-    // A .deb not yet updated signs in and out of the same account.
     olderBuildSignsIn(keyring, kUser, QStringLiteral("old-access"),
                       QString(), QString());
     olderBuildSignsOut(keyring, kUser);
@@ -586,14 +543,12 @@ void KeyringScopeTest::anUpgradeKeepsTheSessionWithoutASignIn()
     SharedKeyringStore store(&keyring);
     auto flatpak = openInstall(QStringLiteral("keyring-flatpak"), &store);
 
-    // Signed in exactly as before the update.
     QVERIFY(flatpak->hasSession());
     QCOMPARE(flatpak->accessToken(), QStringLiteral("legacy-access"));
     QCOMPARE(flatpak->refreshTokenFor(kUser), QStringLiteral("legacy-refresh"));
     QCOMPARE(flatpak->oauthClientIdFor(kUser), QStringLiteral("legacy-client"));
     QCOMPARE(flatpak->deviceId(), QStringLiteral("FLATPAKDEV"));
 
-    // Copied at startup into this install's items...
     const QString id = store.installScope();
     QCOMPARE(keyring.value(scopedAttrs(kUser, QStringLiteral("accessToken"), id)),
              QStringLiteral("legacy-access"));
@@ -601,13 +556,11 @@ void KeyringScopeTest::anUpgradeKeepsTheSessionWithoutASignIn()
              QStringLiteral("legacy-refresh"));
     QCOMPARE(keyring.value(scopedAttrs(kUser, QStringLiteral("oauthClientId"), id)),
              QStringLiteral("legacy-client"));
-    // ...and the shared items are exactly as they were.
     const QList<Item> legacyAfter = keyring.withSchema(kLegacySchema);
     QCOMPARE(legacyAfter.size(), legacyBefore.size());
     for (const Item &item : legacyBefore)
         QCOMPARE(keyring.value(item.attributes), item.secret);
 
-    // Recorded as a copy whose owner is unproven, for the recorded device.
     QCOMPARE(recordValue(QStringLiteral("keyring-flatpak"), kUser,
                          QStringLiteral("keyringItems")),
              QStringLiteral("adopted-unverified"));
@@ -626,7 +579,6 @@ void KeyringScopeTest::anAdoptedSessionNoLongerFollowsTheSharedItem()
     SharedKeyringStore store(&keyring);
     auto flatpak = openInstall(QStringLiteral("keyring-flatpak"), &store);
 
-    // A .deb not yet updated signs in afterwards and overwrites the shared item.
     olderBuildSignsIn(keyring, kUser, QStringLiteral("deb-access"), QString(),
                       QString());
 
@@ -640,12 +592,10 @@ void KeyringScopeTest::anAdoptedSessionNoLongerFollowsTheSharedItem()
 void KeyringScopeTest::aNonOwnerNeverTakesOrDeletesAnotherInstallsItems()
 {
     FakeKeyring keyring;
-    // The .deb signed in with this build.
     SharedKeyringStore debStore(&keyring);
     auto deb = openInstall(QStringLiteral("keyring-deb"), &debStore);
     deb->saveSession(kHs, kUser, QStringLiteral("DEBDEV"),
                      QStringLiteral("deb-access"));
-    // The Flatpak remembers the account but has no token of its own.
     seedOlderRecord(QStringLiteral("keyring-flatpak"), kUser,
                     QStringLiteral("FLATPAKDEV"), QStringLiteral("password"));
     SharedKeyringStore flatpakStore(&keyring);
@@ -653,14 +603,11 @@ void KeyringScopeTest::aNonOwnerNeverTakesOrDeletesAnotherInstallsItems()
 
     QVERIFY(flatpak->accessTokenFor(kUser).isEmpty());
     QVERIFY(!flatpak->hasSession());
-    // A conclusive miss: the keyring answered.
     QVERIFY(!flatpak->secretBackendUnavailable());
 
     QVERIFY(flatpak->clearSessionForAccount(kUser));
     QCOMPARE(deb->accessTokenFor(kUser), QStringLiteral("deb-access"));
 
-    // An install with no record for an account never copies its shared item,
-    // and its sign-outs never delete it.
     const QString other = QStringLiteral("@someone:keyring.example");
     olderBuildSignsIn(keyring, other, QStringLiteral("other-access"),
                       QString(), QString());
@@ -686,8 +633,6 @@ void KeyringScopeTest::aSignInByThisBuildNeverFallsBackToTheSharedItem()
     auto flatpak = openInstall(QStringLiteral("keyring-flatpak"), &store);
     flatpak->saveSession(kHs, kUser, QStringLiteral("FLATPAKDEV"),
                          QStringLiteral("flatpak-access"));
-    // The item is lost (removed by hand, say) while an older build's item for
-    // the same account sits in the keyring.
     QVERIFY(store.deleteSecret(kUser, QStringLiteral("accessToken")));
     olderBuildSignsIn(keyring, kUser, QStringLiteral("deb-access"), QString(),
                       QString());
@@ -709,11 +654,9 @@ void KeyringScopeTest::aLockedKeyringDuringTheUpgradeIsTransient()
     SharedKeyringStore store(&keyring);
     auto flatpak = openInstall(QStringLiteral("keyring-flatpak"), &store);
     QCOMPARE(keyring.items.size(), 3);
-    // Cannot tell, which is not "signed out" (CLAUDE.md §6).
     QVERIFY(flatpak->accessTokenFor(kUser).isEmpty());
     QVERIFY(flatpak->secretBackendUnavailable());
 
-    // Unlocked later in the same run: the first read adopts.
     keyring.locked = false;
     QCOMPARE(flatpak->accessTokenFor(kUser), QStringLiteral("legacy-access"));
     QVERIFY(!flatpak->secretBackendUnavailable());
@@ -733,30 +676,23 @@ void KeyringScopeTest::aTokenRefreshBeforeTheCopyKeepsTheWholeSession()
                       QStringLiteral("legacy-refresh"),
                       QStringLiteral("legacy-client"));
     SharedKeyringStore store(&keyring);
-    // The keyring refuses writes at startup, so nothing is copied yet.
     store.failStores = true;
     auto flatpak = openInstall(QStringLiteral("keyring-flatpak"), &store);
     store.failStores = false;
 
-    // The SDK rotates the tokens before anything else reads them.
     QVERIFY(flatpak->updateSessionTokens(kUser, QStringLiteral("rotated-access"),
                                          QStringLiteral("rotated-refresh")));
 
     QCOMPARE(flatpak->accessTokenFor(kUser), QStringLiteral("rotated-access"));
     QCOMPARE(flatpak->refreshTokenFor(kUser), QStringLiteral("rotated-refresh"));
-    // The registration the rotated tokens belong to came along.
     QCOMPARE(keyring.value(scopedAttrs(kUser, QStringLiteral("oauthClientId"),
                                        store.installScope())),
              QStringLiteral("legacy-client"));
     QCOMPARE(flatpak->oauthClientIdFor(kUser), QStringLiteral("legacy-client"));
-    // The shared item keeps what it had.
     QCOMPARE(keyring.value(legacyAttrs(kUser, QStringLiteral("accessToken"))),
              QStringLiteral("legacy-access"));
 }
 
-// Before scoping, sign-out deleted the shared item. An adopted session must
-// still take the copy of its own token with it: the server logout can fail and
-// a local reset never logs out, so leaving it would keep a live token at rest.
 void KeyringScopeTest::signingOutOfAnAdoptedSessionRemovesTheSharedCopyOfItsToken()
 {
     FakeKeyring keyring;
@@ -787,7 +723,6 @@ void KeyringScopeTest::aCopyThatCannotBeWrittenStillReadsTheSharedItem()
     store.failStores = true;
     auto flatpak = openInstall(QStringLiteral("keyring-flatpak"), &store);
 
-    // Still signed in, as before the update: never reported as gone.
     QVERIFY(flatpak->hasSession());
     QCOMPARE(flatpak->accessToken(), QStringLiteral("legacy-access"));
     QCOMPARE(flatpak->refreshTokenFor(kUser), QStringLiteral("legacy-refresh"));
@@ -807,8 +742,6 @@ void KeyringScopeTest::aCopyInterruptedPartWayKeepsReadingOneWholeSession()
     store.failKey = QStringLiteral("refreshToken");
     auto flatpak = openInstall(QStringLiteral("keyring-flatpak"), &store);
 
-    // The access token is copied last, so a copy that stopped part way leaves
-    // none, and every key still comes from the one session that is whole.
     QVERIFY(keyring.value(scopedAttrs(kUser, QStringLiteral("accessToken"),
                                       store.installScope()))
                 .isEmpty());
@@ -817,10 +750,6 @@ void KeyringScopeTest::aCopyInterruptedPartWayKeepsReadingOneWholeSession()
     QCOMPARE(flatpak->oauthClientIdFor(kUser), QStringLiteral("legacy-client"));
 }
 
-// A release AppImage and a development .deb share one data root, so they are
-// one install. When an older build signs in again it changes the record's
-// device and writes only the shared item: the items this build left for the
-// previous device must not be read for the new one.
 void KeyringScopeTest::anOlderBuildSigningInAgainIsNeverHandedTheStaleToken()
 {
     FakeKeyring keyring;
@@ -830,7 +759,6 @@ void KeyringScopeTest::anOlderBuildSigningInAgainIsNeverHandedTheStaleToken()
                      QStringLiteral("new-build-access"));
     deb.reset();
 
-    // The older build signs in again on the same record.
     useInstall(QStringLiteral("keyring-deb"));
     {
         QSettings raw;
@@ -851,7 +779,6 @@ void KeyringScopeTest::anOlderBuildSigningInAgainIsNeverHandedTheStaleToken()
                          QStringLiteral("keyringDevice")),
              QStringLiteral("OLDBUILDDEV"));
 
-    // And with no shared item to take, the stale token is still not handed out.
     restarted.reset();
     olderBuildSignsOut(keyring, kUser);
     useInstall(QStringLiteral("keyring-deb"));
@@ -879,7 +806,6 @@ void KeyringScopeTest::signingOutLeavesASharedItemHoldingAnotherToken()
                       QStringLiteral("legacy-client"));
     SharedKeyringStore store(&keyring);
     auto flatpak = openInstall(QStringLiteral("keyring-flatpak"), &store);
-    // A .deb not yet updated signs in afterwards: the shared item is its now.
     olderBuildSignsIn(keyring, kUser, QStringLiteral("deb-access"),
                       QStringLiteral("deb-refresh"), QStringLiteral("deb-client"));
 
@@ -905,14 +831,6 @@ void KeyringScopeTest::aStoreInsideOneInstallIsNotScoped()
     QVERIFY(installIdOf(QStringLiteral("keyring-deb")).isEmpty());
 }
 
-// The access token names the stored pair: the retiring handle writes its
-// last rotation back only over the access token it last wrote itself
-// (RustSdkMatrixClient::persistRetiredSessionTokens). updateSessionTokens()
-// wrote the access token first, so a keyring that took it and then refused
-// the refresh token held the NEW access token over the CONSUMED refresh token;
-// the write-back took that for someone else's newer sign-in and stood aside,
-// and the next start presented the consumed refresh token, which an OAuth
-// server refuses as signed out. Fails on the old order.
 void KeyringScopeTest::aRefusedRefreshTokenWriteLeavesTheWholeOldPair()
 {
     FakeKeyring keyring;
@@ -928,7 +846,6 @@ void KeyringScopeTest::aRefusedRefreshTokenWriteLeavesTheWholeOldPair()
     QCOMPARE(install->accessTokenFor(kUser), QStringLiteral("access-0"));
     QCOMPARE(install->refreshTokenFor(kUser), QStringLiteral("refresh-0"));
 
-    // Once the keyring takes it, the pair moves together.
     store.failKey.clear();
     QVERIFY(install->updateSessionTokens(kUser, QStringLiteral("access-1"),
                                          QStringLiteral("refresh-1")));
@@ -936,13 +853,6 @@ void KeyringScopeTest::aRefusedRefreshTokenWriteLeavesTheWholeOldPair()
     QCOMPARE(install->refreshTokenFor(kUser), QStringLiteral("refresh-1"));
 }
 
-// libsecret keeps a sandbox's items in a FILE keyring while the Secret portal
-// answers and in the Secret Service when it does not, chosen per process. A
-// sign-in written under one and looked for under the other reads as lost
-// (docs/open-items.md, "Record which libsecret backend holds each account's
-// items"). This records the kind on every write and says, once, when a launch
-// reads the other one, so a report can tell that from a keyring that really
-// lost the sign-in. It changes no decision.
 void KeyringScopeTest::aSignInRecordsTheKeyringThatHoldsItAndALaunchReadingAnotherSaysSo()
 {
     FakeKeyring keyring;
@@ -954,7 +864,6 @@ void KeyringScopeTest::aSignInRecordsTheKeyringThatHoldsItAndALaunchReadingAnoth
     QCOMPARE(flatpak->keyringBackendFor(kUser), QStringLiteral("file"));
     QVERIFY(!flatpak->keyringBackendChanged(kUser));
 
-    // The next launch's portal did not answer.
     store.kind = QStringLiteral("service");
     QVERIFY(flatpak->keyringBackendChanged(kUser));
     QTest::ignoreMessage(
@@ -963,15 +872,12 @@ void KeyringScopeTest::aSignInRecordsTheKeyringThatHoldsItAndALaunchReadingAnoth
             "sign-in was last saved in another keyring.*saved_in= \"?file\"? "
             "reading= \"?service\"?")));
     flatpak->accessTokenFor(kUser);
-    // Once per account and process, however often it is read.
     flatpak->accessTokenFor(kUser);
 
-    // A rotation written under the new one records it.
     QVERIFY(flatpak->updateSessionTokens(kUser, QStringLiteral("rotated"), QString()));
     QCOMPARE(flatpak->keyringBackendFor(kUser), QStringLiteral("service"));
     QVERIFY(!flatpak->keyringBackendChanged(kUser));
 
-    // A store with one backend records nothing.
     PerInstallStore single;
     auto deb = openInstall(QStringLiteral("keyring-deb"), &single);
     deb->saveSession(kHs, kUser, QStringLiteral("DEBDEV"), QStringLiteral("deb-access"));
@@ -999,12 +905,8 @@ int scopedItemsFor(const FakeKeyring &keyring, const QString &userId)
     }
     return count;
 }
-} // namespace
+}
 
-// The F1 sequence: the first launch's portal did not answer, so libsecret kept
-// the sign-in in the Secret Service; the relaunch's portal answered, so
-// libsecret's own choice is the (empty) file keyring. Reading that showed "Fix
-// this account" for a sign-in that was never gone.
 void KeyringScopeTest::aSignInTheSecretServiceHoldsIsReadThereWhenALaterLaunchGetsTheFileKeyring()
 {
     FakeKeyring file;
@@ -1030,19 +932,15 @@ void KeyringScopeTest::aSignInTheSecretServiceHoldsIsReadThereWhenALaterLaunchGe
                 "it was saved")));
         QCOMPARE(launch->accessTokenFor(kUser), QStringLiteral("access-0"));
         QVERIFY(!launch->secretBackendUnavailable());
-        // Every key of the account, not only the access token.
         QCOMPARE(launch->refreshTokenFor(kUser), QStringLiteral("refresh-0"));
         QCOMPARE(launch->oauthClientIdFor(kUser), QStringLiteral("client"));
 
-        // A rotation stays beside the sign-in it replaces, so no keyring is
-        // left holding a consumed refresh token for the next launch to read.
         QVERIFY(launch->updateSessionTokens(kUser, QStringLiteral("access-1"),
                                             QStringLiteral("refresh-1")));
         QCOMPARE(launch->keyringBackendFor(kUser), QStringLiteral("service"));
         QCOMPARE(scopedItemsFor(file, kUser), 0);
     }
 
-    // And a launch whose portal is gone again reads the same sign-in.
     {
         SandboxKeyringStore store(&file, &service, QStringLiteral("service"));
         auto launch = openInstall(kFlatpak, &store);
@@ -1051,10 +949,6 @@ void KeyringScopeTest::aSignInTheSecretServiceHoldsIsReadThereWhenALaterLaunchGe
     }
 }
 
-// The other direction: the file keyring's key comes only from the portal, so a
-// launch whose portal did not answer cannot read it. That is a keyring that
-// cannot answer (the "unlock and try again" notice), never a lost sign-in: the
-// lost-sign-in card keys on secretBackendUnavailable() being false.
 void KeyringScopeTest::aSignInTheFileKeyringHoldsIsUnreadableNotLostWhenThePortalDidNotAnswer()
 {
     FakeKeyring file;
@@ -1081,14 +975,12 @@ void KeyringScopeTest::aSignInTheFileKeyringHoldsIsUnreadableNotLostWhenThePorta
         QVERIFY2(launch->secretBackendUnavailable(),
                  "a sign-in this launch cannot reach read as gone");
         QVERIFY(launch->secretsWrittenHereForRecordedDevice(kUser));
-        // Nothing recorded moves, and nothing claims to have been removed.
         QCOMPARE(launch->keyringBackendFor(kUser), QStringLiteral("file"));
         QVERIFY(!store.clearAccountSecrets(kUser));
         QVERIFY(!store.lastError().isEmpty());
     }
     QCOMPARE(scopedItemsFor(file, kUser), fileItems);
 
-    // The portal is back: the sign-in is exactly where it was.
     {
         SandboxKeyringStore store(&file, &service, QStringLiteral("file"));
         auto launch = openInstall(kFlatpak, &store);
@@ -1097,9 +989,6 @@ void KeyringScopeTest::aSignInTheFileKeyringHoldsIsUnreadableNotLostWhenThePorta
     }
 }
 
-// The recorded Secret Service is not running yet (still starting at login, or
-// its wallet locked): the read cannot answer, which is transient, and a read
-// once it is up finds the sign-in in the same process ("Try again").
 void KeyringScopeTest::aSecretServiceNotUpYetIsTransientAndTheNextReadFindsTheSignIn()
 {
     FakeKeyring file;
@@ -1123,9 +1012,6 @@ void KeyringScopeTest::aSecretServiceNotUpYetIsTransientAndTheNextReadFindsTheSi
     QVERIFY(!launch->secretBackendUnavailable());
 }
 
-// Sign-out deletes the store that was in use (CLAUDE.md §6), and for an
-// account read past the file keyring that is the Secret Service; the file
-// keyring is cleared too, whatever it holds of the account.
 void KeyringScopeTest::signingOutOfAnAccountReadPastTheFileKeyringClearsBothKeyrings()
 {
     FakeKeyring file;
@@ -1138,7 +1024,6 @@ void KeyringScopeTest::signingOutOfAnAccountReadPastTheFileKeyringClearsBothKeyr
     }
     SandboxKeyringStore store(&file, &service, QStringLiteral("file"));
     auto launch = openInstall(kFlatpak, &store);
-    // Something of the account's in the file keyring as well.
     file.store(scopedAttrs(kUser, QStringLiteral("mediaStoreKey"), store.installScope()),
                QStringLiteral("stray"));
 
@@ -1147,10 +1032,6 @@ void KeyringScopeTest::signingOutOfAnAccountReadPastTheFileKeyringClearsBothKeyr
     QCOMPARE(scopedItemsFor(file, kUser), 0);
 }
 
-// A password sign-in written before the backend was recorded never rewrites
-// its tokens, so it would never be recorded and a later launch on the other
-// backend could not tell where it is. Found where this launch reads it, it is
-// recorded there.
 void KeyringScopeTest::aSignInSavedBeforeTheRecordIsRecordedWhereItIsFound()
 {
     FakeKeyring file;
@@ -1162,7 +1043,6 @@ void KeyringScopeTest::aSignInSavedBeforeTheRecordIsRecordedWhereItIsFound()
                             QStringLiteral("service-access"));
     }
     {
-        // As a build from before the record left it.
         useInstall(kFlatpak);
         QSettings raw;
         raw.remove(QStringLiteral("accounts/")

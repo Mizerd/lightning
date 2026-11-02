@@ -8,62 +8,32 @@
 
 #include "matrix/MatrixClient.h"
 
-/// A room's media, files and links, browsed independently of the timeline via
-/// its own backwards walk (rust/src/mediahistory.rs), so older attachments are
-/// reachable without moving the reader.
-///
-/// Completeness is reported, never implied: `loadedCount` is not a total;
-/// `complete` means the walk reached the start of accessible history;
-/// `scannedTotal` counts events examined; `undecryptableCount` counts history
-/// that exists but cannot be read.
-///
-/// Filters run over what has been loaded (the server cannot filter encrypted
-/// rooms), and the UI says how much history a filtered view has seen.
 class MediaHistoryModel : public QAbstractListModel
 {
     Q_OBJECT
 
-    /// The room being browsed. Setting it restarts the walk.
     Q_PROPERTY(QString roomId READ roomId WRITE setRoomId NOTIFY roomIdChanged)
-    /// "" (everything) or one of image/video/audio/voice/file/sticker/link/gif.
-    /// "media" is the combined visual view: image + video (GIFs included).
-    /// "gif" selects the GIF-flagged image and video rows, which also stay in
-    /// the image and video views.
     Q_PROPERTY(QString category READ category WRITE setCategory
                    NOTIFY filtersChanged)
-    /// A Matrix user id, or "" for every sender.
     Q_PROPERTY(QString senderFilter READ senderFilter WRITE setSenderFilter
                    NOTIFY filtersChanged)
-    /// Matches filename, caption/body, sender, link URL and host, and mimetype.
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY filtersChanged)
-    /// Day bounds in the viewer's LOCAL time zone, or invalid for "no bound".
-    /// Only the calendar day of each value matters: a message is kept when its
-    /// local day is from <= day <= to, i.e. `fromDate` means the START of its
-    /// day and `toDate` the END of its day (23:59:59.999), so picking the same
-    /// day twice shows that whole day.
     Q_PROPERTY(QDateTime fromDate READ fromDate WRITE setFromDate
                    NOTIFY filtersChanged)
     Q_PROPERTY(QDateTime toDate READ toDate WRITE setToDate
                    NOTIFY filtersChanged)
 
     Q_PROPERTY(bool loading READ loading NOTIFY stateChanged)
-    /// A "show all" walk is running: pages follow each other until the start
-    /// of history, the page budget, an error, or cancelWalk().
     Q_PROPERTY(bool walking READ walking NOTIFY stateChanged)
-    /// The walk reached the start of accessible history.
     Q_PROPERTY(bool complete READ complete NOTIFY stateChanged)
-    /// The backend cannot walk history at all (no Rust backend).
     Q_PROPERTY(bool available READ available NOTIFY availableChanged)
     Q_PROPERTY(bool encryptedRoom READ encryptedRoom NOTIFY stateChanged)
-    /// Rows currently shown, after filters.
     Q_PROPERTY(int shownCount READ shownCount NOTIFY countsChanged)
-    /// Rows held, before filters.
     Q_PROPERTY(int loadedCount READ loadedCount NOTIFY countsChanged)
     Q_PROPERTY(qint64 scannedTotal READ scannedTotal NOTIFY countsChanged)
     Q_PROPERTY(qint64 undecryptableCount READ undecryptableCount
                    NOTIFY countsChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY stateChanged)
-    /// Every sender seen so far, for the sender filter's menu.
     Q_PROPERTY(QStringList knownSenders READ knownSenders NOTIFY countsChanged)
 
 public:
@@ -76,8 +46,6 @@ public:
         FilenameRole,
         MimetypeRole,
         SizeRole,
-        /// The event's declared pixel size ("mediaWidth"/"mediaHeight"), 0
-        /// when it declares none.
         WidthRole,
         HeightRole,
         DurationMsRole,
@@ -87,8 +55,6 @@ public:
         MediaKeyRole,
         UrlRole,
         HostRole,
-        /// "Today" / "Yesterday" / "This week" / "March 2026" / "Older",
-        /// resolved against the viewer's own locale and time zone.
         DateGroupRole,
     };
     Q_ENUM(Roles)
@@ -97,9 +63,6 @@ public:
 
     void setClient(MatrixClient *client);
 
-    // The date groups are words in the UI language ("Yesterday", "October
-    // 2026"), made in data(); a language switch re-reads them. AppController
-    // calls it on AppLocale::changed.
     void retranslate();
 
     int rowCount(const QModelIndex &parent = {}) const override;
@@ -118,11 +81,7 @@ public:
     void setFromDate(const QDateTime &from);
     QDateTime toDate() const { return m_to; }
     void setToDate(const QDateTime &to);
-    /// Both bounds from "YYYY-MM-DD" text ("" = no bound), in one rebuild.
-    /// False, changing nothing, when a non-empty value is not a real calendar
-    /// date or `from` is after `to`.
     Q_INVOKABLE bool setDateRange(const QString &from, const QString &to);
-    /// The bounds as the matcher applies them (epoch ms; -1 = unbounded).
     qint64 fromBoundMs() const;
     qint64 toBoundMs() const;
 
@@ -130,9 +89,6 @@ public:
     bool complete() const { return m_complete; }
     bool walking() const { return m_walking; }
 
-    /// Pages one "show all" walk may fetch before it stops and offers to
-    /// continue (60 events each), and pages a view that is not yet filled may
-    /// fetch on its own.
     static constexpr int kMaxWalkPages = 50;
     static constexpr int kMaxFillPages = 8;
     bool available() const;
@@ -148,27 +104,15 @@ public:
     /// is complete, so a view that calls it on every scroll cannot storm the
     /// homeserver.
     Q_INVOKABLE void loadMore();
-    /// "Show all media": keep fetching pages back-to-back, bounded by
-    /// kMaxWalkPages, until the start of history, an error or cancelWalk().
     Q_INVOKABLE void loadAll();
     /// Stop a loadAll() walk. A page already requested still lands (there is
     /// no cancel verb on the wire) but nothing further is asked for.
     Q_INVOKABLE void cancelWalk();
-    /// For a view whose content does not yet fill it, and which therefore can
-    /// never scroll to ask for more: fetch one more page, at most
-    /// kMaxFillPages in a row (reset when the filters or the room change).
     Q_INVOKABLE void fillViewport();
-    /// Begin again at the live edge — for a manual refresh.
     Q_INVOKABLE void reload();
-    /// The row's entry as a map, for handing to the media/jump paths.
     Q_INVOKABLE QVariantMap entryAt(int row) const;
 
-    /// Every shown image row, in view order, shaped like
-    /// TimelineModel::imageEntries(). The image viewer takes this list and an
-    /// index, since this model reaches media the timeline never loaded.
     Q_INVOKABLE QVariantList imageEntries() const;
-    /// Index into imageEntries() of shown row `row`, or -1 if it is not an
-    /// image. Computed here so ordering cannot disagree with QML.
     Q_INVOKABLE int imageIndexForRow(int row) const;
 
 Q_SIGNALS:
@@ -193,13 +137,10 @@ private:
         qint64 durationMs = 0;
         QString mxc;
         QString thumbnailMxc;
-        /// Media registry key a tile fetches through (the event id as the Rust
-        /// scanner registered it); empty for rows without a source.
         QString mediaKey;
         bool encrypted = false;
         QString url;
         QString host;
-        /// An image/video that is a GIF as a GIF picker sends it.
         bool gif = false;
     };
 
@@ -220,10 +161,9 @@ private:
     QDateTime m_from;
     QDateTime m_to;
 
-    QVector<Entry> m_all;      // everything loaded, newest first
-    QVector<int> m_shown;      // indices into m_all that pass the filters
+    QVector<Entry> m_all;
+    QVector<int> m_shown;
     quint64 m_pendingOp = 0;
-    // The next page request starts a fresh walk (set by clearAll()).
     bool m_restartNext = true;
     bool m_complete = false;
     bool m_walking = false;
@@ -233,7 +173,5 @@ private:
     qint64 m_scannedTotal = 0;
     qint64 m_undecryptable = 0;
     QString m_lastError;
-    /// Guards against duplicates: pages can overlap, and a link event yields
-    /// one row per URL.
     QSet<QString> m_seen;
 };

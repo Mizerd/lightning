@@ -1,12 +1,3 @@
-// C38 round 1: the three composer completion popups (slash, mention, emoji).
-// Behavior, on the real QML loaded offscreen:
-//  - hovering a row highlights it, so the row a click accepts is the row that
-//    is drawn selected (Slash and Emoji had no hover at all);
-//  - the wheel handler is the timeline's SmoothWheelArea on all three lists;
-//  - a popup whose anchor is below a shrunken window stays inside it;
-//  - a long mention display name elides (RichText ignores elide);
-//  - the emoji popup is named for assistive technology and carries the shared
-//    header and Return keycap.
 
 #include "models/MentionSuggestionModel.h"
 #include "matrix/MockMatrixClient.h"
@@ -110,7 +101,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class CompletionPopupsPolishTest : public QObject
 {
@@ -200,8 +191,6 @@ private Q_SLOTS:
         delete s.root;
     }
 
-    // Review r1 item 2: a pointer parked on the popup must not steal the
-    // keyboard's selection when the list scrolls under it.
     void keyboardAdvancesMonotonicallyUnderAParkedPointer()
     {
         FakeAppContext app;
@@ -219,10 +208,9 @@ private Q_SLOTS:
             QTRY_COMPARE_WITH_TIMEOUT(popup->property("currentIndex").toInt(), 1, 3000);
             const int rows = slash ? 8 : 3;
             int last = 1;
-            // Exactly one row per key press down to the last row (no wrap).
             for (int i = 1; i < rows - 1; ++i) {
                 QVERIFY(QMetaObject::invokeMethod(popup, "moveDown"));
-                QTest::qWait(60); // let a re-issued hover land
+                QTest::qWait(60);
                 QCOMPARE(popup->property("currentIndex").toInt(), last + 1);
                 ++last;
             }
@@ -274,7 +262,6 @@ private Q_SLOTS:
         for (const char *name : {"slash", "emoji", "mention"}) {
             auto *popup = s.root->findChild<QObject *>(QString::fromLatin1(name));
             QVERIFY(popup);
-            // The composer's anchor was recorded at a taller window.
             popup->setProperty("anchorInputTop", QPointF(20, 900));
             QVERIFY(QMetaObject::invokeMethod(popup, "open"));
             QTRY_VERIFY(popup->property("opened").toBool());
@@ -317,8 +304,6 @@ private Q_SLOTS:
         QVERIFY(s.root->findChild<QQuickItem *>(
             QStringLiteral("emojiCompletionPopupHeader")));
         auto *row1 = rowAt(s.root, "emojiCompletionList", 1);
-        // Accessible.* attached properties are not readable as properties;
-        // the row is named through QAccessible instead.
         QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(row1);
         QVERIFY(iface);
         QVERIFY2(iface->text(QAccessible::Name).contains(QStringLiteral(":two:")),

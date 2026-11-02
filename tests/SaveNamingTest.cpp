@@ -1,11 +1,3 @@
-// savenaming: the name an attachment is saved under, its extension, the
-// "name (1).ext" numbering of Element's download flow, and which files are
-// never opened from Lightning.
-//
-// Reported 2026-10-06: "downloading files doesn't prefill their names or file
-// formats". The save dialog was handed "file:///<leaf>" with no folder and no
-// type, and a name the sender sent without an extension ("photo", a voice
-// message's "Voice message") was offered without one.
 
 #include "app/SaveNaming.h"
 
@@ -61,13 +53,10 @@ private Q_SLOTS:
         QCOMPARE(extensionOf(QStringLiteral("report.PDF")), QStringLiteral("pdf"));
         QCOMPARE(extensionOf(QStringLiteral("logs.tar.gz")),
                  QStringLiteral("tar.gz"));
-        // A date is not an extension.
         QCOMPARE(extensionOf(QStringLiteral("Screenshot 2026.10.06")), QString());
         QCOMPARE(extensionOf(QStringLiteral("photo")), QString());
     }
 
-    // The prefill: the sender's name, sanitized, with the type's extension
-    // when it has none.
     void theSuggestedNameKeepsTheNameAndAddsTheMissingExtension_data()
     {
         QTest::addColumn<QString>("raw");
@@ -80,12 +69,8 @@ private Q_SLOTS:
                                        << "Voice message.ogg";
         QTest::newRow("dotted date") << "Screenshot 2026.10.06" << "image/png"
                                      << "Screenshot 2026.10.06.png";
-        // A sender's own extension is kept even when the type disagrees: the
-        // name is what they chose, and the type is no more trustworthy.
         QTest::newRow("sender extension kept") << "scan.png" << "image/jpeg"
                                                << "scan.png";
-        // An unrecognised suffix is the sender's own: no ".txt" on top, and
-        // the dialog then offers All files alone (B072).
         QTest::newRow("unknown suffix kept") << "weird name.xyz" << "text/plain"
                                              << "weird name.xyz";
         QTest::newRow("no name, image") << "" << "image/webp" << "image.webp";
@@ -100,7 +85,6 @@ private Q_SLOTS:
         QTest::newRow("windows reserved chars") << "a<b>c:d|e?f*.txt" << ""
                                                 << "a_b_c_d_e_f_.txt";
         QTest::newRow("device name") << "con.txt" << "" << "file-con.txt";
-        // Win32 drops the spaces before a stem reaches the device lookup.
         QTest::newRow("device name, trailing-space stem") << "CON .txt" << ""
                                                           << "file-CON .txt";
         QTest::newRow("device name, several spaces") << "nul   .txt" << ""
@@ -130,14 +114,12 @@ private Q_SLOTS:
         QVERIFY(bare.endsWith(QStringLiteral(".png")));
     }
 
-    // "never let the user lose the extension silently"
     void anExtensionTheUserDeletesComesBack()
     {
         QCOMPARE(ensureExtension(QStringLiteral("holiday"), QStringLiteral("jpg")),
                  QStringLiteral("holiday.jpg"));
         QCOMPARE(ensureExtension(QStringLiteral("holiday."), QStringLiteral("jpg")),
                  QStringLiteral("holiday.jpg"));
-        // A different extension is a choice, not a loss.
         QCOMPARE(ensureExtension(QStringLiteral("holiday.png"),
                                  QStringLiteral("jpg")),
                  QStringLiteral("holiday.png"));
@@ -184,10 +166,8 @@ private Q_SLOTS:
                               "h.app", "i.dmg", "j.pkg", "k.deb", "l.rpm",
                               "m.apk", "n.scr", "o.com", "p.lnk", "q.py",
                               "r.command", "invoice.pdf.exe", "evil.exe.",
-                              // active content in a browser
                               "page.html", "page.HTM", "a.xhtml", "b.mht",
                               "c.mhtml", "logo.svg",
-                              // containers that shed mark-of-the-web
                               "disk.iso", "disk.img", "disk.vhd", "disk.vhdx"})
             QTest::newRow(n) << QString::fromLatin1(n) << QString() << true;
         QTest::newRow("no extension") << "README" << "" << true;
@@ -225,7 +205,6 @@ private Q_SLOTS:
         file.write("PK");
         file.close();
 #if defined(Q_OS_WIN)
-        // Best effort: a temp dir on a volume without streams may refuse.
         if (markAsDownloaded(file.fileName())) {
             QFile stream(file.fileName() + QStringLiteral(":Zone.Identifier"));
             QVERIFY(stream.open(QIODevice::ReadOnly));
@@ -234,13 +213,10 @@ private Q_SLOTS:
 #else
         QVERIFY(!markAsDownloaded(file.fileName()));
 #endif
-        // The file itself is never altered.
         QVERIFY(file.open(QIODevice::ReadOnly));
         QCOMPARE(file.readAll(), QByteArray("PK"));
     }
 
-    // Element's desktop save dialog says what the file is, then offers all
-    // files.
     void theSaveDialogFiltersNameTheType()
     {
         QCOMPARE(saveDialogFilters(QStringLiteral("report.pdf")),
@@ -253,22 +229,15 @@ private Q_SLOTS:
                  QStringList{QStringLiteral("All files (*)")});
     }
 
-    // Reported 2026-10-07 from the Ubuntu 26 snap: a download saved through
-    // the portal's Save dialog said "Saved to fd37b80a", the document
-    // portal's id for the file, and Show in folder opened nothing. The
-    // Flatpak takes the same path.
     void documentPortalPathsAreRecognised_data()
     {
         QTest::addColumn<QString>("path");
         QTest::addColumn<QString>("runtimeDir");
         QTest::addColumn<bool>("portal");
         QTest::addColumn<QString>("docId");
-        // The folder named with no host path, and with the real one
-        // ("/home/someone/Downloads/report.pdf").
         QTest::addColumn<QString>("folder");
         QTest::addColumn<QString>("folderWithHost");
 
-        // A Snap's runtime dir is its own; the doc mount is not under it.
         QTest::newRow("snap")
             << "/run/user/1000/doc/fd37b80a/report.pdf"
             << "/run/user/1000/snap.lightning" << true << "fd37b80a" << ""
@@ -276,8 +245,6 @@ private Q_SLOTS:
         QTest::newRow("flatpak")
             << "/run/user/1000/doc/fd37b80a/report.pdf" << "/run/user/1000"
             << true << "fd37b80a" << "" << "Downloads";
-        // MediaBridge canonicalizes the parent, and in a Flatpak
-        // /run/user/<uid>/doc is a symlink to this.
         QTest::newRow("flatpak, resolved")
             << "/run/flatpak/doc/fd37b80a/report.pdf" << "/run/user/1000"
             << true << "fd37b80a" << "" << "Downloads";
@@ -295,14 +262,12 @@ private Q_SLOTS:
             << "" << "Downloads";
         QTest::newRow("the mount itself")
             << "/run/user/1000/doc" << "" << true << "" << "" << "Downloads";
-        // Not the portal: the parent folder, whatever host path is given.
         QTest::newRow("ordinary file")
             << "/home/someone/Downloads/report.pdf" << "/run/user/1000"
             << false << "" << "Downloads" << "Downloads";
         QTest::newRow("docs, not doc")
             << "/run/user/1000/docs/report.pdf" << "/run/user/1000" << false
             << "" << "docs" << "docs";
-        // The old test ("/run/user/" and "/doc/" anywhere) took this one.
         QTest::newRow("a share with a doc folder")
             << "/run/user/1000/gvfs/smb-share:server=nas,share=files/doc/a.pdf"
             << "/run/user/1000" << false << "" << "doc" << "doc";
@@ -333,8 +298,6 @@ private Q_SLOTS:
                  folderWithHost);
     }
 
-    // A "host path" that is itself in the mount, or relative, names nothing
-    // better than the id did: still no folder.
     void aHostPathInsideTheMountIsNotARealFolder()
     {
         const QString path = QStringLiteral("/run/user/1000/doc/fd37b80a/a.pdf");

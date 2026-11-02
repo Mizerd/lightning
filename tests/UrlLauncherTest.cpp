@@ -2,12 +2,6 @@
 
 #include "app/UrlLauncher.h"
 
-// The environment a spawned browser gets.
-//
-// QDesktopServices::openUrl() spawns xdg-open, which inherits this process's
-// environment. Inside an AppImage LD_LIBRARY_PATH puts $APPDIR/usr/lib first,
-// so a browser would load the bundle's glib/gio and never start. Asserted on
-// the environment rather than by launching a browser.
 class UrlLauncherTest : public QObject
 {
     Q_OBJECT
@@ -23,8 +17,6 @@ private:
     };
 
 private Q_SLOTS:
-    // Outside an AppImage nothing may be stripped: a normal install must
-    // behave exactly as every previous release did.
     void outsideAnAppImageTheEnvironmentIsUntouched()
     {
         qunsetenv("APPDIR");
@@ -49,9 +41,6 @@ private Q_SLOTS:
                  QStringLiteral("/host/lib"));
     }
 
-    // The session had no LD_LIBRARY_PATH: the variable must be REMOVED, not set
-    // to "". An empty entry is read by the loader as the current directory,
-    // which is both wrong and a place an attacker may be able to write.
     void anEmptyOriginalRemovesTheVariableRatherThanEmptyingIt()
     {
         EnvGuard guard;
@@ -63,8 +52,6 @@ private Q_SLOTS:
                  "an empty LD_LIBRARY_PATH entry means the current directory");
     }
 
-    // Every variable that points into the mount is stripped: the mount does
-    // not outlive Lightning.
     void bundleOnlyVariablesAreStripped()
     {
         EnvGuard guard;
@@ -86,9 +73,6 @@ private Q_SLOTS:
         }
     }
 
-    // The AppRun hook saves the session's own value of every variable it
-    // overrides; a child gets that value back rather than nothing, and a
-    // saved EMPTY value still means "remove", never "set to empty".
     void theSessionsOwnLoaderVariablesAreRestoredForTheChild()
     {
         EnvGuard guard;
@@ -105,16 +89,12 @@ private Q_SLOTS:
         QVERIFY(!env.contains(QStringLiteral("APPIMAGE_ORIGINAL_GST_PLUGIN_PATH_1_0")));
     }
 
-    // An unusable URL must not spawn anything at all.
     void anInvalidUrlIsRefused()
     {
         QVERIFY(!lightning::urls::openExternally(QUrl()));
         QVERIFY(!lightning::urls::openExternally(QUrl(QStringLiteral(""))));
     }
 
-    // The one exit to ShellExecute / xdg-open allows web and mail links only,
-    // whatever the caller checked: file:, javascript:, data: and risky Windows
-    // protocol handlers are refused here.
     void onlyWebAndMailSchemesAreOpenable_data()
     {
         QTest::addColumn<QString>("url");

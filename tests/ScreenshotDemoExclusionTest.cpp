@@ -1,16 +1,3 @@
-// Production-exclusion contract for the development-only screenshot/demo mode.
-//
-// Runs the real lightning-matrix binary (path injected by CMake via
-// SCREENSHOT_DEMO_BINARY), the only way to prove what a user's binary does:
-//
-//   * --build-info always reports a machine-checkable `screenshot_demo_compiled`
-//     line whose value matches how the binary was compiled.
-//   * In a normal build (demo option OFF: the default test config and every
-//     packaged build) the flag is `false` and --screenshot-demo is rejected in
-//     preflight (exit 2) before any GUI/network/store is touched.
-//
-// Both invocations exit in preflight, so no display is needed. A
-// LIGHTNING_RUST_ONLY release cannot be compiled with the demo option at all.
 #include <QtTest/QtTest>
 
 #include <QProcess>
@@ -36,9 +23,6 @@ class ScreenshotDemoExclusionTest : public QObject
     {
         Run r;
         QProcess p;
-        // Preflight paths never construct QGuiApplication, but force offscreen
-        // defensively so a missing display can never turn a clean exit into a
-        // platform abort.
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
         env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
         p.setProcessEnvironment(env);
@@ -63,7 +47,6 @@ private Q_SLOTS:
     {
         const Run r = run({ QStringLiteral("--build-info") });
         QCOMPARE(r.exitCode, 0);
-        // The line is present and machine-checkable in every build.
 #ifdef LIGHTNING_TEST_DEMO_COMPILED
         QVERIFY2(r.out.contains(QStringLiteral("screenshot_demo_compiled: true")),
                  qUtf8Printable("expected true; got:\n" + r.out));
@@ -74,9 +57,6 @@ private Q_SLOTS:
     }
 
 #ifndef LIGHTNING_TEST_DEMO_COMPILED
-    // The core production-safety assertion: a build without the demo option
-    // rejects --screenshot-demo in preflight (exit 2), before any UI, network,
-    // or store access. This is the state of every release/default build.
     void screenshotDemoFlagRejectedWhenNotCompiled()
     {
         const Run r = run({ QStringLiteral("--screenshot-demo") });
@@ -84,12 +64,9 @@ private Q_SLOTS:
         QVERIFY2(r.err.contains(QStringLiteral("development-only")),
                  qUtf8Printable("expected a development-only rejection; got:\n"
                                 + r.err));
-        // It must NOT have started the app / printed the demo-active banner.
         QVERIFY(!r.out.contains(QStringLiteral("screenshot demo mode active")));
     }
 
-    // --help must not advertise the flag as available when it is not compiled;
-    // it documents it as a development build option only.
     void helpMentionsDevelopmentOnly()
     {
         const Run r = run({ QStringLiteral("--help") });
@@ -98,7 +75,6 @@ private Q_SLOTS:
         QVERIFY(r.out.contains(QStringLiteral("Development builds only")));
     }
 
-    // A production/normal build rejects every development-only demo argument.
     void demoArgumentsRejectedWhenNotCompiled()
     {
         const QStringList args = {
@@ -114,15 +90,12 @@ private Q_SLOTS:
             QVERIFY2(r.exitCode != 0,
                      qUtf8Printable("expected rejection for " + a
                                     + "; exit=" + QString::number(r.exitCode)));
-            // It must NOT have started the demo.
             QVERIFY(!r.out.contains(QStringLiteral("screenshot demo mode active")));
         }
     }
 #endif
 
 #ifdef LIGHTNING_TEST_DEMO_COMPILED
-    // In a demo build, invalid demo values are rejected in preflight (exit 2)
-    // before any GUI/network/store access.
     void invalidDemoScenarioRejectedInPreflight()
     {
         const Run r = run({ QStringLiteral("--screenshot-demo"),

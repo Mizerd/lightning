@@ -1,9 +1,3 @@
-// About page controller: the copyable version summary, the homeserver card,
-// "Reset local cache" and the read-only account-data browser.
-//
-// Reset must report partial failure honestly, and every answer is matched to
-// the request that asked for it, so a slow answer for one account never lands
-// under another.
 
 #include "app/AboutController.h"
 #include "matrix/MockMatrixClient.h"
@@ -38,7 +32,6 @@ public:
     bool reportsCacheCompaction() const override { return true; }
 };
 
-/// A reset whose two clears both succeeded, with 10 MiB of kept files removed.
 void clearBoth(ManualClient &client, AboutController &about)
 {
     about.resetLocalCache();
@@ -46,7 +39,6 @@ void clearBoth(ManualClient &client, AboutController &about)
     Q_EMIT client.storedMediaCleared(client.mediaOp, true, 3, 10LL << 20);
 }
 
-/// A backend that refuses every clear.
 class RefusingClient final : public MockMatrixClient
 {
     Q_OBJECT
@@ -64,7 +56,7 @@ QString readSource(const QString &relative)
     return QString::fromUtf8(file.readAll());
 }
 
-} // namespace
+}
 
 class AboutControllerTest : public QObject
 {
@@ -111,7 +103,6 @@ private Q_SLOTS:
         QCOMPARE(about.homeserverState(), QStringLiteral("loading"));
         QCOMPARE(client.homeserverInfoRequests, 1);
 
-        // An answer to some other request changes nothing.
         Q_EMIT client.homeserverInfoReceived(
             1, QVariantMap{{QStringLiteral("ok"), true}});
         QCOMPARE(about.homeserverState(), QStringLiteral("loading"));
@@ -125,8 +116,6 @@ private Q_SLOTS:
         QCOMPARE(hs.value(QStringLiteral("features")).toList().size(), 2);
     }
 
-    // A background refresh that fails must leave the list the reader has: it
-    // used to be replaced by "failed" and an empty device list.
     void aFailedRefreshKeepsTheOldAnswer()
     {
         MockMatrixClient client;
@@ -137,7 +126,7 @@ private Q_SLOTS:
         about.requestUserClients(user);
         QTRY_COMPARE(about.userClients(user).value(QStringLiteral("state")).toString(),
                      QStringLiteral("ready"));
-        about.requestUserClients(user);   // the refresh
+        about.requestUserClients(user);
         QCOMPARE(client.userClientRequests.size(), 2);
         // Fail whichever op it was, before the mock answers it.
         for (quint64 op = 0; op < 64; ++op)
@@ -168,7 +157,6 @@ private Q_SLOTS:
         QCOMPARE(devices.size(), 2);
         QCOMPARE(devices.at(0).toMap().value(QStringLiteral("name")).toString(),
                  QStringLiteral("Element Web: Firefox on Linux"));
-        // A user the store does not know is ready and empty, never guessed.
         const QString stranger = QStringLiteral("@nobody:mock.local");
         about.requestUserClients(stranger);
         QTRY_COMPARE(about.userClients(stranger).value(QStringLiteral("state")).toString(),
@@ -191,10 +179,8 @@ private Q_SLOTS:
         about.requestUserClients(user);
         QTRY_COMPARE(about.userClients(user).value(QStringLiteral("state")).toString(),
                      QStringLiteral("ready"));
-        // Inside the interval: coalesced.
         about.requestUserClients(user);
         QCOMPARE(client.userClientRequests.size(), 1);
-        // Past it: asked again, and the old answer stays on show meanwhile.
         QTest::qWait(120);
         const int rev = about.userClientsRevision();
         about.requestUserClients(user);
@@ -203,7 +189,6 @@ private Q_SLOTS:
                  QStringLiteral("ready"));
         QTRY_VERIFY(about.userClientsRevision() > rev);
         QCOMPARE(about.userClients(user).value(QStringLiteral("devices")).toList().size(), 2);
-        // The answer restarted the clock.
         about.requestUserClients(user);
         QCOMPARE(client.userClientRequests.size(), 2);
     }
@@ -252,9 +237,6 @@ private Q_SLOTS:
         QVERIFY(about.resetSummary().contains(QStringLiteral("not touched")));
     }
 
-    // The open room's timeline is empty after the event cache is cleared and
-    // does not refill by itself; the pane reopens it on this signal. Fails on
-    // the old code: the signal does not exist / is never emitted.
     void clearingTheEventCacheTellsTheOpenTimelineToReload()
     {
         MockMatrixClient client;
@@ -272,15 +254,13 @@ private Q_SLOTS:
 
     void aResetThatClearedNothingDoesNotAskForAReload()
     {
-        AboutController about;   // no client: nothing was cleared
+        AboutController about;
         QSignalSpy cleared(&about, &AboutController::eventCacheWasCleared);
         about.resetLocalCache();
         QCOMPARE(about.resetState(), QStringLiteral("failed"));
         QCOMPARE(cleared.count(), 0);
     }
 
-    // The event cache was emptied; only the media step hit the watchdog. The
-    // open timelines are still empty and still need the reload.
     void aWatchdogOnAnotherStepStillReloadsTheTimelines()
     {
         ManualClient client;
@@ -294,7 +274,7 @@ private Q_SLOTS:
 
         about.resetLocalCache();
         Q_EMIT client.eventCacheCleared(client.eventOp, true);
-        QCOMPARE(cleared.count(), 0);   // media still outstanding
+        QCOMPARE(cleared.count(), 0);
         QTRY_COMPARE(about.resetState(), QStringLiteral("failed"));
         QCOMPARE(cleared.count(), 1);
     }
@@ -309,16 +289,12 @@ private Q_SLOTS:
         about.setSearch(&search);
 
         about.resetLocalCache();
-        // The event cache answered; the media cache has not.
         QTest::qWait(30);
         QCOMPARE(about.resetState(), QStringLiteral("running"));
         Q_EMIT client.storedMediaCleared(client.mediaOp, true, 3, 1024);
         QCOMPARE(about.resetState(), QStringLiteral("done"));
     }
 
-    // A slow compaction must not turn a successful clear into "did not
-    // finish": the reset watchdog (shortened here) fires while compaction is
-    // still due, and the state stays done.
     void aSlowCompactionNeverMakesASuccessfulClearReadAsUnfinished()
     {
         ManualClient client;
@@ -331,7 +307,7 @@ private Q_SLOTS:
 
         clearBoth(client, about);
         QCOMPARE(about.resetState(), QStringLiteral("done"));
-        QTest::qWait(150); // well past the reset wait
+        QTest::qWait(150);
         QCOMPARE(about.resetState(), QStringLiteral("done"));
         QVERIFY2(!about.resetSummary().contains(QStringLiteral("did not finish")),
                  qPrintable(about.resetSummary()));
@@ -339,7 +315,6 @@ private Q_SLOTS:
                      QStringLiteral("Still being compacted: event cache, media cache")),
                  qPrintable(about.resetSummary()));
 
-        // The reports arrive later and complete the sentence.
         QSignalSpy changed(&about, &AboutController::resetChanged);
         Q_EMIT client.cacheCompacted(client.eventOp, QStringLiteral("event_cache"),
                                      QStringLiteral("compacted"), 300LL << 20, 12LL << 20);
@@ -355,9 +330,6 @@ private Q_SLOTS:
         QVERIFY(!summary.contains(QStringLiteral("Could not be compacted")));
     }
 
-    // Only a failure is worded as one: a store that does not exist (in-memory
-    // media, no media key) is "not applicable" and says nothing; a timeout is
-    // "still being compacted" with no after figure; a failed VACUUM is named.
     void onlyAFailedCompactionIsWordedAsAFailure()
     {
         const QLocale locale;
@@ -376,7 +348,6 @@ private Q_SLOTS:
             const QString s = about.resetSummary();
             QVERIFY2(!s.contains(QStringLiteral("Could not be compacted")), qPrintable(s));
             QVERIFY2(!s.contains(QStringLiteral("Still being")), qPrintable(s));
-            // 300 MiB + 10 MiB of kept files before, 12 MiB after.
             QVERIFY2(s.contains(locale.formattedDataSize(310LL << 20)), qPrintable(s));
             QVERIFY2(s.contains(locale.formattedDataSize(12LL << 20)), qPrintable(s));
         }
@@ -396,7 +367,6 @@ private Q_SLOTS:
             QVERIFY2(s.contains(QStringLiteral("Still being compacted: media cache")),
                      qPrintable(s));
             QVERIFY(!s.contains(QStringLiteral("Could not be compacted")));
-            // The timed-out store contributes no figure at all.
             QVERIFY2(s.contains(locale.formattedDataSize(310LL << 20)), qPrintable(s));
             QVERIFY2(s.contains(locale.formattedDataSize(12LL << 20)), qPrintable(s));
             QVERIFY(!s.contains(locale.formattedDataSize(360LL << 20)));
@@ -420,9 +390,6 @@ private Q_SLOTS:
         }
     }
 
-    // A compaction report that never comes (the backend task died and sends
-    // nothing) must not read "still being compacted" for ever: when the wait
-    // runs out it is worded as silent, with no figures for that store.
     void aCompactionThatNeverReportsIsWordedAsSilentWhenTheWaitRunsOut()
     {
         ManualClient client;
@@ -443,15 +410,11 @@ private Q_SLOTS:
         const QString s = about.resetSummary();
         QVERIFY2(!s.contains(QStringLiteral("Still being compacted")), qPrintable(s));
         QCOMPARE(about.resetState(), QStringLiteral("done"));
-        // Only the store that reported contributes figures: 300 MiB + 10 MiB
-        // of kept files before, 12 MiB after.
         const QLocale locale;
         QVERIFY2(s.contains(locale.formattedDataSize(310LL << 20)), qPrintable(s));
         QVERIFY2(s.contains(locale.formattedDataSize(12LL << 20)), qPrintable(s));
     }
 
-    // A report that does not belong to this reset (another op, a store never
-    // asked about) changes nothing.
     void aStrayCompactionReportIsIgnored()
     {
         ManualClient client;
@@ -469,9 +432,6 @@ private Q_SLOTS:
         QCOMPARE(about.resetSummary(), before);
     }
 
-    // The UI outwaits the Rust compaction budget (90 s), so the budget runs
-    // out first and reports timed_out instead of the UI giving up silently;
-    // and the clear's own wait is a separate, shorter clock.
     void theCompactionWaitOutlastsTheRustBudgetAndIsSeparateFromTheResetWait()
     {
         QVERIFY(AboutController::kCompactionWaitMs > 90 * 1000);
@@ -512,8 +472,6 @@ private Q_SLOTS:
         QCOMPARE(about.resetState(), QStringLiteral("failed"));
         QVERIFY(about.resetSummary().contains(
             QStringLiteral("Could not clear: media cache")));
-        // The index clears synchronously, so it is listed before the event
-        // cache that answered a turn later: pin WHAT was cleared, not the order.
         const QString summary = about.resetSummary();
         const int cleared = summary.indexOf(QStringLiteral("Cleared: "));
         const int failedAt = summary.indexOf(QStringLiteral("Could not clear"));
@@ -539,7 +497,6 @@ private Q_SLOTS:
         QCOMPARE(about.resetState(), QStringLiteral("running"));
     }
 
-    // A refused request removed nothing; it must not read as success.
     void aRefusedStepIsAFailureNotASilentSuccess()
     {
         RefusingClient client;
@@ -595,7 +552,7 @@ private Q_SLOTS:
 
         about.loadAccountData(QStringLiteral("!room:mock.local"));
         QCOMPARE(about.accountDataRoomId(), QStringLiteral("!room:mock.local"));
-        QCOMPARE(about.accountDataEntries().size(), 0);   // nothing stale shown
+        QCOMPARE(about.accountDataEntries().size(), 0);
         QTRY_COMPARE(about.accountDataState(), QStringLiteral("ready"));
         QCOMPARE(about.accountDataEntries().size(), 1);
         QCOMPARE(client.accountDataRequests,
@@ -610,7 +567,6 @@ private Q_SLOTS:
         about.loadAccountData();
         about.loadAccountData(QStringLiteral("!b:mock.local"));
         QTRY_COMPARE(about.accountDataState(), QStringLiteral("ready"));
-        // Both canned answers have fired by now; only the second may have won.
         QCOMPARE(about.accountDataRoomId(), QStringLiteral("!b:mock.local"));
         QCOMPARE(about.accountDataEntries().size(), 1);
     }
@@ -632,8 +588,6 @@ private Q_SLOTS:
         QVERIFY(about.homeserver().isEmpty());
     }
 
-    // The confirmation is the only place the consequences are stated, so what
-    // it promises must be there, and what Reset must never touch must be named.
     void theResetConfirmationSaysWhatIsAndIsNotCleared()
     {
         const QString qml = readSource(QStringLiteral("qml/AboutToolsSection.qml"));
@@ -644,8 +598,6 @@ private Q_SLOTS:
             QVERIFY2(qml.contains(QLatin1String(needle)), needle);
     }
 
-    // Reset must stay a cache action: the controller may call only the three
-    // clears, never anything that names the crypto store or the credentials.
     void resetNeverReachesForTheCryptoStoreOrCredentials()
     {
         const QString cpp = readSource(QStringLiteral("src/app/AboutController.cpp"));
@@ -655,8 +607,6 @@ private Q_SLOTS:
             QVERIFY2(!cpp.contains(QLatin1String(banned)), banned);
     }
 
-    // The browser must never be handed a secret: the redaction is in Rust, and
-    // the QML must not ask for anything but the listing.
     void theDeveloperPanelsAreReadOnly()
     {
         const QString qml =

@@ -92,4 +92,4 @@ inline AppController *makeController(bool hiddenSwitch, const QStringList &userI
     return controller;
 }
 
-} // namespace labsqml
+}

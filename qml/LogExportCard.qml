@@ -3,11 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings -> About -> Export logs. Saves the application's recent log, with a
-// short diagnostics header, as a .zip through the desktop's own file dialog.
-// Nothing is uploaded. Everything in the file is sanitized in C++
-// (LogExportController); this card only says what the file contains and shows
-// its real size, which the controller computes by building it.
 ColumnLayout {
     id: root
     objectName: "logExportSection"
@@ -52,23 +47,16 @@ ColumnLayout {
         return qsTr("%1 MB").arg(Number(bytes / (1024 * 1024)).toLocaleString(Qt.locale(AppLocale.name), "f", 1))
     }
 
-    // Rebuilt whenever the About page is shown, so the numbers are current.
     function refresh() {
         if (root.exporter)
             root.exporter.prepare()
     }
     onVisibleChanged: {
         if (visible) {
-            // A status from a previous visit ("Deleted 1 log file.") is not
-            // news now.
             root.statusText = ""
             refresh()
         }
     }
-    // The page can stay open while the log fills, so the numbers and the
-    // Copy button follow it rather than freezing at the last prepare().
-    // prepare() re-reads, sanitises and compresses the whole log, so poll
-    // slowly and never stack a run on one still in flight.
     Timer {
         objectName: "logExportRefreshTimer"
         interval: 30000
@@ -218,7 +206,6 @@ ColumnLayout {
         }
     }
 
-    // Deleting the only diagnostic log is not undoable, so ask first.
     Dialog {
         id: logDeleteConfirm
         objectName: "logExportDeleteConfirm"

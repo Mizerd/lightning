@@ -86,7 +86,7 @@ QVariantMap gifMap(const QString &provider, const QString &id)
     return m;
 }
 
-} // namespace
+}
 
 class GifSendControllerDedupTest : public QObject
 {
@@ -141,17 +141,15 @@ void GifSendControllerDedupTest::identicalRoomActivationWhileFirstInFlightSendsO
     setup();
     QSignalSpy started(send, &GifSendController::sendStarted);
     QSignalSpy ok(send, &GifSendController::sendSucceeded);
-    // The same GIF to the same room twice, the second before the first's
-    // download completes (a double click while the popup closes).
     send->sendToRoom(QStringLiteral("!room:hs"), gifMap("giphy", "a"));
     send->sendToRoom(QStringLiteral("!room:hs"), gifMap("giphy", "a"));
-    QCOMPARE(client->downloadedUrls.size(), 1);   // one network op, not two
+    QCOMPARE(client->downloadedUrls.size(), 1);
     QCOMPARE(send->activeCount(), 1);
     QCOMPARE(started.count(), 1);
     client->finishDownload(client->dlOp, true);
-    QCOMPARE(client->sends.size(), 1);             // one Matrix send, not two
+    QCOMPARE(client->sends.size(), 1);
     QCOMPARE(ok.count(), 1);
-    QCOMPARE(recent->count(), 1);                  // recorded once
+    QCOMPARE(recent->count(), 1);
 }
 
 void GifSendControllerDedupTest::identicalThreadActivationWhileFirstInFlightSendsOnce()
@@ -172,7 +170,6 @@ void GifSendControllerDedupTest::identicalThreadActivationWhileFirstInFlightSend
 void GifSendControllerDedupTest::differentRoomNotDeduplicated()
 {
     setup();
-    // The same GIF to two different rooms: both proceed.
     send->sendToRoom(QStringLiteral("!roomA:hs"), gifMap("giphy", "a"));
     send->sendToRoom(QStringLiteral("!roomB:hs"), gifMap("giphy", "a"));
     QCOMPARE(client->downloadedUrls.size(), 2);
@@ -182,8 +179,6 @@ void GifSendControllerDedupTest::differentRoomNotDeduplicated()
 void GifSendControllerDedupTest::differentThreadRootNotDeduplicated()
 {
     setup();
-    // Same room and GIF, two different thread roots: distinct destinations
-    // (and distinct from a room send), never collapsed.
     send->sendToThread(QStringLiteral("!room:hs"), QStringLiteral("$rootA"),
                        gifMap("giphy", "a"));
     send->sendToThread(QStringLiteral("!room:hs"), QStringLiteral("$rootB"),
@@ -196,7 +191,6 @@ void GifSendControllerDedupTest::differentThreadRootNotDeduplicated()
 void GifSendControllerDedupTest::differentGifNotDeduplicated()
 {
     setup();
-    // Same room, two different GIFs: never collapsed.
     send->sendToRoom(QStringLiteral("!room:hs"), gifMap("giphy", "a"));
     send->sendToRoom(QStringLiteral("!room:hs"), gifMap("giphy", "b"));
     QCOMPARE(client->downloadedUrls.size(), 2);
@@ -206,7 +200,6 @@ void GifSendControllerDedupTest::differentGifNotDeduplicated()
 void GifSendControllerDedupTest::repeatAfterSuccessIsNotBlocked()
 {
     setup();
-    // Once the first send resolved, a deliberate repeat proceeds.
     send->sendToRoom(QStringLiteral("!room:hs"), gifMap("giphy", "a"));
     client->finishDownload(client->dlOp, true);
     QCOMPARE(client->sends.size(), 1);
@@ -228,15 +221,11 @@ void GifSendControllerDedupTest::repeatAfterFailureIsNotBlocked()
     QCOMPARE(fail.count(), 1);
     QCOMPARE(send->activeCount(), 0);
 
-    // A retry after failure is not a duplicate: the failed attempt is no
-    // longer pending.
     send->sendToRoom(QStringLiteral("!room:hs"), gifMap("giphy", "a"));
     QCOMPARE(client->downloadedUrls.size(), 2);
     QCOMPARE(send->activeCount(), 1);
 }
 
-// The picker's preview cache hears downloads and sign-out only through
-// MatrixGifTransport, so both relays are load-bearing.
 void GifSendControllerDedupTest::transportRelaysDownloadsAndSessionEnd()
 {
     FakeDedupClient client;

@@ -18,36 +18,24 @@
 
 #include <iterator>
 
-// One deterministic screenshot scenario: which account/room/space, which real
-// page or panel to open, and the recommended theme/appearance/window/typing/
-// controls state. Activation performs ALL of this navigation.
 struct ScreenshotDemoController::Scenario {
     QString id;
-    QString account;      // full user id
-    QString room;         // room id ("" = none)
-    QString space;        // active space id ("" = all rooms)
-    QString page;         // "" | "settings-<section>" (appearance, security,
-                          // sessions, sound, …) | "account-switcher"
+    QString account;
+    QString room;
+    QString space;
+    QString page;
     bool openThread = false;
-    int theme = -1;       // SettingsManager::Theme id (-1 = leave as is)
+    int theme = -1;
     bool typing = false;
-    QString size;         // window preset
-    bool controls = true; // demo controls visible on activation
-    QString title;        // human-readable label for the panel
+    QString size;
+    bool controls = true;
+    QString title;
 
-    // Demo-only popup to open once navigation has settled, plus an optional
-    // seed string for it. See dispatchScenarioPopup() for the mapping.
     QString popup;
     QString query;
 
-    // Navigation layout: -1 keeps the account's choice, 0 Classic, 1 Channels.
     int navLayout = -1;
-    // Process-local staged call: "" none, "call", or "call-share" (screen
-    // share spotlighted). Nothing is published; see
-    // SfuCallController::startDemoCall.
     QString call;
-    // Channels view to select: "" leaves it, "@people" is Direct Messages, a
-    // `!` id is that Space, "@home" is Home. Ignored in Classic.
     QString channelsScope;
 };
 
@@ -69,7 +57,6 @@ const SizePreset kSizes[] = {
 };
 
 struct ThemeEntry { int id; const char *name; };
-// Storm leads: it is the brand theme and the demo's default.
 const ThemeEntry kThemes[] = {
     { 11, "Storm" },
     { 0,  "System" },        { 1,  "Lightning Light" }, { 2,  "Lightning Dark" },
@@ -79,17 +66,12 @@ const ThemeEntry kThemes[] = {
 };
 
 constexpr int kStormTheme = 11;
-} // namespace
+}
 
 const QList<ScreenshotDemoController::Scenario> &
 ScreenshotDemoController::catalogue()
 {
     static const QList<Scenario> c = {
-        // Designated initializers for new rows: the struct is long enough
-        // that a positional row silently shifts values when a field is added.
-        //
-        // Call scenarios stage a process-local call (no membership, SFU or
-        // devices) so the call surfaces can be captured offline.
         { .id = QStringLiteral("call-grid"), .account = kAlex,
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .theme = kStormTheme, .size = QStringLiteral("1440x900"),
@@ -120,8 +102,6 @@ ScreenshotDemoController::catalogue()
           .theme = kStormTheme, .size = QStringLiteral("1280x800"),
           .title = QStringLiteral("Channels — Direct Messages"),
           .navLayout = 1, .channelsScope = QStringLiteral("@people") },
-        // The find bar is seeded with a query: the result area (source
-        // toggle, coverage line, index button) only renders during a search.
         { .id = QStringLiteral("find-in-room"), .account = kAlex,
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .theme = kStormTheme, .size = QStringLiteral("1600x1000"),
@@ -138,10 +118,8 @@ ScreenshotDemoController::catalogue()
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .theme = kStormTheme, .size = QStringLiteral("1600x1000"),
           .title = QStringLiteral("Room Information — widgets"),
-          // The widget list is on the panel's default "overview" section.
           .popup = QStringLiteral("room-info") },
 
-        // The custom theme editor on its gradient conversation background.
         { .id = QStringLiteral("theme-editor"), .account = kAlex,
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .page = QStringLiteral("settings-appearance"),
@@ -149,27 +127,22 @@ ScreenshotDemoController::catalogue()
           .title = QStringLiteral("Custom theme editor — gradient"),
           .popup = QStringLiteral("theme-editor"),
           .query = QStringLiteral("background") },
-        // The store/README hero: every room in the Classic list, the default
-        // dark theme, the conversation with its photo, reply and thread.
         { .id = QStringLiteral("store-hero"), .account = kAlex,
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .theme = 9, .typing = true, .size = QStringLiteral("1920x1080"),
           .title = QStringLiteral("Store hero — Design Lounge"),
           .navLayout = 0 },
-        // Verifying a new session by comparing emoji (staged; no SDK flow).
         { .id = QStringLiteral("verification"), .account = kAlex,
           .room = QStringLiteral("!dm-maya:lightning.example"),
           .theme = 9, .size = QStringLiteral("1440x900"),
           .title = QStringLiteral("Session verification — emoji"),
           .popup = QStringLiteral("verification"),
           .navLayout = 0 },
-        // Settings → Sound & video: devices, noise suppression, share quality.
         { .id = QStringLiteral("settings-sound"), .account = kAlex,
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .page = QStringLiteral("settings-sound"),
           .theme = 9, .size = QStringLiteral("1440x900"),
           .title = QStringLiteral("Settings — Sound & video") },
-        // The hero's room with its poster-copy thread open beside it.
         { .id = QStringLiteral("store-thread"), .account = kAlex,
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .openThread = true, .theme = 9,
@@ -177,8 +150,6 @@ ScreenshotDemoController::catalogue()
           .title = QStringLiteral("Store — a thread beside its room"),
           .navLayout = 0 },
 
-        // Classic is set explicitly so the shot does not depend on the
-        // profile's last layout.
         { .id = QStringLiteral("classic-home"), .account = kAlex,
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .theme = kStormTheme, .typing = true,
@@ -253,7 +224,6 @@ ScreenshotDemoController::catalogue()
           QString(), false, kStormTheme, false, QStringLiteral("narrow"), true,
           QStringLiteral("Responsive chat (narrow)") },
 
-        // ── Menu, popup and dialog scenarios ────────────────────────────
         { QStringLiteral("menu-message"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
@@ -271,7 +241,6 @@ ScreenshotDemoController::catalogue()
           QStringLiteral("!space-studio:lightning.example"),
           QString(), false, kStormTheme, false, QStringLiteral("1280x800"), true,
           QStringLiteral("Quick switcher"),
-          // "de" yields sectioned results rather than the full list.
           QStringLiteral("quick-switcher"), QStringLiteral("de") },
         { QStringLiteral("quick-switcher-command"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
@@ -381,11 +350,9 @@ ScreenshotDemoController::ScreenshotDemoController(AppController *app,
     if (m_app) {
         connect(m_app, &AppController::currentRoomIdChanged, this,
                 &ScreenshotDemoController::rememberSelectedRoom);
-        // When an account switch settles, either finish a deferred scenario
-        // activation or restore that account's remembered room.
         connect(m_app, &AppController::accountSwitchingChanged, this, [this] {
             if (m_app->accountSwitching())
-                return;   // only act on the completed (false) edge
+                return;
             if (!m_pendingScenario.isEmpty()) {
                 const QString id = m_pendingScenario;
                 m_pendingScenario.clear();
@@ -405,9 +372,6 @@ ScreenshotDemoController::ScreenshotDemoController(AppController *app,
                 });
             }
         });
-        // Apply the launch scenario once, synchronously, on the first
-        // MainScreen transition; a queued apply could fight a navigation
-        // that has already started.
         connect(m_app, &AppController::currentScreenChanged, this, [this] {
             if (m_launchApplied
                 || m_app->currentScreen() != AppController::MainScreen)
@@ -417,8 +381,6 @@ ScreenshotDemoController::ScreenshotDemoController(AppController *app,
         });
     }
 }
-
-// ── Catalogue exposure ──────────────────────────────────────────────────
 
 QVariantList ScreenshotDemoController::scenarios() const
 {
@@ -490,8 +452,6 @@ QVariantList ScreenshotDemoController::windowSizes() const
     return out;
 }
 
-// ── State accessors ─────────────────────────────────────────────────────
-
 QString ScreenshotDemoController::currentAccount() const
 {
     return m_app && m_app->accounts() ? m_app->accounts()->activeUserId()
@@ -515,7 +475,7 @@ QVariantList ScreenshotDemoController::currentRooms() const
         return out;
     for (const RoomInfo &r : m_mock->rooms()) {
         if (r.isSpace)
-            continue;   // the Room selector lists rooms, not Spaces
+            continue;
         QVariantMap m;
         m.insert(QStringLiteral("id"), r.id);
         m.insert(QStringLiteral("name"),
@@ -538,8 +498,6 @@ QString ScreenshotDemoController::accountDisplayName(const QString &userId) cons
     const QString name = rec.value(QStringLiteral("displayName")).toString();
     return name.isEmpty() ? userId : name;
 }
-
-// ── Static helpers ──────────────────────────────────────────────────────
 
 int ScreenshotDemoController::themeIdForName(const QString &name)
 {
@@ -572,7 +530,6 @@ bool ScreenshotDemoController::sizeForPreset(const QString &preset, int *w, int 
             return true;
         }
     }
-    // Accept an explicit WxH within safe bounds (never absurd/unsafe).
     const int x = p.indexOf(QLatin1Char('x'));
     if (x > 0) {
         bool okW = false, okH = false;
@@ -620,8 +577,6 @@ ScreenshotDemoController::findScenario(const QString &id) const
     return nullptr;
 }
 
-// ── Activation ──────────────────────────────────────────────────────────
-
 void ScreenshotDemoController::activateScenario(const QString &id)
 {
     const Scenario *s = findScenario(id);
@@ -635,7 +590,6 @@ void ScreenshotDemoController::activateScenario(const QString &id)
     // them after any account switch completes.
 
     if (s->account != currentAccount()) {
-        // Defer the room/panel navigation until the async switch completes.
         m_pendingScenario = id;
         m_suppressRoomRestore = true;
         m_app->switchToAccount(s->account);
@@ -655,8 +609,6 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
     // Layout before the room: Channels resolves its view from the scope.
     if (s.navLayout >= 0)
         m_app->settings()->setRoomNavigationLayout(s.navLayout);
-    // Passed verbatim: the model classifies the scope string itself
-    // (docs/navigation-layouts.md).
     if (!s.channelsScope.isEmpty() && m_app->spaceChannels())
         m_app->spaceChannels()->setScopeSpaceId(s.channelsScope);
     if (m_mock)
@@ -687,7 +639,6 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
     }
 
     if (s.page.startsWith(QLatin1String("settings-"))) {
-        // "settings-<section>": appearance, security, sessions, sound, …
         m_app->showSettingsSection(
             s.page.mid(int(qstrlen("settings-"))));
         m_app->showSettings();
@@ -706,7 +657,6 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
     if (!s.room.isEmpty())
         m_selectedRoomPerAccount[s.account] = s.room;
 
-    // Seed picker state before the popup opens.
     if (s.popup == QLatin1String("emoji-picker"))
         seedDemoEmojiRecents();
     else if (s.popup == QLatin1String("gif-picker"))
@@ -718,19 +668,14 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
     Q_EMIT stateChanged();
 }
 
-// ── Demo-only popup dispatch ────────────────────────────────────────────
-
 void ScreenshotDemoController::dispatchScenarioPopup(const QString &scenarioId,
                                                      const QString &popup,
                                                      const QString &query)
 {
-    // A staged verification belongs to its scenario only.
     if (m_app && popup != QLatin1String("verification"))
         m_app->stageDemoVerification(QString(), {});
     if (popup.isEmpty())
         return;
-    // Deferred one tick so the delegate a popup anchors to exists; dropped
-    // if a newer scenario took over in the meantime.
     QTimer::singleShot(0, this, [this, scenarioId, popup, query] {
         if (m_currentScenario != scenarioId)
             return;
@@ -771,9 +716,6 @@ void ScreenshotDemoController::dispatchScenarioPopup(const QString &scenarioId,
     });
 }
 
-// The emoji step of verifying a second session of the demo account. Seven
-// entries from the SAS emoji table, fixed so the shot reproduces; nothing is
-// computed from any key.
 void ScreenshotDemoController::stageDemoVerification()
 {
     if (!m_app)
@@ -795,9 +737,6 @@ void ScreenshotDemoController::stageDemoVerification()
     m_app->stageDemoVerification(QStringLiteral("LAPTOPDEMO2"), emojis);
 }
 
-// A custom theme on the default dark base with a gradient conversation
-// background, so the editor opens on something worth showing. Written
-// through the store's normal setters into the isolated demo profile.
 void ScreenshotDemoController::seedDemoCustomTheme()
 {
     if (!m_app || !m_app->customTheme())
@@ -825,11 +764,11 @@ void ScreenshotDemoController::seedDemoEmojiRecents()
     // EmojiCatalog::recordUse(), not the SettingsManager setter: only it
     // rebuilds the live "Recently Used" bucket the views are bound to.
     static const QStringList kRecents = {
-        QStringLiteral("\U0001F389"),   // 🎉 party popper
-        QStringLiteral("\U0001F525"),   // 🔥 fire
-        QStringLiteral("\U0001F602"),   // 😂 joy
-        QStringLiteral("\U0001F44D"),   // 👍 thumbs up
-        QStringLiteral("❤️"), // ❤️ red heart
+        QStringLiteral("\U0001F389"),
+        QStringLiteral("\U0001F525"),
+        QStringLiteral("\U0001F602"),
+        QStringLiteral("\U0001F44D"),
+        QStringLiteral("❤️"),
     };
     for (const QString &emoji : kRecents)
         m_app->emojiCatalog()->recordUse(emoji);
@@ -851,7 +790,6 @@ void ScreenshotDemoController::seedDemoGifCatalogue()
 
     struct Fixture { const char *file; const char *title; int w; int h;
                      qint64 bytes; const char *provider; };
-    // Mixed across both providers for variety in tags and badges.
     static const Fixture kFixtures[] = {
         { "loop.gif",          "Retro dance loop",     480, 480, 66172, "giphy" },
         { "gif-coast.gif",     "Coast at golden hour", 220, 138, 98929, "klipy" },
@@ -862,7 +800,6 @@ void ScreenshotDemoController::seedDemoGifCatalogue()
         { "gif-palette.gif",   "Palette cycle",        220, 220, 37519, "klipy" },
         { "gif-interface.gif", "Interface capture",    220, 138, 63245, "giphy" },
     };
-
 
     QList<gif::GifResult> rows;
     rows.reserve(int(std::size(kFixtures)));
@@ -886,7 +823,6 @@ void ScreenshotDemoController::seedDemoGifCatalogue()
         r.gifBytes = f.bytes;
         rows.append(r);
     }
-    // A second pass fills the grid past one screenful.
     const int firstPass = rows.size();
     for (int i = 0; i < firstPass; ++i) {
         gif::GifResult r = rows.at(i);
@@ -896,8 +832,6 @@ void ScreenshotDemoController::seedDemoGifCatalogue()
     m_app->gif()->seedDemoCatalogue(rows);
 }
 
-// Local saved GIFs resolve by content hash from the account-scoped store, so
-// real bytes go through starBytes(). The store lives under the demo profile.
 void ScreenshotDemoController::seedDemoSavedGif()
 {
     if (!m_app || !m_app->gif() || !m_app->gif()->starredStore())
@@ -911,8 +845,6 @@ void ScreenshotDemoController::seedDemoSavedGif()
         return;
     store->starBytes(QStringLiteral("demo-saved-loop"), f.readAll());
 }
-
-// ── Panel actions ───────────────────────────────────────────────────────
 
 void ScreenshotDemoController::setAccount(const QString &userId)
 {
@@ -953,18 +885,14 @@ void ScreenshotDemoController::setAppearance(const QString &mode)
 {
     const QString m = mode.trimmed().toLower();
     if (m == QLatin1String("system-dark")) {
-        // What a fresh install shows on a dark desktop: "Match system" on,
-        // resolving to Indigo Night. Asks Qt for a dark scheme, which a
-        // headless capture's platform does not report by itself.
         if (auto *hints = QGuiApplication::styleHints())
             hints->setColorScheme(Qt::ColorScheme::Dark);
         setTheme(0);
     } else if (m == QLatin1String("system"))
         setTheme(0);
     else if (m == QLatin1String("light"))
-        setTheme(8);   // Moss Light
+        setTheme(8);
     else if (m == QLatin1String("dark"))
-        // Indigo Night: what System resolves to on a dark desktop.
         setTheme(9);
 }
 
@@ -1077,8 +1005,6 @@ void ScreenshotDemoController::openThreadPanel()
         m_app->thread()->openThread(room, root);
 }
 
-// ── Selected-room memory ────────────────────────────────────────────────
-
 void ScreenshotDemoController::rememberSelectedRoom()
 {
     if (!m_app || m_app->accountSwitching() || m_suppressRoomRestore)
@@ -1104,8 +1030,6 @@ void ScreenshotDemoController::restoreSelectedRoom()
         m_app->openRoom(room);
 }
 
-// ── Launch options (CLI) ────────────────────────────────────────────────
-
 void ScreenshotDemoController::applyLaunchOptions(const QString &scenario,
                                                   const QString &theme,
                                                   const QString &appearance,
@@ -1128,7 +1052,6 @@ void ScreenshotDemoController::applyLaunchOptions(const QString &scenario,
 void ScreenshotDemoController::applyLaunchNow()
 {
     activateScenario(m_launchScenario);
-    // CLI overrides win over scenario defaults.
     if (!m_launchTheme.isEmpty())
         setThemeByName(m_launchTheme);
     if (!m_launchAppearance.isEmpty())

@@ -19,8 +19,6 @@
 
 namespace {
 
-// The theme editor, plus the three Bindings Main.qml keeps between the store
-// and AppTheme (the dialog grades AppTheme's resolved palette).
 const char *kHost = R"QML(
 import QtQuick
 import MatrixClient
@@ -58,13 +56,12 @@ QString body(const QString &source, const QString &marker, int length = 1500)
     return at < 0 ? QString() : source.mid(at, length);
 }
 
-} // namespace
+}
 
 class ThemeEditorRound1ContractTest : public QObject
 {
     Q_OBJECT
 
-    // Everything an engine case needs, owned for the case's length.
     struct Rig {
         AppController controller{AppController::MockBackend};
         QQmlApplicationEngine engine;
@@ -129,11 +126,6 @@ class ThemeEditorRound1ContractTest : public QObject
     }
 
 private slots:
-    // ENGINE. C85-F04: Fix graded a role against the FLAT colour a gradient
-    // paints over, so a label that fails on the gradient was told "nothing
-    // to fix". The room list is flat light with a dark gradient on it and the
-    // room name is dark: flat grading passes, drawn grading fails. Fix must
-    // move the name to something every stop clears.
     void fixGradesAgainstTheGradientThatIsDrawn()
     {
         Rig r;
@@ -169,12 +161,6 @@ private slots:
                  "the row Fix was pressed on still fails");
     }
 
-    // ENGINE. C85-F05: Fix on the accent label graded only that one pair, and
-    // the hover and pressed labels that follow it were pushed under their bar.
-    // After a Fix no row may fail that did not fail before, whether the fix
-    // can satisfy every bar (green accent) or none can (a dark accent under
-    // light hover fills: Fix must then decline rather than trade one failure
-    // for two).
     void fixOnTheAccentLabelAddsNoFailingRow_data()
     {
         QTest::addColumn<QString>("accent");
@@ -215,9 +201,6 @@ private slots:
                      "the row Fix was pressed on still fails");
     }
 
-    // ENGINE. C85-F03: Remove on a gradient stop looked `editor` up AFTER the
-    // write destroyed its delegate, which logged a ReferenceError and never
-    // re-pointed the picker.
     void removingAStopReselectsWithoutAReferenceError()
     {
         Rig r;
@@ -248,7 +231,6 @@ Item { property alias ge: g; GradientEditor { id: g; role: "background" } }
         QCOMPARE(selected.last().at(0).toInt(), 1);
     }
 
-    // C85-F03: the delegate (and with it `editor`) is destroyed by the write.
     void removingAStopDoesNotLookTheEditorUpAfterTheWrite()
     {
         const QString src = read(QStringLiteral("GradientEditor.qml"));
@@ -260,7 +242,6 @@ Item { property alias ge: g; GradientEditor { id: g; role: "background" } }
                  "`editor` is looked up after removeStopAt destroyed the delegate");
     }
 
-    // C85-F01: a flat role must not inherit the backdrop's stop.
     void aFlatRoleNeverGetsAStopFromTheHeldGradientEditor()
     {
         const QString src = read(QStringLiteral("ThemeEditorDialog.qml"));
@@ -271,7 +252,6 @@ Item { property alias ge: g; GradientEditor { id: g; role: "background" } }
                  "onStopSelected accepts a stop for a role with no gradient");
     }
 
-    // C85-F07 / F09
     void redoAndFindWorkWhereTheyWereSilent()
     {
         const QString src = read(QStringLiteral("ThemeEditorDialog.qml"));
@@ -282,8 +262,6 @@ Item { property alias ge: g; GradientEditor { id: g; role: "background" } }
         QVERIFY(find.contains(QStringLiteral("root.editingRole = \"\"")));
     }
 
-    // C85-F04 / F05: Fix grades what is drawn, and never trades one failure
-    // for another.
     void makeReadableCountsGradientStopsAndSiblingStates()
     {
         const QString src = read(QStringLiteral("ThemeEditorDialog.qml"));
@@ -293,11 +271,9 @@ Item { property alias ge: g; GradientEditor { id: g; role: "background" } }
         const QString scope = body(src, QStringLiteral("function readableConstraints"), 1200);
         QVERIFY(scope.contains(QStringLiteral("dependentsOf(key)")));
         QVERIFY(scope.contains(QStringLiteral("drawnColoursOf")));
-        // never silent on a Fix that does nothing
         QVERIFY(fn.contains(QStringLiteral("already clears")));
     }
 
-    // C85-F06 / D01 / F08 / D02 / D04 / D05
     void headerWrapsAndEveryFocusAndGroupsGapIsClosed()
     {
         const QString src = read(QStringLiteral("ThemeEditorDialog.qml"));

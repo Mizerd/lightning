@@ -1,55 +1,3 @@
-// Which Qt Multimedia audio backend Lightning asks for (open item
-// 2026-10-07, "an orphaned PipeWire sink stream can still spin the GUI
-// thread"). Header-only and pure where it can be, so the rule is testable
-// without Qt Multimedia, a sandbox or a sound server.
-//
-// Qt 6.11's QPlatformAudioDevices::create() (qplatformaudiodevices.cpp) uses
-// its native PipeWire backend when QT_AUDIO_BACKEND is UNSET or exactly
-// "pipewire"; any other value, the empty string included, selects the
-// PulseAudio backend. That backend's sink has no self-reference: a stream
-// whose device goes away is destroyed by its owner on the application thread
-// (QPulseAudioSinkStream via handleIOError), so the cross-thread socket
-// notifier loop cannot start. Its cost, read in the same sources: opening a
-// stream (QPulseAudioSinkStream::startStream, a semaphore), corking it on stop
-// and reconnecting the context (prepare(), every 3 s after a failure) wait on
-// the sound server with no timeout, on the calling thread, which is the GUI
-// thread for every QAudioSink Lightning opens. Those waits end when the server
-// answers; the PipeWire orphan loop never ends.
-//
-// Scope (decided 2026-10-20): every Linux process whose RUNNING Qt is 6.10
-// or newer, the only versions with the PipeWire backend: the Flatpak (where
-// the loop was measured, on the KDE 6.11 runtime) and the builds against a
-// system Qt (the nix build, possibly an rpm or deb). Measured on the nix
-// build with the PipeWire backend (2026-10-20, a private PipeWire graph):
-// after the daemon restarted, QMediaDevices never reported an output change
-// again, so nothing could re-arm a call's given-up receive chain.
-// HYPOTHESIS, not measured with this change: on the PulseAudio backend those
-// notices survive a restart (the 2026-10-16 live run saw "audio outputs
-// changed" after one on that backend), so the re-arm works again.
-//
-// THE COST, AND HOW IT IS PAID FOR. A new stream (QAudioSink::start(),
-// QAudioSource::start(), and so every QMediaPlayer play() and QMediaRecorder
-// record() with audio) while this backend has no server connection ABORTS
-// the process in libpulse: pa_context_get_state(NULL) / pa_stream_new(NULL)
-// (qpulseaudiosink.cpp, qpulseaudiosource.cpp; measured as SIGABRT for the
-// call sounds, CallSoundMixer.h, commit 1efee79c). The window: from every
-// server drop until Qt's retry about 3 s later, and for good if that retry
-// finds no socket (Qt schedules no further one). The PipeWire backend never
-// aborts there, so widening the PulseAudio backend widens this exposure, and
-// every audio start is gated: the call sounds by PulseGate
-// (PulseServerProbe.h), the voice player and recorder by QtAudioGate
-// (media/QtAudioGate.h, a bounded wait, then a clear error), and the QML
-// players through `qtAudio.ready` (main.cpp). A start nothing gates still
-// aborts during the window.
-//
-// A user's own QT_AUDIO_BACKEND always wins. Outside the Flatpak the switch
-// is made only when this Qt has its PulseAudio backend (libQt6Multimedia
-// names libpulse among the libraries it needs: that feature is what links it)
-// and a PulseAudio server (pipewire-pulse) answers on its socket; otherwise
-// Qt keeps its default, and the log says why. Once Qt's audio is up, a value
-// Lightning set is taken out of the environment again
-// (releaseQtAudioBackendVariable()), so applications Lightning opens choose
-// their own backend.
 #pragma once
 
 #include <QByteArray>
@@ -65,33 +13,23 @@
 
 namespace lightning::calls {
 
-/// Where the process runs, as far as the backend choice cares.
 enum class AudioPlatform { Linux, Windows, MacOS, Other };
 
-/// The facts the choice depends on, all read before Qt Multimedia is used.
 struct QtAudioBackendInputs {
     AudioPlatform platform = AudioPlatform::Other;
     bool flatpak = false;
-    /// QT_AUDIO_BACKEND is set in the environment, to anything ("" included).
     bool userSetBackend = false;
-    /// The RUNNING Qt (qVersion()), which is the one that picks the backend.
     int qtMajor = 0;
     int qtMinor = 0;
-    /// This Qt was built with its PulseAudio backend (qtMultimediaHasPulseBackend()).
     bool qtHasPulseBackend = false;
-    /// A PulseAudio server answers on the socket libpulse would use.
     bool pulseServerReachable = false;
 };
 
 struct QtAudioBackendDecision {
-    /// The QT_AUDIO_BACKEND value to set, or empty to leave it alone.
     QByteArray value;
-    /// Why, for the log: a short, stable phrase.
     const char *reason = "";
 };
 
-/// The QT_AUDIO_BACKEND value to set before anything in the process touches
-/// Qt Multimedia, and why. See the top of this file.
 inline QtAudioBackendDecision decideQtAudioBackend(const QtAudioBackendInputs &in)
 {
     if (in.userSetBackend)
@@ -115,12 +53,6 @@ inline QtAudioBackendDecision decideQtAudioBackend(const QtAudioBackendInputs &i
             "and device changes stop after a PipeWire restart"};
 }
 
-/// Takes QT_AUDIO_BACKEND out of the environment again when Lightning set it
-/// (`setByLightning`), once Qt has created its audio devices: Qt reads the
-/// variable only then (QPlatformAudioDevices::create()) and caches its choice,
-/// and a child process (an application opened through QDesktopServices,
-/// which inherits this environment) must not inherit Lightning's choice. A
-/// value the user set is never touched. Returns whether it unset anything.
 inline bool releaseQtAudioBackendVariable(bool setByLightning)
 {
     if (!setByLightning || !qEnvironmentVariableIsSet("QT_AUDIO_BACKEND"))
@@ -129,10 +61,6 @@ inline bool releaseQtAudioBackendVariable(bool setByLightning)
     return true;
 }
 
-/// Whether a shared object whose file name starts with `prefix` is mapped
-/// into this process (Linux: /proc/self/maps; false elsewhere). Evidence of a
-/// LOAD only: --call-sounds-status uses it for libpipewire as a labelled
-/// fallback where Qt cannot be asked which backend it chose.
 inline bool sharedObjectLoaded(const char *prefix)
 {
 #ifdef Q_OS_LINUX
@@ -151,8 +79,6 @@ inline bool sharedObjectLoaded(const char *prefix)
     return false;
 }
 
-/// The DT_NEEDED entries of the ELF64 little-endian file `path` (a shared
-/// library), read from the file; empty for anything else or on any doubt.
 inline QList<QByteArray> elfNeededLibraries(const QString &path)
 {
     QList<QByteArray> needed;
@@ -214,8 +140,6 @@ inline QList<QByteArray> elfNeededLibraries(const QString &path)
         else if (entry.d_tag == DT_STRSZ)
             strtabSize = entry.d_un.d_val;
     }
-    // The string table's address is virtual; the PT_LOAD holding it maps it
-    // to the file.
     qint64 strtabOffset = -1;
     for (const Elf64_Phdr &load : loads) {
         if (strtabAddr >= load.p_vaddr
@@ -239,8 +163,6 @@ inline QList<QByteArray> elfNeededLibraries(const QString &path)
     return needed;
 }
 
-/// The path of the first object mapped into this process whose file name
-/// starts with `prefix` (Linux: /proc/self/maps); empty if none.
 inline QString mappedObjectPath(const char *prefix)
 {
 #ifdef Q_OS_LINUX
@@ -248,9 +170,6 @@ inline QString mappedObjectPath(const char *prefix)
     if (!maps.open(QIODevice::ReadOnly | QIODevice::Text))
         return {};
     const QByteArray name(prefix);
-    // readAll(): see sharedObjectLoaded(). A line is "address perms offset
-    // dev inode path", and the path, which may contain spaces, is everything
-    // from its first '/' (the fields before it never contain one).
     for (const QByteArray &line : maps.readAll().split('\n')) {
         const qsizetype slash = line.indexOf('/');
         if (slash < 0)
@@ -268,10 +187,6 @@ inline QString mappedObjectPath(const char *prefix)
     return {};
 }
 
-/// Whether the Qt Multimedia in this process was built with its PulseAudio
-/// backend: libQt6Multimedia itself names libpulse among the libraries it
-/// needs (that feature is what links it). False when it cannot be read (a
-/// static Qt, another platform): Qt's default is then left alone.
 inline bool qtMultimediaHasPulseBackend()
 {
     const QString path = mappedObjectPath("libQt6Multimedia.so");
@@ -284,4 +199,4 @@ inline bool qtMultimediaHasPulseBackend()
     return false;
 }
 
-} // namespace lightning::calls
+}

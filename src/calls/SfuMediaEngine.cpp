@@ -63,10 +63,7 @@
 #include <gst/webrtc/webrtc.h>
 
 namespace {
-/// Set once a hardware encoder has failed in a running share: the track dies
-/// with it, and the next share must not repeat that.
 std::atomic<bool> g_shareHardwareEncoderFailed{false};
-/// A share's VP8 backup track is its cid plus this.
 const QLatin1String kShareBackupSuffix("-vp8");
 
 Q_LOGGING_CATEGORY(lcSfuMedia, "lightning.calls.sfu")
@@ -99,13 +96,6 @@ void marshal(SfuMediaEngine *engine, Fn &&fn)
                               Qt::QueuedConnection);
 }
 
-/// Summarises what each SDP section negotiated: `m=` kinds and `a=rtpmap`
-/// codec names only (gated on LIGHTNING_SDP_TRACE). Never the SDP text, which
-/// carries host IPs, nor the ICE ufrag/pwd.
-///
-/// Answers whether RED rides the publisher transport: RED wraps the Opus
-/// payload, so the far end's decryptor sees no Opus TOC and drops every audio
-/// frame, which looks exactly like a key problem from our side.
 QString sdpCodecSummary(const QString &sdp)
 {
     QString out;
@@ -123,7 +113,6 @@ QString sdpCodecSummary(const QString &sdp)
         const QStringView line = raw.trimmed();
         if (line.startsWith(u"m=")) {
             flush();
-            // Kind plus payload list; tells whether RED was offered.
             const QList<QStringView> f = line.mid(2).split(u' ',
                                                           Qt::SkipEmptyParts);
             if (!f.isEmpty())
@@ -141,8 +130,6 @@ QString sdpCodecSummary(const QString &sdp)
     return out.isEmpty() ? QStringLiteral("<none>") : out;
 }
 
-/// Monotonic millisecond clock for publish probes. Not wall clock: these are
-/// differences across a live call and must not jump on NTP or resume.
 qint64 monotonicMs()
 {
     static QElapsedTimer timer = [] {
@@ -153,11 +140,9 @@ qint64 monotonicMs()
     return timer.elapsed();
 }
 
-/// Context for a promise callback: pins the webrtcbin until the promise
-/// settles and remembers which peer connection it belongs to.
 struct PromiseCtx {
     SfuMediaEngine *engine = nullptr;
-    GstElement *webrtc = nullptr; // owns one ref
+    GstElement *webrtc = nullptr;
     bool publisher = false;
     quint64 generation = 0;
     quint64 revision = 0;
@@ -183,19 +168,15 @@ void promiseCtxFree(void *data)
     delete ctx;
 }
 
-/// LiveKit trickles candidates as RTCIceCandidate JSON. Built with
-/// QJsonDocument so a candidate line cannot inject JSON.
 QString candidateInitJson(const QString &candidate, int mlineIndex)
 {
     QJsonObject object;
     object.insert(QStringLiteral("candidate"), candidate);
     object.insert(QStringLiteral("sdpMLineIndex"), mlineIndex);
-    // LiveKit accepts the m-line index alone; an invented sdpMid is worse.
     return QString::fromUtf8(
         QJsonDocument(object).toJson(QJsonDocument::Compact));
 }
 
-/// Parse LiveKit's candidate JSON back into what webrtcbin wants.
 bool parseCandidateInit(const QString &json, QString *candidate,
                         int *mlineIndex)
 {
@@ -212,11 +193,9 @@ bool parseCandidateInit(const QString &json, QString *candidate,
     *mlineIndex = object.value(QStringLiteral("sdpMLineIndex")).toInt(0);
     return true;
 }
-} // namespace
+}
 
 namespace {
-/// Raises `remoteMediaBlocked` from a streaming thread by posting to the
-/// engine's thread. Only the sid and a closed-set reason cross.
 void announceBlocked(SfuMediaEngine *engine, const QString &streamId,
                      const QString &reason)
 {
@@ -304,103 +283,51 @@ void instrumentStreamInfo(GstPad *pad, const StreamInfoPtr &stats, bool rtp)
         [](gpointer data) { delete static_cast<Context *>(data); });
 }
 
-/// Why frames in the window are failing, for the badge's reason string.
 enum class CryptoDropCause { None, NoKey, Undecryptable };
 
 struct CryptoProbeCtx {
     SfuMediaEngine *engine = nullptr;
-    /// Set for a portal camera started off the GUI thread: every use of the
-    /// raw engine pointers below happens under it. See
-    /// SfuMediaEngine::ProbeGate.
     std::shared_ptr<SfuMediaEngine::ProbeGate> gate;
-    /// Send side only. Shared because the sender can leave while one of their
-    /// frames is still in the probe. The receive side resolves its ring per
-    /// frame through `streamId`, since the sending participant may be
-    /// announced after the pad appears.
     std::shared_ptr<CallFrameCryptor> cryptor;
-    /// Receive side: the sender's LiveKit sid, from the subscriber offer's
-    /// `msid`.
     QString streamId;
-    /// Direction: true encrypts (send side), false decrypts (receive side).
     bool encrypting = false;
-    /// Video uses VP8's cleartext-header rule; audio uses Opus's.
     bool video = false;
-    /// Video in H.264, whose cleartext header depends on the frame.
     bool h264 = false;
-    /// Read on the streaming thread.
     const std::atomic<bool> *required = nullptr;
     const std::atomic<bool> *keyReady = nullptr;
-    /// Send side: this track's IV stream id, unique among encrypting tracks.
     quint32 ivStream = 0;
-    /// Engine-wide totals. Raw pointers into the engine: the pipeline going to
-    /// NULL ends ordinary probes, and stop()/~SfuMediaEngine wait (bounded) for
-    /// deferred publish teardowns, whose bins are unparented while still
-    /// running. If that wait expires the guarantee is best-effort and logged.
     std::atomic<quint64> *total = nullptr;
     std::atomic<quint64> *totalDropped = nullptr;
-    /// Receive side only; see framesArrivingEncryptedOnAClearCall().
     std::atomic<quint64> *totalCiphertextShaped = nullptr;
-    /// Frames passed and dropped. Separates "our media never reaches the wire"
-    /// from "the far end cannot use it". Owned by the single streaming thread,
-    /// so no locking (as for the other per-probe fields below).
     StreamInfoPtr streamInfo;
     quint64 passed = 0;
     quint64 dropped = 0;
-    /// Once-per-track diagnosis lines (no key, failed, working).
     bool saidNoKey = false;
-    /// One diagnosis line per failure reason, a bit per DecryptFailure value,
-    /// so an early one-off failure cannot silence a later, different one.
     quint8 saidFailedMask = 0;
     bool saidWorking = false;
-    /// Receive side: see SfuMediaEngine::framesServerInjected(). Null on the
-    /// send side.
     std::atomic<quint64> *totalServerInjected = nullptr;
-    /// Per-reason failure counts for the detail and histogram lines. Counts
-    /// only, never keys, IVs or frame content.
     static constexpr int kFailureReasons = 7;
     std::array<quint64, kFailureReasons> failures{};
-    /// Detail lines logged per reason (first five, then at shouldReport()).
     std::array<quint8, kFailureReasons> detailsLogged{};
-    /// Frames dropped because the ring held no key at all.
     quint64 ringEmpty = 0;
-    /// Consecutive failed frames, and consecutive `bad-iv-length` ones.
-    /// Server-injected frames touch neither.
     quint64 run = 0;
     quint64 badIvRun = 0;
     quint64 longestBadIvRun = 0;
-    /// Trailer bytes seen in `bad-iv-length` frames. One constant value
-    /// suggests an unrecognised server trailer; many suggest the sender is
-    /// not frame-encrypting at all.
     std::array<bool, 256> badIvKeyIndexSeen{};
     int distinctBadIvKeyIndices = 0;
-    /// Server-injected frames: total, the burst in progress, bursts seen.
     quint64 sif = 0;
     quint64 sifRun = 0;
     quint64 sifBursts = 0;
     bool saidSif = false;
-    /// Histogram line: written when something failed or was injected, at most
-    /// every five seconds, and once more when the probe is freed.
     qint64 lastHistogramMs = -1;
     bool histogramDirty = false;
-    /// Said once when a call we believe is clear carries ciphertext.
     bool saidUnexpectedCiphertext = false;
-    /// Sliding window of frame outcomes the badge is decided on. A pure policy
-    /// struct so its thresholds can be tested directly.
     SfuMediaEngine::BlockedRunPolicy blocked;
-    /// Cause of the most recent failure, so the badge names the current fault:
-    /// no key (key distribution) versus undecryptable (key agreement).
     CryptoDropCause lastCause = CryptoDropCause::None;
-    /// Frames passed through on a clear call that look encrypted. Uses the
-    /// badge's windowed policy because `looksEncrypted` is a structural test a
-    /// clear frame can pass by chance; only the rate is meaningful.
     SfuMediaEngine::BlockedRunPolicy ciphertext;
-    /// Clear frames that carried our trailer.
     quint64 ciphertextShaped = 0;
 };
 
-/// Records one frame outcome and tells the UI only when the verdict changes.
-/// The send side never badges: failing to encrypt our own frames is a
-/// different message to a different person.
 static void noteCryptoOutcome(CryptoProbeCtx *ctx, bool failed)
 {
     bool raise = false;
@@ -415,20 +342,12 @@ static void noteCryptoOutcome(CryptoProbeCtx *ctx, bool failed)
                                : QStringLiteral("undecryptable"));
 }
 
-/// Checks whether a frame on the `!required && !haveKey` receive path, which
-/// is passed through unexamined, is actually ciphertext: a peer encrypting
-/// while we hold no key produces silence downstream with no other signal.
-///
-/// Windowed via BlockedRunPolicy (raise at 90%, clear at 25%, min 50 frames)
-/// because `looksEncrypted` is a two-byte heuristic. Reporting only: the frame
-/// is still passed through, as dropping on a heuristic would break interop.
 static void noteClearFrameShape(CryptoProbeCtx *ctx, GstBuffer *buffer,
                                 CallFrameCryptor::FrameKind kind)
 {
     GstMapInfo map;
     if (!gst_buffer_map(buffer, &map, GST_MAP_READ))
         return;
-    // No QByteArray: this runs per frame and QByteArray would deep copy.
     const bool shaped = CallFrameCryptor::looksEncrypted(
         reinterpret_cast<const char *>(map.data),
         static_cast<qsizetype>(map.size), kind);
@@ -457,8 +376,6 @@ static void noteClearFrameShape(CryptoProbeCtx *ctx, GstBuffer *buffer,
         << "of" << ctx->passed << ")";
 }
 
-/// Ring name for logs: the U+001F separator becomes '/', so the log has no
-/// control characters and matches `ring=<user>/<device>`.
 QString printableRing(const QString &ring)
 {
     QString out = ring;
@@ -466,19 +383,11 @@ QString printableRing(const QString &ring)
     return out;
 }
 
-/// True for the first frame, then rarely.
 bool shouldReport(quint64 count)
 {
     return count == 1 || count == 10 || count % 500 == 0;
 }
 
-/// Counts RTP packets leaving the publishing bin's src pad, the last point we
-/// own. The encrypt probe sits on the encoder's src pad and only counts what
-/// was encoded; comparing the two localises a stalled payloader.
-///
-/// The probe is never removed and owns its context through its destroy
-/// notify. The watchdog captures only the separately owned counter; sharing
-/// the context with it was a use-after-free.
 struct RtpOutCtx {
     std::shared_ptr<std::atomic<quint64>> packets;
     bool video = false;
@@ -506,21 +415,11 @@ GstPadProbeReturn countRtpOut(GstPad *, GstPadProbeInfo *info, gpointer user)
     return GST_PAD_PROBE_OK;
 }
 
-/// Which sender an appsink belongs to; one per received video track.
 struct VideoSinkCtx {
     SfuMediaEngine *engine = nullptr;
-    /// Primary routing key: the section's SDP `mid`, which names one track.
-    /// Empty for the local self-view.
     QString mid;
-    /// Fallback routing key: the sender's sid. Cannot tell camera from screen
-    /// share, but tiles attach to it before tracks are announced and servers
-    /// that omit `mid` still need to render.
     QString streamId;
-    /// Decrypted frames with nowhere to go. After the routing keys, so brace
-    /// initialisers stay valid.
     quint64 unrouted = 0;
-    /// The self-view of a portal camera started off the GUI thread; see
-    /// SfuMediaEngine::ProbeGate.
     std::shared_ptr<SfuMediaEngine::ProbeGate> gate;
 };
 
@@ -529,8 +428,6 @@ void videoSinkCtxFree(void *data, GClosure *)
     delete static_cast<VideoSinkCtx *>(data);
 }
 
-/// Copies one decoded RGBA frame and hands it to the router. A QVideoFrame
-/// cannot borrow the GstBuffer, which is unreffed on return.
 GstFlowReturn onVideoSample(GstElement *sink, void *userData)
 {
     auto *ctx = static_cast<VideoSinkCtx *>(userData);
@@ -551,12 +448,9 @@ GstFlowReturn onVideoSample(GstElement *sink, void *userData)
     if (!sample)
         return GST_FLOW_OK;
 
-    // Ask before copying: an unwatched sender costs a lookup, not a memcpy.
-    // SfuVideoRouter is thread-safe.
     bool wanted = false;
     QString routeKey;
     if (SfuVideoRouter *router = ctx->engine->videoRouter()) {
-        // Prefer the mid (the tile that asked for this track), then the sender.
         if (!ctx->mid.isEmpty() && router->watching(ctx->mid)) {
             routeKey = ctx->mid;
             wanted = true;
@@ -567,8 +461,6 @@ GstFlowReturn onVideoSample(GstElement *sink, void *userData)
         }
     }
     if (!wanted) {
-        // Decrypted but unrouted. The crypto counters look healthy either
-        // way, so log rarely with both keys so a routing mismatch shows up.
         const quint64 unrouted = ++ctx->unrouted;
         if (shouldReport(unrouted)) {
             qCWarning(lcSfuMedia)
@@ -591,7 +483,6 @@ GstFlowReturn onVideoSample(GstElement *sink, void *userData)
             gst_structure_get_int(structure, "height", &height);
         }
     }
-    // Dimensions come from a remote sender and size an allocation: bound them.
     if (!buffer || width <= 0 || height <= 0 || width > 8192
         || height > 8192) {
         gst_sample_unref(sample);
@@ -611,7 +502,6 @@ GstFlowReturn onVideoSample(GstElement *sink, void *userData)
         const int targetStride = frame.bytesPerLine(0);
         const qsizetype available = static_cast<qsizetype>(map.size);
         uchar *target = frame.bits(0);
-        // Row by row: GStreamer and Qt strides may differ.
         for (int row = 0; row < height; ++row) {
             const qsizetype offset =
                 static_cast<qsizetype>(row) * sourceStride;
@@ -625,11 +515,6 @@ GstFlowReturn onVideoSample(GstElement *sink, void *userData)
     gst_buffer_unmap(buffer, &map);
     gst_sample_unref(sample);
 
-    // Delivered on the GUI thread, which owns the QVideoSink. Through the
-    // router's one-frame mailbox, never one queued event per frame: a busy
-    // GUI thread otherwise collects every frame it misses (900 x 8 MB of a
-    // 1080p self-view in a 30 s stall, measured: the host ran out of
-    // memory). Only the newest frame matters to a picture.
     SfuMediaEngine *engine = ctx->engine;
     const QString streamId = routeKey;
     SfuVideoRouter *router = engine->videoRouter();
@@ -647,16 +532,11 @@ static_assert(static_cast<int>(CallFrameCryptor::DecryptFailure::AuthTag)
               "CryptoProbeCtx's per-reason arrays must cover every "
               "DecryptFailure value");
 
-/// Monotonic ms for the histogram cadence; a clock step must not flood or
-/// silence it.
 qint64 probeMonotonicMs()
 {
     return static_cast<qint64>(g_get_monotonic_time() / 1000);
 }
 
-/// Logs the length of a finished server-injected burst. livekit-server sends
-/// 50 on a publisher mute (1 s at 50 fps) and 10 on track close. Bounded so a
-/// hostile SFU cannot buy a log line per frame.
 void closeServerInjectedBurst(CryptoProbeCtx *ctx)
 {
     if (ctx->sifRun == 0)
@@ -673,7 +553,6 @@ void closeServerInjectedBurst(CryptoProbeCtx *ctx)
     ctx->sifRun = 0;
 }
 
-/// Per-stream receive summary. Numbers only.
 void logDecryptHistogram(CryptoProbeCtx *ctx, const char *when)
 {
     using F = CallFrameCryptor::DecryptFailure;
@@ -692,8 +571,6 @@ void logDecryptHistogram(CryptoProbeCtx *ctx, const char *when)
         << "longestBadIvRun=" << ctx->longestBadIvRun;
 }
 
-/// Writes the histogram when something failed or was injected and five
-/// seconds have passed; the first dirty event writes at once.
 void maybeLogDecryptHistogram(CryptoProbeCtx *ctx)
 {
     if (ctx->encrypting || !ctx->histogramDirty)
@@ -709,8 +586,6 @@ void maybeLogDecryptHistogram(CryptoProbeCtx *ctx)
 void cryptoProbeCtxFree(void *data)
 {
     auto *ctx = static_cast<CryptoProbeCtx *>(data);
-    // Final histogram: a sender who mutes sends nothing after the SFU's
-    // injected frames, so no later frame would close the burst.
     if (ctx && !ctx->encrypting) {
         closeServerInjectedBurst(ctx);
         if (ctx->histogramDirty)
@@ -719,12 +594,6 @@ void cryptoProbeCtxFree(void *data)
     delete ctx;
 }
 
-/// A frame the SFU wrote itself: dropped, counted separately, and kept out of
-/// the badge window and the failure diagnosis.
-///
-/// livekit-client passes such frames on only if they match a known payload
-/// (`identifySifPayload`). The SFU is outside the E2EE trust boundary, so we
-/// drop instead; the frames are silence or a black 8x8 picture.
 void noteServerInjectedFrame(CryptoProbeCtx *ctx, qsizetype size,
                              int trailerBytes)
 {
@@ -752,8 +621,6 @@ void noteServerInjectedFrame(CryptoProbeCtx *ctx, qsizetype size,
     maybeLogDecryptHistogram(ctx);
 }
 
-/// True if the last `n` bytes are base62, livekit-server's trailer alphabet.
-/// A label for the detail line only.
 bool tailIsBase62(const QByteArray &wire, int n)
 {
     if (wire.size() < n)
@@ -768,10 +635,6 @@ bool tailIsBase62(const QByteArray &wire, int n)
     return true;
 }
 
-/// Encrypts or decrypts one encoded frame, the unit LiveKit and Element Call
-/// encrypt. Sits between encoder and payloader (send) or after the
-/// depayloader (receive); per-RTP-packet crypto would interoperate with
-/// nobody.
 GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
                               void *userData)
 {
@@ -780,17 +643,12 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
     auto *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
     if (!buffer || !ctx)
         return GST_PAD_PROBE_OK;
-    // Held for the whole frame: the engine may be closing the gate on its way
-    // out, and must not finish until this frame has stopped using it.
     std::unique_lock<std::mutex> gateLock;
     if (ctx->gate) {
         gateLock = std::unique_lock<std::mutex>(ctx->gate->mutex);
         if (!ctx->gate->open)
             return GST_PAD_PROBE_DROP;
     }
-    // The send ring never changes. The receive ring is looked up per frame:
-    // the sid a keyed device publishes under arrives in a participant update
-    // that is not ordered against the pad appearing.
     const std::shared_ptr<CallFrameCryptor> cryptor = ctx->encrypting
         ? ctx->cryptor
         : (ctx->engine ? ctx->engine->recvCryptorFor(ctx->streamId)
@@ -798,10 +656,6 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
     if (!cryptor)
         return GST_PAD_PROBE_OK;
 
-    // VP8 keyframes leave 10 header bytes in the clear and delta frames 3;
-    // Opus leaves the TOC byte. The keyframe flag comes from GStreamer rather
-    // than from parsing the bitstream. Computed before the key check because
-    // the clear-pass branch needs it too.
     CallFrameCryptor::FrameKind kind = CallFrameCryptor::FrameKind::Audio;
     if (ctx->video) {
         kind = GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT)
@@ -811,9 +665,6 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
             kind = CallFrameCryptor::FrameKind::VideoH264;
     }
 
-    // Server-injected frames first, before any key lookup, as livekit-client
-    // does (`isFrameServerInjected`). They carry no crypto trailer and would
-    // otherwise be misfiled as `bad-iv-length` or "no key".
     bool sifArmed = false;
     if (!ctx->encrypting && ctx->engine) {
         const QByteArray trailer = ctx->engine->serverInjectedTrailer();
@@ -834,7 +685,6 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
                 return GST_PAD_PROBE_DROP;
             }
         }
-        // Any other frame ends a burst in progress.
         closeServerInjectedBurst(ctx);
     }
 
@@ -852,7 +702,7 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
             if (ctx->totalDropped)
                 ctx->totalDropped->fetch_add(1);
             ctx->lastCause = CryptoDropCause::NoKey;
-            noteCryptoOutcome(ctx, /*failed=*/true);
+            noteCryptoOutcome(ctx,true);
             if (!ctx->encrypting) {
                 ++ctx->ringEmpty;
                 ++ctx->run;
@@ -861,7 +711,6 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
             }
             if (!ctx->encrypting && !ctx->saidNoKey) {
                 ctx->saidNoKey = true;
-                // Two possible causes; the log must not name only one.
                 qCWarning(lcSfuMedia)
                     << "call diagnosis: frames are arriving from stream="
                     << ctx->streamId
@@ -883,17 +732,10 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
         if (ctx->streamInfo) ctx->streamInfo->decrypted.fetch_add(1);
         if (ctx->total)
             ctx->total->fetch_add(1);
-        // A clear pass is still an outcome, or the window goes stale.
-        noteCryptoOutcome(ctx, /*failed=*/false);
-        // Receive side only: check whether the "clear" frame is ciphertext.
+        noteCryptoOutcome(ctx,false);
         if (!ctx->encrypting)
             noteClearFrameShape(ctx, buffer, kind);
         if (shouldReport(ctx->passed)) {
-            // Names the stream so a camera and a screen share can be told
-            // apart. This counts decrypted frames handed downstream, not
-            // frames drawn (Qt Quick's software backend renders no video).
-            // `ciphertextShaped` shows whether "clear" frames carry our
-            // trailer.
             qCInfo(lcSfuMedia) << "frames in the clear"
                                << (ctx->encrypting ? "out" : "in")
                                << "stream=" << ctx->streamId
@@ -935,12 +777,11 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
         if (ctx->totalDropped)
             ctx->totalDropped->fetch_add(1);
         ctx->lastCause = CryptoDropCause::Undecryptable;
-        noteCryptoOutcome(ctx, /*failed=*/true);
+        noteCryptoOutcome(ctx,true);
         const int reasonBit = static_cast<int>(why.reason);
         const bool reasonKnown =
             reasonBit >= 0 && reasonBit < CryptoProbeCtx::kFailureReasons;
         if (!ctx->encrypting && reasonKnown) {
-            // Accounting for the detail and histogram lines.
             ++ctx->failures[static_cast<size_t>(reasonBit)];
             ++ctx->run;
             if (why.reason == CallFrameCryptor::DecryptFailure::BadIvLength) {
@@ -958,10 +799,6 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
                 ctx->badIvRun = 0;
             }
             ctx->histogramDirty = true;
-            // Detail line: first five failures per reason, then rate-limited.
-            // Separates the causes behind `bad-iv-length`. Sizes, two trailer
-            // bytes, the first cleartext header byte and booleans only; never
-            // a key, IV, ciphertext or payload.
             quint8 &logged = ctx->detailsLogged[static_cast<size_t>(reasonBit)];
             if (logged < 5
                 || shouldReport(ctx->failures[static_cast<size_t>(reasonBit)])) {
@@ -1000,7 +837,6 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
             && !(ctx->saidFailedMask & (1u << reasonBit))) {
             ctx->saidFailedMask =
                 static_cast<quint8>(ctx->saidFailedMask | (1u << reasonBit));
-            // The cryptor names the cause; an empty return has six.
             qCWarning(lcSfuMedia)
                 << "call diagnosis: frames from stream=" << ctx->streamId
                 << "will not DECRYPT: reason="
@@ -1024,9 +860,7 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
     if (ctx->streamInfo) ctx->streamInfo->decrypted.fetch_add(1);
     if (ctx->total)
         ctx->total->fetch_add(1);
-    // Clear the badge once enough frames decrypt. The log-once flags stay
-    // set so a flapping stream does not flood the log.
-    noteCryptoOutcome(ctx, /*failed=*/false);
+    noteCryptoOutcome(ctx,false);
     if (!ctx->encrypting) {
         ctx->run = 0;
         ctx->badIvRun = 0;
@@ -1047,8 +881,6 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
                            << "dropped=" << ctx->dropped;
     }
 
-    // The payload changed size: a new buffer carrying the original's timing
-    // and flags.
     GstBuffer *replacement = gst_buffer_new_allocate(
         nullptr, static_cast<gsize>(output.size()), nullptr);
     if (!replacement)
@@ -1073,44 +905,28 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
     GST_PAD_PROBE_INFO_DATA(info) = replacement;
     return GST_PAD_PROBE_OK;
 }
-} // namespace
+}
 
 bool SfuMediaEngine::runtimeAvailable(QString *whyNot)
 {
-    // One process-wide init with the plugin path applied; see GstBootstrap.h.
-    // Never gst_init here: whichever backend was probed first would decide
-    // whether the bundled plugin path was applied.
     const bool initOk = lightning::gst::ensureInitialised(whyNot);
     if (!initOk)
         return false;
 
-    // Our own elements must be registered before any pipeline names them.
     lightning::rtp::registerVp8Payloader();
     lightning::rtp::registerH264Payloader();
     lightning::wincap::registerWindowCaptureSrc();
-    // The microphone's noise suppressor stage. Not in the required list
-    // below: without it the chain simply has no neural suppressor.
     calls::noise::registerDenoiseElement();
-    // Everything the SFU pipelines need except a capture source: requiring
-    // one would refuse audio calls on machines without a camera plugin.
-    // Consequently an "available" engine is not evidence a share can start.
     static const char *const kRequired[] = {
         "webrtcbin",     "nicesrc",       "nicesink",     "dtlssrtpenc",
         "dtlssrtpdec",   "opusenc",       "opusdec",      "rtpopuspay",
         "rtpopusdepay",  "audioconvert",  "audioresample", "audiotestsrc",
         "fakesink",      "autoaudiosrc",  "autoaudiosink", "queue",
         "valve",         "volume",        "capsfilter",
-        // Video publish/receive.
         "vp8enc",        "vp8dec",        "rtpvp8pay",    "rtpvp8depay",
         "videoconvert",  "videoscale",    "videotestsrc", "videorate",
-        // Not `compositor`: nothing builds a pipeline from it.
-        // Created by webrtcbin and dtlssrtpenc themselves, so nothing here
-        // names them: SRTP, the data channel LiveKit's subscriber offer
-        // bundles every section onto, and the RTP session. A snap without
-        // libsrtp2 passed every other entry and carried no media (2026-09-29).
         "srtpenc",       "srtpdec",       "sctpenc",      "sctpdec",
         "rtpbin",        "rtpfunnel",
-        // Ours; without it encrypted video cannot be sent.
         lightning::rtp::vp8PayloaderName(),
     };
     for (const char *name : kRequired) {
@@ -1130,13 +946,10 @@ SfuMediaEngine::SfuMediaEngine(QObject *parent)
     : QObject(parent)
     , m_sendCryptor(std::make_unique<CallFrameCryptor>())
 {
-    // Armed by a screen-share publish; see tickShareKeepAlive(). The interval
-    // is the poll, not the threshold.
     m_shareKeepAliveTimer.setInterval(200);
     m_shareKeepAliveTimer.setSingleShot(false);
     connect(&m_shareKeepAliveTimer, &QTimer::timeout, this,
             &SfuMediaEngine::tickShareKeepAlive);
-    // See notifyAudioOutputsChanged().
     m_outputChangeTimer.setSingleShot(true);
     connect(&m_outputChangeTimer, &QTimer::timeout, this,
             &SfuMediaEngine::rearmReceiveChains);
@@ -1147,7 +960,6 @@ SfuMediaEngine::SfuMediaEngine(QObject *parent)
 SfuMediaEngine::~SfuMediaEngine()
 {
     {
-        // Unregister first so no new marshalled lambda targets us.
         QMutexLocker lock(&g_aliveMutex);
         g_aliveEngines.remove(this);
     }
@@ -1155,7 +967,6 @@ SfuMediaEngine::~SfuMediaEngine()
     // session is already stopped; otherwise an unparented bin could push
     // buffers through probes pointing into members being destroyed.
     stop();
-    // Bounded: at quit a webrtcbin still gathering is stopped anyway.
     m_retirer.drain(lightning::webrtc::Retirer::kQuitBudgetMs);
 }
 
@@ -1164,7 +975,6 @@ void SfuMediaEngine::start()
     teardown(false);
     m_callAllocator.engage();
     refreshSpeakerSink();
-    // Bump first so callbacks from the previous session are already stale.
     m_generation.fetch_add(1);
     m_active = true;
     if (shareHardwareEncodeRequested())
@@ -1190,17 +1000,11 @@ void SfuMediaEngine::stop()
 
 void SfuMediaEngine::suspend()
 {
-    // start()'s own teardown: the session's media goes, the keys stay.
     teardown(false);
 }
 
 void SfuMediaEngine::teardown(bool endOfCall)
 {
-    // At the end of a call the keys go, before the never-started early
-    // return. start() keeps them: Element sends its key as soon as it sees
-    // our membership, which is before the SFU join completes, and does not
-    // resend it until it rotates, so clearing here left that participant
-    // undecryptable.
     if (endOfCall)
         clearKeys();
     else
@@ -1212,17 +1016,12 @@ void SfuMediaEngine::teardown(bool endOfCall)
     if (!m_active && !m_publisher.pipeline && !m_subscriber.pipeline)
         return;
     m_generation.fetch_add(1);
-    // Rebuild jobs still out belong to the session that is ending.
     m_sessionLive->store(false);
     m_sessionLive = std::make_shared<std::atomic<bool>>(true);
     m_active = false;
-    // Before destroyPeer() sets the publisher to NULL on this thread: every
-    // portal camera and the microphone leave first, started or not (see
-    // detachPendingStart()): a capture whose server stalled blocks its stop
-    // too, and this is the GUI thread.
     for (const QString &cid : m_asyncStarts.keys())
         detachPendingStart(cid, m_publishedBins.value(cid, nullptr),
-                           /*force=*/true);
+true);
     m_asyncStarts.clear();
     m_publishedBins.clear();
     m_shareBackups.clear();
@@ -1236,7 +1035,6 @@ void SfuMediaEngine::teardown(bool endOfCall)
     m_pendingTrackVolume.clear();
     m_volumeMissWarned.clear();
     m_volumeAppliedLog.clear();
-    // The descriptors those bins used are ours to close.
     for (auto it = m_publishedFds.cbegin(); it != m_publishedFds.cend(); ++it) {
         if (it.value() > 0)
             ::close(it.value());
@@ -1254,19 +1052,15 @@ void SfuMediaEngine::teardown(bool endOfCall)
     destroyPeer(m_publisher);
     destroyPeer(m_subscriber);
     {
-        // Went down with the subscriber pipeline; the pad keys would dangle.
         QMutexLocker lock(&m_receiveBinMutex);
         m_receiveBins.clear();
     }
-    // Per call; the controller forgets its notice with the call.
     m_playbackFailureAnnounced = false;
-    // A burst of output changes is about this call's chains, which are gone.
     m_outputChangeTimer.stop();
     m_outputChangeBurstStartMs = -1;
     m_receiveRebuildAttempts = 0;
     m_receiveRearms = 0;
     {
-        // The fresh Pulse connection was this call's.
         QMutexLocker lock(&m_receiveBinMutex);
         m_freshPulseClient.clear();
     }
@@ -1288,19 +1082,15 @@ void SfuMediaEngine::teardown(bool endOfCall)
     m_micRestarts = 0;
     m_micRestartPending = false;
     m_micFailureReported = false;
-    // Engine state is per session; the controller re-applies user intent.
     m_microphoneMuted = false;
     m_outputMuted.store(false);
     m_publishedMedia.store(0);
     m_publisherEverPublished = false;
-    // Media keys must not outlive the call that used them.
     if (endOfCall)
         clearKeys();
     else
         clearSessionRouting();
     {
-        // Diagnoses are per call too; a second call must be able to repeat
-        // them.
         QMutexLocker lock(&m_diagnosedMutex);
         m_diagnosedOnce.clear();
         m_keyArrivals.clear();
@@ -1309,19 +1099,10 @@ void SfuMediaEngine::teardown(bool endOfCall)
 }
 
 namespace {
-/// Bus sync handler for SFU pipelines. Runs on a streaming thread: it logs
-/// and never touches a Qt object. Logs the element name and the static error
-/// string only; `debug` carries file paths and is not logged.
-///
-/// Always drops after inspection: nothing pops these buses, so a passed
-/// message would sit in the queue for the whole call and STATE_CHANGED
-/// messages would keep torn-down elements alive.
 GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
 {
     auto *engine = static_cast<SfuMediaEngine *>(userData);
     const GstMessageType type = GST_MESSAGE_TYPE(message);
-    // Capture level meter. An ELEMENT message; the peak is reduced to a double
-    // here and marshalled to the GUI thread.
     if (type == GST_MESSAGE_ELEMENT && engine) {
         const GstStructure *fields = gst_message_get_structure(message);
         const gchar *srcName = GST_MESSAGE_SRC_NAME(message);
@@ -1329,8 +1110,6 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
             && g_strcmp0(srcName, calls::noise::kDenoiseName) == 0
             && gst_structure_has_name(fields,
                                       calls::noise::kStatusMessageName)) {
-            // Once per mode change: which suppressor the streaming thread
-            // adopted, or that it failed and the microphone passes through.
             const QString requested = QString::fromUtf8(
                 gst_structure_get_string(fields, "requested"));
             const QString active =
@@ -1346,12 +1125,8 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                    && (g_strcmp0(srcName, "miccapturelevel") == 0
                        || g_strcmp0(srcName, "miclevel") == 0)
                    && gst_structure_has_name(fields, "level")) {
-            // miccapturelevel: what the device captures (before noise
-            // suppression) -> the dead-microphone judgement. miclevel: what
-            // is sent -> the in-call meter.
             const bool captured = g_strcmp0(srcName, "miccapturelevel") == 0;
             double peak = -350.0;
-            // An unread message is not evidence of silence.
             if (SfuMediaEngine::readLevelPeak(fields, &peak)) {
                 if (captured) {
                     marshal(engine,
@@ -1364,8 +1139,6 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
         } else if (fields && srcName
                    && g_strcmp0(srcName, "sharelevel") == 0
                    && gst_structure_has_name(fields, "level")) {
-            // What the share's sound track is sending (shareaudio::
-            // levelElementName()), so a share carrying silence is visible.
             double peak = -350.0;
             if (SfuMediaEngine::readLevelPeak(fields, &peak)) {
                 marshal(engine,
@@ -1390,18 +1163,11 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
     const QString element = QString::fromUtf8(rawName ? rawName : "?");
     const QString reason =
         QString::fromUtf8(error && error->message ? error->message : "?");
-    // The share's single loopback capture (pulsesrc on the output monitor,
-    // wasapi2src loopback) cannot capture: a snap without the audio-record
-    // plug, a monitor that will not open. Until now that was a log line and
-    // the far end heard nothing; it ends the share's sound and says so.
-    // `sharesrc-actual-src-*` too, should an auto element ever wrap it.
     if (engine && element.startsWith(QLatin1String("sharesrc"))
         && (type == GST_MESSAGE_ERROR
             || (error && error->domain == GST_RESOURCE_ERROR))) {
         marshal(engine, [engine] { engine->handleShareAudioSourceError(); });
     }
-    // One application's capture (`shareapp<n>`) failed: that branch is
-    // retired and reported, the rest of the share carries on.
     if (engine && type == GST_MESSAGE_ERROR) {
         const int branch =
             lightning::shareaudio::branchIndexFromElementName(element);
@@ -1416,8 +1182,6 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
         qCWarning(lcSfuMedia) << "pipeline error element=" << element
                               << "code=" << (error ? error->code : 0)
                               << "reason=" << reason;
-        // The share dies with its encoder (the track's codec is fixed by now),
-        // but it must not die the same way twice.
         GstElementFactory *failedFactory =
             element == QLatin1String("videoenc") && GST_IS_ELEMENT(GST_MESSAGE_SRC(message))
             ? gst_element_get_factory(GST_ELEMENT(GST_MESSAGE_SRC(message)))
@@ -1437,10 +1201,6 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                 << "room until a non-parsing payloader lands.";
         }
 
-        // The output device refused the stream (e.g. a surround or IEC958
-        // profile). The failing element is the sink autoaudiosink chose, so
-        // match by substring, and only on negotiation/open errors: ordinary
-        // teardown posts errors too.
         const bool audioSinkError =
             element.contains(QLatin1String("audiosink")) && error
             && ((error->domain == GST_STREAM_ERROR
@@ -1463,12 +1223,7 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                && (element.startsWith(QLatin1String("micsrc"))
                    || element.startsWith(QLatin1String("capsrc"))
                    || element.startsWith(QLatin1String("sharesrc"))
-                   // Per-application share sources are `shareapp0`, `shareapp1`, ...
                    || element.startsWith(QLatin1String("shareapp")))) {
-        // GStreamer posts a capture device that cannot open (e.g. a
-        // microphone held exclusively on Windows) as a WARNING, so the call
-        // proceeds with nothing behind the track. Logged loudly; deliberately
-        // not surfaced in the UI yet.
         qCWarning(lcSfuMedia)
             << "capture source could not open its device: element=" << element
             << "code=" << error->code << "reason=" << reason
@@ -1478,9 +1233,6 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                            << "code=" << (error ? error->code : 0)
                            << "reason=" << reason;
     }
-    // Read before the error is freed: a direct v4l2 source's RESOURCE error is a
-    // device that would not open or allocate, which the user is told as
-    // "may be in use by another app" (and which retries on the portal).
     const bool captureResourceError =
         type == GST_MESSAGE_ERROR && error
         && error->domain == GST_RESOURCE_ERROR
@@ -1493,13 +1245,6 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
         g_error_free(error);
     if (debug)
         g_free(debug);
-    // Not failed(): pipelines post errors during ordinary teardown, and
-    // failed() ends the call. Only publishFailed(), which ends nothing, is
-    // raised, and handlePublishError() on the GUI thread decides.
-    //
-    // The failing element sits deep inside the bin, so walk up to the child
-    // of the pipeline, which is named with the track's cid. m_publishedBins
-    // belongs to the GUI thread and is not consulted here.
     if (type == GST_MESSAGE_ERROR && engine) {
         QString publishCid;
         GstObject *walk = GST_MESSAGE_SRC(message);
@@ -1515,9 +1260,6 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                 gchar *name = gst_object_get_name(walk);
                 publishCid = QString::fromUtf8(name ? name : "");
                 g_free(name);
-                // A receive bin's own error must stay in that bin; see
-                // isolateFailedReceiveBin(). Checked here, synchronously, before
-                // the failing element's flow return reaches webrtcbin.
                 if (GST_IS_ELEMENT(walk))
                     engine->isolateFailedReceiveBin(GST_ELEMENT(walk));
                 gst_object_unref(parent);
@@ -1527,20 +1269,14 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
             gst_object_unref(walk);
             walk = parent;
         }
-        // Capture keeps running under a dead encoder, so nothing else would
-        // say so: the preview stays live while viewers freeze.
         if (hardwareEncoderFailed && !publishCid.isEmpty()) {
             marshal(engine, [engine, publishCid] {
                 engine->handleShareEncoderFailed(publishCid);
             });
         }
         if (!publishCid.isEmpty()) {
-            // `micsrc` and anything autoaudiosrc names under it
-            // (`micsrc-actual-src-puls`).
             const bool captureSource =
                 element.startsWith(QLatin1String("micsrc"));
-            // Which capture front: a replacement still starting is told
-            // apart from the one carrying the call (swapMicrophoneFront()).
             QString front;
             if (captureSource) {
                 GstObject *up = GST_MESSAGE_SRC(message)
@@ -1559,8 +1295,6 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                     gst_object_unref(up);
             }
             if (element == QLatin1String(calls::noise::kDspName)) {
-                // Not a track that cannot carry media: the track is fine once
-                // the element is gone. See handleMicDspError().
                 marshal(engine, [engine, publishCid, reason] {
                     engine->handleMicDspError(publishCid, reason);
                 });
@@ -1577,11 +1311,10 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
         }
     }
     Q_UNUSED(engine);
-    // Drop after inspection; see above.
     gst_message_unref(message);
     return GST_BUS_DROP;
 }
-} // namespace
+}
 
 void SfuMediaEngine::destroyPeer(Peer &peer)
 {
@@ -1609,28 +1342,17 @@ bool SfuMediaEngine::ensurePeer(Target target)
     if (!m_active)
         return false;
 
-    // bundle-policy=max-bundle is what LiveKit negotiates.
     GstElement *pipeline = gst_pipeline_new(nullptr);
     if (pipeline) {
-        // Set before anything is added: construction failures post at once.
         if (GstBus *bus = gst_element_get_bus(pipeline)) {
             gst_bus_set_sync_handler(bus, onBusMessage, this, nullptr);
             gst_object_unref(bus);
         }
-        // The system clock, never a device's. An audio source or sink
-        // provides a clock and a pipeline prefers it; a live device switch
-        // (swapMicrophoneFront(), swapReceiveSinks()) then removes the clock
-        // with the element, and a pipeline whose clock is gone waits on it
-        // for ever: webrtcbin's clocksync holds every packet. The 1:1 lane
-        // deadlocked exactly so (measured 2026-10-08), and nothing here could
-        // recover, because this bus drops CLOCK_LOST.
         if (GstClock *clock = gst_system_clock_obtain()) {
             gst_pipeline_use_clock(GST_PIPELINE(pipeline), clock);
             gst_object_unref(clock);
         }
     }
-        // Named per peer connection so diagnostics can identify it without
-        // touching the engine from a GStreamer thread.
     GstElement *webrtc = gst_element_factory_make(
         "webrtcbin",
         target == Target::Publisher ? "wb-pub" : "wb-sub");
@@ -1642,13 +1364,9 @@ bool SfuMediaEngine::ensurePeer(Target target)
         Q_EMIT failed(QStringLiteral("pipeline_failed"));
         return false;
     }
-    g_object_set(webrtc, "bundle-policy", 3 /* max-bundle */, "latency", 100,
+    g_object_set(webrtc, "bundle-policy", 3, "latency", 100,
                  nullptr);
     if (target == Target::Subscriber) {
-        // The answer lists what we can decode, because it is the only thing
-        // the SFU picks a codec from: it sends a publication's first codec any
-        // answer admits. Answer everything and a share with a VP8 backup
-        // arrives as H.264 where no decoder exists, with no picture.
         g_signal_connect(webrtc, "on-new-transceiver", G_CALLBACK(+[](
             GstElement *, GstWebRTCRTPTransceiver *transceiver, gpointer) {
             GstWebRTCKind kind = GST_WEBRTC_KIND_UNKNOWN;
@@ -1684,35 +1402,24 @@ bool SfuMediaEngine::ensurePeer(Target target)
         }
     }
     if (!gst_bin_add(GST_BIN(pipeline), webrtc)) {
-        // gst_bin_add sinks-and-drops on failure: webrtc may be FINALIZED.
         gst_object_unref(pipeline);
         Q_EMIT failed(QStringLiteral("pipeline_failed"));
         return false;
     }
-    // The pipeline owns the element; we hold a ref for the session.
     peer.pipeline = pipeline;
     peer.webrtc = GST_ELEMENT(gst_object_ref(webrtc));
     // Before any callback can run; see destroyPeer().
     lightning::webrtc::installGate(webrtc);
 
     if (target == Target::Publisher) {
-        // Only the publisher offers; the subscriber answers the server's
-        // offers, and a negotiation-needed there would compete.
         g_signal_connect(webrtc, "on-negotiation-needed",
                          G_CALLBACK(onNegotiationNeeded), this);
     }
     g_signal_connect(webrtc, "on-ice-candidate", G_CALLBACK(onIceCandidate),
                      this);
     g_signal_connect(webrtc, "pad-added", G_CALLBACK(onPadAdded), this);
-    // Removes receive bins when tracks go away. Logged when it fires, since
-    // whether webrtcbin raises it for a retired LiveKit track is unverified.
     g_signal_connect(webrtc, "pad-removed", G_CALLBACK(onPadRemoved), this);
     armStatsTrace();
-    // Connection state: signalling keeps working over the WebSocket while
-    // ICE/DTLS may never complete, so without this "no audio" and "no
-    // connection" look the same. `this` is user data so destroyPeer can
-    // disconnect by data; the handler touches the engine only through
-    // marshal(), inside a CallbackScope, for the ICE connection state.
     g_signal_connect(webrtc, "notify::ice-connection-state",
                      G_CALLBACK(onPeerStateNotify), this);
     g_signal_connect(webrtc, "notify::ice-gathering-state",
@@ -1729,8 +1436,6 @@ QString SfuMediaEngine::stunServerUri(const QString &iceUri)
 {
     if (!iceUri.startsWith(QLatin1String("stun:")) || iceUri.size() <= 5)
         return {};
-    // `stun:host:port` has no host as a URI, and gstwebrtcnice then logs
-    // "has no host" and gathers no server-reflexive candidate at all.
     return QStringLiteral("stun://") + iceUri.mid(5);
 }
 
@@ -1741,7 +1446,6 @@ QString SfuMediaEngine::turnServerUri(const QString &iceUri,
     const bool secure = iceUri.startsWith(QLatin1String("turns:"));
     if (!secure && !iceUri.startsWith(QLatin1String("turn:")))
         return {};
-    // Host, port and `?transport=` as the SFU gave them.
     const QString rest = iceUri.mid(secure ? 6 : 5);
     if (rest.isEmpty())
         return {};
@@ -1760,8 +1464,6 @@ void SfuMediaEngine::applyIceTo(Peer &peer)
     for (const QString &uri : m_iceUris) {
         const QString stun = stunServerUri(uri);
         if (!stun.isEmpty()) {
-            // webrtcbin holds one STUN server: the first named, as in the
-            // 1:1 lane.
             if (!stunApplied) {
                 g_object_set(peer.webrtc, "stun-server",
                              stun.toUtf8().constData(), nullptr);
@@ -1769,7 +1471,6 @@ void SfuMediaEngine::applyIceTo(Peer &peer)
             }
             continue;
         }
-        // Carries the credentials: never logged.
         const QString turn = turnServerUri(uri, m_iceUsername, m_icePassword);
         if (turn.isEmpty())
             continue;
@@ -1779,8 +1480,6 @@ void SfuMediaEngine::applyIceTo(Peer &peer)
         if (added)
             ++turnServers;
     }
-    // Counts only: which servers were taken is enough to tell "no STUN" from
-    // "no relay" in a report.
     qCInfo(lcSfuMedia) << "ice servers applied stun=" << stunApplied
                        << "turn=" << turnServers;
 }
@@ -1795,8 +1494,6 @@ void SfuMediaEngine::setIceServers(const QVariantList &servers)
         const QStringList uris =
             entry.value(QStringLiteral("urls")).toStringList();
         for (const QString &uri : uris) {
-            // Sanity filter: these strings are assembled into a
-            // credential-bearing URI.
             if (uri.length() > 512 || uri.contains(QLatin1Char('@'))
                 || uri.contains(QLatin1Char('/')))
                 continue;
@@ -1842,9 +1539,6 @@ bool SfuMediaEngine::shareAudioSystemExcludesUs()
 
 namespace {
 
-// Devices as GStreamer sees them, asked per capture build. Qt device ids are
-// not GStreamer handles (see CaptureDeviceSelection.h); asking each time also
-// notices unplugged devices.
 QList<lightning::calls::GstDeviceCandidate> enumerateDevices(const char *klass)
 {
     QList<lightning::calls::GstDeviceCandidate> out;
@@ -1854,7 +1548,6 @@ QList<lightning::calls::GstDeviceCandidate> enumerateDevices(const char *klass)
     if (!monitor)
         return out;
     gst_device_monitor_add_filter(monitor, klass, nullptr);
-    // A monitor that will not start means "no answer": keep the default.
     if (!gst_device_monitor_start(monitor)) {
         gst_object_unref(monitor);
         return out;
@@ -1873,8 +1566,6 @@ QList<lightning::calls::GstDeviceCandidate> enumerateDevices(const char *klass)
                 const gchar *key = gst_structure_nth_field_name(props, i);
                 if (!key)
                     continue;
-                // Serialised: identity keys may be int or uint, and a typed
-                // string read of the wrong type returns null.
                 const GValue *value = gst_structure_get_value(props, key);
                 if (!value)
                     continue;
@@ -1887,10 +1578,6 @@ QList<lightning::calls::GstDeviceCandidate> enumerateDevices(const char *klass)
             }
             gst_structure_free(props);
         }
-        // Two providers keep the handle on the device object, not in its
-        // properties: ksvideosrc's `path` (Windows) and avfvideosrc's
-        // `device-index` (macOS). Copied under the keys CaptureDeviceSelection
-        // reads, or a camera choice there can never bind.
         GObjectClass *deviceClass = G_OBJECT_GET_CLASS(device);
         if (!candidate.properties.contains(QStringLiteral("device.path"))) {
             if (GParamSpec *spec =
@@ -1926,26 +1613,12 @@ QList<lightning::calls::GstDeviceCandidate> enumerateDevices(const char *klass)
     return out;
 }
 
-/// How long a device enumeration may block the caller before it is abandoned.
-/// A healthy PipeWire answers in well under 250 ms.
 constexpr int kDeviceEnumerationBudgetMs = 2500;
-/// A capture start on the GUI thread slower than this froze the window long
-/// enough to be noticed; it is logged with its duration.
 constexpr qint64 kSlowCaptureStartWarnMs = 500;
 
-/// `enumerateDevices` with a time bound. gst_device_monitor_start() is
-/// synchronous and unbounded (the PulseAudio provider waits for the initial
-/// device list with no timeout), and the caller is the GUI thread in the join
-/// path (GitHub issue #12).
-///
-/// A blocked enumeration cannot be cancelled, so the worker is abandoned and
-/// the klass latched: a provider that hung once is not asked again this
-/// session. The fallback is the platform default device.
 QList<lightning::calls::GstDeviceCandidate> monitorCandidates(
     const char *klass, bool *answered = nullptr)
 {
-    // False until the monitor actually answered: an empty list from a hung or
-    // unavailable provider is not "no such device".
     if (answered)
         *answered = false;
     static QMutex latchMutex;
@@ -1957,18 +1630,13 @@ QList<lightning::calls::GstDeviceCandidate> monitorCandidates(
             return {};
     }
 
-    // Initialise on the caller's thread; first-time init must not happen in a
-    // thread that may be abandoned.
     if (!lightning::gst::ensureInitialised())
         return {};
 
     auto slot = std::make_shared<
         std::promise<QList<lightning::calls::GstDeviceCandidate>>>();
     auto answer = slot->get_future();
-    // Detached on purpose; the shared promise makes a late answer harmless.
     std::thread([slot, klass] {
-        // Never let an exception break the promise: get() would rethrow it
-        // on the GUI thread.
         try {
             slot->set_value(enumerateDevices(klass));
         } catch (...) {
@@ -1998,8 +1666,6 @@ QList<lightning::calls::GstDeviceCandidate> monitorCandidates(
     return {};
 }
 
-// Concrete elements that can carry a device choice, in preference order.
-// `autoaudiosrc`/`autoaudiosink` have no device property.
 QStringList microphoneElementPreference()
 {
 #if defined(Q_OS_WIN)
@@ -2023,15 +1689,10 @@ QStringList speakerElementPreference()
 #elif defined(Q_OS_MACOS)
     return {QStringLiteral("osxaudiosink")};
 #else
-    // `pulsesink` first, for the microphone's reason above: the bundled
-    // gst-plugin-pipewire 1.4 mishandles `target-object` against a 1.6
-    // daemon, and pipewire-pulse names sinks exactly as QMediaDevices does.
-    // The 1:1 lane resolves through this function too (AppController).
     return {QStringLiteral("pulsesink"), QStringLiteral("pipewiresink")};
 #endif
 }
 
-// Elements this build can instantiate; naming a missing one fails the parse.
 QStringList availableElements(const QStringList &names)
 {
     QStringList out;
@@ -2048,14 +1709,6 @@ QStringList availableElements(const QStringList &names)
     return out;
 }
 
-// Sets the resolved property on an already-parsed bin. Never interpolated into
-// a description: a quote in a device name would be parsed as syntax.
-//
-// Converted to the property's own type: avfvideosrc `device-index` and
-// osxaudiosrc `device` are ints, and handing g_object_set a char* for them is
-// undefined behaviour. Returns false when nothing was set (no such element or
-// property, or a value the property does not accept); the caller decides
-// whether that means the default device (audio) or no device (camera).
 bool applyBindingTo(GstElement *bin, const char *elementName,
                     const lightning::calls::DeviceBinding &binding)
 {
@@ -2069,7 +1722,6 @@ bool applyBindingTo(GstElement *bin, const char *elementName,
     GParamSpec *spec = g_object_class_find_property(G_OBJECT_GET_CLASS(element),
                                                     property.constData());
     bool set = false;
-    // Construct-only properties ignore a set after construction.
     if (spec && (spec->flags & G_PARAM_WRITABLE)
         && !(spec->flags & G_PARAM_CONSTRUCT_ONLY)) {
         if (spec->value_type == G_TYPE_STRING) {
@@ -2079,8 +1731,6 @@ bool applyBindingTo(GstElement *bin, const char *elementName,
         } else {
             GValue typed = G_VALUE_INIT;
             g_value_init(&typed, spec->value_type);
-            // g_param_value_validate() is true when it had to CHANGE the value,
-            // i.e. it was out of the property's range.
             set = gst_value_deserialize(&typed, value.constData())
                 && !g_param_value_validate(spec, &typed);
             if (set)
@@ -2112,16 +1762,11 @@ bool factoryExists(const char *name)
     return true;
 }
 
-} // namespace
+}
 
 SfuMediaEngine::MicrophoneCapture
 SfuMediaEngine::resolveMicrophoneCapture(const DeviceChoice &mic)
 {
-    // `autoaudiosrc` is a bin with no device property, so honouring a
-    // preference means choosing a concrete element. chooseCaptureElement()
-    // returns nothing unless the element exists and can bind the device.
-    // Skipped entirely when there is no preference: enumeration is synchronous
-    // and possibly slow (see monitorCandidates).
     const lightning::calls::ElementChoice choice =
         mic.id.isEmpty()
             ? lightning::calls::ElementChoice{}
@@ -2136,9 +1781,6 @@ SfuMediaEngine::resolveMicrophoneCapture(const DeviceChoice &mic)
         ? QStringLiteral("autoaudiosrc name=micsrc")
         : QStringLiteral("%1 name=micsrc").arg(choice.element);
     capture.binding = choice.binding;
-    // Multi-input interfaces: see captureMixMatrix(). Limited to pipewiresrc,
-    // the only element this was verified on: a wrong channel pin fails
-    // negotiation and kills the microphone.
     capture.channels = choice.element == QLatin1String("pipewiresrc")
         ? choice.binding.channels
         : 0;
@@ -2148,10 +1790,6 @@ SfuMediaEngine::resolveMicrophoneCapture(const DeviceChoice &mic)
 QString SfuMediaEngine::microphoneFrontDescription(
     const MicrophoneCapture &capture)
 {
-    // Multi-input interfaces: averaging to mono mixes in the silent inputs
-    // (-12 dB with four channels), so take input 1 instead; see
-    // captureMixMatrix(). Both stages are empty for one- and two-channel
-    // devices.
     const QString channelCaps =
         lightning::calls::captureChannelCaps(capture.channels);
     const QString mixMatrix = lightning::calls::captureMixMatrix(capture.channels);
@@ -2163,10 +1801,6 @@ QString SfuMediaEngine::microphoneFrontDescription(
                           "! queue max-size-buffers=0 max-size-bytes=0 "
                           "max-size-time=100000000 leaky=downstream "
                           "! audioconvert %3 ! audioresample "
-                          // Mono pinned: Windows often exposes a mic as two
-                          // channels with signal in only one, which the far
-                          // end heard in one ear. audioconvert averages real
-                          // stereo.
                           "! audio/x-raw,channels=1")
         .arg(capture.source, channelCaps, mixMatrix);
 }
@@ -2220,8 +1854,6 @@ bool SfuMediaEngine::readLevelPeak(const GstStructure *fields, double *peakDb)
     const GValue *peaks = fields ? gst_structure_get_value(fields, "peak")
                                  : nullptr;
     if (peaks) {
-        // `level` posts one value per channel in a (deprecated) GValueArray;
-        // take the loudest channel.
         G_GNUC_BEGIN_IGNORE_DEPRECATIONS
         if (G_VALUE_HOLDS(peaks, G_TYPE_VALUE_ARRAY)) {
             auto *array = static_cast<GValueArray *>(g_value_get_boxed(peaks));
@@ -2233,8 +1865,6 @@ bool SfuMediaEngine::readLevelPeak(const GstStructure *fields, double *peakDb)
                 }
             }
         } else if (GST_VALUE_HOLDS_ARRAY(peaks)) {
-            // GstValueArray is the modern equivalent. No runtime has been
-            // seen using it; accepted defensively.
             const guint n = gst_value_array_get_size(peaks);
             for (guint i = 0; i < n; ++i) {
                 const GValue *one = gst_value_array_get_value(peaks, i);
@@ -2244,7 +1874,6 @@ bool SfuMediaEngine::readLevelPeak(const GstStructure *fields, double *peakDb)
                 }
             }
         } else {
-            // Unknown type: say so once instead of failing silently.
             static std::atomic<bool> saidOnce{false};
             if (!saidOnce.exchange(true)) {
                 qCWarning(lcSfuMedia)
@@ -2311,10 +1940,8 @@ void SfuMediaEngine::setPreferredDevices(const DeviceChoice &camera,
         m_microphoneChoice = microphone;
         m_speakerChoice = speaker;
     }
-    // The signal behind this also fires for a camera pick: only what changed
-    // moves, so a camera pick never interrupts the microphone.
     if (speakerChanged)
-        refreshSpeakerSink(/*applyLive=*/true);
+        refreshSpeakerSink(true);
     if (microphoneChanged)
         refreshMicrophoneCapture();
 }
@@ -2330,20 +1957,17 @@ void SfuMediaEngine::refreshSpeakerSink(bool applyLive)
         m_resolvedSpeaker = OutputSink{};
     }
     if (choice.id.isEmpty() || testSourceMode()) {
-        // Nothing to resolve: the default (or the test's sink) applies now.
         if (applyLive)
             swapReceiveSinks();
         return;
     }
-    // The device monitor can block for seconds: a worker thread, never the
-    // GUI thread and never a GStreamer streaming thread.
     QThreadPool::globalInstance()->start([this, choice, seq, applyLive] {
         const OutputSink resolved = resolveSpeakerSink(choice);
         marshal(this, [this, resolved, seq, applyLive] {
             {
                 QMutexLocker lock(&m_deviceMutex);
                 if (seq != m_speakerSeq)
-                    return; // a newer pick is resolving
+                    return;
                 m_resolvedSpeaker = resolved;
             }
             if (applyLive)
@@ -2378,7 +2002,6 @@ SfuMediaEngine::DeviceChoice SfuMediaEngine::speakerChoice() const
 
 int SfuMediaEngine::snapCameraHeight(int height)
 {
-    // 720 is today's behaviour, so anything unrecognised lands there.
     if (height == 360 || height == 480 || height == 1080)
         return height;
     return kCameraHeight;
@@ -2386,7 +2009,6 @@ int SfuMediaEngine::snapCameraHeight(int height)
 
 int SfuMediaEngine::snapShareBitrateCap(int kbps)
 {
-    // 0 is Auto. Anything else snaps to the offered ceilings.
     if (kbps <= 0)
         return 0;
     static const int offered[] = { 500, 1000, 2000, 3000, 4500 };
@@ -2407,8 +2029,6 @@ QString SfuMediaEngine::echoProbeStage(bool echoCancel, bool probeAvailable)
 {
     if (!echoCancel || !probeAvailable)
         return {};
-    // S16LE at 48 kHz is what webrtcdsp is fed, and the probe must see the
-    // same format. A filter, so playback is untouched.
     return QStringLiteral("! audioconvert "
                           "! audio/x-raw,format=S16LE,rate=48000 "
                           "! webrtcechoprobe name=%1 ")
@@ -2432,7 +2052,7 @@ bool SfuMediaEngine::echoProbeLive() const
 
 namespace {
 bool syncStateIfStillParented(GstElement *bin);
-} // namespace
+}
 
 bool SfuMediaEngine::echoAllowedOnMic() const
 {
@@ -2441,8 +2061,6 @@ bool SfuMediaEngine::echoAllowedOnMic() const
 
 void SfuMediaEngine::handleShareEncoderFailed(const QString &cid)
 {
-    // As handlePublishError(): an error queued from an old bin, or posted while
-    // one came down, says nothing about the share there is now.
     if (!m_active || cid != m_shareEncoderCid || !m_publishedBins.contains(cid))
         return;
     g_shareHardwareEncoderFailed.store(true);
@@ -2464,7 +2082,6 @@ void SfuMediaEngine::engageEchoCancellation()
     if (!bin)
         return;
     if (microphoneStarting()) {
-        // Replacing an element in a bin another thread is starting.
         m_micEchoAfterStart = true;
         return;
     }
@@ -2476,9 +2093,6 @@ void SfuMediaEngine::engageEchoCancellation()
         << "echo cancellation at first remote audio:"
         << calls::noise::engageEchoCancel(bin, [this, generation] {
                marshal(this, [this, generation] {
-                   // The probe went with its participant: the next remote
-                   // audio track asks again, and nothing here needs saying.
-                   // One still there but not free will stay that way.
                    if (m_active && generation == m_generation.load()
                        && echoProbeLive())
                        giveUpEchoCancellation(QStringLiteral(
@@ -2504,15 +2118,8 @@ void SfuMediaEngine::handleMicDspError(const QString &cid,
 {
     if (!m_active || cid != m_micCid || !m_publishedBins.contains(cid))
         return;
-    // Echo cancellation was already given up and the dsp replaced: an error
-    // posted by the element that was replaced is stale, and is not judged
-    // again as the track's own failure.
     if (m_echoGivenUp)
         return;
-    // Only an echo failure may say that echo cancellation failed. The dsp also
-    // carries noise suppression and gain, and an error from one that was never
-    // asked to cancel echo is the track's own failure: no notice about echo,
-    // and the ordinary publish-error path.
     bool echoWasOn = false;
     if (GstElement *bin = m_publishedBins.value(cid, nullptr)) {
         if (GST_IS_BIN(bin)) {
@@ -2526,9 +2133,6 @@ void SfuMediaEngine::handleMicDspError(const QString &cid,
         }
     }
     if (!echoWasOn) {
-        // handlePublishError() would be a silent no-op here: only a video
-        // publish registers a watch. Say it, once, as the microphone's own
-        // failure; the call itself goes on.
         qCWarning(lcSfuMedia)
             << "call diagnosis: webrtcdsp errored on the microphone with echo "
                "cancellation off; the microphone may be silent. reason="
@@ -2541,7 +2145,6 @@ void SfuMediaEngine::handleMicDspError(const QString &cid,
     }
     giveUpEchoCancellation(reason);
     if (microphoneStarting()) {
-        // Replacing an element in a bin another thread is starting.
         m_micDspRescueAfterStart = true;
         return;
     }
@@ -2555,14 +2158,8 @@ void SfuMediaEngine::rescueMicrophoneFromDsp()
         return;
     const QString did = calls::noise::dropEchoCancel(bin);
     qCInfo(lcSfuMedia) << "microphone after a webrtcdsp error:" << did;
-    // Only a dsp that was asked to cancel echo is this net's to replace, and
-    // the replacement cannot fail the same way, so this cannot loop.
     if (did != QLatin1String("echo dropped"))
         return;
-    // A failed start stopped the bin part way: a bin changes state from its
-    // sinks upwards, so everything upstream of webrtcdsp, the capture
-    // included, never left READY. Off this thread as the first start was:
-    // the capture opening its device blocks whoever starts it.
     gst_element_call_async(
         bin,
         [](GstElement *micBin, gpointer) {
@@ -2575,8 +2172,6 @@ void SfuMediaEngine::setShareQuality(int maxHeight, int fps,
                                      int bitrateCapKbps)
 {
     m_shareBitrateCapKbps = snapShareBitrateCap(bitrateCapKbps);
-    // Snapped to known values: these come from settings and reach the caps
-    // string.
     m_shareMaxHeight = (maxHeight <= 900) ? 720
                      : (maxHeight <= 1260) ? 1080
                      : (maxHeight <= 1800) ? 1440
@@ -2590,9 +2185,6 @@ bool SfuMediaEngine::applyShareQualityLive(const QString &cid)
     if (!bin)
         return false;
     bool applied = false;
-    // Setting a capsfilter's caps sends RECONFIGURE upstream: the scaler, the
-    // rate stage and the encoder renegotiate to the new size and rate while
-    // the capture, the call and the share audio carry on untouched.
     auto retarget = [bin](const char *name, const QString &caps) {
         GstElement *filter = gst_bin_get_by_name(GST_BIN(bin), name);
         if (!filter)
@@ -2620,7 +2212,6 @@ bool SfuMediaEngine::applyShareQualityLive(const QString &cid)
                           QString::number(h)));
     }
     if (GstElement *enc = gst_bin_get_by_name(GST_BIN(bin), "videoenc")) {
-        // The same arithmetic the encoder stage was built from.
         const QString stage = shareEncoderStage(m_shareMaxHeight, m_shareFps,
                                                 m_shareBitrateCapKbps);
         static const QRegularExpression rate(
@@ -2637,8 +2228,6 @@ bool SfuMediaEngine::applyShareQualityLive(const QString &cid)
                 G_OBJECT_GET_CLASS(enc), "keyframe-max-dist"))
             g_object_set(enc, "keyframe-max-dist", dist.captured(1).toInt(),
                          nullptr);
-        // Hardware encoders: kbit/s, and a keyframe interval that cannot
-        // change on a running session.
         if (bitrate.hasMatch()
             && !g_object_class_find_property(G_OBJECT_GET_CLASS(enc),
                                              "target-bitrate")
@@ -2661,16 +2250,12 @@ void SfuMediaEngine::publishShareAudio(
     if (m_publishedBins.contains(cid))
         return;
     if (!selection.capturesAnything()) {
-        // The controller publishes no track for Off or for no chosen app; the
-        // SFU may already have been told one is coming, so say it failed.
         qCWarning(lcSfuMedia)
             << "share audio: asked to publish with nothing chosen to capture";
         Q_EMIT failed(QStringLiteral("share_audio_apps_unavailable"));
         return;
     }
 
-    // Use the same decision as availability and the pipeline tests. Never
-    // fall back to an endpoint/monitor mix: it includes call playback (#26).
     const bool testSeam = static_cast<bool>(m_shareAudioEnumerateForTest);
     const bool captureSeam = m_shareAudioCaptureForTest.has_value();
     const auto capture = captureSeam
@@ -2716,25 +2301,16 @@ void SfuMediaEngine::publishShareAudio(
         }
     }
     if (perApplication) {
-        // The mixer and its silence floor only: every application branch is
-        // added by the scan, as a bin of its own that can be taken out again
-        // once its application has gone.
         source = lightning::shareaudio::mixedSourceDescription(
             {}, m_shareAudioOptions);
     }
     if (source.isEmpty()) {
-        // The SFU was already told a track is coming, so report the failure.
         qCWarning(lcSfuMedia)
             << "share audio: no loopback capture element on this platform";
         Q_EMIT failed(QStringLiteral("share_audio_unavailable"));
         return;
     }
 
-    // Built by one function so tests parse the exact string.
-    // mixedSourceDescription() ends in a pad reference, which accepts no
-    // further assignments, so each capture element names itself `sharesrc`.
-    // The level meter only where the build has the element: naming a missing
-    // one fails the whole parse.
     const QString description = lightning::shareaudio::encodedTrackDescription(
         source, nextPublishSsrc(), elementAvailable("level"),
         m_shareAudioMuted);
@@ -2759,11 +2335,10 @@ void SfuMediaEngine::publishShareAudio(
         return;
     }
     m_publishedBins.insert(cid, bin);
-    // Encrypted on the encoder's src pad like every other track.
     if (GstElement *encoder =
             gst_bin_get_by_name(GST_BIN(bin), "shareaudioenc")) {
         if (GstPad *encoded = gst_element_get_static_pad(encoder, "src")) {
-            installEncryptProbe(encoded, /*video=*/false);
+            installEncryptProbe(encoded,false);
             gst_object_unref(encoded);
         }
         gst_object_unref(encoder);
@@ -2779,8 +2354,6 @@ void SfuMediaEngine::publishShareAudio(
         gst_object_unref(srcPad);
     if (linked != GST_PAD_LINK_OK) {
         qCWarning(lcSfuMedia) << "share audio link failed code=" << linked;
-        // Unregister and remove the bin and release the request pad, or the cid
-        // can never be republished and the next offer carries a dead m=audio.
         releaseFailedPublishPad(sinkPad);
         m_publishedBins.remove(cid);
         gst_element_set_state(bin, GST_STATE_NULL);
@@ -2791,8 +2364,6 @@ void SfuMediaEngine::publishShareAudio(
     if (sinkPad)
         gst_object_unref(sinkPad);
     gst_element_sync_state_with_parent(bin);
-    // Counted like every published track; unpublish() decrements for every
-    // cid, and a zero count defers offers.
     ++m_publishedMedia;
     m_publisherEverPublished = true;
     m_shareAudioAnyCid = cid;
@@ -2833,7 +2404,6 @@ void SfuMediaEngine::publishShareAudio(
             << "chosen=" << selection.keys.size()
             << "retire-on-disconnect=" << m_shareAudioOptions.retireOnDisconnect
             << "follows-process=" << m_shareAudioOptions.followsProcess;
-        // The first scan now rather than in two seconds.
         rescanShareAudioSources();
     }
     emitShareAudioReport();
@@ -2843,7 +2413,6 @@ void SfuMediaEngine::publishShareAudio(
 
 SfuMediaEngine::PublishProbeState::~PublishProbeState()
 {
-    // No lock: this runs only after the last shared_ptr is gone.
     if (lastFrame)
         gst_buffer_unref(lastFrame);
     if (keepSink)
@@ -2854,14 +2423,11 @@ quint64 SfuMediaEngine::keepAlivePts(quint64 sampledPts, bool sampledPtsValid,
                                      qint64 elapsedMs, quint64 lastInjectedPts,
                                      bool lastInjectedPtsValid)
 {
-    // No PTS, no anchor: refuse rather than guess. A still share staying still
-    // is a smaller fault than a moving share dying.
     if (!sampledPtsValid)
         return GST_CLOCK_TIME_NONE;
     const quint64 elapsed =
         static_cast<quint64>(qMax<qint64>(0, elapsedMs)) * GST_MSECOND;
     quint64 at = sampledPts + elapsed;
-    // Strictly increasing; videorate does not interpolate across a tie.
     if (lastInjectedPtsValid && at <= lastInjectedPts)
         at = lastInjectedPts + 1;
     return at;
@@ -2879,8 +2445,6 @@ GstPad *SfuMediaEngine::keepAliveInjectionPad(GstElement *bin)
     return sink;
 }
 
-/// Drops the frame and pad a finished share was holding. Static: callers have
-/// already removed the watch from the hash.
 void SfuMediaEngine::releaseKeepAlive(
     const std::shared_ptr<PublishProbeState> &state)
 {
@@ -2901,14 +2465,12 @@ void SfuMediaEngine::releaseKeepAlive(
 }
 
 namespace {
-/// One keep-alive frame on its way to `videorate`, owned until it is chained.
 struct KeepAliveInjection {
     GstPad *pad = nullptr;
     GstBuffer *buffer = nullptr;
 };
-}   // namespace
+}
 
-/// Run the keep-alive timer exactly while some watched share still holds a pad.
 void SfuMediaEngine::updateShareKeepAliveTimer()
 {
     bool wanted = false;
@@ -2922,14 +2484,8 @@ void SfuMediaEngine::updateShareKeepAliveTimer()
         m_shareKeepAliveTimer.stop();
 }
 
-/// Gives `videorate` the second buffer a still screen never produces. A
-/// PipeWire screencast delivers on damage and videorate emits nothing until a
-/// second buffer arrives, so a window that does not repaint publishes no
-/// video at all. See videoRateStage().
 void SfuMediaEngine::tickShareKeepAlive()
 {
-    // Must exceed the probe's sampling throttle so a healthy share never looks
-    // quiet.
     constexpr qint64 kQuietMs = 500;
     const qint64 now = monotonicMs();
     for (auto it = m_publishWatch.cbegin(); it != m_publishWatch.cend(); ++it) {
@@ -2944,8 +2500,6 @@ void SfuMediaEngine::tickShareKeepAlive()
         bool sampledPtsValid = false;
         qint64 sampledAtMs = -1;
         {
-        // Read the triple under one lock, or an old PTS could pair with a new
-        // sample time.
             QMutexLocker lock(&state->keepMutex);
             if (state->lastFrame)
                 sample = gst_buffer_ref(state->lastFrame);
@@ -2955,7 +2509,6 @@ void SfuMediaEngine::tickShareKeepAlive()
         }
         if (!sample)
             continue;
-        // Anchored to the sampled frame's PTS; see keepAlivePts().
         const quint64 at = keepAlivePts(
             sampledPts, sampledPtsValid,
             sampledAtMs >= 0 ? now - sampledAtMs : 0,
@@ -2973,10 +2526,6 @@ void SfuMediaEngine::tickShareKeepAlive()
         GST_BUFFER_PTS(inject) = at;
         GST_BUFFER_DTS(inject) = at;
         GST_BUFFER_DURATION(inject) = GST_CLOCK_TIME_NONE;
-        // gst_pad_chain() rather than gst_pad_push() from an IDLE probe, which
-        // deadlocks (the IDLE probe blocks the pad the push waits on). Run via
-        // gst_element_call_async so videorate and the capsfilter do not run on
-        // the GUI thread.
         if (GstElement *rate = gst_pad_get_parent_element(state->keepSink)) {
             auto *carried = new KeepAliveInjection{
                 GST_PAD(gst_object_ref(state->keepSink)), inject};
@@ -2984,9 +2533,8 @@ void SfuMediaEngine::tickShareKeepAlive()
                 rate,
                 [](GstElement *, gpointer data) {
                     auto *job = static_cast<KeepAliveInjection *>(data);
-                    // FLUSHING means the share stopped meanwhile; ignore it.
                     gst_pad_chain(job->pad, job->buffer);
-                    job->buffer = nullptr;   // chain consumed it
+                    job->buffer = nullptr;
                 },
                 carried,
                 [](gpointer data) {
@@ -3002,7 +2550,6 @@ void SfuMediaEngine::tickShareKeepAlive()
             continue;
         }
         const quint64 n = state->keepAliveInjected.fetch_add(1) + 1;
-        // Rate-limited; the first one matters most.
         if (n == 1 || n % 100 == 0) {
             qCInfo(lcSfuMedia)
                 << "screen share keep-alive: the capture has been quiet, "
@@ -3024,7 +2571,6 @@ void SfuMediaEngine::resetShareAudioState()
     m_shareAudioConnections.clear();
     m_shareAudioFailedAt.clear();
     m_shareAudioFailures.clear();
-    // Starts still running on pool threads stop here (branchStartAsync()).
     m_shareAudioAlive->store(false);
     m_shareAudioHangLogged = false;
     m_shareAudioCarried.clear();
@@ -3037,8 +2583,6 @@ void SfuMediaEngine::resetShareAudioState()
     m_shareAudioScans = 0;
     m_shareAudioLevelReports = 0;
     m_shareAudioSourceErrorReported = false;
-    // An enumeration still running on a worker answers for a share that no
-    // longer exists; the generation makes it a no-op.
     ++m_shareAudioGeneration;
     m_shareAudioScanInFlight = false;
     if (wasLive)
@@ -3060,25 +2604,18 @@ bool SfuMediaEngine::applyShareAudioSelection(
     const bool running = !m_shareAudioAnyCid.isEmpty()
         && m_publishedBins.contains(m_shareAudioAnyCid);
     if (!running) {
-        // Nothing to change; the next publish reads it.
         m_shareAudioSelection = selection;
         return true;
     }
-    // Off, or no chosen application: the caller unpublishes the track.
     if (!selection.capturesAnything())
         return false;
     if (m_shareAudioCid.isEmpty()) {
-        // A single loopback capture (or the test source) is running. It can
-        // only ever be "the whole system"; anything narrower needs branches,
-        // so the caller republishes.
         if (selection.mode != Mode::System)
             return false;
         m_shareAudioSelection = selection;
         return true;
     }
 #if defined(Q_OS_WIN)
-    // Branches are only for chosen applications on Windows; the whole system
-    // is the exclude-process-tree loopback, a different bin.
     if (selection.mode == Mode::System && !m_shareAudioEnumerateForTest)
         return false;
 #endif
@@ -3086,7 +2623,6 @@ bool SfuMediaEngine::applyShareAudioSelection(
     qCInfo(lcSfuMedia) << "share audio: selection changed in place mode="
                        << (selection.mode == Mode::Apps ? "apps" : "system")
                        << "chosen=" << selection.keys.size();
-    // Mutes, retirements and new branches all come from one scan.
     rescanShareAudioSources();
     return true;
 }
@@ -3095,11 +2631,10 @@ namespace {
 GstPadProbeReturn noteBranchEos(GstPad *, GstPadProbeInfo *info, gpointer data);
 void freeBranchEosFlag(gpointer data);
 
-/// One branch's start, run by gst_element_call_async off the GUI thread.
 struct BranchStart {
     SfuMediaEngine *engine = nullptr;
-    GstElement *shareBin = nullptr;   // ref
-    GstElement *mixer = nullptr;      // ref
+    GstElement *shareBin = nullptr;
+    GstElement *mixer = nullptr;
     QString id;
     int index = -1;
     quint64 generation = 0;
@@ -3136,15 +2671,10 @@ void branchStartAsync(GstElement *branch, gpointer data)
     if (ctx->shareAlive && ctx->shareAlive->load())
         ok = !ctx->failForTest && gst_element_sync_state_with_parent(branch);
     if (ok && ctx->shareAlive && !ctx->shareAlive->load()) {
-        // The share went away while this started: never leave a running
-        // element behind in a bin on its way out.
         gst_element_set_state(branch, GST_STATE_NULL);
         ok = false;
     }
     if (!ok) {
-        // Taken out here, off the GUI thread: setting a pipewiresrc that is
-        // still waiting on its daemon to NULL can wait too. Nothing was
-        // pushed into the mixer (the start failed), so unlinking is safe.
         GstPad *src = gst_element_get_static_pad(branch, "src");
         GstPad *peer = src ? gst_pad_get_peer(src) : nullptr;
         if (src && peer)
@@ -3166,15 +2696,12 @@ void branchStartAsync(GstElement *branch, gpointer data)
         engine->noteShareAudioBranchStarted(id, index, generation, ok);
     });
 }
-} // namespace
+}
 
 bool SfuMediaEngine::addShareAudioBranch(
     GstElement *bin, GstElement *mixer,
     const lightning::shareaudio::Stream &s)
 {
-    // Recorded first, as failed until it is proven, with a cool-down: a
-    // branch that cannot be built is not retried every scan, and is retried
-    // (a transient failure right after a daemon restart is the common case).
     lightning::shareaudio::BranchRecord record;
     record.appKey = s.appKey;
     record.pid = s.pid;
@@ -3182,9 +2709,6 @@ bool SfuMediaEngine::addShareAudioBranch(
     record.failed = true;
     m_shareAudioRecords.insert(s.id(), record);
     m_shareAudioFailedAt.insert(s.id(), m_shareAudioScans);
-    // A separate monotonic index, not the branch count, and spent even on a
-    // failure: a failed branch is taken out asynchronously, so its name may
-    // still be in the bin.
     const int index = m_shareAudioNextIndex++;
     const QString description = lightning::shareaudio::
         applicationBranchDescription(s, index, m_shareAudioOptions);
@@ -3204,10 +2728,6 @@ bool SfuMediaEngine::addShareAudioBranch(
     }
     if (!branch)
         return false;
-    // Each PipeWire capture on a connection of its own: on the plugin's
-    // shared one, a daemon restart left every later capture (and every
-    // enumeration) on a dead connection for as long as one old branch held
-    // it. A restart now costs only the branches it ended.
     int connection = -1;
     if (m_shareAudioOptions.capture == lightning::shareaudio::Capture::PipeWire) {
         if (GstElement *source = gst_bin_get_by_name(
@@ -3219,7 +2739,6 @@ bool SfuMediaEngine::addShareAudioBranch(
             gst_object_unref(source);
         }
     }
-    // Named, so takeOutShareAudioBranch() can find and remove it as a whole.
     gst_element_set_name(branch, lightning::shareaudio::branchBinName(index)
                                      .toUtf8()
                                      .constData());
@@ -3235,10 +2754,6 @@ bool SfuMediaEngine::addShareAudioBranch(
     if (srcPad)
         gst_object_unref(srcPad);
     if (linked != GST_PAD_LINK_OK) {
-        // Release the request pad: an unfed audiomixer sink pad makes the
-        // aggregator wait out its latency on every buffer. Safe only
-        // because the link failed, so no streaming thread is inside the
-        // pad.
         if (sinkPad) {
             gst_element_release_request_pad(mixer, sinkPad);
             gst_object_unref(sinkPad);
@@ -3251,8 +2766,6 @@ bool SfuMediaEngine::addShareAudioBranch(
     }
     if (sinkPad)
         gst_object_unref(sinkPad);
-    // Watch for the EOS that ends this branch's streaming: only after it has
-    // passed is the branch taken out (takeOutShareAudioBranch()).
     auto eosSeen = std::make_shared<std::atomic<bool>>(false);
     if (GstPad *ghost = gst_element_get_static_pad(branch, "src")) {
         gst_pad_add_probe(ghost, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
@@ -3267,14 +2780,10 @@ bool SfuMediaEngine::addShareAudioBranch(
     built.index = index;
     built.starting = true;
     m_shareAudioFailedAt.remove(s.id());
-    // Watched each scan; the fd itself is closed with its element.
     if (connection >= 0)
         m_shareAudioConnections.insert(s.id(), connection);
     ++m_shareAudioBranches;
 
-    // Started off the GUI thread (branchStartAsync()); the result comes back
-    // through noteShareAudioBranchStarted(). Counted for stop()'s bounded
-    // wait like a teardown.
     m_pendingTeardowns->fetch_add(1);
     auto *ctx = new BranchStart;
     ctx->engine = this;
@@ -3304,8 +2813,6 @@ void SfuMediaEngine::noteShareAudioBranchStarted(const QString &id, int index,
         return;
     record->starting = false;
     if (ok && record->failed) {
-        // It errored while starting (handleShareAudioBranchError()); the
-        // take-out takes it from here.
         return;
     }
     if (ok) {
@@ -3315,8 +2822,6 @@ void SfuMediaEngine::noteShareAudioBranchStarted(const QString &id, int index,
         refreshShareAudioKeys();
         return;
     }
-    // Already taken out by branchStartAsync(). Kept as failed (index -1) and
-    // retried after the cool-down, against a fresh listing.
     const int failures = ++m_shareAudioFailures[id];
     record->failed = true;
     record->index = -1;
@@ -3337,9 +2842,6 @@ void SfuMediaEngine::noteShareAudioBranchStarted(const QString &id, int index,
 
 int SfuMediaEngine::shareAudioCoolDownScans(int failures)
 {
-    // 4 s, 10 s, then 30 s at the 2 s scan interval: a branch that failed
-    // right after a daemon restart comes back quickly, one that keeps
-    // failing costs little.
     if (failures <= 1)
         return 2;
     if (failures == 2)
@@ -3349,9 +2851,6 @@ int SfuMediaEngine::shareAudioCoolDownScans(int failures)
 
 void SfuMediaEngine::refreshShareAudioKeys()
 {
-    // Derived from the records, never accumulated: a key that failed once
-    // and was captured again afterwards is carried, not failed. Accumulated,
-    // the share reported "carrying= 0 app(s)" while it carried audio.
     QStringList carried;
     QStringList failed;
     for (auto it = m_shareAudioRecords.cbegin();
@@ -3379,8 +2878,6 @@ void SfuMediaEngine::refreshShareAudioKeys()
 
 namespace {
 
-/// Set when an EOS has actually passed a branch's src pad: only then is its
-/// streaming finished and the branch safe to take out.
 GstPadProbeReturn noteBranchEos(GstPad *, GstPadProbeInfo *info, gpointer data)
 {
     GstEvent *event = GST_PAD_PROBE_INFO_EVENT(info);
@@ -3395,11 +2892,9 @@ void freeBranchEosFlag(gpointer data)
     delete static_cast<std::shared_ptr<std::atomic<bool>> *>(data);
 }
 
-/// What taking one branch out needs, held across the IDLE probe and the async
-/// state change.
 struct BranchTakeOut {
-    GstElement *shareBin = nullptr;   // ref
-    GstElement *mixer = nullptr;      // ref
+    GstElement *shareBin = nullptr;
+    GstElement *mixer = nullptr;
     std::shared_ptr<std::atomic<int>> outstanding;
 };
 
@@ -3410,7 +2905,6 @@ void branchTakeOutFree(gpointer data)
         gst_object_unref(ctx->mixer);
     if (ctx->shareBin)
         gst_object_unref(ctx->shareBin);
-    // Last: stop() waits (bounded) for every teardown to finish.
     if (ctx->outstanding)
         ctx->outstanding->fetch_sub(1);
     delete ctx;
@@ -3422,14 +2916,10 @@ void branchTakeOutFree(gpointer data)
 void branchTakeOutAsync(GstElement *branch, gpointer data)
 {
     auto *ctx = static_cast<BranchTakeOut *>(data);
-    // Unparent first so the branch quiesces with no running parent, as
-    // unpublish() does.
     gst_bin_remove(GST_BIN(ctx->shareBin), branch);
     gst_element_set_state(branch, GST_STATE_NULL);
 }
 
-/// The branch's src pad is idle here: nothing is being pushed, so unlinking
-/// it and releasing the mixer pad cannot meet a push holding a stream lock.
 GstPadProbeReturn branchTakeOutProbe(GstPad *pad, GstPadProbeInfo *,
                                      gpointer data)
 {
@@ -3441,18 +2931,15 @@ GstPadProbeReturn branchTakeOutProbe(GstPad *pad, GstPadProbeInfo *,
     }
     GstElement *branch = gst_pad_get_parent_element(pad);
     if (!branch) {
-        // The probe has no destroy notify, so this path owns ctx.
         branchTakeOutFree(ctx);
         return GST_PAD_PROBE_REMOVE;
     }
-    // Ownership of ctx moves to gst_element_call_async.
     gst_element_call_async(branch, branchTakeOutAsync, ctx, branchTakeOutFree);
     gst_object_unref(branch);
-    // Fires exactly once.
     return GST_PAD_PROBE_REMOVE;
 }
 
-} // namespace
+}
 
 void SfuMediaEngine::takeOutShareAudioBranch(GstElement *bin, GstElement *mixer,
                                              int index)
@@ -3461,20 +2948,15 @@ void SfuMediaEngine::takeOutShareAudioBranch(GstElement *bin, GstElement *mixer,
         GST_BIN(bin),
         lightning::shareaudio::branchBinName(index).toUtf8().constData());
     if (!branch)
-        return;   // nothing left to take out
+        return;
     GstPad *src = gst_element_get_static_pad(branch, "src");
     gst_object_unref(branch);
     if (!src)
         return;
-    // Never synchronously here (unpublish()'s rule): the unlink and the pad
-    // release wait for an IDLE pad inside the probe, and the NULL state change
-    // and removal run via gst_element_call_async. Called only once the branch
-    // has passed EOS (or errored), so the probe fires at once in practice.
     m_pendingTeardowns->fetch_add(1);
     auto *ctx = new BranchTakeOut{
         GST_ELEMENT(gst_object_ref(bin)), GST_ELEMENT(gst_object_ref(mixer)),
         m_pendingTeardowns};
-    // No destroy notify: branchTakeOutProbe hands ctx on.
     gst_pad_add_probe(src, GST_PAD_PROBE_TYPE_IDLE, branchTakeOutProbe, ctx,
                       nullptr);
     gst_object_unref(src);
@@ -3497,7 +2979,6 @@ void SfuMediaEngine::noteShareAudioDaemonRestart(int closed)
         << "captures of the share at once (it restarted); asking for a fresh "
            "share-audio track, so nothing of the old one (encoder, "
            "timestamps, the receivers' state for its SSRC) outlives it";
-    // Queued: the owner replaces the bin this scan is still using.
     const QString cid = m_shareAudioCid;
     const quint64 generation = m_shareAudioGeneration;
     QMetaObject::invokeMethod(
@@ -3510,8 +2991,6 @@ void SfuMediaEngine::noteShareAudioDaemonRestart(int closed)
         Qt::QueuedConnection);
 }
 
-/// One scan of a running per-application share: enumerate (on a worker, or
-/// through the test seam), plan (lightning::shareaudio::planScan) and apply.
 void SfuMediaEngine::rescanShareAudioSources()
 {
     if (m_shareAudioCid.isEmpty()) {
@@ -3520,20 +2999,11 @@ void SfuMediaEngine::rescanShareAudioSources()
     }
     GstElement *bin = m_publishedBins.value(m_shareAudioCid, nullptr);
     if (!bin) {
-        // The share audio track is gone; stop scanning.
         resetShareAudioState();
         return;
     }
     ++m_shareAudioScans;
 
-    // A branch whose own PipeWire connection the daemon closed is dead (a
-    // restart): pipewiresrc says nothing, its stream just stops. Retired like
-    // a stream that went away; the EOS sent passes at once (basesrc unblocks
-    // the waiting source), and the application's new stream is captured once
-    // the old record is gone, even when it came back at the same serial.
-    //
-    // Counted: every watched live capture closed in one scan is the daemon
-    // restarting, not an application leaving (noteShareAudioDaemonRestart()).
     int watchedLive = 0;
     int closedNow = 0;
     for (auto it = m_shareAudioConnections.cbegin();
@@ -3542,9 +3012,6 @@ void SfuMediaEngine::rescanShareAudioSources()
         if (record == m_shareAudioRecords.end() || record->index < 0
             || record->retired)
             continue;
-        // A branch still starting is in neither count: its connection is
-        // newer than the daemon's restart could have closed, and whether it
-        // ends up capturing is not known yet.
         const bool counted = !record->failed && !record->starting;
         if (counted)
             ++watchedLive;
@@ -3572,10 +3039,6 @@ void SfuMediaEngine::rescanShareAudioSources()
     if (closedNow > 0 && closedNow == watchedLive)
         noteShareAudioDaemonRestart(closedNow);
 
-    // A branch that ended by itself (pipewiresrc 1.6 sends EOS when its
-    // stream or the daemon goes away) is retired whatever the listing says: a
-    // restarted daemon can hand its serial to the same application's new
-    // stream, and an ended branch kept for that stream would carry nothing.
     for (auto it = m_shareAudioEosSeen.cbegin(); it != m_shareAudioEosSeen.cend();
          ++it) {
         if (!it.value()->load())
@@ -3591,10 +3054,6 @@ void SfuMediaEngine::rescanShareAudioSources()
                            << record->appKey << "branch=" << record->index;
     }
 
-    // Take out retired branches whose EOS has actually passed their src pad,
-    // or that errored: the cap counts only what stands, so applications
-    // coming and going cannot use it up. "Retired a scan ago" is no such
-    // guarantee (a selection change rescans at once), so the flag decides.
     if (GstElement *mixer = gst_bin_get_by_name(
             GST_BIN(bin),
             lightning::shareaudio::mixerElementName().toUtf8().constData())) {
@@ -3605,20 +3064,10 @@ void SfuMediaEngine::rescanShareAudioSources()
                 it = m_shareAudioRetiredAt.erase(it);
                 continue;
             }
-            // Never under a start still running on a pool thread: its state
-            // change and this NULL would race. It is taken out once the start
-            // has reported back.
             if (record->starting) {
                 ++it;
                 continue;
             }
-            // Finished means nothing more can come out of it: its EOS has
-            // passed, or it errored, or the daemon closed its connection. The
-            // last needs saying: after a daemon restart pipewiresrc may have
-            // pushed a flush-start it never ends (removed buffers), so the
-            // EOS we send is dropped downstream and never seen (measured).
-            // Its source can produce nothing more, and the IDLE probe still
-            // waits out any push in flight below it.
             const auto eos = m_shareAudioEosSeen.constFind(it.key());
             const auto connection = m_shareAudioConnections.constFind(it.key());
             const bool finished = (eos != m_shareAudioEosSeen.cend()
@@ -3635,24 +3084,15 @@ void SfuMediaEngine::rescanShareAudioSources()
             m_shareAudioEosSeen.remove(it.key());
             m_shareAudioConnections.remove(it.key());
             if (record->failed) {
-                // Kept (index -1) for a while so it is not retried at once;
-                // forgotten after a cool-down, since a restarted PipeWire
-                // numbers its nodes again and the id may be a stream again.
                 record->index = -1;
                 m_shareAudioFailedAt.insert(it.key(), m_shareAudioScans);
             } else {
-                // Forgotten: a returning stream or process gets a new branch.
                 m_shareAudioRecords.erase(record);
             }
             it = m_shareAudioRetiredAt.erase(it);
         }
         gst_object_unref(mixer);
     }
-    // Failed records cool down (4 s, 10 s, then 30 s), then are forgotten so
-    // the next listing tries again. Before, a branch that would not START was
-    // never retried at all (it never reached this map): measured in the
-    // Flatpak, an application stayed out of the share for good after one
-    // PipeWire restart until the user unticked and ticked it.
     for (auto it = m_shareAudioFailedAt.begin();
          it != m_shareAudioFailedAt.end();) {
         const int coolDown =
@@ -3668,7 +3108,6 @@ void SfuMediaEngine::rescanShareAudioSources()
     }
     refreshShareAudioKeys();
 
-    // What to check is still running (Windows: a branch follows its process).
     QList<lightning::shareaudio::Stream> check;
     for (auto it = m_shareAudioRecords.cbegin();
          it != m_shareAudioRecords.cend(); ++it) {
@@ -3685,8 +3124,6 @@ void SfuMediaEngine::rescanShareAudioSources()
         applyShareAudioScan(m_shareAudioEnumerateForTest(check));
         return;
     }
-    // One pass at a time: a pass that hangs (COM, a stuck daemon) costs a
-    // worker and stops the scans, never the GUI thread. Said once.
     if (m_shareAudioScanInFlight) {
         if (!m_shareAudioHangLogged && m_shareAudioScanStarted.isValid()
             && m_shareAudioScanStarted.elapsed() > 10000) {
@@ -3746,11 +3183,6 @@ void SfuMediaEngine::applyShareAudioScan(
     const lightning::shareaudio::ScanPlan plan =
         lightning::shareaudio::planScan(in);
 
-    // Retire: EOS into the source, which pushes it down its own streaming
-    // thread (basesrc interrupts a blocked create()). `on-disconnect=eos` does
-    // the same from inside pipewiresrc 1.6; older plugins and Windows process
-    // loopback need it from outside. The bin is taken out on a later scan,
-    // once that EOS has actually passed the branch's src pad.
     for (const QString &id : plan.retire) {
         auto record = m_shareAudioRecords.find(id);
         if (record == m_shareAudioRecords.end())
@@ -3806,12 +3238,9 @@ void SfuMediaEngine::applyShareAudioScan(
         m_shareAudioLimitReached = plan.limitReached;
         emitShareAudioReport();
     }
-    // Carried and failed come from the records (refreshShareAudioKeys()).
     refreshShareAudioKeys();
 
-    // Warn once if a long share never carried any application: the track is
-    // carrying only the silence floor, which must not look like success.
-    constexpr int kScansBeforeDoubt = 15;   // ~30 s at the 2 s interval
+    constexpr int kScansBeforeDoubt = 15;
     if (m_shareAudioCarried.isEmpty() && m_shareAudioScans == kScansBeforeDoubt) {
         qCWarning(lcSfuMedia)
             << "share audio: no chosen application audio stream has been "
@@ -3824,10 +3253,6 @@ void SfuMediaEngine::applyShareAudioScan(
 
 void SfuMediaEngine::handleShareAudioBranchError(int index)
 {
-    // An application capture that errored (a process loopback that cannot
-    // activate, a node that vanished under an older pipewiresrc, a target
-    // missing after a daemon restart): retire it, say so, and retry it after
-    // a growing cool-down; the rest of the share carries on.
     for (auto it = m_shareAudioRecords.begin(); it != m_shareAudioRecords.end();
          ++it) {
         if (it->index != index || it->failed)
@@ -3851,7 +3276,6 @@ void SfuMediaEngine::handleShareAudioLevel(double peakDb)
     if (m_shareAudioAnyCid.isEmpty())
         return;
     Q_EMIT shareAudioLevel(peakDb);
-    // Every fifth reading (~5 s), good news or bad, like the microphone's.
     if (m_shareAudioLevelReports++ % 5 == 0) {
         qCInfo(lcSfuMedia) << "share audio level peak=" << qRound(peakDb)
                            << "dBFS carrying=" << m_shareAudioCarried.size()
@@ -3862,8 +3286,6 @@ void SfuMediaEngine::handleShareAudioLevel(double peakDb)
 
 void SfuMediaEngine::handleShareAudioSourceError()
 {
-    // Only for a live share-audio bin, once: teardown errors arrive after
-    // unpublish() has forgotten the cid.
     if (!m_active || m_shareAudioAnyCid.isEmpty()
         || !m_publishedBins.contains(m_shareAudioAnyCid)
         || m_shareAudioSourceErrorReported)
@@ -3945,10 +3367,6 @@ int SfuMediaEngine::shareAudioBranchIndexForTest(const QString &id) const
 }
 
 namespace {
-/// On the `micsrc` inside `bin`: EOS is dropped (a failed source pushes EOS,
-/// and reaching webrtcbin it would end the track, RTCP BYE, for good; the
-/// source is restarted instead, see handleCaptureError()), and each buffer
-/// counts into `captured`.
 void instrumentMicrophoneSource(
     GstElement *bin, const std::shared_ptr<std::atomic<quint64>> &captured)
 {
@@ -3984,7 +3402,7 @@ void instrumentMicrophoneSource(
     }
     gst_object_unref(micsrc);
 }
-} // namespace
+}
 
 SfuMediaEngine::MicrophoneCapture SfuMediaEngine::testMicrophoneCapture() const
 {
@@ -3997,12 +3415,6 @@ SfuMediaEngine::MicrophoneCapture SfuMediaEngine::testMicrophoneCapture() const
 }
 
 namespace {
-/// A detachable bin's start (the microphone, a portal camera), on a pool
-/// thread. The parent check and the state change happen under the bin's state
-/// lock, which detachPendingStart() takes (try-lock) around the removal and
-/// finishAbandonedStart() takes around the stop: without it a start that read
-/// "still parented" just before the removal could set the orphan to PLAYING
-/// after its NULL, leaving a live capture nobody owns.
 bool syncStateIfStillParented(GstElement *bin)
 {
     GST_STATE_LOCK(bin);
@@ -4014,8 +3426,6 @@ bool syncStateIfStillParented(GstElement *bin)
     return ok;
 }
 
-/// The microphone's start on a pool thread (publishAudio()). Holds the engine
-/// pointer only to marshal the answer back, which checks the engine is alive.
 struct MicStart {
     SfuMediaEngine *engine = nullptr;
     QString cid;
@@ -4033,8 +3443,6 @@ void micStartAsync(GstElement *bin, gpointer data)
     auto *ctx = static_cast<MicStart *>(data);
     QElapsedTimer took;
     took.start();
-    // A bin already detached (unpublished or stopped meanwhile) has no
-    // parent; it is then left alone and finishAbandonedStart() owns it.
     const bool ok = syncStateIfStillParented(bin);
     const qint64 ms = took.elapsed();
     ctx->pending->store(false);
@@ -4045,7 +3453,7 @@ void micStartAsync(GstElement *bin, gpointer data)
         engine->noteMicrophoneStarted(cid, generation, ok, ms);
     });
 }
-} // namespace
+}
 
 void SfuMediaEngine::checkMicrophoneRtp(const QString &cid,
                                         quint64 generation)
@@ -4057,9 +3465,6 @@ void SfuMediaEngine::checkMicrophoneRtp(const QString &cid,
         m_lastMicRtpVerdict = QStringLiteral("flowing");
         return;
     }
-    // Still opening its device: the sound server has not answered (the
-    // start runs off the GUI thread, so this is now visible rather than a
-    // frozen window). The verdict is owed, given once the start reports.
     if (microphoneStarting()) {
         m_lastMicRtpVerdict = QStringLiteral("starting");
         m_micRtpVerdictOwed = true;
@@ -4070,7 +3475,6 @@ void SfuMediaEngine::checkMicrophoneRtp(const QString &cid,
                "can be sent until it does";
         return;
     }
-    // Read the mute state at fire time.
     if (m_microphoneMuted) {
         m_lastMicRtpVerdict = QStringLiteral("muted");
         qCInfo(lcSfuMedia)
@@ -4092,16 +3496,11 @@ void SfuMediaEngine::noteMicrophoneStarted(const QString &cid,
                                            quint64 generation, bool ok,
                                            qint64 tookMs)
 {
-    // Another session, or a microphone since replaced: nothing to say about
-    // the current one.
     if (!m_active || generation != m_generation.load() || cid != m_micCid)
         return;
     ++m_micStartsReported;
     if (!ok && m_echoGivenUp) {
-        // Not the capture: webrtcdsp failed before it got its turn, and
-        // handleMicDspError() has said so and sees to it.
     } else if (!ok) {
-        // The bus carries the capture's own error (handleCaptureError()).
         qCWarning(lcSfuMedia) << "the microphone did not start; its capture "
                                  "reports why";
     } else if (tookMs >= kSlowCaptureStartWarnMs) {
@@ -4111,8 +3510,6 @@ void SfuMediaEngine::noteMicrophoneStarted(const QString &cid,
                "responsive meanwhile";
     }
     if (m_micStartTakenOver) {
-        // A switch already replaced this start's capture and ran what it had
-        // put off.
         m_micStartTakenOver = false;
         return;
     }
@@ -4129,30 +3526,22 @@ void SfuMediaEngine::noteMicrophoneStarted(const QString &cid,
 void SfuMediaEngine::runMicrophoneStartDeferrals(const QString &cid,
                                                  quint64 generation)
 {
-    // First: everything below acts on a chain, and this makes it one.
     if (m_micDspRescueAfterStart) {
         m_micDspRescueAfterStart = false;
         rescueMicrophoneFromDsp();
     }
-    // After the switch: a restart then marks the switch's old capture failed
-    // instead of restarting a front that is being replaced.
     if (m_micRestartAfterStart) {
         m_micRestartAfterStart = false;
         restartMicrophone(cid, generation);
     }
-    // webrtcdsp's half of a mode change made during the start.
     if (m_micNoiseModeAfterStart) {
         m_micNoiseModeAfterStart = false;
         const bool force = m_micNoiseDspForceAfterStart;
         m_micNoiseDspForceAfterStart = false;
         if (GstElement *bin = m_publishedBins.value(cid, nullptr)) {
             const calls::noise::Mode mode = noiseSuppressionMode();
-            // A webrtcdsp that negotiated before its property was set is
-            // replaced now (the property never reached its processing); one
-            // configured in time is left as it is (applyMode() finds it
-            // already right).
             const QString did = force
-                ? calls::noise::applyDspMode(bin, mode, /*forceReplace=*/true,
+                ? calls::noise::applyDspMode(bin, mode,true,
                                              echoAllowedOnMic())
                 : calls::noise::applyMode(
                       bin, mode, calls::noise::DspSwitch::WaitForDenoiser,
@@ -4162,13 +3551,10 @@ void SfuMediaEngine::runMicrophoneStartDeferrals(const QString &cid,
                 << did;
         }
     }
-    // A remote track that arrived during the start.
     if (m_micEchoAfterStart) {
         m_micEchoAfterStart = false;
         engageEchoCancellation();
     }
-    // The "no RTP" verdict the slow start put off: the same check, the same
-    // delay, counted from the start's end.
     if (m_micRtpVerdictOwed) {
         m_micRtpVerdictOwed = false;
         QTimer::singleShot(m_micRtpCheckMs, this, [this, cid, generation] {
@@ -4184,30 +3570,13 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     if (m_publishedBins.contains(cid))
         return;
 
-    // The capture, resolved as the Settings microphone test resolves it; see
-    // resolveMicrophoneCapture().
     MicrophoneCapture capture = m_testSources
         ? testMicrophoneCapture()
         : resolveMicrophoneCapture(microphoneChoice());
     if (m_testDeviceChannels > 0)
         capture.channels = m_testDeviceChannels;
-    // The valve is the real mute: drop=true stops buffers before the encoder.
-    // Opus PT 111 is what LiveKit expects.
-    //
-    // Voice processing after the valve: the selected noise suppressor, then
-    // `webrtcdsp`'s high-pass filter and automatic gain control (about +10 dB
-    // on quiet input, as browsers apply by default). Each stage is optional
-    // and probed; see calls/noise/MicProcessing.h for the order and why. The
-    // Settings microphone test builds the same stage.
     const calls::noise::Mode noiseMode = noiseSuppressionMode();
     const bool dspAvailable = calls::noise::webrtcDspAvailable();
-    // Never with echo cancellation, whatever probes exist now: webrtcdsp takes
-    // its probe when it starts and a start with none free is fatal to the
-    // whole bin ("No echo probe with name webrtcechoprobe0 found."), which
-    // left the microphone producing no RTP at all, at every join. Once the
-    // start is done, engageEchoCancellation() turns it on through a
-    // replacement that cannot fail that way; a remote audio track asks for it
-    // too, for a microphone published before any played.
     const bool echoCancel = m_micEchoAtStartForTest;
     m_micEchoAtStartForTest = false;
     if (m_echoCancel.load() && !echoProbeLive()) {
@@ -4219,16 +3588,7 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     const QString gainStage = voiceProcessingDescription(
         noiseMode, echoCancel, m_autoGain.load());
 
-    // Level meter right before the encoder, so it measures what the far end
-    // receives. Optional like `webrtcdsp`. 50 ms interval: the in-call meter
-    // redraws at 20 Hz, and a single word is never missed.
     const bool levelAvailable = levelElementAvailable();
-    // A second meter BEFORE the processing: the dead-microphone judgement
-    // must see what the device captures. After a suppressor, a live
-    // microphone carrying only a fan reads as digital silence (measured with
-    // DeepFilterNet, 2026-10-06), which is "the far end hears nothing" but
-    // not "the device is dead". After the valve, like the other meter, so a
-    // muted microphone posts nothing.
     const QString captureLevelStage =
         levelAvailable
             ? QStringLiteral("! level name=miccapturelevel post-messages=true "
@@ -4254,13 +3614,9 @@ void SfuMediaEngine::publishAudio(const QString &cid)
         microphoneFrontDescription(capture)
         + QStringLiteral(" ! valve name=micvalve drop=%1 "
                          "%4 "
-                         // Microphone gain must be applied to raw audio before
-                         // the encoder. The initial value is set here so a
-                         // rebuilt bin comes up at the user's level.
                          "! volume name=micvol volume=%3 "
                          "%5 "
                          "! opusenc name=audioenc "
-                         // Explicit ssrc: see nextPublishSsrc().
                          "! rtpopuspay pt=111 ssrc=%2 mtu=%6 "
                          // A capsfilter, not a bare caps string: gst_parse
                          // reads trailing caps as an element name. webrtcbin
@@ -4275,7 +3631,6 @@ void SfuMediaEngine::publishAudio(const QString &cid)
               .arg(m_microphoneMuted ? QStringLiteral("true")
                                      : QStringLiteral("false"),
                    QString::number(nextPublishSsrc()),
-                   // Locale-independent: a comma decimal would be parsed as 0.
                    QString::number(
                        audioFactorPercent(m_microphoneGain.load()) / 100.0,
                        'f', 3),
@@ -4286,8 +3641,6 @@ void SfuMediaEngine::publishAudio(const QString &cid)
                        << m_microphoneMuted << "device-channels="
                        << capture.binding.channels
                        << "dsp=" << dspAvailable << "level=" << levelAvailable;
-    // The selected mode as built. The neural backends report again once the
-    // streaming thread adopts them ("backend ok="); see handleDenoiseStatus.
     qCInfo(lcSfuMedia)
         << "microphone noise suppression mode="
         << calls::noise::modeKey(noiseMode) << "webrtcdsp="
@@ -4298,8 +3651,6 @@ void SfuMediaEngine::publishAudio(const QString &cid)
         << "denoise-element=" << calls::noise::denoiseElementAvailable();
     if (noiseMode == calls::noise::Mode::Off
         || noiseMode == calls::noise::Mode::WebRtc) {
-        // No backend to build: the outcome is known now. A neural backend
-        // reports once the streaming thread adopts it.
         Q_EMIT noiseSuppressionStatus(
             QLatin1String(calls::noise::modeKey(noiseMode)),
             noiseMode == calls::noise::Mode::Off || dspAvailable);
@@ -4311,7 +3662,6 @@ void SfuMediaEngine::publishAudio(const QString &cid)
         gst_parse_bin_from_description(description.toUtf8().constData(), TRUE,
                                        &error);
     if (error) {
-        // GStreamer's parse diagnostic: element and property names only.
         qCWarning(lcSfuMedia) << "audio pipeline parse failed:"
                               << (error->message ? error->message : "?");
         g_error_free(error);
@@ -4328,8 +3678,6 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     m_publishedBins.insert(cid, bin);
     applyBindingTo(bin, "micsrc", capture.binding);
     resetMicLevelState();
-    // Before the bin starts, so an error from its first state change is
-    // already this microphone's.
     m_micCid = cid;
     m_micRestarts = 0;
     m_micRestartPending = false;
@@ -4343,9 +3691,6 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     m_micCaptured = std::make_shared<std::atomic<quint64>>(0);
     m_micCapturedAtRestart = 0;
     instrumentMicrophoneSource(bin, m_micCaptured);
-    // A capture ahead of the clock must not stall webrtcbin's clocksync; see
-    // CaptureClock.h. Seen at the capture, corrected on the RTP, so the RTP
-    // timestamps stay sample-accurate.
     GstElement *micsrc = gst_bin_get_by_name(GST_BIN(bin), "micsrc");
     GstElement *rtpOut = gst_bin_get_by_name(GST_BIN(bin), "micrtpcaps");
     GstPad *captured = micsrc ? gst_element_get_static_pad(micsrc, "src") : nullptr;
@@ -4370,10 +3715,6 @@ void SfuMediaEngine::publishAudio(const QString &cid)
         gst_object_unref(micsrc);
     if (rtpOut)
         gst_object_unref(rtpOut);
-    // The speaking indicator: LiveKit decides who is speaking from the RFC
-    // 6464 audio level each packet carries. `level` attaches it as a meta,
-    // opusenc and the encrypt probe keep it, and the payloader writes it for
-    // the extmap in its caps, which webrtcbin also puts in the offer.
     bool levelExtension = false;
     if (levelAvailable && audioLevelExtensionAvailable()) {
         GstElement *meter = gst_bin_get_by_name(GST_BIN(bin), "miclevel");
@@ -4384,11 +3725,6 @@ void SfuMediaEngine::publishAudio(const QString &cid)
             g_object_get(rtpCaps, "caps", &caps, nullptr);
             if (caps) {
                 caps = gst_caps_make_writable(caps);
-                // The array form, as the extension writes it back: a plain
-                // string would not intersect and fail negotiation. vad=on is
-                // declared while `level` always leaves the V bit 0; LiveKit's
-                // speaker detection reads the level (accepted, review #10;
-                // "Element shows Lightning speaking" is not yet live-tested).
                 GValue entry = G_VALUE_INIT;
                 GValue text = G_VALUE_INIT;
                 gst_value_array_init(&entry, 3);
@@ -4418,21 +3754,14 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     }
     qCInfo(lcSfuMedia) << "microphone audio level extension=" << levelExtension
                        << "(the SFU's speaking indicator)";
-    // The microphone is started off the GUI thread (below), so it can still
-    // be starting when the engine goes: its one engine-touching callback,
-    // the encrypt probe (raw pointers to the cryptor and counters), is gated
-    // like a portal camera's. Every other probe on this bin holds only shared
-    // state, and its bus messages stop when the bin leaves the pipeline.
     const auto gate = std::make_shared<ProbeGate>();
-    // Encrypt on the encoder's src pad: one whole encoded frame.
     if (GstElement *encoder = gst_bin_get_by_name(GST_BIN(bin), "audioenc")) {
         if (GstPad *encoded = gst_element_get_static_pad(encoder, "src")) {
-            installEncryptProbe(encoded, /*video=*/false, gate);
+            installEncryptProbe(encoded,false, gate);
             gst_object_unref(encoded);
         }
         gst_object_unref(encoder);
     }
-    // The link result decides whether there is anything to offer.
     GstPad *srcPad = gst_element_get_static_pad(bin, "src");
     if (srcPad) {
         auto packets = std::make_shared<std::atomic<quint64>>(0);
@@ -4441,9 +3770,6 @@ void SfuMediaEngine::publishAudio(const QString &cid)
                           GstPadProbeType(GST_PAD_PROBE_TYPE_BUFFER
                                           | GST_PAD_PROBE_TYPE_BUFFER_LIST),
                           countRtpOut, rtpCtx, rtpOutCtxFree);
-        // A capture that never starts posts nothing to the bus while every
-        // other indicator stays green, so warn if no RTP flows after 3 s
-        // (checkMicrophoneRtp(), which a slow start defers rather than skips).
         m_micRtpOut = packets;
         m_micRtpVerdictOwed = false;
         const quint64 generation = m_generation.load();
@@ -4470,15 +3796,6 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     }
     if (sinkPad)
         gst_object_unref(sinkPad);
-    // Started off the GUI thread. The capture opening its sound server blocks
-    // the thread that starts it until the server answers: measured 2026-09-29,
-    // ~8.7 s of a frozen window with pipewire-pulse stopped (issue #12
-    // family). From here on the bin is a portal camera's twin: its gate is
-    // closed and the bin detached (finished on a pool thread) whenever it is
-    // unpublished or the session stops while the start is in flight, and at
-    // every stop() (detachPendingStart(), which never waits on its state
-    // lock). The offer needs no running capture: webrtcbin reads the fixed
-    // caps of `micrtpcaps`.
     {
         auto pending = std::make_shared<std::atomic<bool>>(true);
         m_asyncStarts.insert(cid, AsyncStart{gate, pending});
@@ -4496,8 +3813,6 @@ void SfuMediaEngine::publishAudio(const QString &cid)
         auto *ctx = new MicStart{this, cid, m_generation.load(), pending};
         gst_element_call_async(bin, micStartAsync, ctx, micStartFree);
     }
-    // Now there is something to offer; the negotiation-needed fired at
-    // PLAYING was ignored.
     ++m_publishedMedia;
     m_publisherEverPublished = true;
     renegotiatePublisher();
@@ -4516,10 +3831,6 @@ void SfuMediaEngine::releaseFailedPublishPad(GstPad *sinkPad)
 {
     if (!sinkPad)
         return;
-    // Release the request pad: a leftover webrtcbin sink pad is a transceiver
-    // and puts an empty m= section in the next offer. Safe only because the
-    // link failed, so no streaming thread is inside the pad; releasing a
-    // linked pad on a running pipeline can deadlock.
     if (m_publisher.webrtc)
         gst_element_release_request_pad(m_publisher.webrtc, sinkPad);
     gst_object_unref(sinkPad);
@@ -4541,48 +3852,26 @@ void SfuMediaEngine::applyPublisherMsid(GstPad *sinkPad, const QString &cid)
 {
     if (!sinkPad)
         return;
-    // Without `a=msid` the SFU cannot match a media section to a declared
-    // track, and the track never becomes published. Browsers write the track
-    // id (livekit-client's cid) themselves; we set it on the pad.
     g_object_set(sinkPad, "msid", cid.toUtf8().constData(), nullptr);
 }
 
-/// Whether to use the GPU convert-and-scale segment for a screen share.
-///
-/// The CPU path requests system memory, forcing a full-size readback of the
-/// compositor's GPU buffer before scaling, which stalls the desktop. The GPU
-/// path imports the DMA-BUF (`glupload`), converts and scales on the GPU, and
-/// downloads the reduced frame.
-///
-/// A capture must be constrained to a LINEAR DMA-BUF: NVIDIA block-linear
-/// buffers import as empty textures (a black share). See captureEntryFilter().
 bool SfuMediaEngine::shareGpuScalingRequested()
 {
-    // On by default; `LIGHTNING_SHARE_GPU=0` forces the CPU. The ladder makes
-    // this safe: elements are probed, the chain must reach PAUSED, and a
-    // description that fails to build falls back once, with a log line.
     return qEnvironmentVariable("LIGHTNING_SHARE_GPU")
            != QLatin1String("0");
 }
 
-/// The first missing GL element, or empty. Probed because an unknown element
-/// fails the whole parse; naming it helps find packaging bugs.
 QString SfuMediaEngine::missingGpuShareElement()
 {
-    // Must match shareScaleStage()'s GPU branch exactly.
     return firstMissingElement({QByteArrayLiteral("glupload"),
                                 QByteArrayLiteral("glcolorconvert"),
                                 QByteArrayLiteral("glcolorscale"),
                                 QByteArrayLiteral("gldownload")});
 }
 
-/// Whether the MJPG camera decode chain can be built. Cached; see the header.
 bool SfuMediaEngine::jpegCameraChainAvailable()
 {
     static const bool available = [] {
-        // Only checks that the decoder exists and links; whether a camera
-        // offers MJPG is answered by negotiation. `jpegenc` feeds real
-        // image/jpeg so the probe actually exercises the capsfilter.
         const QString desc =
             QStringLiteral("videotestsrc num-buffers=1 ! jpegenc ! ")
             + cameraJpegEntry() + QStringLiteral(" ! fakesink");
@@ -4609,8 +3898,6 @@ bool SfuMediaEngine::jpegCameraChainAvailable()
 bool SfuMediaEngine::gpuShareChainUsable()
 {
     static const bool usable = [] {
-        // The real scale stage fed by videotestsrc: asks whether GL works,
-        // not whether a desktop can be captured.
         const QString desc =
             QStringLiteral("videotestsrc num-buffers=1 ! ")
             + shareScaleStage(1080, true) + QStringLiteral(" ! fakesink");
@@ -4627,7 +3914,6 @@ bool SfuMediaEngine::gpuShareChainUsable()
                 gst_object_unref(pipeline);
             return false;
         }
-        // Bounded: a hanging driver counts as unusable.
         bool ok = gst_element_set_state(pipeline, GST_STATE_PAUSED)
                   != GST_STATE_CHANGE_FAILURE;
         if (ok) {
@@ -4653,7 +3939,6 @@ bool SfuMediaEngine::gpuShareChainUsable()
     return usable;
 }
 
-/// The first of `names` with no registered factory, or empty.
 QString SfuMediaEngine::firstMissingElement(const QList<QByteArray> &names)
 {
     for (const QByteArray &name : names) {
@@ -4706,10 +3991,6 @@ GstBuffer *SfuMediaEngine::rewrapShortDmaBuf(GstBuffer *buffer)
     const GstVideoMeta *meta = gst_buffer_get_video_meta(buffer);
     if (!meta || meta->n_planes < 1)
         return nullptr;
-    // What the described frame needs at least: plane 0 is the whole picture
-    // for the packed formats compositors send; a planar layout is checked
-    // against its last plane's first row only, which can under-estimate (and
-    // so never rewraps what it should not) but never over-estimates.
     gsize need = meta->offset[0] + gsize(qMax(meta->stride[0], 0))
                                        * (meta->n_planes == 1 ? meta->height
                                                               : 1);
@@ -4717,9 +3998,6 @@ GstBuffer *SfuMediaEngine::rewrapShortDmaBuf(GstBuffer *buffer)
         const guint last = meta->n_planes - 1;
         need = qMax(need, meta->offset[last] + gsize(qMax(meta->stride[last], 0)));
     }
-    // pipewiresrc positions the memory at chunk.offset (+ the map offset), so
-    // the frame starts there in the descriptor and the video meta's offsets
-    // are relative to it.
     gsize memOffset = 0;
     if (gst_memory_get_sizes(mem, &memOffset, nullptr) >= need)
         return nullptr;
@@ -4739,7 +4017,6 @@ GstBuffer *SfuMediaEngine::rewrapShortDmaBuf(GstBuffer *buffer)
         close(dupFd);
         return nullptr;
     }
-    // From the same offset to the end of the descriptor.
     if (memOffset > 0)
         gst_memory_resize(full, gssize(memOffset),
                           gsize(total) - memOffset);
@@ -4750,8 +4027,6 @@ GstBuffer *SfuMediaEngine::rewrapShortDmaBuf(GstBuffer *buffer)
                                             | GST_BUFFER_COPY_META),
                          0, -1);
     gst_buffer_append_memory(out, full);
-    // The copy above does not always carry the video meta (its transform
-    // refuses some regions), and the stride is what the uploader reads by.
     if (!gst_buffer_get_video_meta(out)) {
         gst_buffer_add_video_meta_full(out, meta->flags, meta->format,
                                        meta->width, meta->height,
@@ -4804,10 +4079,6 @@ bool SfuMediaEngine::capsOfferJpeg(const GstCaps *caps,
 GstCaps *SfuMediaEngine::preferredCameraCaps(const GstCaps *advertised,
                                            bool jpegAvailable)
 {
-    // Motion first: videorate can drop 60 fps to the published 30 fps, but
-    // duplicating 5 fps cannot restore motion. Among modes reaching 30 fps,
-    // prefer bounded capture, then JPEG (USB bandwidth), then area. If none
-    // reaches 30 fps, keep the advertised rates instead of requiring 30.
     if (!advertised || gst_caps_is_any(advertised)
         || gst_caps_is_empty(advertised))
         return nullptr;
@@ -4858,8 +4129,6 @@ GstCaps *SfuMediaEngine::preferredCameraCaps(const GstCaps *advertised,
                             st, "framerate", 30, 1);
                     gst_structure_fixate_field_nearest_fraction(
                         st, "pixel-aspect-ratio", 1, 1);
-                    // A V4L2 source can reject a caps structure whose format
-                    // is still a list, even when width and rate are fixed.
                     candidate.caps = gst_caps_fixate(candidate.caps);
                     ordered.append(candidate);
                 }
@@ -4875,8 +4144,6 @@ GstCaps *SfuMediaEngine::preferredCameraCaps(const GstCaps *advertised,
                         }
                         return bounded ? a.area > b.area : a.area < b.area;
                     });
-                // Keep alternatives in preference order. Pinning just one size
-                // can discard a usable rate during downstream negotiation.
                 if (!ordered.isEmpty()) {
                     GstCaps *preferred = gst_caps_new_empty();
                     for (const Mode &mode : ordered)
@@ -4925,7 +4192,6 @@ QString SfuMediaEngine::captureCameraEntry(GstElement *bin, bool jpegAvailable,
         if (GstPad *pad = gst_element_get_static_pad(source, "src")) {
             GstCaps *caps = gst_pad_query_caps(pad, nullptr);
             selected = preferredCameraCaps(caps, jpegAvailable);
-            // Check the COMPLETE chosen entry, not unrestricted image/jpeg.
             if (selected && capsOfferJpeg(selected)
                 && !capsOfferJpeg(caps, selected)) {
                 gst_caps_unref(selected);
@@ -4974,16 +4240,10 @@ QString SfuMediaEngine::cameraPublishErrorCategory(bool screenShare,
 
 QString SfuMediaEngine::shareScaleStage(int maxHeight, bool gpu, bool keepOnGpu)
 {
-    // The flag is a parameter so both branches are testable.
     if (!gpu) {
-        // One threaded pass: videoconvertscale saves ~10% CPU over two
-        // elements, and n-threads=4 halves wall time so 4K keeps up with real
-        // time. 8 threads cost more total CPU for little gain.
         return QStringLiteral("videoconvertscale n-threads=4");
     }
 
-    // Constrain size inside the GL segment, or glcolorscale passes through.
-    // Ranges, so nothing is upscaled.
     const int h = maxHeight;
     const int w = (h * 16) / 9;
     // glcolorconvert turns the imported DMA_DRM buffer into sampleable RGBA
@@ -4994,8 +4254,6 @@ QString SfuMediaEngine::shareScaleStage(int maxHeight, bool gpu, bool keepOnGpu)
                           "! video/x-raw(memory:GLMemory),format=RGBA,"
                           "texture-target=2D "
                           "! glcolorscale "
-                          // Named so a live resolution change can retarget it
-                          // (applyShareQualityLive()).
                           "! capsfilter name=sharegl caps=\""
                           "video/x-raw(memory:GLMemory),"
                           "width=(int)[1,%1],height=(int)[1,%2]\"%3")
@@ -5021,7 +4279,6 @@ QString SfuMediaEngine::shareLimitsCaps(int maxHeight, int fps, bool glMemory)
 }
 
 namespace {
-/// Bitrate scales with the picture; bits per second.
 int shareBitrateFor(int maxHeight, int fps, int bitrateCapKbps)
 {
     const int shareH = maxHeight;
@@ -5030,17 +4287,14 @@ int shareBitrateFor(int maxHeight, int fps, int bitrateCapKbps)
                             / (1920.0 * 1080.0 * 30.0);
     const int shareBitrate =
         std::clamp(int(3000000.0 * shareScale), 800000, 6000000);
-    // A cap only lowers: Auto is the picture-derived rate above.
     return bitrateCapKbps > 0 ? std::min(shareBitrate, bitrateCapKbps * 1000)
                               : shareBitrate;
 }
-} // namespace
+}
 
 QList<SfuMediaEngine::ShareEncoderCandidate>
 SfuMediaEngine::shareEncoderCandidates()
 {
-    // Rate control, no B-frames, a closed keyframe interval: what a call needs
-    // from each. A property a version lacks fails the probe, not the share.
     QList<ShareEncoderCandidate> list;
 #if defined(Q_OS_MACOS)
     list << ShareEncoderCandidate{
@@ -5110,9 +4364,6 @@ SfuMediaEngine::h264CodecChain(const ShareEncoderCandidate &candidate,
     if (!zeroCopy) {
         chain.beforeEncoder = QStringLiteral("videoconvert ! ");
     }
-    // config-interval=-1: every keyframe carries its SPS and PPS, because a
-    // viewer who joins late gets them from nowhere else. The parser is the
-    // last element before encryption.
     chain.afterEncoder = QStringLiteral(
         "! video/x-h264,profile=%1,stream-format=byte-stream,alignment=au "
         "! h264parse name=videoframes config-interval=-1 ")
@@ -5126,8 +4377,6 @@ SfuMediaEngine::h264CodecChain(const ShareEncoderCandidate &candidate,
 }
 
 namespace {
-/// Whether `description` reaches EOS: the encoder really opened a session and
-/// delivered. Bounded: a hanging driver counts as not working.
 bool encoderRunsHere(const QString &description, QString *why)
 {
     GError *error = nullptr;
@@ -5166,7 +4415,7 @@ bool encoderRunsHere(const QString &description, QString *why)
     gst_object_unref(pipeline);
     return ok;
 }
-} // namespace
+}
 
 std::optional<SfuMediaEngine::ShareHardwareEncoder>
 SfuMediaEngine::firstWorkingShareEncoder(
@@ -5200,9 +4449,9 @@ SfuMediaEngine::firstWorkingShareEncoder(
 }
 
 namespace {
-std::atomic<int> g_shareEncoderProbe{0}; // 0 unasked, 1 running, 2 answered
+std::atomic<int> g_shareEncoderProbe{0};
 std::optional<SfuMediaEngine::ShareHardwareEncoder> g_shareEncoder;
-} // namespace
+}
 
 void SfuMediaEngine::probeShareHardwareEncoder()
 {
@@ -5250,8 +4499,6 @@ QString SfuMediaEngine::h264DecoderElement()
     return {};
 }
 
-/// The share's encoder stage: bitrate scales with the picture, keyframe
-/// interval with the rate.
 QString SfuMediaEngine::shareEncoderStage(int maxHeight, int fps,
                                           int bitrateCapKbps)
 {
@@ -5263,7 +4510,6 @@ QString SfuMediaEngine::shareEncoderStage(int maxHeight, int fps,
         .arg(QString::number(shareBitrate), QString::number(2 * fps));
 }
 
-/// The CPU stage a publish falls back to; see the header.
 QString SfuMediaEngine::cpuFallbackScaleStage(bool screenShare,
                                               int shareMaxHeight)
 {
@@ -5292,9 +4538,6 @@ QString SfuMediaEngine::videoRateStage(bool screenShare)
 
 QString SfuMediaEngine::portalCameraEntry()
 {
-    // One structure, never a list; see the header. PipeWire picks the
-    // smallest mode in range, so the lower bound sets the quality floor and
-    // the upper bound admits 1080p-only cameras.
     return QStringLiteral(
         "capsfilter caps=\"video/x-raw,width=(int)[640,1920],"
         "height=(int)[360,1080],pixel-aspect-ratio=(fraction)1/1\"");
@@ -5315,8 +4558,6 @@ QString SfuMediaEngine::cameraLimitsCaps(bool portal, int maxHeight)
 
 QString SfuMediaEngine::cameraEncoderStage(int maxHeight)
 {
-    // 720p is the reference and must not change; the others follow the
-    // picture, as the share's rate does.
     int bitrate = 1700000;
     switch (snapCameraHeight(maxHeight)) {
     case 360:
@@ -5340,7 +4581,6 @@ QString SfuMediaEngine::cameraEncoderStage(int maxHeight)
 
 QString SfuMediaEngine::cameraRateStage(bool portal)
 {
-    // Same element and name (`vidrate`); the rate becomes a ceiling.
     return portal
         ? QStringLiteral("videorate name=vidrate skip-to-first=true "
                          "max-rate=30")
@@ -5349,19 +4589,17 @@ QString SfuMediaEngine::cameraRateStage(bool portal)
 
 namespace {
 
-/// One queue under test, and what the run measured.
 struct QueueProbeResult {
     QString spec;
     bool isControl = false;
-    qint64 settledMs = -1;   ///< level just before the brake goes on
-    qint64 peakMs = -1;      ///< highest level while starved
-    qint64 realtimeMs = -1;  ///< level with the consumer back at real time (permanent latency)
-    qint64 recoveredMs = -1; ///< level after the consumer is let run free
+    qint64 settledMs = -1;
+    qint64 peakMs = -1;
+    qint64 realtimeMs = -1;
+    qint64 recoveredMs = -1;
     bool ran = false;
     QString error;
 };
 
-/// Read `current-level-time` off a queue, in milliseconds.
 qint64 queueLevelMs(GstElement *queue)
 {
     guint64 ns = 0;
@@ -5369,16 +4607,12 @@ qint64 queueLevelMs(GstElement *queue)
     return static_cast<qint64>(ns / GST_MSECOND);
 }
 
-/// Runs one queue through settle, starve and recover. `identity sleep-time`
-/// starves the consumer while the live source keeps producing, which is how
-/// a backlog forms; freezing the whole process (SIGSTOP) cannot show it.
 QueueProbeResult runOneQueueProbe(const QString &spec, bool isControl)
 {
     QueueProbeResult out;
     out.spec = spec;
     out.isControl = isControl;
 
-    // 10 ms buffers from a live source: the shape a capture delivers.
     const QString desc =
         QStringLiteral("audiotestsrc is-live=true samplesperbuffer=480 ! "
                        "audio/x-raw,rate=48000,channels=1 ! %1 name=q ! "
@@ -5438,21 +4672,15 @@ QueueProbeResult runOneQueueProbe(const QString &spec, bool isControl)
         return last;
     };
 
-    // Settle: 1.5 s of ordinary flow.
     out.settledMs = sampleFor(1500, nullptr);
 
-    // Starve: 40 ms of sleep per 10 ms buffer.
     g_object_set(brake, "sleep-time", guint(40000), nullptr);
     out.peakMs = 0;
     sampleFor(2000, &out.peakMs);
 
-    // Restore to exactly real time, all a live encoder ever gets. A consumer
-    // that merely keeps up cannot drain a backlog, so this phase shows
-    // whether the latency is permanent.
     g_object_set(brake, "sleep-time", guint(10000), nullptr);
     out.realtimeMs = sampleFor(3000, nullptr);
 
-    // Then free, to tell a held backlog from one merely in flight.
     g_object_set(brake, "sleep-time", guint(0), nullptr);
     out.recoveredMs = sampleFor(3000, nullptr);
 
@@ -5464,17 +4692,16 @@ QueueProbeResult runOneQueueProbe(const QString &spec, bool isControl)
     return out;
 }
 
-} // namespace
+}
 
 int SfuMediaEngine::runQueueSelfTest(QString *report)
 {
     QString text;
     QTextStream out(&text);
 
-    // Queue specs are taken from the description production actually builds.
     const QString produced = videoPipelineDescription(
         QStringLiteral("videotestsrc is-live=true"),
-        videoRateStage(/*screenShare=*/false),
+        videoRateStage(false),
         QStringLiteral("video/x-raw,width=(int)[1,1280],height=(int)[1,720],"
                        "framerate=(fraction)30/1,"
                        "pixel-aspect-ratio=(fraction)1/1"),
@@ -5494,7 +4721,6 @@ int SfuMediaEngine::runQueueSelfTest(QString *report)
 
     out << "queue self-test: the voice-delay property, measured directly\n\n";
     out << "GStreamer " << gst_version_string() << "\n";
-    // State the scope in the transcript itself; release validators print it.
     out << "queues measured here: " << specs.size()
         << ", taken from the description videoPipelineDescription()\n"
            "actually returns. NOT measured: the receive-side queues and the\n"
@@ -5517,26 +4743,22 @@ int SfuMediaEngine::runQueueSelfTest(QString *report)
 
     QList<QueueProbeResult> results;
     for (const QString &spec : specs)
-        results.append(runOneQueueProbe(spec, /*isControl=*/false));
-    // Control: GStreamer's default queue under the same starvation.
+        results.append(runOneQueueProbe(spec,false));
     results.append(runOneQueueProbe(QStringLiteral("queue"),
-                                    /*isControl=*/true));
+true));
 
     bool ok = true;
-    bool measured = true;   ///< every probe, including the control, ran
+    bool measured = true;
     qint64 controlHeldMs = -1;
     for (const QueueProbeResult &r : results) {
         out << (r.isControl ? "CONTROL " : "SHIPPED ") << r.spec << "\n";
         if (!r.ran) {
-            // A probe that did not run is not a failed queue.
             out << "    could not run: " << r.error << "\n\n";
             measured = false;
             continue;
         }
         if (r.isControl)
             controlHeldMs = r.realtimeMs;
-        // This probe uses 10 ms buffers, so a buffer-count bound reads as far
-        // less time than it holds on the video path.
         if (r.spec.contains(QStringLiteral("max-size-buffers="))
             && !r.spec.contains(QStringLiteral("max-size-time="))) {
             out << "    NOTE: this bound is in BUFFERS, and this probe uses "
@@ -5554,7 +4776,6 @@ int SfuMediaEngine::runQueueSelfTest(QString *report)
             << "    consumer let run free         " << r.recoveredMs
             << " ms\n";
         if (!r.isControl) {
-        // Shipped bounds are 100-200 ms; the extra headroom is for scheduling.
             const bool bounded = r.peakMs <= 450;
             const bool notHeld = r.realtimeMs <= 350;
             out << "    bounded while starved:        "
@@ -5567,8 +4788,6 @@ int SfuMediaEngine::runQueueSelfTest(QString *report)
         out << "\n";
     }
 
-    // The control is asserted: if the starvation did not happen, every row
-    // reads low and a pass would demonstrate nothing.
     static constexpr qint64 kControlMustHoldMs = 500;
     if (measured && controlHeldMs < kControlMustHoldMs) {
         out << "the CONTROL queue held only " << controlHeldMs
@@ -5647,17 +4866,6 @@ bool SfuMediaEngine::BlockedRunPolicy::note(bool failed, bool *raise)
 
 QString SfuMediaEngine::selfViewBranch(bool glMemory)
 {
-    // Tee'd after the scaler so it costs one convert of the downscaled frame.
-    // For a share it is the only way to see what is sent; for a camera, our
-    // own track is never received, so there would be no preview otherwise.
-    // `max-buffers=1 drop=true` keeps a slow preview from adding latency to
-    // the published branch.
-    //
-    // `async=false`: this sink joins a publisher pipeline that is already
-    // PLAYING. Waiting for a preroll frame, a capture that never delivers one
-    // held the whole pipeline in PAUSED, and every bin published after it (a
-    // share, share audio, the microphone again) produced nothing. It does
-    // not sync, so it needs no latency either.
     return QStringLiteral("t. ! queue max-size-buffers=2 leaky=downstream %1"
                           "! videoconvert ! video/x-raw,format=RGBA "
                           "! appsink name=selfvidsink emit-signals=true "
@@ -5676,35 +4884,16 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                                                 const VideoCodecChain &codec)
 {
     return QStringLiteral(
-               // `capsrc` is named so the capture can be counted separately
-               // from the encoder: the rate stage duplicates frames, so a
-               // stalled capture still yields full-rate send counters.
-               // The capture queue is small and leaky: realtime video drops a
-               // late frame instead of stalling the source.
                "%1 name=capsrc "
-               // PAR pinned at the source too: the ceiling's PAR pin makes
-               // videoconvertscale offer the source an open PAR range, and a
-               // source that does not fixate PAR itself falls to the range
-               // minimum (1/2147483647) and negotiation overflows. A fixed
-               // value cannot be fixated to a minimum.
                "! %9 "
                "! queue max-size-buffers=4 leaky=downstream "
                "! %8 ! %7 "
-               // Named: a live resolution or rate change sets its caps in
-               // place (applyShareQualityLive()).
                "! capsfilter name=publimits caps=\"%2\" "
                "! tee name=t %4"
-               // Bounded and leaky: a default queue holds a second and never
-               // drains, and this one feeds the encoder most likely to fall
-               // behind. Leaking only costs frames; backpressure would stall
-               // the tee, the capture and the self-view.
                "t. ! queue max-size-buffers=0 max-size-bytes=0 "
                "max-size-time=100000000 leaky=downstream "
                "! valve name=vidvalve drop=false ! %11%3 name=videoenc %12"
-               // Our payloader, not rtpvp8pay; see RtpVp8Payloader.h.
-               // Explicit ssrc: see nextPublishSsrc().
                "! %6 pt=%14 ssrc=%5 mtu=%10 "
-               // The ssrc must be in the caps; see publishAudio().
                "! capsfilter caps=\"application/x-rtp,media=video,"
                "%13payload=%14,clock-rate=(int)90000,"
                "ssrc=(uint)%5\"")
@@ -5717,17 +4906,11 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
         .arg(codec.beforeEncoder, codec.afterEncoder,
              codec.rtpCaps.isEmpty() ? QStringLiteral("encoding-name=VP8,")
                                      : codec.rtpCaps)
-        // BUNDLE needs distinct payload types for different codecs. VP8 is
-        // also used by the camera and backup on this publisher connection.
         .arg(codec.payloader.isEmpty() ? 96 : 102);
 }
 
 QString SfuMediaEngine::trackSidFromMsid(const QString &msid)
 {
-    // The track sid (`TR_...`), the only id that names one track on both
-    // ends. LiveKit packs the msid stream id as `PA_<participant>|TR_<track>`;
-    // this mirrors livekit-client's `extractTrackSid()`. The section `mid` is
-    // assigned independently per connection and cannot be used for routing.
     const QString streamId = msid.section(QLatin1Char(' '), 0, 0).trimmed();
     const int packed = streamId.indexOf(QLatin1Char('|'));
     if (packed >= 0) {
@@ -5743,11 +4926,7 @@ QString SfuMediaEngine::trackSidFromMsid(const QString &msid)
 
 QString SfuMediaEngine::participantIdFromMsid(const QString &msid)
 {
-    // `a=msid:<stream-id> <track-id>` — the stream id is the first token.
     QString streamId = msid.section(QLatin1Char(' '), 0, 0).trimmed();
-    // LiveKit packs "<PA_participant>|<TR_track>" into it for every protocol
-    // version > 0; keep the participant part, like livekit-client's
-    // `unpackStreamId()`. A leading separator yields empty, not "|TR_...".
     const int packed = streamId.indexOf(QLatin1Char('|'));
     if (packed >= 0)
         streamId.truncate(packed);
@@ -5756,13 +4935,11 @@ QString SfuMediaEngine::participantIdFromMsid(const QString &msid)
 
 QString SfuMediaEngine::localCameraStreamId()
 {
-    // A colon means it can never collide with a LiveKit sid.
     return QStringLiteral("local:camera");
 }
 
 QString SfuMediaEngine::localScreenStreamId()
 {
-    // LiveKit ids are "PA_..."/"TR_..."; the colon guarantees no collision.
     return QStringLiteral("local:screen");
 }
 
@@ -5770,8 +4947,6 @@ bool SfuMediaEngine::elementAvailable(const char *name)
 {
     if (!name || !*name)
         return false;
-    // Asking before gst_init would report every element absent; the shared
-    // bootstrap also applies the bundled plugin path (GstBootstrap.h).
     if (!lightning::gst::ensureInitialised())
         return false;
     GstElementFactory *factory = gst_element_factory_find(name);
@@ -5794,15 +4969,8 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd,
     //
     // Windows and macOS have no portal; there `nodeId` is a monitor index.
 #if defined(Q_OS_WIN)
-    // gdiscreencapsrc: the d3d11 and mediafoundation plugins do not load with
-    // this mingw-w64 toolchain, so d3d11screencapturesrc is not shipped. Its
-    // property names differ (`monitor-index`/`show-cursor` vs `monitor`/
-    // `cursor`), so do not mix them up.
     Q_UNUSED(pipewireFd);
     Q_UNUSED(captureRect);
-    // A single window uses our own element: gdiscreencapsrc cannot capture a
-    // window, and cropping the screen would share whatever overlaps it. See
-    // WindowCaptureSrc.h.
     if (windowHandle != 0) {
         return QStringLiteral("%1 hwnd=%2")
             .arg(QLatin1String(lightning::wincap::windowCaptureSrcName()))
@@ -5811,23 +4979,12 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd,
     return QStringLiteral("gdiscreencapsrc monitor=%1 cursor=true")
         .arg(nodeId < 0 ? 0 : nodeId);
 #elif defined(Q_OS_MACOS)
-    // `capture-screen` switches avfvideosrc from camera to display;
-    // `device-index` selects the display.
     Q_UNUSED(pipewireFd);
     Q_UNUSED(captureRect);
     return QStringLiteral("avfvideosrc capture-screen=true "
                           "capture-screen-cursor=true device-index=%1")
         .arg(nodeId < 0 ? 0 : nodeId);
 #else
-    // No portal: the user picked a rectangle of the X11 root window. Reached
-    // only on X11 sessions. Never use this on Wayland: XWayland's root window
-    // is black, so it would send a black rectangle with healthy counters.
-    //
-    // `endx`/`endy` are inclusive, so QRect::right()/bottom() are correct.
-    // `use-damage=false`: XDamage can miss redraws on a composited root, and
-    // a full grab per frame costs nothing measurable here.
-    // `do-timestamp=true` is inert on ximagesrc (it stamps its own zero-based
-    // PTS, which is what an element added to a running pipeline needs).
     if (captureRect.isValid()) {
         return QStringLiteral("%1 startx=%2 starty=%3 endx=%4 endy=%5 "
                               "use-damage=false show-pointer=true "
@@ -5847,7 +5004,6 @@ QString SfuMediaEngine::screenShareSource(int nodeId, int pipewireFd,
                    "pipewiresrc fd=%1 path=%2 min-buffers=1 do-timestamp=true")
             .arg(pipewireFd).arg(nodeId);
     }
-    // Never inherit the plugin's min-buffers default; see above.
     return QStringLiteral("pipewiresrc path=%1 min-buffers=1 do-timestamp=true")
         .arg(nodeId);
 #endif
@@ -5861,8 +5017,6 @@ SfuMediaEngine::resolveCameraBinding(const QString &source,
     bool listed = false;
     const auto candidates = monitorCandidates("Video/Source", &listed);
     out.binding = lightning::calls::resolveDeviceBinding(
-        // The element NAME: `source` carries pinned properties the profile
-        // lookup cannot match.
         lightning::calls::CaptureKind::Camera,
         source.section(QLatin1Char(' '), 0, 0), camera.id, camera.description,
         candidates);
@@ -5881,20 +5035,6 @@ SfuMediaEngine::resolveCameraBinding(const QString &source,
 QString SfuMediaEngine::cameraSource(int pipewireFd)
 {
 #if !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
-    // Sandboxed route: a camera granted by the xdg Camera portal, taken only
-    // when a descriptor was actually granted.
-    //
-    // `fd` and no `path`: the Camera portal grants a whole remote containing
-    // only camera nodes, and `autoconnect` selects one. `min-buffers=1` for
-    // the reason given in screenShareSource(). `do-timestamp=true` mirrors the
-    // screen share; running-time stamps are handled by skip-to-first in
-    // videoRateStage().
-    //
-    // `always-copy=true`: webrtcbin sends a RECONFIGURE upstream when the
-    // SFU's answer is applied, and pipewiresrc (1.4.9 and 1.6.2 measured)
-    // answers it by reconnecting and freeing its PipeWire buffers while
-    // frames made from them are still queued, so videoconvert reads freed
-    // memory and the process dies. A copy is ~0.6 MB per camera frame.
     if (pipewireFd >= 0) {
         return QStringLiteral(
                    "pipewiresrc fd=%1 min-buffers=1 always-copy=true "
@@ -5905,12 +5045,8 @@ QString SfuMediaEngine::cameraSource(int pipewireFd)
     Q_UNUSED(pipewireFd);
 #endif
 #if defined(Q_OS_WIN)
-    // ksvideosrc: mfvideosrc is newer, but the mediafoundation plugin does
-    // not load with this toolchain. Kernel Streaming covers ordinary UVC
-    // webcams.
     return QStringLiteral("ksvideosrc");
 #elif defined(Q_OS_MACOS)
-    // The same element the screen branch uses, without capture-screen.
     return QStringLiteral("avfvideosrc");
 #else
     // `v4l2src`, not `autovideosrc`: on a PipeWire desktop autodetect picks
@@ -5927,10 +5063,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                                   quint64 windowHandle,
                                   const QRect &captureRect)
 {
-    // The fd belongs to this engine now and is held for the life of the
-    // publishing bin (closed by unpublish()): whether pipewiresrc dups it
-    // depends on the plugin version. RAII so every early return closes it;
-    // ownership moves to m_publishedFds on success.
     struct PortalFd {
         int fd;
         ~PortalFd()
@@ -5946,19 +5078,12 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         return;
 
     QString source;
-    // The user's camera choice, resolved before anything is built. See
-    // CaptureDeviceSelection.h.
     lightning::calls::DeviceBinding cameraBinding;
     if (m_testSources) {
         source = m_testVideoSource.isEmpty()
             ? QStringLiteral("videotestsrc is-live=true pattern=smpte")
             : m_testVideoSource;
     } else if (screenShare) {
-        // Screen capture goes through PipeWire with the node id from the
-        // portal ScreenCast session; a negative id would publish whatever
-        // PipeWire picks, so it is refused unless a window handle or an X11
-        // rectangle was given instead. This guard has a twin in
-        // SfuCallController::startScreenShare; keep them in sync.
         if (nodeId < 0 && windowHandle == 0 && !captureRect.isValid()) {
             Q_EMIT failed(QStringLiteral("screen_share_no_source"));
             return;
@@ -5966,26 +5091,12 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         source = screenShareSource(nodeId, pipewireFd, windowHandle,
                                    captureRect);
     } else {
-        // `v4l2src`, not `autovideosrc`: autodetect picks `pipewiresrc` by
-        // rank on a PipeWire desktop, with no target, and with the pinned
-        // 30/1 rate that fails to negotiate, so the camera never delivers.
-        // v4l2src with the same caps works. Relaxing the rate range does not
-        // help. Or a remote granted by the xdg Camera portal; see
-        // cameraSource().
         source = cameraSource(pipewireFd);
-        // Log which route the camera took, so a failed portal request is
-        // distinguishable from a broken camera.
         qCInfo(lcSfuMedia) << "camera source="
                            << (pipewireFd >= 0 ? "xdg camera portal "
                                                  "(pipewiresrc)"
                                                : "direct device");
-        // Not for portal cameras: the stored choice names host devices, while
-        // the portal's pipewiresrc is on a different remote where those ids
-        // do not exist.
         const DeviceChoice camera = cameraChoice();
-        // Never another camera in place of the chosen one: the default is a
-        // different device, and opening it is a privacy failure. Queued: the
-        // caller is still inside the camera toggle.
         const auto refuseCamera = [this, cid](const QString &category) {
             QMetaObject::invokeMethod(
                 this,
@@ -5993,7 +5104,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                 Qt::QueuedConnection);
         };
         if (pipewireFd < 0 && camera.id.isEmpty() && camera.preferredMissing) {
-            // Unplugged, or its node now belongs to another camera.
             qCWarning(lcSfuMedia)
                 << "the chosen camera is not connected; opening no camera "
                    "rather than the default";
@@ -6010,19 +5120,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         }
     }
 
-    // Ceilings matching livekit-client's presets: screen share h1080fps30
-    // (user-adjustable), camera h720. Sizes are ranges so videoscale picks the
-    // largest fit and never upscales.
-    //
-    // The framerate is fixed, not a range: a desktop capture negotiates 0/1
-    // (delivers on damage), and a range including it leaves videorate and
-    // vp8enc with no target rate.
-    //
-    // PAR is pinned to 1/1 so videoscale preserves aspect by choosing a size
-    // rather than signalling a non-square PAR, which VP8 and RTP drop (an
-    // ultrawide would arrive squashed).
-    //
-    // A portal camera uses its own entry; see portalCameraEntry().
     const bool portalCamera = !screenShare && pipewireFd >= 0;
     QString limits = screenShare
         ? shareLimitsCaps(m_shareMaxHeight, m_shareFps)
@@ -6036,12 +5133,8 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     const QString scaleStage = screenShare
         ? shareScaleStage(m_shareMaxHeight, shareGpuScalingRequested())
         : QStringLiteral("videoconvert ! videoscale");
-    // The CPU fallback stage is per path: the camera keeps
-    // `videoconvert ! videoscale`; the threaded pass is share-sized policy.
     const QString cpuScaleStage =
         cpuFallbackScaleStage(screenShare, m_shareMaxHeight);
-    // GPU first, CPU fallback. Missing elements (a packaging problem) and a
-    // chain that will not build (a caps or driver problem) log differently.
     bool useGpu = screenShare && shareGpuScalingRequested();
     if (useGpu) {
         const QString missing = missingGpuShareElement();
@@ -6052,9 +5145,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
             useGpu = false;
         }
     }
-    // Elements existing is not the same as working (no GL context, headless
-    // session): gpuShareChainUsable() requires PAUSED once per process,
-    // before a capture is opened.
     if (useGpu && !gpuShareChainUsable()) {
         qCInfo(lcSfuMedia)
             << "screen share falling back to the CPU: the GL chain is "
@@ -6064,9 +5154,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
 
     QString scaleStageInUse = useGpu ? scaleStage : cpuScaleStage;
 
-    // Hardware encoding, tried on top of the rung above and falling back the
-    // same way. Software stays the floor: an encoder missing or unable to run
-    // here never reaches a description.
     VideoCodecChain codec;
     QString hardwareFactory;
     bool glEncode = false;
@@ -6081,8 +5168,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
             encoder = shareEncoderStage(hardware->candidate, m_shareMaxHeight,
                                         m_shareFps, m_shareBitrateCapKbps);
             if (glEncode) {
-                // Stays in GL memory up to the encoder: the 4K BGRA->I420
-                // conversion and the readback do not exist on this path.
                 scaleStageInUse =
                     shareScaleStage(m_shareMaxHeight, true, true);
                 limits = shareLimitsCaps(m_shareMaxHeight, m_shareFps, true);
@@ -6106,15 +5191,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
             selfView = selfViewBranch();
     };
 
-    // Cameras try MJPG first: raw YUY2 at 720p30 exceeds USB 2.0 and
-    // negotiates down to ~10 fps. Falls back to raw when the description
-    // fails to parse.
-    //
-    // Not for a portal camera: a raw-only device fails to negotiate (not to
-    // parse) behind an image/jpeg filter, so the ladder cannot catch it, and
-    // this pipewiresrc does not move past an unsatisfiable caps alternative.
-    // The portal route uses a raw size range with a rate ceiling
-    // (portalCameraEntry()); MJPG there needs the device modes enumerated.
     const bool tryJpeg =
         !screenShare && pipewireFd < 0 && jpegCameraChainAvailable();
     QString entryInUse = tryJpeg      ? cameraJpegEntry()
@@ -6131,7 +5207,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         gst_parse_bin_from_description(description.toUtf8().constData(), TRUE,
                                        &error);
     if (error && tryJpeg) {
-        // The MJPG description did not build; fall back to the raw entry.
         qCWarning(lcSfuMedia)
             << "camera MJPG pipeline failed to build, falling back to raw:"
             << (error->message ? error->message : "?");
@@ -6150,7 +5225,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                                              TRUE, &error);
     }
     if (error && !hardwareFactory.isEmpty()) {
-        // Hardware encode did not build; the rung below is the plain share.
         qCWarning(lcSfuMedia)
             << "screen share hardware encoder pipeline failed to build, "
                "falling back to software:"
@@ -6169,8 +5243,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                                              TRUE, &error);
     }
     if (error && useGpu) {
-        // The GPU description did not build; log why and retry once on the
-        // CPU instead of failing the share.
         qCWarning(lcSfuMedia)
             << "screen share GPU pipeline failed to build, falling back to "
                "the CPU:" << (error->message ? error->message : "?");
@@ -6200,7 +5272,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         return;
     }
     if (screenShare) {
-        // Logged after the ladder so it reports the outcome, not the intent.
         qCInfo(lcSfuMedia) << "screen share scaling on"
                            << (useGpu ? "the GPU" : "the CPU");
         m_shareGlEncode = glEncode;
@@ -6214,9 +5285,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
             + QLatin1Char(' ') + path;
         qCInfo(lcSfuMedia) << "screen share encoder=" << m_shareEncoderInUse;
     }
-    // The user's camera choice, resolved above, applied before the bin joins
-    // the pipeline. Unset, v4l2src/ksvideosrc/avfvideosrc would open the
-    // default camera, so a value the element refuses means no camera.
     if (!screenShare && !cameraBinding.isEmpty()
         && !applyBindingTo(bin, "capsrc", cameraBinding)) {
         gst_object_unref(bin);
@@ -6229,9 +5297,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
             Qt::QueuedConnection);
         return;
     }
-    // Select advertised modes only after binding the chosen device. READY
-    // enumerates caps without streaming. Windows/macOS retain their existing
-    // unrestricted entries: an extra device open has not been validated there.
 #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
     constexpr bool kProbeCameraFormats = false;
 #else
@@ -6290,16 +5355,11 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     m_publishedBins.insert(cid, bin);
     if (pipewireFd >= 0)
         m_publishedFds.insert(cid, pipewireFd);
-    // Ownership moved: releasePublishedFd() closes it from here on.
     portalFd.release();
-    // Shared by the probes below and handlePublishError(); created before the
-    // bin can play.
     const auto streamInfo = attachStreamInfo(bin);
     streamInfo->outgoing = true;
     streamInfo->screen = screenShare;
     streamInfo->source = streamInfoFactory(bin, "capsrc");
-    // A share names the path as well: "nvh264enc gpu-zero-copy". After the
-    // fallbacks above, so it reports what is running, not what was tried.
     streamInfo->encoder = screenShare && !shareEncoderInUse().isEmpty()
         ? shareEncoderInUse()
         : streamInfoFactory(bin, "videoenc");
@@ -6307,9 +5367,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         streamInfo->codec = QStringLiteral("H.264");
     streamInfo->scaling = useGpu ? QStringLiteral("GPU") : QStringLiteral("CPU");
     auto probeState = std::make_shared<PublishProbeState>();
-    // A portal camera is started off the GUI thread (below), so it can still
-    // be starting when the engine goes; its engine-touching callbacks are
-    // gated. See ProbeGate.
     const bool asyncStart = !screenShare && pipewireFd >= 0;
     const std::shared_ptr<ProbeGate> gate =
         asyncStart ? std::make_shared<ProbeGate>() : nullptr;
@@ -6317,23 +5374,15 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     probeState->screenShare = screenShare;
     probeState->keepByReference = m_shareGlEncode && screenShare;
     m_publishWatch.insert(cid, PublishWatch{probeState, false});
-    // Count what the capture itself produces: everything else is downstream
-    // of the rate stage, which manufactures frames. handlePublishError() also
-    // keys on it (zero plus a bus error means the publish never prerolled).
-    //
     if (GstElement *capture = gst_bin_get_by_name(GST_BIN(bin), "capsrc")) {
         if (GstPad *srcPad = gst_element_get_static_pad(capture, "src")) {
             if (screenShare) {
-                // First, so the count and everything downstream see the
-                // repaired buffer. See rewrapShortDmaBuf().
                 gst_pad_add_probe(
                     srcPad, GST_PAD_PROBE_TYPE_BUFFER,
                     [](GstPad *, GstPadProbeInfo *info, gpointer) {
                         GstBuffer *in = GST_PAD_PROBE_INFO_BUFFER(info);
                         if (GstBuffer *fixed =
                                 SfuMediaEngine::rewrapShortDmaBuf(in)) {
-                            // The new buffer holds `in` by parent meta; this
-                            // drops the reference the probe was given.
                             GST_PAD_PROBE_INFO_DATA(info) = fixed;
                             gst_buffer_unref(in);
                         }
@@ -6352,9 +5401,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                     if (n == 1) {
                         state->firstCaptureMs.store(monotonicMs()
                                                     - state->startedMs);
-                        // Log the negotiated caps once. A `memory:DMABuf`
-                        // feature here is a classic reason a capture stops
-                        // after one buffer.
                         if (GstCaps *caps = gst_pad_get_current_caps(pad)) {
                             gchar *text = gst_caps_to_string(caps);
                             qCInfo(lcSfuMedia)
@@ -6375,9 +5421,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                     delete static_cast<std::shared_ptr<PublishProbeState> *>(
                         data);
                 });
-            // Retire the track when the capture ends itself (e.g. the shared
-            // window closed, which posts EOS). Routes into the Stop path, which
-            // sets the transceiver inactive and clears the far end's tile.
             struct EndedCtx {
                 SfuMediaEngine *engine;
                 QString cid;
@@ -6403,18 +5446,10 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         }
         gst_object_unref(capture);
     }
-    // Sample what reaches `videorate` so the keep-alive timer has something
-    // to re-push. Probed on its upstream peer (a src pad), after scaling and
-    // after any DMABuf download, so a copy is small and holds no pool buffer;
-    // in GL memory it is a reference instead (keepByReference).
-    // Screen share only: a camera delivers on a clock.
     if (screenShare) {
         {
             if (GstPad *rateSink = keepAliveInjectionPad(bin)) {
-                // Injection chains into the sink pad; sampling happens on its
-                // peer so the probe never sees injected frames and mistakes a
-                // dead capture for a live one.
-                probeState->keepSink = rateSink;   // ref moves to the state
+                probeState->keepSink = rateSink;
                 if (GstPad *feed = gst_pad_get_peer(rateSink)) {
                     auto *held =
                         new std::shared_ptr<PublishProbeState>(probeState);
@@ -6429,13 +5464,9 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                                 return GST_PAD_PROBE_OK;
                             const qint64 now = monotonicMs();
                             state->lastFrameMs.store(now);
-                            // Throttled to five samples a second: the sample
-                            // is only read once the source goes quiet.
                             const qint64 sampled = state->lastSampleMs.load();
                             if (sampled >= 0 && now - sampled < 200)
                                 return GST_PAD_PROBE_OK;
-                            // Deep copy: a shallow copy would hold the
-                            // source's pool memory, which stalls the capture.
                             GstBuffer *kept = state->keepByReference
                                 ? gst_buffer_ref(buffer)
                                 : gst_buffer_copy_deep(buffer);
@@ -6447,8 +5478,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                                 QMutexLocker lock(&state->keepMutex);
                                 old = state->lastFrame;
                                 state->lastFrame = kept;
-                                // Keep the source's PTS: the only timebase the
-                                // injection may use; see keepAlivePts().
                                 state->lastFramePtsValid =
                                     GST_BUFFER_PTS_IS_VALID(kept);
                                 state->lastFramePts =
@@ -6483,16 +5512,12 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                               videoSinkCtxFree, GConnectFlags(0));
         gst_object_unref(selfSink);
     }
-    // The parser's output when there is one: it comes after the encoder, and
-    // nothing may read the frame between encryption and the payloader.
     GstElement *frames = gst_bin_get_by_name(GST_BIN(bin), "videoframes");
     const bool h264Frames = frames != nullptr;
     if (GstElement *encoder = frames ? frames
                                      : gst_bin_get_by_name(GST_BIN(bin),
                                                            "videoenc")) {
         if (GstPad *encoded = gst_element_get_static_pad(encoder, "src")) {
-            // Time from first captured to first encoded frame: what the rate
-            // stage held at share start. One-shot; the probe removes itself.
             auto *held = new std::shared_ptr<PublishProbeState>(probeState);
             gst_pad_add_probe(
                 encoded, GST_PAD_PROBE_TYPE_BUFFER,
@@ -6515,17 +5540,14 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                     delete static_cast<std::shared_ptr<PublishProbeState> *>(
                         data);
                 });
-            installEncryptProbe(encoded, /*video=*/true, gate, h264Frames);
+            installEncryptProbe(encoded,true, gate, h264Frames);
             instrumentStreamInfo(encoded, streamInfo, false);
             gst_object_unref(encoded);
         }
         gst_object_unref(encoder);
     }
-    // The link result decides whether there is anything to offer.
     GstPad *srcPad = gst_element_get_static_pad(bin, "src");
     instrumentStreamInfo(srcPad, streamInfo, true);
-    // RTP leaving the bin, as for the microphone: `frames encrypted` counts
-    // only what the encoder produced.
     if (srcPad) {
         auto packets = std::make_shared<std::atomic<quint64>>(0);
         auto *rtpCtx = new RtpOutCtx{packets, true};
@@ -6548,7 +5570,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         m_publishedBins.remove(cid);
         if (const auto dead = m_publishWatch.take(cid); dead.state)
             releaseKeepAlive(dead.state);
-        // The keep-alive timer was armed before the link; disarm it too.
         updateShareKeepAliveTimer();
         releasePublishedFd(cid);
         gst_element_set_state(bin, GST_STATE_NULL);
@@ -6561,9 +5582,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     ++m_publishedMedia;
     if (screenShare) {
         if (!hardwareFactory.isEmpty() && !publishShareBackup(cid, bin, glEncode)) {
-            // Do not leave a hardware-only publication behind silently, and
-            // do not fail every later share the same way. Queued: the caller
-            // is still inside startScreenShare().
             g_shareHardwareEncoderFailed.store(true);
             unpublish(cid);
             QMetaObject::invokeMethod(
@@ -6577,16 +5595,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         }
         Q_EMIT shareTrackReady(cid, m_shareBackups.value(cid));
     }
-    // A portal camera is started off this thread. pipewiresrc's start blocks
-    // the thread that changes its state until PipeWire has negotiated a format
-    // with the camera node (`wait_started`, bounded at 30 s), and when the
-    // host cannot stream that node it never does: measured on Debian 12
-    // (PipeWire 0.3.65, "can't negotiate buffers"), the whole app froze for
-    // 30 s, missed its membership heartbeat and was dropped from the call by
-    // its own delayed leave. The element keeps a ref for the call; a bin
-    // already detached has no parent, and syncing it is then a no-op. A
-    // teardown while it is still starting detaches it rather than wait (see
-    // detachPendingStart()).
     if (asyncStart) {
         auto pending = std::make_shared<std::atomic<bool>>(true);
         m_asyncStarts.insert(cid, AsyncStart{gate, pending});
@@ -6605,13 +5613,8 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     } else {
         gst_element_sync_state_with_parent(bin);
     }
-    // Now there is something to offer; the negotiation-needed fired at
-    // PLAYING was ignored.
     m_publisherEverPublished = true;
     renegotiatePublisher();
-    // A camera that opens and never delivers posts no error; see
-    // kCameraFirstFrameTimeoutMs. Screen shares are exempt: an on-damage
-    // capture legitimately waits for the screen to change.
     if (!screenShare) {
         const quint64 generation = m_generation.load();
         QTimer::singleShot(asyncStart ? m_portalCameraFirstFrameTimeoutMs
@@ -6633,7 +5636,6 @@ QString SfuMediaEngine::receivableVideoCaps(bool h264)
 
 QString SfuMediaEngine::offerForSfu(const QString &sdp, bool multiCodec)
 {
-    // Two things only the text the SFU reads needs; webrtcbin keeps its own.
     if (!multiCodec)
         return sdp;
     // LiveKit matches a media section to a declared cid by the msid's SECOND
@@ -6663,10 +5665,9 @@ QString SfuMediaEngine::offerForSfu(const QString &sdp, bool multiCodec)
             QStringLiteral("a=rtcp-fb:102 transport-cc")}},
     };
     QStringList out;
-    QStringList section; // Attributes of the codecs a video section lacks.
+    QStringList section;
     bool video = false;
     const auto flushSection = [&] {
-        // Before the final empty element a trailing newline leaves.
         out.append(section);
         section.clear();
     };
@@ -6703,8 +5704,6 @@ bool SfuMediaEngine::publishShareBackup(const QString &cid, GstElement *primary,
                                         bool glMemory)
 {
     const QString backupCid = cid + kShareBackupSuffix;
-    // Gate before conversion/readback/encoding. The queue isolates the primary
-    // encoder even when a compatibility viewer is slow.
     const QString scale = glMemory
         ? QStringLiteral("glcolorconvert ! glcolorscale ! "
             "video/x-raw(memory:GLMemory),width=(int)[1,640],height=(int)[1,360],"
@@ -6733,9 +5732,6 @@ bool SfuMediaEngine::publishShareBackup(const QString &cid, GstElement *primary,
         return false;
     }
     gst_element_set_name(backup, backupCid.toUtf8().constData());
-    // A scaler answers a caps query with its downstream-restricted structure
-    // first, and the tee passes that up, so the capture would fixate to the
-    // backup's ceiling and shrink the primary too. This branch takes any size.
     if (GstPad *entry = gst_element_get_static_pad(backup, "sink")) {
         gst_pad_add_probe(entry, GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM,
             [](GstPad *, GstPadProbeInfo *info, gpointer) {
@@ -6762,7 +5758,7 @@ bool SfuMediaEngine::publishShareBackup(const QString &cid, GstElement *primary,
         return false;
     }
     if (!gst_bin_add(GST_BIN(m_publisher.pipeline), backup))
-        return false; // gst_bin_add consumed the floating reference.
+        return false;
     GstPad *rtp = gst_element_get_static_pad(backup, "src");
     GstPad *sink = gst_element_request_pad_simple(m_publisher.webrtc, "sink_%u");
     applyPublisherMsid(sink, backupCid);
@@ -6800,9 +5796,6 @@ bool SfuMediaEngine::publishShareBackup(const QString &cid, GstElement *primary,
 }
 
 namespace {
-/// A portal camera bin detached while still starting; finished on a pool
-/// thread. The pointer is used only through marshal(), which checks that the
-/// engine still exists before posting the release notification.
 struct AbandonedStart {
     int fd = -1;
     SfuMediaEngine *engine = nullptr;
@@ -6811,10 +5804,6 @@ struct AbandonedStart {
 
 void finishAbandonedStart(GstElement *bin, gpointer data)
 {
-    // Waits for the start still holding the bin's state lock (pipewiresrc,
-    // up to 30 s), here rather than on the GUI thread. The descriptor only
-    // after NULL: pipewiresrc may still be using it. Under the state lock, so
-    // a start that has not run yet finds the bin parentless and leaves it.
     GST_STATE_LOCK(bin);
     gst_element_set_state(bin, GST_STATE_NULL);
     GST_STATE_UNLOCK(bin);
@@ -6836,31 +5825,21 @@ void abandonedStartFree(gpointer data)
 {
     delete static_cast<AbandonedStart *>(data);
 }
-} // namespace
+}
 
 bool SfuMediaEngine::detachPendingStart(const QString &cid, GstElement *bin,
                                         bool force)
 {
     const AsyncStart start = m_asyncStarts.take(cid);
-    // Only bins started off the GUI thread are taken over (portal cameras and
-    // the microphone): they are the only ones whose engine-touching callbacks
-    // are gated. Any other bin (a direct camera, a share) keeps the normal
-    // path, whose teardown the engine counts and waits for before it goes.
     if (!start.gate)
         return false;
     {
-        // Waits for at most one frame already inside a gated callback.
         std::lock_guard<std::mutex> lock(start.gate->mutex);
         start.gate->open = false;
     }
     if (!bin || !m_publisher.pipeline
         || (!force && !start.pending->load()))
         return false;
-    // gst_bin_remove takes object locks only, never the child's state lock
-    // that the start holds, and unlinks the bin's pads. Under a TRY of that
-    // lock: free, the start has not run (it will find no parent) or is over;
-    // held, the start is past its parent check, and finishAbandonedStart()
-    // waits for it. Never a wait on this thread.
     gst_object_ref(bin);
     const bool stateLocked = g_rec_mutex_trylock(GST_STATE_GET_LOCK(bin));
     gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
@@ -6888,29 +5867,18 @@ void SfuMediaEngine::releasePublishedFd(const QString &cid)
 
 namespace {
 
-/// One deferred publish-bin teardown. Owns a pipeline ref; the bin is kept
-/// alive by gst_element_call_async.
 struct PublishTeardown {
     SfuMediaEngine *engine = nullptr;
     GstElement *pipeline = nullptr;
-    /// The webrtcbin and request pad this bin published through; refs owned
-    /// here and released in the async step.
     GstElement *webrtc = nullptr;
     GstPad *peer = nullptr;
     QString cid;
-    /// m_generation when armed, so a completion after stop()/start() cannot
-    /// renegotiate the new session.
     quint64 generation = 0;
-    /// Shared with the engine, which waits (bounded) on it; must stay
-    /// decrementable from a GStreamer thread after the engine is gone.
     std::shared_ptr<std::atomic<int>> outstanding;
 };
 
-/// Receive-side counterpart of PublishTeardown. No request pad or transceiver
-/// to retire: the far end ended the track.
 struct ReceiveTeardown {
     GstElement *pipeline = nullptr;
-    /// Shared with the engine; see PublishTeardown::outstanding.
     std::shared_ptr<std::atomic<int>> outstanding;
 };
 
@@ -6934,15 +5902,11 @@ void receiveTeardownAsync(GstElement *bin, gpointer data)
     gst_element_set_state(bin, GST_STATE_NULL);
 }
 
-/// Drops what still reaches a webrtcbin src pad whose bin was retired.
-/// webrtcbin never removes its src pads, and a push into an unlinked pad
-/// returns NOT_LINKED, which the jitterbuffer reports as a stream error.
 GstPadProbeReturn dropRetiredPadProbe(GstPad *, GstPadProbeInfo *, gpointer)
 {
     return GST_PAD_PROBE_DROP;
 }
 
-/// The mid of the transceiver a webrtcbin pad belongs to, or empty.
 QString transceiverMidOf(GstPad *pad)
 {
     QString sectionMid;
@@ -6969,66 +5933,47 @@ void publishTeardownFree(gpointer data)
         gst_object_unref(ctx->webrtc);
     if (ctx->pipeline)
         gst_object_unref(ctx->pipeline);
-    // Last, after every ref is released: the engine's wait ends at zero.
     if (ctx->outstanding)
         ctx->outstanding->fetch_sub(1);
     delete ctx;
 }
 
-/// Runs on a GStreamer thread-pool thread, not a streaming thread, so it may
-/// change state.
 void publishTeardownAsync(GstElement *bin, gpointer data)
 {
     auto *ctx = static_cast<PublishTeardown *>(data);
-    // Unparent first so the bin quiesces with no running parent.
     gst_bin_remove(GST_BIN(ctx->pipeline), bin);
     gst_element_set_state(bin, GST_STATE_NULL);
 
-    // The transceiver was already retired synchronously in unpublish().
-    // Engine state is touched only on the GUI thread; marshal() drops the call
-    // if the engine is gone.
     SfuMediaEngine *engine = ctx->engine;
     const QString cid = ctx->cid;
     const quint64 generation = ctx->generation;
     marshal(engine, [engine, cid, generation] {
-        // Only once the element is at NULL, since the fd carries its PipeWire
-        // connection. The generation guards against a closed call.
         engine->noteTeardownComplete(cid, generation);
     });
 }
 
-/// The pad is idle here, so nothing holds the stream lock the state change
-/// needs.
 GstPadProbeReturn publishTeardownProbe(GstPad *pad, GstPadProbeInfo *,
                                        gpointer data)
 {
     auto *ctx = static_cast<PublishTeardown *>(data);
     GstElement *bin = gst_pad_get_parent_element(pad);
     if (!bin) {
-        // The probe has no destroy notify, so this branch owns ctx.
         publishTeardownFree(ctx);
         return GST_PAD_PROBE_REMOVE;
     }
-    // Ownership of ctx moves to gst_element_call_async. No destroy notify on
-    // the probe: it would run on removal, below, and free ctx too early.
     gst_element_call_async(bin, publishTeardownAsync, ctx,
                            publishTeardownFree);
     gst_object_unref(bin);
-    // Remove: the teardown must fire exactly once.
     return GST_PAD_PROBE_REMOVE;
 }
 
-} // namespace
+}
 
 void SfuMediaEngine::unpublish(const QString &cid)
 {
     if (const QString backup = m_shareBackups.take(cid); !backup.isEmpty())
         unpublish(backup);
-    // Take first: errors the bin posts on its way to NULL must not be
-    // reported as a publish failure.
     GstElement *bin = m_publishedBins.take(cid);
-    // Whether the capture ever delivered: a portal camera that never did may
-    // be wedged in pipewiresrc, and is detached rather than stopped in place.
     bool deliveredNothing = false;
     if (const auto dead = m_publishWatch.take(cid); dead.state) {
         deliveredNothing = dead.state->captured.load() == 0;
@@ -7056,7 +6001,6 @@ void SfuMediaEngine::unpublish(const QString &cid)
         m_micCid.clear();
     }
     if (cid == m_shareAudioCid || cid == m_shareAudioAnyCid) {
-        // Stop the device scan and release the monitor's PipeWire connection.
         resetShareAudioState();
     }
     if (!bin || !m_publisher.pipeline) {
@@ -7067,7 +6011,6 @@ void SfuMediaEngine::unpublish(const QString &cid)
             Q_EMIT cameraPortalReleased(cid);
         return;
     }
-    // Accounting is synchronous; only the GStreamer wind-down is deferred.
     if (m_publishedMedia.load() > 0)
         --m_publishedMedia;
 
@@ -7081,7 +6024,6 @@ void SfuMediaEngine::unpublish(const QString &cid)
     // stop() tears down the whole pipeline and is unaffected.
     GstPad *srcPad = gst_element_get_static_pad(bin, "src");
     if (!srcPad) {
-        // No src pad, nothing in flight: the direct path is safe.
         gst_element_set_state(bin, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
         const bool portal = m_publishedFds.contains(cid);
@@ -7092,18 +6034,11 @@ void SfuMediaEngine::unpublish(const QString &cid)
         return;
     }
 
-    // Counted from here until publishTeardownFree(); stop() and the
-    // destructor wait on it (bounded).
     m_pendingTeardowns->fetch_add(1);
     auto *ctx = new PublishTeardown{
         this, GST_ELEMENT(gst_object_ref(m_publisher.pipeline)),
-        /*webrtc=*/nullptr, /*peer=*/nullptr, cid,
+nullptr,nullptr, cid,
         m_generation.load(), m_pendingTeardowns};
-    // Retire the transceiver now, on this thread. The far end only learns the
-    // track ended through the renegotiated offer (otherwise it freezes on the
-    // last frame and the next share adds another m-line). Unlinking also makes
-    // the in-flight push return NOT_LINKED, which lets the IDLE probe below
-    // fire at all.
     if (GstPad *peer = gst_pad_get_peer(srcPad)) {
         // Set the direction to inactive: releasing the request pad drops the
         // msid but leaves the section `a=sendrecv`, which the far end renders
@@ -7120,7 +6055,6 @@ void SfuMediaEngine::unpublish(const QString &cid)
         if (GstElement *webrtc = gst_pad_get_parent_element(peer)) {
             gchar *padName = gst_pad_get_name(peer);
             gst_element_release_request_pad(webrtc, peer);
-            // Element and pad names only.
             qCInfo(lcSfuMedia) << "publish transceiver retired pad="
                                << (padName ? padName : "?");
             g_free(padName);
@@ -7129,17 +6063,12 @@ void SfuMediaEngine::unpublish(const QString &cid)
         gst_object_unref(peer);
     }
 
-    // A PORTAL camera (and only one: see detachPendingStart()) still starting,
-    // or one that never delivered, is detached and finished elsewhere; its
-    // gate is closed either way, so it needs no bounded wait at teardown. Every
-    // other bin takes the IDLE-probe path below, which the engine counts.
-    if (detachPendingStart(cid, bin, /*force=*/deliveredNothing)) {
+    if (detachPendingStart(cid, bin,deliveredNothing)) {
         publishTeardownFree(ctx);
         gst_object_unref(srcPad);
         renegotiatePublisher();
         return;
     }
-    // No destroy notify: publishTeardownProbe hands ctx on.
     gst_pad_add_probe(srcPad, GST_PAD_PROBE_TYPE_IDLE, publishTeardownProbe,
                       ctx, nullptr);
     gst_object_unref(srcPad);
@@ -7194,9 +6123,6 @@ int SfuMediaEngine::publisherTrackSlotsForTest() const
 void SfuMediaEngine::noteTeardownComplete(const QString &cid,
                                           quint64 generation)
 {
-    // A completion from a closed session must not touch the next one: it
-    // could close a re-registered fd and make the new publisher offer with no
-    // media section, which LiveKit answers with Leave(STATE_MISMATCH).
     if (generation != m_generation.load()) {
         qCInfo(lcSfuMedia)
             << "publish teardown completed for a closed session; dropped";
@@ -7206,8 +6132,6 @@ void SfuMediaEngine::noteTeardownComplete(const QString &cid,
     releasePublishedFd(cid);
     if (portal)
         Q_EMIT cameraPortalReleased(cid);
-    // Only now; offering while the bin was attached would describe a track on
-    // its way out.
     renegotiatePublisher();
 }
 
@@ -7231,8 +6155,6 @@ void SfuMediaEngine::renegotiatePublisher()
     peer.negotiationScheduled = true;
     const quintptr token = reinterpret_cast<quintptr>(peer.webrtc);
     const quint64 generation = m_generation.load();
-    // Coalesce synchronous video/audio removal and queued teardown callbacks.
-    // All negotiation state belongs to the GUI thread.
     marshal(this, [this, token, generation] {
         Target target = Target::Publisher;
         if (!tokenIsLive(token, generation, &target) || target != Target::Publisher)
@@ -7253,10 +6175,6 @@ void SfuMediaEngine::renegotiatePublisher()
 
 void SfuMediaEngine::awaitPublishTeardowns()
 {
-    // Bounded; runs entirely on GStreamer threads, so no event loop is needed.
-    // Required because publishTeardownAsync unparents a bin before stopping
-    // it, leaving it running out of destroyPeer()'s reach while its crypto
-    // probes point into this engine.
     if (m_pendingTeardowns->load() <= 0)
         return;
     QElapsedTimer timer;
@@ -7267,7 +6185,6 @@ void SfuMediaEngine::awaitPublishTeardowns()
     }
     const int left = m_pendingTeardowns->load();
     if (left > 0) {
-        // If this appears, the IDLE probe is not firing.
         qCWarning(lcSfuMedia)
             << "publish teardown did not finish within its budget; still"
             << left << "outstanding after" << kTeardownWaitMs << "ms";
@@ -7276,8 +6193,6 @@ void SfuMediaEngine::awaitPublishTeardowns()
 
 namespace {
 
-/// Media-section index -> stream id, mid and track sid, read from each
-/// section's `msid` and `mid`, as livekit-client does.
 void streamIdsFromSdp(GstSDPMessage *message, QHash<int, QString> *streams,
                       QHash<int, QString> *mids, QHash<int, QString> *tracks)
 {
@@ -7291,9 +6206,6 @@ void streamIdsFromSdp(GstSDPMessage *message, QHash<int, QString> *streams,
         QString streamId;
         QString mid;
         QString trackSid;
-        // `a=ssrc:<n> msid:<stream> <track>`, used only when the section has
-        // no `a=msid`: LiveKit sends `a=msid`, webrtcbin as the offerer writes
-        // the msid only here, and webrtcbin reads either (_get_msid_from_media).
         QString ssrcMsid;
         const guint attributes = gst_sdp_media_attributes_len(media);
         for (guint a = 0; a < attributes; ++a) {
@@ -7306,13 +6218,9 @@ void streamIdsFromSdp(GstSDPMessage *message, QHash<int, QString> *streams,
                                                         ? attribute->value
                                                         : "");
             if (key == QLatin1String("msid")) {
-                // The participant sid; one per sender, so it cannot tell a
-                // camera from a screen share.
                 streamId = SfuMediaEngine::participantIdFromMsid(value);
-                // The track sid names one track on both ends.
                 trackSid = SfuMediaEngine::trackSidFromMsid(value);
             } else if (key == QLatin1String("mid")) {
-                // The section's mid, which LiveKit also states on TrackInfo.
                 mid = value.trimmed();
             } else if (key == QLatin1String("ssrc") && ssrcMsid.isEmpty()) {
                 const qsizetype at = value.indexOf(QLatin1String(" msid:"));
@@ -7333,7 +6241,7 @@ void streamIdsFromSdp(GstSDPMessage *message, QHash<int, QString> *streams,
     }
 }
 
-} // namespace
+}
 
 void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
                                             const QString &sdp)
@@ -7353,16 +6261,11 @@ void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
                                 sdpBytes.constData()),
                             static_cast<guint>(sdpBytes.size()), message)
         == GST_SDP_OK;
-    // GStreamer's SDP parser accepts non-SDP text as an empty message, so the
-    // section count is the real check.
     if (!parsed || gst_sdp_message_medias_len(message) == 0) {
         gst_sdp_message_free(message);
-        // Never log the SDP text: it carries host IPs.
         Q_EMIT failed(QStringLiteral("bad_remote_sdp"));
         return;
     }
-    // Log the section count only. Fewer sections than offered means the SFU
-    // refused a track, which is otherwise invisible.
     qCInfo(lcSfuMedia) << "remote description submitted kind=" << kind
                        << "target=" << static_cast<int>(target)
                        << "sections=" << gst_sdp_message_medias_len(message);
@@ -7371,8 +6274,6 @@ void SfuMediaEngine::applyRemoteDescription(Target target, const QString &kind,
                            << static_cast<int>(target)
                            << "):" << sdpCodecSummary(sdp);
     }
-    // Record the subscriber's stream ids before set-remote-description:
-    // pad-added can fire from inside that call.
     if (target == Target::Subscriber) {
         QHash<int, QString> streams;
         QHash<int, QString> mids;
@@ -7423,7 +6324,7 @@ void SfuMediaEngine::onRemoteDescriptionSet(GstPromise *promise, void *userData)
             g_error_free(error);
         }
     }
-    gst_promise_unref(promise); // ctx can be freed here
+    gst_promise_unref(promise);
     marshal(engine, [engine, token, generation, revision, offer, ok, errorCode] {
         Target target = Target::Publisher;
         if (!engine->tokenIsLive(token, generation, &target))
@@ -7480,7 +6381,6 @@ void SfuMediaEngine::applyRemoteCandidate(Target target,
                           << "descriptionReady=" << peer.remoteDescriptionSet;
 
     if (!peer.webrtc || !peer.remoteDescriptionSet) {
-        // Bounded, in case the peer never negotiates.
         if (peer.pendingCandidates.size() < 256)
             peer.pendingCandidates.append(candidateInit);
         return;
@@ -7495,12 +6395,8 @@ void SfuMediaEngine::applyRemoteCandidate(Target target,
 
 void SfuMediaEngine::setMicrophoneMuted(bool muted)
 {
-    // Log valve changes: a muted and a stalled capture are otherwise the same
-    // silence, since the track, transport and SDP all stay healthy.
     if (m_microphoneMuted != muted) {
         qCInfo(lcSfuMedia) << "microphone valve drop=" << muted;
-        // Reset the silence judgement on the transition: `level` sits after
-        // the valve, so a muted capture posts no levels at all.
         m_micSilentSinceMs = -1;
         m_micQuietSinceMs = -1;
         m_micQuietAnnounced = false;
@@ -7512,7 +6408,6 @@ void SfuMediaEngine::setMicrophoneMuted(bool muted)
     m_microphoneMuted = muted;
     if (!m_publisher.pipeline)
         return;
-    // drop=true on each bin's `micvalve` discards buffers before the encoder.
     for (auto it = m_publishedBins.cbegin(); it != m_publishedBins.cend();
          ++it) {
         if (GstElement *valve =
@@ -7530,7 +6425,6 @@ void SfuMediaEngine::setShareAudioMuted(bool muted)
     m_shareAudioMuted = muted;
     if (!m_publisher.pipeline)
         return;
-    // Matched by name: only a share track carries this valve.
     const QByteArray name = lightning::shareaudio::shareValveElementName()
                                 .toUtf8();
     for (auto it = m_publishedBins.cbegin(); it != m_publishedBins.cend();
@@ -7545,14 +6439,11 @@ void SfuMediaEngine::setShareAudioMuted(bool muted)
 
 void SfuMediaEngine::setMicrophoneGain(int percent)
 {
-    // Stored on the user scale; see audioFactorPercent().
     const int clamped = percent < 0 ? 0 : (percent > 200 ? 200 : percent);
     m_microphoneGain.store(clamped);
     if (!m_publisher.pipeline)
         return;
     const gdouble factor = audioFactorPercent(clamped) / 100.0;
-    // Matched by our element name, not the factory: `autoaudiosrc` may
-    // contain a volume element of its own. Video bins simply have no match.
     int elements = 0;
     for (auto it = m_publishedBins.cbegin(); it != m_publishedBins.cend();
          ++it) {
@@ -7563,14 +6454,10 @@ void SfuMediaEngine::setMicrophoneGain(int percent)
             ++elements;
         }
     }
-    // Log how many elements the gain reached, so a control that goes nowhere
-    // is visible. qCInfo so a `*.debug=false` run still sees it; the GUI call
-    // suite reads this line.
     if (elements > 0) {
         qCInfo(lcSfuMedia) << "microphone gain applied: percent=" << clamped
                            << "gst=" << factor << "elements=" << elements;
     } else {
-        // A publisher without `micvol` means the gain is going nowhere.
         qCWarning(lcSfuMedia)
             << "microphone gain had nowhere to land: percent=" << clamped
             << "publishedBins=" << m_publishedBins.size();
@@ -7597,11 +6484,6 @@ void SfuMediaEngine::setNoiseSuppressionMode(calls::noise::Mode mode)
                        << ")";
     if (!m_publisher.pipeline)
         return;
-    // Live: the denoise element swaps backends between frames, webrtcdsp is
-    // replaced under an idle probe. Into a neural mode webrtcdsp keeps
-    // suppressing until the denoiser reports (handleDenoiseStatus), so the
-    // model's build time is not heard as unsuppressed noise. Video bins have
-    // neither element.
     for (auto it = m_publishedBins.cbegin(); it != m_publishedBins.cend();
          ++it) {
         GstElement *denoise =
@@ -7616,9 +6498,6 @@ void SfuMediaEngine::setNoiseSuppressionMode(calls::noise::Mode mode)
             gst_object_unref(dsp);
         if (!microphone)
             continue;
-        // A microphone still starting: its denoiser takes the mode now (a
-        // property), webrtcdsp waits for the start (replacing it adds and
-        // starts an element in a bin another thread is starting).
         const bool starting = it.key() == m_micCid && microphoneStarting();
         bool dspDeferred = false;
         const QString did = calls::noise::applyMode(
@@ -7633,8 +6512,6 @@ void SfuMediaEngine::setNoiseSuppressionMode(calls::noise::Mode mode)
         }
         qCInfo(lcSfuMedia) << "microphone noise suppression applied live:"
                            << did;
-        // Off and WebRTC build no backend, so their outcome is known here; a
-        // neural backend reports through handleDenoiseStatus().
         const QString key = QLatin1String(calls::noise::modeKey(mode));
         if (mode == calls::noise::Mode::Off) {
             Q_EMIT noiseSuppressionStatus(key, true);
@@ -7664,8 +6541,6 @@ void SfuMediaEngine::retryNoiseSuppression()
         if (!denoise)
             continue;
         gst_object_unref(denoise);
-        // The element rebuilds a mode that is set again only if it failed.
-        // A microphone still starting gets webrtcdsp's half after the start.
         const bool starting = it.key() == m_micCid && microphoneStarting();
         bool dspDeferred = false;
         calls::noise::applyMode(it.value(), mode,
@@ -7685,20 +6560,13 @@ void SfuMediaEngine::handleDenoiseStatus(const QString &requested,
                                          const QString &active, bool ok,
                                          int latencySamples)
 {
-    // A late report from a mode the user has already left is not news.
     if (requested
         != QLatin1String(calls::noise::modeKey(noiseSuppressionMode())))
         return;
     const auto mode = calls::noise::modeFromKey(requested.toStdString(),
                                                 calls::noise::Mode::Off);
     if (mode == calls::noise::Mode::Off || mode == calls::noise::Mode::WebRtc)
-        return; // the element is pass-through there; nothing it can report
-    // The new backend runs: only now does webrtcdsp stop suppressing, so a
-    // switch from WebRTC never leaves a gap. It could not start: WebRTC
-    // suppression is far better than sending raw noise (lead's decision,
-    // 2026-10-06), so webrtcdsp suppresses instead, kept on after a switch
-    // from WebRTC and turned on otherwise. A chain built in this mode already
-    // has webrtcdsp's suppressor off: on success, "dsp unchanged".
+        return;
     const calls::noise::Mode follow = ok ? mode : calls::noise::Mode::WebRtc;
     m_lastDspFollowUp = QLatin1String(calls::noise::modeKey(follow));
     bool anyDsp = false;
@@ -7741,8 +6609,6 @@ void SfuMediaEngine::setOutputMuted(bool muted)
     m_outputMuted.store(muted);
     if (!m_subscriber.pipeline)
         return;
-    // Matched by our element name, never the volume factory: autoaudiosink
-    // may contain a volume element of its own.
     GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_subscriber.pipeline));
     if (!it)
         return;
@@ -7764,8 +6630,6 @@ void SfuMediaEngine::setOutputMuted(bool muted)
             break;
         }
         case GST_ITERATOR_RESYNC:
-            // Resync happens exactly while a remote track is being added;
-            // bounded restart.
             if (resyncsLeft-- <= 0) {
                 done = true;
                 break;
@@ -7788,26 +6652,18 @@ int SfuMediaEngine::audioFactorPercent(int userPercent)
                                                               : userPercent);
     if (user <= 100)
         return user;
-    // 100..200 -> 100..1000 linearly, so 200 hits the element's ceiling.
     return 100 + (user - 100) * 9;
 }
 
 QString SfuMediaEngine::volumeKeyFor(const QString &streamId,
                                     const QString &trackKey)
 {
-    // Per track, not per participant: a sharer publishes microphone and
-    // desktop audio, and a by-name lookup returns only the first match. Falls
-    // back to the stream id when the track is unknown.
     return trackKey.isEmpty() ? streamId
                               : (streamId + QLatin1Char('_') + trackKey);
 }
 
 QString SfuMediaEngine::outputVolumeElementName(const QString &streamId)
 {
-    // Single source of the element name for creation and lookup. The
-    // `outvol` prefix is load-bearing: deafen matches it across all receive
-    // bins. Non-alphanumerics become '_' (the `mline:N` fallback id has a
-    // ':').
     QString safe;
     safe.reserve(streamId.size());
     for (const QChar c : streamId) {
@@ -7821,7 +6677,6 @@ QString SfuMediaEngine::outputVolumeElementName(const QString &streamId)
 void SfuMediaEngine::setParticipantVolume(const QString &streamId,
                                           int percent)
 {
-    // Every audio track the participant publishes.
     setTrackVolume(streamId, QString(), percent);
 }
 
@@ -7830,18 +6685,12 @@ void SfuMediaEngine::setTrackVolume(const QString &streamId,
 {
     if (!m_subscriber.pipeline || streamId.isEmpty())
         return;
-    // 0..1000%: above unity is real amplification; the `volume` element's
-    // own range ends at 10x.
     const double volume = audioFactorPercent(percent) / 100.0;
-    // Receive volume elements are named per stream, so this is local only and
-    // sends nothing. The target name is kept for the diagnostic below.
     const QString target =
         trackKey.isEmpty() ? outputVolumeElementName(streamId)
                            : outputVolumeElementName(
                                  volumeKeyFor(streamId, trackKey));
 
-    // A named track moves that track alone; an empty key moves every audio
-    // track of the participant.
     const auto apply = [&](const QString &key) {
         const QString target = outputVolumeElementName(key);
         if (GstElement *element = gst_bin_get_by_name(
@@ -7852,18 +6701,11 @@ void SfuMediaEngine::setTrackVolume(const QString &streamId,
         }
         return false;
     };
-    // Announce a landing positively; the absence of the warning below is not
-    // proof. Names and counts only. Logged on change per key so dragging a
-    // slider cannot flood.
     const auto announce = [&](const QString &key, int elements) {
-        // Before the rate limit: a later miss must be reported again even if
-        // the landed value equals the last one.
         m_volumeMissWarned.remove(key);
         if (m_volumeAppliedLog.value(key, -1) == percent)
             return;
         m_volumeAppliedLog.insert(key, percent);
-        // qCInfo: the GUI call suite reads this line and may run with
-        // `*.debug=false`.
         qCInfo(lcSfuMedia)
             << "participant volume applied: wanted=" << outputVolumeElementName(key)
             << "percent=" << percent << "gst=" << volume
@@ -7876,16 +6718,12 @@ void SfuMediaEngine::setTrackVolume(const QString &streamId,
             return;
         }
     } else {
-        // Iterate: gst_bin_get_by_name returns only the first match and a
-        // sharer has two elements.
         bool any = false;
         int applied = 0;
         const QString prefix =
             outputVolumeElementName(streamId);
         GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_subscriber.pipeline));
         GValue item = G_VALUE_INIT;
-        // Handle RESYNC: the pipeline changes exactly when a track is being
-        // added. Bounded restart, as in setOutputMuted().
         bool done = false;
         int resyncsLeft = 8;
         while (!done) {
@@ -7904,7 +6742,6 @@ void SfuMediaEngine::setTrackVolume(const QString &streamId,
                 break;
             }
             case GST_ITERATOR_RESYNC:
-                // Restart from scratch; setting the volume twice is harmless.
                 any = false;
                 applied = 0;
                 if (resyncsLeft-- <= 0) {
@@ -7927,17 +6764,12 @@ void SfuMediaEngine::setTrackVolume(const QString &streamId,
         }
     }
 
-    // Nowhere to land: the receive bin may not exist yet. Remember the value
-    // so applyPendingTrackVolume() applies it when the bin is built, and log
-    // once per key with the wanted name and the elements that do exist (zero
-    // means no audio bin yet; non-zero means a naming mismatch).
     const QString pendingKey =
         trackKey.isEmpty() ? streamId : volumeKeyFor(streamId, trackKey);
     m_pendingTrackVolume.insert(pendingKey, percent);
     if (m_volumeMissWarned.contains(pendingKey))
         return;
     m_volumeMissWarned.insert(pendingKey);
-    // Names only, no content.
     int volumeElements = 0;
     QStringList known;
     if (GstIterator *it =
@@ -7990,9 +6822,6 @@ void SfuMediaEngine::applyPendingTrackVolume(const QString &streamId,
 {
     if (generation != m_generation.load() || !m_subscriber.pipeline)
         return;
-    // Apply the participant-level value first so a per-track choice wins.
-    // The applied-log is cleared too: this is a newly built element, and the
-    // landing line must be logged again.
     if (m_pendingTrackVolume.contains(streamId)) {
         m_volumeMissWarned.remove(streamId);
         m_volumeAppliedLog.remove(streamId);
@@ -8014,8 +6843,6 @@ int SfuMediaEngine::receiveMutedForTest(const QString &streamId) const
     int found = -1;
     GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_subscriber.pipeline));
     GValue item = G_VALUE_INIT;
-    // A resync restarts the sweep rather than ending it; bounded, as in
-    // setOutputMuted().
     bool done = false;
     int resyncsLeft = 8;
     while (!done) {
@@ -8060,7 +6887,6 @@ double SfuMediaEngine::receiveVolumeForTest(const QString &streamId) const
     double found = -1.0;
     GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_subscriber.pipeline));
     GValue item = G_VALUE_INIT;
-    // A resync restarts the sweep; see receiveMutedForTest().
     bool done = false;
     int resyncsLeft = 8;
     while (!done) {
@@ -8097,8 +6923,6 @@ double SfuMediaEngine::receiveVolumeForTest(const QString &streamId) const
     return found;
 }
 
-// ── RTP statistics trace ─────────────────────────────────────────────────
-
 int SfuMediaEngine::statsTraceIntervalMs(const QString &raw)
 {
     const QString v = raw.trimmed().toLower();
@@ -8118,9 +6942,6 @@ int SfuMediaEngine::statsTraceIntervalMs(const QString &raw)
 void SfuMediaEngine::armStatsTrace()
 {
     if (m_statsIntervalMs < 0) {
-        // Unset: the compact audio-health report every 5 s, always on (a
-        // pop is reported by a user whose run had no trace armed). Set: the
-        // full per-SSRC trace at the requested interval, or off.
         const bool requested = qEnvironmentVariableIsSet("LIGHTNING_CALL_STATS_TRACE");
         m_statsIntervalMs = requested
             ? statsTraceIntervalMs(qEnvironmentVariable("LIGHTNING_CALL_STATS_TRACE"))
@@ -8205,9 +7026,6 @@ gboolean collectStat(GQuark, const GValue *value, gpointer data)
     };
     if (type == GST_WEBRTC_STATS_INBOUND_RTP
         || type == GST_WEBRTC_STATS_REMOTE_INBOUND_RTP) {
-        // Whatever loss-shaped counters this GStreamer exposes (discarded,
-        // duplicated, repaired, burst/gap loss, FEC, concealment): the set
-        // differs between releases, so match by name and print what exists.
         const int n = gst_structure_n_fields(s);
         for (int i = 0; i < n && st.extra.size() < 400; ++i) {
             const char *name = gst_structure_nth_field_name(s, i);
@@ -8256,7 +7074,7 @@ gboolean collectStat(GQuark, const GValue *value, gpointer data)
     return TRUE;
 }
 
-} // namespace
+}
 
 void SfuMediaEngine::requestStats()
 {
@@ -8275,17 +7093,13 @@ void SfuMediaEngine::requestStats()
 
 void SfuMediaEngine::onStatsReady(GstPromise *promise, void *userData)
 {
-    // GStreamer thread: walk the reply here, then marshal plain numbers to the
-    // engine's thread.
     auto *ctx = static_cast<PromiseCtx *>(userData);
-    // Read everything from ctx before the unref: on the last reference the
-    // destroy notify frees it.
     SfuMediaEngine *engine = ctx->engine;
     StatsWalk walk;
     walk.peer = ctx->publisher ? QStringLiteral("pub") : QStringLiteral("sub");
     if (const GstStructure *reply = gst_promise_get_reply(promise))
         gst_structure_foreach(reply, collectStat, &walk);
-    gst_promise_unref(promise); // may free ctx: read nothing from it below
+    gst_promise_unref(promise);
     if (walk.out.isEmpty())
         return;
     const QList<RtpStat> stats = walk.out;
@@ -8295,8 +7109,6 @@ void SfuMediaEngine::onStatsReady(GstPromise *promise, void *userData)
 void SfuMediaEngine::logStats(const QList<RtpStat> &stats)
 {
     const qint64 now = monotonicMs();
-    // The compact default report is audio only: a screen share's video
-    // stats would be a line per SSRC every 5 s in every call.
     QSet<quint32> videoSsrcs;
     for (const RtpStat &st : stats) {
         if (st.kind == QLatin1String("video"))
@@ -8306,8 +7118,6 @@ void SfuMediaEngine::logStats(const QList<RtpStat> &stats)
     for (const RtpStat &st : stats) {
         if (!m_statsFull && videoSsrcs.contains(st.ssrc))
             continue;
-        // New loss since the previous report is the number that matters for
-        // a pop; the running total hides it.
         qint64 lostDelta = 0;
         {
             const quint32 key = st.ssrc ^ (st.dir == QLatin1String("inbound")
@@ -8317,8 +7127,6 @@ void SfuMediaEngine::logStats(const QList<RtpStat> &stats)
                 lostDelta = st.lost - *prev;
             m_lastRtpLost.insert(key, st.lost);
         }
-        // Compact default mode: loss is news, everything else is a once a
-        // minute heartbeat. The full trace (env var) prints every report.
         if (!m_statsFull && lostDelta == 0 && !beat)
             continue;
         if (st.dir == QLatin1String("remote-inbound")) {
@@ -8368,9 +7176,6 @@ void freeRecvHealthPtrPlain(gpointer data)
     delete static_cast<RecvHealthPtr *>(data);
 }
 
-/// Streaming thread, opusdec's sink pad. A GAP event or an RTP "packet lost"
-/// event is what makes the decoder conceal a frame, which is what a listener
-/// hears as a pop. Counts only; never reads a payload.
 GstPadProbeReturn onConcealProbe(GstPad *, GstPadProbeInfo *info,
                                  gpointer userData)
 {
@@ -8388,7 +7193,6 @@ GstPadProbeReturn onConcealProbe(GstPad *, GstPadProbeInfo *info,
     return GST_PAD_PROBE_OK;
 }
 
-/// Streaming thread: the leaky receive queue was full and is about to drop.
 void onRecvQueueOverrun(GstElement *, gpointer userData)
 {
     auto *health = static_cast<RecvHealthPtr *>(userData);
@@ -8396,7 +7200,7 @@ void onRecvQueueOverrun(GstElement *, gpointer userData)
         (*health)->queueOverruns.fetch_add(1);
 }
 
-} // namespace
+}
 
 void SfuMediaEngine::instrumentReceiveBin(GstElement *bin,
                                           const QString &trackKey,
@@ -8405,7 +7209,6 @@ void SfuMediaEngine::instrumentReceiveBin(GstElement *bin,
     GstElement *dec = gst_bin_get_by_name(GST_BIN(bin), "recvdec");
     GstElement *queue = gst_bin_get_by_name(GST_BIN(bin), "recvqueue");
     if (!dec && !queue) {
-        // Video, or a bin without the audio chain.
         return;
     }
     auto health = std::make_shared<RecvHealth>();
@@ -8433,9 +7236,6 @@ void SfuMediaEngine::instrumentReceiveBin(GstElement *bin,
 
 void SfuMediaEngine::logReceiveHealth()
 {
-    // Per inbound audio track: what our own receive chain did in the last
-    // interval. Printed when a delta is non-zero, plus a heartbeat once a
-    // minute so "all zero" is distinguishable from "not measured".
     const bool beat = (m_healthReports++ % 12) == 0;
     {
         QMutexLocker lock(&m_recvHealthMutex);
@@ -8448,8 +7248,6 @@ void SfuMediaEngine::logReceiveHealth()
             const quint64 gap = h->gapEvents.load();
             const quint64 lost = h->lostEvents.load();
             const quint64 over = h->queueOverruns.load();
-            // Only a non-zero delta is news; a quiet track costs one line a
-            // minute (the heartbeat), so a big call does not flood the log.
             const bool news = gap != h->lastGap || lost != h->lastLost
                 || over != h->lastOverruns;
             if (!news && !beat) {
@@ -8469,8 +7267,6 @@ void SfuMediaEngine::logReceiveHealth()
             ++it;
         }
     }
-    // The subscriber's jitterbuffers: what the network and its reordering
-    // did to the audio before our chain saw it.
     if (!m_subscriber.webrtc || !GST_IS_BIN(m_subscriber.webrtc))
         return;
     GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_subscriber.webrtc));
@@ -8504,7 +7300,6 @@ void SfuMediaEngine::logReceiveHealth()
                     gst_structure_free(st);
                     const QString name = QString::fromUtf8(GST_OBJECT_NAME(el));
                     std::array<quint64, 4> &last = m_lastJitterbuffer[name];
-                    // Idle buffers (a video section nobody sends) stay quiet.
                     if (lost != last[1] || late != last[2] || dup != last[3]
                         || (beat && pushed != last[0])) {
                         qCInfo(lcSfuMedia).nospace().noquote()
@@ -8558,12 +7353,8 @@ void SfuMediaEngine::setOutboundKey(int index, const QByteArray &rawKey,
 {
     if (!m_sendCryptor->setKey(index, rawKey))
         return;
-    // The key is kept in the ring either way; `adopt` decides which index our
-    // frames use.
     if (adopt)
         m_sendCryptor->setCurrentKeyIndex(index);
-    // Set ready only once a key is installed. A non-adopting install leaves
-    // the flag alone: the previously adopted key is still usable.
     if (adopt)
         m_sendKeyReady.store(true);
 }
@@ -8571,15 +7362,11 @@ void SfuMediaEngine::setOutboundKey(int index, const QByteArray &rawKey,
 void SfuMediaEngine::setInboundKey(const QString &senderName, int index,
                                    const QByteArray &rawKey)
 {
-    // Log accepted and refused keys (never the key itself): "never arrived"
-    // and "arrived and was discarded" otherwise look identical.
     if (senderName.isEmpty()) {
         qCWarning(lcSfuMedia) << "call diagnosis: a media key was DISCARDED "
                                  "because it named no ring — index=" << index;
         return;
     }
-    // Created on first sight, so a key may precede its sender's track; the
-    // reverse order is handled in pad-added.
     if (!recvCryptorFor(senderName)->setKey(index, rawKey)) {
         qCWarning(lcSfuMedia)
             << "call diagnosis: the media key for ring="
@@ -8590,8 +7377,6 @@ void SfuMediaEngine::setInboundKey(const QString &senderName, int index,
         return;
     }
     m_recvKeyReady.store(true);
-    // A separate bounded record, so a rotating sender cannot use up the
-    // other diagnoses.
     if (noteKeyArrival(senderName, index)) {
         qCInfo(lcSfuMedia) << "call diagnosis: a media key ARRIVED and was "
                               "installed for ring="
@@ -8600,8 +7385,6 @@ void SfuMediaEngine::setInboundKey(const QString &senderName, int index,
     }
 }
 
-/// Whether to log a key arrival: a new index for this ring, the first eight
-/// per ring, then every sixteenth. A re-install of the same index is silent.
 bool SfuMediaEngine::noteKeyArrival(const QString &ring, int index)
 {
     QMutexLocker lock(&m_diagnosedMutex);
@@ -8621,12 +7404,9 @@ bool SfuMediaEngine::noteKeyArrival(const QString &ring, int index)
     return false;
 }
 
-/// One diagnosis per subject per call, so repeated conclusions do not flood
-/// the log. Cleared with the session.
 bool SfuMediaEngine::noteDiagnosisOnce(const QString &subject)
 {
     QMutexLocker lock(&m_diagnosedMutex);
-    // Bounded: subjects are built from SFU-supplied names.
     if (m_diagnosedOnce.size() >= 512)
         return false;
     if (m_diagnosedOnce.contains(subject))
@@ -8651,7 +7431,6 @@ SfuMediaEngine::recvCryptorFor(const QString &name)
     constexpr int kMaxReceiveRings = 1024;
     auto cryptor = std::make_shared<CallFrameCryptor>();
     if (m_recvCryptors.size() >= kMaxReceiveRings) {
-        // Warn once: the caller runs per frame.
         static bool warned = false;
         if (!warned) {
             warned = true;
@@ -8673,9 +7452,6 @@ void SfuMediaEngine::noteParticipantIdentity(const QString &streamId,
     if (streamId.isEmpty() || senderName.isEmpty()
         || streamId.size() > 256 || senderName.size() > 512
         || streamId == senderName) {
-        // Refused bindings leave a keyed ring and an attributed track that
-        // never meet, so nothing decrypts. Warn once per pair, naming which
-        // check failed.
         const char *why =
             streamId.isEmpty()      ? "no stream id"
             : senderName.isEmpty()  ? "no sender name"
@@ -8693,9 +7469,6 @@ void SfuMediaEngine::noteParticipantIdentity(const QString &streamId,
         return;
     }
     QMutexLocker lock(&m_recvMutex);
-    // Point both names at one shared ring rather than recording a
-    // redirection: a ring may already exist under either name, in either
-    // arrival order, and a redirect would strand one of them.
     auto byName = m_recvCryptors.constFind(senderName);
     auto byStream = m_recvCryptors.constFind(streamId);
     if (byName != m_recvCryptors.cend()
@@ -8703,7 +7476,6 @@ void SfuMediaEngine::noteParticipantIdentity(const QString &streamId,
         && byName.value() == byStream.value()) {
         return;
     }
-    // Prefer the sender-named ring: that is where media keys were installed.
     std::shared_ptr<CallFrameCryptor> shared =
         byName != m_recvCryptors.cend()
             ? byName.value()
@@ -8716,7 +7488,6 @@ void SfuMediaEngine::noteParticipantIdentity(const QString &streamId,
 
 bool SfuMediaEngine::encryptionActive() const
 {
-    // True only when a send key is installed; reported to the user.
     return m_sendKeyReady.load();
 }
 
@@ -8730,20 +7501,15 @@ void SfuMediaEngine::clearKeys()
     m_sendCryptor->clearKeys();
     {
         QMutexLocker lock(&m_recvMutex);
-        // Per-sender rings belong to the ending call. A probe still holding
-        // one sees an empty ring and drops.
         for (const auto &cryptor : std::as_const(m_recvCryptors))
             cryptor->clearKeys();
         m_recvCryptors.clear();
         m_streamForMline.clear();
         m_midForMline.clear();
-        // Cleared together with its siblings: section mids repeat across
-        // calls, so a stale entry would route a track to the wrong surface.
         m_trackForMline.clear();
     }
     m_sendKeyReady.store(false);
     m_recvKeyReady.store(false);
-    // The server-injected trailer belongs to the current SFU session.
     setServerInjectedTrailer(QByteArray());
 }
 
@@ -8751,7 +7517,6 @@ void SfuMediaEngine::clearSessionRouting()
 {
     {
         QMutexLocker lock(&m_recvMutex);
-        // Section mids repeat across sessions, so these go with the session.
         m_streamForMline.clear();
         m_midForMline.clear();
         m_trackForMline.clear();
@@ -8761,8 +7526,6 @@ void SfuMediaEngine::clearSessionRouting()
 
 void SfuMediaEngine::setServerInjectedTrailer(const QByteArray &trailer)
 {
-    // SFU input: only a base62 trailer of LiveKit's shape arms detection;
-    // anything else disarms. A short trailer could match real frames.
     const bool usable = CallFrameCryptor::isUsableServerTrailer(trailer);
     {
         QMutexLocker lock(&m_sifMutex);
@@ -8771,8 +7534,6 @@ void SfuMediaEngine::setServerInjectedTrailer(const QByteArray &trailer)
             return;
         m_sifTrailer = next;
     }
-    // Only the length and last byte are logged; the trailer is a per-room
-    // constant, and the last byte ties it to `bad-iv-length keyIndex= N`.
     if (usable) {
         qCInfo(lcSfuMedia)
             << "sfu join sifTrailer len=" << trailer.size() << "last="
@@ -8800,14 +7561,10 @@ void SfuMediaEngine::noteStreamIds(const QHash<int, QString> &byMline,
                                    const QHash<int, QString> &tracksByMline)
 {
     QMutexLocker lock(&m_recvMutex);
-    // A replacement offer may have fewer sections. Retire all three views
-    // together before loading it; an old mid must never name a new track.
     m_streamForMline.clear();
     m_midForMline.clear();
     m_trackForMline.clear();
     for (auto it = byMline.cbegin(); it != byMline.cend(); ++it) {
-        // Absent or absurd values leave the section unattributed, which drops
-        // rather than mis-decrypts.
         if (it.value().isEmpty() || it.value().size() > 256)
             m_streamForMline.remove(it.key());
         else
@@ -8836,8 +7593,6 @@ void SfuMediaEngine::installEncryptProbe(GstPad *pad, bool video,
     auto *ctx = new CryptoProbeCtx;
     ctx->engine = this;
     ctx->gate = std::move(gate);
-    // The engine owns the send cryptor for its whole life; a non-owning alias
-    // suffices.
     ctx->cryptor = std::shared_ptr<CallFrameCryptor>(m_sendCryptor.get(),
                                                      [](CallFrameCryptor *) {});
     ctx->encrypting = true;
@@ -8847,7 +7602,6 @@ void SfuMediaEngine::installEncryptProbe(GstPad *pad, bool video,
     ctx->keyReady = &m_sendKeyReady;
     ctx->total = &m_framesEncrypted;
     ctx->totalDropped = &m_framesDropped;
-    // One per encrypting track, never reused within a session.
     ctx->ivStream = m_nextIvStream.fetch_add(1);
     gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, cryptoProbe, ctx,
                       cryptoProbeCtxFree);
@@ -8862,17 +7616,12 @@ void SfuMediaEngine::installDecryptProbe(GstPad *pad, bool video,
     auto *ctx = new CryptoProbeCtx;
     ctx->streamInfo = std::move(stats);
     ctx->engine = this;
-    // The stream id, not a ring (see cryptoProbe()). The ring is created now
-    // so a key arriving later has somewhere to land.
     ctx->streamId = streamId;
     recvCryptorFor(streamId);
     ctx->encrypting = false;
     ctx->video = video;
     ctx->h264 = h264;
     ctx->required = &m_encryptionRequired;
-    // Not consulted on receive (cryptoProbe() asks the ring, since any
-    // sender's key sets this flag); assigned only to keep both contexts the
-    // same shape.
     ctx->keyReady = &m_recvKeyReady;
     ctx->total = &m_framesDecrypted;
     ctx->totalDropped = &m_framesDropped;
@@ -8887,8 +7636,6 @@ bool SfuMediaEngine::tokenIsLive(quintptr token, quint64 generation,
 {
     if (!m_active)
         return false;
-    // Generation first, so a reused element address from an old session
-    // cannot match.
     if (generation != m_generation.load())
         return false;
     if (m_publisher.webrtc
@@ -8911,8 +7658,6 @@ void SfuMediaEngine::handleLocalDescription(quintptr token, quint64 generation,
 {
     Target target = Target::Publisher;
     if (!tokenIsLive(token, generation, &target)) {
-        // Log the drop: a dropped offer and one never created look the same,
-        // and LiveKit fails the join after 60 s either way.
         qCWarning(lcSfuMedia) << "local description dropped: stale session"
                               << "offer=" << offer;
         return;
@@ -8925,9 +7670,6 @@ void SfuMediaEngine::handleLocalDescription(quintptr token, quint64 generation,
                            << "target" << static_cast<int>(target)
                            << "):" << sdpCodecSummary(sdp);
     }
-    // Summarise the subscriber answer per section (mid, kind, direction, or
-    // REJECTED for port 0), to see whether we actually accepted the offered
-    // media. No user content.
     if (target == Target::Subscriber) {
         QStringList sections;
         int index = 0;
@@ -8948,7 +7690,6 @@ void SfuMediaEngine::handleLocalDescription(quintptr token, quint64 generation,
                                      : QStringLiteral("REJECTED-port0"));
             mid.clear(); kind.clear(); direction.clear(); portOpen = false;
         };
-        // Sections that carry nothing any more: their bins are retired below.
         QSet<QString> ended;
         auto noteEnded = [&] {
             if ((kind == QLatin1String("audio") || kind == QLatin1String("video"))
@@ -8962,7 +7703,6 @@ void SfuMediaEngine::handleLocalDescription(quintptr token, quint64 generation,
             if (line.startsWith(QLatin1String("m="))) {
                 noteEnded();
                 flush();
-                // Port 0 in field 1 rejects the section.
                 const QStringList f = line.mid(2).split(QLatin1Char(' '));
                 kind = f.value(0);
                 portOpen = f.value(1) != QLatin1String("0");
@@ -8979,9 +7719,6 @@ void SfuMediaEngine::handleLocalDescription(quintptr token, quint64 generation,
         flush();
         qCInfo(lcSfuMedia) << "subscriber answer sections="
                            << sections.join(QLatin1Char(' '));
-        // webrtcbin keeps the pad and sends it no end-of-stream we can rely
-        // on (only a transceiver's first pad gets one), so the answer is the
-        // signal that a track ended.
         retireReceiveBins(ended, nullptr, "its section went inactive",
                           m_subscriber.webrtc);
     }
@@ -9055,7 +7792,6 @@ QString SfuMediaEngine::publishedBinPropertyForTest(
         g_value_init(&read, spec->value_type);
         g_object_get_property(G_OBJECT(found), name.constData(), &read);
         if (G_VALUE_HOLDS_ENUM(&read)) {
-            // The nick, as a pipeline description spells it.
             auto *klass =
                 static_cast<GEnumClass *>(g_type_class_ref(G_VALUE_TYPE(&read)));
             const GEnumValue *value =
@@ -9137,15 +7873,12 @@ void SfuMediaEngine::resetMicLevelState()
     m_micPeakDb = 0;
     m_micSentPeakDb = -350.0;
     m_micLastLogMs = 0;
-    // A new capture starts unjudged; clear any shown notice.
     if (wasAnnounced)
         Q_EMIT localAudioSilent(false, 0);
 }
 
 void SfuMediaEngine::handleMeterLevel(double peakDb)
 {
-    // After the mute check: a reading that was already in flight when the
-    // user muted must not light the meter up.
     if (m_microphoneMuted)
         return;
     m_micSentPeakDb = peakDb;
@@ -9154,8 +7887,6 @@ void SfuMediaEngine::handleMeterLevel(double peakDb)
 
 void SfuMediaEngine::handleMicLevel(double peakDb)
 {
-    // Monotonic: these are durations, and a clock step would fire or suppress
-    // the silence warning.
     static QElapsedTimer monotonic;
     if (!monotonic.isValid())
         monotonic.start();
@@ -9167,26 +7898,15 @@ bool SfuMediaEngine::micRestartBudgetResets(int restarts, qint64 sinceRestartMs,
 {
     if (restarts <= 0)
         return false;
-    // Quiet for a minute: the old rule, kept.
     if (sinceRestartMs > 60000)
         return true;
-    // A restart that delivered and then ran for 10 s worked; the budget is
-    // for a device that keeps FAILING, not for a sound server restarted three
-    // times in a minute (measured in the Flatpak: each restart cost two
-    // attempts, the counter reset only after 60 s with no failure at all, and
-    // the third restart left the microphone dead for the rest of the call).
-    // Counted at the source, upstream of the mute valve, so a muted
-    // microphone is judged the same way.
     return deliveredSinceRestart && sinceRestartMs >= 10000;
 }
 
 void SfuMediaEngine::handleMicLevelAt(double peakDb, qint64 nowMs)
 {
-    // -350 dBFS is `level`'s floor for true digital silence, not a parse
-    // failure; it must reach the silence detector.
     m_micPeakDb = peakDb;
 
-    // Muted is silent by request: clear any pending silence judgement.
     if (m_microphoneMuted) {
         m_micSilentSinceMs = -1;
         m_micQuietSinceMs = -1;
@@ -9198,9 +7918,6 @@ void SfuMediaEngine::handleMicLevelAt(double peakDb, qint64 nowMs)
         return;
     }
 
-    // Log the level every 5 s whatever it says: what the device captured,
-    // and what was last sent after noise suppression. A dBFS peak of the
-    // user's own device is not content.
     if (m_micLastLogMs == 0 || nowMs - m_micLastLogMs >= 5000) {
         m_micLastLogMs = nowMs;
         qCInfo(lcSfuMedia)
@@ -9210,8 +7927,6 @@ void SfuMediaEngine::handleMicLevelAt(double peakDb, qint64 nowMs)
 
     m_micSilentSinceMs = micSilenceSince(peakDb, m_micSilentSinceMs, nowMs);
     m_micQuietSinceMs = micQuietSince(peakDb, m_micQuietSinceMs, nowMs);
-    // The quiet tier is LOG ONLY: the badge says nobody can hear you, and a
-    // live, quiet microphone is not that. Only the dead tier raises it.
     const bool quiet = micQuietReached(m_micQuietSinceMs, nowMs);
     if (quiet != m_micQuietAnnounced) {
         m_micQuietAnnounced = quiet;
@@ -9251,14 +7966,6 @@ void SfuMediaEngine::handleMicLevelAt(double peakDb, qint64 nowMs)
 namespace {
 std::atomic<bool> g_audioLevelExtensionDisabled{false};
 
-/// Runs on a GStreamer thread-pool thread: a source's state change may block
-/// (a stalled sound server holds pulsesrc's connect for 30 s). Known narrow
-/// case (review #13): a hang-up during that connect waits on micsrc's state
-/// lock in destroyPeer's set_state(NULL) until libpulse gives up. A bin whose
-/// first start failed (the source refused at once) is started whole;
-/// otherwise only the source, which leaves the rest of the chain running.
-/// Which front a restart is for: empty for the bin's own first front, else
-/// the live `micfront<serial>` a switch put in.
 struct SourceRestart {
     QByteArray front;
     std::shared_ptr<std::atomic<int>> done;
@@ -9281,11 +7988,6 @@ void restartSourceAsync(GstElement *bin, gpointer data)
         }
     } done{ctx};
     if (ctx && !ctx->front.isEmpty()) {
-        // A switched-in front: only its own source, synced to the front
-        // (which is PLAYING), never the whole bin. "micsrc" alone could name
-        // a retired front's source, and after a stuck start was taken over
-        // the bin is not PLAYING: syncing it would wait on that start's
-        // state lock, and NULLing the wrong source would kill the live one.
         GstElement *front =
             gst_bin_get_by_name(GST_BIN(bin), ctx->front.constData());
         GstElement *source =
@@ -9311,7 +8013,7 @@ void restartSourceAsync(GstElement *bin, gpointer data)
     if (source)
         gst_object_unref(source);
 }
-} // namespace
+}
 
 int SfuMediaEngine::subscriberAutoremoveForTest() const
 {
@@ -9359,8 +8061,6 @@ void SfuMediaEngine::handleCaptureError(const QString &cid,
 {
     if (!m_active || cid.isEmpty() || cid != m_micCid)
         return;
-    // Not the live capture: a front a switch replaced, still being stopped
-    // (a stuck start's, after a takeover, can take as long as its server).
     const bool fromPendingSwap = m_micSwap.front && !front.isEmpty()
         && front == m_micSwap.name;
     if (front != m_micLiveFront && !fromPendingSwap) {
@@ -9370,24 +8070,15 @@ void SfuMediaEngine::handleCaptureError(const QString &cid,
     }
     if (m_micSwap.front) {
         if (!front.isEmpty() && front == m_micSwap.name) {
-            // The device just picked would not start: the call keeps the
-            // microphone it has.
             abandonMicrophoneSwap("the chosen microphone failed to start");
             return;
         }
-        // The capture being replaced failed: the switch under way replaces
-        // it; should that switch be abandoned, the restart runs then.
         m_micSwap.currentFailed = true;
         return;
     }
-    // One failure posts several errors (the source's own, then "Internal
-    // data stream error"); one restart answers them all. Given up: the slow
-    // retry is running.
     if (m_micRestartPending || m_micFailureReported)
         return;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    // A failure long after the last restart, or after a restart that then
-    // delivered audio for a while, starts a fresh run.
     const bool delivered = m_micCaptured
         && m_micCaptured->load() > m_micCapturedAtRestart;
     if (micRestartBudgetResets(m_micRestarts, now - m_micLastRestartMs,
@@ -9400,15 +8091,11 @@ void SfuMediaEngine::handleCaptureError(const QString &cid,
             << m_micRestarts << "attempts; this device cannot be heard. "
                "Trying it again every"
             << m_micSlowRetryMs / 1000 << "s";
-        // Not failed(): the call goes on, and the controller says so.
         Q_EMIT publishFailed(cid, QStringLiteral("audio_source_failed"));
-        // Never dead for the rest of the call: a sound server restarted a
-        // few times in a row (measured in the Flatpak) is back seconds later.
         scheduleMicSlowRetry(cid);
         return;
     }
     m_micRestartPending = true;
-    // 0.5, 1, 2, 4, 8 s: a restarting sound server comes back within this.
     const int delay = m_micRestartBaseDelayMs * (1 << m_micRestarts);
     qCWarning(lcSfuMedia)
         << "call diagnosis: the microphone capture FAILED; restarting it in"
@@ -9427,9 +8114,6 @@ void SfuMediaEngine::scheduleMicSlowRetry(const QString &cid)
         if (!m_active || generation != m_generation.load() || cid != m_micCid
             || !m_micFailureReported)
             return;
-        // Is it delivering NOW? Sampled over one second: a count that grew
-        // at some point since the last try says nothing about a device that
-        // died again afterwards.
         const quint64 before = m_micCaptured ? m_micCaptured->load() : 0;
         QTimer::singleShot(1000, this, [this, cid, generation, before] {
             if (!m_active || generation != m_generation.load()
@@ -9437,9 +8121,6 @@ void SfuMediaEngine::scheduleMicSlowRetry(const QString &cid)
                 return;
             const quint64 now = m_micCaptured ? m_micCaptured->load() : 0;
             if (now > before) {
-                // Errors are not the test: stopping the dead source to
-                // restart it posts its own ("pa_stream_cork() failed"),
-                // measured.
                 m_micFailureReported = false;
                 m_micRestarts = 0;
                 qCInfo(lcSfuMedia) << "call diagnosis: the microphone is "
@@ -9451,8 +8132,6 @@ void SfuMediaEngine::scheduleMicSlowRetry(const QString &cid)
                                   "it is delivering nothing";
             m_micLastRestartMs = QDateTime::currentMSecsSinceEpoch();
             m_micCapturedAtRestart = now;
-            // Not while a switch is starting another device; see
-            // restartMicrophone().
             if (GstElement *bin = m_publishedBins.value(cid);
                 bin && !m_micSwap.front && !microphoneStarting())
                 gst_element_call_async(
@@ -9476,27 +8155,18 @@ void SfuMediaEngine::restartMicrophone(const QString &cid, quint64 generation)
         return;
     }
     if (microphoneStarting()) {
-        // Its first start has not finished; restarting the source now would
-        // change its state under the start. Once the start reports; still
-        // pending meanwhile, so no second restart is scheduled on top.
         m_micRestartAfterStart = true;
         qCInfo(lcSfuMedia) << "microphone restart waits for its start";
         return;
     }
     m_micRestartPending = false;
     if (m_micSwap.front) {
-        // A switch is starting another device: it replaces this one, and
-        // restarts this one if it is abandoned. (Restarting by name now could
-        // also find the replacement's `micsrc`.)
         m_micSwap.currentFailed = true;
         return;
     }
     ++m_micRestarts;
     m_micLastRestartMs = QDateTime::currentMSecsSinceEpoch();
     m_micCapturedAtRestart = m_micCaptured ? m_micCaptured->load() : 0;
-    // The valve, level meter, encoder, payloader (its sequence numbers and
-    // SSRC) and the webrtcbin pad all stay, so the published track is the
-    // same track. The state change runs off this thread, on the live front.
     gst_element_call_async(bin, restartSourceAsync,
                            new SourceRestart{m_micLiveFront.toUtf8(), m_micSourceRestartsDone},
                            sourceRestartFree);
@@ -9505,16 +8175,10 @@ void SfuMediaEngine::restartMicrophone(const QString &cid, quint64 generation)
 void SfuMediaEngine::handlePublishError(const QString &cid,
                                         bool resourceError, bool busyError)
 {
-    // Runs on the GUI thread, where the state is safe to read.
     if (!m_active)
         return;
-    // Teardown errors cannot reach here: unpublish() removes the cid before
-    // setting the bin to NULL, and stop() clears the bus handler before
-    // destroying pipelines. Keep that order.
     if (!m_publishedBins.contains(cid))
         return;
-    // A share whose VP8 viewers lost their picture ends, and the next one is
-    // plain software VP8, which every viewer can watch.
     if (const QString primary = m_shareBackups.key(cid); !primary.isEmpty()) {
         handleShareEncoderFailed(primary);
         return;
@@ -9522,8 +8186,6 @@ void SfuMediaEngine::handlePublishError(const QString &cid,
     const auto watch = m_publishWatch.constFind(cid);
     if (watch == m_publishWatch.cend() || !watch->state || watch->reported)
         return;
-    // Only a publish that never captured a buffer is reported; errors from a
-    // working bin are transients and must not end the track.
     if (watch->state->captured.load() > 0)
         return;
     const bool screenShare = watch->state->screenShare;
@@ -9540,8 +8202,6 @@ void SfuMediaEngine::handlePublishError(const QString &cid,
 void SfuMediaEngine::checkCameraFirstFrame(const QString &cid,
                                            quint64 generation)
 {
-    // GUI thread. A stopped or restarted engine, an unpublished camera or one
-    // already reported (a bus error got there first) is not ours to judge.
     if (!m_active || generation != m_generation.load()
         || !m_publishedBins.contains(cid))
         return;
@@ -9553,9 +8213,6 @@ void SfuMediaEngine::checkCameraFirstFrame(const QString &cid,
         Q_EMIT cameraCaptureReady(cid);
         return;
     }
-    // Whatever state the bin reached, no picture is no picture: a portal
-    // camera whose start never completes (see publishVideo()) is still short
-    // of PLAYING here. The state is logged only to tell those apart.
     GstState current = GST_STATE_VOID_PENDING;
     if (GstElement *bin = m_publishedBins.value(cid))
         gst_element_get_state(bin, &current, nullptr, 0);
@@ -9605,24 +8262,18 @@ void SfuMediaEngine::checkCameraFirstFrame(const QString &cid,
     Q_EMIT publishFailed(cid, QStringLiteral("camera_no_frames"));
 }
 
-// ── GStreamer-thread callbacks ──────────────────────────────────────────
-
 void SfuMediaEngine::onPeerStateNotify(GstElement *webrtc, void *paramSpec,
                                        void *userData)
 {
     auto *spec = static_cast<GParamSpec *>(paramSpec);
     if (!webrtc || !spec || !spec->name)
         return;
-    // Property names and enum values only.
     gint value = -1;
     g_object_get(webrtc, spec->name, &value, nullptr);
     const gchar *rawName = GST_ELEMENT_NAME(webrtc);
     qCInfo(lcSfuMedia) << "peer" << (rawName ? rawName : "?")
                        << spec->name << "=" << value;
 
-    // The ICE transport is the controller's business: a failed one is a call
-    // to reconnect, and "connected" is what ends a reconnect. Only those
-    // states, by name, never the numbers.
     if (!userData || g_strcmp0(spec->name, "ice-connection-state") != 0)
         return;
     const char *word = nullptr;
@@ -9640,7 +8291,6 @@ void SfuMediaEngine::onPeerStateNotify(GstElement *webrtc, void *paramSpec,
     default:
         return;
     }
-    // A retiring webrtcbin reports nothing more, as for every other callback.
     const lightning::webrtc::CallbackScope scope(webrtc);
     if (!scope.live())
         return;
@@ -9655,15 +8305,12 @@ void SfuMediaEngine::onPeerStateNotify(GstElement *webrtc, void *paramSpec,
 
 void SfuMediaEngine::onNegotiationNeeded(GstElement *webrtc, void *userData)
 {
-    // A stopped peer queues nothing more on its webrtcbin.
     const lightning::webrtc::CallbackScope scope(webrtc);
     if (!scope.live())
         return;
     auto *engine = static_cast<SfuMediaEngine *>(userData);
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
     const quint64 generation = engine->m_generation.load();
-    // The automatic signal must use the same transaction as explicit track
-    // changes, never create a competing offer on the GStreamer thread.
     marshal(engine, [engine, token, generation] {
         Target target = Target::Publisher;
         if (engine->tokenIsLive(token, generation, &target)
@@ -9672,18 +8319,12 @@ void SfuMediaEngine::onNegotiationNeeded(GstElement *webrtc, void *userData)
     });
 }
 
-// promiseCtxFree runs when the promise is finalized, which on the error-reply
-// path is the gst_promise_unref() in these functions. So every `ctx->` read
-// happens above it, and the element gets its own reference.
 void SfuMediaEngine::onOfferCreated(GstPromise *promise, void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
-    // Covers this callback only. set-local-description runs later on the GUI
-    // thread, behind tokenIsLive(), so it never starts gathering on a webrtcbin
-    // that is being retired.
     const lightning::webrtc::CallbackScope scope(ctx->webrtc);
     if (!scope.live()) {
-        gst_promise_unref(promise); // frees ctx
+        gst_promise_unref(promise);
         return;
     }
     auto *engine = ctx->engine;
@@ -9710,10 +8351,6 @@ void SfuMediaEngine::onOfferCreated(GstPromise *promise, void *userData)
     gchar *text = gst_sdp_message_as_text(description->sdp);
     const QString sdp = QString::fromUtf8(text ? text : "");
     g_free(text);
-    // On the GUI thread, which owns the peer. A transceiver retired before its
-    // first answer never leaves webrtcbin, which then wants negotiation again
-    // after every answer: the same offer again until the call ended, 1110 of
-    // them in 138 s on the rig and 73 in 3 s in the test.
     std::shared_ptr<GstWebRTCSessionDescription> held(
         description, gst_webrtc_session_description_free);
     std::shared_ptr<GstElement> element(
@@ -9753,16 +8390,14 @@ QString SfuMediaEngine::offerIdentity(const QString &sdp)
     return kept.join(QLatin1Char('\n'));
 }
 
-
 void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
     const lightning::webrtc::CallbackScope scope(ctx->webrtc);
     if (!scope.live()) {
-        gst_promise_unref(promise); // frees ctx
+        gst_promise_unref(promise);
         return;
     }
-    // Read ctx above the unref; see onOfferCreated.
     auto *engine = ctx->engine;
     const bool publisher = ctx->publisher;
     const quint64 generation = ctx->generation;
@@ -9773,7 +8408,7 @@ void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
         gst_structure_get(reply, "answer",
                           GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &description,
                           nullptr);
-    gst_promise_unref(promise); // may free ctx: read nothing from it below
+    gst_promise_unref(promise);
     if (!description) {
         const quintptr token = reinterpret_cast<quintptr>(webrtc);
         gst_object_unref(webrtc);
@@ -9784,10 +8419,6 @@ void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
         return;
     }
 
-    // Log what webrtcbin built for the subscriber, which can differ from the
-    // SDP we answered: no transceivers means nothing can arrive; RECVONLY or
-    // SENDRECV means our side is fine and the fault is upstream; INACTIVE or
-    // NONE means it negotiated to nothing. Counts and enums only.
     if (!publisher) {
         GArray *transceivers = nullptr;
         g_signal_emit_by_name(webrtc, "get-transceivers", &transceivers);
@@ -9814,8 +8445,6 @@ void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
             }
             g_array_unref(transceivers);
         }
-        // Direction enum: 0 NONE, 1 INACTIVE, 2 SENDONLY, 3 RECVONLY,
-        // 4 SENDRECV.
         qCInfo(lcSfuMedia) << "subscriber transceivers n=" << summary.size()
                            << summary.join(QLatin1Char(' '))
                            << "(dir: 1=inactive 3=recvonly 4=sendrecv)";
@@ -9861,7 +8490,6 @@ void SfuMediaEngine::onLocalDescriptionSet(GstPromise *promise, void *userData)
             Q_EMIT engine->failed(QStringLiteral("local_sdp_rejected"));
             return;
         }
-        // An answer cannot arrive before the local offer is installed.
         engine->handleLocalDescription(token, generation, offer, sdp);
     });
 }
@@ -9899,12 +8527,8 @@ void SfuMediaEngine::onPadRemoved(GstElement *webrtc, void *pad,
     }
     GstElement *bin = entry.bin;
     if (!bin) {
-        // No bin was built for this pad; that failure was already logged.
         return;
     }
-    // webrtcbin 1.28 never removes a src pad (only released request pads),
-    // so this is not how a retired track normally ends; see
-    // retireReceiveBins().
     qCInfo(lcSfuMedia) << "a remote track's pad was removed; retiring its "
                           "receive bin";
     engine->teardownReceiveBin(entry);
@@ -9915,20 +8539,15 @@ void SfuMediaEngine::teardownReceiveBin(const ReceiveBin &entry,
 {
     GstElement *pipeline = m_subscriber.pipeline;
     if (!pipeline || !entry.bin) {
-        // stop() already set everything to NULL, or a given-up rebuild left
-        // no bin. No remoteTrackRemoved then either; it has no consumer
-        // today (accepted follow-up, review 2026-09-26 #7).
         return;
     }
     auto *ctx = new ReceiveTeardown{
         GST_ELEMENT(gst_object_ref(pipeline)), m_pendingTeardowns};
-    // Count before queueing, so stop()'s wait cannot see zero too early.
     m_pendingTeardowns->fetch_add(1);
     gst_element_call_async(entry.bin, receiveTeardownAsync, ctx,
                            receiveTeardownFree);
     if (!announce)
         return;
-    // Marshalled: this may run on a streaming thread.
     const QString streamId = entry.streamId;
     const QString kind = entry.kind;
     marshal(this, [engine = this, streamId, kind] {
@@ -9973,11 +8592,6 @@ int SfuMediaEngine::retireReceiveBins(const QSet<QString> &transceiverMids,
         teardownReceiveBin(r.entry);
     }
     if (!retired.isEmpty()) {
-        // rtpbin's per-SSRC chains are never reclaimed (autoremove is pinned
-        // off, see createPeer()), and each holds a jitterbuffer, whose src
-        // task is a thread. Logged so a rejoin's "+2 threads" can be
-        // attributed live before anything is removed on a signalled leave
-        // (open item 2026-09-29). Counts only.
         qCInfo(lcSfuMedia) << "subscriber rtp jitterbuffers="
                            << subscriberJitterbufferCount(subscriberWebrtc)
                            << "receive bins=" << receiveBinCount()
@@ -10032,12 +8646,6 @@ int SfuMediaEngine::receiveBinCount() const
 
 void SfuMediaEngine::isolateFailedReceiveBin(GstElement *pipelineChild)
 {
-    // A sink that fails (measured: pulsesink's "Connection terminated" when
-    // the sound server drops the client) returns an error upstream. Its bin's
-    // queue then refuses the next buffer, the refusal reaches the ICE source
-    // that feeds every track, and the whole subscriber pipeline stops: no
-    // audio or video from anyone, for good. Dropping at the webrtcbin pad
-    // from this moment keeps the failure inside the bin.
     GstPad *pad = nullptr;
     QString streamId;
     {
@@ -10046,9 +8654,7 @@ void SfuMediaEngine::isolateFailedReceiveBin(GstElement *pipelineChild)
             if (it->bin != pipelineChild)
                 continue;
             if (it->isolateProbe != 0)
-                return; // already isolated; this is the same failure
-            // The first failure of a run: its rebuilds get a fresh Pulse
-            // connection; see rebuildReceiveBin().
+                return;
             bool runStarted = true;
             for (const ReceiveBin &other : std::as_const(m_receiveBins))
                 runStarted = runStarted && other.isolateProbe == 0;
@@ -10088,14 +8694,6 @@ void SfuMediaEngine::scheduleReceiveRebuild(GstPad *pad, quint64 generation)
         if (it == m_receiveBins.end() || it->isolateProbe == 0
             || it->rebuilding)
             return;
-        // A failure long after the last rebuild starts a fresh run, and so
-        // does one that comes after a rebuild which worked and then played
-        // for a while: the budget bounds a run of FAILED attempts. Counting
-        // the successes too made every sound-server restart cost one
-        // attempt, so the fifth restart of a call (measured live, restarts
-        // 12-18 s apart) gave the far end up for the rest of the call, and
-        // with Qt's PipeWire backend no "outputs changed" ever re-arms it.
-        // A chain that opens and fails at once still uses the budget up.
         if (it->rebuilds > 0
             && (now - it->lastRebuildMs > 60000
                 || (it->recoveredMs > 0
@@ -10104,8 +8702,6 @@ void SfuMediaEngine::scheduleReceiveRebuild(GstPad *pad, quint64 generation)
         attempt = it->rebuilds;
     }
     if (attempt >= kMaxReceiveRebuilds) {
-        // No timed retry after this (review #14, accepted). What starts it
-        // again is the output list changing: notifyAudioOutputsChanged().
         bool rearmNow = false;
         bool wasRearmed = false;
         {
@@ -10116,8 +8712,6 @@ void SfuMediaEngine::scheduleReceiveRebuild(GstPad *pad, quint64 generation)
             wasRearmed = it->rearmed;
             it->rearmed = false;
             if (it->rearmOnGiveUp) {
-                // The output list changed while this run was failing, maybe
-                // during the very attempt that just failed: one more.
                 it->rearmOnGiveUp = false;
                 it->rearmed = true;
                 it->rebuilds = kMaxReceiveRebuilds - 1;
@@ -10153,7 +8747,6 @@ void SfuMediaEngine::scheduleReceiveRebuild(GstPad *pad, quint64 generation)
         }
         return;
     }
-    // 0.5, 1, 2, 4, 8 s: a restarting sound server comes back within this.
     const int delay = m_rebuildBaseDelayMs * (1 << attempt);
     QTimer::singleShot(delay, this, [this, pad, generation] {
         rebuildReceiveBin(pad, generation);
@@ -10162,20 +8755,12 @@ void SfuMediaEngine::scheduleReceiveRebuild(GstPad *pad, quint64 generation)
 
 void SfuMediaEngine::notifyAudioOutputsChanged(bool anyOutput)
 {
-    // GUI thread, from a device notification (QMediaDevices). Never asks the
-    // audio backend anything itself: enumerating devices can block
-    // (gst_device_monitor_start() is synchronous and unbounded), and the
-    // rebuild that follows decides on a pool thread whether an output opens.
     if (!m_active)
         return;
     m_outputChangeAnyOutput = anyOutput;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (m_outputChangeBurstStartMs < 0)
         m_outputChangeBurstStartMs = now;
-    // Trailing edge: devices flap (a USB headset re-enumerates, a Bluetooth
-    // sink appears before its profile is up), so wait for the changes to go
-    // quiet. A burst that never goes quiet is still answered, once, after
-    // the longest wait.
     const qint64 waited = now - m_outputChangeBurstStartMs;
     const qint64 left = qMax<qint64>(0, m_outputChangeMaxWaitMs - waited);
     m_outputChangeTimer.start(
@@ -10194,26 +8779,17 @@ void SfuMediaEngine::rearmReceiveChains()
     {
         QMutexLocker lock(&m_receiveBinMutex);
         for (auto it = m_receiveBins.begin(); it != m_receiveBins.end(); ++it) {
-            // Playing, or a video chain (an appsink has no device to lose).
             if (it->isolateProbe == 0 || it->kind == QLatin1String("video"))
                 continue;
-            // No output at all (the device just went): nothing can open, and
-            // the change that brings one back re-arms these.
             if (!anyOutput)
                 continue;
             if (!it->givenUp) {
-                // Still inside its own budget; it retries anyway, and gets one
-                // more attempt if that runs out (the change may have landed
-                // while an attempt that will fail was already out).
                 it->rearmOnGiveUp = true;
                 ++stillRetrying;
                 continue;
             }
             if (it->rebuilding)
                 continue;
-            // One attempt: rebuildReceiveBin() takes the count to the budget,
-            // so a failure gives up again at once and waits for the next
-            // change rather than starting another 16 s run.
             it->givenUp = false;
             it->rearmed = true;
             it->rebuilds = kMaxReceiveRebuilds - 1;
@@ -10232,19 +8808,15 @@ void SfuMediaEngine::rearmReceiveChains()
 }
 
 namespace {
-/// The start of one rebuilt receive chain, run on a GStreamer pool thread.
-/// The bin is already built, probed and added (on the GUI thread); only the
-/// part that may block is here, and it touches no engine state.
 struct RebuildJob {
-    SfuMediaEngine *engine = nullptr; // compared, never dereferenced here
-    GstElement *pipeline = nullptr;   // owns a ref: the bin's parent
-    GstElement *bin = nullptr;        // owns a ref
-    GstPad *pad = nullptr;            // owns a ref
+    SfuMediaEngine *engine = nullptr;
+    GstElement *pipeline = nullptr;
+    GstElement *bin = nullptr;
+    GstPad *pad = nullptr;
     quint64 generation = 0;
     double level = -1.0;
     bool testMode = false;
     int delayMs = 0;
-    /// False once the session this job belongs to has ended.
     std::shared_ptr<std::atomic<bool>> sessionLive;
 };
 
@@ -10260,7 +8832,6 @@ void rebuildJobFree(gpointer data)
     delete job;
 }
 
-/// The element factory of the bin's (non-bin) sink, or "?".
 QString sinkFactoryOf(GstElement *bin)
 {
     QString name = QStringLiteral("?");
@@ -10279,9 +8850,6 @@ QString sinkFactoryOf(GstElement *bin)
     return name;
 }
 
-/// Unlink `bin` from `pad`, take it out of whatever it is in now (not a
-/// remembered pipeline: after a teardown or in a new session that is gone or
-/// another one) and stop it. Not on a streaming thread.
 void stopDetachedBin(GstElement *bin, GstPad *pad)
 {
     if (pad) {
@@ -10291,14 +8859,6 @@ void stopDetachedBin(GstElement *bin, GstPad *pad)
         }
     }
     gst_object_ref(bin);
-    // Out of the parent first, under the PARENT's state lock and then the
-    // bin's (the order every state change takes them, so no deadlock): a
-    // parent changing state at the same moment (a teardown's NULL) holds its
-    // own lock for the whole change and iterates its children; removed under
-    // that lock, the bin is never met by it again, so nothing can set it back
-    // up after the NULL below and then drop the last reference to it in that
-    // state. And a start of this bin still queued finds it parentless and
-    // leaves it (syncStateIfStillParented()). A pool thread may wait here.
     if (GstObject *parent = gst_object_get_parent(GST_OBJECT(bin))) {
         GST_STATE_LOCK(GST_ELEMENT(parent));
         GST_STATE_LOCK(bin);
@@ -10308,15 +8868,12 @@ void stopDetachedBin(GstElement *bin, GstPad *pad)
         GST_STATE_UNLOCK(GST_ELEMENT(parent));
         gst_object_unref(parent);
     }
-    // Stopped outside any parent, still under its own lock (a start of it
-    // in flight is waited for here, on this pool thread).
     GST_STATE_LOCK(bin);
     gst_element_set_state(bin, GST_STATE_NULL);
     GST_STATE_UNLOCK(bin);
     gst_object_unref(bin);
 }
 
-/// stopDetachedBin() on a pool thread, for a bin the GUI thread lets go of.
 void stopDetachedBinAsync(GstElement *bin)
 {
     gst_element_call_async(
@@ -10325,22 +8882,17 @@ void stopDetachedBinAsync(GstElement *bin)
         },
         nullptr, nullptr);
 }
-} // namespace
+}
 
 void SfuMediaEngine::runRebuildJob(GstElement *, void *data)
 {
     auto *job = static_cast<RebuildJob *>(data);
     if (job->delayMs > 0)
         QThread::msleep(static_cast<unsigned long>(job->delayMs));
-    // The call moved on before this ran: nothing to start.
     if (!job->sessionLive->load()) {
         stopDetachedBin(job->bin, job->pad);
         return;
     }
-    // May block: a pulsesink opening against a hung server waits for
-    // libpulse's 30 s timeout. While it does it holds the bin's state lock,
-    // so a teardown's set_state(NULL) on the pipeline waits for it too
-    // (known and accepted, with review #13).
     QString why;
     bool ok = startReceiveChain(job->pad, job->bin, &why);
     if (ok && gst_element_get_state(job->bin, nullptr, nullptr, 0)
@@ -10349,22 +8901,15 @@ void SfuMediaEngine::runRebuildJob(GstElement *, void *data)
         why = QStringLiteral("would not start");
     }
     const QString outputName = sinkFactoryOf(job->bin);
-    // autoaudiosink falls back to a fakesink when no output opens: that is
-    // silence, not recovery.
     if (ok && !job->testMode && outputName == QLatin1String("fakesink")) {
         ok = false;
         why = QStringLiteral("no audio output would open");
     }
-    // Checked again after the (possibly long) start: a bin for a session that
-    // has ended is this job's to remove.
     if (!ok || !job->sessionLive->load()) {
         stopDetachedBin(job->bin, job->pad);
         if (!job->sessionLive->load())
             return;
     }
-    // Handed to the GUI thread with refs that go with the lambda, whether or
-    // not it ever runs (an engine that is gone never runs it);
-    // finishReceiveRebuild() decides.
     const std::shared_ptr<GstElement> bin(
         ok ? GST_ELEMENT(gst_object_ref(job->bin)) : nullptr,
         [](GstElement *element) {
@@ -10376,7 +8921,6 @@ void SfuMediaEngine::runRebuildJob(GstElement *, void *data)
     const quint64 generation = job->generation;
     const double level = job->level;
     SfuMediaEngine *engine = job->engine;
-    // marshal() checks the engine is alive; no lock is held here.
     marshal(engine, [engine, pad, generation, bin, ok, why, level,
                      outputName] {
         engine->finishReceiveRebuild(pad.get(), generation, bin.get(), ok, why,
@@ -10395,9 +8939,7 @@ void SfuMediaEngine::rebuildReceiveBin(GstPad *pad, quint64 generation)
         auto it = m_receiveBins.find(pad);
         if (it == m_receiveBins.end() || it->isolateProbe == 0
             || it->rebuilding)
-            return; // retired meanwhile, or a rebuild is already out
-        // Kept in the map, marked: a retire while the job runs removes it,
-        // and the job's bin is then discarded rather than re-inserted.
+            return;
         it->rebuilding = true;
         it->givenUp = false;
         it->rebuilds += 1;
@@ -10409,13 +8951,6 @@ void SfuMediaEngine::rebuildReceiveBin(GstPad *pad, quint64 generation)
     ++m_receiveRebuildAttempts;
     const QString volumeName =
         outputVolumeElementName(volumeKeyFor(entry.streamId, entry.trackKey));
-    // Which output failed. pulsesink shares one server connection per client
-    // name across the whole process, and it outlives this bin while the
-    // other failed bins still hold it: a rebuilt autoaudiosink then gets the
-    // dead connection back, gives up on Pulse and falls back to alsasink,
-    // which plays to nothing (measured: "REBUILT" and zero playback
-    // streams). So a Pulse output is rebuilt as a pulsesink under a client
-    // name of its own, which opens a new connection; later new bins join it.
     QString clientName;
     if (entry.bin && !testSourceMode()) {
         GstIterator *it = gst_bin_iterate_recurse(GST_BIN(entry.bin));
@@ -10449,8 +8984,6 @@ void SfuMediaEngine::rebuildReceiveBin(GstPad *pad, quint64 generation)
     } else {
         clientName = entry.rebuildClientName;
     }
-    // Keep the level the user set: read from the old element once, and kept
-    // in the entry, so a failed attempt does not lose it for the next one.
     double level = entry.level;
     if (entry.bin) {
         if (GstElement *volume = gst_bin_get_by_name(
@@ -10464,13 +8997,11 @@ void SfuMediaEngine::rebuildReceiveBin(GstPad *pad, quint64 generation)
             if (it != m_receiveBins.end())
                 it->level = level;
         }
-        // The isolate probe drops before the peer is read, so nothing is
-        // pushing into the old bin while it is unlinked here.
         if (GstPad *peer = gst_pad_get_peer(pad)) {
             gst_pad_unlink(pad, peer);
             gst_object_unref(peer);
         }
-        teardownReceiveBin(entry, /*announce=*/false);
+        teardownReceiveBin(entry,false);
     }
     if (m_failReceiveRebuilds) {
         finishReceiveRebuild(pad, generation, nullptr, false,
@@ -10478,9 +9009,6 @@ void SfuMediaEngine::rebuildReceiveBin(GstPad *pad, quint64 generation)
                              level, QString());
         return;
     }
-    // Built, probed and added here: quick, and building a pulsesink or an
-    // autoaudiosink opens nothing (that happens at NULL->READY). Only the
-    // start, which can wait on a hung sound server, runs off this thread.
     GstElement *bin = nullptr;
     QString why;
     if (!prepareReceiveChain(m_subscriber.pipeline, entry.streamId,
@@ -10502,8 +9030,6 @@ void SfuMediaEngine::rebuildReceiveBin(GstPad *pad, quint64 generation)
     job->testMode = testSourceMode();
     job->delayMs = m_rebuildJobDelayMs.load();
     job->sessionLive = m_sessionLive;
-    // Not counted in m_pendingTeardowns: the job touches no engine state, and
-    // it removes its own bin if the session ends first.
     gst_element_call_async(m_subscriber.pipeline, runRebuildJob, job,
                            rebuildJobFree);
 }
@@ -10514,8 +9040,6 @@ void SfuMediaEngine::noteReceiveChainRendering(GstPad *pad, quint64 generation)
         return;
     QMutexLocker lock(&m_receiveBinMutex);
     auto it = m_receiveBins.find(pad);
-    // Only the chain that is playing now: one failed again or being rebuilt
-    // since its sink rendered is no recovery.
     if (it == m_receiveBins.end() || it->isolateProbe != 0 || it->rebuilding)
         return;
     it->recoveredMs = QDateTime::currentMSecsSinceEpoch();
@@ -10526,9 +9050,6 @@ void SfuMediaEngine::finishReceiveRebuild(GstPad *pad, quint64 generation,
                                           const QString &why, double level,
                                           const QString &outputName)
 {
-    // A bin nobody takes is stopped off this thread, out of whatever it is
-    // in now: after a teardown or in a new session the remembered pipeline
-    // is gone or another one.
     const auto discard = [](GstElement *orphan) {
         if (orphan)
             stopDetachedBinAsync(orphan);
@@ -10543,7 +9064,6 @@ void SfuMediaEngine::finishReceiveRebuild(GstPad *pad, quint64 generation,
         QMutexLocker lock(&m_receiveBinMutex);
         auto it = m_receiveBins.find(pad);
         if (it == m_receiveBins.end() || !it->rebuilding) {
-            // Retired while the job ran: the stream was replaced or ended.
             lock.unlock();
             if (bin) {
                 if (GstPad *peer = gst_pad_get_peer(pad)) {
@@ -10562,9 +9082,6 @@ void SfuMediaEngine::finishReceiveRebuild(GstPad *pad, quint64 generation,
             it->bin = bin;
             probe = it->isolateProbe;
             it->isolateProbe = 0;
-            // The run is over once this chain RENDERS: recoveredMs is stamped
-            // from its sink (noteReceiveChainRendering()), never here, so a
-            // chain that opens but plays nothing keeps using the budget.
             it->rearmed = false;
             it->rearmOnGiveUp = false;
             it->givenUp = false;
@@ -10587,7 +9104,6 @@ void SfuMediaEngine::finishReceiveRebuild(GstPad *pad, quint64 generation,
         }
     }
     if (m_rebuiltChainsNeverRenderForTest) {
-        // Test-only: the chain opens, but nothing reaches its sink.
         if (GstElement *volume = gst_bin_get_by_name(
                 GST_BIN(bin), volumeName.toUtf8().constData())) {
             if (GstPad *out = gst_element_get_static_pad(volume, "src")) {
@@ -10603,12 +9119,9 @@ void SfuMediaEngine::finishReceiveRebuild(GstPad *pad, quint64 generation,
         }
     }
     gst_pad_remove_probe(pad, probe);
-    // Say which output it got, and say again when that output actually
-    // takes audio: a rebuilt chain that never renders is not a recovery, and
-    // only one that renders ends the run of failures (recoveredMs).
     struct Rendering {
-        SfuMediaEngine *engine; // compared by marshal(), never dereferenced
-        GstPad *pad;            // the map key, never dereferenced
+        SfuMediaEngine *engine;
+        GstPad *pad;
         quint64 generation;
         QString streamId;
     };
@@ -10711,8 +9224,6 @@ int SfuMediaEngine::receiveVolumeElementsForTest() const
 QString SfuMediaEngine::receiveSinkDescription(const QString &pulseClientName,
                                                const OutputSink *speaker)
 {
-    // A chosen output wins: group calls used to ignore the speaker setting
-    // altogether (the engine stored it and nothing read it).
     if (speaker && !speaker->binding.isEmpty())
         return speaker->sink;
     return pulseClientName.isEmpty() ? QStringLiteral("autoaudiosink")
@@ -10726,13 +9237,6 @@ GstElement *SfuMediaEngine::buildReceiveBin(bool video,
                                             const OutputSink *speaker,
                                             bool echoProbe, bool h264)
 {
-    // Audio volume elements keep the `outvol` prefix (deafen matches it) and a
-    // per-track suffix (per-participant volume).
-    //
-    // Video goes to an RGBA appsink (a plain row copy into a QVideoFrame).
-    // max-buffers=1 drop=true: a late video frame is worthless. The video
-    // chain is the same in test-source mode, since an appsink needs no
-    // display; only audio ends in a fakesink there.
     const QString description = video
         // Bounded but not leaky: this queue carries RTP into the depayloader,
         // and dropping a packet corrupts the VP8 bitstream downstream of
@@ -10745,9 +9249,6 @@ GstElement *SfuMediaEngine::buildReceiveBin(bool video,
                          "! appsink name=vidsink emit-signals=true "
                          "sync=false max-buffers=1 drop=true")
               .arg(h264 ? QStringLiteral("h264") : QStringLiteral("vp8"),
-                   // recvdepay's src pad holds the whole frame, as for VP8;
-                   // decrypted there, so the parser and decoder only ever see
-                   // the clear stream.
                    h264 ? QStringLiteral(
                               "! video/x-h264,stream-format=byte-stream,"
                               "alignment=au ! h264parse ! %1 ")
@@ -10756,8 +9257,6 @@ GstElement *SfuMediaEngine::buildReceiveBin(bool video,
                                        : h264DecoderElement())
                         : QStringLiteral("! vp8dec "))
         : (testSink
-               // Leaky is safe for audio: Opus frames are independent and the
-               // decoder conceals a loss.
                ? QStringLiteral("queue name=recvqueue max-size-buffers=0 "
                                 "max-size-bytes=0 "
                                 "max-size-time=200000000 leaky=downstream "
@@ -10795,9 +9294,6 @@ GstElement *SfuMediaEngine::buildReceiveBin(bool video,
             *error = QStringLiteral("no bin");
         return nullptr;
     }
-    // A Pulse output on a connection of its own; see rebuildReceiveBin().
-    // Set as properties, never parsed from text. application.name stays the
-    // app's own, so the desktop keeps its routing and volume for this stream.
     const bool chosenOutput =
         speaker && !speaker->binding.isEmpty() && !video && !testSink;
     if (chosenOutput)
@@ -10805,7 +9301,6 @@ GstElement *SfuMediaEngine::buildReceiveBin(bool video,
     if (!pulseClientName.isEmpty() && !video && !testSink) {
         GstElement *sink = gst_bin_get_by_name(
             GST_BIN(bin), chosenOutput ? "outsink" : "recvsink");
-        // A chosen output that is not a pulsesink has no client-name.
         if (sink && !g_object_class_find_property(G_OBJECT_GET_CLASS(sink),
                                                   "client-name")) {
             gst_object_unref(sink);
@@ -10863,18 +9358,11 @@ bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
     const bool video = mediaKind == QLatin1String("video");
     const QString volumeName =
         outputVolumeElementName(volumeKeyFor(streamId, trackKey));
-    // After a sound-server drop every new audio bin joins the fresh Pulse
-    // connection too: an autoaudiosink would get the dead shared one back
-    // while any old bin still holds it, and fall back to a sink that plays
-    // to nothing.
     QString client = pulseClientName;
     if (client.isEmpty() && !video && !testSourceMode()) {
         QMutexLocker lock(&m_receiveBinMutex);
         client = m_freshPulseClient;
     }
-    // The user's chosen output device, if any. Read from the cache only:
-    // this runs on a GStreamer streaming thread and must never enumerate
-    // devices (see refreshSpeakerSink()).
     OutputSink speaker;
     const OutputSink *speakerPtr = nullptr;
     if (!video && !testSourceMode()) {
@@ -10909,9 +9397,6 @@ bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
             gst_object_unref(sink);
         }
     }
-    // Decrypt on the depayloader's src pad, where the encoded frame is whole.
-    // Installed before the bin plays so no frame reaches the decoder
-    // unexamined.
     bool decryptProbeInstalled = false;
     if (GstElement *depay = gst_bin_get_by_name(GST_BIN(bin), "recvdepay")) {
         if (GstPad *framePad = gst_element_get_static_pad(depay, "src")) {
@@ -10922,15 +9407,12 @@ bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
         gst_object_unref(depay);
     }
     if (!decryptProbeInstalled) {
-        // Without the probe, ciphertext goes straight into the decoder and
-        // every counter stays at zero.
         qCWarning(lcSfuMedia)
             << "call diagnosis: no decrypt probe could be installed for "
                "stream=" << streamId << "kind=" << mediaKind
             << "— its frames will not be decrypted or counted";
     }
     instrumentReceiveBin(bin, trackKey, streamId);
-    // Route decoded video; installed before the bin plays.
     if (GstElement *appsink = gst_bin_get_by_name(GST_BIN(bin), "vidsink")) {
         auto *ctx = new VideoSinkCtx{
             this, m_receiveNamespace + trackKey,
@@ -10940,21 +9422,14 @@ bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
                               videoSinkCtxFree, GConnectFlags(0));
         gst_object_unref(appsink);
     }
-    // Apply any volume chosen before this bin existed, on the GUI thread.
     const quint64 generation = m_generation.load();
     marshal(this, [engine = this, streamId, trackKey, generation] {
         engine->applyPendingTrackVolume(streamId, trackKey, generation);
     });
-    // Apply the current deafen state before the bin plays, so a new track is
-    // never briefly audible. Uses the same name derivation as the bin
-    // (per-track), since gst_bin_get_by_name matches exactly.
     if (GstElement *volume = gst_bin_get_by_name(
             GST_BIN(bin), volumeName.toUtf8().constData())) {
         g_object_set(volume, "mute", m_outputMuted.load() ? TRUE : FALSE,
                      nullptr);
-        // Per-person levels are re-applied by SfuCallController on the
-        // participant change that brings this track; this thread has no
-        // settings access. Deafen must be applied here.
         gst_object_unref(volume);
     }
     return true;
@@ -10963,9 +9438,6 @@ bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
 bool SfuMediaEngine::startReceiveChain(GstPad *srcPad, GstElement *bin,
                                        QString *why)
 {
-    // A sink that cannot open fails here and posts its own error; the bin is
-    // still linked, and the bus handler takes it from there. May block: a
-    // pulsesink opening against a hung server waits for libpulse's timeout.
     gst_element_sync_state_with_parent(bin);
     GstPad *sinkPad = gst_element_get_static_pad(bin, "sink");
     const GstPadLinkReturn linked = gst_pad_link(srcPad, sinkPad);
@@ -10981,8 +9453,6 @@ bool SfuMediaEngine::startReceiveChain(GstPad *srcPad, GstElement *bin,
 
 void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
 {
-    // Stopping a peer waits for this handler, so a bin is never registered
-    // after teardown has cleared m_receiveBins; a later pad stays unlinked.
     const lightning::webrtc::CallbackScope scope(webrtc);
     if (!scope.live())
         return;
@@ -10994,15 +9464,8 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     if (!pipeline)
         return;
 
-    // The section this pad belongs to. Also what retires its bin: webrtcbin
-    // gives a transceiver a NEW src pad for every new SSRC and never removes
-    // the old one.
     const QString padTransceiverMid = transceiverMidOf(srcPad);
 
-    // The decrypt ring is keyed by the sender from the remote SDP; the track
-    // SID routes the picture. The SDP section's mid is the join key here.
-    // webrtcbin pad `msid` is absent on supported GStreamer versions, so it
-    // must not participate in attribution.
     QString streamId;
     QString trackMid;
     int sdpSectionsKnown = 0;
@@ -11027,13 +9490,11 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     if (trackMid.isEmpty())
         trackMid = padTransceiverMid;
     if (streamId.isEmpty()) {
-        // A missing sender cannot borrow a ring from another participant.
         streamId = trackMid.isEmpty()
             ? QStringLiteral("unattributed")
             : QStringLiteral("mid:%1").arg(trackMid);
     }
 
-    // Media kind from the caps.
     GstCaps *caps = gst_pad_get_current_caps(srcPad);
     if (!caps)
         caps = gst_pad_query_caps(srcPad, nullptr);
@@ -11044,8 +9505,6 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         const gchar *media =
             structure ? gst_structure_get_string(structure, "media") : nullptr;
         mediaKind = QString::fromUtf8(media ? media : "");
-        // Every structure: without current caps this is a query, and its first
-        // structure is not the track's.
         h264 = gst_caps_get_size(caps) > 0;
         for (guint i = 0; i < gst_caps_get_size(caps); ++i) {
             const gchar *encoding = gst_structure_get_string(
@@ -11056,7 +9515,6 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         gst_caps_unref(caps);
     }
     if (mediaKind.isEmpty()) {
-        // A guess; log it, since a wrong one leaves the track silent.
         qCWarning(lcSfuMedia)
             << "call diagnosis: an incoming track's caps named no media type;"
             << "assuming audio for stream=" << streamId << "mid=" << trackMid;
@@ -11072,7 +9530,6 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         h264);
     gst_object_unref(pipeline);
     if (!attached) {
-        // GStreamer's message names the element that failed.
         qCWarning(lcSfuMedia)
             << "call diagnosis: the receive bin for stream=" << streamId
             << "kind=" << mediaKind << "failed:" << why
@@ -11083,49 +9540,32 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         });
         return;
     }
-    // Remember which bin this pad feeds, so it can be retired; otherwise
-    // every toggle leaves a playing bin behind, and a stale `outvol_*` can
-    // shadow the live one.
     {
         QMutexLocker lock(&engine->m_receiveBinMutex);
         engine->m_receiveBins.insert(
             static_cast<GstPad *>(pad),
             ReceiveBin{bin, streamId, mediaKind, padTransceiverMid, trackMid});
     }
-    // A new pad on a transceiver replaces the stream its older pads carried
-    // (LiveKit reuses a transceiver for the next track, with a new SSRC).
     if (!padTransceiverMid.isEmpty()) {
         engine->retireReceiveBins({padTransceiverMid},
                                   static_cast<GstPad *>(pad),
                                   "its transceiver has a newer stream", webrtc);
     }
-    // A synthetic stream id here plus `attributed=false` above marks a track
-    // nobody can key.
     qCInfo(lcSfuMedia)
         << "call diagnosis: a receive chain is RUNNING for stream=" << streamId
         << "mid=" << trackMid << "kind=" << mediaKind;
     marshal(engine, [engine, generation, mediaKind, streamId, trackMid] {
         if (engine->m_generation.load() != generation)
             return;
-        // The first playback probe of a call: the microphone was published
-        // before it existed, so it started without echo cancellation.
         if (mediaKind == QLatin1String("audio"))
             engine->engageEchoCancellation();
-        // The UI keys tiles off MatrixRTC membership (who is present); this
-        // says who is actually sending, and on which track.
         Q_EMIT engine->remoteTrackAdded(streamId, trackMid, mediaKind);
     });
 }
 
-// ---------------------------------------------------------------------------
-// Live device switches. A microphone or speaker picked during a group call
-// reaches it now; until 2026-10-09 it waited for the next publish.
-
 namespace {
-/// The block on a replacement capture's output. Its first buffer says the
-/// device delivers; the GUI thread then swaps it in.
 struct MicSwapBlock {
-    SfuMediaEngine *engine = nullptr; // only handed to marshal()
+    SfuMediaEngine *engine = nullptr;
     quint64 serial = 0;
     std::atomic<bool> reported{false};
 };
@@ -11139,14 +9579,9 @@ GstPadProbeReturn onMicSwapReady(GstPad *, GstPadProbeInfo *, gpointer data)
         marshal(engine,
                 [engine, serial] { engine->completeMicrophoneSwap(serial); });
     }
-    // Stays blocked until the GUI thread removes the probe.
     return GST_PAD_PROBE_OK;
 }
 
-/// The children of `bin` upstream of `pad` (the valve's sink pad), nearest
-/// first, each with a ref: the capture front. publishAudio()'s front is a run
-/// of the bin's own elements; one swapMicrophoneFront() built is a single
-/// sub-bin.
 QList<GstElement *> captureFrontOf(GstElement *bin, GstPad *pad)
 {
     QList<GstElement *> chain;
@@ -11166,7 +9601,6 @@ QList<GstElement *> captureFrontOf(GstElement *bin, GstPad *pad)
             break;
         }
         chain.append(element);
-        // The front is linear: one sink pad, none on the source.
         GstIterator *it = gst_element_iterate_sink_pads(element);
         GValue item = G_VALUE_INIT;
         if (gst_iterator_next(it, &item) == GST_ITERATOR_OK)
@@ -11178,27 +9612,14 @@ QList<GstElement *> captureFrontOf(GstElement *bin, GstPad *pad)
     return chain;
 }
 
-/// The outgoing capture front, stopped and removed on a pool thread: a
-/// source's stop can block on a stalled sound server.
 struct FrontRetire {
-    GstElement *bin = nullptr;    // owns a ref
-    QList<GstElement *> elements; // each owns a ref
+    GstElement *bin = nullptr;
+    QList<GstElement *> elements;
 };
 
 void retireFront(GstElement *, gpointer data)
 {
     auto *job = static_cast<FrontRetire *>(data);
-    // Out of the bin FIRST, under the bin's state lock, and only then
-    // stopped. Stopped first (as before 2026-10-15), a state change of the
-    // bin running meanwhile (a teardown's NULL, a stuck first start finishing
-    // after a takeover) set an already-stopped element back up to PAUSED as
-    // it iterated its children, and after the removal below its iterator held
-    // the last reference: the element was disposed in PAUSED with its
-    // streaming thread running, and that thread crashed (SIGSEGV in
-    // gst_base_src_negotiate, measured in the engine suite). The bin's lock is
-    // held for that whole change, so removed under it the element is never
-    // met again. Source first, so nothing still in the bin pushes into a
-    // removed element (the fronts upstream are no longer linked to the valve).
     GST_STATE_LOCK(job->bin);
     for (auto it = job->elements.crbegin(); it != job->elements.crend(); ++it) {
         GstElement *element = *it;
@@ -11227,12 +9648,12 @@ GstPadProbeReturn dropEverything(GstPad *, GstPadProbeInfo *, gpointer)
 {
     return GST_PAD_PROBE_DROP;
 }
-} // namespace
+}
 
 void SfuMediaEngine::refreshMicrophoneCapture()
 {
     if (!m_active || m_micCid.isEmpty() || !m_publishedBins.contains(m_micCid))
-        return; // the next publish resolves the choice
+        return;
     const quint64 seq = ++m_micResolveSeq;
     const int channels = m_testDeviceChannels;
     if (m_testSources) {
@@ -11245,8 +9666,6 @@ void SfuMediaEngine::refreshMicrophoneCapture()
     const DeviceChoice choice = microphoneChoice();
     const quint64 generation = m_generation.load();
     const QString cid = m_micCid;
-    // The device monitor can block for seconds: a worker thread, as for the
-    // speaker (refreshSpeakerSink()).
     QThreadPool::globalInstance()->start(
         [this, choice, seq, generation, cid, channels] {
             MicrophoneCapture capture = resolveMicrophoneCapture(choice);
@@ -11255,7 +9674,7 @@ void SfuMediaEngine::refreshMicrophoneCapture()
             marshal(this, [this, capture, seq, generation, cid] {
                 if (seq != m_micResolveSeq || generation != m_generation.load()
                     || cid != m_micCid)
-                    return; // a newer pick, or the call moved on
+                    return;
                 swapMicrophoneFront(capture);
             });
         });
@@ -11263,34 +9682,16 @@ void SfuMediaEngine::refreshMicrophoneCapture()
 
 void SfuMediaEngine::swapMicrophoneFront(const MicrophoneCapture &capture)
 {
-    // The capture front is everything upstream of the mute valve: source,
-    // channel pin, bounded queue, convert (with the multi-input mix-matrix)
-    // and resample. Only it is replaced. The valve, both level meters, noise
-    // suppression, input volume, the encoder, its encrypt probe, the
-    // payloader (its SSRC and sequence numbers) and the webrtcbin pad all
-    // stay, so the published track is the same track and nothing is
-    // renegotiated.
-    //
-    // The new front is started beside the old one with its output blocked,
-    // and swapped in once it delivers (completeMicrophoneSwap()): the call
-    // hears the old microphone until the new one is really capturing, and a
-    // device that will not open costs nothing (abandonMicrophoneSwap()).
     GstElement *bin =
         m_micCid.isEmpty() ? nullptr : m_publishedBins.value(m_micCid);
     if (!m_active || !bin)
         return;
-    // Never change the front of a bin a pool thread is still starting: the
-    // new front's own start would race it. The newest pick waits for the
-    // start to report (noteMicrophoneStarted()).
     if (microphoneStarting()) {
         const qint64 waited = monotonicMs() - m_micStartDispatchedMs;
         if (waited < m_micStartAbandonMs) {
             m_micSwapDeferred = capture;
             qCInfo(lcSfuMedia) << "microphone switch waits for the "
                                   "microphone's start";
-            // ...but not past the bound: then the switch replaces the stuck
-            // capture (below) rather than wait for a server that may never
-            // answer it.
             const QString cid = m_micCid;
             const quint64 generation = m_generation.load();
             const quint64 seq = m_micResolveSeq;
@@ -11320,9 +9721,6 @@ void SfuMediaEngine::swapMicrophoneFront(const MicrophoneCapture &capture)
         gst_object_unref(valve);
     if (!valveIn)
         return;
-    // Pinned to what the chain carries now, so the encoder is never asked to
-    // reconfigure and the track's caps never change. Nothing is negotiated
-    // before the first buffer; the new front then negotiates as the first.
     GstCaps *carried = gst_pad_get_current_caps(valveIn);
     gst_object_unref(valveIn);
 
@@ -11332,7 +9730,6 @@ void SfuMediaEngine::swapMicrophoneFront(const MicrophoneCapture &capture)
     GstElement *front = gst_parse_bin_from_description(
         description.toUtf8().constData(), TRUE, &error);
     if (error || !front) {
-        // Element names only (the device is a binding set after the parse).
         qCWarning(lcSfuMedia)
             << "microphone switch: the new capture did not parse code="
             << (error ? error->code : -1) << "description=" << description
@@ -11347,8 +9744,6 @@ void SfuMediaEngine::swapMicrophoneFront(const MicrophoneCapture &capture)
     }
     front = GST_ELEMENT(gst_object_ref_sink(front));
     const quint64 serial = ++m_micSwapSerial;
-    // Unique, so the bus handler can tell a front still starting from the
-    // live one (handleCaptureError()).
     const QByteArray name = QByteArray("micfront") + QByteArray::number(serial);
     gst_element_set_name(front, name.constData());
     const bool pinned = carried != nullptr;
@@ -11361,7 +9756,6 @@ void SfuMediaEngine::swapMicrophoneFront(const MicrophoneCapture &capture)
         gst_caps_unref(carried);
     }
     applyBindingTo(front, "micsrc", capture.binding);
-    // The EOS guard and the capture counter, as on the first front.
     instrumentMicrophoneSource(front, m_micCaptured);
     GstPad *out = gst_element_get_static_pad(front, "src");
     if (!out) {
@@ -11373,8 +9767,6 @@ void SfuMediaEngine::swapMicrophoneFront(const MicrophoneCapture &capture)
     auto *block = new MicSwapBlock;
     block->engine = this;
     block->serial = serial;
-    // Buffers only: the stream-start, caps and segment events pass, stay
-    // sticky on the unlinked pad, and are resent once it is linked.
     const gulong probe = gst_pad_add_probe(
         out,
         GstPadProbeType(GST_PAD_PROBE_TYPE_BLOCK | GST_PAD_PROBE_TYPE_BUFFER
@@ -11389,7 +9781,7 @@ void SfuMediaEngine::swapMicrophoneFront(const MicrophoneCapture &capture)
         return;
     }
     m_micSwap.bin = GST_ELEMENT(gst_object_ref(bin));
-    m_micSwap.front = front; // our ref
+    m_micSwap.front = front;
     m_micSwap.name = QString::fromLatin1(name);
     m_micSwap.blockProbe = probe;
     m_micSwap.serial = serial;
@@ -11399,12 +9791,6 @@ void SfuMediaEngine::swapMicrophoneFront(const MicrophoneCapture &capture)
                        << !capture.binding.isEmpty()
                        << "device-channels=" << capture.channels
                        << "caps-pinned=" << pinned;
-    // Started off this thread: a source's start can block (a stalled sound
-    // server holds pulsesrc's connect for 30 s). Its answer comes back through
-    // the block probe (onMicSwapReady(), serial-checked) or the timeout below,
-    // never through this job, which holds no engine pointer. An abandoned
-    // front is stopped under its state lock (stopDetachedBin()), so a start
-    // still queued finds it parentless.
     gst_element_call_async(
         front,
         [](GstElement *element, gpointer) {
@@ -11420,7 +9806,7 @@ void SfuMediaEngine::swapMicrophoneFront(const MicrophoneCapture &capture)
 void SfuMediaEngine::completeMicrophoneSwap(quint64 serial)
 {
     if (!m_micSwap.front || m_micSwap.serial != serial)
-        return; // abandoned or superseded meanwhile
+        return;
     GstElement *bin = m_micSwap.bin;
     if (!m_active || m_micCid.isEmpty()
         || m_publishedBins.value(m_micCid) != bin) {
@@ -11446,16 +9832,12 @@ void SfuMediaEngine::completeMicrophoneSwap(quint64 serial)
     GstPad *oldOut = gst_pad_get_peer(valveIn);
     gulong dropProbe = 0;
     if (oldOut) {
-        // Whatever the outgoing capture still pushes is dropped from here on:
-        // it must not reach the valve, nor an unlinked pad (not-linked posts
-        // an error, and a capture error restarts the capture).
         dropProbe = gst_pad_add_probe(oldOut, GST_PAD_PROBE_TYPE_DATA_DOWNSTREAM,
                                       dropEverything, nullptr, nullptr);
         gst_pad_unlink(oldOut, valveIn);
     }
     const GstPadLinkReturn linked = gst_pad_link(next, valveIn);
     if (linked != GST_PAD_LINK_OK) {
-        // The call keeps its microphone.
         if (oldOut) {
             gst_pad_link(oldOut, valveIn);
             gst_pad_remove_probe(oldOut, dropProbe);
@@ -11469,8 +9851,6 @@ void SfuMediaEngine::completeMicrophoneSwap(quint64 serial)
         abandonMicrophoneSwap("the new capture would not link");
         return;
     }
-    // Unblocked: the new capture's sticky events, then its audio, reach the
-    // valve. Caps equal to the old ones leave the encoder as it is.
     gst_pad_remove_probe(next, m_micSwap.blockProbe);
     gst_object_unref(next);
     gst_object_unref(valveIn);
@@ -11479,11 +9859,9 @@ void SfuMediaEngine::completeMicrophoneSwap(quint64 serial)
     if (!old.isEmpty()) {
         auto *job = new FrontRetire;
         job->bin = GST_ELEMENT(gst_object_ref(bin));
-        job->elements = old; // the refs move
+        job->elements = old;
         gst_element_call_async(bin, retireFront, job, frontRetireFree);
     }
-    // The clock hold now watches the new capture (CaptureClock.h); its RTP
-    // half stays on the payloader.
     if (GstElement *source = gst_bin_get_by_name(GST_BIN(front), "micsrc")) {
         if (GstPad *pad = gst_element_get_static_pad(source, "src")) {
             lightning::calls::watchReplacementCapture(pad, m_micClockHold);
@@ -11491,8 +9869,6 @@ void SfuMediaEngine::completeMicrophoneSwap(quint64 serial)
         }
         gst_object_unref(source);
     }
-    // A new device starts with a fresh restart budget. It has delivered, so a
-    // failure the old one reported is over.
     const bool wasFailed = m_micFailureReported;
     m_micRestarts = 0;
     m_micFailureReported = false;
@@ -11502,10 +9878,7 @@ void SfuMediaEngine::completeMicrophoneSwap(quint64 serial)
     gst_object_unref(m_micSwap.bin);
     m_micSwap = PendingMicSwap{};
     ++m_micSwaps;
-    // The level judgement starts over for the new device.
     resetMicLevelState();
-    // It replaced the capture of a start that never finished: the bin is
-    // live now, and what that start put off runs.
     if (m_micSwapReplacesStart) {
         m_micSwapReplacesStart = false;
         if (m_micStartPending && m_micStartPending->load()) {
@@ -11533,15 +9906,10 @@ void SfuMediaEngine::abandonMicrophoneSwap(const char *why)
     m_micSwap = PendingMicSwap{};
     m_micSwapReplacesStart = false;
     ++m_micSwapsAbandoned;
-    // Unlinked, its output blocked: removed and stopped off this thread. The
-    // stop flushes the blocked pad, which releases its thread.
     stopDetachedBinAsync(front);
     gst_object_unref(front);
     if (bin)
         gst_object_unref(bin);
-    // The live capture failed while the switch was pending: restart it now.
-    // Named as the live front, or the replaced-front guard in
-    // handleCaptureError() would drop it after any earlier completed switch.
     if (currentFailed)
         handleCaptureError(m_micCid, m_micLiveFront);
 }
@@ -11556,9 +9924,6 @@ void SfuMediaEngine::forgetMicrophoneSwap()
 }
 
 namespace {
-/// The new output for a received track (a speaker switch): built, its device
-/// bound and its Pulse client named, as buildReceiveBin() does. Runs on the
-/// switch's pool thread (lightning::calls::sinkswap).
 GstElement *buildReplacementOutput(const QByteArray &description,
                                    const lightning::calls::DeviceBinding &binding,
                                    const QByteArray &clientName)
@@ -11574,15 +9939,9 @@ GstElement *buildReplacementOutput(const QByteArray &description,
         return nullptr;
     }
     next = GST_ELEMENT(gst_object_ref_sink(next));
-    // Settles its own preroll and, like a receive bin (buildReceiveBin()),
-    // takes the upstream latency when it reaches PLAYING. A sink added to a
-    // running bin otherwise syncs with no latency at all: every buffer is
-    // late and the output plays in bursts (measured live, 2026-10-10: a few
-    // 100 ms of sound per second).
     g_object_set(next, "async-handling", TRUE, nullptr);
     applyBindingTo(next, "outsink", binding);
     if (!clientName.isEmpty()) {
-        // As buildReceiveBin() does: the fresh connection, the app's name.
         const QByteArray app = QString::fromUtf8(clientName)
                                    .section(QStringLiteral(" (reconnected"), 0, 0)
                                    .toUtf8();
@@ -11607,7 +9966,7 @@ GstElement *buildReplacementOutput(const QByteArray &description,
     }
     return next;
 }
-} // namespace
+}
 
 void SfuMediaEngine::swapReceiveSinks()
 {
@@ -11635,8 +9994,6 @@ void SfuMediaEngine::swapReceiveSinks()
             binding = speaker.binding;
         client = fresh.toUtf8();
     }
-    // Playing audio chains only: a failed one is being rebuilt, and a rebuild
-    // reads the new choice anyway (prepareReceiveChain()).
     QList<QPair<GstElement *, GstPad *>> pads;
     {
         QMutexLocker lock(&m_receiveBinMutex);
@@ -11657,9 +10014,6 @@ void SfuMediaEngine::swapReceiveSinks()
         }
     }
     for (const auto &[bin, pad] : std::as_const(pads)) {
-        // Off this thread and one at a time per chain, the newest pick
-        // winning (SerialSinkSwap.h). Volume, deafen and the decrypt probe
-        // stay where they are.
         lightning::calls::sinkswap::Request request;
         request.build = [description, binding, client] {
             return buildReplacementOutput(description, binding, client);
@@ -11679,14 +10033,12 @@ void SfuMediaEngine::swapReceiveSinks()
                        << "output";
 }
 
-// Called only by the controller's opt-in GUI timer. No GStreamer state waits,
-// promises, pipeline traversal or allocation of video frames on this path.
 QVariantList SfuMediaEngine::streamInfoStats()
 {
     QVariantList rows;
     const qint64 now = monotonicMs();
     auto append = [&](GstElement *bin, const QString &stream, const QString &track) {
-        if (!bin) return; // Audio recovery keeps a temporarily empty entry.
+        if (!bin) return;
         auto *held = static_cast<StreamInfoPtr *>(
             g_object_get_data(G_OBJECT(bin), streamInfoKey));
         if (!held) return;

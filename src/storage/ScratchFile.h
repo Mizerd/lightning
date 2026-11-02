@@ -34,8 +34,6 @@ class ScratchFile
 public:
     explicit ScratchFile(const QString &path)
         : m_path(path)
-        // Unique, like QSaveFile's temporary, so two writers of one path can
-        // never write into the same temporary.
         , m_part(path + QStringLiteral(".part-")
                  + QString::number(QRandomGenerator::global()->generate64(), 36))
     {
@@ -50,8 +48,6 @@ public:
         if (!m_file.open(QIODevice::WriteOnly | QIODevice::NewOnly))
             return false;
         m_opened = true;
-        // Owner-only before any byte is written; the scratch directory's 0700
-        // is the first layer, this the second.
         m_file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
         return true;
     }
@@ -59,21 +55,17 @@ public:
     qint64 write(const char *data, qint64 size) { return m_file.write(data, size); }
     qint64 write(const QByteArray &bytes) { return m_file.write(bytes); }
 
-    // Publishes the file under its real name, replacing any file there. No
-    // fsync: see the top of this file.
     bool commit()
     {
         if (!m_opened || !m_file.isOpen())
             return false;
-        const bool flushed = m_file.flush(); // Qt's buffer to the kernel only
+        const bool flushed = m_file.flush();
         m_file.close();
         if (!flushed) {
             cancelWriting();
             return false;
         }
         std::error_code error;
-        // Replaces an existing target, as QSaveFile does (rename(2) on POSIX,
-        // MoveFileEx with REPLACE_EXISTING on Windows).
         std::filesystem::rename(QFileInfo(m_part).filesystemAbsoluteFilePath(),
                                 QFileInfo(m_path).filesystemAbsoluteFilePath(),
                                 error);
@@ -85,7 +77,6 @@ public:
         return true;
     }
 
-    // Discards the temporary; the target is untouched.
     void cancelWriting()
     {
         if (m_file.isOpen())
@@ -103,4 +94,4 @@ private:
     bool m_opened = false;
 };
 
-} // namespace lightning::scratch
+}

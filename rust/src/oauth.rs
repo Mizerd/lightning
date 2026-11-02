@@ -1,29 +1,3 @@
-//! OAuth 2.0 / OIDC authentication on matrix-sdk 0.18's `Client::oauth()`.
-//!
-//! All protocol primitives are SDK-owned: `OAuth::login()` builds the
-//! authorization URL with PKCE and `state`, `OAuth::finish_login()` validates
-//! the redirect and exchanges the code, and the SDK refreshes tokens. This
-//! module only opens the system browser and receives the loopback redirect
-//! (the SDK's `local-server` helper needs `axum`, which is not vendored in
-//! this offline build).
-//!
-//! Two phases, because the account is unknown until `whoami` after
-//! `finish_login()`, and opening a store before that would risk attaching a
-//! device to the wrong account's crypto store:
-//!
-//!   Phase A (`mx_rust_oauth_bootstrap_create`): a bootstrap client with an
-//!   in-memory store only. Discovery, registration, the authorization URL and
-//!   the code exchange happen here; nothing is written to disk. It must
-//!   never sync, or it would upload throwaway device keys for the device id
-//!   Phase B then uploads again.
-//!
-//!   Phase B (C++, via `mx_rust_oauth_restore`): once user and device ids are
-//!   known, C++ applies the store-ownership policy, creates the real
-//!   account-scoped handle and restores the session into its sqlite store.
-//!
-//! Access tokens, refresh tokens and the registered client id cross once,
-//! into the C++ SecretStore; they are never logged, put in error strings or
-//! sent to QML. The callback URL carries a `code` and is never logged.
 
 use std::collections::VecDeque;
 use std::ffi::{c_char, c_int, c_void};
@@ -54,8 +28,6 @@ use crate::{
     install_event_handlers, run_async_on,
 };
 
-/// Client URI advertised during dynamic registration (shown on the consent
-/// screen). Not a secret.
 const CLIENT_URI: &str = "https://www.lightning-matrix.org";
 
 /// Lightning's OAuth client metadata for dynamic registration.
@@ -68,7 +40,6 @@ fn client_metadata(redirect_uri: Url) -> Result<Raw<ClientMetadata>, String> {
         .map_err(|err| format!("invalid Lightning client URI: {err}"))?;
 
     let mut metadata = ClientMetadata::new(
-        // A native app, so the server expects a loopback redirect.
         ApplicationType::Native,
         vec![OAuthGrantType::AuthorizationCode { redirect_uris: vec![redirect_uri] }],
         Localized::new(client_uri, []),
@@ -98,16 +69,12 @@ fn portless_loopback_redirect(redirect: &Url) -> Option<Url> {
         Some("127.0.0.1") | Some("localhost") | Some("[::1]") | Some("::1") => {}
         _ => return None,
     }
-    // `port()` is None for no port or the default port; nothing to strip.
     redirect.port()?;
     let mut portless = redirect.clone();
     portless.set_port(None).ok()?;
     Some(portless)
 }
 
-/// Whether an `OAuth::login().build()` failure is the server refusing our
-/// client metadata (RFC 7591 §3.2.2 error code, matched structurally rather
-/// than on prose). Returns which code matched, for the retry's report.
 fn registration_refused_metadata(err: &OAuthError) -> Option<&'static str> {
     let OAuthError::ClientRegistration(OAuthClientRegistrationError::OAuth(
         RequestTokenError::ServerResponse(response),
@@ -126,19 +93,6 @@ fn registration_refused_metadata(err: &OAuthError) -> Option<&'static str> {
     }
 }
 
-/// How to retry a refused registration: metadata with the loopback redirect
-/// URI minus its port, plus the redirect URI for the authorization request
-/// (the live listener URI, with port), the split RFC 8252 §7.3 intends.
-/// matrix-sdk 0.18 allows it: `OAuth::login()` takes the request URI
-/// directly, and `finish_login()` sends that same URI in the token exchange.
-///
-/// `None` when the failure was not a metadata refusal, there is no port, or
-/// the URI is not loopback `http`.
-///
-/// Retry rather than always registering portless: MAS accepts the pinned
-/// port and is the only server this flow was live-validated against. Both
-/// continuwuity (for `application_type: native`) and MAS
-/// (`Client::resolve_redirect_uri`) strip the port when matching.
 fn portless_registration_retry(
     redirect: &Url,
     err: &OAuthError,
@@ -149,8 +103,6 @@ fn portless_registration_retry(
     Some((metadata, redirect.clone(), reason))
 }
 
-/// A server-chosen code, reduced to what a log may carry: ASCII letters,
-/// digits and `_ . -`, at most 48 characters, or `unrecognised`.
 pub(crate) fn wire_token(code: &str) -> String {
     let loggable = !code.is_empty()
         && code.len() <= 48
@@ -197,8 +149,6 @@ fn token_request_reason(err: &OAuthRequestError<BasicErrorResponseType>) -> Stri
     }
 }
 
-/// Why an OAuth step failed, as a fixed token for the log. Never carries a
-/// URL, code, state, token or server prose; the UI keeps its own wording.
 pub(crate) fn oauth_failure_reason(err: &OAuthError) -> String {
     use matrix_sdk::authentication::oauth::error::OAuthAuthorizationCodeError as Code;
     match err {
@@ -228,8 +178,6 @@ pub(crate) fn oauth_failure_reason(err: &OAuthError) -> String {
     }
 }
 
-/// Why a Matrix request failed, as a fixed token for the log: the HTTP status
-/// and errcode for a server answer, the transport class otherwise.
 pub(crate) fn http_failure_reason(err: &matrix_sdk::HttpError) -> String {
     if let Some(api) = err.as_client_api_error() {
         let code = api
@@ -246,7 +194,6 @@ pub(crate) fn http_failure_reason(err: &matrix_sdk::HttpError) -> String {
     }
 }
 
-/// `oauth_failure_reason` / `http_failure_reason` for the SDK's own error.
 pub(crate) fn sdk_failure_reason(err: &matrix_sdk::Error) -> String {
     match err {
         matrix_sdk::Error::OAuth(err) => oauth_failure_reason(err),
@@ -304,16 +251,6 @@ pub(crate) fn spawn_token_persistence_with(
     )
 }
 
-/// `spawn_token_persistence_with`, also recording what it sees in the
-/// handle's custody facts (design 2026-10-15 §3.2.7): a rotation bumps the
-/// generation, `UnknownToken` sets the sticky revoked flag. The queue output
-/// is unchanged; a Background handle's gate keeps `session_tokens_refreshed`
-/// off its queue, because custody is its only token path.
-///
-/// A rotation announced by the ledger's save callback has ALREADY bumped the
-/// custody generation inside the refresh (`sessiontokens::Sink::custody`), so
-/// a Background host takes custody and answers while the SDK waits; this
-/// watcher does not bump it a second time for the same rotation.
 #[must_use]
 pub(crate) fn spawn_token_persistence_custody(
     client: &Client,
@@ -341,15 +278,7 @@ pub(crate) fn spawn_token_persistence_custody(
                         }),
                     );
                 }
-                // The server rejected the token and the SDK could not renew it: report the
-                // revoked-credential state instead of letting sync fail in a loop. A soft
-                // logout keeps the device on the server; only a hard one proves it gone,
-                // which is what lets a new sign-in move this device's store aside.
                 Ok(SessionChange::UnknownToken(data)) => {
-                    // Whether the session had a refresh token to try: without
-                    // one matrix-sdk reports this without asking the server
-                    // (`RefreshTokenRequired`), with one the server refused
-                    // it. A boolean only, never the token.
                     let had_refresh_token = client
                         .session_tokens()
                         .is_some_and(|tokens| tokens.refresh_token.is_some());
@@ -359,11 +288,6 @@ pub(crate) fn spawn_token_persistence_custody(
                         "soft_logout": data.soft_logout,
                         "had_refresh_token": had_refresh_token,
                     });
-                    // Why the server may have refused: counts and a boolean,
-                    // never a token. `rotations` 0 means the refused refresh
-                    // token is the one this session was restored with (from
-                    // the keyring); `unsaved_rotation` that the session had
-                    // rotated past the last pair C++ confirmed in the keyring.
                     if let Some(stats) = ledger.as_ref().map(|l| l.stats()) {
                         if let Some(map) = event.as_object_mut() {
                             map.insert("rotations".to_owned(), json!(stats.rotations));
@@ -389,9 +313,6 @@ pub(crate) fn spawn_token_persistence_custody(
     })
 }
 
-/// Phase A bootstrap handle: a `RustClient` with an empty store path, so
-/// `build_client()` uses the in-memory store. Destroy with `mx_rust_destroy`
-/// once the session is handed to the real account handle.
 #[no_mangle]
 pub extern "C" fn mx_rust_oauth_bootstrap_create() -> *mut c_void {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -403,24 +324,6 @@ pub extern "C" fn mx_rust_oauth_bootstrap_create() -> *mut c_void {
     }
 }
 
-/// Discover which authentication methods a homeserver offers. Enqueues one
-/// `auth_discovery` event:
-///
-/// ```json
-/// { "type": "auth_discovery", "homeserver": "...", "oauth": true,
-///   "password": true, "sso": false, "error": null }
-/// ```
-///
-/// `oauth` is true when the server publishes OAuth authorization server
-/// metadata; `password`/`sso` come from `/login` flows. Nothing is
-/// hard-coded per provider.
-///
-/// Also, on success: `resolved_homeserver`, the client API base URL the SDK
-/// resolved (the login screen warns when it is plain http off loopback);
-/// `oauth_can_create`, whether the metadata lists `prompt=create` (sign-up
-/// through the server's own page, as Element does); `account_management_uri`,
-/// the metadata's account page, https only. `error` is set only when the
-/// client could not be built, i.e. the server could not be reached.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_oauth_discover(
     ptr: *mut c_void,
@@ -436,8 +339,6 @@ pub unsafe extern "C" fn mx_rust_oauth_discover(
         crate::spawn_session_thread(None, move || {
             let runtime_events = Arc::clone(&events);
             run_async_on(shared_runtime, runtime_events, "oauth_discover", async move {
-                // In-memory client: discovery must not create a store. It
-                // follows this handle's network route (route.rs).
                 let client = match crate::build_memory_client(&homeserver, &route_of).await {
                     Ok(client) => client,
                     Err(err) => {
@@ -456,16 +357,13 @@ pub unsafe extern "C" fn mx_rust_oauth_discover(
                     }
                 };
 
-                // An error here means "not an OAuth server", not a failure.
                 let metadata = client.oauth().server_metadata().await.ok();
                 let oauth_supported = metadata.is_some();
-                // `Prompt` has no PartialEq; compare its wire string.
                 let oauth_can_create = metadata.as_ref().is_some_and(|m| {
                     m.prompt_values_supported
                         .iter()
                         .any(|p| p.as_str() == Prompt::Create.as_str())
                 });
-                // Opened in the browser from the login screen: https only.
                 let account_management_uri = metadata
                     .as_ref()
                     .and_then(|m| m.account_management_uri.as_ref())
@@ -473,7 +371,6 @@ pub unsafe extern "C" fn mx_rust_oauth_discover(
                     .map(|uri| uri.to_string())
                     .unwrap_or_default();
 
-                // Not fatal: an OAuth-only server may not answer /login.
                 let (password, sso) = match client.matrix_auth().get_login_types().await {
                     Ok(response) => {
                         let mut password = false;
@@ -511,14 +408,6 @@ pub unsafe extern "C" fn mx_rust_oauth_discover(
     })
 }
 
-/// Begin an OAuth login: register the client if needed and build the
-/// authorization URL. `prompt_create` non-zero asks the server's page to
-/// create an account (`prompt=create`); the rest of the flow is identical.
-/// Enqueues `{"type": "oauth_url", "url": "..."}` or
-/// `{"type": "oauth_failed", "message": "..."}`. The bootstrap Client is
-/// parked in the client slot because the SDK stores this attempt's PKCE
-/// verifier and CSRF state in it; `finish_login()` must use the same
-/// instance. The URL (opened by C++) contains no credentials.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_oauth_begin(
     ptr: *mut c_void,
@@ -533,7 +422,6 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
 
         let redirect = Url::parse(&redirect_uri)
             .map_err(|err| format!("invalid OAuth redirect URI: {err}"))?;
-        // Defence in depth: never ask a server to redirect anywhere but loopback.
         match redirect.host_str() {
             Some("127.0.0.1") | Some("localhost") | Some("[::1]") | Some("::1") => {}
             _ => return Err("OAuth redirect URI must be a loopback address.".to_owned()),
@@ -562,10 +450,6 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
                     }
                 };
 
-                // device_id None: the SDK generates one, encoded in the scope, and returns
-                // it from finish_login(); Phase B's store must belong to it.
-                // A sign-up only where the server's metadata lists it; C++ asks
-                // only then, and this keeps the rule where the request is built.
                 if prompt_create != 0 {
                     let supported = client.oauth().server_metadata().await.is_ok_and(|m| {
                         m.prompt_values_supported
@@ -583,7 +467,6 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
                         return;
                     }
                 }
-                // Only a sign-up sets `prompt`; a sign-in leaves it out entirely.
                 let with_prompt = |request: matrix_sdk::authentication::oauth::OAuthAuthCodeUrlBuilder| {
                     if prompt_create != 0 {
                         request.prompt(vec![Prompt::Create])
@@ -608,8 +491,6 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
                     .err()
                     .and_then(|err| portless_registration_retry(&redirect, err));
                 if let Some((retry_metadata, request_redirect, reason)) = retry {
-                    // Log that the retry happened (no URI, port, nonce or token), so reports
-                    // can tell "never fired", "worked" and "refused again" apart.
                     enqueue(&events, json!({
                         "type": "oauth_registration_retry",
                         "reason": reason,
@@ -658,18 +539,6 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
     })
 }
 
-/// Complete an OAuth login from the callback the loopback listener got.
-/// `callback` (full redirect URI or query) carries `code` and `state`, so it
-/// is never logged or echoed in errors.
-///
-/// The SDK validates `state` and does the PKCE code exchange. On success
-/// this enqueues `oauth_ok` with what C++ needs to open the account store:
-///
-/// ```json
-/// { "type": "oauth_ok", "homeserver": "...", "user_id": "@u:s",
-///   "device_id": "ABC", "client_id": "...", "access_token": "...",
-///   "refresh_token": "..." }
-/// ```
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_oauth_finish(
     ptr: *mut c_void,
@@ -681,8 +550,6 @@ pub unsafe extern "C" fn mx_rust_oauth_finish(
         if callback.trim().is_empty() {
             return Err("empty OAuth callback".to_owned());
         }
-        // Parsed synchronously to fail fast; the error never quotes the input (it
-        // carries the authorization code).
         let callback_url = Url::parse(&callback)
             .map_err(|_| "malformed OAuth callback".to_owned())?;
 
@@ -709,10 +576,7 @@ pub unsafe extern "C" fn mx_rust_oauth_finish(
                     }
                 };
 
-                // The SDK checks `state` and exchanges the code with the PKCE verifier; a
-                // mismatch, denial or replayed callback fails here.
                 if let Err(err) = client.oauth().finish_login(callback_url.into()).await {
-                    // The error may quote the callback, so only its category travels.
                     let reason = sdk_failure_reason(&err);
                     drop(client);
                     if let Ok(mut guard) = state_slot.lock() {
@@ -763,7 +627,6 @@ pub unsafe extern "C" fn mx_rust_oauth_finish(
                     }),
                 );
 
-                // Phase A is over: drop the bootstrap client and its in-memory tokens.
                 drop(client);
                 if let Ok(mut guard) = state_slot.lock() {
                     *guard = None;
@@ -775,9 +638,6 @@ pub unsafe extern "C" fn mx_rust_oauth_finish(
     })
 }
 
-/// Abort an OAuth login in progress. Clears the SDK's stored authorization
-/// data so a late or replayed callback cannot complete it, and releases the
-/// bootstrap client.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_oauth_abort(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -803,12 +663,6 @@ pub unsafe extern "C" fn mx_rust_oauth_abort(ptr: *mut c_void) -> *mut c_char {
     })
 }
 
-/// Build the account's client and restore an OAuth session into it. Returns
-/// the client and a session-change receiver subscribed BEFORE
-/// `restore_session()`: that call starts matrix-sdk's E2EE initialization
-/// task, whose requests carry the restored (usually expired) access token and
-/// so can rotate the tokens before this returns. A receiver made after it
-/// misses that rotation and the keyring keeps the consumed refresh token.
 pub(crate) async fn restore_oauth_client(
     homeserver: &str,
     store_path: &std::path::Path,
@@ -820,9 +674,6 @@ pub(crate) async fn restore_oauth_client(
         .await
 }
 
-/// `restore_oauth_client` with `after_restore` run right after
-/// `restore_session()`: it stands for what that call set running, so a test
-/// can rotate the tokens at exactly that point. Production passes nothing.
 pub(crate) async fn restore_oauth_client_then<F, Fut>(
     homeserver: &str,
     store_path: &std::path::Path,
@@ -835,12 +686,7 @@ where
     F: FnOnce(Client) -> Fut,
     Fut: std::future::Future<Output = ()>,
 {
-    // The offline-capable build, as for password restores (see
-    // build_client_for_restore).
     let client = crate::build_client_for_restore(homeserver, store_path, events).await?;
-    // The SDK's save callback, before restore_session(): every rotation this
-    // client makes, the restore's own included, is recorded and announced
-    // inside the refresh, and held until C++ has written it.
     if let Some(sink) = token_sink {
         sink.install_on(&client);
     }
@@ -855,8 +701,6 @@ where
         return Err(format_matrix_error("Matrix OAuth session restore failed", err));
     }
     after_restore(client.clone()).await;
-    // On the shared runtime with rooms loaded, as the send-queue respawn
-    // requires (see resume_unsent_requests in lib.rs).
     crate::switchtrace::timed(
         Some(crate::switchtrace::RestoreStep::ResumeUnsent),
         crate::resume_unsent_requests(&client),
@@ -865,13 +709,6 @@ where
     Ok((client, changes))
 }
 
-/// Phase B: restore an OAuth session into the real account-scoped store,
-/// like `mx_rust_restore` but via `oauth().restore_session()` so the SDK
-/// owns token refresh. `refresh_token` may be empty.
-///
-/// The caller must already have decided, from the recorded identity and the
-/// store-ownership policy, that `store_path` belongs to `user_id` /
-/// `device_id`; this function cannot judge that.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_oauth_restore(
     ptr: *mut c_void,
@@ -898,7 +735,6 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
         let parsed_user: OwnedUserId = UserId::parse(&user_id)
             .map_err(|err| format!("invalid stored Matrix user id: {err}"))?
             .to_owned();
-        // A server-issued opaque string.
         let parsed_device: OwnedDeviceId = device_id.clone().into();
 
         bridge.abandon_uia();
@@ -916,7 +752,6 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
         let sync_notify = Arc::clone(&bridge.sync_notify);
         let shared_runtime = Arc::clone(&bridge.runtime);
         let custody = Arc::clone(&bridge.custody);
-        // Labs: this handle's reservation and precheck (none with the flag off).
         let open_context = bridge.open_context();
         crate::spawn_session_thread(bridge.op_thread_name(), move || {
             let runtime_events = Arc::clone(&events);
@@ -951,7 +786,6 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
                             Arc::clone(&active_qr),
                             Arc::clone(&sync_notify),
                         );
-                        // OAuth access tokens are short-lived, so rotations must be persisted.
                         if let Ok(mut guard) = token_task.lock() {
                             if let Some(previous) = guard.replace(
                                 spawn_token_persistence_custody(
@@ -986,15 +820,6 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
     })
 }
 
-/// End, at the server, a session a browser sign-in created and Phase B then
-/// refused to keep on this device (an existing store for another device, a
-/// storage-name collision, ...). Without this the server keeps a device and a
-/// live sign-in nobody holds. `flow` is "oauth" (revoke at the authorization
-/// server) or "sso" (`/logout`). Best effort and bounded
-/// (`REFUSED_SIGN_IN_REVOKE_BUDGET`): an in-memory client, no store, no sync.
-/// Enqueues `{"type":"refused_sign_in_revoked","category":...}` on this
-/// handle, a fixed word only. SENSITIVE: the arguments carry credentials and
-/// are never logged.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_revoke_refused_sign_in(
     ptr: *mut c_void,
@@ -1043,14 +868,6 @@ pub unsafe extern "C" fn mx_rust_revoke_refused_sign_in(
     })
 }
 
-/// Phase 2 of adopting a sign-in saved before install scoping (password
-/// sessions): ask the server whose device the stored access token belongs
-/// to, BEFORE anything is restored. A plain `GET /account/whoami` with no
-/// client session at all, so no crypto, no sync and no refresh can run on a
-/// token another install may be using. Enqueues
-/// `{"type":"whoami_probe","result":"device","device_id":"..."}`, or a result
-/// of "unauthorized" (401), "unreachable" or "other". Bounded.
-/// SENSITIVE: `access_token` is a credential and is never logged.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_whoami_probe(
     ptr: *mut c_void,
@@ -1086,10 +903,8 @@ pub unsafe extern "C" fn mx_rust_whoami_probe(
     })
 }
 
-/// How long the adoption check may take; past it the restore goes on.
 const WHOAMI_PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(15);
 
-/// The check itself: a fixed result word and, for a 200, the device id.
 pub(crate) async fn whoami_probe(
     homeserver: &str,
     access_token: &str,
@@ -1098,8 +913,6 @@ pub(crate) async fn whoami_probe(
     if access_token.is_empty() {
         return ("other", None);
     }
-    // In memory and without a session: only its resolved URL and HTTP client
-    // are used. The asking handle's network route applies (route.rs).
     let Ok(client) = crate::build_memory_client(homeserver, route_of).await else {
         return ("unreachable", None);
     };
@@ -1138,10 +951,8 @@ pub(crate) async fn whoami_probe(
     }
 }
 
-/// How long ending a refused sign-in may take before it is given up.
 const REFUSED_SIGN_IN_REVOKE_BUDGET: std::time::Duration = std::time::Duration::from_secs(20);
 
-/// The revocation itself. A fixed category on failure, never server text.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn revoke_refused_sign_in(
     homeserver: &str,
@@ -1163,7 +974,6 @@ pub(crate) async fn revoke_refused_sign_in(
         access_token,
         refresh_token: if refresh_token.is_empty() { None } else { Some(refresh_token) },
     };
-    // In memory: nothing of this session may reach a store on this device.
     let client = crate::build_memory_client(homeserver, route_of)
         .await
         .map_err(|_| "unreachable")?;
@@ -1200,9 +1010,6 @@ pub(crate) async fn revoke_refused_sign_in(
     }
 }
 
-/// Log out an OAuth session, revoking its tokens at the authorization
-/// server. Password sessions use `mx_rust_logout`. Store deletion is left
-/// to C++.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_oauth_logout(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -1216,20 +1023,13 @@ pub unsafe extern "C" fn mx_rust_oauth_logout(ptr: *mut c_void) -> *mut c_char {
         let shared_runtime = Arc::clone(&bridge.runtime);
         crate::spawn_session_thread(bridge.op_thread_name(), move || {
             let runtime_events = Arc::clone(&events);
-            // Held and announced only after `run_async_on` has returned, i.e.
-            // after this thread's Client is gone, as `mx_rust_logout` does:
-            // C++ starts deleting the store when it sees `logged_out`.
             let outcome: Arc<Mutex<Option<serde_json::Value>>> = Arc::new(Mutex::new(None));
             let outcome_slot = Arc::clone(&outcome);
             run_async_on(shared_runtime, runtime_events, "oauth_logout", async move {
                 let client = client_slot.lock().ok().and_then(|mut g| g.take());
-                // Same shape as mx_rust_logout: C++ reads "result", so a failed revocation
-                // must not default to "ok".
                 let event = match client.as_ref() {
                     Some(client) => match client.oauth().logout().await {
                         Ok(()) => json!({ "type": "logged_out", "result": "ok" }),
-                        // A revocation failure still ends the local session. The SDK detail is
-                        // omitted since it may quote endpoint URLs.
                         Err(_) => json!({
                             "type": "logged_out",
                             "result": "failed",
@@ -1263,8 +1063,6 @@ pub unsafe extern "C" fn mx_rust_oauth_logout(ptr: *mut c_void) -> *mut c_char {
 mod tests {
     use super::*;
 
-    // ClientMetadata is serialize-only in matrix-sdk 0.18, so assert on the JSON
-    // sent to the registration endpoint.
     fn metadata_json(redirect: &str) -> serde_json::Value {
         let raw = client_metadata(Url::parse(redirect).unwrap()).expect("metadata builds");
         serde_json::from_str(raw.json().get()).expect("metadata is JSON")
@@ -1275,12 +1073,8 @@ mod tests {
         let redirect = "http://127.0.0.1:51234/callback";
         let json = metadata_json(redirect);
 
-        // A native app: the server expects a loopback redirect.
         assert_eq!(json["application_type"], "native");
-        // Exactly one redirect URI: this attempt's loopback endpoint.
         assert_eq!(json["redirect_uris"], serde_json::json!([redirect]));
-        // The SDK adds `refresh_token` to the grants; without it no refresh token
-        // is issued and expired access tokens cannot be renewed.
         assert_eq!(json["grant_types"],
                    serde_json::json!(["authorization_code", "refresh_token"]));
     }
@@ -1291,8 +1085,6 @@ mod tests {
         assert_eq!(json["client_name"], "Lightning");
     }
 
-    // The device-code grant (login_with_qr_code) is not used, so it must not be
-    // requested.
     #[test]
     fn client_metadata_does_not_request_the_device_code_grant() {
         let json = metadata_json("http://127.0.0.1:1/cb");
@@ -1301,12 +1093,6 @@ mod tests {
                 "device_code grant must not be requested: {grants:?}");
     }
 
-    // ---------------------------------------------------------------------
-    // RFC 8252 §7.3: strict servers refuse to register a pinned loopback port.
-    // ---------------------------------------------------------------------
-
-    /// The C++ listener URI: loopback, an ephemeral port, and a per-attempt
-    /// 128-bit nonce path.
     const LISTENER: &str = "http://127.0.0.1:51234/lightning-oauth/0a1b2c3d4e5f60718293a4b5c6d7e8f9";
     const LISTENER_PORTLESS: &str =
         "http://127.0.0.1/lightning-oauth/0a1b2c3d4e5f60718293a4b5c6d7e8f9";
@@ -1315,8 +1101,6 @@ mod tests {
         Url::parse(raw).expect("test URL parses")
     }
 
-    /// continuwuity's refusal, reduced to the wire: RFC 7591 §3.2.2's
-    /// `invalid_client_metadata` code plus prose.
     fn metadata_refusal(description: &str) -> OAuthError {
         use matrix_sdk::authentication::oauth::error::StandardErrorResponse;
         OAuthError::ClientRegistration(OAuthClientRegistrationError::OAuth(
@@ -1335,7 +1119,6 @@ mod tests {
         )
     }
 
-    // The registered URI must carry no port.
     #[test]
     fn client_metadata_registers_a_portless_loopback_uri_verbatim() {
         let json = metadata_json(LISTENER_PORTLESS);
@@ -1346,11 +1129,9 @@ mod tests {
     #[test]
     fn portless_loopback_redirect_strips_the_ephemeral_port_and_keeps_the_path() {
         let stripped = portless_loopback_redirect(&url(LISTENER)).expect("a port to strip");
-        // The nonce path survives: widened to any port on loopback, this path.
         assert_eq!(stripped.as_str(), LISTENER_PORTLESS);
     }
 
-    // The oauth_begin guard accepts `[::1]`, so this must handle it too.
     #[test]
     fn portless_loopback_redirect_handles_ipv6_loopback() {
         let stripped =
@@ -1365,13 +1146,11 @@ mod tests {
         assert_eq!(stripped.as_str(), "http://localhost/cb");
     }
 
-    // Nothing to strip: no retry (identical metadata would fail again).
     #[test]
     fn portless_loopback_redirect_declines_when_there_is_no_port() {
         assert!(portless_loopback_redirect(&url(LISTENER_PORTLESS)).is_none());
     }
 
-    // Defence in depth: the retry must not register a non-loopback redirect.
     #[test]
     fn portless_loopback_redirect_refuses_a_non_loopback_host() {
         assert!(portless_loopback_redirect(&url("http://evil.example:8080/cb")).is_none());
@@ -1379,7 +1158,6 @@ mod tests {
         assert!(portless_loopback_redirect(&url("http://127.0.0.1.evil.example:8080/cb")).is_none());
     }
 
-    // The port rule applies to http loopback URIs only.
     #[test]
     fn portless_loopback_redirect_refuses_a_non_http_scheme() {
         assert!(portless_loopback_redirect(&url("https://127.0.0.1:8443/cb")).is_none());
@@ -1388,12 +1166,10 @@ mod tests {
 
     #[test]
     fn registration_refused_metadata_recognises_a_metadata_refusal() {
-        // The code is reported, not just detected.
         assert_eq!(
             registration_refused_metadata(&continuwuity_refusal()),
             Some("invalid_client_metadata")
         );
-        // The sibling RFC 7591 code for the same complaint.
         assert_eq!(
             registration_refused_metadata(&OAuthError::ClientRegistration(
                 OAuthClientRegistrationError::OAuth(RequestTokenError::ServerResponse(
@@ -1408,8 +1184,6 @@ mod tests {
         );
     }
 
-    // Retry only a refusal of what we sent: transport failures and missing
-    // endpoints would fail again, and later-stage failures already registered.
     #[test]
     fn registration_refused_metadata_ignores_everything_else() {
         assert!(registration_refused_metadata(&OAuthError::ClientRegistration(
@@ -1425,8 +1199,6 @@ mod tests {
         assert!(registration_refused_metadata(&OAuthError::NotRegistered).is_none());
     }
 
-    // Register without the port, request with it; both come from this one
-    // function (matrix-sdk 0.18 keeps them separate).
     #[test]
     fn portless_registration_retry_registers_without_the_port_and_requests_with_it() {
         let listener = url(LISTENER);
@@ -1440,11 +1212,8 @@ mod tests {
         assert_eq!(json["redirect_uris"], serde_json::json!([LISTENER_PORTLESS]));
         assert_eq!(json["application_type"], "native");
 
-        // The request keeps the live port: the browser URI, the listener's port,
-        // and what finish_login() replays in the token exchange.
         assert_eq!(request_redirect.as_str(), LISTENER);
         assert_eq!(request_redirect.port(), Some(51234));
-        // And the input is untouched.
         assert_eq!(listener.as_str(), LISTENER);
     }
 
@@ -1469,7 +1238,6 @@ mod tests {
         .is_none());
     }
 
-    // A metadata refusal must not lead to registering an off-machine redirect.
     #[test]
     fn portless_registration_retry_declines_a_non_loopback_redirect() {
         assert!(portless_registration_retry(
@@ -1479,18 +1247,12 @@ mod tests {
         .is_none());
     }
 
-    // A refusal with no port to strip must not loop.
     #[test]
     fn portless_registration_retry_declines_when_the_uri_is_already_portless() {
         assert!(
             portless_registration_retry(&url(LISTENER_PORTLESS), &continuwuity_refusal()).is_none()
         );
     }
-
-    // ---------------------------------------------------------------------
-    // Failure reasons: what the log may say about a failed browser sign-in.
-    // Before these, a failed code exchange left no trace anywhere.
-    // ---------------------------------------------------------------------
 
     fn token_refusal(code: BasicErrorResponseType, description: &str) -> OAuthError {
         use matrix_sdk::authentication::oauth::error::{
@@ -1512,8 +1274,6 @@ mod tests {
         assert_eq!(oauth_failure_reason(&err), "state_mismatch");
     }
 
-    // The protocol code is the whole report: the server's prose can quote
-    // the code or the redirect URI.
     #[test]
     fn a_refused_code_exchange_names_the_protocol_code_and_nothing_else() {
         let err = token_refusal(
@@ -1521,7 +1281,6 @@ mod tests {
             "code abc123 for http://127.0.0.1:1/callback/x was already used",
         );
         assert_eq!(oauth_failure_reason(&err), "token_invalid_grant");
-        // The SDK's own wrapper reaches the same answer.
         assert_eq!(
             sdk_failure_reason(&matrix_sdk::Error::OAuth(Box::new(err))),
             "token_invalid_grant"
@@ -1573,11 +1332,6 @@ mod tests {
     }
 }
 
-/// Session management for MAS/OAuth accounts, which have no password UIA:
-/// device sign-out happens in the account console. Answers with the console
-/// URL (empty `device_id`: the sessions list; otherwise that device's delete
-/// page). Result event: `oauth_management_url { op_id, ok, url }`. Not
-/// logged.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_oauth_management_url(
     ptr: *mut c_void,
@@ -1653,7 +1407,6 @@ mod token_persistence_tests {
         SessionMeta, SessionTokens,
     };
 
-    /// The request line and headers; any body is read and dropped.
     fn read_head(stream: &mut std::net::TcpStream) -> String {
         let mut buf = Vec::new();
         let mut chunk = [0u8; 4096];
@@ -1700,10 +1453,6 @@ mod token_persistence_tests {
         logouts: AtomicUsize,
     }
 
-    /// A homeserver with its own authorization server: `/refresh` (password
-    /// sessions) and the OAuth token endpoint hand out `access-N` /
-    /// `refresh-N`; revocation and `/logout` are counted; everything else is
-    /// an empty success (the E2EE initialization task's requests).
     fn serve() -> (String, Arc<Seen>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let base = format!("http://{}", listener.local_addr().expect("addr"));
@@ -1796,13 +1545,10 @@ mod token_persistence_tests {
         }
     }
 
-    /// Labs custody (design §3.2.7): the token task records a rotation and a
-    /// revocation in the handle's facts, and its queue output is unchanged.
     #[test]
     fn the_token_task_records_rotation_and_revocation_in_custody() {
         let (homeserver, _) = serve();
         runtime().block_on(async {
-            // A rotation.
             let client = matrix_sdk::Client::builder()
                 .homeserver_url(&homeserver)
                 .handle_refresh_tokens()
@@ -1830,7 +1576,6 @@ mod token_persistence_tests {
             assert!(!custody.revoked());
             assert_eq!(refreshed(&events).len(), 1, "the queue output must be unchanged");
 
-            // A revocation: no refresh token, and the server refuses the token.
             let client = matrix_sdk::Client::builder()
                 .homeserver_url(&homeserver)
                 .build()
@@ -1884,7 +1629,6 @@ mod token_persistence_tests {
             .collect()
     }
 
-    /// Watches `changes` and returns what it announced within a few seconds.
     async fn announced(
         client: &matrix_sdk::Client,
         changes: tokio::sync::broadcast::Receiver<matrix_sdk::SessionChange>,
@@ -1895,15 +1639,11 @@ mod token_persistence_tests {
         while refreshed(&events).is_empty() && tokio::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        // Room for a second announcement the restore's own task may make.
         tokio::time::sleep(Duration::from_millis(200)).await;
         watcher.abort();
         refreshed(&events)
     }
 
-    /// PROPERTY test of matrix-sdk's broadcast, which the restore paths rely
-    /// on: a receiver sees only what is sent after it exists. It tests no
-    /// Lightning code path; the two restore tests below do.
     #[test]
     fn property_a_session_change_reaches_only_receivers_that_existed_before_it() {
         let (homeserver, _) = serve();
@@ -1936,10 +1676,6 @@ mod token_persistence_tests {
         });
     }
 
-    /// The password and SSO restore (`mx_rust_restore`): a rotation made by
-    /// whatever `restore_session()` set running is announced on the receiver
-    /// the restore hands back. The hook rotates at exactly that point; moving
-    /// the subscription below `restore_session()` fails this.
     #[test]
     fn a_rotation_during_the_password_restore_is_announced() {
         let (homeserver, _) = serve();
@@ -1966,9 +1702,6 @@ mod token_persistence_tests {
         let _ = std::fs::remove_dir_all(&store);
     }
 
-    /// The OAuth restore (`mx_rust_oauth_restore`), the matrix.org case: same
-    /// property through `restore_oauth_client_then`, refreshing at the OAuth
-    /// token endpoint.
     #[test]
     fn a_rotation_during_the_oauth_restore_is_announced() {
         let (homeserver, seen) = serve();
@@ -2002,8 +1735,6 @@ mod token_persistence_tests {
         let _ = std::fs::remove_dir_all(&store);
     }
 
-    /// The adoption check's three answers, from a plain whoami with no client
-    /// session.
     #[test]
     fn the_adoption_check_names_the_device_or_says_it_cannot_tell() {
         let (homeserver, _) = serve();
@@ -2017,17 +1748,10 @@ mod token_persistence_tests {
         });
     }
 
-    /// A browser sign-in Phase B refused is ended at the server: an SSO
-    /// session logs out; OAuth tokens are revoked at the authorization server
-    /// (only up to the request here, see below).
     #[test]
     fn a_refused_browser_sign_in_is_ended_at_the_server() {
         let (homeserver, seen) = serve();
         runtime().block_on(async {
-            // OAuth gets as far as the revocation request and no further over
-            // plain http: the oauth2 crate refuses a revocation endpoint that
-            // is not https (a real authorization server's always is), so on
-            // this loopback fixture it reports "refused" before sending.
             assert_eq!(
                 revoke_refused_sign_in(&homeserver, "oauth", "client".to_owned(),
                                        "@me:example.org", "NEWDEVICE".to_owned(),
@@ -2043,7 +1767,6 @@ mod token_persistence_tests {
                 .expect("sso logout");
             assert_eq!(seen.logouts.load(Ordering::SeqCst), 1);
 
-            // Nothing to end, and nothing that could be: a word, no request.
             assert_eq!(
                 revoke_refused_sign_in(&homeserver, "oauth", String::new(),
                                        "@me:example.org", "D".to_owned(),

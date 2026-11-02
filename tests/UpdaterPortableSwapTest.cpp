@@ -1,9 +1,3 @@
-// lightning-updater: transactional replacement and rollback.
-//
-// The installation is either entirely the old version or entirely the new
-// one: a failure at any step leaves the target exactly as found, and a target
-// we cannot write is refused before anything is touched. Mid-swap failures
-// are injected through ReplaceHooks.
 
 #include "updater/AtomicReplace.h"
 
@@ -40,7 +34,6 @@ QByteArray readFile(const QString &path)
     return file.readAll();
 }
 
-// A minimal but realistic installation tree.
 bool buildInstallation(const QString &root, const QByteArray &marker)
 {
     return writeFile(QDir(root).absoluteFilePath(kExe), marker)
@@ -62,7 +55,7 @@ bool installationHasMarker(const QString &root, const QByteArray &marker)
                == marker + QByteArray("-dll");
 }
 
-} // namespace
+}
 
 class UpdaterPortableSwapTest : public QObject
 {
@@ -71,13 +64,11 @@ class UpdaterPortableSwapTest : public QObject
 private slots:
     void init();
 
-    // --- staged layout resolution ---
     void resolvesAFlatStagedTree();
     void resolvesASingleTopLevelFolder();
     void refusesAnAmbiguousStagedTree();
     void refusesAStagedTreeWithoutTheExecutable();
 
-    // --- directory swap ---
     void swapsTheInstallationAtomically();
     void preservedPortableDataSurvivesTheSwap();
     void preservedPortableDataIsNeverPromotedOver();
@@ -94,7 +85,6 @@ private slots:
     void aFailedPromoteRollsBackWithoutTouchingPreservedState();
     void copyFallbackStillSwapsAndRollsBack();
 
-    // --- file replacement (AppImage) ---
     void replacesAFileAndPreservesTheExecutableBit();
     void fileReplaceRollsBackOnPromotionFailure();
     void fileReplaceRefusesAMissingTarget();
@@ -122,8 +112,6 @@ void UpdaterPortableSwapTest::init()
     QFile::remove(m_backup);
 }
 
-// ---------------------------------------------------------------------------
-
 void UpdaterPortableSwapTest::resolvesAFlatStagedTree()
 {
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));
@@ -145,7 +133,6 @@ void UpdaterPortableSwapTest::refusesAnAmbiguousStagedTree()
                               QByteArray("a")));
     QVERIFY(buildInstallation(QDir(m_staged).absoluteFilePath(QStringLiteral("b")),
                               QByteArray("b")));
-    // Two candidates is ambiguous; guessing would be worse than refusing.
     QVERIFY(resolveStagedRoot(m_staged, kExe).isEmpty());
 }
 
@@ -156,8 +143,6 @@ void UpdaterPortableSwapTest::refusesAStagedTreeWithoutTheExecutable()
     QVERIFY(resolveStagedRoot(m_staged, kExe).isEmpty());
 }
 
-// ---------------------------------------------------------------------------
-
 void UpdaterPortableSwapTest::swapsTheInstallationAtomically()
 {
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));
@@ -166,17 +151,11 @@ void UpdaterPortableSwapTest::swapsTheInstallationAtomically()
     const ReplaceResult result = swapDirectory(m_staged, m_target, m_backup, kExe);
     QVERIFY2(result.ok(), replaceErrorName(result.error));
     QVERIFY(installationHasMarker(m_target, QByteArray("new")));
-    // Every file came from the new version — no mixture survived.
     QVERIFY(!installationHasMarker(m_target, QByteArray("old")));
-    // The previous installation is cleaned up, and nothing outside was touched.
     QVERIFY(!QFileInfo::exists(m_backup));
     QVERIFY(QFileInfo::exists(m_dir.path()));
 }
 
-// The portable data root (settings, sealed session, SDK store, crypto store)
-// lives inside the installation and must survive the swap via the preserve
-// set; otherwise an ordinary update signs the user out onto a new device and
-// loses Megolm keys not in backup.
 void UpdaterPortableSwapTest::preservedPortableDataSurvivesTheSwap()
 {
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));
@@ -199,9 +178,7 @@ void UpdaterPortableSwapTest::preservedPortableDataSurvivesTheSwap()
                       QStringList{QStringLiteral("data")});
     QVERIFY2(result.ok(), replaceErrorName(result.error));
 
-    // The application really was replaced...
     QVERIFY(installationHasMarker(m_target, QByteArray("new")));
-    // ...and the user's state is still there, byte for byte.
     QFile key(keyPath);
     QVERIFY2(key.exists(), "the portable secret key was destroyed by the swap");
     QVERIFY(key.open(QIODevice::ReadOnly));
@@ -215,9 +192,6 @@ void UpdaterPortableSwapTest::preservedPortableDataSurvivesTheSwap()
         QDir(m_backup).absoluteFilePath(QStringLiteral("data"))));
 }
 
-// A package that shipped a top-level `data/` must not overwrite live user
-// state with it. The user's data outranks a directory the packager should
-// not have included.
 void UpdaterPortableSwapTest::preservedPortableDataIsNeverPromotedOver()
 {
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));
@@ -250,7 +224,6 @@ void UpdaterPortableSwapTest::swapFromASingleTopLevelFolder()
     const ReplaceResult result = swapDirectory(m_staged, m_target, m_backup, kExe);
     QVERIFY2(result.ok(), replaceErrorName(result.error));
     QVERIFY(installationHasMarker(m_target, QByteArray("new")));
-    // The wrapper folder must not have become the installation root.
     QVERIFY(!QFileInfo::exists(
         QDir(m_target).absoluteFilePath(QStringLiteral("Lightning-0.8.0"))));
 }
@@ -264,7 +237,6 @@ void UpdaterPortableSwapTest::refusesAnInvalidLayoutBeforeTouchingTheTarget()
     const ReplaceResult result = swapDirectory(m_staged, m_target, m_backup, kExe);
     QVERIFY(!result.ok());
     QCOMPARE(result.error, ReplaceError::LayoutInvalid);
-    // Nothing moved.
     QVERIFY(installationHasMarker(m_target, QByteArray("old")));
     QVERIFY(!QFileInfo::exists(m_backup));
 }
@@ -274,8 +246,6 @@ void UpdaterPortableSwapTest::rollsBackWhenPromotionFails()
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));
     QVERIFY(buildInstallation(m_target, QByteArray("old")));
 
-    // Fails AFTER the current installation has been moved aside — the worst
-    // moment, and the one the rollback exists for.
     ReplaceHooks hooks;
     hooks.beforePromoteRename = [] { return false; };
 
@@ -285,10 +255,8 @@ void UpdaterPortableSwapTest::rollsBackWhenPromotionFails()
     QCOMPARE(result.error, ReplaceError::PromoteFailed);
     QVERIFY(result.rolledBack);
 
-    // The original installation is back, complete and unmixed.
     QVERIFY(installationHasMarker(m_target, QByteArray("old")));
     QVERIFY(!QFileInfo::exists(m_backup));
-    // No scratch directory was left beside it.
     const QStringList leftovers =
         QDir(m_dir.path()).entryList(QStringList(QStringLiteral(".lightning-new-*")),
                                      QDir::Dirs | QDir::Hidden);
@@ -323,7 +291,6 @@ void UpdaterPortableSwapTest::refusesANonWritableTargetWithADistinctError()
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));
     QVERIFY(buildInstallation(m_target, QByteArray("old")));
 
-    // Read + execute only: entries can be listed but nothing may be created.
     QVERIFY(QFile::setPermissions(m_target,
                                   QFile::ReadOwner | QFile::ExeOwner
                                       | QFile::ReadUser | QFile::ExeUser));
@@ -336,7 +303,6 @@ void UpdaterPortableSwapTest::refusesANonWritableTargetWithADistinctError()
                                       | QFile::WriteUser | QFile::ExeUser));
 
     QVERIFY(!result.ok());
-    // Distinct from every partial-progress error: nothing was attempted.
     QCOMPARE(result.error, ReplaceError::TargetNotWritable);
     QVERIFY(installationHasMarker(m_target, QByteArray("old")));
     QVERIFY(!QFileInfo::exists(m_backup));
@@ -388,9 +354,6 @@ void UpdaterPortableSwapTest::clearsAStaleBackupDirectoryAndProceeds()
         QDir(m_backup).absoluteFilePath(QStringLiteral("stale.txt"))));
 }
 
-// A backup path that is NOT a plain directory is still refused outright:
-// clearing one is a targeted allowance, not a licence to delete whatever is
-// sitting at that path.
 void UpdaterPortableSwapTest::refusesABackupPathThatIsAFile()
 {
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));
@@ -406,11 +369,6 @@ void UpdaterPortableSwapTest::refusesABackupPathThatIsAFile()
     QVERIFY(installationHasMarker(m_target, QByteArray("old")));
 }
 
-// ── A rollback must not take the user's state with it ───────────────────
-//
-// A failed promote must restore the backup without sweeping `preserveNames`
-// entries (settings, session, SDK and crypto stores) away. Asserts the data,
-// not an entry count.
 void UpdaterPortableSwapTest::aFailedPromoteRollsBackWithoutTouchingPreservedState()
 {
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));
@@ -427,7 +385,6 @@ void UpdaterPortableSwapTest::aFailedPromoteRollsBackWithoutTouchingPreservedSta
     keys.write(QByteArray("device-keys"));
     keys.close();
 
-    // Fail the promote, which is the step that triggers a rollback.
     updater::ReplaceHooks hooks;
     hooks.beforePromoteRename = [] { return false; };
     const updater::ReplaceResult result = updater::swapDirectory(
@@ -439,13 +396,11 @@ void UpdaterPortableSwapTest::aFailedPromoteRollsBackWithoutTouchingPreservedSta
              qPrintable(QStringLiteral("rollback reported failure: %1")
                             .arg(result.message)));
 
-    // The old build is back...
     QFile restored(m_target + QStringLiteral("/Lightning.exe"));
     QVERIFY(restored.open(QIODevice::ReadOnly));
     QCOMPARE(restored.readAll(), QByteArray("old"));
     restored.close();
 
-    // ...and the user's state was never in the swap to begin with.
     QFile survivedSession(dataDir + QStringLiteral("/session.json"));
     QVERIFY2(survivedSession.exists(),
              "the rollback deleted the portable session");
@@ -458,13 +413,10 @@ void UpdaterPortableSwapTest::aFailedPromoteRollsBackWithoutTouchingPreservedSta
     QCOMPARE(survivedKeys.readAll(), QByteArray("device-keys"));
 }
 
-// The backup path the helper actually uses (portableBackupPath()) must be
-// accepted by swapDirectory, driven through a real swap.
 void UpdaterPortableSwapTest::theBackupPathTheHelperUsesIsAcceptedBySwapDirectory()
 {
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));
     QVERIFY(buildInstallation(m_target, QByteArray("old")));
-    // The portable state directory, which must survive the swap untouched.
     const QString dataDir = m_target + QStringLiteral("/data");
     QVERIFY(QDir().mkpath(dataDir + QStringLiteral("/update-work")));
     QFile keep(dataDir + QStringLiteral("/session.json"));
@@ -474,13 +426,10 @@ void UpdaterPortableSwapTest::theBackupPathTheHelperUsesIsAcceptedBySwapDirector
 
     const QString backup = updater::portableBackupPath(m_target);
     QVERIFY2(!backup.isEmpty(), "the helper must produce a backup path");
-    // The defect, stated as the assertion that catches it: a backup under the
-    // installation can never be swapped into.
     const QString cleanTarget = QDir::cleanPath(QDir(m_target).absolutePath());
     QVERIFY2(!backup.startsWith(cleanTarget + QLatin1Char('/')),
              qPrintable(QStringLiteral("backup sits inside the target: %1")
                             .arg(backup)));
-    // Same parent, so promoting stays a rename rather than a copy.
     QCOMPARE(QFileInfo(backup).absolutePath(),
              QFileInfo(cleanTarget).absolutePath());
 
@@ -489,7 +438,6 @@ void UpdaterPortableSwapTest::theBackupPathTheHelperUsesIsAcceptedBySwapDirector
         QStringList{ QStringLiteral("data") });
     QVERIFY2(result.ok(), qPrintable(result.message));
 
-    // The new build is in place and the user's state came through it.
     QFile promoted(m_target + QStringLiteral("/Lightning.exe"));
     QVERIFY(promoted.open(QIODevice::ReadOnly));
     QCOMPARE(promoted.readAll(), QByteArray("new"));
@@ -518,9 +466,6 @@ void UpdaterPortableSwapTest::copyFallbackStillSwapsAndRollsBack()
     QVERIFY(buildInstallation(m_staged, QByteArray("new")));
     QVERIFY(buildInstallation(m_target, QByteArray("old")));
 
-    // Simulates the staged tree living on another filesystem, which is the
-    // normal case: the download staging directory is under the user's data
-    // directory, not beside the installation.
     ReplaceHooks hooks;
     hooks.forceCopyFallback = true;
 
@@ -529,7 +474,6 @@ void UpdaterPortableSwapTest::copyFallbackStillSwapsAndRollsBack()
     QVERIFY(result.usedCopyFallback);
     QVERIFY(installationHasMarker(m_target, QByteArray("new")));
 
-    // And the same fallback still rolls back cleanly when promotion fails.
     QDir(m_target).removeRecursively();
     QDir(m_staged).removeRecursively();
     QVERIFY(buildInstallation(m_staged, QByteArray("newer")));
@@ -541,10 +485,6 @@ void UpdaterPortableSwapTest::copyFallbackStillSwapsAndRollsBack()
     QVERIFY(result.rolledBack);
     QVERIFY(installationHasMarker(m_target, QByteArray("current")));
 }
-
-// ---------------------------------------------------------------------------
-// File replacement (AppImage)
-// ---------------------------------------------------------------------------
 
 void UpdaterPortableSwapTest::replacesAFileAndPreservesTheExecutableBit()
 {
@@ -564,7 +504,6 @@ void UpdaterPortableSwapTest::replacesAFileAndPreservesTheExecutableBit()
     QVERIFY2(result.ok(), replaceErrorName(result.error));
     QCOMPARE(readFile(target), QByteArray("new-appimage"));
 #ifndef Q_OS_WIN
-    // A non-executable AppImage is a bricked installation.
     QVERIFY(QFileInfo(target).isExecutable());
 #endif
     QVERIFY(!QFileInfo::exists(backup));
@@ -589,7 +528,6 @@ void UpdaterPortableSwapTest::fileReplaceRollsBackOnPromotionFailure()
     QVERIFY(!result.ok());
     QCOMPARE(result.error, ReplaceError::PromoteFailed);
     QVERIFY(result.rolledBack);
-    // The original bytes are back and the backup is gone.
     QCOMPARE(readFile(target), QByteArray("old-appimage"));
     QVERIFY(!QFileInfo::exists(backup));
     const QStringList leftovers =
@@ -609,7 +547,6 @@ void UpdaterPortableSwapTest::fileReplaceRefusesAMissingTarget()
         root.absoluteFilePath(QStringLiteral("absent.previous")));
     QVERIFY(!result.ok());
     QCOMPARE(result.error, ReplaceError::TargetMissing);
-    // The staged file is untouched, so a retry is still possible.
     QVERIFY(QFileInfo::exists(staged));
 }
 
@@ -645,7 +582,6 @@ void UpdaterPortableSwapTest::fileReplaceUsesTheCopyFallbackWhenRenameCannotBeUs
     QVERIFY2(result.ok(), replaceErrorName(result.error));
     QVERIFY(result.usedCopyFallback);
     QCOMPARE(readFile(target), QByteArray("new-appimage-across-a-mount"));
-    // The copy fallback leaves the source where it was — the caller owns it.
     QVERIFY(QFileInfo::exists(staged));
 }
 

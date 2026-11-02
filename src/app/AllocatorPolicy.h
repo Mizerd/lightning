@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cstdlib> // defines __GLIBC__
+#include <cstdlib>
 #include <mutex>
 
 #if defined(__GLIBC__)
@@ -28,10 +28,8 @@ namespace lightning {
 // received frame. So a live call lifts the thresholds as far as glibc allows,
 // above any frame up to 4K, and the last one ending puts them back. CallAllocatorHold is the only writer.
 inline constexpr int kIdleMmapThresholdBytes = 128 * 1024;
-inline constexpr int kCallMmapThresholdBytes = 32 * 1024 * 1024; // glibc's ceiling
+inline constexpr int kCallMmapThresholdBytes = 32 * 1024 * 1024;
 inline constexpr int kIdleTrimThresholdBytes = 2 * 1024 * 1024;
-// Above a frame too: a smaller one gives each freed frame back to the system
-// and faults it in again, which costs as much as the mapping did.
 inline constexpr int kCallTrimThresholdBytes = 64 * 1024 * 1024;
 
 inline bool applyAllocatorPolicy()
@@ -44,8 +42,6 @@ inline bool applyAllocatorPolicy()
 #endif
 }
 
-// Held by a call's media engine for as long as it carries a call. Engines
-// overlap across a transfer, so the threshold follows the count.
 class CallAllocatorHold
 {
 public:
@@ -97,8 +93,6 @@ private:
         } else if (before == 1 && count() == 0) {
             mallopt(M_MMAP_THRESHOLD, kIdleMmapThresholdBytes);
             mallopt(M_TRIM_THRESHOLD, kIdleTrimThresholdBytes);
-            // The frames the call left in the heap go back now, not at some
-            // later free.
             malloc_trim(0);
         }
 #endif
@@ -107,4 +101,4 @@ private:
     bool m_held = false;
 };
 
-} // namespace lightning
+}

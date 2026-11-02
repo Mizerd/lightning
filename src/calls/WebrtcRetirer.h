@@ -50,47 +50,22 @@ private:
     bool m_live = true;
 };
 
-/// Counters shared with the pool-thread jobs, so a job that ends after the
-/// retirer is gone still has somewhere to count.
 struct RetireStats {
-    /// Retired and not yet at NULL (waiting, or a job in flight).
     std::atomic<int> retiring{0};
-    /// NULL issued while webrtcbin still reported GATHERING: the crash window.
     std::atomic<int> whileGathering{0};
-    /// Stopped because the bound ran out, not because gathering ended.
     std::atomic<int> boundExpired{0};
-    /// Retirements that found gathering still running and waited for it.
     std::atomic<int> waitedOnGathering{0};
-    /// webrtcbins that reached NULL.
     std::atomic<int> stopped{0};
-    /// Retirements that outlived the soft bound and kept waiting.
     std::atomic<int> outlivedSoftBound{0};
-    /// Left running at quit because they were still gathering (drain()).
     std::atomic<int> leftRunningAtQuit{0};
 };
 
 class Retirer
 {
 public:
-    /// An unanswered STUN or TURN-over-UDP server holds gathering for about
-    /// 2 s (measured, libnice 0.1.23); TURN over TCP or TLS waits out
-    /// libnice's 7.9 s reliable timer. Past this a retirement is reported as
-    /// slow but NOT stopped: gathering that outlives it is almost always a
-    /// server name still resolving (a resolver timing out takes 5 s per
-    /// attempt and nameserver), and that server's candidates would land
-    /// exactly during a stop, which is the upstream double free
-    /// (gstreamer#5138). Delete this class once every shipped GStreamer
-    /// carries the upstream fix (!11758).
     static constexpr int kGatheringBoundMs = 10000;
-    /// Past this a retired webrtcbin is stopped mid-gathering anyway, so one
-    /// that never finishes cannot hold its sockets and threads for the rest
-    /// of the session. Covers a resolver's worst case (3 nameservers x 2
-    /// attempts x 5 s) and that server's own gathering after it.
     static constexpr int kGatheringHardBoundMs = 60000;
-    /// What the destructor may spend at quit. A webrtcbin still gathering
-    /// after it is NOT stopped (see drain()).
     static constexpr int kQuitBudgetMs = 2000;
-    /// How long retire() waits for callbacks already running.
     static constexpr int kCallbackWaitMs = 2000;
 
     Retirer();
@@ -98,19 +73,8 @@ public:
     Retirer(const Retirer &) = delete;
     Retirer &operator=(const Retirer &) = delete;
 
-    /// Takes over one reference on each. Disconnect every handler and clear
-    /// the bus sync handler first. Sets the pipeline to NULL here, on the
-    /// calling thread, except for `webrtc`, which stops once its gathering
-    /// has ended. `pipeline` must be `webrtc`'s parent.
     void retire(GstElement *pipeline, GstElement *webrtc);
 
-    /// Waits up to `budgetMs` for everything retired, then stops what is no
-    /// longer gathering synchronously and waits for jobs in flight. Needs no
-    /// event loop. A webrtcbin STILL gathering at the end of the budget is
-    /// left running, its references deliberately leaked: this runs at quit
-    /// (the engines live as long as the application), the process ending
-    /// reclaims it, and stopping it is the one thing that can crash
-    /// (gstreamer#5138). Our callbacks on it are already gated off.
     void drain(int budgetMs);
 
     int retiringForTest() const { return m_stats->retiring.load(); }
@@ -129,20 +93,17 @@ public:
     {
         return m_stats->leftRunningAtQuit.load();
     }
-    /// Sets the HARD bound (the stop), and the soft one to no more than it.
     void setBoundForTest(int ms)
     {
         m_boundMs = ms;
         m_softBoundMs = qMin(m_softBoundMs, ms);
     }
-    /// Sets the soft bound (the report) alone.
     void setSoftBoundForTest(int ms) { m_softBoundMs = ms; }
 
 private:
     struct Entry {
-        GstElement *pipeline = nullptr; // owns a ref
-        GstElement *webrtc = nullptr;   // owns a ref
-        /// get-stats barriers replied to, written on webrtcbin's thread.
+        GstElement *pipeline = nullptr;
+        GstElement *webrtc = nullptr;
         std::shared_ptr<std::atomic<int>> replied;
         int sent = 0;
         bool waitCounted = false;
@@ -163,4 +124,4 @@ private:
     int m_softBoundMs = kGatheringBoundMs;
 };
 
-} // namespace lightning::webrtc
+}

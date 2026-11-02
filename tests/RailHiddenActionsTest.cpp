@@ -96,7 +96,6 @@ private slots:
         delete m_controller;
     }
 
-    // Rail shown: its cog and account tile are the only ones.
     void railShownMeansTheHeaderActionsAreAbsent()
     {
         m_controller->settings()->setSpacesRailVisible(true);
@@ -107,7 +106,6 @@ private slots:
         QVERIFY(!item("headerAccountTile")->isVisible());
     }
 
-    // Rail hidden: the header carries Settings and the account menu.
     void railHiddenMeansTheHeaderCarriesSettingsAndTheAccountMenu()
     {
         m_controller->settings()->setSpacesRailVisible(false);
@@ -120,13 +118,11 @@ private slots:
         QVERIFY(tile->isVisible());
         QVERIFY(cog->width() > 0 && tile->width() > 0);
 
-        // The cog really opens Settings, and again returns to chat.
         QMetaObject::invokeMethod(cog, "clicked");
         QTRY_COMPARE(m_controller->currentScreen(), AppController::SettingsScreen);
         QMetaObject::invokeMethod(cog, "clicked");
         QTRY_COMPARE(m_controller->currentScreen(), AppController::MainScreen);
 
-        // The account tile opens the switcher popover.
         auto *popup = tile->findChild<QObject *>(
             QStringLiteral("accountSwitcherPopover"));
         QVERIFY(popup);
@@ -146,8 +142,6 @@ private slots:
         QTRY_VERIFY(!popup->property("opened").toBool());
     }
 
-    // The account tile was a TapHandler only: Tab skipped it and no key opened
-    // the switcher. It is a Tab stop now, and Return opens the popover.
     void theHeaderAccountTileIsReachableFromTheKeyboard()
     {
         m_controller->settings()->setSpacesRailVisible(false);
@@ -171,7 +165,6 @@ private slots:
         QTRY_VERIFY(!popup->property("opened").toBool());
     }
 
-    // The host really instantiates it in the room list header.
     void theRoomListHeaderHostsIt()
     {
         QFile f(QStringLiteral(QML_DIR "/RoomsPanel.qml"));

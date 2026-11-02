@@ -2,10 +2,6 @@
 
 #include "app/BackendSelection.h"
 
-// The compiled default backend must be Rust in a Rust-enabled build (so a
-// packaged desktop launcher gets SDK-owned E2EE with no flag) and HTTP in a
-// build without the Rust SDK. --backend=NAME parsing must be case- and
-// whitespace-insensitive and reject unknown names.
 class BackendSelectionTest : public QObject
 {
     Q_OBJECT

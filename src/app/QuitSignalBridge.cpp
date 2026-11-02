@@ -22,11 +22,8 @@ namespace lightning::quitsignals {
 namespace {
 
 int g_pipe[2] = {-1, -1};
-// The signal that started the quit (0: none yet), and when, in whole seconds
-// of CLOCK_MONOTONIC.
 volatile std::sig_atomic_t g_firstSignal = 0;
 volatile std::sig_atomic_t g_firstSignalAt = 0;
-// How long a DIFFERENT signal is taken as part of the same event.
 constexpr int kForceGraceSeconds = 2;
 
 int monotonicSeconds()
@@ -41,11 +38,6 @@ void forwardSignal(int signo)
 {
     const int savedErrno = errno;
     if (g_firstSignal != 0) {
-        // The same signal again is someone asking twice (a second Ctrl+C, a
-        // second kill): end now. A different one arriving with the first is
-        // the same event — logind sends SIGTERM and then SIGHUP at once on a
-        // logout (SendSIGHUP=yes), and a closing terminal can overlap them —
-        // so it forces the exit only once the quit has had its grace period.
         if (signo == g_firstSignal
             || monotonicSeconds() - g_firstSignalAt >= kForceGraceSeconds)
             _exit(128 + signo);
@@ -67,7 +59,7 @@ bool prepareEnd(int fd)
         && ::fcntl(fd, F_SETFD, FD_CLOEXEC) != -1;
 }
 
-} // namespace
+}
 
 bool install(QObject *context, std::function<void(int signo)> onSignal)
 {
@@ -90,7 +82,6 @@ bool install(QObject *context, std::function<void(int signo)> onSignal)
     QObject::connect(notifier, &QSocketNotifier::activated, context,
                      [onSignal = std::move(onSignal)] {
                          unsigned char byte = 0;
-                         // Drain; one quit is enough however many arrived.
                          int signo = 0;
                          while (::read(g_pipe[0], &byte, 1) == 1)
                              signo = byte;
@@ -102,8 +93,6 @@ bool install(QObject *context, std::function<void(int signo)> onSignal)
 
     struct sigaction action {};
     action.sa_handler = forwardSignal;
-    // One handler at a time, so a signal cannot land between the check and
-    // the record of the first one.
     sigemptyset(&action.sa_mask);
     for (const int signo : {SIGTERM, SIGINT, SIGHUP})
         sigaddset(&action.sa_mask, signo);
@@ -124,4 +113,4 @@ bool install(QObject *, std::function<void(int)>)
 }
 #endif
 
-} // namespace lightning::quitsignals
+}

@@ -8,19 +8,11 @@
 
 class MatrixClient;
 
-// Debounced public-room-directory search (Discover / Join).
-//
-// QML binds `query` (and optionally `server` for another homeserver); the
-// model debounces, dispatches through MatrixClient::searchPublicRooms, pages
-// with `next_batch` via loadMore(), and rejects stale completions by op id so
-// a superseded page never appends to a newer query. Nothing is persisted and
-// no query text is logged.
 class RoomDirectorySearchModel : public QAbstractListModel
 {
     Q_OBJECT
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged)
     Q_PROPERTY(QString server READ server WRITE setServer NOTIFY serverChanged)
-    // "idle" | "loading" | "loading_more" | "results" | "no_results" | "error"
     Q_PROPERTY(QString state READ state NOTIFY stateChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY stateChanged)
     Q_PROPERTY(bool supported READ supported NOTIFY stateChanged)
@@ -57,15 +49,11 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    // Fetch the first page now (initial browse view; an empty query shows the
-    // unfiltered directory).
     Q_INVOKABLE void refresh();
-    // Fetch the next page (no-op while loading or when no token is held).
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void clear();
     Q_INVOKABLE QVariantMap rowAt(int row) const;
 
-    // Debounce interval; exposed for deterministic tests.
     void setDebounceMs(int ms) { m_debounce.setInterval(ms); }
 
 Q_SIGNALS:

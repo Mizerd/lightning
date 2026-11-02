@@ -1,13 +1,3 @@
-// ShortcutRow.qml loaded for real (through the "MatrixClient" module, with a
-// real ShortcutRegistry behind a stub `app`) inside a Flickable whose content
-// is taller than its viewport, the shape of Settings. Pins, by behaviour:
-//   * C68-F02: a capture ends on a click on blank Flickable space and on a
-//     click on an item that accepts the press (a sidebar row); the click still
-//     reaches that item; the chord pressed afterwards rebinds nothing;
-//   * clicking this row's own Cancel ends the capture and does not re-arm it;
-//   * C68-F01: arming a capture, and focusing Change by keyboard, scroll the
-//     row into the viewport;
-//   * C68-F07: a stored chord hands focus back to the Change button.
 #include <QtTest/QtTest>
 
 #include <QSettings>
@@ -59,7 +49,7 @@ Item {
 }
 )QML";
 
-} // namespace
+}
 
 class ShortcutRowCaptureQmlTest : public QObject
 {
@@ -93,8 +83,6 @@ class ShortcutRowCaptureQmlTest : public QObject
 private Q_SLOTS:
     void initTestCase()
     {
-        // Bindings are stored: a fresh settings root keeps one case's chord
-        // (or a previous run's) out of the next.
         QVERIFY(configDir.isValid());
         QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope,
                            configDir.path());
@@ -127,7 +115,6 @@ private Q_SLOTS:
                            { QStringLiteral("defaultSequence"), QStringLiteral("Ctrl+Q") } };
         row = qobject_cast<QQuickItem *>(rc.createWithInitialProperties(props));
         QVERIFY2(row, qPrintable(rc.errorString()));
-        // Below the fold of the 300 px viewport.
         auto *content = flick->property("contentItem").value<QQuickItem *>();
         row->setParentItem(content);
         row->setPosition(QPointF(20, 1400));
@@ -145,7 +132,6 @@ private Q_SLOTS:
         app = nullptr; registry = nullptr; settings = nullptr;
     }
 
-    // C68-F01.
     void armingACaptureScrollsTheChipIntoView()
     {
         QCOMPARE(flick->property("contentY").toDouble(), 0.0);
@@ -162,12 +148,10 @@ private Q_SLOTS:
         QTRY_VERIFY(inViewport(change));
     }
 
-    // C68-F02.
     void aClickOnBlankFlickableSpaceEndsTheCapture()
     {
         QVERIFY(QMetaObject::invokeMethod(row, "beginCapture"));
         QVERIFY(row->property("capturing").toBool());
-        // Blank page space in the viewport, away from the row's controls.
         QTest::mouseClick(&window, Qt::LeftButton, {}, QPoint(30, 20));
         QVERIFY(!row->property("capturing").toBool());
         QTest::keyClick(&window, Qt::Key_7, Qt::ControlModifier | Qt::AltModifier);
@@ -220,7 +204,6 @@ private Q_SLOTS:
         QVERIFY(!row->property("capturing").toBool());
         QCOMPARE(registry->sequenceFor(QStringLiteral("app.quit")),
                  QStringLiteral("Ctrl+Alt+7"));
-        // C68-F07: focus returns to Change, not to the zero-size sink.
         QVERIFY(child(QStringLiteral("shortcutChange_app.quit"))->hasActiveFocus());
     }
     void escapeEndsTheCaptureAndFocusesChange()

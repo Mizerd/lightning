@@ -1,12 +1,3 @@
-// classifyRevocation was factored out of RustSdkMatrixClient's
-// "session_token_revoked" handler in live accounts Phase 0, behaviour-
-// identical. The oracle below is a VERBATIM copy of the inline logic it
-// replaced (9177fc58, RustSdkMatrixClient.cpp ~5681-5770), with the keyring
-// read reduced to the answer it produced and a counter that says whether it
-// was asked. Do not "tidy" the oracle: its job is to be the old code.
-//
-// RevocationProofs is the per-account mirror of the client's single-slot
-// proofs; Phase 0 writes it and never reads it.
 #include "accounts/RevocationProofs.h"
 
 #include <QJsonObject>
@@ -22,19 +13,15 @@ using namespace lightning::accounts;
 namespace {
 
 struct OracleResult {
-    bool keyringRead = false;      // the old code asked the keyring
-    bool keyringCard = false;      // SecretBackendUnavailable, early return
+    bool keyringRead = false;
+    bool keyringCard = false;
     bool hardLogout = false;
     bool softLogout = false;
     bool softLogoutReported = false;
     bool oauthWithoutRefreshToken = false;
-    bool reasonExpired = false;    // AccessTokenExpired vs AccessTokenRevoked
+    bool reasonExpired = false;
 };
 
-// ---- ORACLE: verbatim old logic. `event` is the Rust event, `oauthSession`
-// the old `m_settings && !m_userId.isEmpty() && isOAuthAccount(m_userId)`,
-// `keyringAnswer` what the old owner/refreshTokenFor/secretBackendUnavailable
-// read would have answered. ----
 OracleResult oracleSessionTokenRevoked(const QJsonObject &event, bool oauthSession,
                                        bool keyringAnswer)
 {
@@ -63,10 +50,7 @@ OracleResult oracleSessionTokenRevoked(const QJsonObject &event, bool oauthSessi
     r.reasonExpired = softLogout;
     return r;
 }
-// ---- end oracle ----
 
-// The client's own translation of the event into facts (RustSdkMatrixClient
-// "session_token_revoked"), so the parity covers it too.
 RevocationEventFacts factsFrom(const QJsonObject &event, bool oauthSession)
 {
     RevocationEventFacts facts;
@@ -80,8 +64,6 @@ RevocationEventFacts factsFrom(const QJsonObject &event, bool oauthSession)
     return facts;
 }
 
-// A field is absent, true, false, or present but not a bool (older or odd
-// events): the last must read exactly as absent.
 enum class Field { Absent, True, False, NotBool };
 const QList<Field> kFields{Field::Absent, Field::True, Field::False, Field::NotBool};
 
@@ -95,7 +77,7 @@ void put(QJsonObject &event, const QString &key, Field f)
     }
 }
 
-} // namespace
+}
 
 class RevocationProofsTest : public QObject
 {
@@ -128,8 +110,6 @@ void RevocationProofsTest::classificationMatchesTheOldHandlerOnEveryRow()
 
                     const RevocationEventFacts facts = factsFrom(event, oauth);
                     const bool probe = revocationNeedsKeyringProbe(facts);
-                    // The client reads the keyring only when told to; the
-                    // flag is false otherwise, exactly as the old code left it.
                     const bool keyring = probe ? keyringAnswer : false;
                     const RevocationClassification now = classifyRevocation(facts, keyring);
 
@@ -150,7 +130,6 @@ void RevocationProofsTest::classificationMatchesTheOldHandlerOnEveryRow()
                             : old.softLogout ? RevocationOutcome::Soft
                                              : RevocationOutcome::Unproven;
                         QVERIFY2(now.outcome == expected, row.constData());
-                        // The card's reason: Expired exactly for Soft.
                         QVERIFY2((now.outcome == RevocationOutcome::Soft) == old.reasonExpired,
                                  row.constData());
                     }
@@ -162,19 +141,13 @@ void RevocationProofsTest::classificationMatchesTheOldHandlerOnEveryRow()
             }
         }
     }
-    // The table is the claim: assert its size, and that every outcome and
-    // the probe were actually exercised rather than merely enumerated.
     QCOMPARE(rows, 4 * 4 * 2 * 2);
     QCOMPARE(outcomesSeen.size(), 4);
-    // probe iff oauth && had_refresh_token == false: 4 soft values x 2 answers.
     QCOMPARE(probesSeen, 8);
 }
 
 void RevocationProofsTest::aKeyringAnswerNobodyAskedForChangesNothing()
 {
-    // classifyRevocation only honours the keyring flag as the answer to the
-    // probe it asked for. A caller passing true without a probe gets the
-    // same verdict as false, so it cannot turn a hard logout into the card.
     int rows = 0;
     for (Field soft : kFields) {
         for (Field hadRefresh : kFields) {
@@ -212,7 +185,6 @@ void RevocationProofsTest::twoRevokedAccountsBothKeepTheirProofs()
     QVERIFY(!proofs.softFor(QStringLiteral("@a:hs")).has_value());
     QVERIFY(!proofs.hardFor(QStringLiteral("@c:hs")).has_value());
 
-    // A newer proof for one account replaces only that account's.
     proofs.recordHard(QStringLiteral("@a:hs"), QStringLiteral("DEVA2"));
     QCOMPARE(proofs.hardFor(QStringLiteral("@a:hs"))->deviceId, QStringLiteral("DEVA2"));
     QCOMPARE(proofs.hardFor(QStringLiteral("@b:hs"))->deviceId, QStringLiteral("DEVB"));
@@ -226,14 +198,11 @@ void RevocationProofsTest::aHardProofDropsOnlyTheSameDevicesSoftProof()
                               QStringLiteral("DEV1")));
     QVERIFY(proofs.recordSoft(QStringLiteral("@b:hs"), QStringLiteral("https://hs"),
                               QStringLiteral("DEV1")));
-    // Another device of the same account: the soft proof stays.
     proofs.recordHard(QStringLiteral("@a:hs"), QStringLiteral("DEV2"));
     QVERIFY(proofs.softFor(QStringLiteral("@a:hs")).has_value());
-    // The same device: an ended device is never resumed.
     proofs.recordHard(QStringLiteral("@a:hs"), QStringLiteral("DEV1"));
     QVERIFY(!proofs.softFor(QStringLiteral("@a:hs")).has_value());
     QCOMPARE(proofs.hardFor(QStringLiteral("@a:hs"))->deviceId, QStringLiteral("DEV1"));
-    // Another ACCOUNT with the same device id is untouched.
     QVERIFY(proofs.softFor(QStringLiteral("@b:hs")).has_value());
     QCOMPARE(proofs.size(), 2);
 }
@@ -245,11 +214,9 @@ void RevocationProofsTest::aSoftProofIsRefusedOverTheSameDevicesHardProof()
     QVERIFY(!proofs.recordSoft(QStringLiteral("@a:hs"), QStringLiteral("https://hs"),
                                QStringLiteral("DEV1")));
     QVERIFY(!proofs.softFor(QStringLiteral("@a:hs")).has_value());
-    // A different device of that account may still carry one.
     QVERIFY(proofs.recordSoft(QStringLiteral("@a:hs"), QStringLiteral("https://hs"),
                               QStringLiteral("DEV2")));
     QCOMPARE(proofs.softFor(QStringLiteral("@a:hs"))->deviceId, QStringLiteral("DEV2"));
-    // Another account's hard proof on DEV1 refuses nothing for this one.
     QVERIFY(proofs.recordSoft(QStringLiteral("@b:hs"), QStringLiteral("https://hs"),
                               QStringLiteral("DEV1")));
     QCOMPARE(proofs.size(), 2);
@@ -281,7 +248,6 @@ void RevocationProofsTest::clearsArePerAccount()
     QVERIFY(!proofs.softFor(QStringLiteral("@b:hs")).has_value());
     QCOMPARE(proofs.size(), 0);
 
-    // Clearing what is not there is harmless.
     proofs.clear(QStringLiteral("@nobody:hs"));
     QCOMPARE(proofs.size(), 0);
 }

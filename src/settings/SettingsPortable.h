@@ -1,16 +1,5 @@
 #pragma once
 
-// The preference set that can leave this device: written to a settings file
-// (export / import) and kept in account data (sync). ONE schema and ONE codec
-// serve both, so what a file may carry and what the server may carry cannot
-// drift apart.
-//
-// Pure Qt Core: no SettingsManager, no network, no QML. The schema is an
-// ALLOW-LIST keyed by SettingsManager's Q_PROPERTY names. Anything not listed
-// here (tokens, recovery material, device ids, store paths, account ids,
-// window geometry, download folders, hardware ids) cannot be exported or
-// synced, because nothing ever reads it.
-
 #include <QByteArray>
 #include <QJsonObject>
 #include <QList>
@@ -28,23 +17,22 @@ namespace settingsport {
 
 enum class Kind { Bool, Int, String, StringList };
 
-// Where a setting may travel.
 enum Flag {
-    Export = 1, // the settings file
-    Sync = 2,   // account data (always also Export)
+    Export = 1,
+    Sync = 2,
 };
 
 struct Field
 {
-    QString name;      // SettingsManager property name
+    QString name;
     Kind kind = Kind::Bool;
-    qint64 lo = 0;     // Int: inclusive bounds
+    qint64 lo = 0;
     qint64 hi = 0;
     int flags = 0;
-    QString group;     // heading in the import preview
-    int maxLen = 0;    // String: longest accepted; StringList: longest item
-    QStringList allowed; // String/StringList: closed set when non-empty
-    QVariant def;      // value of a setting nobody touched
+    QString group;
+    int maxLen = 0;
+    QStringList allowed;
+    QVariant def;
 };
 
 const QList<Field> &fields();
@@ -58,33 +46,18 @@ struct Checked
 {
     bool ok = false;
     QVariant value;
-    QString reason; // "type", "range", "length", "not_allowed", "control"
+    QString reason;
 };
 Checked check(const Field &field, const QVariant &raw);
 
-// Read / write the schema's fields through a QObject's Q_PROPERTY system (the
-// SettingsManager). A value that fails check() on the way out is omitted; one
-// that fails on the way in is returned in `rejected` and not written.
 QVariantMap readProperties(const QObject *object, int flag);
 QStringList writeProperties(QObject *object, const QVariantMap &values);
 
-// The same for a SettingsManager, with the layout preset kept LOCAL: the
-// presentation keys a preset can supply (messageLayout, messageSpacing,
-// threadPlacement, and the per-preset pane widths) are read and written as the
-// stored LIGHTNING configuration,
-// never as the values the selected preset answers. layoutPreset itself travels
-// as an ordinary field. Settings sync, export, the import preview and the
-// import (and its rollback) all go through these, so a file exported or a
-// value synced under Nheko compact restores the Lightning layout plus the
-// preset choice, and never lands as a preset override.
 QStringList presentationKeys();
 QVariantMap readSettings(const SettingsManager *settings, int flag);
 QStringList writeSettings(SettingsManager *settings, const QVariantMap &values);
 
-// ---- settings file ---------------------------------------------------------
-
 constexpr auto kFileFormat = "lightning-settings";
-// 2: gifAutoplay no longer governs video/audio preloading (see parseDocument).
 constexpr int kFileVersion = 2;
 constexpr qint64 kMaxFileBytes = 512 * 1024;
 constexpr int kMaxShortcuts = 256;
@@ -92,11 +65,11 @@ constexpr int kMaxThemes = 24;
 
 struct Document
 {
-    QVariantMap settings;                // name -> value, Export fields only
-    QMap<QString, QString> shortcuts;    // action id -> portable sequence
-    QStringList themes;                  // custom-theme share payloads (compact JSON)
-    int activeTheme = -1;                // index into themes, -1 none
-    QString app;                         // exporting build's version, informational
+    QVariantMap settings;
+    QMap<QString, QString> shortcuts;
+    QStringList themes;
+    int activeTheme = -1;
+    QString app;
 };
 
 QByteArray buildDocument(const Document &doc, const QString &exportedAtIso);
@@ -104,18 +77,17 @@ QByteArray buildDocument(const Document &doc, const QString &exportedAtIso);
 struct ParseResult
 {
     bool ok = false;
-    QString error;             // "empty", "too_large", "not_json", "not_settings"
+    QString error;
     int version = 0;
-    bool newerVersion = false; // written by a newer build; known keys still read
-    Document doc;              // accepted values only
-    QMap<QString, QString> rejected; // key -> reason
-    QStringList unknown;       // keys not in the schema (ignored)
+    bool newerVersion = false;
+    Document doc;
+    QMap<QString, QString> rejected;
+    QStringList unknown;
     QStringList shortcutsRejected;
     int themesDropped = 0;
 };
 ParseResult parseDocument(const QByteArray &bytes);
 
-// One row of the import preview.
 struct Change
 {
     QString name;
@@ -124,8 +96,6 @@ struct Change
     QVariant to;
 };
 QList<Change> diff(const QVariantMap &current, const QVariantMap &incoming);
-
-// ---- sync ------------------------------------------------------------------
 
 constexpr int kSyncVersion = 1;
 constexpr int kMaxBlobBytes = 48 * 1024; // keep in step with rust MAX_BLOB_BYTES
@@ -144,24 +114,23 @@ struct ParsedBlob
     bool readable = true;
     int version = 0;
     bool newerVersion = false;
-    Blob entries;               // valid Sync entries only
-    QJsonObject keep;           // entries this build does not know, kept verbatim
+    Blob entries;
+    QJsonObject keep;
     QStringList rejected;
 };
 ParsedBlob parseBlob(const QJsonObject &content, bool present = true);
 QJsonObject composeBlob(const Blob &entries, const QJsonObject &keep);
 
-// What this device last agreed with the server, and what it changed since.
 struct State
 {
-    QVariantMap lastSynced;            // name -> value both sides held
-    QMap<QString, qint64> lastTs;      // name -> t of lastSynced
-    QMap<QString, qint64> pending;     // name -> time of an unsynced local change
+    QVariantMap lastSynced;
+    QMap<QString, qint64> lastTs;
+    QMap<QString, qint64> pending;
     // A server timestamp from the future (a fast or hostile clock) counts as
     // the moment it was FIRST SEEN, remembered here, so it cannot slide
     // forward with `now` and win every later conflict.
-    QMap<QString, qint64> futureT;     // name -> the raw server t that was ahead
-    QMap<QString, qint64> futureSeen;  // name -> when that t was first seen
+    QMap<QString, qint64> futureT;
+    QMap<QString, qint64> futureSeen;
     bool operator==(const State &o) const
     {
         return lastSynced == o.lastSynced && lastTs == o.lastTs && pending == o.pending
@@ -171,43 +140,30 @@ struct State
 QJsonObject stateToJson(const State &s);
 State stateFromJson(const QJsonObject &o);
 
-// Mark every Sync field whose local value differs from lastSynced as a local
-// change at `now`. A change already pending keeps its (earlier) time. A field
-// whose value returned to lastSynced stops being pending. Pure.
 State detectLocalChanges(const QVariantMap &local, State state, qint64 now);
 
-// The local values are DEVICE-global (a setter writes the active account's key
-// and the shared fallback) while this state belongs to one account, so after an
-// account switch or a restart the local view can differ from the baseline
-// without the user having edited anything for THIS account. Accepting every
-// such difference as the baseline (value only, time 0, so it is never re-pushed)
-// leaves only edits noticed live (pending) as local changes.
 State absorbLocal(State state, const QVariantMap &local);
 
 struct MergeResult
 {
-    QVariantMap applyLocal;      // name -> value to write into the local settings
-    QStringList lostLocal;       // local unsynced changes that a LATER server value replaced
-    Blob toWrite;                // the whole blob to PUT (only meaningful when needsWrite)
-    QJsonObject keep;            // unknown server entries to carry through the PUT
+    QVariantMap applyLocal;
+    QStringList lostLocal;
+    Blob toWrite;
+    QJsonObject keep;
     bool needsWrite = false;
     bool readOnly = false;       // server schema is newer: never write
-    State afterApply;            // commit immediately
-    State afterWrite;            // commit when the PUT is acknowledged
+    State afterApply;
+    State afterWrite;
 };
 MergeResult merge(const ParsedBlob &server, const QVariantMap &local, const State &state, qint64 now);
 
-// First enable on a device that has no baseline.
 struct FirstRunPlan
 {
-    QStringList differing;       // names where server and local disagree
+    QStringList differing;
     bool serverEmpty = true;
 };
 FirstRunPlan planFirstRun(const ParsedBlob &server, const QVariantMap &local);
-// Adopt the server: its values win everywhere, baseline = server.
 MergeResult adoptServer(const ParsedBlob &server, const QVariantMap &local, qint64 now);
-// Upload this device: every Sync field that differs from its default (or from
-// the server) is a local change at `now`, so it wins every conflict.
 MergeResult uploadLocal(const ParsedBlob &server, const QVariantMap &local, qint64 now);
 
-} // namespace settingsport
+}

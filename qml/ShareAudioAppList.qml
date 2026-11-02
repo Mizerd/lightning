@@ -4,12 +4,6 @@ import QtQuick.Controls.impl
 import QtQuick.Layouts
 import MatrixClient
 
-// The applications a screen share's sound can come from, live: one tickable
-// row per application that is playing (or was chosen and is not playing now),
-// updated as applications start and stop. Ticking one switches the share to
-// "only the chosen apps"; Lightning itself is never listed. Used by the
-// share picker and by ShareAudioAppsDialog (the call bar's route, which is
-// the only one on Wayland).
 ColumnLayout {
     id: root
 
@@ -20,8 +14,6 @@ ColumnLayout {
     readonly property var rows:
         app.groupCall ? app.groupCall.shareAudioApplications : []
 
-    // Live only while shown: the controller polls while anything watches.
-    // Counted, so the false must always follow the true.
     property bool watching: false
     function syncWatch() {
         var want = root.visible && root.canChoose && !!app.groupCall
@@ -85,16 +77,12 @@ ColumnLayout {
                             rowItem.modelData.key, rowItem.modelData.label,
                             checked)
                     }
-                    // A click writes `checked` and destroys the binding; the
-                    // controller's answer is the truth (it may refuse).
                     checked = Qt.binding(function () {
                         return rowItem.modelData.chosen === true
                     })
                 }
             }
 
-            // The application's own icon where the audio server names one
-            // (an XDG icon name), else its initial.
             Item {
                 Layout.preferredWidth: 20
                 Layout.preferredHeight: 20
@@ -125,7 +113,6 @@ ColumnLayout {
 
             Label {
                 Layout.fillWidth: true
-                // Application names are remote-ish text: never markup.
                 textFormat: Text.PlainText
                 text: rowItem.modelData.label
                 elide: Text.ElideRight
@@ -133,8 +120,6 @@ ColumnLayout {
                 font.pixelSize: AppTheme.textBody
                 MouseArea {
                     anchors.fill: parent
-                    // The name is part of the target, as a CheckBox's own
-                    // text would be.
                     onClicked: {
                         if (!tick.enabled)
                             return
@@ -146,8 +131,6 @@ ColumnLayout {
 
             Label {
                 objectName: "shareAudioAppState"
-                // Whether the running share is actually carrying it, so a
-                // ticked app that is not heard says why.
                 textFormat: Text.PlainText
                 text: rowItem.modelData.containsUs === true
                       ? qsTr("Includes Lightning")

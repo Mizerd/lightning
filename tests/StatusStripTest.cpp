@@ -52,14 +52,13 @@ public:
     }
 };
 
-} // namespace
+}
 
 class StatusStripTest : public QObject
 {
     Q_OBJECT
 
 private:
-    // What the strip shows now: the last errorReported(), "" before any.
     static QString shown(const QSignalSpy &spy)
     {
         return spy.isEmpty() ? QString()
@@ -93,7 +92,6 @@ private Q_SLOTS:
         Q_EMIT app.errorReported(QStringLiteral("The edit could not be applied."));
         app.dismissStatusError();
         QCOMPARE(shown(reported), QString());
-        // Nothing shown: a second dismiss reports nothing.
         const int count = reported.count();
         app.dismissStatusError();
         QCOMPARE(reported.count(), count);
@@ -113,8 +111,6 @@ private Q_SLOTS:
         QCOMPARE(shown(reported), QString());
     }
 
-    // The create's own landing is not the user moving on: the message it
-    // reported on the way is what the user needs to see in that room.
     void aCreatedRoomOpeningKeepsTheMessageItReported()
     {
         AppController app(AppController::MockBackend);
@@ -129,15 +125,10 @@ private Q_SLOTS:
         Q_EMIT app.conversations()->spaceReady(
             QStringLiteral("!space-created:example.org"));
         QCOMPARE(shown(reported), placement);
-        // The next move is the user's.
         app.openRoom(QStringLiteral("!elsewhere:example.org"));
         QCOMPARE(shown(reported), QString());
     }
 
-    // B053 through the real create: ConversationController reports the
-    // Space failure, THEN goes busy again to wait for the room, THEN opens
-    // it. The busy hook used to withdraw the message on that second busy,
-    // before a frame was drawn, so the fix made it invisible.
     void aCreatesSpaceFailureSurvivesItsWaitAndLanding()
     {
         StripClient client;
@@ -145,7 +136,6 @@ private Q_SLOTS:
         app.conversations()->setClient(&client);
         QSignalSpy reported(&app, &AppController::errorReported);
 
-        // A new create withdraws the last attempt's message.
         Q_EMIT app.errorReported(QStringLiteral("Old message."));
         app.conversations()->createRoom(
             {{QStringLiteral("name"), QStringLiteral("Room")}});
@@ -158,7 +148,6 @@ private Q_SLOTS:
                                          QStringLiteral("space_add_failed"));
         const QString placement = QStringLiteral(
             "The room was created, but adding it to the Space failed.");
-        // Waiting for the room to be listed is the same create.
         QVERIFY(app.conversations()->busy());
         QCOMPARE(shown(reported), placement);
 
@@ -172,9 +161,6 @@ private Q_SLOTS:
         QCOMPARE(shown(reported), placement);
     }
 
-    // A running call keeps ITS notice ("nobody hears you") on the strip
-    // across the timer and room switches; any other message shown during
-    // the call expires and goes on a switch as it would without one.
     void aRunningCallKeepsOnlyItsOwnNotice()
     {
         StripClient client;
@@ -195,11 +181,9 @@ private Q_SLOTS:
         app.openRoom(QStringLiteral("!elsewhere:example.org"));
         QCOMPARE(shown(reported), notice);
 
-        // Not the call's: it expires during the call...
         Q_EMIT app.errorReported(
             QStringLiteral("The edit could not be applied."));
         QTRY_COMPARE_WITH_TIMEOUT(shown(reported), QString(), 3000);
-        // ...and goes on a room switch.
         app.setStatusErrorExpiryMsForTest(60000);
         Q_EMIT app.errorReported(QStringLiteral("Something failed."));
         app.openRoom(QStringLiteral("!other:example.org"));
@@ -207,8 +191,6 @@ private Q_SLOTS:
         app.calls()->hangup();
     }
 
-    // A long message (the keyring ones run to several sentences) is not
-    // gone before it can be read; a short one keeps the 8 s.
     void aLongMessageStaysLonger()
     {
         QCOMPARE(AppController::statusErrorExpiryMs(0), 8000);
@@ -222,8 +204,6 @@ private Q_SLOTS:
         AppController app(AppController::MockBackend);
         QSignalSpy reported(&app, &AppController::errorReported);
         Q_EMIT app.errorReported(QStringLiteral("First."));
-        // A newer message restarts the clock: the first one's timer must not
-        // take the second down early.
         QTest::qWait(3000);
         Q_EMIT app.errorReported(QStringLiteral("Second."));
         QTest::qWait(6000);

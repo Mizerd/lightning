@@ -26,24 +26,16 @@
 // Pure decisions over a lookup, tested by calling them.
 namespace updater {
 
-/// One correction to apply before the application is started again.
 struct RelaunchEnvironmentChange {
     QString name;
-    /// The value to set. Meaningless when `remove` is true.
     QString value;
-    /// True: unset the variable. False: set it to `value`.
     bool remove = false;
-    /// One sentence for the helper's stderr recording what changed and why.
     QString reason;
 };
 
-/// The corrections for a relaunch, in application order. `value` returns a
-/// variable's value ("" when unset); `directoryExists` says whether a path is
-/// a directory now. A user-set APPIMAGE_EXTRACT_AND_RUN, including 0, is never
-/// overridden.
 QList<RelaunchEnvironmentChange> relaunchEnvironmentChanges(
     bool appImageInstall,
     const std::function<QString(const QString &)> &value,
     const std::function<bool(const QString &)> &directoryExists);
 
-} // namespace updater
+}

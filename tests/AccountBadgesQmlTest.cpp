@@ -1,21 +1,3 @@
-// Live accounts (Labs), Phase 1: the per-account activity badges on the
-// account surfaces — the switcher rows (AccountMenu + IdentityCard), the quick
-// switcher's "Switch to" entries and the rail's account tile.
-//
-// What is held here:
-// - the ONE badge rule (AccountActivityBadge): a number only for mentions,
-//   "N+" for a lower bound, a dot otherwise, nothing unless Running, nothing
-//   on the active row;
-// - the feed (AccountActivityFeed) copies AccountActivityModel's answers into
-//   an unbound map on the model's signals: one read per change, and a change
-//   the model did not signal is never picked up by a binding;
-// - the row badge and the rail dot are placed geometrically: inside their
-//   row/tile, clear of the text, the remove button and the presence dot;
-// - with Labs off nothing changes (the parity case), and with Labs on the
-//   badges follow the model while the menu is open.
-//
-// Mutations that make each case fail are in the WP1-Q notes
-// (Tasks/2026-10-16-la1-Q.md).
 
 #include <QtTest/QtTest>
 
@@ -54,7 +36,6 @@ const QString kAlice = QStringLiteral("@alice:hs1.example");
 const QString kBob = QStringLiteral("@bob:hs2.example");
 const QString kCarol = QStringLiteral("@carol:hs3.example");
 
-// Any epoch at or above the row's; nothing retires a host in these suites.
 constexpr quint64 kEpoch = 1;
 
 QRectF sceneRect(const QQuickItem *item)
@@ -62,8 +43,6 @@ QRectF sceneRect(const QQuickItem *item)
     return QRectF(item->mapToScene(QPointF(0, 0)), item->size());
 }
 
-// Repeater and layout children are found through the item tree, not the
-// QObject tree.
 QQuickItem *findItem(QQuickItem *root, const QString &name)
 {
     if (!root)
@@ -104,7 +83,6 @@ QStringList userIdsOf(const QVariantList &rows)
     return ids;
 }
 
-// The surfaces under test, in one window, against the real `app`.
 const char *kSurfaces = R"QML(
 import QtQuick
 import QtQuick.Controls
@@ -136,7 +114,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class AccountBadgesQmlTest : public QObject
 {
@@ -147,7 +125,6 @@ private:
     QTemporaryDir m_dataHome;
     labsqml::InertRustBridge m_bridge;
 
-    // One scene over one controller; torn down per case.
     struct Surfaces {
         AppController *controller = nullptr;
         QQmlEngine *engine = nullptr;
@@ -163,10 +140,6 @@ private:
         {
             return root->findChild<QObject *>(name);
         }
-        // The scene's own menu's list. SpacesRail carries a second
-        // AccountMenu (railAccountMenu) whose list has the same objectName
-        // and the same count, and it comes first in a window-wide
-        // depth-first search — so every lookup is scoped to "menu".
         QQuickItem *menuList() const
         {
             QObject *menu = find(QStringLiteral("menu"));
@@ -216,7 +189,6 @@ private:
         auto *window = qobject_cast<QQuickWindow *>(s->root);
         if (!window || !QTest::qWaitForWindowExposed(window))
             return nullptr;
-        // Park the pointer clear of every row: a hovered row hides its badge.
         QTest::mouseMove(window, QPoint(window->width() - 4, 4));
         return s;
     }
@@ -230,15 +202,8 @@ private:
         auto *list = s.menuList();
         QVERIFY(list);
         QTRY_COMPARE(list->property("count").toInt(), expectedRows);
-        // The list's height follows its count through the popover's layout,
-        // which runs at the next polish: until then no row past the first
-        // has a delegate (integration).
         QTRY_VERIFY(list->height() > 0);
-        // Every "no badge" check below is taken on THIS list; on a list
-        // nobody opened, isVisible() is false for any badge rule at all.
         QTRY_VERIFY(list->isVisible());
-        // And it is not the rail's (SpacesRail's own AccountMenu keeps the
-        // component's objectName).
         if (QObject *railMenu = s.find(QStringLiteral("accountSwitcherPopover"))) {
             QVERIFY(railMenu != menu);
             QVERIFY(railMenu->findChild<QQuickItem *>(
@@ -246,13 +211,11 @@ private:
         }
     }
 
-    // The quick switcher's "Switch to <uid>" entry, filtered to the top.
     static QQuickItem *switchEntry(Surfaces &s, const QString &userId)
     {
         auto *switcher = s.find(QStringLiteral("switcher"));
         if (!switcher->property("opened").toBool()) {
             QMetaObject::invokeMethod(s.root, "openCommand");
-            // onOpened clears the query, so the text goes in after it.
             if (!QTest::qWaitFor([switcher] {
                     return switcher->property("opened").toBool(); }))
                 return nullptr;
@@ -266,8 +229,6 @@ private:
             QStringLiteral("quickSwitcherCommandList"));
         if (!list)
             return nullptr;
-        // Filtered at once, laid out at the next polish: the entry's
-        // delegate exists only once the list has a height (integration).
         QQuickItem *item = nullptr;
         QTest::qWaitFor([list, &item] {
             QMetaObject::invokeMethod(list, "forceLayout");
@@ -298,8 +259,6 @@ private slots:
         labsqml::setHiddenSwitch(false);
         QSettings().clear();
     }
-
-    // ── The rule ──────────────────────────────────────────────────────────
 
     void theBadgeRuleHoldsForEveryState_data()
     {
@@ -386,7 +345,6 @@ Item {
         }
         QCOMPARE(badge->property("text").toString(), text);
         QCOMPARE(badge->property("dotOnly").toBool(), dotOnly);
-        // A number is a mention (the mention colour); a dot is not.
         QCOMPARE(badge->property("mention").toBool(), !dotOnly);
         const QString said = badge->property("activityLabel").toString();
         if (dotOnly) {
@@ -397,8 +355,6 @@ Item {
         }
     }
 
-    // Every LiveState has words, and NotLive has none (so a row outside Labs
-    // gains no accessible text).
     void everyLiveStateHasItsWords()
     {
         QQmlEngine engine;
@@ -424,7 +380,6 @@ Item {
               QStringLiteral("Open to finish setup") },
             { AccountActivityModel::Stopping, QStringLiteral("Stopping") },
         };
-        // Every enumerator is listed: the count is the enum's.
         const QMetaEnum meta = QMetaEnum::fromType<AccountActivityModel::LiveState>();
         QCOMPARE(expected.size(), meta.keyCount());
         for (const auto &[state, words] : expected) {
@@ -433,10 +388,6 @@ Item {
         }
     }
 
-    // ── The feed ──────────────────────────────────────────────────────────
-
-    // One read per signalled change; a change the model did not signal is
-    // not seen (no binding reaches into the model); no source, no reads.
     void theFeedReadsOncePerSignalAndIsNeverABinding()
     {
         QQmlEngine engine;
@@ -483,16 +434,14 @@ Item {
 )QML"), QUrl(QStringLiteral("feedscene.qml")));
         QScopedPointer<QObject> scene(c.create());
         QVERIFY2(scene, qPrintable(c.errorString()));
-        // Let any deferred refresh run, then take the baseline.
         QTest::qWait(0);
         QCoreApplication::processEvents();
-        QVERIFY(scene->property("reads").toInt() >= 2); // both accounts read
+        QVERIFY(scene->property("reads").toInt() >= 2);
         const int running = AccountActivityModel::Running;
 
         int baseline = scene->property("reads").toInt();
         QMetaObject::invokeMethod(scene.data(), "setB", Q_ARG(QVariant, 2),
                                   Q_ARG(QVariant, running));
-        // The model changed and said nothing: the surface must not see it.
         QCOMPARE(scene->property("bMentions").toInt(), 0);
         QCOMPARE(scene->property("reads").toInt(), baseline);
 
@@ -511,7 +460,6 @@ Item {
         QCOMPARE(scene->property("bMentions").toInt(), 5);
         QCOMPARE(scene->property("reads").toInt(), baseline + 1);
 
-        // Losing the source (Labs turned off) empties the map.
         scene->setProperty("useSource", false);
         QTRY_VERIFY(scene->property("activityIsNull").toBool());
         QCOMPARE(scene->property("bMentions").toInt(), 0);
@@ -551,10 +499,6 @@ Item {
         QVERIFY(scene->property("activityIsNull").toBool());
     }
 
-    // ── Geometry ──────────────────────────────────────────────────────────
-
-    // The row badge sits inside its row, clear of the name, the id and the
-    // remove button; on the active row and outside Labs it is not drawn.
     void theRowBadgeSitsInsideItsRowClearOfTheText()
     {
         QQmlEngine engine;
@@ -637,14 +581,11 @@ Window {
                                     .arg(QString::fromLatin1(name))));
         }
 
-        // The active row: never.
         auto *activeBadge = findItem(activeRow,
                                      QStringLiteral("identityCardActivityBadge"));
         QVERIFY(activeBadge);
         QVERIFY(!activeBadge->isVisible());
 
-        // Outside Labs (liveState 0): the counts are ignored, and the row's
-        // accessible description is what it always was.
         auto *legacyBadge = findItem(legacy,
                                      QStringLiteral("identityCardActivityBadge"));
         QVERIFY(legacyBadge);
@@ -653,7 +594,6 @@ Window {
                                          QStringLiteral("Accessible.description"));
         QCOMPARE(legacyDescription.evaluate().toString(), QString());
 
-        // In Labs the description carries the state and the badge's words.
         QQmlExpression runningDescription(qmlContext(running), running,
                                           QStringLiteral("Accessible.description"));
         const QString said = runningDescription.evaluate().toString();
@@ -662,13 +602,6 @@ Window {
                  qPrintable(said));
     }
 
-    // The rail's "new messages on another account" dot sits ON the avatar's
-    // rim at the top-right — the presence dot's own rule (centre at avatarR +
-    // dotR - ring along the 45° diagonal) mirrored — clear of the presence dot
-    // and its connection fallback, and inside the rail, at two interface
-    // scales. Containment in the tile's square alone is not the property: a
-    // dot in the tile's empty corner passes it while barely touching the
-    // avatar.
     void theRailDotSitsOnTheAvatarRimAwayFromThePresenceDot()
     {
         auto *controller = labsqml::makeController(false, { kAlice, kBob });
@@ -686,7 +619,6 @@ Window {
             QStringLiteral("railSelfPresenceDot"));
         auto *connection = s->root->findChild<QQuickItem *>(
             QStringLiteral("railConnectionDot"));
-        // The cog's attention badge is the nearest mark above the tile.
         auto *cogBadge = s->root->findChild<QQuickItem *>(
             QStringLiteral("railSettingsAlertBadge"));
         QVERIFY(rail && tile && dot && presence && connection && cogBadge);
@@ -702,11 +634,9 @@ Window {
             setScale.evaluate();
             QTest::qWait(30);
             QTRY_VERIFY(dot->width() > 0);
-            // Let the rail's layout settle at the new scale before measuring.
             QTest::qWait(30);
             const QRectF t = sceneRect(tile);
             const QRectF d = sceneRect(dot);
-            // The avatar fills the tile and is a circle.
             const qreal avatarR = t.width() / 2;
             const qreal dotR = d.width() / 2;
             QQmlExpression readRing(qmlContext(dot), dot,
@@ -752,11 +682,6 @@ Window {
         restore.evaluate();
     }
 
-    // ── Parity: Labs off ──────────────────────────────────────────────────
-
-    // A stored `true` with Labs forced off (the test override) does nothing, and every
-    // surface reads AccountManager's list and renders no badge, exactly as
-    // before Labs existed.
     void withLabsOffEverySurfaceIsAsBefore()
     {
         auto *controller = labsqml::makeController(false, { kAlice, kBob });
@@ -775,7 +700,6 @@ Window {
             return;
         auto *menu = s->find(QStringLiteral("menu"));
 
-        // The rows are AccountManager's, active first.
         QVariantList expected = controller->accounts()->accounts();
         QCOMPARE(expected.size(), 2);
         for (int i = 0; i < expected.size(); ++i) {
@@ -801,7 +725,6 @@ Window {
         QVERIFY(feed);
         QVERIFY(isNullish(feed->property("activity")));
 
-        // No row carries Labs state or a badge.
         for (const QString &uid : { kAlice, kBob }) {
             auto *card = s->card(uid);
             QVERIFY(card);
@@ -814,7 +737,6 @@ Window {
             QVERIFY(!badge->isVisible());
         }
 
-        // The rail dot never shows.
         auto *dot = s->root->findChild<QQuickItem *>(
             QStringLiteral("railOtherAccountsDot"));
         QVERIFY(dot);
@@ -823,7 +745,6 @@ Window {
         QMetaObject::invokeMethod(menu, "close");
         QTRY_VERIFY(!menu->property("visible").toBool());
 
-        // The quick switcher offers the same switch, and no badge.
         auto *switcher = s->find(QStringLiteral("switcher"));
         QVERIFY(isNullish(switcher->property("labsAccountRows")));
         auto *entry = switchEntry(*s, kBob);
@@ -837,12 +758,6 @@ Window {
         QMetaObject::invokeMethod(switcher, "close");
     }
 
-    // ── Labs on ───────────────────────────────────────────────────────────
-
-    // Badges follow AccountActivityModel while the menu is open: a number for
-    // mentions, N+, a dot, nothing for the active row or a paused account;
-    // the rail dot counts the other accounts; the quick switcher entry shows
-    // the same mark. Turning Labs off at runtime takes every badge away.
     void badgesFollowTheModelWithTheMenuOpen()
     {
         lightning::accounts::setRustBridgeApiForTest(&m_bridge);
@@ -863,8 +778,6 @@ Window {
             return;
         auto *menu = s->find(QStringLiteral("menu"));
 
-        // The rows are AccountListModel's (no secret read per row), active
-        // first.
         const QVariantList rows = controller->accountList()->rowsSnapshot();
         QCOMPARE(rows.size(), 3);
         QCOMPARE(toList(menu->property("labsRows")).size(), 3);
@@ -873,14 +786,10 @@ Window {
         QCOMPARE(QSet<QString>(shownIds.begin(), shownIds.end()),
                  (QSet<QString>{ kAlice, kBob, kCarol }));
 
-        // The open menu's delegates must survive a host starting, running or
-        // pausing: AccountListModel signals rowsChanged for those too, and
-        // replacing the rows would rebuild every row under the pointer.
         const QPointer<QQuickItem> bobRow = s->card(kBob);
         const QPointer<QQuickItem> carolRow = s->card(kCarol);
         QVERIFY(bobRow && carolRow);
 
-        // Bob: two mentions, while the menu is open.
         activity->setLiveState(kBob, AccountActivityModel::Running);
         AccountActivityModel::Summary bob;
         bob.unreadRooms = 1;
@@ -891,14 +800,12 @@ Window {
         QCOMPARE(s->card(kBob)->property("liveState").toInt(),
                  int(AccountActivityModel::Running));
 
-        // A lower bound.
         bob.mentions = 3;
         bob.mentionsLowerBound = true;
         QVERIFY(activity->setSummary(kBob, kEpoch, bob));
         QTRY_COMPARE(s->badgeOf(kBob)->property("text").toString(),
                      QStringLiteral("@3+"));
 
-        // Carol: unread, no mention -> a dot.
         activity->setLiveState(kCarol, AccountActivityModel::Running);
         AccountActivityModel::Summary carol;
         carol.unreadRooms = 4;
@@ -906,7 +813,6 @@ Window {
         QTRY_VERIFY(s->badgeOf(kCarol) && s->badgeOf(kCarol)->isVisible());
         QVERIFY(s->badgeOf(kCarol)->property("dotOnly").toBool());
 
-        // Alice is the active account: never a badge, whatever the model says.
         activity->setLiveState(kAlice, AccountActivityModel::Running);
         AccountActivityModel::Summary alice;
         alice.mentions = 9;
@@ -915,7 +821,6 @@ Window {
         QVERIFY(s->badgeOf(kAlice));
         QVERIFY(!s->badgeOf(kAlice)->isVisible());
 
-        // The rail dot: other accounts with activity (Bob and Carol).
         auto *dot = s->root->findChild<QQuickItem *>(
             QStringLiteral("railOtherAccountsDot"));
         QVERIFY(dot);
@@ -926,12 +831,10 @@ Window {
                      QString::number(activity->otherAccountsWithActivity())),
                  qPrintable(dotName.evaluate().toString()));
 
-        // Bob paused: his badge goes; the menu stays open throughout.
         activity->setLiveState(kBob, AccountActivityModel::Paused);
         QTRY_VERIFY(!s->badgeOf(kBob)->isVisible());
         QVERIFY(menu->property("opened").toBool());
 
-        // Three live-state changes later, the same delegates.
         QTest::qWait(50);
         QVERIFY2(bobRow && s->card(kBob) == bobRow.data(),
                  "a live-state change rebuilt the open menu's rows");
@@ -941,7 +844,6 @@ Window {
         QMetaObject::invokeMethod(menu, "close");
         QTRY_VERIFY(!menu->property("visible").toBool());
 
-        // The held change is applied on close: the rows carry Bob's state.
         auto liveStateIn = [](const QVariant &rows, const QString &uid) {
             for (const QVariant &row : toList(rows)) {
                 const QVariantMap m = row.toMap();
@@ -953,7 +855,6 @@ Window {
         QTRY_COMPARE(liveStateIn(menu->property("labsRows"), kBob),
                      int(AccountActivityModel::Paused));
 
-        // The quick switcher's entry for Carol carries the same dot.
         auto *switcher = s->find(QStringLiteral("switcher"));
         QTRY_VERIFY(toList(switcher->property("labsAccountRows")).size() == 3);
         auto *entry = switchEntry(*s, kCarol);
@@ -963,8 +864,6 @@ Window {
         QTRY_VERIFY(entryBadge->isVisible());
         QVERIFY(entryBadge->property("dotOnly").toBool());
 
-        // A live-state change while the switcher is open does not rebuild
-        // the command list under the keyboard.
         const QPointer<QQuickItem> entryBefore = entry;
         auto *commandList = switcher->findChild<QQuickItem *>(
             QStringLiteral("quickSwitcherCommandList"));
@@ -982,12 +881,9 @@ Window {
 
         QMetaObject::invokeMethod(switcher, "close");
         QTRY_VERIFY(!switcher->property("visible").toBool());
-        // Applied on close.
         QTRY_COMPARE(liveStateIn(switcher->property("labsAccountRows"), kBob),
                      int(AccountActivityModel::Running));
 
-        // Runtime off: the models go, every badge with them, and the rows
-        // are AccountManager's again.
         controller->settings()->setLabsConcurrentAccounts(false);
         QTRY_VERIFY(!controller->liveAccountsActive());
         QTRY_VERIFY(controller->accountActivity() == nullptr);
@@ -1004,20 +900,6 @@ Window {
         QTRY_VERIFY(!menu->property("visible").toBool());
     }
 
-    // ── Contrast (la1-Q #5; badge colours fixed 2026-10-20, review round 1) ──
-
-    // Every badge, measured from the colours REAL badge items paint, on each
-    // of the eleven presets, with high contrast off and on, and on a custom
-    // theme: a mention count's ink on its fill and an unread count's at 4.5:1
-    // (7:1 high contrast), and the unread dot at 3:1 (4.5:1) against EVERY
-    // surface it sits on: the account menu and its panels, room-list rows at
-    // rest, hovered and selected, both layouts, the side panel, the header and
-    // the conversation (AppTheme.badgeDotSurfaces). A mention count is not
-    // colour alone: it reads "@N", its accessible name the number. On the
-    // colours before 2026-10-20 this fails (white on the mention fill 3.20:1
-    // on Indigo Night, Deep Teal and Storm; the count 3.62:1 on Purple Dusk;
-    // the dot 2.08:1 on Nordic's panel; no "@"). Eleven distinct palettes are
-    // asserted, so one palette measured eleven times cannot pass.
     void badgeColoursMeetWcagOnEveryPalette()
     {
         QQmlEngine engine;
@@ -1038,7 +920,6 @@ Window {
         const auto color = [theme](const char *name) {
             return theme->property(name).value<QColor>();
         };
-        // A translucent surface as it shows over the room list.
         const auto over = [](const QColor &c, const QColor &base) {
             const double a = c.alphaF();
             return QColor::fromRgbF(float(c.redF() * a + base.redF() * (1 - a)),
@@ -1114,9 +995,6 @@ Window {
                  textTarget);
             need(QStringLiteral("unread count"), ink("countBadge"), fill("countBadge"),
                  textTarget);
-            // A dot keeps the theme's saturated colour; its RING carries the
-            // non-text contrast on every surface it sits on (rest, hover,
-            // selected, the rail), and so does the Channels unread mark.
             for (const auto &surface : dotSurfaces()) {
                 need(QStringLiteral("unread dot ring on ") + surface.first,
                      color("unreadDotRing"), surface.second, dotTarget);
@@ -1129,8 +1007,6 @@ Window {
             }
             need(QStringLiteral("\"New messages\""), color("unreadDividerInk"),
                  color("timelineBackground"), textTarget);
-            // What the real items paint is the derived badge colours, and the
-            // thread badge's mention fill is the one every mention badge uses.
             if (fill("mentionBadge") != color("roomMentionBadge")
                 || fill("countBadge") != color("unreadCountFill")
                 || fill("dotBadge") != color("unreadDot")
@@ -1141,8 +1017,6 @@ Window {
                 || item("threadUnread")->property("color").value<QColor>()
                        != color("unreadCountFill"))
                 failures << where + QStringLiteral(": a badge paints something else");
-            // The dot's fill is the theme's own colour, not a pastel of it,
-            // and the real dot draws the ring.
             if (color("unreadDot") != color("roomUnreadBadge")
                 || color("mentionDot") != color("mentionBadge")
                 || color("railUnreadDot") != color("unreadBadge"))
@@ -1153,7 +1027,6 @@ Window {
                                   theme->property("badgeDotRingWidth").toReal())
                 || dotRing.second < 1.0)
                 failures << where + QStringLiteral(": the unread dot draws no ring");
-            // Unread and mention stay two colours.
             if (color("unreadDot") == color("mentionDot")
                 || color("unreadDotRing") == color("mentionDotRing"))
                 failures << where + QStringLiteral(": unread and mention dots look alike");
@@ -1177,16 +1050,12 @@ Window {
                                     + color("unreadCountFill").name()
                                     + color("unreadDotRing").name());
                     ++checked;
-                    // Storm's Channels mark keeps its bolt yellow (its accent).
                     if (mode == 11 && color("channelUnreadMark") != color("accent"))
                         failures << QStringLiteral("theme 11: the channel mark lost its yellow");
                 } else if (theme->property("badgeDotRingWidth").toReal() <= 1.5) {
                     failures << QStringLiteral("theme %1: high contrast does not thicken "
                                                "the dot ring").arg(mode);
                 }
-                // Every preset keeps its own (light) ink, high contrast on as
-                // off: the dark ink is for colours like an orange, which none
-                // ships (badges review round 3, R2).
                 if (color("mentionBadgeInk") != color("mentionBadgeText")
                     || color("unreadCountInk") != color("unreadBadgeText"))
                     failures << QStringLiteral("theme %1%2: a preset's ink moved")
@@ -1201,11 +1070,6 @@ Window {
                  qPrintable(QStringLiteral("only %1 distinct palettes over %2 presets")
                                 .arg(palettes.size()).arg(checked)));
 
-        // A custom theme follows its own colours: Lightning Dark with a dark
-        // slate accent (its unread colour) and an orange mention. The dot is
-        // the slate itself and its ring keeps the slate's hue at 3:1; the
-        // orange keeps its colour under a dark ink instead of turning brown
-        // under white.
         const QVariant originalBase = theme->property("customBase");
         const QVariant originalOverrides = theme->property("customOverrides");
         theme->setProperty("customBase", 2);
@@ -1220,12 +1084,9 @@ Window {
         QCOMPARE(color("unreadDot"), accent);
         QVERIFY2(qAbs(color("unreadDotRing").hslHueF() - accent.hslHueF()) < 0.02,
                  qPrintable(color("unreadDotRing").name()));
-        QVERIFY(color("unreadDotRing") != accent);   // the ring had to move, and did
+        QVERIFY(color("unreadDotRing") != accent);
         QCOMPARE(color("mentionBadgeFill"), QColor(QStringLiteral("#FFB000")));
         QVERIFY(luminance(color("mentionBadgeInk")) < 0.05);
-        // White would move #FF8800 by more than 0.14 lightness, the dark ink
-        // not at all: it stays orange under the dark ink, with high contrast
-        // on as off (the ink is chosen at 4.5:1 and never swapped by it).
         theme->setProperty("customOverrides",
                            QVariantMap{{QStringLiteral("mention"), QStringLiteral("#FF8800")}});
         theme->setProperty("mode", 11);
@@ -1245,16 +1106,9 @@ Window {
         theme->setProperty("highContrast", originalHc);
         QVERIFY2(failures.isEmpty(), qPrintable(failures.join(QLatin1Char('\n'))));
 
-        // Not colour alone: "@N", the accessible name the number.
         QCOMPARE(item("mentionBadge")->property("text").toString(), QStringLiteral("@3"));
         QCOMPARE(item("countBadge")->property("text").toString(), QStringLiteral("3"));
 
-        // The badge sites that cannot be built alone here (a room row, the
-        // rail, Home, the timeline header, the thread list, the Channels
-        // rows, the "New messages" divider) paint the derived colours: each
-        // file's CODE (comments stripped) names exactly these, and none of
-        // these badge files paints the base mention or unread colour as a
-        // badge. Mutation: revert any one site.
         QDir dir(QStringLiteral(QML_DIR));
         const QRegularExpression comment(QStringLiteral("(?<![:\"\\w])//[^\\n]*"));
         const auto code = [&dir, &comment](const QString &name) {
@@ -1267,9 +1121,6 @@ Window {
             return int(text.count(QRegularExpression(
                 QStringLiteral("AppTheme\\.%1\\b").arg(token))));
         };
-        // A file whose job is wider than the badge (the timeline, a message)
-        // is read only in the badge's own block, from its objectName on, so a
-        // later non-badge use of a base colour elsewhere in it is not flagged.
         struct Site {
             const char *file;
             QList<QPair<const char *, int>> tokens;
@@ -1299,8 +1150,6 @@ Window {
             { "ChannelCategoryHeader.qml", { { "channelUnreadMark", 1 } } },
             { "MessageDelegate.qml", { { "unreadDividerInk", 1 } },
               "objectName: \"unreadDividerLabel\"", 400 },
-            // The Space lobby: a folded section's count, and a room row's
-            // mention and count pills.
             { "SpaceLobby.qml", { { "mentionBadgeFill", 1 }, { "mentionBadgeInk", 1 },
                                   { "unreadCountFill", 1 }, { "unreadCountInk", 1 } },
               "objectName: \"spaceLobbyFoldedUnread\"", 1400 },
@@ -1330,8 +1179,6 @@ Window {
                                  .arg(QLatin1String(site.file), QLatin1String(t.first))
                                  .arg(n).arg(t.second);
             }
-            // The base colours are not badge colours in these files (the
-            // Channels mark is its own token, fitted where it is declared).
             for (const char *base : { "mentionBadge", "mentionBadgeText", "dangerText",
                                       "unreadBadgeText", "channelUnreadMark", "accentText" }) {
                 bool expected = false;

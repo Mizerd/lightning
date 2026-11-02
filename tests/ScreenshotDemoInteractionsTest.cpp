@@ -24,8 +24,6 @@ class ScreenshotDemoInteractionsTest : public QObject
             if (e.type != TimelineEvent::Poll)
                 continue;
             for (const PollAnswer &a : e.pollAnswers) {
-                // By answer id, not label: the labels are demo copy. a1 is
-                // the seeded vote (4), a2 the runner-up (3).
                 if (a.id == QLatin1String("a1") && midnightId) *midnightId = a.id;
                 if (a.id == QLatin1String("a2") && oceanId) *oceanId = a.id;
             }
@@ -61,7 +59,6 @@ private Q_SLOTS:
         QVERIFY(!pollId.isEmpty());
         QVERIFY(!oceanId.isEmpty());
 
-        // Seed state: Midnight selected (4), Ocean (3).
         auto answer = [&](const QString &id) {
             for (const TimelineEvent &e : c.timeline(feedback))
                 if (e.eventId == pollId)
@@ -73,7 +70,6 @@ private Q_SLOTS:
         QCOMPARE(answer(midnightId).count, 4);
         QCOMPARE(answer(oceanId).count, 3);
 
-        // Change the vote to Ocean; a change signal fires and the tally moves.
         QSignalSpy spy(&c, &MatrixClient::eventChangedAt);
         c.sendPollResponse(feedback, QString(), pollId, { oceanId });
         QVERIFY(spy.count() >= 1);
@@ -82,7 +78,6 @@ private Q_SLOTS:
         QVERIFY(answer(oceanId).byMe);
         QCOMPARE(answer(oceanId).count, 4);
 
-        // Reset restores the deterministic initial tally.
         c.resetDemoData();
         QVERIFY(answer(midnightId).byMe);
         QCOMPARE(answer(midnightId).count, 4);
@@ -94,7 +89,6 @@ private Q_SLOTS:
         c.setScreenshotDemoMode(true);
         const QString invite = QStringLiteral("!invite-founders:lightning.example");
         QCOMPARE(room(c, invite).membership, RoomInfo::Invited);
-        // Actionable (not mid-operation), so Accept/Reject are enabled.
         QVERIFY(!room(c, invite).invitePending);
 
         c.acceptInvite(invite);
@@ -112,9 +106,9 @@ private Q_SLOTS:
         const QString invite = QStringLiteral("!invite-founders:lightning.example");
         QVERIFY(!room(c, invite).id.isEmpty());
         c.rejectInvite(invite);
-        QVERIFY(room(c, invite).id.isEmpty());   // gone from the room list
+        QVERIFY(room(c, invite).id.isEmpty());
         c.resetDemoData();
-        QVERIFY(!room(c, invite).id.isEmpty());   // restored
+        QVERIFY(!room(c, invite).id.isEmpty());
     }
 
     void markUnreadTogglesLocally()
@@ -140,7 +134,6 @@ private Q_SLOTS:
         QCOMPARE(c.timeline(design).last().body,
                  QStringLiteral("hi from the demo"));
 
-        // Reaction toggle on the first message updates its reactions.
         const QString target = c.timeline(design).first().eventId;
         QSignalSpy spy(&c, &MatrixClient::reactionsChanged);
         c.toggleReaction(design, target, QStringLiteral("🎯"));
@@ -149,13 +142,12 @@ private Q_SLOTS:
 
     void interactionsAreNoOpsOutsideDemoMode()
     {
-        MockMatrixClient c;   // not in demo mode
-        // These must not touch the shared fixtures.
+        MockMatrixClient c;
         c.acceptInvite(QStringLiteral("!whatever:mock.local"));
         c.setRoomMarkedUnread(QStringLiteral("!whatever:mock.local"), true);
         c.sendPollResponse(QStringLiteral("!whatever:mock.local"), QString(),
                            QStringLiteral("$x"), { QStringLiteral("a") });
-        QVERIFY(!c.supportsPolls());   // still false
+        QVERIFY(!c.supportsPolls());
     }
 };
 

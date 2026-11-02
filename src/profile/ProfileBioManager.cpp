@@ -48,7 +48,6 @@ void ProfileBioManager::request(const QString &userId)
 {
     if (!available() || userId.isEmpty() || !m_supported)
         return;
-    // Once per user per session.
     if (m_asked.contains(userId))
         return;
     if (m_cache.size() >= kMaxCached)
@@ -74,7 +73,6 @@ void ProfileBioManager::setOwnBio(const QString &text)
     setLastError({});
     m_pendingWrite = m_nextOpId++;
     Q_EMIT busyChanged();
-    // Rust decides that whitespace-only clears, so both paths agree.
     m_client->setProfileBio(text, m_pendingWrite);
 }
 
@@ -101,11 +99,10 @@ void ProfileBioManager::handleReceived(quint64 opId, const QString &userId,
 {
     const auto it = m_inFlight.constFind(opId);
     if (it == m_inFlight.constEnd())
-        return;   // a stale answer from a previous session
+        return;
     m_inFlight.erase(it);
 
     if (!supported && m_supported) {
-        // Latched for the session: the server does not know the endpoint.
         m_supported = false;
         Q_EMIT supportedChanged();
     }
@@ -121,8 +118,6 @@ void ProfileBioManager::handleSet(quint64 opId, bool ok, const QString &bio,
     Q_EMIT busyChanged();
     if (!ok) {
         setLastError(category.isEmpty() ? QStringLiteral("failed") : category);
-        // An unrecognised write settles it too; latch it, or the account could
-        // retry a failing write forever.
         if (category == QLatin1String("unsupported") && m_supported) {
             m_supported = false;
             Q_EMIT supportedChanged();
@@ -130,8 +125,6 @@ void ProfileBioManager::handleSet(quint64 opId, bool ok, const QString &bio,
         return;
     }
     setLastError({});
-    // Not optimistic: the server accepted the write, and the cached value is
-    // the bounded, sanitized text actually stored.
     if (m_client) {
         const QString own = m_client->currentUserId();
         m_asked.insert(own);

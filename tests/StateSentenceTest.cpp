@@ -1,10 +1,3 @@
-// Room-state and membership sentences are worded in C++ in the UI language
-// (2026-10-18 live runs: "joined the room", "changed the room name" stayed
-// English in a German UI because rust/src/timeline.rs wrote the sentence).
-// The bridge now sends a closed name (`state_sentence`) beside its English
-// body; this covers the ingest, the timeline row, the re-wording after a
-// language switch, the room-list preview kind, and that the C++ table and the
-// Rust one name the same sentences with the same English.
 
 #include "matrix/EventPreview.h"
 #include "matrix/MatrixClient.h"
@@ -24,7 +17,6 @@ using matrix::preview::Kind;
 
 namespace {
 
-// A name as the timeline inserts it: in a first-strong isolate.
 QString iso(const QString &name)
 {
     return QChar(0x2068) + name + QChar(0x2069);
@@ -32,7 +24,6 @@ QString iso(const QString &name)
 
 const QString kRoom = QStringLiteral("!room:example.org");
 
-// German for the EventPreview context, nothing else.
 struct German : QTranslator {
     QString translate(const char *ctx, const char *src, const char *, int) const override
     {
@@ -54,7 +45,6 @@ struct Installed {
     QTranslator *t;
 };
 
-// A row as rust/src/timeline.rs sends it.
 QJsonObject stateItem(const QString &eventId, const QString &stateKind,
                       const QString &sentence, const QString &target,
                       const QString &englishBody)
@@ -115,14 +105,13 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-} // namespace
+}
 
 class StateSentenceTest : public QObject
 {
     Q_OBJECT
 
 private Q_SLOTS:
-    // The closed name crosses; one this build does not know does not.
     void theIngestKeepsOnlyAKnownSentence()
     {
         const TimelineEvent joined = matrix::rust_timeline::eventFromItemJson(
@@ -139,8 +128,6 @@ private Q_SLOTS:
         QVERIFY(unknown.stateSentence.isEmpty());
     }
 
-    // The timeline row says it in the UI language, with the sender as
-    // presented and the target member. Old code: the bridge's English.
     void aStateRowIsWordedInTheUiLanguage()
     {
         FakeClient client;
@@ -178,8 +165,6 @@ private Q_SLOTS:
                  qPrintable(bodies.join(QLatin1String(" | "))));
     }
 
-    // A switch re-reads the words: one dataChanged over the model carrying the
-    // body and the group entries.
     void retranslateAnnouncesTheWords()
     {
         FakeClient client;
@@ -201,7 +186,6 @@ private Q_SLOTS:
         QCOMPARE(changed.first().at(1).value<QModelIndex>().row(), model.rowCount() - 1);
     }
 
-    // The room list keeps the sentence as a kind, so it too follows a switch.
     void thePreviewIsAKindThatFollowsTheLanguage()
     {
         const TimelineEvent invited = matrix::rust_timeline::eventFromItemJson(
@@ -219,7 +203,6 @@ private Q_SLOTS:
         QCOMPARE(room.lastMessagePreview, iso(QStringLiteral("Alice")) + QStringLiteral(" hat ") + iso(QStringLiteral("Bob")) + QStringLiteral(" eingeladen."));
     }
 
-    // A name carrying the field separator cannot move the other fields.
     void aNameCannotShiftTheFields()
     {
         const QString arg = matrix::preview::packStateSentence(
@@ -231,9 +214,6 @@ private Q_SLOTS:
                      + iso(QStringLiteral("Bob")) + QStringLiteral("."));
     }
 
-    // Review: never an empty row. A name this build does not know (a newer
-    // build's, from the cache) shows the bridge's English, else the generic
-    // sentence. Old code: an empty preview.
     void anUnknownSentenceFallsBackToWords()
     {
         const QString withEnglish = matrix::preview::packStateSentence(
@@ -247,27 +227,20 @@ private Q_SLOTS:
                  iso(QStringLiteral("Alice")) + QStringLiteral(" updated room settings."));
     }
 
-    // Review: a right-to-left name must not reorder the sentence. Each name
-    // is a first-strong isolate inside it, and the timeline row carries them.
     void namesAreIsolatedInTheSentence()
     {
-        const QString hebrew = QString::fromUtf8("\u05D3\u05E0\u05D4"); // "Dana"
+        const QString hebrew = QString::fromUtf8("\u05D3\u05E0\u05D4");
         const QString text = matrix::preview::stateSentence(
             u"member_invited", hebrew, QStringLiteral("Bob"));
         QCOMPARE(text, iso(hebrew) + QStringLiteral(" invited ") + iso(QStringLiteral("Bob"))
                            + QStringLiteral("."));
-        // Without isolation (the export), the plain words.
         QCOMPARE(matrix::preview::stateSentence(u"member_invited", hebrew,
                                                 QStringLiteral("Bob"), false),
                  hebrew + QStringLiteral(" invited Bob."));
-        // A name that brings its own isolates cannot close ours early: the
-        // sanitizer strips them before the sentence is built.
         const QString sneaky = QChar(0x2069) + QStringLiteral("x") + QChar(0x2066);
         QVERIFY(!matrix::presentable_name::sanitized(sneaky).contains(QChar(0x2069)));
     }
 
-    // Review: the export writes the sentence in the exporting user's app
-    // language, without isolates. Old code: the bridge's English body.
     void theExportWritesTheSentenceInTheAppLanguage()
     {
         TimelineEvent joined = matrix::rust_timeline::eventFromItemJson(
@@ -285,7 +258,6 @@ private Q_SLOTS:
         const QString text = roomexport::renderPlainText({ joined, unnamed }, options);
         QVERIFY2(text.contains(QStringLiteral("Bob ist dem Raum beigetreten.")), qPrintable(text));
         QVERIFY2(!text.contains(QChar(0x2068)), "isolates in an exported text file");
-        // A row the bridge did not name keeps its body, as before.
         QVERIFY2(text.contains(QStringLiteral("@alice:example.org changed the room name.")),
                  qPrintable(text));
         const QString html = QString::fromUtf8(roomexport::renderHtml({ joined }, options));
@@ -294,10 +266,6 @@ private Q_SLOTS:
         QVERIFY2(json.contains(QStringLiteral("Bob ist dem Raum beigetreten.")), qPrintable(json));
     }
 
-    // The same table as rust/src/timeline.rs (`state_sentence`,
-    // `membership_sentence`, `failed_state_sentence`, and the English in
-    // `state_sentence_english`, which its tests pin): every name the bridge can
-    // send is worded here, and in English exactly as the bridge's body.
     void everySentenceTheBridgeSendsIsWordedHere()
     {
         const QString a = QStringLiteral("@a:b.c");
@@ -329,11 +297,10 @@ private Q_SLOTS:
             { QStringLiteral("membership_changed"), QStringLiteral("Membership for Bob changed.") },
         };
         QCOMPARE(table.size(), 24);
-        // The lookup set and the renderer name the same sentences.
         QCOMPARE(int(matrix::preview::stateSentenceNames().size()), int(table.size()));
         for (const auto &[sentence, english] : table) {
             QVERIFY2(matrix::preview::isStateSentence(sentence), qPrintable(sentence));
-            QCOMPARE(matrix::preview::stateSentence(sentence, a, b, /*isolate=*/false),
+            QCOMPARE(matrix::preview::stateSentence(sentence, a, b,false),
                      english);
         }
         QVERIFY(!matrix::preview::isStateSentence(QStringLiteral("")));

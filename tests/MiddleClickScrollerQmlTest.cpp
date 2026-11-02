@@ -30,9 +30,6 @@ namespace {
 
 constexpr int kTimeoutMs = 4000;
 
-// A 400x600 pane over a 500-wide window, so x 400..500 is outside the pane
-// but inside the window. At contentY 1000: link y 20, input y 80, owner y 140,
-// row y 200..500, empty content below.
 const char *kFixture = R"QML(
 import QtQuick
 import MatrixClient
@@ -91,7 +88,7 @@ Item {
 }
 )QML";
 
-} // namespace
+}
 
 class MiddleClickScrollerQmlTest : public QObject
 {
@@ -164,7 +161,6 @@ private:
         QTest::mouseClick(&f.window, button, Qt::NoModifier, at);
         QCoreApplication::processEvents();
     }
-    // A middle click at `at` that must leave a latched scroll behind.
     static bool latchAt(Fixture &f, const QPoint &at)
     {
         click(f, Qt::MiddleButton, at);
@@ -178,7 +174,6 @@ private:
         QCoreApplication::sendEvent(&f.window, &notch);
         QCoreApplication::processEvents();
     }
-    // Still for `ms`: nothing is writing contentY.
     static bool holdsStill(const Fixture &f, int ms)
     {
         const qreal before = contentY(f);
@@ -186,8 +181,6 @@ private:
         return qAbs(contentY(f) - before) < 0.5;
     }
 
-    // Every item below this one in the visual tree (findChild cannot see
-    // delegates, which are parented to the view's model).
     static void visualTree(QQuickItem *item, QList<QQuickItem *> &out)
     {
         for (QQuickItem *child : item->childItems()) {
@@ -196,7 +189,6 @@ private:
         }
     }
 
-    // Over plain content, in the pane, no owner under it.
     const QPoint spot{200, 350};
 
     QTemporaryDir m_configHome;
@@ -211,8 +203,6 @@ private Q_SLOTS:
         qputenv("XDG_DATA_HOME", m_dataHome.path().toUtf8());
     }
 
-    // The browser rule: a middle click that does not travel past the slop
-    // latches, however long it was held, and a fresh latch does not move.
     void aQuickMiddleClickLatchesAndSitsStill()
     {
         Fixture f;
@@ -221,7 +211,6 @@ private Q_SLOTS:
         QVERIFY2(slop >= 5 && slop <= f.scroller->property("deadZone").toReal(),
                  qPrintable(QStringLiteral("latchSlop %1").arg(slop)));
 
-        // Jitter inside the slop is still a click.
         const QPoint jitter = spot + QPoint(4, 4);
         QTest::mousePress(&f.window, Qt::MiddleButton, Qt::NoModifier, spot);
         QTest::mouseMove(&f.window, jitter);
@@ -231,7 +220,6 @@ private Q_SLOTS:
         QVERIFY2(f.marker->isVisible(), "a latched scroll shows no marker");
         QVERIFY2(holdsStill(f, 200), "a fresh latch scrolled on its own");
 
-        // No time limit: a long still press latches too.
         QTest::keyClick(&f.window, Qt::Key_Escape);
         QVERIFY(!active(f));
         QTest::mousePress(&f.window, Qt::MiddleButton, Qt::NoModifier, spot);
@@ -241,8 +229,6 @@ private Q_SLOTS:
         QVERIFY2(latched(f), "a long still middle press did not latch");
     }
 
-    // A late timer must not make the scroll slower: each step covers the real
-    // time since the previous one (bounded), not a nominal 16 ms.
     void aSlowFrameAdvancesByTheTimeThatPassed()
     {
         Fixture f;
@@ -263,9 +249,6 @@ private Q_SLOTS:
         QCOMPARE(dt.toReal(), f.scroller->property("maxStepMs").toReal());
     }
 
-    // Pinned against the end of the range while the pointer still asks for
-    // more, the host keeps hearing about it (that is what asks for older
-    // history at the top), and nothing throws or moves.
     void pinnedAtTheEdgeStillReportsTheGesture()
     {
         Fixture f;
@@ -283,7 +266,6 @@ private Q_SLOTS:
         QVERIFY(latched(f));
     }
 
-    // Latched, the pointer steers with no button held, both ways.
     void aLatchScrollsTowardThePointerWithNoButtonHeld()
     {
         Fixture f;
@@ -302,13 +284,10 @@ private Q_SLOTS:
         QVERIFY(latched(f));
     }
 
-    // The next click of any button ends a latch and reaches nothing below;
-    // afterwards the rows get their clicks again.
     void theNextClickEndsALatchAndGoesNoFurther()
     {
         Fixture f;
         QVERIFY(load(f));
-        // Keep the row under the pointer.
         f.scroller->setProperty("maxSpeed", 0);
 
         QVERIFY(latchAt(f, spot));
@@ -321,14 +300,12 @@ private Q_SLOTS:
         QVERIFY2(!active(f), "a right click did not end the latch");
         QCOMPARE(hostInt(f, "rowRightClicks"), 0);
 
-        // A middle click ends it too, and its release starts no new latch.
         QVERIFY(latchAt(f, spot));
         click(f, Qt::MiddleButton, spot);
         QVERIFY2(!active(f) && !latched(f),
                  "the exit middle click latched again");
         QVERIFY(!f.marker->isVisible());
 
-        // Idle again: middle only, no hover, and the rows get their clicks.
         QVERIFY(f.area->property("acceptedButtons").value<Qt::MouseButtons>()
                 == Qt::MouseButtons(Qt::MiddleButton));
         QVERIFY(!f.area->property("hoverEnabled").toBool());
@@ -338,8 +315,6 @@ private Q_SLOTS:
         QCOMPARE(hostInt(f, "rowRightClicks"), 1);
     }
 
-    // Idle, the area is middle-only with hover off: rows keep every other
-    // button, hover and the wheel. (Guard; proven by mutants.)
     void rowsKeepTheirClicksHoverAndWheelWhenIdle()
     {
         Fixture f;
@@ -348,16 +323,11 @@ private Q_SLOTS:
                 == Qt::MouseButtons(Qt::MiddleButton));
         QVERIFY(!f.area->property("hoverEnabled").toBool());
 
-        // The wheel first: a press on a Flickable child stamps the Flickable
-        // with QTest's synthetic mouse clock, and the wheel event here has no
-        // timestamp, so after a click Flickable finds no elapsed time and drops
-        // the notch whoever delivered it.
         const qreal before = contentY(f);
         wheel(f, spot);
         QTRY_VERIFY2_WITH_TIMEOUT(qAbs(contentY(f) - before) > 1,
                                   "an idle scroller swallowed the wheel",
                                   kTimeoutMs);
-        // Back to the fixture's layout, at rest, so the row is under `spot`.
         QVERIFY(QMetaObject::invokeMethod(f.flick, "cancelFlick"));
         f.flick->setProperty("contentY", 1000);
         QTRY_VERIFY_WITH_TIMEOUT(!f.flick->property("moving").toBool(),
@@ -375,8 +345,6 @@ private Q_SLOTS:
                                   kTimeoutMs);
     }
 
-    // 2026-08-21: an ordinary click that turns into a drag must not latch,
-    // even when it comes back to where it started.
     void aPressThatTravelsIsAHoldNotALatch()
     {
         Fixture f;
@@ -394,7 +362,6 @@ private Q_SLOTS:
         QVERIFY(!f.marker->isVisible());
         QVERIFY(holdsStill(f, 200));
 
-        // Out and back to the anchor is still a drag.
         QTest::mousePress(&f.window, Qt::MiddleButton, Qt::NoModifier, spot);
         QTest::mouseMove(&f.window, spot + QPoint(60, 0));
         QTest::mouseMove(&f.window, spot + QPoint(1, 0));
@@ -416,44 +383,30 @@ private Q_SLOTS:
         QVERIFY(!f.marker->isVisible());
     }
 
-    // C26 (2026-10-20): moving the pointer onto the header or the composer to
-    // go faster ended the latch (`end=exited` 0.9 s into a live gesture), which
-    // is the "breaks when it hits the top/bottom" report. Browsers keep
-    // steering from anywhere in the window. The 2026-08-21 rule still holds in
-    // its real form: the pointer is SEEN out there, so the speed follows it
-    // (it does not keep a stale speed), and the exit click outside the pane is
-    // swallowed too.
     void leavingThePaneKeepsSteeringFromTheRestOfTheWindow()
     {
         Fixture f;
         QVERIFY(load(f));
         QVERIFY(latchAt(f, spot));
-        // Out of the pane (x 450 is in the window only), below the anchor.
         QTest::mouseMove(&f.window, QPoint(450, spot.y() + 150));
         const qreal start = contentY(f);
         QTRY_VERIFY2_WITH_TIMEOUT(contentY(f) > start + 40,
                                   "a latch stopped steering outside the pane",
                                   kTimeoutMs);
         QVERIFY2(active(f) && latched(f), "leaving the pane ended the latch");
-        // Still outside, now above the anchor: the direction follows.
         QTest::mouseMove(&f.window, QPoint(450, spot.y() - 150));
         const qreal turned = contentY(f);
         QTRY_VERIFY2_WITH_TIMEOUT(contentY(f) < turned - 40,
                                   "the pointer outside the pane is not tracked",
                                   kTimeoutMs);
-        // Back at the anchor's height: it stops, wherever the pointer is.
         QTest::mouseMove(&f.window, QPoint(450, spot.y()));
         QCoreApplication::processEvents();
         QVERIFY2(holdsStill(f, 200), "the speed did not follow the pointer");
-        // The exit click outside the pane ends it and reaches nothing.
         click(f, Qt::LeftButton, QPoint(450, spot.y()));
         QVERIFY2(!active(f), "a click outside the pane did not end the latch");
         QCOMPARE(hostInt(f, "rowLeftClicks"), 0);
     }
 
-    // Firefox's autoscroll curve, ((d / 12)^1.5 - 1) px per 20 ms. The squared
-    // ramp it replaces gave 59 / 336 / 1573 px/s at 50 / 100 / 200 px and
-    // stopped at 2200 ("notably slower than scrolling", C26).
     void theSpeedFollowsFirefoxsCurve()
     {
         Fixture f;
@@ -475,8 +428,6 @@ private Q_SLOTS:
                                         .arg(p.expected)));
             }
         }
-        // And the scroll really moves that fast: 200 px from the anchor for
-        // half a second covers well over the old curve's 786 px.
         QVERIFY(latchAt(f, spot));
         QTest::mouseMove(&f.window, spot + QPoint(0, 200));
         const qreal start = contentY(f);
@@ -517,8 +468,6 @@ private Q_SLOTS:
                                   kTimeoutMs);
     }
 
-    // Firefox's rule: the wheel ends a latch and is swallowed, except for a
-    // short cooldown after latching, when a stray notch is only swallowed.
     void theWheelEndsALatchAfterTheCooldownAndIsSwallowed()
     {
         Fixture f;
@@ -538,8 +487,6 @@ private Q_SLOTS:
         QCOMPARE(contentY(f), start);
     }
 
-    // No hold and no latch over a link: middle click is the link's
-    // (Firefox and Chromium both refuse to start there).
     void nothingStartsOverALink()
     {
         Fixture f;
@@ -562,11 +509,9 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
         QVERIFY2(!latched(f), "a middle click on a link latched");
 
-        // The fixture can latch beside it.
         QVERIFY(latchAt(f, spot));
     }
 
-    // Editable text owns middle click (primary-selection paste).
     void nothingStartsOverEditableText()
     {
         Fixture f;
@@ -582,7 +527,6 @@ private Q_SLOTS:
         QVERIFY(!latched(f));
     }
 
-    // A MouseArea that takes the middle button gets its click.
     void aMiddleButtonOwnerGetsItsClick()
     {
         Fixture f;
@@ -594,7 +538,6 @@ private Q_SLOTS:
         QVERIFY(!active(f));
     }
 
-    // Browsers start nothing when there is nothing to scroll.
     void nothingStartsWhenTheViewCannotScroll()
     {
         Fixture f;
@@ -609,8 +552,6 @@ private Q_SLOTS:
         QVERIFY(!latched(f));
     }
 
-    // The real room list: a latch swallows the click on a row, the next click
-    // opens it, and a room switch ends a latch.
     void theRoomListLatchesSwallowsTheExitClickAndStopsOnARoomSwitch()
     {
         AppController controller(AppController::MockBackend);
@@ -647,7 +588,6 @@ RoomListClassicPresenter { objectName: "presenter"; width: 320; height: 90 }
         auto *scroller = presenter->findChild<QQuickItem *>(
             QStringLiteral("roomListMiddleClickScroller"));
         QVERIFY(scroller);
-        // The first row delegate inside the viewport.
         QQuickItem *row = nullptr;
         QTRY_VERIFY_WITH_TIMEOUT(
             [&] {

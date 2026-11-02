@@ -1,22 +1,3 @@
-//! Kept copies of large media from UNENCRYPTED rooms, as plain files.
-//!
-//! The SDK media store refuses anything over
-//! `rooms::MEDIA_STORE_MAX_FILE_BYTES`, because one big blob INSERT stalls
-//! every other fetch on its single write connection. Without this, a video
-//! over that size was downloaded again in every session.
-//!
-//! What may come here is decided by `rooms::media_persistence`: a plain
-//! source from a room known not to be encrypted. Nothing from an encrypted
-//! room does, not even a file sent there unencrypted: these files are not
-//! encrypted at rest, and the bytes of an encrypted source are the decrypted
-//! ones (CLAUDE.md §6).
-//!
-//! The directory lives in the account's cache directory, inside its store
-//! directory (cachelayout::kept_files_dir), so it is deleted with the
-//! account. Files are named by a hash of the mxc URI, so a
-//! listing does not name the media the user opened. Bounded by total size and
-//! by age; eviction is oldest first by modification time, which `read`
-//! refreshes.
 
 use std::fs;
 use std::io::{self, Write};
@@ -26,17 +7,12 @@ use std::time::{Duration, SystemTime};
 
 use sha2::{Digest, Sha256};
 
-/// Directory name inside the account's store directory.
 pub(crate) const DIR_NAME: &str = "lightning-media-files";
-/// Total size the directory is trimmed to after each write.
 pub(crate) const MAX_TOTAL_BYTES: u64 = 1024 * 1024 * 1024;
-/// A file not read or written for this long is removed at the next trim.
-/// Same as the SDK media store's default expiry.
 pub(crate) const MAX_AGE: Duration = Duration::from_secs(60 * 24 * 60 * 60);
 
 const SUFFIX: &str = ".media";
 const PARTIAL_SUFFIX: &str = ".partial";
-/// A partial file younger than this may belong to a write in progress.
 const PARTIAL_GRACE: Duration = Duration::from_secs(10 * 60);
 
 static WRITE_SERIAL: AtomicU64 = AtomicU64::new(0);
@@ -46,7 +22,6 @@ pub(crate) fn dir_in(store: &Path) -> PathBuf {
     store.join(DIR_NAME)
 }
 
-/// File name for an mxc URI: hex SHA-256 plus a suffix, never the URI.
 pub(crate) fn entry_name(uri: &str) -> String {
     let digest = Sha256::digest(uri.as_bytes());
     let mut name = String::with_capacity(digest.len() * 2 + SUFFIX.len());
@@ -57,8 +32,6 @@ pub(crate) fn entry_name(uri: &str) -> String {
     name
 }
 
-/// The kept bytes for `uri`, if present and no larger than `max_bytes`.
-/// Refreshes the file's age so a video watched again is kept.
 pub(crate) fn read(dir: &Path, uri: &str, max_bytes: u64) -> Option<Vec<u8>> {
     let path = dir.join(entry_name(uri));
     let meta = fs::metadata(&path).ok()?;
@@ -72,11 +45,6 @@ pub(crate) fn read(dir: &Path, uri: &str, max_bytes: u64) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-/// Keep `bytes` for `uri`: written to a private partial file, then renamed,
-/// so a reader never sees a torn file.
-///
-/// The directory is created only when its parent exists. `create_dir_all`
-/// would recreate an account store directory that sign-out has just deleted.
 pub(crate) fn write(dir: &Path, uri: &str, bytes: &[u8]) -> io::Result<()> {
     match fs::create_dir(dir) {
         Ok(()) => {}
@@ -86,7 +54,6 @@ pub(crate) fn write(dir: &Path, uri: &str, bytes: &[u8]) -> io::Result<()> {
     restrict(dir, 0o700);
     let name = entry_name(uri);
     let final_path = dir.join(&name);
-    // Unique per write: two fetches of one URI must not share a partial file.
     let serial = WRITE_SERIAL.fetch_add(1, Ordering::Relaxed);
     let partial = dir.join(format!(
         "{name}.{}-{serial}{PARTIAL_SUFFIX}",
@@ -162,7 +129,6 @@ pub(crate) fn trim(
         kept.push((modified, meta.len(), path));
     }
     let mut total: u64 = kept.iter().map(|(_, len, _)| *len).sum();
-    // Oldest first.
     kept.sort_by(|a, b| a.0.cmp(&b.0));
     for (_, len, path) in kept {
         if total <= max_total {
@@ -177,8 +143,6 @@ pub(crate) fn trim(
     Ok(report)
 }
 
-/// Remove every file this module wrote. Returns (files, bytes) removed;
-/// (0, 0) when nothing was kept, which callers must not report as a removal.
 pub(crate) fn clear(dir: &Path) -> io::Result<(u64, u64)> {
     let listing = match fs::read_dir(dir) {
         Ok(listing) => listing,
@@ -218,7 +182,6 @@ fn restrict(_path: &Path, _mode: u32) {}
 mod tests {
     use super::*;
 
-    /// A store directory under the system temp dir, removed on drop.
     struct Store(PathBuf);
 
     impl Store {
@@ -278,7 +241,6 @@ mod tests {
         assert_eq!(names, vec![entry_name(URI)]);
         assert!(!names[0].contains("AbCdEfGhIjKlMnOp"));
         assert!(!names[0].contains("example.org"));
-        // Stable, so a later session finds the same file.
         assert_eq!(entry_name(URI), entry_name(URI));
         assert_ne!(entry_name(URI), entry_name("mxc://example.org/other"));
     }
@@ -333,7 +295,6 @@ mod tests {
         write(&dir, "mxc://example.org/new", &[1; 1000]).unwrap();
         set_age(&dir.join(entry_name("mxc://example.org/old")), Duration::from_secs(7200));
         set_age(&dir.join(entry_name("mxc://example.org/new")), Duration::from_secs(3600));
-        // Watching the old one again must protect it from the next trim.
         assert!(read(&dir, "mxc://example.org/old", u64::MAX).is_some());
         trim(&dir, 1000, MAX_AGE, SystemTime::now()).unwrap();
         assert!(read(&dir, "mxc://example.org/old", u64::MAX).is_some());

@@ -1,7 +1,3 @@
-// The read-only event context view and its routing: a jump target that is not
-// in the loaded timeline opens the view instead of walking history; a loaded
-// one is jumped to in place; a failed /context falls back to the walk; late
-// results from a closed, replaced or room-switched view are ignored.
 
 #include "matrix/MockMatrixClient.h"
 #include "models/ContextController.h"
@@ -60,7 +56,7 @@ private:
     QByteArray previousValue;
     bool wasSet;
 };
-} // namespace
+}
 
 class ContextControllerTest : public QObject
 {
@@ -159,7 +155,7 @@ private Q_SLOTS:
         const QString target = middleEventId(client);
         QVERIFY(context.open(kGeneral, target));
         QCOMPARE(context.state(), ContextController::Ready);
-        pagination.jumpToEvent(target); // loaded in the live timeline
+        pagination.jumpToEvent(target);
         QCOMPARE(context.state(), ContextController::Closed);
     }
 
@@ -170,7 +166,7 @@ private Q_SLOTS:
         QVERIFY(login(client));
         ContextController context;
         context.setClient(&client);
-        TimelineModel emptyLive; // nothing loaded: every target is unloaded
+        TimelineModel emptyLive;
         emptyLive.setClient(&client);
         PaginationController pagination;
         pagination.setClient(&client);
@@ -192,16 +188,14 @@ private Q_SLOTS:
         const int row = located.first().first().toInt();
         QCOMPARE(row, context.targetRow());
         QVERIFY(row >= 0);
-        // Bounded: a window around the hit, not the room's history.
         QVERIFY(context.model()->rowCount() <= 2 * MockMatrixClient::kContextRadius + 1);
         QVERIFY(context.model()->rowForStableId(target) >= 0);
-        // The history walk did not run.
         QVERIFY(!pagination.navigating());
     }
 
     void aBackendWithoutContextFallsBackToTheWalk()
     {
-        MockMatrixClient client; // event context left disabled
+        MockMatrixClient client;
         QVERIFY(login(client));
         ContextController context;
         context.setClient(&client);
@@ -218,7 +212,6 @@ private Q_SLOTS:
         pagination.jumpToEvent(QStringLiteral("$x:mock.local"));
         QCOMPARE(client.eventContextOpenCount(), 0);
         QVERIFY(!context.active());
-        // The walk ran and ended honestly rather than doing nothing.
         QVERIFY(pagination.navigating() || !pagination.navigationMessage().isEmpty());
     }
 
@@ -238,7 +231,6 @@ private Q_SLOTS:
         pagination.setContextOpener([&](const QString &id) {
             return context.open(kGeneral, id);
         });
-        // The same routing AppController installs.
         connect(&context, &ContextController::openFailed, &pagination,
                 [&](const QString &, const QString &eventId, const QString &) {
             pagination.walkToEvent(eventId);
@@ -264,7 +256,7 @@ private Q_SLOTS:
         QVERIFY(context.open(kGeneral, target));
         QCOMPARE(context.state(), ContextController::Opening);
         context.close();
-        client.deliverHeldEventContext(); // the late reset
+        client.deliverHeldEventContext();
         QCOMPARE(context.state(), ContextController::Closed);
         QCOMPARE(context.model()->rowCount(), 0);
         QCOMPARE(located.count(), 0);
@@ -308,7 +300,7 @@ private Q_SLOTS:
         context.setClient(&client);
         QVERIFY(context.open(kGeneral, middleEventId(client)));
         QCOMPARE(context.state(), ContextController::Ready);
-        context.setClient(nullptr); // the account's client goes away
+        context.setClient(nullptr);
         QCOMPARE(context.state(), ContextController::Closed);
         QCOMPARE(client.eventContextCloseCount(), 1);
     }
@@ -328,7 +320,6 @@ private Q_SLOTS:
         QCOMPARE(client.eventContextCloseCount(), 1);
         QVERIFY(context.eventId().isEmpty());
         QCOMPARE(context.model()->rowCount(), 0);
-        // Closed: a second jump is a no-op, not a second close.
         context.jumpToLatest();
         QCOMPARE(latest.count(), 1);
     }
@@ -374,7 +365,7 @@ private Q_SLOTS:
         QCOMPARE(client.eventContextPaginateCount(), 1);
         QVERIFY(context.reachedStart()); // the mock answers "start reached"
         QVERIFY(!context.canLoadOlder());
-        context.loadOlder(); // refused, not dispatched
+        context.loadOlder();
         QCOMPARE(client.eventContextPaginateCount(), 1);
         context.loadNewer();
         QCOMPARE(context.state(), ContextController::Closed);
@@ -476,7 +467,6 @@ private Q_SLOTS:
         const QString target = middleEventId(client);
         QVERIFY(context.open(kGeneral, target));
         context.close();
-        // A late answer from the closed view must not mark anything reached.
         Q_EMIT client.eventContextPagination(kGeneral, target, false,
                                              QStringLiteral("idle"), true);
         QVERIFY(!context.reachedStart());

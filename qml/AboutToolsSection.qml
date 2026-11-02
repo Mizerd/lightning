@@ -3,12 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings -> About, below the logo card: what to paste into a bug report, who
-// the homeserver says it is, and "Reset local cache". Bound to app.about.
-//
-// Reset local cache clears only what can be rebuilt from the server (event
-// cache, media cache, search index). It never touches the encryption keys or
-// the sign-in, and the confirmation says so; CLAUDE.md §6.
 ColumnLayout {
     id: root
     objectName: "aboutToolsSection"
@@ -17,8 +11,6 @@ ColumnLayout {
     spacing: AppTheme.spacing12
 
     readonly property var about: (typeof app !== "undefined" && app) ? app.about : null
-    // How many enabled homeserver features the card lists before pointing at
-    // the Developer tools for the rest.
     readonly property int featurePreviewCount: 6
     property bool versionCopied: false
     property Item resetOpener: null
@@ -38,8 +30,6 @@ ColumnLayout {
         }).join("\n")
     }
 
-    // Same plane as every other settings card (see SettingsScreen's
-    // SettingsCard).
     component AboutCard: Pane {
         Layout.fillWidth: true
         background: Rectangle {
@@ -49,8 +39,6 @@ ColumnLayout {
         }
     }
 
-    // The homeserver is asked once when the page is first shown, and again on
-    // request; never in the background.
     function maybeLoadHomeserver() {
         if (root.visible && root.about && root.about.homeserverState === "idle")
             root.about.refreshHomeserver()
@@ -68,7 +56,6 @@ ColumnLayout {
         onTriggered: root.versionCopied = false
     }
 
-    // This build
     AboutCard {
         ColumnLayout {
             width: parent.width
@@ -124,7 +111,6 @@ ColumnLayout {
         }
     }
 
-    // Homeserver
     AboutCard {
         ColumnLayout {
             width: parent.width
@@ -231,7 +217,6 @@ ColumnLayout {
         }
     }
 
-    // Local data
     AboutCard {
         ColumnLayout {
             width: parent.width
@@ -288,9 +273,6 @@ ColumnLayout {
         }
     }
 
-    // Themed like SettingsScreen's ConfirmDialog (an inline component there,
-    // so not reachable from this file). Parented to the overlay so it centres
-    // on the window, not on this column.
     Dialog {
         id: resetCacheConfirm
         objectName: "aboutResetCacheConfirm"
@@ -302,10 +284,6 @@ ColumnLayout {
         padding: AppTheme.spacing20
         closePolicy: Popup.CloseOnEscape
         onAccepted: root.about.resetLocalCache()
-        // A Popup closes with Qt.PopupFocusReason, which QQC2 does not count as
-        // keyboard focus, so the opener got focus back with no ring drawn. Land
-        // on the safe button when it opens, and hand focus back to the opener
-        // with a keyboard reason when it closes.
         onOpened: resetCancelButton.forceActiveFocus(Qt.TabFocusReason)
         onClosed: {
             if (root.resetOpener)

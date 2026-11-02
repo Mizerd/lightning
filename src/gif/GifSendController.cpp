@@ -19,7 +19,6 @@ void GifSendController::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::gifDownloadFinished, this,
                 &GifSendController::onGifDownloadFinished);
-        // Logout invalidates every captured destination.
         connect(m_client, &MatrixClient::loggedOut, this,
                 &GifSendController::cancelAll);
     }
@@ -37,9 +36,6 @@ QString GifSendController::safeFilename(const gif::GifResult &r, const QString &
     const QString provider = r.provider.isEmpty() ? QStringLiteral("gif")
                                                   : r.provider;
     const QString suffix = ext.isEmpty() ? QStringLiteral("gif") : ext;
-    // A saved-from-chat copy's id is its content hash: as a filename it is
-    // noise, and it becomes the body other clients and the room-list preview
-    // show. Name it by kind, like an id-less result.
     if (r.provider == QLatin1String("local"))
         return (suffix == QLatin1String("gif") ? QStringLiteral("animated.")
                                                : QStringLiteral("image."))
@@ -94,8 +90,6 @@ void GifSendController::start(Pending pending)
         Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);
         return;
     }
-    // A local saved GIF is a stored file, never a provider URL: send the bytes
-    // directly.
     if (pending.result.provider == QLatin1String("local")) {
         startLocal(std::move(pending));
         return;
@@ -104,16 +98,12 @@ void GifSendController::start(Pending pending)
         Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);
         return;
     }
-    // Only a validated provider-CDN https .gif is downloaded; Rust re-checks
-    // the host and magic.
     if (!gif::isSendableGifUrlForHosts(
             pending.result.gifUrl,
             { QStringLiteral(".giphy.com"), QStringLiteral(".klipy.com") })) {
         Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);
         return;
     }
-    // Dedup backstop: dropped silently, since the identical in-flight request
-    // owns this send.
     if (hasIdenticalPending(pending))
         return;
     const quint64 opId = m_client->gifDownload(pending.result.gifUrl);
@@ -129,12 +119,12 @@ void GifSendController::start(Pending pending)
 void GifSendController::onGifDownloadFinished(quint64 opId, bool ok,
                                               const QByteArray &bytes,
                                               const QString &mime, int width,
-                                              int height, qint64 /*size*/,
+                                              int height, qint64,
                                               const QString &category)
 {
     const auto it = m_pending.constFind(opId);
     if (it == m_pending.constEnd())
-        return; // stale / cancelled / another consumer
+        return;
     const Pending p = it.value();
     m_pending.erase(it);
     Q_EMIT activeCountChanged();
@@ -145,7 +135,6 @@ void GifSendController::onGifDownloadFinished(quint64 opId, bool ok,
                           p.isThread);
         return;
     }
-    // Rust guarantees image/gif; refuse anything else defensively.
     if (mime != QLatin1String("image/gif") || bytes.isEmpty()) {
         Q_EMIT sendFailed(QStringLiteral("not_a_gif"), p.isThread);
         return;
@@ -167,7 +156,6 @@ void GifSendController::onGifDownloadFinished(quint64 opId, bool ok,
         Q_EMIT sendFailed(QStringLiteral("send_failed"), p.isThread);
         return;
     }
-    // Successful handoff -> Recents. The SDK local echo now owns send state.
     if (m_recent)
         m_recent->recordSent(p.result);
     Q_EMIT sendSucceeded(p.isThread);
@@ -180,12 +168,7 @@ void GifSendController::startLocal(Pending pending)
         return;
     }
     Q_EMIT sendStarted(pending.isThread);
-    // Read fresh from disk and re-validate: the user may have removed it since
-    // choosing it.
     const QByteArray bytes = m_localGifReader(pending.result.id);
-    // The general raster validator: saved images may be GIF/PNG/JPEG/WebP.
-    // `v.mime`/`v.ext` come from the bytes, which are never re-encoded (Rust
-    // marks only image/gif as animated).
     const gif::RasterByteValidation v = gif::validateRasterBytes(bytes);
     if (!v.ok) {
         Q_EMIT sendFailed(bytes.isEmpty() ? QStringLiteral("unavailable")
@@ -194,8 +177,6 @@ void GifSendController::startLocal(Pending pending)
         return;
     }
     if (pending.isThread && pending.rootId.isEmpty()) {
-        // Never attempted: a thread destination without a root id is
-        // unavailable.
         Q_EMIT sendFailed(QStringLiteral("unavailable"), pending.isThread);
         return;
     }

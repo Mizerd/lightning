@@ -1,12 +1,3 @@
-// Channels layout list fixes (swarm C05 round 1), on the real components:
-//   * F02 rows, category headers and nav rows are in the Tab order and
-//     Return/Enter activates them;
-//   * F03 under right-to-left mirroring the icon/avatar sit at the RIGHT edge
-//     and the label never runs off the left edge or under the avatar;
-//   * F05 a truncated channel name and the mute bell have tooltips;
-//   * F01/F04 the presenter carries a MiddleClickScroller on its ListView and
-//     the ListView stops at its bounds (contract scan: the presenter needs the
-//     whole `app` object, so these two are source scans, stated as such).
 
 #include <QtTest/QtTest>
 
@@ -128,7 +119,6 @@ Item {
     }
 
 private slots:
-    // ---- F02 -----------------------------------------------------------
     void everyChannelRowKindIsInTheTabOrder_data()
     {
         QTest::addColumn<QString>("body");
@@ -155,13 +145,12 @@ private slots:
         QCOMPARE(clicked.count(), 2);
     }
 
-    // ---- F03 -----------------------------------------------------------
     void aNavRowMirrorsInRightToLeft()
     {
         Harness h;
         QVERIFY(build(h, rowBody("ChannelNavRow",
                                  "label: \"Create Room\"; iconName: \"add\""),
-                      /*rtl=*/true));
+true));
         QQuickItem *glyph = named(h.row, "channelNavGlyph");
         QQuickItem *name = loaded(named(h.row, "channelNavName"));
         QVERIFY(glyph);
@@ -209,7 +198,6 @@ private slots:
         QVERIFY(n.width() > 20);
     }
 
-    // ---- F05 -----------------------------------------------------------
     void aTruncatedNameHasATooltipAndAShortOneDoesNot()
     {
         Harness h;
@@ -253,7 +241,6 @@ private slots:
         QTRY_VERIFY2(tooltipVisible(bell), "the mute bell shows no tooltip");
     }
 
-    // ---- F01 / F04: source contracts -----------------------------------
     void theChannelsListScrollsLikeTheClassicList()
     {
         const QString s = readSource(QStringLiteral("RoomChannelsPresenter.qml"));
@@ -267,7 +254,6 @@ private slots:
                  "the channel list overshoots its bounds (F04)");
     }
 
-    // Review r1 2b: no tooltip beside an open context menu (source contract).
     void tooltipsYieldToTheContextMenu()
     {
         const QString s = readSource(QStringLiteral("ChannelDelegate.qml"));

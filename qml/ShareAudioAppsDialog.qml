@@ -3,11 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// "Choose apps…" from the call bar's share options: which applications the
-// screen share's sound comes from. Opened from CallShareOptionsMenu, the one
-// share surface every route shows (on Wayland the desktop's own picker
-// replaces Lightning's), so choosing applications never depends on which
-// picker a desktop draws. Changes apply to a running share at once.
 AppDialog {
     id: root
 

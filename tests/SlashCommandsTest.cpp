@@ -1,6 +1,3 @@
-// Slash commands: the parser and registry contract. Everything here is pure
-// (no composer, no client), so the corner cases (escapes, emoticons,
-// non-letter words) are pinned exactly.
 
 #include "models/SlashCommands.h"
 
@@ -13,8 +10,6 @@ class SlashCommandsTest : public QObject
 private Q_SLOTS:
     void theRegistryCarriesEveryRequiredCommand()
     {
-        // The task list this feature answers to, verbatim. A command
-        // silently dropped from the registry must fail here by name.
         const QStringList required = {
             QStringLiteral("me"),      QStringLiteral("join"),
             QStringLiteral("invite"),  QStringLiteral("kick"),
@@ -41,8 +36,6 @@ private Q_SLOTS:
 
     void aBareOrNonLetterSlashIsText()
     {
-        // "/", "/ x", "/1", an emoticon: text, never a command and never an
-        // "unknown command" error.
         QCOMPARE(SlashCommands::parse(QStringLiteral("/")).kind,
                  SlashCommands::Parse::NotACommand);
         QCOMPARE(SlashCommands::parse(QStringLiteral("/ me")).kind,
@@ -51,7 +44,6 @@ private Q_SLOTS:
                  SlashCommands::Parse::NotACommand);
         QCOMPARE(SlashCommands::parse(QStringLiteral("/¯\\_(ツ)_/¯")).kind,
                  SlashCommands::Parse::NotACommand);
-        // Digits INSIDE the word break it too — "/me2" is text, not a typo.
         QCOMPARE(SlashCommands::parse(QStringLiteral("/me2 hi")).kind,
                  SlashCommands::Parse::NotACommand);
     }
@@ -70,7 +62,6 @@ private Q_SLOTS:
         QCOMPARE(p.kind, SlashCommands::Parse::Known);
         QCOMPARE(p.name, QStringLiteral("kick"));
         QCOMPARE(p.args, QStringLiteral("@bob:example.org being rude"));
-        // Case-insensitive name, args untouched.
         const auto upper = SlashCommands::parse(QStringLiteral("/ME waves"));
         QCOMPARE(upper.kind, SlashCommands::Parse::Known);
         QCOMPARE(upper.name, QStringLiteral("me"));
@@ -95,8 +86,6 @@ private Q_SLOTS:
         QVERIFY(names.contains(QStringLiteral("me")));
         QVERIFY(names.contains(QStringLiteral("markdown")));
         QVERIFY(!names.contains(QStringLiteral("kick")));
-        // Once whitespace follows, the user is on the arguments — nothing
-        // is offered.
         QVERIFY(SlashCommands::completions(QStringLiteral("/me ")).isEmpty());
         QVERIFY(SlashCommands::completions(QStringLiteral("//m")).isEmpty());
         QVERIFY(SlashCommands::completions(QStringLiteral("m")).isEmpty());
@@ -104,8 +93,6 @@ private Q_SLOTS:
 
     void requiredArgsAreDeclaredForTheArgumentTakingCommands()
     {
-        // The composer refuses these without arguments; the flag is the
-        // contract it reads.
         for (const char *name : { "me", "spoiler", "join", "invite", "kick",
                                   "ban", "unban", "topic", "roomname",
                                   "nick" })
@@ -115,8 +102,6 @@ private Q_SLOTS:
         QVERIFY(!SlashCommands::find(QStringLiteral("clear"))->requiresArgs);
         QVERIFY(!SlashCommands::find(QStringLiteral("markdown"))->requiresArgs);
     }
-
-    // ── execute(): the shared semantics, driven with lambdas ──────────
 
     void executeRoutesEachVerbToItsAction()
     {
@@ -176,8 +161,6 @@ private Q_SLOTS:
 
     void noArgumentCommandsRefuseTrailingText()
     {
-        // "/clear hello" and "/markdown x" used to run the command and drop
-        // the text without a word. They refuse, run nothing, keep the draft.
         QStringList log;
         SlashCommands::Actions a;
         a.clearComposer = [&] { log << QStringLiteral("clear"); };
@@ -194,8 +177,6 @@ private Q_SLOTS:
 
     void executeRefusesWhatTheHostDoesNotOffer()
     {
-        // A host that supplies no moderation lane gets an honest refusal,
-        // never a silent no-op — and nothing else runs.
         SlashCommands::Actions sendOnly;
         int sends = 0;
         sendOnly.send = [&](const QString &, const QStringList &,
@@ -255,7 +236,6 @@ private Q_SLOTS:
                  QStringLiteral("topic"));
         QCOMPARE(SlashCommands::find(QStringLiteral("roomname"))->permissionKey,
                  QStringLiteral("roomname"));
-        // Sends and local conveniences need no power level.
         QVERIFY(SlashCommands::find(QStringLiteral("me"))->permissionKey.isEmpty());
         QVERIFY(SlashCommands::find(QStringLiteral("clear"))->permissionKey.isEmpty());
     }

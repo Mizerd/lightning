@@ -32,8 +32,6 @@ QString failureHint(const QString &reason)
             "matrix::room_action",
             "The server could not be reached. Check your connection and try again.");
     }
-    // http_<status>_<errcode>. A 429 or 5xx reaches here only after the SDK's
-    // own backoff gave up, so "busy" is the honest word.
     if (reason.startsWith(QLatin1String("http_429_"))
         || reason.startsWith(QLatin1String("http_5"))) {
         return QCoreApplication::translate(
@@ -63,4 +61,4 @@ QString userFacingError(const QString &action, const QString &reason)
     return hint.isEmpty() ? sentence : sentence + QLatin1Char(' ') + hint;
 }
 
-} // namespace matrix::room_action
+}

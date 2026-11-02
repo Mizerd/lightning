@@ -42,10 +42,10 @@ ApplicationWindow {
 }
 )QML";
 
-const QString kRoom = QStringLiteral("!dm-bob:mock.local"); // a DM: shown at Home in both layouts
+const QString kRoom = QStringLiteral("!dm-bob:mock.local");
 const QString kOther = QStringLiteral("!devs:mock.local");
 
-} // namespace
+}
 
 class ComposerFocusOnOpenQmlTest : public QObject
 {
@@ -72,8 +72,6 @@ private:
         return nullptr;
     }
 
-    // The visible room-list row for `roomId`: a ChannelDelegate (has
-    // channelName) or a RoomDelegate (has showGroupDivider).
     QQuickItem *row(const QString &roomId) const
     {
         QList<QQuickItem *> stack{ m_window->contentItem() };
@@ -114,7 +112,6 @@ private:
         return nullptr;
     }
 
-    // Home, no room, keyboard parked on the shell: the start of every case.
     void reset(int layout)
     {
         m_controller->settings()->setRoomNavigationLayout(layout);
@@ -134,7 +131,6 @@ private:
         const QPointF centre = target->mapToScene(
             QPointF(target->width() / 2, target->height() / 2));
         QTest::mouseClick(m_window, Qt::LeftButton, {}, centre.toPoint());
-        // The focus lands on the next event-loop turn (Qt.callLater).
         QTest::qWait(60);
     }
 
@@ -193,8 +189,6 @@ private Q_SLOTS:
                  "message box");
     }
 
-    // A notification opens rooms through app.openRoom(): the keyboard stays
-    // with whatever the user was typing in.
     void aRoomOpenedWithoutAPointerLeavesTheKeyboardAlone()
     {
         reset(1);
@@ -205,13 +199,11 @@ private Q_SLOTS:
         QCOMPARE(m_window->activeFocusItem(), field);
 
         m_controller->openRoom(kOther);
-        QTest::qWait(400); // past the composer's settle retry
+        QTest::qWait(400);
         QCOMPARE(m_controller->currentRoomId(), kOther);
         QCOMPARE(m_window->activeFocusItem(), field);
     }
 
-    // Space on a focused Channels row activates it like a click, but the
-    // keyboard stays in the list for the next arrow or Space.
     void keyboardActivationKeepsTheKeyboardInTheList()
     {
         reset(1);

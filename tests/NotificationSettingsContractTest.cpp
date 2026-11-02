@@ -1,6 +1,3 @@
-// Notification settings: the device-only schema flags, the stored-mode probe,
-// the tray-refresh signal for the unsynced flag, and Settings search coverage
-// of the account notification rules. Each case fails on the code before it.
 
 #include "app/SettingsManager.h"
 #include "settings/SettingsPortable.h"
@@ -32,7 +29,6 @@ private Q_SLOTS:
         QSettings::setDefaultFormat(QSettings::IniFormat);
     }
 
-    // A laptop switched to quiet for a presentation must not silence the desktop.
     void desktopNotificationSwitchesDoNotSync()
     {
         for (const char *n : { "notificationsEnabled", "notificationSound" }) {
@@ -64,7 +60,7 @@ private Q_SLOTS:
         QSignalSpy spy(&s, &SettingsManager::roomNotificationModeChanged);
         s.setRoomNotificationModeUnsynced(room, true, 0);
         QCOMPARE(spy.count(), 1);
-        s.setRoomNotificationModeUnsynced(room, true, 0); // no change
+        s.setRoomNotificationModeUnsynced(room, true, 0);
         QCOMPARE(spy.count(), 1);
         s.setRoomNotificationModeUnsynced(room, false);
         QCOMPARE(spy.count(), 2);
@@ -97,9 +93,6 @@ private Q_SLOTS:
         QVERIFY(src.contains(QStringLiteral("independent of")));
     }
 
-    // B017/B018: AppComboBox itself re-applies the committed index after a
-    // retranslation (qsTr models reset currentIndex to 0 without `activated`),
-    // through a Binding that does not destroy the caller's own binding.
     void theComboBoxRestoresItsIndexAfterAModelReset()
     {
         const QString src = qml(QStringLiteral("AppComboBox.qml"));
@@ -107,7 +100,6 @@ private Q_SLOTS:
         QVERIFY(src.contains(QStringLiteral("restoreMode: Binding.RestoreNone")));
         QVERIFY(src.contains(QStringLiteral("root.count === root._committedCount")));
         QVERIFY(src.contains(QStringLiteral("root._modelTurn = true")));
-        // No imperative write to currentIndex in the generic path.
         const int at = src.indexOf(QStringLiteral("function _endTurn"));
         QVERIFY(at > 0);
         const int end = src.indexOf(QStringLiteral("Binding {"), at);
@@ -117,7 +109,6 @@ private Q_SLOTS:
         QVERIFY(src.contains(QStringLiteral("height: entry.availableHeight")));
     }
 
-    // B078/B080: Verify needs an unverified session and an identity to ask.
     void verifyIsOfferedOnlyWhenItCanSucceed()
     {
         const QString src = qml(QStringLiteral("SettingsScreen.qml"));
@@ -129,7 +120,6 @@ private Q_SLOTS:
         QVERIFY(src.contains(QStringLiteral("crossSigningSetup !== \"not_set_up\"")));
     }
 
-    // B081: the set-up button lands on the real card, which is the first anchor.
     void crossSigningSetupButtonJumpsToTheCard()
     {
         const QString src = qml(QStringLiteral("SettingsScreen.qml"));
@@ -139,22 +129,17 @@ private Q_SLOTS:
                     .contains(QStringLiteral("objectName: \"crossSigningSetupCard\"")));
     }
 
-    // B094/B138: Escape peels the query, then the picker, then Settings.
     void escapePeelsLayersBeforeLeavingSettings()
     {
         const QString src = qml(QStringLiteral("SettingsScreen.qml"));
         const int at = src.indexOf(QStringLiteral("settingsSearchField.text.length > 0"));
         QVERIFY(at > 0);
-        // Long enough to cover the focused-field layer that sits between
-        // the picker and leaving (C33).
         const QString block = src.mid(at, 1000);
         QVERIFY(block.contains(QStringLiteral("nameColorPicker.open = false")));
         QVERIFY(block.contains(QStringLiteral("root.goBack()")));
         QVERIFY(block.indexOf(QStringLiteral("nameColorPicker")) < block.indexOf(QStringLiteral("root.goBack()")));
     }
 
-    // B102, B088: plural-aware footer, no example chips under results, and a
-    // spell-check switch that is disabled when the engine is unavailable.
     void searchFooterIsPluralAwareAndSpellSwitchHonest()
     {
         const QString src = qml(QStringLiteral("SettingsScreen.qml"));

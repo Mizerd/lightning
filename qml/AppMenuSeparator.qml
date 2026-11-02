@@ -2,8 +2,6 @@ import QtQuick
 import QtQuick.Controls.Basic
 import MatrixClient
 
-// The hairline between groups of AppMenu rows (stormBorder, 6px vertical /
-// 4px horizontal margins).
 MenuSeparator {
     // A hidden separator must take no space: QQuickMenu's ListView honours
     // each item's height, and MenuSeparator's height doesn't depend on

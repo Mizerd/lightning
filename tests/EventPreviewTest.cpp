@@ -1,6 +1,3 @@
-// One-line event summaries for the room list, DM list and notifications: a
-// poll's multi-line MSC3381 fallback stays one line, and mention markdown
-// ([label](https://matrix.to/...)) renders as the label.
 
 #include "matrix/EventPreview.h"
 #include "matrix/TimelineEvent.h"
@@ -33,40 +30,30 @@ private Q_SLOTS:
         QCOMPARE(normalizePreviewText(QStringLiteral(
                      "[@test](https://matrix.to/#/%40test%3Amatrix.example.org) hello")),
                  QStringLiteral("@test hello"));
-        // Multiple mentions in one body.
         QCOMPARE(normalizePreviewText(QStringLiteral(
                      "[@a](https://matrix.to/#/%40a%3Ax) and [@b](https://matrix.to/#/%40b%3Ax)")),
                  QStringLiteral("@a and @b"));
-        // Non-matrix.to markdown links stay untouched (the preview is not a
-        // markdown renderer).
         const QString other =
             QStringLiteral("[site](https://example.org/page)");
         QCOMPARE(normalizePreviewText(other), other);
     }
 
-    // The reply fallback of a plain body (room list showed
-    // "> <@moosix:cutefunny.art> You kno..." on 2026-10-13).
     void replyFallbackIsNotPartOfThePreview()
     {
         QCOMPARE(normalizePreviewText(QStringLiteral(
                      "> <@moosix:cutefunny.art> You know what\n\nyes I do")),
                  QStringLiteral("yes I do"));
-        // Multi-line quote, with a bare ">" line.
         QCOMPARE(normalizePreviewText(QStringLiteral(
                      "> <@a:b.c> one\n>\n> two\n\nanswer")),
                  QStringLiteral("answer"));
-        // Nested: the quoted message was itself a reply.
         QCOMPARE(normalizePreviewText(QStringLiteral(
                      "> <@a:b.c> > <@d:e.f> older\n> \n> newer\n\nanswer")),
                  QStringLiteral("answer"));
-        // CRLF line endings.
         QCOMPARE(stripReplyFallback(QStringLiteral(
                      "> <@a:b.c> q\r\n\r\nanswer")),
                  QStringLiteral("answer"));
-        // Emote fallback.
         QCOMPARE(stripReplyFallback(QStringLiteral("> * <@a:b.c> waves\n\nok")),
                  QStringLiteral("ok"));
-        // HTML body.
         QCOMPARE(stripReplyFallback(QStringLiteral(
                      "<mx-reply><blockquote>q</blockquote></mx-reply>hello")),
                  QStringLiteral("hello"));
@@ -103,8 +90,6 @@ private Q_SLOTS:
         e.body = QStringLiteral("Best answer?\n1. Yes\n2. No\n3. Big Money");
         QCOMPARE(oneLineSummary(e), QStringLiteral("Poll: Best answer?"));
 
-        // No typed question: degrade to the fallback's first line, never
-        // the answer list.
         e.pollQuestion.clear();
         QCOMPARE(oneLineSummary(e), QStringLiteral("Poll: Best answer?"));
 
@@ -139,8 +124,6 @@ private Q_SLOTS:
         QCOMPARE(oneLineSummary(e), QStringLiteral("Sticker"));
     }
 
-    // An MSC4274 gallery's media fields name its primary picture, which is not
-    // a summary of the whole gallery.
     void galleriesSummarizeAsWhatTheyHold()
     {
         TimelineEvent e;
@@ -160,8 +143,6 @@ private Q_SLOTS:
         QCOMPARE(oneLineSummary(e), QStringLiteral("2 attachments"));
     }
 
-    // The summaries are translatable (context EventPreview) and the gallery
-    // count takes plural forms. A stub translator proves the lookup happens.
     void summariesGoThroughTheTranslator()
     {
         struct Stub : QTranslator {
@@ -199,8 +180,6 @@ private Q_SLOTS:
         QCOMPARE(oneLineSummary(g), QStringLiteral("2 images"));
     }
 
-    // The bridge sends a live location's description, or nothing; the label
-    // is translated here rather than arriving in English.
     void aLiveLocationWithoutADescriptionIsNamed()
     {
         TimelineEvent live;
@@ -235,18 +214,12 @@ private Q_SLOTS:
         e.body = QStringLiteral(
             "[@test](https://matrix.to/#/%40test%3Ax) hi\nthere");
         QCOMPARE(oneLineSummary(e), QStringLiteral("@test hi there"));
-        // State bodies pass through (already single-line from Rust).
         e = TimelineEvent{};
         e.type = TimelineEvent::StateChange;
         e.body = QStringLiteral("Alice joined the room.");
         QCOMPARE(oneLineSummary(e), QStringLiteral("Alice joined the room."));
     }
 
-    // VM test 2026-10-07: the room list previewed a state event as
-    // "@lightningtest5:matrix.smetonis.net upd…", the raw user id the Rust
-    // bridge phrases state rows with. The preview names the person: the
-    // display name, else the localpart, never the MXID. Old code passes the
-    // body through untouched.
     void aStateRowNamesThePersonNotTheMxid()
     {
         const QString mxid = QStringLiteral("@lightningtest5:matrix.smetonis.net");
@@ -257,20 +230,15 @@ private Q_SLOTS:
 
         e.senderDisplayName = QStringLiteral("Test Five");
         QCOMPARE(oneLineSummary(e), QStringLiteral("Test Five updated room settings."));
-        // The member cache's answer when the item carried no profile.
         e.senderDisplayName.clear();
         QCOMPARE(oneLineSummary(e, QStringLiteral("From Cache")),
                  QStringLiteral("From Cache updated room settings."));
-        // Nothing known: the localpart, as the timeline falls back.
         QCOMPARE(oneLineSummary(e), QStringLiteral("lightningtest5 updated room settings."));
         QVERIFY(!oneLineSummary(e).contains(QLatin1Char(':')));
-        // A "name" that is the id itself is not a name.
         QCOMPARE(oneLineSummary(e, mxid),
                  QStringLiteral("lightningtest5 updated room settings."));
     }
 
-    // Only a WHOLE leading sender id is replaced; a sentence about someone
-    // else, or a different id sharing a prefix, is left alone.
     void actorSentenceReplacesOnlyTheWholeLeadingSender()
     {
         using matrix::preview::actorSentence;
@@ -303,29 +271,23 @@ private Q_SLOTS:
         const QString mallory = QStringLiteral("@mallory:evil.example");
         const QString sentence = mallory + QStringLiteral(" changed the power levels.");
 
-        // An id-shaped name is shown, with whose it really is.
         QCOMPARE(actorSentence(sentence, mallory, QStringLiteral("@admin:example.org")),
                  QStringLiteral("@admin:example.org (mallory) changed the power levels."));
         const QString fullwidth = QString(QChar(0xFF20)) + QStringLiteral("admin")
             + QChar(0xFF1A) + QStringLiteral("example.org");
         QVERIFY(actorSentence(sentence, mallory, fullwidth)
                     .contains(QStringLiteral("(mallory) changed")));
-        // Bidi overrides and zero-width characters do not survive into the row.
         const QString bidi = QStringLiteral("Ad") + QChar(0x202E) + QStringLiteral("min")
             + QChar(0x200B) + QChar(0x2066);
         QCOMPARE(actorSentence(sentence, mallory, bidi),
                  QStringLiteral("Admin changed the power levels."));
-        // Only invisible characters: nothing to show but the localpart.
         QCOMPARE(actorSentence(sentence, mallory, QString(QChar(0x200B)) + QChar(0x202E)),
                  QStringLiteral("mallory changed the power levels."));
-        // The actor's own id as its "name" is not a name.
         QCOMPARE(actorSentence(sentence, mallory, mallory),
                  QStringLiteral("mallory changed the power levels."));
-        // A name another member also uses carries the localpart.
         QCOMPARE(actorSentence(sentence, mallory, QStringLiteral("Admin"), true),
                  QStringLiteral("Admin (mallory) changed the power levels."));
 
-        // The room-list path reads the same rule off the event.
         TimelineEvent e;
         e.type = TimelineEvent::StateChange;
         e.sender = mallory;

@@ -1,6 +1,3 @@
-// Regression cover for a batch of fixed defects. One runtime case
-// (a defect only visible by pressing the control) and source contracts for
-// decisions whose failure mode is a silent one-line revert.
 
 #include <QtTest/QtTest>
 
@@ -49,7 +46,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class TesterReportFixesTest : public QObject
 {
@@ -92,8 +89,6 @@ private:
             collect(child, name, out);
     }
 
-    // Every row carries a (usually empty, invisible) reaction Flow; the one
-    // under test is the visible one.
     QQuickItem *visibleItem(const char *name) const
     {
         QList<QQuickItem *> all;
@@ -130,9 +125,6 @@ private Q_SLOTS:
         delete m_controller;
     }
 
-    // The Home "new message" button opens the creation dialog. Emitting a
-    // two-parameter signal with one argument makes QML refuse the call and
-    // the handler never runs.
     void theHomeNewMessageButtonOpensTheCreationDialog()
     {
         m_controller->setCurrentRoomId(QString());
@@ -153,12 +145,6 @@ private Q_SLOTS:
         QTest::qWait(60);
     }
 
-    // Personalisation is one click from Home (Rokas, 2026-10-06: "I don't
-    // know how to make gradients or set the custom background"). The Make it
-    // yours row exists, every button in it is drawn inside the Home card
-    // (a Flow that is not given a width paints past its column), and Chat
-    // background opens the background dialog on this account's own default.
-    // Fails on the old tree: the row and its buttons do not exist.
     void homeOffersThemeAndBackgroundInsideItsCard()
     {
         m_controller->setCurrentRoomId(QString());
@@ -204,10 +190,6 @@ private Q_SLOTS:
         QTRY_VERIFY(!dialog->property("visible").toBool());
     }
 
-    // The room list's "+" is a labelled menu that also carries the public
-    // directory (formerly an unlabelled compass beside it), and each row opens
-    // the right dialog in the right mode. Fails on the old tree: "+" opened
-    // the dialog directly and there was no menu.
     void theRoomListAddMenuOpensEachWayToStartOrJoin()
     {
         auto *menu = m_root->findChild<QObject *>(
@@ -234,8 +216,6 @@ private Q_SLOTS:
         QVERIFY2(explore, "the + menu does not offer the public directory");
     }
 
-    // Thirty reactions on one message wrap inside the row instead of running
-    // past its right edge (a Flow needs a width to wrap within).
     void manyReactionsWrapInsteadOfLeavingTheRow()
     {
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
@@ -252,7 +232,6 @@ private Q_SLOTS:
         }
         QVERIFY2(!target.isEmpty(), "no real event to react to in the fixture");
 
-        // Thirty distinct reactions.
         static const char *kEmoji[] = {
             "\U0001F600", "\U0001F601", "\U0001F602", "\U0001F603",
             "\U0001F604", "\U0001F605", "\U0001F606", "\U0001F607",
@@ -267,8 +246,6 @@ private Q_SLOTS:
             m_controller->composer()->reactTo(target, QString::fromUtf8(emoji));
         QTest::qWait(300);
 
-        // The row under test is the one carrying the chips; every message has
-        // a Flow and the fixture has another message with two reactions.
         QList<QQuickItem *> flows;
         collect(m_window->contentItem(), QStringLiteral("reactionsFlow"),
                 flows);
@@ -294,8 +271,6 @@ private Q_SLOTS:
                  "thirty chips did not wrap onto more than one line");
     }
 
-    // A picker opens above its button with the pointer still over it, so each
-    // picker button hides its tooltip while its own picker is showing.
     void pickerButtonsDropTheirTooltipWhileTheirPickerIsUp()
     {
         const QString bar = read(QStringLiteral("MessageComposerBar.qml"));
@@ -312,9 +287,6 @@ private Q_SLOTS:
                  "the emoji button's tooltip must go when the picker is up");
     }
 
-    // The enclosing declaration of `at`: everything up to the first line that
-    // closes at a shallower indent. Byte windows go stale as code moves;
-    // callers still assert the extent is plausible before relying on it.
     static QString declBlock(const QString &source, int at)
     {
         if (at < 0)
@@ -344,8 +316,6 @@ private Q_SLOTS:
         return source.mid(at);
     }
 
-    // The send-options menu is anchored to its button with a negative y, so it
-    // opens above the composer instead of at the pointer over the message box.
     void theSendOptionsMenuOpensAboveTheComposer()
     {
         const QString bar = read(QStringLiteral("MessageComposerBar.qml"));
@@ -374,14 +344,11 @@ private Q_SLOTS:
                  "mapToItem() is not observable: it parked the menu at x = 0");
     }
 
-    // The encryption lock sits beside the room name: a label that fills width
-    // pushes the lock to the far end.
     void theEncryptionLockSitsBesideTheRoomName()
     {
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
         const int lock = pane.indexOf(QStringLiteral("id: encryptionLock"));
         QVERIFY(lock > 0);
-        // From the room-name label down to the lock, derived from the label.
         const int name = pane.lastIndexOf(QStringLiteral("objectName: \"roomHeaderTitle\""), lock);
         QVERIFY2(name > 0, "the room title label was not found above the lock");
         const QString before = pane.mid(name, lock - name);
@@ -389,16 +356,10 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("the title-to-lock extent is %1 chars, which is not a plausible "
                                 "distance between two items in one row")
                                 .arg(before.size())));
-        // The name fills, so a narrow header can shrink it.
         QVERIFY2(before.contains(QStringLiteral("Layout.fillWidth: true")),
                  "the name must fill so a narrow header can shrink it");
-        // Title width versus the header icons is covered geometrically by
-        // TimelinePaneQmlTest::theRoomTitleOutranksTheHeaderIconRowAtEveryWidth.
     }
 
-    // A TextField parks its cursor at the end when text is set, so every edit
-    // field in the panel that receives remote text rewinds to the start when
-    // not being typed in.
     void editRoomFieldsShowTheStartOfALongValue()
     {
         const QString panel = read(QStringLiteral("RoomInfoPanel.qml"));
@@ -412,8 +373,6 @@ private Q_SLOTS:
                  "the topic field must rewind to its start");
     }
 
-    // A server-route preview delivers og:image as an mxc the homeserver cached;
-    // both preview cards route it through the media bridge's mxc path.
     void serverPreviewImagesGoThroughTheMediaRoute()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
@@ -431,8 +390,6 @@ private Q_SLOTS:
         QCOMPARE(cards, 2);
     }
 
-    // A compact composer row hides emoji, GIF and microphone buttons behind one
-    // "…" overflow menu carrying all the actions.
     void aCompactComposerRowOffersAnOverflowMenu()
     {
         const QString bar = read(QStringLiteral("MessageComposerBar.qml"));
@@ -446,9 +403,6 @@ private Q_SLOTS:
                  "the overflow button exists only in a compact row");
         const int menu = bar.indexOf(QStringLiteral("id: composerOverflowMenu"));
         QVERIFY(menu > 0);
-        // The menu's own block (from the `AppMenu {` line's indent to the line
-        // closing at that indent), not a fixed byte window; the extent is
-        // asserted before anything is read from it.
         const int declLine = bar.lastIndexOf(QStringLiteral("\n"), menu) + 1;
         const int openLine = bar.lastIndexOf(QStringLiteral("\n"), declLine - 2) + 1;
         QVERIFY2(bar.mid(openLine, declLine - openLine)
@@ -466,8 +420,6 @@ private Q_SLOTS:
                  "the composerOverflowMenu block has no closing brace at its "
                  "own indent");
         const QString decl = bar.mid(menu, close - menu);
-        // The extent is real: long enough to hold a menu, and ending before
-        // the next top-level declaration.
         QVERIFY2(decl.size() > 400,
                  qPrintable(QStringLiteral("the menu block scanned to only %1 "
                                            "characters").arg(decl.size())));
@@ -479,7 +431,6 @@ private Q_SLOTS:
                                   "composerOverflowVoiceItem" }) {
             QVERIFY2(decl.contains(QLatin1String(item)), item);
         }
-        // Send later stays under the send button's chevron, not here.
         QVERIFY(!decl.contains(QStringLiteral("composerOverflowSendLaterItem")));
         QVERIFY2(decl.contains(QStringLiteral("y: -height - 4")), "the menu opens above the composer");
     }
@@ -495,8 +446,6 @@ private Q_SLOTS:
                  "the reactions Flow needs a real width or it cannot wrap");
     }
 
-    // A redacted message cannot be pinned (nothing is left to pin); unpin
-    // stays available for one pinned before deletion.
     void pinningIsNotOfferedForARedactedMessage()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
@@ -513,8 +462,6 @@ private Q_SLOTS:
                  "Unpin must stay available for a redacted pinned message");
     }
 
-    // The emoji picker owns the skin-tone shortcut: grid cells never have
-    // focus (the picker opens on its search field).
     void theEmojiPickerOwnsTheSkinToneShortcut()
     {
         const QString picker = read(QStringLiteral("EmojiPicker.qml"));
@@ -525,8 +472,6 @@ private Q_SLOTS:
                  "the shortcut needs a target-resolving entry point");
     }
 
-    // A clicked room link resolves before the dialog is shown, so a link to a
-    // joined room never flashes a modal.
     void aClickedRoomLinkResolvesBeforeShowingTheDialog()
     {
         const QString dialog = read(QStringLiteral("DiscoverJoinDialog.qml"));
@@ -542,8 +487,6 @@ private Q_SLOTS:
                  "a slow resolve still has to surface the dialog");
     }
 
-    // Both composers offer pause/resume for voice recording and a Done that
-    // leads to a playable preview.
     void bothComposersOfferPauseDoneAndAPreview()
     {
         const QString composer = read(QStringLiteral("MessageComposerBar.qml"));
@@ -560,8 +503,6 @@ private Q_SLOTS:
                  "a preview the user cannot listen to is not a preview");
     }
 
-    // The timeline has the middle-click autoscroll gesture, using the wheel
-    // path's bounds, declared outside the rotated Flickable.
     void theTimelineCarriesTheMiddleClickScroller()
     {
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
@@ -578,9 +519,6 @@ private Q_SLOTS:
                  "autoscroll must obey the same bounds as the wheel");
     }
 
-    // Holding the scroll bar handle at the top keeps asking for older history:
-    // a handle that does not move fires no positionChanged, so a timer
-    // re-reads it, and a drag starts a fresh near-top approach budget.
     void theScrollBarHandleHeldAtTheTopKeepsLoadingHistory()
     {
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
@@ -590,8 +528,6 @@ private Q_SLOTS:
         QVERIFY2(block.contains(QStringLiteral("timelineScrollBarTopHold"))
                      && block.contains(QStringLiteral("running: timelineScrollBar.pressed")),
                  "no timer re-asks for history while the handle rests at the top");
-        // The fresh budget is the explicit-approach reset (2026-10-20), which
-        // the bar's press shares with autoscroll.
         const int press = block.indexOf(QStringLiteral("onPressedChanged"));
         QVERIFY2(press >= 0
                      && block.mid(press, 300).contains(
@@ -603,22 +539,15 @@ private Q_SLOTS:
                  "the explicit approach no longer resets the budget");
     }
 
-    // The audio card fits its slider, remembers volume and speed, and offers a
-    // way back to normal speed.
     void theAudioCardFitsItsSliderAndRemembersPreferences()
     {
         const QString card = read(QStringLiteral("AudioPlayerCard.qml"));
         QVERIFY(!card.isEmpty());
         QVERIFY2(card.contains(QStringLiteral("id: seekSlider")),
                  "the seek slider needs its own compact handle to fit");
-        // The card plays through the app-owned player, which applies the
-        // remembered volume and speed (VoicePlaybackTest asserts that); the
-        // card's controls drive that player's output.
         QVERIFY2(card.contains(
                      QStringLiteral("audio: root.isCurrent ? root.voice.audioOutput : null")),
                  "the volume control must drive the app-owned player");
-        // A voice row writes the remembered voice speed, an audio file only
-        // its own clip's (AudioPlayerCard.setRate; design-media U3).
         QVERIFY2(card.contains(QStringLiteral("onTriggered: root.setRate(modelData)"))
                      && card.contains(QStringLiteral(
                          "app.settings.voicePlaybackRate = rate")),
@@ -627,10 +556,6 @@ private Q_SLOTS:
                  "the speed control must be selectable, not cycle-only");
     }
 
-    // Every player that writes the remembered media level also starts at it.
-    // Derived from the source, so new players are covered. If an in-app
-    // ringtone ever trips this, exempt it here: `mediaVolume` is for media the
-    // user chose to play, not alerts.
     void everyPlayerStartsAtTheRememberedVolume()
     {
         QDir dir(QStringLiteral(QML_DIR));
@@ -651,9 +576,6 @@ private Q_SLOTS:
                 deaf.append(name);
         }
 
-        // Present-token control: if `AudioOutput {` stops matching, this sweep
-        // would pass vacuously. Voice and audio clips play in C++
-        // (VoicePlaybackController), so two QML players remain.
         QVERIFY2(players.size() >= 2,
                  qPrintable(QStringLiteral("only %1 AudioOutput declarations "
                                            "found — the sweep is matching the "
@@ -666,7 +588,6 @@ private Q_SLOTS:
                                 "%1")
                                 .arg(deaf.join(QStringLiteral(", ")))));
     }
-
 
     void theHoverBarOffersEdit()
     {
@@ -695,8 +616,6 @@ private Q_SLOTS:
                      "onFillShareShownChanged: if (root.fillShareShown.length === 0) "
                      "root.shareFills = false")),
                  "the fill mode must drop when the share ends");
-        // A click fills, a click restores, Escape restores, and the bar hides
-        // while the share fills the window.
         QVERIFY(src.contains(QStringLiteral("root.fillShareId = shareId\n"
                                             "                        root.shareFills = true")));
         QVERIFY(src.contains(QStringLiteral("onActivated: root.shareFills = false")));
@@ -712,7 +631,6 @@ private Q_SLOTS:
         const QString bannerBlock = src.mid(banner, 900);
         QVERIFY2(bannerBlock.contains(QStringLiteral("width: parent.width - 2 * frame")),
                  "the banner must sit inside the popover's border");
-        // Smooth corners: the mask must not be a hard step on its alpha.
         QVERIFY2(src.contains(QStringLiteral("maskSpreadAtMin: 1.0")),
                  "the banner mask must carry its antialiased edge through");
         QVERIFY2(src.contains(QStringLiteral("maskThresholdMin: 0.5")),
@@ -744,9 +662,6 @@ private Q_SLOTS:
                  "a row entering the band must ask then");
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
         QVERIFY(pane.contains(QStringLiteral("function refreshMediaBand()")));
-        // Moved at discrete moments, never bound to contentY (which would
-        // re-run every row's comparison each frame); an index range assigned
-        // by the row loader, not a geometry test in the delegate.
         QVERIFY(pane.contains(QStringLiteral("property int mediaBandFirstRow: 0")));
         QVERIFY(pane.contains(QStringLiteral("mediaInBand: index >= timeline.mediaBandFirstRow")));
         QVERIFY(pane.count(QStringLiteral("refreshMediaBand()")) >= 5);
@@ -778,18 +693,12 @@ private Q_SLOTS:
                      "if (!app.pagination.busy)\n"
                      "                            timeline.maybeFillViewport()")),
                  "a finished batch must re-check the fill at once, not after the retry timer");
-        // And the band never closes on the newest side.
         QVERIFY(pane.contains(QStringLiteral("mediaBandFirstRow = 0\n")));
-        // The fill is bounded by rows as well as invisible pages: pages that
-        // each add a little height defeat the page budget.
         QVERIFY(pane.contains(QStringLiteral("readonly property int maxViewportFillRows: 240")));
         QVERIFY2(pane.contains(QStringLiteral("return \"rowBudget\"")),
                  "the fill must decline on the row cap, by name");
     }
 
-    // Selection circles follow the count and own a gutter; the hovered row's
-    // time, "Home" eliding, the voice bar's hang-up button and popped-out
-    // shares are covered by the cases below.
     void theSelectionCircleFollowsTheCountAndOwnsTheGutter()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
@@ -804,18 +713,13 @@ private Q_SLOTS:
         QVERIFY(loader > 0);
         QVERIFY2(delegate.mid(loader, 160).contains(QStringLiteral("!root.selectionMode")),
                  "the hover timestamp must yield the gutter to the selection circle");
-        // The circle has its own column (content shifts right while
-        // selecting), and only messages are selectable.
         QVERIFY(delegate.contains(QStringLiteral(
             "x: root.selectionMode && root.rowSelectable ? root.selectionGutterWidth : 0")));
-        // A thread reply still waiting for its keys is a notice, not a message.
         QVERIFY(delegate.contains(QStringLiteral("&& !root.isCallEvent && !root.isStateActivity\n"
                                                  "        && !root.isThreadKeyWait\n"
                                                  "        && root.eventIdForActions() !== \"\"")));
     }
 
-    // A Layout floors a fractional bound (53.28 becomes 53), so any
-    // `Layout.maximumWidth` bound to a text's own measure must be rounded up.
     void theRoomTitleNeverElidesByAFraction()
     {
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
@@ -829,9 +733,6 @@ private Q_SLOTS:
             const bool rounded = expr.contains(QStringLiteral("Math.ceil"))
                               || expr.contains(QStringLiteral("Math.floor"))
                               || expr.contains(QStringLiteral("Math.round"));
-            // Only caps bound to a text's own measure matter: there the
-            // fraction decides whether the text fits. A proportional cap
-            // losing a sub-pixel is harmless.
             const bool boundToOwnText =
                 expr.contains(QStringLiteral("implicitWidth"))
                 || expr.contains(QStringLiteral("contentWidth"))
@@ -859,8 +760,6 @@ private Q_SLOTS:
                  "the text column must be shrinkable");
     }
 
-    // The channel row's favourite star: filled while favourite, an outline on
-    // hover, a click toggles the tag, placed so the pill never moves.
     void theChannelRowOffersAFavouriteStar()
     {
         const QString row = read(QStringLiteral("ChannelDelegate.qml"));
@@ -878,8 +777,6 @@ private Q_SLOTS:
                  "the name must yield to the star, not the pill");
     }
 
-    // A completed rich-mode pill is not a token, and a query with a second
-    // space is not a name.
     void aCompletedMentionDoesNotReopenThePopup()
     {
         const QString bar = read(QStringLiteral("MessageComposerBar.qml"));
@@ -908,12 +805,6 @@ private Q_SLOTS:
         QVERIFY(icon.contains(QStringLiteral("renderType: Text.NativeRendering")));
     }
 
-    // A key arriving retries decryption in place (retryDecryption()) instead of
-    // rebuilding the room via reloadCurrentRoomTimeline(), which re-paginates,
-    // re-fetches media and closes an open thread. No automatic C++ caller of
-    // the reload may exist, and both automatic triggers must call the retry.
-    // Asserted as call counts, since the definition alone would satisfy a
-    // `contains`.
     void aKeyArrivingRetriesInPlaceInsteadOfRebuildingTheRoom()
     {
         QString src;
@@ -928,12 +819,10 @@ private Q_SLOTS:
             src += QString::fromUtf8(f.readAll()) + QLatin1Char('\n');
             ++filesRead;
         }
-        // The extent must be real before anything is concluded.
         QVERIFY2(filesRead > 50,
                  qPrintable(QStringLiteral("only %1 source files were scanned")
                                 .arg(filesRead)));
 
-        // Strip comments, which name the hazard, so the counts are of code.
         QString code;
         const auto lines = src.split(QLatin1Char('\n'));
         for (const QString &line : lines) {
@@ -941,13 +830,9 @@ private Q_SLOTS:
                 code += line + QLatin1Char('\n');
         }
 
-        // Only the definition may name it in C++ (QML's Settings "Refresh"
-        // button is the one legitimate caller). Scanned across all of src/,
-        // since it is a public Q_INVOKABLE.
         const int defs = code.count(
             QStringLiteral("void AppController::reloadCurrentRoomTimeline"));
         QCOMPARE(defs, 1);
-        // The header declaration is a mention, not a call.
         const int decls = code.count(
             QStringLiteral("void reloadCurrentRoomTimeline"));
         QCOMPARE(decls, 1);
@@ -966,9 +851,6 @@ private Q_SLOTS:
         QVERIFY2(handlerCall > handler && handlerCall - handler < 400,
                  "the one approved reload is no longer inside the ignore-list "
                  "handler");
-        // The second (msg48 repair, 2026-10-20): the classic-sync cache repair
-        // cleared the room's event cache while it was open, so the timeline
-        // shown is the one it emptied.
         const int repaired = code.indexOf(
             QStringLiteral("&MatrixClient::eventCacheRepaired"));
         QVERIFY2(repaired > 0, "the cache-repair handler moved");
@@ -977,7 +859,6 @@ private Q_SLOTS:
         QVERIFY2(repairedCall > repaired && repairedCall - repaired < 300,
                  "the cache repair's reload is no longer inside its handler");
         const int approvedCalls = 2;
-        // Everything else would be a call, and there must be none in C++.
         QVERIFY2(mentions - decls - approvedCalls == defs,
                  qPrintable(QStringLiteral(
                      "reloadCurrentRoomTimeline is called %1 time(s) from C++; "
@@ -986,8 +867,6 @@ private Q_SLOTS:
                      "retryDecryptionInCurrentRoom()")
                          .arg(mentions - decls - defs - approvedCalls)));
 
-        // The replacement is actually called: count calls, since the
-        // definition's signature contains the same substring.
         const int retryDefs = code.count(
             QStringLiteral("void AppController::retryDecryptionInCurrentRoom"));
         QCOMPARE(retryDefs, 1);

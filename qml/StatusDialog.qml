@@ -22,8 +22,6 @@ Dialog {
 
     readonly property var presence: app.presence
     property string expiryChoice: "none"
-    // Default for a fresh custom expiry: an hour from now, so the row opens
-    // valid instead of in the "in the future" error state.
     function fillCustomDefault() {
         var d = new Date(Date.now() + 60 * 60 * 1000)
         customDate.text = Qt.formatDate(d, "yyyy-MM-dd")
@@ -34,7 +32,6 @@ Dialog {
         emojiField.text = presence ? presence.ownStatusEmoji : ""
         textField.text = presence ? presence.ownStatusText.replace(
                                         presence.ownStatusEmoji, "").trim() : ""
-        // An existing deadline shows as "custom" with its time filled in.
         if (presence && presence.ownStatusExpiresAtMs > 0) {
             root.expiryChoice = "custom"
             var d = new Date(presence.ownStatusExpiresAtMs)
@@ -48,8 +45,6 @@ Dialog {
         Qt.callLater(function () { textField.forceActiveFocus() })
     }
 
-    // The chosen deadline in wall-clock ms, or 0. Local time throughout —
-    // the picker says so in its labels.
     function expiresAtMs() {
         var now = new Date()
         switch (root.expiryChoice) {
@@ -72,8 +67,6 @@ Dialog {
         default: return 0
         }
     }
-    // True when the typed date or time is not a real date at all (month 13),
-    // as opposed to a real one that has passed.
     function customMalformed() {
         var parsed = Date.fromLocaleString(Qt.locale(AppLocale.name),
                                            customDate.text + " " + customTime.text,
@@ -146,8 +139,6 @@ Dialog {
             ]
             current: root.expiryChoice
             onActivated: (value) => {
-                // Choosing Custom with a stale or empty row starts from a
-                // valid time rather than the error state.
                 root.expiryChoice = value
                 if (value === "custom" && root.expiresAtMs() < 0)
                     root.fillCustomDefault()

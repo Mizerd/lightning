@@ -1,8 +1,3 @@
-// EmojiCompletionPopup: a standard Unicode emoji and a custom pack emoticon
-// share one popup and must be visually distinguishable (glyph vs image), and
-// accepting either must hand the caller the whole row so it can tell which
-// kind it picked. Loads the real EmojiCompletionPopup.qml offscreen, the same
-// recipe as MentionPopupContractTest.
 
 #include <QCoreApplication>
 #include <QGuiApplication>
@@ -17,8 +12,6 @@
 
 namespace {
 
-// Minimal `app` stand-in: the popup's Image resolves app.mediaBridge for its
-// custom-pack rows. Signatures mirror MediaBridge; never emitted here.
 class FakeMediaBridge : public QObject
 {
     Q_OBJECT
@@ -47,8 +40,7 @@ private:
 // and would not see the test class at all.
 const char *sceneText();
 
-
-} // namespace
+}
 
 class EmojiCompletionPopupContractTest : public QObject
 {
@@ -57,8 +49,6 @@ class EmojiCompletionPopupContractTest : public QObject
 private:
     QQuickItem *rowAt(QObject *root, int index) const
     {
-        // ListView delegates are model-owned, not QObject-parented: resolve
-        // through itemAtIndex on the (static, findable) list.
         auto *list = root->findChild<QQuickItem *>(
             QStringLiteral("emojiCompletionList"));
         if (!list)
@@ -71,12 +61,6 @@ private:
     }
 
 private Q_SLOTS:
-    // Row 0 (custom pack) shows its remote image and pack name, never the
-    // Unicode glyph; row 1 (Unicode) shows the glyph and the catalogue name,
-    // never the image — proving the two kinds are visually distinguishable
-    // in the one merged popup. On the pre-merge code this test cannot even
-    // compile: `kind`, `emoji` and the glyph Label did not exist, and
-    // completions carried only custom-pack rows.
     void customAndUnicodeRowsAreDistinguishable()
     {
         QQmlApplicationEngine engine;
@@ -124,8 +108,6 @@ private Q_SLOTS:
         QCOMPARE(code1->property("text").toString(), QStringLiteral(":thumbsup:"));
         QCOMPARE(meta1->property("text").toString(), QStringLiteral("thumbs up"));
 
-        // accept() hands the caller the whole row, so it can branch on `kind`
-        // instead of losing that distinction to a bare shortcode string.
         QSignalSpy chosen(popup, SIGNAL(chosen(QVariant)));
         popup->setProperty("currentIndex", 1);
         QVERIFY(QMetaObject::invokeMethod(popup, "accept"));
@@ -172,6 +154,6 @@ ApplicationWindow {
 }
 )QML";
 const char *sceneText() { return kScene; }
-} // namespace
+}
 
 #include "EmojiCompletionPopupContractTest.moc"

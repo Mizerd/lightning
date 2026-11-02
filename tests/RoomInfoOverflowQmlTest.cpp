@@ -70,7 +70,6 @@ ApplicationWindow {
 }
 )QML";
 
-// A topic of real words, ~6.8k characters, as the break-it room had.
 QString longTopic()
 {
     QString topic;
@@ -80,7 +79,7 @@ QString longTopic()
     return topic;
 }
 
-} // namespace
+}
 
 class RoomInfoOverflowQmlTest : public QObject
 {
@@ -102,8 +101,6 @@ class RoomInfoOverflowQmlTest : public QObject
             walk(child, out);
         }
     }
-    // By displayed text, not objectName, so the case measures the same item
-    // on the old panel. Only the panel's own visual tree: popups are not in it.
     QQuickItem *itemWithText(const QString &text, const char *klass) const
     {
         QList<QQuickItem *> all;
@@ -134,7 +131,6 @@ class RoomInfoOverflowQmlTest : public QObject
         }
         return nullptr;
     }
-    // y of `it` in its Flickable's content: independent of the scroll.
     static qreal contentY(QQuickItem *it)
     {
         QQuickItem *flick = flickableAbove(it);
@@ -251,8 +247,6 @@ private Q_SLOTS:
         QVERIFY(info->loading());
         QCOMPARE(info->joinedCount(), 9);
         QVERIFY(label->isVisible());
-        // A completed answer may really be zero; only an unknown loading
-        // count is withheld.
         snapshot.insert(QStringLiteral("partial"), false);
         Q_EMIT client.roomMembersReceived(client.lastOp, room, snapshot);
         settle();
@@ -261,7 +255,6 @@ private Q_SLOTS:
         QVERIFY(label->isVisible());
     }
 
-    // Fails on the old panel: the name wrapped to ~15 lines.
     void aLongUnbrokenNameIsCappedAtThreeLines()
     {
         const QString name(300, QLatin1Char('N'));
@@ -274,15 +267,12 @@ private Q_SLOTS:
         QVERIFY2(label->property("truncated").toBool(),
                  "a capped name must report itself truncated (it is what "
                  "shows the whole name on hover)");
-        // A short name is untouched.
         showRoom(QStringLiteral("Lobby"), QString());
         QQuickItem *shortLabel = itemWithText(QStringLiteral("Lobby"), "Label");
         QVERIFY(shortLabel);
         QVERIFY(!shortLabel->property("truncated").toBool());
     }
 
-    // Fails on the old panel: Leave sat ~3000 px further down with the long
-    // topic than with a short one.
     void aLongTopicFoldsAndLeavesTheControlsInReach()
     {
         showRoom(QStringLiteral("Short"), QStringLiteral("A short topic."));
@@ -297,8 +287,6 @@ private Q_SLOTS:
         const QString name(300, QLatin1Char('N'));
         showRoom(name, longTopic());
         const qreal pushed = contentY(leave) - baseline;
-        // Six topic lines, the toggle and two more name lines: a couple of
-        // hundred pixels, never thousands.
         QVERIFY2(pushed < 320,
                  qPrintable(QStringLiteral("Leave moved %1 px down").arg(pushed)));
 
@@ -315,15 +303,6 @@ private Q_SLOTS:
         QTRY_VERIFY(contentY(leave) - baseline < 320);
     }
 
-    // Fails on the old panel: openForRoom left the scroll offset (and now the
-    // unfolded topic) of whichever room was shown before.
-    //
-    // The offset is chosen so the old panel cannot reach 0 by accident: a
-    // Flickable clamps contentY when contentHeight shrinks, so an offset past
-    // the NEXT room's own scroll range would be pulled back on old code too
-    // (to 0, if that room fits) and the case would pass vacuously. So the
-    // panel is made short, the next room's range is measured first, and the
-    // offset sits inside it, where no clamp can move it (review L2).
     void anotherRoomOpensAtItsOwnTop()
     {
         const QString next = QStringLiteral("!devs:mock.local");
@@ -346,7 +325,6 @@ private Q_SLOTS:
         const qreal offset = qFloor(nextRange / 2);
 
         showRoom(QString(300, QLatin1Char('N')), longTopic());
-        // Unfold where there is a fold to unfold (the old panel had none).
         if (auto *toggle = itemNamed(QStringLiteral("roomInfoTopicToggle"))) {
             QVERIFY(QMetaObject::invokeMethod(toggle, "clicked"));
             settle();
@@ -356,8 +334,6 @@ private Q_SLOTS:
         flick->setProperty("contentY", offset);
         QCOMPARE(flick->property("contentY").toReal(), offset);
 
-        // Read at once: nothing but openForRoom itself may have moved it, and
-        // a clamp to the next room's range leaves `offset` where it is.
         QMetaObject::invokeMethod(m_panel, "openForRoom", Q_ARG(QVariant, next));
         const qreal after = flick->property("contentY").toReal();
         const bool folded = !m_panel->property("topicExpanded").toBool();
@@ -367,8 +343,6 @@ private Q_SLOTS:
         QVERIFY(folded);
     }
 
-    // Matrix allows these; a short note explains them and nothing is blocked.
-    // Fails on the old panel, which had no notes (and no accessNotes()).
     void surprisingAccessCombinationsAreExplained()
     {
         auto notes = [this](const QString &rule, const QString &history,
@@ -387,20 +361,15 @@ private Q_SLOTS:
         QCOMPARE(all.size(), 2);
         QVERIFY(all.at(0).contains(QStringLiteral("without joining")));
         QVERIFY(all.at(1).contains(QStringLiteral("room directory")));
-        // World-readable but knock: the history note only.
         QCOMPARE(notes(QStringLiteral("knock"),
                        QStringLiteral("world_readable"), 0).size(), 1);
-        // A restricted room admits a Space's members, so the note must not
-        // say that nobody outside can join (review L3).
         const QStringList restricted = notes(
             QStringLiteral("restricted"), QStringLiteral("world_readable"), 0);
         QCOMPARE(restricted.size(), 1);
         QVERIFY2(!restricted.at(0).contains(QStringLiteral("cannot join")),
                  qPrintable(restricted.at(0)));
-        // A public room that anyone may read and is listed: nothing odd.
         QVERIFY(notes(QStringLiteral("public"),
                       QStringLiteral("world_readable"), 1).isEmpty());
-        // An ordinary private room, and an unknown directory state.
         QVERIFY(notes(QStringLiteral("invite"), QStringLiteral("shared"), 0)
                     .isEmpty());
         QVERIFY(notes(QStringLiteral("invite"), QStringLiteral("shared"), -1)

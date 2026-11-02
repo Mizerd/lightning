@@ -16,15 +16,10 @@ typedef struct _GstElement GstElement;
 
 namespace lightning::rtp {
 
-/// Constrained Baseline, level 3.1, with level asymmetry allowed: what browsers
-/// and LiveKit offer first. The level is the receive ceiling, not the stream's.
 inline constexpr const char *kH264ProfileLevelId = "42e01f";
 
-/// Register `lightningrtph264pay`. Idempotent, thread-safe; must run after
-/// gst_init.
 void registerH264Payloader();
 
-/// The element name to use in a pipeline description.
 const char *h264PayloaderName();
 
-} // namespace lightning::rtp
+}

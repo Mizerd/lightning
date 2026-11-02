@@ -10,8 +10,6 @@
 namespace updater {
 namespace {
 
-// A generous but finite ceiling. Real paths are far shorter; anything past
-// this is either a bug or an attempt to overflow something downstream.
 constexpr int kMaxValueLength = 4096;
 
 ArgsParseResult fail(ArgsError error, const QString &message,
@@ -24,7 +22,7 @@ ArgsParseResult fail(ArgsError error, const QString &message,
     return result;
 }
 
-} // namespace
+}
 
 QString modeToString(UpdaterMode mode)
 {
@@ -48,8 +46,6 @@ bool valueIsUnsafe(const QString &value)
     if (value.size() > kMaxValueLength)
         return true;
     for (const QChar ch : value) {
-        // Rejects NUL, tab, newline, carriage return, and every other C0/C1
-        // control character. A legitimate filesystem path never needs one.
         if (ch.unicode() < 0x20 || ch.unicode() == 0x7F)
             return true;
         if (ch.unicode() >= 0x80 && ch.unicode() <= 0x9F)
@@ -137,9 +133,6 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
         QStringLiteral("--relaunch"), QStringLiteral("--status"),
         QStringLiteral("--sha256"), QStringLiteral("--install-scope"),
     };
-    // --relaunch and --install-scope are the only optional options: absent
-    // means "do not relaunch" and "user". Everything else must be supplied
-    // exactly once.
     static const QStringList kRequiredOptions = {
         QStringLiteral("--mode"),   QStringLiteral("--artifact"),
         QStringLiteral("--pid"),    QStringLiteral("--target"),
@@ -167,8 +160,6 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
         const QString value = arguments.at(i + 1);
         ++i;
 
-        // A value that looks like an option is always a mistake: every value is
-        // a path, integer, digest or scope word.
         if (value.startsWith(QLatin1String("--")))
             return fail(ArgsError::MissingValue,
                         QStringLiteral("option value looks like another option"),
@@ -196,7 +187,7 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
          {QStringLiteral("--artifact"), QStringLiteral("--target"),
           QStringLiteral("--relaunch"), QStringLiteral("--status")}) {
         if (!values.contains(option))
-            continue; // only --relaunch can be absent here
+            continue;
         if (pathContainsParentComponent(values.value(option)))
             return fail(ArgsError::PathTraversal,
                         QStringLiteral("path contains a \"..\" component"), option);
@@ -204,7 +195,6 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
 
     UpdaterArguments args;
 
-    // --mode
     args.modeString = values.value(QStringLiteral("--mode"));
     args.mode = modeFromString(args.modeString);
     if (args.mode == UpdaterMode::Invalid)
@@ -217,7 +207,6 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
                                    "helper"),
                     QStringLiteral("--mode"));
 
-    // --pid: strictly decimal digits, no sign, no whitespace, > 1.
     const QString pidValue = values.value(QStringLiteral("--pid"));
     for (const QChar ch : pidValue) {
         if (ch < QLatin1Char('0') || ch > QLatin1Char('9'))
@@ -236,7 +225,6 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
                     QStringLiteral("--pid"));
     args.pid = pid;
 
-    // --artifact: absolute, exists, regular file, non-empty.
     args.artifactPath = values.value(QStringLiteral("--artifact"));
     if (!pathIsAbsolute(args.artifactPath))
         return fail(ArgsError::PathNotAbsolute,
@@ -248,8 +236,6 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
             return fail(ArgsError::PathDoesNotExist,
                         QStringLiteral("artifact does not exist"),
                         QStringLiteral("--artifact"));
-        // exists()/isFile() follow links, and this path is chmodded or handed
-        // to a root process, so a symlink is refused.
         if (info.isSymLink())
             return fail(ArgsError::PathIsSymlink,
                         QStringLiteral("artifact is a symbolic link"),
@@ -265,9 +251,6 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
         args.artifactPath = info.absoluteFilePath();
     }
 
-    // --target: absolute and existing (a directory for portable, the AppImage
-    // file for AppImage). Informational for installer modes but still
-    // validated.
     args.targetPath = values.value(QStringLiteral("--target"));
     if (!pathIsAbsolute(args.targetPath))
         return fail(ArgsError::PathNotAbsolute,
@@ -294,8 +277,6 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
         args.targetPath = info.absoluteFilePath();
     }
 
-    // --relaunch: optional; absent means start nothing afterwards. When
-    // present, validated as strictly as the required paths.
     if (values.contains(QStringLiteral("--relaunch"))) {
         args.relaunchPath = values.value(QStringLiteral("--relaunch"));
         if (!pathIsAbsolute(args.relaunchPath))
@@ -318,8 +299,6 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
         args.relaunchPath = info.absoluteFilePath();
     }
 
-    // --status: absolute, parent exists, and the path itself must not already
-    // be a directory or a symlink (a symlink would redirect the write).
     args.statusPath = values.value(QStringLiteral("--status"));
     if (!pathIsAbsolute(args.statusPath))
         return fail(ArgsError::PathNotAbsolute,
@@ -344,17 +323,12 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
                               .absoluteFilePath(info.fileName());
     }
 
-    // --sha256: shape only (64 lowercase hex, as UpdateManifest normalizes it).
-    // main.cpp compares after the application exits, right before the read.
     args.expectedSha256 = values.value(QStringLiteral("--sha256"));
     if (!isSha256Hex(args.expectedSha256))
         return fail(ArgsError::InvalidDigest,
                     QStringLiteral("sha256 must be exactly 64 lowercase hex characters"),
                     QStringLiteral("--sha256"));
 
-    // --install-scope: optional, only for modes with two install contexts.
-    // Elsewhere it is refused, so a mistaken "machine" cannot pass silently
-    // into a path that never elevates.
     if (values.contains(QStringLiteral("--install-scope"))) {
         const QString scope = values.value(QStringLiteral("--install-scope"));
         if (args.mode != UpdaterMode::WindowsMsi && args.mode != UpdaterMode::WindowsSetup)
@@ -377,4 +351,4 @@ ArgsParseResult parseUpdaterArgs(const QStringList &arguments)
     return result;
 }
 
-} // namespace updater
+}

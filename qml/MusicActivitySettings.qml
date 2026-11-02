@@ -3,13 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings → Labs: "Listening to" music activity, Discord's "Display Spotify
-// as your status". Experimental and OFF by default. While Spotify plays on
-// this computer, the song's title and artist become the presence status line;
-// a game, or a status the user typed, takes the line first. Nothing is sent
-// while presence sharing is off. Detection and publishing live in
-// MusicActivity / PresenceManager; this is policy over app.settings and a
-// local preview.
 ColumnLayout {
     id: root
     objectName: "musicActivitySettings"
@@ -20,7 +13,6 @@ ColumnLayout {
     readonly property var activity: app.musicActivity ? app.musicActivity : null
     readonly property bool supported: !!activity && activity.supported
     readonly property bool listening: !!activity && activity.listening
-    // The server answers presence at all (supported, not refused).
     readonly property bool presenceWorks: !!app.presence && app.presence.active
 
     SettingsCheckBox {
@@ -120,9 +112,6 @@ ColumnLayout {
                    + "will be shown.")
     }
 
-    // Local preview of the user's OWN activity: richer than what crosses
-    // (the album never leaves this computer). Matrix carries one line of
-    // text, so there is no album art or progress to show others.
     Rectangle {
         objectName: "musicActivityPreview"
         Layout.fillWidth: true

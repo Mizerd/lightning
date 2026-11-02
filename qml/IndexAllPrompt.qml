@@ -3,26 +3,16 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// One-time "index encrypted messages now?" corner card, offered after a sign-in made
-// on this device (never a restored session) and answered once per account
-// (MessageSearchController::offerIndexAllAfterSignIn). Non-modal, so it never
-// blocks first use, and it waits while a verification or recovery prompt is
-// up: `blocked` is bound by the host to those prompts. "Index now" starts the
-// same pass as Settings → Privacy & security → Index encrypted rooms, which stays
-// the way to do it later.
 Rectangle {
     id: root
 
-    // True while another prompt about this session's keys is showing.
     property bool blocked: false
 
     readonly property bool shouldShow:
         app.messageSearch.indexAllOffered
         && !blocked
-        // No verification flow or recovery dialog in progress.
         && !app.verificationActive
         && app.verificationState === ""
-        // Chat shell only: not login, boot or Settings.
         && app.currentScreen === 1
 
     objectName: "indexAllPrompt"
@@ -35,7 +25,6 @@ Rectangle {
     height: implicitHeight
     radius: AppTheme.radiusLg
     color: AppTheme.stormPanel
-    // A neutral border: an offer, not a warning.
     border.color: AppTheme.stormBorder
     border.width: 1
 

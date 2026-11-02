@@ -2,18 +2,12 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// Small circular state badge for a call participant tile (muted, sharing,
-// hand raised). Tones are semantic names, never literals, so the badge
-// follows every theme.
 Rectangle {
     id: root
 
     property string iconName: ""
-    /// "accent" | "muted" | "danger"
     property string tone: "muted"
     property int glyphSize: 12
-    /// Names the state for a hovering pointer: a 12px glyph alone is not
-    /// self-explanatory. Empty draws no tooltip.
     property string tooltip: ""
 
     implicitWidth: glyphSize + 8

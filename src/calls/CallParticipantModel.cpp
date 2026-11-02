@@ -7,23 +7,17 @@
 #include <utility>
 
 namespace {
-/// Level changes below this are invisible on a thin ring, and signalling them
-/// would storm every row each speakers round. The speaking flag always emits.
 constexpr qreal kLevelDeadband = 0.02;
 
-/// 0..200: above 100 is real amplification, which the store and the engine
-/// both support.
 int clampVolume(int percent)
 {
     return percent < 0 ? 0 : (percent > 200 ? 200 : percent);
 }
-} // namespace
+}
 
 CallParticipantModel::CallParticipantModel(QObject *parent)
     : QAbstractListModel(parent)
 {
-    // One single-shot timer for the model, armed to the earliest outstanding
-    // deadline (not a repeating timer, not one per row).
     m_reactionTimer.setSingleShot(true);
     connect(&m_reactionTimer, &QTimer::timeout, this, [this] {
         expireReactions(QDateTime::currentMSecsSinceEpoch());
@@ -103,8 +97,6 @@ QVariant CallParticipantModel::data(const QModelIndex &index, int role) const
     // attributed events.
     case HandRaisedRole:
         return entry.handRaised;
-    // Empty is the normal state and must render as nothing; see the role's
-    // declaration.
     case ReactionEmojiRole:
         return entry.reactionEmoji;
     case VolumePercentRole:
@@ -149,8 +141,6 @@ QList<int> CallParticipantModel::mergeRow(Entry &entry,
                                           const CallParticipantRow &row)
 {
     QList<int> changed;
-    // `sid` has no role (it keys the level and quality feeds); keep it
-    // current without emitting dataChanged.
     entry.row.sid = row.sid;
     const auto note = [&changed](int role) { changed.append(role); };
     if (entry.row.userId != row.userId) {
@@ -209,7 +199,6 @@ void CallParticipantModel::applyParticipants(
 {
     const int before = m_rows.size();
 
-    // 1. Removals, back to front so indices stay valid.
     {
         QHash<QString, int> wanted;
         wanted.reserve(desired.size());
@@ -224,8 +213,6 @@ void CallParticipantModel::applyParticipants(
         }
     }
 
-    // 2. Inserts and moves, front to back: after step i the first i+1 rows
-    //    match the first i+1 desired rows.
     for (int i = 0; i < desired.size(); ++i) {
         const CallParticipantRow &row = desired.at(i);
         if (row.identity.isEmpty())
@@ -240,8 +227,6 @@ void CallParticipantModel::applyParticipants(
         if (at < 0) {
             Entry entry;
             entry.row = row;
-            // When this client first saw the participant, for stable
-            // ordering only; never present it as a join time.
             entry.joinedAtMs = QDateTime::currentMSecsSinceEpoch();
             beginInsertRows(QModelIndex(), i, i);
             m_rows.insert(i, entry);
@@ -249,8 +234,6 @@ void CallParticipantModel::applyParticipants(
             continue;
         }
         if (at != i) {
-            // A real move, so views can animate it and a delegate holding a
-            // live VideoOutput survives. Moving up, the destination is `i`.
             beginMoveRows(QModelIndex(), at, at, QModelIndex(), i);
             m_rows.move(at, i);
             endMoveRows();
@@ -271,17 +254,12 @@ void CallParticipantModel::applySpeakers(
     for (int i = 0; i < m_rows.size(); ++i) {
         Entry &entry = m_rows[i];
         const QString &sid = entry.row.sid;
-        // The caller hands over the whole current set (SfuCallController
-        // merges LiveKit's deltas), so absence here means not speaking.
         qreal level = sid.isEmpty() ? 0.0 : levelBySid.value(sid, 0.0);
         if (level < 0.0)
             level = 0.0;
         if (level > 1.0)
             level = 1.0;
         const bool active = !sid.isEmpty() && activeBySid.value(sid, false);
-        // The union: an SFU reporting only `active` gives a binary ring, one
-        // reporting only a level still lights up. A level is never invented
-        // from the flag.
         const bool speaking = active || level > 0.0;
 
         QList<int> changed;
@@ -289,8 +267,6 @@ void CallParticipantModel::applySpeakers(
             entry.speaking = speaking;
             changed.append(SpeakingRole);
         }
-        // Snap to 0 on silence, or the ring keeps its last width; otherwise
-        // only changes beyond the deadband signal.
         const bool crossedToSilence = !speaking && entry.speakingLevel != 0.0;
         if (crossedToSilence
             || qAbs(entry.speakingLevel - level) >= kLevelDeadband) {
@@ -311,7 +287,7 @@ void CallParticipantModel::applyConnectionQuality(
             continue;
         const auto it = qualityBySid.constFind(entry.row.sid);
         if (it == qualityBySid.cend())
-            continue; // a delta: unmentioned keeps its last value
+            continue;
         if (entry.connectionQuality == *it)
             continue;
         entry.connectionQuality = *it;
@@ -337,9 +313,6 @@ bool CallParticipantModel::setReaction(const QString &identity,
     const int at = indexOf(identity);
     if (at < 0)
         return false;
-    // One still showing: drop the new one and keep the original deadline.
-    // Refreshing would let a sender hold a permanent badge (element-call
-    // refuses the same way).
     if (!m_rows.at(at).reactionEmoji.isEmpty()
         && m_rows.at(at).reactionExpiresAtMs > nowMs) {
         return false;
@@ -379,8 +352,6 @@ void CallParticipantModel::rearmReactionTimer(qint64 nowMs)
         m_reactionTimer.stop();
         return;
     }
-    // A past deadline gives 0, firing on the next event-loop pass; never
-    // negative, which QTimer treats as stop.
     m_reactionTimer.start(static_cast<int>(qMax<qint64>(0, earliest - nowMs)));
 }
 
@@ -399,8 +370,6 @@ void CallParticipantModel::setVolumePercent(const QString &identity,
 
 void CallParticipantModel::clear()
 {
-    // Stop the timer explicitly, or it fires into an empty model after the
-    // call.
     m_reactionTimer.stop();
     if (m_rows.isEmpty())
         return;

@@ -12,7 +12,6 @@ import MatrixClient
 Item {
     id: hold
     visible: false
-    // The AnimatedImage whose source is held; the item it is declared in.
     property Item image: parent
     readonly property var _bridge: (typeof app !== "undefined" && app)
                                    ? app.mediaBridge : null

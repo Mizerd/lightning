@@ -42,8 +42,6 @@ TimelineEvent makeVirtual(TimelineEvent::Type type, const QString &id)
 
 constexpr qint64 kOneDayMs = 24 * 60 * 60 * 1000LL;
 
-// Same rows as above, dated onto a chosen day so a multi-day run can be
-// built. Day 0 is the fixed base timestamp every other helper here uses.
 TimelineEvent onDay(TimelineEvent e, int day)
 {
     e.timestamp = QDateTime::fromMSecsSinceEpoch(1700000000000 + day * kOneDayMs);
@@ -64,7 +62,6 @@ TimelineEvent makeMessage(const QString &eventId, const QString &body,
     return e;
 }
 
-// Minimal scripted backend, matching the pattern in TimelineModelDiffTest.cpp.
 class FakeClient : public MatrixClient
 {
     Q_OBJECT
@@ -106,7 +103,7 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-} // namespace
+}
 
 class StateActivityGroupingTest : public QObject
 {
@@ -138,7 +135,6 @@ private Q_SLOTS:
     void appendingContiguousStateChangeExtendsGroupForward();
     void prependingOlderStateChangesExtendsGroupBackward();
     void groupCountAlwaysMatchesAccessibleChildren();
-    // A date divider must not draw when everything it introduces is hidden.
     void everyDayOfAMultiDayRunOwnsItsGroupAndItsDate();
     void hiddenRoutineActivityLeavesItsDividerWithNothingToIntroduce();
     void showRoomActivityFlipReAnnouncesTheDividerRows();
@@ -163,10 +159,6 @@ void StateActivityGroupingTest::cleanup()
     m_client = nullptr;
 }
 
-// Only the newest call row offers Join: `CallEventDelegate.sessionLive` is a
-// per-room answer, so the model names the newest call row. The id must be the
-// newest call row, ignore messages between them, and move when a newer call
-// arrives.
 void StateActivityGroupingTest::onlyTheNewestCallRowCanBeJoined()
 {
     TimelineEvent older = makeStateChange(QStringLiteral("$call-older"),
@@ -180,8 +172,6 @@ void StateActivityGroupingTest::onlyTheNewestCallRowCanBeJoined()
 
     QCOMPARE(m_model->latestCallEventId(), QStringLiteral("$call-newer"));
 
-    // It must move on a live append (a call starting while the room is open),
-    // which exercises the countChanged hook rather than modelReset.
     QSignalSpy moved(m_model, &TimelineModel::latestCallEventIdChanged);
     TimelineEvent newest = makeStateChange(QStringLiteral("$call-newest"),
                                            QString{}, QStringLiteral("m.call"));
@@ -190,8 +180,6 @@ void StateActivityGroupingTest::onlyTheNewestCallRowCanBeJoined()
     QCOMPARE(m_model->latestCallEventId(), QStringLiteral("$call-newest"));
     QCOMPARE(moved.count(), 1);
 
-    // And on an in-place set, which changes no row count: redacting the newest
-    // call row hands the button back to the one before it.
     TimelineEvent redacted = makeMessage(QStringLiteral("$call-newest"),
                                          QStringLiteral("[removed]"));
     Q_EMIT m_client->eventChangedAt(kRoom, 3, redacted);
@@ -201,9 +189,6 @@ void StateActivityGroupingTest::onlyTheNewestCallRowCanBeJoined()
              "move latestCallEventId, so the Join button stays on a row that "
              "is no longer a call");
 
-    // And the other direction: a row that becomes a call row through an
-    // in-place set (late decryption, re-set `stateKind`) reclaims the title.
-    // Index 3 is the row the redaction above left as an ordinary message.
     const int before = moved.count();
     TimelineEvent decrypted = makeStateChange(QStringLiteral("$call-newest"),
                                               QString{}, QStringLiteral("m.call"));
@@ -214,9 +199,6 @@ void StateActivityGroupingTest::onlyTheNewestCallRowCanBeJoined()
              "latestCallEventId, so the newest call is the one row without a "
              "Join button");
 
-    // A room with no calls names nothing — the delegate's permissive default
-    // must not be defeated by an empty string comparing equal to an id. This
-    // one goes through a reset deliberately: it is the room-switch path.
     m_client->mirror = { chatter };
     m_model->setRoomId(QString{});
     m_model->setRoomId(kRoom);
@@ -236,17 +218,12 @@ void StateActivityGroupingTest::aCallIsNotARoomUpdate()
              false);
     QCOMPARE(m_model->data(idx, TimelineModel::IsRoutineActivityRole).toBool(),
              false);
-    // Nothing may be left for the activity group to draw.
     QVERIFY(m_model->data(idx, TimelineModel::StateGroupEntriesRole)
                 .toList().isEmpty());
-    // The sentence is built HERE, with the resolved display name — not in the
-    // bridge, and not as the words "call event".
     QCOMPARE(m_model->data(idx, TimelineModel::CallEventTextRole).toString(),
              QStringLiteral("Alice started a call."));
 }
 
-// A call is content, so annotations either side of it form two groups, not
-// one group with the call swallowed in the middle.
 void StateActivityGroupingTest::aCallBreaksTheActivityRunAroundIt()
 {
     m_client->mirror = {
@@ -324,8 +301,6 @@ void StateActivityGroupingTest::exposesTypedMembershipAndRoomStateEntries()
              QStringLiteral("m.room.topic"));
 }
 
-// A membership row carries its action as a closed set beside the sentence, so
-// the per-action glyph is not parsed out of a translated sentence.
 void StateActivityGroupingTest::aMembershipEntryCarriesWhatItDid()
 {
     TimelineEvent joined = makeStateChange(
@@ -336,9 +311,6 @@ void StateActivityGroupingTest::aMembershipEntryCarriesWhatItDid()
         QStringLiteral("$ban"), QStringLiteral("Alice banned Bob."),
         QStringLiteral("membership"), QStringLiteral("Bob"));
     banned.membershipChange = QStringLiteral("banned");
-    // A membership change the bridge could not classify. It must stay
-    // UNKNOWN rather than defaulting to anything: a wrong glyph is a wrong
-    // claim about what somebody did.
     TimelineEvent odd = makeStateChange(
         QStringLiteral("$odd"), QStringLiteral("Membership for Bob changed."),
         QStringLiteral("membership"), QStringLiteral("Bob"));
@@ -359,15 +331,11 @@ void StateActivityGroupingTest::aMembershipEntryCarriesWhatItDid()
                  .value(QStringLiteral("membershipChange")).toString().isEmpty(),
              "an unclassified membership change was given an action it does "
              "not have");
-    // The sentence is untouched: this is BESIDE it, never instead of it.
     QCOMPARE(entries.at(0).toMap()
                  .value(QStringLiteral("description")).toString(),
              QStringLiteral("Bob joined the room."));
 }
 
-// A date divider ends a state run: each day's activity leads its own group
-// under its own date. Read markers and the timeline-start row stay
-// transparent (the two cases below).
 void StateActivityGroupingTest::dateDividerSplitsTheRunIntoDailyGroups()
 {
     m_client->mirror = {
@@ -377,18 +345,14 @@ void StateActivityGroupingTest::dateDividerSplitsTheRunIntoDailyGroups()
     };
     m_model->setRoomId(kRoom);
 
-    // The divider itself is not state activity and is not swallowed into
-    // either row's group.
     QCOMPARE(m_model->data(m_model->index(1), TimelineModel::IsStateActivityRole).toBool(), false);
 
-    // TWO groups: each state row leads its own day.
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::StateGroupLeaderRole).toBool(), true);
     QCOMPARE(m_model->data(m_model->index(2), TimelineModel::StateGroupLeaderRole).toBool(), true);
     QVERIFY(m_model->data(m_model->index(2), TimelineModel::StateGroupIdRole).toString()
             != m_model->data(m_model->index(0), TimelineModel::StateGroupIdRole).toString());
     QCOMPARE(m_model->stateGroupCount(), 2);
 
-    // Each leader reports only its own day's entries.
     const QVariantList first =
         m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole).toList();
     QCOMPARE(first.size(), 1);
@@ -403,8 +367,6 @@ void StateActivityGroupingTest::dateDividerSplitsTheRunIntoDailyGroups()
 
 void StateActivityGroupingTest::multiDayRunYieldsOneGroupPerDay()
 {
-    // Three days of pure state churn, divider-separated as the SDK delivers
-    // them: four state rows, three groups, one per calendar day.
     m_client->mirror = {
         onDay(makeStateChange(QStringLiteral("$a0"), QStringLiteral("a0")), 0),
         onDay(makeStateChange(QStringLiteral("$a1"), QStringLiteral("a1")), 0),
@@ -427,8 +389,6 @@ void StateActivityGroupingTest::multiDayRunYieldsOneGroupPerDay()
 
 void StateActivityGroupingTest::aDividerLeadingOnlyActivityStillIntroducesVisibleContent()
 {
-    // With the run split at the divider, the day's first state row leads a
-    // group and draws its summary, so the divider above it keeps its date.
     m_client->mirror = {
         onDay(makeStateChange(QStringLiteral("$s0"), QStringLiteral("yesterday")), 0),
         makeVirtual(TimelineEvent::DateDivider, QStringLiteral("$div0")),
@@ -588,8 +548,6 @@ void StateActivityGroupingTest::appendingContiguousStateChangeExtendsGroupForwar
     m_client->mirror.append(next);
     Q_EMIT m_client->eventAppended(kRoom, next);
 
-    // A batch arriving separately from the SDK must still merge into the
-    // same group as the existing leader, not start a new one.
     QCOMPARE(m_model->data(m_model->index(1), TimelineModel::StateGroupIdRole).toString(),
              m_model->data(m_model->index(0), TimelineModel::StateGroupIdRole).toString());
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::StateGroupEntriesRole)
@@ -607,7 +565,6 @@ void StateActivityGroupingTest::prependingOlderStateChangesExtendsGroupBackward(
     m_client->mirror.prepend(older.first());
     Q_EMIT m_client->eventsPrepended(kRoom, older);
 
-    // A pagination boundary must not leave two separate one-entry groups.
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::StateGroupLeaderRole).toBool(), true);
     QCOMPARE(m_model->data(m_model->index(1), TimelineModel::StateGroupLeaderRole).toBool(), false);
     const QVariantList entries =
@@ -643,15 +600,12 @@ void StateActivityGroupingTest::groupCountAlwaysMatchesAccessibleChildren()
 
 void StateActivityGroupingTest::everyDayOfAMultiDayRunOwnsItsGroupAndItsDate()
 {
-    // The run breaks at every date divider: no divider is an orphan and no
-    // summary spans days its date separator does not own.
     QList<TimelineEvent> mirror;
     mirror.append(onDay(makeVirtual(TimelineEvent::DateDivider,
                                     QStringLiteral("$divA")), 0));
     mirror.append(onDay(makeMessage(QStringLiteral("$before"),
                                     QStringLiteral("before")), 0));
 
-    // 51 state updates spread across days 1..3, one divider per day.
     int made = 0;
     for (int day = 1; day <= 3; ++day) {
         mirror.append(onDay(makeVirtual(TimelineEvent::DateDivider,
@@ -673,8 +627,6 @@ void StateActivityGroupingTest::everyDayOfAMultiDayRunOwnsItsGroupAndItsDate()
     m_client->mirror = mirror;
     m_model->setRoomId(kRoom);
 
-    // THREE summaries — one per calendar day — because a date divider ends
-    // the run.
     int leaders = 0;
     for (int row = 0; row < m_model->rowCount(); ++row) {
         if (m_model->data(m_model->index(row),
@@ -685,9 +637,6 @@ void StateActivityGroupingTest::everyDayOfAMultiDayRunOwnsItsGroupAndItsDate()
     }
     QCOMPARE(leaders, 3);
 
-    // Each answer is read at a known row and guarded by that row's id, so a
-    // drift in the fixture fails instead of moving an assertion to another
-    // row (an invalid QVariant equals neither true nor false).
     const auto dividerAt = [this](int row, const QString &eventId) {
         const QModelIndex idx = m_model->index(row);
         if (m_model->data(idx, TimelineModel::EventIdRole).toString() != eventId)
@@ -696,19 +645,13 @@ void StateActivityGroupingTest::everyDayOfAMultiDayRunOwnsItsGroupAndItsDate()
             idx, TimelineModel::DividerIntroducesVisibleContentRole);
     };
 
-    // EVERY day's divider introduces that day's own summary — no orphans,
-    // and no suppressed dates.
     QCOMPARE(dividerAt(2, QStringLiteral("$div1")), QVariant(true));
     QCOMPARE(dividerAt(20, QStringLiteral("$div2")), QVariant(true));
     QCOMPARE(dividerAt(38, QStringLiteral("$div3")), QVariant(true));
-    // The ordinary message boundaries on either side still work.
     QCOMPARE(dividerAt(0, QStringLiteral("$divA")), QVariant(true));
     QCOMPARE(dividerAt(56, QStringLiteral("$divAfter")), QVariant(true));
 
-    // Each leader renders only ITS day: 17 entries, all on one calendar
-    // day, so the summary sits truthfully under its own date separator and
-    // never needs a range subtitle.
-    const QList<int> leaderRows = { 3, 21, 39 }; // first state row after each divider
+    const QList<int> leaderRows = { 3, 21, 39 };
     const QStringList leaderIds = { QStringLiteral("$s0"),
                                     QStringLiteral("$s17"),
                                     QStringLiteral("$s34") };
@@ -746,30 +689,22 @@ void StateActivityGroupingTest::hiddenRoutineActivityLeavesItsDividerWithNothing
     m_model->setRoomId(kRoom);
     const QModelIndex divider = m_model->index(0);
 
-    // Preference on: the group's leader draws its summary under this date.
     QCOMPARE(m_model->showRoomActivity(), true);
     QCOMPARE(m_model->data(divider,
                            TimelineModel::DividerIntroducesVisibleContentRole)
                  .toBool(),
              true);
 
-    // Preference off: every row in the run is routine and hidden, so the
-    // divider introduces nothing. A read marker is not content either.
     m_model->setShowRoomActivity(false);
     QCOMPARE(m_model->data(divider,
                            TimelineModel::DividerIntroducesVisibleContentRole)
                  .toBool(),
              false);
 
-    // A non-routine state row (an untyped call/RTC notification) is never
-    // hidden by the preference, so its divider keeps its date.
     m_client->mirror.append(makeStateChange(QStringLiteral("$call"),
                                             QStringLiteral("call event"),
                                             QString{}));
     Q_EMIT m_client->eventAppended(kRoom, m_client->mirror.last());
-    // It joins the existing run rather than leading one; the run's leader is
-    // a hidden routine row, but the leader now draws the run's FILTERED
-    // entries, so the call row shows under it and the date stays.
     QCOMPARE(m_model->data(m_model->index(4),
                            TimelineModel::StateGroupLeaderRole).toBool(),
              false);
@@ -804,11 +739,8 @@ void StateActivityGroupingTest::showRoomActivityFlipReAnnouncesTheDividerRows()
                    TimelineModel::DividerIntroducesVisibleContentRole))
             coveredDivider = true;
     }
-    // The refresh must reach the divider row through the existing
-    // presentation-grouping path.
     QVERIFY(coveredDivider);
 
-    // Idempotent: writing the same value again is not a refresh.
     dataSpy.clear();
     m_model->setShowRoomActivity(false);
     QCOMPARE(settingSpy.count(), 1);

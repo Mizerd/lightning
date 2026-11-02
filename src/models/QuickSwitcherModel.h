@@ -13,13 +13,6 @@
 class MatrixClient;
 class SpaceManager;
 
-// Result model for the quick switcher (Ctrl+K).
-//
-// A read-only filter over local room data (MatrixClient::rooms()). No network
-// search and no message text: it matches room names, DM participant ids and
-// canonical aliases. Rooms, DMs, Spaces and invites are searchable; selecting
-// a result uses normal navigation (an invite opens its context, never
-// auto-accepts). Results are recomputed on demand and bounded.
 class QuickSwitcherModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -31,14 +24,13 @@ public:
         RoomIdRole = Qt::UserRole + 1,
         NameRole,
         SubtitleRole,
-        CategoryRole,     // "invite" | "space" | "dm" | "room"
+        CategoryRole,
         AvatarUrlRole,
         UnreadRole,
         HighlightRole,
         HasUnreadRole,
         IsSpaceRole,
         IsInviteRole,
-        // identityColorKey(RoomInfo) — the shared fallback-colour policy.
         IdentityColorKeyRole,
     };
 
@@ -61,8 +53,6 @@ public:
 
     void setClient(MatrixClient *client);
     void setSpaceManager(SpaceManager *spaces);
-    /// The room's unread-rule mode (SettingsManager::roomUnreadMode); without
-    /// one every room reads as All messages.
     void setNotificationModeSource(std::function<int(const QString &)> modeOf);
 
     int rowCount(const QModelIndex &parent = {}) const override;
@@ -72,16 +62,10 @@ public:
     QString query() const { return m_query; }
     void setQuery(const QString &query);
 
-    // Rebuild results from the current client rooms with the current query.
     Q_INVOKABLE void refresh();
-    // Clear the query and results (logout / account switch / close).
     Q_INVOKABLE void reset();
-    // Presentation-safe routing payload for the selected row.
     Q_INVOKABLE QVariantMap resultAt(int row) const;
 
-    // Pure scoring/filter helper, exposed for tests. Returns a score (higher =
-    // better) or a negative value when the haystack does not match every query
-    // token. An empty query matches everything with a neutral score.
     static int matchScore(const QString &query, const QString &name,
                           const QStringList &alternates);
 

@@ -44,11 +44,6 @@
 
 namespace lightning::accounts {
 
-// Is a host's catch-up complete? The first room_list_sync_state "running"
-// after initial_sync_done, seen after the catch-up began, with the host's
-// notable-update rate under 5/s over 3 s; or 60 s, whichever is first.
-// Pure, so the rule is tested without a host. HYPOTHESIS: whether these
-// signals track real catch-up I/O is measured in S5/S6b.
 class CatchUpTracker
 {
 public:
@@ -66,7 +61,7 @@ public:
 private:
     qint64 m_startedMs = -1;
     quint64 m_baseVersion = 0;
-    QList<QPair<qint64, quint64>> m_samples;   // (time, notable total), oldest first
+    QList<QPair<qint64, quint64>> m_samples;
 };
 
 class SessionScheduler : public QObject
@@ -84,47 +79,37 @@ public:
     static constexpr int kFdBaseline = 256;
     static constexpr double kFdSpare = 0.30;
 
-    // monotonicMs: nullptr = a QElapsedTimer started here. jitterUnit: a
-    // uniform [0, 1) source; nullptr = QRandomGenerator.
     explicit SessionScheduler(std::function<qint64()> monotonicMs = {},
                               std::function<double()> jitterUnit = {},
                               QObject *parent = nullptr);
 
     qint64 now() const;
-    // The clock that counts suspended time (above); nullptr = the platform's.
     void setSuspendAwareClock(std::function<qint64()> suspendAwareMs);
     qint64 suspendAwareNow() const;
-    qint64 awakeNow() const;          // the clock suspendAwareNow() is measured against
+    qint64 awakeNow() const;
     double unit() const;
 
-    // ---- lag probe ----------------------------------------------------------
     void startProbe();
     void stopProbe();
     bool probeRunning() const { return m_probe.isActive(); }
-    // What the probe's timer runs; a test calls it with a scripted clock.
     void probeTick();
     bool lagClear() const;
     qint64 worstLatenessMs() const { return m_worstLatenessMs; }
 
-    // ---- gate ---------------------------------------------------------------
     void noteStarted();
     void noteForegroundInitialSyncDone();
     bool gateOpen() const;
 
-    // ---- catch-up semaphore ---------------------------------------------------
     bool catchUpFree() const;
     void acquireCatchUp(const QString &userId);
-    // Releases only when `userId` holds it; then U(0, 1 s) before the next.
     void releaseCatchUp(const QString &userId);
     QString catchUpHolder() const { return m_catchUpHolder; }
 
-    // ---- homeservers ------------------------------------------------------------
     bool homeserverStarting(const QString &homeserver) const;
     void noteStarting(const QString &homeserver, const QString &userId);
     void noteStartFinished(const QString &homeserver, const QString &userId);
     bool homeserverPaused(const QString &homeserver) const;
     void pauseHomeserver(const QString &homeserver, qint64 forMs = kHomeserverPauseMs);
-    // The foreground reached it: its pause ends and its hosts' backoff resets.
     void noteHomeserverReachable(const QString &homeserver);
 
     // ---- failures ---------------------------------------------------------------
@@ -135,26 +120,17 @@ public:
     bool inBackoff(const QString &userId) const;
     bool permanentlyRefused(const QString &userId) const;
     int failures(const QString &userId) const;
-    // A pin turned on again: the user asked to try once more.
     void clearFailures(const QString &userId);
 
-    // ---- admission ----------------------------------------------------------------
     void setCap(int maxLive) { m_cap = maxLive; }
-    // hosts + the foreground (when signed in) stay under the cap.
     bool underCap(int liveHosts, bool foregroundLive) const;
-    // Soft RLIMIT_NOFILE (Unix); 0 = unlimited / not applicable.
     qint64 fdSoftLimit() const;
     void setFdSoftLimitForTest(qint64 limit) { m_fdLimitOverride = limit; }
     bool fdHeadroomFor(int hostsAfterStart) const;
-    // Report-only (DECISION 9): logs when RSS or MemAvailable cross the
-    // design's thresholds; never refuses. Returns what it would have said.
     bool memoryGuardWouldPause();
 
 Q_SIGNALS:
-    // Over 10 s spent suspended between two ticks. Every running host
-    // catches up again, one at a time, after the foreground.
     void resumeDetected();
-    // Something a waiting start depends on changed (gate, semaphore, pause).
     void admissionMayHaveChanged();
 
 private:
@@ -167,7 +143,7 @@ private:
     qint64 m_lastProbeSuspendAwareMs = -1;
     qint64 m_lastProbeAwakeMs = -1;
     qint64 m_worstLatenessMs = 0;
-    QList<qint64> m_lateAt;           // times of a lateness over the threshold, oldest first
+    QList<qint64> m_lateAt;
     qint64 m_startedMs = -1;
     bool m_foregroundSynced = false;
     QString m_catchUpHolder;
@@ -187,4 +163,4 @@ private:
     bool m_memoryReported = false;
 };
 
-} // namespace lightning::accounts
+}

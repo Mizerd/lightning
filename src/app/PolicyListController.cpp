@@ -6,8 +6,6 @@
 
 #include <algorithm>
 
-// ── The rule model ─────────────────────────────────────────────────────
-
 int PolicyRuleModel::rowCount(const QModelIndex &parent) const
 {
     return parent.isValid() ? 0 : int(m_rules.size());
@@ -43,7 +41,6 @@ QHash<int, QByteArray> PolicyRuleModel::roleNames() const
 
 namespace {
 
-// A rule's identity inside one room's list.
 QString ruleKey(const QVariant &rule)
 {
     const QVariantMap m = rule.toMap();
@@ -52,12 +49,10 @@ QString ruleKey(const QVariant &rule)
         + m.value(QStringLiteral("entity")).toString();
 }
 
-} // namespace
+}
 
 void PolicyRuleModel::setRules(const QVariantList &incoming)
 {
-    // A deterministic order: the bridge's map iteration is not one, and the
-    // same rules came back differently on every open.
     QVariantList rules = incoming;
     std::stable_sort(rules.begin(), rules.end(),
                      [](const QVariant &a, const QVariant &b) {
@@ -93,8 +88,6 @@ void PolicyRuleModel::setRules(const QVariantList &incoming)
         return;
     }
 
-    // Row-level edits, never a reset: a reset sends the view back to the top,
-    // so after Remove the pointer rested over a different rule's Remove.
     const int before = int(m_rules.size());
     for (int i = int(m_rules.size()) - 1; i >= 0; --i) {
         if (newKeys.contains(ruleKey(m_rules.at(i))))
@@ -129,8 +122,6 @@ void PolicyRuleModel::clear()
     Q_EMIT countChanged();
 }
 
-// ── The controller ─────────────────────────────────────────────────────
-
 PolicyListController::PolicyListController(QObject *parent)
     : QObject(parent)
 {
@@ -152,7 +143,6 @@ void PolicyListController::setClient(MatrixClient *client)
                 &PolicyListController::onSubscriptions);
         connect(m_client, &MatrixClient::policyCheckFinished, this,
                 &PolicyListController::onCheck);
-        // Subscriptions are account data; never show them under another account.
         connect(m_client, &MatrixClient::loggedOut, this,
                 &PolicyListController::onLoggedOut);
     }
@@ -169,7 +159,6 @@ void PolicyListController::openRoom(const QString &roomId)
 {
     if (!available() || roomId.isEmpty())
         return;
-    // Clear now so one room's rules never show under another's name.
     m_rules.clear();
     m_roomId = roomId;
     m_canWrite = false;
@@ -189,8 +178,6 @@ void PolicyListController::addRule(const QString &kind, const QString &entity,
         return;
     m_lastError.clear();
     m_writeOp = m_nextOpId++;
-    // `m.ban` is the only recommendation the spec defines. An empty state key
-    // lets the bridge derive the conventional `rule:<entity>`.
     m_client->writePolicyRule(m_roomId, kind, entity.trimmed(), QString(),
                               QStringLiteral("m.ban"), reason, m_writeOp);
     Q_EMIT stateChanged();
@@ -210,7 +197,6 @@ void PolicyListController::removeRule(const QString &kind,
         return;
     m_lastError.clear();
     m_writeOp = m_nextOpId++;
-    // An empty recommendation writes an empty state event (Mjolnir's removal).
     m_client->writePolicyRule(m_roomId, kind, entity.trimmed(), stateKey,
                               QString(), QString(), m_writeOp);
     Q_EMIT stateChanged();
@@ -251,7 +237,6 @@ void PolicyListController::onRules(quint64 opId, bool ok, const QString &roomId,
                                    bool canWrite, bool truncated,
                                    const QVariantList &rules)
 {
-    // Only the latest read for the current room is applied.
     if (opId == 0 || opId != m_rulesOp)
         return;
     m_rulesOp = 0;
@@ -280,7 +265,6 @@ void PolicyListController::onWritten(quint64 opId, bool ok,
             : tr("That rule could not be published.");
     } else {
         m_lastError.clear();
-        // Not optimistic: re-read what the room actually holds.
         if (!m_roomId.isEmpty()) {
             m_rulesOp = m_nextOpId++;
             m_client->fetchPolicyRules(m_roomId, m_rulesOp);

@@ -1,7 +1,3 @@
-// User search (debounce, stale-result rejection, dedup, exact-MXID handling)
-// and conversation flows (existing-DM reuse, DM/room creation, duplicate
-// submission blocking, invite batches with partial success, sign-out
-// invalidation).
 
 #include "app/ConversationController.h"
 #include "matrix/MatrixClient.h"
@@ -18,7 +14,6 @@ class FakeClient final : public MatrixClient
 public:
     using MatrixClient::MatrixClient;
 
-    // Scripted state.
     QList<RoomInfo> mirror;
     QVariantList dmRooms;
     quint64 nextOp = 1;
@@ -28,8 +23,6 @@ public:
     int inviteCalls = 0;
     int avatarCalls = 0;
     bool avatarSupported = true;
-    // Off by default: the base returns 0 (no lookup), which the controller
-    // treats as "nothing to ask" and creates at once.
     bool profileLookupSupported = false;
     int profileCalls = 0;
     QString lastProfileUser;
@@ -42,7 +35,6 @@ public:
     QString lastAvatarPath;
     quint64 lastOpId = 0;
 
-    // MatrixClient pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -72,7 +64,6 @@ public:
     bool canPaginate(const QString &) const override { return false; }
     bool paginating(const QString &) const override { return false; }
 
-    // Command surface.
     bool supportsRoomManagement() const override { return true; }
     quint64 searchUsers(const QString &query, int) override
     {
@@ -145,14 +136,13 @@ RoomInfo makeRoom(const QString &id)
     return room;
 }
 
-} // namespace
+}
 
 class ConversationFlowTest : public QObject
 {
     Q_OBJECT
 
 private Q_SLOTS:
-    // ---- user search -----------------------------------------------------
 
     void searchDebouncesAndDispatchesOnce()
     {
@@ -161,7 +151,6 @@ private Q_SLOTS:
         model.setClient(&client);
         model.setDebounceMs(10);
 
-        // Rapid keystrokes collapse into one dispatch.
         model.setQuery(QStringLiteral("al"));
         model.setQuery(QStringLiteral("ali"));
         model.setQuery(QStringLiteral("alic"));
@@ -194,17 +183,14 @@ private Q_SLOTS:
         QTRY_COMPARE(client.searchCalls, 1);
         const quint64 firstOp = client.lastOpId;
 
-        // A newer query supersedes the first before its result arrives.
         model.setQuery(QStringLiteral("bob"));
         QTRY_COMPARE(client.searchCalls, 2);
 
-        // The stale completion must be dropped entirely.
         Q_EMIT client.userSearchFinished(
             firstOp, true, { searchRow(QStringLiteral("@alice:example.org")) },
             false, QString());
         QCOMPARE(model.rowCount(), 0);
 
-        // The current completion populates the model.
         Q_EMIT client.userSearchFinished(
             client.lastOpId, true,
             { searchRow(QStringLiteral("@bob:example.org")) }, false, QString());
@@ -243,7 +229,6 @@ private Q_SLOTS:
         model.setQuery(QStringLiteral("@carol:example.org"));
         QTRY_COMPARE(client.searchCalls, 1);
 
-        // The directory does not know the user; the typed MXID still appears.
         Q_EMIT client.userSearchFinished(client.lastOpId, true, {}, false,
                                          QString());
         QCOMPARE(model.rowCount(), 1);
@@ -280,8 +265,6 @@ private Q_SLOTS:
         QVERIFY(!UserSearchModel::looksLikeMxid(QStringLiteral("@a b:x.org")));
     }
 
-    // ---- DM creation -------------------------------------------------------
-
     void existingDmIsDiscovered()
     {
         FakeClient client;
@@ -300,10 +283,6 @@ private Q_SLOTS:
                  QStringLiteral("!dm:example.org"));
     }
 
-    // Break-it s04: the duplicate-DM card read "Existing conversation" with an
-    // "EC" avatar. m.direct rooms rarely carry an explicit name, and the
-    // backend reports only that; the entry takes the room list's computed name
-    // and the room avatar instead, and says whether the room is 1:1.
     void existingDmIsPresentedTheWayTheRoomListShowsIt()
     {
         FakeClient client;
@@ -326,7 +305,6 @@ private Q_SLOTS:
         group.isDirect = true;
         group.directUserIds = { QStringLiteral("@alice:example.org"),
                                 QStringLiteral("@bob:example.org") };
-        // A nameless room: RustRoomRegistry stores its id as the name.
         RoomInfo nameless = makeRoom(QStringLiteral("!bare:example.org"));
         client.mirror = { oneToOne, group, nameless };
         client.dmRooms = { dmEntry(oneToOne.id), dmEntry(group.id),
@@ -345,13 +323,9 @@ private Q_SLOTS:
         QCOMPARE(second.value(QStringLiteral("name")).toString(),
                  QStringLiteral("Alice and Bob"));
         QCOMPARE(second.value(QStringLiteral("oneToOne")).toBool(), false);
-        // An id is not a name: left empty for the dialog's person fallback.
         QVERIFY(found.at(2).toMap().value(QStringLiteral("name")).toString().isEmpty());
     }
 
-    // Break-it s04: a DM to @nobodyhere999 was created, encrypted, with no
-    // warning, and a retry made a second dead room. As Element does, the
-    // target's profile is asked for first and a 404 stops the create.
     void aDmToAUserTheServerDoesNotKnowAsksFirst()
     {
         FakeClient client;
@@ -375,12 +349,10 @@ private Q_SLOTS:
         QCOMPARE(asked.count(), 1);
         QVERIFY(!controller.busy());
 
-        // Cancel: nothing is created.
         controller.dismissUnknownTarget();
         QVERIFY(controller.unknownTarget().isEmpty());
         QCOMPARE(client.createDmCalls, 0);
 
-        // Asked again, and this time the person goes ahead.
         controller.startDirectMessage(nobody);
         Q_EMIT client.userProfileFinished(client.lastProfileOp, false, nobody,
                                           QString(), QString(),
@@ -393,10 +365,6 @@ private Q_SLOTS:
         QVERIFY(controller.busy());
     }
 
-    // Only "not found" and "their server did not answer" stop the create. A
-    // server that refuses profile lookups (403), a rate limit or an endpoint
-    // it lacks must not block, and a user who exists is created without
-    // asking.
     void aProfileLookupThatIsNotANotFoundNeverBlocks()
     {
         const QStringList outcomes = { QStringLiteral("ok"),
@@ -421,12 +389,6 @@ private Q_SLOTS:
         }
     }
 
-    // Decided 2026-10-18 (C7): /createRoom federates the invite before it
-    // answers, so a DM to a homeserver that is down or slow left an empty room
-    // that can never be reused. When the profile lookup could not reach their
-    // server (our server's federation request failed: "network", or the 10 s
-    // bound ran out: "timeout") the dialog asks first, as for "not found",
-    // and says why. Old code created the room at once.
     void aDmToAServerThatDoesNotAnswerAsksFirst()
     {
         for (const QString &category : { QStringLiteral("network"),
@@ -450,7 +412,6 @@ private Q_SLOTS:
             QVERIFY(!controller.unknownTargetUnreachable());
             QCOMPARE(client.createDmCalls, 0);
 
-            // The person may still go ahead.
             controller.startDirectMessage(far);
             Q_EMIT client.userProfileFinished(client.lastProfileOp, false, far,
                                               QString(), QString(), category);
@@ -460,7 +421,6 @@ private Q_SLOTS:
             QVERIFY(!controller.unknownTargetUnreachable());
         }
 
-        // "Not found" keeps its own wording.
         FakeClient client;
         client.profileLookupSupported = true;
         ConversationController controller;
@@ -474,9 +434,6 @@ private Q_SLOTS:
         QVERIFY(!controller.unknownTargetUnreachable());
     }
 
-    // The check has done nothing server-side, so closing the dialog abandons
-    // it: the late answer must not create a room the person walked away from.
-    // Other profile answers (search, avatars, pills) are not ours.
     void aCheckAbandonedByClosingTheDialogCreatesNothing()
     {
         FakeClient client;
@@ -501,10 +458,6 @@ private Q_SLOTS:
         QCOMPARE(client.createDmCalls, 0);
     }
 
-    // No answer at all is not "does not exist", and not "reachable" either
-    // (decided 2026-10-18, C7): the bound asks with the unreachable wording,
-    // as rooms.rs's own "timeout" does, and a late answer creates nothing.
-    // Old code created the room when the bound ran out.
     void aCheckThatNeverAnswersAsksFirst()
     {
         FakeClient client;
@@ -543,14 +496,12 @@ private Q_SLOTS:
         QCOMPARE(client.createDmCalls, 1);
         QVERIFY(controller.busy());
 
-        // Duplicate click while busy is blocked.
         controller.startDirectMessage(QStringLiteral("@alice:example.org"));
         QCOMPARE(client.createDmCalls, 1);
 
         Q_EMIT client.dmCreateFinished(client.lastOpId, true,
                                        QStringLiteral("!new:example.org"),
                                        QString());
-        // Not open yet: the room is not in the authoritative list.
         QCOMPARE(ready.count(), 0);
         QVERIFY(controller.busy());
 
@@ -582,11 +533,9 @@ private Q_SLOTS:
         controller.startDirectMessage(QStringLiteral("@alice:example.org"));
         const quint64 op = client.lastOpId;
 
-        // Sign-out clears the pending operation...
         Q_EMIT client.loggedOut();
         QVERIFY(!controller.busy());
 
-        // ...so the late completion opens nothing.
         Q_EMIT client.dmCreateFinished(op, true,
                                        QStringLiteral("!late:example.org"),
                                        QString());
@@ -606,8 +555,6 @@ private Q_SLOTS:
         QVERIFY(!controller.busy());
         QVERIFY(controller.errorMessage().contains(QStringLiteral("rate-limiting")));
     }
-
-    // ---- room creation ----------------------------------------------------
 
     void roomCreateRequiresName()
     {
@@ -636,19 +583,13 @@ private Q_SLOTS:
                                          QString(),
                                          QStringLiteral("space_add_failed"));
         QCOMPARE(spaceFail.count(), 1);
-        // Space failure is a warning; the room still opens once listed.
         client.mirror = { makeRoom(QStringLiteral("!r:example.org")) };
         Q_EMIT client.roomsChanged();
         QCOMPARE(ready.count(), 1);
     }
 
-    // ---- Space creation routing -------------------------------------------
-
     void spaceCreateEmitsSpaceReadyNeverConversationReady()
     {
-        // An m.space room is never opened as a message timeline: the
-        // controller owns the isSpace decision (a dialog closed mid-create
-        // cannot reroute it) and emits spaceReady.
         FakeClient client;
         ConversationController controller;
         controller.setClient(&client);
@@ -672,7 +613,6 @@ private Q_SLOTS:
                  QStringLiteral("!s:example.org"));
         QCOMPARE(ready.count(), 0);
 
-        // The flag never leaks into the NEXT ordinary create.
         controller.createRoom({
             { QStringLiteral("name"), QStringLiteral("Plain") } });
         Q_EMIT client.roomCreateFinished(client.lastOpId, true,
@@ -683,8 +623,6 @@ private Q_SLOTS:
         QCOMPARE(spaceReady.count(), 1);
         QCOMPARE(ready.count(), 1);
     }
-
-    // ---- optional room avatar (applied after create) ----------------------
 
     void roomCreateWithAvatarAppliesItAfterCreate()
     {
@@ -700,9 +638,7 @@ private Q_SLOTS:
               QStringLiteral("file:///tmp/picture.png") },
         });
         QCOMPARE(client.createRoomCalls, 1);
-        // The avatar never reaches the backend's create call.
         QVERIFY(!client.lastRoomOptions.contains(QStringLiteral("avatarPath")));
-        // No avatar call before the room exists.
         QCOMPARE(client.avatarCalls, 0);
 
         Q_EMIT client.roomCreateFinished(client.lastOpId, true,
@@ -710,7 +646,6 @@ private Q_SLOTS:
                                          QString(), QString());
         QCOMPARE(client.avatarCalls, 1);
         QCOMPARE(client.lastAvatarRoom, QStringLiteral("!r:example.org"));
-        // The file:// URL was converted to a plain local path.
         QCOMPARE(client.lastAvatarPath, QStringLiteral("/tmp/picture.png"));
 
         const quint64 avatarOp = client.lastOpId;
@@ -743,14 +678,11 @@ private Q_SLOTS:
         QCOMPARE(client.avatarCalls, 1);
         const quint64 avatarOp = client.lastOpId;
 
-        // The room opens before the avatar upload completes: the avatar op is
-        // outside busy() and cannot stall the open.
         client.mirror = { makeRoom(QStringLiteral("!r:example.org")) };
         Q_EMIT client.roomsChanged();
         QCOMPARE(ready.count(), 1);
         QVERIFY(!controller.busy());
 
-        // The late failure is a warning, not an error.
         Q_EMIT client.roomEditFinished(avatarOp, QStringLiteral("!r:example.org"),
                                        QStringLiteral("avatar"), false,
                                        QStringLiteral("network"));
@@ -817,16 +749,12 @@ private Q_SLOTS:
         const quint64 op = client.lastOpId;
         Q_EMIT client.loggedOut();
 
-        // The stale creation completion must not trigger an avatar upload
-        // for the next session.
         Q_EMIT client.roomCreateFinished(op, true,
                                          QStringLiteral("!late:example.org"),
                                          QString(), QString());
         QCOMPARE(client.avatarCalls, 0);
         QCOMPARE(warn.count(), 0);
     }
-
-    // ---- invites ------------------------------------------------------------
 
     void inviteBatchTracksPartialSuccess()
     {
@@ -835,7 +763,6 @@ private Q_SLOTS:
         controller.setClient(&client);
         QSignalSpy done(&controller, &ConversationController::inviteBatchCompleted);
 
-        // Duplicates collapse before dispatch.
         controller.inviteUsers(QStringLiteral("!room:example.org"),
                                { QStringLiteral("@a:example.org"),
                                  QStringLiteral("@a:example.org"),
@@ -867,9 +794,6 @@ private Q_SLOTS:
         QVERIFY(!controller.busy());
     }
 
-    // A lost answer must not leave the invite dialog spinning for ever: the
-    // bound ends the batch (rows "Not confirmed"), and a LATE answer for it
-    // still lands on the rows rather than being dropped as stale.
     void inviteWithNoAnswerEndsAndALateSuccessStillLands()
     {
         FakeClient client;
@@ -892,17 +816,14 @@ private Q_SLOTS:
         QCOMPARE(state().value(QStringLiteral("category")).toString(),
                  QStringLiteral("timeout"));
 
-        // The server did perform it: the late result corrects the row.
         Q_EMIT client.inviteUserFinished(op, room, QStringLiteral("@a:example.org"),
                                          true, QString());
         QCOMPARE(state().value(QStringLiteral("state")).toString(),
                  QStringLiteral("ok"));
         Q_EMIT client.inviteBatchFinished(op, room, 1, 0);
-        QCOMPARE(done.count(), 1);   // not reported twice
+        QCOMPARE(done.count(), 1);
     }
 
-    // A per-user result must not cancel the bound: with the batch-done lost
-    // after a success, the spinner still ends.
     void inviteSuccessWithLostBatchDoneStillEnds()
     {
         FakeClient client;
@@ -923,11 +844,6 @@ private Q_SLOTS:
                  QStringLiteral("ok"));
     }
 
-    // Closing the dialog must not unlock a second create. `Client::create_dm`
-    // is one /createRoom carrying the invite, and an unreachable peer server
-    // can hang it; the server still creates the room, without the m.direct
-    // write that would let it be reused. So reset() keeps the pending guard,
-    // bounded by the late answer.
     void closingTheDialogDoesNotUnlockASecondCreate()
     {
         FakeClient client;
@@ -938,7 +854,6 @@ private Q_SLOTS:
         QCOMPARE(client.createDmCalls, 1);
         QVERIFY(controller.busy());
 
-        // The create has not answered; the user closes the dialog.
         controller.reset();
 
         QVERIFY2(controller.busy(),
@@ -948,12 +863,10 @@ private Q_SLOTS:
         controller.startDirectMessage(QStringLiteral("@remote:other.example"));
         QCOMPARE(client.createDmCalls, 1);
 
-        // A third attempt after reopening is refused too.
         controller.reset();
         controller.startDirectMessage(QStringLiteral("@remote:other.example"));
         QCOMPARE(client.createDmCalls, 1);
 
-        // The guard is not permanent: the late answer releases it.
         Q_EMIT client.dmCreateFinished(client.lastOpId, false, QString(),
                                        QStringLiteral("network"));
         QVERIFY2(!controller.busy(),
@@ -962,9 +875,6 @@ private Q_SLOTS:
         QCOMPARE(client.createDmCalls, 2);
     }
 
-    // The 60 s bound released the guard while the create was still running
-    // server-side (spawn_room_action has no timeout), so the retry the error
-    // text invited made one more empty room per attempt.
     void aTimedOutCreateStillBlocksARetryForTheSamePerson()
     {
         FakeClient client;
@@ -976,34 +886,23 @@ private Q_SLOTS:
         controller.startDirectMessage(user);
         QCOMPARE(client.createDmCalls, 1);
         const quint64 firstOp = client.lastOpId;
-        QTRY_VERIFY(!controller.busy());   // the bound fired
+        QTRY_VERIFY(!controller.busy());
 
         controller.startDirectMessage(user);
         QCOMPARE(client.createDmCalls, 1);
         QVERIFY(!controller.errorMessage().isEmpty());
 
-        // Someone else is a different action.
         controller.startDirectMessage(QStringLiteral("@other:other.example"));
         QCOMPARE(client.createDmCalls, 2);
         Q_EMIT client.dmCreateFinished(client.lastOpId, false, QString(),
                                        QStringLiteral("forbidden"));
 
-        // The late answer for the first create lifts its guard, and does not
-        // open or fail anything.
         Q_EMIT client.dmCreateFinished(firstOp, false, QString(),
                                        QStringLiteral("network"));
         controller.startDirectMessage(user);
         QCOMPARE(client.createDmCalls, 3);
     }
 
-    // What the backend really produces: rooms.rs sends /createRoom once, with
-    // no retry and a 120 s timeout (create_request_config), so it cannot answer
-    // before this 60 s guard fires. The order is always: the guard fires and
-    // arms the per-person block, the dialog may be closed and reopened, and the
-    // answer arrives LATE (success: the room is made, filed as a DM by the
-    // backend's own mark_as_dm and listed by sync; or a failure). The block
-    // must hold until then, and the late answer must lift it without opening
-    // or failing anything.
     void theGuardSurvivesAReopenAndALateSuccessLiftsIt()
     {
         FakeClient client;
@@ -1018,7 +917,6 @@ private Q_SLOTS:
         const QString shown = controller.errorMessage();
         QVERIFY(shown.contains(QLatin1String("taking longer")));
 
-        // Closing and reopening the dialog does not forget the running create.
         controller.reset();
         controller.startDirectMessage(user);
         QCOMPARE(client.createDmCalls, 1);
@@ -1047,7 +945,6 @@ private Q_SLOTS:
         controller.startDirectMessage(a);
         controller.startDirectMessage(b);
         QCOMPARE(client.createDmCalls, 2);
-        // Sign-out clears every guard.
         Q_EMIT client.loggedOut();
         controller.startDirectMessage(a);
         QCOMPARE(client.createDmCalls, 3);
@@ -1068,10 +965,6 @@ private Q_SLOTS:
         QVERIFY(!controller.errorMessage().contains(QLatin1String("empty room")));
     }
 
-    // Master prompt Part 6, 5 (UI-029/032/033): suggestions for an empty
-    // invite search are the other person of each JOINED one-to-one DM,
-    // newest room activity first, deduplicated by Matrix ID, bounded, with
-    // a stable tie-break. A group DM names nobody; the own account never.
     void recentPeopleAreJoinedOneToOneDmsNewestFirst()
     {
         const QDateTime t0 = QDateTime::fromSecsSinceEpoch(1700000000);
@@ -1107,11 +1000,9 @@ private Q_SLOTS:
         QStringList ids;
         for (const auto &p : people)
             ids << p.userId;
-        // Amy's newest DM wins; bob/cat tie on time and break by id.
         QCOMPARE(ids, (QStringList{ QStringLiteral("@amy:x"), QStringLiteral("@bob:x"),
                                     QStringLiteral("@cat:x") }));
         QCOMPARE(people.first().roomId, QStringLiteral("!new-amy"));
-        // Bounded.
         QCOMPARE(ConversationController::recentDirectPeople(
                      rooms, QStringLiteral("@me:x"), 2).size(), 2);
         QCOMPARE(ConversationController::recentDirectPeople(

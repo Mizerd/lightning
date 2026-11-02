@@ -1,7 +1,3 @@
-// Privacy & security settings against the production Main window (C70):
-// a double-click on "Stop ignoring" removes exactly one user, keyboard focus
-// on the privacy checkboxes is drawn and clears 3:1 on every theme, and the
-// long Device trust label wraps inside a 640 px window.
 
 #include <QtTest/QtTest>
 
@@ -44,7 +40,7 @@ double contrastRatio(const QColor &a, const QColor &b)
     return (qMax(la, lb) + 0.05) / (qMin(la, lb) + 0.05);
 }
 
-} // namespace
+}
 
 class PrivacySettingsQmlTest : public QObject
 {
@@ -76,7 +72,6 @@ private:
         return findItem(m_window->contentItem(), QLatin1String(name));
     }
 
-    // Every item whose `text` property is exactly `text`, in tree order.
     static void collectByText(QQuickItem *parent, const QString &text,
                               QList<QQuickItem *> &out)
     {
@@ -91,8 +86,6 @@ private:
             collectByText(child, text, out);
     }
 
-    // Only the buttons a user can press: the removed row's button is hidden,
-    // not destroyed, so it is still in the item tree.
     QList<QQuickItem *> stopButtons() const
     {
         QList<QQuickItem *> all;
@@ -118,7 +111,6 @@ private:
             countVisibleNamed(k, name, n);
     }
 
-    // How many "No longer ignored" lines are showing.
     int goneLines() const
     {
         int n = 0;
@@ -127,8 +119,6 @@ private:
         return n;
     }
 
-    // The surface colour of the card that contains `inner`: the direct child
-    // named settingsCardSurface of the nearest ancestor that has one.
     static QColor cardColorOf(QQuickItem *inner)
     {
         for (QQuickItem *p = inner ? inner->parentItem() : nullptr; p;
@@ -142,15 +132,12 @@ private:
         return QColor();
     }
 
-    // Keyboard focus needs an active window; offscreen does not give one for
-    // free.
     void activateWindow() const
     {
         m_window->requestActivate();
         QTRY_VERIFY_WITH_TIMEOUT(m_window->isActive(), 3000);
     }
 
-    // The ring belongs to the checkbox: a child item named checkFocusRing.
     static QQuickItem *ringOf(QQuickItem *check)
     {
         return check ? findItem(check, QStringLiteral("checkFocusRing"))
@@ -202,10 +189,6 @@ private slots:
         delete m_controller;
     }
 
-    // C70-F02. The list shifts up when a row is removed, so the second click
-    // of a double-click used to land on the NEXT user's button. The clicks
-    // are delivered at the same point with the controller's result processed
-    // in between, which is exactly what two clicks 80 ms apart do.
     void aDoubleClickOnStopIgnoringRemovesExactlyOneUser()
     {
         auto *moderation = m_controller->moderation();
@@ -233,8 +216,6 @@ private slots:
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, where);
         QTRY_VERIFY_WITH_TIMEOUT(!moderation->ignoredUsers().contains(ids[0]),
                                  3000);
-        // Let the model and the layout settle, then the second click of the
-        // double-click, at the same point.
         QTRY_VERIFY_WITH_TIMEOUT(!moderation->busy(), 3000);
         QCoreApplication::processEvents();
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, where);
@@ -249,30 +230,21 @@ private slots:
                      .arg(moderation->ignoredUsers().join(QLatin1Char(',')))));
         QCOMPARE(moderation->ignoredUsers().size(), 2);
 
-        // The removed row stays as a line with no button, so the card never
-        // moved the next user's button under the pointer.
         QCOMPARE(stopButtons().size(), 2);
         QCOMPARE(goneLines(), 1);
 
-        // Leave the account as it was found for the cases after this one.
         moderation->unignoreUser(ids[1]);
         QTRY_VERIFY_WITH_TIMEOUT(!moderation->busy(), 3000);
         moderation->unignoreUser(ids[2]);
         QTRY_VERIFY_WITH_TIMEOUT(!moderation->busy(), 3000);
     }
 
-    // Review item: the "No longer ignored" line is kept only while the pane is
-    // shown, and the empty state follows the live list. Unignoring the LAST
-    // user, leaving Settings and coming back must show the empty state and no
-    // stale lines.
     void unignoringTheLastUserLeavesTheEmptyStateAfterReopening()
     {
         auto *moderation = m_controller->moderation();
         QVERIFY(moderation);
         const QString id = QStringLiteral("@only:example.org");
         QTRY_VERIFY_WITH_TIMEOUT(!moderation->busy(), 3000);
-        // Start from a pane that has been left, so no line from an earlier
-        // case is retained.
         QVERIFY(m_controller->showMain());
         QCoreApplication::processEvents();
         moderation->ignoreUser(id);
@@ -289,12 +261,10 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(moderation->ignoredUsers().isEmpty(), 3000);
         QTRY_VERIFY_WITH_TIMEOUT(!moderation->busy(), 3000);
         QTRY_COMPARE_WITH_TIMEOUT(goneLines(), 1, 3000);
-        // The empty-state line shows already, over the retained row.
         QQuickItem *empty = item("ignoredEmptyState");
         QVERIFY2(empty, "the empty-state label is not named");
         QVERIFY(empty->isVisible());
 
-        // Leave Settings and come back.
         QVERIFY(m_controller->showMain());
         QCoreApplication::processEvents();
         m_controller->showSettings();
@@ -304,7 +274,6 @@ private slots:
         QVERIFY(item("ignoredEmptyState")->isVisible());
         QCOMPARE(stopButtons().size(), 0);
 
-        // Another section is a way of leaving too.
         moderation->ignoreUser(id);
         QTRY_VERIFY_WITH_TIMEOUT(moderation->ignoredUsers().contains(id), 3000);
         QTRY_COMPARE_WITH_TIMEOUT(stopButtons().size(), 1, 3000);
@@ -321,10 +290,6 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(goneLines(), 0, 3000);
     }
 
-    // C70-F01. A keyboard user must be able to see which checkbox has focus:
-    // the ring exists, is drawn on focus, and clears 3:1 against the card on
-    // each of the eleven palettes (the stock halo was about 1.2:1 in Moss
-    // Light). Asserts the number of palettes checked.
     void theCheckboxFocusRingClearsThreeToOneOnEveryTheme()
     {
         const int restore = m_controller->settings()->theme();
@@ -395,8 +360,6 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // C70-F06. The Device trust label wrapped nowhere and ran past the window
-    // at the 640x420 minimum.
     void theDeviceTrustLabelWrapsInsideTheMinimumWindow()
     {
         m_controller->showSettings();
@@ -414,10 +377,6 @@ private slots:
                  qPrintable(QStringLiteral(
                      "the Device trust label ends at x=%1 in a %2 px window")
                      .arg(right).arg(m_window->width())));
-        // Whether it needs a second line depends on the room the navigation
-        // column leaves it, which narrows with the window (it used to be a
-        // fixed 300 px, leaving 339 px at 640); what matters is that it
-        // never runs past the window, asserted above, and never elides.
         QVERIFY2(label->property("lineCount").toInt() >= 1,
                  "the Device trust label has no text");
         QVERIFY2(!label->property("truncated").toBool(),

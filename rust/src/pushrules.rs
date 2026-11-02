@@ -1,23 +1,3 @@
-//! The account's push-rule settings page: master mute, the default alert
-//! level for direct messages and for rooms, mention levels, keywords, and a
-//! few event rules.
-//!
-//! Matrix behaviour stays in matrix-sdk. Where `NotificationSettings` has an
-//! API (default room modes, enabling a rule, adding and removing a keyword)
-//! it is used. It has none for the actions of a content or override rule, so
-//! a level (Off / Notify / Loud) is applied with the typed
-//! `set_pushrule_actions` request; no push-rule JSON is written by hand.
-//!
-//! Reading and writing are separate: `summarize` turns a `Ruleset` into the
-//! snapshot C++ renders, and `plan` turns one UI command into steps. Both are
-//! pure so tests need no server. A snapshot is read after every write with
-//! `Account::push_rules`, but that reads the LOCAL account-data store, not the
-//! server: it only catches up with a write when the next sync delivers it
-//! (which also raises `push_rules_changed`). The C++ side therefore keeps the
-//! user's choice on screen until a snapshot reflects it.
-//!
-//! Only rule ids, keywords the user typed and booleans cross the FFI. Keywords
-//! are never logged.
 
 use std::sync::Arc;
 
@@ -37,12 +17,9 @@ use serde_json::{json, Value};
 use crate::rooms::{classify_room_error, require_client};
 use crate::{enqueue, notification_settings_handle, RustClient};
 
-/// A keyword longer than this is refused; a rule id travels in a URL path.
 const MAX_KEYWORD_CHARS: usize = 120;
-/// Keywords listed in a snapshot.
 const MAX_KEYWORDS: usize = 200;
 
-/// What a mention, keyword or event rule does, as the page shows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Level {
     Off,
@@ -79,8 +56,6 @@ fn has_sound(actions: &[Action]) -> bool {
         .any(|action| matches!(action, Action::SetTweak(Tweak::Sound(_))))
 }
 
-/// A rule's level: disabled, or without a notify action, is Off; a sound
-/// tweak makes it Loud.
 pub(crate) fn level_of(enabled: bool, actions: &[Action]) -> Level {
     if !enabled || !has_notify(actions) {
         Level::Off
@@ -91,8 +66,6 @@ pub(crate) fn level_of(enabled: bool, actions: &[Action]) -> Level {
     }
 }
 
-/// The actions that make a rule highlight at `level`. Off has none: a
-/// disabled rule keeps its actions, so Off is applied as "disable".
 pub(crate) fn actions_for(level: Level) -> Vec<Action> {
     let highlight = Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes));
     match level {
@@ -118,7 +91,6 @@ fn content_rule<'a>(rules: &'a Ruleset, id: &str) -> Option<&'a PatternedPushRul
     rules.content.iter().find(|rule| rule.rule_id == id)
 }
 
-/// One mention row: where it lives and which rule id carries it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct MentionRule {
     kind: RuleKind,
@@ -140,7 +112,6 @@ fn mention_rule(rules: &Ruleset, key: &str) -> Option<MentionRule> {
             RuleKind::Content,
             PredefinedContentRuleId::ContainsUserName.as_str().to_owned(),
         )],
-        // Servers without the modern rule still carry the legacy `@room` one.
         "room" => vec![
             (
                 RuleKind::Override,
@@ -171,8 +142,6 @@ fn rule_state(rules: &Ruleset, kind: &RuleKind, id: &str) -> Option<(bool, Vec<A
     }
 }
 
-/// `{ present, level }` for one mention or event row. `present` false means
-/// the server's ruleset has no such rule and the page hides the row.
 fn row(rules: &Ruleset, rule: Option<MentionRule>) -> Value {
     match rule.and_then(|r| rule_state(rules, &r.kind, &r.id)) {
         Some((enabled, actions)) => json!({
@@ -187,9 +156,6 @@ fn is_all(rules: &Ruleset, id: PredefinedUnderrideRuleId) -> Option<bool> {
     underride_rule(rules, id.as_str()).map(|r| r.enabled && has_notify(&r.actions))
 }
 
-/// `{ level: "all"|"mentions", drift }` for one default (DM or room). The two
-/// rules, plain and encrypted, are meant to agree; `drift` says they do not,
-/// so the page can say so and a write repairs both.
 fn default_level(
     rules: &Ruleset,
     plain: PredefinedUnderrideRuleId,
@@ -197,7 +163,6 @@ fn default_level(
 ) -> Value {
     let plain = is_all(rules, plain);
     let encrypted = is_all(rules, encrypted);
-    // A rule the server lacks counts as the other one's value.
     let (a, b) = match (plain, encrypted) {
         (Some(a), Some(b)) => (a, b),
         (Some(a), None) => (a, a),
@@ -214,7 +179,6 @@ fn default_level(
 
 fn event_row(rules: &Ruleset, key: &str) -> Value {
     match key {
-        // Reactions and invites notify when their rule carries a notify action.
         "reactions" => row(
             rules,
             override_rule(rules, PredefinedOverrideRuleId::Reaction.as_str()).map(|_| {
@@ -233,9 +197,6 @@ fn event_row(rules: &Ruleset, key: &str) -> Value {
                 }
             }),
         ),
-        // `.m.rule.suppress_notices` is a SUPPRESSING rule: enabled with no
-        // notify action silences bot notices. The page shows what the user
-        // gets, so "notify" means the suppressor is not in force.
         "notices" => match override_rule(rules, PredefinedOverrideRuleId::SuppressNotices.as_str())
         {
             Some(rule) => {
@@ -248,9 +209,6 @@ fn event_row(rules: &Ruleset, key: &str) -> Value {
     }
 }
 
-/// Keywords the user owns: non-default content rules, grouped by pattern.
-/// Several clients write one rule per keyword; if two rules share a pattern
-/// the highest level wins, as in Sable.
 fn keywords(rules: &Ruleset) -> Vec<Value> {
     let mut out: Vec<(String, Level)> = Vec::new();
     for rule in rules.content.iter().filter(|rule| !rule.default) {
@@ -275,7 +233,6 @@ fn keywords(rules: &Ruleset) -> Vec<Value> {
         .collect()
 }
 
-/// The whole page's state.
 pub(crate) fn summarize(rules: &Ruleset) -> Value {
     json!({
         "master_mute": override_rule(rules, PredefinedOverrideRuleId::Master.as_str())
@@ -305,27 +262,19 @@ pub(crate) fn summarize(rules: &Ruleset) -> Value {
     })
 }
 
-/// One server write.
 #[derive(Clone, Debug)]
 pub(crate) enum Step {
     Enabled { kind: RuleKind, id: String, enabled: bool },
     Actions { kind: RuleKind, id: String, actions: Vec<Action> },
-    /// `SetDefaultRoomNotificationMode` for BOTH the plain and the encrypted
-    /// variant, which is what keeps them in agreement.
     DefaultMode { one_to_one: bool, all_messages: bool },
     AddKeyword(String),
     RemoveKeyword(String),
-    /// Delete one content rule by its exact rule id; used for keywords another
-    /// client created that `clean_keyword` would refuse.
     DeleteContentRule(String),
 }
 
-/// Why a command cannot be applied; sent to C++ as a category.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum PlanError {
-    /// The command is malformed.
     Invalid,
-    /// The server's ruleset lacks the rule this command writes.
     Unsupported,
 }
 
@@ -355,8 +304,6 @@ pub(crate) fn clean_keyword(raw: &str) -> Result<String, PlanError> {
     Ok(keyword.to_owned())
 }
 
-/// Turn one command into steps. `kind` is the command family, `key` what it
-/// targets and `value` the new setting.
 pub(crate) fn plan(
     rules: &Ruleset,
     kind: &str,
@@ -435,7 +382,6 @@ pub(crate) fn plan(
                 let id = PredefinedOverrideRuleId::SuppressNotices.as_str().to_owned();
                 override_rule(rules, &id).ok_or(PlanError::Unsupported)?;
                 match value {
-                    // Bot notices then follow the room's own level.
                     "notify" => Ok(vec![Step::Enabled {
                         kind: RuleKind::Override,
                         id,
@@ -455,11 +401,7 @@ pub(crate) fn plan(
             _ => Err(PlanError::Invalid),
         },
         "keyword_set" => {
-            // Add the keyword if it is new, then set its level.
             let level = Level::parse(value).ok_or(PlanError::Invalid)?;
-            // A keyword that already exists is addressed by its exact pattern,
-            // so one another client wrote (a slash, a leading dot, padding)
-            // can still be re-levelled. Only a NEW keyword must be clean.
             let exact: Vec<String> = rules
                 .content
                 .iter()
@@ -483,7 +425,6 @@ pub(crate) fn plan(
             let mut steps = Vec::new();
             let ids = if existing.is_empty() {
                 steps.push(Step::AddKeyword(keyword.clone()));
-                // matrix-sdk names the new rule after its keyword.
                 vec![keyword]
             } else {
                 existing
@@ -532,7 +473,6 @@ async fn run_step(
                 RoomNotificationMode::MentionsAndKeywordsOnly
             };
             let one_to_one = if one_to_one { IsOneToOne::Yes } else { IsOneToOne::No };
-            // Both variants, always, so plain and encrypted never disagree.
             for encrypted in [IsEncrypted::No, IsEncrypted::Yes] {
                 settings
                     .set_default_room_notification_mode(encrypted, one_to_one, mode)
@@ -576,8 +516,6 @@ fn failure_event(op_id: u64, lifecycle: u64, category: &str) -> Value {
     })
 }
 
-/// Fetch the account's push rules from the server. Result event
-/// `push_rules_snapshot`.
 pub(crate) fn request_snapshot(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -597,9 +535,6 @@ pub(crate) fn request_snapshot(bridge: &RustClient, op_id: u64) -> Result<(), St
     Ok(())
 }
 
-/// Apply one command, then report. Result events: `push_rules_write
-/// { op_id, lifecycle, kind, key, ok, category }` followed, on success, by a
-/// fresh `push_rules_snapshot` with the same op id.
 pub(crate) fn write_rule(
     bridge: &RustClient,
     kind: String,
@@ -623,8 +558,6 @@ pub(crate) fn write_rule(
                 "category": category,
             }));
         };
-        // Plan against the account's rules as last synced (a local store read,
-        // not a server request).
         let rules = match client.account().push_rules().await {
             Ok(rules) => rules,
             Err(err) => {
@@ -709,7 +642,6 @@ mod tests {
         assert_eq!(level_of(true, &[]), Level::Off);
         assert_eq!(level_of(true, &actions_for(Level::Notify)), Level::Notify);
         assert_eq!(level_of(true, &loud()), Level::Loud);
-        // A level survives a round trip through its actions.
         for level in [Level::Notify, Level::Loud] {
             assert_eq!(level_of(true, &actions_for(level)), level);
         }
@@ -719,7 +651,6 @@ mod tests {
     fn server_default_summary_matches_the_spec_defaults() {
         let summary = summarize(&rules());
         assert_eq!(summary["master_mute"], false);
-        // Spec defaults: every message notifies, in DMs and in rooms.
         assert_eq!(summary["dm"]["level"], "all");
         assert_eq!(summary["dm"]["drift"], false);
         assert_eq!(summary["rooms"]["level"], "all");
@@ -727,7 +658,6 @@ mod tests {
         assert_eq!(summary["mentions"]["user_id"]["present"], true);
         assert_eq!(summary["mentions"]["user_id"]["level"], "loud");
         assert_eq!(summary["mentions"]["room"]["present"], true);
-        // Reactions are silenced out of the box; bot notices are suppressed.
         assert_eq!(summary["events"]["reactions"]["level"], "off");
         assert_eq!(summary["events"]["notices"]["level"], "off");
         assert_eq!(summary["events"]["invites"]["level"], "loud");
@@ -737,7 +667,6 @@ mod tests {
     #[test]
     fn plain_and_encrypted_variants_that_disagree_are_flagged_as_drift() {
         let mut rules = rules();
-        // Plain rooms are set to mentions, encrypted rooms still notify.
         let plain = rules
             .underride
             .iter()
@@ -794,7 +723,6 @@ mod tests {
         let off = plan(&rules(), "mention", "display_name", "off").unwrap();
         assert_eq!(off.len(), 1);
         assert!(matches!(off[0], Step::Enabled { enabled: false, .. }));
-        // The username rule is a CONTENT rule.
         match &plan(&rules(), "mention", "username", "notify").unwrap()[0] {
             Step::Actions { kind, id, .. } => {
                 assert_eq!(*kind, RuleKind::Content);
@@ -818,7 +746,6 @@ mod tests {
             Step::Enabled { id, .. } => assert_eq!(id, ".m.rule.roomnotif"),
             other => panic!("unexpected step {other:?}"),
         }
-        // And with neither rule, the row is unsupported rather than invented.
         let legacy = override_rule(&rules, ".m.rule.roomnotif").cloned().expect("legacy");
         rules.override_.shift_remove(&legacy);
         assert_eq!(
@@ -830,9 +757,7 @@ mod tests {
 
     #[test]
     fn bot_notices_are_inverted_because_the_rule_is_a_suppressor() {
-        // Default: suppressor in force, so notices are silenced.
         assert_eq!(summarize(&rules())["events"]["notices"]["level"], "off");
-        // "Notify" removes the suppressor by disabling it.
         let steps = plan(&rules(), "event", "notices", "notify").unwrap();
         assert!(matches!(steps[0], Step::Enabled { enabled: false, .. }));
         let mut disabled = rules();
@@ -855,8 +780,6 @@ mod tests {
         }
     }
 
-    // A keyword another client created that clean_keyword() would refuse must
-    // still be removable and re-levelled, by its exact pattern and rule id.
     #[test]
     fn a_foreign_keyword_the_validator_refuses_can_still_be_changed() {
         let mut with = rules();
@@ -867,12 +790,10 @@ mod tests {
             rule_id: "team-alert".into(),
             pattern: "a/b".into(),
         }));
-        // Adding the same text fresh is still refused...
         assert_eq!(
             plan(&rules(), "keyword_set", "a/b", "off").unwrap_err(),
             PlanError::Invalid
         );
-        // ...but the existing rule is addressed by its id.
         let steps = plan(&with, "keyword_set", "a/b", "off").unwrap();
         assert!(matches!(&steps[0],
             Step::Enabled { kind: RuleKind::Content, id, enabled: false } if id == "team-alert"));
@@ -888,12 +809,10 @@ mod tests {
         }
         assert!(clean_keyword(&"x".repeat(MAX_KEYWORD_CHARS + 1)).is_err());
 
-        // A new keyword is added, then given its level.
         let steps = plan(&rules(), "keyword_set", "lightning", "loud").unwrap();
         assert!(matches!(&steps[0], Step::AddKeyword(k) if k == "lightning"));
         assert!(matches!(&steps[1], Step::Actions { kind: RuleKind::Content, .. }));
 
-        // An existing keyword is not added twice.
         let mut with = rules();
         with.content.insert(PatternedPushRule::from(PatternedPushRuleInit {
             actions: loud(),
@@ -908,14 +827,11 @@ mod tests {
         let list = summarize(&with)["keywords"].clone();
         assert_eq!(list[0]["keyword"], "lightning");
         assert_eq!(list[0]["level"], "loud");
-        // The predefined username rule is a mention row, never a keyword.
         assert_eq!(list.as_array().map(Vec::len), Some(1));
     }
 
     #[test]
     fn a_custom_conditional_rule_does_not_leak_into_the_summary() {
-        // A custom conditional rule is how mutes are stored; they are per-room
-        // and belong to the room's own mode, not to this page.
         let mut with = rules();
         with.override_.insert(ConditionalPushRule::from(ConditionalPushRuleInit {
             actions: vec![],

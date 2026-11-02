@@ -1,28 +1,9 @@
-//! Room-menu writes (favourite, unread mark, mark as read, read receipt): why
-//! one failed, as a fixed token C++ can log, and a bounded retry for the one
-//! class of failure the SDK does not retry itself.
-//!
-//! matrix-sdk 0.18 with the default `RequestConfig` (Lightning's `build_client`
-//! sets none) already retries a 429 or a 5xx with backoff for up to 15 minutes
-//! (`http_client/native.rs`), and refreshes a 401 once. It does NOT retry a
-//! transport failure: `RetryKind::NetworkFailure` is retried only when a retry
-//! limit is configured, "otherwise, we would end up running an infinite loop of
-//! network requests in offline mode". So one reset or timed-out connection
-//! (a pooled connection that died across a suspend or a proxy restart) fails a
-//! tag write outright, while the sync loop, which retries on its own, carries
-//! on. That is exactly "Favourite failed, the session looked healthy, it worked
-//! after a restart".
-//!
-//! Every write retried here is idempotent: a tag PUT or DELETE, a room
-//! account-data PUT and a receipt are all "set to this value".
 
 use std::future::Future;
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
-/// Waits before the second and third attempt of a room-menu write. Bounded:
-/// the user is looking at the row, and after this the failure is reported.
 pub(crate) const ROOM_ACTION_RETRY_DELAYS: [Duration; 2] =
     [Duration::from_millis(1000), Duration::from_millis(3000)];
 
@@ -34,11 +15,6 @@ pub(crate) fn is_transport_failure(err: &matrix_sdk::Error) -> bool {
         if matches!(http.as_ref(), matrix_sdk::HttpError::Reqwest(_)))
 }
 
-/// Why a room-menu write failed, as a fixed token: `http_<status>_<errcode>`
-/// for a server answer, `timeout` / `connect` / `network` for a transport
-/// failure, `refresh_failed` when the SDK could not renew the access token.
-/// Never server prose, a room id or a URL (`oauth::wire_token` refuses
-/// anything that is not a plain code).
 pub(crate) fn failure_reason(err: &matrix_sdk::Error) -> String {
     if let matrix_sdk::Error::Http(http) = err {
         if matches!(http.as_ref(), matrix_sdk::HttpError::RefreshToken(_)) {
@@ -51,10 +27,6 @@ pub(crate) fn failure_reason(err: &matrix_sdk::Error) -> String {
     }
 }
 
-/// The `room_action_error` event for C++. `action` names the control (the
-/// user-facing sentence keys on it), `reason` says why, `attempts` how many
-/// requests were made. The room id is attached by callers that already sent
-/// one; C++ logs it only through `redactId`.
 pub(crate) fn failure_event(action: &str, err: &matrix_sdk::Error, attempts: u32) -> Value {
     json!({
         "type": "room_action_error",
@@ -64,9 +36,6 @@ pub(crate) fn failure_event(action: &str, err: &matrix_sdk::Error, attempts: u32
     })
 }
 
-/// Run `op` until it succeeds, fails with anything but a transport failure,
-/// or `delays` is exhausted (so at most `delays.len() + 1` attempts). Returns
-/// the last result and the number of attempts made.
 pub(crate) async fn with_transport_retry<T, F, Fut>(
     delays: &[Duration],
     mut op: F,
@@ -90,11 +59,6 @@ where
     }
 }
 
-/// The Favourite control: `Room::set_is_favourite`, which also drops a
-/// conflicting `m.lowpriority` tag, retried over transport failures.
-/// `tag_order` stays None: Lightning sorts Favourites by activity, and an
-/// invented order would be written to the account and honoured by other
-/// clients.
 pub(crate) async fn set_favourite(
     room: &matrix_sdk::Room,
     favourite: bool,
@@ -107,7 +71,6 @@ pub(crate) async fn set_favourite(
     .await
 }
 
-/// The SDK also removes a conflicting favourite when enabling low priority.
 pub(crate) async fn set_low_priority(
     room: &matrix_sdk::Room,
     low_priority: bool,
@@ -120,8 +83,6 @@ pub(crate) async fn set_low_priority(
     .await
 }
 
-/// The Mark as unread control (`m.marked_unread` room account data), retried
-/// over transport failures.
 pub(crate) async fn set_unread_flag(
     room: &matrix_sdk::Room,
     unread: bool,
@@ -154,15 +115,10 @@ mod tests {
 
     const FAST: [Duration; 2] = [Duration::from_millis(10), Duration::from_millis(10)];
 
-    /// How the fake homeserver answers the tag write.
     #[derive(Clone, Copy)]
     enum TagScript {
-        /// Read the first tag request and close the connection without a
-        /// response (a reset/dead connection); answer the rest with 200.
         DropFirst,
-        /// Close every tag request without a response.
         DropAlways,
-        /// Refuse every tag request with 403 M_FORBIDDEN.
         Forbidden,
     }
 
@@ -209,7 +165,6 @@ mod tests {
         let _ = stream.flush();
     }
 
-    /// Returns the address and the number of tag requests that reached it.
     fn serve(script: TagScript) -> (String, Arc<AtomicUsize>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");
@@ -248,9 +203,6 @@ mod tests {
         (format!("http://{}:{}", addr.ip(), addr.port()), tag_requests)
     }
 
-    /// A logged-in client against `homeserver`, built the way Lightning's
-    /// `build_client` builds one as far as requests go (no `RequestConfig`, so
-    /// the SDK's own retry policy is the one under test), with one known room.
     async fn client_with_room(homeserver: &str) -> (Client, matrix_sdk::Room) {
         let client = Client::builder()
             .homeserver_url(homeserver)
@@ -281,13 +233,8 @@ mod tests {
         (client, room)
     }
 
-    /// Hard ceiling, so a regression that waits on the SDK's backoff fails
-    /// instead of hanging the suite.
     const BOUND: Duration = Duration::from_secs(20);
 
-    // The reported shape: one dead connection under a tag write. Without the
-    // retry the first attempt's transport error is the result (the SDK does
-    // not retry it), so this fails on the old code with tag_requests == 1.
     #[tokio::test]
     async fn a_favourite_write_survives_one_dropped_connection() {
         let (homeserver, tag_requests) = serve(TagScript::DropFirst);
@@ -301,10 +248,6 @@ mod tests {
         assert_eq!(tag_requests.load(Ordering::SeqCst), 2);
     }
 
-    // The precondition the retry rests on, measured rather than assumed: the
-    // SDK itself makes exactly one request for a transport failure under the
-    // default RequestConfig. If a future SDK starts retrying these, this says
-    // so and the retry here becomes redundant.
     #[tokio::test]
     async fn the_sdk_alone_does_not_retry_a_dropped_connection() {
         let (homeserver, tag_requests) = serve(TagScript::DropAlways);
@@ -324,8 +267,6 @@ mod tests {
         );
     }
 
-    // Bounded: a connection that never comes back ends after the configured
-    // attempts with the transport reason, not an endless loop.
     #[tokio::test]
     async fn a_dead_server_is_retried_a_bounded_number_of_times() {
         let (homeserver, tag_requests) = serve(TagScript::DropAlways);
@@ -343,9 +284,6 @@ mod tests {
                 "{event}");
     }
 
-    // A refusal is the server's answer: never retried, and the log line names
-    // the status and errcode — which the old event (action name only) dropped —
-    // and never the server's prose.
     #[tokio::test]
     async fn a_refusal_is_not_retried_and_names_its_errcode() {
         let (homeserver, tag_requests) = serve(TagScript::Forbidden);
@@ -365,11 +303,8 @@ mod tests {
         assert!(!text.contains("secret") && !text.contains("!room"), "{text}");
     }
 
-    // The unread mark rides the same retry.
     #[tokio::test]
     async fn the_unread_mark_survives_one_dropped_connection() {
-        // Room account data, not tags: the script keys on "/tags/", so this
-        // test serves its own path check.
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");
         let writes = Arc::new(AtomicUsize::new(0));
@@ -381,9 +316,6 @@ mod tests {
                 thread::spawn(move || {
                     let line = read_request_line(&mut stream);
                     let path = line.split_whitespace().nth(1).unwrap_or("").to_owned();
-                    // Room account data only: the SDK writes GLOBAL account data
-                    // in the background (`/user/{id}/account_data/...`), which
-                    // must not take the dropped connection.
                     if path.contains("/rooms/") && path.contains("/account_data/") {
                         if seen.fetch_add(1, Ordering::SeqCst) == 0 {
                             drop(stream);

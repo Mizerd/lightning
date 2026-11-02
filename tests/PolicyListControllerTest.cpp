@@ -1,8 +1,3 @@
-// Mjolnir-style policy lists: the controller's op discipline, and that
-// following a list does not act on it.
-//
-// A policy room read is a whole-room /state fetch that can be slow, so
-// answers arrive out of order and for rooms the user has left.
 
 #include "app/PolicyListController.h"
 #include "matrix/MockMatrixClient.h"
@@ -83,7 +78,6 @@ QVariantList oneRule(const QString &entity = QStringLiteral("@spam:bad.example")
     } };
 }
 
-// The `app` the dialog reads: only its `policy`.
 class AppStub final : public QObject
 {
     Q_OBJECT
@@ -99,7 +93,7 @@ private:
 const QString kRoomA = QStringLiteral("!a:example.org");
 const QString kRoomB = QStringLiteral("!b:example.org");
 
-} // namespace
+}
 
 class PolicyListControllerTest : public QObject
 {
@@ -124,9 +118,6 @@ private Q_SLOTS:
         QVERIFY(!policy.loading());
     }
 
-    // A slow read of one room must not land under another room's name. The
-    // op id catches a superseded read of the same room, and the room id
-    // catches an answer whose op happens to match.
     void anAnswerForAnotherRoomIsNeverShown()
     {
         PolicyClient client;
@@ -139,22 +130,16 @@ private Q_SLOTS:
         const quint64 fastOp = client.lastOp;
         QVERIFY(slowOp != fastOp);
 
-        // Room A's answer arrives late, after the user moved to room B.
-        // Rejected on the OP: it is not the read that is outstanding.
         Q_EMIT client.policyRulesReceived(slowOp, true, kRoomA, true, false,
                                           oneRule());
         QCOMPARE(policy.rules()->rowCount(), 0);
         QCOMPARE(policy.roomId(), kRoomB);
 
-        // Room B's own answer lands.
         Q_EMIT client.policyRulesReceived(fastOp, true, kRoomB, false, false,
                                           oneRule());
         QCOMPARE(policy.rules()->rowCount(), 1);
     }
 
-    // The room-id guard on its own: an answer with the outstanding op but the
-    // wrong room is refused. The op is still consumed, or `loading` would
-    // hang.
     void anAnswerNamingTheWrongRoomIsRefusedEvenWhenTheOpMatches()
     {
         PolicyClient client;
@@ -172,9 +157,6 @@ private Q_SLOTS:
                  "the read must not stay outstanding forever");
     }
 
-    // Opening a second room CLEARS the first room's rules immediately, not
-    // when the answer arrives: the gap would show one room's ban list under
-    // another room's title.
     void openingARoomClearsThePreviousRulesAtOnce()
     {
         PolicyClient client;
@@ -191,8 +173,6 @@ private Q_SLOTS:
                  "permission from the previous room must not carry over");
     }
 
-    // A bounded read has to SAY it was bounded, or a partial list reads as a
-    // complete one — which for a ban list means "this person is not on it".
     void aTruncatedReadIsReportedAsTruncated()
     {
         PolicyClient client;
@@ -218,14 +198,10 @@ private Q_SLOTS:
                        QStringLiteral("spam"));
         QCOMPARE(client.writeCalls, 1);
         QCOMPARE(client.lastKind, QStringLiteral("server"));
-        // Trimmed: a trailing space would make a rule that matches nothing
-        // and looks identical in the list.
         QCOMPARE(client.lastEntity, QStringLiteral("bad.example"));
         QCOMPARE(client.lastRecommendation, QStringLiteral("m.ban"));
 
         Q_EMIT client.policyRuleWritten(client.lastOp, true, QString());
-        // A success RE-READS rather than applying optimistically, so the list
-        // shows what the room holds rather than what we asked for.
         QCOMPARE(client.fetchCalls, 2);
 
         policy.removeRule(QStringLiteral("server"),
@@ -237,7 +213,6 @@ private Q_SLOTS:
                  "empty state event, which is the only removal state has");
     }
 
-    // A refused write does not re-read, and says which refusal it was.
     void aRefusedWriteReportsThePermissionCase()
     {
         PolicyClient client;
@@ -258,7 +233,6 @@ private Q_SLOTS:
         QVERIFY(policy.lastError().contains(QStringLiteral("permission")));
     }
 
-    // Empty input never reaches the server, and one write at a time.
     void emptyInputIsRefusedAndWritesDoNotRace()
     {
         PolicyClient client;
@@ -294,8 +268,6 @@ private Q_SLOTS:
         QVERIFY(policy.isSubscribed(kRoomA));
         QVERIFY(!policy.isSubscribed(kRoomB));
 
-        // Policy subscriptions are ACCOUNT data. One account's lists must
-        // never be shown under the next.
         client.logout();
         QTest::qWait(50);
         QVERIFY(policy.subscriptions().isEmpty());
@@ -303,8 +275,6 @@ private Q_SLOTS:
         QCOMPARE(policy.rules()->rowCount(), 0);
     }
 
-    // Following a list produces no enforcement of its own: a subscribed list
-    // is somebody else's judgement.
     void followingAListNeverActsOnItsOwn()
     {
         PolicyClient client;
@@ -323,9 +293,6 @@ private Q_SLOTS:
         QCOMPARE(client.writeCalls, 0);
     }
 
-    // The check's answer is forwarded, and a superseded one is not. (Stripping
-    // a miss's rule detail happens in RustSdkMatrixClient's poll dispatch,
-    // which this suite cannot reach.)
     void aCheckAnswersOnceAndASupersededOneIsDropped()
     {
         PolicyClient client;
@@ -339,8 +306,6 @@ private Q_SLOTS:
         const quint64 second = client.lastOp;
         QVERIFY(first != second);
 
-        // The first question's answer arrives after the user asked a
-        // second: dropped, or the UI reports the wrong person's status.
         Q_EMIT client.policyCheckFinished(first, QStringLiteral("@a:b.example"),
                                           true, {});
         QCOMPARE(spy.count(), 0);
@@ -351,9 +316,6 @@ private Q_SLOTS:
         QCOMPARE(spy.first().at(0).toString(), QStringLiteral("@c:b.example"));
     }
 
-    // Removal uses the rule's own state key, not `rule:<entity>` derived from
-    // the entity: the key is a free string, and a write to a derived key
-    // would succeed while the real rule stayed on the list.
     void removalIsKeyedOnTheRulesOwnStateKey()
     {
         PolicyClient client;
@@ -363,25 +325,18 @@ private Q_SLOTS:
         Q_EMIT client.policyRulesReceived(client.lastOp, true, kRoomA, true,
                                           false, oneRule());
 
-        // A rule whose key is NOT the derived form — which is exactly the
-        // case the derived key would silently fail on.
         policy.removeRule(QStringLiteral("user"),
                           QStringLiteral("@spam:bad.example"),
                           QStringLiteral("mjolnir_1699"));
         QCOMPARE(client.writeCalls, 1);
         QCOMPARE(client.lastStateKey, QStringLiteral("mjolnir_1699"));
 
-        // And with no key at all nothing is sent: the caller has not said
-        // WHICH rule, and guessing is the defect.
         Q_EMIT client.policyRuleWritten(client.lastOp, true, QString());
         policy.removeRule(QStringLiteral("user"),
                           QStringLiteral("@spam:bad.example"), QString());
         QCOMPARE(client.writeCalls, 1);
     }
 
-    // A NEW rule is the opposite case: no key, so the bridge derives the
-    // conventional one — which is what lets other tools replace this rule
-    // rather than add a second beside it.
     void publishingUsesTheConventionalKeyByLeavingItEmpty()
     {
         PolicyClient client;
@@ -398,10 +353,6 @@ private Q_SLOTS:
                  "a new rule must let the bridge derive the conventional key");
     }
 
-    // Break-it B105: a rule whose entity matches everyone (`*`) bans the
-    // whole kind for every follower of the list. Legitimate in Mjolnir-style
-    // lists, so the dialog asks once more instead of refusing; an ordinary
-    // entity publishes on the first click.
     void anAllMatchingEntityNeedsASecondExplicitPublish()
     {
         PolicyClient client;
@@ -448,18 +399,15 @@ private Q_SLOTS:
                                     "?", "", "@spam*" })
             QVERIFY2(!matchesEverything(QString::fromLatin1(narrow)), narrow);
 
-        // An ordinary entity goes out on the first click.
         entity->setProperty("text", QStringLiteral("@spam:bad.example"));
         QVERIFY(publish(false));
         QCOMPARE(client.writeCalls, 1);
         Q_EMIT client.policyRuleWritten(client.lastOp, true, QString());
 
-        // `*` waits: nothing written, the confirmation is pending.
         entity->setProperty("text", QStringLiteral("*"));
         QVERIFY(!publish(false));
         QCOMPARE(client.writeCalls, 1);
         QCOMPARE(dialog->property("pendingBroadEntity").toString(), QStringLiteral("*"));
-        // The explicit second Publish sends it, as typed.
         QVERIFY(publish(true));
         QCOMPARE(client.writeCalls, 2);
         QCOMPARE(client.lastEntity, QStringLiteral("*"));
@@ -467,8 +415,6 @@ private Q_SLOTS:
         QVERIFY(dialog->property("pendingBroadEntity").toString().isEmpty());
     }
 
-    // C36-F07: the same rules always list in the same order (by entity), not
-    // in the bridge's map-iteration order.
     void rulesListInADeterministicOrder()
     {
         PolicyClient client;
@@ -491,8 +437,6 @@ private Q_SLOTS:
         QCOMPARE(order(), expected);
     }
 
-    // C36-F06: a re-read after Remove edits rows; it must not reset the model
-    // (a reset scrolls the list to the top under the pointer).
     void aReReadAfterRemovalEditsRowsAndNeverResets()
     {
         PolicyClient client;
@@ -510,11 +454,10 @@ private Q_SLOTS:
 
         QVariantList after = rules;
         after.removeAt(3);
-        policy.openRoom(kRoomA);   // clears; then a fresh read arrives
+        policy.openRoom(kRoomA);
         Q_EMIT client.policyRulesReceived(client.lastOp, true, kRoomA, true,
                                           false, rules);
         resets.clear();
-        // The write-then-re-read path (no clear in between).
         policy.removeRule(QStringLiteral("user"), QStringLiteral("@d:x"),
                           QStringLiteral("rule:@d:x"));
         Q_EMIT client.policyRuleWritten(client.lastOp, true, QString());
@@ -525,7 +468,6 @@ private Q_SLOTS:
         QCOMPARE(inserted.count(), 0);
         QCOMPARE(policy.rules()->rowCount(), 3);
 
-        // An addition inserts in order.
         QVariantList plus = after;
         plus += oneRule(QStringLiteral("@bb:x"));
         policy.addRule(QStringLiteral("user"), QStringLiteral("@bb:x"), QString());

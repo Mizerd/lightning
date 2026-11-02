@@ -1,7 +1,3 @@
-// Image metadata removal: every case builds a hand-made file carrying a GPS
-// block with a recognisable marker, strips it, and checks the marker is gone
-// and the picture bytes are untouched. Nothing here decodes pixels except the
-// round-trip cases that prove a real QImage still loads.
 
 #include "media/ImageMetadata.h"
 
@@ -13,7 +9,6 @@ using namespace imagemeta;
 
 namespace {
 
-// A run of bytes that appears nowhere else, used as the "coordinates".
 const QByteArray kLatMarker(24, '\xAB');
 const char kMakeText[] = "Acme\0";
 
@@ -25,8 +20,6 @@ void be32(QByteArray &b, quint32 v) { be16(b, quint16(v >> 16)); be16(b, quint16
 void le16(QByteArray &b, quint16 v) { b.append(char(v)); b.append(char(v >> 8)); }
 void le32(QByteArray &b, quint32 v) { le16(b, quint16(v)); le16(b, quint16(v >> 16)); }
 
-// IFD0: Make (out of line), Orientation, GPS pointer. GPS IFD: LatRef, Lat
-// (24 bytes out of line, = the marker).
 QByteArray makeTiff(bool withGps, int orientation, bool littleEndian)
 {
     QByteArray t;
@@ -37,16 +30,14 @@ QByteArray makeTiff(bool withGps, int orientation, bool littleEndian)
     u32(8);
     const int entries = withGps ? 3 : 2;
     u16(quint16(entries));
-    // Make
     u16(0x010F); u16(2); u32(5); u32(8 + 2 + entries * 12 + 4);
-    // Orientation (SHORT, inline)
     u16(0x0112); u16(3); u32(1); u16(quint16(orientation)); u16(0);
     const int makeOff = 8 + 2 + entries * 12 + 4;
-    const int gpsOff = makeOff + 6;  // 5 bytes padded to 6
+    const int gpsOff = makeOff + 6;
     if (withGps) {
         u16(0x8825); u16(4); u32(1); u32(quint32(gpsOff));
     }
-    u32(0);  // no IFD1
+    u32(0);
     t.append(kMakeText, 5);
     t.append('\0');
     if (withGps) {
@@ -78,8 +69,6 @@ QByteArray xmpSegment(const QByteArray &body)
     return segment(0xE1, QByteArray("http://ns.adobe.com/xap/1.0/\0", 29) + body);
 }
 
-// SOI, the given segments, then a fixed fake scan (SOS header, entropy data
-// with a stuffed 0xFF and a restart marker) and EOI.
 const QByteArray kScan = []() {
     QByteArray s = segment(0xDA, QByteArray("\x01\x01\x00\x00\x3F\x00", 6));
     s.append("ab\xFF\x00""cd\xFF\xD0""ef", 9);
@@ -93,15 +82,13 @@ QByteArray jpegWith(const QList<QByteArray> &segments,
     QByteArray j("\xFF\xD8", 2);
     for (const QByteArray &s : segments)
         j.append(s);
-    j.append(segment(0xDB, QByteArray(65, '\x08')));  // DQT stand-in
+    j.append(segment(0xDB, QByteArray(65, '\x08')));
     j.append(kScan);
     j.append(trailing);
     return j;
 }
 
 QByteArray jfif() { return segment(0xE0, QByteArray("JFIF\0\1\1\0\0\1\0\1\0\0", 14)); }
-
-// -- PNG ---------------------------------------------------------------------
 
 quint32 crc(const QByteArray &b)
 {
@@ -138,8 +125,6 @@ QByteArray pngWith(const QList<QByteArray> &middle)
     return p;
 }
 
-// -- WebP --------------------------------------------------------------------
-
 QByteArray webpChunk(const char *fourcc, const QByteArray &data)
 {
     QByteArray c(fourcc, 4);
@@ -158,8 +143,8 @@ QByteArray webpWith(const QByteArray &exif, const QByteArray &xmp)
     if (!xmp.isEmpty()) flags |= 0x04;
     vp8x.append(char(flags));
     vp8x.append(QByteArray(3, '\0'));
-    le16(vp8x, 0); vp8x.append('\0');  // width-1 (24 bit)
-    le16(vp8x, 0); vp8x.append('\0');  // height-1
+    le16(vp8x, 0); vp8x.append('\0');
+    le16(vp8x, 0); vp8x.append('\0');
     QByteArray body;
     body.append(webpChunk("VP8X", vp8x));
     body.append(webpChunk("VP8L", QByteArray("\x2F\x00\x00\x00\x00", 5)));
@@ -170,8 +155,6 @@ QByteArray webpWith(const QByteArray &exif, const QByteArray &xmp)
     w.append("WEBP", 4);
     return w + body;
 }
-
-// -- HEIC --------------------------------------------------------------------
 
 QByteArray box(const char *type, const QByteArray &body)
 {
@@ -187,8 +170,8 @@ QByteArray heicWith(const QByteArray &tiff, bool ilocFirst = false,
     QByteArray ftyp = box("ftyp", QByteArray("heic\0\0\0\0mif1heic", 16));
     auto build = [&](quint32 exifOffset) {
         QByteArray iinf;
-        be32(iinf, 0);       // version, flags
-        be16(iinf, 2);       // entry count
+        be32(iinf, 0);
+        be16(iinf, 2);
         QByteArray infe1;
         be32(infe1, 0x02000000);
         be16(infe1, 1); be16(infe1, 0); infe1.append("hvc1"); infe1.append('\0');
@@ -198,14 +181,13 @@ QByteArray heicWith(const QByteArray &tiff, bool ilocFirst = false,
         iinf.append(box("infe", infe1));
         iinf.append(box("infe", infe2));
         QByteArray iloc;
-        be32(iloc, 0);       // version 0
-        iloc.append(char(0x44));  // offset_size 4, length_size 4
-        iloc.append(char(wrapBase ? 0x80 : 0x00));  // base_offset_size
-        be16(iloc, 2);       // item count
+        be32(iloc, 0);
+        iloc.append(char(0x44));
+        iloc.append(char(wrapBase ? 0x80 : 0x00));
+        be16(iloc, 2);
         auto base = [&](quint64 v) {
             if (wrapBase) { be32(iloc, quint32(v >> 32)); be32(iloc, quint32(v)); }
         };
-        // item 1: the image, a stand-in extent
         be16(iloc, 1); be16(iloc, 0); base(0); be16(iloc, 1);
         be32(iloc, exifOffset - 4); be32(iloc, 4);
         // item 2: Exif, 4 byte header offset then the TIFF. In the wrapping
@@ -226,12 +208,11 @@ QByteArray heicWith(const QByteArray &tiff, bool ilocFirst = false,
         return box("meta", metaBody);
     };
     const int metaSize = build(0).size();
-    // mdat: 4 bytes of "image", then the Exif item.
     const quint32 mdatBody = quint32(ftyp.size() + metaSize + 8);
     const quint32 exifOffset = mdatBody + 4;
     QByteArray mdat;
     mdat.append("IMG!");
-    be32(mdat, 0);           // exif_tiff_header_offset
+    be32(mdat, 0);
     mdat.append(tiff);
     return ftyp + build(exifOffset) + box("mdat", mdat);
 }
@@ -260,7 +241,7 @@ QByteArray realPng()
     return bytes;
 }
 
-}  // namespace
+}
 
 class ImageMetadataTest : public QObject
 {
@@ -272,14 +253,11 @@ private Q_SLOTS:
         QCOMPARE(modeFromString(QStringLiteral("location")), Mode::RemoveLocation);
         QCOMPARE(modeFromString(QStringLiteral("all")), Mode::RemoveAll);
         QCOMPARE(modeFromString(QStringLiteral(" KEEP ")), Mode::Keep);
-        // A value written by a newer build, or garbage: the privacy default.
         QCOMPARE(modeFromString(QStringLiteral("scrub-harder")),
                  Mode::RemoveLocation);
         QCOMPARE(modeFromString(QString()), Mode::RemoveLocation);
         QCOMPARE(modeToString(Mode::Keep), QStringLiteral("keep"));
     }
-
-    // -- JPEG -----------------------------------------------------------------
 
     void jpegLocationIsRemovedAndTheRestOfTheExifSurvives_data()
     {
@@ -299,10 +277,8 @@ private Q_SLOTS:
         QCOMPARE(r.status, Status::Stripped);
         QVERIFY(!r.bytes.contains(kLatMarker));
         QVERIFY(!containsLocation(r.bytes));
-        // Not location: the camera make and the orientation stay.
         QVERIFY(r.bytes.contains(kMakeText));
         QCOMPARE(exifOrientation(r.bytes), 6);
-        // Same length (in-place edit) and the scan is byte for byte the same.
         QCOMPARE(r.bytes.size(), in.size());
         QVERIFY(r.bytes.endsWith(kScan));
     }
@@ -341,7 +317,6 @@ private Q_SLOTS:
         QCOMPARE(r.status, Status::Stripped);
         QCOMPARE(exifOrientation(r.bytes), 0);
         QVERIFY(!r.bytes.contains("Exif"));
-        // Exactly the file the camera would have written without metadata.
         QCOMPARE(r.bytes, jpegWith({}));
     }
 
@@ -384,12 +359,10 @@ private Q_SLOTS:
     void aTruncatedJpegFailsClosed()
     {
         QByteArray in = jpegWith({exifSegment(makeTiff(true, 1, true))});
-        in.chop(8);  // loses the EOI
+        in.chop(8);
         QCOMPARE(strip(in, Mode::RemoveLocation).status, Status::Failed);
-        // A bad segment length too.
         QByteArray bad("\xFF\xD8\xFF\xE1\x7F\xFF""short", 11);
         QCOMPARE(strip(bad, Mode::RemoveAll).status, Status::Failed);
-        // "Keep" never inspects, so it never fails.
         QCOMPARE(strip(in, Mode::Keep).status, Status::Unchanged);
     }
 
@@ -403,7 +376,6 @@ private Q_SLOTS:
     {
         const QByteArray original = realJpeg();
         QVERIFY(!original.isEmpty());
-        // Insert a GPS-bearing Exif right after SOI, as a camera does.
         QByteArray tagged = original;
         tagged.insert(2, exifSegment(makeTiff(true, 1, true)));
         QVERIFY(tagged.contains(kLatMarker));
@@ -417,11 +389,8 @@ private Q_SLOTS:
             QVERIFY(b.loadFromData(r.bytes));
             QCOMPARE(a, b);
         }
-        // Everything removed from an upright photo is the original file.
         QCOMPARE(strip(tagged, Mode::RemoveAll).bytes, original);
     }
-
-    // -- PNG ------------------------------------------------------------------
 
     void pngLocationIsRemovedAndTheChunkIsStillValid()
     {
@@ -432,10 +401,9 @@ private Q_SLOTS:
         const Result r = strip(in, Mode::RemoveLocation);
         QCOMPARE(r.status, Status::Stripped);
         QVERIFY(!r.bytes.contains(kLatMarker));
-        QVERIFY(r.bytes.contains("hello"));       // text kept in this mode
+        QVERIFY(r.bytes.contains("hello"));
         QVERIFY(r.bytes.contains("pHYs"));
         QCOMPARE(exifOrientation(r.bytes), 3);
-        // The rewritten chunk's CRC is valid: Qt's reader accepts the file.
         QCOMPARE(r.bytes.size(), in.size());
     }
 
@@ -470,7 +438,6 @@ private Q_SLOTS:
     {
         const QByteArray original = realPng();
         QCOMPARE(strip(original, Mode::RemoveAll).status, Status::Unchanged);
-        // Insert an eXIf (valid CRC) after IHDR, strip all, get the original.
         QByteArray tagged = original;
         tagged.insert(8 + 25, pngChunk("eXIf", makeTiff(true, 1, true)));
         const Result r = strip(tagged, Mode::RemoveAll);
@@ -489,8 +456,6 @@ private Q_SLOTS:
         QCOMPARE(strip(in, Mode::RemoveLocation).status, Status::Failed);
     }
 
-    // -- WebP -----------------------------------------------------------------
-
     void webpLocationIsRemoved()
     {
         const QByteArray in = webpWith(makeTiff(true, 6, true),
@@ -501,13 +466,12 @@ private Q_SLOTS:
         QVERIFY(!r.bytes.contains(kLatMarker));
         QVERIFY(!r.bytes.contains("GPSLatitude"));
         QCOMPARE(exifOrientation(r.bytes), 6);
-        // RIFF size matches the file and the XMP flag was cleared.
         QCOMPARE(quint32(uchar(r.bytes[4])) | (quint32(uchar(r.bytes[5])) << 8)
                      | (quint32(uchar(r.bytes[6])) << 16)
                      | (quint32(uchar(r.bytes[7])) << 24),
                  quint32(r.bytes.size() - 8));
-        QVERIFY(uchar(r.bytes[20]) & 0x08);   // EXIF flag still set
-        QVERIFY(!(uchar(r.bytes[20]) & 0x04));  // XMP flag cleared
+        QVERIFY(uchar(r.bytes[20]) & 0x08);
+        QVERIFY(!(uchar(r.bytes[20]) & 0x04));
     }
 
     void webpRemoveAllKeepsOrientationAndFixesTheFlags()
@@ -524,7 +488,7 @@ private Q_SLOTS:
         const Result u = strip(upright, Mode::RemoveAll);
         QCOMPARE(u.status, Status::Stripped);
         QCOMPARE(exifOrientation(u.bytes), 0);
-        QVERIFY(!(uchar(u.bytes[20]) & 0x08));  // flag cleared with the chunk
+        QVERIFY(!(uchar(u.bytes[20]) & 0x08));
         QVERIFY(u.bytes.contains("VP8L"));
     }
 
@@ -534,8 +498,6 @@ private Q_SLOTS:
         in[4] = char(0xFF); in[5] = char(0xFF);
         QCOMPARE(strip(in, Mode::RemoveLocation).status, Status::Failed);
     }
-
-    // -- HEIC -----------------------------------------------------------------
 
     void heicLocationIsZeroedInPlace()
     {
@@ -547,7 +509,6 @@ private Q_SLOTS:
         QVERIFY(!r.bytes.contains(kLatMarker));
         QVERIFY(r.bytes.contains(kMakeText));
         QCOMPARE(exifOrientation(r.bytes), 6);
-        // Same length: no offset anywhere in the file moved.
         QCOMPARE(r.bytes.size(), in.size());
     }
 
@@ -571,16 +532,12 @@ private Q_SLOTS:
     void aHeicWhoseExifPointsOutsideTheFileFailsClosed()
     {
         QByteArray in = heicWith(makeTiff(true, 1, true));
-        in.chop(30);  // the Exif extent now runs off the end
+        in.chop(30);
         QCOMPARE(strip(in, Mode::RemoveLocation).status, Status::Failed);
     }
 
-
-    // -- Review fixes --------------------------------------------------------
-
     void pngRawProfileAndXmpTextChunksAreDroppedInLocationMode()
     {
-        // ImageMagick / ExifTool keep a hex Exif (GPS included) in a tEXt.
         const QByteArray in = pngWith(
             {pngChunk("tEXt", raw("Raw profile type exif\0\nexif\n  1234abcd")),
              pngChunk("tEXt", raw("Raw profile type APP1\0hex")),
@@ -594,7 +551,7 @@ private Q_SLOTS:
         QVERIFY(!r.bytes.contains("Raw profile type"));
         QVERIFY(!r.bytes.contains("GPSLatitude"));
         QVERIFY(!r.bytes.contains("zTXt"));
-        QVERIFY(r.bytes.contains("dc:title=Cat"));  // not location: kept
+        QVERIFY(r.bytes.contains("dc:title=Cat"));
         QVERIFY(r.bytes.contains("hello"));
     }
 
@@ -613,7 +570,7 @@ private Q_SLOTS:
 
     void formatsThatCarryExifButAreNotEditedFailClosed()
     {
-        const QByteArray tiff = makeTiff(true, 1, true);   // a bare TIFF file
+        const QByteArray tiff = makeTiff(true, 1, true);
         QCOMPARE(strip(tiff, Mode::RemoveLocation).status, Status::Failed);
         QCOMPARE(strip(tiff, Mode::RemoveAll).status, Status::Failed);
         QCOMPARE(strip(tiff, Mode::Keep).status, Status::Unchanged);
@@ -625,7 +582,6 @@ private Q_SLOTS:
 
     void heicWithIlocBeforeIinfIsStillRead()
     {
-        // libheif writes iloc first.
         const QByteArray in = heicWith(makeTiff(true, 6, false), true);
         QVERIFY(containsLocation(in));
         const Result r = strip(in, Mode::RemoveLocation);
@@ -638,12 +594,9 @@ private Q_SLOTS:
     {
         const QByteArray in = heicWith(makeTiff(true, 1, true), false, true);
         QCOMPARE(strip(in, Mode::RemoveLocation).status, Status::Failed);
-        // The same layout without the wrap reads fine.
         const QByteArray ok = heicWith(makeTiff(true, 1, true), false, false);
         QCOMPARE(strip(ok, Mode::RemoveLocation).status, Status::Stripped);
     }
-
-    // -- Not ours -------------------------------------------------------------
 
     void unsupportedFormatsPassThrough()
     {

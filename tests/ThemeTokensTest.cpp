@@ -1,6 +1,3 @@
-// Theme tokens and contrast, parsing qml/AppTheme.qml as text: required
-// semantic tokens exist, critical colour pairs meet WCAG 2.1 contrast on every
-// theme, and view QML carries no stray hex colours outside AppTheme.
 
 #include <QFile>
 #include <QDirIterator>
@@ -32,7 +29,7 @@ double channelLinear(double c)
 
 double luminance(const QString &hex)
 {
-    const QString h = hex.mid(1); // strip '#'
+    const QString h = hex.mid(1);
     const double r = h.mid(0, 2).toInt(nullptr, 16) / 255.0;
     const double g = h.mid(2, 2).toInt(nullptr, 16) / 255.0;
     const double b = h.mid(4, 2).toInt(nullptr, 16) / 255.0;
@@ -49,16 +46,12 @@ double contrast(const QString &fg, const QString &bg)
     return (hi + 0.05) / (lo + 0.05);
 }
 
-/// CIE L* of a hex colour: the right separation measure for two fills (see
-/// theTextSelectionIsVisibleOnEveryTheme).
 double lstarOf(const QString &hex)
 {
     const double y = luminance(hex);
     return y <= 0.008856 ? y * 903.3 : 116.0 * std::cbrt(y) - 16.0;
 }
 
-/// CIE76 colour difference in Lab: whether two inks can be told apart,
-/// which contrast does not measure. Below ~10 reads as the same colour.
 double deltaE(const QString &a, const QString &b)
 {
     auto toLab = [](const QString &hex) {
@@ -95,8 +88,6 @@ QString stripComments(const QString &qml)
     return out;
 }
 
-// Source-over composite of `top` at `alpha` onto opaque `bottom` (#RRGGBB):
-// what a translucent wash actually renders as.
 QString composite(const QString &top, double alpha, const QString &bottom)
 {
     auto ch = [](const QString &hex, int i) {
@@ -111,14 +102,14 @@ QString composite(const QString &top, double alpha, const QString &bottom)
     return out;
 }
 
-} // namespace
+}
 
 class ThemeTokensTest : public QObject
 {
     Q_OBJECT
 
     QString m_theme;
-    QHash<QString, QString> m_colors; // property name -> #RRGGBB
+    QHash<QString, QString> m_colors;
 
 private Q_SLOTS:
     void initTestCase()
@@ -126,7 +117,6 @@ private Q_SLOTS:
         m_theme = readAll(QStringLiteral(APPTHEME_QML_PATH));
         QVERIFY2(!m_theme.isEmpty(), "AppTheme.qml not readable");
 
-        // Collect every direct colour literal: `property color name: "#..."`.
         const QRegularExpression re(QStringLiteral(
             "property\\s+color\\s+(\\w+)\\s*:\\s*\"(#[0-9A-Fa-f]{6,8})\""));
         auto it = re.globalMatch(m_theme);
@@ -134,10 +124,6 @@ private Q_SLOTS:
             const auto match = it.next();
             m_colors.insert(match.captured(1), match.captured(2));
         }
-        // Resolve one level of plain-identifier alias (`dangerFill:
-        // _accentDanger`) so pairs can name a semantic role. Ternaries are not
-        // resolved, so routed storm* tokens are asserted via the per-theme
-        // literals they resolve to.
         const QRegularExpression aliasRe(QStringLiteral(
             "property\\s+color\\s+(\\w+)\\s*:\\s*(\\w+)\\s*(?://.*)?$"),
             QRegularExpression::MultilineOption);
@@ -156,28 +142,22 @@ private Q_SLOTS:
     void requiredSemanticTokensExist()
     {
         const QStringList required = {
-            // Surfaces
             QStringLiteral("windowBackground"), QStringLiteral("navBackground"),
             QStringLiteral("panelBackground"), QStringLiteral("surface"),
             QStringLiteral("surfaceElevated"), QStringLiteral("hover"),
             QStringLiteral("selected"), QStringLiteral("selectedHover"),
             QStringLiteral("inputBackground"),
-            // Borders
             QStringLiteral("borderSubtle"), QStringLiteral("borderStrong"),
-            // Text
             QStringLiteral("textPrimary"), QStringLiteral("textSecondary"),
             QStringLiteral("textMuted"), QStringLiteral("textDisabled"),
-            // Accent + status
             QStringLiteral("accent"), QStringLiteral("accentHover"),
             QStringLiteral("accentPressed"), QStringLiteral("accentText"),
             QStringLiteral("success"), QStringLiteral("warning"),
             QStringLiteral("danger"), QStringLiteral("info"),
-            // Status fills are a separate role from status ink.
             QStringLiteral("dangerFill"), QStringLiteral("dangerFillHover"),
             QStringLiteral("dangerFillPressed"), QStringLiteral("dangerText"),
             QStringLiteral("successFill"), QStringLiteral("warningFill"),
             QStringLiteral("infoFill"),
-            // Messaging
             QStringLiteral("incomingBubble"), QStringLiteral("outgoingBubble"),
             QStringLiteral("codeBlock"), QStringLiteral("reactionBackground"),
             QStringLiteral("reactionBorder"), QStringLiteral("reactionInk"),
@@ -185,11 +165,8 @@ private Q_SLOTS:
             QStringLiteral("reactionSelectedBorder"),
             QStringLiteral("unreadBadge"), QStringLiteral("mentionBadge"),
             QStringLiteral("mentionChipFill"), QStringLiteral("mentionChipInk"),
-            // Presence
             QStringLiteral("presenceOnline"), QStringLiteral("presenceAway"),
             QStringLiteral("presenceOffline"),
-            // Controls: every button state is a token, so no call site
-            // computes its own with Qt.darker().
             QStringLiteral("buttonPrimaryFill"),
             QStringLiteral("buttonPrimaryHover"),
             QStringLiteral("buttonPrimaryPressed"),
@@ -206,8 +183,6 @@ private Q_SLOTS:
             QStringLiteral("buttonDangerPressed"),
             QStringLiteral("buttonDisabledFill"),
             QStringLiteral("buttonDisabledInk"),
-            // Chips: separate families so active, moderator and verified
-            // pills differ.
             QStringLiteral("chipNeutralInk"), QStringLiteral("chipNeutralFill"),
             QStringLiteral("chipAccentInk"), QStringLiteral("chipAccentFill"),
             QStringLiteral("chipSuccessInk"), QStringLiteral("chipSuccessFill"),
@@ -215,23 +190,18 @@ private Q_SLOTS:
             QStringLiteral("chipDangerInk"), QStringLiteral("chipDangerFill"),
             QStringLiteral("chipInfoInk"), QStringLiteral("chipInfoFill"),
             QStringLiteral("chipBoltFill"), QStringLiteral("chipBoltInk"),
-            // Scrollbars
             QStringLiteral("scrollbarTrack"), QStringLiteral("scrollbarHandle"),
             QStringLiteral("scrollbarHandleHover"),
             QStringLiteral("scrollbarHandlePressed"),
-            // Elevation
             QStringLiteral("shadow"), QStringLiteral("shadowSoft"),
             QStringLiteral("shadowStrong"),
-            // Committed-dark media chrome (theme-invariant by design)
             QStringLiteral("scrimBackdrop"), QStringLiteral("scrimSurface"),
             QStringLiteral("scrimSurfaceRaised"),
             QStringLiteral("scrimSurfaceHover"), QStringLiteral("scrimBorder"),
             QStringLiteral("scrimInk"), QStringLiteral("scrimInkStrong"),
             QStringLiteral("scrimInkMuted"),
             QStringLiteral("scrimSuccessInk"), QStringLiteral("scrimDangerInk"),
-            // Focus / overlay
             QStringLiteral("focusRing"), QStringLiteral("overlayScrim"),
-            // Storm namespace (theme-routed; bolt ink pairs with bolt fills)
             QStringLiteral("bolt"), QStringLiteral("boltInk"),
             QStringLiteral("stormPanel"), QStringLiteral("stormText"),
         };
@@ -241,8 +211,6 @@ private Q_SLOTS:
             QVERIFY2(m_theme.contains(decl),
                      qPrintable(QStringLiteral("missing token: %1").arg(token)));
         }
-        // Semantic typography roles: the first six are the scale; the rest
-        // are older names kept as aliases because many files use them.
         const QStringList type = {
             QStringLiteral("textDisplay"), QStringLiteral("textTitle"),
             QStringLiteral("textSubtitle"), QStringLiteral("textBody"),
@@ -261,7 +229,6 @@ private Q_SLOTS:
             QVERIFY2(m_theme.contains(decl),
                      qPrintable(QStringLiteral("missing type token: %1").arg(token)));
         }
-        // Leading tokens (the UI font choice otherwise changes chat leading).
         for (const QString &token : { QStringLiteral("lineHeightBody"),
                                       QStringLiteral("lineHeightTight"),
                                       QStringLiteral("lineHeightDisplay") }) {
@@ -271,7 +238,6 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("missing leading token: %1")
                                     .arg(token)));
         }
-        // Font families are tokens too.
         for (const QString &token : { QStringLiteral("uiFont"),
                                       QStringLiteral("monoFont"),
                                       QStringLiteral("iconFont"),
@@ -286,11 +252,8 @@ private Q_SLOTS:
         }
     }
 
-    // The type scale is small, ordered, and made of the values it claims.
     void theTypeScaleIsSmallAndOrdered()
     {
-        // Resolves one alias level: the older names alias onto the scale
-        // (`fontPageTitle: textDisplay`).
         std::function<int(const char *, int)> intToken =
             [this, &intToken](const char *name, int depth) -> int {
             if (depth > 2)
@@ -320,15 +283,12 @@ private Q_SLOTS:
         QVERIFY2(subtitle >= body, "textSubtitle must not be smaller than body");
         QVERIFY2(body > meta, "textBody must be larger than textMeta");
         QVERIFY2(meta > micro, "textMeta must be larger than textMicro");
-        // Five distinct sizes: subtitle and body share a size and differ by
-        // weight.
         QSet<int> distinct{ display, title, subtitle, body, meta, micro };
         QVERIFY2(distinct.size() <= 5,
                  qPrintable(QStringLiteral("the scale has %1 distinct sizes; "
                                            "five is the budget")
                                 .arg(distinct.size())));
         QCOMPARE(subtitle, body);
-        // Weights: exactly the five named steps, ascending.
         const int w[] = { intToken("weightBody", 0), intToken("weightMedium", 0),
                           intToken("weightStrong", 0), intToken("weightBold", 0),
                           intToken("weightDisplay", 0) };
@@ -336,7 +296,6 @@ private Q_SLOTS:
             QVERIFY2(w[i] > w[i - 1], "weights must ascend");
         QCOMPARE(w[0], 400);
         QCOMPARE(w[4], 800);
-        // fontPageTitle maps to the display role.
         QCOMPARE(intToken("fontPageTitle", 0), display);
     }
 
@@ -352,7 +311,6 @@ private Q_SLOTS:
             double minimum;
         };
         const Pair pairs[] = {
-            // Normal text on the main surfaces: WCAG AA 4.5:1.
             { "_textPrimaryLight", "_bgLight", 4.5 },
             { "_textSecondaryLight", "_bgLight", 4.5 },
             { "_textMutedLight", "_bgLight", 4.5 },
@@ -361,32 +319,22 @@ private Q_SLOTS:
             { "_textSecondaryDark", "_bgDark", 4.5 },
             { "_textMutedDark", "_bgDark", 4.5 },
             { "_textMutedDark", "_cardDark", 4.5 },
-            // Selected segmented-control chip, every theme. Its fill is
-            // accentSoft (a tint of the surface), so its ink must be a
-            // surface ink, not accentText. Themes without a literal
-            // accentSoft fall back to `selected`, covered by the rows below.
-            { "_selectedTextLight", "_selectedLight", 4.5 },   // chip == selected
-            { "_dkSelectedText", "_dkSelected", 4.5 },         // chip == selected
+            { "_selectedTextLight", "_selectedLight", 4.5 },
+            { "_dkSelectedText", "_dkSelected", 4.5 },
             { "_mosSelectedText", "_mosAccentSoft", 4.5 },
             { "_indSelectedText", "_indAccentSoft", 4.5 },
             { "_teaSelectedText", "_teaAccentSoft", 4.5 },
-            // Selected room rows stay readable, including on hover.
             { "_selectedTextLight", "_selectedLight", 4.5 },
             { "_selectedTextLight", "_selectedHoverLight", 4.5 },
             { "_selectedTextDark", "_selectedDark", 4.5 },
             { "_selectedTextDark", "_selectedHoverDark", 4.5 },
-            // Outgoing bubble body + muted meta ink.
             { "_ownBubbleTextDefault", "_outgoingBubbleBlue", 4.5 },
             { "onAccentMuted", "_outgoingBubbleBlue", 4.5 },
-            // Incoming bubble body, both themes.
             { "_textPrimaryLight", "_hoverLight", 4.5 },
             { "_textPrimaryDark", "_cardElevatedDark", 4.5 },
-            // Danger buttons: white label on danger red, in all three states.
             { "dangerText", "_accentDanger", 4.5 },
             { "dangerText", "_dangerFillHover", 4.5 },
             { "dangerText", "_dangerFillPressed", 4.5 },
-            // Reaction pills: each theme's own surface with its secondary
-            // (count) and primary (emoji fallback) ink.
             { "_textSecondaryLight", "_lightReaction", 4.5 },
             { "_textPrimaryLight", "_lightReaction", 4.5 },
             { "_dkTextSecondary", "_dkReaction", 4.5 },
@@ -407,23 +355,14 @@ private Q_SLOTS:
             { "_indTextPrimary", "_indReaction", 4.5 },
             { "_teaTextSecondary", "_teaReaction", 4.5 },
             { "_teaTextPrimary", "_teaReaction", 4.5 },
-            // Committed-dark media chrome. scrimSurface is 8-digit ARGB, so
-            // its opaque equivalent _scrimBase stands in.
             { "scrimInk", "_scrimBase", 4.5 },
             { "scrimInkMuted", "_scrimBase", 4.5 },
-            // The media viewers' save notice (the theme's success/danger fell
-            // to ~2.6:1 here in light themes).
             { "scrimSuccessInk", "_scrimBase", 4.5 },
             { "scrimDangerInk", "_scrimBase", 4.5 },
-            // Controls/badges (large or bold UI text): ≥ 3:1.
             { "_onAccent", "_accentBlue", 3.0 },
-            // Ink on accent for every theme: once storm* routes,
-            // boltInk-on-bolt becomes each theme's accentText-on-accent.
-            // Bold UI-chip text, so 3:1.
             { "_onAccent", "_graAccent", 3.0 },
             { "_onAccent", "_norAccent", 3.0 },
             { "_onAccent", "_purAccent", 3.0 },
-            // Lightning Dark.
             { "_dkTextPrimary", "_dkBg", 4.5 },
             { "_dkTextSecondary", "_dkBg", 4.5 },
             { "_dkTextMuted", "_dkBg", 4.5 },
@@ -431,7 +370,6 @@ private Q_SLOTS:
             { "_dkSelectedText", "_dkSelected", 4.5 },
             { "_dkSelectedText", "_dkSelectedHover", 4.5 },
             { "_dkTextPrimary", "_dkCardElevated", 4.5 },
-            // Warm.
             { "_warTextPrimary", "_warBg", 4.5 },
             { "_warTextSecondary", "_warBg", 4.5 },
             { "_warTextMuted", "_warBg", 4.5 },
@@ -442,7 +380,6 @@ private Q_SLOTS:
             { "_ownBubbleTextDefault", "_warOwnBubble", 4.5 },
             { "onAccentMuted", "_warOwnBubble", 4.5 },
             { "_onAccent", "_warAccent", 3.0 },
-            // Graphite / Nordic / Purple Dusk core readability.
             { "_graTextPrimary", "_graBg", 4.5 },
             { "_graTextMuted", "_graBg", 4.5 },
             { "_graTextMuted", "_graCard", 4.5 },
@@ -455,11 +392,9 @@ private Q_SLOTS:
             { "_purTextMuted", "_purBg", 4.5 },
             { "_purTextMuted", "_purCard", 4.5 },
             { "_purSelectedText", "_purSelected", 4.5 },
-            // Own-bubble body text stays readable in every preset.
             { "_ownBubbleTextDefault", "_graOwnBubble", 4.5 },
             { "_ownBubbleTextDefault", "_norOwnBubble", 4.5 },
             { "_ownBubbleTextDefault", "_purOwnBubble", 4.5 },
-            // Moss Light (design handoff).
             { "_mosTextPrimary", "_mosBg", 4.5 },
             { "_mosTextSecondary", "_mosBg", 4.5 },
             { "_mosTextMuted", "_mosBg", 4.5 },
@@ -471,7 +406,6 @@ private Q_SLOTS:
             { "_ownBubbleTextDefault", "_mosOwnBubble", 4.5 },
             { "onAccentMuted", "_mosOwnBubble", 4.5 },
             { "_onAccent", "_mosAccent", 3.0 },
-            // Indigo Night (design handoff).
             { "_indTextPrimary", "_indBg", 4.5 },
             { "_indTextSecondary", "_indBg", 4.5 },
             { "_indTextMuted", "_indBg", 4.5 },
@@ -483,7 +417,6 @@ private Q_SLOTS:
             { "_ownBubbleTextDefault", "_indOwnBubble", 4.5 },
             { "onAccentMuted", "_indOwnBubble", 4.5 },
             { "_onAccent", "_indAccent", 3.0 },
-            // Deep Teal (design handoff; accent carries its own dark ink).
             { "_teaTextPrimary", "_teaBg", 4.5 },
             { "_teaTextSecondary", "_teaBg", 4.5 },
             { "_teaTextMuted", "_teaBg", 4.5 },
@@ -495,8 +428,6 @@ private Q_SLOTS:
             { "_ownBubbleTextDefault", "_teaOwnBubble", 4.5 },
             { "onAccentMuted", "_teaOwnBubble", 4.5 },
             { "_teaAccentText", "_teaAccent", 4.5 },
-            // Primary ink on hover fills: a hovered menu row's ink is
-            // stormText, which routes to textPrimary on non-Storm themes.
             { "_textPrimaryDark", "_hoverDark", 4.5 },
             { "_dkTextPrimary", "_dkHover", 4.5 },
             { "_graTextPrimary", "_graHover", 4.5 },
@@ -504,8 +435,6 @@ private Q_SLOTS:
             { "_purTextPrimary", "_purHover", 4.5 },
             { "_indTextPrimary", "_indHover", 4.5 },
             { "_teaTextPrimary", "_teaHover", 4.5 },
-            // Muted ink on input fills (search fields, chips, omnibox) on
-            // every theme.
             { "_textMutedLight", "_inputBgLight", 4.5 },
             { "_textMutedDark", "_inputBgDark", 4.5 },
             { "_dkTextMuted", "_dkInputBg", 4.5 },
@@ -516,14 +445,6 @@ private Q_SLOTS:
             { "_mosTextMuted", "_mosInputBg", 4.5 },
             { "_indTextMuted", "_indInputBg", 4.5 },
             { "_teaTextMuted", "_teaInputBg", 4.5 },
-            // The Sessions trust card is theme-routed, so its roles hold on
-            // every theme through the per-theme pairs above (textPrimary and
-            // textMuted on background and inputBg, accentText on accent).
-            // Bolt on background is not asserted: nothing painted that way is
-            // text or a control boundary.
-            //
-            // Caption ink on the trust-chain panel (stormTextSecondary on
-            // inputBackground).
             { "_textSecondaryLight", "_inputBgLight", 4.5 },
             { "_textSecondaryDark", "_inputBgDark", 4.5 },
             { "_dkTextSecondary", "_dkInputBg", 4.5 },
@@ -535,45 +456,33 @@ private Q_SLOTS:
             { "_indTextSecondary", "_indInputBg", 4.5 },
             { "_teaTextSecondary", "_teaInputBg", 4.5 },
             { "_stoTextSecondary", "_stoInset", 4.5 },
-            // Verify-button ink on the card ground (stormTextSecondary on
-            // background) for the themes not already covered.
             { "_graTextSecondary", "_graBg", 4.5 },
             { "_norTextSecondary", "_norBg", 4.5 },
             { "_purTextSecondary", "_purBg", 4.5 },
             { "_stoTextSecondary", "_stoCanvas", 4.5 },
-            // Storm (theme 11). storm* tokens are routed, so these read the
-            // raw _sto* literals. _stoTextFaint (decorative mono) and
-            // _stoBorderStrong (the trust chain's pending state, also carried
-            // by shape and caption ink) are exempt.
-            //   Menu/panel inks on their real fills:
             { "_stoText", "_stoPanel", 4.5 },
             { "_stoTextSecondary", "_stoPanel", 4.5 },
             { "_stoTextMuted", "_stoPanel", 4.5 },
             { "_stoText", "_stoSelection", 4.5 },
             { "_stoTextMuted", "_stoInset", 4.5 },
             { "_stoBolt", "_stoPanel", 4.5 },
-            // boltInk has its own literal (not the room-list surface).
-            { "_stoBoltInk", "_stoBolt", 4.5 },  // boltInk on a bolt fill
+            { "_stoBoltInk", "_stoBolt", 4.5 },
             { "_stoDanger", "_stoPanel", 4.5 },
             { "_stoSuccess", "_stoPanel", 4.5 },
             { "_stoLink", "_stoPanel", 4.5 },
-            // The new elevation rung carries chips and raised cards.
             { "_stoText", "_stoCardElevated", 4.5 },
             { "_stoTextSecondary", "_stoCardElevated", 4.5 },
             { "_stoBolt", "_stoCardElevated", 4.5 },
             { "_stoSuccess", "_stoCardElevated", 4.5 },
-            // Reaction pills are their own surface on every theme now.
             { "_stoTextSecondary", "_stoReaction", 4.5 },
             { "_stoText", "_stoReaction", 4.5 },
-            //   Full-app shell readability:
             { "_stoText", "_stoDeep", 4.5 },
             { "_stoTextSecondary", "_stoDeep", 4.5 },
             { "_stoTextMuted", "_stoDeep", 4.5 },
             { "_stoText", "_stoCanvas", 4.5 },
             { "_stoTextMuted", "_stoCanvas", 4.5 },
-            { "_stoText", "_stoSelectedHover", 4.5 }, // selection ink on hover
-            // The unread-pill ink is _stoBoltInk.
-            { "_stoBoltInk", "_stoLink", 4.5 },    // badge ink on unread pill
+            { "_stoText", "_stoSelectedHover", 4.5 },
+            { "_stoBoltInk", "_stoLink", 4.5 },
             { "_ownBubbleTextDefault", "_stoOwnBubble", 4.5 },
             { "onAccentMuted", "_stoOwnBubble", 4.5 },
         };
@@ -594,10 +503,6 @@ private Q_SLOTS:
         }
     }
 
-    // Sender-name inks are derived from the theme (lightning::theme::nameInk),
-    // so this calls the derivation. Per theme, against its own grounds:
-    // legible, separable from each other, and centred on the theme's anchor
-    // like the avatar discs.
     void senderNameInksAreDerivedAndMeetContrastOnMessageSurfaces()
     {
         struct ThemeGrounds { int id; const char *name; QStringList surfaces; };
@@ -612,8 +517,6 @@ private Q_SLOTS:
                                       "_warOtherBubble" } },
             { 8, "Moss Light",      { "_mosBg", "_mosCard", "_mosCardElevated",
                                       "_mosOtherBubble" } },
-            // Every preset belongs here: a theme the gate does not name is not
-            // defended.
             { 4,  "Midnight",     { "_bgDark", "_cardDark", "_cardElevatedDark" } },
             { 9,  "Indigo Night", { "_indBg", "_indCard", "_indCardElevated",
                                     "_indOtherBubble" } },
@@ -623,11 +526,6 @@ private Q_SLOTS:
                                     "_stoCardElevated" } },
         };
 
-        // dE 9.0 floor between any two inks of a theme. A family bound to one
-        // anchor cannot spread as far as free-standing tables could; the
-        // worst themes (Nordic 9.8, Purple Dusk 10.6) are still plainly
-        // distinct (a just-noticeable difference is ~2.3), and under ~5 would
-        // be a collision.
         constexpr double kMinNameSeparation = 9.0;
         double worstSeen = 21.0;
         for (const ThemeGrounds &theme : themes) {
@@ -646,7 +544,6 @@ private Q_SLOTS:
                 const QColor ink =
                     lightning::theme::nameInk(slot, anchor, grounds);
                 inks.append(ink);
-                // 1. Legible on every ground this theme paints a name on.
                 for (int g = 0; g < grounds.size(); ++g) {
                     const double ratio = contrast(ink.name(),
                                                   grounds.at(g).name());
@@ -660,10 +557,6 @@ private Q_SLOTS:
                                                 grounds.at(g).name())
                                  .arg(ratio, 0, 'f', 2)));
                 }
-                // 3. The family is the theme's: slot 4 sits exactly on the
-                // anchor and the others spread symmetrically around it. Inks
-                // span 300 degrees while discs keep 190 (nine inks do not
-                // separate in 190), so they are not index-for-index equal.
                 if (slot == 4 && ink.saturation() > 20 && anchor.saturation() > 20) {
                     double gap = std::abs(anchor.hueF() - ink.hueF());
                     if (gap > 0.5)
@@ -677,7 +570,6 @@ private Q_SLOTS:
                 }
             }
 
-            // 2. Tellable apart within the theme, not just legible.
             double themeWorst = 99.0;
             int wa = 0, wb = 0;
             for (int a = 0; a < inks.size(); ++a) {
@@ -701,15 +593,10 @@ private Q_SLOTS:
               worstSeen);
     }
 
-
 private:
-    // Every surface a per-user or status ink can land on, shared by the ink
-    // families.
     static QStringList lightInkSurfaces()
     {
         return {
-            // Lightning Light, Warm, Moss Light: bg / card / elevated /
-            // other-bubble.
             QStringLiteral("_bgLight"), QStringLiteral("_cardLight"),
             QStringLiteral("_cardElevatedLight"), QStringLiteral("_hoverLight"),
             QStringLiteral("_warBg"), QStringLiteral("_warCard"),
@@ -737,25 +624,22 @@ private:
             QStringLiteral("_teaCardElevated"), QStringLiteral("_teaOtherBubble"),
             QStringLiteral("_stoCanvas"), QStringLiteral("_stoPanel"),
             QStringLiteral("_stoSelection"),
-            // cardElevated is its own surface under Storm.
             QStringLiteral("_stoCardElevated"),
         };
     }
 
 private Q_SLOTS:
-    // Storm's surface ladder is visible: adjacent surfaces clear minimum
-    // contrast steps, and no two roles collapse onto one literal.
     void stormSurfaceLadderIsVisible()
     {
         const auto c = [this](const char *name) { return m_colors.value(QLatin1String(name)); };
         struct Rung { const char *lo; const char *hi; double minimum; };
         const Rung rungs[] = {
-            { "_stoDeep", "_stoCanvas", 1.22 },          // timeline -> room list
-            { "_stoCanvas", "_stoPanel", 1.22 },         // room list -> bubble
-            { "_stoPanel", "_stoCardElevated", 1.22 },   // bubble -> raised chip
-            { "_stoPanel", "_stoSelection", 1.22 },      // bubble -> selected row
+            { "_stoDeep", "_stoCanvas", 1.22 },
+            { "_stoCanvas", "_stoPanel", 1.22 },
+            { "_stoPanel", "_stoCardElevated", 1.22 },
+            { "_stoPanel", "_stoSelection", 1.22 },
             { "_stoSelection", "_stoSelectedHover", 1.16 },
-            { "_stoPanel", "_stoReaction", 1.15 },       // bubble -> reaction pill
+            { "_stoPanel", "_stoReaction", 1.15 },
         };
         for (const Rung &r : rungs) {
             const QString lo = c(r.lo);
@@ -772,10 +656,6 @@ private Q_SLOTS:
                                     .arg(ratio, 0, 'f', 3)
                                     .arg(r.minimum)));
         }
-        // No two roles share a literal. cardElevated and selection share a
-        // lightness on purpose (elevation and state are different meanings),
-        // so they are separated by tint: a colour-difference floor, not a
-        // contrast ratio.
         const QStringList distinct = { QStringLiteral("_stoDeep"),
                                        QStringLiteral("_stoCanvas"),
                                        QStringLiteral("_stoPanel"),
@@ -796,7 +676,6 @@ private Q_SLOTS:
         QVERIFY2(deltaE(c("_stoCardElevated"), c("_stoSelection")) >= 12.0,
                  "elevated and selected sit at one lightness, so the tint "
                  "between them is the only thing telling them apart");
-        // Structural: the palette object must not re-alias the roles.
         QVERIFY2(m_theme.contains(QStringLiteral("cardElevated: _stoCardElevated")),
                  "_storm must map cardElevated to its own literal");
         QVERIFY2(m_theme.contains(QStringLiteral("reaction: _stoReaction")),
@@ -805,8 +684,6 @@ private Q_SLOTS:
                  "_storm hover must ride its own wash, not the selection");
     }
 
-    // Status inks (danger, success, warning, info) are held to the same
-    // surface matrix as the identity inks, on every theme.
     void statusInksAreReadableOnEveryThemeSurface()
     {
         const auto check = [this](const char *ink, const QStringList &surfaces,
@@ -838,12 +715,8 @@ private Q_SLOTS:
         for (const char *ink : { "_dangerInkDark", "_warnInkDark",
                                  "_okInkDark", "_infoInkDark" })
             check(ink, dark, 4.5);
-        // Presence is a dot, not text: WCAG's graphical-object bar is 3:1.
-        // Raising it to 4.5 would push the away amber towards the bolt.
         check("_awayLight", light, 3.0);
         check("_awayDark", dark, 3.0);
-        // The roles route through _p with a mode fallback, so a palette can
-        // override them.
         for (const char *role : { "success", "warning", "danger", "info" }) {
             const QRegularExpression routed(
                 QStringLiteral("property\\s+color\\s+%1:\\s*_p\\.%1\\s*!==\\s*undefined")
@@ -852,27 +725,17 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("%1 must route through _p")
                                     .arg(QLatin1String(role))));
         }
-        // A destructive fill is a different role from destructive ink.
         QVERIFY2(m_colors.value(QStringLiteral("dangerFill"))
                      != m_colors.value(QStringLiteral("_dangerInkDark")),
                  "dangerFill and the dark danger ink must stay distinct");
-        // One danger and one success ink on the dark themes: Storm's literals
-        // and the shared ones are separate declarations, so their equality is
-        // asserted.
         QCOMPARE(m_colors.value(QStringLiteral("_stoDanger")),
                  m_colors.value(QStringLiteral("_dangerInkDark")));
         QCOMPARE(m_colors.value(QStringLiteral("_stoSuccess")),
                  m_colors.value(QStringLiteral("_okInkDark")));
     }
 
-    // A text selection is visible on every theme: the selection colour must
-    // be at least 8 dL* from the field background. A lightness separation,
-    // not a contrast ratio, since two fills of similar luminance can have a
-    // fine ratio and still read as one block.
     void theTextSelectionIsVisibleOnEveryTheme()
     {
-        // Every palette defining its own field background, plus the two base
-        // ones; derived from token names so new palettes are covered.
         QStringList prefixes;
         for (auto it = m_colors.cbegin(); it != m_colors.cend(); ++it) {
             if (it.key().endsWith(QStringLiteral("InputBg")))
@@ -899,19 +762,11 @@ private Q_SLOTS:
                                     .arg(d, 0, 'f', 1)
                                     .arg(field)));
         }
-        // Assert the count, so a scan that matched nothing cannot pass.
         QVERIFY2(checked >= 8,
                  qPrintable(QStringLiteral("only %1 palettes were actually "
                                            "measured").arg(checked)));
     }
 
-    // An enabled secondary AppButton must read as a control on the cards it
-    // sits on before hover (master prompt Part 6, 2.2, UI-049). Its edge was
-    // `border`, the divider token, which on a cardElevated card measured
-    // 1.03:1 on Nord and 1.05:1 on Teal: the faint Space Home Rename/Save. It
-    // is the control-strength edge now, plus a translucent resting tint. Not a
-    // WCAG 3:1 claim (the label identifies the control); a floor that is
-    // clearly above the divider on every palette.
     void theSecondaryButtonEdgeReadsOnEveryCard()
     {
         const QString button = readAll(QStringLiteral(QML_DIR "/AppButton.qml"));
@@ -951,11 +806,6 @@ private Q_SLOTS:
                                 .arg(checked)));
     }
 
-    // The selected Settings nav row's caret and icon vanished on Nordic: the
-    // accent #5E81AC on the selection fill #587197 (live, 2026-10-26). They
-    // take settingsNavSelectedMark: the accent where it keeps 3:1 on the
-    // fill, the text ink otherwise. Mirrors that rule over every palette's
-    // literals, asserts 3:1 everywhere, and counts the palettes measured.
     void theSelectedSettingsNavMarksKeepContrastOnEveryTheme()
     {
         QVERIFY(m_theme.contains(QStringLiteral(
@@ -993,22 +843,15 @@ private Q_SLOTS:
         }
         QVERIFY2(checked >= 6, qPrintable(QStringLiteral("only %1 palettes measured")
                                               .arg(checked)));
-        // The case that was reported: the accent alone fails on Nordic.
         QVERIFY2(nordFellBack, "Nordic's accent passes on its own; the fixture no longer "
                                "reproduces the report");
     }
 
-    // Message bodies are TextEdits with selectByMouse; without a bound
-    // selectionColor Qt paints its fixed #000080 on every theme (1.04-1.28:1
-    // on the dark ones). Every selectByMouse item in MessageDelegate must
-    // bind the theme's selection tokens; asserts the count of items scanned.
     void messageTextEditsUseTheThemedSelection()
     {
         QFile f(QStringLiteral(QML_DIR "/MessageDelegate.qml"));
         QVERIFY(f.open(QIODevice::ReadOnly));
         const QString src = QString::fromUtf8(f.readAll());
-        // Plain `true`, or the spoiler-aware binding (C17) that is true
-        // whenever the body holds no hidden spoiler.
         const QRegularExpression re(QStringLiteral("selectByMouse:\\s*(true|!/spoiler:toggle[^\\n]*\\n[^\\n]*\\))"));
         int count = 0;
         auto it = re.globalMatch(src);
@@ -1024,11 +867,6 @@ private Q_SLOTS:
         QVERIFY2(count >= 2, qPrintable(QStringLiteral("scanned %1").arg(count)));
     }
 
-    // Selected message text is drawn in the palette's text ink over its
-    // textSelection fill (no palette defines textSelection, so it is
-    // selectedHover). Binding the tokens would only relabel the bug if one
-    // pair were unreadable, so grade the pair on all eleven palettes. The
-    // floor is 4.0:1 (the worst, Nord, measures 4.31); asserts the count.
     void selectedMessageTextIsReadableOnEveryTheme()
     {
         const QList<QPair<QString, QString>> pairs = {
@@ -1060,10 +898,6 @@ private Q_SLOTS:
         QCOMPARE(checked, 11);
     }
 
-    // The voice preview waveform on its accentSoft pill uses the pill's label
-    // inks (text for the played part, textMuted for the rest). Three floors:
-    // each ink against the fill, and the two inks against each other so
-    // progress is visible. Derived from token names; asserts its count.
     void theVoicePreviewWaveformReadsOnEveryTheme()
     {
         QStringList prefixes;
@@ -1073,8 +907,6 @@ private Q_SLOTS:
         }
         int checked = 0;
         for (const QString &prefix : prefixes) {
-            // accentSoft falls back to `selected` where undefined, as in
-            // AppTheme.
             QString fill = m_colors.value(prefix + QStringLiteral("AccentSoft"));
             if (fill.isEmpty())
                 fill = m_colors.value(prefix + QStringLiteral("Selected"));
@@ -1110,10 +942,6 @@ private Q_SLOTS:
                                            "measured").arg(checked)));
     }
 
-    // Every declaration drawing a settings card surface (SettingsCard, the
-    // danger card, UpdateCard, TrustCard) names the same raised plane token.
-    // SettingsShellQmlTest checks the plane is visible; this keeps the four in
-    // step.
     void everySettingsCardSurfaceNamesTheSameRaisedPlane()
     {
         struct Probe {
@@ -1121,7 +949,6 @@ private Q_SLOTS:
             const char *what;
             const char *pattern;
         };
-        // (?<![.\w])color: so `border.color:` is never mistaken for the fill.
         const Probe probes[] = {
             { QML_DIR "/SettingsScreen.qml", "SettingsCard",
               "component\\s+SettingsCard\\s*:\\s*Pane\\s*\\{"
@@ -1158,12 +985,9 @@ private Q_SLOTS:
             QCOMPARE(m.captured(1), QStringLiteral("stormPanel"));
             ++checked;
         }
-        // Assert how many probes actually matched.
         QCOMPARE(checked, 4);
     }
 
-    // Yellow signals (presenceAway, warning) stay clear of the Storm bolt,
-    // the reserved "active / selected / verified" accent.
     void yellowSignalsStayClearOfTheBrandAccent()
     {
         const QString bolt = m_colors.value(QStringLiteral("_stoBolt"));
@@ -1186,16 +1010,10 @@ private Q_SLOTS:
 
     void mentionWashKeepsBodyTextReadable()
     {
-        // Body text stays AA over the mention wash (mentionHighlight over the
-        // timeline background) on every theme, computed at 0.14 alpha, an upper
-        // bound above the live washes (0.05 / 0.03).
         const QRegularExpression routed(QStringLiteral(
             "mentionHighlight:\\s*_p\\.mentionHighlight\\s*!==\\s*undefined"));
         QVERIFY2(m_theme.contains(routed),
                  "mentionHighlight must use the _p override idiom");
-        // Lock the hue as well as readability: Storm's base must be the
-        // mention rose, never the bolt, which would put the brand accent on a
-        // passive row.
         const QRegularExpression stormBase(QStringLiteral(
             "mentionHighlight:\\s*_stoMention\\b"));
         QVERIFY2(m_theme.contains(stormBase),
@@ -1213,7 +1031,6 @@ private Q_SLOTS:
             { "_mosTextPrimary", "_mosAccent", "_mosBg" },
             { "_indTextPrimary", "_indAccent", "_indBg" },
             { "_teaTextPrimary", "_teaAccent", "_teaBg" },
-            // Storm routes the base to the mention rose, not the bolt.
             { "_stoText", "_stoMention", "_stoDeep" },
         };
         for (const Wash &w : washes) {
@@ -1239,14 +1056,8 @@ private Q_SLOTS:
 
     void settingsScreenCarriesNoThemedInk()
     {
-        // SettingsScreen uses only the storm* vocabulary: mixing a general
-        // themed token onto a storm* fill pairs inks and surfaces from two
-        // routing tables. The preview cards use fixed hex palettes. Note the
-        // double escaping (`\\.`, `\\b`); a single backslash would make the
-        // patterns match nothing.
         const QString settingsRaw = readAll(QStringLiteral(SETTINGS_QML_PATH));
         QVERIFY2(!settingsRaw.isEmpty(), "SettingsScreen.qml not readable");
-        // Strip comments first: a comment naming a token is not a use.
         const QString settings = stripComments(settingsRaw);
         const QStringList banned = {
             QStringLiteral("AppTheme\\.text\\b"),
@@ -1273,8 +1084,6 @@ private Q_SLOTS:
             QStringLiteral("AppTheme\\.focusRing\\b"),
             QStringLiteral("AppTheme\\.icon\\b"),
         };
-        // Positive control: the same patterns must match a file that
-        // legitimately uses themed ink, or the guard has gone inert.
         const QString themedControl =
             stripComments(readAll(QStringLiteral(QML_DIR "/RoomDelegate.qml")));
         QVERIFY2(!themedControl.isEmpty(), "RoomDelegate.qml not readable");
@@ -1297,8 +1106,6 @@ private Q_SLOTS:
 
     void allPresetsDefineFullRoleSet()
     {
-        // Every preset supplies the complete palette, and the effective-theme
-        // switch routes every valid SettingsManager::Theme id (1..11).
         const QStringList presets = {
             QStringLiteral("_light"), QStringLiteral("_dark"),
             QStringLiteral("_midnight"), QStringLiteral("_graphite"),
@@ -1337,9 +1144,6 @@ private Q_SLOTS:
                                         .arg(preset, role)));
             }
         }
-        // Every valid id including the custom palette (12) is routed by the
-        // single rawPaletteForTheme() switch that feeds _p, the preview cards
-        // and the custom theme's base lookup.
         for (int id = 1; id <= 12; ++id) {
             const QRegularExpression routed(
                 QStringLiteral("case\\s+%1\\s*:\\s*return\\s+_").arg(id));
@@ -1354,9 +1158,6 @@ private Q_SLOTS:
         QVERIFY2(m_theme.contains(QStringLiteral("var p = rawPaletteForTheme(id)")),
                  "paletteForTheme must route through rawPaletteForTheme");
 
-        // The custom palette is a merge: it must start from a real preset,
-        // and its base can never be the custom theme itself (a cycle QML
-        // resolves as an undefined palette).
         const QRegularExpression customBase(
             QStringLiteral("customBase\\s*>=\\s*1\\s*&&\\s*customBase\\s*<=\\s*11"));
         QVERIFY2(m_theme.contains(customBase),
@@ -1365,7 +1166,6 @@ private Q_SLOTS:
 
     void lightThemeIsNotInvertedDark()
     {
-        // The light and dark muted inks stay distinct.
         QVERIFY(m_colors.value(QStringLiteral("_textMutedLight"))
                 != m_colors.value(QStringLiteral("_textMutedDark")));
         QVERIFY(m_colors.value(QStringLiteral("_bgLight"))
@@ -1374,8 +1174,6 @@ private Q_SLOTS:
 
     void coreViewsUseTokensNotHex()
     {
-        // View QML carries no hex values of its own, except AppTheme.qml and
-        // the image viewer's committed-dark overlay.
         const QStringList files = {
             QStringLiteral(QML_DIR "/RoomDelegate.qml"),
             QStringLiteral(QML_DIR "/RoomActionsMenu.qml"),
@@ -1393,9 +1191,6 @@ private Q_SLOTS:
         const QRegularExpression hexColor(
             QStringLiteral("color\\s*:\\s*\"#[0-9A-Fa-f]{3,8}\""));
         const QRegularExpression rgba(QStringLiteral("Qt\\.rgba\\("));
-        // The one sanctioned exception: Settings theme-preview cards paint
-        // their theme's fixed palette, and switch/slider thumbs are a white
-        // circle with a shadow tint.
         const QStringList allowedSettingsLiterals = {
             QStringLiteral("#f7f7f5"), QStringLiteral("#eceded"),
             QStringLiteral("#dcdedc"), QStringLiteral("#e6e8e6"),
@@ -1406,8 +1201,6 @@ private Q_SLOTS:
             QStringLiteral("#1d2b30"), QStringLiteral("#152023"),
             QStringLiteral("#27c2ad"), QStringLiteral("#FFFFFF"),
             QStringLiteral("#40000000"),
-            // Moss Light and Deep Teal surface literals as painted by the
-            // preview cards (SettingsShellQmlTest asserts the same values).
             QStringLiteral("#f1f9f3"), QStringLiteral("#e7efe8"),
             QStringLiteral("#d6dfd8"), QStringLiteral("#e1ebe3"),
             QStringLiteral("#031919"), QStringLiteral("#091f20"),
@@ -1431,17 +1224,11 @@ private Q_SLOTS:
         }
     }
 
-    // Every `AppTheme.<name>` used in QML is declared in AppTheme.qml. A
-    // missing property yields `undefined` with only a runtime warning, and
-    // only when the component is instantiated; a source scan covers the
-    // components no fixture reaches.
     void everyAppThemeTokenReferencedInQmlIsDeclared()
     {
         const QString theme = readAll(QStringLiteral(QML_DIR "/AppTheme.qml"));
         QVERIFY(!theme.isEmpty());
 
-        // Declared names: `property`/`readonly property`, functions and
-        // signals.
         QSet<QString> declared;
         static const QRegularExpression propertyRe(
             QStringLiteral(R"(property\s+\w+\s+(\w+)\s*:)"));
@@ -1455,8 +1242,6 @@ private Q_SLOTS:
             QStringLiteral(R"(signal\s+(\w+))"));
         for (auto it = signalRe.globalMatch(theme); it.hasNext();)
             declared.insert(it.next().captured(1));
-        // Names AppTheme exposes through QML itself rather than a
-        // declaration.
         declared.insert(QStringLiteral("objectName"));
         QVERIFY2(declared.size() > 50,
                  "AppTheme declaration scan found implausibly little");
@@ -1471,7 +1256,6 @@ private Q_SLOTS:
             const QString path = walker.next();
             if (path.endsWith(QLatin1String("AppTheme.qml")))
                 continue;
-            // Comments stripped: a token named in prose is not a use.
             const QString source = stripComments(readAll(path));
             for (auto it = useRe.globalMatch(source); it.hasNext();) {
                 const QString name = it.next().captured(1);

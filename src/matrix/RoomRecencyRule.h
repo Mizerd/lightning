@@ -14,17 +14,14 @@
 // body, so it never replaces the preview.
 namespace roomrecency {
 
-// May this row raise the room's recency? (State changes are refused by the
-// callers that see them; virtual rows never count.)
 inline bool raisesRecency(const TimelineEvent &event)
 {
     return !event.isVirtual();
 }
 
-// May this row replace the room's preview text?
 inline bool replacesPreview(const TimelineEvent &event)
 {
     return raisesRecency(event) && event.type != TimelineEvent::CallEvent;
 }
 
-} // namespace roomrecency
+}

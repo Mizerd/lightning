@@ -24,7 +24,7 @@ public:
         DisplayNameRole,
         AvatarUrlRole,
         AttributionRole,
-        SourceRole,      // "user" | "room"
+        SourceRole,
         RoomIdRole,
         StateKeyRole,
         EnabledGloballyRole,
@@ -32,9 +32,9 @@ public:
         ImageCountRole,
         StickerCountRole,
         EmoticonCountRole,
-        NamespaceRole,      // "stable" | "legacy"
+        NamespaceRole,
         AvailableRole,
-        UnavailableRole,    // reason when !available
+        UnavailableRole,
         LegacyTwinRole,
         LegacySubscribedRole,
         FromSpaceRole,
@@ -52,10 +52,8 @@ public:
     void reset(const QList<stickers::Pack> &packs);
     void clear();
 
-    // Row lookup for the manager and for tests.
     const QList<stickers::Pack> &packs() const { return m_packs; }
     Q_INVOKABLE QVariantMap get(int row) const;
-    // -1 when absent.
     int indexOfPack(const QString &id) const;
 
 Q_SIGNALS:

@@ -24,7 +24,7 @@ const char *formatName(roomexport::Format format)
     }
     return "text";
 }
-} // namespace
+}
 
 RoomExportController::RoomExportController(QObject *parent)
     : QObject(parent)
@@ -33,7 +33,6 @@ RoomExportController::RoomExportController(QObject *parent)
 
 RoomExportController::~RoomExportController()
 {
-    // A destroyed controller must not leave a walk running or handles held.
     if (m_client) {
         if (m_handleOp != 0)
             m_client->cancelRoomExport(m_handleOp);
@@ -57,8 +56,6 @@ void RoomExportController::setClient(MatrixClient *client)
                 this, &RoomExportController::onPage);
         connect(m_client, &MatrixClient::roomExportFailed,
                 this, &RoomExportController::onWalkFailed);
-        // Only this export's own op ids are acted on; every other media
-        // answer belongs to someone else.
         connect(m_client, &MatrixClient::mediaReady, this,
                 [this](quint64 opId, const QString &, int,
                        const QByteArray &bytes, const QString &,
@@ -67,7 +64,6 @@ void RoomExportController::setClient(MatrixClient *client)
                 [this](quint64 opId, const QString &, int, const QString &) {
                     onMediaFailed(opId);
                 });
-        // An export belongs to the account that started it.
         connect(m_client, &MatrixClient::loggedOut, this, [this] {
             if (m_busy)
                 cancel();
@@ -96,7 +92,6 @@ TimelineEvent RoomExportController::eventFromWalkRow(const QVariantMap &row,
     e.timestamp = QDateTime::fromMSecsSinceEpoch(
         row.value(QStringLiteral("timestampMs")).toLongLong(), QTimeZone::UTC);
     e.body = row.value(QStringLiteral("body")).toString();
-    // Untrusted HTML: only the HTML writer reads it, through the sanitizer.
     e.formattedBody = row.value(QStringLiteral("formattedBody")).toString();
     e.threadRootId = row.value(QStringLiteral("threadRoot")).toString();
     e.replyToEventId = row.value(QStringLiteral("replyTo")).toString();
@@ -132,15 +127,12 @@ TimelineEvent RoomExportController::eventFromWalkRow(const QVariantMap &row,
         e.undecryptable = true;
         e.isEncrypted = true;
     } else {
-        // text, location, and any msgtype without a renderer of its own: the
-        // body is the spec's fallback text.
         e.type = TimelineEvent::TextMessage;
     }
     if (roomexport::isAttachment(e)) {
         e.mediaFilename = row.value(QStringLiteral("filename")).toString();
         e.mediaMimetype = row.value(QStringLiteral("mimetype")).toString();
         e.mediaSize = row.value(QStringLiteral("size")).toLongLong();
-        // An opaque handle for fetchMedia, never a URL.
         e.mediaKey = row.value(QStringLiteral("mediaKey")).toString();
         e.mediaSourceAvailable = !e.mediaKey.isEmpty();
     }
@@ -150,8 +142,6 @@ TimelineEvent RoomExportController::eventFromWalkRow(const QVariantMap &row,
 QString RoomExportController::rangeDescription(const Job &job,
                                                const QString &stopReason)
 {
-    // Written into the file, which (like the existing text and JSON exports)
-    // is in English.
     QString out;
     switch (job.range) {
     case Range::Loaded:
@@ -233,7 +223,6 @@ void RoomExportController::onPage(quint64 opId, const QString &roomId,
 {
     Q_UNUSED(scannedTotal);
     Q_UNUSED(encryptedRoom);
-    // Another export, a cancelled one or another account's: not ours.
     if (!m_busy || opId == 0 || opId != m_walkOp || roomId != m_job.roomId)
         return;
     for (const QVariant &value : rows)
@@ -249,7 +238,6 @@ void RoomExportController::onPage(quint64 opId, const QString &roomId,
 
     m_walkOp = 0;
     m_stopReason = stopReason;
-    // The walk is newest-first; a file reads oldest-first.
     m_events.reserve(m_newestFirst.size());
     for (auto it = m_newestFirst.crbegin(); it != m_newestFirst.crend(); ++it)
         m_events.append(*it);
@@ -364,7 +352,7 @@ RoomExportController::unfetchedAttachment(const TimelineEvent &event) const
 {
     roomexport::Attachment a;
     if (!m_job.options.includeAttachments || !roomexport::isAttachment(event))
-        return a; // NotIncluded
+        return a;
     if (roomexport::declaredSvg(event))
         a.state = roomexport::AttachmentState::Svg;
     else if (event.mediaKey.isEmpty())
@@ -398,7 +386,6 @@ void RoomExportController::step()
         if (wantsFetch(event)) {
             const qint64 declared = event.mediaSize;
             if (declared > m_budgetLeft) {
-                // Known not to fit: no download at all.
                 ++m_attachmentsDone;
                 roomexport::Attachment over;
                 over.state = roomexport::AttachmentState::OverLimit;
@@ -410,7 +397,6 @@ void RoomExportController::step()
             setProgress(tr("Downloading attachments %1 of %2…")
                             .arg(m_attachmentsDone + 1)
                             .arg(m_attachmentsTotal));
-            // Full payload, Save As timeout class: the backend bounds it.
             m_fetchOp = m_client ? m_client->fetchMedia(event.mediaKey, 0, 2)
                                  : 0;
             if (m_fetchOp == 0) {
@@ -422,7 +408,7 @@ void RoomExportController::step()
                 ++m_index;
                 continue;
             }
-            return; // resumed by onMediaReady / onMediaFailed
+            return;
         }
         m_writer->writeEvent(event, unfetchedAttachment(event));
         ++m_written;
@@ -446,10 +432,8 @@ void RoomExportController::onMediaReady(quint64 opId, const QByteArray &bytes)
     if (bytes.isEmpty()) {
         attachment.state = roomexport::AttachmentState::Failed;
     } else if (roomexport::refusedAsSvg(event, bytes)) {
-        // Never embedded, so never charged to the size limit.
         attachment.state = roomexport::AttachmentState::Svg;
     } else if (bytes.size() > m_budgetLeft) {
-        // The declared size was absent or wrong; the bytes decide.
         attachment.state = roomexport::AttachmentState::OverLimit;
     } else {
         attachment.state = roomexport::AttachmentState::Embedded;
@@ -543,7 +527,6 @@ void RoomExportController::setProgress(const QString &text)
 
 void RoomExportController::succeed()
 {
-    // Counts and flags only: never the path, the room or a body.
     qCInfo(lcRoomExport) << "room exported messages=" << m_written
                          << "format=" << formatName(m_job.format)
                          << "range=" << int(m_job.range)
@@ -558,8 +541,6 @@ void RoomExportController::succeed()
     reset();
     m_resultOk = true;
     m_resultPath = path;
-    // "events", not "messages": the file also carries the room's state
-    // events (joins, topic changes), and the dialog counts them the same way.
     const QString name = QFileInfo(path).fileName();
     m_resultMessage = written == 1
         ? tr("Exported 1 event to %1.").arg(name)
@@ -613,7 +594,6 @@ void RoomExportController::reset()
 {
     ++m_generation;
     if (m_client) {
-        // Stops a walk still running and forgets every attachment handle.
         if (m_handleOp != 0)
             m_client->cancelRoomExport(m_handleOp);
         if (m_fetchOp != 0)
@@ -624,7 +604,6 @@ void RoomExportController::reset()
     m_fetchOp = 0;
     m_writer.reset();
     if (m_file) {
-        // Never committed: the destination is left as it was.
         m_file->cancelWriting();
         m_file.reset();
     }

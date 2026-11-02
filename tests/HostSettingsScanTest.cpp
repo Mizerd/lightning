@@ -1,22 +1,3 @@
-// Live accounts Phase 1, I8 (R1-H7): background hosts never read or write the
-// ACTIVE account's state.
-//
-// A source contract over every src/accounts/*.cpp, NotificationContextBuilder
-// and AppController's host wiring (the region between the markers
-// "live-accounts host wiring: begin" and "...: end"): none of them calls the
-// active-account accessors (activeAccountUserId, userId(), accessToken(),
-// refreshToken(), the room-mode readers without "For"), the foreground client
-// (m_client), the MediaBridge, or the current room; and only KeyringWorker.cpp
-// touches the keyring (its worker thread, or SettingsManager by a queued GUI
-// call, contract §5.6). SessionTokenCustody.cpp is exempt from the keyring
-// rule alone: its functions are pure over an injected TokenStore and run on
-// whatever thread their caller is on (the worker, or the foreground client's
-// own path). Comments and string literals are ignored, so a log
-// line or a comment naming a forbidden call is not a violation and a real call
-// cannot hide in one.
-//
-// Also pinned here: the keyring item names KeyringWorker.cpp writes are
-// SettingsManager.cpp's own (file-local there), so the two can never drift.
 #include <QDir>
 #include <QFile>
 #include <QRegularExpression>
@@ -83,13 +64,11 @@ QString stripCommentsAndStrings(const QString &src)
     return out;
 }
 
-// Forbidden in every scanned file.
 const QList<QRegularExpression> &activeStatePatterns()
 {
     static const QList<QRegularExpression> patterns = {
         QRegularExpression(QStringLiteral("\\bactiveAccountUserId\\b")),
         QRegularExpression(QStringLiteral("\\bactiveAccountSlug\\w*\\b")),
-        // The active-account accessors take no argument; the *For(uid) ones do.
         QRegularExpression(QStringLiteral("\\buserId\\s*\\(\\s*\\)")),
         QRegularExpression(QStringLiteral("\\baccessToken\\s*\\(\\s*\\)")),
         QRegularExpression(QStringLiteral("\\brefreshToken\\s*\\(\\s*\\)")),
@@ -106,7 +85,6 @@ const QList<QRegularExpression> &activeStatePatterns()
     return patterns;
 }
 
-// Forbidden outside KeyringWorker.cpp: any keyring call.
 const QRegularExpression &keyringPattern()
 {
     static const QRegularExpression re(QStringLiteral(
@@ -166,7 +144,7 @@ QString literalOf(const QString &text, const QString &constant)
     return re.match(text).captured(1);
 }
 
-} // namespace
+}
 
 class HostSettingsScanTest : public QObject
 {
@@ -180,8 +158,6 @@ private Q_SLOTS:
     void keyringItemNamesMatchSettingsManager();
 };
 
-// The scanner must be able to fail, and must not fail on the uid-explicit
-// readers, on a field assignment, or on a comment or a log string.
 void HostSettingsScanTest::theScannerCatchesActiveStateAndKeyringCalls()
 {
     const QString bad = QStringLiteral(
@@ -206,7 +182,6 @@ void HostSettingsScanTest::theScannerCatchesActiveStateAndKeyringCalls()
         "}\n");
     const QStringList none = violations(QStringLiteral("good"), good, false);
     QVERIFY2(none.isEmpty(), qPrintable(none.join(QLatin1Char('\n'))));
-    // The keyring calls are KeyringWorker's own.
     QCOMPARE(violations(QStringLiteral("kw"),
                         QStringLiteral("void k()\n{\n    s->readSecret(uid, key);\n}\n"), true)
                  .size(),
@@ -219,7 +194,6 @@ void HostSettingsScanTest::accountsSourcesNeverReachTheActiveAccount()
         QFAIL("LIGHTNING_SOURCE_DIR not defined for this target: the scan cannot run");
     const QDir dir(sourceRoot() + QStringLiteral("/src/accounts"));
     const QStringList files = dir.entryList({QStringLiteral("*.cpp")}, QDir::Files, QDir::Name);
-    // The Phase 1 host machinery must all be here, or the scan proves nothing.
     for (const char *expected : {"SessionPool.cpp", "BackgroundSessionHost.cpp",
                                  "BackgroundDrainer.cpp", "SessionScheduler.cpp",
                                  "RetirementLatches.cpp", "HostRetirementPool.cpp",
@@ -250,7 +224,6 @@ void HostSettingsScanTest::theContextBuilderStaysPure()
         QVERIFY2(!text.isEmpty(), qPrintable(file));
         const QStringList found = violations(file, text, false);
         QVERIFY2(found.isEmpty(), qPrintable(found.join(QLatin1Char('\n'))));
-        // It takes its inputs; it never includes what it could read them from.
         for (const char *header : {"AppController.h", "SettingsManager.h", "MatrixClient.h",
                                    "MediaBridge.h"}) {
             QVERIFY2(!text.contains(QLatin1String(header)),
@@ -281,10 +254,6 @@ void HostSettingsScanTest::appControllersHostWiringNeverReachesTheActiveAccount(
                           text.mid(b, e - b), false);
         from = e;
     }
-    // Exactly the two marked regions (the models and pool construction, the
-    // pool's signal wiring): a third is a new place that must be reviewed
-    // and counted here, and fewer means one lost its markers (§18 round 1,
-    // L11).
     QCOMPARE(regions, 2);
     QVERIFY2(all.isEmpty(), qPrintable(all.join(QLatin1Char('\n'))));
 }

@@ -1,13 +1,5 @@
 #pragma once
 
-// Byte-level facts about animated images, decided without a decoder: whether
-// a payload is a GIF or an animated WebP, whether it has more than one frame,
-// and its canvas size. Shared by MediaBridge (display) and ImageCropper
-// (upload), so what Lightning uploads as an animation is what it will animate.
-//
-// Magic only, never a declared mimetype: avatar and banner mimetypes are
-// absent or sender-chosen. Nothing here can match SVG (CLAUDE.md §6).
-
 #include <QByteArray>
 #include <QSize>
 #include <QString>
@@ -22,7 +14,6 @@ inline bool isGif(const QByteArray &bytes)
         && (bytes.startsWith("GIF87a") || bytes.startsWith("GIF89a"));
 }
 
-// RIFF/WEBP with a VP8X chunk whose animation bit (0x02) is set.
 inline bool isAnimatedWebp(const QByteArray &bytes)
 {
     return bytes.size() >= 30 && bytes.startsWith("RIFF")
@@ -31,9 +22,6 @@ inline bool isAnimatedWebp(const QByteArray &bytes)
         && (static_cast<unsigned char>(bytes.at(20)) & 0x02u) != 0;
 }
 
-// Image descriptors in a GIF, counted up to `stopAt`. Walks the block
-// structure (no LZW decode), so a single-frame GIF is told apart from an
-// animation cheaply. A truncated file counts the frames it completed.
 inline int gifFrameCount(const QByteArray &bytes, int stopAt = 2)
 {
     if (!isGif(bytes))
@@ -46,7 +34,6 @@ inline int gifFrameCount(const QByteArray &bytes, int stopAt = 2)
     const unsigned char screenFlags = u8(10);
     if (screenFlags & 0x80u)
         p += 3 * (qsizetype(1) << ((screenFlags & 0x07u) + 1));
-    // Data sub-blocks end with a zero length; false when the bytes run out.
     const auto skipSubBlocks = [&](qsizetype &q) {
         while (q < n) {
             const int len = u8(q);
@@ -60,26 +47,26 @@ inline int gifFrameCount(const QByteArray &bytes, int stopAt = 2)
     int frames = 0;
     while (p < n) {
         const unsigned char tag = u8(p++);
-        if (tag == 0x3B) // trailer
+        if (tag == 0x3B)
             break;
-        if (tag == 0x21) { // extension: label, then sub-blocks
+        if (tag == 0x21) {
             ++p;
             if (!skipSubBlocks(p))
                 break;
-        } else if (tag == 0x2C) { // image descriptor
+        } else if (tag == 0x2C) {
             if (p + 9 > n)
                 break;
             const unsigned char imageFlags = u8(p + 8);
             p += 9;
             if (imageFlags & 0x80u)
                 p += 3 * (qsizetype(1) << ((imageFlags & 0x07u) + 1));
-            ++p; // LZW minimum code size
+            ++p;
             if (p > n || !skipSubBlocks(p))
                 break;
             if (++frames >= stopAt)
                 return frames;
         } else {
-            break; // not a GIF block: stop, keep what was counted
+            break;
         }
     }
     return frames;
@@ -96,12 +83,12 @@ inline int gifFrameCount(const QByteArray &bytes, int stopAt = 2)
 // can flash at a slow rate). The protections for that are reduced motion and
 // the autoplay setting, both of which stop the animation.
 struct AnimationTiming {
-    int frames = 0;    // image descriptors / ANMF chunks (capped at kTimingStop)
-    int counted = 0;   // frames whose pacing was read: equal to `frames`
-    int flashing = 0;  // of those, paced under 50 ms
+    int frames = 0;
+    int counted = 0;
+    int flashing = 0;
 };
-constexpr int kTimingStop = 100000;  // walk bound: far past any sane count
-constexpr int kMaxSaneFrames = 300;  // a background is not a film
+constexpr int kTimingStop = 100000;
+constexpr int kMaxSaneFrames = 300;
 constexpr int kFlashingBelowMs = 50;
 
 inline bool timingTooBusy(const AnimationTiming &t)
@@ -144,9 +131,6 @@ inline AnimationTiming animationTiming(const QByteArray &bytes)
                 if (p >= n)
                     break;
                 const unsigned int label = u8(p++);
-                // Graphic control: a first sub-block of at least 4 bytes holds
-                // flags and the delay (LE, cs); a longer one is read the same
-                // way and its remainder skipped, like the decoder does.
                 if (label == 0xF9 && p + 4 <= n && u8(p) >= 4)
                     delayMs = int(u8(p + 2) | (u8(p + 3) << 8)) * 10;
                 if (!skipSubBlocks(p))
@@ -170,8 +154,6 @@ inline AnimationTiming animationTiming(const QByteArray &bytes)
             }
         }
     } else if (isAnimatedWebp(bytes)) {
-        // Only the RIFF container: chunks appended past its size are never
-        // played (stripWebpMetadata drops them too).
         const qsizetype riff = qsizetype(u8(4) | (u8(5) << 8) | (u8(6) << 16)
                                          | (quint32(u8(7)) << 24));
         const qsizetype end = qMin(n, qsizetype(8) + riff);
@@ -181,7 +163,6 @@ inline AnimationTiming animationTiming(const QByteArray &bytes)
                 | (quint32(u8(p + 7)) << 24);
             if (std::memcmp(bytes.constData() + p, "ANMF", 4) == 0) {
                 ++t.frames;
-                // X, Y, width, height (3 bytes each), then the duration.
                 if (size >= 16 && p + 8 + 15 <= end) {
                     const int ms = int(u8(p + 8 + 12) | (u8(p + 8 + 13) << 8)
                                        | (u8(p + 8 + 14) << 16));
@@ -196,14 +177,11 @@ inline AnimationTiming animationTiming(const QByteArray &bytes)
     return t;
 }
 
-// True for a GIF with at least two frames or an animated WebP. A single-frame
-// GIF is a still picture and takes the ordinary image path.
 inline bool isAnimation(const QByteArray &bytes)
 {
     return isAnimatedWebp(bytes) || gifFrameCount(bytes, 2) >= 2;
 }
 
-// File suffix for an animation ("gif", "webp"), or "".
 inline QString animationSuffix(const QByteArray &bytes)
 {
     if (isAnimatedWebp(bytes))
@@ -213,8 +191,6 @@ inline QString animationSuffix(const QByteArray &bytes)
     return {};
 }
 
-// The canvas every frame is drawn into: the GIF logical screen, or the WebP
-// VP8X canvas. Invalid when neither header is present.
 inline QSize canvasSize(const QByteArray &bytes)
 {
     const auto u8 = [&bytes](qsizetype i) {
@@ -233,11 +209,8 @@ inline QSize canvasSize(const QByteArray &bytes)
     return {};
 }
 
-// Pixel-area ceilings for playing an animation. Every frame decodes to a
-// canvas-sized buffer, so this bounds the memory one playing item can hold.
-// An avatar is drawn at 200 px at most, so 512 x 512 covers 2x DPR.
-constexpr qint64 kAvatarMaxPixels = 512LL * 512;         // 1 MiB a frame
-constexpr qint64 kBannerMaxPixels = 4LL * 1024 * 1024;   // 16 MiB a frame
+constexpr qint64 kAvatarMaxPixels = 512LL * 512;
+constexpr qint64 kBannerMaxPixels = 4LL * 1024 * 1024;
 
 inline bool canvasWithin(const QByteArray &bytes, qint64 maxPixels)
 {
@@ -278,7 +251,6 @@ inline QByteArray stripGifMetadata(const QByteArray &in)
         p += 3 * (qsizetype(1) << ((screenFlags & 0x07u) + 1));
     if (p > n)
         return {};
-    // End of the sub-block chain starting at q, or -1 when it runs out.
     const auto chainEnd = [&](qsizetype q) -> qsizetype {
         while (q < n) {
             const int len = u8(q);
@@ -294,7 +266,7 @@ inline QByteArray stripGifMetadata(const QByteArray &in)
     out.append(in.constData(), p);
     while (p < n) {
         const unsigned char tag = u8(p);
-        if (tag == 0x3B) { // trailer: nothing after it is kept
+        if (tag == 0x3B) {
             out.append(char(0x3B));
             return out;
         }
@@ -305,7 +277,6 @@ inline QByteArray stripGifMetadata(const QByteArray &in)
                 return {};
             const unsigned char label = u8(p + 1);
             if (label == 0xFF) {
-                // Application extension: an 11-byte identifier block first.
                 if (p + 3 + 11 > n || u8(p + 2) != 11)
                     return {};
                 const QByteArray id = in.mid(p + 3, 11);
@@ -313,7 +284,7 @@ inline QByteArray stripGifMetadata(const QByteArray &in)
                     || id == QByteArrayLiteral("ANIMEXTS1.0");
                 end = chainEnd(p + 3 + 11);
             } else {
-                keep = label == 0xF9; // graphic control: delays, disposal
+                keep = label == 0xF9;
                 end = chainEnd(p + 2);
             }
         } else if (tag == 0x2C) {
@@ -323,7 +294,7 @@ inline QByteArray stripGifMetadata(const QByteArray &in)
             qsizetype q = p + 10;
             if (imageFlags & 0x80u)
                 q += 3 * (qsizetype(1) << ((imageFlags & 0x07u) + 1));
-            ++q; // LZW minimum code size
+            ++q;
             if (q > n)
                 return {};
             end = chainEnd(q);
@@ -337,7 +308,7 @@ inline QByteArray stripGifMetadata(const QByteArray &in)
             out.append(in.constData() + p, end - p);
         p = end;
     }
-    return {}; // no trailer: truncated
+    return {};
 }
 
 inline QByteArray stripWebpMetadata(const QByteArray &in)
@@ -365,7 +336,6 @@ inline QByteArray stripWebpMetadata(const QByteArray &in)
         if (next > end)
             return {};
         const QByteArray fourcc = in.mid(p, 4);
-        // An allowlist: a chunk nobody here knows may carry anything.
         static const QByteArrayList kept{
             QByteArrayLiteral("VP8X"), QByteArrayLiteral("ANIM"),
             QByteArrayLiteral("ANMF"), QByteArrayLiteral("ALPH"),
@@ -382,8 +352,7 @@ inline QByteArray stripWebpMetadata(const QByteArray &in)
         p = next;
     }
     if (vp8x < 0)
-        return {}; // not an extended WebP, so not an animation
-    // Clear the EXIF (0x08) and XMP (0x04) presence flags.
+        return {};
     out[vp8x + 8] = char(static_cast<unsigned char>(out.at(vp8x + 8)) & ~0x0Cu);
     const quint32 riff = quint32(out.size() - 8);
     for (int i = 0; i < 4; ++i)
@@ -391,8 +360,6 @@ inline QByteArray stripWebpMetadata(const QByteArray &in)
     return out;
 }
 
-// The animation without its metadata, or empty (not an animation format, or
-// malformed).
 inline QByteArray stripAnimationMetadata(const QByteArray &bytes)
 {
     if (isGif(bytes))
@@ -402,4 +369,4 @@ inline QByteArray stripAnimationMetadata(const QByteArray &bytes)
     return {};
 }
 
-} // namespace lightning::animsniff
+}

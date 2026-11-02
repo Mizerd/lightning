@@ -40,11 +40,7 @@ constexpr auto kService = "org.freedesktop.portal.Desktop";
 constexpr auto kPath = "/org/freedesktop/portal/desktop";
 constexpr auto kFileChooser = "org.freedesktop.portal.FileChooser";
 constexpr auto kRequest = "org.freedesktop.portal.Request";
-// The portal is D-Bus activated, and starting it (and its desktop backend)
-// the first time can take a second or two.
 constexpr int kProbeTimeoutMs = 4000;
-// OpenFile/SaveFile return their Request path at once; the dialog's answer
-// comes later on Response, with no timeout (the user may take minutes).
 constexpr int kCallTimeoutMs = 10000;
 #endif
 
@@ -58,12 +54,10 @@ QString modeName(FileChooser::Mode mode)
     }
     return {};
 }
-} // namespace
+}
 
 #ifdef HAVE_QT_DBUS
 namespace lightning_portal {
-// org.freedesktop.portal.FileChooser's filter type: a(sa(us)), where each rule
-// is (0 = glob, 1 = MIME type, pattern).
 struct FilterRule
 {
     uint type = 0;
@@ -103,7 +97,7 @@ const QDBusArgument &operator>>(const QDBusArgument &arg, Filter &filter)
     arg.endStructure();
     return arg;
 }
-} // namespace lightning_portal
+}
 
 Q_DECLARE_METATYPE(lightning_portal::FilterRule)
 Q_DECLARE_METATYPE(lightning_portal::Filter)
@@ -214,7 +208,6 @@ void FileChooser::initialise()
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->setWindowModality(Qt::ApplicationModal);
         configureQtDialog(*dialog, request, widgetOnly);
-        // Keep the widget dialog above the window it was opened from.
         if (QWindow *parent = QGuiApplication::focusWindow()) {
             dialog->winId();
             if (QWindow *own = dialog->windowHandle())
@@ -248,8 +241,6 @@ FileChooser::Route FileChooser::initialRoute(const Environment &env)
 
 FileChooser::Route FileChooser::fallbackRoute(const Environment &env)
 {
-    // Linux's fallback is themed in-app; Windows and macOS use the native
-    // system dialog. An explicit override still wins in initialRoute().
     return env.linuxDesktop ? Route::InApp : Route::QtDialog;
 }
 
@@ -295,8 +286,6 @@ QString FileChooser::routeName() const
 
 QPair<QString, QStringList> FileChooser::parseNameFilter(const QString &filter)
 {
-    // Qt's own format: "Description (*.a *.b)". Anything else is a bare
-    // pattern list.
     static const QRegularExpression re(
         QStringLiteral("^(.*)\\(([^()]*)\\)\\s*$"));
     const QRegularExpressionMatch m = re.match(filter.trimmed());
@@ -317,7 +306,6 @@ QPair<QString, QStringList> FileChooser::parseNameFilter(const QString &filter)
 
 int FileChooser::baseNameLength(const QString &leaf)
 {
-    // A dotfile (".bashrc") is all name; so is a name with no extension.
     const QString known = savenaming::extensionOf(leaf);
     if (!known.isEmpty() && leaf.size() > known.size() + 1
         && leaf.endsWith(QLatin1Char('.') + known, Qt::CaseInsensitive))
@@ -325,8 +313,6 @@ int FileChooser::baseNameLength(const QString &leaf)
     const qsizetype dot = leaf.lastIndexOf(QLatin1Char('.'));
     if (dot <= 0)
         return int(leaf.size());
-    // An unknown suffix is still selected around when it looks like one
-    // ("notes.md5sum"), and not when it does not ("Screenshot 2026.10.06").
     return savenaming::looksLikeExtension(leaf.mid(dot + 1)) ? int(dot)
                                                              : int(leaf.size());
 }
@@ -387,8 +373,6 @@ int FileChooser::open(const QVariantMap &options)
         : QUrl::fromUserInput(folder.toString());
     if (!request.folder.isLocalFile())
         request.folder = QUrl();
-    // A save dialog's name may arrive as a url ("file:///name.pdf"); only its
-    // leaf is a suggestion.
     QString name = options.value(QStringLiteral("currentName")).toString();
     if (name.startsWith(QLatin1String("file:")))
         name = QUrl(name).fileName();
@@ -402,14 +386,10 @@ int FileChooser::open(const Request &in, Completion done)
 {
     Request request = in;
     request.id = m_nextId++;
-    // All callers and routes share the same nonempty, portable save leaf.
-    // In particular a new file need not exist for its name to be suggested.
     if (request.mode == Mode::SaveFile)
         request.currentName = savenaming::suggestedFileName(request.currentName, {});
     if (!request.purpose.isEmpty() && m_recall) {
         const QUrl remembered = m_recall(request.purpose);
-        // A document-portal folder (remembered by an older build) is one
-        // document's mount point, not a place to start a dialog in.
         if (remembered.isLocalFile()
             && QFileInfo(remembered.toLocalFile()).isDir()
             && !savenaming::isDocumentPortalPath(remembered.toLocalFile()))
@@ -425,8 +405,6 @@ int FileChooser::open(const Request &in, Completion done)
     qCInfo(lcChooser) << "file chooser request id=" << request.id
                       << "mode=" << modeName(request.mode)
                       << "route=" << routeName();
-    // Started on the next turn, so the caller always holds the id before any
-    // answer can arrive (QML assigns it from open()'s return value).
     QTimer::singleShot(0, this, [this, request] { dispatch(request); });
     return request.id;
 }
@@ -477,7 +455,6 @@ void FileChooser::probePortal()
                     qCInfo(lcChooser) << "file chooser portal version"
                                       << version;
                 } else {
-                    // Error name only: a message can carry paths.
                     qCInfo(lcChooser)
                         << "no file chooser portal; using the fallback error="
                         << reply.errorName();
@@ -511,9 +488,6 @@ void FileChooser::onPortalProbed(bool available)
 
 void FileChooser::failPendingPortalRequests()
 {
-    // The portal went away with a dialog open: nothing will ever answer
-    // those requests, so answer them (as cancelled; reopening a dialog the
-    // user did not ask for again would be stranger).
     const QList<int> ids = m_portalInFlight.values();
     m_portalInFlight.clear();
     for (int id : ids)
@@ -539,9 +513,6 @@ void FileChooser::runFallback(const Request &request)
 void FileChooser::runInApp(const Request &request)
 {
     const int id = request.id;
-    // The host is FileChooserDialog in Main.qml. Without one nothing would
-    // ever answer, so the request is answered now, as cancelled; Qt's widget
-    // dialog is deliberately not a last resort on Linux.
     if (!isSignalConnected(QMetaMethod::fromSignal(&FileChooser::inAppRequested))) {
         qCWarning(lcChooser) << "no in-app file chooser host; request id=" << id
                              << "answered as cancelled";
@@ -557,7 +528,7 @@ void FileChooser::answerInApp(int requestId, bool accepted,
                               const QString &selectedNameFilter)
 {
     if (!m_inAppInFlight.remove(requestId))
-        return; // not ours to answer, or answered already
+        return;
     QList<QUrl> list;
     for (const QVariant &v : urls) {
         const QUrl url = v.typeId() == QMetaType::QUrl
@@ -620,7 +591,7 @@ void FileChooser::runPortal(const Request &request)
     const auto onAnswer = [this, id, filters](uint response,
                                               const QVariantMap &results) {
         if (!m_portalInFlight.contains(id))
-            return; // already answered (the portal vanished meanwhile)
+            return;
         m_portalInFlight.remove(id);
         QList<QUrl> urls;
         const QStringList uris =
@@ -666,7 +637,6 @@ void FileChooser::runPortal(const Request &request)
     if (request.mode == Mode::Folder)
         options.insert(QStringLiteral("directory"), true);
     if (request.folder.isLocalFile()) {
-        // `ay`, NUL-terminated, in the filesystem encoding.
         QByteArray folder = QFile::encodeName(request.folder.toLocalFile());
         folder.append('\0');
         options.insert(QStringLiteral("current_folder"), folder);
@@ -711,9 +681,6 @@ void FileChooser::runPortal(const Request &request)
                     if (!m_portalInFlight.contains(id))
                         return;
                     m_portalInFlight.remove(id);
-                    // The portal answered the probe and refused the call
-                    // (no backend for this desktop, a broken one): this
-                    // request and every later one take the fallback.
                     qCWarning(lcChooser)
                         << "file chooser portal call failed error="
                         << reply.error().name() << "; using the fallback";
@@ -734,7 +701,7 @@ void FileChooser::complete(int id, Route used, bool accepted,
 {
     const auto it = m_requests.find(id);
     if (it == m_requests.end())
-        return; // answered already
+        return;
     const Request request = it.value();
     m_requests.erase(it);
     m_lastUsedRoute = used;

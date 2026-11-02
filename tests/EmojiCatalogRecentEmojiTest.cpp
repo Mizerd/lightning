@@ -1,7 +1,3 @@
-// EmojiCatalog::recentEmoji, the Q_PROPERTY exposing the persisted MRU list
-// alongside the GridView model: order, filtering of invalid entries and the
-// change signal. EmojiCatalogTest::recentPersistenceAndBound covers
-// SettingsManager's storage.
 
 #include "app/SettingsManager.h"
 #include "models/EmojiCatalog.h"
@@ -29,8 +25,6 @@ private Q_SLOTS:
         QCoreApplication::setApplicationName(QStringLiteral("recent"));
     }
 
-    // Each case starts from a clean store: QSettings is app-global, so recents
-    // would leak between cases.
     void init() { QSettings().clear(); }
 
     void withoutSettingsReturnsEmpty()
@@ -50,16 +44,11 @@ private Q_SLOTS:
         QCOMPARE(catalog.recentEmoji(),
                  QStringList({ QStringLiteral("❤️"), QStringLiteral("😀") }));
 
-        // Re-using an entry moves it to the front rather than duplicating it,
-        // as in the GridView bucket.
         catalog.recordUse(QStringLiteral("😀"));
         QCOMPARE(catalog.recentEmoji(),
                  QStringList({ QStringLiteral("😀"), QStringLiteral("❤️") }));
     }
 
-    // A corrupted or legacy entry (not in the current catalogue) never reaches
-    // a consumer, matching the GridView bucket's indexOf() guard in
-    // EmojiCatalog::rebuild().
     void filtersEntriesNotInTheCatalogue()
     {
         SettingsManager settings;
@@ -69,8 +58,6 @@ private Q_SLOTS:
         QCOMPARE(catalog.recentEmoji(), QStringList({ QStringLiteral("😀") }));
     }
 
-    // A fresh account's picker does not open on an empty "Recently Used"
-    // grid; rebuild() has no fallback of its own.
     void afreshCatalogueDoesNotOpenOnAnEmptyRecentlyUsed()
     {
         SettingsManager settings;
@@ -83,12 +70,10 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral(
                      "the picker opens on '%1' and it is EMPTY")
                         .arg(catalog.category())));
-        // The tab still exists, first in the rail, and holds the empty state.
         QCOMPARE(catalog.categories().constFirst(),
                  QStringLiteral("Recently Used"));
     }
 
-    // ...and once there are recents, the picker opens there.
     void acatalogueWithRecentsStillStartsOnRecentlyUsed()
     {
         SettingsManager settings;
@@ -99,9 +84,6 @@ private Q_SLOTS:
         QCOMPARE(catalog.rowCount(), 1);
     }
 
-    // An entry the catalogue cannot resolve is not a recent: rebuild() drops
-    // it, so counting it would reopen the empty grid. Both halves apply the
-    // same filter.
     void astaleRecentEntryDoesNotCountAsARecent()
     {
         SettingsManager settings;

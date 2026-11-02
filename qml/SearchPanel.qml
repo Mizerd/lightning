@@ -3,9 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Room-scoped server search with a draft/apply filter surface. The server
-// applies room and sender; MessageSearchController applies the remaining
-// predicates to a bounded number of returned pages.
 Rectangle {
     id: root
 
@@ -14,12 +11,7 @@ Rectangle {
     signal findLoadedRequested()
 
     property bool historyAvailable: true
-    // Whether the homeserver can search this room (unencrypted, supported).
-    // The Indexed/Server toggle needs both sources; with one, that one is used.
     property bool serverAvailable: true
-    // The user's last explicit choice, kept for the session ("" = none yet).
-    // Assigned only from the toggle; the controller's `source` is the live
-    // value and is never bound here.
     property string preferredSource: ""
     readonly property string activeSource: app.messageSearch.source
     property bool filterEditing: false
@@ -69,20 +61,10 @@ Rectangle {
         root[propertyName] = values
     }
 
-    // The roster comes from RoomInfoController, which follows the Room
-    // Information panel's room; point it at the searched room before reading
-    // members.
-    // A reopened panel starts on the search field, not on a filter editor left
-    // open when it was closed (the field is hidden there and swallowed the
-    // typing), with the previous query selected so typing replaces it.
     onVisibleChanged: if (visible) {
         filterEditing = false
         ensureRoster(); applySource(); focusQuery()
     }
-    // Opening search means typing a query next: the field takes the keyboard,
-    // as in every chat client. Without it the first keystrokes went nowhere.
-    // Deferred, because the panel becomes visible inside the click that opened
-    // it.
     function focusQuery() {
         Qt.callLater(function () {
             if (root.visible && searchField.visible && searchField.enabled) {
@@ -93,8 +75,6 @@ Rectangle {
     }
     Component.onCompleted: if (visible) { ensureRoster(); applySource() }
 
-    // Local first when the index exists (it covers encrypted rooms and needs
-    // no round trip), unless the user chose otherwise this session.
     function applySource() {
         var local = app.messageSearch.localAvailable
         var wanted = preferredSource !== "" ? preferredSource
@@ -111,7 +91,7 @@ Rectangle {
 
     function chooseSource(value) {
         preferredSource = value
-        app.messageSearch.source = value   // re-runs the current query
+        app.messageSearch.source = value
     }
 
     function ensureRoster() {
@@ -122,8 +102,6 @@ Rectangle {
     }
 
     function filteredMembers() {
-        // Reading the snapshot keeps the binding live when the roster arrives.
-        // filterMembers is case-insensitive.
         var snapshot = app.roomInfo.members
         var rows = app.roomInfo.filterMembers(memberNeedle)
         var joined = []
@@ -203,9 +181,6 @@ Rectangle {
             || (value.pinnedMode && value.pinnedMode !== "any"))
     }
 
-    // Filters the active source cannot evaluate (the local index stores no
-    // stickers and no mentions). Read through activeSource so a source switch
-    // re-evaluates every binding that calls this.
     function filterUnsupported(name) {
         var source = activeSource
         return source === "local"
@@ -253,7 +228,6 @@ Rectangle {
                 text: root.filterEditing ? qsTr("Search filters")
                                          : qsTr("Search messages")
                 color: AppTheme.textPrimary
-                // The shared pane-header size.
                 font.pixelSize: AppTheme.textTitle
                 font.weight: AppTheme.weightBold
                 Layout.fillWidth: true
@@ -385,9 +359,6 @@ Rectangle {
                 wrapMode: Text.Wrap
             }
 
-            // What the indexed search covers, and the way to widen it: the
-            // same line and action the Ctrl+F find bar offers, so an
-            // unindexed room is not left at "No matching messages".
             RowLayout {
                 objectName: "roomSearchCoverageRow"
                 visible: root.historyAvailable && root.activeSource === "local"
@@ -406,8 +377,6 @@ Rectangle {
                         if (app.messageSearch.indexing)
                             return qsTr("Indexing this room's history…")
                         var n = app.messageSearch.indexedMessages
-                        // Stats arrive on their own signal: a zero count while
-                        // results are shown is not an empty index.
                         if (n <= 0 && app.messageSearch.count > 0)
                             return ""
                         if (n <= 0)
@@ -437,9 +406,6 @@ Rectangle {
                 }
             }
 
-            // Absorbs slack when the results list is hidden (the usual case in
-            // encrypted rooms): a layout needs one item that can grow, or it
-            // spreads the children evenly down the panel.
             Item {
                 visible: !root.historyAvailable
                 Layout.fillWidth: true
@@ -504,7 +470,6 @@ Rectangle {
                                     textFormat: Text.PlainText
                                     text: resultDelegate.senderDisplayName
                                           || resultDelegate.sender
-                                    // Identity ink, as in the timeline.
                                     color: AppTheme.userColor(resultDelegate.sender)
                                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                     font.weight: AppTheme.weightStrong
@@ -516,12 +481,10 @@ Rectangle {
                                               .toLocaleDateString(Qt.locale(AppLocale.name), Locale.ShortFormat)
                                     textFormat: Text.PlainText
                                     color: AppTheme.textMuted
-                                    // Scaled like the sender name beside it.
                                     font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 }
                             }
                             Label {
-                                // Untrusted text: never markup.
                                 textFormat: Text.PlainText
                                 Layout.fillWidth: true
                                 text: resultDelegate.body
@@ -534,8 +497,6 @@ Rectangle {
                                 elide: Label.ElideRight
                             }
                             Label {
-                                // Why a captioned attachment matched: its file
-                                // name. Untrusted text: never markup.
                                 objectName: "roomSearchResultFilename"
                                 visible: resultDelegate.filename.length > 0
                                 textFormat: Text.PlainText
@@ -599,22 +560,17 @@ Rectangle {
             }
         }
 
-        // Scrollable criteria, with the action footer outside.
         ScrollView {
             id: criteriaScroll
             visible: root.filterEditing
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            // Air between the header rule and the first heading.
             topPadding: AppTheme.spacing12
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
             contentWidth: availableWidth
 
             ColumnLayout {
-                // availableWidth, not parent.width: the content item's own
-                // width is not the viewport once the scrollbar takes room, and
-                // the controls then hug the right edge (C31-F09).
                 width: criteriaScroll.availableWidth
                 spacing: AppTheme.spacing16
 
@@ -714,9 +670,6 @@ Rectangle {
                             model: ["image", "video", "audio", "file", "link", "sticker"]
                             CheckBox {
                                 required property string modelData
-                                // Native control on a themed surface: the label
-                                // ink must follow the app palette, or it
-                                // renders in the OS default.
                                 palette.windowText: AppTheme.textPrimary
                                 text: root.typeLabel(modelData)
                                 enabled: !root.filterUnsupported(modelData)

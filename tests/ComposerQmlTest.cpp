@@ -64,8 +64,6 @@ int channelDelta(const QColor &a, const QColor &b)
 
 constexpr int kTolerance = 8;
 
-// A real, decodable 2x2 PNG, so the chip's preview tile is exercised rather
-// than the broken-image fallback.
 QByteArray tinyPng()
 {
     QImage image(2, 2, QImage::Format_RGB32);
@@ -117,7 +115,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class ComposerQmlTest : public QObject
 {
@@ -158,8 +156,6 @@ private:
             collectItems(child, name, out);
     }
 
-    // Read an int off the AppTheme singleton, so assertions pin the token
-    // rather than a copy of its value.
     int themeInt(const char *token) const
     {
         // Evaluated in the scene's context: AppTheme comes from the
@@ -186,8 +182,6 @@ private:
         return it ? it->property("color").value<QColor>() : QColor();
     }
 
-    // The mention popup is a Popup (a QObject, not a QQuickItem), found by
-    // object name.
     QObject *mentionPopup() const
     {
         return m_root->findChild<QObject *>(QStringLiteral("mentionPopup"));
@@ -197,18 +191,14 @@ private:
         QObject *p = mentionPopup();
         return p && p->property("visible").toBool();
     }
-    // Open the mention popup by focusing the input and typing an '@' query.
     void openMention(QQuickItem *input, const QString &query)
     {
         QMetaObject::invokeMethod(input, "forceActiveFocus");
         input->setProperty("text", QLatin1Char('@') + query);
         input->setProperty("cursorPosition", query.length() + 1);
-        QTest::qWait(60); // let the async member snapshot arrive and rebuild
+        QTest::qWait(60);
     }
 
-    // Tooltip probes. One ToolTip instance is shared by every control and its
-    // x/y are relative to whichever control it is shown for, so every read
-    // goes through the control and is only meaningful while it is showing.
     QObject *tipFor(QQuickItem *host) const
     {
         QQmlExpression expr(qmlContext(host), host,
@@ -244,7 +234,6 @@ private:
         return QRectF(it->mapToScene(QPointF(0, 0)),
                       QSizeF(it->width(), it->height()));
     }
-    // A Popup's x/y are in its `parent` item's coordinates.
     QRectF popupSceneRect(QObject *popup) const
     {
         auto *host = qobject_cast<QQuickItem *>(popup->property("parent")
@@ -268,7 +257,6 @@ private:
         QTest::mouseMove(m_window, QPoint(2, 2));
         QTest::qWait(80);
     }
-    // ToolTip.delay is 500 ms here; 900 leaves room for layout polish.
     bool hoverAndWaitForTip(QQuickItem *it, int ms = 900)
     {
         hoverOver(it);
@@ -312,23 +300,14 @@ private slots:
         delete m_controller;
     }
 
-    // The composer caret blinks while the reader is active and turns solid
-    // when idle. A field with a cursorDelegate never blinks the delegate
-    // itself, so a delegate bound to cursorVisible alone never blinked at all
-    // (live FAIL on a private Xvfb, 2026-10-26).
     void theComposerCaretBlinksThenGoesSolidWhenIdle()
     {
-        // The app's "stop the cursor blinking" preference is applied through
-        // this style hint (AppController); pin a blinking value here and
-        // restore whatever was there.
         QStyleHints *hints = QGuiApplication::styleHints();
         const int originalFlash = hints->cursorFlashTime();
         const auto restoreFlash = qScopeGuard([&] {
             hints->setCursorFlashTime(originalFlash);
         });
         hints->setCursorFlashTime(400);
-        // A room must be open: without one the composer is disabled and
-        // cannot take focus. Later cases expect none, so put it back.
         const QString originalRoom = m_controller->currentRoomId();
         const auto restoreRoom = qScopeGuard([&] {
             m_controller->setCurrentRoomId(originalRoom);
@@ -345,7 +324,6 @@ private slots:
         QQuickItem *cursor = nullptr;
         QTRY_VERIFY((cursor = findItem(input, QStringLiteral("idleCaretCursor"))));
 
-        // Sample one blink cycle and a half: both states must appear.
         const int period = QGuiApplication::styleHints()->cursorFlashTime();
         auto sample = [&](int ms) {
             QSet<bool> seen;
@@ -362,24 +340,19 @@ private slots:
         QVERIFY2(active.contains(true) && active.contains(false),
                  "the caret does not blink while the reader is typing");
 
-        // Idle: solid and steady.
         QTRY_VERIFY_WITH_TIMEOUT(idle->property("solid").toBool(), 3000);
         const QSet<bool> quiet = sample(period * 3 / 2);
         QCOMPARE(quiet, QSet<bool>{ true });
 
-        // A keystroke brings the blinking caret back.
         QTest::keyClick(m_window, Qt::Key_Left);
         QVERIFY(!idle->property("solid").toBool());
         QVERIFY(cursor->isVisible());
         const QSet<bool> again = sample(qMin(800, period * 3 / 2));
         QVERIFY2(again.contains(false), "activity did not restore blinking");
 
-        // The preference off (flash time 0): steady from the first keystroke,
-        // never a blink, before or after the idle spell.
         hints->setCursorFlashTime(0);
         QTest::keyClick(m_window, Qt::Key_Right);
         QCOMPARE(sample(800), QSet<bool>{ true });
-        // And back on: blinking resumes without a restart.
         hints->setCursorFlashTime(400);
         QTest::keyClick(m_window, Qt::Key_Left);
         QVERIFY2(sample(700).contains(false),
@@ -394,7 +367,6 @@ private slots:
 
     void oneCardWithToolbarAboveDividerAboveInput()
     {
-        // Open the collapsible toolbar and let it lay out first.
         item("composerBar")->setProperty("toolbarExpanded", true);
         QTest::qWait(50);
         auto *card = item("composerCard");
@@ -408,14 +380,11 @@ private slots:
         QVERIFY(toolbarY < dividerY);
         QVERIFY(dividerY < inputY);
         QCOMPARE(divider->height(), 1.0);
-        // The divider spans the card.
         QVERIFY(divider->width() >= card->width() - 4);
-        // Both rows live inside the same card.
         QVERIFY(toolbar->mapToScene(QPointF(0, 0)).y()
                 >= card->mapToScene(QPointF(0, 0)).y());
         QVERIFY(inputRow->mapToScene(QPointF(0, inputRow->height())).y()
                 <= card->mapToScene(QPointF(0, card->height())).y() + 1);
-        // Card geometry: 12px radius, 1px border, 20px side padding.
         QCOMPARE(card->property("radius").toInt(), 12);
         QCOMPARE(QQmlProperty::read(card, QStringLiteral("border.width")).toInt(), 1);
         QCOMPARE(card->mapToScene(QPointF(0, 0)).x(), 20.0);
@@ -446,16 +415,12 @@ private slots:
         auto *bold = item("composerFormat_bold");
         QCOMPARE(bold->width(), 28.0);
         QCOMPARE(bold->height(), 28.0);
-        // radiusControl, asserted against the token so the row cannot drift
-        // from the control system through a literal.
         QCOMPARE(bold->property("radius").toInt(), themeInt("radiusControl"));
         QCOMPARE(bold->property("iconSize").toInt(), 18);
     }
 
     void inputRowHasExactControlOrder()
     {
-        // The height button stands only while the box is expanded or holds
-        // more than one line.
         auto *bar = item("composerBar");
         QVERIFY(bar);
         bar->setProperty("composerExpanded", true);
@@ -466,8 +431,6 @@ private slots:
         const char *order[] = {
             "composerAttachButton", "composerFormatToggleButton",
             "composerInput", "composerEmojiButton",
-            // One button for GIFs and stickers; "send later" is a chevron
-            // right of Send.
             "composerMediaButton", "composerMicButton", "composerSendButton",
             "composerSendOptionsButton",
         };
@@ -481,10 +444,6 @@ private slots:
         }
     }
 
-    // Live 2026-11-01 on 0.10.3: a fixed third button left of the field read
-    // as the bar having been spaced out, and once it came and went with the
-    // line count it moved the text sideways (QA T-2). It floats in the
-    // editor's corner now, multi-line only, and nothing in the row moves.
     void heightButtonFloatsInTheEditorCornerAndMovesNothing()
     {
         auto *bar = item("composerBar");
@@ -509,8 +468,6 @@ private slots:
                  textXAlone);
         QCOMPARE(flick->width(), widthAlone);
 
-        // In the editor's top-right corner, and over the part of the field the
-        // text keeps clear of.
         const QRectF box = button->mapRectToScene(
             QRectF(0, 0, button->width(), button->height()));
         const QRectF field = flick->mapRectToScene(
@@ -522,7 +479,6 @@ private slots:
             - input->property("rightPadding").toReal();
         QVERIFY2(box.left() >= textRight, "the button stands over text");
 
-        // No dead gap after Aa: the row's own spacing and a caret's room.
         const qreal formatRight =
             format->mapToScene(QPointF(format->width(), 0)).x();
         QVERIFY2(textXAlone - formatRight <= 14.0,
@@ -536,8 +492,6 @@ private slots:
         QTRY_VERIFY(!button->isVisible());
     }
 
-    // Final retest N-2: the mode chip moved 56 px on a switch, so a second click
-    // landed on Numbered list.
     void theModeChipStaysUnderThePointerAcrossASwitch()
     {
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
@@ -559,7 +513,6 @@ private slots:
             QRectF(0, 0, chip->width(), chip->height()));
         QCOMPARE(rich.left(), markdown.left());
         QCOMPARE(rich.width(), markdown.width());
-        // Unseen in Markdown, and not clickable.
         settings->setComposerMode(QStringLiteral("markdown"));
         QTest::qWait(40);
         auto *ordered = item("composerFormat_orderedlist");
@@ -570,8 +523,6 @@ private slots:
         m_controller->setCurrentRoomId(QString());
     }
 
-    // Retest at 640x480: the expanded box stayed expanded, and empty, after a
-    // send.
     void sendingCollapsesTheBox()
     {
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
@@ -581,7 +532,6 @@ private slots:
         m_controller->composer()->setText(QStringLiteral("to send"));
         m_controller->composer()->send();
         QTRY_VERIFY(!bar->property("composerExpanded").toBool());
-        // Later cases start from no room.
         m_controller->setCurrentRoomId(QString());
     }
 
@@ -592,12 +542,10 @@ private slots:
         auto *toolbar = item("composerToolbarRow");
         QVERIFY(bar && toggle && toolbar);
 
-        // Collapsed by default: the toolbar takes no space.
         bar->setProperty("toolbarExpanded", false);
         QTest::qWait(30);
         QVERIFY(!toolbar->isVisible());
 
-        // Activating the toggle raises the toolbar above the input row.
         QMetaObject::invokeMethod(toggle, "click");
         QTest::qWait(50);
         QVERIFY(bar->property("toolbarExpanded").toBool());
@@ -607,7 +555,6 @@ private slots:
         QVERIFY(toolbar->mapToScene(QPointF(0, 0)).y()
                 < inputRow->mapToScene(QPointF(0, 0)).y());
 
-        // Toggling again returns the compact composer.
         QMetaObject::invokeMethod(toggle, "click");
         QTest::qWait(30);
         QVERIFY(!bar->property("toolbarExpanded").toBool());
@@ -622,7 +569,6 @@ private slots:
         QCOMPARE(send->height(), 34.0);
         QCOMPARE(send->property("radius").toInt(), 9);
         QCOMPARE(send->property("fill").toBool(), true);
-        // Empty composer: send is disabled but never a native outlined button.
         QCOMPARE(send->property("enabled").toBool(), false);
     }
 
@@ -672,8 +618,6 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(dialog, "close"));
     }
 
-    // The single GIF/sticker button is a glyph button like its neighbours:
-    // same size, borderless, with a pressed state.
     void mediaButtonMatchesItsGlyphRow()
     {
         QVERIFY2(!item("composerGifKeycap"),
@@ -708,7 +652,6 @@ private slots:
         QCOMPARE(m_controller->composer()->text(), QStringLiteral("**hello**"));
         const QVariantMap flags = bar->property("formatFlags").toMap();
         QVERIFY(flags.value(QStringLiteral("bold")).toBool());
-        // Toggle off restores the plain text and clears the chip state.
         QMetaObject::invokeMethod(bar, "applyFormat",
                                   Q_ARG(QVariant, QStringLiteral("bold")));
         QCOMPARE(input->property("text").toString(), QStringLiteral("hello"));
@@ -719,10 +662,6 @@ private slots:
 
     void consecutiveEmojiPicksAppendAtTheAdvancingCursor()
     {
-        // The emoji picker stays open for several picks; each pick used the
-        // insert point remembered when the picker OPENED, so two picks in a
-        // row came out in reverse order ("aYXb" for X then Y). Live run
-        // 2026-10-26. A selection is replaced by the first pick only.
         auto *bar = item("composerBar");
         auto *input = item("composerInput");
         QVERIFY(bar && input);
@@ -751,16 +690,14 @@ private slots:
         auto *card = item("composerCard");
         auto *toolbar = item("composerToolbarRow");
         QVERIFY(card && toolbar);
-        // Open the toolbar so its raised surface is on screen.
         item("composerBar")->setProperty("toolbarExpanded", true);
         QTest::qWait(50);
-        const int themes[] = { 9, 8, 10 }; // Indigo Night, Moss Light, Deep Teal
+        const int themes[] = { 9, 8, 10 };
         for (int mode : themes) {
             m_root->setProperty("themeMode", mode);
             QCoreApplication::processEvents();
             const QImage img = m_window->grabWindow();
             QVERIFY(!img.isNull());
-        // Sample the toolbar row's empty right side: card surface only.
             const QPointF p = card->mapToScene(
                 QPointF(card->width() - 24,
                         toolbar->mapToItem(card, QPointF(0, 0)).y()
@@ -794,12 +731,10 @@ private slots:
         QObject *info = m_controller->property("roomInfo").value<QObject *>();
         QVERIFY(input && model && info);
 
-        // The panel points at the room being typed in.
         info->setProperty("roomId", QStringLiteral("!general:mock.local"));
         QTest::qWait(80);
         QCOMPARE(info->property("roomId").toString(),
                  QStringLiteral("!general:mock.local"));
-        // The value an over-eager gate would consult really is false here.
         QVERIFY(!info->property("canNotifyRoom").toBool());
 
         openMention(input, QStringLiteral("room"));
@@ -813,9 +748,6 @@ private slots:
         QCOMPARE(row.value(QStringLiteral("userId")).toString(),
                  QStringLiteral("@room"));
 
-        // Sent as a whole-room mention: the body keeps a literal "@room" with
-        // no matrix.to link, and the id list carries the sentinel the Rust
-        // bridge turns into m.mentions.room.
         QTest::keyClick(m_window, Qt::Key_Return);
         QTest::qWait(20);
         QCOMPARE(input->property("text").toString(), QStringLiteral("@room "));
@@ -844,7 +776,6 @@ private slots:
         QVERIFY(popup);
         QVERIFY(m_controller->property("mentionSuggestions").value<QObject *>());
 
-        // The input keeps focus while the popup is open.
         QVERIFY(input->property("activeFocus").toBool());
 
         input->setProperty("text", QString());
@@ -884,8 +815,6 @@ private slots:
         QVERIFY(!popupVisible());
         QVERIFY(input->property("activeFocus").toBool());
 
-        // Sending delivers the expanded matrix.to markdown body and records
-        // the mention id at the backend.
         auto *mock = m_controller->findChild<MockMatrixClient *>();
         QVERIFY(mock);
         m_controller->composer()->send();
@@ -905,15 +834,13 @@ private slots:
         QVERIFY(input);
         openMention(input, QString());
         QVERIFY(popupVisible());
-        QTest::keyClick(m_window, Qt::Key_Return); // pick the first suggestion
+        QTest::keyClick(m_window, Qt::Key_Return);
         QTest::qWait(20);
         const QString inserted = input->property("text").toString();
         QVERIFY(inserted.startsWith(QLatin1Char('@')));
 
-        // Removing a character from inside the inserted name drops the ref,
-        // so no mention id is sent.
         QString broken = inserted.trimmed();
-        broken.chop(1); // drop the last name character
+        broken.chop(1);
         input->setProperty("text", broken);
         input->setProperty("cursorPosition", broken.length());
         QTest::qWait(20);
@@ -928,8 +855,6 @@ private slots:
         input->setProperty("text", QString());
     }
 
-    // Shift+Enter inserts a newline every time, and the composer grows with
-    // the draft up to its scroll cap.
     void shiftEnterInsertsEveryNewline()
     {
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
@@ -991,7 +916,6 @@ private slots:
         input->setProperty("text", QString());
     }
 
-    // At the narrowest supported window the input stays wide enough to read.
     void narrowWindowKeepsTheInputUsable()
     {
         const int restoreWidth = m_window->width();
@@ -1005,8 +929,6 @@ private slots:
         QTest::qWait(120);
     }
 
-    // A draft restored on room switch comes back intact with the caret at its
-    // end.
     void restoredDraftKeepsTextAndPlacesCaretAtTheEnd()
     {
         // DraftStore only saves for a live session, so sign the mock in.
@@ -1019,8 +941,6 @@ private slots:
             QVERIFY(spy.wait(4000));
             QTest::qWait(50);
         }
-        // Persisted drafts are account-scoped; without an account record
-        // SettingsManager writes nothing.
         if (auto *settings = m_controller->settings()) {
             settings->saveSession(QStringLiteral("https://mock.local"),
                                   QStringLiteral("@alice:mock.local"),
@@ -1040,7 +960,6 @@ private slots:
         const int caret = input->property("cursorPosition").toInt();
         QCOMPARE(restored, QStringLiteral("half a sentence"));
         QCOMPARE(caret, restored.length());
-        // Leave no stored draft for the next case.
         input->setProperty("text", QString());
         QTest::qWait(1200);
     }
@@ -1060,24 +979,18 @@ private slots:
         QTest::keyClick(m_window, Qt::Key_Escape);
         QTest::qWait(20);
         QVERIFY(!popupVisible());
-        // The reply state survives: Escape only closed the popup.
         QVERIFY(m_controller->composer()->isReplying());
 
         m_controller->composer()->cancelReplyOrEdit();
         input->setProperty("text", QString());
     }
 
-    // Reply (hover bar, menu, R, double-click) arms the composer and must hand
-    // it the keyboard: otherwise the next keystrokes go nowhere. Fails on the
-    // old composer, which never took focus for a reply.
     void startingAReplyGivesTheComposerTheKeyboard()
     {
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
         QTest::qWait(30);
         auto *input = item("composerInput");
         QVERIFY(input);
-        // The root item is a focus scope, so focusing it keeps the input's
-        // focus: move the keyboard to a sibling outside the composer instead.
         QQuickItem focusSink(m_window->contentItem());
         focusSink.forceActiveFocus();
         QTest::qWait(20);
@@ -1095,8 +1008,6 @@ private slots:
         QTest::qWait(1200);
     }
 
-    // The other half: a reply restored with a room's draft is not the user
-    // starting one, and switching rooms must not steal the keyboard.
     void aRestoredReplyDraftDoesNotTakeTheKeyboard()
     {
         if (auto *settings = m_controller->settings()) {
@@ -1133,10 +1044,6 @@ private slots:
         QTest::qWait(1200);
     }
 
-    // The "Message #room" placeholder reads the room through findRoom(), a
-    // Q_INVOKABLE no binding tracks, so a room named after it was opened kept
-    // "Message #Empty Room". The composer now re-reads on every room-list
-    // change. Fails on the old composer, which has no revision to bump.
     void thePlaceholderFollowsRoomListChanges()
     {
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
@@ -1152,15 +1059,12 @@ private slots:
         Q_EMIT model->dataChanged(first, first);
         QTest::qWait(10);
         QVERIFY(bar->property("roomListRevision").toInt() > before.toInt());
-        // And the placeholder still names the room after the re-read.
         auto *input = item("composerInput");
         QVERIFY(input);
         QVERIFY(input->property("placeholderText").toString()
                     .startsWith(QStringLiteral("Message ")));
     }
 
-    // The formatting toggle wore edit_square, the hover bar's "Edit message"
-    // glyph. Fails on the old toggle.
     void theFormattingToggleDoesNotWearTheEditGlyph()
     {
         auto *toggle = item("composerFormatToggleButton");
@@ -1173,11 +1077,6 @@ private slots:
         QVERIFY(glyph->isVisible());
     }
 
-    // A dead-key composition (QInputMethodEvent preedit) must survive until
-    // the next keystroke composes it. Rewriting the text, moving the cursor or
-    // re-laying out the document cancels it, and the composer has three
-    // per-keystroke candidates: the write-back to AppComposer, mention
-    // re-anchoring and the MentionHighlighter (tested with a live mention).
     void aDeadKeyPreeditSurvivesAndComposesInOneKeystroke()
     {
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
@@ -1202,21 +1101,18 @@ private slots:
             QGuiApplication::sendEvent(focus, &event);
         };
 
-        // The dead key: composing, nothing committed yet.
         sendIm(QStringLiteral("¨"), QString());
         QTest::qWait(30);
         QCOMPARE(input->property("preeditText").toString(),
                  QStringLiteral("¨"));
         QCOMPARE(input->property("text").toString(), QString());
 
-        // The next keystroke composes it: one press, not two.
         sendIm(QString(), QStringLiteral("ä"));
         QTest::qWait(30);
         QCOMPARE(input->property("text").toString(), QStringLiteral("ä"));
         QVERIFY(input->property("preeditText").toString().isEmpty());
         QCOMPARE(m_controller->composer()->text(), QStringLiteral("ä"));
 
-        // With a real mention the highlighter formats the same document.
         input->setProperty("text", QString());
         QTest::qWait(20);
         openMention(input, QString());
@@ -1238,8 +1134,6 @@ private slots:
         QCOMPARE(input->property("text").toString(),
                  withMention + QStringLiteral("ä"));
 
-        // Negative control: a write-back to the text does cancel a composition,
-        // so the assertions above cannot pass vacuously.
         sendIm(QStringLiteral("\u00a8"), QString());
         QTest::qWait(30);
         QCOMPARE(input->property("preeditText").toString(),
@@ -1254,11 +1148,6 @@ private slots:
         QTest::qWait(20);
     }
 
-
-
-    // The composer text sits on the icons' centre line. TextArea-in-Flickable
-    // can park contentY at a small negative offset until clicked; it depends
-    // on content height, so the harness loads the application's own fonts.
     void theComposerTextSharesTheIconsCentreLine()
     {
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
@@ -1273,8 +1162,6 @@ private slots:
         auto centreOf = [](QQuickItem *it) {
             return it->mapToItem(nullptr, QPointF(0, it->height() / 2)).y();
         };
-        // Where the placeholder is painted, not where its item sits: the offset
-        // lives in the flickable's scroll position.
         auto textCentre = [&]() -> double {
             for (QQuickItem *k : input->childItems()) {
                 const QVariant t = k->property("text");
@@ -1299,9 +1186,6 @@ private slots:
         m_controller->settings()->setTextScale(100);
     }
 
-    // Settings > Appearance > Message box buttons hides buttons. Driven through
-    // the real setting: hiddenComposerButtons notifies, which re-evaluates
-    // each `visible` binding (a Q_INVOKABLE would not).
     void hidingAComposerButtonInSettingsRemovesItFromTheRow()
     {
         auto *settings = m_controller->settings();
@@ -1314,9 +1198,6 @@ private slots:
             { "formatting", "composerFormatToggleButton" },
             { "sendOptions", "composerSendOptionsButton" },
         };
-        // Measure, restore, then assert: all cases share one QSettings file, so
-        // an assertion firing mid-loop would leave a button hidden for later
-        // cases and runs.
         struct Observed { bool present; bool before; bool hidden; bool after; };
         QList<Observed> seen;
         for (const auto &c : cases) {
@@ -1353,10 +1234,6 @@ private slots:
         }
     }
 
-    // GIFs and stickers are one window with two tabs: two picker components
-    // that the host swaps in place (same anchor, same remembered size, no
-    // transition). Driven through the host's entry points, since the swap is
-    // the feature.
     void theMediaPickerIsOneWindowWithTwoTabs()
     {
         auto *bar = item("composerBar");
@@ -1377,7 +1254,6 @@ private slots:
                  "the one media button did not open the GIF panel");
         QVERIFY(!opened("composerStickerPicker"));
 
-        // The inner strip asks the host to swap.
         QMetaObject::invokeMethod(bar, "swapMediaPicker",
                                   Q_ARG(QVariant, QStringLiteral("sticker")));
         QTest::qWait(80);
@@ -1387,7 +1263,6 @@ private slots:
                  "swapping left the GIF panel open too: that is two windows, "
                  "which is exactly what this replaced");
 
-        // Same anchor and size key, so it reads as one window.
         auto *gif = m_root->findChild<QObject *>(
             QStringLiteral("composerGifPicker"));
         auto *sticker = m_root->findChild<QObject *>(
@@ -1398,8 +1273,6 @@ private slots:
         QCOMPARE(gif->property("sizeSettingsKey").toString(),
                  sticker->property("sizeSettingsKey").toString());
 
-        // The button toggles the pair: pressing it on the sticker half closes
-        // the window.
         QMetaObject::invokeMethod(bar, "openMediaPicker",
                                   Q_ARG(QVariant, false));
         QTest::qWait(80);
@@ -1410,7 +1283,6 @@ private slots:
         QTest::qWait(30);
     }
 
-    // Send options are a chevron right of Send, not a glyph in the icon row.
     void sendOptionsSitRightOfSendAndOfferBothActions()
     {
         auto *send = item("composerSendButton");
@@ -1422,7 +1294,6 @@ private slots:
         QVERIFY2(chevron->mapToScene(QPointF(0, 0)).x()
                      > send->mapToScene(QPointF(0, 0)).x(),
                  "the chevron is not to the right of Send");
-        // Narrower than Send, same height: a split button.
         QCOMPARE(chevron->height(), send->height());
         QVERIFY(chevron->width() < send->width());
 
@@ -1432,20 +1303,14 @@ private slots:
         }
     }
 
-    // Picker buttons toggle. The pickers close on press outside, and the
-    // button's click arrives on release, reopening the panel. Needs a real
-    // mouse click on the real button to reproduce the ordering.
     void aSecondPressOnAPickerButtonClosesItsPanel()
     {
         auto *bar = item("composerBar");
         QVERIFY(bar != nullptr);
         const QString previousRoom = m_controller->currentRoomId();
-        // The icon buttons require an open room.
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
         QTest::qWait(30);
 
-        // Pickers are Popups found by objectName; an `id` lives in
-        // MessageComposerBar's own context, not the scene's.
         auto opened = [this](const char *name) {
             QObject *p = m_root->findChild<QObject *>(QLatin1String(name));
             return p && p->property("opened").toBool();
@@ -1475,7 +1340,6 @@ private slots:
                  "pressing the emoji button again left the panel open — it "
                  "closed on the press and the click reopened it");
 
-        // A third press opens it again: the toggle must not latch shut.
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
                           centre.toPoint());
         QTest::qWait(120);
@@ -1489,15 +1353,10 @@ private slots:
         m_controller->setCurrentRoomId(previousRoom);
     }
 
-    // Completion popups (mention, slash command, emoji shortcode) must clear
-    // the whole composer card, not just the text field, or they cover the
-    // formatting toolbar and the reply/thread banner.
     void aCompletionPopupClearsTheWholeComposerCard()
     {
         const int restoreHeight = m_window->height();
         const QString previousRoom = m_controller->currentRoomId();
-        // Tall enough that the popup's bottom clamp is not the constraint
-        // being measured.
         m_window->setHeight(820);
         QTest::qWait(120);
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
@@ -1522,8 +1381,6 @@ private slots:
         const qreal popupBottom = popupTop + popup->property("height").toReal();
         const qreal cardTop = card->mapToScene(QPointF(0, 0)).y();
         const qreal toolbarTop = toolbar->mapToScene(QPointF(0, 0)).y();
-        // The popup's parent is Overlay.overlay, so its y is in scene
-        // coordinates.
         QVERIFY2(popupBottom <= toolbarTop + 0.5,
                  qPrintable(QStringLiteral(
                      "the popup (%1..%2) overlaps the formatting toolbar "
@@ -1534,7 +1391,6 @@ private slots:
                  qPrintable(QStringLiteral(
                      "the popup (%1..%2) reaches into the composer card "
                      "(top %3)").arg(popupTop).arg(popupBottom).arg(cardTop)));
-        // ...and it stays attached: the gap is the popups' 4 px.
         QVERIFY2(cardTop - popupBottom <= 8.0,
                  qPrintable(QStringLiteral("the popup detached from the card "
                                            "by %1 px").arg(cardTop - popupBottom)));
@@ -1547,16 +1403,11 @@ private slots:
         QTest::qWait(120);
     }
 
-    // The `+` menu opens above the card, like its siblings, not at the
-    // pointer over the composer. A real click: popup() also destroys the y
-    // binding, so y must still follow after the click.
     void theAttachMenuOpensAboveTheCardNotOverIt()
     {
         const int restoreWidth = m_window->width();
         const QString previousRoom = m_controller->currentRoomId();
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
-        // Narrow, so the button opens the menu; a wide row with polls
-        // unsupported goes straight to a native file dialog.
         m_window->setWidth(360);
         QTest::qWait(150);
 
@@ -1589,9 +1440,6 @@ private slots:
                         .arg(y).arg(h).arg(-h - 4.0)));
         QVERIFY2(y + h <= 0.0,
                  "the attach menu still hangs down over the composer card");
-        // The anchor is a live binding: popup() would assign x/y and destroy
-        // it, and offscreen a pointer-placed menu can land close enough to pass
-        // a static check. Change the height and y must follow.
         menu->setProperty("height", h + 24.0);
         QTest::qWait(60);
         QVERIFY2(qAbs(menu->property("y").toReal() - (-(h + 24.0) - 4.0)) < 0.5,
@@ -1600,7 +1448,6 @@ private slots:
                      "(y=%1 after height %2): something assigned it, and a "
                      "popup() at the button is what does that")
                         .arg(menu->property("y").toReal()).arg(h + 24.0)));
-        // It stays inside the window.
         const qreal sceneBottom = card->mapToScene(QPointF(0, y + h)).y();
         QVERIFY2(sceneBottom <= m_window->height(),
                  "the attach menu runs off the bottom of the window");
@@ -1612,8 +1459,6 @@ private slots:
         m_controller->setCurrentRoomId(previousRoom);
     }
 
-    // Every attachment chip in the tray has the same height (image chips and
-    // file chips differ in content), so the Flow has an even bottom edge.
     void everyAttachmentChipIsTheSameHeight()
     {
         const QString previousRoom = m_controller->currentRoomId();
@@ -1648,7 +1493,6 @@ private slots:
                      "file chip floats above the image chip beside it")
                         .arg(qAbs(chips[0]->height() - chips[1]->height()))
                         .arg(chips[0]->height()).arg(chips[1]->height())));
-        // Bottom edges are what the eye reads in a Flow.
         QVERIFY2(qAbs(chips[0]->mapToScene(QPointF(0, chips[0]->height())).y()
                       - chips[1]->mapToScene(QPointF(0, chips[1]->height())).y())
                      < 0.5,
@@ -1661,9 +1505,6 @@ private slots:
         m_controller->setCurrentRoomId(previousRoom);
     }
 
-    // C42-F01/D09: Return on a focused toolbar button presses THAT button;
-    // it used to bubble to the composer's root handler and send the staged
-    // files. Old code: the queue is sent (count 0) and the menu stays shut.
     void returnOnAFocusedToolbarButtonPressesItAndSendsNothing()
     {
         const QString previousRoom = m_controller->currentRoomId();
@@ -1681,8 +1522,6 @@ private slots:
         QVERIFY(queue);
         QTRY_COMPARE(queue->property("count").toInt(), 1);
 
-        // Narrow, so the button opens its menu (a wide row with polls
-        // unsupported would open a native file dialog instead).
         const int restoreWidth = m_window->width();
         m_window->setWidth(360);
         QTest::qWait(150);
@@ -1704,8 +1543,6 @@ private slots:
         m_controller->setCurrentRoomId(previousRoom);
     }
 
-    // In a narrow row the formatting toggle is offered from the overflow menu,
-    // or an open toolbar could not be put away.
     void aNarrowRowStillOffersTheFormattingToggle()
     {
         const int restoreWidth = m_window->width();
@@ -1736,7 +1573,6 @@ private slots:
         QVERIFY2(formatting != nullptr,
                  "the compact overflow menu offers no Formatting item, so an "
                  "open toolbar cannot be closed at this width");
-        // Menu rows report effective visibility, so open the menu first.
         auto *overflow = m_root->findChild<QObject *>(
             QStringLiteral("composerOverflowMenu"));
         QVERIFY(overflow);
@@ -1747,8 +1583,6 @@ private slots:
         QVERIFY2(formatting->property("text").toString()
                      .contains(QStringLiteral("formatting"), Qt::CaseInsensitive),
                  "the Formatting item does not name what it does");
-        // Clicked on the row with the menu open; emitting `triggered` directly
-        // proves nothing about reachability.
         auto clickTheRow = [this, formatting, overflow]() {
             auto *row = qobject_cast<QQuickItem *>(formatting);
             QVERIFY(row);
@@ -1764,7 +1598,6 @@ private slots:
         QVERIFY2(!bar->property("toolbarExpanded").toBool(),
                  "the overflow menu's Formatting item did not close the "
                  "toolbar");
-        // It toggles: it opens the toolbar again.
         QMetaObject::invokeMethod(overflow, "open");
         QTest::qWait(150);
         clickTheRow();
@@ -1777,9 +1610,6 @@ private slots:
         m_controller->setCurrentRoomId(previousRoom);
     }
 
-    // The voice preview draws the waveform it is handed. Buckets are 0..100,
-    // so bars must differ and a loud bucket must be taller than a quiet one;
-    // clamping with Math.min(1, v) would draw a solid block.
     void theVoicePreviewDrawsTheWaveformItIsHanded()
     {
         const QString previousRoom = m_controller->currentRoomId();
@@ -1791,8 +1621,6 @@ private slots:
         for (int i = 0; i < 18; ++i)
             wave << (i % 2 == 0 ? 100 : 10);
         QVariantMap pending;
-        // No filePath, so nothing decodes or plays; the strip is drawn from
-        // the buckets alone.
         pending.insert(QStringLiteral("filePath"), QString());
         pending.insert(QStringLiteral("mime"), QStringLiteral("audio/ogg"));
         pending.insert(QStringLiteral("durationMs"), 29000);
@@ -1834,18 +1662,12 @@ private slots:
         QVERIFY2(maxH <= strip->height() + 0.5,
                  "a waveform bar is taller than the strip containing it");
 
-        // Cleared through the composer's own path: an empty file path makes
-        // AppController::discardPreparedVoice refuse before touching the
-        // recorder.
         QMetaObject::invokeMethod(bar, "discardPendingVoice");
         QTest::qWait(60);
         QVERIFY(!preview->isVisible());
         m_controller->setCurrentRoomId(previousRoom);
     }
 
-    // The compact "…" menu must not elide its own rows; AppMenu's design
-    // width is a floor. Asserted as implicit width against given width, so a
-    // longer translation also fails here.
     void theCompactOverflowMenuDoesNotElideItsOwnRows()
     {
         const int restoreWidth = m_window->width();
@@ -1879,7 +1701,6 @@ private slots:
                             .arg(row->implicitWidth()).arg(row->width())
                             .arg(menu->property("width").toReal())));
         }
-        // Assert the count measured, so an all-invisible loop cannot pass.
         QCOMPARE(measured, 4);
 
         QMetaObject::invokeMethod(menu, "close");
@@ -1889,11 +1710,6 @@ private slots:
         m_controller->setCurrentRoomId(previousRoom);
     }
 
-    // The format toggle's tooltip must not be drawn over the toolbar it opens.
-    // The Basic style draws a tip above its control and does not close it on
-    // a press inside the control, and the card grows upward into it. Asserts
-    // the tip exists while closed, that the toolbar overlaps its rectangle,
-    // and that it is hidden once the toolbar is open.
     void theFormatTipIsNotDrawnOverTheToolbarItOpens()
     {
         const QString previousRoom = m_controller->currentRoomId();
@@ -1962,9 +1778,6 @@ private slots:
         m_controller->setCurrentRoomId(previousRoom);
     }
 
-    // A menu this bar opens (attach, send options) must not cover its own
-    // button's tooltip: menus sit at `y: -height - 4` on the card and tips 3 px
-    // above their control, so the tip would survive as a sliver under the menu.
     void aMenuThisBarOpensDoesNotCoverItsOwnButtonsTip()
     {
         const QString previousRoom = m_controller->currentRoomId();
@@ -2022,7 +1835,6 @@ private slots:
                             .arg(r2s(band)).arg(r2s(menuRect))));
             ++measured;
         }
-        // Assert the count, so a hidden button cannot leave nothing asserted.
         QCOMPARE(measured, 2);
 
         m_window->setWidth(restoreWidth);
@@ -2030,10 +1842,6 @@ private slots:
         m_controller->setCurrentRoomId(previousRoom);
     }
 
-    // The mode chip (the formatting row's one worded chip) never paints outside
-    // the card: the RowLayout will not shrink it below its implicit width, so
-    // it moves into the overflow menu instead. `minWidth: 0` does not help:
-    // AppButton's label does not elide. Both outcomes are counted.
     void theModeChipNeverPaintsOutsideTheCard()
     {
         const QString previousRoom = m_controller->currentRoomId();
@@ -2099,7 +1907,6 @@ private slots:
                      "the narrow half of this case measures nothing")
                         .arg(displaced)));
 
-        // Displaced, not dropped: the overflow menu carries it and it works.
         settings->setComposerMode(QStringLiteral("markdown"));
         m_window->setWidth(320);
         QTest::qWait(180);
@@ -2120,7 +1927,6 @@ private slots:
                      "the composing-mode row is elided: it needs %1 px and "
                      "was given %2")
                         .arg(row->implicitWidth()).arg(row->width())));
-        // Clicked on the row; emitting `triggered` proves nothing about it.
         const QPointF centre = row->mapToScene(
             QPointF(row->width() / 2.0, row->height() / 2.0));
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
@@ -2152,13 +1958,6 @@ private slots:
         QVERIFY(item("composerInput")->isVisible());
     }
 
-    // Break-it B027/B123 follow-up: the posting block read app.roomInfo only,
-    // which describes the open room only while its info panel inspects it, so
-    // in the default path the composer was never replaced and a send failed
-    // at the server. The open room's own facts (app.openRoomPermissions, read
-    // on every open from local state) now act with NO panel open: a refusal,
-    // a membership that is not "joined", and a tombstone each replace the
-    // composer with their reason, and another room's answer never does.
     void thePostingBlockActsWithNoRoomPanelOpen()
     {
         auto *mock = m_controller->findChild<MockMatrixClient *>();
@@ -2171,7 +1970,6 @@ private slots:
         const QString room = QStringLiteral("!general:mock.local");
         const QString other = QStringLiteral("!devs:mock.local");
         const QString previousRoom = m_controller->currentRoomId();
-        // Nobody has opened a panel: the room-info controller is on no room.
         const QString previousInfoRoom = m_controller->roomInfo()->roomId();
         m_controller->roomInfo()->setRoomId(QString());
         const auto restore = qScopeGuard([&] {
@@ -2185,7 +1983,6 @@ private slots:
         QTest::qWait(30);
         QVERIFY(!bar->property("postBlocked").toBool());
 
-        // The SDK says we may not post (a power-level change pokes the room).
         QVariantMap muted;
         muted.insert(QStringLiteral("ownMembership"), QStringLiteral("joined"));
         muted.insert(QStringLiteral("canSendMessages"), false);
@@ -2201,7 +1998,6 @@ private slots:
                                 "room."));
         QVERIFY2(!cont->isVisible(), "a refusal offers a successor room");
 
-        // Removed from the room: the membership is the reason.
         QVariantMap left;
         left.insert(QStringLiteral("ownMembership"), QStringLiteral("left"));
         mock->setOwnPermissionsForTest(room, left);
@@ -2210,7 +2006,6 @@ private slots:
                                   3000);
         QVERIFY(blocked->isVisible());
 
-        // Another room's refusal is not shown here: switching clears it.
         mock->setOwnPermissionsForTest(room, muted);
         QTRY_VERIFY_WITH_TIMEOUT(blocked->isVisible(), 3000);
         m_controller->setCurrentRoomId(other);
@@ -2221,7 +2016,6 @@ private slots:
         QVERIFY(!blocked->isVisible());
         QVERIFY(item("composerInput")->isVisible());
 
-        // Allowed again: the composer comes back.
         m_controller->setCurrentRoomId(room);
         QTRY_VERIFY_WITH_TIMEOUT(blocked->isVisible(), 3000);
         QVariantMap allowed = muted;
@@ -2230,8 +2024,6 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!blocked->isVisible(), 3000);
         QVERIFY(item("composerInput")->isVisible());
 
-        // A tombstone: the reason and the successor link, still with no
-        // panel open.
         mock->setRoomSuccessorForTest(room, other);
         QTRY_VERIFY_WITH_TIMEOUT(blocked->isVisible(), 3000);
         QCOMPARE(reason->property("text").toString(),
@@ -2240,13 +2032,6 @@ private slots:
                  "a replaced room does not offer its successor");
     }
 
-    // The slash-command permission hints read the open room's own facts
-    // first, as the posting block does, with no room panel open (they used
-    // to read app.roomInfo only, so they stayed all-allowed): a known
-    // membership other than "joined" offers none of the moderation commands,
-    // and a joined answer's kick/ban/unban/invite/topic/name facts decide
-    // each command, key by key. A key the answer does not carry falls back to
-    // the room-info controller (not on this room here: allowed).
     void theCommandHintsReadTheOpenRoomsFactsFirst()
     {
         auto *mock = m_controller->findChild<MockMatrixClient *>();
@@ -2283,8 +2068,6 @@ private slots:
                          && !allowed(key),
                      qPrintable(key));
 
-        // Joined with the SDK's answers: each key follows its own fact, and
-        // the one it does not carry (unban) stays allowed.
         QVariantMap joined;
         joined.insert(QStringLiteral("ownMembership"),
                       QStringLiteral("joined"));
@@ -2302,7 +2085,6 @@ private slots:
         QVERIFY(allowed(QStringLiteral("topic")));
         QVERIFY(!allowed(QStringLiteral("roomname")));
 
-        // Joined with no moderation facts says nothing: all allowed again.
         QVariantMap bare;
         bare.insert(QStringLiteral("ownMembership"), QStringLiteral("joined"));
         mock->setOwnPermissionsForTest(room, bare);
@@ -2311,11 +2093,6 @@ private slots:
             QVERIFY2(allowed(key), qPrintable(key));
     }
 
-    // #42 "Drag and drop not working": real drag events on the PRODUCTION
-    // composer bar, so the QML handler, the URL repair and the portal route are
-    // what is under test. Each drop failed with "That file cannot be read."
-    // before the fix: a file://localhost URL became the path //localhost/...,
-    // and a sandboxed drop's portal key was never read.
     void aDropOnTheComposerReachesTheQueue()
     {
         auto *bar = item("composerBar");
@@ -2353,7 +2130,6 @@ private slots:
                                        QByteArray(64, 'd'));
         QVERIFY(!path.isEmpty());
 
-        // file://localhost/..., CRLF-terminated as text/uri-list specifies.
         {
             QUrl url = QUrl::fromLocalFile(path);
             url.setHost(QStringLiteral("localhost"));
@@ -2366,8 +2142,6 @@ private slots:
         }
         queue->clearAll();
 
-        // A sandboxed drop: the host path does not exist here, the portal key
-        // names the file.
         QString askedKey;
         AttachmentQueueModel::setPortalRetrieveHook(
             [&](const QString &key,
@@ -2397,11 +2171,6 @@ private slots:
         QCOMPARE(m_warnings, QStringList{});
     }
 
-    // The timeline's chat-wide drop hands its URLs and the portal key to
-    // MessageComposer::addDroppedAttachments (pinned by
-    // QmlBindingContractTest::chatWideDropQueuesAttachmentsWithRichPreviews);
-    // this scene has no TimelinePane, so the composer half is driven here:
-    // the portal key wins over a host path the sandbox cannot read.
     void aDropOnTheTimelineUsesThePortalKey()
     {
         const QString previousRoom = m_controller->currentRoomId();
@@ -2437,12 +2206,6 @@ private slots:
                      .toUrl().toLocalFile(), exported);
     }
 
-    // ---- C37 keyboard fixes. Each fails on the unfixed composer, and each
-    // runs against BOTH editors: the markdown and the rich editor carry
-    // separate copies of every key handler. ----
-
-    // The numeric keypad's Enter is delivered as Key_Enter, a signal the
-    // editors did not handle, so it inserted a newline instead of sending.
     void keypadEnterSendsLikeReturn_data() { modeColumn(); }
     void keypadEnterSendsLikeReturn()
     {
@@ -2461,8 +2224,6 @@ private slots:
         QCOMPARE(m_controller->composer()->text().trimmed(), QString());
     }
 
-    // QA T-4: Bold widened the text around a caret that had not moved, and it
-    // stayed drawn inside the last word.
     void aFormatChangeRedrawsTheCaret()
     {
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
@@ -2486,8 +2247,6 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(editor, "positionToRectangle",
                                           Q_RETURN_ARG(QRectF, expected),
                                           Q_ARG(int, at)));
-        // The drawn caret: the cursorRectangle property is computed on read
-        // and is right even while the delegate stands in the old place.
         QQuickItem *caret = nullptr;
         for (QQuickItem *child : editor->childItems())
             if (child->objectName() == QLatin1String("idleCaretCursor"))
@@ -2496,7 +2255,6 @@ private slots:
         QCOMPARE(caret->x(), expected.x());
     }
 
-    // QA T-3, through the real mode switch: four lines stay four, both ways.
     void aModeSwitchKeepsTheDraftsLines()
     {
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
@@ -2517,9 +2275,6 @@ private slots:
         QCOMPARE(m_controller->composer()->text().trimmed(), draft);
     }
 
-    // Review F3, F4 through the real routes: a draft switched to rich, a message
-    // opened for edit in rich, and a draft restored in rich all open with
-    // every word, never empty.
     void richKeepsEveryWordOnEveryRoute_data()
     {
         QTest::addColumn<QString>("text");
@@ -2563,8 +2318,6 @@ private slots:
         QCOMPARE(plainOfRich(), text);
     }
 
-    // There and back with the box untouched leaves a long rich paragraph one
-    // paragraph: the mirror is folded at 80 columns and a fold is not a line.
     void aLongRichLineSurvivesAnUntouchedTripThroughMarkdown()
     {
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
@@ -2589,7 +2342,6 @@ private slots:
         QCOMPARE(document->toPlainText(), words);
     }
 
-    // QA T-7: Up on a rich-mode message opened it plain and saving stripped it.
     void editingAFormattedMessageKeepsItsFormatting_data() { modeColumn(); }
     void editingAFormattedMessageKeepsItsFormatting()
     {
@@ -2617,8 +2369,6 @@ private slots:
         m_controller->composer()->cancelReplyOrEdit();
     }
 
-    // A chat message never wants a literal tab, and swallowing Tab trapped
-    // keyboard users in the editor.
     void tabLeavesTheEditorAndInsertsNoTab_data() { modeColumn(); }
     void tabLeavesTheEditorAndInsertsNoTab()
     {
@@ -2636,8 +2386,6 @@ private slots:
         QVERIFY(!editor->property("activeFocus").toBool());
     }
 
-    // Escape with only the emoji popup open used to fall through (and, in the
-    // app, leave the conversation); it closes the popup and nothing else.
     void escapeClosesTheEmojiPopup_data() { modeColumn(); }
     void escapeClosesTheEmojiPopup()
     {
@@ -2660,9 +2408,6 @@ private slots:
         QVERIFY(!emoji->property("visible").toBool());
     }
 
-    // The Menu key opened Qt's built-in unthemed menu; it opens the
-    // composer's own, as does Shift+F10. The spell rows that are hidden must
-    // also be disabled or keyboard navigation steps through them.
     void menuKeyAndShiftF10OpenTheComposerMenu_data() { modeColumn(); }
     void menuKeyAndShiftF10OpenTheComposerMenu()
     {
@@ -2699,10 +2444,6 @@ private slots:
         }
     }
 
-    // "Send as message" is the way past a refused slash command; for the size
-    // refusal it re-sends the same body and the banner returns. The composer
-    // says which refusal it is (commandErrorBypassable), so a body that
-    // merely starts with "/" does not get the button either.
     void sendAsMessageIsOnlyOfferedForARefusedCommand()
     {
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
@@ -2712,7 +2453,6 @@ private slots:
         auto *btn = item("composerSendAnywayButton");
         QVERIFY(btn);
 
-        // Oversize, and beginning with "/" like a pasted path.
         input->setProperty("text",
                            QStringLiteral("/") + QString(70000, QLatin1Char('a')));
         QTest::qWait(30);
@@ -2724,7 +2464,6 @@ private slots:
         input->setProperty("text", QString());
         QTest::qWait(30);
 
-        // A known command refused for its arguments: the button must show.
         input->setProperty("text", QStringLiteral("/me"));
         QTest::qWait(30);
         composer->send();
@@ -2735,8 +2474,6 @@ private slots:
         input->setProperty("text", QString());
     }
 
-    // F09: every formatting button that is shown must lie inside the card at
-    // every width, rich mode included (its two extra chips are what overflow).
     void everyShownToolbarButtonLiesInsideTheCard()
     {
         const QString previousRoom = m_controller->currentRoomId();
@@ -2785,8 +2522,6 @@ private slots:
     }
 
 private:
-    // Switches the composer to `mode`, focuses its editor and returns it.
-    // Restores the mode and clears the draft on destruction.
     struct ModeScope {
         SettingsManager *settings;
         QString previous;
@@ -2825,8 +2560,6 @@ private:
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
-    // Match main.cpp: bundled fonts, Manrope as the application font and the
-    // Basic style, so the harness measures the typeface the app renders.
     for (const char *font : { "Manrope[wght].ttf", "JetBrainsMono[wght].ttf",
                               "Inter[wght].ttf", "IBMPlexSans[wght].ttf",
                               "SourceSans3[wght].ttf",

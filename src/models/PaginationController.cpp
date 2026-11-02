@@ -78,12 +78,8 @@ void PaginationController::setRoomId(const QString &roomId)
     m_roomId = roomId;
     clearNavigation();
     resetPerRoomState();
-    // Room opening and the Rust snapshot are asynchronous. Record the intent
-    // now; the readiness notification dispatches it once the live timeline
-    // generation is adopted.
     m_initialHistoryRequested = !roomId.isEmpty();
     m_deferredFill = m_initialHistoryRequested;
-    // What the backend already knows about the new room's history.
     if (m_client && !roomId.isEmpty() && !m_client->paginating(roomId))
         m_moreHistoryKnown = m_client->canPaginate(roomId);
     Q_EMIT roomIdChanged();
@@ -133,8 +129,6 @@ bool PaginationController::nearTopRunActive() const
 
 bool PaginationController::reachedStart() const
 {
-    // The backend exposes reached-start only through canPaginate(); derive
-    // it without conflating "loading right now" with "no more history".
     if (!m_client || m_roomId.isEmpty())
         return false;
     return m_client->paginationReady(m_roomId)
@@ -200,8 +194,6 @@ bool PaginationController::initialContentSettled() const
 {
     if (m_roomId.isEmpty() || !m_initialHistoryRequested)
         return false;
-    // Not settled while the timeline is still being built or while an
-    // automatic fill/retry can still add content without user input.
     if (m_deferredFill && m_client && !m_client->paginationReady(m_roomId))
         return false;
     return m_initialHistoryHasSucceeded || m_fillStopped || reachedStart()
@@ -225,7 +217,6 @@ void PaginationController::requestViewportFill()
 {
     if (m_fillStopped)
         return;
-    // One cap, honoured as configured; see m_maxFillRequests.
     if (m_fillRequests >= m_maxFillRequests) {
         m_fillStopped = true;
         qCInfo(lcPagination)
@@ -234,8 +225,6 @@ void PaginationController::requestViewportFill()
         emitStateChanged();
         return;
     }
-    // A persistent/exhausted failure stays a user gesture. A backend-marked
-    // transient initial failure is handled only by the bounded timer policy.
     m_initialHistoryRequested = true;
     if (failed() || m_autoRetryTimer.isActive())
         return;
@@ -246,15 +235,8 @@ void PaginationController::requestNearTop(bool userInitiated)
 {
     if (failed() || m_autoRetryTimer.isActive())
         return;
-    // A deliberate new approach to the top re-arms the continuation. QML
-    // edge-latches this (once per approach, not per scroll signal). It does not
-    // bypass the bound below.
     if (userInitiated)
         m_nearTopEmptyStrikes = 0;
-    // ListView reports atYBeginning during its first empty frame; treat that as
-    // the initial-history fill so a transient failure gets the automatic retry
-    // policy. Not once the fill has stopped: requestViewportFill() then returns
-    // immediately and would swallow the user's gesture.
     if (m_initialHistoryRequested && !m_initialHistoryHasSucceeded
         && !m_fillStopped) {
         requestViewportFill();
@@ -275,8 +257,6 @@ void PaginationController::retry()
     if (!failed())
         return;
     m_autoRetryAttempts = 0;
-    // An explicit user gesture; loadOlderMessages clears the backend failure
-    // flag on the next dispatch.
     request(Reason::Retry);
 }
 
@@ -288,7 +268,6 @@ void PaginationController::jumpToEvent(const QString &eventId)
     }
     const int loadedRow = m_timelineModel->rowForStableId(eventId);
     if (loadedRow >= 0) {
-        // An open context view covers the live timeline; land visibly.
         if (m_contextCloser)
             m_contextCloser();
         m_navigationPurpose = NavigationPurpose::Reply;
@@ -298,8 +277,7 @@ void PaginationController::jumpToEvent(const QString &eventId)
     }
     if (m_navigationPurpose == NavigationPurpose::Reply
         && m_navigationEventId == eventId)
-        return; // coalesce repeated activation of the same reply
-    // Not loaded: fetch it with its surroundings rather than walk history.
+        return;
     if (m_contextOpener) {
         clearNavigation();
         if (m_contextOpener(eventId))
@@ -327,16 +305,11 @@ void PaginationController::walkToEvent(const QString &eventId)
     m_navigationBatches = 0;
     request(Reason::Navigation);
     Q_EMIT navigationChanged();
-    // A room-open fill may own the single flight, or the timeline may not have
-    // adopted its generation yet; keep the target pending for finishBatch() or
-    // the readiness-driven fill. Without a client, request() dispatches nothing
-    // and no completion can arrive, so fail the target honestly.
     if (!m_requestActive
         && (!m_client || m_client->paginationReady(m_roomId)))
         failNavigation();
 }
 
-// See the header for why this is not jumpToEvent with a flag.
 void PaginationController::revealIfLoaded(const QString &eventId)
 {
     if (eventId.isEmpty() || !m_timelineModel || m_roomId.isEmpty())
@@ -344,8 +317,6 @@ void PaginationController::revealIfLoaded(const QString &eventId)
     const int row = m_timelineModel->rowForStableId(eventId);
     if (row < 0)
         return;
-    // A navigation the reader asked for may be in flight; context must never
-    // displace it.
     if (m_navigationPurpose != NavigationPurpose::None)
         return;
     m_navigationPurpose = NavigationPurpose::Reply;
@@ -376,11 +347,7 @@ void PaginationController::cancelNavigation()
 {
     if (m_navigationPurpose == NavigationPurpose::None)
         return;
-    // Keep the message (clearMessage = false): replacing reported progress with
-    // silence reads as the click having done nothing. In-flight pagination is
-    // left alone since its rows are still useful; clearing the purpose is what
-    // stops locateNavigationTarget() from emitting targetLocated().
-    clearNavigation(/*clearMessage=*/false);
+    clearNavigation(false);
 }
 
 bool PaginationController::hasHistoricalScrollAnchor(const QString &roomId) const
@@ -413,10 +380,6 @@ QString PaginationController::savedSelection(const QString &roomId) const
 
 QString PaginationController::navigationKey(const QString &roomId) const
 {
-    // Two accounts can share a room, so the room id alone is not a key. The
-    // client's user id is the account the reader is in when a position is
-    // saved or restored (saves on leaving a room run before a switch
-    // detaches the session).
     const QString account = m_client ? m_client->currentUserId() : QString{};
     return account + QChar(0x1f) + roomId;
 }
@@ -452,8 +415,6 @@ void PaginationController::restoreConversation(const QString &roomId,
     if (roomId.isEmpty() || roomId != m_roomId)
         return;
     if (mode == 1) {
-        // Latest messages: the saved selection stays saved (the pane keeps
-        // it as identity), but it does not pull the viewport backwards.
         Q_EMIT restoreLatestRequested();
         return;
     }
@@ -521,13 +482,11 @@ void PaginationController::request(Reason reason)
         if (reason == Reason::ViewportFill
             || reason == Reason::AutomaticRetry)
             m_deferredFill = true;
-        return; // initialization is not a dispatch failure
+        return;
     }
     if (m_requestActive || m_client->paginating(m_roomId)
         || (m_autoRetryTimer.isActive()
             && reason != Reason::AutomaticRetry)) {
-        // Counted and reported once by the dispatch that ends the run; a
-        // viewport fill re-asks on every layout pass.
         ++m_suppressedSinceDispatch;
         m_suppressedReason = reasonName(reason);
         return;
@@ -562,15 +521,10 @@ void PaginationController::request(Reason reason)
                          << "generation=" << m_generation;
     const quint64 generationAtDispatch = m_generation;
     m_client->loadOlderMessages(m_roomId);
-    // A synchronous dispatch failure re-enters via onPaginationStateChanged and
-    // clears m_requestActive; only re-check while this request is still ours.
     if (m_generation == generationAtDispatch && m_requestActive
         && m_client->paginationFailed(m_roomId)) {
         m_requestActive = false;
-        // Keep the reason until the failure callback/log has observed it.
     }
-    // Arm the watchdog only for a flight actually in the air; every path that
-    // ends the flight stops it.
     if (m_requestActive && m_requestWatchdogMs > 0) {
         m_requestWatchdogGeneration = m_generation;
         m_requestWatchdogTimer.start(m_requestWatchdogMs);
@@ -623,9 +577,6 @@ void PaginationController::onEventsInsertedAt(
             ++m_batchInserted;
         }
     }
-    // If the idle notification won the race, this is the page it was waiting
-    // for. Finish after the current drain, once this range and the model
-    // mutation are observable.
     if (m_completionPending)
         m_completionSettleTimer.start(0);
 }
@@ -637,8 +588,6 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
     handlePaginationStateChanged(roomId);
     if (roomId != m_roomId || !m_client)
         return;
-    // A backend change that settled neither a batch nor a failure (a reset,
-    // a readiness note) still NOTIFYs these two when they moved.
     if (reachedStart() != m_announcedReachedStart
         || moreHistory() != m_announcedMoreHistory)
         emitStateChanged();
@@ -657,14 +606,10 @@ void PaginationController::handlePaginationStateChanged(const QString &roomId)
     }
 
     if (m_client->paginating(m_roomId)) {
-        // Adopt an externally started batch (e.g. requestOlder()) so busy() and
-        // duplicate suppression stay truthful.
         if (!m_requestActive) {
             m_requestActive = true;
             m_activeReason = Reason::None;
             m_batchInserted = 0;
-            // Re-baseline the row count too, or batchRowGrowth() measures
-            // against the previous dispatch and inflates insertedCount.
             m_batchStartRows = m_timelineModel ? m_timelineModel->eventCount() : 0;
         }
         m_seenLoading = true;
@@ -701,24 +646,12 @@ void PaginationController::handlePaginationStateChanged(const QString &roomId)
         return;
     }
 
-    // Neither loading nor failed: the batch completed (or state was reset).
-    // Only a tracked batch counts.
-    // Reaching the start is terminal even if the intermediate loading event
-    // was missed. Keeping that prerequisite would strand our local flight
-    // (and the Loading presentation) after the backend is already exhausted.
-    // Ordinary idle/readiness notifications still need an observed loading
-    // event so they cannot prematurely complete a dispatched request.
     if (m_requestActive && (m_seenLoading || reachedStart())
         && !m_completionPending) {
         m_completionPending = true;
         m_completionReachedStart = reachedStart();
-        // If rows are already present, one drain suffices. If idle arrived
-        // first, stay active across the bridge's independent 100 ms poll lane;
-        // the first landed range shortens this timer to zero.
         const bool rowsAlreadyLanded = m_batchInserted > 0
             || batchRowGrowth() > 0;
-        // Nothing is in flight after a page the filter emptied, so skip the
-        // wait.
         const bool nothingCanArrive = m_client
             && m_client->lastPaginationFullyFiltered(m_roomId);
         const int settleDelay =
@@ -738,8 +671,6 @@ int PaginationController::batchRowGrowth() const
 
 void PaginationController::abandonStalledRequest()
 {
-    // The generation guard makes a queued timeout from an earlier room, reset
-    // or sign-out harmless; it must never clear a newer room's flight.
     if (m_requestWatchdogGeneration != m_generation || !m_requestActive)
         return;
 
@@ -760,15 +691,10 @@ void PaginationController::abandonStalledRequest()
     m_completionReachedStart = false;
     m_seenLoading = false;
 
-    // A navigation that can never land must say so rather than leave the
-    // reader waiting.
     if (reason == Reason::Navigation) {
         failNavigation();
         return;
     }
-    // An automatic fill whose pages never arrive must stop like one whose pages
-    // arrive empty; otherwise the room never becomes presentable
-    // (initialContentSettled waits for the fill to stop).
     if (reason == Reason::ViewportFill
         && ++m_noProgressStrikes >= kMaxNoProgressStrikes) {
         m_fillStopped = true;
@@ -784,8 +710,6 @@ void PaginationController::finishBatch(bool hitStart)
     m_completionSettleTimer.stop();
     m_requestWatchdogTimer.stop();
     const Reason reason = m_activeReason;
-    // Signal-counted inserts under-report on the Rust backend (see
-    // batchRowGrowth()); take the larger of that and the model's growth.
     const int signalled = m_batchInserted;
     const int inserted = qMax(signalled, batchRowGrowth());
     m_requestActive = false;
@@ -796,13 +720,6 @@ void PaginationController::finishBatch(bool hitStart)
     m_completionReachedStart = false;
     m_seenLoading = false;
     m_autoRetryAttempts = 0;
-    // A page that delivered nothing is not a successful initial history:
-    // initialContentSettled() returns this flag, and the pane would then show
-    // "No messages here yet" over a room whose history the fill has not reached
-    // (e.g. a long filtered MatrixRTC run). Rows already on screen count as
-    // success, so a cache-served room settles immediately. The other exits
-    // (m_fillStopped, reachedStart(), failed()) and the pane's 2500 ms guard
-    // still open the gate.
     if ((reason == Reason::ViewportFill || reason == Reason::AutomaticRetry)
         && (inserted > 0
             || (m_timelineModel && m_timelineModel->eventCount() > 0)))
@@ -814,25 +731,10 @@ void PaginationController::finishBatch(bool hitStart)
                          << "reason=" << reasonName(reason)
                          << "generation=" << m_generation;
 
-    // No-progress protection for the automatic fill only. An empty batch is
-    // legal mid-history (filtered events), so it takes two consecutive empty
-    // automatic batches to stop.
     if (reason == Reason::ViewportFill) {
-        // A productive fill refunds the budget, so m_maxFillRequests bounds
-        // consecutive unproductive fills, not fills per room. Rooms whose
-        // recent history is routine state insert rows of zero height and need
-        // many pages to fill the viewport; pages that add nothing still stop
-        // the loop.
         if (inserted > 0)
             m_fillRequests = 0;
         if (inserted == 0 && !hitStart) {
-            // An empty page with the start not reached still moved the cursor
-            // toward the next real message, and fills are only requested while
-            // the viewport is short, so it gets the larger filtered-run bound.
-            // Deliberately not gated on lastPaginationFullyFiltered(): that is
-            // an optimisation hint ("false is always safe") only one backend
-            // implements, while `inserted == 0 && !hitStart` is reported by
-            // every backend.
             ++m_emptyFillPages;
             if (++m_noProgressStrikes >= kMaxFilteredRunStrikes) {
                 m_fillStopped = true;
@@ -845,14 +747,6 @@ void PaginationController::finishBatch(bool hitStart)
         }
     }
 
-    // NearTop progress classification and bounded continuation:
-    //   * reached start -> EndOfHistory: clear strikes, stop;
-    //   * the mirror grew -> Progress: clear strikes, stop. The reader has the
-    //     new page and is pushed off the top edge; QML re-arms on the next
-    //     deliberate approach;
-    //   * no growth, not at start -> BackendProgressWithoutGrowth: the SDK
-    //     advanced through filtered history. Continue a strictly bounded number
-    //     of times, then latch until the reader re-approaches the top.
     bool willContinue = false;
     if (reason == Reason::NearTop) {
         if (hitStart) {
@@ -886,37 +780,21 @@ void PaginationController::scheduleNearTopContinuation()
     const quint64 generation = m_generation;
     const int rowsAtDispatch = m_batchStartRows;
     m_continuationPending = true;
-    // Deferred so this batch's completion and anchor restore settle first. The
-    // generation/active/room/bound re-checks cancel it cleanly on a room
-    // switch, sign-out or re-arm. The delay allows one more bridge poll so the
-    // growth re-check can see late item diffs; after a page the timeline
-    // filter emptied there are none to wait for (the same hint that skips the
-    // completion settle), so it only yields to the event loop. Waiting anyway
-    // made a filtered MatrixRTC run cost 250 ms per page on top of the page.
     const bool nothingCanArrive = m_client
         && m_client->lastPaginationFullyFiltered(m_roomId);
     QTimer::singleShot(nothingCanArrive ? 0 : m_nearTopContinuationDelayMs, this,
                        [this, generation, rowsAtDispatch] {
         if (generation != m_generation) {
-            // A room switch, reset or sign-out already cleared the flag; this
-            // timer belongs to the previous generation and must touch nothing.
             return;
         }
         // Cleared on every path before anything can return, or busy() stays
         // true and the loading overlay is stranded.
         m_continuationPending = false;
-        // Notify unconditionally: busy() changed, and request() has silent
-        // early returns that would leave the overlay latched on Loading. A
-        // duplicate notify only re-evaluates bindings.
         emitStateChanged();
         if (m_requestActive || m_roomId.isEmpty())
             return;
         if (m_nearTopEmptyStrikes >= kMaxNearTopEmptyStrikes)
             return;
-        // The page did add rows; the strike was an artefact of the asynchronous
-        // bridge (see batchRowGrowth()). Clear it and stop; the next deliberate
-        // approach re-arms through QML. Accepted false positive: a live message
-        // appended in this window also reads as growth and cancels one page.
         const int growth = m_timelineModel
             ? m_timelineModel->eventCount() - rowsAtDispatch : 0;
         if (growth > 0) {
@@ -924,7 +802,7 @@ void PaginationController::scheduleNearTopContinuation()
             qCInfo(lcPagination)
                 << "timeline pagination continuation cancelled rows_added="
                 << growth << "generation=" << m_generation;
-            return; // already notified above
+            return;
         }
         request(Reason::NearTop);
     });
@@ -935,11 +813,7 @@ void PaginationController::onTimelineReset(const QString &roomId)
     if (roomId != m_roomId)
         return;
     clearNavigation();
-    // A fresh snapshot restarts anchor bookkeeping and the fill budget;
-    // any batch that was in flight belongs to the previous generation.
     resetPerRoomState();
-    // The reset is the readiness boundary for a new Rust timeline. Keep one
-    // initial fill pending for the following state notification.
     m_initialHistoryRequested = !m_roomId.isEmpty();
     m_deferredFill = m_initialHistoryRequested;
     emitStateChanged();
@@ -951,10 +825,6 @@ void PaginationController::onLoggedOut()
                          << m_generation;
     resetPerRoomState();
     clearNavigation();
-    // Saved positions and selections are kept, per account: loggedOut also
-    // fires for the local detach of every account switch, and A -> B -> A
-    // must find A's places again. A real sign-out or removal forgets that
-    // account through forgetAccount() (AppController).
     emitStateChanged();
 }
 
@@ -1008,8 +878,6 @@ void PaginationController::failNavigation(bool tooFar)
     const bool wasSelection = wasRestore && m_restoreIsSelection;
     clearNavigation(false);
     if (wasSelection) {
-        // The selected message is out of reach (redacted, trimmed, beyond
-        // the walk's budget): the previous position, not the live edge.
         qCInfo(lcPagination)
             << "selected-message return unreachable; previous position";
         restoreScrollAnchor(m_roomId);

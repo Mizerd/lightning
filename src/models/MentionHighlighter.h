@@ -6,18 +6,6 @@
 #include <QVariantList>
 #include <qqmlintegration.h>
 
-// Composer mention styling. Composers keep mentions as {userId, range} refs
-// over plain text; this highlighter inks those ranges in the editable
-// TextArea without changing text, offsets or send semantics. Qt Quick text
-// never calls drawObject, so character formats are the reliable mechanism.
-//
-// No background fill: a character-format background is a square,
-// full-line-height slab that reads as a box (see MessageHtml::MentionStyle),
-// and neither QTextCharFormat nor Qt rich text can round corners. Ink plus
-// DemiBold marks the token instead.
-//
-// Ranges ([{start, length}, ...]) come from the owning composer, which
-// re-anchors them on every edit.
 class MentionHighlighter : public QSyntaxHighlighter
 {
     Q_OBJECT

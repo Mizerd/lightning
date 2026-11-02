@@ -27,9 +27,7 @@ namespace lightning {
 
 namespace {
 
-// A connected client that sends no line within this is dropped.
 constexpr int kClientTimeoutMs = 5000;
-// sun_path is 108 bytes on Linux and 104 on macOS, terminator included.
 constexpr int kMaxSocketPathBytes = 100;
 
 QString fileSafe(const QString &name)
@@ -47,7 +45,7 @@ QString fileSafe(const QString &name)
     return out;
 }
 
-} // namespace
+}
 
 SingleInstanceGuard::SingleInstanceGuard(const QString &dataRoot,
                                          const QString &appName,
@@ -56,8 +54,6 @@ SingleInstanceGuard::SingleInstanceGuard(const QString &dataRoot,
 {
     if (dataRoot.isEmpty())
         return;
-    // The lock lives in the root, so it has to exist. Owner-only when made
-    // here: account directories named after localparts appear in it later.
     if (!QFileInfo::exists(dataRoot) && QDir().mkpath(dataRoot)) {
         QFile::setPermissions(dataRoot, QFileDevice::ReadOwner
                                             | QFileDevice::WriteOwner
@@ -72,8 +68,6 @@ SingleInstanceGuard::SingleInstanceGuard(const QString &dataRoot,
 SingleInstanceGuard::~SingleInstanceGuard()
 {
     stopListening();
-    // Default: release, so a test can simulate a quitting instance by
-    // destroying its guard. See holdLockUntilProcessExit().
     if (!m_holdLockUntilProcessExit)
         releaseLock();
 }
@@ -106,15 +100,6 @@ SingleInstanceGuard::Claim SingleInstanceGuard::claim(int budgetMs)
             qInfo("single-instance: this process owns its data root");
             return Claim::Primary;
         case Lock::Error: {
-            // The lock itself is unusable (no locking on this filesystem, or
-            // a permission change since a live holder opened it), but that
-            // holder may still be reachable on the socket; try once before
-            // giving up, so a broken lock does not also make this launch
-            // deaf to an instance that IS there. A CONNECTION is proof of
-            // life even without a reply: a stale Unix socket refuses the
-            // connection outright, and a Windows pipe exists only while a
-            // real server is serving it — so only NotListening (nothing
-            // answered the connection attempt at all) may run unguarded.
             const qint64 leftForNotify = budgetMs - timer.elapsed();
             const int notifyBudget = leftForNotify > 0 ? int(leftForNotify) : 0;
             switch (notifyRunningInstance(notifyBudget)) {
@@ -129,8 +114,6 @@ SingleInstanceGuard::Claim SingleInstanceGuard::claim(int budgetMs)
             case Notify::NotListening:
                 break;
             }
-            // Refusing to start would make the app unusable on a filesystem
-            // without locks; the old behaviour is the lesser harm.
             qWarning("single-instance: the instance lock is unusable; "
                      "running without the guard");
             return Claim::Unguarded;
@@ -152,7 +135,6 @@ SingleInstanceGuard::Claim SingleInstanceGuard::claim(int budgetMs)
                      "and did not answer");
             return Claim::Unresponsive;
         case Notify::NotListening:
-            // Still starting, or quitting: the lock goes when it exits.
             break;
         }
         const qint64 rest = budgetMs - timer.elapsed();
@@ -187,7 +169,6 @@ QString SingleInstanceGuard::canonicalRoot(const QString &dataRoot)
     if (root.isEmpty())
         root = QDir::cleanPath(QFileInfo(dataRoot).absoluteFilePath());
 #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-    // Case-insensitive by default: C:\Apps and c:\apps are one folder.
     root = root.toLower();
 #endif
     return root;
@@ -217,7 +198,7 @@ QString SingleInstanceGuard::serverNameFor(const QString &canonicalRoot,
 QString SingleInstanceGuard::defaultSocketDir()
 {
 #ifdef Q_OS_WIN
-    return {}; // named pipes; the user is in the hash instead
+    return {};
 #else
     const QString runtime = qEnvironmentVariable("XDG_RUNTIME_DIR");
     if (runtime.isEmpty())
@@ -235,7 +216,6 @@ QString SingleInstanceGuard::defaultSocketDir()
 QString SingleInstanceGuard::currentUser()
 {
 #ifdef Q_OS_WIN
-    // The pipe namespace is machine-wide.
     return qEnvironmentVariable("USERDOMAIN") + QLatin1Char('\\')
          + qEnvironmentVariable("USERNAME");
 #else
@@ -272,10 +252,6 @@ SingleInstanceGuard::Lock SingleInstanceGuard::tryLock()
 {
 #ifdef Q_OS_WIN
     const QString native = QDir::toNativeSeparators(m_lockPath);
-    // Not inheritable (no security attributes), so children never hold it.
-    // No FILE_SHARE_DELETE: a held lock file must not be deletable or
-    // renameable out from under us, or a second process could recreate the
-    // name and lock a different file, becoming a second primary.
     HANDLE handle = CreateFileW(reinterpret_cast<const wchar_t *>(native.utf16()),
                                 GENERIC_READ | GENERIC_WRITE,
                                 FILE_SHARE_READ | FILE_SHARE_WRITE,
@@ -300,7 +276,6 @@ SingleInstanceGuard::Lock SingleInstanceGuard::tryLock()
     return Lock::Error;
 #else
     const QByteArray path = QFile::encodeName(m_lockPath);
-    // O_CLOEXEC: a browser or xdg-open we start must not keep holding it.
     const int fd = ::open(path.constData(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
     if (fd < 0) {
         qWarning("single-instance: cannot open the instance lock: %s",
@@ -332,10 +307,6 @@ SingleInstanceGuard::RootLock::RootLock(const QString &dataRoot,
     }
     const QString lockPath = QDir(dataRoot).filePath(
         QStringLiteral("instance-%1.lock").arg(fileSafe(appName)));
-    // Mirrors tryLock(), except a successful acquisition is KEPT (the fd/
-    // handle stays open until this object is destroyed) rather than
-    // released again — that is the whole point of this type over a plain
-    // probe: the caller holds the lock for as long as it needs to.
 #ifdef Q_OS_WIN
     const QString native = QDir::toNativeSeparators(lockPath);
     HANDLE handle = CreateFileW(reinterpret_cast<const wchar_t *>(native.utf16()),
@@ -344,7 +315,7 @@ SingleInstanceGuard::RootLock::RootLock(const QString &dataRoot,
                                 nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL,
                                 nullptr);
     if (handle == INVALID_HANDLE_VALUE) {
-        m_result = LockProbe::Unusable; // cannot tell; fail open
+        m_result = LockProbe::Unusable;
         return;
     }
     OVERLAPPED overlapped = {};
@@ -362,7 +333,7 @@ SingleInstanceGuard::RootLock::RootLock(const QString &dataRoot,
     const QByteArray path = QFile::encodeName(lockPath);
     const int fd = ::open(path.constData(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
     if (fd < 0) {
-        m_result = LockProbe::Unusable; // cannot tell; fail open
+        m_result = LockProbe::Unusable;
         return;
     }
     if (::flock(fd, LOCK_EX | LOCK_NB) == 0) {
@@ -417,15 +388,10 @@ SingleInstanceGuard::Notify SingleInstanceGuard::notifyRunningInstance(int budge
         return Notify::NotListening;
 
 #ifdef Q_OS_WIN
-    // Windows grants the foreground only to a process the foreground one
-    // allowed, and that is this launch; otherwise the running instance only
-    // flashes in the taskbar. As UpdateManager does for its helper.
     AllowSetForegroundWindow(ASFW_ANY);
 #endif
 
     QByteArray request("show");
-    // The launcher's Wayland activation token lets the compositor focus the
-    // window. It is a one-shot focus cookie, nothing more.
     const QByteArray token = qgetenv("XDG_ACTIVATION_TOKEN");
     if (isAcceptableActivationToken(token))
         request += ' ' + token;
@@ -442,7 +408,6 @@ SingleInstanceGuard::Notify SingleInstanceGuard::notifyRunningInstance(int budge
             reply += socket.readAll();
             if (reply.contains('\n'))
                 break;
-            // Closed without an answer: it is shutting down.
             return socket.state() == QLocalSocket::ConnectedState
                 ? Notify::NoAnswer : Notify::NotListening;
         }
@@ -455,8 +420,6 @@ SingleInstanceGuard::Notify SingleInstanceGuard::notifyRunningInstance(int budge
 
 void SingleInstanceGuard::startServer()
 {
-    // We hold the lock, so no instance of ours serves this name. Anything
-    // that answers is someone else's live server, and is never taken over.
     {
         QLocalSocket probe;
         probe.connectToServer(m_serverName);
@@ -472,7 +435,6 @@ void SingleInstanceGuard::startServer()
     bool listening = server->listen(m_serverName);
     if (!listening
         && server->serverError() == QAbstractSocket::AddressInUseError) {
-        // A socket file left by a crash (Unix); the probe got no answer.
         QLocalServer::removeServer(m_serverName);
         listening = server->listen(m_serverName);
     }
@@ -512,7 +474,6 @@ void SingleInstanceGuard::handleClient(QLocalSocket *socket)
         }
         return;
     }
-    // One request per connection.
     disconnect(socket, &QLocalSocket::readyRead, this, nullptr);
     const QByteArray line = socket->readLine(kMaxRequestBytes + 1).trimmed();
     QString token;
@@ -521,11 +482,10 @@ void SingleInstanceGuard::handleClient(QLocalSocket *socket)
         socket->deleteLater();
         return;
     }
-    // Answer first, so the launch that asked exits even if raising is slow.
     socket->write("ok\n");
     socket->flush();
     socket->disconnectFromServer();
     Q_EMIT activationRequested(token);
 }
 
-} // namespace lightning
+}

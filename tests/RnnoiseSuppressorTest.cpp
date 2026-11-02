@@ -1,12 +1,3 @@
-// calls::noise::RnnoiseSuppressor against the vendored RNNoise (third_party/rnnoise).
-//
-// Everything here is deterministic: own seeded PRNG, synthetic voice (harmonic
-// stack under formant-like resonances, gated into syllables), white and pink
-// noise. The margins below come from a standalone run of the same signals
-// (see third_party/rnnoise/PROVENANCE.md): measured 32-40 dB of suppression in
-// the gaps with <= 0.8 dB loss in the voiced parts; asserted at 20 dB and 3 dB.
-//
-// These cannot pass on the tree before this change: the class does not exist.
 
 #include "RnnoiseSuppressor.h"
 #include "RnnoiseTestSignals.h"
@@ -28,8 +19,6 @@ using namespace rnnoise_test;
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(__SANITIZE_THREAD__)
 #define RNNOISE_TEST_COUNT_ALLOCS 1
-// Count heap allocations process-wide so the real-time claim ("process() never
-// allocates") is asserted, not assumed.
 static std::atomic<long> g_allocs{0};
 void *operator new(std::size_t n)
 {
@@ -69,7 +58,7 @@ std::vector<float> mix(const std::vector<float> &a, const std::vector<float> &b)
     return m;
 }
 
-} // namespace
+}
 
 class RnnoiseSuppressorTest : public QObject
 {
@@ -101,7 +90,7 @@ private slots:
 
     void suppressesWhiteAndPinkNoiseInTheGaps_data()
     {
-        QTest::addColumn<int>("kind"); // 0 white, 1 pink
+        QTest::addColumn<int>("kind");
         QTest::addColumn<double>("noiseRms");
         QTest::newRow("white -30 dBFS") << 0 << 0.03;
         QTest::newRow("white -40 dBFS") << 0 << 0.01;
@@ -116,8 +105,8 @@ private slots:
         QFETCH(double, noiseRms);
 
         const int n = 10 * kRate;
-        const int warm = 2 * kRate; // let the network settle
-        const Voice v = syntheticVoice(n, 7, 0.10); // -20 dBFS syllables
+        const int warm = 2 * kRate;
+        const Voice v = syntheticVoice(n, 7, 0.10);
         const auto noise = kind == 0 ? whiteNoise(n, 11, noiseRms) : pinkNoise(n, 13, noiseRms);
         const auto noisy = mix(v.samples, noise);
 
@@ -138,7 +127,6 @@ private slots:
                                  .arg(voicedDeltaDb, 0, 'f', 1)
                                  .arg(double(s.lastVoiceProbability()), 0, 'f', 2);
         QVERIFY2(suppressionDb >= 20.0, qPrintable(QStringLiteral("only %1 dB").arg(suppressionDb)));
-        // The speech-like segments survive: not gated away, not boosted.
         QVERIFY2(voicedDeltaDb > -3.0 && voicedDeltaDb < 1.0,
                  qPrintable(QStringLiteral("voiced energy moved by %1 dB").arg(voicedDeltaDb)));
     }
@@ -167,7 +155,7 @@ private slots:
         const int n = 8 * kRate;
         const int warm = 2 * kRate;
         const Voice v = syntheticVoice(n, 9, 0.10);
-        auto tiny = whiteNoise(n, 5, 0.0005); // -66 dBFS, essentially clean
+        auto tiny = whiteNoise(n, 5, 0.0005);
         RnnoiseSuppressor s;
         const auto out = runThrough(s, mix(v.samples, tiny));
         const double delta = db(energy(out, v.on, warm, n) / energy(v.samples, v.on, warm, n));
@@ -212,7 +200,6 @@ private slots:
             {"FLT_MAX", big}, {"-FLT_MAX", -big}, {"full scale +", 1.0f}, {"full scale -", -1.0f},
             {"4x full scale", 4.0f}, {"zero", 0.0f}};
         for (const auto &c : cases) {
-            // Several frames each: a poisoned recurrent state would surface later.
             for (int rep = 0; rep < 6; ++rep) {
                 std::vector<float> f(480, c.v);
                 s.process(f.data());
@@ -220,7 +207,6 @@ private slots:
                     QVERIFY2(std::isfinite(x) && std::fabs(x) <= 1.0f, c.name);
             }
         }
-        // Mixed garbage, then ordinary audio: the engine must recover.
         std::vector<float> g(480);
         for (int i = 0; i < 480; ++i)
             g[i] = (i % 3 == 0) ? nan : (i % 3 == 1 ? inf : -big);
@@ -251,7 +237,7 @@ private slots:
         const auto reference = runThrough(fresh, in);
 
         RnnoiseSuppressor used;
-        runThrough(used, whiteNoise(n, 99, 0.2)); // dirty the state
+        runThrough(used, whiteNoise(n, 99, 0.2));
         used.reset();
         QVERIFY(used.ok());
         const auto again = runThrough(used, in);
@@ -275,7 +261,6 @@ private slots:
     {
         if (!calls::noise::rnnoiseAvailable())
             QSKIP("built without RNNoise");
-        // Interleaving two streams frame by frame must equal running each alone.
         const int n = kRate;
         const auto x = mix(syntheticVoice(n, 7, 0.10).samples, whiteNoise(n, 11, 0.03));
         const auto y = whiteNoise(n, 77, 0.05);

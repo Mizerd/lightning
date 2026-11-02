@@ -34,11 +34,6 @@ EmojiCatalog::EmojiCatalog(SettingsManager *settings, QObject *parent)
     : QAbstractListModel(parent), m_settings(settings)
 {
     load();
-    // Don't open on an empty "Recently Used" grid: fall back to Smileys when
-    // there are no resolvable recents. Decided once here rather than in
-    // rebuild(), so the Recently Used tab keeps its own empty state. Tested
-    // against resolved recents, since rebuild() drops entries not in the
-    // catalogue.
     if (m_category == kCategories.constFirst() && !hasResolvableRecents()
         && kCategories.size() > 1) {
         m_category = kCategories.at(1);
@@ -99,24 +94,17 @@ void EmojiCatalog::load()
                 m_entries[index].hasSkinTones = true;
         }
     }
-    // Per-category index buckets, built once, so a category switch is a list
-    // swap rather than a catalogue rescan.
     for (int i = 0; i < m_entries.size(); ++i) {
         const Entry &entry = m_entries.at(i);
         if (entry.emoji == entry.baseEmoji)
             m_categoryBuckets[entry.category].append(i);
     }
-    // Lookup set for emojiOnlySequenceCount, built once: senders disagree about
-    // U+FE0F, so clusters are matched against the VS16-stripped form.
     for (const Entry &entry : std::as_const(m_entries)) {
         QString stripped = entry.emoji;
         stripped.remove(QChar(0xFE0F));
         if (!stripped.isEmpty())
             m_sequencesNoVs16.insert(stripped);
     }
-    // Colon-shortcode index, built once: the TSV's aliases column is already
-    // gemoji-style short names ("+1 thumbsup" for 👍), space-separated, on
-    // the tone-neutral base row only.
     for (int i = 0; i < m_entries.size(); ++i) {
         const Entry &entry = m_entries.at(i);
         if (entry.emoji != entry.baseEmoji || entry.keywords.isEmpty())
@@ -204,13 +192,10 @@ void EmojiCatalog::rebuild()
             }
         }
     } else if (query.isEmpty()) {
-        // Swap in the precomputed bucket; no catalogue scan.
         m_visible = m_categoryBuckets.value(m_category);
     } else {
         for (int i = 0; i < m_entries.size(); ++i) {
             const Entry &entry = m_entries[i];
-            // The grid shows one default/base sequence per family; validated
-            // variants are exposed by variantsFor().
             if (entry.emoji != entry.baseEmoji)
                 continue;
             bool matches = true;
@@ -250,8 +235,6 @@ int EmojiCatalog::emojiOnlySequenceCount(const QString &text) const
 {
     if (text.isEmpty() || m_entries.isEmpty())
         return 0;
-    // Cheap length gate: QTextBoundaryFinder is O(n) up front and this runs in
-    // a per-delegate binding. A longer body cannot be a 1-3 emoji message.
     if (text.size() > 256)
         return 0;
     int count = 0;
@@ -274,8 +257,6 @@ int EmojiCatalog::emojiOnlySequenceCount(const QString &text) const
         }
         if (whitespace)
             continue;
-        // Any non-whitespace cluster that is not a catalogue emoji makes
-        // the whole message ordinary text — even after three emoji.
         if (!isKnownEmojiCluster(cluster))
             return 0;
         if (count < 4)
@@ -338,9 +319,6 @@ void EmojiCatalog::clearRecent()
 
 QStringList EmojiCatalog::recentEmoji() const
 {
-    // The raw MRU list (for the quick-react strip), filtered by the same
-    // validity check rebuild() uses so corrupted or legacy entries never reach
-    // a consumer.
     QStringList out;
     if (!m_settings)
         return out;
@@ -389,8 +367,6 @@ QVariantMap EmojiCatalog::completionRow(int index) const
             shortcode = aliases.first();
     }
     if (shortcode.isEmpty()) {
-        // No curated alias (rare): a display-only slug from the name. Never
-        // used for lookup, so it need not be unique.
         shortcode = entry.name.toCaseFolded();
         shortcode.replace(QRegularExpression(QStringLiteral("[^a-z0-9]+")),
                           QStringLiteral("_"));
@@ -417,20 +393,12 @@ QVariantList EmojiCatalog::completionsForPrefix(const QString &prefix,
     const int bound = limit > 0 ? limit : 12;
     const QStringList recents = m_settings ? m_settings->recentEmoji() : QStringList();
 
-    // Above all tiers: the query IS the name or a whole alias (":heart" is
-    // the red heart, not heart_eyes). It outranks recents too, because typing
-    // a complete shortcode is a request for that emoji and not a prefix.
-    // Tier 0: the name or a whole alias starts with the query. Tier 1: any
-    // word inside the name starts with it. Tier 2: an alias contains it
-    // anywhere. Ties keep catalogue order (roughly Unicode order, e.g. 👍
-    // before 👎), except a recently used emoji is promoted ahead of
-    // non-recent ties in the same tier.
     struct Candidate { int index; int tier; int recentRank; bool exact; };
     QList<Candidate> candidates;
     for (int i = 0; i < m_entries.size(); ++i) {
         const Entry &entry = m_entries.at(i);
         if (entry.emoji != entry.baseEmoji)
-            continue; // one row per family; tone applied on output
+            continue;
         const QString name = entry.name.toCaseFolded();
         const QStringList aliases = entry.keywords.isEmpty()
             ? QStringList()
@@ -458,7 +426,6 @@ QVariantList EmojiCatalog::completionsForPrefix(const QString &prefix,
         }
         if (tier < 0)
             continue;
-        // Spaces and underscores are one separator ("red heart" == "red_heart").
         QString slug = name;
         slug.replace(QLatin1Char(' '), QLatin1Char('_'));
         const bool exact = name == needle || slug == needle

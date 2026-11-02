@@ -1,9 +1,3 @@
-// The Windows title bar follows the app theme (live Windows test 2026-10-16:
-// the caption stayed white under a dark theme). DWM itself cannot run here;
-// what can is the decision it is given: whether the application palette's
-// window colour (AppTheme.background, pushed by Main.qml's
-// syncControlPalette()) asks for the dark frame. Checked against fixed
-// colours and against every palette AppTheme.qml defines, read from source.
 
 #include "app/WindowFrameTheme.h"
 
@@ -31,20 +25,13 @@ void WindowFrameThemeTest::darkAndLightColoursAreTold()
     QVERIFY(!prefersDarkFrame(QColor(Qt::white)));
     QVERIFY(prefersDarkFrame(QColor(QStringLiteral("#313338"))));
     QVERIFY(!prefersDarkFrame(QColor(QStringLiteral("#F2F3F5"))));
-    // Saturated colours go by luminance, not by HSL lightness.
     QVERIFY(prefersDarkFrame(QColor(QStringLiteral("#1A237E"))));
     QVERIFY(!prefersDarkFrame(QColor(QStringLiteral("#FFEB3B"))));
-    // Pure blue has HSL lightness 0.5 and luminance 0.07: dark.
     QVERIFY(prefersDarkFrame(QColor(QStringLiteral("#0000FF"))));
-    // Either side of L* 50 (#777777 is L* 50.0, #7A7A7A 51.2).
     QVERIFY(prefersDarkFrame(QColor(QStringLiteral("#737373"))));
     QVERIFY(!prefersDarkFrame(QColor(QStringLiteral("#7A7A7A"))));
 }
 
-// A palette's background must ask for the frame its own primary text is NOT:
-// dark text on a light ground wants the light caption, and the reverse. Read
-// from AppTheme.qml so a new or retuned palette is covered without editing
-// this test.
 void WindowFrameThemeTest::everyPaletteGetsTheFrameItsTextNeeds()
 {
 #ifndef APPTHEME_QML_PATH
@@ -92,7 +79,6 @@ void WindowFrameThemeTest::everyPaletteGetsTheFrameItsTextNeeds()
         dark += darkFrame ? 1 : 0;
         names << m.captured(1);
     }
-    // Assert what varied: palettes on both sides of the line.
     QVERIFY2(checked >= 8,
              qPrintable(QStringLiteral("only %1 palettes resolved: %2")
                             .arg(checked)
@@ -104,20 +90,14 @@ void WindowFrameThemeTest::everyPaletteGetsTheFrameItsTextNeeds()
 #endif
 }
 
-// Live FAIL on pipeline 326: the request was made inside an application event
-// filter, which runs before Qt's Windows plugin answers the same event with the
-// SYSTEM scheme (QWindowsWindow::windowEvent on ApplicationPaletteChange), so a
-// light system under a dark theme kept a light caption. The cure is that every
-// event after which Qt may rewrite the caption schedules the request AFTER Qt.
-// DWM cannot run here; the decision table is what can be checked.
 void WindowFrameThemeTest::theRequestAlwaysFollowsQtsOwn()
 {
     using lightning::windowframe::Reapply;
     using lightning::windowframe::reapplyFor;
     const QList<QEvent::Type> afterQt{
-        QEvent::ApplicationPaletteChange, // Qt sets the frame from the system
-        QEvent::ThemeChange,              // ... and when the system changes
-        QEvent::PlatformSurface,          // ... and at native creation
+        QEvent::ApplicationPaletteChange,
+        QEvent::ThemeChange,
+        QEvent::PlatformSurface,
         QEvent::Show,
         QEvent::WindowStateChange,
     };
@@ -125,8 +105,6 @@ void WindowFrameThemeTest::theRequestAlwaysFollowsQtsOwn()
         QVERIFY2(reapplyFor(type) == Reapply::AfterQt,
                  qPrintable(QStringLiteral("event %1 does not reapply")
                                 .arg(int(type))));
-    // The decision is deliberately narrow: pointer, paint and timer traffic
-    // must not each cost a DWM call.
     for (const QEvent::Type type : { QEvent::MouseMove, QEvent::Paint,
                                      QEvent::Timer, QEvent::Expose,
                                      QEvent::Resize })
@@ -136,8 +114,6 @@ void WindowFrameThemeTest::theRequestAlwaysFollowsQtsOwn()
     QCOMPARE(QLatin1String(lightning::windowframe::frameModeName(false)),
              QLatin1String("light"));
 
-    // The Windows branch must not apply inline from the event filter: the
-    // only application of the request outside SurfaceCreated is the timer.
     QFile src(QStringLiteral(WINDOWFRAME_SOURCE_PATH));
     QVERIFY2(src.open(QIODevice::ReadOnly), "WindowFrameTheme.cpp unreadable");
     const QString text = QString::fromUtf8(src.readAll());

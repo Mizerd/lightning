@@ -3,14 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Closes a room or a Space, or deletes one from the homeserver for a server
-// administrator, and shows what happened to each room.
-//
-// The flow lives in app.roomClosure (RoomClosureController); this view only
-// renders it, so the text the user confirms is the text the tests check. A
-// close is never called a delete: Matrix has none, and the consequence text
-// says what stays. Rooms the plan does not offer are listed with the reason
-// and cannot be selected.
 AppDialog {
     id: root
     objectName: "roomCloseDialog"
@@ -31,9 +23,6 @@ AppDialog {
     // ended.
     closePolicy: Popup.CloseOnEscape
 
-    // `mode` is "close" or "delete". While an earlier flow runs the
-    // controller refuses the new one and sets its notice; the dialog opens on
-    // the running flow so that is seen.
     function openFor(roomId, name, isSpace, mode) {
         if (!ctl)
             return
@@ -41,8 +30,6 @@ AppDialog {
             reasonField.text = ""
             typedField.text = ""
         } else if (ctl.phase === "idle") {
-            // Refused with nothing to show (no client, or no administrator
-            // answer for this account): open nothing.
             return
         }
         open()
@@ -55,8 +42,6 @@ AppDialog {
 
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
-        // Return / Enter press the focused button, as Space does (AppButton
-        // answers them, C06 F03). A text field keeps its own Return.
 
         Label {
             objectName: "roomCloseNotice"
@@ -83,7 +68,6 @@ AppDialog {
             font.pixelSize: AppTheme.textBody
         }
 
-        // ── Close options ──
         OptionRow {
             objectName: "roomCloseLeave"
             visible: root.mode === "close" && root.phase === "ready"
@@ -128,7 +112,6 @@ AppDialog {
             placeholderText: qsTr("Reason shown to the people removed (optional)")
         }
 
-        // ── Delete options ──
         OptionRow {
             objectName: "roomCloseBlock"
             visible: root.mode === "delete" && root.phase === "ready"
@@ -137,7 +120,6 @@ AppDialog {
             onToggled: root.ctl.block = !root.ctl.block
         }
 
-        // The target's own step, first.
         RowLayout {
             objectName: "roomCloseTargetRow"
             Layout.fillWidth: true
@@ -163,7 +145,6 @@ AppDialog {
             StepOutcome { row: parent.row }
         }
 
-        // Cascade choice.
         RowLayout {
             objectName: "roomCloseCascade"
             Layout.fillWidth: true
@@ -197,8 +178,6 @@ AppDialog {
             id: roomList
             objectName: "roomCloseRooms"
             Layout.fillWidth: true
-            // From the row height, not contentHeight: that is not known
-            // when this binds and cut the list to half a row.
             readonly property int rowHeight: 34
             Layout.preferredHeight: Math.min(count * rowHeight, 240)
             visible: count > 0 && root.phase !== "planning"
@@ -227,7 +206,6 @@ AppDialog {
                 contentItem: RowLayout {
                     spacing: AppTheme.spacing8
                     CheckBox {
-                        // The row owns the click; this is an indicator.
                         visible: roomRow.eligible && root.phase === "ready"
                         checked: roomRow.modelData.selected === true
                                  && root.ctl.cascade
@@ -268,7 +246,6 @@ AppDialog {
             font.pixelSize: AppTheme.textMeta
         }
 
-        // Typing the name is the confirmation of a delete.
         Label {
             Layout.fillWidth: true
             visible: typedField.visible
@@ -284,7 +261,6 @@ AppDialog {
             font.family: AppTheme.uiFont
             font.pixelSize: AppTheme.textMeta
         }
-        // The id, selectable so it can be copied.
         TextEdit {
             objectName: "roomCloseTypedId"
             Layout.fillWidth: true
@@ -295,7 +271,6 @@ AppDialog {
             wrapMode: TextEdit.WrapAnywhere
             text: root.ctl ? root.ctl.targetId : ""
             color: AppTheme.stormTextSecondary
-            // The text fields' own selection colour, visible on every theme.
             selectionColor: AppTheme.textSelection
             font.family: AppTheme.uiFont
             font.pixelSize: AppTheme.textMeta
@@ -339,7 +314,6 @@ AppDialog {
             AppButton {
                 objectName: "roomCloseCancel"
                 storm: true
-                // While running this only hides the dialog; the work goes on.
                 text: root.running ? qsTr("Hide")
                                    : root.finished ? qsTr("Close")
                                                    : qsTr("Cancel")
@@ -352,10 +326,6 @@ AppDialog {
                 kind: "dangerPrimary"
                 text: root.ctl ? root.ctl.confirmLabel : ""
                 enabled: root.ctl && root.ctl.canConfirm
-                // Answers the keyboard only when reached by it (visualFocus):
-                // a stray Space on a ring-less focus started the close
-                // (C06 F04). Swallowed otherwise: Return/Enter by AppButton
-                // (keysNeedVisualFocus), Space here.
                 keysNeedVisualFocus: true
                 Keys.onPressed: (event) => {
                     if (!visualFocus && event.key === Qt.Key_Space)
@@ -366,7 +336,6 @@ AppDialog {
         }
     }
 
-    // A switch with its sentence; the whole row toggles it.
     component OptionRow: RowLayout {
         id: option
         property bool checked: false
@@ -391,8 +360,6 @@ AppDialog {
         }
     }
 
-    // One row's outcome: before confirming, what closing does there or why
-    // it is not offered; while running, its progress; after, what happened.
     component StepOutcome: RowLayout {
         id: outcome
         property var row: ({})
@@ -427,8 +394,6 @@ AppDialog {
                     return r.reasonText || ""
                 if (outcome.status === "skipped")
                     return qsTr("Skipped")
-                // What closing does here is never hidden; another Space
-                // listing the room is added to it.
                 if (r.alsoElsewhere > 0)
                     return r.summary
                            ? qsTr("%1 · also in another space").arg(r.summary)

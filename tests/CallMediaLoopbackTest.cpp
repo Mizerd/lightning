@@ -34,12 +34,6 @@
 
 namespace {
 
-// A UDP port on 127.0.0.1 that never answers. Named as the STUN server it
-// keeps ICE gathering running until libnice gives up on it (about 2 s,
-// measured with libnice 0.1.23), which is the window GitHub #3 needs.
-// Nothing reaches it: libnice pins each host candidate's socket to its
-// interface (IP_UNICAST_IF), so loopback is unreachable, which only makes
-// the silence certain.
 class SilentUdpPort
 {
 public:
@@ -79,20 +73,12 @@ private:
     int m_port = 0;
 };
 
-// How long a retirement in these tests takes: their silent STUN/TURN servers
-// hold gathering only for libnice's own timers (about 2 s over UDP, 7.9 s over
-// TCP), which the SOFT bound covers, and the webrtcbin stops as soon as that
-// gathering ends. Not the hard bound (kGatheringHardBoundMs, 60 s): a test
-// that needed it would be measuring a gathering that never ends, and should
-// shorten the bound with setRetireBoundForTest() instead of waiting a minute.
 constexpr int kRetiredOnceGatheringEndsWithinMs =
     lightning::webrtc::Retirer::kGatheringBoundMs + 3000;
 static_assert(kRetiredOnceGatheringEndsWithinMs
                   < lightning::webrtc::Retirer::kGatheringHardBoundMs,
               "the wait is meant to be shorter than the hard bound");
 
-// Element Desktop 1.12.29's legacy video offer, captured 2026-09-25 from an
-// m.call.invite (candidates removed, ice-pwd replaced).
 const char kElementVideoOffer[] = R"SDP(v=0
 o=- 3875380875183614964 2 IN IP4 127.0.0.1
 s=-
@@ -299,10 +285,6 @@ GstPadProbeReturn countBuffer(GstPad *, GstPadProbeInfo *, gpointer counter)
     return GST_PAD_PROBE_OK;
 }
 
-// A peer shaped like Element's video call: one webrtcbin sending Opus audio
-// and VP8 video, sendrecv, bundled. It plays what it receives into fakesinks
-// and counts the audio packets. webrtcbin keeps sending video after an
-// inactive answer, which is what exercises the receiver's drain.
 class AvOfferer : public QObject
 {
     Q_OBJECT
@@ -347,8 +329,6 @@ public:
     bool valid() const { return m_pipeline != nullptr; }
     int audioPacketsReceived() const { return m_audioPackets.load(); }
 
-    /// Asks for an offer; it arrives on offerReady once both sections exist
-    /// (webrtcbin leaves a section out until its caps are known).
     void createOffer()
     {
         g_signal_emit_by_name(
@@ -467,11 +447,9 @@ private:
     std::atomic<int> m_audioPackets{0};
 };
 
-} // namespace
+}
 
 namespace {
-/// A capture whose start blocks the thread that starts it, as one opening a
-/// sound server that does not answer does (~8.7 s measured, 2026-09-29).
 struct SlowStartMic11 {
     GstBin parent;
 };
@@ -521,8 +499,6 @@ bool registerSlowStartMic11()
 const QString kSlowFront = QStringLiteral(
     "lightningslowstartmic11 name=micsrc ! audioconvert ! audioresample");
 
-/// A capture that starts at once and then blocks the thread that STOPS it,
-/// as one whose sound server stopped answering mid-call does.
 struct SlowStopMic11 {
     GstBin parent;
 };
@@ -559,7 +535,6 @@ void slow_stop_mic11_class_init(SlowStopMic11Class *klass)
     GST_ELEMENT_CLASS(klass)->change_state = slowStopMic11ChangeState;
 }
 
-/// An output whose device opening blocks the thread that opens it.
 struct SlowOpenSink11 {
     GstBin parent;
 };
@@ -610,10 +585,8 @@ bool registerSlowStopMic11()
         slow_stop_mic11_get_type());
     return registered;
 }
-} // namespace
+}
 
-/// Two engines wired as CallController wires them, renegotiation
-/// included. Everything the video cases need.
 struct WiredPair {
     GstCallMediaBackend caller;
     GstCallMediaBackend callee;
@@ -679,7 +652,6 @@ struct WiredPair {
     }
 };
 
-
 class CallMediaLoopbackTest : public QObject
 {
     Q_OBJECT
@@ -695,14 +667,9 @@ private Q_SLOTS:
 
     void runtimeProbeIsStable()
     {
-        // A second call answers from the cached init and must agree.
         QVERIFY(GstCallMediaBackend::runtimeAvailable());
     }
 
-    /// webrtcbin and dtlssrtpenc create rtpbin, rtpfunnel and srtpenc/dec
-    /// themselves, so nothing we build names them, and a package missing one
-    /// (a snap without libsrtp2) passed the probe and carried no media. Each
-    /// is taken out of the registry in turn: the probe must name it.
     void theProbeNamesElementsWebrtcbinCreatesItself()
     {
         GstRegistry *registry = gst_registry_get();
@@ -715,9 +682,7 @@ private Q_SLOTS:
             gst_registry_remove_feature(registry, feature);
             QString why;
             const bool available = GstCallMediaBackend::runtimeAvailable(&why);
-            // Back before asserting, so a failure cannot strip the registry
-            // for the cases after this one.
-            gst_registry_add_feature(registry, feature); // refs it again
+            gst_registry_add_feature(registry, feature);
             gst_object_unref(feature);
             QVERIFY2(!available,
                      qPrintable(QStringLiteral("the probe passed without %1")
@@ -728,13 +693,6 @@ private Q_SLOTS:
         QVERIFY(GstCallMediaBackend::runtimeAvailable());
     }
 
-    /// A promise change function must not touch its context after the
-    /// `gst_promise_unref()` that can finalize the promise (whose destroy
-    /// notify, `promiseCtxFree`, deletes the context), as when webrtcbin
-    /// replies with an error. This pins the precondition: after the reply the
-    /// test holds the only reference on the element, so the context was
-    /// destroyed synchronously. The use-after-free itself is only visible
-    /// under ASan; this case guards the ordering the fix relies on.
     void aPromiseChangeFunctionOutlivesItsOwnContext()
     {
         const int refs =
@@ -773,13 +731,12 @@ private Q_SLOTS:
         bool calleeConnected = false;
         QString failureCategory;
 
-        // Cross the signalling as CallController does over Matrix.
         bool sawAudioOffer = false;
         bool sawAudioAnswer = false;
         connect(&caller, &CallMediaBackend::offerReady, &callee,
                 [&](const QString &id, const QString &sdp) {
                     if (id != callId)
-                        return; // the second-call phase reuses the engines
+                        return;
                     sawAudioOffer = sdp.contains(QStringLiteral("m=audio"));
                     callee.createAnswer(callId, sdp);
                 });
@@ -827,7 +784,6 @@ private Q_SLOTS:
         QVERIFY(sawAudioOffer);
         QVERIFY(sawAudioAnswer);
 
-        // Tear down cleanly; a second call on the same engines must work.
         caller.close(callId);
         callee.close(callId);
 
@@ -842,8 +798,6 @@ private Q_SLOTS:
                 });
         caller.createOffer(second);
         QTRY_VERIFY_WITH_TIMEOUT(secondOffered, 15000);
-        // The other close GitHub #3 aborted in: the second session is still
-        // gathering.
         caller.close(second);
         QTRY_COMPARE_WITH_TIMEOUT(caller.retiringWebrtcForTest(), 0,
                                   kRetiredOnceGatheringEndsWithinMs);
@@ -853,13 +807,6 @@ private Q_SLOTS:
         QCOMPARE(callee.teardownsWhileGatheringForTest(), 0);
     }
 
-    /// Rokas, 2026-10-08: "Lightning always used my default microphone, no
-    /// matter which mic I picked in the call's device menu." A pick mid-call
-    /// was stored for the NEXT call only. Now the live call moves: the caller
-    /// starts on a silent fake microphone and switches to a loud one, and the
-    /// far end must hear the loud one; then the callee switches its speaker
-    /// and must keep playing. Neither switch may renegotiate (a second offer
-    /// would reach the peer as a new invite) or end the call.
     void aDeviceSwitchReachesTheLiveCall()
     {
         const QString callId = QStringLiteral("device-switch-1");
@@ -872,9 +819,6 @@ private Q_SLOTS:
         caller.setAudioDeviceResolver([&loudMicrophone] {
             GstCallMediaBackend::AudioDevicePlan plan;
             plan.microphoneFront = loudMicrophone
-                // Shaped like SfuMediaEngine::microphoneFrontDescription():
-                // it ends in a caps shorthand, which the parser rejects as
-                // the last item of a bin (the first live run failed on it).
                 ? QStringLiteral("audiotestsrc is-live=true wave=sine "
                                  "freq=1000 volume=0.5 name=micsrc "
                                  "! audioconvert ! audioresample "
@@ -935,13 +879,11 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(callee.receivedAudioPacketsForTest() > 50,
                                  15000);
 
-        // The silent microphone: what arrives is silence.
         callee.resetReceivedPeakForTest();
         QTest::qWait(1000);
         QVERIFY2(callee.receivedPeakForTest() < 0.02,
                  qPrintable(QString::number(callee.receivedPeakForTest())));
 
-        // Mid-call pick of the loud microphone.
         loudMicrophone = true;
         caller.audioDevicesChanged();
         QCOMPARE(caller.microphoneSwapsForTest(), 1);
@@ -955,14 +897,9 @@ private Q_SLOTS:
             10000);
         QVERIFY2(failure.isEmpty(), qPrintable(failure));
 
-        // A repeated notice with nothing changed (a camera pick fires the same
-        // signal) must not touch the microphone.
         caller.audioDevicesChanged();
         QCOMPARE(caller.microphoneSwapsForTest(), 1);
 
-        // Mid-call pick of another speaker: the track keeps playing through
-        // the new sink (a sink that did not take over would stall the chain
-        // and the peak would stop moving).
         secondSpeaker = true;
         callee.audioDevicesChanged();
         QTRY_COMPARE_WITH_TIMEOUT(callee.speakerSwapsForTest(), 1, 5000);
@@ -974,19 +911,12 @@ private Q_SLOTS:
                            .arg(failure)),
             10000);
         QVERIFY2(failure.isEmpty(), qPrintable(failure));
-        // Neither switch renegotiated.
         QCOMPARE(offers, 1);
 
         caller.close(callId);
         callee.close(callId);
     }
 
-    /// Element's video call reaches the legacy lane as an audio+video offer.
-    /// The answer must accept the audio and decline the video: before the
-    /// fix it answered `video recvonly`, promising to play a track this
-    /// engine has no branch for.
-    /// The claim the matrix.org feature row makes: a picture and sound, both
-    /// ways, in one call, over the same bundled transport.
     void aVideoCallCarriesPictureAndSoundBothWays()
     {
         if (!GstCallMediaBackend::videoRuntimeAvailable())
@@ -998,7 +928,6 @@ private Q_SLOTS:
         QTRY_VERIFY2_WITH_TIMEOUT(pair.connected || !pair.failure.isEmpty(),
                                   "no connection", 45000);
         QVERIFY2(pair.failure.isEmpty(), qPrintable(pair.failure));
-        // Port 0 and a=bundle-only: webrtcbin's max-bundle offer.
         QCOMPARE(pair.offerShape,
                  QStringLiteral("audio:sendrecv video:sendrecv:port0"));
         QCOMPARE(pair.answerShape,
@@ -1020,9 +949,6 @@ private Q_SLOTS:
         QVERIFY(pair.failure.isEmpty());
     }
 
-    /// Answering a video call without the camera: the section stays, the
-    /// caller's picture arrives, and turning the camera on later needs no
-    /// renegotiation. Off closes the capture and the picture stops.
     void theCameraTogglesWithoutRenegotiating()
     {
         if (!GstCallMediaBackend::videoRuntimeAvailable())
@@ -1060,8 +986,6 @@ private Q_SLOTS:
         QVERIFY(pair.failure.isEmpty());
     }
 
-    /// A voice call gains a picture through m.call.negotiate, from either
-    /// end, and the audio survives it.
     void aVoiceCallUpgradesToVideoFromEitherEnd_data()
     {
         QTest::addColumn<bool>("callerUpgrades");
@@ -1105,17 +1029,12 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(
             pair.callee.receivedAudioPacketsForTest() > before + 25, 10000);
 
-        // The other side's camera now needs no second negotiation.
         far.setCameraEnabled(pair.callId, true);
         QTRY_VERIFY_WITH_TIMEOUT(up.decodedVideoFramesForTest() > 15, 30000);
         QCOMPARE(pair.negotiations, 2);
         QVERIFY(pair.failure.isEmpty());
     }
 
-    /// Two people turn their cameras on at once. The callee waits a moment
-    /// before offering, so the caller's offer serves both and each sees the
-    /// other. Offers that really cross cannot be repaired: webrtcbin aborts
-    /// the process answering after a rollback (requestOfferLocked()).
     void offersThatCrossSettleOnTheCallersAndBothCamerasStillWork()
     {
         if (!GstCallMediaBackend::videoRuntimeAvailable())
@@ -1140,9 +1059,6 @@ private Q_SLOTS:
         QVERIFY2(pair.failure.isEmpty(), qPrintable(pair.failure));
     }
 
-    /// An offer nobody answers (a lost send, a silent peer) ends in a camera
-    /// failure, not a stuck camera, the call goes on, and the camera can try
-    /// again.
     void anUnansweredOfferFailsTheCameraAndCanBeRetried()
     {
         if (!GstCallMediaBackend::videoRuntimeAvailable())
@@ -1172,8 +1088,6 @@ private Q_SLOTS:
         QVERIFY(pair.failure.isEmpty());
     }
 
-    /// A picture that cannot be decoded costs the picture. Its chain's errors
-    /// are not the call's, and audio keeps flowing past it.
     void aFailedVideoReceiveLeavesTheAudioRunning()
     {
         if (!GstCallMediaBackend::videoRuntimeAvailable())
@@ -1195,7 +1109,6 @@ private Q_SLOTS:
         QVERIFY(pair.failure.isEmpty());
     }
 
-    /// Our camera failing says nothing about the peer's picture.
     void aFailedCameraLeavesThePeersPictureArriving()
     {
         if (!GstCallMediaBackend::videoRuntimeAvailable())
@@ -1215,7 +1128,6 @@ private Q_SLOTS:
             pair.callee.decodedVideoFramesForTest() > frames + 5, 5000);
     }
 
-    /// A camera that dies mid-call costs the picture and never the call.
     void aFailedCameraLeavesTheCallRunning()
     {
         if (!GstCallMediaBackend::videoRuntimeAvailable())
@@ -1223,7 +1135,6 @@ private Q_SLOTS:
         WiredPair pair(QStringLiteral("camera-failure"));
         pair.caller.setCameraResolver([](int) {
             GstCallMediaBackend::CameraPlan plan;
-            // Fails at runtime, in the front, after the call is up.
             plan.front = QStringLiteral(
                 "videotestsrc is-live=true num-buffers=5 name=camsrc "
                 "! video/x-raw,width=64,height=36,framerate=(fraction)30/1 "
@@ -1246,15 +1157,10 @@ private Q_SLOTS:
         QVERIFY2(pair.failure.isEmpty(), qPrintable(pair.failure));
     }
 
-    /// Placing a call with the microphone already muted (the intent survives
-    /// between calls): the valve shuts before the first buffer, so webrtcbin
-    /// never saw caps on its pad, no offer came, and the call died after 15 s
-    /// as a media failure with nothing sent. Found in the GUI, 2026-10-31.
     void aCallPlacedWhileMutedStillMakesItsOffer()
     {
         GstCallMediaBackend engine;
         engine.setTestToneMode(true);
-        // A capture that has not delivered anything, as a shut valve leaves it.
         engine.setMicrophoneFrontForTest(QStringLiteral(
             "audiotestsrc is-live=true name=micsrc ! valve drop=true "
             "! audioconvert ! audioresample"));
@@ -1272,9 +1178,6 @@ private Q_SLOTS:
         engine.close(QStringLiteral("muted-offer"));
     }
 
-    /// Element's video offer, against an engine that has video: both sections
-    /// accepted. The chain must exist before the description is applied, or
-    /// the section is answered with nothing to send.
     void aVp8OfferIsAnsweredWithItsVideo()
     {
         if (!GstCallMediaBackend::videoRuntimeAvailable())
@@ -1295,7 +1198,6 @@ private Q_SLOTS:
         QVERIFY2(failure.isEmpty(), qPrintable(failure));
         QCOMPARE(GstCallMediaBackend::sdpSectionShape(answer),
                  QStringLiteral("audio:sendrecv video:sendrecv"));
-        // The offerer's payload type, and our one stream named in metadata.
         const QString stream = engine.localStreamId();
         QVERIFY(!stream.isEmpty());
         QVERIFY2(answer.count(QStringLiteral(" msid:") + stream) == 2,
@@ -1315,8 +1217,6 @@ private Q_SLOTS:
                 [&](const QString &, const QString &sdp) { answer = sdp; });
         connect(&engine, &CallMediaBackend::failed, this,
                 [&](const QString &, const QString &why) { failure = why; });
-        // A video codec this engine has no chain for: an offer that names
-        // no VP8 at all.
         const QString offer = crlf(kElementVideoOffer)
                                   .replace(QStringLiteral("VP8/90000"),
                                            QStringLiteral("H265/90000"));
@@ -1329,32 +1229,22 @@ private Q_SLOTS:
         QVERIFY2(failure.isEmpty(), qPrintable(failure));
 
         const QString shape = GstCallMediaBackend::sdpSectionShape(answer);
-        // One answer section per offer section (RFC 3264), audio accepted
-        // both ways, video declined either way JSEP allows.
         const bool declined =
             shape == QLatin1String("audio:sendrecv video:inactive")
             || (shape.startsWith(QLatin1String("audio:sendrecv video:"))
                 && shape.endsWith(QLatin1String(":port0")));
         QVERIFY2(declined, qPrintable(shape));
-        // The Opus payload type is the offerer's.
         QVERIFY(answer.contains(QStringLiteral("a=rtpmap:111 OPUS/48000"),
                                 Qt::CaseInsensitive));
         engine.close(QStringLiteral("video-offer-1"));
     }
 
-    /// Element's legacy video call heard nothing from Lightning (2026-10-08):
-    /// the answer named no SSRC for our audio, because webrtcbin takes it from
-    /// caps on its sink pad and a real microphone had not delivered a buffer
-    /// yet. Chromium then cannot demux our RTP in a two-section BUNDLE and
-    /// drops all of it. A capture that delivers nothing before the answer is
-    /// exactly that case: the answer must still carry a=ssrc.
     void anAnswerNamesItsSsrcBeforeTheMicrophoneDelivers()
     {
         GstCallMediaBackend engine;
         engine.setTestToneMode(true);
         engine.setAudioDeviceResolver([] {
             GstCallMediaBackend::AudioDevicePlan plan;
-            // A microphone that has not produced its first buffer.
             plan.microphoneFront = QStringLiteral(
                 "audiotestsrc is-live=true name=micsrc ! valve drop=true "
                 "! audioconvert ! audioresample ! audio/x-raw,channels=1");
@@ -1370,7 +1260,6 @@ private Q_SLOTS:
         QTRY_VERIFY2_WITH_TIMEOUT(!answer.isEmpty() || !failure.isEmpty(),
                                   "no answer", 15000);
         QVERIFY2(failure.isEmpty(), qPrintable(failure));
-        // The audio section (the first) names its SSRC.
         const int video = answer.indexOf(QStringLiteral("m=video"));
         const QString audioSection =
             video > 0 ? answer.left(video) : answer;
@@ -1380,10 +1269,6 @@ private Q_SLOTS:
         engine.close(QStringLiteral("ssrc-1"));
     }
 
-    /// The whole call against an Element-shaped peer: audio must flow both
-    /// ways. Before the fix the video track was linked into the Opus chain,
-    /// caps negotiation failed, and the not-negotiated return stopped the
-    /// bundled transport (`media_pipeline`, or silence).
     void aVideoCallerHearsAndIsHeardOverTheAudioLane()
     {
         AvOfferer peer;
@@ -1402,7 +1287,6 @@ private Q_SLOTS:
                     if (answered)
                         return;
                     if (sections < 2) {
-                        // Caps not negotiated yet; ask again shortly.
                         QTimer::singleShot(250, &peer,
                                            [&peer] { peer.createOffer(); });
                         return;
@@ -1436,8 +1320,6 @@ private Q_SLOTS:
             qPrintable(QStringLiteral("no connection; answer=%1")
                            .arg(answerShape)),
             45000);
-        // Audio in both directions, sustained well past the moment the first
-        // video packet arrives (the old failure came within a second).
         QTRY_VERIFY2_WITH_TIMEOUT(
             (engine.receivedAudioPacketsForTest() > 150
              && peer.audioPacketsReceived() > 150) || !failure.isEmpty(),
@@ -1468,26 +1350,17 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(failed.count() >= 1, 10000);
         QCOMPARE(failed.first().at(1).toString(),
                  QStringLiteral("bad_remote_offer"));
-        // The engine recovered: a fresh offer session starts.
         bool offered = false;
         connect(&engine, &CallMediaBackend::offerReady, this,
                 [&](const QString &, const QString &) { offered = true; });
         engine.createOffer(QStringLiteral("good-after-bad"));
         QTRY_VERIFY_WITH_TIMEOUT(offered, 15000);
-        // GitHub #3's abort came from this close: it lands while the fresh
-        // session is still gathering.
         engine.close(QStringLiteral("good-after-bad"));
         QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0,
                                   kRetiredOnceGatheringEndsWithinMs);
         QCOMPARE(engine.teardownsWhileGatheringForTest(), 0);
     }
 
-    /// GitHub #3: a webrtcbin set to NULL while its ICE gathering can still
-    /// emit a candidate aborts the process on every GStreamer we ship
-    /// (gstreamer#5138). A STUN server that never answers holds gathering
-    /// open; the call closes on its first candidate, when gathering has
-    /// certainly started. The webrtcbin must reach NULL only after the
-    /// gathering has ended, and within the bound.
     void closingWhileIceGathersStopsWebrtcbinOnlyAfterGathering()
     {
         SilentUdpPort stun;
@@ -1517,9 +1390,6 @@ private Q_SLOTS:
         QCOMPARE(engine.retireBoundExpiriesForTest(), 0);
     }
 
-    /// The same, closed the moment the offer is ready, which is the shape of
-    /// the reporter's crash: set-local-description may not have run yet, so
-    /// the close has to wait it out before it can see that gathering began.
     void closingTheMomentTheOfferIsReadyWaitsForGatheringToo()
     {
         SilentUdpPort stun;
@@ -1547,19 +1417,11 @@ private Q_SLOTS:
         QCOMPARE(engine.retireBoundExpiriesForTest(), 0);
     }
 
-    /// A call closed before its answer exists must not go on to create one:
-    /// a set-local-description queued after the close would start gathering
-    /// behind the teardown's back. Nothing is gathered, so the webrtcbin
-    /// stops at once, well before the silent server would let it.
     void closingBeforeTheAnswerExistsStartsNoGathering()
     {
         SilentUdpPort stun;
         if (stun.port() == 0)
             QSKIP("no loopback UDP socket for the silent STUN server");
-        // close() races webrtcbin's own thread creating the answer; under
-        // heavy load the answer can win, which is correct code taking the
-        // other path. One clean attempt of three proves the gate; without it
-        // every attempt gathers.
         int clean = 0;
         for (int attempt = 0; attempt < 3 && clean == 0; ++attempt) {
             GstCallMediaBackend engine;
@@ -1569,7 +1431,6 @@ private Q_SLOTS:
                 QStringLiteral("close-before-answer-%1").arg(attempt);
             engine.createAnswer(callId, crlf(kElementVideoOffer));
             engine.close(callId);
-            // Well inside the ~2 s the silent server would hold a gathering.
             const bool settled = QTest::qWaitFor(
                 [&engine] { return engine.retiringWebrtcForTest() == 0; },
                 1500);
@@ -1581,9 +1442,6 @@ private Q_SLOTS:
                  "every close before the answer still started a gathering");
     }
 
-    /// The bound is real: a webrtcbin whose gathering outlasts it is stopped
-    /// anyway, and counted. Safe here because the silent server can never
-    /// produce the late candidate the crash needs.
     void aWebrtcbinStillGatheringAtTheBoundIsStoppedAnyway()
     {
         SilentUdpPort stun;
@@ -1604,18 +1462,11 @@ private Q_SLOTS:
                 });
         engine.createOffer(callId);
         QTRY_VERIFY_WITH_TIMEOUT(closed, 15000);
-        // libnice gives up on the silent server only after about 2 s.
         QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0, 1500);
         QCOMPARE(engine.retireBoundExpiriesForTest(), 1);
         QCOMPARE(engine.teardownsWhileGatheringForTest(), 1);
     }
 
-    /// Past the soft bound a retirement is REPORTED and keeps waiting: a
-    /// gathering that outlives libnice's own timers is a server name still
-    /// resolving, whose candidates would land during a stop (gstreamer#5138).
-    /// Before 2026-10-15 the 10 s bound was the stop itself; with it at 300
-    /// ms, as here, the silent server's ~2 s gathering was stopped midway
-    /// (aWebrtcbinStillGatheringAtTheBoundIsStoppedAnyway).
     void aWebrtcbinStillGatheringPastTheSoftBoundKeepsWaiting()
     {
         SilentUdpPort stun;
@@ -1646,8 +1497,6 @@ private Q_SLOTS:
         QCOMPARE(engine.teardownsWhileGatheringForTest(), 0);
     }
 
-    /// At quit a webrtcbin still gathering when the budget runs out is left
-    /// for the process to end, not stopped mid-gathering (the crash).
     void aWebrtcbinStillGatheringAtQuitIsLeftRatherThanStopped()
     {
         SilentUdpPort stun;
@@ -1667,7 +1516,6 @@ private Q_SLOTS:
                 });
         engine.createOffer(callId);
         QTRY_VERIFY_WITH_TIMEOUT(closed, 15000);
-        // libnice gives up on the silent server only after about 2 s.
         engine.drainRetiredForTest(100);
         if (engine.retiresLeftRunningAtQuitForTest() == 0
             && engine.teardownsWhileGatheringForTest() == 0)
@@ -1677,10 +1525,6 @@ private Q_SLOTS:
         QCOMPARE(engine.retiringWebrtcForTest(), 0);
     }
 
-    /// 3c in the 1:1 lane: the capture's start blocked the GUI thread for as
-    /// long as the sound server took. It is started on a pool thread now, and
-    /// reports back to the call it was started for. Fails on the old backend,
-    /// whose createOffer() returned only after the capture had started.
     void theOneToOneMicrophoneIsStartedOffTheGuiThread()
     {
         QVERIFY(registerSlowStartMic11());
@@ -1704,10 +1548,6 @@ private Q_SLOTS:
                                   kRetiredOnceGatheringEndsWithinMs);
     }
 
-    /// Hanging up on a call whose capture is RUNNING and whose sound server
-    /// then stops answering: close() stopped the pipeline, capture included,
-    /// on the GUI thread. The capture leaves first and stops off it now.
-    /// Fails on the old backend: close() took the capture's ~2.5 s stop.
     void closingAOneToOneCallNeverWaitsOnTheCapturesStop()
     {
         QVERIFY(registerSlowStopMic11());
@@ -1732,11 +1572,6 @@ private Q_SLOTS:
                                   kRetiredOnceGatheringEndsWithinMs);
     }
 
-    /// Recheck L-h + M2 in the 1:1 lane: a speaker switch ran inside an IDLE
-    /// probe, on the GUI thread whenever the pad was idle, so opening the
-    /// new output on a silent sound server froze the window; and two picks
-    /// in a row must not race. The first pick here is slow to open; the
-    /// switch returns at once, the second pick wins, and one output is left.
     void twoOneToOneSpeakerPicksNeverBlockAndTheLastWins()
     {
         QVERIFY(registerSlowOpenSink11());
@@ -1810,15 +1645,12 @@ private Q_SLOTS:
         QCOMPARE(callee.speakerSwapsForTest(), 1);
         QCOMPARE(callee.receiveOutputsForTest(),
                  QStringList{ QStringLiteral("fakesink") });
-        // And it plays: decoded audio keeps reaching the (new) output.
         callee.resetReceivedPeakForTest();
         QTRY_VERIFY_WITH_TIMEOUT(callee.receivedPeakForTest() > 0.0, 10000);
         caller.close(callId);
         callee.close(callId);
     }
 
-    /// Hanging up while that start is in flight: close() does not wait for
-    /// it, and its late report is dropped (session serial and front).
     void closingAOneToOneCallWhileItsMicrophoneStartsDoesNotWait()
     {
         QVERIFY(registerSlowStartMic11());
@@ -1835,7 +1667,6 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("close() waited %1 ms for the "
                                            "microphone's start")
                                 .arg(took.elapsed())));
-        // A new call while the old start is still running: not its report.
         engine.setMicrophoneFrontForTest(QString());
         engine.createOffer(QStringLiteral("next-call"));
         QTest::qWait(kSlowMicStartMs + 1000);
@@ -1845,9 +1676,6 @@ private Q_SLOTS:
                                   kRetiredOnceGatheringEndsWithinMs);
     }
 
-    /// Only webrtcbin waits. Everything else of the call stops inside
-    /// close(), so nothing is heard (or sent) after hanging up while the
-    /// webrtcbin finishes gathering.
     void aClosedCallsMediaStopsAtOnceWhileWebrtcbinWaits()
     {
         SilentUdpPort stun;
@@ -1858,8 +1686,6 @@ private Q_SLOTS:
         GstCallMediaBackend callee;
         caller.setTestToneMode(true);
         callee.setTestToneMode(true);
-        // Only the callee gathers against the silent server, so it is still
-        // gathering when it hangs up.
         callee.setIceServers(stun.asStunServer(), QString(), QString());
         QString failure;
         connect(&caller, &CallMediaBackend::offerReady, &callee,

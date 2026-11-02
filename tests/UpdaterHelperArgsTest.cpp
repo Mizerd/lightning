@@ -1,9 +1,3 @@
-// lightning-updater: argv contract and install-strategy planning.
-//
-// The helper accepts no command strings: every option is enumerated, every
-// value checked, injection-shaped values are refused on their own merits, and
-// every strategy produces a program plus an argument vector in which an
-// awkward path stays one element.
 
 #include "updater/ArtifactDigest.h"
 #include "updater/InstallStrategies.h"
@@ -32,7 +26,7 @@ QString writeFile(const QString &path, const QByteArray &contents)
     return path;
 }
 
-} // namespace
+}
 
 class UpdaterHelperArgsTest : public QObject
 {
@@ -41,16 +35,13 @@ class UpdaterHelperArgsTest : public QObject
 private slots:
     void initTestCase();
 
-    // --- mode identifiers ---
     void modeStringsRoundTrip();
     void unknownModeStringsAreInvalid();
     void selfInstallableSetIsExactlySix();
 
-    // --- happy path ---
     void everySelfInstallableModeParses();
     void parsedPathsAreAbsoluteAndCanonical();
 
-    // --- structural refusals ---
     void emptyArgumentsRefused();
     void unknownOptionRefused();
     void positionalArgumentRefused();
@@ -63,7 +54,6 @@ private slots:
     void everyOtherOptionStaysRequired_data();
     void everyOtherOptionStaysRequired();
 
-    // --- value refusals ---
     void injectionShapedValuesAreRefused_data();
     void injectionShapedValuesAreRefused();
     void controlCharactersRefused_data();
@@ -73,7 +63,6 @@ private slots:
     void badPidRefused_data();
     void badPidRefused();
 
-    // --- filesystem preconditions ---
     void missingArtifactRefused();
     void directoryArtifactRefused();
     void emptyArtifactRefused();
@@ -86,10 +75,8 @@ private slots:
     void nonSelfInstallableModesRefused_data();
     void nonSelfInstallableModesRefused();
 
-    // --- pre-scan used by main() for failure reporting ---
     void preScanFindsStatusPathOnlyWhenUnambiguous();
 
-    // --- strategies ---
     void msiPlanIsExactArgv();
     void setupPlanUsesNsisSilentSwitchFirst();
     void inProcessModesRequireNoExternalProcess();
@@ -118,14 +105,10 @@ private slots:
     void planForModeRefusesEcosystemManagedTypes();
     void aRepositoryRpmIsLeftToDnf();
 
-    // --- the digest contract ---
     void digestMustBeSixtyFourLowercaseHex_data();
     void digestMustBeSixtyFourLowercaseHex();
     void artifactTargetAndRelaunchMustNotBeSymlinks();
     void fileDigestMatchesQCryptographicHash();
-    // The REAL helper binary, end to end: a swapped artifact is refused
-    // before anything is touched, and the same call with the right digest
-    // installs.
     void theHelperRefusesAnArtifactWhoseDigestChanged();
     void theHelperInstallsWhenTheDigestMatches();
     void theRelaunchedApplicationDoesNotInheritADeadTemporaryDirectory();
@@ -174,7 +157,6 @@ QStringList UpdaterHelperArgsTest::baseArgs(const QString &mode,
             QStringLiteral("--target"),   target,
             QStringLiteral("--sha256"),   sha256HexOfFile(m_artifact),
             QStringLiteral("--relaunch"), m_relaunch,
-            // Last on purpose: missingValueRefused() drops the final token.
             QStringLiteral("--status"),   m_status};
 }
 
@@ -186,8 +168,6 @@ UpdaterArguments UpdaterHelperArgsTest::parseOrFail(const QStringList &args)
                    << result.message;
     return result.args;
 }
-
-// ---------------------------------------------------------------------------
 
 void UpdaterHelperArgsTest::modeStringsRoundTrip()
 {
@@ -208,8 +188,6 @@ void UpdaterHelperArgsTest::modeStringsRoundTrip()
 
 void UpdaterHelperArgsTest::unknownModeStringsAreInvalid()
 {
-    // No case folding, no trimming, no aliasing. An identifier is exact or it
-    // is not an identifier.
     const QStringList rejected = {
         QStringLiteral("LINUX-DEB"),  QStringLiteral("Linux-Deb"),
         QStringLiteral("linux_deb"),  QStringLiteral(" linux-deb"),
@@ -275,8 +253,6 @@ void UpdaterHelperArgsTest::parsedPathsAreAbsoluteAndCanonical()
     QVERIFY(QFileInfo(args.statusPath).isAbsolute());
 }
 
-// ---------------------------------------------------------------------------
-
 void UpdaterHelperArgsTest::emptyArgumentsRefused()
 {
     const ArgsParseResult parsed = parseUpdaterArgs(QStringList());
@@ -316,7 +292,7 @@ void UpdaterHelperArgsTest::duplicateOptionRefused()
 void UpdaterHelperArgsTest::missingValueRefused()
 {
     QStringList args = baseArgs(QStringLiteral("linux-deb"), m_targetDir);
-    args.removeLast(); // drop the --status value
+    args.removeLast();
     const ArgsParseResult parsed = parseUpdaterArgs(args);
     QVERIFY(!parsed.ok());
     QCOMPARE(parsed.error, ArgsError::MissingValue);
@@ -327,7 +303,7 @@ void UpdaterHelperArgsTest::missingRequiredOptionRefused()
 {
     QStringList args = baseArgs(QStringLiteral("linux-deb"), m_targetDir);
     args.removeLast();
-    args.removeLast(); // drop --status entirely
+    args.removeLast();
     const ArgsParseResult parsed = parseUpdaterArgs(args);
     QVERIFY(!parsed.ok());
     QCOMPARE(parsed.error, ArgsError::MissingRequiredOption);
@@ -346,8 +322,6 @@ void UpdaterHelperArgsTest::valueThatLooksLikeAnOptionRefused()
 
 void UpdaterHelperArgsTest::relaunchIsOptionalAndAbsenceMeansNoRelaunch()
 {
-    // Without --relaunch (a plain installUpdate()) the update applies when the
-    // user quits and the helper must not start the application again.
     QStringList args = baseArgs(QStringLiteral("linux-deb"), m_targetDir);
     const int index = args.indexOf(QStringLiteral("--relaunch"));
     QVERIFY(index >= 0);
@@ -359,12 +333,10 @@ void UpdaterHelperArgsTest::relaunchIsOptionalAndAbsenceMeansNoRelaunch()
     QVERIFY2(parsed.ok(), qPrintable(parseErrorName(parsed.error)));
     QVERIFY(parsed.args.relaunchPath.isEmpty());
     QVERIFY(!parsed.args.relaunchRequested());
-    // Everything else is unaffected.
     QCOMPARE(parsed.args.modeString, QStringLiteral("linux-deb"));
     QCOMPARE(parsed.args.pid, qint64(4242));
     QCOMPARE(parsed.args.statusPath, m_status);
 
-    // ...and supplying it flips exactly that one thing.
     const ArgsParseResult withRelaunch =
         parseUpdaterArgs(baseArgs(QStringLiteral("linux-deb"), m_targetDir));
     QVERIFY(withRelaunch.ok());
@@ -374,8 +346,6 @@ void UpdaterHelperArgsTest::relaunchIsOptionalAndAbsenceMeansNoRelaunch()
 
 void UpdaterHelperArgsTest::relaunchIsStillFullyValidatedWhenPresent()
 {
-    // Optional must not mean lenient: every refusal that applied before still
-    // applies when the option IS supplied.
     struct Case { const char *name; QString value; ArgsError error; };
     const QList<Case> cases = {
         {"relative", QStringLiteral("lightning-bin"), ArgsError::PathNotAbsolute},
@@ -394,7 +364,6 @@ void UpdaterHelperArgsTest::relaunchIsStillFullyValidatedWhenPresent()
         QVERIFY2(parsed.error == c.error, c.name);
     }
 
-    // A duplicate is still a duplicate, optional or not.
     QStringList twice = baseArgs(QStringLiteral("linux-deb"), m_targetDir);
     twice << QStringLiteral("--relaunch") << m_relaunch;
     QCOMPARE(parseUpdaterArgs(twice).error, ArgsError::DuplicateOption);
@@ -425,16 +394,11 @@ void UpdaterHelperArgsTest::everyOtherOptionStaysRequired()
     QCOMPARE(parsed.offendingOption, option);
 }
 
-// ---------------------------------------------------------------------------
-
 void UpdaterHelperArgsTest::injectionShapedValuesAreRefused_data()
 {
     QTest::addColumn<QString>("option");
     QTest::addColumn<QString>("value");
 
-    // None of these are treated as anything but a literal path; they are
-    // refused because they are not absolute, or because no such file exists —
-    // never because a quoting rule saved us.
     QTest::newRow("semicolon-rm") << "--artifact" << "/tmp/x; rm -rf /";
     QTest::newRow("command-substitution") << "--artifact" << "/tmp/$(whoami)";
     QTest::newRow("backticks") << "--artifact" << "/tmp/`id`";
@@ -534,8 +498,6 @@ void UpdaterHelperArgsTest::badPidRefused()
     const ArgsParseResult parsed = parseUpdaterArgs(args);
     QVERIFY2(!parsed.ok(), qPrintable(value));
 }
-
-// ---------------------------------------------------------------------------
 
 void UpdaterHelperArgsTest::missingArtifactRefused()
 {
@@ -674,10 +636,6 @@ void UpdaterHelperArgsTest::preScanFindsStatusPathOnlyWhenUnambiguous()
     QVERIFY(preScanStatusPath(QStringList()).isEmpty());
 }
 
-// ---------------------------------------------------------------------------
-// Strategies
-// ---------------------------------------------------------------------------
-
 void UpdaterHelperArgsTest::msiPlanIsExactArgv()
 {
     UpdaterArguments args;
@@ -691,15 +649,11 @@ void UpdaterHelperArgsTest::msiPlanIsExactArgv()
     QVERIFY(result.plan.program.endsWith(QStringLiteral("msiexec.exe")));
     QCOMPARE(result.plan.arguments.size(), 4);
     QCOMPARE(result.plan.arguments.at(0), QStringLiteral("/i"));
-    // The package path must reach msiexec with backslashes: msiexec reads '/'
-    // as a switch, returns 1619 and installs nothing.
     QCOMPARE(result.plan.arguments.at(1),
              QStringLiteral("C:\\Users\\x\\AppData\\Local\\updates\\Lightning-0.8.0.msi"));
     QVERIFY(!result.plan.arguments.at(1).contains(QLatin1Char('/')));
     QCOMPARE(result.plan.arguments.at(2), QStringLiteral("/qb"));
     QCOMPARE(result.plan.arguments.at(3), QStringLiteral("REINSTALLMODE=vemus"));
-    // A per-user MSI (the default) keeps exactly this vector and never
-    // elevates.
     QVERIFY(!result.plan.elevates);
     QVERIFY(!result.plan.elevateOnWindows);
 }
@@ -708,40 +662,26 @@ void UpdaterHelperArgsTest::setupPlanUsesNsisSilentSwitchFirst()
 {
     UpdaterArguments args;
     args.mode = UpdaterMode::WindowsSetup;
-    // A POSIX-rooted path: QFileInfo::absolutePath() is evaluated on the
-    // HOST, and a "C:/..." string is relative on Linux, which would make the
-    // working-directory expectation depend on the test's own cwd.
     args.artifactPath =
         QStringLiteral("/staging/Lightning-0.8.0-abc1234-windows-x86_64-setup.exe");
 
     const StrategyResult result = planWindowsSetup(args);
     QVERIFY(result.ok());
     QVERIFY(result.plan.requiresExternalProcess);
-    // The verified artifact IS the program; it is never passed to a shell.
-    // Native separators here are precautionary rather than observed-broken:
-    // CreateProcess accepts '/', unlike msiexec's own parser.
     QCOMPARE(result.plan.program,
              QStringLiteral("\\staging\\Lightning-0.8.0-abc1234-windows-x86_64-setup.exe"));
     QCOMPARE(result.plan.workingDirectory, QStringLiteral("\\staging"));
     QVERIFY(!result.plan.program.contains(QLatin1Char('/')));
-    // "/S" first, then the scope -- explicit, so the installer never has to
-    // guess which of two copies a person with both is upgrading.
     QCOMPARE(result.plan.arguments,
              QStringList(kNsisSilentSwitches) << QStringLiteral("/CURRENTUSER"));
-    // NSIS parses its switches positionally: /S must be first.
     QCOMPARE(result.plan.arguments.first(), QStringLiteral("/S"));
-    // Per-user installer: no elevation of either kind.
     QVERIFY(!result.plan.elevates);
     QVERIFY(!result.plan.elevateOnWindows);
     QVERIFY(result.plan.lockedArtifact.isEmpty());
-    // We deliberately do not force an install directory.
     for (const QString &argument : result.plan.arguments)
         QVERIFY(!argument.startsWith(QStringLiteral("/D")));
 }
 
-// A per-machine MSI must be upgraded in the per-machine context: without
-// ALLUSERS=1 Windows Installer looks only in the per-user context and
-// installs a second copy in %LOCALAPPDATA%.
 void UpdaterHelperArgsTest::perMachineMsiPlanAddsAllUsersAndElevates()
 {
     UpdaterArguments args;
@@ -756,13 +696,8 @@ void UpdaterHelperArgsTest::perMachineMsiPlanAddsAllUsersAndElevates()
                           QStringLiteral("C:\\Users\\x\\AppData\\Local\\updates\\Lightning.msi"),
                           QStringLiteral("/qb"), QStringLiteral("REINSTALLMODE=vemus"),
                           QStringLiteral("ALLUSERS=1")}));
-    // Started through ShellExecuteEx "runas": one UAC prompt for an update
-    // the person asked for. Never pkexec, which is the Linux meaning.
     QVERIFY(result.plan.elevateOnWindows);
     QVERIFY(!result.plan.elevates);
-    // And the package msiexec will read is held open, read-shared only, and
-    // re-hashed through that handle for as long as the prompt and the install
-    // take -- it sits in a user-writable directory.
     QCOMPARE(result.plan.lockedArtifact,
              QStringLiteral("C:\\Users\\x\\AppData\\Local\\updates\\Lightning.msi"));
 }
@@ -780,7 +715,6 @@ void UpdaterHelperArgsTest::perMachineSetupPlanPassesAllUsersAndElevates()
              (QStringList{QStringLiteral("/S"), QStringLiteral("/ALLUSERS")}));
     QVERIFY(result.plan.elevateOnWindows);
     QVERIFY(!result.plan.elevates);
-    // The setup IS the artifact: the locked file is the one that runs elevated.
     QCOMPARE(result.plan.lockedArtifact, result.plan.program);
     QVERIFY(!result.plan.lockedArtifact.isEmpty());
     for (const QString &argument : result.plan.arguments)
@@ -789,7 +723,6 @@ void UpdaterHelperArgsTest::perMachineSetupPlanPassesAllUsersAndElevates()
 
 void UpdaterHelperArgsTest::installScopeIsOptionalAndDefaultsToUser()
 {
-    // A caller that omits the option gets per-user and no elevation.
     for (const char *mode : {"windows-msi", "windows-setup"}) {
         const ArgsParseResult parsed =
             parseUpdaterArgs(baseArgs(QString::fromLatin1(mode), m_targetFile));
@@ -814,14 +747,11 @@ void UpdaterHelperArgsTest::installScopeParsesForTheTwoWindowsInstallers()
                      machine ? updater::InstallScope::Machine : updater::InstallScope::User);
             QCOMPARE(updater::installScopeToString(parsed.args.installScope),
                      QString::fromLatin1(scope));
-            // The parsed value decides elevation end to end, and the artifact
-            // lock always travels with it.
             const InstallPlan plan = planForMode(parsed.args).plan;
             QCOMPARE(plan.elevateOnWindows, machine);
             QCOMPARE(!plan.lockedArtifact.isEmpty(), machine);
         }
     }
-    // Still at most once, like every option.
     QStringList twice = baseArgs(QStringLiteral("windows-msi"), m_targetFile);
     twice << QStringLiteral("--install-scope") << QStringLiteral("user")
           << QStringLiteral("--install-scope") << QStringLiteral("machine");
@@ -840,8 +770,6 @@ void UpdaterHelperArgsTest::installScopeIsRefusedForEveryOtherMode_data()
 
 void UpdaterHelperArgsTest::installScopeIsRefusedForEveryOtherMode()
 {
-    // Refused, not ignored: a mistaken "machine" must never slide silently
-    // into a path that cannot honour it.
     QFETCH(QString, mode);
     QFETCH(bool, directoryTarget);
     for (const char *scope : {"user", "machine"}) {
@@ -874,13 +802,6 @@ void UpdaterHelperArgsTest::installScopeRefusesAnythingButUserOrMachine()
 
 namespace {
 
-// CommandLineToArgvW's documented rules, the convention the elevated path's
-// quoting follows. msiexec and NSIS have parsers of their own; what the plans
-// produce (switches, properties, double-quoted paths) reads the same in all
-// three, and the native Windows test is what proves it for msiexec. Whitespace
-// separates outside quotes; 2n backslashes + quote -> n backslashes and a
-// quote toggle; 2n+1 backslashes + quote -> n backslashes and a literal
-// quote; backslashes not followed by a quote are literal.
 QStringList commandLineToArgv(const QString &line)
 {
     QStringList out;
@@ -931,7 +852,7 @@ QStringList commandLineToArgv(const QString &line)
     return out;
 }
 
-} // namespace
+}
 
 void UpdaterHelperArgsTest::windowsCommandLineRoundTripsThroughCommandLineToArgv_data()
 {
@@ -940,7 +861,6 @@ void UpdaterHelperArgsTest::windowsCommandLineRoundTripsThroughCommandLineToArgv
         QStringLiteral("/i"), QStringLiteral("C:\\Users\\x\\Lightning.msi"),
         QStringLiteral("/qb"), QStringLiteral("REINSTALLMODE=vemus"),
         QStringLiteral("ALLUSERS=1")};
-    // The staging directory lives under the profile, and profiles have spaces.
     QTest::newRow("path-with-spaces") << QStringList{
         QStringLiteral("/i"),
         QStringLiteral("C:\\Users\\Jane Doe\\AppData\\Local\\MatrixClient\\updates\\Lightning 1.msi"),
@@ -974,7 +894,6 @@ void UpdaterHelperArgsTest::windowsCommandLineRefusesQuotesAndControlCharacters(
     ok = true;
     QVERIFY(updater::windowsCommandLine({QStringLiteral("line\nbreak")}, &ok).isEmpty());
     QVERIFY(!ok);
-    // No Windows file name can hold a control character, tab included.
     ok = true;
     QVERIFY(updater::windowsCommandLine({QStringLiteral("tab\there")}, &ok).isEmpty());
     QVERIFY(!ok);
@@ -983,9 +902,6 @@ void UpdaterHelperArgsTest::windowsCommandLineRefusesQuotesAndControlCharacters(
     QVERIFY(ok);
 }
 
-// A junction in a parent directory can be re-pointed after the helper locked
-// the artifact, so the plan is rewritten to the locked handle's final path
-// before launch. These two functions are the portable half of that.
 void UpdaterHelperArgsTest::finalPathBecomesALaunchablePath_data()
 {
     QTest::addColumn<QString>("finalPath");
@@ -997,7 +913,6 @@ void UpdaterHelperArgsTest::finalPathBecomesALaunchablePath_data()
     QTest::newRow("already-plain") << "D:\\u\\L.msi" << "D:\\u\\L.msi";
     QTest::newRow("spaces-and-parentheses")
         << "\\\\?\\C:\\Users\\Jane Doe\\setup (1).exe" << "C:\\Users\\Jane Doe\\setup (1).exe";
-    // Refused: nothing msiexec or the loader could be handed safely.
     QTest::newRow("volume-guid") << "\\\\?\\Volume{0a1b2c3d-0000-0000-0000-000000000000}\\L.msi" << "";
     QTest::newRow("device") << "\\\\.\\C:\\L.msi" << "";
     QTest::newRow("unc-without-share") << "\\\\?\\UNC\\srv" << "";
@@ -1025,8 +940,6 @@ void UpdaterHelperArgsTest::elevatedPlansAreRetargetedToTheLockedFile()
     msiArgs.artifactPath = QStringLiteral("C:/Users/x/cache/updates/Lightning.msi");
     InstallPlan msi = planWindowsMsi(msiArgs).plan;
     QVERIFY(retargetPlanToLockedFile(msi, real));
-    // msiexec reads the /i argument: it is the locked object now, and nothing
-    // in the plan still names the path the junction could re-point.
     QCOMPARE(msi.arguments.at(1), real);
     QCOMPARE(msi.lockedArtifact, real);
     QVERIFY(!msi.arguments.join(QLatin1Char(' ')).contains(QStringLiteral("updates")));
@@ -1039,13 +952,10 @@ void UpdaterHelperArgsTest::elevatedPlansAreRetargetedToTheLockedFile()
     InstallPlan setup = planWindowsSetup(setupArgs).plan;
     const QString realSetup = QStringLiteral("D:\\A\\Lightning-setup.exe");
     QVERIFY(retargetPlanToLockedFile(setup, realSetup));
-    // The loader maps lpFile: the program IS the locked file, and it starts in
-    // the locked file's own directory.
     QCOMPARE(setup.program, realSetup);
     QCOMPARE(setup.workingDirectory, QStringLiteral("D:\\A"));
     QCOMPARE(setup.arguments, (QStringList{QStringLiteral("/S"), QStringLiteral("/ALLUSERS")}));
 
-    // A file in a drive's root keeps a directory for a working directory.
     InstallPlan root = planWindowsSetup(setupArgs).plan;
     QVERIFY(retargetPlanToLockedFile(root, QStringLiteral("E:\\setup.exe")));
     QCOMPARE(root.workingDirectory, QStringLiteral("E:\\"));
@@ -1053,7 +963,6 @@ void UpdaterHelperArgsTest::elevatedPlansAreRetargetedToTheLockedFile()
 
 void UpdaterHelperArgsTest::retargetRefusesAPlanThatDoesNotNameTheLockedFile()
 {
-    // A per-user plan locks nothing, so there is nothing to retarget.
     UpdaterArguments userArgs;
     userArgs.mode = UpdaterMode::WindowsMsi;
     userArgs.artifactPath = QStringLiteral("C:/u/L.msi");
@@ -1062,7 +971,6 @@ void UpdaterHelperArgsTest::retargetRefusesAPlanThatDoesNotNameTheLockedFile()
     QVERIFY(!retargetPlanToLockedFile(user, QStringLiteral("D:\\A\\L.msi")));
     QCOMPARE(user.arguments, before.arguments);
 
-    // An unresolvable final path (empty) is refused, never launched as "".
     UpdaterArguments machineArgs = userArgs;
     machineArgs.installScope = updater::InstallScope::Machine;
     InstallPlan machine = planWindowsMsi(machineArgs).plan;
@@ -1071,7 +979,6 @@ void UpdaterHelperArgsTest::retargetRefusesAPlanThatDoesNotNameTheLockedFile()
     QCOMPARE(machine.arguments, untouched.arguments);
     QCOMPARE(machine.lockedArtifact, untouched.lockedArtifact);
 
-    // A plan whose locked name appears nowhere is refused and left alone.
     machine.lockedArtifact = QStringLiteral("C:\\elsewhere\\L.msi");
     QVERIFY(!retargetPlanToLockedFile(machine, QStringLiteral("D:\\A\\L.msi")));
     QCOMPARE(machine.arguments, untouched.arguments);
@@ -1158,8 +1065,6 @@ void UpdaterHelperArgsTest::rpmProbeOrderIsDnf5DnfZypperRpmOstreeRpm()
     QVERIFY(result.ok());
     QCOMPARE(result.plan.arguments.first(), QStringLiteral("/usr/bin/dnf"));
 
-    // openSUSE: zypper, which resolves a dependency a new release adds; the
-    // .rpm is unsigned and its hash was checked against the signed manifest.
     absent << QStringLiteral("/usr/bin/dnf");
     result = planLinuxRpm(args, probe);
     QVERIFY(result.ok());
@@ -1228,9 +1133,6 @@ void UpdaterHelperArgsTest::noPlanEverCarriesAForceSwitch()
 
 void UpdaterHelperArgsTest::awkwardPathSurvivesAsASingleArgvElement()
 {
-    // Spaces, parentheses, quotes, an ampersand, a semicolon, non-ASCII, and
-    // a Lithuanian ogonek. Because a plan is an argument VECTOR, none of this
-    // needs escaping — and it must arrive unmodified as ONE element.
     const QString awkward = QStringLiteral(
         "/staging/Lightning (naujas) 0.8.0 — ąčęėįšųūž & 'quoted' \"x\"; ok.deb");
 
@@ -1247,9 +1149,6 @@ void UpdaterHelperArgsTest::awkwardPathSurvivesAsASingleArgvElement()
     QVERIFY(rpm.ok());
     QCOMPARE(rpm.plan.arguments.last(), awkward);
 
-    // The Windows plans convert separators for msiexec's parser, so the
-    // expectation is the same string with '\' — what must NOT change is that
-    // it is still ONE argv element, quotes, spaces and all.
     QString awkwardWindows = awkward;
     awkwardWindows.replace(QLatin1Char('/'), QLatin1Char('\\'));
 
@@ -1262,7 +1161,6 @@ void UpdaterHelperArgsTest::awkwardPathSurvivesAsASingleArgvElement()
     QVERIFY(setup.ok());
     QCOMPARE(setup.plan.program, awkwardWindows);
 
-    // And nothing anywhere concatenated it into a command line.
     for (const QString &argument : deb.plan.arguments)
         QVERIFY(!argument.contains(QStringLiteral("install -y")));
 }
@@ -1305,8 +1203,6 @@ void UpdaterHelperArgsTest::planForModeRefusesEcosystemManagedTypes()
 
 void UpdaterHelperArgsTest::aRepositoryRpmIsLeftToDnf()
 {
-    // A COPR install is dnf's. Even with every package manager present, the
-    // helper plans nothing and says who owns the update.
     UpdaterArguments args;
     args.mode = UpdaterMode::LinuxRpmRepo;
     args.artifactPath = QStringLiteral("/staging/lightning-0.8.0-1.x86_64.rpm");
@@ -1317,18 +1213,9 @@ void UpdaterHelperArgsTest::aRepositoryRpmIsLeftToDnf()
     QVERIFY(result.plan.arguments.isEmpty());
     QCOMPARE(modeToString(UpdaterMode::LinuxRpmRepo), QStringLiteral("linux-rpm-repo"));
 
-    // The GitLab .rpm, same probe, is still installed through dnf.
     args.mode = UpdaterMode::LinuxRpm;
     QVERIFY(planForMode(args, [](const QString &) { return true; }).ok());
 }
-
-
-// ---------------------------------------------------------------------------
-// The digest contract. The helper is connected to the application's verified
-// download by nothing but a path that can sit armed for hours, so it takes
-// the signed manifest's SHA-256 on its argv and re-hashes the file itself
-// right before acting (ArtifactDigest.h).
-// ---------------------------------------------------------------------------
 
 void UpdaterHelperArgsTest::digestMustBeSixtyFourLowercaseHex_data()
 {
@@ -1365,10 +1252,6 @@ void UpdaterHelperArgsTest::artifactTargetAndRelaunchMustNotBeSymlinks()
     QSKIP("symlink creation requires elevation on Windows");
 #else
     const QDir root(m_dir.path());
-    // Every path option, one at a time: a link to a perfectly valid file
-    // is refused on its own merits, because exists()/isFile() follow it and
-    // the strategies would chmod, replace, or hand to root whatever it
-    // pointed at when they ran.
     struct Case { const char *option; QString linkTo; QString mode; QString target; };
     const QList<Case> cases = {
         { "--artifact", m_artifact, QStringLiteral("linux-deb"), m_targetDir },
@@ -1393,7 +1276,6 @@ void UpdaterHelperArgsTest::artifactTargetAndRelaunchMustNotBeSymlinks()
 
 void UpdaterHelperArgsTest::fileDigestMatchesQCryptographicHash()
 {
-    // Larger than one read chunk, so the streaming path is what is measured.
     QByteArray bytes(3 * 1024 * 1024 + 17, 'x');
     for (int i = 0; i < bytes.size(); i += 4099)
         bytes[i] = static_cast<char>(i & 0xff);
@@ -1404,7 +1286,6 @@ void UpdaterHelperArgsTest::fileDigestMatchesQCryptographicHash()
         QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
     QCOMPARE(sha256HexOfFile(path), expected);
     QVERIFY(isSha256Hex(expected));
-    // Unreadable is EMPTY, never a digest of nothing.
     QVERIFY(sha256HexOfFile(QDir(m_dir.path()).absoluteFilePath(
                 QStringLiteral("absent.bin"))).isEmpty());
 }
@@ -1412,11 +1293,8 @@ void UpdaterHelperArgsTest::fileDigestMatchesQCryptographicHash()
 namespace {
 
 #ifndef Q_OS_WIN
-// A pid that has certainly exited, so the helper's wait returns at once.
 qint64 exitedPid()
 {
-    // A child that blocks on stdin until we close it, so the pid can be read
-    // while it is certainly alive and then certainly exited.
     QProcess probe;
     probe.start(QStringLiteral("/bin/sh"), {QStringLiteral("-c"), QStringLiteral("read x")});
     if (!probe.waitForStarted(5000))
@@ -1437,7 +1315,7 @@ QJsonObject readStatus(const QString &path)
 }
 #endif
 
-} // namespace
+}
 
 void UpdaterHelperArgsTest::theHelperRefusesAnArtifactWhoseDigestChanged()
 {
@@ -1458,8 +1336,6 @@ void UpdaterHelperArgsTest::theHelperRefusesAnArtifactWhoseDigestChanged()
     const qint64 pid = exitedPid();
     QVERIFY(pid > 1);
 
-    // The swap: between "verified" and "installed" somebody replaced the
-    // file. The digest on argv is the one the manifest signed.
     QVERIFY(!writeFile(artifact, QByteArray("attacker bytes")).isEmpty());
 
     QProcess run;
@@ -1471,9 +1347,8 @@ void UpdaterHelperArgsTest::theHelperRefusesAnArtifactWhoseDigestChanged()
                        QStringLiteral("--sha256"), verifiedDigest});
     QVERIFY(run.waitForStarted(5000));
     QVERIFY(run.waitForFinished(30000));
-    QCOMPARE(run.exitCode(), 10); // ExitArtifactDigestMismatch
+    QCOMPARE(run.exitCode(), 10);
 
-    // Nothing was touched, and the refusal is on record for the next launch.
     QFile installed(target);
     QVERIFY(installed.open(QIODevice::ReadOnly));
     QCOMPARE(installed.readAll(), QByteArray("installed bytes"));
@@ -1522,9 +1397,6 @@ void UpdaterHelperArgsTest::theHelperInstallsWhenTheDigestMatches()
 #endif
 }
 
-// The relaunch's environment, through the real helper binary: a recording
-// script reads back what the relaunched process was handed. The input is a
-// TMPDIR that no longer exists and an APPDIR from appimage-run.
 void UpdaterHelperArgsTest::theRelaunchedApplicationDoesNotInheritADeadTemporaryDirectory()
 {
 #ifdef Q_OS_WIN
@@ -1547,8 +1419,6 @@ void UpdaterHelperArgsTest::theRelaunchedApplicationDoesNotInheritADeadTemporary
     const qint64 pid = exitedPid();
     QVERIFY(pid > 1);
 
-    // A temporary directory that existed at startup and is gone now, as when
-    // the owning shell exits along with Lightning.
     const QString deadTemp = root.absoluteFilePath(QStringLiteral("shell-private-tmp"));
     QVERIFY(QDir().mkpath(deadTemp));
     QVERIFY(QDir(deadTemp).removeRecursively());
@@ -1573,7 +1443,6 @@ void UpdaterHelperArgsTest::theRelaunchedApplicationDoesNotInheritADeadTemporary
     QVERIFY(run.waitForFinished(30000));
     QCOMPARE(run.exitCode(), 0);
 
-    // The relaunch is detached, so it lands a moment after the helper exits.
     for (int waited = 0; waited < 10000 && !QFileInfo::exists(record); waited += 50)
         QTest::qWait(50);
     QVERIFY2(QFileInfo::exists(record), "the relaunched application never ran");

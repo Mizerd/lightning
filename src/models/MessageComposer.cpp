@@ -28,8 +28,6 @@ constexpr int kTypingTimeoutMs = 4000;
 // Clipboard images larger than this are scaled down before encoding, so a
 // paste cannot cause an unbounded allocation or upload.
 constexpr int kMaxPasteEdge = 4096;
-// Coalesces a typing burst while losing at most a second of text on a crash.
-// Room switches save synchronously.
 constexpr int kDraftSaveMs = 1000;
 // A Matrix event is capped at 65,536 bytes of canonical JSON (the server answers
 // M_TOO_LARGE); the envelope (sender, room, hashes, signatures, auth and prev
@@ -51,8 +49,6 @@ MessageComposer::MessageComposer(QObject *parent)
         Q_EMIT attachmentsChanged();
         updateCanSend();
     });
-    // A video queued before its poster was ready dispatches once the poster
-    // resolves or fails.
     connect(m_attachments, &AttachmentQueueModel::entryPrepared,
             this, &MessageComposer::pumpAttachments);
     m_draftDebounce.setSingleShot(true);
@@ -65,7 +61,6 @@ void MessageComposer::saveDraftNow()
 {
     if (!m_drafts || m_roomId.isEmpty() || m_restoringDraft)
         return;
-    // Edit mode: the text is the edited event's body, not a draft.
     if (!m_editingEventId.isEmpty())
         return;
     QVariantMap draft;
@@ -74,8 +69,6 @@ void MessageComposer::saveDraftNow()
         draft.insert(QStringLiteral("replyToEventId"), m_replyingToEventId);
         draft.insert(QStringLiteral("replyToSender"), m_replyingToSender);
         draft.insert(QStringLiteral("replyToPreview"), m_replyingToPreview);
-        // The banner thumbnail's key (the reply target's event id), so a room
-        // switch restores the thumbnail with the text.
         if (!m_replyingToMediaKey.isEmpty())
             draft.insert(QStringLiteral("replyToMediaKey"),
                          m_replyingToMediaKey);
@@ -114,7 +107,6 @@ void MessageComposer::restoreDraft()
     m_restoringDraft = true;
     m_text = draft.value(QStringLiteral("text")).toString();
     m_mentionRefs.clear();
-    // Selections live in memory only; restore those still matching the text.
     m_emoticonRefs.clear();
     for (const EmoticonRef &ref : m_emoticonRefsByRoom.take(m_roomId)) {
         if (ref.start >= 0 && ref.start + ref.length <= m_text.size()
@@ -129,16 +121,12 @@ void MessageComposer::restoreDraft()
         ref.displayText = map.value(QStringLiteral("displayText")).toString();
         ref.start = map.value(QStringLiteral("start")).toInt();
         ref.length = map.value(QStringLiteral("length")).toInt();
-        // Fail closed: a ref whose slice no longer matches its text contributes
-        // nothing.
         if (!ref.userId.isEmpty() && ref.start >= 0 && ref.length > 0
             && ref.start + ref.length <= m_text.size()
             && m_text.mid(ref.start, ref.length) == ref.displayText) {
             m_mentionRefs.append(ref);
         }
     }
-    // Restored tolerantly: replying to a redacted or unavailable event is
-    // allowed, and a dangling target must never block editing or sending.
     m_replyingToEventId =
         draft.value(QStringLiteral("replyToEventId")).toString();
     m_replyingToSender =
@@ -165,8 +153,6 @@ void MessageComposer::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::attachmentQueueFinished,
                 this, &MessageComposer::onAttachmentQueueFinished);
-        // Scoped to the current room: a late answer for a room the user left
-        // must not report over the new one.
         connect(m_client, &MatrixClient::messageEditsRemoved, this,
                 [this](const QString &roomId, const QString &eventId, bool ok,
                        int removed, int failed, bool truncated) {
@@ -188,7 +174,7 @@ void MessageComposer::setClient(MatrixClient *client)
             // account's plaintext. The text goes too.
             m_draftDebounce.stop();
             m_roomId.clear();
-            cancelReplyOrEdit(); // may re-arm the debounce — stop it again
+            cancelReplyOrEdit();
             m_draftDebounce.stop();
             if (!m_text.isEmpty()) {
                 m_text.clear();
@@ -244,9 +230,7 @@ void MessageComposer::addDroppedAttachments(const QList<QUrl> &urls,
             if (m_roomId != roomId || m_dropGeneration != generation
                 || m_client != client || !m_client
                 || m_client->currentUserId() != userId)
-                return; // the user moved on while the portal answered
-            // Only a portal key was dropped and the portal gave nothing: say
-            // so rather than leave the drop silently ignored.
+                return;
             if (resolved.isEmpty()) {
                 Q_EMIT attachmentRejected(tr("That file cannot be read."));
                 return;
@@ -266,9 +250,6 @@ bool MessageComposer::pasteFromClipboard()
     if (!mime)
         return false;
 
-    // Real file MIME data (text/uri-list), e.g. from a file manager. Plain text
-    // is never interpreted as paths. Resolved like a drop, so a sandboxed
-    // paste reaches the file through the portal key copied with it.
     if (mime->hasUrls()) {
         QList<QUrl> local;
         const auto urls = mime->urls();
@@ -295,7 +276,7 @@ bool MessageComposer::pasteFromClipboard()
         buffer.open(QIODevice::WriteOnly);
         if (!image.save(&buffer, "PNG")) {
             Q_EMIT attachmentRejected(tr("The clipboard image could not be read."));
-            return true; // handled: do not paste binary junk as text
+            return true;
         }
         const QString reason = m_attachments->addImageData(
             bytes, QStringLiteral("image/png"), image.width(), image.height());
@@ -314,19 +295,8 @@ void MessageComposer::setSendTextAsCaption(bool on)
     Q_EMIT sendTextAsCaptionChanged();
 }
 
-// Attach the typed text as the caption of one queued attachment (the first
-// that can carry one) and report whether it was taken. Falls back to a
-// separate text message when:
-//   * the setting is off;
-//   * nothing queued can carry a caption (sendAttachmentBytes, used for
-//     pasted images, has no caption parameter);
-//   * the text has @-mentions, which a plain caption body cannot carry;
-//   * the composer is in thread-reply mode: attachments target the room, so a
-//     caption would move a thread reply into the main timeline.
 void MessageComposer::setImageMetadataMode(const QString &mode)
 {
-    // Normalised through the parser, so an unreadable value lands on the
-    // privacy-preserving default and not on "keep".
     const QString normalized =
         imagemeta::modeToString(imagemeta::modeFromString(mode));
     if (m_imageMetadataMode == normalized)
@@ -361,9 +331,6 @@ void MessageComposer::dispatchAttachments()
         if (entries[row].state != QLatin1String("queued"))
             continue;
         entries[row].sendRequested = true;
-        // Captured now, not at dispatch: a video waits for its poster and the
-        // composer's reply chip is gone by then. A retry that is sent with no
-        // new reply keeps the one it had.
         if (!m_replyingToEventId.isEmpty())
             entries[row].replyToEventId = m_replyingToEventId;
         // The thread is captured with the reply: a row must not move between
@@ -400,13 +367,9 @@ void MessageComposer::pumpAttachments()
         dispatchAttachment(row);
         if (entries[row].state == QLatin1String("dispatching"))
             return;
-        // Failed synchronously: nothing is in flight, carry on.
     }
 }
 
-// One entry's dispatch, separate because a video waits for its extracted
-// poster. The wait is bounded and resolves either way; without a poster the
-// video still sends.
 void MessageComposer::dispatchAttachment(int row)
 {
     if (!m_client || m_roomId.isEmpty())
@@ -418,10 +381,6 @@ void MessageComposer::dispatchAttachment(int row)
     if (entry.state != QLatin1String("queued") || !entry.sendRequested
         || entry.posterPending)
         return;
-    // The typed text as caption when the user enabled that (one event instead
-    // of two); empty otherwise. Taken, not copied: send() skips the separate
-    // text message under the same condition, so the caption never appears
-    // twice.
     const QString caption = entry.caption;
     quint64 opId = 0;
     QString sendPath = entry.localPath;
@@ -470,14 +429,8 @@ void MessageComposer::dispatchAttachment(int row)
                                    entry.posterWidth, entry.posterHeight,
                                    entry.replyToEventId);
     } else if (entry.isSvg) {
-        // Never reached with a converted entry (the conversion replaced the
-        // SVG with a PNG file and cleared isSvg). An SVG that got here was
-        // not converted, and SVG is never uploaded: opId stays 0 and the
-        // entry fails.
         opId = 0;
     } else {
-        // Duration is 0 for non-timed media or an undecodable length; both are
-        // sent as absent, never as a literal zero.
         opId = m_client->sendAttachment(m_roomId, sendPath,
                                         entry.mime, caption, entry.width,
                                         entry.height, entry.animated,
@@ -507,9 +460,6 @@ void MessageComposer::sendVoiceMessage(const QString &localPath,
         Q_EMIT attachmentRejected(tr("The voice message could not be sent."));
         return;
     }
-    // Preflight against the server's upload limit: a recording cannot be
-    // resized, so fail before an upload the server would reject. Silent when
-    // the limit is unknown.
     const qint64 recordedBytes = QFileInfo(localPath).size();
     if (m_attachments && m_attachments->exceedsUploadLimit(recordedBytes)) {
         QFile::remove(localPath);
@@ -528,7 +478,6 @@ void MessageComposer::sendVoiceMessage(const QString &localPath,
     const QString threadRoot = sendThreadRootId();
     const QString replyTo =
         m_replyingToEventId == threadRoot ? QString() : m_replyingToEventId;
-    // Inline thread style: into the thread through the SDK, never the room.
     const quint64 opId = threadRoot.isEmpty()
         ? m_client->sendVoiceMessage(
               targetRoom, localPath, mime, static_cast<qint64>(durationMs),
@@ -537,15 +486,11 @@ void MessageComposer::sendVoiceMessage(const QString &localPath,
               targetRoom, threadRoot, localPath, mime,
               static_cast<qint64>(durationMs), amplitudes, replyTo);
     if (opId == 0) {
-        // Never queued: reclaim the recording now.
         QFile::remove(localPath);
         Q_EMIT attachmentRejected(tr("The voice message could not be sent."));
         return;
     }
     m_voiceOps.insert(opId, VoiceOp{localPath, targetRoom});
-    // The recording carried the reply, so the chip is spent, exactly as after
-    // a text reply. Only the reply: the typed text and its mentions are not
-    // part of a voice message and stay.
     clearReplyTarget();
 }
 
@@ -570,10 +515,6 @@ void MessageComposer::setThreadTargetRootId(const QString &rootEventId)
 {
     if (m_threadTargetRootId == rootEventId)
         return;
-    // Save the outgoing conversation's draft under its own key before the key
-    // changes, exactly as setRoomId does for a room change. An edit in
-    // progress is abandoned (its pre-edit draft comes back and is saved with
-    // the rest); a reply chip belongs to the draft and travels with it.
     m_draftDebounce.stop();
     if (!m_editingEventId.isEmpty())
         cancelReplyOrEdit();
@@ -615,25 +556,17 @@ void MessageComposer::onAttachmentQueueFinished(quint64 opId,
                                                 const QString &category)
 {
     Q_UNUSED(category);
-    // The stripped copy (if any) has been read by the SDK or the op failed.
     m_imagePrep.finished(opId);
     if (const auto voiceIt = m_voiceOps.constFind(opId);
         voiceIt != m_voiceOps.constEnd()) {
-        // The op owns its recording file; once queued or failed the path is no
-        // longer needed, so cleanup is unconditional.
         const VoiceOp op = voiceIt.value();
         QFile::remove(op.localPath);
         m_voiceOps.erase(voiceIt);
-        // Voice sends have no tray entry; success shows as the local echo, so
-        // only a failure is surfaced, and only in the room the recording was
-        // sent to.
         if (!ok && op.roomId == m_roomId)
             Q_EMIT attachmentRejected(
                 tr("The voice message could not be sent."));
         return;
     }
-    // Tray entries belong to the room they were prepared in; setRoomId clears
-    // them. The explicit guard keeps a late result from matching another room.
     if (!roomId.isEmpty() && roomId != m_roomId)
         return;
     auto &entries = m_attachments->entries();
@@ -641,8 +574,6 @@ void MessageComposer::onAttachmentQueueFinished(quint64 opId,
         if (entries[row].opId != opId || opId == 0)
             continue;
         if (ok) {
-            // The SDK local echo now owns the send state. Leave "dispatching"
-            // first so removeAt's mid-dispatch guard does not apply.
             entries[row].state = QStringLiteral("sent");
             m_attachments->removeAt(row);
         } else {
@@ -651,7 +582,6 @@ void MessageComposer::onAttachmentQueueFinished(quint64 opId,
             entries[row].opId = 0;
             m_attachments->updateEntry(row);
         }
-        // The next row in tray order may go now.
         pumpAttachments();
         return;
     }
@@ -661,19 +591,15 @@ void MessageComposer::setText(const QString &t)
 {
     if (m_text == t)
         return;
-    // Keep mention ranges in sync with ordinary edits; a ref whose slice no
-    // longer matches is dropped.
     m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, t);
     m_emoticonRefs = shiftEmoticonRefs(m_emoticonRefs, m_text, t);
     m_text = t;
     Q_EMIT textChanged();
     Q_EMIT mentionRangesChanged();
-    // Any edit invalidates a command refusal and can change completion matches.
     setCommandError(QString());
     Q_EMIT commandCompletionsChanged();
     updateCanSend();
     refreshTypingState();
-    // Coalesced draft persistence; never during a restore or in edit mode.
     if (m_drafts && !m_restoringDraft && !m_roomId.isEmpty())
         m_draftDebounce.start();
 }
@@ -682,26 +608,15 @@ void MessageComposer::setRoomId(const QString &r)
 {
     if (m_roomId == r)
         return;
-    // Save the old room's draft before anything changes: stop the debounce and
-    // save against the still-current room. Keeps a setRoomId("") round trip
-    // draft-preserving.
     m_draftDebounce.stop();
     saveDraftNow();
-    // Cancel typing on the previous room and any pending reply/edit.
     if (!m_roomId.isEmpty()) stopTyping();
     cancelReplyOrEdit();
-    // A thread target names a thread of the room being left; never carry it.
-    // Dropped directly: the outgoing draft was saved above under its own key,
-    // and the incoming room's draft is restored below.
     if (!m_threadTargetRootId.isEmpty()) {
         m_threadTargetRootId.clear();
         Q_EMIT threadStateChanged();
     }
-    // cancelReplyOrEdit may have re-armed the debounce.
     m_draftDebounce.stop();
-    // Queued attachments belong to their room; dispatched ones continue in the
-    // SDK send queue. Rows the user already sent but the in-order pump has not
-    // reached yet go now, unordered, rather than being dropped with the tray.
     if (m_client && !m_roomId.isEmpty()) {
         auto &pending = m_attachments->entries();
         for (int row = 0; row < pending.size(); ++row) {
@@ -718,7 +633,6 @@ void MessageComposer::setRoomId(const QString &r)
     m_text.clear();
     m_mentionRefs.clear();
     restoreDraft();
-    // A command refusal belongs to the room it was issued in.
     setCommandError(QString());
     Q_EMIT commandCompletionsChanged();
     Q_EMIT textChanged();
@@ -734,54 +648,36 @@ bool MessageComposer::canSend() const
 
 void MessageComposer::send()
 {
-    sendInternal(/*allowCommands=*/true);
+    sendInternal(true);
 }
 
 void MessageComposer::sendBypassingCommands()
 {
-    sendInternal(/*allowCommands=*/false);
+    sendInternal(false);
 }
 
 void MessageComposer::sendInternal(bool allowCommands)
 {
     if (!m_canSend || !m_client) return;
-    // An edit saved with the box as it was opened changes nothing, and sending
-    // it would add an "(edited)" mark or, for a seed plainer than the message,
-    // strip it (C46 F06).
     if (!m_editingEventId.isEmpty() && m_text == m_editSeedText) {
         finishSuccessfulSend();
         return;
     }
-    // Expand inserted @-mentions into matrix.to markdown links and collect the
-    // MXIDs for m.mentions. Without mentions this is just the trimmed text.
     const mention::Expansion expansion = mention::expand(m_text, m_mentionRefs);
     QString body = expansion.body.trimmed();
-    // The "or send" half of shortcode auto-convert: a completed `:alias:`
-    // that never got a trailing space (typically because it ends the
-    // message) converts here, once, before commands are parsed or the text
-    // is dispatched. Per-keystroke conversion already handled the common
-    // mid-message case; this only catches what that pass could not see.
     if (m_emojiAutoConvert)
         body = convertUnicodeShortcodesForSend(body);
     const QStringList mentionIds = expansion.userIds;
 
-    // Slash commands apply only to fresh messages, never to an edit. Parsing
-    // the expanded body is safe: a mention ref can never cover the leading
-    // slash.
     if (allowCommands && m_editingEventId.isEmpty()) {
         const SlashCommands::Parse parsed = SlashCommands::parse(body);
         switch (parsed.kind) {
         case SlashCommands::Parse::NotACommand:
             break;
         case SlashCommands::Parse::Escaped:
-            // "//hello" sends "/hello" as an ordinary message.
             body = parsed.literalText.trimmed();
             break;
         case SlashCommands::Parse::Unknown:
-            // Unknown commands are sent as text, not refused: a client cannot
-            // tell a bot's command from a typo, and bots are the common case. A
-            // known command with bad arguments still refuses; `//text` escapes
-            // to a literal.
             break;
         case SlashCommands::Parse::Known:
             if (executeCommand(parsed, mentionIds))
@@ -793,10 +689,7 @@ void MessageComposer::sendInternal(bool allowCommands)
     if (refuseIfTooLarge(body, QString()))
         return;
     if (!m_editingEventId.isEmpty()) {
-        // Edit mode edits text only; attachments stay queued.
         if (body.isEmpty()) return;
-        // The same custom-image pass a new message gets: the images the
-        // message was sent with (seeded by beginEdit) and any chosen since.
         QString editBody = body;
         QVariantMap editSpec;
         applyOutgoingEmojiWith(editBody, editSpec, selectedEmoticonMap());
@@ -807,10 +700,6 @@ void MessageComposer::sendInternal(bool allowCommands)
             m_client->editMessage(editTargetTimelineId(), m_editingEventId,
                                   editBody, mentionIds, editSpec);
     } else {
-        // Attachments go first (each its own local echo), then the text as a
-        // separate message, unless the text rides as a caption. The caption is
-        // set before dispatch because an entry waiting for its poster
-        // dispatches later.
         const bool captioned = takeTextAsCaption(body, mentionIds);
         dispatchAttachments();
         if (!body.isEmpty() && !captioned)
@@ -825,10 +714,6 @@ void MessageComposer::sendPrepared(const QString &body, const QString &html,
 {
     if (!m_client || m_roomId.isEmpty() || body.trimmed().isEmpty())
         return;
-    // Rich-mode twin of the guard in sendInternal. The composer text is the
-    // document's mirror: it moves on every edit, formatting included, so it
-    // and not the document answers "unchanged". The document may read back
-    // differently from what was loaded and must not be sent for that (C46 F06).
     if (!m_editingEventId.isEmpty()
         && m_text.trimmed() == m_editSeedText.trimmed()) {
         finishSuccessfulSend();
@@ -836,8 +721,6 @@ void MessageComposer::sendPrepared(const QString &body, const QString &html,
     }
     if (refuseIfTooLarge(body, html))
         return;
-    // An unformatted rich-mode message uses the plain lane: the body is sent
-    // verbatim, never re-read as markdown.
     const QVariantMap spec = html.isEmpty()
         ? QVariantMap{ { QStringLiteral("format"), QStringLiteral("plain") } }
         : QVariantMap{ { QStringLiteral("format"), QStringLiteral("html") },
@@ -860,9 +743,6 @@ void MessageComposer::setEmoticonResolver(
 }
 
 namespace {
-/// The `:shortcode:` runs in a body that resolve against the user's installed
-/// packs; ordinary colons produce nothing. Not an emoji parser: code spans and
-/// URLs are excluded later in Rust, over the formatted body.
 QVariantMap resolveShortcodes(
     const QString &body,
     const std::function<QString(const QString &)> &resolve)
@@ -884,11 +764,8 @@ QVariantMap resolveShortcodes(
     }
     return found;
 }
-// Defined below, alongside emojiTokenAt (MSC2545 shortcode completion): the
-// same "are we inside a code span/fence" rule guards both the completion
-// popup and the `:shortcode:` auto-convert send pass.
 bool insideCode(const QString &text, int cursor);
-} // namespace
+}
 
 QVariantMap MessageComposer::composedMessage() const
 {
@@ -920,7 +797,7 @@ QString MessageComposer::convertUnicodeShortcodesForSend(const QString &text) co
         const auto m = it.next();
         const int start = m.capturedStart(0);
         if (start < last)
-            continue; // overlapped an earlier replacement's matched span
+            continue;
         out += text.mid(last, start - last);
         const QString code = m.captured(1);
         QString emoji;
@@ -946,12 +823,6 @@ void MessageComposer::sendComposed(const QString &body,
 {
     if (!m_client || body.isEmpty())
         return;
-    // MSC2545 inline custom emoji, added here because every send path passes
-    // through. The shortcode map crosses to Rust rather than finished HTML, so
-    // markdown still applies; Rust substitutes after markdown, where code spans
-    // and URLs are distinguishable.
-    // Shared with the thread composer (applyOutgoingEmoji). The Unicode half
-    // already ran in sendInternal and is idempotent.
     QString outBody = body;
     QVariantMap bodySpec = bodySpecIn;
     applyOutgoingEmojiWith(outBody, bodySpec, selectedEmoticonMap());
@@ -971,14 +842,9 @@ void MessageComposer::sendComposed(const QString &body,
         }
     }
     if (!m_threadRootId.isEmpty()) {
-        // Thread replies. The HTTP backend falls back to sendReply.
         m_client->sendThreadReplyTo(m_roomId, m_threadRootId, QString(), outBody,
                                     mentionIds, bodySpec);
     } else if (const QString root = sendThreadRootId(); !root.isEmpty()) {
-        // Inline thread style: a reply to a thread message, or anything sent
-        // while the timeline is filtered to a thread, goes into that thread
-        // through the SDK thread path. A reply to the root itself stays a plain
-        // thread reply (the root is the thread's anchor, not a reply target).
         const QString inReplyTo =
             m_replyingToEventId == root ? QString() : m_replyingToEventId;
         m_client->sendThreadReplyTo(m_roomId, root, inReplyTo, outBody,
@@ -1029,9 +895,6 @@ bool MessageComposer::refuseIfTooLarge(const QString &body, const QString &html)
 
 void MessageComposer::finishSuccessfulSend()
 {
-    // A sent edit leaves edit mode the same way a cancelled one does: the
-    // conversation's pre-edit draft comes back. Only an ordinary send retires
-    // the draft.
     const bool wasEditing = !m_editingEventId.isEmpty();
     stopTyping();
     cancelReplyOrEdit();
@@ -1042,11 +905,6 @@ void MessageComposer::finishSuccessfulSend()
 bool MessageComposer::executeCommand(const SlashCommands::Parse &parsed,
                                      const QStringList &mentionIds)
 {
-    // Command semantics live in SlashCommands::execute (shared with the thread
-    // composer); this adapter supplies this composer's lanes. Each action is a
-    // real backend verb with an explicit room id, except mode (a QML setting)
-    // and display-name changes (AppController's op bookkeeping), which only
-    // ask.
     SlashCommands::Actions actions;
     actions.send = [this](const QString &body, const QStringList &ids,
                           const QVariantMap &spec) {
@@ -1078,15 +936,10 @@ bool MessageComposer::executeCommand(const SlashCommands::Parse &parsed,
         Q_EMIT displayNameChangeRequested(name);
     };
     actions.toggleComposerMode = [this] {
-        // The draft is kept across a mode switch; only the command text is
-        // removed.
         Q_EMIT composerModeToggleRequested();
         clear();
     };
     actions.clearComposer = [this] {
-        // /clear empties the composer (draft and queued attachments) only. It
-        // never touches the timeline, local cache or server; clearing the SDK
-        // event cache would force a refetch.
         if (m_attachments)
             m_attachments->clearAll();
         stopTyping();
@@ -1097,7 +950,7 @@ bool MessageComposer::executeCommand(const SlashCommands::Parse &parsed,
     const SlashCommands::Outcome outcome =
         SlashCommands::execute(parsed, mentionIds, actions);
     if (!outcome.error.isEmpty()) {
-        setCommandError(outcome.error, /*bypassable=*/true);
+        setCommandError(outcome.error,true);
         return true;
     }
     if (outcome.retireDraft)
@@ -1108,7 +961,6 @@ bool MessageComposer::executeCommand(const SlashCommands::Parse &parsed,
 QVariantList MessageComposer::commandCompletions() const
 {
     QVariantList out;
-    // Completion only while typing a command word in a fresh message.
     if (!m_editingEventId.isEmpty())
         return out;
     const QList<SlashCommands::Command> matches =
@@ -1122,7 +974,6 @@ QVariantList MessageComposer::commandCompletions() const
             { QStringLiteral("description"), command.description },
             { QStringLiteral("enabled"), enabled },
             { QStringLiteral("requiresArgs"), command.requiresArgs },
-            // The word is already complete: Return can act on it.
             { QStringLiteral("exact"),
               m_text.mid(1).compare(command.name, Qt::CaseInsensitive) == 0 },
         });
@@ -1178,14 +1029,11 @@ void MessageComposer::setEmojiAutoConvertEnabled(bool enabled)
 }
 
 namespace {
-/// The `:token` the caret is inside, as [start, length], or {-1, 0}. The
-/// colon must start a word, so `http://host:8080` and `10:30` never complete.
 QPair<int, int> emojiTokenAt(const QString &text, int cursor)
 {
     if (cursor < 0 || cursor > text.size())
         return { -1, 0 };
     int i = cursor;
-    // Walk back over shortcode characters to the colon.
     while (i > 0) {
         const QChar c = text.at(i - 1);
         if (c == QLatin1Char(':'))
@@ -1198,8 +1046,6 @@ QPair<int, int> emojiTokenAt(const QString &text, int cursor)
     if (i == 0 || text.at(i - 1) != QLatin1Char(':'))
         return { -1, 0 };
     const int colon = i - 1;
-    // The colon must start a word: preceded by nothing, whitespace or an
-    // opening bracket.
     if (colon > 0) {
         const QChar before = text.at(colon - 1);
         if (!(before.isSpace() || before == QLatin1Char('(')
@@ -1209,8 +1055,6 @@ QPair<int, int> emojiTokenAt(const QString &text, int cursor)
     return { colon, cursor - colon };
 }
 
-/// True when the caret is inside a fenced or inline code run, where a
-/// shortcode is literal.
 bool insideCode(const QString &text, int cursor)
 {
     int ticks = 0;
@@ -1221,11 +1065,6 @@ bool insideCode(const QString &text, int cursor)
     return ticks % 2 == 1;
 }
 
-/// The complete `:alias:` (both colons present) ending exactly at `end`, as
-/// [start, length] covering the whole run including both colons, or {-1, 0}.
-/// Mirrors emojiTokenAt's word-boundary rule for the opening colon; used by
-/// the auto-convert path, where (unlike emojiTokenAt) the closing colon has
-/// already been typed.
 QPair<int, int> completeShortcodeEndingAt(const QString &text, int end)
 {
     if (end < 3 || end > text.size() || text.at(end - 1) != QLatin1Char(':'))
@@ -1242,7 +1081,7 @@ QPair<int, int> completeShortcodeEndingAt(const QString &text, int end)
         --i;
     }
     if (i == 0 || i == closeColon || text.at(i - 1) != QLatin1Char(':'))
-        return { -1, 0 }; // no opening colon, or an empty "::"
+        return { -1, 0 };
     const int openColon = i - 1;
     if (openColon > 0) {
         const QChar before = text.at(openColon - 1);
@@ -1252,16 +1091,12 @@ QPair<int, int> completeShortcodeEndingAt(const QString &text, int end)
     }
     return { openColon, end - openColon };
 }
-} // namespace
+}
 
 namespace {
-// A Unicode match needs two query characters, custom packs keep the existing
-// one: emojiTokenAt already refuses ":)" (')' is not a shortcode character),
-// but ":D" tokenizes as a one-character query "D" and a Unicode search over
-// a single letter is mostly noise no one is asking for.
 constexpr int kUnicodeMinQueryChars = 2;
 constexpr int kMaxEmojiCompletions = 12;
-} // namespace
+}
 
 QVariantList MessageComposer::emojiCompletionsAt(int cursorPos) const
 {
@@ -1279,7 +1114,6 @@ QVariantList MessageComposer::emojiCompletionsForText(const QString &text,
     const auto token = emojiTokenAt(text, cursorPos);
     if (token.first < 0)
         return out;
-    // At least one query character, so typing a colon does not open a popup.
     const QString prefix = text.mid(token.first + 1, token.second - 1);
     if (prefix.isEmpty() || insideCode(text, cursorPos))
         return out;
@@ -1307,16 +1141,11 @@ QVariantMap MessageComposer::emojiCompletionEdit(const QString &text,
         : entry.value(QStringLiteral("shortcode")).toString();
     if (token.first < 0 || value.isEmpty())
         return {};
-    // The same replacements acceptEmojiCompletionAt and
-    // acceptUnicodeEmojiCompletionAt make in this composer's own text.
     const QString replacement = unicode
         ? value + QStringLiteral(" ")
         : QLatin1Char(':') + value + QStringLiteral(": ");
     if (unicode && m_unicodeEmojiUseRecorder)
         m_unicodeEmojiUseRecorder(value);
-    // The thread composer's text is not m_text, so its choices cannot be
-    // range-tracked here; they are remembered by shortcode text and applied by
-    // the thread send (applyOutgoingEmoji), which then forgets them.
     const QString url = entry.value(QStringLiteral("url")).toString();
     if (!unicode && url.startsWith(QLatin1String("mxc://"))) {
         m_threadEmoticonChoices.insert(
@@ -1341,16 +1170,13 @@ QVariantMap MessageComposer::shortcodeAutoConvertEdit(const QString &text,
     if (cursorPos < 1 || cursorPos > text.size())
         return {};
     if (text.at(cursorPos - 1) != QLatin1Char(' '))
-        return {}; // only "...:alias:| " (space just typed) auto-converts live
+        return {};
     if (insideCode(text, cursorPos))
         return {};
     const auto token = completeShortcodeEndingAt(text, cursorPos - 1);
     if (token.first < 0)
         return {};
     const QString code = text.mid(token.first + 1, token.second - 2);
-    // A custom pack shortcode of the same name wins; this flag only auto-
-    // converts Unicode aliases and must not shadow the existing
-    // `:shortcode:`-stays-literal-until-send custom behaviour.
     if (customShortcodeExists(code))
         return {};
     const QString emoji = m_unicodeShortcodeResolver(code);
@@ -1362,7 +1188,6 @@ QVariantMap MessageComposer::shortcodeAutoConvertEdit(const QString &text,
         { QStringLiteral("start"), token.first },
         { QStringLiteral("length"), token.second },
         { QStringLiteral("replacement"), emoji },
-        // +1: the space stays in place.
         { QStringLiteral("cursor"), token.first + emoji.length() + 1 },
     };
 }
@@ -1370,9 +1195,6 @@ QVariantMap MessageComposer::shortcodeAutoConvertEdit(const QString &text,
 void MessageComposer::applyOutgoingEmoji(QString &body,
                                          QVariantMap &bodySpec) const
 {
-    // This entry point serves the THREAD composer, whose text is not m_text:
-    // this composer's range selections never apply, the thread popup's
-    // choices do (emojiCompletionEdit), and are spent by the send.
     applyOutgoingEmojiWith(body, bodySpec, m_threadEmoticonChoices);
     m_threadEmoticonChoices.clear();
 }
@@ -1381,13 +1203,8 @@ void MessageComposer::applyOutgoingEmojiWith(QString &body,
                                              QVariantMap &bodySpec,
                                              const QVariantMap &selected) const
 {
-    // The "or send" half of the Unicode auto-convert, for the markdown lane
-    // only (an html body is already what the user saw).
     if (m_emojiAutoConvert && !bodySpec.contains(QStringLiteral("format")))
         body = convertUnicodeShortcodesForSend(body);
-    // Typed `:shortcode:`s resolve only when exactly one usable image has that
-    // key (the resolver's rule); an explicit selection always wins for its
-    // text, and is never re-resolved against today's packs.
     QVariantMap emoticons = resolveShortcodes(body, m_emoticonResolver);
     for (auto it = selected.cbegin(); it != selected.cend(); ++it) {
         if (body.contains(it.key()))
@@ -1435,8 +1252,6 @@ int MessageComposer::acceptEmoticonCompletionAt(int cursorPos,
     ref.key = key;
     ref.start = token.first;
     ref.length = code.length();
-    // One image per shortcode text in a message: a later choice for the same
-    // text replaces an earlier one everywhere it appears.
     for (EmoticonRef &existing : m_emoticonRefs) {
         if (existing.displayText == code) {
             existing.url = ref.url;
@@ -1477,12 +1292,6 @@ bool MessageComposer::bindEmoticonAt(int start, const QVariantMap &entry)
 
 bool MessageComposer::customShortcodeExists(const QString &code) const
 {
-    // A custom image named `code` keeps the Unicode alias from replacing the
-    // text: chosen (a selection), resolvable (unique), or merely present in
-    // more than one pack (ambiguous, so it stays literal rather than turning
-    // into a Unicode glyph nobody chose). Live run 2026-10-26: a chosen
-    // `:wave:` from a pack went out as U+1F44B because the ambiguity check
-    // had made the unique resolver answer "".
     const QString text = QLatin1Char(':') + code + QLatin1Char(':');
     for (const EmoticonRef &ref : m_emoticonRefs) {
         if (ref.displayText == text)
@@ -1560,7 +1369,6 @@ MessageComposer::emoticonRefsFromHtml(const QString &text,
         const QString alt = unescape(altAttr.match(attrs).captured(1));
         if (key.isEmpty())
             key = alt;
-        // Some clients write the title as ":code:".
         if (key.size() > 2 && key.startsWith(QLatin1Char(':'))
             && key.endsWith(QLatin1Char(':')))
             key = key.mid(1, key.size() - 2);
@@ -1590,8 +1398,6 @@ MessageComposer::shiftEmoticonRefs(const QList<EmoticonRef> &refs,
 {
     if (refs.isEmpty())
         return {};
-    // The mention rule, reused: kept before the edit, shifted after it,
-    // dropped (back to literal text) when the edit touches its range.
     QList<mention::MentionRef> ranges;
     ranges.reserve(refs.size());
     for (int i = 0; i < refs.size(); ++i) {
@@ -1634,16 +1440,13 @@ int MessageComposer::maybeAutoConvertShortcodeBeforeCursor(int cursorPos)
     if (cursorPos < 1 || cursorPos > m_text.size())
         return -1;
     if (m_text.at(cursorPos - 1) != QLatin1Char(' '))
-        return -1; // only "...:alias:| " (space just typed) auto-converts live
+        return -1;
     if (insideCode(m_text, cursorPos))
         return -1;
     const auto token = completeShortcodeEndingAt(m_text, cursorPos - 1);
     if (token.first < 0)
         return -1;
     const QString code = m_text.mid(token.first + 1, token.second - 2);
-    // A custom pack shortcode of the same name wins; this flag only auto-
-    // converts Unicode aliases and must not shadow the existing
-    // `:shortcode:`-stays-literal-until-send custom behaviour.
     if (customShortcodeExists(code))
         return -1;
     const QString emoji = m_unicodeShortcodeResolver(code);
@@ -1654,7 +1457,7 @@ int MessageComposer::maybeAutoConvertShortcodeBeforeCursor(int cursorPos)
     setText(next);
     if (m_unicodeEmojiUseRecorder)
         m_unicodeEmojiUseRecorder(emoji);
-    return token.first + emoji.length() + 1; // +1: the space stays in place
+    return token.first + emoji.length() + 1;
 }
 
 int MessageComposer::acceptCommandCompletion(const QString &name)
@@ -1668,8 +1471,6 @@ int MessageComposer::acceptCommandCompletion(const QString &name)
 
 void MessageComposer::clear()
 {
-    // A send or explicit clear retires the draft; a pending debounce must not
-    // resurrect it.
     m_draftDebounce.stop();
     if (m_drafts && !m_roomId.isEmpty())
         m_drafts->clear(draftKey());
@@ -1693,8 +1494,6 @@ QVariantMap MessageComposer::mentionTokenAt(const QString &text,
         out.insert(QStringLiteral("active"), false);
         return out;
     }
-    // Suppress the popup when the token overlaps an inserted mention (e.g. the
-    // space right after "@Name ").
     const int tokEnd = qBound(0, cursorPos, text.length());
     for (const mention::MentionRef &ref : m_mentionRefs) {
         const int rs = ref.start;
@@ -1718,7 +1517,6 @@ int MessageComposer::insertMention(const QString &userId,
         return cursorPos;
     const mention::InsertResult res = mention::buildInsertion(
         m_text, tokenStart, cursorPos, userId, displayName);
-    // One atomic edit: shift existing refs across it, then record the new one.
     m_mentionRefs = mention::shiftRefs(m_mentionRefs, m_text, res.text);
     m_mentionRefs.append(res.ref);
     m_text = res.text;
@@ -1750,7 +1548,6 @@ void MessageComposer::beginReply(const QString &eventId,
         m_replyThreadRootId = threadRootId;
         Q_EMIT threadStateChanged();
     }
-    // The reply target is part of the draft.
     if (m_drafts && !m_restoringDraft && !m_roomId.isEmpty())
         m_draftDebounce.start();
 }
@@ -1760,9 +1557,6 @@ void MessageComposer::beginEdit(const QString &eventId,
                                  const QString &sanitizedHtml,
                                  const QString &timelineId)
 {
-    // Flush the conversation's draft before the text is replaced: edit mode
-    // never saves, so a pending debounce would otherwise lose the last second
-    // of typing, and cancelling must find the draft to restore.
     const bool wasEditing = !m_editingEventId.isEmpty();
     if (!wasEditing) {
         m_draftDebounce.stop();
@@ -1779,12 +1573,7 @@ void MessageComposer::beginEdit(const QString &eventId,
     m_threadPreview.clear();
     Q_EMIT threadStateChanged();
     m_editingEventId = eventId;
-    // Older sends carry raw [@x](https://matrix.to/…) markdown in the body;
-    // newer ones carry display text with mention: anchors in the formatted
-    // body. Recover the refs from either, or the edit would drop m.mentions.
     const mention::Recovery recovered = mention::recoverFromBody(currentBody);
-    // A rich-mode send's body says nothing of its formatting: the edit starts
-    // from the formatted body where that can be said exactly.
     const QString formatted = RichComposition::markdownFromSanitizedHtml(
         sanitizedHtml, recovered.text);
     m_text = formatted.isEmpty() ? recovered.text : formatted;
@@ -1798,10 +1587,6 @@ void MessageComposer::beginEdit(const QString &eventId,
         m_mentionRefs =
             mention::refsFromSanitizedHtml(m_text, sanitizedHtml);
     }
-    // The draft's own image choices wait with the draft (restoreDraft brings
-    // them back on cancel); the edit gets the images the message was sent
-    // with. Without this an edit went out as plain `:shortcode:` text (live
-    // run 2026-10-26).
     if (!wasEditing && !m_roomId.isEmpty() && !m_emoticonRefs.isEmpty())
         m_emoticonRefsByRoom.insert(m_roomId, m_emoticonRefs);
     m_emoticonRefs = emoticonRefsFromHtml(m_text, sanitizedHtml);
@@ -1852,8 +1637,6 @@ void MessageComposer::cancelReplyOrEdit()
     m_mentionRefs.clear();
     Q_EMIT mentionRangesChanged();
     if (wasEditing) {
-        // The edited body was never a draft; the conversation's own draft
-        // (flushed by beginEdit) comes back in its place.
         m_text.clear();
         m_mentionRefs.clear();
         restoreDraft();
@@ -1864,7 +1647,6 @@ void MessageComposer::cancelReplyOrEdit()
     if (wasReplying) Q_EMIT replyStateChanged();
     if (wasEditing)  Q_EMIT editStateChanged();
     if (wasInThread) Q_EMIT threadStateChanged();
-    // Dropping the reply chip changes the draft too.
     if ((wasReplying || wasEditing) && m_drafts && !m_restoringDraft
         && !m_roomId.isEmpty()) {
         m_draftDebounce.start();
@@ -1939,7 +1721,6 @@ void MessageComposer::sendFileFromPath(const QString &localPath)
 
 void MessageComposer::updateCanSend()
 {
-    // Sendable with text, or with queued attachments outside edit mode.
     const bool hasQueuedAttachment =
         hasAttachments() && m_editingEventId.isEmpty();
     const bool next = m_client

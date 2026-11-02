@@ -24,24 +24,21 @@ QString displaySafeStatus(QString text)
     }
     return text;
 }
-} // namespace
+}
 
 Q_LOGGING_CATEGORY(lcPresence, "lightning.presence")
 
 namespace {
-// The only states an indicator may render; anything else erases the entry.
 bool isRenderableState(const QString &state)
 {
     return state == QLatin1String("online")
         || state == QLatin1String("unavailable")
         || state == QLatin1String("offline");
 }
-} // namespace
+}
 
 PresenceManager::PresenceManager(QObject *parent)
     : QObject(parent)
-    // Per instance rather than a function static: tests construct a fresh
-    // manager per case.
     , m_traceEnabled(qEnvironmentVariableIsSet("LIGHTNING_PRESENCE_TRACE"))
 {
     m_clock.start();
@@ -69,7 +66,6 @@ PresenceManager::PresenceManager(QObject *parent)
     connect(&m_publishRetryTimer, &QTimer::timeout,
             this, [this]() { publishTick(true, true); });
 
-    // Headless tests have no QGuiApplication; they use setApplicationActive.
     if (auto *gui = qGuiApp) {
         connect(gui, &QGuiApplication::applicationStateChanged, this,
                 [this](Qt::ApplicationState state) {
@@ -129,14 +125,10 @@ void PresenceManager::setSettings(SettingsManager *settings)
                     return;
                 }
                 if (!m_syncing) {
-                    // Not live: the final offline is owed and flushed on
-                    // the next Syncing edge.
                     m_pendingFinalOffline = true;
                     return;
                 }
                 if (m_lastPublished != 2) {
-                    // One final offline so the account does not linger
-                    // online after the user asked not to share presence.
                     sendOffline();
                     m_lastPublished = 2;
                 }
@@ -155,8 +147,6 @@ bool PresenceManager::active() const
 
 bool PresenceManager::unavailable() const
 {
-    // No client means nothing has been asked yet, so silence rather than
-    // "unavailable".
     return m_client && (!m_client->supportsPresence() || m_serverRefused);
 }
 
@@ -181,14 +171,11 @@ void PresenceManager::noteActivity(const QString &userId)
         || !m_watched.contains(userId))
         return;
     m_burstPending.insert(userId);
-    // Restarting coalesces one sync's events into a single read round.
     m_burstTimer.start();
 }
 
 void PresenceManager::noteTyping(const QString &userId)
 {
-    // The local user's own typing says nothing new. Only watched users are
-    // recorded, which keeps the map bounded by what is on screen.
     if (userId.isEmpty() || isOwnUser(userId) || !m_watched.contains(userId))
         return;
     const bool wasWithholding = typingContradicts(userId);
@@ -196,12 +183,9 @@ void PresenceManager::noteTyping(const QString &userId)
     if (!m_typingTimer.isActive())
         m_typingTimer.start(int(qMax<qint64>(1, m_typingWindowMs)));
     if (typingContradicts(userId) != wasWithholding) {
-        // A dot already drawn repaints only on this signal.
         ++m_revision;
         Q_EMIT revisionChanged();
     }
-    // Typing suggests the poll answer is about to change, so re-poll; a
-    // withheld dot is then only a brief gap on a healthy server.
     noteActivity(userId);
 }
 
@@ -210,12 +194,9 @@ bool PresenceManager::typingContradicts(const QString &userId) const
     const auto it = m_typingSince.constFind(userId);
     if (it == m_typingSince.constEnd())
         return false;
-    // Expired but not yet pruned: the read must not depend on the timer.
     if (m_clock.elapsed() - it.value() >= m_typingWindowMs)
         return false;
     const auto cached = m_cache.constFind(userId);
-    // Only "offline" is contradicted; "unavailable" is the server's idle
-    // heuristic and typing while away is ordinary.
     return cached != m_cache.constEnd()
         && cached->state == QLatin1String("offline");
 }
@@ -261,10 +242,6 @@ void PresenceManager::unwatch(const QString &userId)
 
 QString PresenceManager::ownPublishedState() const
 {
-    // The local user's presence is what this client publishes, so answer it
-    // locally: a server with presence disabled echoes "offline" for everyone.
-    // Only when publication is enabled and has happened; with sharing off,
-    // the server's "offline" is what everyone else sees.
     if (!m_client || !m_client->supportsPresence() || !publishEnabled()
         || m_lastPublished < 0)
         return {};
@@ -288,7 +265,6 @@ QString PresenceManager::stateFor(const QString &userId) const
         if (!own.isEmpty())
             return own;
     }
-    // Typing withdraws a contradicted "offline" to unknown.
     if (typingContradicts(userId))
         return {};
     const auto it = m_cache.constFind(userId);
@@ -303,13 +279,11 @@ QVariantMap PresenceManager::infoFor(const QString &userId) const
             return QVariantMap{
                 { QStringLiteral("state"), own },
                 { QStringLiteral("currentlyActive"), m_appActive },
-                // "Active now" is exactly what this client is publishing.
                 { QStringLiteral("lastActiveAgoMs"), qint64(0) },
                 { QStringLiteral("statusMsg"), effectiveStatusText() },
             };
         }
     }
-    // The withdrawal must reach the card too; empty map means unknown.
     if (typingContradicts(userId))
         return {};
     const auto it = m_cache.constFind(userId);
@@ -331,19 +305,14 @@ void PresenceManager::setApplicationActive(bool activeNow)
     if (m_appActive == activeNow)
         return;
     m_appActive = activeNow;
-    // The idle clock starts when focus is lost, not when it was gained.
     if (!activeNow)
         m_inactiveSinceMs = m_clock.elapsed();
-    // Edge-triggered: publish only if the resulting state changed; the
-    // keep-alive tick covers the rest.
     publishTick(false);
 }
 
 void PresenceManager::scheduledPollRound()
 {
     if (!active() || !m_syncing || m_watched.isEmpty()) {
-        // Every gate looks the same to the user, so the trace names which
-        // one closed.
         traceRound("scheduled",
                    !m_client ? "no_client"
                    : !m_client->supportsPresence() ? "unsupported"
@@ -353,8 +322,6 @@ void PresenceManager::scheduledPollRound()
                    0, 0);
         return;
     }
-    // Stable rotation so a watched set larger than one batch is covered
-    // across rounds.
     m_pollOrder = m_watched.keys();
     std::sort(m_pollOrder.begin(), m_pollOrder.end());
     if (m_pollCursor >= m_pollOrder.size())
@@ -372,8 +339,6 @@ void PresenceManager::scheduledPollRound()
 void PresenceManager::burstRound()
 {
     if (!active() || !m_syncing || m_burstPending.isEmpty()) {
-        // A burst queued while not live is discarded, not deferred; the
-        // Syncing edge re-polls the whole watched set.
         traceRound("burst",
                    !m_client ? "no_client"
                    : !m_client->supportsPresence() ? "unsupported"
@@ -393,7 +358,6 @@ void PresenceManager::burstRound()
     }
     m_burstPending.clear();
     if (round.isEmpty()) {
-        // Everything pending was unwatched before the debounce fired.
         traceRound("burst", "pending_unwatched", 0, 0);
         return;
     }
@@ -413,9 +377,6 @@ void PresenceManager::pollRound(const char *kind, const QStringList &userIds)
                                             m_inFlight.cend()));
     const quint64 opId = m_nextOpId++;
     m_inFlight.insert(opId);
-    // Traced before the request; applyBatch traces the answer. A dispatch
-    // with no answer is the only evidence of a request the backend dropped
-    // silently.
     traceRound(kind, "dispatched", static_cast<int>(userIds.size()), opId);
     m_client->requestPresence(userIds, opId);
 }
@@ -425,8 +386,6 @@ void PresenceManager::traceRound(const char *kind, const char *reason,
 {
     if (!m_traceEnabled)
         return;
-    // qInfo, not a category, so one environment variable is enough for a
-    // tester. Counts, booleans and literals only; never a user id or name.
     qInfo("presence-round kind=%s reason=%s watched=%d pending=%d "
           "supported=%d active=%d syncing=%d appActive=%d inFlight=%d "
           "batch=%d op=%llu",
@@ -448,7 +407,6 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
         return;
     }
     bool changed = false;
-    // Trace accounting: every outcome renders as the same absent dot.
     int okCount = 0;
     int forbiddenCount = 0;
     int notFoundCount = 0;
@@ -459,10 +417,6 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
     int offlineCount = 0;
     int unrenderableCount = 0;
     int erasedCount = 0;
-    // A batch feeds the refusal latch only when broad enough that "everyone
-    // forbidden" means the server refuses presence, not one user's quirk.
-    // Counted in distinct user ids; a too-small batch neither advances nor
-    // resets the count.
     QSet<QString> distinctUsers;
     bool allForbidden = !entries.isEmpty();
     for (const QVariant &value : entries) {
@@ -510,8 +464,6 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
             entry.value(QStringLiteral("category")).toString();
         if (category == QLatin1String("forbidden")
             || category == QLatin1String("not_found")) {
-            // Authoritative "no presence": drop what we had. Only forbidden
-            // counts toward the latch.
             const int removed = static_cast<int>(m_cache.remove(userId));
             erasedCount += removed;
             changed = removed > 0 || changed;
@@ -522,7 +474,6 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
                 ++forbiddenCount;
             }
         } else {
-            // Transient: keep the last known state to avoid flicker.
             ++transientCount;
             allForbidden = false;
         }
@@ -543,7 +494,6 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
             m_inFlight.clear();
             m_burstPending.clear();
             Q_EMIT activeChanged();
-            // The client now knows this server will not answer.
             Q_EMIT unavailableChanged();
         }
     } else if (!allForbidden) {
@@ -554,9 +504,6 @@ void PresenceManager::applyBatch(quint64 opId, const QVariantList &entries)
         Q_EMIT revisionChanged();
     }
     if (m_traceEnabled) {
-        // The state distribution separates refusals (forbidden=N, latches)
-        // from a server answering "offline" for everyone (ok=N offline=N,
-        // never latches).
         qInfo("presence-batch op=%llu entries=%d ok=%d forbidden=%d "
               "not_found=%d transient=%d malformed=%d online=%d away=%d "
               "offline=%d unrenderable=%d erased=%d latchEligible=%d "
@@ -574,9 +521,6 @@ void PresenceManager::publishTick(bool force, bool afterRejection)
 {
     if (!m_client || !m_client->supportsPresence() || !m_syncing
         || !publishEnabled()) {
-        // The four silent early returns: "no failures in the log" used to be
-        // indistinguishable from "stopped publishing". Logged on a CHANGE of
-        // reason only, so a long stall is one line, not one per tick.
         if (m_traceEnabled) {
             const char *reason = !m_client ? "no-client"
                 : !m_client->supportsPresence() ? "unsupported"
@@ -607,8 +551,6 @@ void PresenceManager::publishTick(bool force, bool afterRejection)
         return;
     const int previous = m_lastPublished;
     loadOwnStatusIfNeeded();
-    // Reset the retry chain where a publish is actually sent, not on every
-    // tick, so at most one retry is ever pending.
     if (!afterRejection) {
         m_publishRetryTimer.stop();
         m_retryChain = 0;
@@ -616,8 +558,6 @@ void PresenceManager::publishTick(bool force, bool afterRejection)
     ++m_publishAttempts;
     m_statusDirty = false;
     sendPresence(desired, effectiveStatusText());
-    // Log the offered rate. ~2.4 attempts/min is one healthy client; near 6
-    // means the Syncing-edge path is firing at its 10 s gap.
     if (m_traceEnabled) {
         const qint64 upMs = m_clock.elapsed();
         const double perMin = upMs > 0
@@ -632,21 +572,17 @@ void PresenceManager::publishTick(bool force, bool afterRejection)
     }
     m_lastPublished = desired;
     m_lastPublishAtMs = m_clock.elapsed();
-    // Re-arm with fresh jitter so clients of one account drift apart.
     if (m_publishJitter) {
         m_publishTimer.setInterval(kPublishIntervalMs
                                    - QRandomGenerator::global()->bounded(
                                        kPublishJitterMs));
     }
-    // stateFor()/infoFor() answer the local user from m_lastPublished.
     if (previous != m_lastPublished) {
         ++m_revision;
         Q_EMIT revisionChanged();
     }
 }
 
-// A rejected publish arms a short retry instead of waiting a full period;
-// see the constants in the header.
 void PresenceManager::onPublishRejected(const QString &category,
                                         qint64 retryAfterMs)
 {
@@ -654,15 +590,12 @@ void PresenceManager::onPublishRejected(const QString &category,
     m_publishesInFlight = qMax(0, m_publishesInFlight - 1);
     if (m_farewellPending) {
         if (category != QLatin1String("rate_limited")) {
-            settleFarewellIfQuiet();   // nothing to retry
+            settleFarewellIfQuiet();
             return;
         }
-        // Answers are not tagged: any 429 since the withdrawal may be the
-        // farewell's. One retry on the server's own schedule if it fits the
-        // remaining budget, else give up now.
         m_farewell429Unresolved = true;
         if (m_publishRetryTimer.isActive())
-            return;   // the armed retry covers this one too
+            return;
         const qint64 wait = retryAfterMs > 0 ? qMax<qint64>(retryAfterMs, 200) : 1000;
         const qint64 left = m_farewellBudgetMs - m_farewellClock.elapsed();
         if (!m_farewellRetried && wait < left) {
@@ -673,15 +606,11 @@ void PresenceManager::onPublishRejected(const QString &category,
         }
         return;
     }
-    // Only rate limiting is retried here; anything else is left to the
-    // ordinary tick. Note the forbidden latch is on the read path only, so a
-    // server that rejects every PUT still receives one per period.
     if (category != QLatin1String("rate_limited")) {
         qCDebug(lcPresence) << "own-presence publish failed:" << category;
         return;
     }
     if (m_retryChain >= kMaxRetryChain) {
-        // Give up rather than spin; the next ordinary tick resets the chain.
         qCDebug(lcPresence) << "own-presence rate limited; retry chain"
                             << "exhausted, waiting for the next tick";
         return;
@@ -695,9 +624,6 @@ void PresenceManager::onPublishRejected(const QString &category,
                                 retryAfterMs,
                                 static_cast<qint64>(kRetryAfterCeilingMs)))
                    : kRetryAfterUnknownMs;
-    // Do not multiply a server hint by the chain depth: Synapse's hints
-    // already escalate, and doubling them overshoots. Only the blind default
-    // backs off.
     if (retryAfterMs <= 0)
         wait = qMin(wait * m_retryChain, kRetryAfterCeilingMs);
     if (m_publishJitter)
@@ -715,16 +641,12 @@ void PresenceManager::handleConnectionState(MatrixClient::ConnectionState state)
     const bool entered = syncing && !m_syncing;
     m_syncing = syncing;
     if (entered) {
-        // Flush an owed final offline first; publishTick's publishEnabled()
-        // gate would otherwise skip it.
         if (m_pendingFinalOffline && m_client
             && m_client->supportsPresence() && !publishEnabled()) {
             sendOffline();
             m_lastPublished = 2;
         }
         m_pendingFinalOffline = false;
-        // The session just became live: publish and refresh every watched
-        // dot now.
         publishTick(true);
         scheduledPollRound();
         if (!m_hasSession) {
@@ -736,7 +658,6 @@ void PresenceManager::handleConnectionState(MatrixClient::ConnectionState state)
 
 void PresenceManager::clearSession()
 {
-    // The own status is re-read for the next account from ITS settings.
     m_ownStatusLoaded = false;
     m_ownStatusEmoji.clear();
     m_ownStatusPlainText.clear();
@@ -746,7 +667,6 @@ void PresenceManager::clearSession()
     m_cache.clear();
     m_inFlight.clear();
     m_burstPending.clear();
-    // Typing evidence names the previous account's contacts.
     m_typingSince.clear();
     m_typingTimer.stop();
     m_pollOrder.clear();
@@ -760,14 +680,11 @@ void PresenceManager::clearSession()
     m_retryChain = 0;
     m_pendingFinalOffline = false;
     m_syncing = false;
-    // A game name belongs to the session it was published into.
     m_gameName.clear();
     m_musicText.clear();
     m_overlaysWithdrawn = false;
     m_withdrawnGame.clear();
     m_withdrawnMusic.clear();
-    // A waiter still runs at its own budget; nothing of this session's is
-    // retried under the next one, and its answers are dropped.
     m_farewellPending = false;
     m_farewell429Unresolved = false;
     m_publishesInFlight = 0;
@@ -779,7 +696,6 @@ void PresenceManager::clearSession()
     m_watched.clear();
     ++m_sessionEpoch;
     Q_EMIT sessionEpochChanged();
-    // The refusal latch is per session.
     const bool wasRefused = m_serverRefused;
     m_serverRefused = false;
     ++m_revision;
@@ -804,15 +720,10 @@ bool PresenceManager::publishEnabled() const
     return m_settings && m_settings->sharePresence();
 }
 
-// ---------------------------------------------------------------------------
-// Own status message
-// ---------------------------------------------------------------------------
-
 QString PresenceManager::ownStatusText() const
 {
     if (m_ownStatusPlainText.isEmpty() && m_ownStatusEmoji.isEmpty())
         return {};
-    // The emoji rides as ordinary text so every client shows it.
     if (m_ownStatusEmoji.isEmpty())
         return m_ownStatusPlainText;
     if (m_ownStatusPlainText.isEmpty())
@@ -830,8 +741,6 @@ QString PresenceManager::statusMessageFor(const QString &userId) const
 
 QString PresenceManager::effectiveStatusText() const
 {
-    // Discord: a custom status overrides every activity, and a game takes
-    // precedence over Spotify.
     const QString own = ownStatusText();
     if (!own.isEmpty())
         return own;
@@ -844,22 +753,19 @@ void PresenceManager::setMusicActivity(const QString &statusText, bool publishNo
 {
     const QString text = displaySafeStatus(statusText.simplified().left(200));
     if (m_overlaysWithdrawn) {
-        m_withdrawnMusic = text;   // remembered, not shown
+        m_withdrawnMusic = text;
         return;
     }
     if (text == m_musicText)
         return;
-    // The comparison below must see the user's stored status.
     loadOwnStatusIfNeeded();
     const QString before = effectiveStatusText();
     m_musicText = text;
     if (effectiveStatusText() == before)
-        return;   // the user's own status or a game holds the line
+        return;
     ++m_revision;
     Q_EMIT revisionChanged();
     Q_EMIT ownStatusChanged();
-    // Same gate as the game overlay; without publishNow the keep-alive
-    // carries the new line within one period.
     if (publishNow && m_client && m_client->supportsPresence() && m_syncing
         && publishEnabled() && m_lastPublished >= 0 && m_lastPublished != 2) {
         m_statusDirty = true;
@@ -871,7 +777,7 @@ void PresenceManager::setGameActivity(const QString &gameName)
 {
     const QString name = displaySafeStatus(gameName.simplified().left(120));
     if (m_overlaysWithdrawn) {
-        m_withdrawnGame = name;   // remembered, not shown
+        m_withdrawnGame = name;
         return;
     }
     if (name == m_gameName)
@@ -882,10 +788,6 @@ void PresenceManager::setGameActivity(const QString &gameName)
     ++m_revision;
     Q_EMIT revisionChanged();
     Q_EMIT ownStatusChanged();
-    // Publish only into a live, enabled, non-offline session. Offline (the
-    // final offline for sharing-off) carries no status, and with sharing off
-    // nothing is sent at all. A game behind the user's own status changes
-    // nothing on the wire and costs no PUT.
     if (effectiveStatusText() != before && m_client && m_client->supportsPresence()
         && m_syncing && publishEnabled() && m_lastPublished >= 0 && m_lastPublished != 2) {
         m_statusDirty = true;
@@ -907,7 +809,7 @@ bool PresenceManager::withdrawActivityLine(bool *withdrewNow)
     m_gameName.clear();
     m_musicText.clear();
     if (effectiveStatusText() == before)
-        return false;   // no overlay held the line: nothing to send
+        return false;
     ++m_revision;
     Q_EMIT revisionChanged();
     Q_EMIT ownStatusChanged();
@@ -933,7 +835,6 @@ void PresenceManager::restoreActivityLine()
     if (!m_overlaysWithdrawn)
         return;
     m_overlaysWithdrawn = false;
-    // No farewell any more: a later refusal is an ordinary one.
     if (m_farewellPending)
         m_publishRetryTimer.stop();
     m_farewellPending = false;
@@ -960,9 +861,6 @@ void PresenceManager::restoreActivityLine()
 
 void PresenceManager::sendPresence(int state, const QString &statusMsg)
 {
-    // Any PUT sent after a refusal carries the line as it is now, so it
-    // answers that refusal once it is accepted; one sent while nothing else
-    // is in flight is also the last word on the line.
     if (m_farewellPending) {
         m_farewell429Unresolved = false;
         if (m_publishesInFlight == 0)
@@ -991,14 +889,12 @@ void PresenceManager::settleFarewellIfQuiet()
         || m_publishRetryTimer.isActive())
         return;
     if (m_farewellResendNeeded && m_farewellClock.elapsed() < m_farewellBudgetMs) {
-        // An earlier PUT (the song) may have been applied after the farewell:
-        // say it once more, now that every earlier one has been answered.
         m_farewellResendNeeded = false;
         const qint64 attempts = m_publishAttempts;
         m_statusDirty = true;
         publishTick(true, true);
         if (m_publishAttempts != attempts)
-            return;   // wait for this one's answer
+            return;
     }
     finishFarewell();
 }
@@ -1057,7 +953,6 @@ bool PresenceManager::settleFarewell(int budgetMs)
         loop.exec(QEventLoop::ExcludeUserInputEvents);
     disconnect(conn);
     if (!settled) {
-        // Out of budget: stop waiting and stop retrying.
         m_farewellPending = false;
         m_publishRetryTimer.stop();
     }
@@ -1076,7 +971,6 @@ void PresenceManager::loadOwnStatusIfNeeded()
         return;
     const qint64 expires = stored.value(QStringLiteral("expiresAtMs")).toLongLong();
     if (expires > 0 && QDateTime::currentMSecsSinceEpoch() >= expires) {
-        // Expired while closed: clear it so it is never republished.
         m_settings->setOwnPresenceStatus({});
         return;
     }
@@ -1130,7 +1024,6 @@ void PresenceManager::setOwnStatus(const QString &emoji, const QString &text,
                                    qint64 expiresAtMs)
 {
     loadOwnStatusIfNeeded();
-    // Bounded here as well as in Rust: one status line, not a paragraph.
     const QString cleanText = displaySafeStatus(text.simplified().left(200));
     const QString cleanEmoji = emoji.trimmed().left(8);
     if (cleanText.isEmpty() && cleanEmoji.isEmpty()) {
@@ -1143,7 +1036,6 @@ void PresenceManager::setOwnStatus(const QString &emoji, const QString &text,
     persistOwnStatus();
     armStatusExpiry();
     Q_EMIT ownStatusChanged();
-    // Publish now: the status is part of the presence event.
     if (m_client && m_client->supportsPresence() && m_syncing && publishEnabled()
         && m_lastPublished >= 0 && m_lastPublished != 2)
         sendPresence(m_lastPublished, effectiveStatusText());

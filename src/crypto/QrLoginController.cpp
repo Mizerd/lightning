@@ -24,8 +24,6 @@ void QrLoginController::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::qrLoginProgress, this,
                 &QrLoginController::onProgress);
-        // An account change ends the flow; the channel and its secrets belong
-        // to the account that opened it.
         connect(m_client, &MatrixClient::loggedOut, this,
                 &QrLoginController::onLoggedOut);
     }
@@ -73,8 +71,6 @@ void QrLoginController::enterCode(const QString &payload)
     reset();
     m_generation = m_client->qrLoginScan(payload);
     if (m_generation == 0) {
-        // Refused before starting: most likely an unreadable payload, so it
-        // gets its own message.
         m_state = QStringLiteral("failed");
         m_errorText = tr("That does not look like a sign-in code. Copy the "
                          "code from the other device exactly.");
@@ -119,7 +115,6 @@ void QrLoginController::onLoggedOut()
 
 void QrLoginController::reset()
 {
-    // The generation is only ever replaced by a new start, never zeroed.
     m_state = QStringLiteral("idle");
     m_flowActive = false;
     m_qrText.clear();
@@ -149,16 +144,12 @@ void QrLoginController::releaseStoredCode()
 
 void QrLoginController::fail(const QString &category)
 {
-    // Log the category (one of five fixed words), never the error text, which
-    // can quote channel state and URLs. Without it a failed sign-in is
-    // undiagnosable.
     qCWarning(lcQrLogin) << "qr login failed category=" << category;
     m_state = QStringLiteral("failed");
     m_flowActive = false;
     m_qrText.clear();
     m_checkCode = -1;
     releaseStoredCode();
-    // Unknown categories fall back to a generic message.
     if (category == QLatin1String("expired")) {
         m_errorText = tr("The sign-in took too long and the code expired. "
                          "Start again to get a new one.");
@@ -169,7 +160,6 @@ void QrLoginController::fail(const QString &category)
                          "not talking to each other — start again rather "
                          "than retyping.");
     } else if (category == QLatin1String("no_secrets")) {
-        // The fix is one button away on the same page; name it.
         m_errorText = tr("This device has no recovery set up, so it has no "
                          "keys to send. Set up recovery and backup first, "
                          "then try again.");
@@ -185,9 +175,6 @@ void QrLoginController::fail(const QString &category)
 void QrLoginController::onProgress(quint64 generation, const QString &step,
                                    const QVariantMap &detail)
 {
-    // A step from a flow the user left. Check both the generation (which flow)
-    // and m_flowActive (whether any), since after a bare cancel the generation
-    // still names the cancelled flow.
     if (generation == 0 || generation != m_generation || !m_flowActive)
         return;
 
@@ -195,21 +182,16 @@ void QrLoginController::onProgress(quint64 generation, const QString &step,
         const int modules = detail.value(QStringLiteral("qrSize")).toInt();
         const QByteArray bits = QByteArray::fromBase64(
             detail.value(QStringLiteral("qrBits")).toString().toLatin1());
-        // Opaque and per-code; the URL carries nothing from the flow or
-        // payload.
         const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
         if (m_store && m_store->setCode(token, modules, bits)) {
             m_qrToken = token;
             m_ownsStoredCode = true;
         } else {
-            // Geometry the renderer cannot handle; the text still works.
             qCWarning(lcQrLogin) << "sign-in code could not be rendered";
         }
         m_qrText = detail.value(QStringLiteral("qrText")).toString();
         m_state = QStringLiteral("showing");
     } else if (step == QLatin1String("check_code_needed")) {
-        // The other device scanned; take our QR down so nobody else scans a
-        // claimed channel.
         releaseStoredCode();
         m_qrText.clear();
         m_state = QStringLiteral("waiting_for_code");
@@ -223,7 +205,6 @@ void QrLoginController::onProgress(quint64 generation, const QString &step,
     } else if (step == QLatin1String("syncing_secrets")) {
         m_state = QStringLiteral("syncing");
     } else if (step == QLatin1String("done")) {
-        // Clear the code but keep the state; nothing is left to show.
         reset();
         m_state = QStringLiteral("done");
     } else if (step == QLatin1String("failed")) {

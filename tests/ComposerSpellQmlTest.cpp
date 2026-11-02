@@ -1,8 +1,3 @@
-// The spell underline, proven against the production composer: loads the real
-// MessageComposerBar.qml, puts a misspelling in the real TextArea and asks the
-// item tree what was drawn and where. Calling the policy directly would not
-// show whether production reaches it. Whether a real dictionary agrees is
-// `--spell-status`'s job; a fake backend keeps geometry the only variable.
 
 #include <QtTest/QtTest>
 
@@ -68,7 +63,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class ComposerSpellQmlTest : public QObject
 {
@@ -100,8 +95,6 @@ private:
         return findItem(m_window->contentItem(), name);
     }
 
-    // Repeater delegates live only in the visual tree, which findChild cannot
-    // see; walk childItems().
     QList<QQuickItem *> underlines() const
     {
         QList<QQuickItem *> out;
@@ -116,8 +109,6 @@ private:
         return out;
     }
 
-    // Puts `text` in the real field with the caret out of the way, runs the
-    // composer's refresh and lets the delegates be created.
     void typeAndSettle(const QString &text, int cursor = 0)
     {
         QQuickItem *input = item(QStringLiteral("composerInput"));
@@ -133,8 +124,6 @@ private slots:
     void initTestCase()
     {
         m_controller = new AppController(AppController::MockBackend);
-        // A dictionary that knows only "hello" and "world", so each case has
-        // one predictable misspelling.
         auto *checker = qobject_cast<SpellChecker *>(
             m_controller->property("spell").value<QObject *>());
         QVERIFY2(checker, "app.spell is not a SpellChecker");
@@ -167,16 +156,12 @@ private slots:
         delete m_controller;
     }
 
-    // The rich-only toolbar chips are no wider than the icon buttons beside
-    // them (not AppButton's 72px minimum), measured on the real bar.
     void theRichToolbarChipsAreNoWiderThanTheIconButtonsBesideThem()
     {
         auto *bar = item(QStringLiteral("composerBar"));
         QVERIFY(bar);
         m_controller->settings()->setComposerMode(QStringLiteral("rich"));
         bar->setProperty("toolbarExpanded", true);
-        // Layouts settle on the polish pass, which offscreen runs only on
-        // update; processEvents alone reads the old frame.
         QTest::qWait(60);
         QCoreApplication::processEvents();
 
@@ -188,8 +173,6 @@ private slots:
         QVERIFY(ordered);
         QVERIFY2(underline->isVisible() && ordered->isVisible(),
                  "the rich-only chips are not shown in rich mode");
-        // The icon buttons are 28px; a chip wider than 1.5x that is the 72px
-        // box returning.
         const qreal ceiling = bold->width() * 1.5;
         QVERIFY2(underline->width() <= ceiling,
                  qPrintable(QStringLiteral("underline chip is %1px beside a %2px "
@@ -204,8 +187,6 @@ private slots:
         QTest::qWait(60);
     }
 
-    // A list marker in the rich editor clears the placeholder: an empty list
-    // item has no characters, so a character count alone is not enough.
     void aListMarkerInTheRichEditorClearsThePlaceholder()
     {
         auto *bar = item(QStringLiteral("composerBar"));
@@ -228,14 +209,13 @@ private slots:
                                   Q_ARG(QVariant, QString()));
         QTest::qWait(60);
         QCoreApplication::processEvents();
-        QCOMPARE(rich->property("length").toInt(), 0); // no characters typed
+        QCOMPARE(rich->property("length").toInt(), 0);
         QVERIFY2(rich->property("placeholderText").toString().isEmpty(),
                  qPrintable(QStringLiteral(
                      "the list marker is drawn but the placeholder \"%1\" is "
                      "still shown under it")
                      .arg(rich->property("placeholderText").toString())));
 
-        // Removing the list restores the placeholder.
         QMetaObject::invokeMethod(bar, "applyRichFormat",
                                   Q_ARG(QVariant, QStringLiteral("orderedlist")),
                                   Q_ARG(QVariant, QString()));
@@ -258,8 +238,6 @@ private slots:
         const QList<QQuickItem *> marks = underlines();
         QCOMPARE(marks.size(), 1);
 
-        // The mark sits under that word: same left edge as its first character
-        // and as wide as the word, read back from the TextArea that drew it.
         QQuickItem *input = item(QStringLiteral("composerInput"));
         QRectF head;
         QRectF tail;
@@ -270,7 +248,6 @@ private slots:
         QVERIFY2(tail.x() > head.x(), "the fixture laid out no text at all");
         QCOMPARE(marks.first()->x(), head.x());
         QCOMPARE(marks.first()->width(), tail.x() - head.x());
-        // Under the line, not through it.
         QVERIFY(marks.first()->y() >= head.y());
         QVERIFY(marks.first()->y() <= head.y() + head.height());
         QCOMPARE(marks.first()->height(), 2.0);
@@ -290,7 +267,6 @@ private slots:
         typeAndSettle(QStringLiteral(" hallo wrold"));
         const QList<QQuickItem *> marks = underlines();
         QCOMPARE(marks.size(), 2);
-        // Left to right and not overlapping.
         const qreal firstEnd = marks.at(0)->x() + marks.at(0)->width();
         QVERIFY(marks.at(0)->x() < marks.at(1)->x());
         QVERIFY(marks.at(1)->x() >= firstEnd);
@@ -298,20 +274,12 @@ private slots:
 
     void theWordUnderTheCaretIsNotMarkedInTheRealField()
     {
-        // The production path passes the caret through: same text, same
-        // field, only the caret moved.
         typeAndSettle(QStringLiteral("hello wrold"), 11);
         QCOMPARE(underlines().size(), 0);
         typeAndSettle(QStringLiteral("hello wrold"), 0);
         QCOMPARE(underlines().size(), 1);
     }
 
-    // ---- where the personal dictionary lives ----
-
-    // Under the app-data root every other file uses (FontManager's imported
-    // fonts), not QStandardPaths' AppDataLocation: on a portable Windows
-    // install that one escapes the portable folder. And this suite never
-    // touches the developer's real one (HermeticDataHome.cpp).
     void thePersonalDictionaryLivesUnderTheAppDataRoot()
     {
         const QString dataHome = qEnvironmentVariable("XDG_DATA_HOME");
@@ -322,12 +290,9 @@ private slots:
                            + QStringLiteral("/spelling/personal-dictionary.txt"));
         QVERIFY(path.startsWith(dataHome + QLatin1Char('/')));
 
-        // Portable: inside the portable folder, wherever XDG_DATA_HOME points.
         QTemporaryDir exeDir;
         QVERIFY(exeDir.isValid());
         lightning::portable::setPortableOverrideForTest(true, exeDir.path());
-        // A failed QVERIFY returns early: the override must not outlive this
-        // case either way.
         auto clearPortable = qScopeGuard(
             [] { lightning::portable::clearPortableOverrideForTest(); });
         QString portablePath;
@@ -346,15 +311,12 @@ private slots:
         QVERIFY(portablePath.endsWith(QStringLiteral("/spelling/personal-dictionary.txt")));
     }
 
-    // ---- autocorrect, through real keystrokes ----
-
     SpellChecker *checker() const
     {
         return qobject_cast<SpellChecker *>(
             m_controller->property("spell").value<QObject *>());
     }
 
-    // An empty, focused field in the given composer mode.
     QQuickItem *focusedEditor(bool rich)
     {
         m_controller->setCurrentRoomId(QStringLiteral("!general:example.org"));
@@ -376,7 +338,6 @@ private slots:
         return editor;
     }
 
-    // QTest::keyClicks has no QWindow overload; ASCII is all these need.
     void typeKeys(const QString &text)
     {
         for (const QChar c : text)
@@ -397,8 +358,6 @@ private slots:
         QTest::addColumn<bool>("rich");
         QTest::addColumn<QString>("typo");
         QTest::addColumn<QString>("fix");
-        // Different words per row: Backspace refuses its word for the whole
-        // session, and both rows share the one checker.
         QTest::newRow("markdown") << false << QStringLiteral("teh") << QStringLiteral("the");
         QTest::newRow("rich") << true << QStringLiteral("taht") << QStringLiteral("that");
     }
@@ -417,19 +376,15 @@ private slots:
 
         typeKeys(QStringLiteral("say ") + typo);
         QCOMPARE(plainTextOf(editor), QStringLiteral("say ") + typo);
-        // Not before the word is finished...
         QTest::keyClick(m_window, Qt::Key_Space);
-        // ...and then corrected in place, the space kept, the caret after it.
         const QString corrected = QStringLiteral("say ") + fix + QLatin1Char(' ');
         QCOMPARE(plainTextOf(editor), corrected);
         QCOMPARE(editor->property("cursorPosition").toInt(), int(corrected.size()));
 
-        // Backspace straight after restores what was typed, keeps the space.
         QTest::keyClick(m_window, Qt::Key_Backspace);
         const QString restored = QStringLiteral("say ") + typo + QLatin1Char(' ');
         QCOMPARE(plainTextOf(editor), restored);
         QCOMPARE(editor->property("cursorPosition").toInt(), int(restored.size()));
-        // And that word is left alone from now on.
         typeKeys(typo + QLatin1Char(' '));
         QCOMPARE(plainTextOf(editor), restored + typo + QLatin1Char(' '));
 
@@ -445,14 +400,11 @@ private slots:
         QQuickItem *editor = focusedEditor(false);
         QVERIFY(editor);
         spell->setAutocorrectEnabled(true);
-        // No table entry for "wrold": the fake engine's best (and only)
-        // suggestion "world" is one transposition away, so it is corrected.
         typeKeys(QStringLiteral("hello wrold"));
         QTest::keyClick(m_window, Qt::Key_Space);
         QCOMPARE(plainTextOf(editor), QStringLiteral("hello world "));
         QTest::keyClick(m_window, Qt::Key_Z, Qt::ControlModifier);
         QCOMPARE(plainTextOf(editor), QStringLiteral("hello wrold "));
-        // Typing on ends the undo window: a later Backspace is a Backspace.
         typeKeys(QStringLiteral("say "));
         QTest::keyClick(m_window, Qt::Key_Backspace);
         QCOMPARE(plainTextOf(editor), QStringLiteral("hello wrold say"));
@@ -466,22 +418,17 @@ private slots:
         QVERIFY(spell);
         QQuickItem *editor = focusedEditor(false);
         QVERIFY(editor);
-        // Off (the default on Linux and Windows): typed through.
         spell->setAutocorrectEnabled(false);
         typeKeys(QStringLiteral("adn "));
         QCOMPARE(plainTextOf(editor), QStringLiteral("adn "));
-        // The control: on, typed key by key, it IS corrected.
         spell->setAutocorrectEnabled(true);
         editor->setProperty("text", QString());
         typeKeys(QStringLiteral("adn "));
         QCOMPARE(plainTextOf(editor), QStringLiteral("and "));
-        // On, but the text arrives in one piece (a paste, a restored draft):
-        // never corrected.
         editor->setProperty("text", QStringLiteral("so adn "));
         editor->setProperty("cursorPosition", 7);
         QCoreApplication::processEvents();
         QCOMPARE(plainTextOf(editor), QStringLiteral("so adn "));
-        // Inside inline code, typed key by key: left alone.
         editor->setProperty("text", QString());
         typeKeys(QStringLiteral("run `adn "));
         QCOMPARE(plainTextOf(editor), QStringLiteral("run `adn "));
@@ -489,8 +436,6 @@ private slots:
         editor->setProperty("text", QString());
     }
 
-    // A draft longer than the un-windowed limit used to get no checking at
-    // all; now the visible part is checked and only that.
     void aLongDraftIsCheckedWhereTheUserIsLooking()
     {
         QQuickItem *editor = focusedEditor(false);
@@ -501,7 +446,6 @@ private slots:
         const QList<QQuickItem *> marks = underlines();
         QVERIFY2(!marks.isEmpty(), "a long draft is not checked at all");
         QVERIFY(marks.size() <= SpellChecker::kMaxReportedRanges);
-        // Only around the viewport: nothing far below it.
         QQuickItem *flick = item(QStringLiteral("composerInputFlick"));
         QVERIFY(flick);
         const qreal bottom = flick->property("contentY").toReal()
@@ -530,7 +474,6 @@ private slots:
         QVERIFY(!checker->available());
         typeAndSettle(QStringLiteral("hello wrold"));
         QCOMPARE(underlines().size(), 0);
-        // Restored for later cases.
         checker->setBackendForTest(std::make_unique<FakeBackend>());
     }
 };

@@ -38,8 +38,6 @@
 #include <vector>
 #endif
 
-// PATH_MAX is not guaranteed by the C++ standard headers on every libc; the
-// loops below grow past it anyway, so this is only a starting size.
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
@@ -56,22 +54,16 @@ QMutex &stateMutex()
     return mutex;
 }
 
-// Test override: sits IN FRONT of the real decision (see the header).
 bool g_overrideActive = false;
 bool g_overridePortable = false;
 QString g_overrideExecutableDir;
 
-// The real, once-per-process decision.
 bool g_decided = false;
 bool g_portable = false;
 
-// Resolve the running executable's own path from the platform API. Returns an
-// empty string on any failure; there is deliberately no argv[0] fallback.
 QString resolveExecutablePath()
 {
 #if defined(Q_OS_WIN)
-    // GetModuleFileNameW truncates rather than failing, so grow until the
-    // result fits strictly inside the buffer.
     std::wstring buffer(MAX_PATH, L'\0');
     for (;;) {
         const DWORD written = ::GetModuleFileNameW(
@@ -82,27 +74,23 @@ QString resolveExecutablePath()
             return QString::fromWCharArray(buffer.data(),
                                            static_cast<qsizetype>(written));
         }
-        if (buffer.size() >= 32768) // Windows' own extended-path ceiling.
+        if (buffer.size() >= 32768)
             return {};
         buffer.resize(buffer.size() * 2, L'\0');
     }
 #elif defined(Q_OS_MACOS)
     uint32_t size = 0;
-    _NSGetExecutablePath(nullptr, &size); // Asks for the required size.
+    _NSGetExecutablePath(nullptr, &size);
     if (size == 0)
         return {};
     std::vector<char> buffer(size + 1, '\0');
     if (_NSGetExecutablePath(buffer.data(), &size) != 0)
         return {};
-    // realpath resolves symlinks and "..", so the directory compares with the
-    // marker's resolved location.
     char resolved[PATH_MAX] = {};
     if (::realpath(buffer.data(), resolved) == nullptr)
         return QString::fromLocal8Bit(buffer.data());
     return QString::fromLocal8Bit(resolved);
 #else
-    // /proc/self/exe is resolved by the kernel. readlink() neither terminates
-    // nor reports the needed size, so grow until the result fits.
     std::vector<char> buffer(PATH_MAX, '\0');
     for (;;) {
         const ssize_t written =
@@ -120,7 +108,6 @@ QString resolveExecutablePath()
 #endif
 }
 
-// Cached: isPortable()/dataRoot() are on the startup path.
 QString realExecutableDir()
 {
     static const QString cached = [] {
@@ -133,8 +120,6 @@ QString realExecutableDir()
     return cached;
 }
 
-// Development-only forcing. nullopt when unset or unrecognised: an unknown
-// value must not silently mean "off".
 std::optional<bool> environmentOverride()
 {
     const QByteArray raw = qgetenv(kPortableEnvVar);
@@ -144,8 +129,6 @@ std::optional<bool> environmentOverride()
     if (value == "1" || value == "true" || value == "on" || value == "yes")
         return true;
     if (value == "0" || value == "false" || value == "off" || value == "no") {
-        // Accepted, but it can only stop a dev build from opting in; it never
-        // turns a packaged portable installation off (see isPortable()).
         return false;
     }
     qWarning("LIGHTNING_PORTABLE is set to an unrecognised value; "
@@ -153,7 +136,6 @@ std::optional<bool> environmentOverride()
     return std::nullopt;
 }
 
-// executableDir(), honouring a test override. Caller holds stateMutex().
 QString executableDirLocked()
 {
     if (g_overrideActive)
@@ -161,7 +143,7 @@ QString executableDirLocked()
     return realExecutableDir();
 }
 
-} // namespace
+}
 
 QString executableDir()
 {
@@ -175,7 +157,6 @@ bool markerPresentIn(const QString &dir)
         return false;
     const QFileInfo marker(QDir(dir).absoluteFilePath(
         QLatin1String(kMarkerFileName)));
-    // isFile(), not exists(): a directory with that name is not the marker.
     return marker.isFile();
 }
 
@@ -194,8 +175,6 @@ bool isPortable()
         return g_overridePortable;
     if (!g_decided) {
         g_decided = true;
-        // An unresolvable executable directory means "not portable", never the
-        // working directory.
         const bool marked = markerPresentIn(realExecutableDir());
         // The marker wins. The environment can opt a development tree in, never
         // a packaged portable copy out: a stray LIGHTNING_PORTABLE=0 would
@@ -230,7 +209,7 @@ QString subdir(QLatin1String suffix)
     return root + suffix;
 }
 
-} // namespace
+}
 
 QString configDir()  { return subdir(QLatin1String("/config")); }
 QString tempDir()    { return subdir(QLatin1String("/temp")); }
@@ -242,7 +221,7 @@ QString &scratchRootOverride()
     static QString root;
     return root;
 }
-} // namespace
+}
 
 void setMediaScratchRootOverrideForTest(const QString &root)
 {
@@ -257,8 +236,6 @@ QString mediaScratchRoot()
         if (!scratchRootOverride().isEmpty())
             return scratchRootOverride();
     }
-    // One definition for every decrypted-media path, so nothing writes such
-    // payloads outside a portable folder.
     if (isPortable()) {
         const QString dir = tempDir();
         if (!dir.isEmpty())
@@ -286,14 +263,11 @@ void clearPortableOverrideForTest()
     g_overrideActive = false;
     g_overridePortable = false;
     g_overrideExecutableDir.clear();
-    // Does not reset g_decided: nothing may change a running process's storage
-    // location.
 }
 
 QString prepareDataRoot()
 {
     if (!isPortable()) {
-        // A programming error, not user-fixable; no user-facing wording.
         return QStringLiteral(
             "prepareDataRoot() called while not in portable mode.");
     }
@@ -305,9 +279,6 @@ QString prepareDataRoot()
             "directory, so it does not know where to keep your data.");
     }
 
-    // matrix/ is primaryRoot() in portable mode; the rest are this module's
-    // subdirectories. Created up front so writers find them and a fresh folder
-    // looks complete.
     const QStringList wanted = {
         root,
         root + QLatin1String("/config"),
@@ -325,8 +296,6 @@ QString prepareDataRoot()
         }
     }
 
-    // mkpath() succeeding does not prove writability (read-only mount, mounted
-    // ISO, ZIP shell view). Write a probe.
     const QString probe = QDir(root).absoluteFilePath(
         QStringLiteral(".write-probe-%1")
             .arg(QUuid::createUuid().toString(QUuid::Id128)));
@@ -347,7 +316,6 @@ QString prepareDataRoot()
                 .arg(QDir::toNativeSeparators(root));
         }
     }
-    // Read it back: network shares and filter drivers can discard writes.
     {
         QFile file(probe);
         const bool readable = file.open(QIODevice::ReadOnly)
@@ -371,9 +339,6 @@ QMutex &liveScratchMutex()
     static QMutex mutex;
     return mutex;
 }
-// Keyed by directory so a creator releases its own lock and entries for
-// removed directories can be pruned. std::unordered_map because the value is
-// move-only.
 std::unordered_map<QString, std::unique_ptr<QLockFile>> &liveScratchLocks()
 {
     static std::unordered_map<QString, std::unique_ptr<QLockFile>> locks;
@@ -384,15 +349,13 @@ void pruneDeadScratchLocksLocked()
     auto &locks = liveScratchLocks();
     for (auto it = locks.begin(); it != locks.end();) {
         if (!QFileInfo(it->first).isDir())
-            it = locks.erase(it); // unlocks and closes the descriptor
+            it = locks.erase(it);
         else
             ++it;
     }
 }
-// Unmarked directories are swept only past this age, so one whose creator has
-// not registered its lock yet is not taken for a leftover.
 constexpr qint64 kUnmarkedScratchMinAgeMs = 60 * 60 * 1000;
-} // namespace
+}
 
 void holdScratchDirLive(const QString &dir)
 {
@@ -401,10 +364,9 @@ void holdScratchDirLive(const QString &dir)
     const QString key = QDir(dir).absolutePath();
     auto lock = std::make_unique<QLockFile>(
         QDir(dir).absoluteFilePath(QLatin1String(kScratchLiveLockName)));
-    // Stale only when the recorded pid is gone, never by age.
     lock->setStaleLockTime(0);
     if (!lock->tryLock(0))
-        return; // somebody else's directory after all; do not claim it
+        return;
     QMutexLocker guard(&liveScratchMutex());
     pruneDeadScratchLocksLocked();
     liveScratchLocks()[key] = std::move(lock);
@@ -424,9 +386,6 @@ int cleanStaleTempDirs()
 
 int cleanStaleTempDirs(const QDateTime &now)
 {
-    // The scratch root, not the portable temp dir: decrypted payloads live
-    // under mediaScratchRoot() on every install type, so crash leftovers must
-    // be swept everywhere.
     const QString root = mediaScratchRoot();
     if (root.isEmpty())
         return 0;
@@ -443,16 +402,12 @@ int cleanStaleTempDirs(const QDateTime &now)
     QDir dir(root);
     const auto stale = dir.entryInfoList(kOurs, QDir::Dirs | QDir::NoDotAndDotDot);
     for (const QFileInfo &info : stale) {
-        // Never follow a symlink, whatever its name.
         if (info.isSymLink())
             continue;
 #ifndef Q_OS_WIN
         if (info.ownerId() != ::getuid())
             continue;
 #endif
-        // A held lock means the directory is in use (another instance or a
-        // concurrent run). A lock whose holder died can be taken, making it a
-        // leftover.
         const QString lockPath =
             QDir(info.absoluteFilePath()).absoluteFilePath(QLatin1String(kScratchLiveLockName));
         if (QFileInfo::exists(lockPath)) {
@@ -463,7 +418,6 @@ int cleanStaleTempDirs(const QDateTime &now)
             probe.unlock();
         } else if (info.lastModified(QTimeZone::UTC).msecsTo(now)
                    < kUnmarkedScratchMinAgeMs) {
-            // Unmarked and recent: leave it for a later sweep.
             continue;
         }
         QDir victim(info.absoluteFilePath());
@@ -473,4 +427,4 @@ int cleanStaleTempDirs(const QDateTime &now)
     return removed;
 }
 
-} // namespace lightning::portable
+}

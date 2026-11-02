@@ -3,13 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// MSC4108: signing another device in from this one. SHOW: this device displays
-// a code, the new device scans it and shows two digits, typed here. ENTER: the
-// new device shows the code, its text is pasted here, and this device shows two
-// digits to type there. Both finish at a confirmation page, and the new device
-// is also cross-signed: the SDK moves the private cross-signing and backup keys
-// across the channel. There is no camera decoder, so ENTER takes the code's
-// text, which every client that displays one also offers.
 Dialog {
     id: root
     objectName: "qrLoginDialog"
@@ -29,11 +22,6 @@ Dialog {
     width: Math.min(460, parent ? parent.width - AppTheme.spacing24 * 2 : 460)
     padding: AppTheme.spacing16
 
-
-    // The controller owns errorText and has no way to clear it on an edit, so
-    // the dialog hides a stale one: any edit of the paste field marks it stale
-    // and the next state change from the controller (which always follows a
-    // new attempt) shows a fresh one.
     property bool errorStale: false
     Connections {
         target: root.qr
@@ -58,8 +46,6 @@ Dialog {
     }
 
     contentItem: ColumnLayout {
-        // Name the dialog for assistive technology: on the content, because
-        // Accessible attaches to an Item and a Dialog is a Popup.
         Accessible.role: Accessible.Dialog
         Accessible.name: qsTr("Sign in another device")
         spacing: AppTheme.spacing12
@@ -72,7 +58,6 @@ Dialog {
             font.weight: AppTheme.weightStrong
         }
 
-        // Idle: choose a direction
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -110,8 +95,6 @@ Dialog {
                 AppTextField {
                     id: pasteField
                     Layout.fillWidth: true
-                    // Without a zero minimum the field would take its
-                    // neighbour's width.
                     Layout.minimumWidth: 0
                     placeholderText: qsTr("Paste the sign-in code")
                     Accessible.name: qsTr("Sign-in code from the other device")
@@ -136,7 +119,6 @@ Dialog {
             }
         }
 
-        // Showing our code
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -147,8 +129,6 @@ Dialog {
                 Layout.preferredWidth: 220
                 Layout.preferredHeight: 220
                 visible: source != ""
-                // Nearest-neighbour, black on white, quiet zone included (the
-                // provider owns all of that; a camera must read it).
                 smooth: false
                 fillMode: Image.PreserveAspectFit
                 source: root.qr ? root.qr.qrSource : ""
@@ -176,8 +156,6 @@ Dialog {
                 AppButton {
                     text: qsTr("Copy")
                     size: "sm"
-                    // QML has no clipboard API; a hidden TextEdit's copy() is
-                    // the route used everywhere.
                     onClicked: {
                         clipboardHelper.text = root.qr.qrText
                         clipboardHelper.selectAll()
@@ -188,7 +166,6 @@ Dialog {
             }
         }
 
-        // They scanned: we need their digits
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -206,8 +183,6 @@ Dialog {
                 wrapMode: Text.WordWrap
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.textMeta
-                // Says why: this check guards against a code intercepted in
-                // transit.
                 text: qsTr("This proves the two devices are talking to each "
                            + "other and not to something in between. If the "
                            + "digits do not match, stop.")
@@ -234,7 +209,6 @@ Dialog {
             }
         }
 
-        // We scanned: they need our digits
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -260,7 +234,6 @@ Dialog {
             }
         }
 
-        // Consent
         ColumnLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -278,12 +251,10 @@ Dialog {
                 text: qsTr("Open the confirmation page")
                 kind: "primary"
                 enabled: root.qr && root.qr.verificationUri.length > 0
-                // Through UrlLauncher, whose allowlist accepts only http/https.
                 onClicked: app.media.openWebUrl(root.qr.verificationUri)
             }
         }
 
-        // Working / finished
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8

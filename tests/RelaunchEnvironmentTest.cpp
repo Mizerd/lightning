@@ -7,12 +7,6 @@
 using updater::RelaunchEnvironmentChange;
 using updater::relaunchEnvironmentChanges;
 
-// The environment corrections a relaunch needs, called directly. Observed
-// with an AppImage run through `appimage-run` under nix-shell:
-//
-//   inherited TMPDIR (deleted with the shell) -> create mount dir error
-//   TMPDIR dropped, mount attempted           -> no suitable fusermount, 127
-//   TMPDIR dropped + extraction asked for     -> runs, exit 0
 namespace {
 
 struct Env {
@@ -56,16 +50,13 @@ QString valueOf(const QList<RelaunchEnvironmentChange> &changes, const QString &
     return {};
 }
 
-} // namespace
+}
 
 class RelaunchEnvironmentTest : public QObject
 {
     Q_OBJECT
 
 private Q_SLOTS:
-    // nix-shell deletes its private temporary directory when it exits (with
-    // Lightning), so the AppImage runtime cannot create its mount point and
-    // the relaunch dies. The dead TMPDIR is dropped.
     void aTemporaryDirectoryThatDiedWithItsShellIsDropped()
     {
         Env env;
@@ -78,9 +69,6 @@ private Q_SLOTS:
                  "or directory'");
     }
 
-    // Half a fix is not a fix: Qt reads TEMP and TMP on Windows, the AppImage
-    // runtime reads TMPDIR, and a shell that sets one usually sets all of
-    // them at the same dead path.
     void everySpellingOfTheTemporaryDirectoryIsDropped()
     {
         Env env;
@@ -93,8 +81,6 @@ private Q_SLOTS:
         }
     }
 
-    // A deb or rpm relaunched with a dead TMPDIR fails on its first
-    // QTemporaryFile, so the correction applies to every install mode.
     void theTemporaryDirectoryIsCorrectedForEveryInstallMode()
     {
         Env env;
@@ -120,9 +106,6 @@ private Q_SLOTS:
         QVERIFY(!mentions(changes, QStringLiteral("TMPDIR")));
     }
 
-    // Under appimage-run the relaunch lives in a bubblewrap sandbox with
-    // no_new_privs, where setuid fusermount cannot work ("No suitable
-    // fusermount binary found", exit 127). Extraction is the way back up.
     void anExtractedAppImageAsksForExtractionWhenItRestarts()
     {
         Env env;
@@ -133,8 +116,6 @@ private Q_SLOTS:
                  QStringLiteral("1"));
     }
 
-    // A previous --appimage-extract-and-run is the same situation: whatever
-    // unpacked us, we are not mounted, so we cannot assume a mount will work.
     void anAlreadyExtractedRunAsksForExtractionToo()
     {
         Env env;
@@ -145,8 +126,6 @@ private Q_SLOTS:
                  QStringLiteral("1"));
     }
 
-    // A mounted AppImage proves fuse works, so it is not made to extract its
-    // whole payload on every update.
     void aMountedAppImageIsNotMadeToUnpackItself()
     {
         Env env;
@@ -154,7 +133,6 @@ private Q_SLOTS:
         const auto changes = relaunchEnvironmentChanges(true, env.lookup(), env.exists());
         QVERIFY2(!mentions(changes, QStringLiteral("APPIMAGE_EXTRACT_AND_RUN")),
                  "a normally mounted AppImage was told to unpack itself");
-        // A trailing slash is not a different directory.
         env.variables[QStringLiteral("APPDIR")] = QStringLiteral("/tmp/.mount_LightnLMAJmM/");
         QVERIFY(!mentions(relaunchEnvironmentChanges(true, env.lookup(), env.exists()),
                           QStringLiteral("APPIMAGE_EXTRACT_AND_RUN")));
@@ -168,7 +146,6 @@ private Q_SLOTS:
         QVERIFY(!mentions(changes, QStringLiteral("APPIMAGE_EXTRACT_AND_RUN")));
     }
 
-    // No APPDIR is no evidence: keep the default behaviour.
     void anAppImageWithoutAnAppDirKeepsTheOldBehaviour()
     {
         Env env;
@@ -176,7 +153,6 @@ private Q_SLOTS:
         QVERIFY(!mentions(changes, QStringLiteral("APPIMAGE_EXTRACT_AND_RUN")));
     }
 
-    // A deliberate choice by whoever launched us wins, in both directions.
     void anExistingExtractionChoiceIsNeverOverridden()
     {
         Env env;
@@ -188,8 +164,6 @@ private Q_SLOTS:
                  "someone set it to 0 on purpose and it was overwritten");
     }
 
-    // Both corrections at once, independently: the mount-point failure comes
-    // first and hides the fuse failure behind it.
     void theMaintainersCaseGetsBothCorrections()
     {
         Env env;
@@ -201,7 +175,6 @@ private Q_SLOTS:
         QVERIFY(removes(changes, QStringLiteral("TMPDIR")));
         QCOMPARE(valueOf(changes, QStringLiteral("APPIMAGE_EXTRACT_AND_RUN")),
                  QStringLiteral("1"));
-        // Every change carries a sentence a support log can quote.
         for (const auto &change : changes)
             QVERIFY(!change.reason.isEmpty());
     }

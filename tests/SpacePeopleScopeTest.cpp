@@ -1,22 +1,3 @@
-// The People list, scoped to the selected Space.
-//
-// A DM cannot be a Space's child, so "the people of this Space" means people
-// you have DMs with who are in it. That needs the Space's roster, which is
-// remote and arrives after the list does.
-//
-// The two layouts fail in opposite directions:
-//
-//   * Classic removes DMs from a list that already shows them, so an unknown
-//     roster must change nothing.
-//   * Channels adds a People group to a Space view, so an unknown roster must
-//     add nothing.
-//
-// Unknown has four forms, all tested: never asked (backend cannot answer),
-// asked and not answered, answered with a failure, and answered with a roster
-// truncated at the bridge's 500-member cap.
-//
-// Every case drives the real triggers: SpaceManager::setActiveSpaceId asks,
-// and MatrixClient::roomMembersReceived delivers.
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
@@ -73,7 +54,6 @@ public:
     using MatrixClient::MatrixClient;
 
     QList<RoomInfo> mirror;
-    /// Every roster asked for, in order, and the op it was given.
     QStringList memberRequests;
     quint64 nextOp = 0;
     /// 0 = "this backend cannot answer", which is what a real client returns
@@ -89,7 +69,6 @@ public:
         return ++nextOp;
     }
 
-    /// One member snapshot, shaped exactly like the bridge's.
     void deliverRoster(quint64 op, const QString &roomId,
                        const QStringList &joined, bool partial = false,
                        bool truncated = false, bool ok = true)
@@ -159,8 +138,6 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-/// One Space with one room in it, and two DMs: one with somebody in the Space
-/// (kept by a scope) and one with somebody who is not (removed by a scope).
 QList<RoomInfo> workspace()
 {
     return {
@@ -192,7 +169,7 @@ QStringList namesOf(const SpaceChannelModel &model)
     return out;
 }
 
-} // namespace
+}
 
 class SpacePeopleScopeTest : public QObject
 {
@@ -211,7 +188,6 @@ private:
             model.setSpaceManager(&spaces);
             model.setClient(&client);
         }
-        /// The rail selecting a Space — the one thing that asks for a roster.
         void select(const QString &spaceId)
         {
             spaces.setActiveSpaceId(spaceId);
@@ -232,8 +208,6 @@ private:
             model.setSettings(&settings);
             model.setSources(&client, &spaces, &layout);
         }
-        /// The rail's selection reaches BOTH: SpaceManager (which asks for
-        /// the roster) and the column's `scopeSpaceId` binding.
         void select(const QString &spaceId)
         {
             spaces.setActiveSpaceId(spaceId);
@@ -251,8 +225,7 @@ private Q_SLOTS:
         spaces.setActiveSpaceId(kWork);
         const quint64 first = client.nextOp;
         QSignalSpy changes(&spaces, &SpaceManager::spacePermissionsChanged);
-        QVERIFY(!spaces.activeSpaceCanManageChildren()); // unknown is denied
-        // The current child room is irrelevant.
+        QVERIFY(!spaces.activeSpaceCanManageChildren());
         client.deliverPermissions(first, kGeneral, true);
         QVERIFY(!spaces.activeSpaceCanManageChildren());
         client.deliverPermissions(first, kWork, false);
@@ -260,21 +233,16 @@ private Q_SLOTS:
         Q_EMIT client.roomMemberEventSeen(kWork);
         const quint64 second = client.nextOp;
         QVERIFY(second > first);
-        // An older permission answer is ignored.
         client.deliverPermissions(first, kWork, true);
         QVERIFY(!spaces.activeSpaceCanManageChildren());
-        // The cache snapshot is authoritative too.
         client.deliverPermissions(second, kWork, true, true, true);
         QVERIFY(spaces.activeSpaceCanManageChildren());
-        // Roster truncation does not hide a permission.
         client.deliverPermissions(second, kWork, true, true, false, true);
         QVERIFY(spaces.activeSpaceCanManageChildren());
         Q_EMIT client.roomMemberEventSeen(kWork);
         QVERIFY(!spaces.activeSpaceCanManageChildren());
-        // Failed reads cannot grant permission.
         client.deliverPermissions(client.nextOp, kWork, true, false);
         QVERIFY(!spaces.activeSpaceCanManageChildren());
-        // A failed roster read permits another selection to retry.
         spaces.setActiveSpaceId(QString());
         spaces.setActiveSpaceId(kWork);
         client.deliverPermissions(client.nextOp, kWork, true);
@@ -323,7 +291,7 @@ private Q_SLOTS:
             QCOMPARE(permissions.count(), 0);
             QCOMPARE(rosters.count(), 0);
             spaces.ensureSpaceRoster(kWork);
-            QCOMPARE(client.nextOp, first); // failure must not permit a retry
+            QCOMPARE(client.nextOp, first);
         } else {
             Q_EMIT client.roomMemberEventSeen(kWork);
             QVERIFY(client.nextOp > first);
@@ -331,7 +299,6 @@ private Q_SLOTS:
             QVERIFY(!spaces.activeSpaceCanManageChildren());
         }
 
-        // No reselection: a later power-level event must still ask the SDK.
         const quint64 beforeRefresh = client.nextOp;
         Q_EMIT client.roomMemberEventSeen(kWork);
         QCOMPARE(client.nextOp, beforeRefresh + 1);
@@ -403,31 +370,22 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // ── Classic ──────────────────────────────────────────────────────────
-
     void theClassicPeopleChipIsScopedToTheSelectedSpacesPeople()
     {
         Classic f;
         f.build();
         f.select(kWork);
-        // Selecting the Space asks for the Space room's roster, not a child's.
         QCOMPARE(f.client.memberRequests, QStringList{ kWork });
 
-        // Nothing has answered yet: the list is exactly what it was before
-        // this feature existed.
         f.model.setFilterMode(1);
         QCOMPARE(idsOf(f.model), (QStringList{ kDmIn, kDmOut }));
 
         f.client.deliverRoster(1, kWork, { QStringLiteral("@me:x"), kAda });
         QVERIFY(f.spaces.spaceRosterKnown(kWork));
 
-        // People: only the DM with somebody who is in the Space.
         QTRY_COMPARE(idsOf(f.model), QStringList{ kDmIn });
-        // Rooms is untouched — it never held a DM.
         f.model.setFilterMode(2);
         QCOMPARE(idsOf(f.model), QStringList{ kGeneral });
-        // And All is still exactly People plus Rooms, which is what the word
-        // means and is the invariant the first attempt at this broke.
         f.model.setFilterMode(0);
         QCOMPARE(idsOf(f.model), (QStringList{ kDmIn, kGeneral }));
     }
@@ -441,22 +399,15 @@ private Q_SLOTS:
         f.model.setFilterMode(1);
         QTRY_COMPARE(idsOf(f.model), QStringList{ kDmIn });
 
-        // "All rooms" and the orphans row are VIEWS, not containers. Every DM
-        // is in both, which is what makes scoping a Space safe: the chat is
-        // always one click away.
         f.select(SpaceManager::allRoomsId());
         QTRY_COMPARE(idsOf(f.model), (QStringList{ kDmIn, kDmOut }));
         f.select(SpaceManager::orphansId());
         QTRY_COMPARE(idsOf(f.model), (QStringList{ kDmIn, kDmOut }));
-        // Neither of them asked anybody for a roster.
         QCOMPARE(f.client.memberRequests, QStringList{ kWork });
     }
 
     void anUnansweredOrRefusedRosterLeavesEveryDirectMessageInPlace()
     {
-        // A backend that cannot answer at all: the Space must not be recorded
-        // as asked, or its People list is silently unscoped forever AND never
-        // retried.
         Classic quiet;
         quiet.client.memberRequestsSupported = false;
         quiet.build();
@@ -465,13 +416,11 @@ private Q_SLOTS:
         QCOMPARE(idsOf(quiet.model), (QStringList{ kDmIn, kDmOut }));
         QVERIFY(!quiet.spaces.spaceRosterKnown(kWork));
 
-        // A backend that answers with a failure: same list, and re-selecting
-        // the Space asks again rather than failing closed for the session.
         Classic failed;
         failed.build();
         failed.select(kWork);
-        failed.client.deliverRoster(1, kWork, {}, /*partial=*/false,
-                                    /*truncated=*/false, /*ok=*/false);
+        failed.client.deliverRoster(1, kWork, {},false,
+false,false);
         failed.model.setFilterMode(1);
         QCOMPARE(idsOf(failed.model), (QStringList{ kDmIn, kDmOut }));
         QVERIFY(!failed.spaces.spaceRosterKnown(kWork));
@@ -482,19 +431,15 @@ private Q_SLOTS:
 
     void aPartialOrTruncatedRosterIsNotASmallerTruth()
     {
-        // The bridge sends a cache-only PARTIAL snapshot first, under the same
-        // op as the real one. It is a subset by construction, so acting on it
-        // would hide DMs with everybody it happened not to hold.
         Classic f;
         f.build();
         f.select(kWork);
         f.model.setFilterMode(1);
-        f.client.deliverRoster(1, kWork, { kAda }, /*partial=*/true);
+        f.client.deliverRoster(1, kWork, { kAda },true);
         QVERIFY2(!f.spaces.spaceRosterKnown(kWork),
                  "a cache-only partial snapshot was published as a roster");
         QCOMPARE(idsOf(f.model), (QStringList{ kDmIn, kDmOut }));
 
-        // The full answer lands under the same op and narrows the list.
         f.client.deliverRoster(1, kWork, { kAda });
         QTRY_COMPARE(idsOf(f.model), QStringList{ kDmIn });
 
@@ -505,45 +450,35 @@ private Q_SLOTS:
         capped.build();
         capped.select(kWork);
         capped.model.setFilterMode(1);
-        capped.client.deliverRoster(1, kWork, { kAda }, /*partial=*/false,
-                                    /*truncated=*/true);
+        capped.client.deliverRoster(1, kWork, { kAda },false,
+true);
         QVERIFY2(!capped.spaces.spaceRosterKnown(kWork),
                  "a truncated roster was published as a complete one");
         QCOMPARE(idsOf(capped.model), (QStringList{ kDmIn, kDmOut }));
 
-        // A roster for a room nobody asked about is not a Space roster.
-        // Rosters are accepted by room rather than by op, so "we asked for
-        // this one" is what keeps an ordinary room's members out of the
-        // Space cache.
         capped.client.deliverRoster(99, kGeneral, { kZoe });
         QVERIFY(!capped.spaces.spaceRosterKnown(kGeneral));
         QCOMPARE(idsOf(capped.model), (QStringList{ kDmIn, kDmOut }));
     }
-
-    // ── Channels ─────────────────────────────────────────────────────────
 
     void theChannelsSpaceViewGainsThePeopleOfThatSpace()
     {
         Channels f;
         f.build();
         f.select(kWork);
-        // Before the roster: the Space view is exactly what it always was.
-        // This is the fail-closed half — an unknown roster adds nothing.
         QTRY_VERIFY(!namesOf(f.model).contains(QStringLiteral("Ada")));
         QVERIFY(!namesOf(f.model).contains(QStringLiteral("People")));
 
         f.client.deliverRoster(1, kWork, { kAda });
 
-        // Behind the filter: under All and Rooms the group is absent even
-        // with a complete roster.
-        f.model.setFilterMode(0);   // All
+        f.model.setFilterMode(0);
         QVERIFY2(!namesOf(f.model).contains(QStringLiteral("People")),
                  "People is pinned to the Space view instead of filtered");
-        f.model.setFilterMode(2);   // Rooms
+        f.model.setFilterMode(2);
         QVERIFY2(!namesOf(f.model).contains(QStringLiteral("People")),
                  "the Rooms filter still listed people");
 
-        f.model.setFilterMode(1);   // People
+        f.model.setFilterMode(1);
         QTRY_VERIFY2(namesOf(f.model).contains(QStringLiteral("People")),
                      "the Space view never grew a People group");
         const QStringList names = namesOf(f.model);
@@ -551,8 +486,6 @@ private Q_SLOTS:
         QCOMPARE(names.mid(people + 1), QStringList{ QStringLiteral("Ada") });
         QVERIFY2(!names.contains(QStringLiteral("Zoe")),
                  "a DM with somebody outside the Space was listed in it");
-        // It is a GROUP, not a Space folder, and it carries the synthetic id
-        // the host dispatches on.
         QCOMPARE(f.model.data(f.model.index(people, 0),
                               SpaceChannelModel::KindRole).toString(),
                  QStringLiteral("group"));
@@ -560,13 +493,9 @@ private Q_SLOTS:
                               SpaceChannelModel::RoomIdRole).toString(),
                  SpaceChannelModel::spacePeopleGroupId());
 
-        // The DM tab is unchanged and still holds BOTH: a scope narrows a
-        // view, it never takes the only route to a conversation away.
         f.select(SpaceManager::peopleId());
         QTRY_VERIFY(namesOf(f.model).contains(QStringLiteral("Ada")));
         QVERIFY(namesOf(f.model).contains(QStringLiteral("Zoe")));
-        // Home lists every joined DM (its own Direct Messages group); the
-        // scope applies to the Space view only.
         f.select(SpaceManager::allRoomsId());
         QTRY_VERIFY(namesOf(f.model).contains(QStringLiteral("Ada")));
         QVERIFY(namesOf(f.model).contains(QStringLiteral("Zoe")));
@@ -574,13 +503,11 @@ private Q_SLOTS:
 
     void aRosterIsAnAnswerAboutOneAccount()
     {
-        // An account switch releases the client, so the roster must not scope
-        // the next account's People list.
         Channels f;
         f.build();
         f.select(kWork);
         f.client.deliverRoster(1, kWork, { kAda });
-        f.model.setFilterMode(1);   // People
+        f.model.setFilterMode(1);
         QTRY_VERIFY(namesOf(f.model).contains(QStringLiteral("People")));
 
         FakeClient next;
@@ -588,15 +515,11 @@ private Q_SLOTS:
         f.spaces.setClient(&next);
         QVERIFY2(!f.spaces.spaceRosterKnown(kWork),
                  "a roster survived the account it was fetched for");
-        // The new client is asked for the selection the rail restored.
         QCOMPARE(next.memberRequests, QStringList{ kWork });
         f.model.setSources(&next, &f.spaces, &f.layout);
         QTRY_VERIFY(!namesOf(f.model).contains(QStringLiteral("People")));
     }
 
-    // A Space joined from the Part-of banner is listed a moment before it is
-    // a joined Space; the rebuild in that window dropped the selection to Home
-    // (live 2026-11-01: the rail ended on Home).
     void aJustJoinedSpaceKeepsTheSelectionUntilItIsListed()
     {
         FakeClient client;
@@ -605,29 +528,23 @@ private Q_SLOTS:
         spaces.setClient(&client);
         const QString fresh = QStringLiteral("!fresh:x");
 
-        // The control: a plain selection of an unknown Space is dropped.
         spaces.setActiveSpaceId(fresh);
         client.announce();
         QVERIFY(spaces.activeSpaceId().isEmpty());
 
-        // Not listed yet: the selection waits for it.
         spaces.selectJoinedSpace(fresh);
         client.announce();
         QCOMPARE(spaces.activeSpaceId(), fresh);
 
-        // It arrives as a Space: still selected, and now a normal selection.
         client.mirror.append(spaceRoom(fresh, QStringLiteral("Fresh"), {}));
         client.announce();
         QCOMPARE(spaces.activeSpaceId(), fresh);
 
-        // Leaving it drops the selection as before.
         client.mirror.last().membership = RoomInfo::Left;
         client.announce();
         QVERIFY(spaces.activeSpaceId().isEmpty());
     }
 
-    // A banner target can be an ordinary room: once it is listed as one there
-    // is nothing to wait for, and the selection must not stay on it.
     void aPendingSelectionIsDroppedForAnOrdinaryRoom()
     {
         FakeClient client;
@@ -637,13 +554,12 @@ private Q_SLOTS:
         const QString plain = QStringLiteral("!plain:x");
         spaces.selectJoinedSpace(plain);
         client.announce();
-        QCOMPARE(spaces.activeSpaceId(), plain);   // not listed yet
+        QCOMPARE(spaces.activeSpaceId(), plain);
         client.mirror.append(room(plain, QStringLiteral("Plain")));
         client.announce();
         QVERIFY(spaces.activeSpaceId().isEmpty());
     }
 
-    // The pending selection belongs to the account that joined.
     void aPendingSelectionDoesNotSurviveAnAccountSwitch()
     {
         FakeClient client;

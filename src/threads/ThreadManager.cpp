@@ -33,16 +33,12 @@ void ThreadManager::setClient(MatrixClient *client)
         Q_UNUSED(distinct);
         Q_UNUSED(truncated);
         const QString key = participantKey(roomId, rootEventId);
-        // Free the slot first so the queue advances even on failure.
         releaseParticipantSlot(key);
-        // A failed lookup arrives empty. Do not cache it, or a transient
-        // failure would become a permanent "no participants" for the session.
         if (participants.isEmpty())
             return;
         m_participants.insert(key, participants);
         Q_EMIT participantsChanged(roomId, rootEventId);
     });
-    // One account's faces must never be shown under another's.
     connect(m_client, &MatrixClient::loggedOut, this,
             [this] { clearParticipants(); });
 }
@@ -73,8 +69,6 @@ void ThreadManager::setActiveRoom(const QString &roomId)
     if (m_activeRoomId == roomId)
         return;
     m_activeRoomId = roomId;
-    // Discard queued work for other rooms. In-flight requests keep running:
-    // their answers are keyed by room and cancelling would waste the fetch.
     if (m_participantQueue.isEmpty())
         return;
     QStringList kept;
@@ -117,9 +111,7 @@ void ThreadManager::releaseParticipantSlot(const QString &key,
                                            quint64 generation)
 {
     if (!m_participantsInFlight.contains(key))
-        return; // already released (answer beat the timeout, or vice versa)
-    // A failed lookup is not cached, so the root can be redispatched before
-    // the first timer fires; that stale timer must not release the new slot.
+        return;
     if (generation != 0
         && m_participantGeneration.value(key, 0) != generation) {
         return;
@@ -136,7 +128,6 @@ void ThreadManager::pumpParticipantQueue()
                   < kMaxConcurrentParticipantFetches) {
         const QString key = m_participantQueue.takeFirst();
         m_participantQueued.remove(key);
-        // It may have been answered while waiting; skip rather than re-fetch.
         if (m_participants.contains(key)
             || m_participantsInFlight.contains(key)) {
             continue;
@@ -159,20 +150,16 @@ void ThreadManager::requestParticipants(const QString &roomId,
     if (!m_client || roomId.isEmpty() || rootEventId.isEmpty())
         return;
     const QString key = participantKey(roomId, rootEventId);
-    // Idempotent: already known, in flight, or queued. Lets every visible
-    // summary card call this on each appearance.
     if (m_participants.contains(key) || m_participantsInFlight.contains(key)
         || m_participantQueued.contains(key)) {
         return;
     }
-    // Dispatch under the bound, otherwise queue: the timeline is not
-    // virtualized, so a thread-heavy room asks for every root on one frame.
     if (m_participantsInFlight.size() < kMaxConcurrentParticipantFetches) {
         dispatchParticipants(key);
         return;
     }
     if (m_participantQueue.size() >= kMaxQueuedParticipantFetches)
-        return; // dropped, and therefore genuinely retryable later
+        return;
     m_participantQueue.append(key);
     m_participantQueued.insert(key);
 }
@@ -242,7 +229,6 @@ QVariantList ThreadManager::threadSummaries(const QString &roomId) const
         m.insert(QStringLiteral("lastReplyTs"), it->lastTs);
         out.append(m);
     }
-    // Sort by lastReplyTs desc.
     std::sort(out.begin(), out.end(), [](const QVariant &a, const QVariant &b) {
         return a.toMap().value(QStringLiteral("lastReplyTs")).toDateTime()
              > b.toMap().value(QStringLiteral("lastReplyTs")).toDateTime();

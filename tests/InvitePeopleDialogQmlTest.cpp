@@ -46,7 +46,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class InvitePeopleDialogQmlTest : public QObject
 {
@@ -82,8 +82,6 @@ private:
         return findItem(m_window->contentItem(), QLatin1String(name));
     }
 
-    // Emits the shared UserPicker's userSelected(userId, displayName,
-    // avatarUrl) directly, as a click or Enter on a result row would.
     void selectUser(const QString &userId, const QString &displayName)
     {
         auto *picker = m_window->findChild<QObject *>(
@@ -169,8 +167,6 @@ private slots:
         QVERIFY(submit);
         QVERIFY(!submit->property("enabled").toBool());
 
-        // "@erin"/"@frank" are not room members, so this is the new-invite
-        // branch.
         selectUser(QStringLiteral("@erin:mock.local"), QStringLiteral("Erin"));
         auto *chip0 = item("inviteChip_0");
         QVERIFY(chip0);
@@ -184,7 +180,6 @@ private slots:
         QCOMPARE(submit->property("text").toString(),
                  QStringLiteral("Invite 2 people"));
 
-        // Removing a chip drops the count back to a single invite.
         auto *remove0 = item("inviteChipRemove_0");
         QVERIFY(remove0);
         QMetaObject::invokeMethod(remove0, "click");
@@ -195,9 +190,6 @@ private slots:
         QTRY_VERIFY(!m_dialog->property("visible").toBool());
     }
 
-    // The roster check must read the room being invited TO. Inviting into a
-    // Space from the rail while another room is open used to consult the open
-    // room's members, refusing its members as "already in" the Space.
     void theAlreadyMemberCheckReadsTheRoomBeingInvitedTo()
     {
         // This scene contains only the dialog, so populate the roster that
@@ -232,7 +224,6 @@ private slots:
                               == QStringLiteral("joined");
         QVERIFY2(bobIsMember, "fixture: bob must be joined in the open room");
 
-        // A different target (a Space): bob is not known to be in it.
         QVERIFY(QMetaObject::invokeMethod(
             m_dialog, "openFor",
             Q_ARG(QVariant, QVariant(QStringLiteral("!space:mock.local")))));
@@ -243,7 +234,6 @@ private slots:
         QMetaObject::invokeMethod(m_dialog, "close");
         QTRY_VERIFY(!m_dialog->property("visible").toBool());
 
-        // The room's own roster still does.
         QVERIFY(QMetaObject::invokeMethod(
             m_dialog, "openFor",
             Q_ARG(QVariant, QVariant(QStringLiteral("!general:mock.local")))));
@@ -254,10 +244,6 @@ private slots:
         QTRY_VERIFY(!m_dialog->property("visible").toBool());
     }
 
-    // Master prompt Part 6, 5 (UI-029/030/033/040): an empty search offers
-    // the account's recent one-to-one conversations; picking one only adds a
-    // chip, never an invite; a picked person leaves the list; Return on an
-    // empty search with nothing highlighted picks nobody.
     void anEmptySearchSuggestsRecentConversationsAndOnlySelects()
     {
         QVERIFY(QMetaObject::invokeMethod(
@@ -278,7 +264,6 @@ private slots:
         QVERIFY(list);
         QTRY_VERIFY(list->isVisible());
 
-        // Return with nothing highlighted selects nobody.
         auto *field = item("invitePeoplePickerSearchField");
         QVERIFY(field);
         field->forceActiveFocus();
@@ -339,7 +324,6 @@ private slots:
         QVERIFY(conversations()->errorMessage().contains(
             QStringLiteral("not supported")));
         QVERIFY(conversations()->inviteResults().isEmpty());
-        // The reduction is also pinned in source: ids only, never chip objects.
         QFile dialogFile(QStringLiteral(QML_DIR "/InvitePeopleDialog.qml"));
         QVERIFY(dialogFile.open(QIODevice::ReadOnly));
         const QString dialogSrc = QString::fromUtf8(dialogFile.readAll());

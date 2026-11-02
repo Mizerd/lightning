@@ -1,20 +1,3 @@
-// The window filter behind the mouse Back/Forward buttons
-// (lightning::MouseNavigationFilter), on a real Qt Quick Controls window:
-//   * a Back/Forward press that dismisses a popup only dismisses it: a
-//     click-away Menu (every AppMenu), a non-modal picker, a modal dialog.
-//     The click-away cases are the defect the first, in-scene handler had:
-//     the popup closes itself while the press is being delivered, so a
-//     handler that asks "is a popup open?" from the press sees none;
-//   * the buttons work over the items that accept every button (a Controls
-//     TextArea and TextField, an AllButtons MouseArea), and a text field
-//     keeps its focus and caret while a Left click still reaches it;
-//   * BTN_BACK / BTN_FORWARD (ExtraButton4 / ExtraButton3 on QtWayland) are
-//     Back and Forward;
-//   * only a tap navigates, only while allowed (asked on the press AND when
-//     the queued navigation runs), never as part of a chord with another
-//     button, and never from a finger, or from a touchscreen or stylus
-//     device even when its event carries the Back button.
-// Events go through the window, so the filter sees them exactly as the app's.
 
 #include <QtTest/QtTest>
 
@@ -78,10 +61,9 @@ ApplicationWindow {
 }
 )QML";
 
-// Away from every item and popup.
 const QPoint kEmpty(500, 350);
 
-} // namespace
+}
 
 class MouseNavigationFilterTest : public QObject
 {
@@ -94,13 +76,11 @@ private:
     int m_backs = 0;
     int m_forwards = 0;
     bool m_allowed = true;
-    // When non-empty, the gate's next answers, in order (then m_allowed).
     QList<bool> m_gateAnswers;
     int m_gateAsked = 0;
 
     QQuickItem *item(const char *name) const
     {
-        // Declared in the window: QObject children of the window itself.
         QQuickItem *found =
             m_window->findChild<QQuickItem *>(QLatin1String(name));
         if (!found)
@@ -116,7 +96,6 @@ private:
         return it->mapToScene(QPointF(it->width() / 2, it->height() / 2))
             .toPoint();
     }
-    // Press and release, then let the queued navigation run.
     void click(Qt::MouseButton button, const QPoint &at)
     {
         QTest::mouseClick(m_window, button, Qt::NoModifier, at);
@@ -223,8 +202,6 @@ private Q_SLOTS:
         QCOMPARE(m_backs, 1);
     }
 
-    // Some mice report BTN_BACK / BTN_FORWARD, which QtWayland delivers as
-    // ExtraButton4 / ExtraButton3.
     void theKernelBackAndForwardCodesNavigate()
     {
         click(Qt::ExtraButton4, kEmpty);
@@ -242,8 +219,6 @@ private Q_SLOTS:
         QCOMPARE(m_forwards, 0);
     }
 
-    // The filter consumes nothing: the press still reaches an item that
-    // takes every button.
     void theItemBeneathStillGetsThePress()
     {
         QQuickItem *swallower = item("swallower");
@@ -284,9 +259,6 @@ private Q_SLOTS:
         QCOMPARE(m_backs, 0);
     }
 
-    // THE defect (review round 1): a Back/Forward press on an open popup
-    // only dismisses it, like a browser's Back on an open menu. A second
-    // press, with nothing open, navigates.
     void aPressThatDismissesAPopupOnlyDismissesIt_data()
     {
         QTest::addColumn<QString>("name");
@@ -310,7 +282,6 @@ private Q_SLOTS:
         openPopup(n.constData());
         QVERIFY(MouseNavigationFilter::windowHasOpenPopup(m_window));
         click(Qt::MouseButton(button), kEmpty);
-        // Dismissed by the press, and nothing else.
         QTRY_VERIFY(!popup(n.constData())->property("visible").toBool());
         QCOMPARE(m_backs + m_forwards, 0);
         click(Qt::MouseButton(button), kEmpty);
@@ -327,7 +298,6 @@ private Q_SLOTS:
         QCOMPARE(m_backs, 0);
     }
 
-    // Not allowed when the button went down: the release does not revive it.
     void theGateIsReadOnThePress()
     {
         m_allowed = false;
@@ -340,8 +310,6 @@ private Q_SLOTS:
         QCOMPARE(m_backs, 1);
     }
 
-    // And again when the queued navigation runs, after the release has been
-    // delivered (a sign-out or a dialog may have begun in between).
     void theGateIsReadAgainWhenTheNavigationRuns()
     {
         m_gateAnswers = { true, false };
@@ -352,10 +320,6 @@ private Q_SLOTS:
         QCOMPARE(m_backs, 1);
     }
 
-    // The device check itself: a mouse event that CARRIES the Back button
-    // but comes from a touchscreen or a stylus (a pen's barrel button, a
-    // driver mapping) is not a mouse's Back button. The mouse row is the
-    // control: the same hand-built event from a mouse navigates.
     void onlyAMouseOrTouchpadDeviceNavigates_data()
     {
         QTest::addColumn<int>("kind");
@@ -402,8 +366,6 @@ private Q_SLOTS:
         QCOMPARE(m_backs, expected);
     }
 
-    // A Back press while another button is held, or another button pressed
-    // while Back is held, is a chord: browsers navigate on neither.
     void aChordIsNotATap()
     {
         QTest::mousePress(m_window, Qt::LeftButton, Qt::NoModifier, kEmpty);
@@ -421,7 +383,6 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
         QCOMPARE(m_forwards, 0);
 
-        // Alone again, it is a tap.
         click(Qt::BackButton, kEmpty);
         QCOMPARE(m_backs, 1);
     }

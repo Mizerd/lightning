@@ -5,7 +5,7 @@
 namespace {
 constexpr int kDebounceMs = 300;
 constexpr int kPageSize = 30;
-} // namespace
+}
 
 RoomDirectorySearchModel::RoomDirectorySearchModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -13,7 +13,7 @@ RoomDirectorySearchModel::RoomDirectorySearchModel(QObject *parent)
     m_debounce.setSingleShot(true);
     m_debounce.setInterval(kDebounceMs);
     connect(&m_debounce, &QTimer::timeout, this,
-            [this] { dispatch(/*nextPage=*/false); });
+            [this] { dispatch(false); });
 }
 
 void RoomDirectorySearchModel::setClient(MatrixClient *client)
@@ -105,14 +105,14 @@ QHash<int, QByteArray> RoomDirectorySearchModel::roleNames() const
 void RoomDirectorySearchModel::refresh()
 {
     m_debounce.stop();
-    dispatch(/*nextPage=*/false);
+    dispatch(false);
 }
 
 void RoomDirectorySearchModel::loadMore()
 {
     if (m_pendingOp != 0 || m_nextBatch.isEmpty())
         return;
-    dispatch(/*nextPage=*/true);
+    dispatch(true);
 }
 
 void RoomDirectorySearchModel::clear()
@@ -143,8 +143,6 @@ void RoomDirectorySearchModel::dispatch(bool nextPage)
         m_client->searchPublicRooms(m_query.trimmed(), m_server, since,
                                     kPageSize);
     if (opId == 0) {
-        // A synchronous refusal with a server override means a bad server name,
-        // not connectivity; say which.
         m_errorCategory = m_server.isEmpty()
                               ? QStringLiteral("network")
                               : QStringLiteral("invalid_server");
@@ -166,11 +164,9 @@ void RoomDirectorySearchModel::onPublicRooms(quint64 opId, bool ok,
 {
     Q_UNUSED(totalEstimate);
     if (opId == 0 || opId != m_pendingOp)
-        return; // superseded — a stale page must never repaint a new query
+        return;
     m_pendingOp = 0;
     if (!ok) {
-        // A failed next-page keeps what is already shown; a failed first
-        // page has nothing honest to show but the error.
         m_errorCategory = category;
         if (!m_pendingIsNextPage) {
             beginResetModel();
@@ -201,7 +197,7 @@ void RoomDirectorySearchModel::onPublicRooms(quint64 opId, bool ok,
 void RoomDirectorySearchModel::setState(const QString &state)
 {
     if (m_state == state) {
-        Q_EMIT stateChanged(); // count/canLoadMore ride this signal
+        Q_EMIT stateChanged();
         return;
     }
     m_state = state;

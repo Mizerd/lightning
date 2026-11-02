@@ -33,7 +33,6 @@ void RichComposerBridge::sendDocument(QQuickTextDocument *document)
     const RichComposition::Composed composed = RichComposition::compose(*doc);
     const QString plain = composed.plainBody.trimmed();
     if (plain.isEmpty() && composed.html.isEmpty()) {
-        // Empty text with queued attachments is a real send.
         if (m_composer->hasAttachments())
             m_composer->send();
         return;
@@ -46,8 +45,6 @@ void RichComposerBridge::sendDocument(QQuickTextDocument *document)
         return;
     }
     if (composed.html.isEmpty()) {
-        // "//" escapes a slash, as in markdown mode. Everything else is sent
-        // verbatim, never re-read as markdown.
         const QString verbatim = plain.startsWith(QLatin1String("//")) ? plain.mid(1)
                                                                           : plain;
         m_composer->sendPrepared(verbatim, QString(), composed.mentionUserIds);
@@ -64,20 +61,16 @@ void RichComposerBridge::sendDocumentToThread(QQuickTextDocument *document)
     const RichComposition::Composed composed = RichComposition::compose(*doc);
     const QString plain = composed.plainBody.trimmed();
     if (plain.isEmpty() && composed.html.isEmpty()) {
-        // Attachments with no text are a real thread send; see sendDocument.
         if (m_thread->hasAttachments())
             m_thread->sendText(QString());
         return;
     }
-    // Before the formatting test; see sendDocument.
     if (plain.startsWith(QLatin1Char('/')) && !plain.startsWith(QLatin1String("//"))) {
         m_thread->setText(plain);
         m_thread->sendText(plain);
         return;
     }
     if (composed.html.isEmpty()) {
-        // Unformatted: "//" escapes, everything else travels the PLAIN lane
-        // verbatim.
         const QString verbatim = plain.startsWith(QLatin1String("//")) ? plain.mid(1)
                                                                           : plain;
         m_thread->sendPrepared(verbatim, QString(), composed.mentionUserIds);

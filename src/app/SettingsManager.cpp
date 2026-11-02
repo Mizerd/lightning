@@ -10,7 +10,6 @@
 #include <QUrl>
 
 #include "storage/SecretStore.h"
-// Header-only use: the mode keys and their parser, no audio code.
 #include "calls/noise/NoiseSuppressor.h"
 #include "storage/AppDataPaths.h"
 #include "matrix/MediaStoreKey.h"
@@ -41,8 +40,6 @@ constexpr auto kRoomFilterMode      = "ui/roomFilterMode";
 constexpr auto kTextScale           = "ui/textScale";
 constexpr auto kUiFont              = "ui/uiFont";
 constexpr auto kMonoFont            = "ui/monoFont";
-// Device-global: imported fonts are registered process-wide before any
-// account is restored.
 constexpr auto kImportedFonts       = "ui/importedFonts";
 constexpr auto kLanguage            = "ui/language";
 constexpr auto kStartMinimized      = "ui/startMinimized";
@@ -61,7 +58,6 @@ constexpr auto kPreviewsInlineMedia = "previews/inlineMedia";
 constexpr auto kShareMaxHeight      = "calls/shareMaxHeight";
 constexpr auto kShareFps            = "calls/shareFps";
 constexpr auto kShareBitrateCap     = "calls/shareBitrateCapKbps";
-// Camera ceiling and webrtcdsp switches. Device-global; 0 is Auto.
 constexpr auto kCameraResolution    = "calls/cameraResolution";
 constexpr auto kEchoCancellation    = "calls/echoCancellation";
 constexpr auto kAutoGainControl     = "calls/autoGainControl";
@@ -85,27 +81,21 @@ constexpr auto kGlobalShortcuts   = "shell/globalShortcuts";
 constexpr auto kWindowGeometry    = "shell/windowGeometry";
 constexpr auto kWindowMaximized   = "shell/windowMaximized";
 constexpr auto kStartInTray       = "shell/startInTray";
-// Account-scoped only; no global fallback key.
 constexpr auto kVerifyWarningDismissed = "security/verifyWarningDismissed";
-constexpr auto kMediaVolume         = "media/volume";       // 0..1
-constexpr auto kMediaPlaybackRate   = "media/playbackRate";  // 0.25..4.0
-constexpr auto kVoiceMiniPlayerCorner = "media/miniPlayerCorner"; // 0..3
-constexpr auto kVoicePlayerDocked   = "media/playerDocked";   // bool
-constexpr auto kLargeAlbumArt       = "media/largeAlbumArt";    // bool, default on
-// QRectF: x/y fractions of the free space, width/height pixels.
+constexpr auto kMediaVolume         = "media/volume";
+constexpr auto kMediaPlaybackRate   = "media/playbackRate";
+constexpr auto kVoiceMiniPlayerCorner = "media/miniPlayerCorner";
+constexpr auto kVoicePlayerDocked   = "media/playerDocked";
+constexpr auto kLargeAlbumArt       = "media/largeAlbumArt";
 constexpr auto kVoiceMiniPlayerGeometry = "media/miniPlayerGeometry";
-constexpr auto kVoicePlaybackRate   = "media/voicePlaybackRate"; // 0.25..4.0
-// GIF browser policy.
-constexpr auto kGifAutoplay         = "gif/autoplay";       // 0/1/2
-constexpr auto kGifSafeSearch       = "gif/safeSearch";     // gif::Rating id
-constexpr auto kGifStoreRecent      = "gif/storeRecent";    // bool
-constexpr auto kVideoPrefetchEnabled = "media/videoPrefetchEnabled"; // bool
-// Set once migratePrefetchFromAnimation() has run (see there).
+constexpr auto kVoicePlaybackRate   = "media/voicePlaybackRate";
+constexpr auto kGifAutoplay         = "gif/autoplay";
+constexpr auto kGifSafeSearch       = "gif/safeSearch";
+constexpr auto kGifStoreRecent      = "gif/storeRecent";
+constexpr auto kVideoPrefetchEnabled = "media/videoPrefetchEnabled";
 constexpr auto kPrefetchDecoupledMarker = "media/prefetchDecoupledFromAnimation";
-constexpr auto kVideoPrefetchMaxMb  = "media/videoPrefetchMaxMb";   // int, MB
-constexpr auto kGifProvider         = "gif/provider";       // "giphy"/"klipy"
-// Presentation-only timeline preferences; the model keeps every event, so
-// changing them never requires a resync.
+constexpr auto kVideoPrefetchMaxMb  = "media/videoPrefetchMaxMb";
+constexpr auto kGifProvider         = "gif/provider";
 constexpr auto kShowRoomActivity    = "timeline/showRoomActivity";
 constexpr auto kHideThreadReplies   = "timeline/hideThreadReplies";
 constexpr auto kCallFormat          = "calls/format";
@@ -120,9 +110,6 @@ constexpr auto kMessageSpacing      = "ui/messageSpacing";
 constexpr auto kThreadStyle         = "ui/threadStyle";
 constexpr auto kThreadPlacement     = "ui/threadPlacement";
 constexpr auto kLayoutPreset        = "ui/layoutPreset";
-// The Nheko compact profile's own overrides (account-scoped, never synced):
-// written only while that preset is selected, so the ordinary keys above
-// stay the Lightning configuration.
 constexpr auto kNhekoMessageLayout  = "ui/nhekoCompact/messageLayout";
 constexpr auto kNhekoMessageSpacing = "ui/nhekoCompact/messageSpacing";
 constexpr auto kNhekoThreadPlacement = "ui/nhekoCompact/threadPlacement";
@@ -136,7 +123,6 @@ constexpr auto kHiddenComposerButtons = "ui/hiddenComposerButtons";
 constexpr auto kClockFormat         = "ui/clockFormat";
 constexpr auto kEnterNewline        = "composer/enterInsertsNewline";
 constexpr auto kComposerMode        = "composer/mode";
-// Set once migrateComposerModeToMarkdown() has run (see there).
 constexpr auto kComposerMarkdownMarker = "composer/markdownDefaultMigrated";
 constexpr auto kSpellCheckEnabled   = "composer/spellCheck";
 constexpr auto kSpellCheckLanguage  = "composer/spellLanguage";
@@ -145,29 +131,20 @@ constexpr auto kAutocorrectMode     = "composer/autocorrect";
 constexpr auto kTextAsCaption       = "composer/textAsCaption";
 constexpr auto kImageMetadataMode   = "composer/imageMetadataMode";
 constexpr auto kEmojiShortcodeAutoConvert = "composer/emojiShortcodeAutoConvert";
-// Shortcut overrides live in their own group, one key per action id.
 constexpr auto kShortcutsGroup      = "shortcuts";
-// 0 = Standard, 1 = Fast, 2 = Very fast (see TimelineScrollController).
 constexpr auto kTimelineWheelSpeed  = "timeline/wheelSpeed";
 // Device-global: main.cpp reads this key before QGuiApplication exists and
 // turns it into QT_SCALE_FACTOR. Keep the key name and the 75..150 clamp in
 // sync with that read.
 constexpr auto kInterfaceZoom       = "ui/interfaceZoom";
 constexpr int kRecentEmojiLimit     = 32;
-// Legacy plaintext access token location; kept only so the migration can
-// find and delete it.
 constexpr auto kAccessTokenLegacy   = "session/accessToken";
-// Pre-0.7 single-session metadata, kept only for migration.
 constexpr auto kUserId              = "session/userId";
 constexpr auto kDeviceId            = "session/deviceId";
 constexpr auto kSyncToken           = "session/syncToken";
 
-// Multi-account registry.
 constexpr auto kAccountsGroup       = "accounts";
-// Sign-outs begun and not finished (B044), one group per identity slug.
 constexpr auto kPendingSignOutGroup = "pendingSignOut";
-// Sign-ins begun and not finished (R6), one group per identity slug: the
-// store a fresh password sign-in creates before the server has answered.
 constexpr auto kPendingSignInGroup = "pendingSignIn";
 constexpr auto kActiveAccount       = "accounts/active";
 constexpr auto kAccountUserId       = "userId";
@@ -176,32 +153,18 @@ constexpr auto kAccountDeviceId     = "deviceId";
 constexpr auto kAccountDisplayName  = "displayName";
 constexpr auto kAccountAvatarUrl    = "avatarUrl";
 constexpr auto kAccountAddedAt      = "addedAt";
-// Absent means "password", so accounts saved before OAuth need no migration.
 constexpr auto kAccountAuthType     = "authType";
 constexpr auto kAccountSyncToken    = "syncToken";
-// The on-disk SDK store directory name recorded at login. See storeSlugFor.
 constexpr auto kAccountStoreSlug    = "storeSlug";
-// The one-time "index all messages now?" answer. See indexAllOfferAnswer.
 constexpr auto kAccountIndexAllOffer = "indexAllOffer";
-// The room last opened under the account. See lastOpenedRoom.
 constexpr auto kAccountLastRoom = "lastRoom";
-// Labs (concurrent live accounts). See setKeepRunningFor / setLastLiveAtFor.
 constexpr auto kAccountKeepRunning  = "keepRunning";
 constexpr auto kAccountLastLiveAt   = "lastLiveAt";
-// The account's network route, device-local (docs/network-profiles.md). The
-// non-secret half only; a proxy password is in the SecretStore
-// (matrix/NetworkRoute.h). Never synced, never exported.
 constexpr auto kAccountNetworkRoute = "networkRoute";
 constexpr auto kLabsConcurrentAccounts = "labs/concurrentAccounts";
 constexpr auto kLabsConcurrentAccountsWarmSlot = "labs/concurrentAccountsWarmSlot";
-// Device-local: read straight from the store, not through appearanceValue().
 constexpr auto kActivityReadHorizonDays = "ui/activityReadHorizonDays";
 
-// A Labs switch reads on only from a stored bool true: QSettings hands a bool
-// back as a real bool in-process and as the string "true" after a reload (the
-// INI and registry formats), and nothing else counts. QVariant::toBool() would
-// also take "1", 1 and "yes", so a hand edit or another program's value could
-// start background network activity for every pinned account.
 bool storedTrue(const QVariant &v)
 {
     if (v.metaType().id() == QMetaType::Bool)
@@ -210,47 +173,18 @@ bool storedTrue(const QVariant &v)
         && v.toString() == QLatin1String("true");
 }
 
-// SecretStore keys.
 constexpr auto kSecretAccessToken   = "accessToken";
-// OAuth credentials, stored in the SecretStore beside the access token and
-// never exposed to QML.
 constexpr auto kSecretRefreshToken  = "refreshToken";
 constexpr auto kSecretOAuthClientId = "oauthClientId";
 
-// Names this install's items in a secret store shared with other installs
-// (SecretStore::setInstallScope). One per settings file, the file holding the
-// account records those items belong to. Created once, never removed.
 constexpr auto kKeyringInstallId    = "keyring/installId";
-// Per account, shared stores only: this install's items for the session.
-//   keyringItems  "own"                - signed in by this build.
-//                 "adopted-unverified" - copied from an item written before
-//                                        install scoping, which another install
-//                                        on this computer may also use.
-//   keyringDevice  the record's deviceId when they were written. An older build
-//                  that signs in again changes deviceId and not this, so items
-//                  left from an earlier device are never read for a newer one.
-// Both absent: recorded before scoping; adopted on first use.
 constexpr auto kAccountKeyringItems  = "keyringItems";
 constexpr auto kAccountKeyringDevice = "keyringDevice";
-// Per account: where its sign-in was last written, or found
-// (SecretStore::backendKindFor(), "file" or "service"), for a store with more
-// than one backend. That store reads the account there whatever this launch's
-// own backend is (TwoBackendSecretStore); a launch on the other one also says
-// so (keyringBackendChanged()).
 constexpr auto kAccountKeyringBackend = "keyringBackend";
 constexpr auto kKeyringItemsOwn      = "own";
 constexpr auto kKeyringItemsAdopted  = "adopted-unverified";
-//                 "declined-other-install" - the adoption check found the copied
-//                                        token is another install's device:
-//                                        this install's copy is gone and the
-//                                        shared item is never adopted again.
 constexpr auto kKeyringItemsDeclined = "declined-other-install";
 
-// Mirrors InsecureFallbackSecretStore::settingsKey()'s group-name folding.
-// Duplicated because including that Q_OBJECT header would pull its vtable
-// into targets that do not link its .cpp.
-// insecureSecretsGroupFoldingIsStillTwoCharacters (SettingsSessionTest)
-// fails if the folding there changes.
 QString insecureSecretsGroupName(const QString &userId)
 {
     QString safeUser = userId;
@@ -264,11 +198,6 @@ SettingsManager::SettingsManager(QObject *parent)
     : QObject(parent)
     , m_store(std::make_unique<QSettings>())
 {
-    // The flush throttle (see kFlushDelayMs): QSettings posts itself an
-    // UpdateRequest after a change and rewrites the file when it arrives. The
-    // filter holds that back and a single-shot timer writes once instead. Not
-    // restarted by later writes, so a steady stream of them still reaches the
-    // disk within kFlushDelayMs.
     m_flushTimer.setSingleShot(true);
     m_flushTimer.setInterval(kFlushDelayMs);
     m_flushTimer.setTimerType(Qt::CoarseTimer);
@@ -286,9 +215,6 @@ SettingsManager::SettingsManager(QObject *parent)
     if (!m_store->contains(kHomeserver)) {
         m_store->setValue(kHomeserver, QStringLiteral("https://matrix.org"));
     }
-    // Restrict the settings file to the owner: it holds account ids, drafts
-    // and, under the insecure fallback, tokens. QSaveFile keeps the mode on
-    // later writes, so doing it once is enough.
     m_store->sync();
     if (QFileInfo::exists(m_store->fileName())) {
         QFile::setPermissions(m_store->fileName(),
@@ -297,13 +223,6 @@ SettingsManager::SettingsManager(QObject *parent)
     migrateLegacySessionRecord();
     migratePrefetchFromAnimation();
     migrateComposerModeToMarkdown();
-    // B118: a damaged settings file used to look exactly like a fresh install.
-    // QSettings reports a parse failure only at the first sync (in this
-    // constructor), and
-    // most garbage parses "fine" as no keys, so the account stores on disk are
-    // the other witness. Count only; nothing is rebuilt from them.
-    // R6: stores of sign-ins that never finished. Read (and markers whose
-    // store is gone dropped, one stat each) at every start.
     const QSettings::Status readStatus = m_store->status();
     const QSet<QString> unfinished = readStatus == QSettings::NoError
         ? pendingSignInStorePaths() : QSet<QString>{};
@@ -318,9 +237,6 @@ SettingsManager::SettingsManager(QObject *parent)
             pending.insert(QDir::cleanPath(
                 m_store->value(slug + QLatin1String("/storePath")).toString()));
         m_store->endGroup();
-        // R6: the store of a sign-in that never finished (cancelled, or the
-        // process quit or was killed before the server answered) was never an
-        // account on this device, so it is no witness that the file lost one.
         int unlisted = 0;
         int unfinishedStores = 0;
         for (const QString &store :
@@ -353,7 +269,6 @@ SettingsManager::~SettingsManager()
 void SettingsManager::flushPendingWrites()
 {
     m_flushTimer.stop();
-    // A sync with nothing changed reads and writes nothing.
     m_store->sync();
 }
 
@@ -363,8 +278,6 @@ void SettingsManager::holdWritesWhileDragging(bool held)
         return;
     m_writesHeld = held;
     if (held) {
-        // Nothing is written mid-drag, not even what the timer was already
-        // waiting to write.
         m_flushTimer.stop();
         m_holdTimer.start();
         return;
@@ -397,8 +310,6 @@ QString SettingsManager::slugForSavedAccount(const QString &userId) const
     const QString slug = matrix::app_data::safeUserSlug(userId.trimmed());
     if (slug.isEmpty())
         return {};
-    // The slug mapping is not injective, so a record matches only when its
-    // stored user id is identical.
     const QString stored =
         m_store->value(accountKey(slug, kAccountUserId)).toString();
     return stored == userId.trimmed() ? slug : QString{};
@@ -424,8 +335,6 @@ QString SettingsManager::canonicalUserIdForTypedIdentity(
     if (typed.isEmpty())
         return {};
 
-    // An exact match wins, so a legitimate uppercase-localpart account is never
-    // shadowed by a case-insensitive sibling.
     if (!slugForSavedAccount(typed).isEmpty())
         return typed;
 
@@ -447,7 +356,6 @@ QString SettingsManager::canonicalUserIdForTypedIdentity(
             continue;
         }
         if (!match.isEmpty()) {
-            // Two saved accounts differ only by case; refuse rather than guess.
             if (ambiguous)
                 *ambiguous = true;
             return {};
@@ -477,14 +385,10 @@ void SettingsManager::setStoreSlugFor(const QString &userId,
     } else {
         if (m_store->value(key).toString() != storeSlug)
             m_store->setValue(key, storeSlug);
-        // R6: the store is an account's now, whatever identity the sign-in
-        // that created it was typed as (a bare username, other casing).
         matrix::app_data::AccountIdentity recorded;
         if (resolveSavedIdentity(userId, &recorded))
             dropPendingSignInsNaming(recorded.rustStorePath);
     }
-    // The store directory already exists; flush so the mapping survives a
-    // crash.
     m_store->sync();
 }
 
@@ -524,7 +428,6 @@ QString SettingsManager::accountOwningStoreSlug(const QString &storeSlug) const
             return userId;
         if (storeSlugFor(userId) == slug)
             return userId;
-        // Legacy delegated-homeserver slug, built from the URL host.
         matrix::app_data::AccountIdentity identity;
         if (resolveSavedIdentity(userId, &identity)
             && matrix::app_data::delegatedHomeserverStoreSlug(identity) == slug) {
@@ -547,8 +450,6 @@ bool SettingsManager::resolveSavedIdentity(
     matrix::app_data::AccountIdentity identity;
     if (!matrix::app_data::resolveAccountIdentity(hs, userId, &identity))
         return false;
-    // A recorded store location wins over the derived one; an unusable
-    // recording is ignored (bindStoreSlug refuses rather than half-applies).
     const QString recorded =
         m_store->value(accountKey(slug, kAccountStoreSlug)).toString();
     if (!recorded.isEmpty() && recorded != identity.slug)
@@ -559,14 +460,6 @@ bool SettingsManager::resolveSavedIdentity(
 
 void SettingsManager::migratePrefetchFromAnimation()
 {
-    // Until 2026-10-20 gif/autoplay "Never" (2) also refused every speculative
-    // video/audio download; since then that is "Preload videos and audio"
-    // (media/videoPrefetchEnabled, default on) alone. A user who chose Never
-    // had preloading OFF in effect, so carry that over once instead of
-    // silently starting downloads after the upgrade. Both keys are global, the
-    // scope they are read in; gifAutoplay() includes the legacy
-    // animateGifPreviews=false fallback. Runs once: a later choice to turn
-    // preloading back on is the user's.
     if (m_store->value(kPrefetchDecoupledMarker).toBool())
         return;
     if (gifAutoplay() == 2)
@@ -576,11 +469,6 @@ void SettingsManager::migratePrefetchFromAnimation()
 
 void SettingsManager::migrateComposerModeToMarkdown()
 {
-    // Markdown is the default composer mode: users type "# a" and "* a" and
-    // expect them to format. The store cannot tell a stored "rich" that was
-    // chosen from one left by an old build, so every profile is moved to
-    // Markdown ONCE; a "rich" chosen afterwards is the user's and sticks,
-    // because the marker is then set.
     if (m_store->value(kComposerMarkdownMarker).toBool())
         return;
     m_store->setValue(kComposerMode, QStringLiteral("markdown"));
@@ -589,8 +477,6 @@ void SettingsManager::migrateComposerModeToMarkdown()
 
 void SettingsManager::migrateLegacySessionRecord()
 {
-    // Convert the pre-0.7 single session into the first account record, then
-    // drop the legacy keys.
     QString legacyUser = m_store->value(kUserId).toString().trimmed();
     if (legacyUser.isEmpty())
         return;
@@ -638,7 +524,6 @@ bool SettingsManager::upsertAccountRecord(const QString &userId,
             << "refusing to save account record for unsafe user id";
         return false;
     }
-    // Never clobber a different account whose id flattens to the same slug.
     const QString existing =
         m_store->value(accountKey(slug, kAccountUserId)).toString();
     if (!existing.isEmpty() && existing != uid) {
@@ -733,7 +618,6 @@ void SettingsManager::setLastOpenedRoom(const QString &userId,
     if (slug.isEmpty())
         return;
     const QString key = accountKey(slug, kAccountLastRoom);
-    // A room switch is frequent and the value is usually unchanged.
     if (m_store->value(key).toString() == roomId)
         return;
     if (roomId.isEmpty())
@@ -777,7 +661,6 @@ QString SettingsManager::activeAccountUserId() const
     const QString uid = m_store->value(kActiveAccount).toString();
     if (uid.isEmpty())
         return {};
-    // Self-heal: an active pointer whose record is gone means no session.
     return hasSavedAccount(uid) ? uid : QString{};
 }
 
@@ -785,7 +668,6 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
 {
     const QString uid = userId.trimmed();
     const QString next = (!uid.isEmpty() && hasSavedAccount(uid)) ? uid : QString{};
-    // Log when an unknown id clears the active account instead of setting it.
     if (!uid.isEmpty() && next.isEmpty()) {
         qCWarning(lcSettings)
             << "asked to activate an account with no saved record; the active "
@@ -794,7 +676,6 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     }
     if (activeAccountUserId() == next)
         return;
-    // Decides which account the next launch opens. Slug only in logs.
     qCInfo(lcSettings) << "active account moves"
                        << "from="
                        << matrix::app_data::safeUserSlug(activeAccountUserId())
@@ -830,7 +711,6 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT threadStyleChanged();
     Q_EMIT threadPlacementChanged();
     Q_EMIT layoutPresetChanged();
-    // Pane widths follow the account's preset (paneWidthKey).
     Q_EMIT roomListWidthChanged();
     Q_EMIT spacesRailWidthChanged();
     Q_EMIT sidePanelWidthChanged();
@@ -863,13 +743,6 @@ void SettingsManager::updateAccountProfile(const QString &userId,
     Q_EMIT accountsChanged();
 }
 
-// ---- Labs: concurrent live accounts, per account ---------------------------
-// None of these syncs the file or emits accountsChanged() (design R2-L3): a
-// pin or a timestamp rewritten every ten minutes for every live account must
-// not flush the settings file or rebuild the switcher and the session
-// lifecycle that listen to accountsChanged(). QSettings writes them out on its
-// own deferred sync and at exit.
-
 SettingsManager::KeepRunningResult
 SettingsManager::setKeepRunningFor(const QString &userId, bool on)
 {
@@ -878,16 +751,13 @@ SettingsManager::setKeepRunningFor(const QString &userId, bool on)
         return KeepRunningResult::RefusedNoRecord;
     if (keepRunningFor(userId) == on)
         return KeepRunningResult::Unchanged;
-    // Pins are never evicted for capacity, so the cap refuses the new one.
-    // keepRunningUserIds() lists pins with a record only: a pin cannot outlive
-    // its record (it lives inside it).
     if (on && keepRunningUserIds().size() >= kMaxPinnedAccounts)
         return KeepRunningResult::RefusedCap;
     const QString key = accountKey(slug, kAccountKeepRunning);
     if (on)
         m_store->setValue(key, true);
     else
-        m_store->remove(key); // default: keep the file compact
+        m_store->remove(key);
     Q_EMIT keepRunningChanged(userId);
     return KeepRunningResult::Ok;
 }
@@ -929,8 +799,6 @@ bool SettingsManager::setNetworkRouteRecord(const QString &userId, const QVarian
         if (!username.isEmpty())
             m_store->setValue(group + QLatin1String("username"), username);
     }
-    // Flushed now: a route the user just set must still be there if the
-    // process dies before the deferred sync, or the next start goes direct.
     m_store->sync();
     Q_EMIT networkRouteChanged(userId);
     return true;
@@ -986,20 +854,15 @@ QStringList SettingsManager::locallyDecidedNotificationRoomsFor(
 {
     if (slugForSavedAccount(userId).isEmpty())
         return {};
-    // The scope roomNotificationModeDecidesLocallyFor() reads, so the set and
-    // the predicate cannot disagree for the active account either.
     const QString prefix = scopePrefixFor(slugForAccountScope(userId));
     if (prefix.isEmpty())
         return {};
     QSet<QString> candidates;
-    // The account's own unsynced choices: listed means deciding locally.
     m_store->beginGroup(prefix + QStringLiteral("notifications/room-mode-unsynced"));
     const QStringList unsynced = m_store->childKeys();
     m_store->endGroup();
     for (const QString &room : unsynced)
         candidates.insert(room);
-    // Legacy device-global modes (chosen before modes were saved to the
-    // server) decide on this device for every account without its own key.
     m_store->beginGroup(QStringLiteral("notifications/room-mode"));
     const QStringList legacy = m_store->childKeys();
     m_store->endGroup();
@@ -1019,13 +882,8 @@ bool SettingsManager::keyringItemsDirectlyReadableFor(const QString &userId) con
     const QString slug = slugForSavedAccount(userId);
     if (slug.isEmpty() || !m_secretStore)
         return false;
-    // Every term is a settings-file read or a structural property of the
-    // store; none of them reads an item.
     if (keyringItemsAdoptedUnverified(userId))
         return false;
-    // This install's copy was removed as another install's sign-in: the
-    // settings file already knows a read would come back empty, and the
-    // foreground owes the user the keyring_other_install card for it.
     if (keyringItemsDeclinedForOtherInstall(userId))
         return false;
     return !m_secretStore->isSharedBetweenInstalls()
@@ -1050,16 +908,13 @@ void SettingsManager::registerDemoAccount(const QString &homeserverUrl,
         return;
     m_store->setValue(accountKey(slug, kAccountUserId), uid);
     m_store->setValue(accountKey(slug, kAccountHomeserver), homeserverUrl);
-    // Deterministic fictional device id; metadata only.
     m_store->setValue(accountKey(slug, kAccountDeviceId),
                       QStringLiteral("DEMODEVICE%1").arg(order));
     m_store->setValue(accountKey(slug, kAccountDisplayName), displayName);
     m_store->setValue(accountKey(slug, kAccountAvatarUrl), avatarUrl);
-    // Deterministic addedAt so the switcher order is stable across launches.
     m_store->setValue(accountKey(slug, kAccountAddedAt),
                       QStringLiteral("2026-07-23T09:%1:00")
                           .arg(order, 2, 10, QLatin1Char('0')));
-    // No SecretStore write: demo accounts carry no token.
     Q_EMIT accountsChanged();
 }
 
@@ -1079,7 +934,7 @@ void SettingsManager::clearDemoAccounts()
     Q_EMIT accountsChanged();
     Q_EMIT sessionChanged();
 }
-#endif // LIGHTNING_ENABLE_SCREENSHOT_DEMO
+#endif
 
 void SettingsManager::setSecretStore(SecretStore *store)
 {
@@ -1089,10 +944,6 @@ void SettingsManager::setSecretStore(SecretStore *store)
     // Before any read or write: an unscoped shared store refuses both.
     if (m_secretStore && m_secretStore->isSharedBetweenInstalls())
         m_secretStore->setInstallScope(keyringInstallId());
-    // Before any read or write too: a store with two backends reads each
-    // account in the one its record names. Pulled on every use, so a record
-    // written later is what the next read sees; a store that outlives this
-    // object reads as if nothing were recorded.
     if (m_secretStore) {
         m_secretStore->setRecordedBackendLookup(
             [self = QPointer<SettingsManager>(this)](const QString &userId) {
@@ -1100,7 +951,6 @@ void SettingsManager::setSecretStore(SecretStore *store)
             });
     }
     migratePlaintextTokenIfPresent();
-    // After the plaintext migration: an account it moved has its own items.
     adoptLegacyKeyringSessions();
     Q_EMIT secretBackendChanged();
     Q_EMIT sessionChanged();
@@ -1150,8 +1000,6 @@ void SettingsManager::markKeyringItems(const QString &slug,
 
 void SettingsManager::noteKeyringBackend(const QString &userId) const
 {
-    // Where this account's items went, which is not this process's default
-    // when the store reached the recorded backend past it.
     const QString kind =
         m_secretStore ? m_secretStore->backendKindFor(userId) : QString();
     const QString slug = slugForSavedAccount(userId);
@@ -1192,17 +1040,11 @@ bool SettingsManager::declineAdoptedKeyringItems(const QString &userId,
     const QString slug = slugForSavedAccount(uid);
     if (slug.isEmpty() || !m_secretStore)
         return false;
-    // Only the copy that was checked: a sign-in written since (marked "own",
-    // or for another device) is never removed by a late answer.
     if (!keyringItemsAdoptedUnverified(uid) || checkedDeviceId.isEmpty()
         || m_store->value(accountKey(slug, kAccountDeviceId)).toString()
                != checkedDeviceId)
         return false;
-    // Marked first, so a crash between the two never adopts it again.
     markKeyringItems(slug, kKeyringItemsDeclined);
-    // This install's items only: in a store shared between installs that is
-    // what clearAccountSecrets() reaches. The shared item is another install's
-    // live sign-in and stays exactly as it is.
     const bool cleared = m_secretStore->clearAccountSecrets(uid);
     if (!cleared)
         qCWarning(lcSettings) << "keyring: could not remove this install's copy "
@@ -1244,7 +1086,6 @@ void SettingsManager::adoptLegacyKeyringSessions()
         if (keyringItemsAreCurrent(slugForSavedAccount(uid))) {
             const QString own = m_secretStore->readSecret(
                 uid, QLatin1String(kSecretAccessToken));
-            // Unreadable (locked keyring): the first read that succeeds adopts.
             if (m_secretStore->lastReadFailed() || !own.isEmpty())
                 continue;
         }
@@ -1255,9 +1096,6 @@ void SettingsManager::adoptLegacyKeyringSessions()
 SettingsManager::LegacyAdoption SettingsManager::adoptLegacyKeyringSession(
     const QString &userId, QHash<QString, QString> *legacyOut) const
 {
-    // Only an account this install records, and never one this build signed
-    // in for the device the record names: that session is its own, whatever
-    // an older build left behind.
     const QString slug = slugForSavedAccount(userId);
     if (slug.isEmpty())
         return LegacyAdoption::NotAdoptable;
@@ -1269,8 +1107,6 @@ SettingsManager::LegacyAdoption SettingsManager::adoptLegacyKeyringSession(
             || how == QLatin1String(kKeyringItemsDeclined)))
         return LegacyAdoption::NotAdoptable;
 
-    // The access token is copied last, so its presence among this install's
-    // items means the whole session is there.
     const QLatin1String keys[] = {
         QLatin1String(kSecretRefreshToken),
         QLatin1String(kSecretOAuthClientId),
@@ -1296,13 +1132,6 @@ SettingsManager::LegacyAdoption SettingsManager::adoptLegacyKeyringSession(
     if (legacyOut)
         *legacyOut = legacy;
 
-    // No other install's items are ever read, and the shared item is left
-    // exactly as it is: an older build, or another install, may be using it.
-    // This install was already reading it on every start; the copy only stops
-    // later writes by others from reaching it. Nothing here tells whose device
-    // the token belongs to, hence "unverified". Marked first, so a crash
-    // mid-copy leaves the mark and no access token, and the next read copies
-    // again.
     if (!current || how != QLatin1String(kKeyringItemsAdopted))
         markKeyringItems(slug, kKeyringItemsAdopted);
     for (const QLatin1String &key : keys) {
@@ -1337,11 +1166,6 @@ QString SettingsManager::readAccountSecret(const QString &userId,
     if (!m_secretStore)
         return {};
     const QLatin1String name(key);
-    // Said once per account and process: this launch landed on another
-    // keyring than the one that last held this sign-in (a Flatpak or snap
-    // whose Secret portal came or went). The store reads the recorded one
-    // when it can reach it, and otherwise cannot answer; it never reads the
-    // other one as if the sign-in were gone.
     if (name == QLatin1String(kSecretAccessToken) && keyringBackendChanged(userId)
         && !m_keyringBackendChangeLogged.contains(userId)) {
         m_keyringBackendChangeLogged.insert(userId);
@@ -1359,40 +1183,29 @@ QString SettingsManager::readAccountSecret(const QString &userId,
     }
     if (!m_secretStore->isSharedBetweenInstalls())
         return m_secretStore->readSecret(userId, name);
-    // No record here: nothing to restore, and no device to check against.
     const QString slug = slugForSavedAccount(userId);
     if (slug.isEmpty())
         return m_secretStore->readSecret(userId, name);
 
-    // This install's items, when written for the device the record names. The
-    // access token decides for every key.
     if (keyringItemsAreCurrent(slug)) {
         const QString access = m_secretStore->readSecret(
             userId, QLatin1String(kSecretAccessToken));
         if (m_secretStore->lastReadFailed())
             return {};
         if (!access.isEmpty()) {
-            // Found where this launch reads it: record that, for a sign-in
-            // last written before the backend was recorded (a password
-            // account never rewrites it), so a later launch landing on the
-            // other backend can still tell where it is.
             noteKeyringBackend(userId);
             return name == QLatin1String(kSecretAccessToken)
                        ? access
                        : m_secretStore->readSecret(userId, name);
         }
     }
-    // None: the session, if any, is the pre-scoping one. Never for a session
-    // this build signed in (see adoptLegacyKeyringSession()).
     QHash<QString, QString> legacy;
     switch (adoptLegacyKeyringSession(userId, &legacy)) {
     case LegacyAdoption::Adopted:
         return m_secretStore->readSecret(userId, name);
     case LegacyAdoption::CopyFailed:
-        // A sign-in that is still there must not read as gone.
         return legacy.value(name);
     case LegacyAdoption::Unreadable:
-        // lastReadFailed() is set: "cannot tell", never "no account".
     case LegacyAdoption::NotAdoptable:
         return {};
     }
@@ -1404,19 +1217,16 @@ void SettingsManager::migratePlaintextTokenIfPresent()
     if (!m_secretStore)
         return;
 
-    // Legacy single-session token.
     if (m_store->contains(kAccessTokenLegacy)) {
         const QString legacyToken = m_store->value(kAccessTokenLegacy).toString();
         const QString uid = userId();
         if (legacyToken.isEmpty() || uid.isEmpty()) {
-            // Nothing useful to migrate; just clean up.
             m_store->remove(kAccessTokenLegacy);
         } else if (m_secretStore->storeSecret(uid, QLatin1String(kSecretAccessToken), legacyToken)) {
             qCInfo(lcSettings)
                 << "migrated legacy plaintext access token for" << uid
                 << "into" << m_secretStore->backendName();
             m_store->remove(kAccessTokenLegacy);
-            // This install's own token, now in its own items.
             const QString slug = slugForSavedAccount(uid);
             if (m_secretStore->isSharedBetweenInstalls() && !slug.isEmpty())
                 markKeyringItems(slug, kKeyringItemsOwn);
@@ -1427,13 +1237,11 @@ void SettingsManager::migratePlaintextTokenIfPresent()
         }
     }
 
-    // Multi-account plaintext tokens left by an earlier insecure-fallback run.
     migrateInsecureSecretsGroup();
 }
 
 void SettingsManager::migrateInsecureSecretsGroup()
 {
-    // Only migrate into a secure backend.
     if (!m_secretStore || !m_secretStore->isSecure())
         return;
 
@@ -1443,10 +1251,6 @@ void SettingsManager::migrateInsecureSecretsGroup()
     if (accounts.isEmpty())
         return;
 
-    // The group name is not the user id: the fallback store folds '/' and '\\'
-    // to '_', and localparts may contain '/'. Resolve each group back to
-    // exactly one saved account, and leave the plaintext in place when there is
-    // none or more than one; the folding is not injective.
     QHash<QString, QString> byGroupName;
     QSet<QString> ambiguousGroups;
     const QStringList saved = savedAccountUserIds();
@@ -1461,11 +1265,6 @@ void SettingsManager::migrateInsecureSecretsGroup()
         byGroupName.insert(group, uid);
     }
 
-    // Every secret an account can own; migrating only the access token would
-    // strand an OAuth account without its refresh token and client id, and a
-    // group holding a key not listed here is kept whole, in plaintext. The
-    // media store key (MediaStoreKey.h) moves too, unchanged, so the store it
-    // encrypts still opens.
     const QLatin1String secretKeys[] = {
         QLatin1String(kSecretAccessToken),
         QLatin1String(kSecretRefreshToken),
@@ -1484,7 +1283,6 @@ void SettingsManager::migrateInsecureSecretsGroup()
         }
         const QString uid = byGroupName.value(safeUser);
         if (uid.isEmpty()) {
-            // No saved record owns this group; leave it for a later start.
             ++unresolved;
             continue;
         }
@@ -1495,8 +1293,6 @@ void SettingsManager::migrateInsecureSecretsGroup()
         if (presentKeys.isEmpty())
             continue;
 
-        // Unknown keys (e.g. from a newer build) are not ours to delete, so
-        // such a group is kept and offered again at every start.
         const bool groupKept =
             std::any_of(presentKeys.cbegin(), presentKeys.cend(),
                         [&secretKeys](const QString &present) {
@@ -1514,12 +1310,7 @@ void SettingsManager::migrateInsecureSecretsGroup()
                 continue;
             const QString value = m_store->value(plainKey).toString();
             if (value.isEmpty())
-                continue;   // nothing to move; removing it loses nothing
-            // A kept group was copied at an earlier start, so a secure value
-            // that differs now was written since: a refresh token the server
-            // rotated. Copying the stale one over it would end the session.
-            // A group that goes after this pass was written while no secure
-            // store answered, after anything that store holds, and still wins.
+                continue;
             if (groupKept) {
                 const QString existing = m_secretStore->readSecret(uid, key);
                 if (m_secretStore->lastReadFailed()) {
@@ -1553,11 +1344,10 @@ void SettingsManager::migrateInsecureSecretsGroup()
             m_store->remove(groupKey);
             if (movedHere > 0)
                 ++migrated;
-            // This install's own session, written while no keyring answered.
             if (movedHere > 0 && m_secretStore->isSharedBetweenInstalls())
                 markKeyringItems(slugForSavedAccount(uid), kKeyringItemsOwn);
         } else {
-            ++failed;   // keep plaintext; do not claim success
+            ++failed;
         }
     }
 
@@ -1581,7 +1371,6 @@ void SettingsManager::migrateInsecureSecretsGroup()
 
 QString SettingsManager::homeserverUrl() const
 {
-    // The active account's homeserver, else the login prefill.
     const QString active = activeAccountUserId();
     if (!active.isEmpty()) {
         const QString slug = slugForSavedAccount(active);
@@ -1603,7 +1392,6 @@ void SettingsManager::setHomeserverUrl(const QString &url)
 
 QString SettingsManager::loginHomeserverPrefill() const
 {
-    // Always the global value, never the active account's server.
     return m_store->value(kHomeserver, QStringLiteral("https://matrix.org"))
         .toString();
 }
@@ -1614,7 +1402,6 @@ void SettingsManager::setLoginHomeserverPrefill(const QString &url)
         return;
     m_store->setValue(kHomeserver, url);
     Q_EMIT loginHomeserverPrefillChanged();
-    // homeserverUrl() falls back to the same global key.
     Q_EMIT homeserverUrlChanged();
 }
 
@@ -1631,10 +1418,8 @@ QString volumeKeyFor(const QString &userId)
             .left(16));
 }
 constexpr int kVolumeDefault = 100;
-// User scale. SfuMediaEngine::audioFactorPercent() maps 100-200 onto
-// 100-1000% gain; 0-100 is 1:1 attenuation.
 constexpr int kVolumeMax = 200;
-} // namespace
+}
 
 QStringList SettingsManager::hiddenMediaKeys() const
 {
@@ -1653,7 +1438,6 @@ void SettingsManager::setHiddenMediaKeys(const QStringList &keys)
         return;
     const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
         + QLatin1String("/hiddenMedia");
-    // An empty list removes the key.
     if (keys.isEmpty())
         m_store->remove(key);
     else
@@ -1738,7 +1522,6 @@ int SettingsManager::callParticipantVolume(const QString &userId) const
         + QLatin1String("/callVolumes/") + volumeKeyFor(userId);
     if (!m_store->contains(key))
         return kVolumeDefault;
-    // Clamped on read: the store is hand-editable.
     return qBound(0, m_store->value(key, kVolumeDefault).toInt(), kVolumeMax);
 }
 
@@ -1754,13 +1537,10 @@ void SettingsManager::setCallParticipantVolume(const QString &userId,
     const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
         + QLatin1String("/callVolumes/") + volumeKeyFor(userId);
     if (clamped == kVolumeDefault) {
-        // The default is not stored, so reset really forgets.
         m_store->remove(key);
     } else {
         m_store->setValue(key, clamped);
     }
-    // Written when the slider is released (holdWritesWhileDragging) or by the
-    // throttled flush, never once per step of a drag.
     Q_EMIT callParticipantVolumeChanged(userId, clamped);
 }
 
@@ -1790,7 +1570,6 @@ void SettingsManager::setCallShareVolume(const QString &userId, int percent)
         m_store->remove(key);
     else
         m_store->setValue(key, clamped);
-    // As setCallParticipantVolume(): one write on release.
     Q_EMIT callShareVolumeChanged(userId, clamped);
 }
 
@@ -1827,18 +1606,10 @@ void SettingsManager::setAppearanceValue(const char *globalKey,
     const QString global = QLatin1String(globalKey);
     const QString slug = slugForSavedAccount(activeAccountUserId());
     if (slug.isEmpty()) {
-        // The signed-out shell: the global key is its own value.
         m_store->setValue(global, value);
         return;
     }
     m_store->setValue(accountKey(slug, globalKey), value);
-    // The global key is also the fallback of every account without its own
-    // value, so moving it restyled them all (B004: a theme picked in one
-    // account showed in two others). Those accounts first keep, as their own,
-    // the value they show now; then the global follows this choice, for the
-    // signed-out shell and for an account added later. An account showing its
-    // DEFAULT (no global value yet) cannot be pinned from here, which does not
-    // know the getter's default, so the global stays unwritten while one does.
     const bool hasGlobal = m_store->contains(global);
     const QVariant inherited = hasGlobal ? m_store->value(global) : QVariant();
     bool anotherShowsTheDefault = false;
@@ -1867,7 +1638,6 @@ QVariant SettingsManager::accountScopedValue(const char *globalKey,
         if (m_store->contains(key))
             return m_store->value(key);
     }
-    // Migration source only; nothing signed in writes here.
     return m_store->value(QLatin1String(globalKey), fallback);
 }
 
@@ -1876,7 +1646,6 @@ void SettingsManager::setAccountScopedValue(const char *globalKey,
 {
     const QString slug = slugForSavedAccount(activeAccountUserId());
     if (slug.isEmpty()) {
-        // No account to scope to: the signed-out shell writes the global key.
         m_store->setValue(QLatin1String(globalKey), value);
         return;
     }
@@ -1885,11 +1654,9 @@ void SettingsManager::setAccountScopedValue(const char *globalKey,
 
 void SettingsManager::forgetDeviceGlobalAccountResidue()
 {
-    // Room ids and user labels; the bare keys are migration sources only.
     m_store->remove(QLatin1String(kRailLayoutKey));
     m_store->remove(QLatin1String(kChannelCollapsedKey));
     m_store->remove(QStringLiteral("roomList/keepImportantInCollapsed"));
-    // Raw room ids; with no accounts left there is nothing to fall back for.
     m_store->remove(QStringLiteral("notifications/room-mode"));
     m_store->remove(QStringLiteral("notifications/room-mode-unsynced"));
     m_store->sync();
@@ -1898,7 +1665,6 @@ void SettingsManager::forgetDeviceGlobalAccountResidue()
 SettingsManager::Theme SettingsManager::theme() const
 {
     const int stored = appearanceValue(kTheme, SystemTheme).toInt();
-    // Unknown values (newer build, corruption) fall back to the default.
     if (stored < 0 || stored > kMaxThemeId)
         return SystemTheme;
     return static_cast<Theme>(stored);
@@ -1917,8 +1683,6 @@ void SettingsManager::setTheme(Theme t)
 
 QStringList SettingsManager::uiFontChoices()
 {
-    // Curated bundled UI families (OFL), shown first in the picker. Excludes
-    // the mono face, the icon font and the emoji fallback.
     return { QStringLiteral("Manrope"), QStringLiteral("Inter"),
              QStringLiteral("IBM Plex Sans"), QStringLiteral("Source Sans 3"),
              QStringLiteral("Plus Jakarta Sans") };
@@ -1927,7 +1691,6 @@ QStringList SettingsManager::uiFontChoices()
 QString SettingsManager::acceptableFontFamily(const QString &family)
 {
     const QString trimmed = family.trimmed();
-    // Far above any real family name.
     if (trimmed.isEmpty() || trimmed.size() > 96)
         return {};
     for (const QChar c : trimmed) {
@@ -1946,8 +1709,6 @@ QString SettingsManager::acceptableFontFamily(const QString &family)
 
 QString SettingsManager::uiFont() const
 {
-    // Verbatim when syntactically sound; FontManager resolves it against the
-    // host.
     const QString stored =
         appearanceValue(kUiFont, QStringLiteral("Manrope")).toString();
     const QString accepted = acceptableFontFamily(stored);
@@ -1986,7 +1747,6 @@ void SettingsManager::setMonoFont(const QString &family)
 
 QStringList SettingsManager::importedFontFiles() const
 {
-    // Bounded and de-duplicated; FontManager validates the names.
     QStringList out;
     const QStringList stored = m_store->value(QLatin1String(kImportedFonts))
                                    .toStringList();
@@ -2031,7 +1791,6 @@ int SettingsManager::messageLayout() const
 
 int SettingsManager::layoutPreset() const
 {
-    // An unknown value (a newer build's preset) reads as Lightning.
     const int stored =
         appearanceValue(kLayoutPreset, kLayoutPresetLightning).toInt();
     return stored == kLayoutPresetNhekoCompact ? kLayoutPresetNhekoCompact
@@ -2044,8 +1803,6 @@ void SettingsManager::setLayoutPreset(int preset)
         preset = kLayoutPresetLightning;
     if (layoutPreset() == preset)
         return;
-    // One transaction: read what every presentation key answers now, switch,
-    // and announce only the keys whose answer moved.
     const int layoutBefore = messageLayout();
     const int spacingBefore = messageSpacing();
     const int placementBefore = threadPlacement();
@@ -2067,7 +1824,7 @@ namespace {
 const char *const kNhekoOverrideKeys[] = {
     kNhekoMessageLayout, kNhekoMessageSpacing, kNhekoThreadPlacement,
 };
-} // namespace
+}
 
 bool SettingsManager::layoutPresetCustomized() const
 {
@@ -2106,8 +1863,6 @@ QVariant SettingsManager::lightningPresentationValue(
             ? kSpacingCozy : stored;
     }
     if (property == QLatin1String("threadPlacement")) {
-        // The Lightning placement: its stored choice, else derived from the
-        // thread style exactly as threadPlacement() does outside a preset.
         const QVariant stored =
             appearanceValueUnannounced(kThreadPlacement, QVariant());
         bool ok = false;
@@ -2118,7 +1873,6 @@ QVariant SettingsManager::lightningPresentationValue(
         return threadStyle() == kThreadStyleInline ? kThreadPlacementMain
                                                    : kThreadPlacementSide;
     }
-    // Pane widths: the Lightning preset's (device-local) width.
     if (property == QLatin1String("roomListWidth"))
         return std::clamp(m_store->value(kRoomListWidth, 300).toInt(),
                           kRoomListMinWidth, kRoomListMaxWidth);
@@ -2136,7 +1890,6 @@ bool SettingsManager::setLightningPresentationValue(const QString &property,
                                                     const QVariant &value)
 {
     if (layoutPreset() != kLayoutPresetNhekoCompact) {
-        // The Lightning values ARE the ordinary setters' values.
         if (property == QLatin1String("messageLayout")) {
             setMessageLayout(value.toInt());
             return true;
@@ -2163,8 +1916,6 @@ bool SettingsManager::setLightningPresentationValue(const QString &property,
         }
         return false;
     }
-    // Nheko compact is selected: store the Lightning value for later and
-    // leave the visible (preset) value alone.
     if (property == QLatin1String("messageLayout")) {
         int layout = value.toInt();
         if (layout < 0 || layout > kMaxMessageLayout)
@@ -2232,7 +1983,6 @@ void SettingsManager::resetLayoutPresetOverrides()
 int SettingsManager::roomNavigationLayout() const
 {
     const int stored = appearanceValue(kRoomNavLayout, 0).toInt();
-    // Out-of-range values fall back to Classic, which works for every account.
     return (stored < 0 || stored > kMaxRoomNavigationLayout) ? 0 : stored;
 }
 
@@ -2251,7 +2001,6 @@ void SettingsManager::setMessageLayout(int layout)
     if (layout < 0 || layout > kMaxMessageLayout)
         layout = 0;
     if (layoutPreset() == kLayoutPresetNhekoCompact) {
-        // The profile's override; the Lightning layout stays as it was.
         const bool wasCustomized = layoutPresetCustomized();
         const bool moved = messageLayout() != layout;
         setAccountScopedValue(kNhekoMessageLayout, layout);
@@ -2269,7 +2018,6 @@ void SettingsManager::setMessageLayout(int layout)
 
 int SettingsManager::roomFilterMode() const
 {
-    // 0 All, 1 People, 2 Rooms, 3 Unreads, 4 Favourites (RoomListModel::filterMode).
     const int stored = appearanceValue(kRoomFilterMode, 0).toInt();
     return (stored < 0 || stored > 4) ? 0 : stored;
 }
@@ -2301,8 +2049,6 @@ void SettingsManager::setTextScale(int percent)
 
 QString SettingsManager::language() const
 {
-    // "system" means resolve against the desktop at each start; an explicit
-    // code is stored verbatim. LocalizationManager validates it.
     return m_store->value(kLanguage, QStringLiteral("system")).toString();
 }
 
@@ -2342,16 +2088,11 @@ void SettingsManager::setCustomAppIconEnabled(bool enabled)
 
 int SettingsManager::notificationPreview() const
 {
-    // Default 0 (sender and message). Encrypted bodies only appear once the SDK
-    // has decrypted them locally, and stricter modes remain available.
     bool ok = false;
     const int mode =
         m_store->value(QStringLiteral("notifications/preview"), 0).toInt(&ok);
     if (!ok)
-        return 1;   // not a number: least disclosure, like any unknown mode
-    // An unrecognised stored value most likely names a mode a newer build
-    // offered; we cannot honour it, so err toward LESS disclosure (1, sender
-    // only), matching the setter. The absent-key default above stays 0.
+        return 1;
     return (mode < 0 || mode > 2) ? 1 : mode;
 }
 
@@ -2367,7 +2108,6 @@ void SettingsManager::setNotificationPreview(int mode)
 
 int SettingsManager::notificationPreviewEncrypted() const
 {
-    // 3 = follow the general setting, so an upgrade changes nothing.
     const int mode = m_store->value(
         QStringLiteral("notifications/previewEncrypted"), 3).toInt();
     return (mode < 0 || mode > 3) ? 3 : mode;
@@ -2393,7 +2133,6 @@ int SettingsManager::effectiveNotificationPreview(bool encrypted,
     if (encrypted && encryptionKnown)
         return forEncrypted;
     if (!encryptionKnown) {
-        // Unknown encryption: a higher mode discloses less, so take the larger.
         return std::max(general, forEncrypted);
     }
     return general;
@@ -2401,8 +2140,6 @@ int SettingsManager::effectiveNotificationPreview(bool encrypted,
 
 bool SettingsManager::callPictureInPicture() const
 {
-    // Off by default: an automatic pop-out on minimise was unwanted. The call
-    // bar still offers it manually.
     return m_store->value(QStringLiteral("calls/pictureInPicture"), false)
         .toBool();
 }
@@ -2421,7 +2158,6 @@ QString SettingsManager::noiseSuppressionMode() const
         m_store->value(QStringLiteral("calls/noiseSuppression"))
             .toString()
             .toUtf8();
-    // A fallback, never a clamp: an unknown key is not "the nearest mode".
     const calls::noise::Mode mode = calls::noise::modeFromKey(
         std::string_view(stored.constData(), size_t(stored.size())),
         calls::noise::kDefaultMode);
@@ -2445,7 +2181,6 @@ int SettingsManager::callShareAudioMode() const
     bool ok = false;
     const int stored =
         m_store->value(QStringLiteral("calls/shareAudioMode"), 1).toInt(&ok);
-    // A fallback, never a clamp (2 is not "the nearest" of 7).
     return (ok && stored >= 0 && stored <= 2) ? stored : 1;
 }
 
@@ -2531,8 +2266,6 @@ void SettingsManager::setLabsConcurrentAccounts(bool on)
 
 bool SettingsManager::labsConcurrentAccountsWarmSlot() const
 {
-    // On by default (DECISION 3); only a stored bool false turns it off, read
-    // with the same strictness as the switch above.
     const QVariant v =
         m_store->value(QLatin1String(kLabsConcurrentAccountsWarmSlot));
     if (!v.isValid())
@@ -2580,20 +2313,15 @@ void SettingsManager::setKeepMediaOnDevice(bool v)
 
 int SettingsManager::readReceiptMode() const
 {
-    // 0 = public.
     const int mode =
         m_store->value(QStringLiteral("privacy/readReceiptMode"), 0).toInt();
     if (mode == 2)
-        return 1;   // the old "Do not send" mode: identical on the wire
+        return 1;
     return (mode < 0 || mode > 1) ? 0 : mode;
 }
 
 void SettingsManager::setReadReceiptMode(int mode)
 {
-    // Decided 2026-10-18: two modes, as Element, Element X and Signal offer
-    // (one "send read receipts" switch whose off state still sends private
-    // receipts). The former third mode sent m.read.private exactly like
-    // Private, so it folds into it.
     if (mode == 2)
         mode = 1;
     if (mode < 0 || mode > 1)
@@ -2619,7 +2347,6 @@ void SettingsManager::setSendTypingNotifications(bool v)
 
 int SettingsManager::notificationSound() const
 {
-    // 1 = mentions and direct messages.
     const int mode =
         m_store->value(QStringLiteral("notifications/sound"), 1).toInt();
     return (mode < 0 || mode > 2) ? 1 : mode;
@@ -2637,8 +2364,6 @@ void SettingsManager::setNotificationSound(int mode)
 
 int SettingsManager::notificationSoundSource() const
 {
-    // 0 = Lightning's chime. Anything unknown (a newer build's third source)
-    // reads as the default, not as the last one.
     return m_store->value(QStringLiteral("notifications/soundSource"), 0)
                    .toInt() == 1 ? 1 : 0;
 }
@@ -2683,8 +2408,6 @@ void SettingsManager::setRingForCalls(bool enabled)
     Q_EMIT ringForCallsChanged();
 }
 
-// ── Call sounds ────────────────────────────────────────────────────────────
-// All default on. Every cue is local and never mixed into what others hear.
 namespace {
 constexpr auto kCallSoundsEnabled = "calls/sounds/enabled";
 constexpr auto kCallSoundsPresence = "calls/sounds/presence";
@@ -2692,7 +2415,7 @@ constexpr auto kCallSoundsControls = "calls/sounds/controls";
 constexpr auto kCallSoundsShareAndHand = "calls/sounds/shareAndHand";
 constexpr auto kCallSoundVolume = "calls/sounds/volume";
 constexpr auto kRingerVolume = "calls/sounds/ringerVolume";
-} // namespace
+}
 
 bool SettingsManager::callSoundsEnabled() const
 {
@@ -2748,7 +2471,6 @@ void SettingsManager::setCallSoundsShareAndHand(bool v)
 }
 
 namespace {
-// Non-numeric or out-of-range volumes read as the default.
 int readPercent(const QVariant &stored, int fallback)
 {
     bool ok = false;
@@ -2757,7 +2479,7 @@ int readPercent(const QVariant &stored, int fallback)
         return fallback;
     return v;
 }
-} // namespace
+}
 
 int SettingsManager::callSoundVolume() const
 {
@@ -2791,11 +2513,6 @@ void SettingsManager::setRingerVolume(int percent)
     Q_EMIT callSoundSettingsChanged();
 }
 
-// Call device preferences, device-scoped. The id is bounded and checked for
-// control characters because the config is hand-editable. Backslashes are
-// allowed: Windows device ids are paths like `\\?\usb#...`. Quoting for
-// pipelines is handled at the point of use, and no consumer of these
-// accessors interpolates them into a pipeline description.
 namespace {
 QString sanitizedDeviceId(const QString &id)
 {
@@ -2807,7 +2524,7 @@ QString sanitizedDeviceId(const QString &id)
     }
     return id;
 }
-} // namespace
+}
 
 QString SettingsManager::preferredMicrophoneId() const
 {
@@ -2862,16 +2579,10 @@ QString SettingsManager::preferredCameraDescription() const
 
 void SettingsManager::setPreferredCameraDescription(const QString &description)
 {
-    // No change signal: the id setter that follows announces the pair.
     m_store->setValue(QStringLiteral("calls/cameraDescription"),
                       sanitizedDeviceId(description.simplified()));
 }
 
-// Per-room modes are stored per account
-// (accounts/<slug>/notifications/room-mode/<roomId>). Reads fall back to the
-// legacy global key, which account writes never delete because other
-// accounts still fall back to it; forgetDeviceGlobalAccountResidue() removes
-// it once no account remains.
 QString SettingsManager::roomNotificationModeGlobalKey(const QString &roomId)
 {
     return QStringLiteral("notifications/room-mode/") + roomId;
@@ -2889,9 +2600,6 @@ QString SettingsManager::activeAccountSlugCached() const
     return m_activeSlugCache;
 }
 
-// The *For(uid, ...) reads resolve the foreground account through the same
-// cache as the active accessors, so for the active uid both answer from one
-// slug by construction; any other uid reads its saved record.
 QString SettingsManager::slugForAccountScope(const QString &userId) const
 {
     if (!userId.isEmpty() && userId == activeAccountUserId())
@@ -2925,10 +2633,6 @@ QString SettingsManager::roomNotificationScopePrefix() const
     return scopePrefixFor(activeAccountSlugCached());
 }
 
-// The readers below exist twice: the active accessors (thin wrappers with the
-// cached active slug, the hot path) and the *For(userId) versions a host for
-// a non-active account reads through (slugForSavedAccount, uncached). Both
-// call one *InScope core, so they cannot disagree for the active account.
 bool SettingsManager::roomNotificationModeUnsyncedInScope(
     const QString &slug, const QString &roomId) const
 {
@@ -2992,8 +2696,6 @@ void SettingsManager::setRoomNotificationModeUnsynced(const QString &roomId,
         m_store->setValue(key, (serverBase >= 0 && serverBase <= 3) ? serverBase : -1);
     else
         m_store->remove(key);
-    // roomUnreadMode() reads this flag, so a surface that counts unread
-    // (the tray) must hear about a change in it.
     if (wasUnsynced != unsynced
         || (unsynced && oldBase != ((serverBase >= 0 && serverBase <= 3) ? serverBase : -1)))
         Q_EMIT roomNotificationModeChanged(roomId);
@@ -3013,8 +2715,6 @@ bool SettingsManager::roomNotificationModeDeviceOnlyInScope(
 {
     if (roomId.isEmpty())
         return false;
-    // The account's own key, even mode 0 shadowing a legacy value, is a
-    // choice made since modes were saved to the server.
     const QString scopedKey = scopedKeyFor(slug, roomId);
     if (!scopedKey.isEmpty() && m_store->contains(scopedKey))
         return false;
@@ -3039,7 +2739,6 @@ bool SettingsManager::roomNotificationModeDeviceOnlyFor(
 bool SettingsManager::roomNotificationModeDecidesLocallyFor(
     const QString &userId, const QString &roomId) const
 {
-    // AppController::roomNotificationModeDecidesLocally's rule, in its order.
     const QString slug = slugForAccountScope(userId);
     return roomNotificationModeUnsyncedInScope(slug, roomId)
         || roomNotificationModeDeviceOnlyInScope(slug, roomId);
@@ -3126,8 +2825,6 @@ int SettingsManager::roomUnreadModeFor(const QString &userId,
 }
 
 namespace {
-// Hashed media key (raw event ids never become settings keys) under the
-// active account, bounded by an LRU index.
 QString videoDimsHash(const QString &mediaKey)
 {
     return QString::fromLatin1(
@@ -3137,11 +2834,11 @@ QString videoDimsHash(const QString &mediaKey)
             .left(16));
 }
 constexpr int kVideoDimsCap = 512;
-} // namespace
+}
 
 namespace {
 constexpr int kDraftCap = 256;
-} // namespace
+}
 
 QVariantMap SettingsManager::roomDraft(const QString &draftKey) const
 {
@@ -3162,15 +2859,12 @@ void SettingsManager::setRoomDraft(const QString &draftKey,
         return;
     const QString slug = activeAccountSlugCached();
     if (slug.isEmpty())
-        return; // no account, write NOTHING (verification-dismissal rule)
+        return;
     const QString hash = videoDimsHash(draftKey);
     const QString base = QLatin1String(kAccountsGroup) + QLatin1Char('/')
         + slug + QLatin1String("/drafts/");
     const QString indexKey = base + QLatin1String("index");
     QStringList index = m_store->value(indexKey).toStringList();
-    // Saved on every room switch and after every typing pause: the same draft
-    // that is already the most recent entry is not a change, and any setValue
-    // rewrites the whole settings file.
     if (!draft.isEmpty() && !index.isEmpty() && index.constLast() == hash
         && m_store->value(base + hash).toMap() == draft)
         return;
@@ -3181,7 +2875,6 @@ void SettingsManager::setRoomDraft(const QString &draftKey,
         return;
     }
     m_store->setValue(base + hash, draft);
-    // LRU bound.
     index.removeOne(hash);
     index.append(hash);
     while (index.size() > kDraftCap) {
@@ -3212,7 +2905,6 @@ QString SettingsManager::mediaInfoIndexKeyForSlug(const QString &slug)
         + QLatin1String("/media/video-dims-index");
 }
 
-// Dimensions and size share one LRU index, so eviction drops both keys.
 void SettingsManager::touchMediaInfoIndex(const QString &slug,
                                           const QString &hash)
 {
@@ -3220,7 +2912,6 @@ void SettingsManager::touchMediaInfoIndex(const QString &slug,
         + slug + QLatin1String("/media/");
     const QString indexKey = mediaInfoIndexKeyForSlug(slug);
     QStringList index = m_store->value(indexKey).toStringList();
-    // Already the most recent: nothing to reorder or evict.
     if (!index.isEmpty() && index.constLast() == hash)
         return;
     index.removeOne(hash);
@@ -3256,8 +2947,6 @@ void SettingsManager::setKnownMediaSizeBytes(const QString &mediaKey,
     if (slug.isEmpty())
         return;
     const QString hash = videoDimsHash(mediaKey);
-    // Learned again on every fetch of the same media; a value already stored
-    // is not written again (any setValue rewrites the whole settings file).
     const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
         + QLatin1String("/media/payload-size/") + hash;
     if (m_store->value(key).toLongLong() != bytes)
@@ -3268,15 +2957,12 @@ void SettingsManager::setKnownMediaSizeBytes(const QString &mediaKey,
 void SettingsManager::setKnownVideoDimensions(const QString &mediaKey,
                                               int width, int height)
 {
-    // Remote events only; a local echo's key is transient.
     if (!mediaKey.startsWith(QLatin1Char('$')) || width <= 0 || height <= 0)
         return;
     const QString slug = activeAccountSlugCached();
     if (slug.isEmpty())
         return;
     const QString hash = videoDimsHash(mediaKey);
-    // Learned again from every poster of the same video; see
-    // setKnownMediaSizeBytes.
     const QString key = QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
         + QLatin1String("/media/video-dims/") + hash;
     if (m_store->value(key).toSize() != QSize(width, height))
@@ -3300,8 +2986,6 @@ QString pickerShareKey(const QString &id, const char *dimension)
     return QStringLiteral("pickers/%1/%2Share").arg(id, QLatin1String(dimension));
 }
 
-// Per mille of the available space. Values outside the range are treated as
-// absent; QML also clamps to the live window.
 constexpr int kMinPickerShare = 50;
 constexpr int kMaxPickerShare = 1000;
 
@@ -3312,7 +2996,7 @@ int readPickerShare(QSettings *store, const QString &id, const char *dimension)
     const int v = store->value(pickerShareKey(id, dimension), 0).toInt();
     return (v >= kMinPickerShare && v <= kMaxPickerShare) ? v : 0;
 }
-} // namespace
+}
 
 int SettingsManager::pickerWidthShare(const QString &id) const
 {
@@ -3329,7 +3013,6 @@ void SettingsManager::setPickerShare(const QString &id, int widthPerMille,
 {
     if (!isKnownPickerId(id))
         return;
-    // Out-of-range forgets the value rather than storing it.
     const bool sane = widthPerMille >= kMinPickerShare
                       && widthPerMille <= kMaxPickerShare
                       && heightPerMille >= kMinPickerShare
@@ -3347,29 +3030,22 @@ void SettingsManager::setRoomNotificationMode(const QString &roomId, int mode)
 {
     if (roomId.isEmpty())
         return;
-    // 3 = follow the account default, stored explicitly because an absent key
-    // reads as 0 (all messages).
     if (mode < 0 || mode > 3)
         mode = 0;
     const QString globalKey = roomNotificationModeGlobalKey(roomId);
     const QString scopedKey = roomNotificationModeScopedKey(roomId);
-    // A value equal to a legacy device-global one still gets the account's
-    // own key, or the room would stay device-only after an explicit choice.
     const bool onlyLegacyHoldsIt = !scopedKey.isEmpty()
         && !m_store->contains(scopedKey) && m_store->contains(globalKey);
     if (roomNotificationMode(roomId) == mode && !onlyLegacyHoldsIt)
         return;
     if (scopedKey.isEmpty()) {
-        // No active account: device-local semantics.
         if (mode == 0)
-            m_store->remove(globalKey);  // default: keep the file compact
+            m_store->remove(globalKey);
         else
             m_store->setValue(globalKey, mode);
     } else if (mode == 0 && !m_store->contains(globalKey)) {
-        m_store->remove(scopedKey);      // default: keep the file compact
+        m_store->remove(scopedKey);
     } else {
-        // While a legacy global value exists, store even mode 0 explicitly:
-        // removing the scoped key would resurrect the legacy mode.
         m_store->setValue(scopedKey, mode);
     }
     Q_EMIT roomNotificationModeChanged(roomId);
@@ -3381,10 +3057,9 @@ bool SettingsManager::notificationsEnabled() const
 }
 
 namespace {
-/// Snap to the offered ceilings rather than trusting a stored value.
 int snapShareHeight(int v)
 {
-    if (v == 0) // Auto
+    if (v == 0)
         return 0;
     if (v <= 900)
         return 720;
@@ -3396,7 +3071,7 @@ int snapShareHeight(int v)
 }
 int snapShareFps(int v)
 {
-    if (v == 0) // Auto
+    if (v == 0)
         return 0;
     if (v <= 22)
         return 15;
@@ -3404,11 +3079,10 @@ int snapShareFps(int v)
         return 30;
     return 60;
 }
-} // namespace
+}
 
 int SettingsManager::shareMaxHeight() const
 {
-    // Default Auto, which resolves to 1080.
     return snapShareHeight(m_store->value(kShareMaxHeight, 0).toInt());
 }
 
@@ -3429,17 +3103,12 @@ void SettingsManager::setShareMaxHeight(int v)
 
 bool SettingsManager::shareQualityDemanding() const
 {
-    // Software VP8 cannot sustain 4K at 30+ fps; 4K at 15 is left unmarked for
-    // text-heavy desktop shares. Kept here so every menu agrees.
     return shareQualityDemandingAt(effectiveShareMaxHeight(),
                                    effectiveShareFps());
 }
 
 bool SettingsManager::shareQualityDemandingAt(int maxHeight, int fps) const
 {
-    // Windows GDI capture sustains 30 fps but not 60 at high resolutions (the
-    // rest is duplicated frames). Warn for 2160p at any rate and 1440p at 60.
-    // Auto (0) is 1080p30 and never warns.
     if (maxHeight >= 2160)
         return true;
     return maxHeight >= 1440 && fps >= 60;
@@ -3460,7 +3129,7 @@ namespace {
 int snapShareBitrateCapKbps(int v)
 {
     if (v <= 0)
-        return 0; // Auto
+        return 0;
     static const int offered[] = { 500, 1000, 2000, 3000, 4500 };
     int best = offered[0];
     for (int o : offered) {
@@ -3471,11 +3140,9 @@ int snapShareBitrateCapKbps(int v)
 }
 int snapCameraResolution(int v)
 {
-    // Anything that is not an offered ceiling is Auto, never "the nearest":
-    // the stored value reaches a caps string.
     return (v == 360 || v == 480 || v == 720 || v == 1080) ? v : 0;
 }
-} // namespace
+}
 
 int SettingsManager::shareBitrateCapKbps() const
 {
@@ -3564,8 +3231,6 @@ void SettingsManager::setAutoLoadLinkPreviews(bool v)
 
 bool SettingsManager::loadPreviewsInEncryptedRooms() const
 {
-    // Off by default; in encrypted rooms even the fact of a fetch leaks
-    // information.
     return m_store->value(kPreviewsEncrypted, false).toBool();
 }
 
@@ -3592,9 +3257,6 @@ void SettingsManager::setAnimateGifPreviews(bool v)
 
 bool SettingsManager::showLinkMediaInline() const
 {
-    // On: it only changes how a preview the reader already allowed is shown,
-    // and what Play or the viewer may then fetch. Previews themselves stay off
-    // by default (docs/privacy.md).
     return m_store->value(kPreviewsInlineMedia, true).toBool();
 }
 
@@ -3608,7 +3270,6 @@ void SettingsManager::setShowLinkMediaInline(bool v)
 
 bool SettingsManager::sharePresence() const
 {
-    // Default on, as is the Matrix norm. Disclosed under Privacy & security.
     return m_store->value(kSharePresence, true).toBool();
 }
 
@@ -3621,7 +3282,6 @@ void SettingsManager::setSharePresence(bool v)
 }
 
 namespace {
-// Trimmed, de-duplicated (case-insensitively), bounded: a list a human edits.
 QStringList cleanGameList(const QStringList &in)
 {
     QStringList out;
@@ -3637,12 +3297,10 @@ QStringList cleanGameList(const QStringList &in)
     }
     return out;
 }
-}   // namespace
+}
 
 bool SettingsManager::gameActivityEnabled() const
 {
-    // Experimental and off: a game name is something the user must choose to
-    // tell other people.
     return m_store->value(QStringLiteral("labs/gameActivity"), false).toBool();
 }
 
@@ -3686,8 +3344,6 @@ void SettingsManager::setGameActivityCustom(const QStringList &entries)
 
 bool SettingsManager::musicActivityEnabled() const
 {
-    // Experimental and off, like the game: what someone listens to is theirs
-    // to choose to tell.
     return m_store->value(QStringLiteral("labs/musicActivity"), false).toBool();
 }
 
@@ -3706,7 +3362,6 @@ bool SettingsManager::spacesRailVisible() const
 
 bool SettingsManager::spaceBannersVisible() const
 {
-    // Shown by default.
     return m_store->value(kSpaceBannersVisible, true).toBool();
 }
 
@@ -3720,7 +3375,6 @@ void SettingsManager::setSpaceBannersVisible(bool v)
 
 bool SettingsManager::keepRoomListOrderStill() const
 {
-    // On by default, so a row does not slide away from under the pointer.
     return m_store->value(kKeepRoomListOrderStill, true).toBool();
 }
 
@@ -3734,8 +3388,6 @@ void SettingsManager::setKeepRoomListOrderStill(bool v)
 
 int SettingsManager::roomListSort() const
 {
-    // An unknown value (hand-edited, or a mode a newer build added) is the
-    // default, never the nearest mode.
     return conversation::normalizedSortMode(
         m_store->value(kRoomListSort, conversation::SortByActivity).toInt());
 }
@@ -3753,8 +3405,6 @@ int SettingsManager::roomListSortForModels() const
 void SettingsManager::setRoomListSort(int mode)
 {
     const int valid = conversation::normalizedSortMode(mode);
-    // An explicit choice is stored even when it equals the default: picking
-    // Activity inside a Space must keep Activity there.
     if (roomListSortChosen() && roomListSort() == valid)
         return;
     m_store->setValue(kRoomListSort, valid);
@@ -3778,7 +3428,6 @@ void SettingsManager::setRailSort(int mode)
 
 bool SettingsManager::spaceBannerExpanded() const
 {
-    // Cropped to a strip by default.
     return m_store->value(kSpaceBannerExpanded, false).toBool();
 }
 
@@ -3826,11 +3475,6 @@ void SettingsManager::setMemberPanelOpen(bool v)
 
 QString SettingsManager::paneWidthKey(const char *key) const
 {
-    // Pane widths are device-local and remembered PER LAYOUT PRESET: a width
-    // dragged under Nheko compact is that preset's, and the Lightning width
-    // comes back with the Lightning preset. A preset with no width of its own
-    // yet starts from the Lightning one, except the compact rail's own narrow
-    // default (see paneWidthValue).
     if (layoutPreset() == kLayoutPresetNhekoCompact)
         return QStringLiteral("nhekoCompactWidths/") + QLatin1String(key);
     return QLatin1String(key);
@@ -3858,8 +3502,6 @@ void SettingsManager::announcePaneWidthsIfMoved(int roomList, int rail,
 
 int SettingsManager::roomListWidth() const
 {
-    // Keep imported/hand-edited values out of the unusable gap between the
-    // icon column and the invite row's measured 212 px floor.
     const int stored = paneWidthValue(kRoomListWidth, 300).toInt();
     return stored < kRoomListSnapThreshold ? kRoomListMinWidth
                         : std::clamp(stored, kRoomListExpandedMinWidth,
@@ -3970,7 +3612,6 @@ void SettingsManager::setDownloadFolder(const QString &path)
 
 int SettingsManager::spacesRailWidth() const
 {
-    // Defaults to the minimum. Clamped on read like roomListWidth.
     const int stored = paneWidthValue(kSpacesRailWidth,
                                       kSpacesRailMinWidth).toInt();
     const int minimum = layoutPreset() == kLayoutPresetNhekoCompact
@@ -3994,8 +3635,6 @@ int SettingsManager::spacesRailDepthStyle() const
 {
     const int stored =
         m_store->value(kSpacesRailDepthStyle, kRailDepthRegions).toInt();
-    // Fall back rather than clamp: an unknown style (e.g. from a newer build)
-    // gets the default, not the nearest enum value.
     if (stored < 0 || stored > kMaxSpacesRailDepthStyle)
         return kRailDepthRegions;
     return stored;
@@ -4050,14 +3689,11 @@ void SettingsManager::setCloseToTray(bool v)
         return;
     m_store->setValue(kCloseToTray, v);
     Q_EMIT closeToTrayChanged();
-    // startInTray() derives from this value, so announce it too.
     Q_EMIT startInTrayChanged();
 }
 
 bool SettingsManager::startInTray() const
 {
-    // Only meaningful with closeToTray; otherwise the app would start
-    // invisible.
     return closeToTray() && m_store->value(kStartInTray, false).toBool();
 }
 
@@ -4069,11 +3705,6 @@ void SettingsManager::setStartInTray(bool v)
     Q_EMIT startInTrayChanged();
 }
 
-// Window geometry: four ints under one group, so a half-written value
-// degrades to "never saved". Read once and size-validated; whether the
-// position is on a connected screen is decided by
-// AppController::restorableWindowGeometry (keeps QScreen out of this
-// Qt6::Core-only class).
 void SettingsManager::loadWindowGeometry()
 {
     m_initialWindowMaximized = m_store->value(kWindowMaximized, false).toBool();
@@ -4081,7 +3712,6 @@ void SettingsManager::loadWindowGeometry()
     const QString group = QLatin1String(kWindowGeometry);
     const int w = m_store->value(group + QLatin1String("/width"), 0).toInt();
     const int h = m_store->value(group + QLatin1String("/height"), 0).toInt();
-    // Main.qml's minimumWidth/minimumHeight.
     if (w < kWindowMinWidth || h < kWindowMinHeight)
         return;
     m_initialWindowGeometry =
@@ -4091,14 +3721,9 @@ void SettingsManager::loadWindowGeometry()
 
 void SettingsManager::saveWindowGeometry(int x, int y, int width, int height)
 {
-    // Refuse unrestorable sizes: Qt reports transient 0x0 geometry around
-    // show/hide/restore.
     if (width < kWindowMinWidth || height < kWindowMinHeight)
         return;
     const QString group = QLatin1String(kWindowGeometry);
-    // A move that ends where it started, or a restore to the saved size, is
-    // not a change; any setValue rewrites the whole settings file.
-    // Compared as ints: after a restart the file hands back strings.
     const auto same = [&](const char *key, int value) {
         const QString k = group + QLatin1String(key);
         return m_store->contains(k) && m_store->value(k).toInt() == value;
@@ -4121,7 +3746,6 @@ void SettingsManager::saveWindowMaximized(bool maximized)
 
 bool SettingsManager::verificationWarningDismissed() const
 {
-    // Account-scoped with no global fallback.
     const QString slug = slugForSavedAccount(activeAccountUserId());
     if (slug.isEmpty())
         return false;
@@ -4152,7 +3776,6 @@ qreal SettingsManager::mediaVolume() const
 void SettingsManager::setMediaVolume(qreal v)
 {
     const qreal clamped = v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
-    // Slider drags emit continuously; only write real changes.
     if (qFuzzyCompare(mediaVolume() + 1.0, clamped + 1.0))
         return;
     m_store->setValue(kMediaVolume, clamped);
@@ -4173,9 +3796,6 @@ void SettingsManager::setMediaPlaybackRate(qreal v)
     const qreal clamped = v < 0.25 ? 0.25 : (v > 4.0 ? 4.0 : v);
     if (qFuzzyCompare(mediaPlaybackRate() + 1.0, clamped + 1.0))
         return;
-    // The voice speed inherits this key until it is first written: freeze
-    // the inherited value first, so a speed chosen for other media from here
-    // on does not silently change how voice messages play.
     if (!m_store->contains(kVoicePlaybackRate))
         m_store->setValue(kVoicePlaybackRate, mediaPlaybackRate());
     m_store->setValue(kMediaPlaybackRate, clamped);
@@ -4186,8 +3806,6 @@ int SettingsManager::voiceMiniPlayerCorner() const
 {
     bool ok = false;
     const int v = m_store->value(kVoiceMiniPlayerCorner, 0).toInt(&ok);
-    // An enum, not a quantity: an unknown value falls back to the default
-    // corner rather than clamping to the nearest one (CLAUDE.md §16).
     return (ok && v >= 0 && v <= 3) ? v : 0;
 }
 
@@ -4232,9 +3850,6 @@ QRectF SettingsManager::voiceMiniPlayerGeometry() const
     if (!raw.isValid() || !raw.canConvert<QRectF>())
         return {};
     const QRectF r = raw.toRectF();
-    // Anything a newer build, a hand edit or a corrupt file could leave: a
-    // non-finite or non-positive size is "never placed", and the fractions
-    // are bounded so the card cannot be restored outside its area.
     if (!qIsFinite(r.x()) || !qIsFinite(r.y()) || !qIsFinite(r.width())
         || !qIsFinite(r.height()) || r.width() <= 0 || r.height() <= 0)
         return {};
@@ -4276,8 +3891,6 @@ qreal SettingsManager::voicePlaybackRate() const
 void SettingsManager::setVoicePlaybackRate(qreal v)
 {
     const qreal clamped = v < 0.25 ? 0.25 : (v > 4.0 ? 4.0 : v);
-    // Written even when equal to the inherited value, so the voice speed
-    // stops following the shared key from here on.
     const bool changed =
         !qFuzzyCompare(voicePlaybackRate() + 1.0, clamped + 1.0);
     m_store->setValue(kVoicePlaybackRate, clamped);
@@ -4287,7 +3900,6 @@ void SettingsManager::setVoicePlaybackRate(qreal v)
 
 int SettingsManager::gifAutoplay() const
 {
-    // Default follows the legacy animateGifPreviews boolean.
     const int fallback = animateGifPreviews() ? 0 : 2;
     const int v = m_store->value(kGifAutoplay, fallback).toInt();
     return (v >= 0 && v <= 2) ? v : 0;
@@ -4304,7 +3916,6 @@ void SettingsManager::setGifAutoplay(int mode)
 
 int SettingsManager::gifSafeSearch() const
 {
-    // Default PG-13 (id 2).
     const int v = m_store->value(kGifSafeSearch, 2).toInt();
     return (v >= 0 && v <= 3) ? v : 2;
 }
@@ -4346,9 +3957,6 @@ void SettingsManager::setVideoPrefetchEnabled(bool v)
 
 int SettingsManager::videoPrefetchMaxMb() const
 {
-    // A stored value that is not a whole number in range (hand-edited file,
-    // newer build) reads as the default rather than as an arbitrary end of
-    // the range.
     bool ok = false;
     const int v = m_store->value(kVideoPrefetchMaxMb,
                                  videoPrefetchDefaultMb()).toInt(&ok);
@@ -4359,7 +3967,6 @@ int SettingsManager::videoPrefetchMaxMb() const
 
 void SettingsManager::setVideoPrefetchMaxMb(int mb)
 {
-    // A quantity: 4000 and 100 are the same intent at different magnitudes.
     const int clamped = std::clamp(mb, videoPrefetchMinMb(),
                                    videoPrefetchLimitMb());
     if (videoPrefetchMaxMb() == clamped)
@@ -4389,7 +3996,6 @@ void SettingsManager::setGifPreferredProvider(const QString &id)
 QString SettingsManager::callFormat() const
 {
     const QString stored = m_store->value(kCallFormat).toString();
-    // A name, not a quantity: anything unknown is the default.
     return stored == QLatin1String("matrixrtc")
             || stored == QLatin1String("legacy")
         ? stored
@@ -4432,7 +4038,6 @@ void SettingsManager::setShowRoomActivity(bool v)
 
 bool SettingsManager::showMembershipEvents() const
 {
-    // Default true: master on + both halves on is the old behaviour.
     return m_store->value(kShowMembership, true).toBool();
 }
 
@@ -4459,7 +4064,6 @@ void SettingsManager::setShowProfileChangeEvents(bool v)
 
 bool SettingsManager::collapseEmbeds() const
 {
-    // Off by default.
     return appearanceValue(kCollapseEmbeds, false).toBool();
 }
 
@@ -4512,8 +4116,6 @@ void SettingsManager::setUnderlineLinks(bool v)
 
 int SettingsManager::nameColorCorrection() const
 {
-    // An enum, not a quantity: an unknown value (a newer build wrote a
-    // fourth mode) falls back to the default instead of clamping to the last.
     const int stored = appearanceValue(kNameColorCorrection,
                                        kNameColorStrong).toInt();
     return (stored < kNameColorStrong || stored > kNameColorOff)
@@ -4535,8 +4137,6 @@ int SettingsManager::messageSpacing() const
     if (layoutPreset() == kLayoutPresetNhekoCompact) {
         const int stored =
             accountScopedValue(kNhekoMessageSpacing, kSpacingCozy).toInt();
-        // Cozy adds nothing to the Small avatars rhythm (2 px between
-        // continuations, 6 px between senders), which is Nheko's own.
         return (stored < kSpacingCompact || stored > kSpacingRoomy)
             ? kSpacingCozy : stored;
     }
@@ -4567,8 +4167,6 @@ void SettingsManager::setMessageSpacing(int mode)
 
 int SettingsManager::threadStyle() const
 {
-    // An unknown value (a newer build's third style) falls back to the
-    // default, never to the nearest end of the range.
     const int stored =
         appearanceValue(kThreadStyle, kThreadStylePanel).toInt();
     return (stored == kThreadStyleInline) ? kThreadStyleInline
@@ -4584,7 +4182,6 @@ void SettingsManager::setThreadStyle(int style)
     const int placementBefore = threadPlacement();
     setAppearanceValue(kThreadStyle, style);
     Q_EMIT threadStyleChanged();
-    // A derived placement follows the style.
     if (threadPlacement() != placementBefore)
         Q_EMIT threadPlacementChanged();
 }
@@ -4592,7 +4189,6 @@ void SettingsManager::setThreadStyle(int style)
 int SettingsManager::threadPlacement() const
 {
     if (layoutPreset() == kLayoutPresetNhekoCompact) {
-        // The compact profile's focused thread is the main column.
         const int stored = accountScopedValue(kNhekoThreadPlacement,
                                               kThreadPlacementMain).toInt();
         return stored == kThreadPlacementSide ? kThreadPlacementSide
@@ -4606,8 +4202,6 @@ int SettingsManager::threadPlacement() const
                    || value == kThreadPlacementMain))
             return value;
     }
-    // Migration default: the placement each style already had (the panel
-    // beside the room; inline focus in the conversation column).
     return threadStyle() == kThreadStyleInline ? kThreadPlacementMain
                                                : kThreadPlacementSide;
 }
@@ -4647,7 +4241,6 @@ void SettingsManager::setThreadPlacement(int placement)
 
 bool SettingsManager::smoothScrolling() const
 {
-    // Default true.
     return appearanceValue(kSmoothScrolling, true).toBool();
 }
 
@@ -4661,8 +4254,6 @@ void SettingsManager::setSmoothScrolling(bool v)
 
 int SettingsManager::conversationReturnMode() const
 {
-    // An unknown value (a newer build's fourth choice) is the default, never
-    // the nearest end of the range.
     const int stored =
         appearanceValue(kConversationReturn, kReturnPrevious).toInt();
     return (stored == kReturnLatest || stored == kReturnSelected)
@@ -4731,7 +4322,6 @@ void SettingsManager::setDisableCursorBlink(bool disabled)
     Q_EMIT disableCursorBlinkChanged();
 }
 
-// See the header for why this stores hidden keys.
 QStringList SettingsManager::hiddenComposerButtons() const
 {
     return appearanceValue(kHiddenComposerButtons, QStringList{}).toStringList();
@@ -4739,7 +4329,6 @@ QStringList SettingsManager::hiddenComposerButtons() const
 
 void SettingsManager::setHiddenComposerButtons(const QStringList &keys)
 {
-    // Normalised so an order or duplicate change does not fire the notify.
     QStringList next = keys;
     next.removeAll(QString());
     next.removeDuplicates();
@@ -4765,7 +4354,6 @@ void SettingsManager::setComposerButtonShown(const QString &key, bool shown)
 int SettingsManager::clockFormat() const
 {
     const int stored = appearanceValue(kClockFormat, kClockFormatSystem).toInt();
-    // Out of range follows the system.
     if (stored < kClockFormatSystem || stored > kClockFormat24Hour)
         return kClockFormatSystem;
     return stored;
@@ -4785,18 +4373,12 @@ QString SettingsManager::clockTimeFormat() const
 {
     switch (clockFormat()) {
     case kClockFormat12Hour:
-        // "AP": the locale's upper-case designators.
         return QStringLiteral("h:mm AP");
     case kClockFormat24Hour:
         return QStringLiteral("HH:mm");
     default:
         break;
     }
-    // "Follow the system", queried fresh so a language switch applies: the
-    // desktop's own pattern when its time category speaks the UI language,
-    // else its 12/24-hour cycle in the UI language's pattern (see
-    // i18n::followSystemClockFormat). QLocale() is the formatting locale
-    // LocalizationManager installs.
     return i18n::followSystemClockFormat(
         QLocale(), i18n::timeCategoryLocale(),
         QLocale::system().timeFormat(QLocale::ShortFormat));
@@ -4817,8 +4399,6 @@ void SettingsManager::setEnterInsertsNewline(bool v)
 
 QString SettingsManager::composerMode() const
 {
-    // Anything but "rich" reads as markdown, so a downgrade cannot strand the
-    // composer.
     const QString stored =
         m_store->value(kComposerMode, QStringLiteral("markdown")).toString();
     return stored == QLatin1String("rich") ? stored
@@ -4897,8 +4477,6 @@ void SettingsManager::setSpellCheckExtraLanguages(const QStringList &tags)
 
 int SettingsManager::autocorrectMode() const
 {
-    // An enum, not a quantity: a value a newer build wrote falls back to the
-    // default rather than being clamped onto a neighbour.
     const int mode = m_store->value(kAutocorrectMode, 0).toInt();
     return (mode == 1 || mode == 2) ? mode : 0;
 }
@@ -4959,8 +4537,6 @@ void SettingsManager::setEmojiShortcodeAutoConvert(bool v)
 }
 
 namespace {
-// Action ids become part of a key path; unsafe ids (e.g. containing '/') are
-// refused, not sanitised, since every id comes from the registry.
 bool shortcutIdIsSafe(const QString &actionId)
 {
     if (actionId.isEmpty() || actionId.size() > 64)
@@ -4975,7 +4551,7 @@ bool shortcutIdIsSafe(const QString &actionId)
     }
     return true;
 }
-} // namespace
+}
 
 QString SettingsManager::shortcutSequence(const QString &actionId) const
 {
@@ -5007,7 +4583,6 @@ void SettingsManager::setShortcutSequence(const QString &actionId,
                               + slug + QLatin1Char('/') + leaf,
                           portable);
     }
-    // The global copy is the logged-out default and seeds new accounts.
     m_store->setValue(leaf, portable);
 }
 
@@ -5019,7 +4594,6 @@ void SettingsManager::clearShortcutSequence(const QString &actionId)
         QLatin1String(kShortcutsGroup) + QLatin1Char('/') + actionId;
     const QString slug = slugForSavedAccount(activeAccountUserId());
     if (!slug.isEmpty()) {
-        // Remove both copies, or the global override would come back.
         m_store->remove(QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
                         + QLatin1Char('/') + leaf);
     }
@@ -5070,7 +4644,6 @@ int SettingsManager::timelineWheelSpeed() const
 {
     const int stored = m_store->value(kTimelineWheelSpeed,
                                       kDefaultTimelineWheelSpeed).toInt();
-    // Unknown values fall back to Fast.
     if (stored < 0 || stored > 2)
         return kDefaultTimelineWheelSpeed;
     return stored;
@@ -5140,7 +4713,6 @@ QString SettingsManager::accessToken() const
         return {};
     if (m_secretStore)
         return readAccountSecret(uid, kSecretAccessToken);
-    // No SecretStore wired: legacy plaintext key. Unreachable in normal runs.
     return m_store->value(kAccessTokenLegacy).toString();
 }
 
@@ -5148,14 +4720,9 @@ bool SettingsManager::updateSessionTokens(const QString &userId,
                                           const QString &accessToken,
                                           const QString &refreshToken)
 {
-    // Only the two credentials change; saveSession() would also clear the sync
-    // token and re-assert the active account.
     const QString uid = userId.trimmed();
     if (uid.isEmpty() || accessToken.isEmpty() || !m_secretStore)
         return false;
-    // A session still read from an item saved before install scoping is copied
-    // first, so the rotated tokens complete a whole copy, client id included,
-    // rather than start one without it.
     const QString slug = slugForSavedAccount(uid);
     if (m_secretStore->isSharedBetweenInstalls() && !slug.isEmpty()) {
         bool copyFirst = !keyringItemsAreCurrent(slug);
@@ -5186,7 +4753,6 @@ bool SettingsManager::updateSessionTokens(const QString &userId,
          && m_secretStore->storeSecret(uid, QLatin1String(kSecretAccessToken),
                                        accessToken);
     if (!ok) {
-        // Never echoes either value.
         qCWarning(lcSettings) << "failed to persist refreshed session tokens";
     } else {
         noteKeyringBackend(uid);
@@ -5204,7 +4770,6 @@ QString SettingsManager::refreshTokenFor(const QString &userId) const
     const QString uid = userId.trimmed();
     if (uid.isEmpty() || !m_secretStore)
         return {};
-    // Empty is normal for sessions without refresh tokens.
     return readAccountSecret(uid, kSecretRefreshToken);
 }
 
@@ -5218,9 +4783,6 @@ QString SettingsManager::oauthClientIdFor(const QString &userId) const
 
 QString SettingsManager::authTypeFor(const QString &userId) const
 {
-    // Routing decision for restore ("oauth" -> oauth().restore_session(),
-    // otherwise matrix_auth()). Not a secret, so it is readable with a locked
-    // keyring.
     const QString slug = slugForSavedAccount(userId);
     if (slug.isEmpty())
         return QStringLiteral("password");
@@ -5260,9 +4822,6 @@ bool SettingsManager::secretsAreSecure() const
     return m_secretStore && m_secretStore->isSecure() && m_secretStore->isAvailable();
 }
 
-// The portable store (Windows portable zip) encrypts the tokens but keeps its
-// key in the same folder by design, so it is not "secure", and it is not the
-// plaintext fallback either; Settings words the two differently.
 bool SettingsManager::secretsArePortable() const
 {
     return m_secretStore && m_secretStore->isAvailable()
@@ -5285,8 +4844,6 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
 {
     const bool hsChanged = homeserverUrl() != homeserverUrl_;
 
-    // Canonicalise so records, secrets and store paths agree (matches the Rust
-    // store-path resolution).
     QString hsCanonical = homeserverUrl_;
     QString uidCanonical = userId_.trimmed();
     matrix::app_data::AccountIdentity identity;
@@ -5300,25 +4857,17 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
         qCWarning(lcSettings) << "saveSession rejected: unsafe user id";
         return;
     }
-    // A fresh login is a new device; drop the old sync position.
     const QString slug = matrix::app_data::safeUserSlug(uidCanonical);
     m_store->remove(accountKey(slug, kAccountSyncToken));
-    // Signed in again: an unfinished sign-out of this account must not delete
-    // the store this sign-in uses at the next start.
     clearPendingSignOut(uidCanonical);
-    // The sign-in finished: its store now has a record.
     clearPendingSignIn(uidCanonical);
     m_store->setValue(kActiveAccount, uidCanonical);
-    // Keep the login prefill on the most recently used homeserver.
     m_store->setValue(kHomeserver, hsCanonical);
 
-    // In QSettings so restore can route correctly with a locked keyring.
     const QString authType = authType_.trimmed().isEmpty()
                                  ? QStringLiteral("password")
                                  : authType_.trimmed();
     m_store->setValue(accountKey(slug, kAccountAuthType), authType);
-    // A sign-in by this build: its items are this install's own, for this
-    // device, and it never reads an item saved before install scoping again.
     markKeyringItems(slug, kKeyringItemsOwn);
 
     if (m_secretStore) {
@@ -5334,7 +4883,6 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
         if (!m_secretStore->storeSecret(uidCanonical,
                                         QLatin1String(kSecretRefreshToken),
                                         refreshToken_)) {
-            // Do not echo the value or error detail.
             qCWarning(lcSettings) << "failed to persist refresh token to SecretStore";
         }
         if (!m_secretStore->storeSecret(uidCanonical,
@@ -5342,16 +4890,11 @@ void SettingsManager::saveSession(const QString &homeserverUrl_,
                                         oauthClientId_)) {
             qCWarning(lcSettings) << "failed to persist OAuth client id to SecretStore";
         }
-        // Make sure a stale legacy plaintext token is not left behind.
         m_store->remove(kAccessTokenLegacy);
     } else {
-        // Unwired store: see accessToken().
         m_store->setValue(kAccessTokenLegacy, accessToken_);
     }
 
-    // Other accounts keep their records and tokens. Flush now: the SDK store
-    // directory is created before the server is contacted, and a store without
-    // a durable record would be treated as an orphan and deleted.
     m_store->sync();
 
     if (hsChanged)
@@ -5371,7 +4914,6 @@ void SettingsManager::recordPendingSignOut(
     m_store->setValue(base + QLatin1String("storeSlug"), identity.effectiveStoreSlug());
     m_store->setValue(base + QLatin1String("storePath"),
                       QDir::cleanPath(QFileInfo(identity.rustStorePath).absoluteFilePath()));
-    // Durable before the server logout starts: that is the window it covers.
     m_store->sync();
 }
 
@@ -5397,7 +4939,6 @@ void SettingsManager::recordPendingSignIn(
     m_store->setValue(base + QLatin1String("userId"), identity.userId);
     m_store->setValue(base + QLatin1String("storePath"),
                       QDir::cleanPath(QFileInfo(identity.rustStorePath).absoluteFilePath()));
-    // Durable before the SDK creates the store: that is the window it covers.
     m_store->sync();
 }
 
@@ -5409,7 +4950,6 @@ void SettingsManager::clearPendingSignIn(const QString &userId)
     const QString group = QLatin1String(kPendingSignInGroup) + QLatin1Char('/') + slug;
     if (!m_store->contains(group + QLatin1String("/storePath")))
         return;
-    // The slug is not injective; only the record of this very user id goes.
     if (m_store->value(group + QLatin1String("/userId")).toString() != userId.trimmed())
         return;
     m_store->remove(group);
@@ -5421,8 +4961,6 @@ void SettingsManager::clearPendingSignIn(
 {
     if (!attempt.isValid())
         return;
-    // The attempt's own marker, under the identity it was typed as: the
-    // record (saveSession) may be under the server's canonical id instead.
     dropPendingSignInsNaming(attempt.rustStorePath);
 }
 
@@ -5458,8 +4996,6 @@ QSet<QString> SettingsManager::pendingSignInStorePaths()
         const QString group = QLatin1String(kPendingSignInGroup) + QLatin1Char('/') + slug;
         const QString storePath = QDir::cleanPath(
             m_store->value(group + QLatin1String("/storePath")).toString());
-        // Gone (a failed attempt rolled it back, a later sign-in quarantined
-        // it): nothing left to explain, so the marker goes too.
         if (storePath.isEmpty() || storePath == QLatin1String(".")
             || !QFileInfo(storePath).isDir()) {
             m_store->remove(group);
@@ -5497,7 +5033,6 @@ QList<matrix::app_data::AccountIdentity> SettingsManager::pendingSignOuts()
         } else if (storePath.isEmpty()
                    || QDir::cleanPath(QFileInfo(identity.rustStorePath).absoluteFilePath())
                           != storePath) {
-            // Another data root (portable mode, a moved home) or an edited file.
             refused = "store_path_moved";
         } else {
             const QString owner = accountOwningStoreSlug(identity.effectiveStoreSlug());
@@ -5530,7 +5065,6 @@ bool SettingsManager::clearSession()
 {
     const QString uid = userId();
     if (uid.isEmpty()) {
-        // Residual pre-0.7 metadata without an account record.
         m_store->remove(kUserId);
         m_store->remove(kDeviceId);
         m_store->remove(kSyncToken);
@@ -5554,7 +5088,6 @@ bool SettingsManager::clearSessionForAccount(const QString &uid,
     if (target.isEmpty())
         return false;
 
-    // Accept the exact saved id, or resolve a localpart/mixed-case form.
     QString slug = slugForSavedAccount(target);
     QString recordUserId = target;
     if (!slug.isEmpty()) {
@@ -5565,8 +5098,6 @@ bool SettingsManager::clearSessionForAccount(const QString &uid,
         if (matrix::app_data::resolveAccountIdentity(homeserverUrl(), target,
                                                      &identity)) {
             slug = slugForSavedAccount(identity.userId);
-            // resolveAccountIdentity preserves localpart case; fall back to the
-            // case-insensitive lookup so the canonical record is found.
             if (slug.isEmpty()) {
                 const QString canonical =
                     canonicalUserIdForTypedIdentity(identity.userId);
@@ -5584,15 +5115,12 @@ bool SettingsManager::clearSessionForAccount(const QString &uid,
 
     const bool activeAccount =
         !activeAccountUserId().isEmpty() && activeAccountUserId() == recordUserId;
-    // Read before the record goes: it names the keyring that holds this
-    // account's items, and the clear below must reach that one.
     const QString recordedBackend = keyringBackendFor(recordUserId);
 
     if (!slug.isEmpty()) {
         m_store->beginGroup(QLatin1String(kAccountsGroup));
         m_store->remove(slug);
         m_store->endGroup();
-        // Last account removed: drop the device-global room/Space keys.
         if (savedAccountUserIds().isEmpty())
             forgetDeviceGlobalAccountResidue();
         Q_EMIT accountsChanged();
@@ -5605,11 +5133,6 @@ bool SettingsManager::clearSessionForAccount(const QString &uid,
     bool secretsCleared = true;
     if (m_secretStore) {
         m_keyringBackendBeingCleared = {recordUserId, recordedBackend};
-        // A session copied from an item saved before install scoping: while the
-        // shared item still holds the very token this sign-out revokes, it goes
-        // too, as it did before scoping, or a live token stays at rest after a
-        // failed server logout or a local reset (CLAUDE.md §6). Any other value
-        // belongs to another session and stays.
         bool sharedCopyCleared = true;
         if (m_secretStore->isSharedBetweenInstalls()) {
             const QString own = m_secretStore->readSecret(
@@ -5628,8 +5151,6 @@ bool SettingsManager::clearSessionForAccount(const QString &uid,
                 }
             }
         }
-        // Use the exact persisted key so a mixed-case id cannot orphan its
-        // entry.
         secretsCleared = m_secretStore->clearAccountSecrets(recordUserId)
                          && sharedCopyCleared;
         m_keyringBackendBeingCleared = {};
@@ -5640,8 +5161,6 @@ bool SettingsManager::clearSessionForAccount(const QString &uid,
         }
     }
 
-    // Flush: the secrets are already gone, and a crash before QSettings writes
-    // would leave a record that restores to nothing.
     m_store->sync();
 
     if (activeAccount)

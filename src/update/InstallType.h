@@ -33,31 +33,20 @@ enum class InstallType {
     LinuxRpm,
     LinuxFlatpak,
     LinuxSnap,
-    // An RPM installed from a COPR repository: dnf owns updates on Fedora,
-    // zypper on openSUSE (repositoryRpmManager).
-    // Only the COPR spec compiles it in; a downloaded .rpm is LinuxRpm.
     LinuxRpmRepo,
     MacosDmg,
     Development,
     Unknown,
 };
 
-// Who a Windows MSI/setup installation belongs to; User for everything else.
-// A Machine installation (Program Files, HKLM) must be upgraded elevated in
-// the same context, or the MSI installs a second copy (FindRelatedProducts
-// only sees its own context).
 enum class InstallScope {
     User,
     Machine,
 };
 
-// "user" / "machine": the scope marker value and the helper's
-// --install-scope value.
 QString installScopeId(InstallScope scope);
 
-// Canonical wire ids (spec §5). These are the artifact keys in the manifest.
 QString installTypeId(InstallType type);
-// Human-readable label for the UI. Never used as a wire value.
 QString installTypeLabel(InstallType type);
 // Strict id -> enum. Unknown text yields nullopt (never Unknown-by-guess).
 std::optional<InstallType> installTypeFromId(QStringView id);
@@ -67,88 +56,40 @@ std::optional<InstallType> installTypeFromId(QStringView id);
 // no strategy for it; a test keeps the two sides in step.
 bool canInstallAutomatically(InstallType type);
 
-// True where another package manager owns updates. A repository RPM is known
-// by its compile-time type alone (the COPR spec builds linux-rpm-repo); a
-// downloaded .deb/.rpm cannot tell it went through a repository and reports
-// false.
 bool isPackageManaged(InstallType type);
 
-// The tool that owns updates for a package-managed type, for "managed by %1":
-// Flatpak, Snap, or for a repository RPM dnf or zypper (see
-// repositoryRpmManager). Empty for every other type.
 QString packageManagerName(InstallType type);
 
-// Which tool owns a repository RPM. COPR builds the same linux-rpm-repo type
-// for Fedora and for openSUSE, so only the running system can tell: "zypper"
-// where /usr/bin/zypper exists and neither dnf nor dnf5 does, else "dnf".
-// `exists` is injectable for tests; unset reads the real filesystem.
 QString repositoryRpmManager(const std::function<bool(const QString &)> &exists = {});
 
-// Injectable inputs so every branch is testable without setenv races.
-// Defaults read the real environment and filesystem.
 struct InstallEnvironment {
-    // Returns a null QString when the variable is unset.
     std::function<QString(const char *)> readEnv;
     std::function<bool(const QString &)> pathExists;
-    // Compile-time LIGHTNING_INSTALL_TYPE; empty means "unset".
     QString compileTimeId;
-    // Contents of the install marker beside the executable, or null. Only
-    // consulted on Windows and only when it names a Windows package type (see
-    // detection step 2).
     std::function<QString()> readInstallMarker;
-    // Contents of `.lightning-install-scope` beside the executable, or null.
-    // Consulted only on Windows for MSI/setup; anything but "machine"
-    // (including no marker) means User. "machine" also requires
-    // readMachineInstallDirs() to name this directory: the marker is
-    // user-writable in a per-user install, and a spoofed value would make every
-    // update raise a UAC prompt for a program malware chose.
     std::function<QString()> readInstallScopeMarker;
-    // Per-machine directories recorded under HKLM\Software\Mizerd\Lightning
-    // ("InstallDir" for setup, "MsiInstallDir" for MSI). Empty off Windows or
-    // when unset.
     std::function<QStringList()> readMachineInstallDirs;
-    // The directory the running executable is in, compared against the above.
     QString applicationDir;
-    // Whether `path` carries the AppImage magic (ELF with "AI" + type 1 or 2 at
-    // offset 8). $APPIMAGE becomes the file the strategy chmods and replaces,
-    // so it is accepted only for an actual AppImage. Unset accepts none.
     std::function<bool(const QString &)> looksLikeAppImage;
-    // Whether `portable.marker` is beside the executable. Portable is the
-    // compiled-in default for all Windows packages, and its strategy swaps the
-    // installation directory; an installed copy missing its type marker must
-    // not fall through to it and break its uninstaller.
     std::function<bool()> portableMarkerPresent;
 
-    // Injectable so both marker branches are testable on one host. Unset means
-    // "do not consult the marker".
     bool windowsPlatform = false;
 };
 
-// Reports whether `path` starts with the AppImage signature. Public for tests.
 bool fileLooksLikeAppImage(const QString &path);
 
-// Written by the Windows installers into the installation directory: one line,
-// one install-type id.
 inline constexpr char kInstallMarkerFileName[] = ".lightning-install-type";
-// Written by the NSIS script and the WiX generator.
 inline constexpr char kInstallScopeMarkerFileName[] = ".lightning-install-scope";
 
 InstallEnvironment defaultInstallEnvironment();
 
-// True when a registry-recorded directory names `applicationDir`, ignoring
-// separators, a trailing separator and case. Empty never matches.
 bool sameInstallDirectory(const QString &registered, const QString &applicationDir);
 
 struct InstallDetection {
     InstallType type = InstallType::Unknown;
-    // The type came from the diagnostic override; installation stays refused.
     bool diagnosticOverride = false;
-    // Convenience: canInstallAutomatically(type) && !diagnosticOverride.
     bool automaticInstallAllowed = false;
-    // A development build may only CHECK when the opt-in env var is set.
     bool developmentCheckAllowed = false;
-    // Machine only when the scope marker says so and HKLM registers this
-    // directory.
     InstallScope scope = InstallScope::User;
 };
 
@@ -158,4 +99,4 @@ InstallDetection detectInstall();
 InstallType detectInstallType(const InstallEnvironment &environment);
 InstallType detectInstallType();
 
-} // namespace lightning::update
+}

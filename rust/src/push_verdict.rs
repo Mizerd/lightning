@@ -1,9 +1,3 @@
-//! The account's push rules for one event, as matrix-sdk evaluates them.
-//!
-//! Desktop notifications follow this verdict (NotificationManager::decide), so
-//! a room's mode set on any client, the account default, keywords and the
-//! suppress rules for notices and edits apply here as they do in Element.
-//! Lightning never evaluates rules itself.
 
 use std::{
     collections::HashSet,
@@ -24,7 +18,6 @@ use matrix_sdk::{
 use matrix_sdk_ui::{eyeball_im::VectorDiff, timeline::TimelineItem};
 use serde_json::value::RawValue as RawJsonValue;
 
-/// What the rules say about one event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PushVerdict {
     pub(crate) notify: bool,
@@ -48,8 +41,6 @@ impl PushVerdict {
         }
     }
 
-    /// `push_notify` / `push_highlight` / `push_sound` on an event payload.
-    /// Without a verdict nothing is written, which C++ reads as unknown.
     pub(crate) fn write(verdict: Option<Self>, payload: &mut serde_json::Value) {
         if let (Some(verdict), Some(object)) = (verdict, payload.as_object_mut()) {
             object.insert("push_notify".to_owned(), verdict.notify.into());
@@ -99,28 +90,13 @@ pub(crate) struct SyncVerdicts {
     own_name: Arc<Mutex<OwnDisplayName>>,
 }
 
-/// The account's global display name, for the fallback context above. Asked
-/// of the server at most once per `OWN_NAME_REFRESH` (sooner after a failure),
-/// on a task of its own: an event handler runs inside sync processing and must
-/// not wait on a request. Every answer is also kept in the account's state
-/// store (`OWN_NAME_STORE_KEY`) and read back once per client before the first
-/// fallback, because the request cannot be answered before a restart's
-/// initial-sync backlog is judged, and on a server without `/notifications`
-/// that backlog is the only place a mention received while offline appears.
-/// Judged on the localpart instead, a mention by a display name that differs
-/// from it would be lost for good.
 #[derive(Default)]
 struct OwnDisplayName {
-    /// `Some(name)` once answered (or read back from the store); the
-    /// localpart when the profile has none.
     name: Option<String>,
     next_ask: Option<std::time::Instant>,
-    /// The store has been asked for the last answer (once per client).
     store_checked: bool,
 }
 
-/// State-store custom key for the last global display name the server gave.
-/// A public profile field in the account's own store, deleted with it.
 pub(crate) const OWN_NAME_STORE_KEY: &[u8] = b"lightning.push_verdict.own_display_name";
 
 const OWN_NAME_REFRESH: std::time::Duration = std::time::Duration::from_secs(30 * 60);
@@ -161,8 +137,6 @@ impl SyncVerdicts {
         })
     }
 
-    /// `event` is the event as the handler received it (decrypted when the
-    /// SDK decrypted it); it is read only when the SDK had no push context.
     pub(crate) async fn verdict(
         &self,
         room: &Room,
@@ -198,8 +172,6 @@ impl SyncVerdicts {
             return Some(PushVerdict::QUIET);
         }
         if !own_member_known().await {
-            // Not remembered: once the member is stored (a roster fetch on
-            // open), the SDK's own context takes over.
             return fallback().await.map(|actions| PushVerdict::from_actions(&actions));
         }
         if let Ok(mut rooms) = self.rooms_with_own_member.lock() {
@@ -215,11 +187,6 @@ impl SyncVerdicts {
             .unwrap_or(false)
     }
 
-    /// A verdict for an event the SDK evaluated with NO push context (its
-    /// `Room::push_context` was `None`), so there are no actions to read and
-    /// an empty list says nothing: unlike `verdict`, a room remembered as
-    /// having our own member is not taken as quiet. `None` when the fallback
-    /// cannot build a context either.
     pub(crate) async fn without_sdk_context(
         &self,
         room: &Room,
@@ -228,8 +195,6 @@ impl SyncVerdicts {
         self.fallback_actions(room, event).await.map(|actions| PushVerdict::from_actions(&actions))
     }
 
-    /// The rules' actions for `event` with the context the SDK could not
-    /// build; `None` when the store lacks what that context needs.
     async fn fallback_actions(&self, room: &Room, event: &RawJsonValue) -> Option<Vec<Action>> {
         let power_levels = room.power_levels().await.ok()?;
         let context = fallback_room_ctx(
@@ -244,9 +209,6 @@ impl SyncVerdicts {
         Some(PushContext::new(context, rules).for_event(&raw).await)
     }
 
-    /// The cached global display name, or the localpart; asks the server in
-    /// the background when the cache is due. The first call per client reads
-    /// the last answer back from the store (one read, then never again).
     async fn own_display_name(&self, room: &Room) -> String {
         let localpart = room.own_user_id().localpart().to_owned();
         let client = room.client();
@@ -265,7 +227,6 @@ impl SyncVerdicts {
                 .and_then(|bytes| String::from_utf8(bytes).ok())
                 .filter(|name| !name.is_empty());
             if let (Some(stored), Ok(mut slot)) = (stored, self.own_name.lock()) {
-                // A server answer that landed meanwhile is newer.
                 if slot.name.is_none() {
                     slot.name = Some(stored);
                 }
@@ -291,8 +252,6 @@ impl SyncVerdicts {
                 if let Ok(mut slot) = cache.lock() {
                     slot.name = Some(resolved.clone());
                 }
-                // For the next restart's backlog; a failed write only costs
-                // that backlog the localpart until the next answer.
                 let _ = client
                     .state_store()
                     .set_custom_value(OWN_NAME_STORE_KEY, resolved.into_bytes())
@@ -303,10 +262,6 @@ impl SyncVerdicts {
     }
 }
 
-/// The push-condition context the SDK builds (`Room::push_condition_room_ctx`)
-/// with our display name supplied rather than read from our member event.
-/// `None` without a member count or power levels: the one-to-one rules and
-/// `@room`'s sender permission would be judged on nothing. Pure.
 pub(crate) fn fallback_room_ctx(
     room_id: &RoomId,
     user_id: &UserId,
@@ -328,9 +283,6 @@ pub(crate) fn fallback_room_ctx(
     Some(context)
 }
 
-/// The items of a live append paired with their JSON slots in the diff
-/// payload `fill_diff_json` built: `append` and `push_back`, the two ops C++
-/// notifies for. Every other op pairs nothing.
 pub(crate) fn live_append_slots<'d, 'v, T: Clone>(
     diff: &'d VectorDiff<T>,
     payload: &'v mut serde_json::Value,
@@ -350,9 +302,6 @@ pub(crate) fn live_append_slots<'d, 'v, T: Clone>(
     }
 }
 
-/// Every event-bearing diff slot, including history and in-place changes.
-/// These rows need push verdicts for presentation even though only live
-/// appends can create a notification or Activity entry.
 pub(crate) fn event_slots<'d, 'v, T>(
     diff: &'d VectorDiff<T>,
     payload: &'v mut serde_json::Value,
@@ -374,16 +323,12 @@ pub(crate) fn event_slots<'d, 'v, T>(
     }
 }
 
-/// What the backlog mark needs to know about one timeline item.
 pub(crate) struct ItemFacts {
     pub(crate) event_id: String,
-    /// `origin_server_ts`, milliseconds.
     pub(crate) timestamp_ms: u64,
-    /// `unsigned.age` as delivered, milliseconds, when the server sent one.
     pub(crate) age_ms: Option<u64>,
 }
 
-/// Facts for a remote event item; `None` for a local echo or a virtual item.
 pub(crate) fn item_facts(item: &TimelineItem) -> Option<ItemFacts> {
     #[derive(serde::Deserialize)]
     struct Unsigned {
@@ -406,28 +351,15 @@ pub(crate) fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Marks `backlog` on live appends that are history rather than arrivals. One
-/// per open timeline (room or thread).
-///
-/// A limited sync (a room's first subscription, which re-sends its last 20
-/// events; a gap; an expired sync session) makes the event cache drop to its
-/// last chunk, and the timeline clears and appends that sync's events in one
-/// batch. Among them only the events that reached the server after the
-/// timeline opened are new, so after a `Clear` or `Reset` each append is
-/// judged on its own: by `unsigned.age` against this device's clock, or by
-/// its timestamp without one. An event this timeline already forwarded is
-/// never new, reset or not.
 pub(crate) struct BacklogMarker {
     opened_ms: u64,
     forwarded: HashSet<String>,
     reset_in_batch: bool,
 }
 
-/// Bound on the ids remembered per open timeline.
 const MAX_FORWARDED: usize = 20_000;
 
 impl BacklogMarker {
-    /// `snapshot`: the items the timeline opened with.
     pub(crate) fn new(opened_ms: u64, snapshot: impl IntoIterator<Item = ItemFacts>) -> Self {
         let mut marker =
             Self { opened_ms, forwarded: HashSet::new(), reset_in_batch: false };
@@ -437,7 +369,6 @@ impl BacklogMarker {
         marker
     }
 
-    /// Called once per batch of diffs from the timeline stream.
     pub(crate) fn begin_batch(&mut self) {
         self.reset_in_batch = false;
     }
@@ -477,7 +408,6 @@ impl BacklogMarker {
 
     fn arrived_before_open(&self, facts: &ItemFacts, now_ms: u64) -> bool {
         match facts.age_ms {
-            // Measured by the server when it answered, so no clock skew.
             Some(age) => now_ms.saturating_sub(age) < self.opened_ms,
             None => facts.timestamp_ms < self.opened_ms,
         }
@@ -485,16 +415,12 @@ impl BacklogMarker {
 
     fn remember(&mut self, event_id: String) {
         if self.forwarded.len() >= MAX_FORWARDED {
-            // Past the bound only the time rule is left.
             self.forwarded.clear();
         }
         self.forwarded.insert(event_id);
     }
 }
 
-/// Live timeline equivalent of the sync handler's verdict: a room without
-/// our member has no SDK push context, but its stored room state can still
-/// supply the same fallback context used for closed rooms.
 pub(crate) async fn for_timeline_json(
     room: &Room,
     context: Option<&PushContext>,
@@ -542,8 +468,6 @@ mod tests {
         RoomId::parse("!room:example.org").unwrap()
     }
 
-    // A group chat (three members), so `.m.rule.room_one_to_one` stays out of
-    // it, as in the reporter's rooms.
     fn context() -> PushConditionRoomCtx {
         PushConditionRoomCtx::new(room(), uint!(3), me(), "Me".to_owned())
     }
@@ -568,9 +492,6 @@ mod tests {
         PushVerdict::from_actions(rules.get_actions(event, &context()).await)
     }
 
-    // The rule matrix-sdk's NotificationSettings writes for "Mentions &
-    // keywords", which is what Element and Element X write too: a `room` rule
-    // with no actions.
     fn mentions_and_keywords_room(rules: &mut Ruleset) {
         rules
             .insert(NewPushRule::Room(NewSimplePushRule::new(room(), vec![])), None, None)
@@ -631,9 +552,6 @@ mod tests {
         assert_eq!(event_slots(&changed, &mut payload).len(), 1);
     }
 
-    // "Notify" and "Loud" on the rules page differ ONLY by the sound tweak
-    // (pushrules.rs `actions_for`). Before the sound bit, both mapped to the
-    // same verdict, so this device chimed for both or neither.
     #[test]
     fn loud_and_notify_differ_only_in_sound() {
         use crate::pushrules::{actions_for, Level};
@@ -653,7 +571,6 @@ mod tests {
         );
     }
 
-    // Issue #15: the room rule set on another client.
     #[tokio::test]
     async fn a_mentions_and_keywords_room_rule_quiets_a_plain_message() {
         let mut rules = Ruleset::server_default(&me());
@@ -717,8 +634,6 @@ mod tests {
         }))
     }
 
-    // matrix-sdk (so Element X) writes a keyword as notify + sound, with no
-    // highlight, so notify alone has to be enough.
     #[tokio::test]
     async fn an_sdk_keyword_notifies_in_a_mentions_and_keywords_room() {
         let mut rules = Ruleset::server_default(&me());
@@ -747,8 +662,6 @@ mod tests {
         );
     }
 
-    // Issue #15: the account default for group chats set to mentions and
-    // keywords (Element X's "Group chats" setting), with no room rule at all.
     #[tokio::test]
     async fn an_account_default_of_mentions_and_keywords_quiets_a_plain_message() {
         let mut rules = Ruleset::server_default(&me());
@@ -778,7 +691,6 @@ mod tests {
     #[tokio::test]
     async fn a_muted_room_quiets_even_a_mention() {
         let mut rules = Ruleset::server_default(&me());
-        // matrix-sdk's Mute: an override rule matching the room, no actions.
         rules
             .insert(
                 NewPushRule::Override(NewConditionalPushRule::new(
@@ -801,8 +713,6 @@ mod tests {
         assert!(!verdict(&rules, &mention).await.notify);
     }
 
-    // S1: the SDK's own actions are the verdict; an empty list costs one own-member
-    // lookup per room, never one per event.
     #[tokio::test]
     async fn a_non_empty_action_list_needs_no_lookup() {
         let verdicts = SyncVerdicts::default();
@@ -847,8 +757,6 @@ mod tests {
     async fn an_empty_list_without_our_member_asks_the_fallback_until_it_is_known() {
         let verdicts = SyncVerdicts::default();
         let fallbacks = AtomicUsize::new(0);
-        // No own member: the SDK had no push context. A fallback that cannot
-        // build one is still no verdict.
         assert_eq!(
             verdicts
                 .verdict_with(&room(), &[], || async { false }, || async {
@@ -858,7 +766,6 @@ mod tests {
                 .await,
             None
         );
-        // One that can is the verdict.
         let highlight = Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes));
         assert_eq!(
             verdicts
@@ -869,8 +776,6 @@ mod tests {
                 .await,
             Some(PushVerdict { notify: true, highlight: true, sound: false })
         );
-        // Not remembered: the next event looks again, and is quiet once known,
-        // without asking the fallback.
         assert_eq!(
             verdicts
                 .verdict_with(&room(), &[], || async { true }, || async {
@@ -881,7 +786,6 @@ mod tests {
             Some(PushVerdict::QUIET)
         );
         assert_eq!(fallbacks.load(Ordering::SeqCst), 2);
-        // Another room is looked up on its own.
         let other = RoomId::parse("!other:example.org").unwrap();
         assert_eq!(
             verdicts.verdict_with(&other, &[], || async { false }, || async { None }).await,
@@ -889,10 +793,6 @@ mod tests {
         );
     }
 
-    // Spec 1.17 dropped `.m.rule.contains_display_name` from the defaults
-    // (ruma's server_default follows), but servers still send it in the
-    // account's rules, and the reporter's server highlighted on it. Its shape,
-    // under an id `insert` accepts.
     fn display_name_rule(rules: &mut Ruleset) {
         #[allow(deprecated)]
         rules
@@ -936,10 +836,6 @@ mod tests {
         PushVerdict::from_actions(rules.get_actions(event, &context).await)
     }
 
-    // Break-it rerun, section 10: with no own member in the store, a server
-    // keyword and a plain display-name mention in a room nobody had opened
-    // reached neither the bell nor a notification. These are what the
-    // fallback context must see; neither carries m.mentions.
     #[tokio::test]
     async fn the_fallback_context_sees_a_keyword_and_a_plain_display_name() {
         let mut rules = Ruleset::server_default(&me());
@@ -952,19 +848,9 @@ mod tests {
         display_name_rule(&mut rules);
         let by_name = message(json!({ "msgtype": "m.text", "body": "post-restart Rokas name only" }));
         assert!(fallback_verdict(&rules, &by_name, "Rokas").await.highlight);
-        // The name it was given, not any word: a plain message stays a plain
-        // message.
         assert!(!fallback_verdict(&rules, &plain(), "Rokas").await.highlight);
     }
 
-    // Review of the break-it fix (L3, L1): the fallback's glue through a real
-    // client store rather than a hand-built context. The room is synced the
-    // way Continuwuity sends it, with no member of ours, so the SDK has no
-    // push context; the fallback must still find the power levels (which need
-    // the create event's creators), the member count, and the account's own
-    // rules from account data, and turn the handler's JSON into an event. The
-    // display name is the one a previous run stored, as after a restart: the
-    // server's profile answer (none is mounted here) cannot have arrived.
     #[tokio::test]
     async fn the_fallback_reads_its_whole_context_from_a_synced_store() {
         use matrix_sdk::{
@@ -1047,7 +933,6 @@ mod tests {
         .collect();
         entry.joined_count = Some(uint!(3));
         response.rooms.insert(full.to_owned(), entry);
-        // A room whose power levels the store does not hold.
         let mut entry = v5::response::Room::default();
         entry.required_state = vec![raw(joined("@alice:example.org", "$a2"))];
         entry.joined_count = Some(uint!(3));
@@ -1099,9 +984,6 @@ mod tests {
         PushVerdict::write_room_mention(legacy_matched, &mut payload);
         assert_eq!(payload["mentions_room"], true);
         assert_eq!(payload["room_mention_highlight"], true);
-        // The open-room timeline used to drop its verdict here while the
-        // sync handler suppressed the duplicate event. Activity then missed
-        // these two highlights, which have no m.mentions flags.
         let keyword_event = event("saw a BANANA");
         let name_event = event("ping Rokas please");
         assert_eq!(
@@ -1112,10 +994,6 @@ mod tests {
             highlight(super::for_timeline_json(&room, None, &verdicts, &name_event).await),
             Some(true)
         );
-        // The late-decryption entry (L4) asks the same fallback, and it does
-        // so even for a room remembered as having our member: with no SDK
-        // context there is no empty action list to call quiet. Through
-        // `verdict` this room would now read as quiet.
         assert_eq!(
             verdicts.verdict_with(full, &[], || async { true }, || async { None }).await,
             Some(PushVerdict::QUIET)
@@ -1124,7 +1002,6 @@ mod tests {
             highlight(verdicts.without_sdk_context(&room, &event("saw a BANANA")).await),
             Some(true)
         );
-        // No power levels: still no verdict, never a guessed one.
         let room = client.get_room(bare).expect("synced");
         assert_eq!(verdicts.verdict(&room, &[], &event("saw a BANANA")).await, None);
     }
@@ -1141,7 +1018,6 @@ mod tests {
         assert_eq!(context.user_id, me());
     }
 
-    // The annotation's pairing of timeline items with their JSON slots.
     #[test]
     fn live_append_slots_pair_append_and_push_back_in_order() {
         let append = VectorDiff::Append { values: Vector::from(vec![10u32, 20, 30]) };
@@ -1172,13 +1048,10 @@ mod tests {
         ] {
             assert!(live_append_slots(&diff, &mut payload).is_empty());
         }
-        // An append whose payload lost its items pairs nothing rather than
-        // misplacing a verdict.
         let append = VectorDiff::Append { values: Vector::from(vec![1u32]) };
         assert!(live_append_slots(&append, &mut json!({ "op": "append" })).is_empty());
     }
 
-    // A test item: (event id, origin_server_ts, unsigned.age); id "" = no event.
     type Item = (&'static str, u64, Option<u64>);
 
     fn facts(item: &Item) -> Option<ItemFacts> {
@@ -1211,9 +1084,6 @@ mod tests {
         slot.get("backlog") == Some(&json!(true))
     }
 
-    // The shape a room's first subscription produced live: the timeline
-    // cleared, then its last 20 events appended in the same batch, all of them
-    // older than the open.
     #[test]
     fn history_re_appended_after_a_clear_is_backlog() {
         let mut marker = marker(&[("$latest", 99_000, Some(10))]);
@@ -1232,8 +1102,6 @@ mod tests {
         }
     }
 
-    // Review B1: a gap or an expired sync session produces the same batch, and
-    // an event that reached the server after the open is a new message.
     #[test]
     fn an_unseen_event_after_the_open_is_not_backlog_even_after_a_clear() {
         let mut marker = marker(&[("$latest", 99_000, None)]);
@@ -1252,8 +1120,6 @@ mod tests {
         assert!(!is_backlog(&payload["items"][2]));
     }
 
-    // The age is measured by the server when it answered, so a skewed
-    // timestamp does not decide when an age came with the event.
     #[test]
     fn the_age_decides_over_a_skewed_timestamp() {
         let mut marker = marker(&[]);
@@ -1261,19 +1127,12 @@ mod tests {
         clear(&mut marker);
         let payload = append(
             &mut marker,
-            // Server clock ahead: stamped after the open, reached the server
-            // 15 s ago (before it). Server clock behind: stamped long before,
-            // reached the server 100 ms ago.
             &[("$ahead", 200_000, Some(15_000)), ("$behind", 1_000, Some(100))],
         );
         assert!(is_backlog(&payload["items"][0]));
         assert!(!is_backlog(&payload["items"][1]));
     }
 
-    // Without a reset the time is not consulted (a live message stamped early
-    // still notifies), but an event this timeline already forwarded is never
-    // new: here a live message notified once, then re-delivered after a
-    // clear, and a snapshot event moved to the end.
     #[test]
     fn a_forwarded_event_is_backlog_and_time_counts_only_after_a_reset() {
         let mut marker = marker(&[("$snap", 99_000, None)]);
@@ -1292,14 +1151,11 @@ mod tests {
         let again = append(&mut marker, &[("$live", 105_000, Some(5_000))]);
         assert!(is_backlog(&again["items"][0]));
 
-        // The reset does not carry into the next batch.
         marker.begin_batch();
         let next = append(&mut marker, &[("$later", 50_000, None)]);
         assert!(!is_backlog(&next["items"][0]));
     }
 
-    // Appends before the clear in the same batch, and items with no event
-    // (local echoes, virtual rows), are never marked.
     #[test]
     fn appends_before_the_clear_and_items_without_an_event_are_not_marked() {
         let mut marker = marker(&[]);
@@ -1309,7 +1165,6 @@ mod tests {
         let virtual_rows = append(&mut marker, &[("", 10_000, None)]);
         assert!(!is_backlog(&early["items"][0]));
         assert!(!is_backlog(&virtual_rows["items"][0]));
-        // A reset the subscriber sends after lagging starts a resync too.
         marker.begin_batch();
         marker.mark(
             &VectorDiff::Reset { values: Vector::from(vec![("$kept", 10_000, None)]) },

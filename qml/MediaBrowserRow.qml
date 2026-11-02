@@ -3,8 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// One row in the media browser's list view. A link is identified by its host, a
-// file by its name and size, so the two are shaped differently.
 ItemDelegate {
     id: row
 
@@ -28,11 +26,8 @@ ItemDelegate {
     signal jumpRequested(string eventId)
 
     onClicked: row.activated()
-    // The list owns keyboard focus and moves currentIndex (MediaBrowser); a
-    // row is never a Tab stop of its own, or Tab would walk every result.
     focusPolicy: Qt.NoFocus
     hoverEnabled: true
-    /// Opens the same menu a right click does (Menu key on the current row).
     function openMenu() { rowMenu.popup() }
     readonly property bool keyboardCurrent:
         !!ListView.view && ListView.isCurrentItem && ListView.view.activeFocus
@@ -94,8 +89,6 @@ ItemDelegate {
                 elide: Label.ElideMiddle
             }
 
-            // A link's second line is the URL; an attachment's is sender, size
-            // and date.
             Label {
                 Layout.fillWidth: true
                 textFormat: Text.PlainText
@@ -136,7 +129,6 @@ ItemDelegate {
     }
 
     TapHandler {
-        // Touch has no buttons, so a tap would fire this too.
         acceptedButtons: Qt.RightButton
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onTapped: rowMenu.popup()
@@ -152,8 +144,6 @@ ItemDelegate {
             text: qsTr("Copy link")
             visible: row.kind === "link" && row.url.length > 0
             height: visible ? implicitHeight : 0
-            // The hidden-TextEdit route MessageDelegate uses; there is no
-            // app.copyToClipboard.
             onTriggered: {
                 clipboardHelper.text = row.url
                 clipboardHelper.selectAll()
@@ -163,7 +153,6 @@ ItemDelegate {
         }
     }
 
-    // Binary units, one decimal, and never "0.0 KB" for a 400-byte file.
     function humanSize(bytes) {
         if (bytes < 1024)
             return qsTr("%1 B").arg(bytes)
@@ -181,7 +170,6 @@ ItemDelegate {
         return m + ":" + (s < 10 ? "0" : "") + s
     }
 
-    // Off-screen and never focusable: QML has no clipboard API.
     TextEdit {
         id: clipboardHelper
         visible: false

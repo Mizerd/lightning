@@ -1,27 +1,3 @@
-//! MatrixRTC (MSC4143): the Matrix side of modern calling.
-//!
-//! Owns what a MatrixRTC session puts on the Matrix wire: who is in a call,
-//! which SFU transport ("focus") they advertise, rings, and declines. No
-//! media. The wire is pinned to the reference implementations (matrix-js-sdk
-//! `src/matrixrtc`, element-call), which are ahead of the unmerged MSCs:
-//!
-//! * Membership is the state event `org.matrix.msc3401.call.member`
-//!   ([`EV_MEMBER_LEGACY`]). The sticky MSC4354 form ([`EV_MEMBER_STICKY`])
-//!   is parsed and tested, but matrix-sdk 0.18 cannot observe sticky events.
-//! * Rings are `org.matrix.msc4075.rtc.notification`, with our own event
-//!   content: ruma 0.34 types it only as stable `m.rtc.notification`, so a
-//!   ruma handler never fires for Element's rings.
-//!
-//! Transports are discovered, never hardcoded, in element-call's order: the
-//! homeserver's advertisement, then the focus existing participants
-//! advertise (`foci_preferred`, i.e. `oldest_membership`), then a
-//! user-configured URL. Never a vendor default.
-//!
-//! Safety: almost every string here is remote-chosen. Inbound strings are
-//! bounded and control-character free ([`sane`]) and collections capped; an
-//! invalid membership is dropped, never partially trusted. `member.user_id`
-//! must equal the event sender (as in the reference). Transport URLs must be
-//! `https:`. Nothing here logs a sender-chosen string, URL or member id.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -45,34 +21,18 @@ use sha2::{Digest, Sha256};
 use crate::rooms::{classify_room_error, joined_room, public_ip, require_client};
 use crate::{enqueue, RustClient};
 
-// ---------------------------------------------------------------------------
-// Wire constants
-// ---------------------------------------------------------------------------
-
-/// Legacy (and currently the only *deployed*) membership state event.
 pub(crate) const EV_MEMBER_LEGACY: &str = "org.matrix.msc3401.call.member";
-/// MSC4143 sticky membership event. Parsed but not observable on
-/// matrix-sdk 0.18, so unused outside tests.
 #[allow(dead_code)]
 pub(crate) const EV_MEMBER_STICKY: &str = "org.matrix.msc4143.rtc.member";
-/// MSC4143 slot state event, describing an open/closed session in a room.
 pub(crate) const EV_SLOT: &str = "org.matrix.msc4143.rtc.slot";
-/// The notification event Element sends. The string lives in the
-/// event-content derive; this constant is asserted against it in tests.
 #[allow(dead_code)]
 pub(crate) const EV_NOTIFICATION_UNSTABLE: &str =
     "org.matrix.msc4075.rtc.notification";
 
-/// The application every call-shaped session uses.
 const APPLICATION_CALL: &str = "m.call";
 
-/// `call_id: ""` is the room-wide call; the slot vocabulary spells it
-/// `"ROOM"`. Converting between them, as the reference does, keeps one call
-/// from looking like two.
 const SLOT_ID_ROOM: &str = "ROOM";
 
-/// Membership validity when `expires` is absent (the reference's
-/// `DEFAULT_EXPIRE_DURATION`).
 const DEFAULT_EXPIRE_MS: u64 = 4 * 60 * 60 * 1000;
 /// Ceiling on how far past the envelope's origin_server_ts a membership may
 /// claim to live.
@@ -84,75 +44,30 @@ const DEFAULT_EXPIRE_MS: u64 = 4 * 60 * 60 * 1000;
 /// time and writes `expires = (now - created) + period`; each refresh is a
 /// new event, so long calls stay alive and nothing is immortal.
 const MAX_EXPIRE_MS: u64 = 24 * 60 * 60 * 1000;
-/// Max amount a `created_ts` may be ahead of origin_server_ts. A future join
-/// time is never legitimate; it would only make the membership sort last.
 const MAX_CREATED_TS_SKEW_MS: u64 = 5 * 60 * 1000;
-/// Max amount a `created_ts` may be behind origin_server_ts. Refreshes carry
-/// the original join time; clamping to a day bounds how far backdating can
-/// reach while long calls still sort first.
 const MAX_BACKDATE_MS: u64 = 24 * 60 * 60 * 1000;
 
-/// Element caps notification lifetime at 90 s (`parseCallNotificationContent`).
 const MAX_NOTIFICATION_LIFETIME_MS: u64 = 90_000;
 
-// Bounds on values a remote party chooses.
 const MAX_WIRE_LEN: usize = 255;
-/// Timeout for a raise/lower, short because the user is watching the
-/// toggle.
 const HAND_TIMEOUT: Duration = Duration::from_secs(10);
-/// How many memberships the join-time raised-hand pass probes (each a
-/// cache-first relations load). Beyond this, earlier hands are missed; the
-/// sync handler still sees every later one.
 const MAX_HAND_PROBES: usize = 24;
 const MAX_URL_LEN: usize = 1024;
 const MAX_MEMBERS: usize = 128;
-/// Bound on raw membership state events parsed, applied before the
-/// 128-member cap so a room with many stale events does not do all the work.
 const MAX_RAW_MEMBER_EVENTS: usize = 512;
-/// The membership fallback must not stall key distribution.
 const MEMBERSHIP_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
-/// How recent the newest event in a room's stored membership view must be
-/// for "the store shows nothing live" to still warrant a `/state` request.
-///
-/// The `/state` fallback in [`read_membership_events`] is this module's
-/// most expensive operation. Gating it only on "no live membership in the
-/// store" spent one per idle room on startup, since every room that ever
-/// hosted a call has expired membership state. A real change is stamped
-/// now, a replay of an old call is stamped then, so the store's newest
-/// instant discriminates. Well over twice `MEMBERSHIP_EXPIRY_NO_DELAYED_MS`,
-/// so a peer whose refresh we have not received still earns one request.
-///
-/// Compared with server-stamped times, like the liveness filter; a skewed
-/// device clock shifts both the same way.
 const SESSION_SIGNAL_HORIZON_MS: u64 = 15 * 60 * 1000;
-/// Minimum gap between two implicit `/state` escalations for one room; it
-/// doubles up to the max below. Without the doubling, one ghost membership
-/// (an unclean exit) would buy a request per poke for the whole horizon.
-/// Mirrors `RtcController::m_serverReadStreak` in C++, which paces forced
-/// reads.
 const SERVER_ESCALATION_COOLDOWN_MS: u64 = 15_000;
 const SERVER_ESCALATION_COOLDOWN_MAX_MS: u64 = 300_000;
-/// How long a ring keeps its room worth one `/state`. The room is not open,
-/// so its state may be stale, and the incoming call's Answer button is
-/// gated on a session read. Longer than `MAX_NOTIFICATION_LIFETIME_MS`.
 const RING_ESCALATION_WINDOW_MS: u64 = 3 * 60 * 1000;
-/// Ceiling on the per-room mark tables below (like `MAX_REPORT_MARKS`).
-/// Keys are joined rooms, not attacker-chosen, but must stay bounded.
 const MAX_ROOM_MARKS: usize = 256;
 const MAX_TRANSPORTS: usize = 8;
 #[allow(dead_code)]
 const MAX_VERSIONS: usize = 8;
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(15);
-/// Bound on the discovery response body; larger answers are refused.
 const MAX_DISCOVERY_BODY: usize = 64 * 1024;
 
-// ---------------------------------------------------------------------------
-// Sanitizers
-// ---------------------------------------------------------------------------
-
-/// Accept a bounded, control-character-free string, or nothing. `None`
-/// means "drop the surrounding thing"; there is no lossy repair.
 fn sane(value: &str, max: usize) -> Option<&str> {
     if value.is_empty() || value.len() > max {
         return None;
@@ -167,8 +82,6 @@ fn sane_string(value: Option<&serde_json::Value>, max: usize) -> Option<String> 
     sane(value?.as_str()?, max).map(ToOwned::to_owned)
 }
 
-/// A transport URL must be absolute HTTPS with a host: it is where call
-/// authorization is exchanged.
 fn sane_https_url(value: &str) -> Option<String> {
     let trimmed = sane(value, MAX_URL_LEN)?;
     // `Url::parse` drops surrounding whitespace, and we advertise this string
@@ -180,7 +93,6 @@ fn sane_https_url(value: &str) -> Option<String> {
     if parsed.scheme() != "https" {
         return None;
     }
-    // Embedded credentials in an advertised URL are never legitimate.
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return None;
     }
@@ -231,7 +143,6 @@ fn sane_https_url(value: &str) -> Option<String> {
     Some(trimmed.to_owned())
 }
 
-/// Compare validated focus URLs without changing the value we advertise.
 fn same_focus_url(left: &str, right: &str) -> bool {
     match (url::Url::parse(left), url::Url::parse(right)) {
         (Ok(left), Ok(right)) => left == right,
@@ -239,8 +150,6 @@ fn same_focus_url(left: &str, right: &str) -> bool {
     }
 }
 
-/// Names that can only resolve locally: `localhost`, `.local` (mDNS),
-/// `.localhost`, `.internal`.
 pub(crate) fn public_hostname(name: &str) -> bool {
     let lower = name.trim_end_matches('.').to_ascii_lowercase();
     !(lower == "localhost"
@@ -260,15 +169,9 @@ pub(crate) fn test_focus_ip(ip: std::net::IpAddr) -> bool {
     public_ip(ip) || ip.is_loopback()
 }
 
-/// Why a host could not be resolved to an approved address. Distinguished
-/// so the UI does not report an unresolvable name as a private-address
-/// refusal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HostRefusal {
-    /// The name can only mean this machine or link (`localhost`, `.local`,
-    /// `.internal`); refused before any lookup.
     PrivateName,
-    /// The resolver returned nothing or did not answer.
     Unresolved,
     /// At least one resolved address is not public. The whole name is refused
     /// (see docs/matrixrtc.md): a public A record beside a loopback AAAA is the
@@ -276,9 +179,6 @@ pub(crate) enum HostRefusal {
     NonPublicAddress,
 }
 
-/// Every address `host` resolves to, in resolver order, if all are public.
-/// Resolution is the only way to see where an attacker-chosen name points.
-/// Returns the whole list so a connecting caller can try the next one.
 pub(crate) async fn resolve_public_hosts(
     host: &str,
     port: u16,
@@ -312,8 +212,6 @@ pub(crate) async fn resolve_public_hosts(
     Ok(addresses)
 }
 
-/// Resolve `host`, require every address to be public, and return the
-/// first, for callers that pin one address (reqwest's `.resolve()`).
 pub(crate) async fn resolve_public_host(
     host: &str,
     port: u16,
@@ -324,19 +222,9 @@ pub(crate) async fn resolve_public_host(
         .and_then(|addresses| addresses.into_iter().next())
 }
 
-// ---------------------------------------------------------------------------
-// Transports (foci)
-// ---------------------------------------------------------------------------
-
-/// A LiveKit transport: where to obtain SFU authorization for a session.
-/// `service_url` is the JWT service; the SFU URL comes back from
-/// `POST {service_url}/sfu/get`. Nothing here is a media endpoint or a
-/// credential.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LivekitTransport {
     pub service_url: String,
-    /// SFU room alias, when the advertiser pinned one; otherwise the JWT
-    /// service derives it from the room id.
     pub alias: Option<String>,
 }
 
@@ -371,15 +259,10 @@ impl FocusSelection {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FocusPlan {
     pub publisher: Option<LivekitTransport>,
-    /// One service per distinct remote focus, including the publishing
-    /// service when another member also publishes there.
     pub subscribers: Vec<LivekitTransport>,
     pub mode: FocusSelection,
 }
 
-/// Plan from verified, ordered memberships. The caller supplies our own
-/// homeserver's preferred focus, never another member's discovery answer.
-/// The transport cap also bounds the number of future signalling sessions.
 pub(crate) fn plan_foci(
     members: &[RtcMember],
     own: &str,
@@ -427,8 +310,6 @@ pub(crate) fn plan_foci(
     FocusPlan { publisher, subscribers, mode }
 }
 
-/// Resolve a participant's track to the connection that can carry it. The
-/// media key remains attached to the participant identity, never this URL.
 pub(crate) fn focus_for_member(
     member: &RtcMember,
     oldest: Option<&LivekitTransport>,
@@ -456,8 +337,6 @@ impl LivekitTransport {
     }
 }
 
-/// Parse one transport object. Only `type: "livekit"` is understood; others
-/// are skipped rather than guessed at.
 pub(crate) fn parse_transport(value: &serde_json::Value) -> Option<LivekitTransport> {
     let object = value.as_object()?;
     if object.get("type")?.as_str()? != "livekit" {
@@ -490,17 +369,9 @@ fn parse_transport_list(value: Option<&serde_json::Value>) -> Vec<LivekitTranspo
     out
 }
 
-// ---------------------------------------------------------------------------
-// Membership
-// ---------------------------------------------------------------------------
-
-/// Which wire format a membership came from. Diagnostics only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MembershipKind {
-    /// `org.matrix.msc3401.call.member` state event.
     Session,
-    /// `org.matrix.msc4143.rtc.member` sticky event. Only produced by the
-    /// tested parser on matrix-sdk 0.18.
     #[allow(dead_code)]
     Rtc,
 }
@@ -514,39 +385,26 @@ impl MembershipKind {
     }
 }
 
-/// One participant device in a MatrixRTC session.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RtcMember {
     pub user_id: String,
     pub device_id: String,
-    /// The identity this device uses on the SFU, derived, never read:
-    /// `"{user_id}:{device_id}"` for session memberships, or the hashed member
-    /// id for the sticky format.
     pub rtc_identity: String,
     /// The new LiveKit identity for a legacy session membership. The hash
     /// includes the envelope sender, so a copied membershipID cannot claim
     /// another sender's SFU identity.
     pub hashed_rtc_identity: Option<String>,
-    /// `m.call#ROOM` for the room-wide call.
     pub slot_id: String,
-    /// Sender-declared intent, sanitized to a closed set.
     pub intent: &'static str,
-    /// When this device first joined, in ms. Falls back to the event ts.
     pub created_ts: u64,
     /// Absolute expiry in ms. Past this the membership is stale and dropped;
     /// the only defence against a client that died without cleaning up.
     pub expires_at_ms: u64,
-    /// Foci this device advertises, in its own preference order.
     pub foci: Vec<LivekitTransport>,
     pub focus_selection: FocusSelection,
     pub kind: MembershipKind,
-    /// Room-resolved profile, filled in after parsing (see `read_session`).
     pub display_name: String,
     pub avatar_mxc: String,
-    /// The `m.call.member` state event that declared this membership.
-    /// element-call raises a hand as an `m.reaction` annotating it. Filled in
-    /// by `read_session` from the envelope; empty when there is none, which
-    /// matches no hand rather than a wrong one.
     pub event_id: String,
 }
 
@@ -554,8 +412,6 @@ impl RtcMember {
     fn to_json(&self) -> serde_json::Value {
         json!({
             "user_id": self.user_id,
-            // Resolved from the room state: m.call.member carries no profile. Empty
-            // when the member is not in the store; the UI shows initials.
             "display_name": self.display_name,
             "avatar_mxc": self.avatar_mxc,
             "device_id": self.device_id,
@@ -565,7 +421,6 @@ impl RtcMember {
             "intent": self.intent,
             "created_ts": self.created_ts,
             "expires_at_ms": self.expires_at_ms,
-            // A raised hand annotates this state event.
             "event_id": self.event_id,
             "kind": self.kind.as_str(),
             "foci": self.foci.iter().map(LivekitTransport::to_json)
@@ -575,9 +430,6 @@ impl RtcMember {
     }
 }
 
-/// Sender-declared intent, collapsed to a closed set. The field is free
-/// text and decides whether a video answer is offered; unknown values
-/// degrade to audio.
 fn intent_str(value: Option<&serde_json::Value>) -> &'static str {
     match value.and_then(|value| value.as_str()) {
         Some("video") => "video",
@@ -586,16 +438,11 @@ fn intent_str(value: Option<&serde_json::Value>) -> &'static str {
     }
 }
 
-/// Convert a legacy `call_id` to a slot id with the reference's `""` ->
-/// `"ROOM"` rule, so both formats compare equal.
 fn slot_id_for_call_id(application: &str, call_id: &str) -> String {
     let id = if call_id.is_empty() { SLOT_ID_ROOM } else { call_id };
     format!("{application}#{id}")
 }
 
-/// The SFU identity for the sticky format:
-/// unpadded-base64(sha256(canonical JSON `[user_id, member_id]`)).
-/// Must match `computeRtcIdentityRaw` byte for byte.
 #[allow(dead_code)] // sticky lane only; see EV_MEMBER_STICKY.
 pub(crate) fn rtc_identity_hash(user_id: &str, member_id: &str) -> String {
     let canonical = serde_json::to_string(&[user_id, member_id])
@@ -605,8 +452,6 @@ pub(crate) fn rtc_identity_hash(user_id: &str, member_id: &str) -> String {
     base64::engine::general_purpose::STANDARD_NO_PAD.encode(digest)
 }
 
-/// Parse a legacy `org.matrix.msc3401.call.member` content. `sender` and
-/// `event_ts` come from the envelope, never the content.
 pub(crate) fn parse_session_membership(
     content: &serde_json::Value,
     sender: &str,
@@ -622,20 +467,16 @@ pub(crate) fn parse_session_membership(
     if application != APPLICATION_CALL {
         return None;
     }
-    // A scope other than the room call (an `m.user` call) is not ours to
-    // join; an absent scope is the room call, as older memberships omit it.
     if let Some(scope) = object.get("scope") {
         if scope.as_str() != Some("m.room") {
             return None;
         }
     }
     let device_id = sane_string(object.get("device_id"), MAX_WIRE_LEN)?;
-    // `call_id` is required but empty for the room call, so not `sane`.
     let call_id = object.get("call_id")?.as_str()?;
     if call_id.len() > MAX_WIRE_LEN || call_id.chars().any(|c| c.is_control()) {
         return None;
     }
-    // Only LiveKit room-call memberships can select a LiveKit JWT service.
     let active = object.get("focus_active")?.as_object()?;
     if active.get("type")?.as_str()? != "livekit" {
         return None;
@@ -664,10 +505,6 @@ pub(crate) fn parse_session_membership(
         .saturating_add(expires)
         .min(event_ts.saturating_add(MAX_EXPIRE_MS));
 
-    // Keep the legacy identity derived from the envelope. A newer transport
-    // hashes [sender, membershipID], falling back to [sender, sender:device].
-    // membershipID is attacker input: it is only ever used under this sender
-    // in the hash, never as a bare SFU identity.
     let rtc_identity = format!("{user_id}:{device_id}");
     let member_id = object.get("membershipID")
         .and_then(|value| sane_string(Some(value), MAX_WIRE_LEN))
@@ -688,16 +525,11 @@ pub(crate) fn parse_session_membership(
         kind: MembershipKind::Session,
         display_name: String::new(),
         avatar_mxc: String::new(),
-        // Content only; read_session fills in the envelope's id.
         event_id: String::new(),
     })
 }
 
-/// Parse an MSC4143 `org.matrix.msc4143.rtc.member` content, in step with
-/// the reference validator (including `member.user_id == sender`). Not
-/// reachable from sync on matrix-sdk 0.18; tested so the format does not
-/// rot.
-#[allow(dead_code)] // sticky lane only; see EV_MEMBER_STICKY.
+#[allow(dead_code)]
 pub(crate) fn parse_rtc_membership(
     content: &serde_json::Value,
     sender: &str,
@@ -707,13 +539,11 @@ pub(crate) fn parse_rtc_membership(
 
     let application = object.get("application")?.as_object()?;
     let app_type = sane_string(application.get("type"), MAX_WIRE_LEN)?;
-    // A '#' in the application would make the slot id ambiguous.
     if app_type.contains('#') {
         return None;
     }
 
     let slot_id = sane_string(object.get("slot_id"), MAX_WIRE_LEN)?;
-    // The slot id must name this application and split cleanly in two.
     let (slot_app, slot_rest) = slot_id.split_once('#')?;
     if slot_app != app_type || slot_rest.contains('#') {
         return None;
@@ -728,12 +558,10 @@ pub(crate) fn parse_rtc_membership(
     let device_id = sane_string(member.get("device_id"), MAX_WIRE_LEN)?;
     let member_id = sane_string(member.get("id"), MAX_WIRE_LEN)?;
 
-    // `transports` is required and `published` must be an array.
     let transports = object.get("transports")?.as_object()?;
     transports.get("published")?.as_array()?;
     let foci = parse_transport_list(transports.get("published"));
 
-    // `versions` is required and must be an array of strings.
     let versions = object.get("versions")?.as_array()?;
     if versions.len() > MAX_VERSIONS
         || !versions.iter().all(|value| value.is_string())
@@ -741,7 +569,6 @@ pub(crate) fn parse_rtc_membership(
         return None;
     }
 
-    // Without a sticky key the event has no retraction identity.
     let sticky = object
         .get("sticky_key")
         .or_else(|| object.get("msc4354_sticky_key"))
@@ -770,37 +597,15 @@ pub(crate) fn parse_rtc_membership(
     })
 }
 
-// ---------------------------------------------------------------------------
-// Session aggregation
-// ---------------------------------------------------------------------------
-
-/// The live state of one room's MatrixRTC session.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RtcSession {
     pub members: Vec<RtcMember>,
-    /// True when a slot state event exists and says the session is closed.
     pub slot_closed: bool,
-    /// True when a slot state event was present at all.
     pub slot_present: bool,
-    /// Where the memberships came from: "store", "store-no-session" (nothing
-    /// live, no reason to ask), "store-cooling-own"/"-ring"/"-recent" (a reason,
-    /// but within the room's escalation backoff), "server", "server-none"
-    /// (asked; no membership state) or "store-fallback" (asked; request
-    /// failed). Distinguishes a stale store from a room where nobody is
-    /// published.
     pub source: &'static str,
-    /// Raw membership events considered before parsing, expiry and dedup, so
-    /// `participants=0 raw=7` differs from `participants=0 raw=0`.
     pub raw_count: usize,
 }
 
-/// Aggregate parsed memberships into a session.
-///
-/// * Expired memberships are dropped (as Element does), or vanished
-///   clients show as participants.
-/// * Dedup is per `(user_id, device_id)`, keeping the newest `created_ts`:
-///   one device may briefly hold two events during the state-key migration,
-///   and one user on two devices is two participants.
 pub(crate) fn aggregate_session(
     mut members: Vec<RtcMember>,
     now_ms: u64,
@@ -819,8 +624,6 @@ pub(crate) fn aggregate_session(
     }
 
     let mut out: Vec<RtcMember> = best.into_values().collect();
-    // Oldest first: this ordering is the `oldest_membership` focus rule, so it
-    // must be stable and by join time.
     out.sort_by(|a, b| {
         a.created_ts
             .cmp(&b.created_ts)
@@ -831,8 +634,6 @@ pub(crate) fn aggregate_session(
     out
 }
 
-/// Only this room-wide call may authorize a focus connection. Another
-/// `call_id` is a different session even when its state event is in the room.
 fn room_call_members(members: Vec<RtcMember>, now_ms: u64) -> Vec<RtcMember> {
     aggregate_session(members.into_iter()
         .filter(|member| member.slot_id == "m.call#ROOM")
@@ -849,9 +650,6 @@ fn sender_membership_allows_call(
     })
 }
 
-/// Pick the focus per `focus_selection: "oldest_membership"`: the SFU
-/// advertised by whoever joined first. Everyone must agree, or participants
-/// land on different SFUs.
 pub(crate) fn select_focus(members: &[RtcMember]) -> Option<LivekitTransport> {
     // The oldest membership's own first focus, and nothing else: the reference
     // reads `getOldestMembership()`'s `foci_preferred[0]` and yields nothing if
@@ -859,26 +657,9 @@ pub(crate) fn select_focus(members: &[RtcMember]) -> Option<LivekitTransport> {
     members.first().and_then(|member| member.foci.first().cloned())
 }
 
-// ---------------------------------------------------------------------------
-// Transport discovery endpoint (MSC4143)
-// ---------------------------------------------------------------------------
-
-/// Read `org.matrix.msc4143.rtc_foci` (or stable `m.rtc_foci`) from
-/// `GET https://<server_name>/.well-known/matrix/client`, which is where
-/// MSC4143 advertises SFUs and Element Call reads them. For a server name
-/// with a non-default port, a failed discovery is retried once at the same
-/// host without that port. There is no client-API transports endpoint.
-///
-/// Hand-rolled over the SDK's HTTP client: `Client::well_known()` is private
-/// and the typed field needs matrix-sdk's `unstable-msc4143` feature. The
-/// file is public, so no access token is sent. Fetched from the MXID's
-/// server name, not the delegated homeserver URL, since the delegating
-/// domain serves this file.
 mod transports_endpoint {
     use matrix_sdk::Client;
 
-    /// Transport objects are open-ended, so the body stays raw JSON and
-    /// `parse_transport` alone decides what is understood.
     pub(super) struct Answer {
         pub status: u16,
         pub transports: Vec<serde_json::Value>,
@@ -894,12 +675,6 @@ mod transports_endpoint {
         Ok((endpoint_for(&server_name)?, fallback_for(&server_name)?))
     }
 
-    /// The well-known URL for an MXID's server name, port included when the
-    /// name has one, as matrix-js-sdk (Element, Element Call) builds it: the
-    /// peers in a call find their SFUs this way, so we must too. The name is
-    /// checked to be host-shaped before it goes into a URL, and the parsed
-    /// authority must reproduce it exactly, so a hostile value cannot
-    /// redirect the request.
     pub(super) fn endpoint_for(server_name: &str) -> Result<String, String> {
         if server_name.is_empty()
             || server_name.len() > 255
@@ -920,7 +695,6 @@ mod transports_endpoint {
             (Some(host), None) => host.to_owned(),
             (None, _) => return Err("unusable server name".to_owned()),
         };
-        // The parser drops an explicit default port: `host:443` is `host`.
         let explicit_default = format!("{authority}:443") == server_name;
         if parsed.scheme() != "https" || (authority != server_name && !explicit_default) {
             return Err("unusable server name".to_owned());
@@ -928,9 +702,6 @@ mod transports_endpoint {
         Ok(parsed.to_string())
     }
 
-    /// A server name with a non-default port may serve client discovery at
-    /// the host's default HTTPS port instead. Validate the derived host with
-    /// the same rules as the primary URL before making a request to it.
     pub(super) fn fallback_for(server_name: &str) -> Result<Option<String>, String> {
         let primary = endpoint_for(server_name)?;
         let parsed = url::Url::parse(&primary).map_err(|_| "bad url".to_owned())?;
@@ -982,15 +753,12 @@ mod transports_endpoint {
             .await
             .map_err(|err| err.to_string())?;
         let status = response.status().as_u16();
-        // Refuse an oversized answer before reading: `text()` buffers the whole
-        // body first.
         if response
             .content_length()
             .is_some_and(|len| len > super::MAX_DISCOVERY_BODY as u64)
         {
             return Ok(Answer { status, transports: Vec::new() });
         }
-        // Content-Length may be absent, so also stop reading at the cap.
         let mut body = Vec::with_capacity(1024);
         let mut stream = response;
         while let Some(chunk) =
@@ -1002,7 +770,6 @@ mod transports_endpoint {
             body.extend_from_slice(&chunk);
         }
         let body = String::from_utf8_lossy(&body).into_owned();
-        // Unstable key first, then stable, as ruma reads them.
         let transports = serde_json::from_str::<serde_json::Value>(&body)
             .ok()
             .and_then(|value| {
@@ -1017,10 +784,6 @@ mod transports_endpoint {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Notification event (MSC4075)
-// ---------------------------------------------------------------------------
-
 /// `org.matrix.msc4075.rtc.notification`, the ring. Defined here because
 /// ruma 0.34 types only the stable `m.rtc.notification`, which is deaf to
 /// Element's rings. Both are observed (see [`register_rtc_handlers`]); this
@@ -1028,11 +791,8 @@ mod transports_endpoint {
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
 #[ruma_event(type = "org.matrix.msc4075.rtc.notification", kind = MessageLike)]
 pub(crate) struct Msc4075RtcNotificationEventContent {
-    /// `"ring"` for a DM-style ring, `"notification"` for a group call
-    /// announcement that must not ring everyone.
     pub notification_type: String,
     pub sender_ts: MilliSecondsSinceUnixEpoch,
-    /// Milliseconds, as a plain integer (what the reference reads).
     pub lifetime: u64,
     #[serde(rename = "m.mentions", default, skip_serializing_if = "Option::is_none")]
     pub mentions: Option<Mentions>,
@@ -1042,10 +802,6 @@ pub(crate) struct Msc4075RtcNotificationEventContent {
     pub call_intent: Option<String>,
 }
 
-/// The `call_rtc_notification` record for an
-/// `org.matrix.msc4075.rtc.notification`. The type and `m.mentions` go
-/// through the same [`crate::calls::rtc_notification_addressing`] as the
-/// stable event's, so the two cannot disagree about who rings.
 fn msc4075_notification_payload(
     ev: &OriginalSyncMsc4075RtcNotificationEvent,
     room_id: &str,
@@ -1081,9 +837,6 @@ fn msc4075_notification_payload(
     payload
 }
 
-/// Legacy membership state event, typed only so the SDK reports changes.
-/// The content is a passthrough: the handler just signals "membership
-/// changed" and the session is re-read through the one parser above.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
 #[ruma_event(
     type = "org.matrix.msc3401.call.member",
@@ -1092,13 +845,6 @@ fn msc4075_notification_payload(
 )]
 pub(crate) struct LegacyRtcMemberEventContent {}
 
-// ---------------------------------------------------------------------------
-// Reading a room's session
-// ---------------------------------------------------------------------------
-
-/// Raw JSON of a state event from the store. `RawAnySyncOrStrippedState`
-/// wraps two `Raw` types (joined vs invite stripped state), both carrying
-/// the envelope fields needed here.
 fn raw_state_json(raw: &RawAnySyncOrStrippedState) -> Option<serde_json::Value> {
     let json = match raw {
         RawAnySyncOrStrippedState::Sync(raw) => raw.json(),
@@ -1107,8 +853,6 @@ fn raw_state_json(raw: &RawAnySyncOrStrippedState) -> Option<serde_json::Value> 
     serde_json::from_str(json.get()).ok()
 }
 
-/// Is this raw membership event a live participant now? The same parse as
-/// the session read, so the two cannot disagree.
 fn membership_event_is_live(value: &serde_json::Value, now_ms: u64) -> bool {
     let Some(object) = value.as_object() else { return false };
     let Some(sender) = object.get("sender").and_then(|v| v.as_str()) else {
@@ -1123,11 +867,6 @@ fn membership_event_is_live(value: &serde_json::Value, now_ms: u64) -> bool {
         .is_some_and(|member| member.expires_at_ms > now_ms)
 }
 
-/// Does the store's answer stand on its own, or must the server be asked?
-/// "Usable" means at least one membership that parses and has not expired.
-/// A merely non-empty check would let a dead membership left by an unclean
-/// exit suppress the network read, sending the media key to the wrong
-/// devices.
 pub(crate) fn store_view_is_usable(
     events: &[serde_json::Value],
     now_ms: u64,
@@ -1137,16 +876,6 @@ pub(crate) fn store_view_is_usable(
         .any(|value| membership_event_is_live(value, now_ms))
 }
 
-/// The newest instant in a stored membership view that could belong to a
-/// running session, used once we know nothing is live:
-///
-///  * a parseable membership contributes its deadline (a peer whose refresh
-///    we have not received expired only just now);
-///  * anything else (a `{}` retraction, an unparseable event) contributes
-///    its `origin_server_ts`, since a retraction is itself recent activity.
-///
-/// A missing `origin_server_ts` reads as now, the conservative direction,
-/// matching `membership_event_is_live`.
 fn newest_session_signal_ms(
     events: &[serde_json::Value],
     now_ms: u64,
@@ -1174,7 +903,6 @@ fn newest_session_signal_ms(
     newest
 }
 
-/// Why a store read with nothing live still warrants one `/state`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EscalationReason {
     /// We hold a published membership in this room, so we are in its call. The
@@ -1182,17 +910,11 @@ pub(crate) enum EscalationReason {
     /// memberships, and media keys go to the devices these name, so an empty
     /// read would send the key to nobody.
     OwnCall,
-    /// A ring arrived for this room moments ago. The room is not open, so its
-    /// state may be stale, and Answer is gated on the session read.
     Ring,
-    /// The store's newest call-member event is recent enough that a session
-    /// could still be running.
     RecentActivity,
 }
 
 impl EscalationReason {
-    /// The word a read reports when it wanted the homeserver but the room's
-    /// backoff held it off, so "did not ask" and "not allowed to ask" differ.
     fn cooling_word(self) -> &'static str {
         match self {
             EscalationReason::OwnCall => "store-cooling-own",
@@ -1202,18 +924,10 @@ impl EscalationReason {
     }
 }
 
-/// What a non-forced session read does with the store's answer. The whole
-/// decision, matched exhaustively in [`read_membership_events`], so a new
-/// variant cannot be left unhandled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StoreVerdict {
-    /// The store holds a live membership. Answer from it; no request.
     Answer,
-    /// Nothing live and no sign of a session the store cannot see: a real "no
-    /// call in this room" answer.
     AnswerNoSession,
-    /// Nothing live, but a session may exist that the store has not caught up
-    /// with. Worth one `/state`, subject to the caller's per-room backoff.
     AskServer(EscalationReason),
 }
 
@@ -1226,8 +940,6 @@ pub(crate) fn store_read_verdict(
     if store_view_is_usable(events, now_ms) {
         return StoreVerdict::Answer;
     }
-    // Ordered by strength of evidence (all cost one request), so the log names
-    // why the request was spent.
     if in_own_call {
         return StoreVerdict::AskServer(EscalationReason::OwnCall);
     }
@@ -1240,16 +952,12 @@ pub(crate) fn store_read_verdict(
         {
             StoreVerdict::AskServer(EscalationReason::RecentActivity)
         }
-        // Includes the empty store (rooms that never hosted a call).
         _ => StoreVerdict::AnswerNoSession,
     }
 }
 
-/// The gap owed before this room may escalate again after
-/// `consecutive_asks` escalations that found nothing live. Pure for tests.
 fn escalation_cooldown_ms(consecutive_asks: u32) -> u64 {
     let mut ms = SERVER_ESCALATION_COOLDOWN_MS;
-    // The first ask owes the base gap.
     for _ in 1..consecutive_asks {
         if ms >= SERVER_ESCALATION_COOLDOWN_MAX_MS {
             break;
@@ -1266,8 +974,6 @@ fn account_room_mark_key(user_id: &str, room_id: &str) -> String {
     format!("{user_id}\u{1f}{room_id}")
 }
 
-/// When each (account, room) last spent an implicit `/state`, and how many in
-/// a row found nothing live.
 fn server_escalation_marks() -> &'static std::sync::Mutex<
     std::collections::HashMap<String, (std::time::Instant, u32)>,
 > {
@@ -1279,7 +985,6 @@ fn server_escalation_marks() -> &'static std::sync::Mutex<
     MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// (account, room) pairs a MatrixRTC ring arrived for, and when.
 fn rtc_ring_marks()
     -> &'static std::sync::Mutex<
         std::collections::HashMap<String, std::time::Instant>,
@@ -1293,8 +998,6 @@ fn rtc_ring_marks()
     MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// Record that this room just rang. Uses `Instant`, so clock steps cannot
-/// move the window.
 pub(crate) fn note_rtc_ring(user_id: &str, room_id: &str) {
     let key = account_room_mark_key(user_id, room_id);
     if let Ok(mut marks) = rtc_ring_marks().lock() {
@@ -1303,8 +1006,6 @@ pub(crate) fn note_rtc_ring(user_id: &str, room_id: &str) {
         }
         marks.insert(key, std::time::Instant::now());
     }
-    // A ring is fresh evidence of a session, so it also clears this room's
-    // backoff: the next read may ask immediately.
     clear_server_escalation_backoff(user_id, room_id);
 }
 
@@ -1319,8 +1020,6 @@ fn rtc_ring_is_recent(user_id: &str, room_id: &str) -> bool {
         })
 }
 
-/// May this room spend an implicit `/state` now? Records the attempt when
-/// it says yes.
 fn claim_server_escalation(user_id: &str, room_id: &str) -> bool {
     let room_id = account_room_mark_key(user_id, room_id);
     let room_id = room_id.as_str();
@@ -1345,9 +1044,6 @@ fn claim_server_escalation(user_id: &str, room_id: &str) -> bool {
     true
 }
 
-/// An escalation that found somebody live resets the streak (the next gap
-/// is the base one) but keeps the gap, so a store that lags for a whole call
-/// does not escalate on every poke.
 fn note_server_escalation_found_live(user_id: &str, room_id: &str) {
     if let Ok(mut marks) = server_escalation_marks().lock() {
         if let Some(entry) = marks.get_mut(&account_room_mark_key(user_id, room_id)) {
@@ -1356,16 +1052,12 @@ fn note_server_escalation_found_live(user_id: &str, room_id: &str) {
     }
 }
 
-/// Forget a room's backoff entirely, so its next read may ask at once.
 fn clear_server_escalation_backoff(user_id: &str, room_id: &str) {
     if let Ok(mut marks) = server_escalation_marks().lock() {
         marks.remove(&account_room_mark_key(user_id, room_id));
     }
 }
 
-/// Bound a membership list to `cap`, keeping live memberships before dead
-/// ones. The cap bounds work; cutting arbitrarily (or alphabetically) could
-/// keep only ghosts and drop the people actually in the call.
 fn bound_membership_events(
     mut events: Vec<serde_json::Value>,
     now_ms: u64,
@@ -1379,9 +1071,6 @@ fn bound_membership_events(
     events
 }
 
-/// The slot one membership event occupies, for merging two views. The state
-/// key (`{user}_{device}_{application}`) is the identity; sender plus device
-/// id is the fallback when no envelope field is present.
 fn membership_slot(value: &serde_json::Value) -> Option<String> {
     let object = value.as_object()?;
     if let Some(key) = object.get("state_key").and_then(|v| v.as_str()) {
@@ -1398,10 +1087,6 @@ fn membership_slot(value: &serde_json::Value) -> Option<String> {
     Some(format!("{sender}\u{1f}{device}"))
 }
 
-/// Merge two views of a room's memberships, keeping the newer event per
-/// state key. The server's `/state` can predate our own publish, and the
-/// store can hold an event the server already replaced; a retraction wins
-/// on its timestamp like anything else.
 pub(crate) fn merge_membership_events(
     store: Vec<serde_json::Value>,
     server: Vec<serde_json::Value>,
@@ -1432,28 +1117,11 @@ pub(crate) fn merge_membership_events(
     bound_membership_events(out, now_ms, MAX_RAW_MEMBER_EVENTS)
 }
 
-/// Every membership state event for a room as raw JSON, and its source.
-///
-/// The store is asked first, the homeserver second. Sliding sync delivers
-/// `CallMember` state, but not promptly for rooms we are not subscribed to:
-/// a store can hold only stale retractions while the server has the live
-/// memberships. Media keys go to the devices these events name, so an empty
-/// read sends the key to nobody and every frame is dropped.
-///
-/// The network read is a fallback, used only when the store has nothing
-/// live and there is a reason to believe a session exists (see
-/// [`StoreVerdict`]), with a per-room backoff. The store read happens on
-/// every poke, so a call starting is still noticed immediately.
-///
-/// `prefer_server` asks the server anyway, for a caller with evidence the
-/// store is incomplete (an SFU participant no membership accounts for).
 async fn read_membership_events(
     room: &Room,
     now_ms: u64,
     prefer_server: bool,
 ) -> (Vec<serde_json::Value>, &'static str) {
-    // Parse first, bound second: the store query is unordered, so bounding
-    // first could miss every live membership.
     let from_store = bound_membership_events(
         room.get_state_events(StateEventType::from(EV_MEMBER_LEGACY))
             .await
@@ -1495,9 +1163,6 @@ async fn read_membership_events(
     else {
         return (from_store, "store-fallback");
     };
-    // No bound before the filter: `/state` is dominated by `m.room.member`, so
-    // bounding the raw response could hide every `m.call.member`. The bound
-    // that matters is on what is kept.
     let mut from_server = Vec::new();
     for raw in response.room_state.iter() {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(raw.json().get())
@@ -1513,14 +1178,10 @@ async fn read_membership_events(
         }
     }
     if from_server.is_empty() {
-        // The server answered and the room has no membership state: a real answer,
-        // distinct from a failed request.
         return (from_store, "server-none");
     }
     let merged = merge_membership_events(from_store, from_server, now_ms);
     if !prefer_server && store_view_is_usable(&merged, now_ms) {
-        // Found what it was spent on, so the streak resets. Forced reads are paced
-        // by their caller and do not touch this backoff.
         note_server_escalation_found_live(
             room.own_user_id().as_str(),
             room.room_id().as_str(),
@@ -1541,8 +1202,6 @@ async fn read_session(
     let raw_count = raw_members.len();
 
     for value in raw_members.iter() {
-        // Loose JSON: only `sender`, `content` and `origin_server_ts` are needed,
-        // and one unreadable membership must not poison the rest.
         let Some(object) = value.as_object() else { continue };
         let Some(sender) = object.get("sender").and_then(|v| v.as_str()) else {
             continue;
@@ -1570,7 +1229,6 @@ async fn read_session(
             ) {
                 continue;
             }
-            // The envelope's event id, which a raised hand annotates.
             member.event_id = object
                 .get("event_id")
                 .and_then(|value| value.as_str())
@@ -1587,8 +1245,6 @@ async fn read_session(
     let (slot_present, slot_closed) = read_slot(room).await;
 
     let mut members = room_call_members(members, now_ms);
-    // Resolve profiles after aggregation, and with `_no_sync` so a facepile
-    // costs no network round trips.
     for member in &mut members {
         let Ok(user_id) = matrix_sdk::ruma::UserId::parse(&member.user_id)
         else {
@@ -1613,8 +1269,6 @@ async fn read_session(
     }
 }
 
-/// Read the MSC4143 slot state, if any. Absence is not "closed" (almost no
-/// deployment publishes slots); only an explicit `status: "closed"` closes.
 async fn read_slot(room: &Room) -> (bool, bool) {
     let Ok(events) = room.get_state_events(StateEventType::from(EV_SLOT)).await else {
         return (false, false);
@@ -1654,7 +1308,6 @@ async fn read_slot(room: &Room) -> (bool, bool) {
     (present, closed)
 }
 
-/// Closed-set category for a discovery HTTP status. Never the body.
 fn status_category(status: u16) -> &'static str {
     match status {
         400 | 404 | 405 => "unsupported",
@@ -1665,18 +1318,10 @@ fn status_category(status: u16) -> &'static str {
     }
 }
 
-/// Whether a discovery outcome settles "does this homeserver have
-/// MatrixRTC?". Definitive: an empty category (it answered) and
-/// `unsupported` (400/404/405, no MSC4143). Anything else (`forbidden`,
-/// `rate_limited`, `server_error`, `network`, …) leaves it open, so the UI
-/// says "couldn't check" and the caller may retry.
 fn discovery_answer_is_definitive(category: &str) -> bool {
     category.is_empty() || category == "unsupported"
 }
 
-/// Local wall clock, compared with server-supplied timestamps for expiry;
-/// a skewed device clock can drop live participants or keep dead ones (as
-/// in the reference implementation).
 fn now_ms() -> u64 {
     MilliSecondsSinceUnixEpoch::now().get().into()
 }
@@ -1689,7 +1334,6 @@ fn session_payload(room_id: &str, session: &RtcSession) -> serde_json::Value {
         "member_count": session.members.len(),
         "slot_present": session.slot_present,
         "slot_closed": session.slot_closed,
-        // Source and raw count: a fixed word and a number only.
         "source": session.source,
         "raw_count": session.raw_count,
         "focus": focus.as_ref().map(LivekitTransport::to_json),
@@ -1698,15 +1342,6 @@ fn session_payload(room_id: &str, session: &RtcSession) -> serde_json::Value {
     })
 }
 
-// ---------------------------------------------------------------------------
-// FFI-facing operations
-// ---------------------------------------------------------------------------
-
-/// Report the current MatrixRTC session for one room.
-///
-/// `prefer_server` also asks the homeserver and merges the views. It costs
-/// one `/state`, so it is for a caller with evidence the store is
-/// incomplete, rate limited by that caller.
 pub(crate) fn request_session(
     bridge: &RustClient,
     room_id: String,
@@ -1731,9 +1366,6 @@ pub(crate) fn request_session(
     Ok(())
 }
 
-/// Discover the SFU transports this account can use: the homeserver's
-/// answer plus the focus the room's participants advertise, labelled by
-/// source so C++ can apply policy and explain unavailability.
 pub(crate) fn request_transports(
     bridge: &RustClient,
     room_id: String,
@@ -1743,7 +1375,6 @@ pub(crate) fn request_transports(
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
-    // Discovery is account-scoped; the room only adds the participant fallback.
     let room = joined_room(&client, &room_id).ok();
 
     bridge.spawn_room_action(async move {
@@ -1756,8 +1387,6 @@ pub(crate) fn request_transports(
                 .filter_map(parse_transport)
                 .take(MAX_TRANSPORTS)
                 .collect::<Vec<_>>()),
-            // 404/400/M_UNRECOGNIZED means "no MatrixRTC on this homeserver", which
-            // must stay distinguishable from a transient failure.
             Ok(answer) => Err(status_category(answer.status).to_owned()),
             Err(err) => Err(classify_room_error(&err).to_owned()),
         };
@@ -1789,8 +1418,6 @@ pub(crate) fn request_transports(
             "op_id": op_id,
             "lifecycle": lifecycle,
             "room_id": room_id,
-            // "The server settled this", not "the server said yes"; see
-            // discovery_answer_is_definitive.
             "server_answered": discovery_answer_is_definitive(&category),
             "category": category,
             "server_transports": server_transports.iter()
@@ -1808,9 +1435,6 @@ pub(crate) fn request_transports(
     Ok(())
 }
 
-/// Send an `org.matrix.msc4075.rtc.notification`. `notification_type` is
-/// clamped to the reference's two values and `lifetime` to Element's 90 s
-/// cap, past which other clients consider the ring invalid.
 pub(crate) fn send_notification(
     bridge: &RustClient,
     room_id: String,
@@ -1834,8 +1458,6 @@ pub(crate) fn send_notification(
     };
     let lifetime = lifetime_ms.clamp(1_000, MAX_NOTIFICATION_LIFETIME_MS);
 
-    // Relating the ring to our membership event lets receivers connect it to a
-    // session and target a decline at it.
     let relates_to = match sane(&membership_event_id, MAX_WIRE_LEN) {
         Some(id) => match OwnedEventId::try_from(id.to_owned()) {
             Ok(event_id) => Some(Reference::new(event_id)),
@@ -1848,7 +1470,6 @@ pub(crate) fn send_notification(
         notification_type: notification_type.to_owned(),
         sender_ts: MilliSecondsSinceUnixEpoch::now(),
         lifetime,
-        // `room: true` makes it reach members through push rules, as Element does.
         mentions: Some(Mentions::with_room_mention()),
         relates_to,
         call_intent: Some(intent.to_owned()),
@@ -1884,10 +1505,6 @@ pub(crate) fn send_notification(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Publishing our own membership
-// ---------------------------------------------------------------------------
-
 /// Membership validity when the server can retract it for us (an MSC4140
 /// delayed retraction is armed). 4 h is the reference's
 /// `DEFAULT_EXPIRE_DURATION`; the delayed retraction does the real cleanup.
@@ -1918,24 +1535,13 @@ fn expires_for_refresh(period_ms: u64, created_ts: Option<u64>, now_ms: u64)
     -> u64
 {
     match created_ts {
-        // A first publish has no created_ts, so peers date it from the event's
-        // origin_server_ts: the duration is the period.
         None => period_ms,
-        // Saturating both ways: a future created_ts (skew, or hostile) must not
-        // wrap, and yields the plain period.
         Some(created) => now_ms
             .saturating_sub(created)
             .saturating_add(period_ms),
     }
 }
 
-/// The `expires` for the no-MSC4140 fallback write, which replaces our state
-/// event while keeping the original `created_ts`. A bare constant there
-/// would publish a membership already expired whenever this is not a fresh
-/// join, dropping our own device from every reader's list. It can run on
-/// MSC4140 servers too, since `schedule_delayed_leave` reports any failure
-/// (timeout, 429, 5xx) as an empty delay id. Same rule as
-/// `expires_for_refresh`.
 fn fallback_expires_ms(created_ts: Option<u64>, now_ms: u64) -> u64 {
     expires_for_refresh(MEMBERSHIP_EXPIRY_NO_DELAYED_MS, created_ts, now_ms)
 }
@@ -1961,8 +1567,6 @@ const DELAYED_LEAVE_TIMEOUT_MS: u64 = 8_000;
 static DELAYED_EVENTS_REFUSED: Mutex<BTreeSet<String>> =
     Mutex::new(BTreeSet::new());
 
-/// Record or clear the refusal for one homeserver. Takes a plain string so
-/// it is testable; the `_for_client` wrappers are the production callers.
 fn mark_delayed_refusal(server: &str, refused: bool) {
     let Ok(mut seen) = DELAYED_EVENTS_REFUSED.lock() else {
         return;
@@ -1974,7 +1578,6 @@ fn mark_delayed_refusal(server: &str, refused: bool) {
     }
 }
 
-/// Has this homeserver refused? Another server's answer is not evidence.
 fn delayed_refusal_recorded(server: &str) -> bool {
     DELAYED_EVENTS_REFUSED
         .lock()
@@ -1982,7 +1585,6 @@ fn delayed_refusal_recorded(server: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// The key: the homeserver URL, since the property belongs to the server.
 fn delayed_refusal_key(client: &Client) -> String {
     client.homeserver().to_string()
 }
@@ -2031,7 +1633,6 @@ impl MembershipDelayRegistry {
     }
 }
 
-/// Key for both halves. U+001F cannot occur in a room id or state key.
 fn membership_publish_key(room_id: &str, state_key: &str) -> String {
     format!("{room_id}\u{1f}{state_key}")
 }
@@ -2040,31 +1641,17 @@ fn mark_membership_published(user_id: &str, key: &str) {
     if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
         seen.insert(key.to_owned());
     }
-    // Joining a call is fresh evidence of a session, so clear the room's
-    // escalation backoff; otherwise the media key lane could read a stale store.
     if let Some(room_id) = key.split('\u{1f}').next() {
         clear_server_escalation_backoff(user_id, room_id);
     }
 }
 
-/// Forget it, so the next publish is a join. Called on the intent to leave,
-/// not on retraction success: a failed retraction leaves the same ghost a
-/// crash does.
 fn forget_membership_published(key: &str) {
     if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
         seen.remove(key);
     }
 }
 
-/// Forget every membership this process published in one room, without a
-/// client or session. The sign-out path has no session left to derive the
-/// state key from, and a stale mark would make the next join inherit a
-/// ghost's `created_ts`.
-///
-/// `account`: Labs only (design §3.2.10). With concurrent live accounts a
-/// second account may be in a call in the same room, and its marks are not
-/// this leave's to forget. `None` (the flag-off path, and a leave with no
-/// session left to name the account) clears the whole room as before.
 fn forget_room_memberships_published(room_id: &str, account: Option<(&str, &str)>) {
     let prefix = format!("{room_id}\u{1f}");
     if let Ok(mut seen) = OWN_MEMBERSHIP_PUBLISHED.lock() {
@@ -2078,8 +1665,6 @@ fn forget_room_memberships_published(room_id: &str, account: Option<(&str, &str)
     }
 }
 
-/// Whether a membership state key is (user, device)'s, in either of the two
-/// shapes `membership_state_key` writes.
 fn state_key_belongs_to(state_key: &str, user_id: &str, device_id: &str) -> bool {
     let bare = format!("{user_id}_{device_id}_{APPLICATION_CALL}");
     state_key == bare || state_key.strip_prefix('_') == Some(bare.as_str())
@@ -2107,8 +1692,6 @@ pub(crate) fn forget_account_memberships_published(user_id: &str, device_id: &st
     }
 }
 
-/// Has this process already published this membership? Pure over the set,
-/// so the join/refresh rule is testable without a homeserver.
 fn membership_published_in_this_process(key: &str) -> bool {
     OWN_MEMBERSHIP_PUBLISHED
         .lock()
@@ -2116,9 +1699,6 @@ fn membership_published_in_this_process(key: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Is this process in a call in this room, i.e. does it hold a published
-/// membership for any of its devices there? Prefix match on the same key as
-/// `forget_room_memberships_published`.
 fn room_has_published_membership(room_id: &str) -> bool {
     let prefix = format!("{room_id}\u{1f}");
     OWN_MEMBERSHIP_PUBLISHED
@@ -2127,21 +1707,6 @@ fn room_has_published_membership(room_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Does this refusal category mean the homeserver does not implement
-/// MSC4140, rather than something that may work next time? Pure for tests.
-///
-///   * `unrecognized`: Synapse's 404 M_UNRECOGNIZED;
-///   * `not_found`: a plain 404;
-///   * `no_delay_id`: the server ignored the delay parameter, applied the
-///     body and returned 200 without a `delay_id` (GitHub #10);
-///   * `delayed_unsupported`: Synapse with `msc4140_enabled` off answers
-///     `400 M_UNKNOWN` "Delayed events are not supported on this server"
-///     with `org.matrix.msc4140.errcode: M_MAX_DELAY_UNSUPPORTED` (the body
-///     is not applied).
-///
-/// Everything else (`network`, including timeouts, `rate_limited`,
-/// `forbidden`, `invalid`) is transient or room-specific. `forbidden` is
-/// how a room's power levels refuse a state write.
 pub(crate) fn delayed_refusal_is_permanent(category: &str) -> bool {
     matches!(
         category,
@@ -2149,17 +1714,8 @@ pub(crate) fn delayed_refusal_is_permanent(category: &str) -> bool {
     )
 }
 
-/// The `/versions` feature flag for MSC4140.
 const MSC4140_FEATURE: &str = "org.matrix.msc4140";
 
-/// Does the homeserver advertise delayed events?
-///
-/// Consulted only after an arm failed, as corroboration, never as a gate,
-/// so a server that supports MSC4140 without advertising it still works.
-/// `unstable_features()` holds only features set to true, so absence covers
-/// both `false` and a server too old to name it. An unanswerable query
-/// reads as "advertised": never latch on not knowing, since the latch
-/// disables crash cleanup.
 async fn server_advertises_delayed_events(client: &Client) -> bool {
     use matrix_sdk::ruma::api::FeatureFlag;
     match tokio::time::timeout(DISCOVERY_TIMEOUT, client.unstable_features())
@@ -2170,8 +1726,6 @@ async fn server_advertises_delayed_events(client: &Client) -> bool {
     }
 }
 
-/// Whether this process has seen the homeserver refuse a delayed event,
-/// for the scheduled-send probe.
 pub(crate) fn delayed_events_assumed_refused(client: &Client) -> bool {
     delayed_refusal_recorded_for_client(client)
 }
@@ -2186,8 +1740,6 @@ pub(crate) fn membership_state_key(
     device_id: &str,
     room_version: &str,
 ) -> String {
-    // The room call's slot id is "" in a state key ("ROOM" is not used on
-    // this wire).
     let key = format!("{user_id}_{device_id}_{APPLICATION_CALL}");
     if room_version.starts_with("org.matrix.msc3757")
         || room_version.starts_with("org.matrix.msc3779")
@@ -2198,9 +1750,6 @@ pub(crate) fn membership_state_key(
     }
 }
 
-/// The membership content we publish, in the legacy session format that
-/// every deployed server and Element understand (matrix-sdk 0.18 cannot
-/// send sticky events).
 fn own_membership_content_with_mode(
     device_id: &str,
     user_id: &str,
@@ -2212,12 +1761,9 @@ fn own_membership_content_with_mode(
 ) -> serde_json::Value {
     let mut content = json!({
         "application": APPLICATION_CALL,
-        // "" — the room-wide call. See slot_id_for_call_id.
         "call_id": "",
         "scope": "m.room",
         "device_id": device_id,
-        // The SFU participant identity for this format; the SFU assigns exactly
-        // this.
         "membershipID": format!("{user_id}:{device_id}"),
         // Not a constant: depends on whether anything else will retract this
         // membership (see MEMBERSHIP_EXPIRY_NO_DELAYED_MS).
@@ -2248,14 +1794,6 @@ fn own_membership_content(
         FocusSelection::OldestMembership, intent, created_ts, expires_ms)
 }
 
-/// Publish or refresh our membership in a room's call.
-///
-///  1. Write the membership state event.
-///  2. Arm an MSC4140 delayed retraction a few seconds out, restarted
-///     periodically, so a crash does not leave a phantom participant.
-///
-/// A server without MSC4140 refuses step 2; that is reported as
-/// `delayed_unsupported`, not a failure, and cleanup relies on `expires`.
 pub(crate) fn publish_membership(
     bridge: &RustClient,
     room_id: String,
@@ -2293,16 +1831,8 @@ pub(crate) fn publish_membership(
     let lifecycle = timelines.lifecycle();
 
     bridge.spawn_room_action(async move {
-        // A fallback/refresh must not arm a second `{}` timer on this state key.
-        // Serialize publish and retract, including their network operations.
         let mut registry = delays.lock().await;
         if !timelines.lifecycle_current(lifecycle) { return; }
-        // Our compatibility membership always describes where we publish.
-        // Mixed calls may initially select the oldest focus, but a publish
-        // denial moves this device home; legacy peers still use the oldest
-        // focus while multi-SFU peers follow this advertised focus.
-        // A device without a discovered focus publishes on the oldest
-        // member's service and must tell other clients to follow that rule.
         let selection = if multi_sfu {
             FocusSelection::MultiSfu
         } else {
@@ -2316,9 +1846,6 @@ pub(crate) fn publish_membership(
         let state_key =
             membership_state_key(&user_id, &device_id, &room_version);
 
-        // Preserve created_ts only across a refresh. A join starts its own clock
-        // (see OWN_MEMBERSHIP_PUBLISHED); `read_own_created_ts` is not even called
-        // on a join, so a crashed session's ghost cannot leak in.
         let publish_key =
             membership_publish_key(room.room_id().as_str(), &state_key);
         if !registry.accept_operation(&publish_key, op_id) {
@@ -2331,8 +1858,6 @@ pub(crate) fn publish_membership(
             return;
         }
         let delays = &mut registry.delays;
-        // Keep an existing timer alive before the metadata write. A lost
-        // timer can be replaced; an ambiguous failure must retain its id.
         let previous_delay = delays.get(&publish_key).cloned().unwrap_or_default();
         let reusable_delay = match reuse_membership_delay(&previous_delay, |id| {
             restart_membership_delay(&client, id)
@@ -2355,8 +1880,6 @@ pub(crate) fn publish_membership(
         } else {
             None
         };
-        // Carry the room as `livekit_alias`, as Element publishes it, so our focus
-        // has the same shape as every other client's for the same SFU.
         let focus = focus.map(|transport| LivekitTransport {
             service_url: transport.service_url.clone(),
             alias: transport
@@ -2365,11 +1888,6 @@ pub(crate) fn publish_membership(
                 .or_else(|| Some(room.room_id().to_string())),
         });
 
-        // The expiry assumed from what we know about this server; checked against
-        // what the server does with the delayed retraction below.
-        // A successful restart is stronger evidence than another room's
-        // cached refusal. A live timer needs the long expiry: C++ heartbeats
-        // restart it instead of re-publishing and extending short expires.
         let assumed_no_delayed = reusable_delay.is_empty()
             && delayed_refusal_recorded_for_client(&client);
         let period_ms = if assumed_no_delayed {
@@ -2377,7 +1895,6 @@ pub(crate) fn publish_membership(
         } else {
             MEMBERSHIP_EXPIRY_MS
         };
-        // Measured from created_ts (see expires_for_refresh).
         let expires_ms = expires_for_refresh(period_ms, created_ts, now_ms());
         let content = own_membership_content_with_mode(
             &device_id, &user_id, focus.as_ref(), selection, intent, created_ts,
@@ -2404,9 +1921,6 @@ pub(crate) fn publish_membership(
             Err(_) => (false, "network".to_owned(), String::new()),
         };
 
-        // From now on this process owns the state key, so later publishes are
-        // refreshes. Only on an accepted write; a failed publish's retry is still a
-        // join.
         if ok {
             mark_membership_published(&user_id, &publish_key);
         }
@@ -2431,8 +1945,6 @@ pub(crate) fn publish_membership(
                 || schedule_delayed_leave(&client, room.room_id().as_str(), &state_key)).await
             {
                 Ok(id) => {
-                    // A successful arm clears this server's refusal entry, so a server that
-                    // gains support recovers.
                     if !id.is_empty() {
                         mark_delayed_refusal_for_client(&client, false);
                     }
@@ -2448,15 +1960,6 @@ pub(crate) fn publish_membership(
             }
         }
 
-        // Reconcile the assumption with what the server did. We assumed delayed
-        // events work and they did not: re-publish with the short expiry. There
-        // is provably no armed event to disturb, and otherwise the membership
-        // would claim 4 h that nothing cuts short. (With the gate above we never
-        // arm while assuming refusal, so the opposite case cannot occur.)
-        //
-        // A server that gains MSC4140 is re-probed on the next publish allowed to
-        // try, since a successful arm clears the refusal entry; a transient
-        // failure never latches.
         if ok && !assumed_no_delayed && delay_id.is_empty() {
             // Latch only for a permanent category (`delayed_refusal_is_permanent`); the
             // short re-publish happens regardless.
@@ -2473,16 +1976,11 @@ pub(crate) fn publish_membership(
                 && !server_advertises_delayed_events(&client).await;
             if delayed_refusal_is_permanent(&delayed_category) || unadvertised {
                 mark_delayed_refusal_for_client(&client, true);
-                // Log it: reporting `delayed_reason= "network"` on a server that published
-                // `org.matrix.msc4140: false` would be misleading.
                 if unadvertised && !delayed_refusal_is_permanent(&delayed_category)
                 {
                     delayed_category = "delayed_unsupported".to_owned();
                 }
             }
-            // A second write with the short expiry, replacing our own state event under
-            // the same key (one membership, created_ts unchanged). Measured from
-            // created_ts like the first write; see fallback_expires_ms.
             let short = own_membership_content_with_mode(
                 &device_id, &user_id, focus.as_ref(), selection, intent, created_ts,
                 fallback_expires_ms(created_ts, now_ms()));
@@ -2493,9 +1991,6 @@ pub(crate) fn publish_membership(
             .await;
             match retry {
                 Ok(Ok(response)) => event_id = response.event_id.to_string(),
-                // The first write landed but with a 4 h expiry and no server-side cleanup,
-                // the ghost this path prevents. Report failure so the caller does not
-                // proceed into a call it cannot clean up after.
                 Ok(Err(err)) => {
                     ok = false;
                     category = classify_room_error(&err.to_string()).to_owned();
@@ -2518,8 +2013,6 @@ pub(crate) fn publish_membership(
             "ok": ok,
             "category": category,
             "event_id": event_id,
-            // Empty means no server-side cleanup is armed; the caller relies on
-            // `expires`.
             "delay_id": delay_id,
             "delayed_category": delayed_category,
         }));
@@ -2527,10 +2020,6 @@ pub(crate) fn publish_membership(
     Ok(())
 }
 
-/// Read the `created_ts` of our existing membership, only if it is still
-/// live. Inheriting the timestamp of an expired membership would publish
-/// one born expired: others drop it and we appear with no media. A fresh
-/// join after an expired ghost starts its own clock.
 async fn read_own_created_ts(room: &Room, state_key: &str) -> Option<u64> {
     let raw = room
         .get_state_event(StateEventType::from(EV_MEMBER_LEGACY), state_key)
@@ -2545,13 +2034,11 @@ async fn read_own_created_ts(room: &Room, state_key: &str) -> Option<u64> {
     )
 }
 
-/// The pure half of read_own_created_ts, testable without a live SDK.
 fn inheritable_created_ts(
     content: &serde_json::Value,
     origin_server_ts: Option<u64>,
     now_ms: u64,
 ) -> Option<u64> {
-    // Empty content is a retraction: a fresh join.
     if content.as_object().is_some_and(|o| o.is_empty()) {
         return None;
     }
@@ -2563,16 +2050,12 @@ fn inheritable_created_ts(
         .get("expires")
         .and_then(|v| v.as_u64())
         .unwrap_or(DEFAULT_EXPIRE_MS);
-    // Saturating, so a hostile `expires` cannot make a live membership look
-    // dead. A future timestamp counts as live; skew is not policed here.
     if created.saturating_add(expires) <= now_ms {
         return None;
     }
     Some(created)
 }
 
-/// Reuse the timer attached to a live membership. Only a definitive missing
-/// event permits a replacement; a timeout may still have restarted it.
 async fn reuse_membership_delay<F, Fut>(existing: &str, restart: F) -> Result<String, String>
 where
     F: FnOnce(String) -> Fut,
@@ -2595,10 +2078,6 @@ where
     G: FnOnce() -> Gut,
     Gut: std::future::Future<Output = Result<String, String>>,
 {
-    // This runs after the state write. A missing existing timer may have
-    // already retracted that state: replacing only the timer would report a
-    // healthy membership that is actually absent. Keep the old id on failure
-    // so the controller's heartbeat repair performs a fresh state write.
     if !existing.is_empty() {
         restart(existing.to_owned()).await?;
         return Ok(existing.to_owned());
@@ -2617,8 +2096,6 @@ async fn restart_membership_delay(client: &Client, id: String) -> Result<(), Str
     }
 }
 
-/// Cancel a delayed event, retaining its id after an ambiguous failure so a
-/// rapid rejoin can reuse it instead of leaving an orphaned cleanup timer.
 async fn cancel_membership_delay(client: &Client, id: &str) -> bool {
     use matrix_sdk::ruma::api::client::delayed_events::update_delayed_event;
     if id.is_empty() { return true; }
@@ -2631,15 +2108,10 @@ async fn cancel_membership_delay(client: &Client, id: &str) -> bool {
     }
 }
 
-/// Whether a delayed retraction may be armed on this publish: only where
-/// the reconciliation can put the membership back if the server applied the
-/// `{}` outright (the `!assumed_no_delayed && delay_id.is_empty()` branch).
-/// On a refresh no repair branch exists. Separate so the rule is testable.
 pub(crate) fn delayed_retraction_is_repairable(assumed_no_delayed: bool) -> bool {
     !assumed_no_delayed
 }
 
-/// Schedule the server-side (MSC4140) retraction of our membership.
 async fn schedule_delayed_leave(
     client: &Client,
     room_id: &str,
@@ -2650,7 +2122,6 @@ async fn schedule_delayed_leave(
     };
     let room_id = matrix_sdk::ruma::RoomId::parse(room_id)
         .map_err(|_| "invalid".to_owned())?;
-    // Empty content retracts the membership.
     let request = delayed_state_event::unstable::Request::new_raw(
         room_id,
         state_key.to_owned(),
@@ -2665,43 +2136,26 @@ async fn schedule_delayed_leave(
     match tokio::time::timeout(DISCOVERY_TIMEOUT, client.send(request)).await {
         Ok(Ok(response)) => {
             if response.delay_id.is_empty() {
-                // No delay id: the server applied the `{}` body as an ordinary state write
-                // and retracted us.
                 Err("no_delay_id".to_owned())
             } else {
                 Ok(response.delay_id)
             }
         }
-        // A server without MSC4140 answers 404/400; cleanup falls back to `expires`.
         Ok(Err(err)) => Err(classify_delayed_leave_failure(&err)),
         Err(_) => Err("network".to_owned()),
     }
 }
 
-/// Does this error say the server does not do delayed events? Pure so the
-/// wording is pinned by a test.
 pub(crate) fn delayed_failure_says_unsupported(message: &str) -> bool {
     let lc = message.to_lowercase();
-    // The MSC's errcode and Synapse's message. `m_max_delay_exceeded` does not
-    // match: it means delayed events work but the delay was too long.
     lc.contains("m_max_delay_unsupported")
         || lc.contains("delayed events are not supported")
 }
 
-/// Why a delayed retraction could not be armed, in the vocabulary of
-/// `delayed_refusal_is_permanent`.
-///
-/// Handles two cases `classify_room_error` cannot: a server that ignores the
-/// delay parameter answers 200 with no `delay_id`, which ruma reports as a
-/// deserialization failure on an accepted status (GitHub #10); and Synapse
-/// with `msc4140_enabled` off answers 400 M_UNKNOWN "Delayed events are not
-/// supported on this server" (see `delayed_failure_says_unsupported`).
 fn classify_delayed_leave_failure(err: &matrix_sdk::HttpError) -> String {
     use matrix_sdk::ruma::api::error::FromHttpResponseError;
     use matrix_sdk::HttpError;
 
-    // The server answered with a Matrix error (404 M_UNRECOGNIZED, 403, 429 …):
-    // classify_room_error handles those.
     if err.as_client_api_error().is_some() {
         // Except Synapse's MSC4140 refusal (400 M_UNKNOWN, "Delayed events are not
         // supported on this server", `org.matrix.msc4140.errcode:
@@ -2715,18 +2169,14 @@ fn classify_delayed_leave_failure(err: &matrix_sdk::HttpError) -> String {
         }
         return classify_room_error(&err.to_string()).to_owned();
     }
-    // A body ruma could not read on an accepted status, matched on the error
-    // variant since the serde message names a field, not a status.
     if let HttpError::Api(api) = err {
         if matches!(**api, FromHttpResponseError::Deserialization(_)) {
             return "no_delay_id".to_owned();
         }
     }
-    // Anything else is transient by default; a blip must never latch.
     "network".to_owned()
 }
 
-/// Restart the delayed retraction, so it keeps not-firing while we are alive.
 pub(crate) fn restart_delayed_leave(
     bridge: &RustClient,
     delay_id: String,
@@ -2735,17 +2185,12 @@ pub(crate) fn restart_delayed_leave(
     update_delayed(bridge, delay_id, "restart", op_id)
 }
 
-/// Retract our membership now: send the empty content and cancel the
-/// pending delayed event so nothing fires later.
 pub(crate) fn retract_membership(
     bridge: &RustClient,
     room_id: String,
     delay_id: String,
     op_id: u64,
 ) -> Result<(), String> {
-    // First, before anything that can fail: sign-out reaches here without a
-    // session, and leaving is an intent the bookkeeping must follow. In Labs
-    // only this account's marks go when the session can still name it.
     let account = if crate::labs::active() {
         bridge.client.lock().ok().and_then(|guard| {
             guard.as_ref().and_then(|client| {
@@ -2777,11 +2222,6 @@ pub(crate) fn retract_membership(
     let lifecycle = timelines.lifecycle();
 
     bridge.spawn_room_action(async move {
-        // No lifecycle check before the retraction itself: shutdown() advances
-        // the lifecycle BEFORE it joins the room-action pool, so a leave queued
-        // behind another membership write would otherwise be skipped exactly
-        // when the app quits or switches account, stranding the membership. Only
-        // the answer is suppressed when the lifecycle is stale (below).
         let mut registry = delays.lock().await;
         let room_version = room
             .clone_info()
@@ -2802,13 +2242,9 @@ pub(crate) fn retract_membership(
         }
         let delays = &mut registry.delays;
 
-        // The next publish for this state key is a join. Forgotten before and
-        // regardless of the retraction's outcome (see OWN_MEMBERSHIP_PUBLISHED).
         forget_membership_published(&membership_publish_key(
             room.room_id().as_str(), &state_key));
 
-        // Retract first: if the cancel then fails, the worst case is a redundant
-        // retraction; the other order leaves a window with neither.
         let result = tokio::time::timeout(
             DISCOVERY_TIMEOUT,
             room.send_state_event_raw(EV_MEMBER_LEGACY, &state_key, json!({})),
@@ -2819,8 +2255,6 @@ pub(crate) fn retract_membership(
         if !current_delay.is_empty() {
             delays.insert(publish_key.clone(), current_delay.clone());
         }
-        // Retain the id on an ambiguous cancellation failure: a rapid rejoin
-        // must reuse it rather than leave a timer that removes the new call.
         if cancel_membership_delay(&client, &current_delay).await {
             delays.remove(&publish_key);
         }
@@ -2893,25 +2327,11 @@ fn update_delayed(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Raised hands
-// ---------------------------------------------------------------------------
-
 /// The reaction key element-call uses for a raised hand: U+1F590 plus
 /// U+FE0F. Taken from element-call (`useReactionsSender.tsx`,
 /// `ReactionsReader.ts`), which compares exactly this string.
 pub(crate) const HAND_RAISED_KEY: &str = "\u{1F590}\u{FE0F}";
 
-/// Raise or lower this device's hand, in element-call's wire format:
-///
-///   raise  → an `m.reaction` with `m.relates_to`
-///            `{ rel_type: "m.annotation", event_id: <our own m.call.member
-///            state event>, key: "🖐️" }`
-///   lower  → a redaction of that reaction
-///
-/// Targeting our membership event scopes the hand to this call: a new
-/// membership is a new event. `reaction_event_id` is required to lower and
-/// ignored to raise.
 pub(crate) fn set_hand_raised(
     bridge: &RustClient,
     room_id: String,
@@ -2963,7 +2383,6 @@ pub(crate) fn set_hand_raised(
                 "ok": ok,
                 "raised": true,
                 "category": category,
-                // Needed to redact, i.e. lower, the hand later.
                 "event_id": event_id,
             }));
         });
@@ -3004,13 +2423,6 @@ pub(crate) fn set_hand_raised(
     Ok(())
 }
 
-/// Read the hands already raised in a room's call: a hand raised before we
-/// joined produces no sync event for us. element-call walks each
-/// membership's annotations the same way.
-///
-/// Bounded: at most `MAX_HAND_PROBES` memberships, cache-first, once per
-/// join (later hands come through the sync handler). A membership whose
-/// annotations cannot be read contributes nothing, never a lowered hand.
 pub(crate) fn read_raised_hands(
     bridge: &RustClient,
     room_id: String,
@@ -3048,8 +2460,6 @@ pub(crate) fn read_raised_hands(
             let Ok((_target, relations)) = loaded else { continue };
             for relation in &relations {
                 let Ok(parsed) = relation.raw().deserialize() else { continue };
-                // The sender must own the membership: anyone may annotate anyone's
-                // membership event, and without this one user could raise everybody's hand.
                 if parsed.sender().as_str() != member.user_id {
                     continue;
                 }
@@ -3063,7 +2473,6 @@ pub(crate) fn read_raised_hands(
                 {
                     continue;
                 }
-                // A redacted reaction has no key, so it reads as not raised.
                 let key = value
                     .get("content")
                     .and_then(|c| c.get("m.relates_to"))
@@ -3084,7 +2493,7 @@ pub(crate) fn read_raised_hands(
                     "membership_event_id": member.event_id,
                     "reaction_event_id": reaction_id,
                 }));
-                break;   // one hand per membership
+                break;
             }
         }
         enqueue(&events, json!({
@@ -3098,21 +2507,9 @@ pub(crate) fn read_raised_hands(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Transient call reactions (io.element.call.reaction)
-// ---------------------------------------------------------------------------
-
-/// element-call's transient reaction event type (`src/reactions/index.ts`
-/// `ElementCallReactionEventType`). The string lives in the event-content
-/// derive; this constant is asserted against it in tests.
 #[allow(dead_code)]
 pub(crate) const EV_CALL_REACTION: &str = "io.element.call.reaction";
 
-/// The reaction pairs element-call knows, `(name, emoji)`, transcribed from
-/// `element-call/src/reactions/index.ts` (`ReactionSet`).
-///
-/// Known sound names must keep their matching emoji. An empty name asks
-/// Element Call to use its generic sound for another Unicode emoji.
 const ELEMENT_CALL_REACTIONS: &[(&str, &str)] = &[
     ("thumbsup", "\u{1F44D}"),
     ("party", "\u{1F389}"),
@@ -3133,32 +2530,11 @@ const ELEMENT_CALL_REACTIONS: &[(&str, &str)] = &[
     ("bell", "\u{1F6CE}\u{FE0F}"),
 ];
 
-/// Send timeout. Reactions are fire-and-forget; this only bounds the task.
 const REACTION_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Byte bound on a reaction `emoji` field. This allows longer legitimate
-/// Unicode sequences and refuses payloads.
 const MAX_REACTION_EMOJI_LEN: usize = 64;
-/// Code-point bound on the cluster [`first_emoji_cluster`] builds (a family
-/// sequence is seven), which also guarantees termination on hostile input.
 const MAX_REACTION_CLUSTER_CHARS: usize = 8;
 
-/// element-call's transient reaction:
-///
-///   `{ "m.relates_to": { "rel_type": "m.reference",
-///                        "event_id": <the sender's own m.call.member
-///                                     state event> },
-///      "emoji": "\u{1F44D}", "name": "thumbsup" }`
-///
-/// Referencing the membership scopes the reaction to one call and
-/// participant. The sender must own that membership; that check lives in
-/// C++ (`RtcController::identityForMembership`, shared with hands).
-///
-/// `relates_to` and `emoji` are required, so malformed content never
-/// reaches the handler. serde does not verify an internally tagged
-/// struct's tag inbound, so `rel_type: m.annotation` still deserializes as
-/// a `Reference`; the type pins what we send, and element-call's reader
-/// ignores `rel_type` too. `name` is optional inbound; picker reactions send it empty.
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
 #[ruma_event(type = "io.element.call.reaction", kind = MessageLike)]
 pub(crate) struct ElementCallReactionEventContent {
@@ -3169,9 +2545,6 @@ pub(crate) struct ElementCallReactionEventContent {
     pub relates_to: Reference,
 }
 
-/// Reduce an inbound `emoji` to one drawable cluster, or nothing: bounded
-/// by [`sane`], then cut to the first cluster, as element-call does with
-/// `Intl.Segmenter`, so a packed sentence shows as one glyph.
 fn reaction_emoji(raw: &str) -> Option<String> {
     let bounded = sane(raw.trim(), MAX_REACTION_EMOJI_LEN)?;
     let cluster = first_emoji_cluster(bounded);
@@ -3181,19 +2554,10 @@ fn reaction_emoji(raw: &str) -> Option<String> {
     Some(cluster)
 }
 
-/// True for a regional indicator symbol letter (half of a flag).
 fn is_regional_indicator(value: char) -> bool {
     ('\u{1F1E6}'..='\u{1F1FF}').contains(&value)
 }
 
-/// The first grapheme-like cluster of `value`: the first character plus
-/// following code points that cannot stand alone (variation selectors,
-/// ZWJ and what they join, skin tones, keycap, combining marks, tag
-/// sequences, the second regional indicator). Covers element-call's set.
-///
-/// Not a Unicode segmentation implementation (`unicode-segmentation` is not
-/// a direct dependency); where it differs it returns at most one code point
-/// too few.
 fn first_emoji_cluster(value: &str) -> String {
     let mut out = String::new();
     let mut chars = value.chars().peekable();
@@ -3201,18 +2565,17 @@ fn first_emoji_cluster(value: &str) -> String {
         return out;
     };
     out.push(first);
-    // Set after a ZWJ, which binds the next code point into the cluster.
     let mut after_join = false;
     while out.chars().count() < MAX_REACTION_CLUSTER_CHARS {
         let Some(&next) = chars.peek() else { break };
         let continues = after_join
             || matches!(next,
-                '\u{200D}'                  // zero-width joiner
-                | '\u{FE00}'..='\u{FE0F}'   // variation selectors
-                | '\u{1F3FB}'..='\u{1F3FF}' // skin tone modifiers
-                | '\u{20E3}'                // combining enclosing keycap
-                | '\u{0300}'..='\u{036F}'   // combining diacritical marks
-                | '\u{E0020}'..='\u{E007F}' // tag characters (flag sequences)
+                '\u{200D}'
+                | '\u{FE00}'..='\u{FE0F}'
+                | '\u{1F3FB}'..='\u{1F3FF}'
+                | '\u{20E3}'
+                | '\u{0300}'..='\u{036F}'
+                | '\u{E0020}'..='\u{E007F}'
             )
             || (out.chars().count() == 1
                 && is_regional_indicator(first)
@@ -3227,9 +2590,6 @@ fn first_emoji_cluster(value: &str) -> String {
     out
 }
 
-/// The `name` to send with `emoji`, or `None` for a name Element Call does not
-/// pair with that emoji. A nameless preset emoji (one picked from the full
-/// picker) gets its preset name, so Element Call plays that preset's sound.
 fn reaction_wire_name(emoji: &str, name: &str) -> Option<String> {
     if name.is_empty() {
         let preset = ELEMENT_CALL_REACTIONS
@@ -3245,14 +2605,6 @@ fn reaction_wire_name(emoji: &str, name: &str) -> Option<String> {
         .then(|| name.to_owned())
 }
 
-/// Send one transient call reaction.
-///
-/// `membership_event_id` is this device's own `m.call.member` event, as
-/// observed by RtcController, so a refresh's replacement is referenced (as
-/// in `set_hand_raised`). Known sound names must match [`ELEMENT_CALL_REACTIONS`].
-///
-/// No backlog sweep, unlike hands: reactions are transient, and sweeping at
-/// join would resurrect stale ones. element-call does not either.
 pub(crate) fn send_call_reaction(
     bridge: &RustClient,
     room_id: String,
@@ -3301,8 +2653,6 @@ pub(crate) fn send_call_reaction(
             ),
             Err(_) => (false, "network".to_owned(), String::new()),
         };
-        // The generic RTC send lane. Nothing to keep: reactions are never redacted
-        // and tiles are drawn only from arrived events.
         enqueue(&events, json!({
             "type": "rtc_send_result",
             "op_id": op_id,
@@ -3315,11 +2665,6 @@ pub(crate) fn send_call_reaction(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Media encryption keys (io.element.call.encryption_keys)
-// ---------------------------------------------------------------------------
-
-/// The to-device type Element uses for call media keys.
 pub(crate) const EV_CALL_KEYS: &str = "io.element.call.encryption_keys";
 /// Media keys we send are 16 raw bytes, the length matrix-js-sdk,
 /// element-call and sable-core mint; LiveKit's HKDF turns them into
@@ -3327,8 +2672,6 @@ pub(crate) const EV_CALL_KEYS: &str = "io.element.call.encryption_keys";
 /// 16 bytes, so one of 32 left Sable unable to hear us.
 const MEDIA_KEY_BYTES: usize = 16;
 
-/// Is this base64 media key one we may put on the wire: exactly
-/// [`MEDIA_KEY_BYTES`] once decoded? Pure for tests.
 pub(crate) fn outbound_media_key_ok(key_base64: &str) -> bool {
     use base64::Engine as _;
     base64::engine::general_purpose::STANDARD
@@ -3342,12 +2685,8 @@ pub(crate) fn outbound_media_key_ok(key_base64: &str) -> bool {
 /// element-call's ring holds 256, so the received index is a whole `u8`.
 const MAX_SEND_KEY_INDEX: u8 = 15;
 
-/// How long a device-list refresh is trusted before the next media-key
-/// distribution pays for another.
 pub(crate) const DEVICE_REFRESH_TTL_SECS: u64 = 60;
 
-/// Is a `/keys/query` owed for this user before encrypting to their
-/// devices? `None` means never refreshed in this process. Pure for tests.
 pub(crate) fn device_refresh_due(elapsed_secs: Option<u64>) -> bool {
     match elapsed_secs {
         None => true,
@@ -3355,8 +2694,6 @@ pub(crate) fn device_refresh_due(elapsed_secs: Option<u64>) -> bool {
     }
 }
 
-/// Users whose device list was refreshed, and when. Bounded by the people
-/// this process has been in calls with.
 fn device_refresh_marks()
     -> &'static std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>
 {
@@ -3366,20 +2703,10 @@ fn device_refresh_marks()
     MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// The first forced re-query after a device lookup missed, and the ceiling of
-/// its doubling gap.
 const DEVICE_MISS_BASE_SECS: u64 = 10;
 const DEVICE_MISS_CEILING_SECS: u64 = 300;
-/// Bound on [`device_miss_marks`]: a call never names more devices.
 const MAX_DEVICE_MISS_MARKS: usize = 4 * MAX_MEMBERS;
 
-/// Whether a device that is missing from the store may cost another
-/// `/keys/query` now. The first miss is asked at once; after `misses`
-/// consecutive misses the gap doubles from [`DEVICE_MISS_BASE_SECS`] to
-/// [`DEVICE_MISS_CEILING_SECS`]. Reset (the mark removed) on the first lookup
-/// that finds the device. Without it a membership naming a device the server
-/// does not have costs one query per key send for the whole call, the shape of
-/// the forced `/state` read before its backoff (round-history, 2026-09-2x).
 pub(crate) fn device_miss_refresh_due(elapsed_secs: Option<u64>, misses: u32) -> bool {
     let Some(secs) = elapsed_secs else {
         return true;
@@ -3394,8 +2721,6 @@ pub(crate) fn device_miss_refresh_due(elapsed_secs: Option<u64>, misses: u32) ->
     secs >= gap
 }
 
-/// Devices a lookup missed: when, and how many times in a row. Keyed
-/// `user\u{1f}device`, bounded by [`MAX_DEVICE_MISS_MARKS`].
 fn device_miss_marks()
     -> &'static std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, u32)>>
 {
@@ -3405,11 +2730,6 @@ fn device_miss_marks()
     MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// Records one device lookup in the miss marks. Found: the mark goes (the
-/// backoff resets). Missing after a query that was actually made: one more
-/// miss, timed from now. Missing with the query skipped (still backing off):
-/// untouched — moving the clock there would push the next query back on every
-/// send, so it would never come due. Bounded: the oldest mark makes room.
 pub(crate) fn note_device_lookup(
     marks: &mut std::collections::HashMap<String, (std::time::Instant, u32)>,
     key: &str,
@@ -3437,10 +2757,6 @@ pub(crate) fn note_device_lookup(
     marks.insert(key.to_owned(), (now, misses.saturating_add(1)));
 }
 
-/// When we last reported that an Olm to-device message from a peer would
-/// not decrypt. Kept apart from [`device_refresh_marks`] so reporting and
-/// refreshing cannot suppress each other. Only written for users already
-/// in that map, and capped.
 fn undecryptable_report_marks()
     -> &'static std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>
 {
@@ -3450,13 +2766,8 @@ fn undecryptable_report_marks()
     MARKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// Ceiling on [`undecryptable_report_marks`], like the C++ cooldown table.
 const MAX_REPORT_MARKS: usize = 256;
 
-/// Should an undecryptable Olm to-device message be reported as a lost
-/// media key? It carries no type, so this only reports for senders we have
-/// distributed a media key to ([`device_refresh_marks`]); for anyone else
-/// it is not a call fault. Pure for tests.
 pub(crate) fn undecryptable_key_report_due(
     is_media_key_peer: bool,
     since_last_report_secs: Option<u64>,
@@ -3464,10 +2775,6 @@ pub(crate) fn undecryptable_key_report_due(
     is_media_key_peer && device_refresh_due(since_last_report_secs)
 }
 
-/// Send our current media key to the devices in the call, Olm-encrypted per
-/// device (`encrypt_and_send_raw_to_device`), so the homeserver never sees
-/// it. `targets` are `(user_id, device_id)` pairs from the observed
-/// membership: only devices that declared themselves present.
 pub(crate) fn send_media_key(
     bridge: &RustClient,
     room_id: String,
@@ -3481,15 +2788,9 @@ pub(crate) fn send_media_key(
     if key_index > MAX_SEND_KEY_INDEX {
         return Err("key index out of range".to_owned());
     }
-    // A key of another length would reach a receiver that drops it.
     if !outbound_media_key_ok(&key_base64) {
         return Err("media key must be 16 bytes".to_owned());
     }
-    // Parsed first so a malformed list fails synchronously. A named target
-    // this send will not try (an id that fails sane(), or one past
-    // MAX_MEMBERS) is still reported undelivered with the strings the caller
-    // gave, so the caller never counts it a holder; a row with no string ids
-    // cannot be named back and is only skipped.
     let rows = serde_json::from_str::<Vec<serde_json::Value>>(&targets_json)
         .map_err(|_| "invalid targets".to_owned())?;
     let (targets, dropped) = split_key_targets(&rows);
@@ -3532,7 +2833,6 @@ pub(crate) fn send_media_key(
         let mut resolved = Vec::new();
         let mut unresolved: Vec<(String, String)> = dropped;
         for (user, device) in &targets {
-            // Never send our own device its own key.
             if user == &own_user && device == &own_device {
                 continue;
             }
@@ -3542,17 +2842,12 @@ pub(crate) fn send_media_key(
             };
             let device_id: matrix_sdk::ruma::OwnedDeviceId =
                 device.as_str().into();
-            // Refresh before the lookup, not only when the device is missing: a
-            // device present with rotated keys makes us encrypt to the old identity
-            // key, the recipient drops it ("Olm event doesn't contain a ciphertext for
-            // our key"), and neither end notices. Rate-limited per user.
             let refresh_due = {
                 let marks = device_refresh_marks().lock().ok();
                 match marks {
                     Some(marks) => device_refresh_due(
                         marks.get(user).map(|at| at.elapsed().as_secs()),
                     ),
-                    // A poisoned lock must not disable the refresh.
                     None => true,
                 }
             };
@@ -3581,7 +2876,6 @@ pub(crate) fn send_media_key(
                         ),
                         None => true,
                     },
-                    // A poisoned lock must not disable the refresh.
                     Err(_) => true,
                 };
                 if due {
@@ -3627,9 +2921,6 @@ pub(crate) fn send_media_key(
                         )
                         .await;
                     match result {
-                        // The SDK returns the devices it could not reach, so
-                        // partial delivery is visible, and is passed on
-                        // device by device.
                         Ok(failures) => {
                             let failures: Vec<(String, String)> = failures
                                 .into_iter()
@@ -3660,7 +2951,6 @@ pub(crate) fn send_media_key(
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
-        // Counts only; the key is never enqueued or logged.
         enqueue(&events, json!({
             "type": "rtc_key_sent",
             "op_id": op_id,
@@ -3676,13 +2966,8 @@ pub(crate) fn send_media_key(
     Ok(())
 }
 
-/// How many target rows one send reads at all; also the cap on what it
-/// reports undelivered.
 const MAX_KEY_TARGET_ROWS: usize = 4 * MAX_MEMBERS;
 
-/// Splits the caller's target rows into the ones this send tries (sane ids,
-/// at most MAX_MEMBERS) and the named ones it drops, as given, so they can be
-/// reported undelivered. Rows without string ids are skipped. Pure.
 pub(crate) fn split_key_targets(
     rows: &[serde_json::Value],
 ) -> (Vec<(String, String)>, Vec<(String, String)>) {
@@ -3705,25 +2990,14 @@ pub(crate) fn split_key_targets(
     (tried, dropped)
 }
 
-/// What one media key send reports back: counts and public device ids only.
 #[derive(Debug, PartialEq)]
 pub(crate) struct KeySendReport {
     pub ok: bool,
     pub category: String,
     pub delivered: usize,
-    /// `{user_id, device_id}` for every NAMED target the key did NOT reach:
-    /// one the SDK reported failed (withheld, no Olm session), one that could
-    /// not be resolved, and one this send did not try (an id failing sane(),
-    /// or past MAX_MEMBERS; see split_key_targets()). A partial delivery is `ok` (somebody holds the key), so
-    /// without this list the caller would count every target a holder and
-    /// cut the failed ones off at the next switch (2026-09-29, F6).
     pub undelivered: Vec<serde_json::Value>,
 }
 
-/// Fold one send's outcome into its report. Pure. `sent` is how many
-/// resolved devices the send went to (0 when it never went out), `failures`
-/// the SDK's undelivered list, `unresolved` the targets skipped before the
-/// send, and `failed_category` set when the send as a whole failed.
 pub(crate) fn key_send_report(
     sent: usize,
     failures: &[(String, String)],
@@ -3754,9 +3028,6 @@ pub(crate) fn key_send_report(
     }
 }
 
-/// Inbound media key, decrypted by Olm. The sender and Olm-verified device
-/// are trusted; the content's `member` block is a claim, used only to fill
-/// in an id.
 #[allow(unexpected_cfgs)]
 #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
 #[ruma_event(type = "io.element.call.encryption_keys", kind = ToDevice)]
@@ -3774,18 +3045,13 @@ pub(crate) struct MediaKeyEntry {
     pub key: String,
 }
 
-/// The fields of a received media key after validation.
 pub(crate) struct ValidatedMediaKey<'a> {
     pub index: u8,
     pub key: &'a str,
     pub room_id: &'a str,
-    /// The Olm-verified device, never the content's claim.
     pub device_id: &'a str,
 }
 
-/// Validate a received media key's fields. Pure for tests. The index is
-/// bounded by its type (`u8`, the C++ ring size); the claimed device must
-/// equal the Olm device.
 pub(crate) fn validate_media_key<'a>(
     content: &'a CallEncryptionKeysEventContent,
     olm_device_id: &'a str,
@@ -3810,21 +3076,10 @@ pub(crate) struct MediaKeyMember {
     pub claimed_device_id: String,
 }
 
-// ---------------------------------------------------------------------------
-// Observation
-// ---------------------------------------------------------------------------
-
-/// Handlers registered for the sync loop's lifetime.
 pub(crate) struct RtcHandlerGuards {
     _guards: Vec<EventHandlerDropGuard>,
 }
 
-/// Register MatrixRTC observation. Both handlers are thin:
-///
-/// * membership changes enqueue a payload-free poke, and C++ re-reads the
-///   session, so there is one parse path;
-/// * the MSC4075 notification feeds the `call_rtc_*` lane `calls.rs` owns,
-///   reusing its ring policy, ignore check and incoming-call surface.
 pub(crate) fn register_rtc_handlers(
     client: &Client,
     events: &Arc<std::sync::Mutex<std::collections::VecDeque<String>>>,
@@ -3851,10 +3106,6 @@ pub(crate) fn register_rtc_handlers(
         guards.push(client.event_handler_drop_guard(handle));
     }
 
-    // Raised hands: an `m.reaction` annotating the raiser's own
-    // `m.call.member` event, lowered by redacting it. Not filtered by room:
-    // most reactions fail the key check immediately, and a room filter would
-    // need call state and could miss a hand raised right after joining.
     {
         let events = Arc::clone(events);
         let timelines = Arc::clone(timelines);
@@ -3867,7 +3118,6 @@ pub(crate) fn register_rtc_handlers(
                     if ev.content.relates_to.key != HAND_RAISED_KEY {
                         return;
                     }
-                    // C++ matches this to a membership and requires the sender to own it.
                     enqueue(&events, json!({
                         "type": "rtc_hand_changed",
                         "lifecycle": timelines.lifecycle(),
@@ -3893,8 +3143,6 @@ pub(crate) fn register_rtc_handlers(
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
                 async move {
-                    // A redaction only names what it removed, so every one is forwarded and
-                    // C++ checks whether it is a tracked reaction id.
                     let Some(redacts) = ev.as_original()
                         .and_then(|original| original.redacts.as_ref())
                         .or_else(|| ev.as_original().and_then(|o| o.content.redacts.as_ref()))
@@ -3915,9 +3163,6 @@ pub(crate) fn register_rtc_handlers(
         guards.push(client.event_handler_drop_guard(handle));
     }
 
-    // element-call transient reactions. Not filtered by room (see hands). The
-    // emoji is bounded and cut to one cluster here; attribution is done in C++
-    // (`RtcController::identityForMembership`), not duplicated here.
     {
         let events = Arc::clone(events);
         let timelines = Arc::clone(timelines);
@@ -3926,7 +3171,6 @@ pub(crate) fn register_rtc_handlers(
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
                 async move {
-                    // Nothing drawable: dropped, as element-call does.
                     let Some(emoji) = reaction_emoji(&ev.content.emoji) else {
                         return;
                     };
@@ -3955,8 +3199,6 @@ pub(crate) fn register_rtc_handlers(
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
                 async move {
-                    // A ring is the strongest evidence of a session in a room we are not
-                    // viewing, so it licenses one `/state`. Recorded for our own ring too.
                     note_rtc_ring(room.own_user_id().as_str(), room.room_id().as_str());
                     enqueue(&events, msc4075_notification_payload(
                         &ev,
@@ -3978,9 +3220,6 @@ pub(crate) fn register_rtc_handlers(
                 let events = Arc::clone(&events);
                 let timelines = Arc::clone(&timelines);
                 async move {
-                    // Every discard logs its reason: otherwise "the key never arrived" and "the
-                    // key arrived and was discarded" look identical (every frame dropped, no
-                    // log). Sender and a fixed reason only, never key material.
                     macro_rules! discard {
                         ($reason:expr) => {{
                             enqueue(&events, json!({
@@ -3998,7 +3237,6 @@ pub(crate) fn register_rtc_handlers(
                     let Some(encryption) = encryption else {
                         discard!("not encrypted");
                     };
-                    // Olm decrypted it but the SDK could not attribute it to a known device.
                     let Some(sender_device) = encryption.sender_device.as_ref()
                     else {
                         discard!("sending device not resolved");
@@ -4018,8 +3256,6 @@ pub(crate) fn register_rtc_handlers(
                         "type": "rtc_key_received",
                         "lifecycle": timelines.lifecycle(),
                         "room_id": room_id,
-                        // Both vouched for by Olm. `claimed_device_id` keeps its name for the
-                        // consumer but carries the verified device.
                         "sender": ev.sender.to_string(),
                         "claimed_device_id": device_id,
                         "key_index": valid.index,
@@ -4064,8 +3300,6 @@ pub(crate) fn register_rtc_handlers(
                     else {
                         return;
                     };
-                    // A poisoned lock must not silence the diagnostic; fail towards reporting.
-                    // C++ applies a 60 s per-(sender, reason) cooldown.
                     let is_peer = match device_refresh_marks().lock() {
                         Ok(marks) => marks.contains_key(sender),
                         Err(_) => true,
@@ -4081,7 +3315,6 @@ pub(crate) fn register_rtc_handlers(
                     }
                     if let Ok(mut marks) = undecryptable_report_marks().lock()
                     {
-                        // Refresh an existing mark; add one only while there is room.
                         if marks.len() < MAX_REPORT_MARKS
                             || marks.contains_key(sender)
                         {
@@ -4113,9 +3346,6 @@ mod tests {
     use super::*;
     use matrix_sdk::ruma::events::StaticEventContent;
 
-    // Regression: publish denial causes an immediate membership refresh.
-    // Arming a second timer leaves the first firing at t=8s, removing us
-    // despite heartbeats on the second one. A refresh must keep one id.
     #[tokio::test]
     async fn membership_refresh_keeps_one_cleanup_timer() {
         use std::cell::{Cell, RefCell};
@@ -4187,8 +3417,6 @@ mod tests {
         assert!(id.is_empty());
     }
 
-    // Regression: shutdown() bumps the lifecycle before joining the room-action
-    // pool, so a retraction that waited on the registry lock must still run.
     #[test]
     fn membership_retraction_is_not_skipped_by_a_stale_lifecycle() {
         let src = include_str!("rtc.rs");
@@ -4207,9 +3435,9 @@ mod tests {
     fn membership_out_of_order_leave_cannot_cancel_a_new_join() {
         let mut registry = MembershipDelayRegistry::default();
         let key = "room\u{1f}device";
-        assert!(registry.accept_operation(key, 20)); // newer publish ran first
+        assert!(registry.accept_operation(key, 20));
         registry.delays.insert(key.to_owned(), "current-timer".to_owned());
-        assert!(!registry.accept_operation(key, 19)); // queued old leave
+        assert!(!registry.accept_operation(key, 19));
         assert_eq!(registry.delays.get(key).map(String::as_str), Some("current-timer"));
         assert!(registry.accept_operation("other-room\u{1f}device", 18));
         assert!(registry.accept_operation("room\u{1f}other-device", 17));
@@ -4219,18 +3447,12 @@ mod tests {
     fn membership_out_of_order_publish_cannot_resurrect_a_left_call() {
         let mut registry = MembershipDelayRegistry::default();
         let key = "room\u{1f}device";
-        assert!(registry.accept_operation(key, 30)); // leave ran first
+        assert!(registry.accept_operation(key, 30));
         registry.delays.remove(key);
-        assert!(!registry.accept_operation(key, 29)); // queued old publish
-        assert!(registry.accept_operation(key, 31)); // deliberate new join
+        assert!(!registry.accept_operation(key, 29));
+        assert!(registry.accept_operation(key, 31));
     }
 
-    // We send only 16-byte media keys: sable-core drops any other length
-    // ("ignoring a call media key that is not 16 bytes"), so a 32-byte key
-    // left a Sable participant deaf to us (live, 2026-10-13).
-    // F6 (2026-09-29): a PARTIAL delivery is ok (somebody holds the key) and
-    // must still name the devices it missed, or the caller counts them as
-    // holders and cuts them off at the next switch.
     #[test]
     fn a_partial_key_delivery_names_every_device_it_missed() {
         let pair = |u: &str, d: &str| (u.to_owned(), d.to_owned());
@@ -4248,25 +3470,21 @@ mod tests {
             ]
         );
 
-        // A clean send reports nothing undelivered.
         let clean = key_send_report(2, &[], &[], None);
         assert!(clean.ok);
         assert_eq!(clean.category, "");
         assert!(clean.undelivered.is_empty());
 
-        // Every device failed: not ok, nothing delivered, all named.
         let none = key_send_report(1, &failed, &[], None);
         assert!(!none.ok);
         assert_eq!(none.delivered, 0);
         assert_eq!(none.undelivered.len(), 1);
 
-        // A send that failed as a whole keeps its own category.
         let refused = key_send_report(0, &[], &skipped, Some("no_devices"));
         assert!(!refused.ok);
         assert_eq!(refused.category, "no_devices");
         assert_eq!(refused.undelivered.len(), 1);
 
-        // Bounded like the rows a send reads.
         let many: Vec<(String, String)> = (0..(MAX_KEY_TARGET_ROWS + 5))
             .map(|i| pair("@u:x", &format!("D{i}")))
             .collect();
@@ -4276,10 +3494,6 @@ mod tests {
         );
     }
 
-    // Review L2: a target the send does not even try (an insane id, or past
-    // MAX_MEMBERS) is reported undelivered under the strings the caller gave,
-    // or the caller counts it a holder. Rows with no string ids cannot be
-    // named and are skipped.
     #[test]
     fn targets_a_send_drops_are_still_named_back() {
         let row = |u: &str, d: &str| json!({ "user_id": u, "device_id": d });
@@ -4297,7 +3511,6 @@ mod tests {
         assert_eq!(tried.len(), MAX_MEMBERS);
         assert_eq!(tried[0], ("@a:x".to_owned(), "ADEV".to_owned()));
         assert!(dropped.contains(&("@b:x".to_owned(), long.clone())));
-        // The overflow is named back too: every M beyond the cap.
         let overflow = dropped.iter().filter(|(u, _)| u == "@m:x").count();
         assert_eq!(overflow, 3);
         assert_eq!(dropped.len(), 4);
@@ -4306,9 +3519,6 @@ mod tests {
         assert_eq!(report.category, "partial");
     }
 
-    // Recheck L-c: a lookup whose query was SKIPPED (still backing off)
-    // leaves the mark alone, or every send would push the next query back
-    // and it would never come due. A made query counts; finding resets.
     #[test]
     fn only_a_query_actually_made_counts_as_a_miss() {
         let mut marks = std::collections::HashMap::new();
@@ -4326,20 +3536,15 @@ mod tests {
         assert!(marks.is_empty(), "finding the device did not reset it");
     }
 
-    // Review L1: the forced /keys/query for a device the store does not have
-    // backs off per device, doubling to a ceiling; the first miss asks at once.
     #[test]
     fn a_missing_device_is_re_queried_with_a_doubling_backoff() {
         assert!(device_miss_refresh_due(None, 0));
         assert!(device_miss_refresh_due(Some(0), 0));
-        // One miss: 10 s.
         assert!(!device_miss_refresh_due(Some(9), 1));
         assert!(device_miss_refresh_due(Some(10), 1));
-        // Two: 20 s; three: 40 s.
         assert!(!device_miss_refresh_due(Some(19), 2));
         assert!(device_miss_refresh_due(Some(20), 2));
         assert!(!device_miss_refresh_due(Some(39), 3));
-        // Ceiling, and no overflow for a long run.
         assert!(!device_miss_refresh_due(Some(DEVICE_MISS_CEILING_SECS - 1), 30));
         assert!(device_miss_refresh_due(Some(DEVICE_MISS_CEILING_SECS), 30));
         assert!(device_miss_refresh_due(Some(DEVICE_MISS_CEILING_SECS), u32::MAX));
@@ -4356,8 +3561,6 @@ mod tests {
         assert!(!outbound_media_key_ok("not base64!"));
     }
 
-    // A received key's index is the whole byte, bounded by type: 200 and 255
-    // parse, 256 and -1 do not deserialize. (C++ enforces the same bound.)
     #[test]
     fn received_media_key_index_is_bounded_by_its_type() {
         let content = |index: serde_json::Value| {
@@ -4379,11 +3582,9 @@ mod tests {
                     content(bad.clone())).is_err(),
                 "index {bad} must not deserialise");
         }
-        // Our sender still stamps 0..=15.
         assert_eq!(MAX_SEND_KEY_INDEX, 15);
     }
 
-    // Indices 16 and 255 pass validation; a device mismatch is refused.
     #[test]
     fn media_key_validation_accepts_the_whole_index_byte() {
         let content = |index: u8, claimed: &str| -> CallEncryptionKeysEventContent {
@@ -4435,7 +3636,6 @@ mod tests {
         assert_eq!(member.rtc_identity, "@a:x:DEVICE");
         assert_eq!(member.hashed_rtc_identity,
                    Some(rtc_identity_hash("@a:x", "@a:x:DEVICE")));
-        // `call_id: ""` normalises to the slot vocabulary.
         assert_eq!(member.slot_id, "m.call#ROOM");
         assert_eq!(member.expires_at_ms, 1_000 + 14_400_000);
         assert_eq!(member.foci.len(), 1);
@@ -4497,7 +3697,6 @@ mod tests {
         content["expires"] = json!(u64::MAX);
         let member =
             parse_session_membership(&content, "@a:x", 5_000).expect("valid");
-        // Neither wrapped into the past nor immortal: capped relative to the event.
         assert_eq!(member.expires_at_ms, 5_000 + MAX_EXPIRE_MS);
         assert_eq!(aggregate_session(vec![member.clone()], 10_000).len(), 1);
         assert_eq!(
@@ -4506,9 +3705,6 @@ mod tests {
         );
     }
 
-    /// The focus-takeover shape: `created_ts: 0` and `expires: u64::MAX`. The
-    /// join is clamped to at most a day old and the deadline to a day past the
-    /// event, so without a refresh it ages out.
     #[test]
     fn a_backdated_immortal_membership_is_bounded_by_its_own_event() {
         let mut content = session_content();
@@ -4523,26 +3719,21 @@ mod tests {
         assert!(aggregate_session(vec![member], now + MAX_EXPIRE_MS + 1).is_empty());
     }
 
-    /// A refresh of a call older than a day (`created_ts` preserved, `expires`
-    /// as expires_for_refresh() writes it) stays live.
     #[test]
     fn a_refresh_of_a_day_old_call_is_still_live() {
         let created = 1_700_000_000_000u64;
-        let now = created + 25 * 60 * 60 * 1000; // call age 25 h
+        let now = created + 25 * 60 * 60 * 1000;
         let mut content = session_content();
         content["created_ts"] = json!(created);
         content["expires"] = json!(expires_for_refresh(MEMBERSHIP_EXPIRY_MS, Some(created), now));
         let member = parse_session_membership(&content, "@a:x", now).expect("valid");
         assert!(member.expires_at_ms > now, "refresh must extend past now");
         assert_eq!(aggregate_session(vec![member.clone()], now).len(), 1);
-        // Still ordered as the older member against someone joining now.
         let younger = parse_session_membership(&session_content(), "@b:y", now).expect("valid");
         let ordered = aggregate_session(vec![younger, member], now);
         assert_eq!(ordered[0].user_id, "@a:x");
     }
 
-    /// A future join time is pulled back to the envelope's timestamp, so the
-    /// expiry cannot be pushed out of reach.
     #[test]
     fn a_future_created_ts_is_clamped_to_the_envelope() {
         let mut content = session_content();
@@ -4556,8 +3747,6 @@ mod tests {
         );
     }
 
-    /// `membershipID` is content; the identity is derived from the vouched-for
-    /// sender, so an impostor cannot claim another participant's identity.
     #[test]
     fn a_membership_cannot_claim_another_participants_identity() {
         let mut content = session_content();
@@ -4582,9 +3771,6 @@ mod tests {
 
     #[test]
     fn foci_are_read_from_the_well_known_keys_element_uses() {
-        // Foci come from `.well-known/matrix/client` under
-        // `org.matrix.msc4143.rtc_foci` (stable alias `m.rtc_foci`), as ruma models
-        // and Element Call reads. Pinned as literal key names.
         let unstable = serde_json::json!({
             "m.homeserver": { "base_url": "https://matrix.example.org" },
             "org.matrix.msc4143.rtc_foci": [
@@ -4607,7 +3793,6 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].service_url, "https://sfu.example.org/");
 
-        // The stable alias works too.
         let stable = serde_json::json!({
             "m.rtc_foci": [
                 { "type": "livekit",
@@ -4616,7 +3801,6 @@ mod tests {
         });
         assert_eq!(pick(&stable).len(), 1);
 
-        // The old invented key is not a source.
         let wrong = serde_json::json!({
             "rtc_transports": [
                 { "type": "livekit",
@@ -4644,8 +3828,6 @@ mod tests {
             let base = content["foci_preferred"][0]["livekit_service_url"]
                 .as_str().expect("published service URL");
             assert_eq!(base, advertised);
-            // Only a slash explicitly present in discovery may appear here.
-            // Never synthesize one while parsing a bare origin.
             for endpoint in ["get_token", "sfu/get"] {
                 let request = url::Url::parse(&format!("{base}/{endpoint}"))
                     .expect("Element endpoint");
@@ -4671,9 +3853,6 @@ mod tests {
         let transport = parse_transport(&json!({
             "type": "livekit", "livekit_service_url": advertised,
         })).expect("valid focus");
-        // Element keys its connection pool by this exact wire string. A
-        // synthetic trailing slash would create a second connection to the
-        // same service instead of reusing the publisher's connection.
         assert_eq!(transport.to_json()["livekit_service_url"], advertised);
     }
 
@@ -4684,14 +3863,11 @@ mod tests {
         })).expect("valid focus");
         for base in ["https://sfu.example.org", "https://sfu.example.org/matrix/rtc"] {
             let own = parse(base);
-            // Prefixes keep their path, including on membership refresh.
             let wire = own.to_json();
             let refreshed = parse_transport(&wire).expect("refreshed focus");
             assert_eq!(refreshed, own);
             assert_eq!(refreshed.to_json(), wire);
         }
-        // Distinct wire spellings still identify one internal service.
-        // Comparing them must not duplicate a shared SFU connection.
         let mut a = member_at("@a:x", "A", 10, 9_000);
         a.focus_selection = FocusSelection::MultiSfu;
         a.foci = vec![parse("https://sfu.example.org/")];
@@ -4736,8 +3912,6 @@ mod tests {
         .is_some());
     }
 
-    // A 404/400/405 (`unsupported`) is a definitive "no MatrixRTC here", not
-    // "could not check", or discovery re-runs on every room change.
     #[test]
     fn a_homeserver_without_matrixrtc_counts_as_having_answered() {
         for status in [400u16, 404, 405] {
@@ -4748,10 +3922,8 @@ mod tests {
                  not a check that failed"
             );
         }
-        // A normal answer is definitive, even an empty list.
         assert!(discovery_answer_is_definitive(""));
 
-        // Genuine failures stay open, or a 500 would be read as "no calling".
         for category in [
             "forbidden",
             "rate_limited",
@@ -4767,8 +3939,6 @@ mod tests {
                  settled answer"
             );
         }
-        // Pin every status category so a new mapping cannot silently become
-        // definitive.
         for status in [401u16, 403, 429, 500, 503, 418] {
             assert!(!discovery_answer_is_definitive(status_category(status)));
         }
@@ -4813,12 +3983,6 @@ mod tests {
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Which view of the room's state a session read may trust (GitHub #10:
-    // the participant list dropped while the peer was still in the call, so
-    // media keys went to an empty target set).
-    // ---------------------------------------------------------------------
-
     fn membership_event(
         sender: &str,
         device: &str,
@@ -4856,27 +4020,22 @@ mod tests {
         })
     }
 
-    // The no-MSC4140 fallback write must not publish an already-expired
-    // membership (see fallback_expires_ms).
     #[test]
     fn the_fallback_write_is_measured_from_created_ts_not_from_zero() {
         let join = 1_000_000u64;
-        let now = join + 20 * 60 * 1000; // twenty minutes into the call
+        let now = join + 20 * 60 * 1000;
         let expires = fallback_expires_ms(Some(join), now);
-        // What every reader computes, this file's own parser included.
         let deadline = join + expires;
         assert!(
             deadline > now,
             "the fallback write published a membership that was already dead: \
              deadline {deadline} is not after now {now}"
         );
-        // A full period out, not merely non-negative.
         assert_eq!(deadline, now + MEMBERSHIP_EXPIRY_NO_DELAYED_MS);
     }
 
     #[test]
     fn a_fresh_join_still_gets_the_plain_period() {
-        // No created_ts: the duration is the period.
         assert_eq!(
             fallback_expires_ms(None, 5_000_000),
             MEMBERSHIP_EXPIRY_NO_DELAYED_MS
@@ -4885,7 +4044,6 @@ mod tests {
 
     #[test]
     fn a_membership_the_fallback_wrote_survives_its_own_parser() {
-        // End to end through the real parser.
         let join = 1_000_000u64;
         let now = join + 20 * 60 * 1000;
         let event_ts = now;
@@ -4921,8 +4079,6 @@ mod tests {
 
     #[test]
     fn a_ghost_membership_does_not_make_the_store_authoritative() {
-        // A dead ghost membership (non-empty content) must not make the store
-        // authoritative, or the network read could never run.
         let ghost = membership_event("@ghost:x", "D9", 1_000, 300_000);
         assert!(!ghost["content"].as_object().unwrap().is_empty());
         assert!(!store_view_is_usable(&[ghost], 1_000 + 300_001));
@@ -4930,7 +4086,6 @@ mod tests {
 
     #[test]
     fn an_unparseable_membership_does_not_make_the_store_authoritative() {
-        // Non-empty content that does not parse as a membership.
         let junk = json!({
             "type": EV_MEMBER_LEGACY,
             "sender": "@a:x",
@@ -4941,22 +4096,10 @@ mod tests {
         assert!(!store_view_is_usable(&[junk], 2_000));
     }
 
-    // -----------------------------------------------------------------
-    // The `/state` escalation and when it is worth one request.
-    //
-    // Mutation check for the `AnswerNoSession` cases: replace the tail of
-    // `store_read_verdict` after the `Answer` return with
-    // `StoreVerdict::AskServer(EscalationReason::RecentActivity)` (the old
-    // two-outcome behaviour) and they all fail.
-    // -----------------------------------------------------------------
-
-    /// A week of wall clock, so a "long dead" fixture is unambiguous.
     const A_WEEK_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
     #[test]
     fn an_idle_room_full_of_dead_memberships_costs_no_request() {
-        // Initial sync replays a room's old `m.call.member` state; with nothing
-        // live and no call, no request is warranted.
         let now = A_WEEK_MS;
         let store = vec![
             membership_event("@a:x", "D1", 1_000, 300_000),
@@ -4971,8 +4114,6 @@ mod tests {
 
     #[test]
     fn a_room_that_has_never_hosted_a_call_costs_no_request() {
-        // Opening a room refreshes its session (`setCurrentRoomId`); an empty store
-        // must not cost a `/state`.
         assert_eq!(
             store_read_verdict(&[], A_WEEK_MS, false, false),
             StoreVerdict::AnswerNoSession
@@ -4982,8 +4123,6 @@ mod tests {
 
     #[test]
     fn a_live_membership_is_still_answered_by_the_store_alone() {
-        // A live membership is answered by the store for free, which keeps a call
-        // starting prompt.
         let now = 60_000u64;
         let store = vec![membership_event("@a:x", "D1", 1_000, 300_000)];
         assert_eq!(
@@ -4994,8 +4133,6 @@ mod tests {
 
     #[test]
     fn a_membership_that_lapsed_moments_ago_still_buys_one_request() {
-        // A peer whose refresh we have not received expired seconds ago; inside
-        // the horizon, it still earns a request.
         let now = A_WEEK_MS;
         let store = vec![membership_event("@a:x", "D1", now - 330_000, 300_000)];
         assert!(!store_view_is_usable(&store, now));
@@ -5007,15 +4144,12 @@ mod tests {
 
     #[test]
     fn a_retraction_from_moments_ago_still_buys_one_request() {
-        // A retraction parses to nothing but is still the newest activity (the
-        // `origin_server_ts` arm of `newest_session_signal_ms`).
         let now = A_WEEK_MS;
         let fresh = vec![retraction_event("@a:x", "D1", now - 30_000)];
         assert_eq!(
             store_read_verdict(&fresh, now, false, false),
             StoreVerdict::AskServer(EscalationReason::RecentActivity)
         );
-        // An hour later the room is quiet again.
         let stale = vec![retraction_event("@a:x", "D1", now - 60 * 60 * 1000)];
         assert_eq!(
             store_read_verdict(&stale, now, false, false),
@@ -5025,8 +4159,6 @@ mod tests {
 
     #[test]
     fn the_deadline_counts_even_when_the_event_itself_is_old() {
-        // A long call refreshes rarely, so the newest deadline can be much later
-        // than the newest event.
         let now = A_WEEK_MS;
         let event_ts = now - 4 * 60 * 60 * 1000;
         let store = vec![membership_event("@a:x", "D1", event_ts, 4 * 60 * 60 * 1000 - 60_000)];
@@ -5039,9 +4171,6 @@ mod tests {
 
     #[test]
     fn being_in_the_call_always_buys_the_request() {
-        // Being in the call always buys the request: the store may hold only stale
-        // retractions while the server has the live memberships, and media keys go
-        // to the devices these name.
         let now = A_WEEK_MS;
         let store: Vec<serde_json::Value> = (0..13)
             .map(|i| retraction_event(&format!("@peer{i}:x"), "D", 1_000))
@@ -5061,7 +4190,6 @@ mod tests {
 
     #[test]
     fn a_ring_buys_the_request_for_a_room_nothing_has_looked_at() {
-        // A ring for a room that is not open: Answer is gated on a session read.
         assert_eq!(
             store_read_verdict(&[], A_WEEK_MS, false, true),
             StoreVerdict::AskServer(EscalationReason::Ring)
@@ -5070,8 +4198,6 @@ mod tests {
 
     #[test]
     fn the_escalation_backoff_doubles_and_stops_at_the_ceiling() {
-        // Without doubling, one ghost membership would buy a request per poke for
-        // the whole horizon.
         assert_eq!(escalation_cooldown_ms(0), SERVER_ESCALATION_COOLDOWN_MS);
         assert_eq!(escalation_cooldown_ms(1), SERVER_ESCALATION_COOLDOWN_MS);
         assert_eq!(escalation_cooldown_ms(2), 2 * SERVER_ESCALATION_COOLDOWN_MS);
@@ -5082,7 +4208,6 @@ mod tests {
             "the gap must stop growing, or a room becomes permanently \
              un-askable"
         );
-        // Monotonic and never past the ceiling.
         let mut previous = 0u64;
         for asks in 0..40u32 {
             let gap = escalation_cooldown_ms(asks);
@@ -5094,9 +4219,6 @@ mod tests {
 
     #[test]
     fn the_backoff_is_per_room_and_a_ring_cancels_it() {
-        // Shares the global mark tables with the publish-set tests, hence
-        // PUBLISH_SET_TEST_LOCK (`forget_account_memberships_published` clears
-        // all three for an account).
         let _serialised = PUBLISH_SET_TEST_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -5117,7 +4239,6 @@ mod tests {
              gate would make a real call wait on an idle room's ghost"
         );
 
-        // A ring cancels the gap.
         note_rtc_ring(ME, room);
         assert!(rtc_ring_is_recent(ME, room));
         assert!(!rtc_ring_is_recent(ME, other));
@@ -5127,7 +4248,6 @@ mod tests {
              while it was idle: the Answer button is gated on this read"
         );
 
-        // A session ending clears its own account's marks.
         forget_account_memberships_published(ME, "DEVICE");
         assert!(!rtc_ring_is_recent(ME, room));
         assert!(
@@ -5140,8 +4260,6 @@ mod tests {
 
     #[test]
     fn a_bound_cuts_the_dead_memberships_before_the_live_ones() {
-        // Thousands of stale memberships and two live ones: an arbitrary cut could
-        // keep only ghosts.
         let now = 10_000_000u64;
         let mut events: Vec<serde_json::Value> = (0..600)
             .map(|i| membership_event(&format!("@ghost{i}:x"), "D", 1_000, 300_000))
@@ -5172,7 +4290,6 @@ mod tests {
 
     #[test]
     fn merging_keeps_the_newer_event_for_each_state_key() {
-        // /state can predate our own publish; the store has our echo first.
         let store = vec![membership_event("@a:x", "D1", 90_000, 360_000)];
         let server = vec![
             membership_event("@a:x", "D1", 30_000, 300_000),
@@ -5189,7 +4306,6 @@ mod tests {
 
     #[test]
     fn a_newer_retraction_wins_over_an_older_join() {
-        // A stale stored copy must not resurrect a participant who left.
         let store = vec![membership_event("@b:x", "D2", 30_000, 300_000)];
         let server = vec![retraction_event("@b:x", "D2", 90_000)];
         let merged = merge_membership_events(store, server, 60_000);
@@ -5214,7 +4330,7 @@ mod tests {
 
         for (membership, expected) in [
             (Some(MembershipState::Join), true),
-            (None, true), // sliding sync has not loaded this member yet
+            (None, true),
             (Some(MembershipState::Leave), false),
             (Some(MembershipState::Ban), false),
             (Some(MembershipState::Invite), false),
@@ -5283,8 +4399,6 @@ mod tests {
 
     #[test]
     fn focus_comes_from_the_oldest_membership() {
-        // Everyone must reach the same SFU: oldest membership wins, not parse
-        // order.
         let mut newer = member_at("@b:x", "D2", 100, 9_000);
         newer.foci = vec![LivekitTransport {
             service_url: "https://newer.example.org/".to_owned(),
@@ -5430,8 +4544,6 @@ mod tests {
 
     #[test]
     fn focus_does_not_walk_past_a_silent_oldest_member() {
-        // The reference yields nothing when the oldest member advertises no focus;
-        // walking on would diverge from Element.
         let silent = member_at("@a:x", "D1", 10, 9_000);
         let mut advertiser = member_at("@b:x", "D2", 20, 9_000);
         advertiser.foci = vec![LivekitTransport {
@@ -5448,7 +4560,6 @@ mod tests {
     #[test]
     #[cfg(not(feature = "test-loopback-foci"))]
     fn transport_url_refuses_credentials_and_unroutable_hosts() {
-        // Foci are advertised by remote participants and will be connected to.
         for bad in [
             "https://user:pw@sfu.example.org",
             "https://127.0.0.1/",
@@ -5459,10 +4570,8 @@ mod tests {
             "https://[::1]/",
             "https://[fe80::1]/",
             "https://[fc00::1]/",
-            // IPv4-mapped IPv6 loopback and metadata addresses.
             "https://[::ffff:127.0.0.1]/",
             "https://[::ffff:169.254.169.254]/",
-            // CGNAT, multicast, and the local-only name suffixes.
             "https://100.64.0.1/",
             "https://224.0.0.1/",
             "https://sfu.local/",
@@ -5503,8 +4612,6 @@ mod tests {
         assert!(select_focus(&[]).is_none());
     }
 
-    // --- sticky (MSC4143) format ---------------------------------------
-
     fn rtc_content() -> serde_json::Value {
         json!({
             "slot_id": "m.call#ROOM",
@@ -5535,7 +4642,6 @@ mod tests {
 
     #[test]
     fn sticky_membership_for_another_user_is_forgery() {
-        // member.user_id is a claim; a mismatch with the sender is forgery.
         assert!(parse_rtc_membership(&rtc_content(), "@attacker:x", 500).is_none());
     }
 
@@ -5558,7 +4664,6 @@ mod tests {
         let mut content = rtc_content();
         content.as_object_mut().unwrap().remove("sticky_key");
         assert!(parse_rtc_membership(&content, "@a:x", 500).is_none());
-        // The MSC4354-prefixed spelling is equally acceptable.
         let mut prefixed = rtc_content();
         let object = prefixed.as_object_mut().unwrap();
         object.remove("sticky_key");
@@ -5578,28 +4683,16 @@ mod tests {
         }
     }
 
-    // A device that is present but stale must still be refreshed: its rotated
-    // keys would otherwise make the recipient drop the media key while the
-    // sender sees success.
     #[test]
     fn a_device_refresh_is_owed_before_the_first_send_and_then_rate_limited() {
-        // Never refreshed in this process: always owed.
         assert!(device_refresh_due(None));
-        // Just refreshed: not owed again, or every key rotation would query every
-        // participant.
         assert!(!device_refresh_due(Some(0)));
         assert!(!device_refresh_due(Some(DEVICE_REFRESH_TTL_SECS - 1)));
-        // Past the window: owed again, so mid-call key rotations are picked up.
         assert!(device_refresh_due(Some(DEVICE_REFRESH_TTL_SECS)));
         assert!(device_refresh_due(Some(DEVICE_REFRESH_TTL_SECS * 10)));
-        // A real bound: not zero, not enormous.
         assert!(DEVICE_REFRESH_TTL_SECS >= 10 && DEVICE_REFRESH_TTL_SECS <= 600);
     }
 
-    // A loss not attributable to a call must not be reported as one: an
-    // undecryptable to-device message has no type, so only a sender we sent a
-    // media key to qualifies. Otherwise any failed message (or injected
-    // `sender`) would trigger it and grow the table.
     #[test]
     fn an_undecryptable_message_is_only_a_call_fault_for_a_call_peer() {
         assert!(!undecryptable_key_report_due(false, None));
@@ -5610,20 +4703,14 @@ mod tests {
         ));
     }
 
-    // A wedged session re-sends, so the report is paced: the event queue drops
-    // its oldest entries, and repeats would evict real events. One line a
-    // minute per peer.
     #[test]
     fn a_lost_key_is_reported_once_and_then_paced() {
-        // Never said for this peer: say it.
         assert!(undecryptable_key_report_due(true, None));
-        // Just said: do not repeat.
         assert!(!undecryptable_key_report_due(true, Some(0)));
         assert!(!undecryptable_key_report_due(
             true,
             Some(DEVICE_REFRESH_TTL_SECS - 1),
         ));
-        // Still broken a minute later: report again.
         assert!(undecryptable_key_report_due(
             true,
             Some(DEVICE_REFRESH_TTL_SECS),
@@ -5632,7 +4719,6 @@ mod tests {
 
     #[test]
     fn rtc_identity_is_the_hash_the_reference_implementation_computes() {
-        // Published matrix-js-sdk vector for [sender, member id].
         assert_eq!(rtc_identity_hash("@alice:example.com", "memberABC"),
                    "M3VnsLXrkbxIDINXO64u8PZzFyD9ZYFiQULR2dshWYs");
         let identity = rtc_identity_hash("@a:x", "member-1");
@@ -5648,9 +4734,6 @@ mod tests {
 
     #[test]
     fn membership_state_key_matches_what_element_writes() {
-        // Element writes `_{user}_{device}_{application}`, dropping the leading
-        // underscore only on room versions where a user owns user-scoped keys.
-        // Wrong, and the write is refused or we appear twice.
         assert_eq!(
             membership_state_key("@a:x", "DEVICE", "10"),
             "_@a:x_DEVICE_m.call"
@@ -5667,7 +4750,6 @@ mod tests {
 
     #[test]
     fn published_membership_round_trips_through_our_own_parser() {
-        // What we write must parse under the rules we apply to Element's.
         let focus = LivekitTransport {
             service_url: "https://sfu.example.org/".to_owned(),
             alias: None,
@@ -5682,15 +4764,12 @@ mod tests {
         assert_eq!(member.slot_id, "m.call#ROOM");
         assert_eq!(member.intent, "video");
         assert_eq!(member.foci.len(), 1);
-        // A fresh join carries no created_ts, so the event ts is the join.
         assert_eq!(member.created_ts, 5_000);
         assert_eq!(member.expires_at_ms, 5_000 + MEMBERSHIP_EXPIRY_MS);
     }
 
     #[test]
     fn a_refresh_preserves_the_original_join_time() {
-        // created_ts orders focus selection; resetting it on refresh would
-        // reshuffle everyone's SFU.
         let content =
             own_membership_content("DEVICE", "@a:x", None, "audio", Some(111),
                                    MEMBERSHIP_EXPIRY_MS);
@@ -5702,8 +4781,6 @@ mod tests {
 
     #[test]
     fn a_membership_with_no_server_side_cleanup_expires_in_minutes() {
-        // Without MSC4140, `expires` is the only cleanup (a killed client cannot
-        // retract), so it must be minutes, not hours.
         let content = own_membership_content(
             "DEVICE", "@a:x", None, "audio", None,
             MEMBERSHIP_EXPIRY_NO_DELAYED_MS);
@@ -5713,22 +4790,16 @@ mod tests {
             member.expires_at_ms,
             5_000 + MEMBERSHIP_EXPIRY_NO_DELAYED_MS
         );
-        // And survivable: with a 60 s re-publish, the window must absorb several
-        // failed refreshes, or live participants get dropped.
         assert!(MEMBERSHIP_EXPIRY_NO_DELAYED_MS >= 3 * 60 * 1000);
     }
 
-    /// A peer's deadline is `created_ts + expires`; each refresh must move it,
-    /// or the participant drops out one period after joining.
     #[test]
     fn refreshing_a_membership_moves_the_deadline_peers_compute() {
         let period = MEMBERSHIP_EXPIRY_NO_DELAYED_MS;
         let created = 1_000_000_u64;
 
-        // First publish: no created_ts yet, peers date it from this event.
         assert_eq!(expires_for_refresh(period, None, created), period);
 
-        // Refreshes every 60 s: the deadline stays a full period ahead each time.
         for elapsed in [60_000_u64, 120_000, 240_000, 299_000, 600_000] {
             let now = created + elapsed;
             let expires = expires_for_refresh(period, Some(created), now);
@@ -5745,25 +4816,21 @@ mod tests {
             );
         }
 
-        // Still live past join + period.
         let now = created + period + 1;
         let expires = expires_for_refresh(period, Some(created), now);
         assert!(created + expires > now,
                 "the participant would vanish at exactly one period");
     }
 
-    /// Clock skew must never produce a deadline in the past.
     #[test]
     fn a_created_ts_in_the_future_still_yields_a_live_deadline() {
         let period = MEMBERSHIP_EXPIRY_NO_DELAYED_MS;
         let now = 1_000_000_u64;
-        // Server clock ahead of ours by a minute.
         let created = now + 60_000;
         let expires = expires_for_refresh(period, Some(created), now);
         assert_eq!(expires, period, "saturating_sub must floor at zero");
         assert!(created + expires > now);
 
-        // A hostile value read back from our own state must not wrap.
         let expires = expires_for_refresh(period, Some(u64::MAX), now);
         assert_eq!(expires, period);
         assert!(MEMBERSHIP_EXPIRY_NO_DELAYED_MS < MEMBERSHIP_EXPIRY_MS);
@@ -5771,16 +4838,12 @@ mod tests {
 
     #[test]
     fn an_expired_ghosts_join_time_is_not_inherited() {
-        // An expired ghost's created_ts must not be inherited, or the new
-        // membership is born expired and the person appears with no media.
         let ghost = json!({
             "created_ts": 1_000u64,
             "expires": 5 * 60 * 1000u64,
             "device_id": "DEVICE",
         });
-        // now is well past created_ts + expires.
         assert_eq!(inheritable_created_ts(&ghost, None, 9_000_000), None);
-        // Still inside its window: inherited, so a refresh keeps focus ordering.
         assert_eq!(
             inheritable_created_ts(&ghost, None, 200_000),
             Some(1_000)
@@ -5789,11 +4852,6 @@ mod tests {
 
     #[test]
     fn a_naked_retraction_is_only_sent_where_a_repair_write_follows() {
-        // `schedule_delayed_leave` PUTs `{}` to our state key via the v3 state
-        // endpoint, marked delayed only by a query parameter; a server that
-        // ignores it retracts us immediately. publish_membership repairs that only
-        // when it did not assume refusal, so a refresh would be unrepaired (GitHub
-        // #10). Never arm where the repair cannot follow.
         for assumed_no_delayed in [false, true] {
             if delayed_retraction_is_repairable(assumed_no_delayed) {
                 assert!(
@@ -5804,19 +4862,15 @@ mod tests {
                 );
             }
         }
-        // But it is armed somewhere, or an unclean exit strands a phantom for 4 h.
         assert!(delayed_retraction_is_repairable(false),
                 "nothing arms a delayed retraction at all any more");
     }
 
     #[test]
     fn one_servers_refusal_does_not_disable_msc4140_for_another() {
-        // MSC4140 support is per homeserver: one old server's refusal must not
-        // disable crash cleanup (and scheduled send) for other accounts.
         let old = "https://old.example.org/";
         let modern = "https://modern.example.org/";
 
-        // Start clean, whatever else touched the map.
         mark_delayed_refusal(old, false);
         mark_delayed_refusal(modern, false);
         assert!(!delayed_refusal_recorded(old));
@@ -5831,7 +4885,6 @@ mod tests {
              only crash-safe cleanup"
         );
 
-        // Clearing one leaves the other alone, both ways.
         mark_delayed_refusal(modern, true);
         mark_delayed_refusal(old, false);
         assert!(!delayed_refusal_recorded(old));
@@ -5842,32 +4895,23 @@ mod tests {
 
     #[test]
     fn only_an_absent_endpoint_disables_msc4140_for_a_server() {
-        // A refusal disables MSC4140, the only crash-surviving cleanup, for a whole
-        // server, so only "endpoint absent" may record one. Every failure arrives
-        // as an empty delay id, and `classify_room_error` maps a timeout and a 5xx
-        // alike to "network".
         for transient in ["network", "rate_limited", "forbidden", "invalid"] {
             assert!(
                 !delayed_refusal_is_permanent(transient),
                 "a '{transient}' refusal would permanently disable delayed                  retractions for every room in the process, so an unclean                  exit would strand a phantom participant from then on"
             );
         }
-        // A server that ignores the delay parameter answers 200 with no
-        // `delay_id`; treated as transient, every refresh would send a naked
-        // retraction (GitHub #10).
         assert!(
             delayed_refusal_is_permanent("no_delay_id"),
             "a server that ANSWERED without a delay id was treated as a \
              passing blip, so a naked retraction is armed on every refresh"
         );
-        // Synapse's 404 M_UNRECOGNIZED, and a plain 404.
         for absent in ["unrecognized", "not_found"] {
             assert!(
                 delayed_refusal_is_permanent(absent),
                 "'{absent}' means the endpoint is not there, and re-probing                  it on every refresh costs a second state event each time"
             );
         }
-        // Synapse with `msc4140_enabled` off answers 400 M_UNKNOWN, not 404.
         assert!(
             delayed_refusal_is_permanent("delayed_unsupported"),
             "the server said outright that it does not do delayed events; \
@@ -5877,13 +4921,6 @@ mod tests {
 
     #[test]
     fn synapse_says_delayed_events_are_unsupported_and_it_is_not_a_blip() {
-        // Synapse's body with `msc4140_enabled` off (`org.matrix.msc4140: false`
-        // in /versions):
-        //   HTTP 400
-        //   {"errcode":"M_UNKNOWN",
-        //    "error":"Delayed events are not supported on this server",
-        //    "org.matrix.msc4140.errcode":"M_MAX_DELAY_UNSUPPORTED"}
-        // The state event is not applied in this case.
         let synapse = "the server returned an error: [400 / M_UNKNOWN] \
                        Delayed events are not supported on this server";
         assert!(
@@ -5900,12 +4937,9 @@ mod tests {
              classifier cannot see this refusal, and if it ever can, the \
              comment above is stale"
         );
-        // The MSC's own errcode, for a client library that surfaces it.
         assert!(delayed_failure_says_unsupported(
             "org.matrix.msc4140.errcode M_MAX_DELAY_UNSUPPORTED"
         ));
-        // M_MAX_DELAY_EXCEEDED must not match: delayed events are supported, the
-        // delay was just too long.
         assert!(
             !delayed_failure_says_unsupported(
                 "[400 / M_UNKNOWN] M_MAX_DELAY_EXCEEDED: delay too long"
@@ -5921,16 +4955,8 @@ mod tests {
         }
     }
 
-    /// Serialises every test touching the process-global publish set and,
-    /// since `forget_account_memberships_published()` clears them together, the
-    /// escalation and ring tables too. Cargo runs tests in parallel in one
-    /// process, so without it one test's clear wipes another's marks.
     static PUBLISH_SET_TEST_LOCK: Mutex<()> = Mutex::new(());
 
-    /// The published mark must not outlive its session. Two clearers are pinned:
-    /// by room (needs only the room id, so no early return can skip it) and
-    /// wholesale on teardown. Otherwise, after sign-out, the next join would
-    /// read as a refresh and inherit a ghost's `created_ts`.
     #[test]
     fn a_published_mark_does_not_outlive_its_session() {
         let _serialised = PUBLISH_SET_TEST_LOCK
@@ -5947,7 +4973,6 @@ mod tests {
             assert!(membership_published_in_this_process(key));
         }
 
-        // By room: every state key in that room goes, and only that room.
         forget_room_memberships_published(room, None);
         assert!(
             !membership_published_in_this_process(&mine),
@@ -5962,7 +4987,6 @@ mod tests {
             "leaving one room must not disturb another room's bookkeeping"
         );
 
-        // A session ending clears everything its account published.
         forget_account_memberships_published("@a:example", "DEVICEA");
         assert!(
             !membership_published_in_this_process(&elsewhere),
@@ -5972,13 +4996,9 @@ mod tests {
 
     #[test]
     fn a_rejoin_is_a_join_until_this_process_has_published() {
-        // Shares the process-global set with the test above; see the lock.
         let _serialised = PUBLISH_SET_TEST_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        // `created_ts` is inherited only when this process already published the
-        // state key. Inheriting a killed session's join time makes peers see no
-        // new joiner, so matrix-js-sdk sends the rejoined device no media key.
         let room = "!probe:matrix.example";
         let key = membership_publish_key(room, "_@a:example_DEVICE_m.call");
         forget_membership_published(&key);
@@ -5994,12 +5014,9 @@ mod tests {
             "a refresh must inherit created_ts, or the membership's deadline \
              walks forward and oldest-membership focus selection reorders"
         );
-        // A leave ends the session: an in-process rejoin is a new participant, and
-        // a failed retraction leaves the same ghost a crash does.
         forget_membership_published(&key);
         assert!(!membership_published_in_this_process(&key));
 
-        // Scoped to the state key, so other rooms and accounts are unaffected.
         mark_membership_published("@a:example", &membership_publish_key(
             "!other:matrix.example",
             "_@a:example_DEVICE_m.call",
@@ -6024,15 +5041,12 @@ mod tests {
 
     #[test]
     fn inheritable_created_ts_falls_back_and_saturates() {
-        // No created_ts: the event's own timestamp is the join time.
         let content = json!({ "expires": 600_000u64 });
         assert_eq!(
             inheritable_created_ts(&content, Some(2_000), 3_000),
             Some(2_000)
         );
-        // A retracted membership is empty content: a fresh join.
         assert_eq!(inheritable_created_ts(&json!({}), Some(2_000), 3_000), None);
-        // A hostile expires must not wrap and make a live membership look dead.
         let hostile = json!({ "created_ts": 10u64, "expires": u64::MAX });
         assert_eq!(
             inheritable_created_ts(&hostile, None, u64::MAX - 1),
@@ -6042,7 +5056,6 @@ mod tests {
 
     #[test]
     fn a_membership_without_a_focus_is_still_valid() {
-        // A join whose focus came from the server publishes no foci_preferred.
         let content =
             own_membership_content("DEVICE", "@a:x", None, "audio", None,
                                    MEMBERSHIP_EXPIRY_MS);
@@ -6054,7 +5067,6 @@ mod tests {
     fn intent_is_a_closed_set() {
         assert_eq!(intent_str(Some(&json!("video"))), "video");
         assert_eq!(intent_str(Some(&json!("audio"))), "audio");
-        // Free text: unknown values degrade to audio.
         assert_eq!(intent_str(Some(&json!("holodeck"))), "audio");
         assert_eq!(intent_str(None), "audio");
     }
@@ -6072,11 +5084,9 @@ mod tests {
         let value = serde_json::to_value(&content).expect("serializes");
         assert_eq!(value["notification_type"], json!("ring"));
         assert_eq!(value["sender_ts"], json!(1234));
-        // A plain integer of milliseconds, not a duration object.
         assert_eq!(value["lifetime"], json!(90_000));
         assert_eq!(value["m.call.intent"], json!("video"));
         assert_eq!(value["m.mentions"]["room"], json!(true));
-        // Absent rather than null: Element rejects a malformed relation.
         assert!(value.get("m.relates_to").is_none());
     }
 
@@ -6097,7 +5107,6 @@ mod tests {
         .expect("a valid unstable notification");
         let payload = msc4075_notification_payload(&ev, "!r:x", None, 3);
         assert_eq!(payload["notification_type"], json!("notification"));
-        // Before: m.mentions was dropped here.
         assert_eq!(payload["mentions_user_ids"], json!(["@me:x"]));
         assert_eq!(payload["mentions_room"], json!(true));
         assert_eq!(payload["rtc"], json!(true));
@@ -6107,42 +5116,29 @@ mod tests {
 
     #[test]
     fn the_notification_event_type_is_the_one_element_sends() {
-        // ruma types this event only as stable `m.rtc.notification`, deaf to
-        // Element's rings.
         assert_eq!(
             Msc4075RtcNotificationEventContent::TYPE,
             "org.matrix.msc4075.rtc.notification"
         );
     }
 
-    /// The raised-hand key must not drift: element-call's `ReactionsReader`
-    /// compares it exactly, including U+FE0F. Asserted by bytes, since the two
-    /// forms look identical.
     #[test]
     fn the_raised_hand_key_is_element_calls_own_bytes() {
         assert_eq!(
             HAND_RAISED_KEY.as_bytes(),
             &[0xF0, 0x9F, 0x96, 0x90, 0xEF, 0xB8, 0x8F]
         );
-        // Two code points, not one: the selector is part of the key.
         assert_eq!(HAND_RAISED_KEY.chars().count(), 2);
         assert_eq!(HAND_RAISED_KEY.chars().next(), Some('\u{1F590}'));
         assert_eq!(HAND_RAISED_KEY.chars().nth(1), Some('\u{FE0F}'));
     }
 
-    // ── Transient call reactions ─────────────────────────────────────────
-    //
-    // Asserted by bytes and serialized JSON, since visually identical emoji
-    // can be different reactions.
-
     #[test]
     fn the_call_reaction_event_type_is_element_calls_own() {
-        // `ElementCallReactionEventType` in element-call/src/reactions/index.ts.
         assert_eq!(
             ElementCallReactionEventContent::TYPE,
             "io.element.call.reaction"
         );
-        // The derive is what the SDK matches; the constant is what readers grep.
         assert_eq!(ElementCallReactionEventContent::TYPE, EV_CALL_REACTION);
     }
 
@@ -6156,8 +5152,6 @@ mod tests {
             ),
         };
         let value = serde_json::to_value(&content).expect("serializes");
-        // A reference to the membership, not an annotation; element-call reads
-        // `m.relates_to.event_id` and matches it to a membership.
         assert_eq!(value["m.relates_to"]["rel_type"], json!("m.reference"));
         assert_eq!(
             value["m.relates_to"]["event_id"],
@@ -6166,7 +5160,6 @@ mod tests {
         assert_eq!(value["emoji"], json!("\u{1F44D}"));
         assert_eq!(value["name"], json!("thumbsup"));
 
-        // Unknown Unicode emoji use Element Call's generic reaction sound.
         let custom = ElementCallReactionEventContent {
             emoji: "🦊".to_owned(),
             name: String::new(),
@@ -6181,14 +5174,6 @@ mod tests {
 
     #[test]
     fn a_malformed_call_reaction_never_reaches_the_handler() {
-        // Content that cannot deserialize is dropped by matrix-sdk before any
-        // handler runs.
-        //
-        // Not enforced: serde does not check an internally tagged struct's tag
-        // inbound, so `rel_type: "m.annotation"` still deserializes as a
-        // `Reference`. element-call ignores `rel_type` too; the sender-owns-the-
-        // membership check in C++ is the protection. Asserted so a serde change is
-        // noticed here.
         let annotation = json!({
             "emoji": "\u{1F44D}",
             "name": "thumbsup",
@@ -6221,7 +5206,6 @@ mod tests {
         )
         .is_err());
 
-        // Deliberately liberal: a reaction without `name` is still a reaction.
         let nameless = json!({
             "emoji": "\u{1F44D}",
             "m.relates_to": {
@@ -6253,14 +5237,11 @@ mod tests {
 
     #[test]
     fn the_reaction_set_is_element_calls_own_bytes() {
-        // By bytes, like the hand key: element-call keys the sound on `name` and
-        // draws `emoji`.
         let thumbsup = ELEMENT_CALL_REACTIONS
             .iter()
             .find(|(name, _)| *name == "thumbsup")
             .expect("thumbsup is in element-call's set");
         assert_eq!(thumbsup.1.as_bytes(), &[0xF0, 0x9F, 0x91, 0x8D]);
-        // The ZWJ sequence, easily mangled by copy-paste: U+1F635 ZWJ U+1F4AB.
         let dizzy = ELEMENT_CALL_REACTIONS
             .iter()
             .find(|(name, _)| *name == "dizzy")
@@ -6271,7 +5252,6 @@ mod tests {
         );
         assert_eq!(dizzy.1.chars().count(), 3);
 
-        // No duplicate names: element-call's lookup takes the first match.
         let mut names: Vec<&str> =
             ELEMENT_CALL_REACTIONS.iter().map(|(name, _)| *name).collect();
         names.sort_unstable();
@@ -6279,8 +5259,6 @@ mod tests {
         names.dedup();
         assert_eq!(names.len(), before);
 
-        // Every entry must survive our own inbound reduction unchanged, catching a
-        // cluster rule that is too eager or too shy.
         for (_, emoji) in ELEMENT_CALL_REACTIONS {
             assert_eq!(
                 reaction_emoji(emoji).as_deref(),
@@ -6292,7 +5270,6 @@ mod tests {
 
     #[test]
     fn an_inbound_reaction_emoji_is_bounded_and_reduced_to_one_cluster() {
-        // Whole clusters survive, including shapes a first-char rule would split.
         assert_eq!(reaction_emoji("\u{1F44D}").as_deref(), Some("\u{1F44D}"));
         assert_eq!(
             reaction_emoji("\u{1F590}\u{FE0F}").as_deref(),
@@ -6307,7 +5284,6 @@ mod tests {
             Some("\u{1F1EC}\u{1F1E7}")
         );
 
-        // Everything after the first cluster is dropped, like `Intl.Segmenter`.
         assert_eq!(
             reaction_emoji("\u{1F44D}\u{1F389}\u{1F44F}").as_deref(),
             Some("\u{1F44D}")
@@ -6320,12 +5296,10 @@ mod tests {
             "an oversized emoji field is dropped whole rather than trimmed"
         );
 
-        // Nothing drawable is nothing.
         assert_eq!(reaction_emoji(""), None);
         assert_eq!(reaction_emoji("   "), None);
         assert_eq!(reaction_emoji("\u{1F44D}\u{0007}"), None);
 
-        // A hostile run of continuations stops at the cap.
         let joined = format!("\u{1F44D}{}", "\u{200D}\u{1F44D}".repeat(8));
         assert_eq!(
             reaction_emoji(&joined).map(|value| value.chars().count()),
@@ -6338,10 +5312,6 @@ mod tests {
         );
     }
 
-    /// A membership carries its declaring state event's id, taken from the
-    /// envelope; a raised hand addresses that event, not the user.
-    /// The well-known URL keeps a port in the server name (as matrix-js-sdk
-    /// does) and still refuses anything that would change the host.
     #[test]
     fn the_well_known_url_follows_the_server_name_port_included() {
         use super::transports_endpoint::endpoint_for;
@@ -6390,8 +5360,6 @@ mod tests {
         assert!(fallback_for("evil.example/x:8448").is_err());
     }
 
-    /// GitHub #57: Element Call keys its transports by the literal focus URL,
-    /// so we advertise it exactly as written and compare it tolerantly.
     #[test]
     fn a_focus_url_is_kept_as_written_and_compared_by_meaning() {
         for spelled in [
@@ -6426,34 +5394,26 @@ mod tests {
             "content alone cannot know its own event id, and a fabricated \
              one would attribute somebody else's hand"
         );
-        // It crosses to C++ as an empty string rather than a missing key.
         let wire = member.to_json();
         assert_eq!(wire.get("event_id").and_then(|v| v.as_str()), Some(""));
     }
-
-    // ── SFU resolution guard ─────────────────────────────────────────────
-    //
-    // Literal checks (rooms.rs `public_ip`, sfu.rs `normalize_sfu_url`) cannot
-    // see an ordinary hostname whose DNS answer is private, and focus names
-    // are attacker-supplied. These resolve literals, which is what a hostile A
-    // record looks like to `lookup_host`, keeping the test offline.
 
     #[tokio::test]
     #[cfg(not(feature = "test-loopback-foci"))]
     async fn a_focus_that_resolves_into_private_space_is_refused() {
         for host in [
-            "127.0.0.1",        // loopback
-            "10.0.0.5",         // RFC1918
-            "192.168.1.10",     // RFC1918
-            "172.16.0.1",       // RFC1918
-            "169.254.169.254",  // link-local, the cloud metadata endpoint
-            "100.64.0.1",       // CGNAT
-            "0.0.0.0",          // unspecified
-            "::1",              // IPv6 loopback
-            "fc00::1",          // unique local
-            "fe80::1",          // IPv6 link-local
-            "::ffff:127.0.0.1", // IPv4-mapped loopback, the coat-wearing one
-            "64:ff9b::7f00:1",  // NAT64 with an embedded loopback
+            "127.0.0.1",
+            "10.0.0.5",
+            "192.168.1.10",
+            "172.16.0.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "0.0.0.0",
+            "::1",
+            "fc00::1",
+            "fe80::1",
+            "::ffff:127.0.0.1",
+            "64:ff9b::7f00:1",
         ] {
             assert!(
                 resolve_public_host(host, 443).await.is_none(),
@@ -6462,7 +5422,6 @@ mod tests {
         }
     }
 
-    // Local-only names are refused before any lookup.
     #[tokio::test]
     #[cfg(not(feature = "test-loopback-foci"))]
     async fn local_only_names_are_refused_without_resolving() {
@@ -6471,8 +5430,8 @@ mod tests {
             "sfu.localhost",
             "livekit.local",
             "sfu.internal",
-            "LOCALHOST",      // case must not be an escape
-            "localhost.",     // nor a trailing root label
+            "LOCALHOST",
+            "localhost.",
         ] {
             assert!(
                 resolve_public_host(host, 443).await.is_none(),
@@ -6494,8 +5453,6 @@ mod tests {
         }
     }
 
-    // The address is pinned: the caller connects to the SocketAddr that was
-    // checked, so a second lookup cannot rebind it.
     #[tokio::test]
     async fn an_approved_focus_returns_the_address_to_connect_to() {
         let approved = resolve_public_host("93.184.216.34", 8443)
@@ -6511,8 +5468,6 @@ mod tests {
         assert_eq!(v6.port(), 443);
     }
 
-    // R1-H1 / DECISION 11: one account's session ending keeps every other
-    // account's published memberships and marks.
     #[test]
     fn retiring_one_account_keeps_another_accounts_rtc_state() {
         let _serialised = PUBLISH_SET_TEST_LOCK

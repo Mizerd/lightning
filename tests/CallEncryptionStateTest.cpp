@@ -14,16 +14,12 @@ class CallEncryptionStateTest : public QObject
     Q_OBJECT
 
 private slots:
-    /// Unknown fails closed: an unknown room is treated as encrypted, so the
-    /// failure mode is a refused call, never a cleartext one.
     void anUnknownRoomIsTreatedAsEncrypted()
     {
         RtcController rtc;
         QVERIFY(rtc.roomEncrypted(QStringLiteral("!never-seen:example.org")));
     }
 
-    /// A genuinely unencrypted room can still say so; only the reversal is
-    /// refused.
     void anUnencryptedRoomIsRecordedAsSuch()
     {
         RtcController rtc;
@@ -32,7 +28,6 @@ private slots:
         QVERIFY(!rtc.roomEncrypted(room));
     }
 
-    /// A stale "not encrypted" read for a known-encrypted room is ignored.
     void aKnownEncryptedRoomCannotBeDowngraded()
     {
         RtcController rtc;
@@ -40,19 +35,15 @@ private slots:
         rtc.setRoomEncrypted(room, true);
         QVERIFY(rtc.roomEncrypted(room));
 
-        // The stale view arrives and changes nothing.
         rtc.setRoomEncrypted(room, false);
         QVERIFY2(rtc.roomEncrypted(room),
                  "an encrypted room was downgraded to cleartext by a stale read");
 
-        // Repeating it stays refused.
         rtc.setRoomEncrypted(room, false);
         rtc.setRoomEncrypted(room, false);
         QVERIFY(rtc.roomEncrypted(room));
     }
 
-    /// A refused downgrade emits no change signal; a spurious sessionChanged
-    /// re-runs every consumer.
     void arefusedDowngradeAnnouncesNothing()
     {
         RtcController rtc;
@@ -64,28 +55,22 @@ private slots:
         QVERIFY(rtc.roomEncrypted(room));
     }
 
-    /// Rooms are independent.
     void oneRoomsRefusalDoesNotAffectAnother()
     {
         RtcController rtc;
         const QString a = QStringLiteral("!a:example.org");
         const QString b = QStringLiteral("!b:example.org");
         rtc.setRoomEncrypted(a, true);
-        rtc.setRoomEncrypted(a, false);   // refused
-        rtc.setRoomEncrypted(b, false);   // honoured
+        rtc.setRoomEncrypted(a, false);
+        rtc.setRoomEncrypted(b, false);
         QVERIFY(rtc.roomEncrypted(a));
         QVERIFY(!rtc.roomEncrypted(b));
     }
 
-    // An owner-supplied resolver answers for rooms nothing pushed a state
-    // for. The global incoming-call card opens no room, so without it the
-    // answerer treated an unencrypted room as encrypted and dropped the
-    // caller's audio.
     void aRoomTheOwnerKnowsIsUnencryptedIsNotTreatedAsEncrypted()
     {
         RtcController rtc;
         const QString room = QStringLiteral("!plain:example.org");
-        // Nothing is pushed: the state a join from the ring card finds.
         rtc.setEncryptionResolver([room](const QString &id) {
             return id == room ? RtcController::RoomEncryption::No
                               : RtcController::RoomEncryption::Unknown;
@@ -94,11 +79,9 @@ private slots:
                  "a room the owner knows is unencrypted still read as "
                  "encrypted, so a join from a surface that opens no room "
                  "requires encryption the peer is not using");
-        // A room the resolver knows nothing about still fails closed.
         QVERIFY(rtc.roomEncrypted(QStringLiteral("!unknown:example.org")));
     }
 
-    /// The resolver cannot weaken a room known to be encrypted.
     void theResolverCannotDowngradeAKnownEncryptedRoom()
     {
         RtcController rtc;
@@ -112,8 +95,6 @@ private slots:
                  "already seen encrypted");
     }
 
-    /// A resolver Yes wins over anything stored, the only direction Matrix
-    /// encryption moves.
     void theResolverCanUpgradeARoomItLearnsIsEncrypted()
     {
         RtcController rtc;
@@ -126,8 +107,6 @@ private slots:
         QVERIFY(rtc.roomEncrypted(room));
     }
 
-    /// roomEncrypted() memoises a resolver Yes, so the downgrade guard covers
-    /// every room ever seen encrypted, not only those something pushed.
     void aRoomTheResolverOnceCalledEncryptedIsNotLaterDowngraded()
     {
         RtcController rtc;
@@ -137,9 +116,7 @@ private slots:
             return encryptedNow ? RtcController::RoomEncryption::Yes
                                 : RtcController::RoomEncryption::No;
         });
-        // The read that learns it, and with the memo remembers it.
         QVERIFY(rtc.roomEncrypted(room));
-        // The room list now says otherwise: a stale or partial view.
         encryptedNow = false;
         QVERIFY2(rtc.roomEncrypted(room),
                  "a room the resolver itself reported encrypted was "
@@ -147,18 +124,11 @@ private slots:
                  "was never recorded");
     }
 
-    // A room this class was never told about stays correctable: only known
-    // answers are recorded, so the first known answer is honoured rather
-    // than refused as a downgrade. A characterization test for the
-    // tri-state (it also passes on older code); the regression case for the
-    // caller that fabricated `true` is in CallRingPolicyTest.
     void aRoomThisClassWasNeverToldAboutStaysCorrectable()
     {
         RtcController rtc;
         const QString room = QStringLiteral("!unknown-first:example.org");
-        // Never pushed: fail closed.
         QVERIFY(rtc.roomEncrypted(room));
-        // The first known answer is honoured.
         rtc.setRoomEncrypted(room, false);
         QVERIFY2(!rtc.roomEncrypted(room),
                  "a room this controller was never told about could not be "

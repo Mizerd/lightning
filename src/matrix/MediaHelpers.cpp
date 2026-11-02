@@ -85,8 +85,8 @@ QString previewSnippet(const QString &body, int maxChars)
     s.replace(QLatin1Char('\n'), QLatin1Char(' '));
     s = s.trimmed();
     if (s.size() > maxChars)
-        s = s.left(maxChars - 1) + QChar(0x2026); // horizontal ellipsis
+        s = s.left(maxChars - 1) + QChar(0x2026);
     return s;
 }
 
-} // namespace matrix::media
+}

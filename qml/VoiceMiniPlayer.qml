@@ -5,34 +5,6 @@ import QtQuick.Layouts
 import QtQuick.Window
 import MatrixClient
 
-// The popped-out voice/audio player: a floating card over the window for the
-// app-owned clip (app.voicePlayback), shown when the user has popped the
-// "now playing" strip out (app.settings.voicePlayerDocked false). Hosted by
-// Main.qml at window level, so it stays on every screen, Settings included
-// (design-media B2), and shows whenever the clip's row is not on screen,
-// in the clip's own room too (U2).
-//
-// The user moves it anywhere in the window by dragging it and resizes it from
-// any edge or corner; dropped close to an edge it settles against that edge,
-// as a PiP window does. The place is remembered RELATIVE to the window
-// (app.settings.voiceMiniPlayerGeometry: x/y as fractions of the free space,
-// width/height in pixels), so a window resize, a monitor change or a layout
-// switch moves the card proportionally and can never leave it off screen: the
-// size is clamped to what fits and a fraction can only land inside. The
-// content reflows with the size: a compact one-line player, the regular card
-// (title, room, scrubber, clock, next), and a large card with the cover or
-// waveform, both clocks, the speed chip and a transport row.
-//
-// Keyboard: Tab reaches it; Space plays/pauses, Return opens the message,
-// Alt+arrows move it and Alt+Shift+arrows resize it.
-//
-// It never sits on the call PiP window or the window's corner prompts
-// (incoming call, verification, update): resting on one, it steps aside to
-// the nearest free spot without forgetting where the user put it. Its first
-// spot is the bottom-right of the chat column, left of the timeline's right
-// rail (hover toolbars, read receipts), so it does not cover them.
-//
-// This item fills its host and takes no input itself; only the card does.
 Item {
     id: root
 
@@ -40,28 +12,18 @@ Item {
 
     readonly property var voice: app.voicePlayback
     readonly property bool docked: app.settings.voicePlayerDocked
-    // The app's chat or settings screens (not login, not boot).
     readonly property bool onAppScreen: app.currentScreen === 1
                                         || app.currentScreen === 2
-    // The clip's own row is on screen (it says so through
-    // voice.reportRowVisible): the row is the player, the card is not needed.
     readonly property bool rowVisible: app.currentScreen === 1
                                        && root.voice.rowOnScreen
     readonly property bool wanted: root.voice.active && !root.docked
                                    && root.onAppScreen && !root.rowVisible
 
-    // Rectangles (this item's coordinates) the card must not cover. Kept in
-    // step with the call PiP window and the corner prompts by refreshAvoid();
-    // assigned, never bound, so tests may set it too.
     property var avoidRects: []
-    // A function returning the chat column (this item's coordinates) for the
-    // first placement, or null; Main.qml asks TimelinePane.
     property var hintProvider: null
 
     readonly property int margin: AppTheme.spacing8
     readonly property int snapDistance: 24
-    // Reserved at the right of the chat column on first placement: the
-    // timeline rows' hover toolbar and receipt facepile live there.
     readonly property int railReserve: 168
     readonly property int minWidth: 200
     readonly property int minHeight: 52
@@ -71,7 +33,6 @@ Item {
     readonly property int defaultHeight: 92
     readonly property int keyStep: 24
 
-    // Where the card may be: the whole host minus a margin.
     readonly property rect area: Qt.rect(
         root.margin, root.margin,
         Math.max(0, root.width - 2 * root.margin),
@@ -82,9 +43,6 @@ Item {
                                        && root.saved.height > 0
 
     function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
-    // The size that fits: the wanted size within min/max, and never larger
-    // than the area (a narrow window shrinks the card below its minimum
-    // rather than pushing it off screen).
     function fitWidth(w) {
         return Math.min(root.area.width,
                         root.clamp(w, root.minWidth, root.maxWidth))
@@ -99,8 +57,6 @@ Item {
         root.fitHeight(root.savedValid ? root.saved.height
                                        : root.defaultHeight)
 
-    // The first spot: bottom-right of the chat column, left of its right rail
-    // when there is room for that.
     function defaultPosition(w, h) {
         var hint = root.hintProvider ? root.hintProvider() : null
         if (!hint || hint.width <= 0 || hint.height <= 0)
@@ -136,8 +92,6 @@ Item {
         }
         return false
     }
-    // The spot itself if it is free, else the nearest free spot beside
-    // whatever it would cover: above, below, left or right of it.
     function avoidedPosition(x, y, w, h, avoid) {
         if (!root.intersectsAny(avoid, x, y, w, h))
             return Qt.point(x, y)
@@ -189,8 +143,6 @@ Item {
         root.liveHeight = card.height
         root.interacting = true
     }
-    // Settles against an edge it was dropped close to (when `snap`), then
-    // remembers the place as fractions of the free space.
     function commit(x, y, w, h, snap) {
         w = root.fitWidth(w)
         h = root.fitHeight(h)
@@ -211,12 +163,10 @@ Item {
             freeY > 0 ? (y - root.area.y) / freeY : 0, w, h)
         root.interacting = false
     }
-    // Keyboard move (dx, dy) or resize (dw, dh).
     function nudge(dx, dy, dw, dh) {
         root.commit(card.x + dx, card.y + dy, card.width + dw,
                     card.height + dh, false)
     }
-    // A resize from an edge or corner: `edges` names the ones that move.
     property var resizeStart: null
     function beginResize(edges, scenePoint) {
         root.beginInteraction()
@@ -266,8 +216,6 @@ Item {
                     false)
     }
 
-    // ── The call PiP (a separate top-level window) and the corner prompts.
-    // Found by objectName on this window (Main.qml declares them).
     property var callPip: null
     function findCallPip() {
         var w = root.Window.window
@@ -296,8 +244,6 @@ Item {
         var rects = []
         var w = root.Window.window
         if (root.callPip && root.callPip.visible && w) {
-            // Both windows' positions are screen coordinates of their client
-            // areas; the difference is a scene position in this window.
             var p = root.mapFromItem(null, root.callPip.x - w.x,
                                      root.callPip.y - w.y)
             rects.push(Qt.rect(p.x, p.y, root.callPip.width,
@@ -354,14 +300,10 @@ Item {
 
     VoicePlayerLogic { id: logic }
 
-    // The window's "focus the player" shortcut lands here (Main.qml).
     function focusCard() {
         card.forceActiveFocus(Qt.ShortcutFocusReason)
     }
 
-    // The card's elevation (design-media P1). MultiEffect needs a source
-    // sibling; a plain hidden shape of the card's outline, so the shadow does
-    // not re-render with every clock tick.
     Rectangle {
         id: shadowShape
         x: card.x
@@ -391,7 +333,6 @@ Item {
         id: card
         objectName: "voiceMiniPlayer"
 
-        // The reflow tiers.
         readonly property string tier: card.height < 76 ? "compact"
             : (card.height >= 140 && card.width >= 300 ? "large" : "regular")
 
@@ -403,14 +344,10 @@ Item {
         // the card outside the window for the length of the animation.
 
         radius: AppTheme.radiusLg
-        // Its own surface and a strong border, so the card separates from
-        // bubbles and the canvas in every theme (design-media P1; see
-        // VoicePlayerLogic.cardSurface).
         color: logic.cardSurface
         border.width: card.activeFocus ? 2 : 1
         border.color: card.activeFocus ? AppTheme.focusRing : logic.cardBorder
 
-        // A short fade in and out.
         opacity: root.wanted ? 1 : 0
         visible: opacity > 0
         enabled: root.wanted
@@ -468,11 +405,6 @@ Item {
                 event.accepted = true
         }
 
-        // Moving: a drag anywhere on the card that a control does not take.
-        // A MouseArea under the content, not a DragHandler: it takes the
-        // press, so the timeline's Flickable beneath the card never sees it
-        // and cannot steal the drag to scroll (it did, live, on a downward
-        // drag), and preventStealing keeps it for the whole gesture.
         MouseArea {
             id: moveArea
             objectName: "voiceMiniPlayerDrag"
@@ -486,9 +418,6 @@ Item {
             readonly property bool active: moving
             property point pressAt: Qt.point(0, 0)
             property point startAt: Qt.point(0, 0)
-            // No focus on press: a click or drag must not move the keyboard
-            // focus out of the composer, nor draw the focus ring (which is
-            // for keyboard and shortcut focus only).
             onPressed: (mouse) => {
                 moving = false
                 pressedOnInfo = info.contains(mapToItem(info, mouse.x, mouse.y))
@@ -521,10 +450,6 @@ Item {
                                 root.liveHeight, true)
                 } else if (pressedOnInfo
                            && info.contains(mapToItem(info, mouse.x, mouse.y))) {
-                    // A click on the title and room is the way back to the
-                    // message. It is handled HERE, not by a TapHandler on the
-                    // text, whose press kept a drag that began on the title
-                    // from ever moving the card (C21-F02).
                     logic.openSource()
                 }
             }
@@ -537,7 +462,6 @@ Item {
             }
         }
 
-        // ── Content ──
         ColumnLayout {
             id: content
             anchors.fill: parent
@@ -551,7 +475,6 @@ Item {
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing8
 
-                // Avatar, or an audio file's cover.
                 Item {
                     id: artSlot
                     readonly property int edge: card.tier === "large" ? 56
@@ -559,8 +482,6 @@ Item {
                     Layout.alignment: Qt.AlignVCenter
                     implicitWidth: edge
                     implicitHeight: edge
-                    // The compact card at its narrowest gives the picture up
-                    // for the title (C21-F07).
                     visible: !(card.tier === "compact" && card.width < 260)
                     Avatar {
                         objectName: "voiceMiniPlayerAvatar"
@@ -589,7 +510,6 @@ Item {
                     }
                 }
 
-                // Title and room: the way back to the message.
                 ColumnLayout {
                     id: info
                     objectName: "voiceMiniPlayerInfo"
@@ -633,7 +553,6 @@ Item {
                     }
                 }
                 Item {
-                    // Keeps the controls right-aligned when the title hides.
                     Layout.fillWidth: !info.visible
                 }
 
@@ -697,7 +616,6 @@ Item {
                 }
             }
 
-            // The large card: the waveform (or the track) as the scrubber.
             VoiceSeekBar {
                 objectName: "voiceMiniPlayerWave"
                 visible: card.tier === "large"
@@ -722,7 +640,6 @@ Item {
                     color: logic.readable(AppTheme.textSecondary,
                                           logic.cardSurface)
                     font.pixelSize: AppTheme.scaled(AppTheme.textMicro + 1)
-                    // The scrubber's value carries the position.
                     Accessible.ignored: true
                 }
                 VoiceSeekBar {
@@ -795,7 +712,6 @@ Item {
                     surface: logic.cardSurface
                     visible: card.tier === "large" || card.width >= 280
                 }
-                // The level and mute, on the player that stays (C21-D06).
                 MediaVolumeControl {
                     objectName: "voiceMiniPlayerVolume"
                     audio: root.voice.active ? root.voice.audioOutput : null
@@ -816,7 +732,6 @@ Item {
             }
         }
 
-        // The compact card's scrubber, along the bottom edge.
         VoiceSeekBar {
             objectName: "voiceMiniPlayerCompactSeek"
             visible: card.tier === "compact"
@@ -829,7 +744,6 @@ Item {
             height: 13
         }
 
-        // ── Resize handles: edges and corners, 8 px bands over the border.
         Repeater {
             model: [
                 { e: "l", c: Qt.SizeHorCursor }, { e: "r", c: Qt.SizeHorCursor },

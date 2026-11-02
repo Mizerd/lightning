@@ -3,33 +3,10 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Downloads, as Element shows them: one row per file while it downloads
-// (cancellable), then "Saved to <folder>" with Open and Show in folder, the
-// way Element's "Download completed" toast offers them. A finished row clears
-// itself after ten seconds unless the pointer rests on the card; a failed one
-// stays until dismissed or retried. EXCEPT a download that was shown beside
-// its file card (keepUntilDismissed): that one stays until opened or
-// dismissed, on purpose (AttachmentDownloadNotice), so a "Saved" notice that
-// outlives ten seconds after a click on a file row is the design, not a stuck
-// timer (C22-F01, closed as by design). A file whose type can run programs is
-// never opened from here: it offers Show in folder only and says why.
-//
-// A Snap or Flatpak gets a portal-granted file back from the save dialog in
-// the document portal's mount, whose folder is a document id; folderName is
-// empty then (unless the portal named the real folder) and the row says only
-// "Saved" under the file's name, never the id.
-//
-// The list is app.downloads.items, owned by C++, so it survives a room
-// switch. PaneDownloadsCard places this card and feeds it the downloads no
-// row shows; a row's own AttachmentDownloadNotice (a separate one-line strip)
-// shows the download its file card claims (DownloadNotices).
 Rectangle {
     id: card
     objectName: "downloadsCard"
-    // [{id, fileName, folderName, state, message, risky, canOpen, revealFailed}]
     property var items: []
-    // How long a finished row stays; a property so a test need not wait ten
-    // seconds.
     property int dismissAfterMs: 10000
     visible: items.length > 0
     radius: AppTheme.radiusLg
@@ -40,10 +17,8 @@ Rectangle {
     implicitHeight: rows.implicitHeight + AppTheme.spacing8 * 2
     height: implicitHeight
 
-    // The pointer resting anywhere on the card holds every finished row.
     HoverHandler { id: cardHover }
 
-    // A soft shadow so the card reads as floating over the timeline.
     Rectangle {
         z: -1
         anchors.fill: parent
@@ -76,15 +51,6 @@ Rectangle {
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing6
 
-                // Element's toast expires after ten seconds; a finished row
-                // here too, held while the pointer is on the card. It counts
-                // only while the card is actually visible (effective
-                // visibility: a scrolled-away or hidden host stops it), so an
-                // outcome nobody saw is never dismissed unseen; it is shown
-                // once, for the full interval, when it next appears.
-                // Not for a download that was shown beside its file card
-                // (keepUntilDismissed, set by PaneDownloadsCard): that one
-                // stays until the user opens or dismisses it.
                 Timer {
                     interval: card.dismissAfterMs
                     running: row.done && row.modelData.keepUntilDismissed !== true
@@ -92,7 +58,6 @@ Rectangle {
                     onTriggered: app.downloads.dismiss(row.modelData.id)
                 }
 
-                // A hairline between rows, none above the first.
                 Rectangle {
                     visible: row.index > 0
                     Layout.fillWidth: true
@@ -163,7 +128,6 @@ Rectangle {
                                 if (row.failed)
                                     return row.modelData.message
                                            || qsTr("The download failed.")
-                                // Show in folder found no way to show it.
                                 if (row.modelData.revealFailed)
                                     return qsTr("Saved, but its folder "
                                                 + "couldn't be opened.")
@@ -195,7 +159,6 @@ Rectangle {
                     }
                 }
 
-                // Why a finished file has no Open button.
                 Label {
                     objectName: "downloadRiskNotice"
                     visible: row.done && row.modelData.risky

@@ -1,17 +1,3 @@
-// The Notifications page's account half: push-rule settings and the
-// troubleshooter. Pins:
-//   * the Rust event -> snapshot normalisation (levels, absent rules, drift);
-//   * PushRulesController: load, optimistic write then the server's answer, the
-//     put-back on failure, rows the server lacks being unwritable, keyword
-//     validation, single-source reset on account change;
-//   * NotificationTroubleshooter::evaluate for every verdict, including that
-//     the operating-system check is never "pass" (it cannot be read);
-//   * the real QML section against the real controller (stub `app`): rows
-//     hidden for absent rules, pickers writing the right command, the drift
-//     note, the error line and the troubleshooter list.
-//
-// Policy and wiring only: real homeserver push rules, a real notification
-// service and every OS permission are not exercised here (NOT TESTED).
 
 #include "app/NotificationTroubleshooter.h"
 #include "app/PushRulesController.h"
@@ -39,7 +25,6 @@ namespace {
 
 constexpr int kWaitMs = 2000;
 
-// Records every command so a test can say what crossed the boundary.
 class RecordingClient : public MockMatrixClient
 {
     Q_OBJECT
@@ -62,10 +47,6 @@ public:
     }
 };
 
-// A server whose answer to a keyword removal still lists the keyword, as the
-// real client's does until the next sync (the SDK reads push rules from its
-// account-data store). The command is recorded as sent but applied to a key
-// that matches nothing.
 class StaleRemovalClient final : public RecordingClient
 {
     Q_OBJECT
@@ -81,9 +62,6 @@ public:
     }
 };
 
-// A server whose snapshots lag the write, as the SDK's store does until the
-// next sync: the master-mute write is accepted but changes nothing a
-// snapshot shows.
 class LaggingMuteClient final : public RecordingClient
 {
     Q_OBJECT
@@ -100,8 +78,6 @@ public:
     }
 };
 
-// Accepts the first master-mute write normally (its snapshot never agrees),
-// then leaves every later write in flight for ever.
 class HangingWriteClient final : public RecordingClient
 {
     Q_OBJECT
@@ -125,11 +101,11 @@ QVariantMap serverRules()
     QVariantMap m = PushRulesSnapshot::empty();
     m.insert(QStringLiteral("mentionUserId"), 2);
     m.insert(QStringLiteral("mentionDisplayName"), 2);
-    m.insert(QStringLiteral("mentionUsername"), -1); // the server lacks it
+    m.insert(QStringLiteral("mentionUsername"), -1);
     m.insert(QStringLiteral("mentionRoom"), 1);
     m.insert(QStringLiteral("eventReactions"), 0);
     m.insert(QStringLiteral("eventInvites"), 1);
-    m.insert(QStringLiteral("eventNotices"), -1); // the server lacks it too
+    m.insert(QStringLiteral("eventNotices"), -1);
     return m;
 }
 
@@ -155,7 +131,6 @@ QJsonObject rustEvent()
     return QJsonDocument::fromJson(json).object();
 }
 
-// Only what the section reads from `app`.
 class StubApp final : public QObject
 {
     Q_OBJECT
@@ -194,7 +169,7 @@ QVariantMap checkById(const QVariantList &checks, const QString &id)
     return {};
 }
 
-} // namespace
+}
 
 class PushRulesTest : public QObject
 {
@@ -227,13 +202,12 @@ private Q_SLOTS:
         QCOMPARE(s.value("dmDrift").toBool(), false);
         QCOMPARE(s.value("mentionUserId").toInt(), 2);
         QCOMPARE(s.value("mentionDisplayName").toInt(), 1);
-        // A rule the server lacks is -1, not Off: Off is a real setting.
         QCOMPARE(s.value("mentionUsername").toInt(), -1);
         QCOMPARE(s.value("mentionRoom").toInt(), 0);
         QCOMPARE(s.value("eventNotices").toInt(), -1);
         QCOMPARE(s.value("eventInvites").toInt(), 1);
         const QVariantList kw = s.value("keywords").toList();
-        QCOMPARE(kw.size(), 2); // the empty keyword is dropped
+        QCOMPARE(kw.size(), 2);
         QCOMPARE(kw.at(0).toMap().value("keyword").toString(),
                  QStringLiteral("lightning"));
         QCOMPARE(kw.at(0).toMap().value("level").toInt(), 2);
@@ -273,7 +247,6 @@ private Q_SLOTS:
         QVERIFY(loadRules(ctl));
 
         ctl.setMasterMute(true);
-        // Optimistic: visible before the event loop turns.
         QVERIFY(ctl.masterMute());
 
         QVERIFY(ctl.busy());
@@ -297,16 +270,12 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
         QCOMPARE(ctl.mentionDisplayName(), 1);
 
-        // An event rule is two-way: Loud collapses to Notify.
         ctl.setEventRule(QStringLiteral("reactions"), 2);
         QCOMPARE(client.writes.last().value, QStringLiteral("notify"));
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
         QCOMPARE(ctl.eventReactions(), 1);
     }
 
-    // A default alert level changing is announced once the server has it, so
-    // the per-room notification state can be re-read; other writes and refused
-    // writes announce nothing.
     void changingAnAccountDefaultIsAnnouncedOnlyWhenTheServerTookIt()
     {
         RecordingClient client;
@@ -322,7 +291,7 @@ private Q_SLOTS:
         QCOMPARE(changed.count(), 0);
 
         ctl.setDefaultAll(false, false);
-        QCOMPARE(changed.count(), 0); // not before the server answers
+        QCOMPARE(changed.count(), 0);
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
         QCOMPARE(changed.count(), 1);
 
@@ -345,13 +314,10 @@ private Q_SLOTS:
         client.mockPushRuleFailCategory = QStringLiteral("forbidden");
         QSignalSpy failed(&ctl, &PushRulesController::writeFailed);
         ctl.setMention(QStringLiteral("userId"), 0);
-        QCOMPARE(ctl.mentionUserId(), 0); // shown optimistically
+        QCOMPARE(ctl.mentionUserId(), 0);
         QVERIFY(failed.wait(kWaitMs));
-        QCOMPARE(ctl.mentionUserId(), 2); // and put back
+        QCOMPARE(ctl.mentionUserId(), 2);
         QVERIFY(!ctl.errorText().isEmpty());
-        // A refused write re-reads the server's rules (finding 94), so the
-        // controller is briefly busy again; the truth and the error both
-        // survive that refresh.
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
         QCOMPARE(ctl.mentionUserId(), 2);
         QVERIFY(!ctl.errorText().isEmpty());
@@ -394,7 +360,7 @@ private Q_SLOTS:
         QCOMPARE(client.writes.at(0).kind, QStringLiteral("keyword_set"));
         QCOMPARE(client.writes.at(0).key, QStringLiteral("lightning"));
         QCOMPARE(client.writes.at(0).value, QStringLiteral("loud"));
-        QCOMPARE(ctl.keywords().size(), 1); // optimistic
+        QCOMPARE(ctl.keywords().size(), 1);
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
         QCOMPARE(ctl.keywords().size(), 1);
 
@@ -410,8 +376,6 @@ private Q_SLOTS:
         QCOMPARE(ctl.keywords().size(), 0);
     }
 
-    // The row must go at once and stay gone when the write's own (stale)
-    // snapshot arrives. Fails on the old code: the snapshot put it back.
     void aRemovedKeywordStaysGoneWhenTheWritesSnapshotIsStale()
     {
         StaleRemovalClient client;
@@ -448,8 +412,6 @@ private Q_SLOTS:
         QVERIFY(!ctl.masterMute());
     }
 
-    // ---- Troubleshooter -------------------------------------------------
-
     void theTroubleshooterNeverPassesWhatItCannotRead()
     {
         NotificationTroubleshooter::Inputs in;
@@ -466,7 +428,6 @@ private Q_SLOTS:
                  int(NotificationTroubleshooter::Pass));
         QCOMPARE(checkById(checks, "account").value("status").toInt(),
                  int(NotificationTroubleshooter::Pass));
-        // No room open: no room check.
         QVERIFY(checkById(checks, "room").isEmpty());
         for (const QString &platform :
              {QStringLiteral("windows"), QStringLiteral("macos")}) {
@@ -501,8 +462,6 @@ private Q_SLOTS:
         QCOMPARE(checkById(checks, "room").value("status").toInt(),
                  int(NotificationTroubleshooter::Fail));
 
-        // Mentions-only is a warning, not a failure; an unloaded account is
-        // unknown, never a pass.
         in.delivery = NotificationTroubleshooter::TrayBalloon;
         in.trayIconShown = true;
         in.appEnabled = true;
@@ -546,11 +505,6 @@ private Q_SLOTS:
         QCOMPARE(sent, 1);
     }
 
-    // ---- Settling, refresh and keyword edge cases ------------------------
-
-    // A snapshot read before the sync that carries the write is the state from
-    // BEFORE the write. Fails on the old code, which applied any snapshot once
-    // no write was pending (and also reverted at the blind 2 s refresh).
     void aSnapshotArrivingBeforeTheWriteSettlesDoesNotRevertIt()
     {
         LaggingMuteClient client;
@@ -564,23 +518,18 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
         QVERIFY(ctl.masterMute());
 
-        const QVariantMap stale = serverRules(); // masterMute still false
+        const QVariantMap stale = serverRules();
         Q_EMIT client.pushRulesReceived(9001, true, stale, QString());
         QVERIFY(ctl.masterMute());
 
-        // The sync lands: a snapshot that agrees releases the hold...
         QVariantMap agreed = serverRules();
         agreed.insert(QStringLiteral("masterMute"), true);
         Q_EMIT client.pushRulesReceived(9002, true, agreed, QString());
         QVERIFY(ctl.masterMute());
-        // ...so another device unmuting afterwards is shown.
         Q_EMIT client.pushRulesReceived(9003, true, stale, QString());
         QVERIFY(!ctl.masterMute());
     }
 
-    // An expired hold must not keep the timer at 20 ms while a later write is
-    // still pending. Fails on the old code: every tick re-armed with wait 0
-    // and refreshed again, so requests grew by dozens within the window.
     void anExpiredHoldDoesNotSpinWhileAWriteIsPending()
     {
         HangingWriteClient client;
@@ -592,12 +541,12 @@ private Q_SLOTS:
         ctl.setHoldMsForTest(100);
 
         ctl.setMasterMute(true);
-        QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs); // accepted, held
+        QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
         client.hang = true;
-        ctl.setMention(QStringLiteral("userId"), 0);      // stays pending
+        ctl.setMention(QStringLiteral("userId"), 0);
         QVERIFY(ctl.busy());
 
-        QTest::qWait(150); // the first hold expires while the write hangs
+        QTest::qWait(150);
         const int mark = client.requests;
         QTest::qWait(600);
         QVERIFY2(client.requests - mark <= 2,
@@ -615,7 +564,7 @@ private Q_SLOTS:
         QVERIFY(loadRules(ctl));
         const int before = client.requests;
         QVariantMap other = serverRules();
-        other.insert(QStringLiteral("masterMute"), true); // another device
+        other.insert(QStringLiteral("masterMute"), true);
         client.mockPushRules = other;
         Q_EMIT client.pushRulesChanged();
         QCOMPARE(client.requests, before + 1);
@@ -636,7 +585,6 @@ private Q_SLOTS:
         ctl.setMention(QStringLiteral("userId"), 0);
         QVERIFY(failed.wait(kWaitMs));
         QCOMPARE(client.requests, before + 1);
-        // The refresh must not wipe the explanation.
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
         QVERIFY(!ctl.errorText().isEmpty());
     }
@@ -658,7 +606,6 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(ctl.loaded(), kWaitMs);
     }
 
-    // Fails on the old code: keywordProblem() blocked both, silently.
     void aKeywordAnotherClientCreatedCanStillBeRemovedAndRelevelled()
     {
         RecordingClient client;
@@ -684,7 +631,6 @@ private Q_SLOTS:
         QCOMPARE(client.writes.last().key, QStringLiteral("a/b"));
         QCOMPARE(ctl.keywords().size(), 0);
 
-        // A NEW keyword with the same text is still refused, and says so.
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
         QVERIFY(!ctl.addKeyword(QStringLiteral("a/b"), 1));
         QVERIFY(!ctl.errorText().isEmpty());
@@ -698,13 +644,12 @@ private Q_SLOTS:
         ctl.setClient(&client);
         QVERIFY(loadRules(ctl));
         QSignalSpy changed(&ctl, &PushRulesController::stateChanged);
-        ctl.removeKeyword(QStringLiteral(".bad")); // not listed, not valid
+        ctl.removeKeyword(QStringLiteral(".bad"));
         QCOMPARE(client.writes.size(), 0);
         QVERIFY(!ctl.errorText().isEmpty());
         QVERIFY(changed.count() >= 1);
     }
 
-    // Fails on the old code: it rewrote the level to the add combo's value.
     void addingAKeywordThatIsListedDoesNotRewriteItsLevel()
     {
         RecordingClient client;
@@ -731,7 +676,7 @@ private Q_SLOTS:
         in.delivery = NotificationTroubleshooter::DesktopService;
         in.rulesKnown = true;
         in.roomId = QStringLiteral("!r:mock.local");
-        in.roomMode = -1; // nothing stored
+        in.roomMode = -1;
         in.platform = QStringLiteral("linux");
         in.accountDefaultLevel = 1;
         QVariantList checks = NotificationTroubleshooter::evaluate(in);
@@ -739,11 +684,10 @@ private Q_SLOTS:
                  int(NotificationTroubleshooter::Warn));
         QCOMPARE(checkById(checks, "account").value("status").toInt(),
                  int(NotificationTroubleshooter::Warn));
-        in.roomMode = 3; // follows the default explicitly
+        in.roomMode = 3;
         QCOMPARE(checkById(NotificationTroubleshooter::evaluate(in), "room")
                      .value("status").toInt(),
                  int(NotificationTroubleshooter::Warn));
-        // An explicit all-messages room is not made worse by the default.
         in.roomMode = 0;
         checks = NotificationTroubleshooter::evaluate(in);
         QCOMPARE(checkById(checks, "room").value("status").toInt(),
@@ -755,7 +699,7 @@ private Q_SLOTS:
         QCOMPARE(checkById(NotificationTroubleshooter::evaluate(in), "room")
                      .value("status").toInt(),
                  int(NotificationTroubleshooter::Pass));
-        in.accountDefaultLevel = -1; // cannot tell: never a pass
+        in.accountDefaultLevel = -1;
         QCOMPARE(checkById(NotificationTroubleshooter::evaluate(in), "room")
                      .value("status").toInt(),
                  int(NotificationTroubleshooter::Unknown));
@@ -793,8 +737,6 @@ private Q_SLOTS:
         QVERIFY(shoot.checks().isEmpty());
         QCOMPARE(changed.count(), 1);
     }
-
-    // ---- The real QML ---------------------------------------------------
 
     void theSectionShowsAndDrivesTheRealController()
     {
@@ -848,7 +790,6 @@ Item {
         QVERIFY(owner != nullptr);
         auto *section = owner->property("section").value<QObject *>();
         QVERIFY(section != nullptr);
-        // A confirmation popup needs a window to open into (offscreen).
         QQuickWindow window;
         window.resize(700, 700);
         auto *ownerItem = qobject_cast<QQuickItem *>(owner.get());
@@ -869,7 +810,6 @@ Item {
               "troubleshooterRunButton", "troubleshooterTestButton"}) {
             QVERIFY2(find(name) != nullptr, name);
         }
-        // Rows for rules the server lacks are not offered.
         auto *username = find("pushMentionUsernameCombo");
         QVERIFY(username != nullptr);
         QVERIFY(!username->property("visible").toBool()
@@ -878,16 +818,13 @@ Item {
         QVERIFY(notices != nullptr);
         QVERIFY(!notices->parent()->property("visible").toBool());
 
-        // The picker shows the stored level (user id: Loud).
         QCOMPARE(find("pushMentionUserIdCombo")->property("currentIndex").toInt(), 2);
         QCOMPARE(find("pushMentionRoomCombo")->property("currentIndex").toInt(), 1);
 
-        // The drift note is visible for a default whose variants disagree.
         auto *drift = find("pushDriftNote");
         QVERIFY(drift != nullptr);
         QVERIFY(drift->property("visible").toBool());
 
-        // Choosing a level writes it.
         QVERIFY(QMetaObject::invokeMethod(find("pushMentionUserIdCombo"),
                                           "activated", Q_ARG(int, 1)));
         QCOMPARE(client.writes.last().kind, QStringLiteral("mention"));
@@ -901,19 +838,16 @@ Item {
         QCOMPARE(client.writes.last().value, QStringLiteral("mentions"));
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
 
-        // The master switch.
         QVERIFY(QMetaObject::invokeMethod(find("pushMasterMuteSwitch"), "toggled"));
         QCOMPARE(client.writes.last().kind, QStringLiteral("master_mute"));
         QCOMPARE(client.writes.last().value, QStringLiteral("on"));
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
         QVERIFY(ctl.masterMute());
-        // Master mute stops delivery, but each rule remains editable.
         for (const char *name : {"pushEventReactionsCombo",
                                  "pushEventInvitesCombo",
                                  "pushEventNoticesCombo"})
             QVERIFY2(find(name)->property("enabled").toBool(), name);
 
-        // A keyword is typed, added and appears.
         auto *field = find("pushKeywordField");
         field->setProperty("text", QStringLiteral("lightning"));
         QVERIFY(QMetaObject::invokeMethod(find("pushKeywordAddButton"), "clicked"));
@@ -923,15 +857,12 @@ Item {
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
         QCOMPARE(ctl.keywords().size(), 1);
 
-        // A refused keyword stays in the field and says why.
         field->setProperty("text", QStringLiteral(".bad"));
         QVERIFY(QMetaObject::invokeMethod(find("pushKeywordAddButton"), "clicked"));
         QCOMPARE(field->property("text").toString(), QStringLiteral(".bad"));
         auto *err = find("pushRulesError");
         QVERIFY(err != nullptr);
         QVERIFY(err->property("visible").toBool());
-        // C69-F09/F13: the refusal is also said beside the field (the shared
-        // error line is off screen at the top of the card), and clears on edit.
         auto *note = find("pushKeywordNote");
         QVERIFY2(note != nullptr, "no inline keyword note");
         QVERIFY(note->property("visible").toBool());
@@ -939,21 +870,13 @@ Item {
         field->setProperty("text", QStringLiteral("x"));
         QVERIFY(!note->property("visible").toBool());
         field->setProperty("text", QString());
-        // C69-F08: the default-alert combo is wide enough for its longest option.
         QVERIFY(find("pushDmDefaultCombo")->property("width").toDouble() >= 220);
         QVERIFY(find("pushRoomsDefaultCombo")->property("width").toDouble() >= 220);
-        // Only those two need it: mention and event rows keep the narrow
-        // default so their labels are not squeezed (review r1 item 1).
         QVERIFY(find("pushMentionRoomCombo")->property("width").toDouble() < 220);
         QVERIFY(find("pushEventInvitesCombo")->property("width").toDouble() < 220);
 
-        // Removing a keyword asks first: the button opens a confirmation and
-        // writes nothing; Cancel keeps the keyword; Remove sends the rule
-        // removal.
         {
             QCOMPARE(ctl.keywords().size(), 1);
-            // A Repeater delegate is not a QObject child of the section, so
-            // find() cannot see it: reach the row through the Repeater.
             QObject *removeButton = nullptr;
             for (auto *r : section->findChildren<QObject *>()) {
                 if (!QString(r->metaObject()->className()).contains("Repeater")
@@ -977,14 +900,12 @@ Item {
                                      kWaitMs);
             QCOMPARE(confirm->property("keyword").toString(),
                      QStringLiteral("lightning"));
-            // C69-F11: focus starts on Cancel, never on the destructive button.
             auto *cancel = find("pushKeywordRemoveCancel");
             QVERIFY(cancel != nullptr);
             QTRY_VERIFY_WITH_TIMEOUT(cancel->property("activeFocus").toBool(),
                                      kWaitMs);
             QVERIFY(!find("pushKeywordRemoveConfirmButton")
                          ->property("activeFocus").toBool());
-            // C69-F10: a keyword with no spaces wraps inside the dialog.
             confirm->setProperty("keyword", QString(300, QLatin1Char('x')));
             auto *body = find("pushKeywordRemoveBody");
             QVERIFY(body != nullptr);
@@ -1012,9 +933,6 @@ Item {
             QCOMPARE(ctl.keywords().size(), 0);
         }
 
-        // The troubleshooter lists its checks and offers the app switch.
-        // S-08: the outcome is said beside the buttons, not only in the list
-        // below them.
         auto *status = find("troubleshooterStatus");
         QVERIFY(status);
         QVERIFY(!status->property("visible").toBool());

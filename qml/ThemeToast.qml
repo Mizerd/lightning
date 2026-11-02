@@ -3,21 +3,12 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// A short message with one action ("Unlinked from Panels and cards. Undo"),
-// shown over the theme editor's preview after an edit that does not look
-// reversible. It dismisses itself; the action is optional.
-//
-// Painted in the invariant editor tokens.
 Rectangle {
     id: root
 
     property string message: ""
     property string actionText: ""
-    // What the action does, named ("Undo: Unlink Room list"); read aloud and
-    // shown as a tooltip.
     property string actionHint: ""
-    // How long it stays, in milliseconds. A toast with an action stays at
-    // least `actionDuration`: time to reach the action by keyboard.
     property int duration: 6000
     property int actionDuration: 10000
     // True while the pointer is on the action or it has keyboard focus: the
@@ -28,7 +19,6 @@ Rectangle {
     property bool shown: false
     signal actionTriggered()
 
-    // Shows `text` (and an action when `action` is non-empty).
     function show(text, action) {
         root.message = text
         root.actionText = action === undefined ? "" : action

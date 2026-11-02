@@ -25,10 +25,8 @@ inline bool applyQmlGcPolicy()
 {
     if (qEnvironmentVariableIsSet("QV4_GC_TIMELIMIT"))
         return false;
-    // An explicit QByteArray: qputenv takes const QByteArray& on Qt 6.8 and
-    // QByteArrayView on 6.11, and both accept this.
     qputenv("QV4_GC_TIMELIMIT", QByteArray("0"));
     return true;
 }
 
-} // namespace lightning
+}

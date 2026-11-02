@@ -34,8 +34,6 @@ struct EvpMdCtxDeleter {
 using PkeyPtr = std::unique_ptr<EVP_PKEY, EvpPkeyDeleter>;
 using MdCtxPtr = std::unique_ptr<EVP_MD_CTX, EvpMdCtxDeleter>;
 
-// Strict base64 decode — a malformed encoding is an error, never a
-// best-effort partial decode.
 std::optional<QByteArray> decodeBase64Strict(const QByteArray &text)
 {
     const QByteArray::FromBase64Result result =
@@ -46,7 +44,7 @@ std::optional<QByteArray> decodeBase64Strict(const QByteArray &text)
     return *result;
 }
 
-} // namespace
+}
 
 QString signatureErrorText(SignatureError error)
 {
@@ -154,7 +152,6 @@ bool verifyEd25519(const QByteArray &payload, const QByteArray &signature,
         return false;
     }
 
-    // Ed25519 is a one-shot algorithm: no digest, no streaming update.
     if (EVP_DigestVerifyInit(ctx.get(), nullptr, nullptr, nullptr, key.get()) != 1) {
         ERR_clear_error();
         return false;
@@ -166,8 +163,6 @@ bool verifyEd25519(const QByteArray &payload, const QByteArray &signature,
         reinterpret_cast<const unsigned char *>(payload.constData()),
         static_cast<std::size_t>(payload.size()));
 
-    // Any non-1 result is a failure; the error queue is cleared either way so
-    // a stale entry cannot influence a later call.
     ERR_clear_error();
     return result == 1;
 }
@@ -196,8 +191,6 @@ SignatureResult verifyDetachedSignature(const QByteArray &payload,
 
     const QString base64Key = trust.publicKeyForId(envelope->keyId);
     if (base64Key.isEmpty()) {
-        // Unknown, retired, or not compiled into this build. All three are
-        // the same answer: this signature cannot be trusted.
         result.error = SignatureError::UnknownKeyId;
         result.message = signatureErrorText(result.error);
         return result;
@@ -221,4 +214,4 @@ SignatureResult verifyDetachedSignature(const QByteArray &payload,
     return result;
 }
 
-} // namespace lightning::update
+}

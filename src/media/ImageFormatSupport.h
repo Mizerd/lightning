@@ -1,20 +1,5 @@
 #pragma once
 
-// One table of the raster formats Lightning identifies, and one way to ask
-// whether the running build can decode them.
-//
-// Qt image formats are plugins, so decode support is decided by packaging,
-// not source; accepting a format the build cannot draw must be detectable.
-// The set differs per platform and cannot be hardcoded:
-//   * JPEG XL comes only from KDE's kimageformats (kimg_jxl.so), available on
-//     Linux packages but not Windows or macOS.
-//   * HEIF is the reverse: macOS gets `qmacheif` from Qt, nothing else does.
-// So ask the decoder. `lightning-matrix --image-format-status` reports the
-// answer for a packaged artifact.
-//
-// SVG is absent on purpose (CLAUDE.md §6): it is active content and
-// `sniffRaster` can never return it.
-
 #include <QByteArray>
 #include <QImageReader>
 #include <QSet>
@@ -25,19 +10,12 @@
 
 namespace lightning::imagefmt {
 
-/// One row. `qtFormat` is QImageReader's name (and the plugin key); `mime` is
-/// what crosses the wire and what the Rust sniffer reports.
 struct RasterFormat {
     const char *mime = nullptr;
     const char *qtFormat = nullptr;
-    /// Required formats are ones Lightning itself sends, saves and re-uploads;
-    /// a build that cannot decode them is broken. Optional formats are only
-    /// ever received, where "cannot show it" is a truthful answer.
     bool required = false;
 };
 
-/// PNG, JPEG, GIF and BMP come with qtbase; WebP and JPEG XL must be supplied
-/// by packaging.
 inline const RasterFormat *rasterFormats(int *count)
 {
     static const RasterFormat kFormats[] = {
@@ -46,7 +24,6 @@ inline const RasterFormat *rasterFormats(int *count)
         { "image/gif",  "gif",  true  },
         { "image/bmp",  "bmp",  true  },
         { "image/webp", "webp", true  },
-        // Optional: only available via kimageformats on Linux.
         { "image/jxl",  "jxl",  false },
     };
     if (count)
@@ -54,14 +31,8 @@ inline const RasterFormat *rasterFormats(int *count)
     return kFormats;
 }
 
-/// Magic-byte identification, or nullptr for anything else (SVG, HEIF, AVIF,
-/// TIFF, unknown), which every caller refuses. Byte-based rather than
-/// QImageReader::format(), which is plugin-backed and would make acceptance
-/// depend on packaging. Whether the build can draw it is canDecode's question.
 inline const RasterFormat *sniffRaster(const QByteArray &bytes)
 {
-    // Twelve bytes is the longest signature (the JPEG XL container) and matches
-    // the Rust sniffer's floor.
     if (bytes.size() < 12)
         return nullptr;
     const auto starts = [&bytes](const char *magic, int len) {
@@ -104,29 +75,23 @@ inline const RasterFormat *sniffRaster(const QByteArray &bytes)
     return nullptr;
 }
 
-/// Convenience: the MIME string, or an empty QString.
 inline QString sniffRasterMime(const QByteArray &bytes)
 {
     const RasterFormat *f = sniffRaster(bytes);
     return f ? QString::fromLatin1(f->mime) : QString();
 }
 
-/// The Qt format key, or "". Use with setAutoDetectImageFormat(false) so no
-/// other plugin re-guesses.
 inline QString sniffRasterQtFormat(const QByteArray &bytes)
 {
     const RasterFormat *f = sniffRaster(bytes);
     return f ? QString::fromLatin1(f->qtFormat) : QString();
 }
 
-/// Pure, so the policy is testable regardless of the host's plugins.
 inline bool canDecodeWith(const QSet<QString> &available, const QString &qtFormat)
 {
     return !qtFormat.isEmpty() && available.contains(qtFormat.toLower());
 }
 
-/// What this process can decode, asked of Qt once and cached (the plugin scan
-/// is not cheap). Requires a QCoreApplication.
 inline const QSet<QString> &decodableQtFormats()
 {
     static const QSet<QString> kAvailable = [] {
@@ -144,8 +109,6 @@ inline bool canDecode(const QString &qtFormat)
     return canDecodeWith(decodableQtFormats(), qtFormat);
 }
 
-/// Table formats this build cannot decode, as `image/...` strings; empty is
-/// healthy.
 inline QStringList undecodableWith(const QSet<QString> &available,
                                    bool requiredOnly)
 {
@@ -166,4 +129,4 @@ inline QStringList undecodable(bool requiredOnly = false)
     return undecodableWith(decodableQtFormats(), requiredOnly);
 }
 
-} // namespace lightning::imagefmt
+}

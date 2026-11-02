@@ -1,7 +1,3 @@
-// TimelineModel diff application through a scripted fake MatrixClient:
-// append, prepend, insert, in-place replace, remove, truncate, reset,
-// local-echo reconciliation, undecryptable -> decrypted replacement, and the
-// self-heal path for invalid indices. No network, no Rust.
 
 #include "matrix/MatrixClient.h"
 #include "models/TimelineModel.h"
@@ -29,9 +25,6 @@ TimelineEvent makeEvent(const QString &eventId, const QString &body,
     return e;
 }
 
-// Minimal scripted backend: timeline() is the mirror the model reloads from;
-// tests mutate it and emit the interface signals as RustSdkMatrixClient does
-// after applying a Rust diff.
 class FakeClient : public MatrixClient
 {
     Q_OBJECT
@@ -45,8 +38,6 @@ public:
     QStringList typingUsers;
     QHash<QString, QString> displayNames;
     QHash<QString, QString> avatarMxc;
-    // Counts member lookups, so a test can prove a role was computed once
-    // (every identity resolution funnels through here).
     mutable int displayNameLookups = 0;
 
     void login(const QString &, const QString &, const QString &) override {}
@@ -68,16 +59,9 @@ public:
                                     && roomId == mirrorAlias))
             ? mirror : QList<TimelineEvent>{};
     }
-    // A second id `mirror` answers to, so a thread model can be driven by its
-    // composite timeline id.
     QString mirrorAlias;
-    // Room-keyed lookups, like a real per-room member cache: a room it does
-    // not hold answers the bare user id (the "unresolved" sentinel), so a
-    // caller passing the wrong room id is visible. These take precedence over
-    // the room-agnostic `displayNames`/`avatarMxc`.
     QHash<QString, QHash<QString, QString>> roomDisplayNames;
     QHash<QString, QHash<QString, QString>> roomAvatarMxc;
-    // Every roomId a lookup was made with, so tests can assert on the id.
     mutable QStringList displayNameRoomsAsked;
     QString displayNameFor(const QString &roomId,
                            const QString &userId) const override
@@ -91,7 +75,7 @@ public:
                 return name.value();
         }
         if (!roomDisplayNames.isEmpty())
-            return userId;   // scoped fixture: a miss is a miss
+            return userId;
         return displayNames.value(userId, userId);
     }
     QString avatarMxcFor(const QString &roomId,
@@ -116,16 +100,12 @@ public:
     void redactEvent(const QString &, const QString &, const QString &) override {}
     void toggleReaction(const QString &, const QString &, const QString &) override {}
     void sendTyping(const QString &, bool, int) override {}
-    // Global-profile lookups the UserProfileResolver dispatched; the op id is
-    // the 1-based position, so a test can answer a specific request.
     QStringList profileFetches;
     quint64 fetchUserProfile(const QString &userId) override
     {
         profileFetches.append(userId);
         return static_cast<quint64>(profileFetches.size());
     }
-    // Recorded: markVisibleAsRead's contract is which room it names and
-    // whether it fires.
     QList<QPair<QString, QString>> readReceipts;
     void sendReadReceipt(const QString &roomId, const QString &eventId) override
     {
@@ -149,7 +129,7 @@ public:
     }
 };
 
-} // namespace
+}
 
 class TimelineModelDiffTest : public QObject
 {
@@ -165,7 +145,6 @@ private Q_SLOTS:
     void aQuoteFollowsItsTargetWhenTheTargetChanges();
     void hiddenActivityKeepsSecurityChangesAndTheirDateVisible();
     void realCountExcludesVirtualRows();
-    // MSC4274 galleries and the reply target's kind.
     void aGalleryRowListsEveryItemForTheDelegateAndTheViewer();
     void appendAddsRow();
     void prependAddsRowsAtTop();
@@ -201,26 +180,15 @@ private Q_SLOTS:
     void clientSwitchDoesNotLeakSenderProfile();
     void messageActionsUseStableIdentityAndSafeMetadata();
     void staleAndInapplicableMessageActionsAreRejected();
-    // Break-it B025: a moderator's grant opens Delete on another member's
-    // message, and nothing else.
     void moderatorsMayRemoveOthersMessagesButNeverEditThem();
-    // Break-it B082: an undecryptable row has no text to edit.
     void anUndecryptableOwnMessageCannotBeEdited();
-    // Break-it B028: the waveform role carries the documented 0..100 buckets.
     void theWaveformRoleCarriesTheRawBuckets();
-    // Break-it B141: a carried "name" equal to the MXID is unresolved.
     void aSenderNameEqualToTheMxidFallsThroughToARealName();
-    // MSC3381 poll roles and the conservative end-poll rule.
     void pollRolesExposeOutcomeAndEndPermission();
-    // Read-receipt chips: identity resolution, own-receipt exclusion,
-    // newest-first order, live Set-diff/member-hydration updates, and
-    // ReadMarker-row neutrality.
     void readReceiptsRoleResolvesExcludesSelfAndSortsNewestFirst();
     void reactorsUseSeenNamesAndResolveProfilesWithRepaint();
     void aReaderMissingFromTheMemberCacheKeepsTheNameTheTimelineShows();
-    // break-it s03: a display name with an RLO reversed its own tail.
     void aSenderNameLosesItsDirectionOverridesFromEverySource();
-    // ...and the reply quote, the typing line and mention pills built from it.
     void theQuoteTypingLineAndPillsLoseDirectionOverridesToo();
     void aReaderKnownNowhereGetsTheirGlobalProfileAndTheChipRepaints();
     void theSentCheckFollowsTheNewestOwnMessageUntilSomeoneReadsIt();
@@ -232,20 +200,13 @@ private Q_SLOTS:
     void removingTheNewestReceiptRowHandsTheReaderBackToTheOlderHost();
     void receiptOnlySetKeepsThreadIndexWithoutRebuild();
     void readMarkerRowsStayReceiptFreeWithoutIndexDrift();
-    // Two remote readers advancing independently through the adjacent Set
-    // pairs the SDK emits, across pagination inserts and member hydration:
-    // each reader's latest position stays represented.
     void twoReadersAdvanceIndependentlyWithoutLoss();
-    // Loaded-timeline search.
     void searchFindsMatchesAndNavigatesWithWrap();
     void searchUpdatesOnPaginationInsert();
     void searchClearsOnRoomSwitchAndEnd();
     void searchSurvivesEditAndExcludesRedacted();
-    // Fenced code blocks reach QML as ordered segments, only for rows that
-    // have one.
     void messageSegmentsSplitCodeBlocksAndAreComputedOnce();
     void messageSegmentsStayEmptyAndFreeForOrdinaryBodies();
-    // Who reacted, resolved like every other identity.
     void reactionRolesNameTheReactorsAndKeepTheUncappedTotal();
     // A thread model's roomId is the composite `room ␟ thread ␟ root`; no
     // room-keyed lookup may be made with it.
@@ -255,9 +216,6 @@ private Q_SLOTS:
     void markVisibleAsReadNeverSendsARoomReceiptForAThread();
 
 private:
-    // Bind the model to the composite id ThreadController gives it, with
-    // `mirror` reachable under it and every event stamped with it, as
-    // RustTimelineIngest does for a thread timeline.
     QString openThreadModel();
     FakeClient *m_client = nullptr;
     TimelineModel *m_model = nullptr;
@@ -297,7 +255,7 @@ void TimelineModelDiffTest::roomMentionPresentationNeedsPushHighlight()
     QCOMPARE(m_model->data(row, TimelineModel::RoomMentionHighlightedRole).toBool(), false);
     QCOMPARE(m_model->data(row, TimelineModel::PushHighlightedRole).toBool(), false);
 
-    room.pushHighlight = true; // SDK allowed the sender to notify the room.
+    room.pushHighlight = true;
     room.roomMentionHighlighted = true;
     m_client->mirror[2] = room;
     Q_EMIT m_client->eventReplaced(kRoom, room.eventId, room);
@@ -305,10 +263,6 @@ void TimelineModelDiffTest::roomMentionPresentationNeedsPushHighlight()
     QCOMPARE(m_model->data(row, TimelineModel::PushHighlightedRole).toBool(), true);
 }
 
-// A gallery arrives as one image row whose media fields name its primary
-// picture. The delegate gets every item through GalleryItemsRole, and the
-// viewer gets one entry per picture in order. A row quoting it carries the
-// target's kind and count for the "2 images" label.
 void TimelineModelDiffTest::aGalleryRowListsEveryItemForTheDelegateAndTheViewer()
 {
     TimelineEvent gallery = makeEvent(QStringLiteral("$g"), QString{});
@@ -368,7 +322,6 @@ void TimelineModelDiffTest::aGalleryRowListsEveryItemForTheDelegateAndTheViewer(
                  .toString(), QStringLiteral("image"));
     QCOMPARE(m_model->data(m_model->index(replyRow), TimelineModel::ReplyToCountRole)
                  .toInt(), 2);
-    // An ordinary row has no gallery.
     QVERIFY(m_model->data(m_model->index(replyRow), TimelineModel::GalleryItemsRole)
                 .toList().isEmpty());
 }
@@ -381,10 +334,6 @@ void TimelineModelDiffTest::cleanup()
     m_client = nullptr;
 }
 
-// A run of redactions collapses into one row: the first redacted row of a run
-// reports itself the leader with the run's length; the rest report false and
-// zero and render nothing. Answered per row, so the delegate never walks its
-// neighbours.
 void TimelineModelDiffTest::consecutiveDeletionsCollapseIntoOneRow()
 {
     auto redacted = [](const QString &id) {
@@ -392,7 +341,6 @@ void TimelineModelDiffTest::consecutiveDeletionsCollapseIntoOneRow()
         e.redacted = true;
         return e;
     };
-    // m0, [del, del, del], m1, [del], m2
     m_client->mirror = {
         makeEvent(QStringLiteral("$a"), QStringLiteral("m0")),
         redacted(QStringLiteral("$r1")),
@@ -414,7 +362,6 @@ void TimelineModelDiffTest::consecutiveDeletionsCollapseIntoOneRow()
                              TimelineModel::DeletedGroupCountRole).toInt();
     };
 
-    // The run of three: one leader carrying 3, two silent followers.
     QVERIFY(leader(1));
     QCOMPARE(count(1), 3);
     QVERIFY(!leader(2));
@@ -422,22 +369,15 @@ void TimelineModelDiffTest::consecutiveDeletionsCollapseIntoOneRow()
     QCOMPARE(count(2), 0);
     QCOMPARE(count(3), 0);
 
-    // A visible message ends a run: the deletion after it leads its own run
-    // of 1.
     QVERIFY(leader(5));
     QCOMPARE(count(5), 1);
 
-    // An ordinary message reports leader true, so a delegate can bind
-    // `visible: deletedGroupLeader` without also testing `redacted`.
     QVERIFY(leader(0));
     QVERIFY(leader(4));
     QVERIFY(leader(6));
     QCOMPARE(count(0), 0);
 }
 
-// `count` counts rows (including date dividers, the read marker and the
-// timeline-start row); `realCount` counts events. Counters like the thread
-// panel's "N replies" must use realCount.
 void TimelineModelDiffTest::realCountExcludesVirtualRows()
 {
     TimelineEvent divider;
@@ -456,7 +396,6 @@ void TimelineModelDiffTest::realCountExcludesVirtualRows()
 
     QCOMPARE(m_model->rowCount(), 4);
     QCOMPARE(m_model->property("count").toInt(), 4);
-    // The thread panel shows realCount - 1 (the root).
     QCOMPARE(m_model->property("realCount").toInt(), 3);
     QCOMPARE(m_model->property("realCount").toInt() - 1, 2);
 }
@@ -508,7 +447,7 @@ void TimelineModelDiffTest::changedAtUpdatesRowInPlace()
     m_client->mirror[1] = e;
     QSignalSpy spy(m_model, &QAbstractItemModel::dataChanged);
     Q_EMIT m_client->eventChangedAt(kRoom, 1, e);
-    QCOMPARE(m_model->rowCount(), 2); // in place, no growth
+    QCOMPARE(m_model->rowCount(), 2);
     QCOMPARE(spy.count(), 1);
     QCOMPARE(m_model->data(m_model->index(1), TimelineModel::BodyRole)
                  .toString(),
@@ -562,13 +501,11 @@ void TimelineModelDiffTest::staleRoomSignalsIgnored()
                                                QStringLiteral("y")));
     Q_EMIT m_client->eventRemovedAt(other, 0);
     Q_EMIT m_client->eventsTruncatedTo(other, 0);
-    QCOMPARE(m_model->rowCount(), 2); // untouched
+    QCOMPARE(m_model->rowCount(), 2);
 }
 
 void TimelineModelDiffTest::invalidIndexSelfHeals()
 {
-    // A corrupt index must never crash or corrupt: the model reloads the full
-    // backend list.
     m_client->mirror = { makeEvent(QStringLiteral("$only"),
                                    QStringLiteral("only")) };
     Q_EMIT m_client->eventChangedAt(kRoom, 99,
@@ -597,7 +534,6 @@ void TimelineModelDiffTest::undecryptableToDecryptedInPlace()
     QVERIFY(m_model->data(m_model->index(2), TimelineModel::UndecryptableRole)
                 .toBool());
 
-    // After a key import the SDK replaces the row in place.
     TimelineEvent decrypted = makeEvent(QStringLiteral("$enc"),
                                         QStringLiteral("secret hello"));
     decrypted.itemId = utd.itemId;
@@ -606,7 +542,7 @@ void TimelineModelDiffTest::undecryptableToDecryptedInPlace()
     m_client->mirror[2] = decrypted;
     Q_EMIT m_client->eventChangedAt(kRoom, 2, decrypted);
 
-    QCOMPARE(m_model->rowCount(), 3); // no duplicate row
+    QCOMPARE(m_model->rowCount(), 3);
     QVERIFY(!m_model->data(m_model->index(2), TimelineModel::UndecryptableRole)
                  .toBool());
     QVERIFY(m_model->data(m_model->index(2), TimelineModel::IsDecryptedRole)
@@ -614,7 +550,6 @@ void TimelineModelDiffTest::undecryptableToDecryptedInPlace()
     QCOMPARE(m_model->data(m_model->index(2), TimelineModel::BodyRole)
                  .toString(),
              QStringLiteral("secret hello"));
-    // Stable identity survives the replacement.
     QCOMPARE(m_model->data(m_model->index(2), TimelineModel::ItemIdRole)
                  .toString(),
              utd.itemId);
@@ -636,7 +571,6 @@ void TimelineModelDiffTest::localEchoReconciliation()
     QVERIFY(m_model->data(m_model->index(2), TimelineModel::IsLocalEchoRole)
                 .toBool());
 
-    // Remote echo arrives: same row updates in place, no duplicate.
     TimelineEvent sent = echo;
     sent.eventId = QStringLiteral("$server");
     sent.status = TimelineEvent::Sent;
@@ -651,7 +585,6 @@ void TimelineModelDiffTest::localEchoReconciliation()
                  .toInt(),
              int(TimelineEvent::Sent));
 
-    // No duplicate event id anywhere in the model.
     int occurrences = 0;
     for (int row = 0; row < m_model->rowCount(); ++row) {
         if (m_model->data(m_model->index(row), TimelineModel::EventIdRole)
@@ -679,14 +612,12 @@ void TimelineModelDiffTest::retrySendRoutesTransaction()
 
 void TimelineModelDiffTest::retrySendIgnoresNonFailedRows()
 {
-    m_model->retrySend(0);   // Sent row
-    m_model->retrySend(99);  // out of range
-    m_model->retrySend(-1);  // out of range
+    m_model->retrySend(0);
+    m_model->retrySend(99);
+    m_model->retrySend(-1);
     QVERIFY(m_client->retriedTransactions.isEmpty());
 }
 
-// Cancel applies to a message stuck in "sending…" and to a failed one, but
-// only where there is a send-queue entry to abort.
 void TimelineModelDiffTest::cancelSendRoutesSendingAndFailedRowsOnly()
 {
     TimelineEvent sending = makeEvent(QString(), QStringLiteral("uploading"),
@@ -702,20 +633,19 @@ void TimelineModelDiffTest::cancelSendRoutesSendingAndFailedRowsOnly()
 
     QVERIFY(m_model->canCancelSend(2));
     QVERIFY(m_model->canCancelSend(3));
-    QVERIFY(!m_model->canCancelSend(0));   // already Sent
+    QVERIFY(!m_model->canCancelSend(0));
     QVERIFY(!m_model->canCancelSend(99));
     QVERIFY(!m_model->canCancelSend(-1));
 
     m_model->cancelSend(2);
     m_model->cancelSend(3);
-    m_model->cancelSend(0);   // Sent — nothing to abort
+    m_model->cancelSend(0);
     m_model->cancelSend(99);
     m_model->cancelSend(-1);
     QCOMPARE(m_client->cancelledTransactions,
              (QStringList{ QStringLiteral("txn-sending"),
                            QStringLiteral("txn-failed") }));
 
-    // A backend with no send queue offers nothing.
     m_client->cancelSupported = false;
     QVERIFY(!m_model->canCancelSend(2));
     m_client->cancelledTransactions.clear();
@@ -723,8 +653,6 @@ void TimelineModelDiffTest::cancelSendRoutesSendingAndFailedRowsOnly()
     QVERIFY(m_client->cancelledTransactions.isEmpty());
 }
 
-// Cancelling never removes the row itself: the abort races the server, so
-// only the backend's own removal may.
 void TimelineModelDiffTest::cancelSendNeverRemovesTheRowItself()
 {
     TimelineEvent sending = makeEvent(QString(), QStringLiteral("uploading"),
@@ -741,9 +669,6 @@ void TimelineModelDiffTest::cancelSendNeverRemovesTheRowItself()
              static_cast<int>(TimelineEvent::Sending));
 }
 
-// -1 means "uploading, extent unknown" and is never flattened to 0: the
-// delegate draws an indeterminate sweep for -1 and a real bar for a
-// fraction.
 void TimelineModelDiffTest::uploadProgressIsMinusOneUntilTheSdkReportsATotal()
 {
     TimelineEvent sending = makeEvent(QString(), QStringLiteral("uploading"),
@@ -756,22 +681,19 @@ void TimelineModelDiffTest::uploadProgressIsMinusOneUntilTheSdkReportsATotal()
         return m_model->data(m_model->index(row),
                              TimelineModel::UploadProgressRole).toDouble();
     };
-    // No report yet (and a text send never gets one).
     QCOMPARE(progress(), -1.0);
 
     sending.uploadedBytes = 0;
     sending.uploadTotalBytes = 400;
     m_client->mirror[row] = sending;
     Q_EMIT m_client->eventChangedAt(kRoom, row, sending);
-    QCOMPARE(progress(), 0.0);   // a REPORTED 0%, which is not the same fact
+    QCOMPARE(progress(), 0.0);
 
     sending.uploadedBytes = 100;
     m_client->mirror[row] = sending;
     Q_EMIT m_client->eventChangedAt(kRoom, row, sending);
     QCOMPARE(progress(), 0.25);
 
-    // The SDK's total can be revised downward between reports; progress is
-    // capped at 1.
     sending.uploadedBytes = 900;
     m_client->mirror[row] = sending;
     Q_EMIT m_client->eventChangedAt(kRoom, row, sending);
@@ -803,7 +725,6 @@ void TimelineModelDiffTest::stableRoleData()
              QByteArrayLiteral("showSenderIdentity"));
     QCOMPARE(names.value(TimelineModel::StableEventIdRole),
              QByteArrayLiteral("stableEventId"));
-    // Existing role names are preserved for QML compatibility.
     QCOMPARE(names.value(TimelineModel::EventIdRole),
              QByteArrayLiteral("eventId"));
     QCOMPARE(names.value(TimelineModel::UndecryptableRole),
@@ -852,10 +773,8 @@ void TimelineModelDiffTest::pollRolesExposeOutcomeAndEndPermission()
     QCOMPARE(first.value(QStringLiteral("count")).toInt(), 2);
     QVERIFY(first.value(QStringLiteral("byMe")).toBool());
 
-    // Alice's poll is not ours: no End poll offer.
     QVERIFY(!m_model->data(idx, TimelineModel::CanEndPollRole).toBool());
 
-    // Our own running poll can be ended…
     TimelineEvent own = poll;
     own.eventId = QStringLiteral("$own-poll");
     own.itemId = QStringLiteral("uid-own-poll");
@@ -865,14 +784,12 @@ void TimelineModelDiffTest::pollRolesExposeOutcomeAndEndPermission()
     const auto ownIdx = m_model->index(3);
     QVERIFY(m_model->data(ownIdx, TimelineModel::CanEndPollRole).toBool());
 
-    // …but not once it has ended (in-place Set replacement).
     TimelineEvent ended = own;
     ended.pollEnded = true;
     m_client->mirror[3] = ended;
     Q_EMIT m_client->eventChangedAt(kRoom, 3, ended);
     QVERIFY(m_model->data(ownIdx, TimelineModel::PollEndedRole).toBool());
     QVERIFY(!m_model->data(ownIdx, TimelineModel::CanEndPollRole).toBool());
-    // Role-name contract for QML.
     const auto names = m_model->roleNames();
     QCOMPARE(names.value(TimelineModel::IsPollRole),
              QByteArrayLiteral("isPoll"));
@@ -889,9 +806,6 @@ void TimelineModelDiffTest::readReceiptsRoleResolvesExcludesSelfAndSortsNewestFi
     m_client->avatarMxc.insert(QStringLiteral("@carol:example.org"),
                                QStringLiteral("mxc://example.org/carol"));
 
-    // Sender is @alice (makeEvent). Only the local user's receipt is excluded;
-    // the sender's implicit receipt is shown, as in Element. Then two other
-    // readers, with Carol's older than the unknown member's.
     TimelineEvent read = makeEvent(QStringLiteral("$read"),
                                    QStringLiteral("seen by others"));
     read.readBy = {
@@ -906,9 +820,7 @@ void TimelineModelDiffTest::readReceiptsRoleResolvesExcludesSelfAndSortsNewestFi
     const auto idx = m_model->index(2);
     const QVariantList receipts =
         m_model->data(idx, TimelineModel::ReadReceiptsRole).toList();
-    // Only the local user is hidden; the sender's own marker renders.
     QCOMPARE(receipts.size(), 3);
-    // Newest reader first: the sender's implicit receipt is newest here.
     QCOMPARE(receipts.at(0).toMap().value(QStringLiteral("userId")).toString(),
              QStringLiteral("@alice:example.org"));
     const QVariantMap unknown = receipts.at(1).toMap();
@@ -916,7 +828,6 @@ void TimelineModelDiffTest::readReceiptsRoleResolvesExcludesSelfAndSortsNewestFi
              QStringLiteral("@unknown:example.org"));
     QCOMPARE(unknown.value(QStringLiteral("tsMs")).toLongLong(),
              Q_INT64_C(1700000003000));
-    // Unresolved member: localpart fallback, never the bare MXID.
     QCOMPARE(unknown.value(QStringLiteral("displayName")).toString(),
              QStringLiteral("unknown"));
     QVERIFY(unknown.value(QStringLiteral("avatarMxc")).toString().isEmpty());
@@ -926,20 +837,14 @@ void TimelineModelDiffTest::readReceiptsRoleResolvesExcludesSelfAndSortsNewestFi
     QCOMPARE(carol.value(QStringLiteral("avatarMxc")).toString(),
              QStringLiteral("mxc://example.org/carol"));
 
-    // With no explicit readByTotal: the delivered list (4) minus the one
-    // exclusion (self).
     QCOMPARE(m_model->data(idx, TimelineModel::ReadReceiptsTotalRole).toInt(),
              3);
 
-    // Another user's receipt on the sender's own message still shows:
-    // exclusion keys on the receipt's user, not on the row's author.
     TimelineEvent bySender = makeEvent(QStringLiteral("$by-sender"),
                                        QStringLiteral("alice's message"));
     bySender.readBy = {
         { QStringLiteral("@carol:example.org"), Q_INT64_C(1700000006000) },
     };
-    // Capped window: the server knows 30 readers, the FFI delivered 1, so
-    // "+N" uses the uncapped total minus in-window exclusions (none here).
     bySender.readByTotal = 30;
     m_client->mirror.append(bySender);
     Q_EMIT m_client->eventAppended(kRoom, bySender);
@@ -953,15 +858,12 @@ void TimelineModelDiffTest::readReceiptsRoleResolvesExcludesSelfAndSortsNewestFi
                            TimelineModel::ReadReceiptsTotalRole).toInt(),
              30);
 
-    // Rows without receipts answer an empty list and a zero total (thread
-    // timelines, local echoes, unread messages).
     QVERIFY(m_model->data(m_model->index(0), TimelineModel::ReadReceiptsRole)
                 .toList()
                 .isEmpty());
     QCOMPARE(m_model->data(m_model->index(0),
                            TimelineModel::ReadReceiptsTotalRole).toInt(),
              0);
-    // Role-name contract for QML.
     QCOMPARE(m_model->roleNames().value(TimelineModel::ReadReceiptsRole),
              QByteArrayLiteral("readReceipts"));
     QCOMPARE(m_model->roleNames().value(TimelineModel::ReadReceiptsTotalRole),
@@ -1013,12 +915,6 @@ void TimelineModelDiffTest::reactorsUseSeenNamesAndResolveProfilesWithRepaint()
     m_model->setProfileResolver(nullptr);
 }
 
-// A member-chosen name is room state any member writes; an RLO in it reversed
-// the tail of the sender header and of every sentence built from it (break-it
-// s03, reported for a room name; display names carry the same characters).
-// Whichever source answers, the event, the member cache or a name seen on
-// another row, the explicit direction controls go. Fails on the old model,
-// which returned each source verbatim.
 void TimelineModelDiffTest::aSenderNameLosesItsDirectionOverridesFromEverySource()
 {
     const QString rlo = QString(QChar(0x202E));
@@ -1034,7 +930,6 @@ void TimelineModelDiffTest::aSenderNameLosesItsDirectionOverridesFromEverySource
                            TimelineModel::SenderDisplayNameRole).toString(),
              QStringLiteral("Malgpj.exe"));
 
-    // No name on the event: the member cache answers, cleaned the same way.
     const QString eve = QStringLiteral("@eve:example.org");
     m_client->displayNames.insert(eve, QString(QChar(0x2067))
                                            + QStringLiteral("Eve")
@@ -1049,11 +944,6 @@ void TimelineModelDiffTest::aSenderNameLosesItsDirectionOverridesFromEverySource
              QStringLiteral("Eve"));
 }
 
-// The same hostile name reaches the reader through three more paths: the
-// reply quote (both backend shapes), the typing line, where an RLO reversed
-// " is typing…" itself, and a mention pill. A name made of nothing but
-// direction controls falls through to the localpart instead of drawing blank.
-// Fails on the old model, which returned all of these verbatim.
 void TimelineModelDiffTest::theQuoteTypingLineAndPillsLoseDirectionOverridesToo()
 {
     const QString rlo = QString(QChar(0x202E));
@@ -1064,20 +954,16 @@ void TimelineModelDiffTest::theQuoteTypingLineAndPillsLoseDirectionOverridesToo(
     m_client->displayNames.insert(mallory, hostile);
     m_client->displayNames.insert(ghost, rlo + QString(QChar(0x2066)));
 
-    // Current backend: the SDK's name for the quoted sender, carried.
     TimelineEvent carried = makeEvent(QStringLiteral("$q-carried"),
                                       QStringLiteral("re"));
     carried.replyToSenderId = mallory;
     carried.replyToSender = hostile;
-    // Current backend, no carried name: the member lookup answers.
     TimelineEvent looked = makeEvent(QStringLiteral("$q-looked"),
                                      QStringLiteral("re"));
     looked.replyToSenderId = mallory;
-    // Older backends: the MXID in replyToSender, resolved by lookup.
     TimelineEvent legacy = makeEvent(QStringLiteral("$q-legacy"),
                                      QStringLiteral("re"));
     legacy.replyToSender = mallory;
-    // Nothing but controls, carried and looked up: the localpart.
     TimelineEvent blank = makeEvent(QStringLiteral("$q-blank"),
                                     QStringLiteral("re"));
     blank.replyToSenderId = ghost;
@@ -1117,10 +1003,6 @@ void TimelineModelDiffTest::theQuoteTypingLineAndPillsLoseDirectionOverridesToo(
     QCOMPARE(m_model->typingText(), QStringLiteral("ghost is typing…"));
 }
 
-// Reported: the sender header read "Grok AI" while the receipt list named the
-// same user "brotato" (the localpart). The header uses the SDK's profile on
-// the event; receipts asked only the member cache, which a roster fetch fills
-// (capped, may fail or not have landed). Old code: "grok".
 void TimelineModelDiffTest::aReaderMissingFromTheMemberCacheKeepsTheNameTheTimelineShows()
 {
     const QString grok = QStringLiteral("@grok:example.org");
@@ -1144,7 +1026,6 @@ void TimelineModelDiffTest::aReaderMissingFromTheMemberCacheKeepsTheNameTheTimel
     QCOMPARE(receipts.size(), 1);
     const QVariantMap reader = receipts.first().toMap();
     QCOMPARE(reader.value(QStringLiteral("userId")).toString(), grok);
-    // The same name the reader's own row header shows.
     QCOMPARE(reader.value(QStringLiteral("displayName")).toString(),
              m_model->data(m_model->index(2),
                            TimelineModel::SenderDisplayNameRole).toString());
@@ -1153,7 +1034,6 @@ void TimelineModelDiffTest::aReaderMissingFromTheMemberCacheKeepsTheNameTheTimel
     QCOMPARE(reader.value(QStringLiteral("avatarMxc")).toString(),
              QStringLiteral("mxc://example.org/grok"));
 
-    // The member cache, once it knows the reader, still wins.
     m_client->displayNames.insert(grok, QStringLiteral("Grok (room)"));
     QCOMPARE(m_model->data(idx, TimelineModel::ReadReceiptsRole).toList()
                  .first().toMap().value(QStringLiteral("displayName"))
@@ -1161,9 +1041,6 @@ void TimelineModelDiffTest::aReaderMissingFromTheMemberCacheKeepsTheNameTheTimel
              QStringLiteral("Grok (room)"));
 }
 
-// A reader who has neither a member-cache entry nor a loaded message gets the
-// global profile, like a mention pill, and the chip repaints when it lands.
-// Old code never asked: the name stayed the localpart for the session.
 void TimelineModelDiffTest::aReaderKnownNowhereGetsTheirGlobalProfileAndTheChipRepaints()
 {
     auto *profiles = new UserProfileResolver(m_model);
@@ -1178,8 +1055,6 @@ void TimelineModelDiffTest::aReaderKnownNowhereGetsTheirGlobalProfileAndTheChipR
     Q_EMIT m_client->eventAppended(kRoom, read);
     const QModelIndex idx = m_model->index(2);
 
-    // Nothing known yet: the localpart, and exactly one lookup however often
-    // the role is read.
     for (int i = 0; i < 3; ++i) {
         QCOMPARE(m_model->data(idx, TimelineModel::ReadReceiptsRole).toList()
                      .first().toMap().value(QStringLiteral("displayName"))
@@ -1211,9 +1086,6 @@ void TimelineModelDiffTest::aReaderKnownNowhereGetsTheirGlobalProfileAndTheChipR
     m_model->setProfileResolver(nullptr);
 }
 
-// "Seen by" on a message is cumulative: everyone whose newest receipt is on
-// that message or a later one, each with the time of that receipt; the local
-// user is never listed and an unknown id answers empty.
 void TimelineModelDiffTest::theSeenByListIsCumulativeFromTheClickedMessage()
 {
     auto a = makeEvent(QStringLiteral("$a"), QStringLiteral("one"));
@@ -1233,15 +1105,11 @@ void TimelineModelDiffTest::theSeenByListIsCumulativeFromTheClickedMessage()
             out << v.toMap().value(QStringLiteral("userId")).toString();
         return out;
     };
-    // The newest message: only the reader on it.
     QCOMPARE(ids(QStringLiteral("$c")),
              QStringList{ QStringLiteral("@dave:example.org") });
-    // The middle one: Carol and Dave (Bob stopped before it; self excluded),
-    // newest first.
     QCOMPARE(ids(QStringLiteral("$b")),
              (QStringList{ QStringLiteral("@dave:example.org"),
                            QStringLiteral("@carol:example.org") }));
-    // The oldest: everybody, with each reader's own receipt time.
     QCOMPARE(ids(QStringLiteral("$a")),
              (QStringList{ QStringLiteral("@dave:example.org"),
                            QStringLiteral("@carol:example.org"),
@@ -1254,9 +1122,6 @@ void TimelineModelDiffTest::theSeenByListIsCumulativeFromTheClickedMessage()
     QVERIFY(ids(QStringLiteral("$missing")).isEmpty());
 }
 
-// A reader has one position: the newest row carrying them hosts their
-// receipt, and the older host they left is re-announced so it stops drawing
-// them.
 void TimelineModelDiffTest::aReaderShowsOnOneHostOnlyAndTheOldHostIsReannounced()
 {
     auto older = makeEvent(QStringLiteral("$older"), QStringLiteral("first"));
@@ -1276,8 +1141,6 @@ void TimelineModelDiffTest::aReaderShowsOnOneHostOnlyAndTheOldHostIsReannounced(
     QCOMPARE(readers(0), QStringList{ QStringLiteral("@bob:example.org") });
     QCOMPARE(readers(1), QStringList{});
 
-    // Bob's receipt arrives on the newer row while the backend still has it
-    // on the older one.
     newer.readBy = { { QStringLiteral("@bob:example.org"), Q_INT64_C(1700000002000) } };
     m_client->mirror[1] = newer;
     QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
@@ -1294,9 +1157,6 @@ void TimelineModelDiffTest::aReaderShowsOnOneHostOnlyAndTheOldHostIsReannounced(
     QVERIFY2(olderAnnounced, "the host Bob left must be told to drop him");
 }
 
-// When the newest row carrying a reader is removed (redaction, withdrawn
-// echo), the reader falls back to an older row, whose host must be
-// re-announced (not merely the row that took the removed index).
 void TimelineModelDiffTest::removingTheNewestReceiptRowHandsTheReaderBackToTheOlderHost()
 {
     auto first = makeEvent(QStringLiteral("$first"), QStringLiteral("one"));
@@ -1333,8 +1193,6 @@ void TimelineModelDiffTest::removingTheNewestReceiptRowHandsTheReaderBackToTheOl
     QVERIFY2(firstAnnounced, "the older host must be told Bob is back on it");
 }
 
-// Member hydration re-renders only the rows whose mention names changed:
-// each render records the names it resolved.
 void TimelineModelDiffTest::memberHydrationRerendersOnlyRowsWhoseMentionsChanged()
 {
     auto pill = makeEvent(QStringLiteral("$pill"), QStringLiteral("hi bob"));
@@ -1346,8 +1204,6 @@ void TimelineModelDiffTest::memberHydrationRerendersOnlyRowsWhoseMentionsChanged
         "<a href=\"https://matrix.to/#/@carol:example.org\">@Carol</a>");
     m_client->mirror = { pill, plain, carol };
     Q_EMIT m_client->timelineReset(kRoom);
-    // Render all three so their name dependencies are recorded. Before the
-    // member is known the pill keeps the sender's own label.
     for (int row = 0; row < 3; ++row)
         m_model->data(m_model->index(row), TimelineModel::FormattedBodyRole);
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::FormattedBodyRole)
@@ -1383,12 +1239,10 @@ void TimelineModelDiffTest::memberHydrationRerendersOnlyRowsWhoseMentionsChanged
                  .toString(),
              QStringLiteral(
                  "<a href=\"mention:@bob:example.org\">@Bob Builder</a> hi"));
-    // Nothing about Carol changed: her row is untouched.
     QCOMPARE(m_model->data(m_model->index(2), TimelineModel::FormattedBodyRole)
                  .toString(),
              QStringLiteral("<a href=\"mention:@carol:example.org\">@carol</a>"));
 
-    // A hydration that changes nothing announces no body at all.
     changed.clear();
     Q_EMIT m_client->membersChanged(kRoom);
     for (const auto &sig : changed) {
@@ -1409,8 +1263,6 @@ void TimelineModelDiffTest::readReceiptsUpdateViaSetDiffAndMemberHydration()
     QSignalSpy spy(m_model, &QAbstractItemModel::dataChanged);
     Q_EMIT m_client->eventChangedAt(kRoom, 1, read);
 
-    // The Set diff replaced the row in place and re-announced every role
-    // (empty role vector), so the receipt strip re-reads.
     QCOMPARE(m_model->rowCount(), 2);
     QCOMPARE(spy.count(), 1);
     QVERIFY(spy.at(0).at(2).value<QVector<int>>().isEmpty());
@@ -1418,13 +1270,10 @@ void TimelineModelDiffTest::readReceiptsUpdateViaSetDiffAndMemberHydration()
         m_model->data(m_model->index(1), TimelineModel::ReadReceiptsRole)
             .toList();
     QCOMPARE(receipts.size(), 1);
-    // Unhydrated member: localpart fallback for now.
     QCOMPARE(receipts.first().toMap()
                  .value(QStringLiteral("displayName")).toString(),
              QStringLiteral("bob"));
 
-    // Member hydration announces ReadReceiptsRole, so chips leave the
-    // localpart fallback like other member-derived labels.
     m_client->displayNames.insert(QStringLiteral("@bob:example.org"),
                                   QStringLiteral("Bob"));
     spy.clear();
@@ -1438,7 +1287,6 @@ void TimelineModelDiffTest::readReceiptsUpdateViaSetDiffAndMemberHydration()
                  .value(QStringLiteral("displayName")).toString(),
              QStringLiteral("Bob"));
 
-    // A later Set that clears the receipts empties the strip in place.
     TimelineEvent cleared = read;
     cleared.readBy.clear();
     m_client->mirror[1] = cleared;
@@ -1450,10 +1298,6 @@ void TimelineModelDiffTest::readReceiptsUpdateViaSetDiffAndMemberHydration()
 
 void TimelineModelDiffTest::receiptOnlySetKeepsThreadIndexWithoutRebuild()
 {
-    // onEventChangedAt rebuilds the thread-reply index only when a row's
-    // threadRootId changed. A receipts-only Set (frequent) leaves it correct
-    // without a rebuild, and a Set that rewires the thread relation still
-    // rebuilds; pinned through the observable roles on both sides.
     TimelineEvent reply = makeEvent(QStringLiteral("$reply"),
                                     QStringLiteral("in thread"));
     reply.threadRootId = QStringLiteral("$e0");
@@ -1464,7 +1308,6 @@ void TimelineModelDiffTest::receiptOnlySetKeepsThreadIndexWithoutRebuild()
     QCOMPARE(m_model->data(rootIdx,
                            TimelineModel::ThreadReplyCountRole).toInt(), 1);
 
-    // Receipts-only Set: the thread roles answer identically.
     TimelineEvent withReceipt = reply;
     withReceipt.readBy = {
         { QStringLiteral("@bob:example.org"), Q_INT64_C(1700000002000) },
@@ -1478,8 +1321,6 @@ void TimelineModelDiffTest::receiptOnlySetKeepsThreadIndexWithoutRebuild()
                            TimelineModel::ReadReceiptsRole).toList().size(),
              1);
 
-    // A Set that clears the thread relation rebuilds: the root stops being a
-    // root.
     TimelineEvent detached = withReceipt;
     detached.threadRootId.clear();
     m_client->mirror[2] = detached;
@@ -1491,7 +1332,6 @@ void TimelineModelDiffTest::receiptOnlySetKeepsThreadIndexWithoutRebuild()
 
 void TimelineModelDiffTest::twoReadersAdvanceIndependentlyWithoutLoss()
 {
-    // The other readers a row currently represents.
     const auto readersOf = [this](int row) {
         QStringList ids;
         const QVariantList receipts =
@@ -1504,17 +1344,13 @@ void TimelineModelDiffTest::twoReadersAdvanceIndependentlyWithoutLoss()
     const QString anna = QStringLiteral("@anna:example.org");
     const QString ben = QStringLiteral("@ben:example.org");
 
-    // Rows: 0 = $e0, 1 = $e1 (from init). Both readers start on $e1.
     TimelineEvent m1 = makeEvent(QStringLiteral("$e1"), QStringLiteral("m1"));
     m1.readBy = { { anna, Q_INT64_C(1700000001000) },
                   { ben, Q_INT64_C(1700000002000) } };
     m_client->mirror[1] = m1;
     Q_EMIT m_client->eventChangedAt(kRoom, 1, m1);
-    QCOMPARE(readersOf(1), QStringList({ ben, anna })); // newest first
+    QCOMPARE(readersOf(1), QStringList({ ben, anna }));
 
-    // A new message arrives, then Anna advances to it, via the adjacent Set
-    // pair matrix-sdk-ui emits (old row without her, new row with her). Ben
-    // stays at his position.
     TimelineEvent m2 = makeEvent(QStringLiteral("$e2"), QStringLiteral("m2"));
     m_client->mirror.append(m2);
     Q_EMIT m_client->eventAppended(kRoom, m2);
@@ -1529,7 +1365,6 @@ void TimelineModelDiffTest::twoReadersAdvanceIndependentlyWithoutLoss()
     QCOMPARE(readersOf(1), QStringList({ ben }));
     QCOMPARE(readersOf(2), QStringList({ anna }));
 
-    // Ben advances too; Anna stays represented.
     TimelineEvent m1Empty = m1OnlyBen;
     m1Empty.readBy.clear();
     m_client->mirror[1] = m1Empty;
@@ -1542,8 +1377,6 @@ void TimelineModelDiffTest::twoReadersAdvanceIndependentlyWithoutLoss()
     QVERIFY(readersOf(1).isEmpty());
     QCOMPARE(readersOf(2), QStringList({ ben, anna }));
 
-    // Pagination inserts an older page: indexes shift, receipts stay with
-    // their events.
     TimelineEvent older = makeEvent(QStringLiteral("$older"),
                                     QStringLiteral("history"));
     m_client->mirror.insert(0, older);
@@ -1554,8 +1387,6 @@ void TimelineModelDiffTest::twoReadersAdvanceIndependentlyWithoutLoss()
     QCOMPARE(readersOf(3), QStringList({ ben, anna }));
     QVERIFY(readersOf(0).isEmpty());
 
-    // Member hydration re-announces receipt roles without dropping anyone
-    // and resolves names in place.
     m_client->displayNames.insert(anna, QStringLiteral("Anna"));
     m_client->displayNames.insert(ben, QStringLiteral("Ben"));
     Q_EMIT m_client->membersChanged(kRoom);
@@ -1571,9 +1402,6 @@ void TimelineModelDiffTest::twoReadersAdvanceIndependentlyWithoutLoss()
              QStringLiteral("Anna"));
 }
 
-// Element's "sent" check (EventTileReceiptState): the newest own message the
-// server has, while nobody else has read it. Lightning also hides it when a
-// reader's receipt sits on a LATER row, because the facepile shows them there.
 void TimelineModelDiffTest::theSentCheckFollowsTheNewestOwnMessageUntilSomeoneReadsIt()
 {
     const auto sent = [this](int row) {
@@ -1582,7 +1410,6 @@ void TimelineModelDiffTest::theSentCheckFollowsTheNewestOwnMessageUntilSomeoneRe
     };
     QCOMPARE(m_model->roleNames().value(TimelineModel::SentReceiptRole),
              QByteArrayLiteral("sentReceipt"));
-    // Alice's two messages: never ours.
     QVERIFY(!sent(0));
     QVERIFY(!sent(1));
 
@@ -1592,7 +1419,6 @@ void TimelineModelDiffTest::theSentCheckFollowsTheNewestOwnMessageUntilSomeoneRe
     Q_EMIT m_client->eventAppended(kRoom, mine);
     QVERIFY2(sent(2), "the newest own message carries the sent check");
 
-    // A pending echo has its own indicator and does not take the check.
     TimelineEvent echo = makeEvent(QStringLiteral("local:1"), QStringLiteral("typing"),
                                    TimelineEvent::Sending);
     echo.sender = QStringLiteral("@me:example.org");
@@ -1602,8 +1428,6 @@ void TimelineModelDiffTest::theSentCheckFollowsTheNewestOwnMessageUntilSomeoneRe
     QVERIFY(sent(2));
     QVERIFY(!sent(3));
 
-    // The next own message that the server has takes the check, and the
-    // previous row is told it lost it.
     QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
     TimelineEvent second = makeEvent(QStringLiteral("$mine2"), QStringLiteral("again"));
     second.sender = QStringLiteral("@me:example.org");
@@ -1619,15 +1443,12 @@ void TimelineModelDiffTest::theSentCheckFollowsTheNewestOwnMessageUntilSomeoneRe
     }
     QVERIFY2(oldRowTold, "the row that lost the check was not announced");
 
-    // Someone else's receipt on a LATER row means they have read past it.
     TimelineEvent theirs = makeEvent(QStringLiteral("$theirs"), QStringLiteral("yo"));
     theirs.readBy = { { QStringLiteral("@alice:example.org"), Q_INT64_C(1700000009000) } };
     m_client->mirror.append(theirs);
     Q_EMIT m_client->eventAppended(kRoom, theirs);
     QVERIFY2(!sent(4), "a read message kept its sent check");
 
-    // The same must hold when the receipt arrives by an in-place Set, and the
-    // check must return when it is withdrawn.
     TimelineEvent unread = theirs;
     unread.readBy.clear();
     m_client->mirror[5] = unread;
@@ -1640,19 +1461,12 @@ void TimelineModelDiffTest::theSentCheckFollowsTheNewestOwnMessageUntilSomeoneRe
     m_client->mirror[4] = readNow;
     Q_EMIT m_client->eventChangedAt(kRoom, 4, readNow);
     QVERIFY2(!sent(4), "a receipt delivered by a Set did not hide the check");
-    // Our own receipt never counts as a reader.
     readNow.readBy = { { QStringLiteral("@me:example.org"), Q_INT64_C(1700000011000) } };
     m_client->mirror[4] = readNow;
     Q_EMIT m_client->eventChangedAt(kRoom, 4, readNow);
     QVERIFY(sent(4));
 }
 
-// Reported live (and screenshotted): the other account answered and its
-// implicit receipt arrived ON THE NEW ROW, yet the "sent" check stayed under
-// our message until the app was restarted. Cause: the model announced the row
-// that lost the check from its own rowsInserted slot, which runs before the
-// view's, so the view dropped the notification. The announcement must reach a
-// listener only after the view has processed the insertion.
 void TimelineModelDiffTest::theSentCheckGoesWhenTheOtherUserAnswersWithAReceiptOnTheirNewRow()
 {
     TimelineEvent mine = makeEvent(QStringLiteral("$mine"), QStringLiteral("hi"));
@@ -1666,8 +1480,6 @@ void TimelineModelDiffTest::theSentCheckGoesWhenTheOtherUserAnswersWithAReceiptO
     };
     QVERIFY(sent(mineRow));
 
-    // A stand-in for the view: connected after the model's own slots, it
-    // marks the moment the insertion has been processed.
     bool viewSawInsertion = false;
     QObject::connect(m_model, &QAbstractItemModel::rowsInserted, m_model,
                      [&] { viewSawInsertion = true; });
@@ -1683,8 +1495,6 @@ void TimelineModelDiffTest::theSentCheckGoesWhenTheOtherUserAnswersWithAReceiptO
         }
     });
 
-    // The reply arrives with the sender's implicit receipt already on it, in
-    // a burst of several rows.
     for (int i = 0; i < 4; ++i) {
         TimelineEvent theirs = makeEvent(QStringLiteral("$theirs%1").arg(i),
                                          QStringLiteral("reply %1").arg(i));
@@ -1705,8 +1515,6 @@ void TimelineModelDiffTest::theSentCheckGoesWhenTheOtherUserAnswersWithAReceiptO
 
 void TimelineModelDiffTest::readMarkerRowsStayReceiptFreeWithoutIndexDrift()
 {
-    // SDK receipt tracking also produces ReadMarker virtual rows: no receipts
-    // of their own, no index drift around them, grouping transparent.
     TimelineEvent marker;
     marker.roomId = kRoom;
     marker.itemId = QStringLiteral("read-marker-stable");
@@ -1727,7 +1535,6 @@ void TimelineModelDiffTest::readMarkerRowsStayReceiptFreeWithoutIndexDrift()
     QVERIFY(m_model->data(m_model->index(1), TimelineModel::ReadReceiptsRole)
                 .toList()
                 .isEmpty());
-    // The rows around the marker kept their identity and data.
     QCOMPARE(m_model->data(m_model->index(2), TimelineModel::EventIdRole)
                  .toString(),
              QStringLiteral("$e1"));
@@ -1735,44 +1542,35 @@ void TimelineModelDiffTest::readMarkerRowsStayReceiptFreeWithoutIndexDrift()
                  .toList()
                  .size(),
              1);
-    // Grouping is transparent through the marker: $e1 still continues
-    // Alice's group from $e0.
     QVERIFY(m_model->data(m_model->index(2),
                           TimelineModel::ContinuesSenderGroupRole).toBool());
 }
 
 void TimelineModelDiffTest::typingTextFormatsByCount()
 {
-    // The current user is always excluded, and the wording depends on how
-    // many other users are typing.
     m_client->displayNames.insert(QStringLiteral("@a:example.org"),
                                   QStringLiteral("Alice"));
     m_client->displayNames.insert(QStringLiteral("@b:example.org"),
                                   QStringLiteral("Bob"));
 
-    // Zero typers.
     m_client->typingUsers = {};
     Q_EMIT m_client->typingChanged(kRoom);
     QCOMPARE(m_model->typingText(), QString{});
 
-    // The current user typing is filtered out → still empty.
     m_client->typingUsers = { QStringLiteral("@me:example.org") };
     Q_EMIT m_client->typingChanged(kRoom);
     QCOMPARE(m_model->typingText(), QString{});
 
-    // One other user.
     m_client->typingUsers = { QStringLiteral("@a:example.org") };
     Q_EMIT m_client->typingChanged(kRoom);
     QCOMPARE(m_model->typingText(), QStringLiteral("Alice is typing…"));
 
-    // Two other users (self filtered even when present in the set).
     m_client->typingUsers = { QStringLiteral("@a:example.org"),
                               QStringLiteral("@b:example.org") };
     Q_EMIT m_client->typingChanged(kRoom);
     QCOMPARE(m_model->typingText(),
              QStringLiteral("Alice and Bob are typing…"));
 
-    // Three or more collapses to a count.
     m_client->typingUsers = { QStringLiteral("@a:example.org"),
                               QStringLiteral("@b:example.org"),
                               QStringLiteral("@c:example.org") };
@@ -1844,10 +1642,6 @@ void TimelineModelDiffTest::senderGroupingBoundariesAreDeterministic()
     QVERIFY(m_model->data(m_model->index(1), TimelineModel::ContinuesSenderGroupRole).toBool());
 }
 
-// One person's room message and their reply in a thread are different
-// conversations in a room that interleaves thread replies: each keeps its own
-// header. And the grouping window is a presentation policy (Nheko compact uses
-// an hour) that regroups every row without touching history.
 void TimelineModelDiffTest::senderGroupsBreakAtThreadContextAndFollowTheWindowPolicy()
 {
     const QDateTime base(QDate(2026, 7, 13), QTime(12, 0), QTimeZone::UTC);
@@ -1874,7 +1668,6 @@ void TimelineModelDiffTest::senderGroupsBreakAtThreadContextAndFollowTheWindowPo
     m_model->setSenderGroupWindowSeconds(60 * 60);
     QCOMPARE(changed.count(), 1);
     QVERIFY(m_model->data(m_model->index(3), TimelineModel::ContinuesSenderGroupRole).toBool());
-    // The thread-context break holds whatever the window.
     QVERIFY(m_model->data(m_model->index(1), TimelineModel::BeginsSenderGroupRole).toBool());
     m_model->setSenderGroupWindowSeconds(TimelineModel::kDefaultSenderGroupWindowSeconds);
     QVERIFY(m_model->data(m_model->index(3), TimelineModel::BeginsSenderGroupRole).toBool());
@@ -1913,12 +1706,6 @@ void TimelineModelDiffTest::readMarkerDoesNotBreakSenderGroupButVisibleRowsDo()
     QVERIFY(!m_model->data(m_model->index(3), TimelineModel::ShowSenderIdentityRole).toBool());
 }
 
-// F4 (2026-10-14): a thread reply that could not be decrypted sat in the room
-// timeline as a standalone "Waiting for keys" message (CLAUDE.md §8). The SDK
-// cannot classify it; the Rust bridge now tags it with the root its cleartext
-// relation names, and the model makes it a thread notice: flagged for the
-// delegate, outside every sender run, hosting no receipts, still in the model
-// (so Retry reaches its session), and a plain reply in the thread panel.
 void TimelineModelDiffTest::anUndecryptableThreadReplyIsANoticeNotAMessage()
 {
     const QDateTime base = QDateTime::fromMSecsSinceEpoch(1700000000000);
@@ -1935,7 +1722,6 @@ void TimelineModelDiffTest::anUndecryptableThreadReplyIsANoticeNotAMessage()
     reply.readBy = { reader };
     auto second = makeEvent(QStringLiteral("$second"), QStringLiteral("two"));
     second.timestamp = base.addSecs(40);
-    // An ordinary undecryptable message is NOT a thread notice.
     auto plainUtd = makeEvent(QStringLiteral("$plainutd"), QString());
     plainUtd.timestamp = base.addSecs(50);
     plainUtd.undecryptable = true;
@@ -1950,20 +1736,15 @@ void TimelineModelDiffTest::anUndecryptableThreadReplyIsANoticeNotAMessage()
     QVERIFY(awaiting(1));
     QVERIFY(!awaiting(0));
     QVERIFY(!awaiting(3));
-    // It stays in the model, with its thread, for Retry and "Open thread".
     QCOMPARE(m_model->data(m_model->index(1), TimelineModel::ThreadRootIdRole)
                  .toString(), QStringLiteral("$root"));
-    // Alice's run is not split by it: "two" continues "one", as it will once
-    // the reply decrypts and the SDK takes it out of this timeline.
     QVERIFY(m_model->data(m_model->index(2),
                           TimelineModel::ContinuesSenderGroupRole).toBool());
-    // Its reader shows on the row above, not on a row that draws no message.
     QVERIFY(m_model->data(m_model->index(1), TimelineModel::ReadReceiptsRole)
                 .toList().isEmpty());
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::ReadReceiptsRole)
                  .toList().size(), 1);
 
-    // In the thread panel the same row is simply a reply.
     openThreadModel();
     Q_EMIT m_client->timelineReset(MatrixClient::threadTimelineId(
         kRoom, QStringLiteral("$root")));
@@ -1997,10 +1778,6 @@ void TimelineModelDiffTest::mediaAndPaginationPreserveSenderGrouping()
 
 void TimelineModelDiffTest::groupingRefreshCoalescesAcrossPrependBurst()
 {
-    // A backward-pagination page arrives as many single-item push_front
-    // diffs, each its own eventsPrepended in one drain turn. Each costs
-    // O(boundary): grouping is refreshed synchronously only around the
-    // mutation boundary, never across the whole model.
     const QDateTime base = QDateTime::fromMSecsSinceEpoch(1700000000000);
     auto isGroupingChange = [](const QList<QVariant> &args) {
         const auto roles = args.at(2).value<QList<int>>();
@@ -2015,8 +1792,6 @@ void TimelineModelDiffTest::groupingRefreshCoalescesAcrossPrependBurst()
         return n;
     };
 
-    // 12 single-item prepends in one synchronous drain, as
-    // RustSdkMatrixClient::handleTimelineDiff emits them.
     const int kPage = 12;
     for (int i = kPage - 1; i >= 0; --i) {
         auto older = makeEvent(QStringLiteral("$old%1").arg(i),
@@ -2027,12 +1802,10 @@ void TimelineModelDiffTest::groupingRefreshCoalescesAcrossPrependBurst()
     }
     QCOMPARE(m_model->rowCount(), 2 + kPage);
 
-    // Grouping reads correctly from data() (computed live).
     QCOMPARE(m_model->data(m_model->index(0), TimelineModel::EventIdRole)
                  .toString(),
              QStringLiteral("$old0"));
 
-    // No grouping refresh spans the model; each stays near its own boundary.
     QVERIFY(countGrouping() > 0);
     const int rows = m_model->rowCount();
     for (const auto &sig : changed) {
@@ -2046,7 +1819,6 @@ void TimelineModelDiffTest::groupingRefreshCoalescesAcrossPrependBurst()
                  "grouping refresh must stay local to its boundary");
     }
 
-    // A later mutation refreshes grouping, equally bounded.
     changed.clear();
     auto live = makeEvent(QStringLiteral("$live"), QStringLiteral("live"));
     live.timestamp = base.addSecs(120);
@@ -2079,10 +1851,6 @@ void TimelineModelDiffTest::memberProfileUpdateEmitsIdentityRoles()
     QVERIFY(roles.contains(TimelineModel::SenderDisplayNameRole));
     QVERIFY(roles.contains(TimelineModel::SenderInitialsRole));
     QVERIFY(roles.contains(TimelineModel::SenderAvatarMxcRole));
-    // Reply headers (ReplyToSenderRole) resolve names through the member
-    // lookup, so a hydration burst refreshes them. FormattedBodyRole is
-    // re-announced per row only where a mention name moved (see
-    // memberHydrationRerendersOnlyRowsWhoseMentionsChanged).
     QVERIFY(!roles.contains(TimelineModel::FormattedBodyRole));
     QVERIFY(!roles.contains(TimelineModel::MessageSegmentsRole));
     QVERIFY(roles.contains(TimelineModel::ReplyToSenderRole));
@@ -2093,16 +1861,12 @@ void TimelineModelDiffTest::memberProfileUpdateEmitsIdentityRoles()
              QStringLiteral("mxc://example.org/new-avatar"));
 }
 
-// A reply whose target the SDK never resolved (no embedded sender, preview or
-// kind) used to read "(original message not loaded)" even with the target a
-// few rows away; and a target that arrived LATER (pagination) never refreshed
-// the quote, because a delegate does not re-read a role on its own.
 void TimelineModelDiffTest::aQuoteWithNoEmbeddedDetailsIsReadFromTheLoadedTarget()
 {
     auto target = makeEvent(QStringLiteral("$target"), QStringLiteral("the original"));
     target.sender = QStringLiteral("@bob:example.org");
     auto reply = makeEvent(QStringLiteral("$reply"), QStringLiteral("answer"));
-    reply.replyToEventId = target.eventId;   // nothing else embedded
+    reply.replyToEventId = target.eventId;
     m_client->mirror = { reply };
     Q_EMIT m_client->timelineReset(kRoom);
     const auto role = [&](const QString &id, int r) {
@@ -2112,10 +1876,8 @@ void TimelineModelDiffTest::aQuoteWithNoEmbeddedDetailsIsReadFromTheLoadedTarget
         }
         return QVariant();
     };
-    // Target not loaded: the honest empty preview.
     QVERIFY(role(reply.eventId, TimelineModel::ReplyToPreviewRole).toString().isEmpty());
 
-    // The target arrives above it: the reply row is re-read and now quotes it.
     QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
     m_client->mirror = { target, reply };
     Q_EMIT m_client->eventInsertedAt(kRoom, 0, target);
@@ -2133,7 +1895,6 @@ void TimelineModelDiffTest::aQuoteWithNoEmbeddedDetailsIsReadFromTheLoadedTarget
     QCOMPARE(role(reply.eventId, TimelineModel::ReplyToSenderIdRole).toString(),
              QStringLiteral("@bob:example.org"));
 
-    // A reply that carries its own details keeps them.
     auto own = makeEvent(QStringLiteral("$own"), QStringLiteral("x"));
     own.replyToEventId = target.eventId;
     own.replyToPreview = QStringLiteral("embedded wins");
@@ -2144,8 +1905,6 @@ void TimelineModelDiffTest::aQuoteWithNoEmbeddedDetailsIsReadFromTheLoadedTarget
              QStringLiteral("embedded wins"));
 }
 
-// A quoted target that decrypts late or is edited must update the replies that
-// read their quote from its row, and a reply with embedded details is left be.
 void TimelineModelDiffTest::aQuoteFollowsItsTargetWhenTheTargetChanges()
 {
     auto target = makeEvent(QStringLiteral("$t"), QStringLiteral("first text"));
@@ -2190,7 +1949,6 @@ void TimelineModelDiffTest::aQuoteFollowsItsTargetWhenTheTargetChanges()
     QVERIFY2(!ownReread, "a reply with embedded details was re-read");
     QCOMPARE(preview(own.eventId), QStringLiteral("embedded"));
 
-    // Redacted: the stale text must go.
     auto gone = edited;
     gone.redacted = true;
     m_client->mirror = { gone, reply, own };
@@ -2291,13 +2049,10 @@ void TimelineModelDiffTest::replyToSenderResolvesDisplayNameWithLocalpartFallbac
     m_client->mirror = { reply };
     Q_EMIT m_client->timelineReset(kRoom);
 
-    // Unknown member: the label is the localpart, never the full MXID.
     QCOMPARE(m_model->data(m_model->index(0),
                            TimelineModel::ReplyToSenderRole).toString(),
              QStringLiteral("maya"));
 
-    // Member hydrates: the reply header resolves, refreshed via
-    // membersChanged.
     m_client->displayNames.insert(QStringLiteral("@maya:example.org"),
                                   QStringLiteral("Maya Chen"));
     Q_EMIT m_client->membersChanged(kRoom);
@@ -2305,8 +2060,6 @@ void TimelineModelDiffTest::replyToSenderResolvesDisplayNameWithLocalpartFallbac
                            TimelineModel::ReplyToSenderRole).toString(),
              QStringLiteral("Maya Chen"));
 
-    // Thread summary cards resolve through the same tiers: with no embedded
-    // SDK name, the member lookup wins over the localpart.
     auto root = makeEvent(QStringLiteral("$root"), QStringLiteral("topic"));
     root.isThreadRoot = true;
     root.threadLatestSender = QStringLiteral("@maya:example.org");
@@ -2316,7 +2069,6 @@ void TimelineModelDiffTest::replyToSenderResolvesDisplayNameWithLocalpartFallbac
                            TimelineModel::ThreadLatestSenderDisplayNameRole)
                  .toString(),
              QStringLiteral("Maya Chen"));
-    // The embedded SDK name still has first claim.
     m_client->mirror[0].threadLatestSenderDisplayName =
         QStringLiteral("Maya (SDK)");
     Q_EMIT m_client->timelineReset(kRoom);
@@ -2422,16 +2174,12 @@ void TimelineModelDiffTest::moderatorsMayRemoveOthersMessagesButNeverEditThem()
     Q_EMIT m_client->loginSucceeded(QStringLiteral("@me:example.org"));
     Q_EMIT m_client->timelineReset(kRoom);
 
-    // Without the SDK's grant: own messages only, as before.
     QVERIFY(!m_model->canRedactEvent(remote.eventId));
     QVERIFY(!m_model->canRedactEvent(remote.eventId, false));
-    // With it: another member's message can be removed...
     QVERIFY(m_model->canRedactEvent(remote.eventId, true));
-    // ...but the grant never reaches past the existing guards...
     QVERIFY(!m_model->canRedactEvent(activity.eventId, true));
     QVERIFY(!m_model->canRedactEvent(gone.eventId, true));
     QVERIFY(!m_model->canRedactEvent(QStringLiteral("$stale"), true));
-    // ...and never turns into an edit of someone else's words.
     QVERIFY(!m_model->canEditEvent(remote.eventId));
 }
 
@@ -2450,9 +2198,7 @@ void TimelineModelDiffTest::anUndecryptableOwnMessageCannotBeEdited()
     Q_EMIT m_client->timelineReset(kRoom);
 
     QVERIFY(m_model->canEditEvent(readable.eventId));
-    // Editing would load the placeholder and send it as the new content.
     QVERIFY(!m_model->canEditEvent(own.eventId));
-    // Deleting a message you cannot read is still yours to do.
     QVERIFY(m_model->canRedactEvent(own.eventId));
 }
 
@@ -2470,8 +2216,6 @@ void TimelineModelDiffTest::theWaveformRoleCarriesTheRawBuckets()
         m_model->data(m_model->index(0), TimelineModel::MediaWaveformRole)
             .toList();
     QCOMPARE(wf.size(), 3);
-    // AudioPlayerCard draws a bar at wf[i] / 100: a full bucket must be 100
-    // here, or the loudest bar is 1% tall and every bar sits at the floor.
     QCOMPARE(wf.at(0).toDouble(), 0.0);
     QCOMPARE(wf.at(1).toDouble(), 50.0);
     QCOMPARE(wf.at(2).toDouble(), 100.0);
@@ -2479,15 +2223,12 @@ void TimelineModelDiffTest::theWaveformRoleCarriesTheRawBuckets()
 
 void TimelineModelDiffTest::aSenderNameEqualToTheMxidFallsThroughToARealName()
 {
-    // The live-sync path stamps displayNameFor(), which hands back the raw id
-    // while the room's members are still hydrating.
     auto early = makeEvent(QStringLiteral("$early"), QStringLiteral("H bk074 29"));
     early.sender = QStringLiteral("@bk074:localhs.test");
     early.senderDisplayName = early.sender;
     m_client->mirror = { early };
     Q_EMIT m_client->timelineReset(kRoom);
 
-    // Nothing known anywhere: the localpart, never the MXID.
     QCOMPARE(m_model->data(m_model->index(0),
                            TimelineModel::SenderDisplayNameRole).toString(),
              QStringLiteral("bk074"));
@@ -2495,8 +2236,6 @@ void TimelineModelDiffTest::aSenderNameEqualToTheMxidFallsThroughToARealName()
                            TimelineModel::SenderInitialsRole).toString(),
              QStringLiteral("B"));
 
-    // The SDK named the same sender on another event: that name, not the
-    // MXID, for the row that carried only the id.
     auto named = makeEvent(QStringLiteral("$named"), QStringLiteral("H bk074 30"));
     named.sender = early.sender;
     named.senderDisplayName = QStringLiteral("Bee Seventy-Four");
@@ -2506,7 +2245,6 @@ void TimelineModelDiffTest::aSenderNameEqualToTheMxidFallsThroughToARealName()
                            TimelineModel::SenderDisplayNameRole).toString(),
              QStringLiteral("Bee Seventy-Four"));
 
-    // The member lookup, once it answers, wins over the remembered name.
     m_client->displayNames.insert(early.sender, QStringLiteral("bk074 (member)"));
     Q_EMIT m_client->membersChanged(kRoom);
     QCOMPARE(m_model->data(m_model->index(0),
@@ -2514,12 +2252,8 @@ void TimelineModelDiffTest::aSenderNameEqualToTheMxidFallsThroughToARealName()
              QStringLiteral("bk074 (member)"));
 }
 
-// beginSearch matches loaded, visible message text (case-insensitive),
-// starts at the newest match, and next/prev walk with wrap-around.
 void TimelineModelDiffTest::searchFindsMatchesAndNavigatesWithWrap()
 {
-    // init() gives "m0","m1"; add two more so "m" matches three and "hello"
-    // one.
     for (const auto &pair : { std::pair<QString, QString>{ "$e2", "hello world" },
                               std::pair<QString, QString>{ "$e3", "m3" } }) {
         auto e = makeEvent(pair.first, pair.second);
@@ -2528,10 +2262,9 @@ void TimelineModelDiffTest::searchFindsMatchesAndNavigatesWithWrap()
     }
     QSignalSpy spy(m_model, &TimelineModel::searchChanged);
 
-    m_model->beginSearch(QStringLiteral("M"));   // case-insensitive
+    m_model->beginSearch(QStringLiteral("M"));
     QVERIFY(m_model->searchActive());
-    QCOMPARE(m_model->searchResultCount(), 3);    // m0, m1, m3 (not "hello")
-    // Starts at the newest match ("m3").
+    QCOMPARE(m_model->searchResultCount(), 3);
     QCOMPARE(m_model->searchCurrentEventId(), QStringLiteral("$e3"));
     QCOMPARE(m_model->searchCurrentPosition(), 3);
 
@@ -2541,19 +2274,16 @@ void TimelineModelDiffTest::searchFindsMatchesAndNavigatesWithWrap()
 
     m_model->searchNext();
     QCOMPARE(m_model->searchCurrentEventId(), QStringLiteral("$e3"));
-    m_model->searchNext();                        // wraps to the first
+    m_model->searchNext();
     QCOMPARE(m_model->searchCurrentEventId(), QStringLiteral("$e0"));
     QCOMPARE(m_model->searchCurrentPosition(), 1);
 
-    // A single-match query positions "1 of 1".
     m_model->updateSearch(QStringLiteral("hello"));
     QCOMPARE(m_model->searchResultCount(), 1);
     QCOMPARE(m_model->searchCurrentEventId(), QStringLiteral("$e2"));
     QVERIFY(spy.count() >= 1);
 }
 
-// A pagination prepend of an older matching event grows the result set and
-// keeps the current match selected.
 void TimelineModelDiffTest::searchUpdatesOnPaginationInsert()
 {
     m_model->beginSearch(QStringLiteral("m1"));
@@ -2561,17 +2291,14 @@ void TimelineModelDiffTest::searchUpdatesOnPaginationInsert()
     const QString selected = m_model->searchCurrentEventId();
     QCOMPARE(selected, QStringLiteral("$e1"));
 
-    // Prepend an older event that also matches "m1".
     auto older = makeEvent(QStringLiteral("$old"), QStringLiteral("m1 older"));
     m_client->mirror.prepend(older);
     Q_EMIT m_client->eventsPrepended(kRoom, { older });
 
     QCOMPARE(m_model->searchResultCount(), 2);
-    // The originally-selected match is preserved (not reset to newest).
     QCOMPARE(m_model->searchCurrentEventId(), selected);
 }
 
-// Search state is memory-only: a room switch and endSearch both clear it.
 void TimelineModelDiffTest::searchClearsOnRoomSwitchAndEnd()
 {
     m_model->beginSearch(QStringLiteral("m0"));
@@ -2584,7 +2311,6 @@ void TimelineModelDiffTest::searchClearsOnRoomSwitchAndEnd()
     QVERIFY(m_model->searchQuery().isEmpty());
     QVERIFY(m_model->searchCurrentEventId().isEmpty());
 
-    // A room switch also clears an active search.
     m_model->beginSearch(QStringLiteral("m0"));
     QVERIFY(m_model->searchActive());
     const QString other = QStringLiteral("!other:example.org");
@@ -2594,13 +2320,11 @@ void TimelineModelDiffTest::searchClearsOnRoomSwitchAndEnd()
     QCOMPARE(m_model->searchResultCount(), 0);
 }
 
-// An edit that changes a body updates matches; redacted events never match.
 void TimelineModelDiffTest::searchSurvivesEditAndExcludesRedacted()
 {
     m_model->beginSearch(QStringLiteral("needle"));
     QCOMPARE(m_model->searchResultCount(), 0);
 
-    // Edit $e1 to contain the needle → it now matches, live.
     auto edited = makeEvent(QStringLiteral("$e1"),
                             QStringLiteral("has needle now"));
     edited.edited = true;
@@ -2609,7 +2333,6 @@ void TimelineModelDiffTest::searchSurvivesEditAndExcludesRedacted()
     QCOMPARE(m_model->searchResultCount(), 1);
     QCOMPARE(m_model->searchCurrentEventId(), QStringLiteral("$e1"));
 
-    // Redact it → visible text becomes empty, so it stops matching.
     auto redacted = makeEvent(QStringLiteral("$e1"), QString());
     redacted.redacted = true;
     m_client->mirror[1] = redacted;
@@ -2617,10 +2340,6 @@ void TimelineModelDiffTest::searchSurvivesEditAndExcludesRedacted()
     QCOMPARE(m_model->searchResultCount(), 0);
 }
 
-
-// The thread roles answer from an incrementally maintained index rather than
-// scanning the event list per query. An index can go stale, so this drives
-// each structural mutation and re-checks the answers.
 void TimelineModelDiffTest::threadRoleIndexTracksEveryStructuralMutation()
 {
     const QString rootId = QStringLiteral("$root");
@@ -2629,7 +2348,6 @@ void TimelineModelDiffTest::threadRoleIndexTracksEveryStructuralMutation()
     reply.threadRootId = rootId;
     auto plain = makeEvent(QStringLiteral("$p1"), QStringLiteral("unrelated"));
 
-    // Reset path.
     m_client->mirror = { root, reply, plain };
     Q_EMIT m_client->timelineReset(kRoom);
     auto isRoot = [this](int row) {
@@ -2642,31 +2360,26 @@ void TimelineModelDiffTest::threadRoleIndexTracksEveryStructuralMutation()
     };
     QVERIFY(isRoot(0));
     QCOMPARE(replies(0), 1);
-    QVERIFY(!isRoot(2));           // an ordinary row is never a root
+    QVERIFY(!isRoot(2));
     QCOMPARE(replies(2), 0);
 
-    // Append path: a second reply raises the root's count.
     auto reply2 = makeEvent(QStringLiteral("$r2"), QStringLiteral("reply two"));
     reply2.threadRootId = rootId;
     m_client->mirror.append(reply2);
     Q_EMIT m_client->eventAppended(kRoom, reply2);
     QCOMPARE(replies(0), 2);
 
-    // Prepend path: older history carrying another reply to the same root.
     auto older = makeEvent(QStringLiteral("$r0"), QStringLiteral("older reply"));
     older.threadRootId = rootId;
     m_client->mirror.prepend(older);
     Q_EMIT m_client->eventsPrepended(kRoom, { older });
-    QCOMPARE(replies(1), 3);       // the root shifted down by the prepend
+    QCOMPARE(replies(1), 3);
     QVERIFY(isRoot(1));
 
-    // Removal path: dropping a reply lowers the count again.
     m_client->mirror.removeAt(0);
     Q_EMIT m_client->eventRemovedAt(kRoom, 0);
     QCOMPARE(replies(0), 2);
 
-    // In-place replacement: a late decryption revealing a thread relation
-    // makes the plain row (row 2 of [root, reply, plain, reply2]) count.
     const int plainRow = 2;
     QCOMPARE(m_model->data(m_model->index(plainRow),
                            TimelineModel::EventIdRole).toString(),
@@ -2691,8 +2404,6 @@ void TimelineModelDiffTest::messageSegmentsSplitCodeBlocksAndAreComputedOnce()
     m_client->mirror = { e };
     m_client->displayNames.insert(QStringLiteral("@bob:example.org"),
                                   QStringLiteral("Bob B"));
-    // init() already set kRoom, so setRoomId(kRoom) would be a no-op; load
-    // the fixture via reset and prove it landed.
     Q_EMIT m_client->timelineReset(kRoom);
     QCOMPARE(m_model->rowCount(), 1);
 
@@ -2701,7 +2412,7 @@ void TimelineModelDiffTest::messageSegmentsSplitCodeBlocksAndAreComputedOnce()
     const QVariantList segments =
         m_model->data(idx, TimelineModel::MessageSegmentsRole).toList();
     const int firstReadLookups = m_client->displayNameLookups;
-    QVERIFY(firstReadLookups > 0);   // the mention was really resolved
+    QVERIFY(firstReadLookups > 0);
 
     QCOMPARE(segments.size(), 3);
     QCOMPARE(segments.at(0).toMap().value(QStringLiteral("kind")).toInt(), 0);
@@ -2711,26 +2422,20 @@ void TimelineModelDiffTest::messageSegmentsSplitCodeBlocksAndAreComputedOnce()
     const QVariantMap code = segments.at(1).toMap();
     QCOMPARE(code.value(QStringLiteral("language")).toString(),
              QStringLiteral("rust"));
-    // Plain text with entities decoded, so the delegate renders it as
-    // PlainText and "&lt;hi&gt;" cannot become markup again.
     QCOMPARE(code.value(QStringLiteral("text")).toString(),
              QStringLiteral("fn main() {\n    println!(\"<hi>\");\n}"));
 
-    // The rich runs kept their sanitized html and the resolved mention name.
     QVERIFY(segments.at(0).toMap().value(QStringLiteral("text")).toString()
                 .contains(QStringLiteral("Bob B")));
     QVERIFY(segments.at(2).toMap().value(QStringLiteral("text")).toString()
                 .contains(QStringLiteral("after")));
 
-    // Memoized: a second read costs no second sanitize walk or identity
-    // resolution.
     m_client->displayNameLookups = 0;
     const QVariantList again =
         m_model->data(idx, TimelineModel::MessageSegmentsRole).toList();
     QCOMPARE(m_client->displayNameLookups, 0);
     QCOMPARE(again, segments);
 
-    // An edit invalidates it: the cache is keyed on the event.
     m_client->mirror[0].formattedBody =
         QStringLiteral("<pre><code>edited</code></pre>");
     Q_EMIT m_client->eventEdited(kRoom, e.eventId);
@@ -2750,8 +2455,6 @@ void TimelineModelDiffTest::messageSegmentsStayEmptyAndFreeForOrdinaryBodies()
     rich.formattedBody = QStringLiteral(
         "<em>hello</em> <a href=\"https://matrix.to/#/@bob:example.org\">Bob</a>"
         " and <code>inline</code>");
-    // A <pre> inside dropped content is not rendered, so the row keeps the
-    // single-TextEdit path.
     TimelineEvent quoted = makeEvent(QStringLiteral("$quoted"),
                                      QStringLiteral("reply"));
     quoted.formattedBody =
@@ -2764,10 +2467,7 @@ void TimelineModelDiffTest::messageSegmentsStayEmptyAndFreeForOrdinaryBodies()
     m_client->mirror = { plain, rich, quoted, gone };
     m_client->displayNames.insert(QStringLiteral("@bob:example.org"),
                                   QStringLiteral("Bob B"));
-    // setRoomId(kRoom) would be a no-op here; reset is the load path.
     Q_EMIT m_client->timelineReset(kRoom);
-    // Non-vacuous: a row past the end answers an empty list, so the loop
-    // would pass on a fixture that never loaded.
     QCOMPARE(m_model->rowCount(), 4);
 
     for (int row = 0; row < 4; ++row) {
@@ -2778,14 +2478,9 @@ void TimelineModelDiffTest::messageSegmentsStayEmptyAndFreeForOrdinaryBodies()
                                            "single-TextEdit path").arg(row)));
     }
 
-    // An ordinary row is answered without a sanitize walk (one substring
-    // test), so the role adds no parsing cost per delegate. A walk would have
-    // resolved the mention.
     m_client->displayNameLookups = 0;
     m_model->data(m_model->index(1), TimelineModel::MessageSegmentsRole);
     QCOMPARE(m_client->displayNameLookups, 0);
-    // The rich body resolves the mention to the room display name (never the
-    // sender's own anchor text), which proves the walk ran.
     QVERIFY(m_model->data(m_model->index(1), TimelineModel::FormattedBodyRole)
                 .toString().contains(QStringLiteral("Bob B")));
 }
@@ -2795,7 +2490,7 @@ void TimelineModelDiffTest::reactionRolesNameTheReactorsAndKeepTheUncappedTotal(
     TimelineEvent e = makeEvent(QStringLiteral("$m0"), QStringLiteral("hi"));
     Reaction thumbs;
     thumbs.key = QString::fromUtf8("\U0001F44D");
-    thumbs.count = 7;          // uncapped total, larger than the id window
+    thumbs.count = 7;
     thumbs.byMe = true;
     thumbs.myEventId = QStringLiteral("$react0");
     thumbs.senders = { QStringLiteral("@me:example.org"),
@@ -2805,12 +2500,9 @@ void TimelineModelDiffTest::reactionRolesNameTheReactorsAndKeepTheUncappedTotal(
     m_client->mirror = { e };
     m_client->displayNames.insert(QStringLiteral("@bob:example.org"),
                                   QStringLiteral("Bob B"));
-    // setRoomId(kRoom) is a no-op after init(); use reset.
     Q_EMIT m_client->timelineReset(kRoom);
     QCOMPARE(m_model->rowCount(), 1);
 
-    // An empty map for a missing bucket, so a role answering nothing fails
-    // legibly instead of aborting in QList::at.
     auto bucketAt = [this](int row) {
         const QVariantList buckets =
             m_model->data(m_model->index(row), TimelineModel::ReactionsRole)
@@ -2823,8 +2515,6 @@ void TimelineModelDiffTest::reactionRolesNameTheReactorsAndKeepTheUncappedTotal(
     QCOMPARE(bucket.value(QStringLiteral("key")).toString(), thumbs.key);
     QCOMPARE(bucket.value(QStringLiteral("count")).toInt(), 7);
     QCOMPARE(bucket.value(QStringLiteral("byMe")).toBool(), true);
-    // The count is the uncapped total; the names are the bounded window, so
-    // QML never infers overflow from a capped list.
     QCOMPARE(bucket.value(QStringLiteral("reactorTotal")).toInt(), 7);
 
     const QStringList names =
@@ -2832,14 +2522,11 @@ void TimelineModelDiffTest::reactionRolesNameTheReactorsAndKeepTheUncappedTotal(
     QCOMPARE(names, QStringList({ QStringLiteral("me"),
                                   QStringLiteral("Bob B"),
                                   QStringLiteral("carol") }));
-    // Order is the bridge's (local user first), and an unresolved reactor is
-    // a localpart, never a bare MXID.
     for (const QString &name : names) {
         QVERIFY(!name.startsWith(QLatin1Char('@')));
         QVERIFY(!name.contains(QLatin1Char(':')));
     }
 
-    // Member hydration refreshes them off the localpart fallback.
     QSignalSpy dataSpy(m_model, &QAbstractItemModel::dataChanged);
     m_client->displayNames.insert(QStringLiteral("@carol:example.org"),
                                   QStringLiteral("Carol C"));
@@ -2867,10 +2554,6 @@ void TimelineModelDiffTest::reactionRolesNameTheReactorsAndKeepTheUncappedTotal(
     QCOMPARE(bareBucket.value(QStringLiteral("reactorTotal")).toInt(), 2);
 }
 
-
-// Receipts on bodiless rows (e.g. call-membership updates) land on the
-// nearest row above that draws a body, one entry per reader, newest first,
-// and that host is re-announced when the hosted row changes.
 void TimelineModelDiffTest::receiptsOnBodilessRowsLandOnTheRowAbove()
 {
     const auto readers = [&](int row) {
@@ -2903,16 +2586,12 @@ void TimelineModelDiffTest::receiptsOnBodilessRowsLandOnTheRowAbove()
     Q_EMIT m_client->eventAppended(kRoom, rtc);
     QCOMPARE(m_model->rowCount(), msgRow + 2);
 
-    // The membership row presents nothing; the message shows both readers,
-    // newest first.
     QVERIFY(readers(msgRow + 1).isEmpty());
     QCOMPARE(total(msgRow + 1), 0);
     QCOMPARE(readers(msgRow), (QStringList{ QStringLiteral("@carol:example.org"),
                                            QStringLiteral("@bob:example.org") }));
     QCOMPARE(total(msgRow), 2);
 
-    // Bob's marker moves onto the membership row: still one Bob, now the
-    // newest, and the host row is announced.
     TimelineEvent rtc2 = rtc;
     rtc2.readBy = { { QStringLiteral("@carol:example.org"), 2000 },
                     { QStringLiteral("@bob:example.org"), 3000 } };
@@ -2930,8 +2609,6 @@ void TimelineModelDiffTest::receiptsOnBodilessRowsLandOnTheRowAbove()
                                            QStringLiteral("@carol:example.org") }));
     QCOMPARE(total(msgRow), 2);
 
-    // A call card draws a body and hosts its own readers; the message above
-    // stops at it.
     TimelineEvent call = makeEvent(QStringLiteral("$call"), QString());
     call.type = TimelineEvent::CallEvent;
     call.readBy = { { QStringLiteral("@erin:example.org"), 4000 } };
@@ -2943,11 +2620,6 @@ void TimelineModelDiffTest::receiptsOnBodilessRowsLandOnTheRowAbove()
     QCOMPARE(readers(msgRow), (QStringList{ QStringLiteral("@bob:example.org"),
                                            QStringLiteral("@carol:example.org") }));
 }
-
-// A thread panel's TimelineModel has the composite `room ␟ thread ␟ root` as
-// its roomId, and every event carries it. Member lookups and the hydration
-// guard must use the real room id; the fixture holds names and avatars under
-// the real room only, like a real member cache.
 
 QString TimelineModelDiffTest::openThreadModel()
 {
@@ -2964,14 +2636,13 @@ void TimelineModelDiffTest::threadModelResolvesEveryIdentityAgainstTheRealRoom()
 {
     const QString alice = QStringLiteral("@alice:example.org");
     const QString bob = QStringLiteral("@bob:example.org");
-    // A member cache holding the room, and nothing under the composite.
     m_client->roomDisplayNames[kRoom] = { { alice, QStringLiteral("Alice A") },
                                           { bob, QStringLiteral("Bob B") } };
     m_client->roomAvatarMxc[kRoom] = { { alice, QStringLiteral("mxc://s/av") } };
 
     TimelineEvent reply = makeEvent(QStringLiteral("$r1"), QStringLiteral("hi"));
-    reply.sender = alice;               // no senderDisplayName on the event:
-    reply.senderDisplayName.clear();    // the member lookup is the only source
+    reply.sender = alice;
+    reply.senderDisplayName.clear();
     reply.replyToSenderId = bob;
     reply.readBy = { { bob, Q_INT64_C(1700000004000) } };
     reply.readByTotal = 1;
@@ -3008,7 +2679,6 @@ void TimelineModelDiffTest::threadModelResolvesEveryIdentityAgainstTheRealRoom()
                  .value(QStringLiteral("reactorNames")).toStringList(),
              QStringList{ QStringLiteral("Bob B") });
 
-    // The composite never reached the member cache at all.
     QVERIFY2(!m_client->displayNameRoomsAsked.contains(threadId),
              "a member lookup was made with the composite timeline id");
     QVERIFY(m_client->displayNameRoomsAsked.contains(kRoom));
@@ -3024,12 +2694,9 @@ void TimelineModelDiffTest::memberHydrationReachesAThreadModel()
     openThreadModel();
     const int row = m_model->rowCount() - 1;
     const QModelIndex idx = m_model->index(row);
-    // Nothing known yet: the localpart.
     QCOMPARE(m_model->data(idx, TimelineModel::SenderDisplayNameRole).toString(),
              QStringLiteral("alice"));
 
-    // The roster lands; membersChanged carries the real room id, as
-    // RustSdkMatrixClient emits it.
     m_client->roomDisplayNames[kRoom] = { { alice, QStringLiteral("Alice A") } };
     QSignalSpy changed(m_model, &TimelineModel::dataChanged);
     Q_EMIT m_client->membersChanged(kRoom);
@@ -3038,7 +2705,6 @@ void TimelineModelDiffTest::memberHydrationReachesAThreadModel()
     QCOMPARE(m_model->data(idx, TimelineModel::SenderDisplayNameRole).toString(),
              QStringLiteral("Alice A"));
 
-    // Another room's hydration must not touch this model.
     QSignalSpy other(m_model, &TimelineModel::dataChanged);
     Q_EMIT m_client->membersChanged(QStringLiteral("!elsewhere:example.org"));
     QVERIFY(other.isEmpty());
@@ -3046,8 +2712,6 @@ void TimelineModelDiffTest::memberHydrationReachesAThreadModel()
 
 void TimelineModelDiffTest::anOrdinaryRoomModelStillAsksWithItsOwnRoomId()
 {
-    // For a room id with no separator the reduction is the identity, so the
-    // ordinary path (including the hydration guard) is unchanged.
     const QString alice = QStringLiteral("@alice:example.org");
     m_client->roomDisplayNames[kRoom] = { { alice, QStringLiteral("Alice A") } };
     TimelineEvent m = makeEvent(QStringLiteral("$r1"), QStringLiteral("hi"));
@@ -3066,16 +2730,12 @@ void TimelineModelDiffTest::anOrdinaryRoomModelStillAsksWithItsOwnRoomId()
     QVERIFY(!changed.isEmpty());
 }
 
-// A thread panel sends no unthreaded room receipt: an m.read naming a thread
-// reply's event id would be the wrong protocol call. There is no caller yet;
-// this pins the guard.
 void TimelineModelDiffTest::markVisibleAsReadNeverSendsARoomReceiptForAThread()
 {
     openThreadModel();
     m_model->markVisibleAsRead(0, m_model->rowCount() - 1);
     QCOMPARE(m_client->readReceipts.size(), 0);
 
-    // The ordinary room still sends, naming its own room.
     m_client->readReceipts.clear();
     m_client->mirrorAlias.clear();
     for (auto &event : m_client->mirror)

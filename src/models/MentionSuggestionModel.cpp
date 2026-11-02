@@ -20,7 +20,7 @@ QString localpartOf(const QString &userId)
     return lp;
 }
 
-} // namespace
+}
 
 MentionSuggestionModel::MentionSuggestionModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -37,8 +37,6 @@ void MentionSuggestionModel::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::roomMembersReceived, this,
                 &MentionSuggestionModel::onRoomMembersReceived);
-        // The sync poke, not membersChanged: this model refetches on it, as
-        // RoomInfoController does.
         connect(m_client, &MatrixClient::roomMemberEventSeen, this,
                 &MentionSuggestionModel::onMembersChanged);
         connect(m_client, &MatrixClient::loggedOut, this,
@@ -51,13 +49,10 @@ void MentionSuggestionModel::setRoomId(const QString &roomId)
     if (m_roomId == roomId)
         return;
     m_roomId = roomId;
-    // A new room invalidates any in-flight request and the cached snapshot.
     m_membersOp = 0;
     m_membersRequestOwed = false;
     m_all.clear();
     setMembersLoaded(false);
-    // Reset the @room permission to unknown (offered): it belonged to the
-    // previous room, and the server refuses what the level does not allow.
     setRoomMentionAllowed(true);
     clearResults();
     Q_EMIT roomIdChanged();
@@ -71,7 +66,7 @@ void MentionSuggestionModel::setQuery(const QString &query)
         return;
     m_query = query;
     Q_EMIT queryChanged();
-    rebuild(); // re-filter the cached members; never re-hits the server
+    rebuild();
 }
 
 void MentionSuggestionModel::setMembersLoaded(bool loaded)
@@ -97,13 +92,8 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
 {
     if (opId != m_membersOp || roomId != m_roomId)
         return; // stale (old room / superseded request)
-    // A partial (cache-only) snapshot is usable immediately, but the op
-    // stays pending so the synced roster under the same op is not
-    // dropped as stale.
     if (!snapshot.value(QStringLiteral("partial")).toBool())
         m_membersOp = 0;
-    // A membership poke that arrived while this request ran is paid now, once:
-    // the request may have read the roster before that change.
     if (!snapshot.value(QStringLiteral("partial")).toBool()
         && m_membersRequestOwed) {
         m_membersRequestOwed = false;
@@ -118,10 +108,6 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
     if (!snapshot.value(QStringLiteral("ok")).toBool())
         return;
 
-    // Whether this account may notify the whole room comes from the same roster
-    // snapshot, so @room is gated on the room the suggestions are for. Applied
-    // only when the key is present: a missing key reads as false, which would
-    // turn "backend never said" into "not allowed". Unknown means offered.
     if (snapshot.contains(QStringLiteral("canNotifyRoom")))
         setRoomMentionAllowed(
             snapshot.value(QStringLiteral("canNotifyRoom")).toBool());
@@ -137,7 +123,7 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
         if (uid.isEmpty())
             continue;
         if (row.value(QStringLiteral("isOwn")).toBool() || uid == ownId)
-            continue; // never suggest the signed-in user
+            continue;
         const QString membership =
             row.value(QStringLiteral("membership")).toString();
         // Allow-list: only joined or invited members are suggestable, and any
@@ -149,7 +135,7 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
             && membership != QLatin1String("invite"))
             continue;
         if (seen.contains(uid))
-            continue; // dedup by MXID
+            continue;
         seen.insert(uid);
 
         Member mem;
@@ -170,8 +156,6 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
 
 void MentionSuggestionModel::onMembersChanged(const QString &roomId)
 {
-    // Membership changed for the open room. A request in flight may have read
-    // the roster before this change, so it is owed one more when it ends.
     if (roomId != m_roomId || m_roomId.isEmpty())
         return;
     if (m_membersOp == 0)
@@ -197,7 +181,7 @@ int MentionSuggestionModel::matchScore(const QString &query,
 {
     const QString q = query.trimmed().toCaseFolded();
     if (q.isEmpty())
-        return 1; // low base score: every member is a candidate
+        return 1;
 
     const QString name = displayName.toCaseFolded();
     const QString localpart = localpartOf(userId).toCaseFolded();
@@ -232,8 +216,6 @@ int MentionSuggestionModel::matchScore(const QString &query,
     return best;
 }
 
-// "@room" is offered for an empty query or any prefix of "room"; never via
-// fuzzy scoring, so it is not surfaced by accident.
 static bool matchesRoomMention(const QString &query)
 {
     const QString q = query.trimmed().toLower();
@@ -275,12 +257,9 @@ void MentionSuggestionModel::rebuild()
 
     QList<Member> next;
     next.reserve(qMin(int(scored.size()), kMaxResults) + 1);
-    // @room first when offered: it is the one non-person entry, and Element
-    // lists it at the top too.
     if (m_roomMentionAllowed && matchesRoomMention(m_query)) {
         Member room;
         room.userId = QStringLiteral("@room");
-        // "room", not "@room": the insertion builder adds the @.
         room.displayName = QStringLiteral("room");
         room.rawDisplayName = room.displayName;
         room.isRoom = true;

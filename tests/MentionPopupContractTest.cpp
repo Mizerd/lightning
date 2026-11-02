@@ -32,7 +32,6 @@ QString read(const QString &path)
     return QString::fromUtf8(f.readAll());
 }
 
-// The text of `function <name>() { ... }` in a QML source, braces matched.
 QString extractFunction(const QString &src, const QString &name)
 {
     const int at = src.indexOf(QStringLiteral("function %1(").arg(name));
@@ -51,10 +50,6 @@ QString extractFunction(const QString &src, const QString &name)
     return {};
 }
 
-// Stand-in for a composer, holding only what a refresh function reads. The
-// C++ ranges property is `live`: one array object changed in place, which is
-// how Qt 6.8 hands QML a QVariantList property (a reference re-read on every
-// access).
 const char *kRefreshScene = R"QML(
 import QtQuick
 import MatrixClient
@@ -91,8 +86,6 @@ Item {
 }
 )QML";
 
-// Test-driven member snapshot delivery, mirroring MentionSuggestionModelTest's
-// MemberMock.
 class MemberMock : public MockMatrixClient
 {
     Q_OBJECT
@@ -147,12 +140,8 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
-// Minimal `app` stand-in for the popup's Avatar rows: their media
-// Connections resolve app.mediaBridge, and a missing context target would
-// fall back to the Connections' parent and warn on every row. Signatures
-// mirror MediaBridge exactly; the signals are never emitted here.
 class FakeMediaBridge : public QObject
 {
     Q_OBJECT
@@ -194,9 +183,6 @@ private:
 
     QQuickItem *rowAt(QObject *root, int index) const
     {
-        // ListView-created delegates are model-owned, not QObject-parented,
-        // so findChild cannot see them — resolve through itemAtIndex on the
-        // (static, findable) list instead.
         auto *list = root->findChild<QQuickItem *>(
             QStringLiteral("mentionListView"));
         if (!list)
@@ -221,15 +207,11 @@ private Q_SLOTS:
             member(QStringLiteral("@carol:hs"), QStringLiteral("Carol"),
                   QStringLiteral("user")),
         });
-        // Three members, plus @room — offered by default and matching an
-        // empty query, exactly as it will be when the popup first opens.
         QCOMPARE(m_model.count(), 4);
         QCOMPARE(m_model.get(0).value(QStringLiteral("userId")).toString(),
                  QStringLiteral("@room"));
     }
 
-    // @room is a row in the same model: it sorts first and disappears when the
-    // account cannot trigger a whole-room notification.
     void theWholeRoomMentionIsOfferedFirstAndOnlyWhenAllowed()
     {
         m_model.setQuery(QString());
@@ -238,12 +220,9 @@ private Q_SLOTS:
         QCOMPARE(room.value(QStringLiteral("userId")).toString(),
                  QStringLiteral("@room"));
         QVERIFY(room.value(QStringLiteral("isRoom")).toBool());
-        // "room", never "@room": the insertion builder prefixes the @ itself,
-        // and carrying it here composes "@@room" in the message.
         QCOMPARE(room.value(QStringLiteral("displayName")).toString(),
                  QStringLiteral("room"));
 
-        // Prefixes of "room" keep it; anything else drops it.
         for (const QString &q : { QStringLiteral("r"), QStringLiteral("ro"),
                                   QStringLiteral("room"), QStringLiteral("ROOM") }) {
             m_model.setQuery(q);
@@ -253,7 +232,6 @@ private Q_SLOTS:
         m_model.setQuery(QStringLiteral("ali"));
         QVERIFY(!m_model.get(0).value(QStringLiteral("isRoom")).toBool());
 
-        // Not permitted: gone entirely, in every query that would match it.
         m_model.setRoomMentionAllowed(false);
         m_model.setQuery(QString());
         QCOMPARE(m_model.count(), 3);
@@ -262,7 +240,6 @@ private Q_SLOTS:
         m_model.setQuery(QString());
     }
 
-    // ── Source-scan: structure, omissions, preserved invariants ──────
     void headerUsesHostSetQueryProperty()
     {
         const QString popup = read(QStringLiteral(QML_DIR "/MentionPopup.qml"));
@@ -272,15 +249,12 @@ private Q_SLOTS:
             "text: qsTr(\"Mention · Matching \\\"%1\\\"\").arg(root.query)")));
         QVERIFY(popup.contains(QStringLiteral("font.family: AppTheme.monoFont")));
         QVERIFY(popup.contains(QStringLiteral("font.capitalization: Font.AllUppercase")));
-        // Storm skin: the header uses the faint storm mono ink.
         QVERIFY(popup.contains(QStringLiteral("color: AppTheme.stormTextFaint")));
     }
 
     void mxidUsesTextMutedPerRuleR4()
     {
         const QString popup = read(QStringLiteral(QML_DIR "/MentionPopup.qml"));
-        // Storm skin: MXIDs use the muted storm mono ink, one step brighter on
-        // the selected row.
         QVERIFY(popup.contains(QStringLiteral(
             "? AppTheme.stormTextSecondary")));
         QVERIFY(popup.contains(QStringLiteral(
@@ -290,13 +264,9 @@ private Q_SLOTS:
     void theRoomRowSaysWhatItDoesAndPresenceStaysOut()
     {
         const QString popup = read(QStringLiteral(QML_DIR "/MentionPopup.qml"));
-        // The @room row is gated on the room's required level for a
-        // whole-room notification, and says what it does.
         QVERIFY(popup.contains(QStringLiteral("Notify everyone in this room")));
         QVERIFY(popup.contains(QStringLiteral("model.isRoom === true")));
 
-        // Presence stays out of suggestion rows; if ever added it must come
-        // via the shared PresenceDot, never the popup's own colours.
         QVERIFY(!popup.contains(QStringLiteral("presenceOnline")));
         QVERIFY(!popup.contains(QStringLiteral("presenceAway")));
     }
@@ -324,17 +294,13 @@ private Q_SLOTS:
         QVERIFY(popup.contains(
             QStringLiteral("currentIndex = (currentIndex - 1 + count) % count")));
         QVERIFY(popup.contains(QStringLiteral("if (!m || !m.userId)")));
-        // An empty list closes the popup once members are loaded (and only
-        // then: a list still loading keeps it up).
         QVERIFY(popup.contains(QStringLiteral(
             "shouldShow: tokenActive && (count > 0 || !membersLoaded)")));
         QVERIFY(popup.contains(QStringLiteral("close()")));
-        // Members-only sourcing: never a directory/server search call.
         QVERIFY(!popup.contains(QStringLiteral("searchDirectory")));
         QVERIFY(!popup.contains(QStringLiteral("userDirectorySearch")));
     }
 
-    // ── Behavior: role chip mapping, header text, selected keycap ───
     void chipHeaderAndKeycapRenderFromLiveState()
     {
         QQmlApplicationEngine engine;
@@ -361,13 +327,8 @@ private Q_SLOTS:
         QVERIFY(popup != nullptr);
         popup->setProperty("query", QStringLiteral("al"));
         QVERIFY(QMetaObject::invokeMethod(popup, "open"));
-        // Wait for the FULLY opened state (not just "visible"), so
-        // onOpened's currentIndex = 0 reset has already settled before the
-        // test drives currentIndex itself below.
         QTRY_VERIFY(popup->property("opened").toBool());
 
-        // The popup shows exactly what the model holds: with the whole-room
-        // mention off, the three members and nothing else.
         m_model.setRoomMentionAllowed(false);
         QTRY_COMPARE(popup->property("count").toInt(), 3);
 
@@ -377,9 +338,6 @@ private Q_SLOTS:
         QCOMPARE(header->property("text").toString(),
                  QStringLiteral("Mention · Matching \"al\""));
 
-        // Row 0 = Alice (administrator) -> ADMIN chip. Delegate creation
-        // lands on the ListView's next layout pass, not synchronously with
-        // `opened` — wait for the first row to materialize.
         QTRY_VERIFY(rowAt(root, 0) != nullptr);
         auto *row0 = rowAt(root, 0);
         auto *chip0 = row0->findChild<QQuickItem *>(QStringLiteral("mentionRoleChip"));
@@ -387,7 +345,6 @@ private Q_SLOTS:
         QVERIFY(chip0->property("visible").toBool());
         QCOMPARE(chip0->property("label").toString(), QStringLiteral("ADMIN"));
 
-        // Row 1 = Bob (moderator) -> MOD chip.
         auto *row1 = rowAt(root, 1);
         QVERIFY(row1 != nullptr);
         auto *chip1 = row1->findChild<QQuickItem *>(QStringLiteral("mentionRoleChip"));
@@ -395,14 +352,12 @@ private Q_SLOTS:
         QVERIFY(chip1->property("visible").toBool());
         QCOMPARE(chip1->property("label").toString(), QStringLiteral("MOD"));
 
-        // Row 2 = Carol (plain "user") -> no chip.
         auto *row2 = rowAt(root, 2);
         QVERIFY(row2 != nullptr);
         auto *chip2 = row2->findChild<QQuickItem *>(QStringLiteral("mentionRoleChip"));
         QVERIFY(chip2 != nullptr);
         QVERIFY(!chip2->property("visible").toBool());
 
-        // Selected-row keycap: only the current row shows it.
         popup->setProperty("currentIndex", 1);
         auto *keycap0 = row0->findChild<QQuickItem *>(QStringLiteral("mentionSelectedKeycap"));
         auto *keycap1 = row1->findChild<QQuickItem *>(QStringLiteral("mentionSelectedKeycap"));
@@ -410,7 +365,6 @@ private Q_SLOTS:
         QTRY_VERIFY(keycap1->property("visible").toBool());
         QVERIFY(!keycap0->property("visible").toBool());
 
-        // accept() resolves the currently-selected row's real userId.
         QSignalSpy chosen(popup, SIGNAL(chosen(QString, QString)));
         QVERIFY(QMetaObject::invokeMethod(popup, "accept"));
         QCOMPARE(chosen.count(), 1);
@@ -420,9 +374,6 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // A loaded member list with no match for the typed token hides the popup;
-    // it comes back when further typing matches again. While the list is still
-    // loading it stays up.
     void thePopupHidesOnNoMatchesOnceMembersAreLoadedAndReturns()
     {
         QQmlApplicationEngine engine;
@@ -446,21 +397,17 @@ private Q_SLOTS:
         QVERIFY(popup->setProperty("tokenActive", true));
         QTRY_VERIFY(popup->property("visible").toBool());
 
-        // Loaded list, no match: hidden.
         m_model.setQuery(QStringLiteral("zzqx"));
         QCOMPARE(m_model.count(), 0);
         QTRY_VERIFY(!popup->property("visible").toBool());
 
-        // Still no match: stays hidden (the old code reopened it empty here).
         m_model.setQuery(QStringLiteral("zzqxy"));
         QVERIFY(!popup->property("visible").toBool());
 
-        // Matches again: returns.
         m_model.setQuery(QStringLiteral("bo"));
         QVERIFY(m_model.count() > 0);
         QTRY_VERIFY(popup->property("visible").toBool());
 
-        // A room whose list has not loaded yet keeps it up despite zero rows.
         m_model.setRoomId(QStringLiteral("!other:hs"));
         QVERIFY(!m_model.membersLoaded());
         QCOMPARE(m_model.count(), 0);
@@ -471,7 +418,6 @@ private Q_SLOTS:
         QTRY_VERIFY(!popup->property("visible").toBool());
         delete root;
 
-        // Restore the shared fixture for later cases.
         m_model.setRoomId(QStringLiteral("!design:hs"));
         m_mock.deliver(QStringLiteral("!design:hs"), {
             member(QStringLiteral("@alice:hs"), QStringLiteral("Alice"),
@@ -503,31 +449,21 @@ private Q_SLOTS:
         auto *popup = root->findChild<QObject *>(QStringLiteral("popup"));
         QVERIFY(popup != nullptr);
         QVERIFY(QMetaObject::invokeMethod(popup, "open"));
-        // Wait for the FULLY opened state (not just "visible"), so
-        // onOpened's currentIndex = 0 reset has already settled before the
-        // test drives currentIndex itself below.
         QTRY_VERIFY(popup->property("opened").toBool());
 
-        // Wrap-around is about the ENDS of the list, so pin the length:
-        // three members, no whole-room row.
         m_model.setRoomMentionAllowed(false);
         QTRY_COMPARE(popup->property("count").toInt(), 3);
 
         popup->setProperty("currentIndex", 2);
         QVERIFY(QMetaObject::invokeMethod(popup, "moveDown"));
-        QCOMPARE(popup->property("currentIndex").toInt(), 0); // wraps forward
+        QCOMPARE(popup->property("currentIndex").toInt(), 0);
 
         QVERIFY(QMetaObject::invokeMethod(popup, "moveUp"));
-        QCOMPARE(popup->property("currentIndex").toInt(), 2); // wraps backward
+        QCOMPARE(popup->property("currentIndex").toInt(), 2);
 
         delete root;
     }
 
-    // After a mention is sent, the composer's refresh must clear the
-    // highlighter's ranges. On Qt 6.8 the ranges list read from C++ is a live
-    // reference, so a stored copy always equals the new value and the "nothing
-    // changed" check must not swallow the empty list. Each composer's own
-    // refresh function runs here against a Qt 6.8-style list.
     void aForgottenMentionStopsInkingTheComposer_data()
     {
         QTest::addColumn<QString>("file");
@@ -573,21 +509,15 @@ private Q_SLOTS:
             return highlighter->property("ranges").toList().size();
         };
 
-        // A mention was inserted: the highlighter inks it.
         QVERIFY(QMetaObject::invokeMethod(root.get(), "remember"));
         QVERIFY(QMetaObject::invokeMethod(root.get(), fn.constData()));
         QCOMPARE(inked(), 1);
 
-        // The message was sent and the composer forgot the mention. The
-        // highlighter must forget it too, or the next message is inked.
         QVERIFY(QMetaObject::invokeMethod(root.get(), "forget"));
         QVERIFY(QMetaObject::invokeMethod(root.get(), fn.constData()));
         QCOMPARE(inked(), 0);
     }
 
-    // Text typed after '@' is plain until a member is picked: the open popup
-    // must not ink the in-progress token (the old presentation-only range
-    // made a nonexistent "@name" look like a real mention until sent).
     void anUnpickedAtTokenIsNotInkedAsAMention_data()
     {
         aForgottenMentionStopsInkingTheComposer_data();
@@ -617,7 +547,6 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(root.get(), function.toLatin1().constData()));
         QCOMPARE(highlighter->property("ranges").toList().size(), 0);
 
-        // A picked mention is still inked, popup open or not.
         QVERIFY(QMetaObject::invokeMethod(root.get(), "remember"));
         QVERIFY(QMetaObject::invokeMethod(root.get(), function.toLatin1().constData()));
         QCOMPARE(highlighter->property("ranges").toList().size(), 1);

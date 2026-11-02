@@ -1,19 +1,3 @@
-// NotificationContextBuilder is AppController::notificationContextFor()
-// factored out (live accounts, Phase 0). It must be behaviour-identical: the
-// golden case runs a VERBATIM copy of the old body (an oracle reading the
-// same fake state the old code read through m_client, m_settings,
-// m_roomList, m_thread and m_moderation) against the builder, over a table
-// that exercises every rule, and compares the whole Context with operator==.
-//
-// The builder is fed by gather(), which is a hand-written COPY of
-// AppController's gathering over the fake world, not the real one: the
-// controller needs a whole application to construct. So the golden case
-// proves the RULES moved intact, and says nothing about the real gathering.
-// That half is appControllerGathersEveryInputFromItsOwnSource, which pins
-// every `in.<field> = <expr>;` in the real notificationContextFor to the
-// source the old body read for it, and requires every input field except the
-// account to be assigned exactly once. A swapped right-hand side there would
-// pass the golden case and change when notifications are suppressed.
 
 #include "notifications/NotificationContextBuilder.h"
 
@@ -33,7 +17,6 @@ using lightning::notifications::NotificationContextInputs;
 
 namespace {
 
-// What the old body read, per room, through its collaborators.
 struct FakeRoomInfo {
     QString name;
     bool isDirect = false;
@@ -83,25 +66,18 @@ NotificationManager::Context oldContextFor(const World &w, const QString &roomId
 
     NotificationManager::Context context;
     context.selfUserId = w.self;
-    // Targeted lookup; rooms() deep-copies the whole list per event.
     const FakeRoomInfo info = w.roomInfo(roomId);
     context.roomName = info.name.isEmpty() ? roomId : info.name;
     context.roomIsDirect = info.isDirect;
     const QVariantMap notifyRoomRow = w.rows.value(roomId);
     context.avatarMxc =
         notifyRoomRow.value(QStringLiteral("avatarUrl")).toString();
-    // Initials colour and theme from the same row the room list uses, so the
-    // two never disagree about an identity.
     context.avatarColorKey =
         notifyRoomRow.value(QStringLiteral("identityColorKey")).toString();
     context.themeId = int(w.theme);
     context.roomMode = static_cast<NotificationManager::RoomMode>(
         w.modes.value(roomId));
-    // The server does not have this device's choice (a failed write, or a
-    // device-only legacy mode); the local mode then decides alone.
     context.localModeUnsynced = w.decidesLocally.value(roomId);
-    // Encrypted rooms may withhold more; a room not listed yet resolves like
-    // unknown encryption (the stricter level).
     context.previewMode =
         static_cast<NotificationManager::PreviewMode>(w.preview.value(roomId, 1));
     context.notificationsEnabled = w.notificationsEnabled;
@@ -116,22 +92,14 @@ NotificationManager::Context oldContextFor(const World &w, const QString &roomId
         context.roomVisibleAtLatest =
             roomId == m_currentRoomId && m_activeRoomAtLatest;
     }
-    // The open room's backlog arrives as live appends while its view is still
-    // hydrating.
     context.roomHydrating = roomId == m_currentRoomId && m_activeRoomHydrating;
-    // Initial-sync backlog is history and must not re-notify each launch.
     context.initialSyncComplete = w.initialSyncDone;
     context.soundMode = static_cast<NotificationManager::SoundMode>(w.sound);
-    // Events from an ignored user already in flight must not notify.
     context.senderIsIgnored =
         m_moderation && m_moderation->isIgnored(event.sender);
     return context;
 }
 
-// A COPY of the new AppController's gathering, over the same world (the
-// real one is pinned by appControllerGathersEveryInputFromItsOwnSource). The
-// thread getters are const, so reading them eagerly (no short-circuit) is
-// safe.
 NotificationContextInputs gather(const World &w, const QString &roomId,
                                  const TimelineEvent &event, bool fromThread)
 {
@@ -195,16 +163,14 @@ World baseWorld()
     World w;
     w.self = QStringLiteral("@me:example.org");
     w.rooms.insert(kRoomA, {QStringLiteral("Alpha"), true});
-    // kRoomB has an empty name: the room id stands in for it.
     w.rooms.insert(kRoomB, {QString(), false});
     w.rows.insert(kRoomA,
                   {{QStringLiteral("avatarUrl"), QStringLiteral("mxc://x/a")},
                    {QStringLiteral("identityColorKey"), QStringLiteral("ka")}});
-    // kRoomB has no row at all.
     return w;
 }
 
-} // namespace
+}
 
 class NotificationContextBuilderTest : public QObject
 {
@@ -240,8 +206,6 @@ private Q_SLOTS:
             w.thread = panel;
             w.activeRoomAtLatest = atLatest;
             w.activeRoomHydrating = hydr;
-            // The scalars vary with the index so every value is covered
-            // without multiplying the table.
             const int n = compared;
             w.theme = n % 11;
             w.modes.insert(roomId, n % 4);
@@ -281,8 +245,6 @@ private Q_SLOTS:
             previewsSeen.insert(int(oracle.previewMode));
             soundsSeen.insert(int(oracle.soundMode));
         }
-        // Assert what VARIED, not how often the loop ran: each rule must
-        // have been decided both ways somewhere in the table.
         QCOMPARE(compared, 2 * 3 * 2 * 4 * 5 * 2 * 2);
         QVERIFY(visible > 0 && visible < compared);
         QVERIFY(visibleThreaded > 0);
@@ -294,8 +256,6 @@ private Q_SLOTS:
         QCOMPARE(soundsSeen.size(), 3);
     }
 
-    // The rows the old rules turn on, spelled out: a regression here names
-    // the rule instead of a table index.
     void theThreadAndRoomRulesByName()
     {
         World w = baseWorld();
@@ -306,39 +266,30 @@ private Q_SLOTS:
         ev.eventId = QStringLiteral("$e");
         ev.sender = kSender;
 
-        // A main-timeline message in the open room at the latest: visible.
         QVERIFY(NotificationContextBuilder::build(gather(w, kRoomA, ev, false))
                     .roomVisibleAtLatest);
-        // The thread root itself (threadRootId == eventId) is a main-timeline
-        // event, not a threaded one.
         ev.threadRootId = ev.eventId;
         QVERIFY(NotificationContextBuilder::build(gather(w, kRoomA, ev, false))
                     .roomVisibleAtLatest);
-        // A reply in a thread: the main timeline's position says nothing; the
-        // panel shows that thread but is not at its latest reply.
         ev.threadRootId = QStringLiteral("$root");
         QVERIFY(!NotificationContextBuilder::build(gather(w, kRoomA, ev, false))
                      .roomVisibleAtLatest);
         w.thread->atLatest = true;
         QVERIFY(NotificationContextBuilder::build(gather(w, kRoomA, ev, false))
                     .roomVisibleAtLatest);
-        // No panel at all.
         w.thread.reset();
         QVERIFY(!NotificationContextBuilder::build(gather(w, kRoomA, ev, false))
                      .roomVisibleAtLatest);
-        // Hydrating only counts for the open room.
         w.activeRoomHydrating = true;
         QVERIFY(NotificationContextBuilder::build(gather(w, kRoomA, ev, false))
                     .roomHydrating);
         QVERIFY(!NotificationContextBuilder::build(gather(w, kRoomB, ev, false))
                      .roomHydrating);
-        // An unnamed room is titled by its id.
         QCOMPARE(NotificationContextBuilder::build(gather(w, kRoomB, ev, false))
                      .roomName,
                  kRoomB);
     }
 
-    // Phase 0 gathers no account (foreground = today's stamping); a host will.
     void theAccountIsCopiedAndEmptyByDefault()
     {
         World w = baseWorld();
@@ -355,20 +306,11 @@ private Q_SLOTS:
         c = NotificationContextBuilder::build(in);
         QCOMPARE(c.accountUserId, QStringLiteral("@b:example.org"));
         QCOMPARE(c.accountLabel, QStringLiteral("Work"));
-        // And that is the only difference.
         c.accountUserId.clear();
         c.accountLabel.clear();
         QVERIFY(c == oldContextFor(w, kRoomA, ev, false));
     }
 
-    // ---- AppController's side of the factoring (source scans: the
-    // controller needs a whole application to construct). Each asserts the
-    // extent it reads is real before asserting anything about it.
-
-    // notificationContextFor gathers and delegates; the rules are not
-    // duplicated there, and the foreground's account stays empty (today's
-    // stamping) in Phase 0. The gathering itself is pinned field by field:
-    // gather() above is only a copy of it.
     void appControllerGathersEveryInputFromItsOwnSource()
     {
 #ifndef LIGHTNING_SOURCE_DIR
@@ -379,7 +321,6 @@ private Q_SLOTS:
             return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll())
                                                : QString();
         };
-        // Line comments go, so prose can neither satisfy nor break a pin.
         const auto code = [](const QString &text) {
             QStringList lines = text.split(QLatin1Char('\n'));
             for (QString &line : lines) {
@@ -400,8 +341,6 @@ private Q_SLOTS:
         const QString body = code(src.mid(at, end - at));
         const QString flat = body.simplified();
 
-        // The input fields, from the struct itself, so a field added later
-        // and never gathered fails here.
         const QString header =
             code(read("/src/notifications/NotificationContextBuilder.h"));
         const int open = header.indexOf(QStringLiteral("struct NotificationContextInputs {"));
@@ -414,7 +353,6 @@ private Q_SLOTS:
         for (auto it = decl.globalMatch(header.mid(open, close - open)); it.hasNext();)
             fields.insert(it.next().captured(1));
 
-        // Field -> the source the OLD body read for it (whitespace folded).
         const QHash<QString, QString> expected = {
             {QStringLiteral("selfUserId"), QStringLiteral("m_client->currentUserId()")},
             {QStringLiteral("roomId"), QStringLiteral("roomId")},
@@ -448,8 +386,6 @@ private Q_SLOTS:
             {QStringLiteral("soundMode"), QStringLiteral("m_settings->notificationSound()")},
             {QStringLiteral("senderIsIgnored"), QStringLiteral(
                  "m_moderation && m_moderation->isIgnored(event.sender)")},
-            // New with the sender label (2026-10-16); the old body had no
-            // equivalent, so these are pinned to their intended sources.
             {QStringLiteral("senderMemberName"), QStringLiteral(
                  "m_client->displayNameFor(roomId, event.sender)")},
             {QStringLiteral("senderProfileName"), QStringLiteral(
@@ -457,14 +393,12 @@ private Q_SLOTS:
         };
         const QSet<QString> account = {QStringLiteral("accountUserId"),
                                        QStringLiteral("accountLabel")};
-        // The table covers the struct exactly: every field but the account.
         QSet<QString> tableAndAccount(expected.keyBegin(), expected.keyEnd());
         tableAndAccount.unite(account);
         QVERIFY2(tableAndAccount == fields,
                  "NotificationContextInputs and this table disagree; a new "
                  "field needs its source pinned here");
 
-        // Every assignment in the real body.
         QHash<QString, QStringList> assigned;
         const QRegularExpression assign(
             QStringLiteral(R"re(\bin\.(\w+)\s*=(?!=)([^;]*);)re"));
@@ -474,8 +408,6 @@ private Q_SLOTS:
             assigned[m.captured(1)] << m.captured(2).simplified();
             ++assignments;
         }
-        // Nothing touches `in` except those assignments and the build call
-        // (a compound assignment or a mutating call would slip past them).
         int touches = 0;
         for (auto it = QRegularExpression(QStringLiteral(R"re(\bin\.)re"))
                            .globalMatch(body);
@@ -492,12 +424,10 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("in.%1 = %2; expected %3")
                                     .arg(it.key(), rhs.first(), it.value())));
         }
-        // Phase 0 stamps the foreground's context with no account.
         for (const QString &a : account)
             QVERIFY2(!assigned.contains(a),
                      "Phase 0 stamps the foreground's context with an account");
 
-        // The locals those right-hand sides read, and where they come from.
         for (const char *local : {
                  "const QString uid = m_settings->activeAccountUserId();",
                  "const RoomInfo info = m_client->roomInfo(roomId);",
@@ -516,8 +446,6 @@ private Q_SLOTS:
 #endif
     }
 
-    // Both foreground clears are exactly today's clear, and nothing still
-    // calls the old name from AppController.
     void appControllerClearsTheForegroundTableOnly()
     {
 #ifndef LIGHTNING_SOURCE_DIR
@@ -528,15 +456,11 @@ private Q_SLOTS:
         const QString src = QString::fromUtf8(f.readAll());
         QCOMPARE(src.count(QStringLiteral("m_notifications->clearPendingFor(QString())")), 2);
         QCOMPARE(src.count(QStringLiteral("m_notifications->clearPending()")), 0);
-        // The open-for-account signal is connected; the three-argument one
-        // still routes.
         QVERIFY(src.contains(QStringLiteral("&NotificationManager::openRequestedForAccount")));
         QVERIFY(src.contains(QStringLiteral("&NotificationManager::openRequested, this")));
 #endif
     }
 
-    // The client keeps a raw pointer to the proof map, so the map must be
-    // destroyed AFTER the client: members die in reverse declaration order.
     void theRevocationProofsAreDeclaredBeforeTheClient()
     {
 #ifndef LIGHTNING_SOURCE_DIR
@@ -556,8 +480,6 @@ private Q_SLOTS:
 #endif
     }
 
-    // The builder is what a background host will call, so it must not reach
-    // foreground state: NotificationManager.h is its only project include.
     void theBuilderIncludesNothingButNotificationManager()
     {
 #ifndef LIGHTNING_SOURCE_DIR

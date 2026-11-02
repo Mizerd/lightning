@@ -6,35 +6,18 @@ import QtMultimedia
 import MatrixClient
 import "ComposerBehavior.js" as ComposerBehavior
 
-// The main message composer: one card at the bottom of the timeline with an
-// optional formatting toolbar above the input row. The toolbar edits real
-// markdown over the selection (MessageComposer.toggleFormat); the Rust send
-// path parses it at send time. Enter sends, Shift+Enter inserts a newline
-// (configurable).
 Item {
     id: root
     AttachmentImageEditDialog { id: attachmentImageEditor }
     focus: false
     property bool composerExpanded: false
     function toggleComposerHeight() { composerExpanded = !composerExpanded }
-    // Width the editors keep clear on their right for composerHeightButton.
     readonly property int editorCornerReserve: 26
     implicitHeight: (root.postBlocked ? blockedBar.implicitHeight
                                       : composerCol.implicitHeight)
                     + AppTheme.composerInsetBottom + AppTheme.spacing4
 
-    // The user cannot post here: the room was replaced (tombstone) or the
-    // server would refuse the event (no permission, not joined). Replaces the
-    // composer with the reason, as Element does, instead of letting a send
-    // fail with only Retry and Cancel. `canSendMessages` and
-    // `sendBlockedReason` come from the open room's own facts
-    // (OpenRoomPermissions, read on every open from local SDK state), and
-    // from RoomInfoController only while those have said nothing about
-    // posting; an absent property is undefined, which counts as allowed.
     readonly property bool roomReplaced: app.roomUpgrade.upgraded === true
-    // Each answer counts only while it describes the composer's room: the
-    // info panel can be showing another room, and the open-room facts are
-    // cleared and re-read on every switch.
     readonly property bool openFactsAreOurs:
         !!app.openRoomPermissions
         && app.openRoomPermissions.roomId === app.currentRoomId
@@ -53,28 +36,11 @@ Item {
                 ? why : qsTr("You do not have permission to post in this room.")
     }
 
-    // The formatting toolbar is collapsed by default and opens from the format
-    // toggle. Format shortcuts work regardless.
     property bool toolbarExpanded: false
 
-    // Below this width the optional controls (format toggle, emoji, GIF) move
-    // into the attach menu so the text field keeps a usable width. Measured
-    // against this bar's width, not the input row's, so hiding a child cannot
-    // feed back into the test.
     readonly property bool compactInputRow: root.width > 0 && root.width < 460
 
-    // The formatting row's own threshold. Its controls cannot shrink (fixed
-    // icon buttons plus the mode chip, whose label does not elide), so below
-    // this the chip would paint outside the card. One number for both modes so
-    // the chip does not flicker on a mode switch; inside compactInputRow's 460
-    // so the overflow menu carrying the action is on screen. Uses the bar's
-    // width to avoid a binding loop. theModeChipNeverPaintsOutsideTheCard pins
-    // it.
     readonly property bool compactToolbarRow: root.width > 0 && root.width < 420
-    // Narrower still, even without the mode chip the nine rich-mode buttons
-    // run past the card (6 px at 320). The two text chips only rich mode adds
-    // move into the overflow menu below this. everyShownToolbarButtonLiesInsideTheCard
-    // pins it.
     readonly property bool tightToolbarRow: root.width > 0 && root.width < 360
 
     // A voice recording is in progress. Derived from app.voiceOwner, never
@@ -82,21 +48,14 @@ Item {
     // flag could let both believe they own it and send twice.
     readonly property bool voiceActive: app.voiceOwner === "room"
 
-    // Transient validation feedback ("folder rejected", "too large", …).
     property string attachmentNotice: ""
     property int emojiSelectionStart: 0
     property int emojiSelectionEnd: 0
     property int emojiCursorPosition: 0
 
-    // Active-state flags for the toolbar chips, from MarkdownFormat::state.
     property var formatFlags: ({})
-    // The voice button's action, shared with the compact-row menu.
     function startVoiceMessage() {
-            // Report failure from the return value: the failure Connections
-            // only arm once this composer owns the recorder. A press while the
-            // thread composer is recording is refused, never stolen.
             if (!app.startVoiceRecording("room")) {
-                // "Already recording" is not "unavailable".
                 root.attachmentNotice =
                     app.voiceRecordingBusy()
                     ? qsTr("A recording is already in "
@@ -107,23 +66,14 @@ Item {
     }
 
     function focusStagedAttachmentSend() {
-        // Focus the input, so Return takes the same path as a click. A closure
-        // rather than a bare method reference, which Qt.callLater would call
-        // unbound.
         if (app.composer.hasAttachments && app.composer.canSend)
             Qt.callLater(function () { root.focusEditor() })
     }
-    // Which modifier sends is a setting: by default Enter sends and Shift+Enter
-    // inserts a newline; inverted, Ctrl+Enter sends. One predicate for every
-    // Return/Enter path in this file.
     function _returnShouldSend(modifiers) {
         return ComposerBehavior.returnShouldSend(
             modifiers, app.settings.enterInsertsNewline,
             Qt.ControlModifier, Qt.ShiftModifier)
     }
-    // The Menu key (and Shift+F10) open the same themed menu as a right-click,
-    // at the caret, instead of Qt's built-in unthemed one whose Paste is
-    // text-only.
     function openEditMenuAtCaret(editor) {
         var r = editor.cursorRectangle
         root.focusEditor()
@@ -131,8 +81,6 @@ Item {
         composerEditMenu.popup(editor, r.x, r.y + r.height)
     }
     function _plainReturn(event) {
-        // While a completion popup is open, Return picks
-        // the highlighted entry.
         if (commandPopup.visible && !commandPopup.returnSends) {
             commandPopup.accept()
             event.accepted = true
@@ -191,7 +139,6 @@ Item {
         if (!it || it === root || typeof it.click !== "function"
                 || typeof it.clicked === "undefined")
             return false
-        // A held Return presses it once, like AppButton (recheck N5).
         if (it.enabled && !autoRepeat)
             it.click()
         return true
@@ -224,10 +171,6 @@ Item {
         event.accepted = true
         root.submitComposer()
     }
-    // Rich mode formats the selection or the word under the caret, never
-    // "what I type next" (a TextEdit has no per-keystroke format hook), so with
-    // neither the inline buttons have nothing to act on and are greyed. Absent
-    // means available (markdown mode inserts markers instead).
     readonly property bool inlineFormatAvailable:
         !root.richMode || root.formatFlags["inlineTarget"] !== false
     function refreshFormatState() {
@@ -241,38 +184,19 @@ Item {
                                                input.selectionStart,
                                                input.selectionEnd)
     }
-    // Editor-context shortcuts. Qt sends ShortcutOverride to the focus item
-    // first; accepting it turns the shortcut into a key press here, so Ctrl+B
-    // is Bold while this box has focus and keeps its global meaning elsewhere.
-    // Only claim combinations we handle, or this box would swallow every global
-    // shortcut. The registry's EditorContext flag decides (see
-    // ShortcutRegistry).
-    // With nothing selected a key a Global action also holds (Ctrl+B room
-    // list toggle) is left to that action: a click on a room focuses this box,
-    // and Bold on an empty selection would make the toggle unreachable.
     function _composerFormatFor(key, modifiers) {
         var ed = root.activeInput()
         return app.shortcuts.editorOverrideFor(
             key, modifiers, ed.selectionStart !== ed.selectionEnd)
     }
-    // The timeline's rebindable movement keys (PgUp, PgDn, Ctrl+Up/Down by
-    // default) work while this box has focus, as in Element. The timeline owns
-    // the motion; TimelinePane connects this signal to it.
     signal timelineKeyRequested(string actionId)
-    // True when the key was forwarded. A page key stays with the editor while
-    // its caret can still move that way (a multi-line draft), and a popup
-    // that owns navigation keeps them too; everything else is not an editing
-    // key, so forwarding it costs the editor nothing.
     function _forwardTimelineKey(actionId) {
-        // An open completion popup owns the navigation keys.
         if (commandPopup.visible || mentionPopup.visible || emojiPopup.visible)
             return false
         var page = actionId === "timeline.pageUp"
                    || actionId === "timeline.pageDown"
         if (page) {
             var ed = root.activeInput()
-            // Against the first and last line's own rectangles, not 0 and
-            // contentHeight: the editor's padding sits in both.
             var r = ed.cursorRectangle
             var first = ed.positionToRectangle(0)
             var last = ed.positionToRectangle(ed.length)
@@ -305,16 +229,13 @@ Item {
         else
             app.composer.send()
     }
-    // The composed message without sending, for the scheduler: expanded
-    // markdown or the serialized rich document.
     readonly property int pendingScheduledCount: {
         if (!app.scheduledSends || app.currentRoomId === "")
             return 0
-        var tick = app.scheduledSends.pendingCount // dependency
+        var tick = app.scheduledSends.pendingCount
         return app.scheduledSends.pendingForRoom(app.currentRoomId).length
     }
     SendLaterDialog { id: sendLaterDialog }
-    // The room's pending scheduled messages.
     function openScheduledList() {
         sendLaterDialog.openFor({})
     }
@@ -333,8 +254,6 @@ Item {
         sendLaterDialog.openFor(snapshot)
     }
     onRichModeChanged: {
-        // A mirror still waiting belongs to the mode being left; apply it to
-        // the composer text before the other editor loads from it.
         if (richMirrorTimer.running) {
             richMirrorTimer.stop()
             if (!root.richMode) {
@@ -344,7 +263,6 @@ Item {
                 root.richSyncing = false
             }
         }
-        // The other editor's ranges belong to the other document.
         root.spellUnderlines = []
         root.richSpellUnderlines = []
         plainAutocorrect.reset()
@@ -368,9 +286,6 @@ Item {
             commandPopup.close()
             Qt.callLater(function () { richInput.forceActiveFocus() })
         } else {
-            // The text is still the document's mirror, folded at 80 columns:
-            // in the plain box a fold would be a real line. A text that was
-            // only loaded and never edited is the reader's own already.
             if (app.richComposer.toMarkdown(richInput.textDocument).trim()
                     === app.composer.text.trim())
                 app.composer.text =
@@ -383,12 +298,8 @@ Item {
         }
         refreshFormatState()
     }
-    // Reverse sync: a draft restore, edit start or post-send clear rewrites the
-    // composer text from C++, and the rich document follows. The markdown
-    // comparison skips the echo of the editor's own push.
     Connections {
         target: app.composer
-        // A sent message leaves an empty box: back to normal size.
         function onOwnMessageSent() { root.composerExpanded = false }
         function onTextChanged() {
             if (!root.richMode || root.richSyncing)
@@ -397,8 +308,6 @@ Item {
             if (current.trim() === app.composer.text.trim())
                 return
             root.richSyncing = true
-            // A message's text is its lines; a draft may be this editor's own
-            // mirror, folded at 80 columns.
             if (app.composer.isEditing)
                 app.richComposer.loadMarkdownLines(richInput.textDocument,
                                                    app.composer.text)
@@ -408,17 +317,12 @@ Item {
             root.richSyncing = false
         }
     }
-    // Up to this many characters the mirror runs on every change; beyond it
-    // the mirror waits for richMirrorTimer, and submit, a mode switch and
-    // the draft all flush it first.
     readonly property int richMirrorSyncLimit: 2000
     Timer {
         id: richMirrorTimer
         interval: 150
         onTriggered: root.mirrorRichText()
     }
-    // Everything that reads the markdown mirror of the rich document runs
-    // here, together, so none of it sees a stale composer.text.
     function mirrorRichText() {
         richMirrorTimer.stop()
         if (!root.richMode || root.richSyncing)
@@ -432,7 +336,6 @@ Item {
         root.updateEmojiPopupState()
         root.checkEmojiAutoConvert(richInput)
     }
-    // A pending mirror applied now (no-op when none is waiting).
     function flushRichMirror() {
         if (richMirrorTimer.running)
             root.mirrorRichText()
@@ -442,7 +345,6 @@ Item {
             root.applyRichFormat(format, "")
             return
         }
-        // Underline has no markdown form; it is a rich-mode key.
         if (format === "underline")
             return
         var result = app.composer.toggleFormat(format, input.text,
@@ -457,8 +359,6 @@ Item {
     function applyRichFormat(format, argument) {
         if (format === "link" && argument === ""
                 && root.formatFlags["link"] !== true) {
-            // A new link needs a target: a selected URL is its own, anything
-            // else asks through the link dialog.
             var selected = richInput.selectedText
             if (selected.length > 0
                     && app.richComposer.isSafeLinkTarget(selected)) {
@@ -476,8 +376,6 @@ Item {
         richInput.forceActiveFocus()
         root.reseatCaret(richInput)
         refreshFormatState()
-        // List/quote/code toggles change what is drawn without changing
-        // characters.
         root.refreshRichBlank()
     }
     // A format change widens the text around a caret that did not move, and
@@ -496,19 +394,11 @@ Item {
         else
             field.select(start, end)
     }
-    // Completion popups (mention, slash command, emoji shortcode) are placed
-    // above the composer card, not the text field, so they never cover the
-    // toolbar, reply banner or refusal strip. x still comes from the flickable
-    // to align with the text being completed. Recomputed on every keystroke
-    // that moves the popup.
     function composerPopupAnchor(flick) {
         var p = flick.mapToItem(Overlay.overlay, 0, 0)
         var card = composerCard.mapToItem(Overlay.overlay, 0, 0)
         return Qt.point(p.x, card.y)
     }
-    // Rich-mode @-mentions: the same token scan over the editor's plain text,
-    // whose offsets are document positions. Insertion writes a matrix.to
-    // anchor, serialized as a link plus an m.mentions id.
     function updateRichMentionState() {
         if (!root.richMode)
             return
@@ -519,9 +409,6 @@ Item {
         }
         var plain = richInput.getText(0, richInput.length)
         var tok = app.composer.mentionTokenAt(plain, richInput.cursorPosition)
-        // A completed pill is an anchor, not a token. The rich editor records
-        // no mention refs, so skip a token inside an anchor or the popup
-        // reopens on every keystroke after it.
         if (tok && tok.active === true
                 && richInput.getFormattedText(tok.start, tok.start + 1)
                        .indexOf("matrix.to/#/") >= 0)
@@ -555,8 +442,6 @@ Item {
         var name = displayName && displayName.length > 0
                    ? displayName : String(userId).substring(1)
         richInput.remove(start, end)
-        // The trailing space sits OUTSIDE the anchor so typing after the
-        // pill continues as ordinary text, not as more link.
         richInput.insert(start, "<a href=\"https://matrix.to/#/"
                          + encodeURIComponent(userId) + "\">@"
                          + root.escapeHtmlText(name) + "</a> ")
@@ -565,8 +450,6 @@ Item {
         richInput.forceActiveFocus()
     }
 
-    // The editor owning the caret in the current mode; every refocus path uses
-    // this so rich mode never focuses the hidden markdown editor.
     function activeEditor() {
         return root.richMode ? richInput : input
     }
@@ -574,11 +457,6 @@ Item {
         activeEditor().forceActiveFocus()
     }
 
-    // A room the user opened by clicking it is ready to type in (GitHub #29).
-    // app.requestComposerFocus() is called only for pointer opens, never for a
-    // notification or keyboard navigation. Refused while the message box is
-    // not there to type in: hidden (no room, read-only context view), or a
-    // thread owns the keyboard.
     function focusForTyping() {
         if (!root.visible || app.currentRoomId === ""
                 || app.eventContext.active || app.thread.active)
@@ -589,7 +467,6 @@ Item {
         editor.forceActiveFocus()
         return true
     }
-    // Explicit timeline entry takes precedence over both queued focus attempts.
     property int composerFocusGeneration: 0
     function cancelPendingFocus() {
         ++root.composerFocusGeneration
@@ -604,9 +481,6 @@ Item {
                         && roomId === app.currentRoomId)
                     root.focusForTyping()
             })
-            // A popup the open came from (Ctrl+K, a profile card) hands the
-            // keyboard back as it closes, after the call above; try once more
-            // then, unless the user is already typing somewhere else.
             composerFocusSettle.roomId = roomId
             composerFocusSettle.restart()
         }
@@ -628,21 +502,12 @@ Item {
         }
     }
 
-    // Composer buttons the user switched off (Settings › Appearance › Message
-    // box). A property rather than a Q_INVOKABLE so `visible` bindings track
-    // it; composerButtonShown() reads it, so calling it registers the
-    // dependency.
     readonly property var hiddenComposerButtons:
         app.settings ? app.settings.hiddenComposerButtons : []
     function composerButtonShown(key) {
         return root.hiddenComposerButtons.indexOf(key) < 0
     }
 
-    // Picker buttons toggle. Pickers close on press outside, and the button is
-    // outside, so a press closes the panel and the release (onClicked) would
-    // reopen it. A panel dismissed moments ago followed by a click on its own
-    // button means close. The window only needs to outlast a press.
-    // `fromButton`: menu entries and demo hooks open unconditionally.
     readonly property int pickerToggleWindowMs: 600
     property string lastPickerDismissed: ""
     property double lastPickerDismissedAtMs: 0
@@ -654,8 +519,6 @@ Item {
         root.lastPickerDismissed = ""
         root.lastPickerDismissedAtMs = 0
     }
-    // True when this press should close the panel. Handles both delivery
-    // orders.
     function pickerButtonShouldClose(which, popup, fromButton) {
         if (popup.opened)
             return true
@@ -679,8 +542,6 @@ Item {
         emojiSelectionStart = editor.selectionStart
         emojiSelectionEnd = editor.selectionEnd
         emojiCursorPosition = editor.cursorPosition
-        // Anchored to the composer card, which becomes the popup's parent, so
-        // the picker stays rigidly aligned with the card.
         emojiPicker.anchorItem = composerCard
         emojiPicker.open()
     }
@@ -693,17 +554,11 @@ Item {
         editor.remove(start, end)
         editor.insert(start, emoji)
         editor.cursorPosition = start + emoji.length
-        // The picker stays open for several picks while the editor does not
-        // have focus, so the next pick must go AFTER this one: advance the
-        // remembered insert point (the selection is consumed by the first).
         emojiSelectionStart = start + emoji.length
         emojiSelectionEnd = start + emoji.length
         emojiCursorPosition = start + emoji.length
         if (!root.richMode)
             app.composer.text = input.text
-        // While the sticky picker stays open, keep focus there: the grid needs
-        // it for keyboard multi-pick, and Escape must close the picker. Its
-        // onClosed restores input focus.
         if (!emojiPicker.opened || emojiPicker.closeAfterSelection)
             root.focusEditor()
     }
@@ -712,12 +567,8 @@ Item {
         id: emojiPicker
         objectName: "composerEmojiPicker"
         mode: "composer"
-        // The picker stays open after each insert; reaction pickers close on
-        // pick.
         closeAfterSelection: false
         onEmojiChosen: (emoji) => root.insertEmoji(emoji)
-        // A custom image: insert its `:shortcode:` and bind that range to the
-        // exact image chosen, so the send cannot pick a same-named one.
         onCustomChosen: (row) => {
             var editor = root.activeEditor()
             var start = Math.min(emojiSelectionStart, emojiSelectionEnd)
@@ -730,21 +581,14 @@ Item {
         onClosed: Qt.callLater(input.forceActiveFocus)
     }
 
-    // Outgoing @-mentions: the popup lists room members while an @-token is at
-    // the caret; the input keeps focus and forwards navigation keys. Expansion
-    // and m.mentions happen in MessageComposer at send time.
     property int mentionTokenStart: -1
     MentionPopup {
         id: mentionPopup
         suggestions: app.mentionSuggestions
         onChosen: (userId, displayName) => root.insertMention(userId, displayName)
-        // Closing must drop the synthetic in-progress range without rescanning
-        // (see refreshMentionHighlight).
         onVisibleChanged: root.refreshMentionHighlight()
     }
 
-    // Slash-command completion. The input forwards navigation keys, command
-    // popup first; it cannot coexist with the mention popup.
     property bool commandPopupDismissed: false
     SlashCommandPopup {
         id: commandPopup
@@ -773,18 +617,8 @@ Item {
         function onCommandCompletionsChanged() { root.updateCommandPopupState() }
     }
 
-    // MSC2545 shortcode completion, refreshed from the input's signals since
-    // only the editor knows where the caret is.
     property bool emojiPopupDismissed: false
-    // Guards the `:shortcode:` auto-convert below against its own echo: the
-    // convert call sets app.composer.text, which (via the reverse-sync
-    // Connections further down) writes the editor's `text` back, which would
-    // otherwise re-enter this same onTextChanged handler.
     property bool emojiAutoConverting: false
-    // Runs the composer's `:shortcode:` -> emoji auto-convert for whichever
-    // editor just changed, and lands the caret where the conversion says.
-    // Called from both editors' onTextChanged; a no-op most keystrokes (see
-    // MessageComposer::maybeAutoConvertShortcodeBeforeCursor).
     function checkEmojiAutoConvert(editor) {
         if (root.emojiAutoConverting)
             return
@@ -810,7 +644,6 @@ Item {
         }
     }
     function updateEmojiPopupState() {
-        // Never with the command or mention popup.
         if (commandPopup.visible || mentionPopup.visible) {
             emojiPopup.close()
             return
@@ -916,13 +749,6 @@ Item {
             }
         }
     }
-    // Permission hints for completion rows. Each key comes from the open
-    // room's own facts when they say it (as postBlocked reads them: a known
-    // membership other than "joined" offers none), else from the room-info
-    // controller while it is on the composer's room, else it counts as
-    // allowed; the server enforces. Every input is a property read in this
-    // expression, so a change to any re-evaluates it; the composer's property
-    // is only ever set by this Binding.
     readonly property var openFacts:
         !!app.openRoomPermissions
         && app.openRoomPermissions.roomId === app.currentRoomId
@@ -948,13 +774,9 @@ Item {
                         : (root.infoOnRoom ? app.roomInfo.canEditName : true)
         })
     }
-    // Format-only rehighlights re-emit textChanged with unchanged text and
-    // cursor; rescanning then would loop the highlighter and reopen a dismissed
-    // popup. Only genuine edits or cursor moves rescan.
     property string lastMentionScanText: ""
     property int lastMentionScanCursor: -1
     function updateMentionState() {
-        // Rich mode scans its own editor; this field's changes are the mirror.
         if (root.richMode)
             return
         if (input.text === root.lastMentionScanText
@@ -972,13 +794,8 @@ Item {
         if (tok && tok.active === true) {
             root.mentionTokenStart = tok.start
             app.mentionSuggestions.roomId = app.currentRoomId
-            // @room permission is not set here: MentionSuggestionModel takes it
-            // from its own roster snapshot (see onRoomMembersReceived).
             app.mentionSuggestions.query = tok.query
             mentionPopup.query = tok.query
-            // Anchor to the Flickable viewport, not the TextArea, whose scene
-            // top moves above the composer once a long draft scrolls. y comes
-            // from the card (see composerPopupAnchor).
             mentionPopup.anchorInputTop =
                 root.composerPopupAnchor(inputFlick)
             mentionPopup.anchorWidth = inputFlick.width
@@ -992,23 +809,12 @@ Item {
         }
         root.refreshMentionHighlight()
     }
-    // The authoritative mentionRanges ONLY: text becomes a mention (and is
-    // inked as one) once a member was picked from the popup. A typed "@word" is
-    // plain text until then, whether or not the popup is open, as in Element.
-    // Assigned explicitly rather
-    // than bound: rehighlighting nudges cursor signals, and a binding on
-    // cursorPosition would loop. The ranges are copied: on Qt 6.8 a
-    // QVariantList read from a property stays a live reference, so a stored
-    // copy always compared equal and the previous message's mention range
-    // stuck.
     property var mentionHighlightRanges: []
     function refreshMentionHighlight() {
         var ranges = []
         var live = app.composer.mentionRanges
         for (var k = 0; k < live.length; ++k)
             ranges.push({ start: live[k].start, length: live[k].length })
-        // Assign only on a real change; a fresh array would notify and
-        // rehighlight.
         var current = root.mentionHighlightRanges
         if (current.length === ranges.length) {
             var same = true
@@ -1029,48 +835,31 @@ Item {
         function onMentionRangesChanged() { root.refreshMentionHighlight() }
     }
 
-    // Spell checking. Underlines are drawn here as Rectangles, not by the
-    // highlighter: Qt Quick's text node only paints SingleUnderline, in the
-    // text's colour, so SpellCheckUnderline shows nothing. And a document can
-    // carry only one QSyntaxHighlighter (a second would erase the mention ink).
     readonly property bool spellActive: app.spell !== null
                                         && app.spell !== undefined
                                         && app.spell.available
                                         && app.spell.enabled
-    // [{x, y, w}] in `input`'s coordinates; children of the TextArea, so they
-    // scroll with the draft.
     property var spellUnderlines: []
-    // The same for the rich editor.
     property var richSpellUnderlines: []
-    // Whether the rich editor shows nothing. `length` is 0 for an empty list
-    // item, which would paint the placeholder under Qt's "1.".
     property bool richBlank: true
     function refreshRichBlank() {
         root.richBlank = !app.richComposer
                          || app.richComposer.documentIsBlank(richInput.textDocument)
     }
-    // The word the context menu was opened on; cleared on every open.
     property string spellMenuWord: ""
     property int spellMenuStart: -1
     property int spellMenuLength: 0
     property var spellMenuSuggestions: []
 
-    // The text the checker sees and the ranges it skips: mention pills in both
-    // modes, plus code in rich mode. Rich positions are document positions.
     function spellEditorText() {
         return root.richMode ? richInput.getText(0, richInput.length) : input.text
     }
     function spellSkipRanges() {
-        // Rich mode uses document-derived ranges only: mentionRanges index the
-        // markdown mirror, which differs once formatting is present.
         if (root.richMode)
             return app.richComposer.spellSkipRanges(richInput.textDocument)
         return app.composer.mentionRanges
     }
 
-    // Autocorrect (SpellAutocorrect.qml; the policy is
-    // SpellChecker::autocorrection). Off unless Settings or the platform
-    // default turns it on.
     readonly property bool autocorrectActive: root.spellActive
                                               && app.spell.autocorrectEnabled
     SpellAutocorrect {
@@ -1096,9 +885,6 @@ Item {
         }
     }
 
-    // [from, to) of `editor` worth checking: the visible part of `flick` and
-    // one viewport either side. Only these words reach a dictionary, so a
-    // large paste costs what is on screen (SpellChecker::kMaxWindowChars).
     function spellWindow(editor, flick) {
         var top = Math.max(0, flick.contentY - flick.height)
         var bottom = flick.contentY + 2 * Math.max(flick.height, 1)
@@ -1107,7 +893,6 @@ Item {
         return { from: from, to: Math.max(from + 1, to + 1) }
     }
 
-    // [{x, y, w}] under every range, in `editor`'s coordinates.
     function spellUnderlineRects(editor, ranges) {
         var out = []
         for (var i = 0; i < ranges.length; ++i) {
@@ -1115,8 +900,6 @@ Item {
             var end = start + ranges[i].length
             var p = start
             var guard = 0
-            // One iteration per word per line; the guard bounds pathological
-            // cases.
             while (p < end && guard++ < 64) {
                 var head = editor.positionToRectangle(p)
                 var q = end
@@ -1144,7 +927,6 @@ Item {
                 root.spellUnderlines = []
             return
         }
-        // Skip the word at the caret, and the composer's mention ranges.
         var w = root.spellWindow(input, inputFlick)
         var ranges = app.spell.misspelledRanges(input.text,
                                                 input.cursorPosition,
@@ -1153,8 +935,6 @@ Item {
         root.spellUnderlines = root.spellUnderlineRects(input, ranges)
     }
 
-    // Rich mode: same policy over the document's plain text, excluding code and
-    // mentions. Nothing is written into the document.
     function refreshRichSpellUnderlines() {
         if (!root.spellActive || !root.richMode || richInput.length === 0) {
             if (root.richSpellUnderlines.length > 0)
@@ -1169,7 +949,6 @@ Item {
         root.richSpellUnderlines = root.spellUnderlineRects(richInput, ranges)
     }
 
-    // Fills spellMenu* for the word under the pointer before the menu opens.
     function prepareSpellMenu(mx, my) {
         root.spellMenuWord = ""
         root.spellMenuStart = -1
@@ -1182,8 +961,6 @@ Item {
         var hit = app.spell.wordAt(text, editor.positionAt(mx, my))
         if (!hit || hit.word === "")
             return
-        // Only words the dictionary rejects get suggestions. Windowed on the
-        // word itself, so a draft of any length still gets its menu.
         var wrong = app.spell.misspelledRanges(text, -1, root.spellSkipRanges(),
                                                hit.start, hit.start + hit.length)
         var rejected = false
@@ -1207,8 +984,6 @@ Item {
             return
         var at = root.spellMenuStart
         if (root.richMode) {
-            // Replace exactly the misspelled range, keeping its character
-            // format.
             app.richComposer.replaceRange(richInput.textDocument, at,
                                           root.spellMenuLength, replacement)
             richInput.cursorPosition = at + replacement.length
@@ -1222,7 +997,6 @@ Item {
 
     Connections {
         target: app.spell
-        // Adding or ignoring a word invalidates the underlines.
         function onDictionaryChanged() {
             root.refreshSpellUnderlines()
             root.refreshRichSpellUnderlines()
@@ -1252,15 +1026,9 @@ Item {
         function onCurrentRoomIdChanged() {
             mentionPopup.tokenActive = false
             mentionPopup.close()
-            // A recording belongs to its room; switching away discards it.
-            // Never silently: the user is told, because a minute of speech is
-            // gone. (Keeping it as the old room's pending draft needs the
-            // recorder to outlive the room switch, which its single-owner
-            // model does not allow.)
             var discarded = root.voiceActive || root.pendingVoice !== null
             if (root.voiceActive)
                 app.cancelVoiceRecording()
-            // Same for a finished, unsent recording; its file is deleted.
             root.voiceWantsPreview = false
             root.discardPendingVoice()
             if (discarded) {
@@ -1270,19 +1038,14 @@ Item {
             }
         }
     }
-    // Recorder results. Only targets the recorder while recording, so binding
-    // this never constructs it.
     Connections {
         target: root.voiceActive ? app.voiceRecorder : null
         function onReady(filePath, mime, durationMs, waveform) {
             // Release ownership first, so a re-entrant signal does not find us
             // armed.
             app.endVoiceRecording()
-            // "Done" finalizes into the preview bar; the pill's send button
-            // keeps the one-press path.
             if (root.voiceWantsPreview) {
                 root.voiceWantsPreview = false
-                // An unanswered preview is replaced, and its file deleted.
                 root.discardPendingVoice()
                 root.pendingVoice = { filePath: filePath, mime: mime,
                                       durationMs: durationMs,
@@ -1300,10 +1063,7 @@ Item {
         }
     }
 
-    // A finalized recording awaiting a decision, or null. This composer owns
-    // the file: it is either sent or deleted.
     property var pendingVoice: null
-    // Set by "Done" so the next ready() goes to the preview.
     property bool voiceWantsPreview: false
 
     function sendPendingVoice() {
@@ -1322,11 +1082,8 @@ Item {
         app.discardPreparedVoice(v.filePath)
     }
 
-    // GIFs and stickers, as one window
     readonly property bool mediaPickerBothKinds:
         app.gif.available && app.stickers.available
-    // Which kind the button opens. Session-scoped: the switcher inside is one
-    // click away.
     property string mediaPickerKind: "gif"
     function effectiveMediaKind() {
         if (root.mediaPickerKind === "sticker" && app.stickers.available)
@@ -1335,8 +1092,6 @@ Item {
             return "gif"
         return app.stickers.available ? "sticker" : "gif"
     }
-    // Both pickers report dismissal under the same key, so the toggle closes
-    // whichever is showing.
     function openMediaPicker(fromButton) {
         var showing = gifPicker.opened || stickerPicker.opened
         if (showing || root.pickerButtonShouldClose("media", gifPicker,
@@ -1352,7 +1107,6 @@ Item {
         else
             root.openGifPicker()
     }
-    // Requested from inside a picker's GIFs/Stickers strip.
     function swapMediaPicker(kind) {
         root.mediaPickerKind = kind
         if (kind === "sticker")
@@ -1364,8 +1118,6 @@ Item {
     function openGifPicker() {
         emojiPicker.close()
         stickerPicker.close()
-        // Our own close is not a dismissal the next click should undo (see
-        // pickerButtonShouldClose).
         root.clearPickerDismissal()
         root.mediaPickerKind = "gif"
         gifPicker.anchorItem = composerCard
@@ -1379,12 +1131,10 @@ Item {
         offerKindTabs: root.mediaPickerBothKinds
         onKindRequested: (kind) => root.swapMediaPicker(kind)
         onGifChosen: (result) => root.onGifPicked(result)
-        // One key for both pickers: they are one window to the user.
         onAboutToHide: root.notePickerDismissed("media")
         onClosed: Qt.callLater(input.forceActiveFocus)
     }
 
-    // MSC2545 stickers, in their own picker (see StickerPicker.qml).
     function openStickerPicker() {
         emojiPicker.close()
         gifPicker.close()
@@ -1405,11 +1155,7 @@ Item {
         onClosed: Qt.callLater(input.forceActiveFocus)
     }
 
-    // Send the chosen pack sticker as m.sticker to the room open now. The mxc
-    // goes straight into the event; the SDK owns the send, echo and retry.
     function onStickerPicked(image) {
-        // Inline thread style: into the thread the composer targets, through
-        // the SDK thread path; never a room send (CLAUDE.md §8).
         var threadRoot = app.composer.sendThreadRootId || ""
         if (threadRoot.length > 0)
             app.stickers.sendToThread(app.currentRoomId, threadRoot, image)
@@ -1417,11 +1163,7 @@ Item {
             app.stickers.sendToRoom(app.currentRoomId, image)
     }
 
-    // Download, validate and send the chosen GIF, captured to this room so a
-    // room switch cannot reroute it.
     function onGifPicked(result) {
-        // A GIF picked while replying is a reply to that message; the chip is
-        // spent once the target is captured by the send.
         var threadRoot = app.composer.sendThreadRootId || ""
         if (threadRoot.length > 0) {
             var replyTo = app.composer.replyingToEventId === threadRoot
@@ -1455,15 +1197,10 @@ Item {
         }
     }
 
-    // Open a picker. Every attach picker has purpose "attach", so app.files
-    // starts it in the folder last uploaded from (SettingsManager's
-    // lastAttachFolder) and records the new one itself; nothing is
-    // preselected, so a previous upload is never offered again.
     function openPicker(dialog) {
         dialog.open()
     }
 
-    // Modern picker (Rust): multiple files, queued in the tray.
     NativeFileDialog {
         id: pickAttachmentsDialog
         purpose: "attach"
@@ -1477,7 +1214,6 @@ Item {
         }
     }
 
-    // Legacy pickers (HTTP backend: immediate upload).
     NativeFileDialog {
         id: pickImageDialog
         purpose: "attach"
@@ -1496,10 +1232,6 @@ Item {
     }
     AppMenu {
         id: legacyAttachMenu
-        // Anchored above the card like the other menus in this bar; a bare
-        // popup() opens at the pointer and runs off the bottom of the window.
-        // Left-aligned because attach is the leftmost control. See
-        // sendOptionsMenu for the positioning binding.
         parent: composerCard
         x: 0
         y: -height - 4
@@ -1513,7 +1245,6 @@ Item {
             text: qsTr("Send file…")
             onTriggered: root.openPicker(pickFileDialog)
         }
-        // Displaced by a narrow window, as in the Rust-backend menu.
         AppMenuItem {
             objectName: "composerLegacyEmojiMenuItem"
             iconName: "mood"
@@ -1533,12 +1264,9 @@ Item {
         }
     }
 
-    // Rust-backend attach menu: files plus polls. The legacy menu keeps the
-    // HTTP backend's immediate-upload paths.
     AppMenu {
         id: attachMenu
         objectName: "composerAttachMenu"
-        // Same anchoring as legacyAttachMenu.
         parent: composerCard
         x: 0
         y: -height - 4
@@ -1554,7 +1282,6 @@ Item {
             visible: app.composer.pollsSupported()
             onTriggered: createPollDialog.openDialog()
         }
-        // Only while the input row is too narrow for their own buttons.
         AppMenuItem {
             objectName: "composerEmojiMenuItem"
             iconName: "mood"
@@ -1577,17 +1304,9 @@ Item {
         id: createPollDialog
     }
 
-    // Keyboard access to attach, emoji and GIF. GlobalContext rather than
-    // EditorContext: editor shortcuts are routed into applyFormat(), and a
-    // global key also works while the timeline has focus. This bar exists once
-    // per window, so the sequences cannot collide. Gated on the chat screen,
-    // since MainScreen stays loaded under Settings and Shortcuts match by
-    // window.
     function openAttachFiles() {
         if (app.currentRoomId === "")
             return
-        // The key opens the file picker directly: a menu opened from a key
-        // would appear at the mouse pointer.
         if (app.composer.attachmentsSupported)
             root.openPicker(pickAttachmentsDialog)
         else
@@ -1601,8 +1320,6 @@ Item {
             return [app.shortcuts.sequenceFor("composer.emojiPicker")]
         }
         enabled: app.currentScreen === 1 && app.currentRoomId !== ""
-        // fromButton = false: a key press is not the press-then-click gesture.
-        // It still closes an open picker.
         onActivated: root.openEmojiPicker(false)
     }
     Shortcut {
@@ -1610,15 +1327,10 @@ Item {
             var _rev = app.shortcuts.bindingRevision
             return [app.shortcuts.sequenceFor("composer.gifPicker")]
         }
-        // Not while a find is active: room.findPrevious holds the same default
-        // (Ctrl+Shift+G) on the opposite gate (TimelinePane).
         enabled: app.currentScreen === 1 && app.currentRoomId !== ""
                  && !app.timeline.searchActive
                  && (app.gif.available || app.stickers.available)
         onActivated: {
-            // Opens on GIFs only when opening, so the key does not swap the
-            // Stickers tab instead of closing. effectiveMediaKind() falls back
-            // to stickers without a GIF provider.
             if (!gifPicker.opened && !stickerPicker.opened)
                 root.mediaPickerKind = "gif"
             root.openMediaPicker(false)
@@ -1633,10 +1345,6 @@ Item {
         onActivated: root.openAttachFiles()
     }
 
-    // Up in an empty message box edits your last message. canEditEvent() is the
-    // same gate as the hover bar and context menu; beginEdit() takes the same
-    // triple. A Keys handler rather than a Shortcut: a bare-key global Shortcut
-    // would be consumed before any text field. Bounded at 200 source rows.
     readonly property int editLastMessageScanRows: 200
     function composerIsEmpty() {
         return root.richMode ? root.richBlank : (input.length === 0)
@@ -1646,17 +1354,11 @@ Item {
             return false
         if (!root.composerIsEmpty())
             return false
-        // Not while editing (Up is cursor movement), in a thread, or with a
-        // staged attachment.
         if (app.composer.isEditing || app.composer.inThread
                 || app.composer.hasAttachments)
             return false
-        // The model must show the room this composer sends to, or an m.replace
-        // for one room could be sent to another.
         if (app.timeline.roomId !== app.currentRoomId)
             return false
-        // Source rows: row 0 is the oldest (the rotated view counts the other
-        // way).
         var newest = app.timeline.count - 1
         var oldestScanned =
             Math.max(0, newest - root.editLastMessageScanRows + 1)
@@ -1674,8 +1376,6 @@ Item {
         return false
     }
 
-    // Screenshot-demo hooks; inert in a non-demo build. All targets have ids in
-    // this file.
     Connections {
         target: app.demo
         enabled: app.screenshotDemoActive
@@ -1716,8 +1416,6 @@ Item {
             drop.accept(Qt.CopyAction)
         }
     }
-    // Focus once the drop's files are actually queued: through the portal that
-    // is after onDropped has returned.
     Connections {
         target: app.composer
         function onDroppedAttachmentsResolved() {
@@ -1793,8 +1491,6 @@ Item {
         visible: !root.postBlocked
         anchors {
             left: parent.left; right: parent.right; bottom: parent.bottom
-            // Narrower margins in a narrow bar: at the 320 px floor the 20 px
-            // insets are what left the send-options chevron outside the card.
             leftMargin: root.compactInputRow ? AppTheme.spacing8
                                              : AppTheme.composerInsetH
             rightMargin: root.compactInputRow ? AppTheme.spacing8
@@ -1803,7 +1499,6 @@ Item {
         }
         spacing: AppTheme.spacing6
 
-        // Attachment validation notice.
         Label {
             visible: root.attachmentNotice.length > 0
             Layout.fillWidth: true
@@ -1813,7 +1508,6 @@ Item {
             wrapMode: Text.WordWrap
         }
 
-        // Attachment tray
         Flow {
             visible: app.composer.hasAttachments
             Layout.fillWidth: true
@@ -1824,9 +1518,6 @@ Item {
                 Rectangle {
                     id: attachmentChip
                     objectName: "composerAttachmentChip"
-                    // Every chip is the same height: the Flow top-aligns, so a
-                    // floor from the preview tile (the tallest content) keeps
-                    // the row even.
                     readonly property int previewTileHeight: 48
                     radius: AppTheme.radiusSm
                     color: AppTheme.cardElevated
@@ -1843,28 +1534,19 @@ Item {
                         anchors.centerIn: parent
                         spacing: AppTheme.spacingXS
 
-                        // A picked file resolves to its file:// URL; a pasted
-                        // image to image://lightning-staged/<token>.
                         readonly property string previewSource:
                             model.previewSource || ""
                         readonly property bool hasPreview:
                             chipLayout.previewSource.length > 0
                         readonly property bool hasLocalFile:
                             model.localUrl.toString().length > 0
-                        // Guarded: roles can resolve undefined during teardown.
                         readonly property bool isGifChip:
                             (model.mime || "") === "image/gif"
-                        // A picked GIF animates where MotionPolicy allows it;
-                        // under Don't play the Image draws its first frame
-                        // and no decoder is created.
                         readonly property bool gifAnimates:
                             isGifChip && hasLocalFile && MotionPolicy.allowed
                         readonly property bool isVideoChip:
                             (model.mime || "").indexOf("video/") === 0
 
-                        // Preview tile: images get a thumbnail, GIFs animate,
-                        // videos show their first frame through a muted,
-                        // paused, per-chip player destroyed with the chip.
                         Rectangle {
                             visible: chipLayout.hasPreview
                                      && (model.isImage || chipLayout.isVideoChip)
@@ -1894,8 +1576,6 @@ Item {
                                 source: visible ? model.localUrl : ""
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
-                                // Play on hover holds the first frame until
-                                // the pointer is on the chip.
                                 playing: visible
                                          && MotionPolicy.plays(gifChipHover.hovered)
                                          && !MotionPolicy.suspended
@@ -1904,12 +1584,6 @@ Item {
                             Loader {
                                 id: chipVideoLoader
                                 anchors.fill: parent
-                                // Bounded decoders: only the first few video
-                                // chips get a poster player. None on Qt
-                                // Quick's software renderer, which draws no
-                                // video: the chip keeps its videocam glyph
-                                // rather than an unexplained blank, and no
-                                // decoder runs for nothing.
                                 active: chipLayout.isVideoChip
                                         && chipLayout.hasLocalFile
                                         && index < 4
@@ -1926,9 +1600,7 @@ Item {
                                         property bool posterDone: false
                                         source: model.localUrl
                                         videoOutput: chipVideoOut
-                                        // No audioOutput: sound discarded.
                                         onMediaStatusChanged: {
-                                            // Render the first frame, then hold.
                                             if (mediaStatus
                                                     === MediaPlayer.LoadedMedia
                                                 && !posterDone) {
@@ -1944,8 +1616,6 @@ Item {
                                 }
                             }
                             Icon {
-                                // Video chips without a live poster player
-                                // still identify themselves.
                                 anchors.centerIn: parent
                                 visible: chipLayout.isVideoChip
                                          && (!chipVideoLoader.active
@@ -1995,8 +1665,6 @@ Item {
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 elide: Label.ElideRight
                                 Layout.maximumWidth: 140
-                                // The line elides at 140px; the whole reason
-                                // is one hover away.
                                 textFormat: Text.PlainText
                                 HoverHandler { id: chipErrorHover }
                                 ToolTip.visible: chipErrorHover.hovered
@@ -2018,9 +1686,6 @@ Item {
                             onClicked: attachmentImageEditor.openFor(app.composer.attachments, index)
                         }
                         IconButton {
-                            // A failure Retry cannot fix (refused, too large)
-                            // offers only Remove; an absent role means
-                            // retryable.
                             visible: model.state === "failed"
                                      && model.retryable !== false
                             implicitWidth: 20; implicitHeight: 20
@@ -2047,12 +1712,10 @@ Item {
             }
         }
 
-        // The composer card: toolbar row / divider / input row
         Item {
             Layout.fillWidth: true
             implicitHeight: composerCard.implicitHeight
 
-            // Composer shadow, one of the four the design allows.
             MultiEffect {
                 source: composerCard
                 anchors.fill: composerCard
@@ -2078,16 +1741,9 @@ Item {
                 id: cardColumn
                 anchors.left: parent.left
                 anchors.right: parent.right
-                // Centred: the card fills the wrapper, so without a vertical
-                // anchor all the slack sat below the column and the icons sat
-                // high relative to the text.
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 0
 
-                // Slash-command refusal strip: only a known command that cannot
-                // run (e.g. missing its argument). The draft stays; "Send as
-                // message" posts it literally. Unknown commands are sent as
-                // text, since a bot's command cannot be told from a typo.
                 Item {
                     id: commandErrorRow
                     objectName: "composerCommandError"
@@ -2117,8 +1773,6 @@ Item {
                             text: qsTr("Send as message")
                             kind: "ghost"
                             size: "sm"
-                            // Only a refused slash command can be sent as
-                            // text; the size refusal returns for the same body.
                             visible: app.composer.canSend
                                      && app.composer.commandErrorBypassable
                             onClicked: app.composer.sendBypassingCommands()
@@ -2126,9 +1780,6 @@ Item {
                     }
                 }
 
-                // Reply / Edit / Thread context strip, drawn as the same quote
-                // the timeline uses. The empty-Label viewport-observer hazard
-                // does not apply: this is not a descendant of the timeline.
                 Item {
                     id: contextRow
                     objectName: "composerContextBanner"
@@ -2141,7 +1792,6 @@ Item {
                     Layout.bottomMargin: AppTheme.spacing6
                     implicitHeight: contextLayout.implicitHeight
 
-                    // Only a reply has a target to jump to.
                     readonly property bool jumpable:
                         app.composer.isReplying && !app.composer.isEditing
                         && (app.composer.replyingToEventId || "").length > 0
@@ -2155,8 +1805,6 @@ Item {
                                         || qsTr("someone"))
                     }
                     readonly property string bodyText: {
-                        // Which message is being edited: a one-line quote of
-                        // its original text, like the reply bar (C46 F07).
                         if (app.composer.isEditing)
                             return root.previewLine(
                                 app.composer.editOriginalText)
@@ -2182,7 +1830,6 @@ Item {
                     Keys.onEnterPressed: contextRow.jumpToTarget()
                     Keys.onSpacePressed: contextRow.jumpToTarget()
 
-                    // The whole strip is the target; does not take focus.
                     TapHandler {
                         enabled: contextRow.jumpable
                         onTapped: contextRow.jumpToTarget()
@@ -2209,7 +1856,6 @@ Item {
                         anchors.top: parent.top
                         spacing: AppTheme.spacing8
 
-                        // The quote rule, matching the timeline's quote.
                         Rectangle {
                             Layout.fillHeight: true
                             Layout.preferredWidth: 2
@@ -2219,10 +1865,6 @@ Item {
                             Behavior on color { ColorAnimation { duration: 90 } }
                         }
 
-                        // Thumbnail when replying to an image, same bridge key
-                        // as the timeline quote. The rounded corner is baked by
-                        // MediaImageProvider ("|shape:rsq:<permille>"), not a
-                        // MultiEffect mask.
                         Image {
                             id: composerReplyThumb
                             objectName: "composerReplyThumb"
@@ -2319,7 +1961,6 @@ Item {
                     color: AppTheme.border
                 }
 
-                // Formatting toolbar row, collapsed by default.
                 RowLayout {
                     id: toolbarRow
                     objectName: "composerToolbarRow"
@@ -2390,19 +2031,13 @@ Item {
                             onClicked: root.applyFormat(modelData.key)
                         }
                     }
-                    // Rich-only controls as text chips: the icon font subset
-                    // has no underline or numbered-list glyphs.
                     AppButton {
                         objectName: "composerFormat_underline"
-                        // Holds its place in Markdown too, so the mode chip after
-                        // it stays under the pointer across a switch.
                         visible: !root.tightToolbarRow
                         opacity: root.richMode ? 1 : 0
                         Accessible.ignored: !root.richMode
                         kind: "ghost"
                         size: "sm"
-                        // The 72px minimum is for worded buttons; here it would
-                        // read as a gap.
                         minWidth: 0
                         // U + COMBINING LOW LINE: AppButton sets its own font,
                         // so font.underline would not reach the label.
@@ -2417,8 +2052,6 @@ Item {
                     }
                     AppButton {
                         objectName: "composerFormat_orderedlist"
-                        // Holds its place in Markdown too, so the mode chip after
-                        // it stays under the pointer across a switch.
                         visible: !root.tightToolbarRow
                         opacity: root.richMode ? 1 : 0
                         Accessible.ignored: !root.richMode
@@ -2433,18 +2066,10 @@ Item {
                         ToolTip.delay: 500
                         onClicked: root.applyFormat("orderedlist")
                     }
-                    // Mode switch, draft-preserving both ways (see richMode);
-                    // /markdown does the same. Left of the spacer: the empty
-                    // right side must stay empty surface.
                     AppButton {
                         objectName: "composerModeToggle"
-                        // One width for both labels: see the buttons before it.
                         minWidth: 84
-                        // Moves into the overflow menu below the width its
-                        // label needs (see compactToolbarRow).
                         visible: !root.compactToolbarRow
-                        // Bordered, so the active mode (named on the chip)
-                        // reads as state in both modes, not as an action.
                         kind: "secondary"
                         size: "sm"
                         text: root.richMode ? qsTr("Rich text")
@@ -2464,7 +2089,6 @@ Item {
                     Item { Layout.fillWidth: true }
                 }
 
-                // Divider between the rows, only while the toolbar is open.
                 Rectangle {
                     objectName: "composerRowDivider"
                     visible: root.toolbarExpanded
@@ -2475,8 +2099,6 @@ Item {
                     color: AppTheme.border
                 }
 
-                // Input row: attach · format · input · emoji · media · mic ·
-                // send · send options.
                 RowLayout {
                     id: inputRow
                     objectName: "composerInputRow"
@@ -2485,10 +2107,6 @@ Item {
                     Layout.rightMargin: AppTheme.spacing12 + 2
                     Layout.topMargin: AppTheme.spacing8 + 2
                     Layout.bottomMargin: AppTheme.spacing8 + 2
-                    // Tighter in a narrow bar: at the 320 px timeline floor
-                    // the row's fixed buttons plus the field's minimum
-                    // are wider than the card, and the send-options chevron
-                    // used to sit past the window edge.
                     spacing: root.compactInputRow ? AppTheme.spacing4 + 2
                                                   : AppTheme.spacing8 + 2
 
@@ -2506,9 +2124,6 @@ Item {
                                 legacyAttachMenu.open()
                                 return
                             }
-                            // Offer the menu when polls are available, or when
-                            // a narrow window has moved emoji/GIF into it;
-                            // otherwise open the file picker directly.
                             if (app.composer.pollsSupported()
                                     || root.compactInputRow)
                                 attachMenu.open()
@@ -2516,35 +2131,22 @@ Item {
                                 root.openPicker(pickAttachmentsDialog)
                         }
                         ToolTip.text: qsTr("Attach")
-                        // Hidden while an attach menu is open: the menu is
-                        // above the card and would slice through the tooltip.
                         ToolTip.visible: hovered && !attachMenu.visible
                                          && !legacyAttachMenu.visible
                         ToolTip.delay: 500
                     }
 
-                    // Format toggle: opens/closes the formatting toolbar.
                     IconButton {
                         objectName: "composerFormatToggleButton"
                         Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
-                        // Narrow window: optional controls yield width to the
-                        // text field. Also hidden when switched off.
                         visible: !root.compactInputRow
                                  && root.composerButtonShown("formatting")
                         implicitWidth: 28; implicitHeight: 28
                         radius: AppTheme.radiusControl
-                        // "Aa", the text-formatting mark of Slack, Teams and
-                        // Outlook. It wore edit_square, the very glyph the
-                        // message hover bar uses for "Edit message", so the
-                        // button beside Attach read as "edit". The icon font
-                        // is a subset with no text-format glyph, so the mark
-                        // is set in the UI face, inked like IconButton's glyph.
                         id: formatToggleButton
                         iconName: ""
                         contentItem: Label {
                             objectName: "composerFormatToggleGlyph"
-                            // A script's own pair of letter forms where it has
-                            // them (Cyrillic "Аа"), hence translatable.
                             text: qsTr("Aa", "text-formatting button mark")
                             textFormat: Text.PlainText
                             horizontalAlignment: Text.AlignHCenter
@@ -2562,25 +2164,16 @@ Item {
                                        ? AppTheme.textPrimary : AppTheme.icon
                             }
                         }
-                        // Usable regardless of room state; the format buttons
-                        // it reveals are room-gated.
                         active: root.toolbarExpanded
                         Accessible.name: qsTr("Formatting")
                         ToolTip.text: root.toolbarExpanded
                                       ? qsTr("Hide formatting")
                                       : qsTr("Show formatting")
-                        // Not while the toolbar is open: the tooltip sits above
-                        // its button, exactly where the raised toolbar row
-                        // lands, and would cover its buttons. Same rule as the
-                        // emoji, media and overflow buttons.
                         ToolTip.visible: hovered && !root.toolbarExpanded
                         ToolTip.delay: 500
                         onClicked: root.toolbarExpanded = !root.toolbarExpanded
                     }
 
-                    // The rich (WYSIWYG) editor: same growth, padding and
-                    // insets as the markdown field (see inputFlick);
-                    // visibility-exclusive with it.
                     Flickable {
                         id: richFlick
                         objectName: "composerRichInputFlick"
@@ -2612,12 +2205,9 @@ Item {
                         TextArea.flickable: TextArea {
                             id: richInput
                             objectName: "composerRichInput"
-                            // No endless blinking: see IdleCaret.qml.
                             cursorDelegate: richIdleCaret.delegate
                             IdleCaret { id: richIdleCaret; field: richInput }
                             onWidthChanged: richSpellTimer.restart()
-                            // Spell underlines for the rich editor: same
-                            // debounce, own geometry.
                             Timer {
                                 id: richSpellTimer
                                 objectName: "composerRichSpellTimer"
@@ -2639,8 +2229,6 @@ Item {
                                     color: Qt.alpha(AppTheme.danger, 0.85)
                                 }
                             }
-                            // Same context menu as the markdown editor:
-                            // spelling rows, then editing rows.
                             MouseArea {
                                 anchors.fill: parent
                                 acceptedButtons: Qt.RightButton
@@ -2651,18 +2239,12 @@ Item {
                                 }
                             }
                             textFormat: TextEdit.RichText
-                            // Empty once the document draws anything, structure
-                            // included.
                             placeholderText: root.richBlank
                                              ? input.placeholderText : ""
                             placeholderTextColor: AppTheme.placeholderInk
                             color: AppTheme.composerText
                             font: app.textFontWithEmoji(AppTheme.uiFont,
                                                         AppTheme.scaled(14))
-                            // Text starts against the Aa button; the style's
-                            // default left padding read as a dead gap. The
-                            // right side is held for the height button even
-                            // while it is away, so its arrival never rewraps.
                             leftPadding: 2
                             rightPadding: root.editorCornerReserve
                             topPadding: AppTheme.spacing6
@@ -2681,18 +2263,12 @@ Item {
                                 richSpellTimer.restart()
                                 root.refreshRichBlank()
                                 if (root.richSyncing || !root.richMode) {
-                                    // A loaded document is not typing.
                                     richAutocorrect.reset()
                                     return
                                 }
                                 richAutocorrect.edited()
                                 root.refreshFormatState()
                                 root.updateRichMentionState()
-                                // The markdown mirror (see root.richMode) and
-                                // what reads it. A long document is mirrored
-                                // behind a short debounce: toMarkdown is
-                                // superlinear (measured 0.6 ms at 1 KB, 42 ms at
-                                // 17 KB per call) and ran on every keystroke.
                                 if (richInput.length > root.richMirrorSyncLimit)
                                     richMirrorTimer.restart()
                                 else
@@ -2725,11 +2301,6 @@ Item {
                                     emojiPopup.moveUp()
                                     event.accepted = true
                                 } else if (root.editLastOwnMessage()) {
-                                    // Last, from the else arm: the completion
-                                    // popups own Up while open.
-                                    // editLastOwnMessage() refuses unless the
-                                    // box is empty and in no special state, so
-                                    // Up is otherwise unchanged.
                                     event.accepted = true
                                 } else {
                                     event.accepted = false
@@ -2760,9 +2331,6 @@ Item {
                                     emojiPopup.accept()
                                     event.accepted = true
                                 } else {
-                                    // A chat message never wants a literal tab, and
-                                    // swallowing Tab trapped keyboard users in the editor:
-                                    // move on, as Shift+Tab already does.
                                     event.accepted = true
                                     var next = richInput.nextItemInFocusChain(true)
                                     if (next && next !== richInput)
@@ -2812,10 +2380,6 @@ Item {
                                     event.accepted = true
                                     return
                                 }
-                                // Clipboard images and file URLs become
-                                // attachments; formatted text pastes into the
-                                // document (the serializer's whitelist decides
-                                // what is sent).
                                 if (event.matches(StandardKey.Paste)
                                         && app.composer.pasteFromClipboard()) {
                                     event.accepted = true
@@ -2841,14 +2405,8 @@ Item {
                         objectName: "composerInputFlick"
                         visible: !root.richMode
                         Layout.fillWidth: true
-                        // A readable floor for the text field; optional
-                        // controls step aside instead (root.compactInputRow).
                         Layout.minimumWidth: 120
                         Layout.alignment: Qt.AlignVCenter
-                        // Grows with content up to ~6 lines, then scrolls. A
-                        // bare TextArea cannot scroll itself;
-                        // TextArea.flickable provides scrolling and keeps the
-                        // caret visible.
                         Layout.maximumHeight: ComposerBehavior.editorHeight(
                             root.composerExpanded, AppTheme.scaled(140),
                             AppTheme.scaled(300))
@@ -2871,7 +2429,6 @@ Item {
                         }
                         onContentYChanged: {
                             clampContentToTop()
-                            // Underlines follow the visible window.
                             spellTimer.restart()
                         }
                         onContentHeightChanged: clampContentToTop()
@@ -2881,7 +2438,6 @@ Item {
                         TextArea.flickable: TextArea {
                         id: input
                         objectName: "composerInput"
-                        // No endless blinking: see IdleCaret.qml.
                         cursorDelegate: idleCaret.delegate
                         IdleCaret { id: idleCaret; field: input }
                         placeholderText: {
@@ -2889,15 +2445,8 @@ Item {
                                 return qsTr("Select a room to start typing")
                             if (app.composer.isEditing)
                                 return qsTr("Edit message…")
-                            // Inline thread style, narrowed to a thread: what
-                            // is typed here goes into that thread.
                             if ((app.composer.threadTargetRootId || "").length > 0)
                                 return qsTr("Reply in thread…")
-                            // roomDisplayName() reads the room list through a
-                            // Q_INVOKABLE, which a binding does not track; the
-                            // revision does, so a rename (or a new room's name
-                            // arriving after "Empty Room") reaches the
-                            // placeholder.
                             var _rev = root.roomListRevision
                             return qsTr("Message %1").arg(root.isolatedRoomName())
                         }
@@ -2907,31 +2456,14 @@ Item {
                         // face: QML cannot express a families list, and Qt
                         // 6.8's automatic fallback picks a monochrome face.
                         font: app.textFontWithEmoji(AppTheme.uiFont, AppTheme.scaled(14))
-                        // See richInput.
                         leftPadding: 2
                         rightPadding: root.editorCornerReserve
-                        // Explicit, symmetric vertical padding: the platform
-                        // style's padding is asymmetric and placed a single
-                        // line below centre.
                         topPadding: AppTheme.spacing6
                         bottomPadding: AppTheme.spacing6
-                        // Insets pinned too: a style's focus-dependent
-                        // background insets can shift the text on focus while
-                        // the icons stay put. Not reproduced offscreen, which
-                        // does not load the platform style.
                         topInset: 0
                         bottomInset: 0
                         leftInset: 0
                         rightInset: 0
-                        // Text centred in the field's height, so its position
-                        // is declared rather than emergent. Input method hints
-                        // are declared empty on purpose: prediction-disabling
-                        // or sensitive-data hints do not belong on a message
-                        // composer, and ComposerSpellContractTest fails if
-                        // either appears. Windows 11 hardware keyboard
-                        // suggestions need TSF, which Qt's Windows plugin does
-                        // not implement (it uses IMM32); spell checking is
-                        // Lightning's own, via app.spell.
                         inputMethodHints: Qt.ImhNone
                         verticalAlignment: root.composerExpanded
                                            ? TextEdit.AlignTop : TextEdit.AlignVCenter
@@ -2942,8 +2474,6 @@ Item {
                             if (app.composer.text !== text) app.composer.text = text
                             root.refreshFormatState()
                             root.updateMentionState()
-                            // A dismissed command popup reopens once the text
-                            // moves on.
                             root.commandPopupDismissed = false
                             root.updateCommandPopupState()
                             root.emojiPopupDismissed = false
@@ -2961,10 +2491,7 @@ Item {
                             plainAutocorrect.cursorMoved()
                             spellTimer.restart()
                         }
-                        // A reflow moves every underline.
                         onWidthChanged: spellTimer.restart()
-                        // Return and the numeric keypad's Enter are one key to
-                        // the composer (QML delivers them as separate signals).
                         Keys.onReturnPressed: (event) => root._plainReturn(event)
                         Keys.onEnterPressed: (event) => root._plainReturn(event)
                         Keys.onShortcutOverride: (event) => {
@@ -2983,8 +2510,6 @@ Item {
                                 emojiPopup.moveUp()
                                 event.accepted = true
                             } else if (root.editLastOwnMessage()) {
-                                // Same branch as the rich editor's: after the
-                                // popups, else arm only.
                                 event.accepted = true
                             } else {
                                 event.accepted = false
@@ -3015,9 +2540,6 @@ Item {
                                 emojiPopup.accept()
                                 event.accepted = true
                             } else {
-                                // A chat message never wants a literal tab, and
-                                // swallowing Tab trapped keyboard users in the editor:
-                                // move on, as Shift+Tab already does.
                                 event.accepted = true
                                 var next = input.nextItemInFocusChain(true)
                                 if (next && next !== input)
@@ -3029,9 +2551,6 @@ Item {
                             root.openEditMenuAtCaret(input)
                         }
                         Keys.onEscapePressed: (event) => {
-                            // Escape closes an open completion popup without
-                            // touching reply/edit state; only with both closed
-                            // does it cancel the reply/edit.
                             if (commandPopup.visible) {
                                 root.commandPopupDismissed = true
                                 commandPopup.close()
@@ -3053,19 +2572,11 @@ Item {
                                 event.accepted = false
                             }
                         }
-                        // Right-click editing menu. The default menu's Paste is
-                        // text only, so a copied image would paste its URL
-                        // while Ctrl+V pasted the picture; both go through
-                        // Composer::pasteFromClipboard() now. A MouseArea
-                        // consumes the right press so the built-in menu does
-                        // not open; left presses are not accepted.
                         MouseArea {
                             anchors.fill: parent
                             acceptedButtons: Qt.RightButton
                             onClicked: (mouse) => {
                                 root.focusEditor()
-                                // Resolved before the menu opens so the
-                                // spelling rows are settled.
                                 root.prepareSpellMenu(mouse.x, mouse.y)
                                 composerEditMenu.popup()
                             }
@@ -3074,8 +2585,6 @@ Item {
                             id: composerEditMenu
                             objectName: "composerEditMenu"
                             menuWidth: AppTheme.menuWidthFlyout
-                            // Spelling rows first. Written out rather than
-                            // generated; a hidden AppMenuItem takes no height.
                             AppMenuItem {
                                 objectName: "composerSpellSuggestion0"
                                 visible: root.spellMenuSuggestions.length > 0
@@ -3167,8 +2676,6 @@ Item {
                                 root.openEditMenuAtCaret(input)
                                 return
                             }
-                            // Backspace or Ctrl+Z right after an autocorrection
-                            // puts the typed word back.
                             if (plainAutocorrect.handleKey(event))
                                 return
                             var timelineAction =
@@ -3179,16 +2686,11 @@ Item {
                                 event.accepted = true
                                 return
                             }
-                            // Clipboard images and file URLs become
-                            // attachments; text pastes normally.
                             if (event.matches(StandardKey.Paste)
                                     && app.composer.pasteFromClipboard()) {
                                 event.accepted = true
                                 return
                             }
-                            // Atomic mention delete: Backspace at a chip's
-                            // trailing edge (or Delete at its leading edge)
-                            // removes the whole mention.
                             if ((event.key === Qt.Key_Backspace
                                  || event.key === Qt.Key_Delete)
                                     && input.selectionStart === input.selectionEnd) {
@@ -3205,10 +2707,6 @@ Item {
                                     }
                                 }
                             }
-                            // Formatting keys, delivered as plain presses via
-                            // the ShortcutOverride above. Registry ids map onto
-                            // applyFormat() keys. Anything unrecognised is not
-                            // accepted.
                             var formatAction =
                                 root._composerFormatFor(event.key,
                                                         event.modifiers)
@@ -3221,13 +2719,8 @@ Item {
                                         formatAction.substring("composer.".length))
                             }
                         }
-                        // The card is the visual container; the field is
-                        // borderless.
                         background: Rectangle { color: "transparent" }
 
-                        // Spell underlines, coalesced behind a short timer: the
-                        // geometry pass calls positionToRectangle per
-                        // misspelling.
                         Timer {
                             id: spellTimer
                             objectName: "composerSpellTimer"
@@ -3246,14 +2739,10 @@ Item {
                                 width: modelData.w
                                 height: 2
                                 radius: 1
-                                // The conventional red, as ink at reduced
-                                // weight; nothing destructive.
                                 color: Qt.alpha(AppTheme.danger, 0.85)
                             }
                         }
 
-                        // Inline mention chips over the ranges the composer
-                        // re-anchors on every edit.
                         MentionHighlighter {
                             document: input.textDocument
                             ranges: root.mentionHighlightRanges
@@ -3270,8 +2759,6 @@ Item {
                         id: emojiButton
                         objectName: "composerEmojiButton"
                         Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
-                        // Narrow window: moves into the attach menu. Switched
-                        // off in settings it is gone from both.
                         visible: !root.compactInputRow
                                  && root.composerButtonShown("emoji")
                         implicitWidth: 28; implicitHeight: 28
@@ -3281,24 +2768,15 @@ Item {
                         enabled: app.currentRoomId !== ""
                         Accessible.name: qsTr("Insert emoji")
                         ToolTip.text: qsTr("Emoji")
-                        // Same rule as the GIF button: the picker covers it.
                         ToolTip.visible: hovered && !emojiPicker.visible
                         ToolTip.delay: 500
                         onClicked: root.openEmojiPicker(true)
                     }
 
-                    // GIFs and stickers: one button, one window. The two
-                    // pickers stay separate components with a shared
-                    // GIFs/Stickers strip; swapMediaPicker() swaps them at the
-                    // same anchor and size, so it reads as a tab change. A
-                    // glyph like its neighbours.
                     IconButton {
                         id: mediaButton
                         objectName: "composerMediaButton"
                         Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
-                        // Narrow window: moves into the attach menu. Hidden
-                        // only when switched off; a backend with neither kind
-                        // shows it disabled with an explanatory tooltip.
                         visible: !root.compactInputRow
                                  && root.composerButtonShown("media")
                         implicitWidth: 28; implicitHeight: 28
@@ -3315,16 +2793,11 @@ Item {
                                         ? qsTr("GIFs and stickers")
                                         : (app.gif.available ? qsTr("GIF")
                                                              : qsTr("Sticker"))
-                        // Not while the picker is open above it.
                         ToolTip.visible: hovered && !gifPicker.visible
                         ToolTip.delay: 500
                         onClicked: root.openMediaPicker(true)
                     }
 
-                    // Voice capture. Idle: the mic slot. Recording: a pill with
-                    // a pulsing dot, elapsed time, cancel and send.
-                    // app.voiceRecorder is created lazily on the first press;
-                    // missing hardware or encoders surface through failed().
                     IconButton {
                         objectName: "composerMicButton"
                         Layout.alignment: root.composerExpanded ? Qt.AlignBottom : Qt.AlignVCenter
@@ -3332,10 +2805,6 @@ Item {
                         radius: AppTheme.radiusControl
                         iconName: "mic"
                         iconSize: 20
-                        // A recording in flight keeps its controls whatever the
-                        // setting says; the pill is the way to stop it. In a
-                        // compact row the "…" button carries this action along
-                        // with emoji and GIF.
                         visible: !root.voiceActive
                                  && root.composerButtonShown("voice")
                                  && !root.compactInputRow
@@ -3354,9 +2823,6 @@ Item {
                         radius: AppTheme.radiusControl
                         iconName: "more_horiz"
                         iconSize: 20
-                        // Compact rows only: emoji, GIFs/stickers and voice in
-                        // one menu. Send later stays under the send button's
-                        // chevron.
                         visible: root.compactInputRow && !root.voiceActive
                         enabled: app.currentRoomId !== ""
                         Accessible.name: qsTr("More")
@@ -3387,10 +2853,7 @@ Item {
                             Rectangle {
                                 id: voiceDot
                                 width: 8; height: 8; radius: 4
-                                // A fill: `danger` is an ink-only role.
                                 color: AppTheme.dangerFill
-                                // Solid while finalizing; pulsing while live
-                                // (steady with reduced motion).
                                 property real t: 0
                                 opacity: (voicePill.rec
                                           && voicePill.rec.processing)
@@ -3417,8 +2880,6 @@ Item {
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 font.weight: AppTheme.weightStrong
                             }
-                            // Pause/resume: keeps the microphone and file,
-                            // suspends capture and freezes the elapsed time.
                             IconButton {
                                 objectName: "composerVoicePauseButton"
                                 implicitWidth: 24; implicitHeight: 24
@@ -3454,7 +2915,6 @@ Item {
                                 ToolTip.delay: 500
                                 onClicked: app.cancelVoiceRecording()
                             }
-                            // Done: finish and review before sending.
                             IconButton {
                                 objectName: "composerVoiceDoneButton"
                                 implicitWidth: 24; implicitHeight: 24
@@ -3505,7 +2965,6 @@ Item {
                         onDiscardRequested: root.discardPendingVoice()
                     }
 
-                    // Accent-fill send (34px, radius 9).
                     IconButton {
                         id: sendButton
                         objectName: "composerSendButton"
@@ -3513,7 +2972,6 @@ Item {
                         implicitWidth: 34; implicitHeight: 34
                         radius: AppTheme.radiusTile
                         fill: true
-                        // Its own theme roles (2026-10-13).
                         fillColor: AppTheme.sendButton
                         fillInk: AppTheme.sendButtonInk
                         iconName: app.composer.isEditing ? "check" : "send"
@@ -3530,11 +2988,6 @@ Item {
                         }
                     }
 
-                    // Send options: a chevron right of the send button (a split
-                    // button, "another way to send this"), always present so
-                    // Send later is never displaced. Not accent-filled, so it
-                    // does not read as a second send. Its tooltip hides while
-                    // the menu is open, as for the attach button.
                     IconButton {
                         id: sendOptionsButton
                         objectName: "composerSendOptionsButton"
@@ -3546,7 +2999,6 @@ Item {
                         radius: AppTheme.radiusControl
                         iconName: "expand_more"
                         iconSize: 18
-                        // This room has scheduled messages waiting.
                         active: root.pendingScheduledCount > 0
                         enabled: app.currentRoomId !== ""
                                  && !app.composer.isEditing
@@ -3555,22 +3007,13 @@ Item {
                                       ? qsTr("Send options (%1 scheduled)")
                                             .arg(root.pendingScheduledCount)
                                       : qsTr("Send options")
-                        // See the note above this button.
                         ToolTip.visible: hovered && !sendOptionsMenu.visible
                         ToolTip.delay: 500
-                        // The menu positions itself above the whole composer
-                        // through bindings (see sendOptionsMenu); popup(x, y)
-                        // computed on first click would read the lazily built
-                        // menu's height as 0 and cover the bar.
                         onClicked: sendOptionsMenu.open()
                     }
                 }
             }
 
-            // Top-right corner of the editor, over the row rather than in it:
-            // a button in the row moved the text sideways as it came and went
-            // (QA T-2). Multi-line only, like Element. The editors hold
-            // editorCornerReserve clear on their right, so it covers no text.
             IconButton {
                 id: composerHeightButton
                 objectName: "composerHeightButton"
@@ -3599,17 +3042,12 @@ Item {
         }
     }
 
-    // The compact row's "…" menu, anchored above the card like send options.
     AppMenu {
         id: composerOverflowMenu
         objectName: "composerOverflowMenu"
         parent: composerCard
         x: Math.max(0, composerCard.width - width)
         y: -height - 4
-        // No width here: AppMenu refits itself from its rows on `opened`
-        // (theCompactOverflowMenuDoesNotElideItsOwnRows). Formatting is
-        // displaced here, not removed: toolbarRow stays visible when its toggle
-        // hides, so the toggle must remain reachable. Same gate as the button.
         AppMenuItem {
             objectName: "composerOverflowFormattingItem"
             iconName: "edit_square"
@@ -3619,8 +3057,6 @@ Item {
             height: visible ? implicitHeight : 0
             onTriggered: root.toolbarExpanded = !root.toolbarExpanded
         }
-        // The mode switch too. `code` is a constant glyph in both states (the
-        // icon subset has no compose symbol); the strings are the chip's own.
         AppMenuItem {
             objectName: "composerOverflowModeItem"
             iconName: "code"
@@ -3634,7 +3070,6 @@ Item {
                         root.richMode ? "markdown" : "rich"
             }
         }
-        // The rich-only chips the toolbar drops when it is too narrow for them.
         AppMenuItem {
             objectName: "composerOverflowUnderlineItem"
             text: qsTr("Underline")
@@ -3682,9 +3117,6 @@ Item {
     AppMenu {
         id: sendOptionsMenu
         objectName: "composerSendOptionsMenu"
-        // Parented to the composer card and right-aligned through the card's
-        // width, which is observable, so it follows window resizes. `height` is
-        // 0 until the content is built, so `y` is a binding too.
         parent: composerCard
         x: Math.max(0, composerCard.width - width)
         y: -height - 4
@@ -3692,7 +3124,6 @@ Item {
             objectName: "composerSendLaterMenuItem"
             iconName: "schedule"
             text: qsTr("Send later…")
-            // Nothing to schedule: simply unavailable.
             enabled: app.composer.canSend
             onTriggered: root.openSendLater()
         }
@@ -3707,11 +3138,6 @@ Item {
         }
     }
 
-    // Presentation-only normalization for reply/thread preview lines, mirroring
-    // matrix::preview::normalizePreviewText (mention link -> label,
-    // U+2028/U+2029 -> space, collapsed whitespace). beginReply stores raw
-    // visible text, so without this the strip shows matrix.to markdown and
-    // multi-line targets grow the banner. Should move to that C++ choke point.
     function previewLine(text) {
         if (!text)
             return ""
@@ -3755,35 +3181,19 @@ Item {
             if (input.text !== app.composer.text) input.text = app.composer.text
         }
         function onEditStateChanged() {
-            // Put the caret at the end of an edit so the tail is visible.
-            // Deferred: editStateChanged fires before the text syncs into the
-            // field. A named function so Qt.callLater deduplicates.
             if (app.composer.isEditing)
                 Qt.callLater(root.placeEditCaret)
         }
-        // Starting a reply (hover bar, menu, R, double-click) gives the
-        // composer the keyboard, as in every chat client: the reply was armed
-        // and the next keystrokes went nowhere. A restored draft re-arms its
-        // reply too, and that must NOT take focus (switching rooms must not
-        // steal the keyboard). MessageComposer::setRoomId restores the draft
-        // before it emits roomIdChanged, so during a restore the composer's
-        // room differs from the one recorded below; a user's reply happens in
-        // the room already recorded.
         function onReplyStateChanged() {
             if (!app.composer.isReplying
                     || app.composer.roomId !== root.composerRoomSeen)
                 return
             Qt.callLater(function () { root.focusEditor() })
         }
-        // A restored draft puts the caret at the end, like an edit. Focus is
-        // not taken: switching rooms must not steal the keyboard.
         function onRoomIdChanged() {
             Qt.callLater(root.placeDraftCaret)
         }
     }
-    // The composer's room as of its last roomIdChanged notification (a
-    // binding, so it moves only on the signal; the getter read in
-    // onReplyStateChanged is already the new room during a draft restore).
     readonly property string composerRoomSeen:
         app.composer ? app.composer.roomId : ""
     function placeEditCaret() {

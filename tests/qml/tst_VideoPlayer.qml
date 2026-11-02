@@ -4,21 +4,6 @@ import QtMultimedia
 import QtTest
 import MatrixClient
 
-// The inline video card, its control bar and the expanded view, against the
-// production sources with a recording playback controller and a bridge that
-// hands out a sound from the tree (what matters is a source that loads, seeks
-// and ends; this tree cannot assume a video codec). Every case here failed on
-// the code the 2026-10-20 design review measured:
-//   B4  the expanded bar read 1× over a video playing at 1.5×
-//   B5  the speed menu dropped over its own button and the composer, and the
-//       bar faded out from under it
-//   U4  a forced stop forgot the position; the expanded view snapped shut at
-//       the end
-//   U5  no keyboard seek or volume on the inline card; no spoken position
-//   U6  a 260 px portrait card left the seek track ~45 px
-//   P3  the expanded view had no header and a 10 px time label
-// Audio goes nowhere: scripts/test-video-player.sh runs this with no sound
-// server, and every card starts muted.
 TestCase {
     id: test
     name: "VideoPlayer"
@@ -59,10 +44,7 @@ TestCase {
         signal playableMediaReady(string cacheKey)
         signal mediaFetchFailed(string cacheKey, string category)
         signal saveFinished(bool ok, string message, string mediaKey)
-        // True while a fetch is "in flight": playableSource has nothing yet
-        // and the card waits for playableMediaReady.
         property bool holdFetch: false
-        // A source that is not media at all: the player fails to decode it.
         property bool brokenSource: false
         function playableSource(key) {
             if (holdFetch) return ""
@@ -77,7 +59,6 @@ TestCase {
     }
     property var app: ({ playback: playback, mediaBridge: bridge,
                          settings: settings, softwareRenderer: false })
-    // pwcrash's play gate: absent (null) except in the case that installs it.
     property var qtAudio: null
     QtObject {
         id: gate
@@ -98,7 +79,6 @@ TestCase {
         }
     }
 
-    // Two bars on one player, as the card and the expanded view are.
     Component {
         id: twoBarsComponent
         Item {
@@ -149,7 +129,6 @@ TestCase {
         bridge.brokenSource = false
     }
 
-    // ---- helpers ----
     function barOf(card) { return findChild(card, "videoControlBar") }
     function playerOf(card) { return barOf(card).player }
     function overlayOf(card) { return findChild(card, "videoViewerOverlay") }
@@ -158,8 +137,6 @@ TestCase {
         return overlay && overlay.contentItem
                ? findChild(overlay.contentItem, name) : null
     }
-    // The bar's speed menu (a Popup, so not a visual child). By name: the bar
-    // also owns the audio/subtitle menu, and "the first popup" found that one.
     function menuOf(bar) {
         for (var i = 0; i < bar.data.length; ++i) {
             var o = bar.data[i]
@@ -204,19 +181,16 @@ TestCase {
         return card
     }
 
-    // ---- B4: one rate for every bar ----
     function test_everyBarShowsThePlayersRate() {
         var host = createTemporaryObject(twoBarsComponent, test)
         verify(host)
         compare(speedText(host.first), "1×")
         compare(speedText(host.second), "1×")
 
-        // Choose 1.5× from the first bar's menu, as the user did inline.
         mouseClick(findChild(host.first, "videoSpeedButton"))
         var menu = menuOf(host.first)
         verify(menu)
         tryCompare(menu, "opened", true)
-        // Its rows are laid out (a click before that lands on nothing).
         tryVerify(function() { return menu.height > 100 })
         var item = null
         for (var i = 0; i < menu.count; ++i) {
@@ -230,20 +204,15 @@ TestCase {
 
         compare(host.player.playbackRate, 1.5)
         compare(speedText(host.first), "1.5×")
-        // The expanded bar used to keep its own index and read 1×.
         compare(speedText(host.second), "1.5×",
                 "the second bar does not show the player's rate")
-        // And the choice is the session's video speed.
         compare(playback.videoPlaybackRate, 1.5)
 
-        // A rate set anywhere else is what both bars show.
         host.player.playbackRate = 2.0
         compare(speedText(host.first), "2×")
         compare(speedText(host.second), "2×")
     }
 
-    // The session speed reaches a new player, so a resumed video does not
-    // fall back to 1×.
     function test_aNewCardStartsAtTheSessionSpeed() {
         playback.videoPlaybackRate = 1.5
         var card = loadedCard({ width: 480, height: 270, y: 300 })
@@ -251,7 +220,6 @@ TestCase {
         compare(speedText(barOf(card)), "1.5×")
     }
 
-    // ---- B5: the speed menu opens upward and the bar stays ----
     function test_theSpeedMenuOpensUpward() {
         var card = loadedCard({ width: 480, height: 270, y: 330 })
         var bar = barOf(card)
@@ -267,15 +235,12 @@ TestCase {
         verify(menu)
         tryCompare(menu, "opened", true)
         wait(50)
-        // In window coordinates: the menu ends above the button that opened
-        // it, and starts inside the card rather than over the composer.
         var b = windowRect(button)
         var top = menu.parent.mapToItem(null, menu.x, menu.y).y
         var bottom = top + menu.height
         verify(bottom <= b.y + 0.5,
                "the speed menu runs over its own button: bottom " + bottom
                + ", button top " + b.y)
-        // Nothing of it below the card, where the composer is.
         var c = windowRect(card)
         verify(bottom <= c.y + c.h + 0.5,
                "the speed menu runs below the card: bottom " + bottom
@@ -294,8 +259,6 @@ TestCase {
         var menu = menuOf(bar)
         tryCompare(menu, "opened", true)
 
-        // The pointer leaves the card while the menu is open: the bar it
-        // belongs to must not fade out from under it.
         mouseMove(test, 4, 4)
         wait(400)
         verify(player.playbackState === MediaPlayer.PlayingState)
@@ -304,7 +267,6 @@ TestCase {
         menu.close()
     }
 
-    // ---- U6: a portrait card keeps a scrubbable track ----
     function test_aNarrowCardKeepsAScrubbableTrack() {
         var cases = [
             { w: 260, h: 440, speed: false },
@@ -333,7 +295,6 @@ TestCase {
             }
             compare(findChild(bar, "videoSpeedButton").visible, c.speed,
                     c.w + " px: speed visibility")
-            // Close is still one click away: in the card's corner.
             var close = findChild(card, "videoCardCloseButton")
             verify(close, c.w + " px: no close button left")
             verify(close.visible && inside(close, card),
@@ -341,7 +302,6 @@ TestCase {
             compare(findChild(bar, "videoCloseButton").visible, false)
             card.destroy()
         }
-        // A wide card keeps the single row, close included.
         var wide = createTemporaryObject(cardComponent, test,
                                          { width: 480, height: 270 })
         var wideBar = barOf(wide)
@@ -351,7 +311,6 @@ TestCase {
         verify(findChild(wideBar, "videoSeekSlider").width >= 120)
     }
 
-    // ---- U5: the inline card's keyboard map ----
     function test_theInlineCardSeeksFromTheKeyboard() {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         var bar = barOf(card)
@@ -376,13 +335,11 @@ TestCase {
         player.pause()
         player.position = 5500
         tryVerify(function() { return Math.abs(player.position - 5500) < 100 })
-        // On the track itself, Left is 5 s too, not a tenth of a ms.
         var slider = findChild(bar, "videoSeekSlider")
         slider.forceActiveFocus(Qt.TabFocusReason)
         keyClick(Qt.Key_Left)
         tryVerify(function() { return player.position < 1000 }, 3000,
                   "Left on the seek track moved " + player.position)
-        // It speaks its position.
         verify(slider.Accessible.description.indexOf("0:00") === 0
                && slider.Accessible.description.indexOf("0:06") > 0,
                "the seek track has no spoken position: '"
@@ -390,8 +347,6 @@ TestCase {
 
     }
 
-    // Master prompt Part 5 §5.4: hovering the seek track names the time a
-    // click would land on, without decoding a frame.
     function test_hoveringTheSeekTrackShowsTheTimeUnderThePointer() {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         var bar = barOf(card)
@@ -413,7 +368,6 @@ TestCase {
         tryVerify(function() { return !tip.visible })
     }
 
-    // Long media reads h:mm:ss, not a growing minute count.
     function test_theMediaClockIsHourAware() {
         compare(AppTheme.clockText(0), "0:00")
         compare(AppTheme.clockText(59), "0:59")
@@ -427,8 +381,6 @@ TestCase {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         var bar = barOf(card)
         playerOf(card).pause()
-        // Tab reaches the volume control, and Up/Down set the level the way
-        // the slider does: remembered, and an explicit unmute.
         var play = findChild(bar, "videoPlayPauseButton")
         play.forceActiveFocus(Qt.TabFocusReason)
         var volume = findChild(bar, "videoMuteButton")
@@ -449,14 +401,12 @@ TestCase {
         verify(audio.muted, "M did not mute the inline card")
     }
 
-    // ---- U4: a forced stop remembers the position; a new card resumes ----
     function test_aForcedStopRemembersWhereTheVideoWas() {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         var player = playerOf(card)
         player.pause()
         player.position = 4000
         tryVerify(function() { return Math.abs(player.position - 4000) < 100 })
-        // A room switch: AppController's stopAll() bumps the generation.
         playback.stopGeneration += 1
         compare(playback.remembered.length, 1,
                 "a forced stop did not remember the position")
@@ -465,7 +415,6 @@ TestCase {
         verify(playback.remembered[0].dur > 5000)
         compare(player.source.toString(), "")
 
-        // The next Play resumes there.
         playback.resume = ({ "$video": 4200 })
         var again = loadedCard({ width: 480, height: 270, y: 300 })
         var p2 = playerOf(again)
@@ -474,8 +423,6 @@ TestCase {
                   + " instead of resuming at 4.2 s")
     }
 
-    // Delegate reuse changes mediaKey before the reset: the position is the
-    // OLD video's.
     function test_aReusedCardRemembersUnderTheVideoItPlayed() {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         var player = playerOf(card)
@@ -487,7 +434,6 @@ TestCase {
         compare(playback.remembered[0].key, "$video")
     }
 
-    // ---- P3: the expanded view's header and type ----
     function test_theExpandedViewHasAHeaderAndReadableTime() {
         var card = loadedCard({ width: 480, height: 270, y: 300,
                                 senderName: "Fixture Sender",
@@ -500,8 +446,6 @@ TestCase {
         var overlay = overlayOf(card)
         tryCompare(overlay, "opened", true)
 
-        // P3: a header with the name, sender and date, Download and Close,
-        // and a time label that can be read across the room.
         var title = inOverlay(card, "videoViewerTitle")
         verify(title, "the expanded view has no title")
         compare(title.text, "clip.mp4")
@@ -531,7 +475,6 @@ TestCase {
         var overlay = overlayOf(card)
         tryCompare(overlay, "opened", true)
 
-        // Play to the real end (6 s at 4×).
         player.playbackRate = 4.0
         player.play()
         tryVerify(function() {
@@ -550,8 +493,6 @@ TestCase {
         verify(!replay.visible)
         verify(overlay.opened)
 
-        // Ending again and then leaving the view finishes inline: the card
-        // closes to the cover, which offers Replay.
         player.pause()
         card.handleEndOfMedia()
         verify(overlay.opened)
@@ -560,7 +501,6 @@ TestCase {
         compare(player.source.toString(), "")
     }
 
-    // Inline, the end still returns to the cover, now marked watched.
     function test_anInlineEndReturnsToTheCoverMarkedWatched() {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         var spyClose = createTemporaryObject(spyComponent, test,
@@ -569,12 +509,9 @@ TestCase {
         card.handleEndOfMedia()
         compare(spyClose.count, 1)
         compare(playback.finished, ["$video"])
-        // A watched video is not also "resume from the end".
         compare(playback.remembered.length, 0)
     }
 
-    // The overlay's Up/Down go through the same path as the slider now:
-    // remembered, and an explicit unmute of a muted-start card.
     function test_theExpandedViewsVolumeKeysAreRemembered() {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         mouseClick(findChild(barOf(card), "videoExpandButton"))
@@ -590,7 +527,6 @@ TestCase {
         overlay.close()
     }
 
-    // ---- pwcrash: every play goes through the audio gate when there is one
     function test_playsGoThroughTheAudioGateWhenThereIsOne() {
         gate.plays = 0
         gate.cancels = 0
@@ -606,21 +542,17 @@ TestCase {
         gate.playGivenUp(playerOf(card))
         compare(card.fetchState, "failed",
                 "a play the gate gave up on left the card spinning")
-        // It says why: not "this video cannot be played" (review R2-4).
         var why = findChild(card, "videoFailedText")
         verify(why && why.visible)
         verify(why.text.indexOf("sound system") >= 0,
                "the give-up reads as a broken video: " + why.text)
     }
 
-    // A play waiting on the gate is cancelled when the row leaves the
-    // screen, playing or not (review R2-3).
     QtObject {
         id: holdingGate
         property int plays: 0
         property int cancels: 0
         signal playGivenUp(var p)
-        // Holds every play: the player never starts.
         function play(p) { plays++ }
         function cancelPlay(p) { cancels++ }
     }
@@ -637,10 +569,6 @@ TestCase {
                "a held play survived the row leaving the screen")
     }
 
-    // ---- M-F02: a slow Play that completes off screen stays paused ----
-    // The fetch that a Play started can finish after the reader scrolled the
-    // row away. start() used to acquire audibility and play regardless, so
-    // a video nobody could see started making sound.
     function test_aFetchThatLandsOffScreenGivesAPausedReadyCard() {
         holdingGate.plays = 0
         holdingGate.cancels = 0
@@ -660,8 +588,6 @@ TestCase {
                "a fetch landing off screen claimed the audio")
         compare(card.fetchState, "idle")
     }
-    // The same landing on screen still plays: the gate is visibility, not a
-    // blanket refusal to start after a fetch.
     function test_aFetchThatLandsOnScreenStillPlays() {
         holdingGate.plays = 0
         test.qtAudio = holdingGate
@@ -674,9 +600,6 @@ TestCase {
         verify(playback.owns("owner-video"))
     }
 
-    // ---- M-F07: the spinner says which wait it is ----
-    // A file still downloading and a player still opening its local copy
-    // were one anonymous spinner; the download is not the decoder's buffer.
     function test_theSpinnerSaysDownloadingUntilTheFileIsHere() {
         bridge.holdFetch = true
         var card = createTemporaryObject(cardComponent, test,
@@ -693,10 +616,6 @@ TestCase {
         verify(!label.visible)
     }
 
-    // ---- M-F08: track menus only when there is a choice ----
-    // The fixture has one audio track and no subtitles, so no menu; the
-    // label falls back to the track's position when the container names
-    // nothing.
     function test_noTrackMenuWithoutAChoice() {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         var bar = barOf(card)
@@ -706,10 +625,6 @@ TestCase {
         compare(bar.trackLabel(null, 1), "Track 2")
     }
 
-    // ---- M-F06: a failure says which kind it is ----
-    // Every failure used to read "This video cannot be played" with a Retry,
-    // including a permanent server refusal and a file this device cannot
-    // decode, where retrying the same bytes changes nothing.
     function failureText(card) {
         var t = findChild(card, "videoFailedText")
         return t && t.visible ? t.text : ""
@@ -725,9 +640,6 @@ TestCase {
         verify(!findChild(card, "videoRetryButton").visible,
                "a permanent failure offers a Retry that cannot help")
     }
-    // Live 2026-10-26: a non-media "video" (bytes MediaBridge refuses to
-    // materialize, category "rejected") read "no longer available". It is
-    // the bytes, not the server: the format message, no Retry, Download.
     function test_bytesTheBridgeRefusesReadAsAFormatProblem() {
         bridge.holdFetch = true
         var card = createTemporaryObject(cardComponent, test,
@@ -759,10 +671,6 @@ TestCase {
         verify(findChild(card, "videoFailedDownloadButton").visible)
     }
 
-    // ---- M-F03: the expanded view owns playback while it is open ----
-    // The row under an expanded video can leave the viewport (resize, media
-    // reflow, a timeline update). The offscreen pause used to fire anyway and
-    // paused the video the user was watching full-size.
     function test_theExpandedViewIsNotPausedWhenItsRowLeavesTheScreen() {
         holdingGate.plays = 0
         holdingGate.cancels = 0
@@ -774,15 +682,12 @@ TestCase {
         card.rowOnScreen = false
         compare(holdingGate.cancels, c0,
                 "the hidden row paused the expanded view")
-        // Closing the view hands playback back to a row nobody can see:
-        // that pauses.
         overlayOf(card).close()
         tryVerify(function() { return !overlayOf(card).opened })
         verify(holdingGate.cancels > c0,
                "closing the view left an off-screen row playing")
     }
 
-    // ---- review R2-1: a player opened by a key takes the keys ----
     Component {
         id: timelineComponent
         Flickable {
@@ -793,8 +698,6 @@ TestCase {
             contentY: 600
             focus: true
             property alias card: hosted
-            // The timeline pages on Space (TimelinePane.qml); a key the card
-            // leaves unused reaches this.
             Keys.onSpacePressed: (event) => {
                 contentY += 300
                 event.accepted = true
@@ -818,7 +721,6 @@ TestCase {
         tryVerify(function() { return player.seekable && player.duration > 0 },
                   10000)
         tryCompare(player, "playbackState", MediaPlayer.PlayingState)
-        // What MessageDelegate does once the Loader has the card.
         card.focusControls()
         var play = findChild(barOf(card), "videoPlayPauseButton")
         verify(play.activeFocus, "focus did not move into the player")
@@ -830,7 +732,6 @@ TestCase {
         compare(flick.contentY, y0, "Space paged the timeline")
     }
 
-    // ---- review F2: the speed label fits at a large text scale ----
     function test_theSpeedButtonFitsItsLabelAtLargeText() {
         AppTheme.textScale = 1.5
         var host = createTemporaryObject(twoBarsComponent, test)
@@ -846,7 +747,6 @@ TestCase {
         }
     }
 
-    // ---- review F5: a second click on the speed button closes the menu
     function test_aSecondClickOnTheSpeedButtonClosesTheMenu() {
         var host = createTemporaryObject(twoBarsComponent, test)
         var button = findChild(host.first, "videoSpeedButton")
@@ -859,7 +759,6 @@ TestCase {
         verify(!menu.visible, "the second click reopened the menu")
     }
 
-    // ---- review F6: right-to-left keeps the time axis and opens inward
     Component {
         id: rtlComponent
         Item {
@@ -901,7 +800,6 @@ TestCase {
         menu.close()
     }
 
-    // ---- review F8: Down keeps a mute; Up unmutes ----
     function test_downKeepsTheMuteAndUpLiftsIt() {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         var bar = barOf(card)
@@ -916,7 +814,6 @@ TestCase {
         verify(!audio.muted, "Up did not unmute")
     }
 
-    // ---- review F10: no scrim over the expanded stage ----
     function test_theExpandedBarDrawsNoScrimOverTheStage() {
         var host = createTemporaryObject(twoBarsComponent, test)
         verify(findChild(host.first, "videoBarScrim").visible)
@@ -924,7 +821,6 @@ TestCase {
         verify(!findChild(host.second, "videoBarScrim").visible)
     }
 
-    // ---- review F4: Download answers inside the expanded view ----
     function test_theExpandedViewConfirmsADownload() {
         var card = loadedCard({ width: 480, height: 270, y: 300,
                                 senderName: "Fixture Sender",
@@ -936,19 +832,15 @@ TestCase {
         var notice = inOverlay(card, "videoViewerSaveNotice")
         verify(notice, "the expanded view has no save confirmation")
         verify(!notice.visible)
-        // Another video's save is not this view's answer.
         bridge.saveFinished(true, "Saved.", "$other")
         verify(!notice.visible)
         bridge.saveFinished(true, "Saved.", "$video")
         verify(notice.visible)
         compare(notice.text, "Saved.")
-        // It keeps the header up while it is there, even mid-playback.
         verify(overlay.chromeShown)
         overlay.close()
     }
 
-    // ---- review R3-1: the card reports focus held by any of its controls,
-    // which is what its host reads on close to hand focus back to the cover.
     function test_theCardKnowsWhenFocusIsInsideItOnClose() {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         var focusAtClose = null
@@ -968,7 +860,6 @@ TestCase {
                "on close the card said nothing inside it had focus")
     }
 
-    // ---- swarm C20 round 1 ----
     Component {
         id: lateBarComponent
         Item {
@@ -985,15 +876,12 @@ TestCase {
             VideoControlBar {
                 id: lbar
                 width: 600
-                // The expanded view's order: the bar exists first, the
-                // player arrives when the view opens.
                 player: parent.target
                 audio: lao
             }
         }
     }
 
-    // C20-F02: a view opened while PAUSED drew the handle at 0.
     function test_aBarGivenALoadedPausedPlayerDrawsTheHandleAtTheClock() {
         var host = createTemporaryObject(lateBarComponent, test)
         var mp = host.player
@@ -1010,7 +898,6 @@ TestCase {
         verify(slider.visualPosition > 0.2)
     }
 
-    // C20-F05/D16: Return and Enter click the focused bar button.
     function test_returnActivatesTheFocusedBarButton() {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         var player = playerOf(card)
@@ -1024,7 +911,6 @@ TestCase {
         tryCompare(player, "playbackState", MediaPlayer.PlayingState)
     }
 
-    // C20-F09/D08: every bar button explains itself on hover.
     function test_everyBarButtonHasATooltip() {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         var bar = barOf(card)
@@ -1037,7 +923,6 @@ TestCase {
         }
     }
 
-    // C20-D05: the corner close is clear of the row's top-right toolbar.
     function test_theCornerCloseIsNotInTheRowToolbarsCorner() {
         var card = createTemporaryObject(cardComponent, test,
                                          { width: 260, height: 440 })
@@ -1047,8 +932,6 @@ TestCase {
                "the close button is at x=" + close.x + " of " + card.width)
     }
 
-    // C20-F04: the second click of a double-click on the cover must not
-    // pause the card the first one created.
     function test_aClickRightAfterTheCardAppearsDoesNotPauseIt() {
         var card = createTemporaryObject(cardComponent, test,
                                          { width: 480, height: 270, y: 300 })
@@ -1061,7 +944,6 @@ TestCase {
                "the early click paused the player")
     }
 
-    // C20-D03: a mouse-started card holds keyboard focus.
     function test_aNewCardHoldsKeyboardFocusForSpace() {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         verify(card.activeFocus, "the card does not hold focus")
@@ -1071,8 +953,6 @@ TestCase {
         tryCompare(player, "playbackState", MediaPlayer.PausedState)
     }
 
-    // Review r1: the card forwards only player keys, so Up/Down/Home keep
-    // scrolling the timeline and do not change the volume.
     function test_theCardLeavesUpDownAndHomeToTheTimeline() {
         var card = loadedCard({ width: 480, height: 270, y: 300 })
         verify(card.activeFocus)
@@ -1085,7 +965,6 @@ TestCase {
         verify(player.position >= 3000, "Home was taken by the card")
     }
 
-    // Review r1: the corner close has a tooltip and the scrim button type.
     function test_theCornerCloseHasATooltip() {
         var card = createTemporaryObject(cardComponent, test,
                                          { width: 260, height: 440 })

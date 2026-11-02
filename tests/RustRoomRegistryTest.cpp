@@ -1,6 +1,3 @@
-// The ordered room registry fed by the Rust bridge's room-list protocol, and
-// the bound on the background timeline mirror. Invariant: only the producer
-// that owns the index space may define it.
 
 #include "matrix/EventPreview.h"
 #include "matrix/RoomRecencyRule.h"
@@ -36,7 +33,6 @@ QJsonObject roomJson(const QString &id, const QString &name = QString())
     return obj;
 }
 
-// `{ id, last_activity_ms }` — the whole shape of a room_activity entry.
 QJsonObject activityJson(const QString &id, qint64 ms)
 {
     QJsonObject obj;
@@ -45,9 +41,6 @@ QJsonObject activityJson(const QString &id, qint64 ms)
     return obj;
 }
 
-// A room payload that already carries a stamp, so a test can seed the
-// registry the way production does — through a room-list payload — rather
-// than by writing RoomInfo::lastActivity, which is not a public writer.
 QJsonObject roomJsonAt(const QString &id, qint64 ms)
 {
     QJsonObject obj = roomJson(id);
@@ -62,10 +55,6 @@ QJsonObject spaceJson(const QString &id)
     return obj;
 }
 
-// A Space the user has been INVITED to but has not joined. It reaches
-// `m_rooms` from the room payload (which carries Joined | Invited | Knocked)
-// and is absent from the space list, which Rust builds from
-// `joined_space_rooms()`.
 QJsonObject invitedSpaceJson(const QString &id)
 {
     QJsonObject obj = spaceJson(id);
@@ -73,7 +62,6 @@ QJsonObject invitedSpaceJson(const QString &id)
     return obj;
 }
 
-// `count` rooms, ids 0..count-1, in index order.
 QJsonArray rooms(int count)
 {
     QJsonArray array;
@@ -106,19 +94,13 @@ QJsonObject removeDiff(int index, const QString &expectedId)
     return obj;
 }
 
-} // namespace
+}
 
 class RustRoomRegistryTest : public QObject
 {
     Q_OBJECT
 
 private Q_SLOTS:
-    // break-it s03: a room named "N<RLO>edirrevo-ltr" showed its tail
-    // reversed in the header, the list and the composer placeholder. The
-    // registry is where every one of those reads the name from, so the
-    // explicit direction controls go here, and only they: an RTL name, its
-    // implicit marks and an emoji ZWJ sequence pass through. Fails on the old
-    // registry, which copied the name verbatim.
     void aRoomNameLosesItsDirectionOverrides()
     {
         const QString rlo = QString(QChar(0x202E));
@@ -133,7 +115,6 @@ private Q_SLOTS:
         QCOMPARE(room.name, QStringLiteral("Nedirrevo-ltr"));
         QCOMPARE(room.inviterDisplayName, QStringLiteral("Mallory"));
 
-        // Every embedding, override and isolate; nothing else.
         QString all;
         for (char16_t u = 0x202A; u <= 0x202E; ++u)
             all.append(QChar(u));
@@ -152,10 +133,6 @@ private Q_SLOTS:
         QCOMPARE(room.name, hebrew);
     }
 
-    // A call row (m.call.invite / m.rtc.notification, the only kinds that
-    // reach C++ as CallEvent; MatrixRTC membership churn is filtered out of
-    // every timeline) raises the room but never replaces its preview, whoever
-    // sent it. Virtual rows do neither.
     void aCallRowRaisesTheRoomButNeverReplacesThePreview()
     {
         TimelineEvent call;
@@ -178,9 +155,6 @@ private Q_SLOTS:
         QVERIFY(roomrecency::replacesPreview(text));
     }
 
-    // Rebuilding the index base from a `client.rooms()` snapshot (whole store,
-    // store order) renumbers every position the SDK is about to address, so
-    // the next diff fails.
     void aSnapshotUsedAsTheIndexBaseMakesTheNextDiffFail()
     {
         QHash<QString, RoomInfo> map;
@@ -191,23 +165,18 @@ private Q_SLOTS:
         QCOMPARE(order.size(), 20);
         QCOMPARE(order.at(3), roomId(3));
 
-        // The state-store snapshot: 40 rooms, not in the list's order.
         QJsonArray snapshot;
         for (int i = 39; i >= 0; --i)
             snapshot.append(roomJson(roomId(i)));
-        applyIndexReset(registry, snapshot); // what the old code did
+        applyIndexReset(registry, snapshot);
 
         QVERIFY2(order.at(3) != roomId(3),
                  "the fixture did not actually drift the index space");
 
-        // The SDK's "index 3 is room 3" now addresses a different room and is
-        // rejected.
         QVERIFY2(!applyRoomListDiff(registry,
                                     setDiff(3, roomId(3), QStringLiteral("new"))),
                  "the drifted registry accepted a Set aimed at another room");
 
-        // A positional delete names its target, so it is refused rather than
-        // deleting whatever sits at index 1.
         const QString bystander = order.at(1);
         QVERIFY(bystander != roomId(1));
         QVERIFY(!applyRoomListDiff(registry, removeDiff(1, roomId(1))));
@@ -215,8 +184,6 @@ private Q_SLOTS:
                  "a positional delete removed a room the SDK never named");
     }
 
-    // A snapshot updates the room map and leaves the index space alone, so the
-    // next diff still resolves.
     void aSnapshotLeavesTheIndexSpaceAloneSoTheNextSetStillResolves()
     {
         QHash<QString, RoomInfo> map;
@@ -232,19 +199,16 @@ private Q_SLOTS:
         applySnapshot(registry, snapshot);
 
         QCOMPARE(order, before);
-        QCOMPARE(map.size(), 40); // the snapshot's extra rooms are still known
+        QCOMPARE(map.size(), 40);
 
         QVERIFY(applyRoomListDiff(registry, setDiff(3, roomId(3), QStringLiteral("renamed"))));
         QCOMPARE(order.at(3), roomId(3));
         QCOMPARE(map.value(roomId(3)).name, QStringLiteral("renamed"));
         QCOMPARE(order.size(), 20);
-        // Nothing was deleted: every id the reset established is still held.
         for (const QString &id : before)
             QVERIFY2(map.contains(id), qPrintable(id));
     }
 
-    // A positional delete that cannot name the room the registry holds at
-    // that index must be refused.
     void aRemoveIsRefusedUnlessItNamesTheRoomTheRegistryHolds()
     {
         QHash<QString, RoomInfo> map;
@@ -252,18 +216,15 @@ private Q_SLOTS:
         Registry registry{map, order};
         applyIndexReset(registry, rooms(5));
 
-        // Names the room we hold: applied.
         QVERIFY(applyRoomListDiff(registry, removeDiff(1, roomId(1))));
         QCOMPARE(order.size(), 4);
         QVERIFY(!map.contains(roomId(1)));
 
-        // Names a different room: refused, and NOTHING is removed.
         const QStringList after = order;
         QVERIFY(!applyRoomListDiff(registry, removeDiff(1, roomId(99))));
         QCOMPARE(order, after);
         QCOMPARE(map.size(), 4);
 
-        // Names nothing at all (the old wire format): also refused.
         QVERIFY(!applyRoomListDiff(registry, removeDiff(1, QString())));
         QCOMPARE(order, after);
         QCOMPARE(map.size(), 4);
@@ -297,8 +258,6 @@ private Q_SLOTS:
         QCOMPARE(order, expected);
     }
 
-    // A snapshot must not delete a room the index space still names: only a
-    // diff may remove one of those, and it will.
     void aSnapshotNeverDropsARoomTheIndexSpaceStillNames()
     {
         QHash<QString, RoomInfo> map;
@@ -315,9 +274,6 @@ private Q_SLOTS:
             QVERIFY2(map.contains(roomId(i)), qPrintable(roomId(i)));
     }
 
-    // The classic-sync fallback has no diffs at all, so there is no index
-    // space and the snapshot IS the room set — including removals, or a room
-    // the user left would stay in the list until sign-out.
     void withNoIndexSpaceTheSnapshotDefinesTheRoomSet()
     {
         QHash<QString, RoomInfo> map;
@@ -336,8 +292,6 @@ private Q_SLOTS:
         QVERIFY(!map.contains(roomId(1)));
     }
 
-    // Spaces are not in the SDK's room list at all, so neither a reset of it
-    // nor a snapshot that omits them may drop the Space hierarchy.
     void spacesSurviveBothAResetAndASnapshot()
     {
         QHash<QString, RoomInfo> map;
@@ -359,8 +313,6 @@ private Q_SLOTS:
         QVERIFY(map.contains(QStringLiteral("!space:example.org")));
     }
 
-    // The duplicate check is against the index space, not the room map: a
-    // room already known from a snapshot (or a Space) can still be inserted.
     void aRoomAlreadyKnownFromASnapshotCanStillEnterTheIndexSpace()
     {
         QHash<QString, RoomInfo> map;
@@ -378,7 +330,6 @@ private Q_SLOTS:
         expected << roomId(0);
         QCOMPARE(order, expected);
 
-        // A genuine duplicate — already IN the index space — is still refused.
         QVERIFY(!applyRoomListDiff(registry, push));
         QCOMPARE(order.size(), 1);
     }
@@ -402,8 +353,6 @@ private Q_SLOTS:
         QCOMPARE(map.size(), 2);
     }
 
-    // A Set that would put one room in two positions must be refused; that
-    // check, too, is against the index space.
     void aSetThatWouldDuplicateAnIndexedRoomIsRefused()
     {
         QHash<QString, RoomInfo> map;
@@ -416,9 +365,6 @@ private Q_SLOTS:
         QCOMPARE(order.at(0), roomId(0));
     }
 
-    // A present-but-empty preview must not clobber one already learned from
-    // an open timeline: Rust sends "" whenever the SDK has no latest event
-    // yet, and set/insert diffs arrive on every unread/order change.
     void theThreadOnlyUnreadFlagsFollowThePayloadAndNeverLatch()
     {
         QHash<QString, RoomInfo> map;
@@ -435,8 +381,6 @@ private Q_SLOTS:
         QVERIFY(map.value(roomId(0)).unreadThreadsOnly);
         QVERIFY(map.value(roomId(0)).mentionInThreads);
 
-        // A later emission without the fields (the thread was read) clears
-        // them: Rust recomputes both on every emission.
         QJsonArray second;
         second.append(roomJson(roomId(0)));
         applySnapshot(registry, second);
@@ -444,8 +388,6 @@ private Q_SLOTS:
         QVERIFY(!map.value(roomId(0)).mentionInThreads);
     }
 
-    // Finding 65: the m.lowpriority tag reaches RoomInfo, and an emission
-    // without it (the tag was removed) clears it rather than latching.
     void theLowPriorityTagFollowsThePayloadAndNeverLatches()
     {
         QHash<QString, RoomInfo> map;
@@ -461,9 +403,6 @@ private Q_SLOTS:
         QVERIFY(!map.value(roomId(0)).lowPriority);
     }
 
-    // The 1:1 DM rule (calls::oneToOneDmPeer) needs joined + invited members
-    // as matrix-sdk counts them; an older bridge sends only the joined count,
-    // and a payload without either keeps what was known.
     void theActiveMemberCountReachesTheRoom()
     {
         QHash<QString, RoomInfo> map;
@@ -491,8 +430,6 @@ private Q_SLOTS:
         QVERIFY(a != b);
     }
 
-    // A tag change must be a change: replaceRoom skips dataChanged for an
-    // equal room, so a row would keep its old section.
     void aLowPriorityChangeIsAChangeButACounterStampIsNot()
     {
         RoomInfo a;
@@ -500,16 +437,11 @@ private Q_SLOTS:
         RoomInfo b = a;
         b.lowPriority = true;
         QVERIFY(a != b);
-        // The stamp moves on every payload; counting it would announce every
-        // room on every room-list diff.
         RoomInfo c = a;
         c.countsWrittenAtMs = 12345;
         QVERIFY(a == c);
     }
 
-    // Finding 4: a consumer must be able to tell counters written after a row
-    // it holds from counters that predate it. Only a payload carrying the
-    // counters stamps them.
     void onlyAPayloadCarryingTheCountersStampsThem()
     {
         QHash<QString, RoomInfo> map;
@@ -528,8 +460,6 @@ private Q_SLOTS:
         QVERIFY2(stamped >= before, "a payload with counters did not stamp them");
         QVERIFY(stamped <= QDateTime::currentMSecsSinceEpoch());
 
-        // A payload without counters (a name change, say) keeps the old stamp
-        // and the old counters.
         applySnapshot(registry, QJsonArray{ roomJson(roomId(0), QStringLiteral("Renamed")) });
         QCOMPARE(map.value(roomId(0)).countsWrittenAtMs, stamped);
         QCOMPARE(map.value(roomId(0)).highlightCount, 1);
@@ -557,9 +487,6 @@ private Q_SLOTS:
         QCOMPARE(map.value(roomId(0)).lastMessagePreview, QStringLiteral("hello"));
     }
 
-    // An undecryptable last message crosses as a FLAG (never text): the blank
-    // row shows the room list's placeholder, a known preview is never replaced
-    // by it, and a body that merely reads like the placeholder is just a body.
     void anUndecryptableFlagFillsOnlyABlankRowWithThePlaceholder()
     {
         QHash<QString, RoomInfo> map;
@@ -584,10 +511,6 @@ private Q_SLOTS:
         QCOMPARE(map.value(roomId(1)).lastMessagePreview, QStringLiteral("hello"));
     }
 
-    // Break-it s04: a DM just accepted showed a blank preview line. The SDK's
-    // latest event there is our own join, which has no body; it crosses as a
-    // FLAG and fills a blank row with the room list's own words, never a
-    // preview the row already has.
     void anOwnJoinFlagFillsOnlyABlankRow()
     {
         QHash<QString, RoomInfo> map;
@@ -604,7 +527,6 @@ private Q_SLOTS:
                  matrix::preview::ownJoinPreview());
         QVERIFY(!matrix::preview::ownJoinPreview().isEmpty());
 
-        // A row that already says something keeps it.
         QJsonObject known = roomJson(roomId(1));
         known.insert(QStringLiteral("last_message_preview"), QStringLiteral("hello"));
         QJsonArray second;
@@ -618,7 +540,6 @@ private Q_SLOTS:
         applySnapshot(registry, third);
         QCOMPARE(map.value(roomId(1)).lastMessagePreview, QStringLiteral("hello"));
 
-        // No flag, no words.
         QJsonObject plain = roomJson(roomId(2));
         plain.insert(QStringLiteral("last_message_preview"), QString());
         QJsonArray fourth;
@@ -627,7 +548,6 @@ private Q_SLOTS:
         QVERIFY(map.value(roomId(2)).lastMessagePreview.isEmpty());
     }
 
-    // ── The background timeline mirror's bound ──────────────────────────
     void theBackgroundMirrorStopsAtItsCapAndKeepsTheNewest()
     {
         QList<TimelineEvent> mirror;
@@ -638,8 +558,6 @@ private Q_SLOTS:
             matrix::rust_timeline::appendBounded(mirror, event);
         }
         QCOMPARE(mirror.size(), cap);
-        // The NEWEST cap events, in order: a preview and a pre-snapshot
-        // render both want the tail, never the head.
         QCOMPARE(mirror.first().eventId,
                  QStringLiteral("$e%1:example.org").arg(cap * 4 - cap));
         QCOMPARE(mirror.last().eventId,
@@ -648,32 +566,24 @@ private Q_SLOTS:
 
     void theMirrorBoundIsSmallEnoughToBoundTheDuplicateScan()
     {
-        // The per-event dedup scan is O(cap), so the cap stays small.
         QVERIFY(matrix::rust_timeline::kBackgroundMirrorCap > 0);
         QVERIFY2(matrix::rust_timeline::kBackgroundMirrorCap <= 200,
                  "the background mirror bound has grown into a memory and "
                  "per-event-scan cost again");
     }
 
-    // ── An opened room's mirror goes back under the bound ────────────────
-    //
-    // Opening a room replaces the ring with the SDK snapshot and grows it per
-    // diff; trimming brings it back to the bound.
     void anOpenedMirrorIsTrimmedToTheBoundKeepingTheNewestRows()
     {
         const int cap = matrix::rust_timeline::kBackgroundMirrorCap;
         QList<TimelineEvent> mirror;
-        for (int i = 0; i < cap * 15; ++i) {   // ~900 rows, the measured fill
+        for (int i = 0; i < cap * 15; ++i) {
             TimelineEvent event;
             event.eventId = QStringLiteral("$e%1:example.org").arg(i);
-            mirror.append(event);              // NOT appendBounded: an open
-        }                                      // writes the snapshot whole
+            mirror.append(event);
+        }
         QCOMPARE(matrix::rust_timeline::trimToBackgroundBound(mirror),
                  qsizetype(cap * 15 - cap));
         QCOMPARE(mirror.size(), cap);
-        // The NEWEST rows survive, contiguous and in order — the same end
-        // appendBounded() keeps, because a preview and a pre-snapshot render
-        // both want the tail.
         QCOMPARE(mirror.first().eventId,
                  QStringLiteral("$e%1:example.org").arg(cap * 15 - cap));
         QCOMPARE(mirror.last().eventId,
@@ -706,18 +616,12 @@ private Q_SLOTS:
 
     void trimmingAnEmptyMirrorIsANoOp()
     {
-        // Every room the user has never opened has one of these, and the
-        // retirement path runs over whatever it finds.
         QList<TimelineEvent> mirror;
         QCOMPARE(matrix::rust_timeline::trimToBackgroundBound(mirror),
                  qsizetype(0));
         QVERIFY(mirror.isEmpty());
     }
 
-    // ── Leaving a Space ─────────────────────────────────────────────────
-    //
-    // `space_list_reset` is complete, so a Space missing from it has been left
-    // and its entry is erased, not merely blanked.
     void aSpaceAbsentFromACompleteSpaceListIsErasedNotBlanked()
     {
         const QString spaceId = QStringLiteral("!space:example.org");
@@ -732,19 +636,14 @@ private Q_SLOTS:
         QVERIFY(map.value(spaceId).isSpace);
         QVERIFY(map.value(spaceId).membership == RoomInfo::Joined);
 
-        // The user leaves it: the next complete list simply does not name it.
         QCOMPARE(retireAbsentSpaces(registry, QSet<QString>{}), 1);
 
-        // Erased, not "present with no children" (that would still be a tile).
         QVERIFY2(!map.contains(spaceId),
                  "a Space the user has left survived a complete space list");
-        // The rooms it contained are not Spaces and are not its property.
         QVERIFY(map.contains(roomId(0)));
         QVERIFY(map.contains(roomId(1)));
     }
 
-    // An invited Space is absent from the space list by construction
-    // (`joined_space_rooms()`), so absence alone must not erase it.
     void anInvitedSpaceSurvivesASpaceListThatCannotMentionIt()
     {
         const QString invited = QStringLiteral("!invited-space:example.org");
@@ -762,7 +661,6 @@ private Q_SLOTS:
                  "the fixture is wrong: an unindexed space is the whole "
                  "point, or the index guard would mask the defect");
 
-        // The space list cannot name it, because the user has not joined it.
         QCOMPARE(retireAbsentSpaces(registry, QSet<QString>{}), 0);
 
         QVERIFY2(map.contains(invited),
@@ -786,16 +684,11 @@ private Q_SLOTS:
 
         QCOMPARE(retireAbsentSpaces(registry, QSet<QString>{ spaceId }), 0);
         QVERIFY(map.contains(spaceId));
-        // The hierarchy the caller just wrote is not disturbed either: this
-        // function is the REMOVAL half and nothing else.
         QCOMPARE(map.value(spaceId).childRoomIds, QStringList{ roomId(0) });
         QCOMPARE(map.value(spaceId).parentSpaceIds,
                  QStringList{ QStringLiteral("!parent:example.org") });
     }
 
-    // Nothing may leave `rooms` while `order` still names it: `order` is
-    // addressed by index. Spaces are normally never indexed; the guard keeps
-    // an indexed one blanked instead of erased.
     void aSpaceTheIndexSpaceStillNamesIsBlankedAndNeverErased()
     {
         const QString spaceId = QStringLiteral("!space:example.org");
@@ -804,7 +697,6 @@ private Q_SLOTS:
         Registry registry{map, order};
 
         applyIndexReset(registry, rooms(2));
-        // A producer that DOES put a Space in the index space.
         QJsonObject push = diff(QStringLiteral("room_list_push_back"));
         push.insert(QStringLiteral("room"), spaceJson(spaceId));
         QVERIFY(applyRoomListDiff(registry, push));
@@ -816,26 +708,19 @@ private Q_SLOTS:
 
         const int erased = retireAbsentSpaces(registry, QSet<QString>{});
 
-        // The consequence is asserted before the count, so a regression
-        // reports the harm rather than an arithmetic mismatch.
         QVERIFY2(map.contains(spaceId),
                  "an indexed entry was erased from the room map; the index "
                  "space now names a room that does not exist");
         QCOMPARE(erased, 0);
         QCOMPARE(order.size(), 3);
         QCOMPARE(order.at(2), spaceId);
-        // Blanked exactly as the old code blanked every Space — the entry's
-        // lifetime belongs to the diffs that own the index space.
         QVERIFY(map.value(spaceId).childRoomIds.isEmpty());
         QVERIFY(map.value(spaceId).parentSpaceIds.isEmpty());
 
-        // The index space is still intact and addressable, which is the
-        // property the guard exists to protect.
         QVERIFY2(applyRoomListDiff(registry,
                                    setDiff(1, roomId(1), QStringLiteral("new"))),
                  "the index space stopped resolving after a space list");
         QCOMPARE(map.value(roomId(1)).name, QStringLiteral("new"));
-        // And the diffs that DO own it can still retire it.
         QVERIFY(applyRoomListDiff(registry, removeDiff(2, spaceId)));
         QVERIFY(!map.contains(spaceId));
         QCOMPARE(order.size(), 2);
@@ -848,11 +733,9 @@ private Q_SLOTS:
         Registry registry{map, order};
 
         applyIndexReset(registry, rooms(3));
-        // A room known from the snapshot lane but not the index space.
         applySnapshot(registry, QJsonArray{ roomJson(roomId(9)) });
         QVERIFY(map.contains(roomId(9)));
 
-        // An empty joined-Space set says nothing whatever about rooms.
         QCOMPARE(retireAbsentSpaces(registry, QSet<QString>{}), 0);
         QCOMPARE(map.size(), 4);
         for (int i = 0; i < 3; ++i)
@@ -861,8 +744,6 @@ private Q_SLOTS:
         QCOMPARE(order.size(), 3);
     }
 
-    // Production order: the stale room-list payload is ingested first, then
-    // the harvested activity stamp arrives and must move the room.
     void aHarvestedStampMovesARoomTheRoomListPayloadLeftStale()
     {
         QHash<QString, RoomInfo> map;
@@ -875,8 +756,6 @@ private Q_SLOTS:
         applyIndexReset(registry, QJsonArray{ roomJsonAt(roomId(0), twoDaysAgo) });
         QCOMPARE(map.value(roomId(0)).lastActivity.toMSecsSinceEpoch(), twoDaysAgo);
 
-        // The room list re-states what it knew — which is the stale value, over
-        // and over, for as long as the SDK's latest event does not move.
         applyRoomListDiff(registry, [&] {
             QJsonObject obj = diff(QStringLiteral("room_list_set"));
             obj.insert(QStringLiteral("index"), 0);
@@ -891,9 +770,6 @@ private Q_SLOTS:
         QCOMPARE(map.value(roomId(0)).lastActivity.toMSecsSinceEpoch(), twentyMins);
     }
 
-    // The sort key's one writer is monotonic. A replayed, older or missing
-    // stamp reports no change, because the caller signals roomUpdated per
-    // returned id.
     void aStampThatDoesNotMoveTheRoomReportsNothing()
     {
         QHash<QString, RoomInfo> map;
@@ -910,8 +786,6 @@ private Q_SLOTS:
         QCOMPARE(map.value(roomId(0)).lastActivity.toMSecsSinceEpoch(), now);
     }
 
-    // A stamp for an unknown room creates no row: `order` is the SDK's index
-    // space and only a room-list diff may grow it.
     void aStampForAnUnknownRoomCreatesNothing()
     {
         QHash<QString, RoomInfo> map;
@@ -927,8 +801,6 @@ private Q_SLOTS:
         QCOMPARE(order.size(), 2);
     }
 
-    // It carries a timestamp and nothing else: a room's name, membership,
-    // preview and position are untouched by it.
     void aStampChangesTheSortKeyAndNothingElse()
     {
         QHash<QString, RoomInfo> map;
@@ -950,10 +822,6 @@ private Q_SLOTS:
         QCOMPARE(order, (QStringList{ roomId(0), roomId(1) }));
     }
 
-    // Break-it B084: the newest event cannot be decrypted, so the SDK's latest
-    // event (which skips it) still previews an OLDER message. A flagged stamp
-    // that moves the room replaces that text with the placeholder; a flagged
-    // stamp that moves nothing, or an unflagged one, leaves it.
     void aNewerUndecryptableEventReplacesAStalePreview()
     {
         QHash<QString, RoomInfo> map;
@@ -966,27 +834,22 @@ private Q_SLOTS:
         seeded.insert(QStringLiteral("last_message_preview"), QStringLiteral("hello from bk035"));
         applyIndexReset(registry, QJsonArray{ seeded });
 
-        // The harvest: newer stamp, flagged.
         QJsonObject flagged = activityJson(roomId(0), newer);
         flagged.insert(QStringLiteral("last_message_undecryptable"), true);
         QCOMPARE(applyRoomActivity(registry, QJsonArray{ flagged }), QStringList{ roomId(0) });
         QCOMPARE(map.value(roomId(0)).lastMessagePreview, matrix::preview::undecryptablePreview());
 
-        // A later room payload repeats the flag at the same stamp, no text: kept.
         QJsonObject payload = roomJsonAt(roomId(0), newer);
         payload.insert(QStringLiteral("last_message_preview"), QString());
         payload.insert(QStringLiteral("last_message_undecryptable"), true);
         applySnapshot(registry, QJsonArray{ payload });
         QCOMPARE(map.value(roomId(0)).lastMessagePreview, matrix::preview::undecryptablePreview());
 
-        // The event decrypts: Rust sends its text, which wins.
         QJsonObject decrypted = roomJsonAt(roomId(0), newer);
         decrypted.insert(QStringLiteral("last_message_preview"), QStringLiteral("the new one"));
         applySnapshot(registry, QJsonArray{ decrypted });
         QCOMPARE(map.value(roomId(0)).lastMessagePreview, QStringLiteral("the new one"));
 
-        // A flag that does not move the room (not newer than what the row
-        // knows) never replaces a preview.
         QJsonObject stale = roomJsonAt(roomId(0), older);
         stale.insert(QStringLiteral("last_message_preview"), QString());
         stale.insert(QStringLiteral("last_message_undecryptable"), true);
@@ -995,7 +858,6 @@ private Q_SLOTS:
         QVERIFY(applyRoomActivity(registry, QJsonArray{ flagged }).isEmpty());
         QCOMPARE(map.value(roomId(0)).lastMessagePreview, QStringLiteral("the new one"));
 
-        // The same newer payload path (room payload first, no harvest yet).
         QJsonObject seeded1 = roomJsonAt(roomId(1), older);
         seeded1.insert(QStringLiteral("last_message_preview"), QStringLiteral("old text"));
         applySnapshot(registry, QJsonArray{ seeded1 });

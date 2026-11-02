@@ -1,9 +1,3 @@
-// The local-session repair card: after a classified restore/login failure the
-// repair action is invocable without typing, and targets the account that
-// failed, never raw form text or (during add-account) the active account. See
-// qml/LoginScreen.qml and qml/AccountMenu.qml. Classification comes from the
-// Rust backend in production; here it is driven through the public
-// AppController::setLocalSessionFailure(), with no test-only QML invokable.
 
 #include <QtTest/QtTest>
 
@@ -29,7 +23,7 @@
 
 namespace {
 constexpr int kSignalTimeoutMs = 5000;
-} // namespace
+}
 
 class LoginRepairQmlTest : public QObject
 {
@@ -63,10 +57,6 @@ private:
         return findItem(m_window->contentItem(), QLatin1String(name));
     }
 
-    // For items that only exist after a Popup/Dialog opens: popup content
-    // reparents into Overlay.overlay and may not be discoverable right after
-    // open(), so retry the lookup itself. QTRY_VERIFY's bare `return` cannot
-    // be used in a pointer-returning helper, so this polls by hand.
     QQuickItem *waitForItem(const char *name) const
     {
         QQuickItem *found = item(name);
@@ -79,10 +69,6 @@ private:
         return found;
     }
 
-    // A Dialog is a QQuickPopup (a QObject, not a QQuickItem), so it is found
-    // with findChild<QObject*>; item()/waitForItem() reach only what is inside
-    // it. This retries the lookup, not the open state: callers still poll
-    // `visible` after open().
     QObject *waitForObject(const char *name) const
     {
         QObject *found = m_window->findChild<QObject *>(QLatin1String(name));
@@ -98,9 +84,6 @@ private:
     void clickItem(QQuickItem *target)
     {
         QVERIFY(target);
-        // Let layout settle before reading geometry: a new reasonCode resizes
-        // the card and can shift everything below it across several polish
-        // passes, and a click at stale coordinates silently misses.
         QCoreApplication::processEvents();
         QTest::qWait(1);
         QCoreApplication::processEvents();
@@ -111,10 +94,6 @@ private:
         QCoreApplication::processEvents();
     }
 
-    // Retry the click, not just the wait: the trigger button becomes visible
-    // in the same beat as the click, and Layouts do not guarantee hit-testable
-    // geometry until it has been polished visible, so a click can silently
-    // miss.
     void openDialogVia(QQuickItem *button)
     {
         QVERIFY(button);
@@ -141,8 +120,6 @@ private:
             .arg(flick->property("contentHeight").toReal())));
     }
 
-    // setLocalSessionFailure() is public so a C++ test can drive the
-    // classification without a test-only QML invokable.
     void injectFailure(const QString &reasonCode, const QString &userId,
                        const QString &homeserver)
     {
@@ -161,8 +138,6 @@ private:
             m_controller->findChild<MatrixClient *>());
     }
 
-    // Either of the screen's two error labels: under the password form, or
-    // in its place when there is no form.
     QQuickItem *shownLoginError() const
     {
         for (const char *name : { "loginErrorLabel", "loginErrorLabelNoForm" }) {
@@ -184,8 +159,6 @@ private slots:
             QStringLiteral("login-repair-qml-test"));
         QSettings().clear();
 
-        // No saved session: startup lands directly on LoginScreen, the same
-        // state a failed startup restore settles into.
         m_controller = new AppController(AppController::MockBackend);
         m_engine = new QQmlApplicationEngine;
         connect(m_engine, &QQmlEngine::warnings, this,
@@ -226,7 +199,6 @@ private slots:
 
     void init()
     {
-        // Each test starts from a clean, logged-out login screen.
         clearFailure();
         m_controller->auth()->clearLastError();
         if (m_controller->loggedIn())
@@ -246,10 +218,6 @@ private slots:
         QVERIFY(errorLabel);
     }
 
-    // The page's own heading must say what it is doing: repairing an
-    // existing account is not "adding" one. Before the fix it read "Add
-    // another account" (or "Sign in") throughout a repair, regardless of
-    // repair.active.
     void headingNamesTheRepairInsteadOfAddAccount()
     {
         auto *heading = item("loginScreenHeading");
@@ -268,8 +236,6 @@ private slots:
                  QStringLiteral("Fix this account"));
     }
 
-    // The card appears, is fully labelled, and both fields already show the
-    // failed account's identity without typing.
     void failureShowsCardAndPrefillsWithoutTyping()
     {
         QVERIFY(item("userField")->property("text").toString().isEmpty());
@@ -294,7 +260,6 @@ private slots:
         QVERIFY(!headline->property("text").toString().isEmpty());
         QVERIFY(!body->property("text").toString().isEmpty());
 
-        // The generic error label is suppressed while the card shows.
         QVERIFY(!item("loginErrorLabel")->isVisible());
 
         auto *primary = item("loginRepairPrimaryAction");
@@ -306,10 +271,6 @@ private slots:
         QVERIFY(!item("loginRepairRemoveAccount")->isVisible());
     }
 
-    // saved_session_without_store: never implies the old device can return,
-    // and never offers an action the backend refuses (repairLocalSession()
-    // refuses this reason; there is no store to reset). The remedy is the
-    // prefilled sign-in form.
     void savedSessionWithoutStoreOffersNewDeviceAndRemoveOnly()
     {
         injectFailure(QStringLiteral("saved_session_without_store"),
@@ -331,9 +292,6 @@ private slots:
         QVERIFY(!bodyText.contains(QStringLiteral("restored"), Qt::CaseInsensitive));
     }
 
-    // Invariant over every reachable reason code: no card shows a destructive
-    // action for a reason whose backend policy says a local reset cannot
-    // repair it.
     void noCardOffersAnActionTheBackendWouldRefuse()
     {
         const QStringList codes{
@@ -356,8 +314,6 @@ private slots:
             QTRY_VERIFY(item("loginRepairCard"));
 
             const bool helps = m_controller->localResetHelpsFor(code);
-            // Both controls that reach repairLocalSession(): the primary and
-            // loginRepairRetry.
             for (const char *name : {"loginRepairPrimaryAction",
                                      "loginRepairRetry"}) {
                 auto *button = item(name);
@@ -368,17 +324,12 @@ private slots:
                              "the backend refuses")
                              .arg(code, QString::fromLatin1(name))));
             }
-            // Every reachable reason explains itself with a card rather than a
-            // bare error line.
             QVERIFY2(item("loginRepairCard")->isVisible(),
                      qPrintable(QStringLiteral("reason '%1' renders no card")
                                     .arg(code)));
         }
     }
 
-    // The adoption check found the sign-in this install had copied from an
-    // older build to be another copy's device: the card says so, asks for a
-    // sign-in, and never offers a rebuild (the store is not the problem).
     void aSignInOfAnotherCopyAsksForASignInAndNoRebuild()
     {
         injectFailure(QStringLiteral("keyring_other_install"),
@@ -398,11 +349,6 @@ private slots:
                                Qt::CaseInsensitive), qPrintable(body));
     }
 
-    // The keyring answers but no longer returns a sign-in this install saved
-    // (reported 2026-09-30 on a Flatpak). It used to reach the rebuild card
-    // (store_without_session_metadata: "Quarantine and rebuild", a new
-    // device). The account did not sign out and its store is whole: the card
-    // explains, offers Try again, and neither rebuilds nor removes.
     void aSignInTheKeyringLostOffersTryAgainAndNoRebuild()
     {
         injectFailure(QStringLiteral("keyring_lost_session"),
@@ -423,12 +369,9 @@ private slots:
         QVERIFY2(body.contains(QStringLiteral("@fay:example.org")), qPrintable(body));
         QVERIFY2(!body.contains(QStringLiteral("rebuild"), Qt::CaseInsensitive),
                  qPrintable(body));
-        // Not clicked here: this suite's controller uses the process's real
-        // secret store. StartupSessionTest drives Try again on a fake keyring.
         clearFailure();
     }
 
-    // Only cleanup_incomplete shows Retry, and nothing else does.
     void cleanupIncompleteShowsRetryOnly()
     {
         injectFailure(QStringLiteral("cleanup_incomplete"),
@@ -442,10 +385,6 @@ private slots:
         QVERIFY(!item("loginRepairRemoveAccount")->isVisible());
     }
 
-    // An unrecognised reasonCode must fall back to the plain error label, not
-    // a blank form (the card needs repair.info, which is null here). lastError
-    // is set too, as production pairs a classified failure with
-    // loginFailed(); beginSsoLogin() is a public way to set it.
     void genuinelyUnknownReasonFallsBackToPlainLabelNotBlank()
     {
         m_controller->auth()->beginSsoLogin(QString());
@@ -460,9 +399,6 @@ private slots:
         QVERIFY(!item("loginErrorLabel")->property("text").toString().isEmpty());
     }
 
-    // store_without_session_metadata (a store whose token is unreadable, e.g.
-    // a locked keyring) gets its own card; suggestsLocalReset() is true for it
-    // in RustSessionPolicy.cpp, so a destructive primary is correct here.
     void storeWithoutSessionMetadataNowRendersACard()
     {
         injectFailure(QStringLiteral("store_without_session_metadata"),
@@ -478,9 +414,6 @@ private slots:
                  QStringLiteral("Quarantine and rebuild"));
     }
 
-    // ambiguous_store_candidates gets an informational card only:
-    // suggestsLocalReset() is false, since Lightning will not guess which of
-    // several stores to clear.
     void ambiguousStoreCandidatesRendersInformationalCardOnly()
     {
         injectFailure(QStringLiteral("ambiguous_store_candidates"),
@@ -495,9 +428,6 @@ private slots:
         QVERIFY(!item("loginRepairRemoveAccount")->isVisible());
     }
 
-    // "← Back" would restore a session the server has signed out, only to
-    // meet this card again, so it is hidden while the ACTIVE account is the
-    // revoked one, and stays for any other account's failure (add-account).
     void backIsHiddenWhileTheActiveAccountIsRevoked()
     {
         const QString active = QStringLiteral("@active-user:mock.local");
@@ -525,7 +455,7 @@ private slots:
                                               QStringLiteral("mock-token"), QString(),
                                               QStringLiteral("password"), QString());
         m_controller->settings()->setActiveAccountUserId(active);
-        m_controller->showLogin(); // add-account flow
+        m_controller->showLogin();
         QCoreApplication::processEvents();
         QCOMPARE(m_controller->accounts()->activeUserId(), active);
         auto *back = item("backToAppButton");
@@ -541,7 +471,6 @@ private slots:
                       QStringLiteral("https://example.org"));
         QTRY_VERIFY(back->isVisible());
 
-        // An expired (soft-logged-out) session is no more restorable.
         injectFailure(QStringLiteral("access_token_expired"), active,
                       QStringLiteral("https://mock.local"));
         QTRY_VERIFY(!back->isVisible());
@@ -555,10 +484,6 @@ private slots:
         QCOMPARE(int(m_controller->currentScreen()), int(AppController::LoginScreen));
     }
 
-    // access_token_revoked must never reach app.repairLocalSession(): the
-    // local store holds the key material a user with a revoked token still
-    // needs. loginRepairPrimaryAction and loginRepairRetry are the only
-    // buttons that call it, so both must be absent or hidden.
     void accessTokenRevokedExposesNoDestructiveAction()
     {
         injectFailure(QStringLiteral("access_token_revoked"),
@@ -569,8 +494,6 @@ private slots:
         QVERIFY(card);
         QTRY_VERIFY(card->isVisible());
 
-        // Never dereference a lookup that may be null; absent or hidden both
-        // mean unreachable.
         auto *primary = item("loginRepairPrimaryAction");
         QVERIFY2(!primary || !primary->isVisible(),
                  "access_token_revoked must not offer a destructive primary action");
@@ -584,16 +507,11 @@ private slots:
                  qPrintable(bodyText));
         QVERIFY2(!bodyText.contains(QStringLiteral("damag"), Qt::CaseInsensitive),
                  qPrintable(bodyText));
-        // What signing in again does, since it no longer opens this store:
-        // a new session, and the old one's data moved aside, not deleted.
         QVERIFY2(bodyText.contains(QStringLiteral("new session"), Qt::CaseInsensitive)
                      && bodyText.contains(QStringLiteral("kept aside, not deleted"),
                                           Qt::CaseInsensitive),
                  qPrintable(bodyText));
 
-        // "Remove this account" stays available as a separately confirmed
-        // fallback, going through app.removeAccount(), never the repair path
-        // ("Repairing…" never appears).
         auto *remove = item("loginRepairRemoveAccount");
         QVERIFY(remove);
         QVERIFY(remove->isVisible());
@@ -613,9 +531,6 @@ private slots:
                 || result->property("text").toString() != QStringLiteral("Repairing…"));
     }
 
-    // A soft logout (the server kept the device): no destructive action, and
-    // the card says what signing in again now does, which is carry on as the
-    // same session, not start a new one or move anything aside.
     void accessTokenExpiredSaysTheSameSessionContinues()
     {
         injectFailure(QStringLiteral("access_token_expired"),
@@ -650,8 +565,6 @@ private slots:
         clearFailure();
     }
 
-    // The confirmation dialog names the exact account, and Cancel is the
-    // default focused button.
     void primaryActionConfirmDialogNamesAccountAndDefaultsToCancel()
     {
         injectFailure(QStringLiteral("session_account_mismatch"),
@@ -675,7 +588,6 @@ private slots:
         QVERIFY(cancelButton);
         QTRY_VERIFY(cancelButton->property("activeFocus").toBool());
 
-        // Cancel leaves the failure and the card untouched.
         clickItem(cancelButton);
         QTRY_VERIFY(!dialog->property("visible").toBool());
         auto *card = item("loginRepairCard");
@@ -685,8 +597,6 @@ private slots:
         QVERIFY(!result || !result->isVisible());
     }
 
-    // Confirming invokes the zero-argument repair path: the whole flow needs
-    // no typed input.
     void confirmingPrimaryActionInvokesRepairWithoutTypedInput()
     {
         injectFailure(QStringLiteral("sdk_store_ownership_mismatch"),
@@ -707,17 +617,12 @@ private slots:
         clickItem(confirmButton);
 
         QTRY_VERIFY(!dialog->property("visible").toBool());
-        // This checks that confirming reaches app.repairLocalSession() through
-        // clicks only. MockBackend refuses the Rust-only reset quickly enough to
-        // overwrite "Repairing…", so any non-empty result proves the call.
         auto *result = item("loginRepairResult");
         QVERIFY(result);
         QTRY_VERIFY(result->isVisible());
         QVERIFY(!result->property("text").toString().isEmpty());
     }
 
-    // Add-account: another account is signed in and a different account's
-    // login fails; the card targets the failing account.
     void addAccountFailureTargetsTheFailingAccountNotTheActiveOne()
     {
         QSignalSpy loginSpy(m_controller->auth(), &AuthManager::loginSucceeded);
@@ -727,7 +632,7 @@ private slots:
         QVERIFY(loginSpy.wait(kSignalTimeoutMs));
         QTRY_VERIFY(m_controller->loggedIn());
 
-        m_controller->showLogin(); // add-account flow
+        m_controller->showLogin();
         QCoreApplication::processEvents();
         QCOMPARE(int(m_controller->currentScreen()),
                  int(AppController::LoginScreen));
@@ -748,10 +653,6 @@ private slots:
         QTRY_VERIFY(!m_controller->loggedIn());
     }
 
-    // The confirm dialog snapshots the failure it was opened for. When the
-    // classified failure changes while it is open, the dialog closes and the
-    // destructive call never fires for a failure the user did not review
-    // (checked with a signal spy).
     void dialogClosesAndRefusesWhenFailureChangesWhileOpen()
     {
         injectFailure(QStringLiteral("session_account_mismatch"),
@@ -771,8 +672,6 @@ private slots:
 
         QSignalSpy resetSpy(m_controller, &AppController::localRustStoreResetResult);
 
-        // A different failure (account and reason) supersedes this one while
-        // the dialog still shows @ivan.
         injectFailure(QStringLiteral("session_without_device_id"),
                      QStringLiteral("@julia:example.org"),
                      QStringLiteral("https://example.org"));
@@ -780,7 +679,6 @@ private slots:
         QTRY_VERIFY(!dialog->property("visible").toBool());
         QCOMPARE(resetSpy.count(), 0);
 
-        // The new failure gets its own card; it is not swallowed.
         auto *newPrimary = item("loginRepairPrimaryAction");
         QVERIFY(newPrimary);
         QTRY_VERIFY(newPrimary->isVisible());
@@ -788,7 +686,6 @@ private slots:
                  QStringLiteral("@julia:example.org"));
     }
 
-    // LoginScreen never calls the raw-typed-text reset path.
     void loginScreenNeverCallsTheRawTextResetPath()
     {
         QFile file(QStringLiteral(QML_DIR "/LoginScreen.qml"));
@@ -797,12 +694,6 @@ private slots:
         QVERIFY(!text.contains(QStringLiteral("resetLocalRustSession(")));
     }
 
-    // The login card must not move the fields under the cursor. The
-    // homeserver probe is async and can hide the browser-login/SSO sections
-    // below the fields; a card centred on its current height then slides
-    // down, and a click aimed at "User" can put the password into the
-    // clear-text homeserver field. Asserts the premise (the form got shorter)
-    // before asserting the fields stayed put.
     void theLoginCardDoesNotMoveWhenOptionalSectionsDisappear()
     {
         QQuickItem *panel = item("loginPanel");
@@ -817,8 +708,6 @@ private slots:
         const QPointF passScene0 = pass->mapToScene(QPointF(0, 0));
         QVERIFY(formH0 > 0);
 
-        // Shrink the form as the probe does: hide something below the password
-        // field, where the optional sections live.
         const qreal passBottom = pass->mapToItem(panel, QPointF(0, pass->height())).y();
         QQuickItem *shrink = nullptr;
         qreal best = 0;
@@ -870,9 +759,6 @@ private slots:
                          .arg(userMoved).arg(passMoved)));
     }
 
-    // Reproduce the outer layout publishing its scroll extent after the
-    // card's own visible/height callbacks. A visible button can still be
-    // clipped; retries at its offscreen coordinates cannot open the dialog.
     void repairCardIsRevealedWhenTheScrollExtentArrivesLate()
     {
         auto *flick = item("loginFlick");
@@ -887,7 +773,6 @@ private slots:
             m_window->resize(originalSize);
         });
         m_window->resize(640, 420);
-        // Hold the extent unavailable while the card is laid out.
         QQmlExpression hold(qmlContext(flick), flick,
                             QStringLiteral("contentHeight = 0; contentY = 0"));
         hold.evaluate();
@@ -911,7 +796,6 @@ private slots:
 
         const auto *panel = item("loginPanel");
         QVERIFY(panel);
-        // Publish a usable extent, as the outer layout does after polish.
         flick->setProperty("contentHeight", panel->y()
             + panel->property("implicitHeight").toReal() + 100);
         QTRY_VERIFY(centerInViewport().y() > 0
@@ -949,7 +833,6 @@ private slots:
         const QString error = m_controller->auth()->lastError();
         QVERIFY(!error.isEmpty());
 
-        // Alice's card stays: her failure is still true.
         QVERIFY(card->isVisible());
         QVERIFY(!m_controller->signInErrorExplainedByCard());
         QTRY_VERIFY2(shownLoginError() != nullptr,
@@ -958,12 +841,6 @@ private slots:
         QCOMPARE(shownLoginError()->property("text").toString(), error);
     }
 
-    // A card raised with no failure after it (a removal that could not
-    // finish, a keyring the launch could not read) explains no later error.
-    // A refusal that never starts an attempt ("That is not a server address")
-    // came next and was hidden: the first version of this fix kept its
-    // bookkeeping in LoginScreen, set by the raise and cleared only by a
-    // failure or an attempt starting, so the stale mark claimed the refusal.
     void aRefusalAfterACardRaisedAloneIsShown()
     {
         injectFailure(QStringLiteral("removal_incomplete"),
@@ -972,14 +849,14 @@ private slots:
         auto *card = item("loginRepairCard");
         QVERIFY(card);
         QTRY_VERIFY(card->isVisible());
-        QTest::qWait(20); // well past the raise's own call
+        QTest::qWait(20);
 
         m_controller->auth()->login(QStringLiteral("you@example.org"),
                                     QStringLiteral("@bob:example.org"),
                                     QStringLiteral("unused"));
         const QString error = m_controller->auth()->lastError();
         QVERIFY(!error.isEmpty());
-        QVERIFY(!m_controller->auth()->isLoggingIn()); // refused, not attempted
+        QVERIFY(!m_controller->auth()->isLoggingIn());
         QVERIFY(card->isVisible());
         QTRY_VERIFY2(shownLoginError() != nullptr,
                      "a refusal after a card raised alone was hidden behind it");
@@ -1012,8 +889,6 @@ private slots:
                 if (state != MatrixClient::Error)
                     return;
                 ++raised;
-                // No processEvents here: the raise and its failure share one
-                // call.
                 m_controller->setLocalSessionFailure(reason, alice, server);
             });
         auto unhook = qScopeGuard([hook] { QObject::disconnect(hook); });
@@ -1030,8 +905,6 @@ private slots:
                  "the error the card itself explains was shown beside it");
     }
 
-    // The screen is a Loader item (Main.qml), rebuilt whenever the screen
-    // changes; what it shows beside the card must not be forgotten with it.
     void anErrorBesideTheCardSurvivesTheScreenBeingRebuilt()
     {
         const QString server = QStringLiteral("https://example.org");
@@ -1078,7 +951,7 @@ private slots:
         MockMatrixClient *client = mock();
         QVERIFY(client);
         QMetaObject::Connection hook;
-        int errors = 0; // before the guard: the hook reads it until disconnected
+        int errors = 0;
         auto forget = qScopeGuard([this, active, client, &hook] {
             QObject::disconnect(hook);
             client->setRestoreDelayForTest(0);
@@ -1100,14 +973,12 @@ private slots:
                                               QStringLiteral("mock-token"), QString(),
                                               QStringLiteral("password"), QString());
         m_controller->settings()->setActiveAccountUserId(active);
-        m_controller->showLogin(); // add-account flow
+        m_controller->showLogin();
         QCoreApplication::processEvents();
         auto *back = item("backToAppButton");
         QVERIFY(back);
         QTRY_VERIFY(back->isVisible());
 
-        // Every restore refused inside the call; the restore's failure (the
-        // second Error, after the attempt's own) raises the card first.
         client->setRestoreDelayForTest(-1);
         client->failRestoresForTest(25);
         hook = connect(client, &MatrixClient::connectionStateChanged, this,
@@ -1134,18 +1005,12 @@ private slots:
         QTRY_VERIFY2(!back->isVisible(),
                      "Back offered for the account whose restore just failed");
 
-        // Back's own action, refused again at once: no shell without a session.
         QVERIFY(!m_controller->showMain());
         QCOMPARE(client->restoreCallsForTest() - restoresBefore, 2);
         QCOMPARE(m_controller->currentScreen(), AppController::LoginScreen);
         QVERIFY(!m_controller->auth()->lastError().isEmpty());
     }
 
-    // A sign-in started while the return-to restore is still pending: its
-    // failure is the ATTEMPT's, so it is shown as that attempt's error and
-    // gets the normal add-account handling (the return restore again). The
-    // first version of the recursion guard took any failure while that
-    // restore was pending for the restore's own, and did not restore.
     void anAttemptDuringAPendingReturnRestoreFailsAsItsOwn()
     {
         const QString active = QStringLiteral("@pending-user:mock.local");
@@ -1155,7 +1020,7 @@ private slots:
         auto forget = qScopeGuard([this, active, client] {
             client->setRestoreDelayForTest(0);
             client->failRestoresForTest(0);
-            QTest::qWait(1200); // past every restore still pending
+            QTest::qWait(1200);
             clearFailure();
             m_controller->settings()->clearSessionForAccount(active);
             m_controller->auth()->logout();
@@ -1173,15 +1038,14 @@ private slots:
                                               QStringLiteral("mock-token"), QString(),
                                               QStringLiteral("password"), QString());
         m_controller->settings()->setActiveAccountUserId(active);
-        m_controller->showLogin(); // add-account flow
+        m_controller->showLogin();
 
-        // The return restore answers well after a failed attempt (60 ms).
         client->setRestoreDelayForTest(1000);
         const int restoresBefore = client->restoreCallsForTest();
         m_controller->auth()->login(server, QStringLiteral("newcomer"),
                                     QStringLiteral("mock-fail"));
         QTRY_COMPARE(client->restoreCallsForTest() - restoresBefore, 1);
-        QVERIFY(!m_controller->loggedIn()); // the return restore is pending
+        QVERIFY(!m_controller->loggedIn());
 
         QSignalSpy notices(m_controller, &AppController::errorReported);
         m_controller->auth()->login(server, QStringLiteral("newcomer"),
@@ -1190,8 +1054,6 @@ private slots:
         QTRY_VERIFY(!m_controller->auth()->isLoggingIn());
         const QString reason = QStringLiteral("mock: invalid credentials");
 
-        // Handled as the attempt's failure: the return restore again, and the
-        // reason on the status strip and on the form.
         QCOMPARE(client->restoreCallsForTest() - restoresBefore, 2);
         bool sawReason = false;
         for (const auto &call : notices) {
@@ -1204,7 +1066,6 @@ private slots:
         QTRY_VERIFY(shownLoginError() != nullptr);
         QCOMPARE(shownLoginError()->property("text").toString(), reason);
 
-        // Both pending restores answer; the account comes back.
         QTRY_VERIFY(m_controller->loggedIn());
     }
 

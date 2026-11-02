@@ -15,12 +15,8 @@ class SettingsManager;
 class MockMatrixClient : public MatrixClient
 {
     Q_OBJECT
-    // What AppController last asked for (MatrixClient::setUnthreadedReadReceipts).
-    // A property so a test can read it by name.
     Q_PROPERTY(bool unthreadedReadReceipts MEMBER m_unthreadedReadReceipts)
-    // A test sets it to stand in for an account with a network route.
     Q_PROPERTY(bool simulatedNetworkRoute MEMBER m_simulatedNetworkRoute)
-    // Send counters, as properties for the same reason.
     Q_PROPERTY(int roomTextSends MEMBER m_roomTextSends)
     Q_PROPERTY(int roomAttachmentCalls MEMBER m_roomAttachmentCalls)
     Q_PROPERTY(int threadVoiceCalls MEMBER m_threadVoiceCalls)
@@ -39,42 +35,21 @@ public:
     // so account-switch tests run offline.
     void setSettings(SettingsManager *settings) { m_settings = settings; }
 
-    // Development-only screenshot dataset: a richer, deterministic scene
-    // (fictional people, Spaces, a poll, media placeholders, fixed timestamps)
-    // instead of the shared test fixtures. Enabled only by
-    // AppController::beginScreenshotDemo, never by tests.
     void setScreenshotDemoMode(bool on);
     bool screenshotDemoMode() const { return m_screenshotDemoMode; }
 
-    // Screenshot-demo accounts (Alex / Taylor / Nova), each with a full
-    // deterministic scene. The active scene is the live working copy; switching
-    // snapshots it back so each account's local mutations survive a round trip.
-    // In-memory only.
     QStringList demoAccountUserIds() const { return m_demoAccountOrder; }
     QString demoDefaultRoom(const QString &userId) const;
-    // Swap the live dataset to `userId`'s scene. Called by login/restoreSession
-    // (so the real account switcher works) and directly by tests. No-op outside
-    // demo mode or for an unknown account.
     void activateDemoAccount(const QString &userId);
     QString activeDemoAccount() const { return m_activeDemoUser; }
-    // Restore all three accounts (or one) to their deterministic initial state,
-    // discarding local mutations. Re-emits roomsChanged/timelineReset for the
-    // active account so the live UI rebuilds.
     void resetDemoData();
     void resetDemoAccount(const QString &userId);
-    // The first thread-root event id in a room (for scenario "open thread"),
-    // or empty if the room has no thread.
     QString demoThreadRoot(const QString &roomId) const;
-    // Panel toggles: suppress seeded typing indicators and hide room-list
-    // unread badges. Read-time filters, so fully reversible.
     void setDemoTypingSuppressed(bool suppressed);
     void setDemoUnreadHidden(bool hidden);
     bool demoTypingSuppressed() const { return m_demoTypingSuppressed; }
     bool demoUnreadHidden() const { return m_demoHideUnread; }
 
-    // Development-only local interactions on the demo scene (poll voting,
-    // invite accept/reject, mark unread). Each mutates the working set and
-    // emits the signal the UI listens to. Gated on demo mode.
     bool supportsPolls() const override { return m_screenshotDemoMode; }
     void sendPollResponse(const QString &roomId, const QString &threadRootId,
                           const QString &pollStartEventId,
@@ -106,9 +81,6 @@ public:
     QUrl mediaThumbnailUrl(const QString &mxcUrl,
                            int width, int height, bool crop) const override;
 
-    // Screenshot-demo media bridge: bundled fixtures served through the same
-    // MediaBridge -> MediaImageProvider path as the Rust backend, so demo
-    // images, posters, GIFs and avatars render. Off outside demo mode.
     bool supportsMediaBridge() const override
     { return m_screenshotDemoMode || m_mediaBridgeSupportedForTest; }
     quint64 fetchMedia(const QString &mediaKey, int kind,
@@ -122,8 +94,6 @@ public:
     void sendThreadReply(const QString &roomId,
                          const QString &threadRootEventId,
                          const QString &body) override;
-    // Outgoing @-mentions: record the ids and expanded body for tests, then
-    // forward to the non-mention path.
     void sendTextMessage(const QString &roomId, const QString &body,
                          const QStringList &mentionUserIds) override;
     void sendReply(const QString &roomId, const QString &replyToEventId,
@@ -132,25 +102,15 @@ public:
     void editMessage(const QString &roomId, const QString &targetEventId,
                      const QString &newBody,
                      const QStringList &mentionUserIds) override;
-    // Deterministic member snapshot for the mention suggestion model (built
-    // from the seeded room members; emitted asynchronously by op id).
     quint64 requestRoomMembers(const QString &roomId) override;
-    // The open room's own posting facts: nothing (unknown) unless a test set
-    // them for that room with setOwnPermissionsForTest. Asynchronous like the
-    // real backend. Setting them also pokes the room, as a member or
-    // power-level change would.
     quint64 requestRoomOwnPermissions(const QString &roomId) override;
     void setOwnPermissionsForTest(const QString &roomId,
                                   const QVariantMap &facts);
     int ownPermissionRequestsForTest() const { return m_ownPermissionRequests; }
-    // A tombstone, as the room list would deliver it (empty clears it).
     void setRoomSuccessorForTest(const QString &roomId,
                                  const QString &successorRoomId);
     QString lastSentBodyForTest() const { return m_lastSentBody; }
     QStringList lastMentionIdsForTest() const { return m_lastMentionIds; }
-    // Mock thread timelines so ThreadController and the thread UI are testable
-    // offline. Follows the Rust backend's composite-id contract (root first,
-    // replies in room order).
     bool supportsThreadTimelines() const override { return true; }
     void openThread(const QString &roomId, const QString &rootEventId) override;
     void closeThread() override;
@@ -158,9 +118,6 @@ public:
     { m_threadRepliesInLive = inLive; }
     void setUnthreadedReadReceipts(bool on) override
     { m_unthreadedReadReceipts = on; }
-    // Room text sends (sendTextMessage) are counted (roomTextSends), so a
-    // test can prove a thread send never fell back to one.
-    // Thread voice messages (the SDK thread path), with their root.
     quint64 sendThreadVoiceMessage(const QString &roomId,
                                    const QString &rootEventId,
                                    const QString &localPath,
@@ -169,7 +126,6 @@ public:
                                    const QString &replyToEventId) override;
 
     bool threadRepliesInLiveTimeline() const { return m_threadRepliesInLive; }
-    // The last SDK-path thread text send (sendThreadReply/sendThreadReplyTo).
     int threadTextSendsForTest() const { return m_threadTextSends; }
     QString lastThreadSendRootForTest() const { return m_lastThreadSendRoot; }
     QString lastThreadSendBodyForTest() const { return m_lastThreadSendBody; }
@@ -188,8 +144,6 @@ public:
     int eventContextCloseCount() const { return m_eventContextCloses; }
     int eventContextPaginateCount() const { return m_eventContextPaginates; }
     QString openEventContextTimelineId() const { return m_openContextTimelineId; }
-    // Hold the reset back so a test can interleave close/room-switch before
-    // it lands; deliverHeldEventContext() then delivers it as a late result.
     void setHoldEventContext(bool hold) { m_holdEventContext = hold; }
     void deliverHeldEventContext();
     static constexpr int kContextRadius = 2;
@@ -202,7 +156,6 @@ public:
                            const QString &inReplyToEventId,
                            const QString &body,
                            const QStringList &mentionUserIds) override;
-    // Thread attachment sending, mirroring the SDK thread path.
     bool supportsAttachmentSend() const override { return true; }
     quint64 sendThreadAttachment(const QString &roomId,
                                  const QString &rootEventId,
@@ -217,8 +170,6 @@ public:
                                       const QString &mime, int width,
                                       int height,
                                       const QString &replyToEventId) override;
-    // Room attachments. Like the thread pair they echo a local event and, in
-    // the same field a text reply uses, record the event they reply to.
     quint64 sendAttachment(const QString &roomId, const QString &localPath,
                            const QString &mime, const QString &caption,
                            int width, int height, bool animated,
@@ -228,18 +179,11 @@ public:
                                 const QString &filename, const QString &mime,
                                 int width, int height,
                                 const QString &replyToEventId) override;
-    // The reply target and caption of the most recent attachment send (room or
-    // thread); "" for a plain send. For tests that assert the reply survives.
     QString lastAttachmentReplyToForTest() const { return m_lastAttachmentReplyTo; }
     QString lastAttachmentCaptionForTest() const { return m_lastAttachmentCaption; }
     int threadAttachmentCallsForTest() const { return m_threadAttachmentCalls; }
-    /// The bytes the last thread attachment send carried (read from the path
-    /// at call time for a file send), so a test can see what really left.
     QByteArray lastThreadAttachmentBytesForTest() const { return m_lastThreadAttachmentBytes; }
-    // Make the next thread attachment send fail (queue rejection).
     void failNextThreadAttachmentForTest() { m_failNextThreadAttachment = true; }
-    // Deterministic thread list + follow state; the subscription map stands in
-    // for MSC4306 server state.
     bool supportsThreadList() const override { return true; }
     void openThreadList(const QString &roomId) override;
     void closeThreadList() override;
@@ -249,19 +193,11 @@ public:
     {
         ++m_markThreadReadCalls;
         m_threadReadOpIds.append(opId);
-        // Accepted at once, like the base backend, unless a test holds the
-        // answer back to drive the server's reply itself.
         if (m_autoAcceptThreadReads) {
-            // The server's counts drop once the thread is read, so the
-            // "unread in a thread" hint clears, as the Rust bridge's would.
             setRoomThreadUnreadForTest(roomId, 0);
             Q_EMIT threadReadMarkerAdvanced(roomId, rootEventId, opId);
         }
     }
-    /// 0 none, 1 unread in a thread, 2 mention in a thread: sets the bridge
-    /// hint a room's remaining unread would carry when only threads hold it.
-    /// Moves a listed room to `membership` and announces the list, as a sync
-    /// that joined, left or invited would.
     void setRoomMembershipForTest(const QString &roomId,
                                   RoomInfo::Membership membership)
     {
@@ -287,8 +223,6 @@ public:
     }
     void setAutoAcceptThreadReadsForTest(bool on) { m_autoAcceptThreadReads = on; }
     int markThreadReadCallsForTest() const { return m_markThreadReadCalls; }
-    // The request ids markThreadRead() received, oldest first, so a test can
-    // answer them in any order.
     QList<quint64> threadReadOpIdsForTest() const { return m_threadReadOpIds; }
     void retryDecryption(const QString &roomId) override
     {
@@ -326,18 +260,12 @@ public:
     bool paginationFailureTransient(const QString &roomId) const override
     { return m_transientPaginationFailures.contains(roomId); }
 
-    // Deterministic coverage for the Retry presentation.
     void failNextPaginationForTest(bool transient = false)
     { m_failNextPagination = true; m_nextPaginationFailureTransient = transient; }
 
-    // Timeline-hydration test hooks mirroring the Rust diff surface, so QML
-    // tests can stage the live sequence (small snapshot, async fill batches,
-    // in-place Sets) deterministically.
     void resetTimelineForTest(const QString &roomId,
                               const QList<TimelineEvent> &events,
                               int paginationPages);
-    // Drive the wired call stack (AppController -> CallController ->
-    // NotificationManager) from integration tests.
     void emitCallSignalForTest(const CallSignal &signal)
     {
         Q_EMIT callSignalReceived(signal);
@@ -355,11 +283,6 @@ public:
     /// mock could only produce pages that add rows.
     void setFilteredPaginationPagesForTest(int pages)
     { m_filteredPaginationPages = pages; }
-    // Startup-lifecycle hooks: hold restoration open long enough to assert on
-    // it, or reject the next restore like an expired session.
-    // A negative delay answers inside restoreSession() itself, as the Rust
-    // backend does for a restore it refuses before dispatching (a keyring
-    // that cannot answer, an unresolvable record).
     void setRestoreDelayForTest(int ms) { m_restoreDelayMs = ms; }
     void failNextRestoreForTest() { m_failRestoresLeft = 1; }
     void failRestoresForTest(int count) { m_failRestoresLeft = count; }
@@ -396,7 +319,7 @@ private:
     void *m_adoptedHandleForTest = nullptr;
     QString m_adoptedUserForTest;
     void seedMockData();
-    void seedScreenshotDemoData();     // development-only rich demo scene
+    void seedScreenshotDemoData();
     bool m_screenshotDemoMode = false;
     bool m_threadRepliesInLive = false;
     bool m_unthreadedReadReceipts = false;
@@ -409,31 +332,27 @@ private:
     QString m_lastThreadSendBody;
     QString m_lastThreadSendReplyTo;
 
-    // One fictional demo account's complete, deterministic scene.
     struct DemoAccount {
         QString userId;
         QString homeserver;
         QString displayName;
         QString avatarMxc;
-        QString defaultRoomId;          // deterministic initial selected room
+        QString defaultRoomId;
         QList<RoomInfo> rooms;
         QHash<QString, QList<TimelineEvent>> timelines;
         QHash<QString, int> paginationRemaining;
     };
-    QHash<QString, DemoAccount> m_demoAccounts;   // keyed by full user id
-    QStringList m_demoAccountOrder;               // deterministic switcher order
-    QString m_activeDemoUser;                     // whose scene is live now
-    bool m_demoTypingSuppressed = false;          // panel: hide typing dots
-    bool m_demoHideUnread = false;                // panel: hide unread badges
+    QHash<QString, DemoAccount> m_demoAccounts;
+    QStringList m_demoAccountOrder;
+    QString m_activeDemoUser;
+    bool m_demoTypingSuppressed = false;
+    bool m_demoHideUnread = false;
     DemoAccount buildDemoAccountAlex();
     DemoAccount buildDemoAccountTaylor();
     DemoAccount buildDemoAccountNova();
     void loadDemoAccountIntoWorkingSet(const DemoAccount &acct);
     void snapshotWorkingSetToActiveDemoAccount();
-    // Tag every image/video/sticker row with a media bridge key so the demo
-    // media path (fetchMedia/fetchMxcThumbnail) can resolve it to a fixture.
     static void finalizeDemoMedia(DemoAccount &acct);
-    // Resolve a demo media key or avatar mxc segment to bundled fixture bytes.
     static bool loadDemoFixture(const QString &key, QByteArray *bytes,
                                 QString *mime);
     quint64 m_mediaOpCounter = 0;
@@ -443,8 +362,8 @@ private:
     TimelineEvent *findEvent(const QString &roomId, const QString &eventId);
     void ackAfter(int ms, const QString &roomId, const QString &eventId);
 
-    SettingsManager *m_settings = nullptr; // not owned; may stay null
-    QString m_lastSentBody;                 // mention-test recording
+    SettingsManager *m_settings = nullptr;
+    QString m_lastSentBody;
     QStringList m_lastMentionIds;
     bool m_loggedIn = false;
     ConnectionState m_state = Disconnected;
@@ -454,30 +373,25 @@ private:
     QList<RoomInfo> m_rooms;
     QHash<QString, QList<TimelineEvent>> m_timelines;
     QHash<QString, int> m_paginationRemaining; // roomId → mock pages left
-    QSet<QString> m_paginating;                 // roomId currently paginating
+    QSet<QString> m_paginating;
     QSet<QString> m_paginationFailed;
     QSet<QString> m_transientPaginationFailures;
     bool m_failNextPagination = false;
     bool m_nextPaginationFailureTransient = false;
     int m_paginationDelayMs = 300;
     QList<TimelineEvent> m_paginationChunkOverride;
-    /// Remaining pages to serve fully filtered; see
-    /// setFilteredPaginationPagesForTest.
     int m_filteredPaginationPages = 0;
-    /// Whether the last completed page was one of them, answering
-    /// lastPaginationFullyFiltered() like the Rust backend.
     QSet<QString> m_lastPaginationFiltered;
     int m_restoreDelayMs = 0;
     int m_failRestoresLeft = 0;
     int m_restoreCalls = 0;
 
-    // Read-receipt-chip avatar hooks (see the public ForTest setters).
     bool m_mediaBridgeSupportedForTest = false;
     struct AvatarBytesFixture {
         QByteArray bytes;
         QString mime;
     };
-    QHash<QString, AvatarBytesFixture> m_avatarBytesForTest; // mxc → bytes
+    QHash<QString, AvatarBytesFixture> m_avatarBytesForTest;
 
     quint64 m_eventCounter = 0;
     quint64 m_txnCounter = 0;
@@ -495,13 +409,12 @@ private:
     int m_eventContextPaginates = 0;
     void rebuildOpenThreadTimeline();
     QString m_openThreadListRoom;
-    QHash<QString, bool> m_threadSubscriptions; // roomId+"\x1f"+rootId → followed
+    QHash<QString, bool> m_threadSubscriptions;
     int m_markThreadReadCalls = 0;
     QList<quint64> m_threadReadOpIds;
     bool m_autoAcceptThreadReads = true;
     QStringList m_decryptionRetryRooms;
     void emitThreadList(const QString &roomId);
-    // Thread attachment sending.
     quint64 m_opCounter = 0;
     QHash<QString, QVariantMap> m_ownPermissionsForTest;
     int m_ownPermissionRequests = 0;
@@ -521,9 +434,6 @@ private:
                                  const QString &replyToEventId);
 
 public:
-    // ── Discover / Join, search, UIA, moderation, drafts. Knobs are plain
-    // public members; completions go through QTimer::singleShot so op ids are
-    // stored before answers arrive, as with the real backend. ──
     bool supportsRoomDiscovery() const override { return true; }
     quint64 resolveRoomTarget(const QString &input) override;
     quint64 searchPublicRooms(const QString &query, const QString &server,
@@ -548,8 +458,6 @@ public:
     // Widgets. Serves whatever `mockWidgets` holds, so the list, consent sheet
     // and refusal rows are reachable without a homeserver.
     bool supportsWidgets() const override { return true; }
-    // Name colours: enough to exercise the manager's caching and dedup;
-    // `nameColorFetches` counts requests.
     bool supportsNameColors() const override { return true; }
     void fetchNameColor(const QString &userId, quint64 opId) override;
     void setNameColor(const QString &value, quint64 opId) override;
@@ -558,24 +466,13 @@ public:
     bool nameColorsSupportedOnServer = true;
     quint64 roomWidgets(const QString &roomId, const QString &theme,
                         const QString &language) override;
-    /// Ready payloads, not raw state: {id, creator, kind, name, url, refusal,
-    /// discloses}. The derivation (templating, https and authority rules) is
-    /// security logic that lives once, in Rust, with its own tests; a second
-    /// copy here could pass while the real one failed.
     QVariantList mockWidgets;
-    // Off by default so no fixture grows a Pinned tab; turned on by tests that
-    // need the room-info strip to overflow.
     bool mockSupportsPinnedMessages = false;
     bool supportsPinnedMessages() const override
     { return mockSupportsPinnedMessages; }
-    // Empty (nothing tells) by default; tests set it and emit
-    // mediaKeepStateChanged to drive the Settings line.
     QString mockMediaKeepState;
     QString mediaKeepState() const override { return mockMediaKeepState; }
-    // Whether this account may write widget state; tests flip it to prove the
-    // gate.
     bool mockWidgetsCanManage = true;
-    // Every widget write the controller asked for: (roomId, widgetId, json).
     QList<std::tuple<QString, QString, QString>> widgetWrites;
     quint64 writeRoomWidget(const QString &roomId, const QString &widgetId,
                             const QString &contentJson) override;
@@ -583,13 +480,8 @@ public:
     QString lastWidgetTheme;
     QString lastWidgetLanguage;
 
-    // Bridges (MSC2346). Ready payloads again: sanitising lives in Rust.
-    // `bridgeReads` records (roomId, allowNetwork) so tests can prove the room
-    // list never triggers a /state read and a room is asked once per session.
     bool mockSupportsRoomBridges = true;
     bool supportsRoomBridges() const override { return mockSupportsRoomBridges; }
-    /// Per room: the list the bridge would answer. A missing entry answers an
-    /// empty list, which is a fact, not an error.
     QHash<QString, QVariantList> mockRoomBridges;
     QList<std::pair<QString, bool>> bridgeReads;
     quint64 roomBridges(const QString &roomId, bool allowNetwork) override;
@@ -603,8 +495,6 @@ public:
     bool clearSearchIndex() override;
     quint64 clearStoredMedia() override;
     int mediaClears = 0;
-    // About page: canned answers one event-loop turn later, and a record of
-    // what was asked.
     quint64 clearEventCache() override;
     quint64 requestHomeserverInfo() override;
     quint64 requestAccountDataListing(const QString &roomId) override;
@@ -614,25 +504,18 @@ public:
     int homeserverInfoRequests = 0;
     QStringList accountDataRequests;
     quint64 m_aboutOp = 9000;
-    // "Index all rooms": records every call and answers like the bridge does
-    // (a status at once; a running pass stays "running" until a test emits
-    // more progress itself).
     quint64 indexAllRooms(bool resumeOnly) override;
     quint64 pauseIndexAll() override;
     quint64 cancelIndexAll() override;
     quint64 requestIndexAllStatus() override;
     void setIndexAllHold(unsigned bits) override { indexAllHold = bits; }
-    QList<bool> indexAllStarts;   // resumeOnly of every start, in order
+    QList<bool> indexAllStarts;
     int indexAllPauses = 0;
     int indexAllCancels = 0;
     unsigned indexAllHold = 0;
     /// A run the mock considers interrupted and resumable.
     bool mockIndexAllPending = false;
-    /// Mirrors localsearch::MIN_QUERY_CHARS (a Rust constant cannot be
-    /// included); a different minimum would let a UI pass here and fail in
-    /// production.
     static constexpr int kMockMinQueryChars = 3;
-    /// Event ids the test has "redacted" from the index.
     QSet<QString> forgottenIndexEvents;
     QStringList forgottenIndexRooms;
     int indexSweeps = 0;
@@ -667,19 +550,18 @@ public:
     quint64 fetchUserProfile(const QString &userId) override;
     void setOwnDisplayName(const QString &name, quint64 opId) override;
 
-    // Knobs, read and written by tests directly.
-    QVariantMap mockResolveResult;      // empty → ok=false, category invalid
-    QVariantList mockPublicRooms;       // rows for one directory page
+    QVariantMap mockResolveResult;
+    QVariantList mockPublicRooms;
     QString mockPublicRoomsNextBatch;
-    QString mockJoinFailCategory;       // non-empty → join fails with it
+    QString mockJoinFailCategory;
     QString mockKnockFailCategory;
     QVariantList mockSpaceChildren;
-    QVariantList mockSearchResults;     // rows for one search page
+    QVariantList mockSearchResults;
     QString mockSearchNextBatch;
     QVariantMap lastSearchFilters;
-    bool mockUiaRequired = false;       // first delete raises a challenge
-    QString mockUiaPassword;            // accepted password when challenged
-    QString mockDeleteFailCategory;     // non-empty → terminal failure
+    bool mockUiaRequired = false;
+    QString mockUiaPassword;
+    QString mockDeleteFailCategory;
     QString mockManagementUrl;
     QString mockReportFailCategory;
     QStringList mockIgnoredUsers;
@@ -688,20 +570,13 @@ public:
     // mockPushRuleFailCategory fails every write with that category.
     QVariantMap mockPushRules;
     QString mockPushRuleFailCategory;
-    quint64 lastDeleteOp = 0;           // pending UIA challenge id
+    quint64 lastDeleteOp = 0;
     QStringList lastDeletedDevices;
-    QStringList joinedTargets;          // every join target dispatched
+    QStringList joinedTargets;
 
-    // Profiles by user id. An absent own-account row means "never set" and the
-    // lookup reports the localpart; a cleared name is stored as an empty string
-    // and stays empty.
     QHash<QString, QString> mockDisplayNames;
     QHash<QString, QString> mockAvatarUrls;
-    // Non-empty: every display-name write fails with this as the server's
-    // message. Sticky, so retry-after-failure is drivable.
     QString mockDisplayNameFailReason;
-    // Fail with no message (timeout, or nothing usable), which the UI words
-    // differently from a server message.
     bool mockDisplayNameFailSilently = false;
-    int displayNameWrites = 0;          // dispatched writes (dedup checks)
+    int displayNameWrites = 0;
 };

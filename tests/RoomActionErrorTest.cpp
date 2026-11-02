@@ -3,10 +3,6 @@
 #include <QFile>
 #include <QtTest/QtTest>
 
-// A server refusal of a room-menu write (favourite, mark_read, marked_unread,
-// read_receipt: `room_action_error` from rust/src/lib.rs) must reach the
-// user. Pinned: the mapping itself, and a source contract that the
-// production handler consults it and emits.
 class RoomActionErrorTest : public QObject
 {
     Q_OBJECT
@@ -24,9 +20,6 @@ private Q_SLOTS:
         QVERIFY2(!fav.isEmpty() && !read.isEmpty() && !unread.isEmpty(),
                  "a room action the user asked for was refused and said "
                  "nothing, so the menu looks as though the write worked");
-        // Distinct, because "could not favourite" and "could not mark as
-        // read" are different failures and the reader should not have to
-        // guess which control refused.
         QVERIFY2(fav != read && read != unread && fav != unread,
                  "two different refused actions produced the same sentence, "
                  "so the message cannot say which control failed");
@@ -48,9 +41,6 @@ private Q_SLOTS:
         QVERIFY(matrix::room_action::userFacingError(QString{}).isEmpty());
     }
 
-    // The production handler (in RustSdkMatrixClient.cpp, which needs the FFI
-    // and a live client to construct) must call the mapping, so the call site
-    // is asserted in source.
     void theProductionHandlerConsultsItAndReports()
     {
         QFile file(QStringLiteral(SRC_DIR "/src/matrix/RustSdkMatrixClient.cpp"));
@@ -61,9 +51,6 @@ private Q_SLOTS:
         QVERIFY2(branch > 0,
                  "the room_action_error branch is gone; this contract is "
                  "pinned to a handler that no longer exists");
-        // Bounded to the branch, so a call somewhere else in this very large
-        // file cannot satisfy it. 2400: the branch also settles a failed read
-        // receipt (readReceiptFailed, 2026-10-15) before it reports.
         const QString body = source.mid(branch, 2400);
         QVERIFY2(body.contains(QStringLiteral("room_action::userFacingError")),
                  "the room_action_error branch no longer asks for a "
@@ -74,8 +61,6 @@ private Q_SLOTS:
                  "nothing reaches the status strip");
     }
 
-    // The reason (rust/src/roomaction.rs) turns the sentence into one the
-    // reader can act on, without changing which control it names.
     void theReasonSaysWhatTheReaderCanDo()
     {
         using matrix::room_action::failureHint;
@@ -101,8 +86,6 @@ private Q_SLOTS:
 
         QCOMPARE(userFacingError(QStringLiteral("favourite"), QStringLiteral("network")),
                  base + QLatin1Char(' ') + transport);
-        // A reason with nothing actionable keeps the plain sentence, never a
-        // guess; and an action that is silent stays silent whatever the reason.
         QCOMPARE(userFacingError(QStringLiteral("favourite"),
                                  QStringLiteral("http_400_M_BAD_JSON")), base);
         QCOMPARE(userFacingError(QStringLiteral("favourite"), QString{}), base);
@@ -110,9 +93,6 @@ private Q_SLOTS:
                                 QStringLiteral("network")).isEmpty());
     }
 
-    // "room action failed category= favourite" was the whole log line for a
-    // failed Favourite: the reason was dropped in Rust. The handler must log
-    // it and hand it to the sentence.
     void theProductionHandlerLogsAndUsesTheReason()
     {
         QFile file(QStringLiteral(SRC_DIR "/src/matrix/RustSdkMatrixClient.cpp"));
@@ -132,22 +112,12 @@ private Q_SLOTS:
         QFile rust(QStringLiteral(SRC_DIR "/rust/src/lib.rs"));
         QVERIFY2(rust.open(QIODevice::ReadOnly), qPrintable(rust.fileName()));
         const QString lib = QString::fromUtf8(rust.readAll());
-        // Every producer goes through the one event builder that adds the reason.
         QVERIFY2(!lib.contains(QStringLiteral("\"type\": \"room_action_error\"")),
                  "a room_action_error is still built by hand in lib.rs, without "
                  "its reason");
-        // Five since 2026-10-15: mx_rust_set_fully_read_marker reports a
-        // failed m.fully_read write the same way (action "fully_read").
-        // Six since 2026-10-27: the m.lowpriority tag write does too.
         QCOMPARE(lib.count(QStringLiteral("roomaction::failure_event(")), 6);
     }
 
-    // A queue overflow must repair the stream, not only announce it. The
-    // Rust->C++ queue drops its oldest entries at EVENT_QUEUE_CAP and injects
-    // one `queue_overflow` marker; the payload is positional (timeline diffs,
-    // room-list index diffs) and a dropped Set or insert can pass every bounds
-    // check, so the handler must re-snapshot with the primitives used for
-    // detected damage. Source scan, for the same reason as above.
     void anOverflowResyncsRatherThanOnlyReporting()
     {
         QFile file(QStringLiteral(SRC_DIR "/src/matrix/RustSdkMatrixClient.cpp"));
@@ -158,8 +128,6 @@ private Q_SLOTS:
         QVERIFY2(branch > 0,
                  "the queue_overflow branch is gone; this contract is pinned "
                  "to a handler that no longer exists");
-        // Bounded to the branch, so the resync call elsewhere in this large
-        // file cannot satisfy it.
         const int end = source.indexOf(QStringLiteral("\nvoid RustSdkMatrixClient::"),
                                        branch);
         QVERIFY2(end > branch,

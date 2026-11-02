@@ -2,12 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// Lightning single-line text field: flat themed surface, a 1px border that
-// turns accent on focus, themed selection and placeholder. Optional leading
-// search glyph and a clear button that appears with text.
-//
-// `storm: true` on storm surfaces: stormInset fill, 1px stormBorder, and on
-// focus a bolt border with a soft bolt halo outside the field.
 TextField {
     id: root
 
@@ -22,11 +16,6 @@ TextField {
     font.pixelSize: AppTheme.textBody
     color: storm ? AppTheme.stormFieldText : AppTheme.fieldText
     placeholderTextColor: AppTheme.placeholderInk
-    // `selectedHover` for the selection: accentSoft (a tile fill) and
-    // stormSelection (hover outside Storm) are nearly invisible against the
-    // field on several themes, including both defaults. `selected` alone isn't
-    // enough either (it equals accentSoft on Moss Light).
-    // theTextSelectionIsVisibleOnEveryTheme enforces the floor.
     selectionColor: AppTheme.textSelection
     selectedTextColor: storm ? AppTheme.stormFieldText : AppTheme.fieldText
     verticalAlignment: TextInput.AlignVCenter
@@ -34,8 +23,6 @@ TextField {
     background: Rectangle {
         radius: AppTheme.radiusMd
         color: root.storm ? AppTheme.stormInset : AppTheme.inputBackground
-        // Integer weights only: a 1.5px border can't land on a pixel boundary
-        // at DPR 1.0 and renders as blurred rows.
         border.width: root.activeFocus ? 2 : 1
         border.color: {
             if (root.storm)
@@ -47,7 +34,6 @@ TextField {
                  : AppTheme.fieldBorder
         }
 
-        // Focus halo: a 3px bolt ring at 12% outside the field's geometry.
         Rectangle {
             visible: root.storm && root.activeFocus
             anchors.fill: parent
@@ -59,10 +45,6 @@ TextField {
         }
     }
 
-    // Right-click opens the themed edit menu. Without this Qt shows its own
-    // square, unthemed native menu (and on Qt before 6.9 none at all). The
-    // MouseArea takes only the right button, so left clicks, selection drags
-    // and touch reach the field untouched.
     MouseArea {
         objectName: "textFieldContextArea"
         anchors.fill: parent
@@ -73,8 +55,6 @@ TextField {
             textFieldEditMenuLoader.item.popup(mouse.x, mouse.y)
         }
     }
-    // Built on first use: this field is on every form, and an idle menu per
-    // field was 130 QObjects a piece.
     Loader {
         id: textFieldEditMenuLoader
         active: false

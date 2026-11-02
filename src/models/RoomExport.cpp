@@ -13,8 +13,6 @@
 
 namespace roomexport {
 
-// One withheld marker, used wherever a body is not written, so a reader can
-// tell "a message is omitted" from "nothing was said".
 QString withheldBody()
 {
     return QStringLiteral("[message withheld: this room is encrypted and the "
@@ -23,8 +21,6 @@ QString withheldBody()
 
 QString placeholderBody(const TimelineEvent &event)
 {
-    // Said in words rather than left blank: an empty row reads as "nothing
-    // was said", which is not what happened.
     if (event.redacted)
         return QStringLiteral("[message deleted]");
     if (event.undecryptable)
@@ -60,22 +56,17 @@ bool isAttachment(TimelineEvent::Type type)
         || type == TimelineEvent::Sticker;
 }
 
-} // namespace
+}
 
-// A state row the bridge named is written in the exporting user's app
-// language, as the timeline shows it; anything else keeps its body. No bidi
-// isolates: they are invisible characters in a text file.
 QString stateOrBody(const TimelineEvent &event)
 {
     if (event.type == TimelineEvent::StateChange && !event.stateSentence.isEmpty())
-        return matrix::preview::stateRowText(event, QString(), /*isolate=*/false);
+        return matrix::preview::stateRowText(event, QString(),false);
     return event.body;
 }
 
 namespace {
 
-// What the file shows for an event's content. Never an `mxc:`: authenticated
-// media cannot be resolved from the file, so it would be a dead link.
 QString bodyFor(const TimelineEvent &event, const Options &options)
 {
     // Room state (created the room, joined, renamed) is never encrypted: Matrix
@@ -95,17 +86,12 @@ QString bodyFor(const TimelineEvent &event, const Options &options)
             ? event.body : event.mediaFilename;
         const QString label = name.trimmed().isEmpty()
             ? QStringLiteral("attachment") : name.trimmed();
-        // Say the bytes are not included, rather than leaving a bare filename
-        // that reads like an enclosure.
         return QStringLiteral("[%1: %2 — not included in this export]")
             .arg(typeName(event.type), label);
     }
     return stateOrBody(event);
 }
 
-// The sender's own words under a piece of media, when they wrote any beyond
-// the file's name. Empty for a withheld or placeholder row, so it can never
-// reveal what the body would not.
 QString captionFor(const TimelineEvent &event, const Options &options)
 {
     if (!isAttachment(event.type))
@@ -129,7 +115,7 @@ QString senderFor(const TimelineEvent &event)
     return event.sender;
 }
 
-} // namespace
+}
 
 bool isAttachment(const TimelineEvent &event)
 {
@@ -138,10 +124,8 @@ bool isAttachment(const TimelineEvent &event)
 
 bool isExportable(const TimelineEvent &event)
 {
-    // Virtual rows are presentation, not conversation.
     if (event.isVirtual())
         return false;
-    // A local echo has not been sent and may never arrive; nobody else has it.
     if (event.status != TimelineEvent::Sent)
         return false;
     return true;
@@ -164,8 +148,6 @@ QString renderPlainText(const QList<TimelineEvent> &events,
         ? QStringLiteral("HH:mm")
         : QStringLiteral("h:mm AP");
 
-    // File content is English whatever the host or UI language is, so the
-    // dates and times in it never mix two languages.
     const QLocale fileLocale = QLocale::c();
 
     QStringList lines;
@@ -180,7 +162,6 @@ QString renderPlainText(const QList<TimelineEvent> &events,
     }
     lines.append(QStringLiteral("Events in this file: %1")
                      .arg(exportableCount(events)));
-    // State the two limits at the top, before the reader draws conclusions.
     if (options.rangeDescription.isEmpty()) {
         lines.append(QStringLiteral(
             "This export carries the messages Lightning had loaded, and no "
@@ -227,13 +208,9 @@ QString renderPlainText(const QList<TimelineEvent> &events,
         if (!caption.isEmpty())
             body += QLatin1Char('\n') + caption;
         if (event.type == TimelineEvent::StateChange) {
-            // State rows have no speaker; "Name: ..." would attribute words to
-            // someone.
             lines.append(QStringLiteral("[%1] * %2").arg(stamp, body));
             continue;
         }
-        // A thread reply sits in time order among the rest; the marker says
-        // it belongs to a thread rather than to the main conversation.
         const QString thread = event.threadRootId.isEmpty()
             ? QString() : QStringLiteral("[in thread] ");
         if (event.type == TimelineEvent::Emote) {
@@ -241,7 +218,6 @@ QString renderPlainText(const QList<TimelineEvent> &events,
                              .arg(stamp, thread, senderFor(event), body));
             continue;
         }
-        // Multi-line bodies keep their newlines, indented as continuations.
         const QStringList bodyLines = body.split(QLatin1Char('\n'));
         lines.append(QStringLiteral("[%1] %2%3: %4")
                          .arg(stamp, thread, senderFor(event),
@@ -264,8 +240,6 @@ QString renderJson(const QList<TimelineEvent> &events, const Options &options)
     root.insert(QStringLiteral("encrypted"), options.encrypted);
     root.insert(QStringLiteral("includes_message_text"),
                 !options.encrypted || options.allowEncryptedPlaintext);
-    // Named in the file so a script cannot mistake a partial export for the
-    // whole history.
     root.insert(QStringLiteral("scope"), options.scope);
     if (!options.rangeDescription.isEmpty()) {
         root.insert(QStringLiteral("range"), options.rangeDescription);
@@ -301,8 +275,6 @@ QString renderJson(const QList<TimelineEvent> &events, const Options &options)
             row.insert(QStringLiteral("thread_root"), event.threadRootId);
         if (!event.replyToEventId.isEmpty())
             row.insert(QStringLiteral("in_reply_to"), event.replyToEventId);
-        // An attachment's name and type are decrypted content too: withheld
-        // with the body when the encrypted-room opt-in was not given.
         if (isAttachment(event.type)
             && (!options.encrypted || options.allowEncryptedPlaintext)) {
             row.insert(QStringLiteral("filename"), event.mediaFilename);
@@ -324,7 +296,6 @@ QString render(const QList<TimelineEvent> &events, const Options &options,
     case Format::Json:
         return renderJson(events, options);
     case Format::Html:
-        // No attachments: those are fetched and streamed by the controller.
         return QString::fromUtf8(renderHtml(events, options));
     case Format::PlainText:
         break;
@@ -336,8 +307,6 @@ QString suggestedFileName(const Options &options, Format format)
 {
     QString base = options.roomName.trimmed();
     if (base.isEmpty()) {
-        // The localpart of `!abc:server`, which is stable and carries no
-        // separator of its own.
         base = options.roomId;
         base.remove(QLatin1Char('!'));
         base = base.section(QLatin1Char(':'), 0, 0);
@@ -350,7 +319,6 @@ QString suggestedFileName(const Options &options, Format format)
         if (c.unicode() < 0x20 || c.unicode() == 0x7f)
             c = QLatin1Char('-');
     }
-    // Leading dots hide the file on Unix and `..` traverses.
     while (base.startsWith(QLatin1Char('.')))
         base.remove(0, 1);
     base = base.trimmed();
@@ -366,4 +334,4 @@ QString suggestedFileName(const Options &options, Format format)
     return QStringLiteral("%1-%2.%3").arg(base, stamp, suffix);
 }
 
-} // namespace roomexport
+}

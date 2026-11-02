@@ -3,11 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Global message search: a modal over the server's /search
-// (MessageSearchController with an empty roomId). The homeserver cannot search
-// ciphertext, so results cover unencrypted rooms only, disclosed inline. Rows
-// name their room; activating one opens the room and jumps to the event through
-// the existing navigation path.
 Dialog {
     id: root
     objectName: "messageSearchDialog"
@@ -21,14 +16,9 @@ Dialog {
     anchors.centerIn: parent
     padding: AppTheme.spacing16
 
-    // `query` is optional: the room find bar hands over what it just failed to
-    // find so the wider search starts at once.
     function openDialog(query) {
         app.messageSearch.roomId = ""
         app.messageSearch.filters = ({})
-        // Set explicitly, never inherited from the side panel's last choice:
-        // the local index where the backend has one (it is what the label
-        // below describes), the homeserver otherwise.
         app.messageSearch.source = app.messageSearch.localAvailable
             ? "local" : "server"
         open()
@@ -51,8 +41,6 @@ Dialog {
         var r = app.messageSearch.rowAt(row)
         if (!r.roomId || !r.eventId)
             return
-        // As with notification clicks: switch room, let it settle a turn, then
-        // jump.
         app.openRoom(r.roomId)
         var eventId = r.eventId
         Qt.callLater(function() { app.pagination.jumpToEvent(eventId) })
@@ -101,8 +89,6 @@ Dialog {
             text: app.messageSearch.query
             onTextChanged: app.messageSearch.query = text
             onAccepted: app.messageSearch.search()
-            // Down moves into the results, so a keyboard user can reach them
-            // without tabbing past the toggle and the close button.
             Keys.onDownPressed: (event) => {
                 if (resultsList.count > 0) {
                     resultsList.currentIndex = Math.max(
@@ -135,7 +121,6 @@ Dialog {
         Label {
             objectName: "globalSearchSourceLabel"
             Layout.fillWidth: true
-            // Follows the source the query really runs against.
             text: app.messageSearch.source === "local"
                 ? qsTr("Searching this device's index — includes indexed "
                        + "encrypted rooms, and finds only messages already "
@@ -209,7 +194,6 @@ Dialog {
                     resultsList.activeFocus && ListView.isCurrentItem
                 color: resultHover.hovered || keyFocused
                        ? AppTheme.stormSelection : "transparent"
-                // Keyboard focus ring, drawn inside the row's bounds.
                 border.width: keyFocused ? 2 : 0
                 border.color: AppTheme.bolt
                 objectName: "globalSearchResultRow"
@@ -239,12 +223,10 @@ Dialog {
                             Layout.fillWidth: true
                             spacing: AppTheme.spacing6
                             Label {
-                                // Remote or externally chosen text: never markup.
                                 textFormat: Text.PlainText
                                 text: resultRow.senderDisplayName.length > 0
                                       ? resultRow.senderDisplayName
                                       : resultRow.sender
-                                // Identity ink, as in the timeline.
                                 color: AppTheme.userColor(resultRow.sender)
                                 font.family: AppTheme.menuFont
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
@@ -257,7 +239,6 @@ Dialog {
                                 textFormat: Text.PlainText
                                 color: AppTheme.stormTextMuted
                                 font.family: AppTheme.menuFont
-                                // Scaled like the sender name beside it.
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true
@@ -275,7 +256,6 @@ Dialog {
                             }
                         }
                         Label {
-                            // Remote or externally chosen text: never markup.
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             text: resultRow.body

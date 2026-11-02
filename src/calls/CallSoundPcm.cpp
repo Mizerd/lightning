@@ -10,8 +10,6 @@
 namespace callsound {
 
 namespace {
-// The longest call sound is a few seconds; refuse anything absurd rather than
-// allocate for it.
 constexpr qint64 kMaxDataBytes = 64 * 1024 * 1024;
 
 quint16 u16At(const QByteArray &bytes, qsizetype at)
@@ -23,7 +21,7 @@ quint32 u32At(const QByteArray &bytes, qsizetype at)
 {
     return qFromLittleEndian<quint32>(bytes.constData() + at);
 }
-} // namespace
+}
 
 qint64 Pcm::durationMs() const
 {
@@ -50,7 +48,7 @@ std::optional<Pcm> decodeWav(const QByteArray &wav, int tailMs)
         const quint32 size = u32At(wav, at + 4);
         const qsizetype body = at + 8;
         if (qint64(size) > qint64(wav.size()) - body)
-            return std::nullopt; // truncated
+            return std::nullopt;
         if (id == "fmt ") {
             if (size < 16)
                 return std::nullopt;
@@ -69,7 +67,6 @@ std::optional<Pcm> decodeWav(const QByteArray &wav, int tailMs)
             dataAt = body;
             dataSize = qsizetype(size);
         }
-        // Chunks are padded to an even size.
         at = body + qsizetype(size) + (size & 1u);
     }
     if (!haveFormat || dataAt < 0 || dataSize <= 0 || dataSize > kMaxDataBytes)
@@ -145,7 +142,7 @@ int CueMixer::start(const QByteArray &pcm, float gain, bool loop)
     if (m_nextId <= 0)
         m_nextId = 1;
     Voice voice;
-    voice.pcm = pcm; // shared, not copied
+    voice.pcm = pcm;
     voice.gain = gain;
     voice.loop = loop;
     m_voices.insert(id, voice);
@@ -172,7 +169,6 @@ void CueMixer::stopOneShots()
 
 void CueMixer::rewindOneShots()
 {
-    // Cues of one sound share their PCM: the newest id of each.
     QHash<const char *, int> newest;
     for (auto it = m_voices.cbegin(); it != m_voices.cend(); ++it) {
         if (!it->loop) {
@@ -246,7 +242,6 @@ qint64 MixerFeed::bytesAvailable() const
     const qint64 frameBytes = qint64(sizeof(float)) * m_mixer->channels();
     if (m_mixer->idle())
         return m_silenceFrames * frameBytes;
-    // Endless while anything plays, in whole frames.
     return (std::numeric_limits<qint32>::max() / frameBytes) * frameBytes;
 }
 
@@ -271,10 +266,9 @@ qint64 MixerFeed::readData(char *data, qint64 maxSize)
         given = qMin(frames, m_silenceFrames);
         std::fill(out, out + given * m_mixer->channels(), 0.0f);
     }
-    // The silence runs out with whatever was given, cues or not.
     m_silenceFrames -= qMin(m_silenceFrames, given);
     m_bytesTaken += quint64(given * frameBytes);
     return given * frameBytes;
 }
 
-} // namespace callsound
+}

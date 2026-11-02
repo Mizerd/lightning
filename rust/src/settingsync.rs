@@ -1,23 +1,3 @@
-//! The user's preferences kept in account data, so they follow the account to
-//! every device. The transport only: WHAT is synced, how conflicts resolve and
-//! when to write is decided in C++ (`src/settings/SettingsSyncMerge.*`), which
-//! is unit-tested without a homeserver.
-//!
-//! Two global account-data types, both this account's own and readable by the
-//! homeserver (so never a secret, key, token, path or device id; the C++ schema
-//! is an allow-list):
-//!
-//! * `org.lightning_matrix.settings`: the blob,
-//!   `{ "version": 1, "settings": { "<key>": { "v": <value>, "t": <ms> } } }`.
-//! * `org.lightning_matrix.settings.sync`: the ACCOUNT-WIDE switch,
-//!   `{ "version": 1, "enabled": <bool> }`. Its own type for the reason
-//!   `bgsync` gives: a blob write that began before another device turned sync
-//!   off must not be able to turn it back on, so every blob write re-reads the
-//!   switch from the server immediately before its PUT. ABSENT means OFF: this
-//!   is opt-in.
-//!
-//! Reads always ask the server (never the store, which lags this device's own
-//! writes until their echo returns), the switch AFTER the blob.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -41,7 +21,6 @@ use crate::{enqueue, enqueue_terminal_routed, EventQueueRef, RustClient};
 
 pub(crate) const BLOB_TYPE: &str = "org.lightning_matrix.settings";
 pub(crate) const SWITCH_TYPE: &str = "org.lightning_matrix.settings.sync";
-/// Homeservers cap an event at 64 KiB; stay well inside it.
 pub(crate) const MAX_BLOB_BYTES: usize = 48 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -49,8 +28,6 @@ fn bounded() -> RequestConfig {
     RequestConfig::new().disable_retry().timeout(REQUEST_TIMEOUT)
 }
 
-/// The server's copy of one of our two types: `Ok(None)` for 404, `Err` when
-/// it could not be asked. Unparseable JSON is `Some(Null)`.
 async fn read_server(client: &Client, event_type: &str) -> Result<Option<Value>, String> {
     let own = client.user_id().ok_or_else(|| "signed_out".to_owned())?.to_owned();
     let request =
@@ -67,7 +44,6 @@ async fn read_server(client: &Client, event_type: &str) -> Result<Option<Value>,
     }
 }
 
-/// The switch as stored: only an explicit `enabled: true` is on.
 pub(crate) fn switch_on(raw: &Value) -> bool {
     raw.get("enabled").and_then(Value::as_bool).unwrap_or(false)
 }
@@ -99,8 +75,6 @@ async fn put(client: &Client, event_type: &str, content: &Value) -> Result<(), S
         .map_err(|err| classify_write_error(&err.to_string()).0.to_owned())
 }
 
-/// Validate a blob before it leaves: an object, with an integer `version` and
-/// a `settings` object, inside the size bound. `{}` is the cleared blob.
 pub(crate) fn check_blob(content: &Value) -> Result<(), &'static str> {
     let Some(object) = content.as_object() else {
         return Err("invalid_content");
@@ -120,9 +94,6 @@ pub(crate) fn check_blob(content: &Value) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// Read the blob and then the switch from the server. Result event (command
-/// lane): `settings_sync_read { op_id, lifecycle, ok, category, blob_state:
-/// "absent"|"present"|"unreadable", blob, switch: bool|null }`.
 pub(crate) fn read(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
     let queue = Arc::clone(&bridge.command_events);
@@ -160,10 +131,6 @@ pub(crate) fn read(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     Ok(())
 }
 
-/// Write. `kind`: 0 = the blob (needs the switch on, checked at the server
-/// immediately before), 1 = the switch (`content` is `{"enabled": bool}`),
-/// 2 = clear the blob to `{}` (account data cannot be deleted). Result event:
-/// `settings_sync_written { op_id, lifecycle, kind, ok, category }`.
 pub(crate) fn write(bridge: &RustClient, op_id: u64, kind: u32, content_json: String) -> Result<(), String> {
     let content: Value = serde_json::from_str(&content_json).map_err(|_| "invalid_content".to_owned())?;
     match kind {
@@ -224,8 +191,6 @@ pub(crate) fn write(bridge: &RustClient, op_id: u64, kind: u32, content_json: St
     Ok(())
 }
 
-/// Typed only so the SDK dispatches the two types to the change handlers;
-/// never read. A change is re-read through [`read`], the one parser.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
 #[ruma_event(type = "org.lightning_matrix.settings", kind = GlobalAccountData)]
 pub(crate) struct SettingsBlobEventContent {}

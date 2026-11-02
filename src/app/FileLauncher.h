@@ -47,58 +47,32 @@ public:
 
     struct Hooks
     {
-        /// QDesktopServices::openUrl.
         std::function<bool(const QUrl &)> openUrl;
-        /// QProcess::startDetached(program, arguments).
         std::function<bool(const QString &, const QStringList &)> startDetached;
-        /// FileManager1.ShowItems([uri]); answers asynchronously with whether
-        /// the call succeeded.
         std::function<void(const QUrl &, std::function<void(bool)>)> showItems;
-        /// The OpenURI portal's OpenDirectory for this file; asynchronous.
-        /// True once the portal's Request answered success (or was cancelled
-        /// by the user), false when the call or its Response failed.
         std::function<void(const QString &, std::function<void(bool)>)>
             portalOpenDirectory;
-        /// The OpenURI portal's OpenFile for this file; asynchronous, answers
-        /// like portalOpenDirectory.
         std::function<void(const QString &, std::function<void(bool)>)>
             portalOpenFile;
-        /// The real location of a document-portal file (`path`, document id
-        /// `docId`): the portal's host-path attribute, then
-        /// org.freedesktop.portal.Documents.GetHostPaths. Empty when neither
-        /// says; asynchronous.
         std::function<void(const QString &path, const QString &docId,
                            std::function<void(const QString &)>)>
             documentHostPath;
     };
 
     explicit FileLauncher(QObject *parent = nullptr);
-    /// For tests: a given platform and given hooks. Any hook left empty keeps
-    /// its real implementation.
     FileLauncher(Platform platform, Hooks hooks, QObject *parent = nullptr);
 
     static Platform hostPlatform();
 
-    /// Opens `path` with the desktop's handler. False when the file is gone or
-    /// the desktop refused. A document-portal file goes to the OpenURI portal
-    /// (asynchronous; true once handed over).
     bool openFile(const QString &path);
-    /// Reveals `path` in the file manager. Asynchronous on Linux; the result
-    /// arrives on revealFinished and on `done`, if given. Falls back to the
-    /// containing folder, except for a document-portal file (see above).
-    /// False only when the file is gone.
     bool showInFolder(const QString &path,
                       std::function<void(const QString &how)> done = {});
-    /// The real location of a document-portal file, asynchronously; empty
-    /// when the portal does not say. Any other path answers itself at once.
     void resolveHostPath(const QString &path,
                          std::function<void(const QString &)> done);
 
     Platform platform() const { return m_platform; }
 
 Q_SIGNALS:
-    /// How the last showInFolder() ended: "file-manager", "portal", "folder",
-    /// "explorer", "finder" or "failed".
     void revealFinished(const QString &how);
 
 private:
@@ -109,7 +83,6 @@ private:
                         std::function<void(const QString &)> done);
     void finishReveal(const QString &how,
                       const std::function<void(const QString &)> &done);
-    /// OpenURI.<method>(parent, fd on `path`, options) and its Response.
     void callOpenUriWithFd(const QString &method, const QString &path,
                            std::function<void(bool)> done);
 

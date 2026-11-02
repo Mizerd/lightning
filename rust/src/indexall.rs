@@ -1,24 +1,3 @@
-//! "Index all rooms": one queue over the encrypted joined rooms, walked strictly one room
-//! at a time. Each room is indexed by the SAME bounded backward walk "Index
-//! this room" uses (`localsearch::deep_index_room_gated`, `DEEP_MAX_PAGES`),
-//! so there is one indexer and one history bound; this module only decides
-//! the order, the pacing, and what survives a restart.
-//!
-//! Load on the homeserver: one `/messages` page at a time, `PAGE_GAP_MS`
-//! between pages and `ROOM_GAP_MS` between rooms. matrix-sdk already retries
-//! a 429 on the server's `retry_after_ms`; a rate limit that still surfaces
-//! backs the whole queue off by the server's hint (`backoff_ms`). A call or a
-//! scrolling reader HOLDS the walk between pages; nothing is lost.
-//!
-//! Persistence: the queue, its position and the rooms already done live in
-//! `PROGRESS_FILE` inside the account's own store directory (0600, deleted
-//! with the account; cleared with the index). Room ids and counters only —
-//! never message text, which stays in the index this module feeds.
-//!
-//! Undecryptable history is never indexed: the walk counts it, and a room
-//! that still holds any is NOT recorded as complete, so the next run revisits
-//! it. matrix-sdk's redecryptor rewrites those events in the event-cache
-//! store when keys arrive, and that revisit reads them from the store.
 
 use std::collections::{BTreeSet, HashSet};
 use std::io::Write;
@@ -31,61 +10,35 @@ use serde::{Deserialize, Serialize};
 
 use crate::localsearch::{DeepOutcome, Gate, PageGate};
 
-/// File name inside the account's store directory.
 pub(crate) const PROGRESS_FILE: &str = "lightning-index-all.json";
-/// 2: the local index began storing attachment file names. A record older than
-/// this forgets its `complete` rooms ONCE (see [`Control::read_file`]) so the
-/// next USER-STARTED run re-walks them and fills the names in.
 const PROGRESS_VERSION: u32 = 2;
 
-/// Background-only pacing: every fetched page is persisted by the SDK event
-/// cache. A 5 s gap reduces the maximum page rate by 60% versus 2 s, giving
-/// foreground work and disk writes more breathing room. The explicit per-room
-/// action uses its own gate and is unaffected.
 pub(crate) const PAGE_GAP_MS: u64 = 5_000;
-/// An extra 10 s between rooms also slows accounts with many short histories.
 pub(crate) const ROOM_GAP_MS: u64 = 10_000;
-/// How often a held or backing-off queue re-reads its controls.
 pub(crate) const POLL_MS: u64 = 500;
-/// First retry after a failed room; doubles per attempt.
 pub(crate) const MIN_BACKOFF_MS: u64 = 2_000;
-/// A rate limit without a hint waits at least this long.
 pub(crate) const RATE_LIMITED_FLOOR_MS: u64 = 30_000;
-/// Ceiling on any wait, including a server's hint (a skewed `DateTime`
-/// hint can ask for hours).
 pub(crate) const MAX_BACKOFF_MS: u64 = 30 * 60 * 1000;
-/// Ordinary failures of one room before the queue moves past it.
 pub(crate) const MAX_ROOM_ATTEMPTS: u32 = 3;
-/// Rate-limited retries of one room before the queue moves past it. Larger:
-/// a rate limit is the server's state, not the room's fault.
 pub(crate) const MAX_RATE_LIMITED_ATTEMPTS: u32 = 8;
-/// Bounds on what the record holds, so it stays small however many rooms.
 pub(crate) const MAX_QUEUE: usize = 5_000;
 pub(crate) const MAX_COMPLETE: usize = 20_000;
 
-/// Automatic hold reasons, set from C++ as a bit set.
 pub(crate) const HOLD_CALL: u32 = 1;
 pub(crate) const HOLD_SCROLL: u32 = 2;
 
-/// What survives a restart.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Progress {
     #[serde(default)]
     pub version: u32,
-    /// The run's rooms in order. Empty when no run is pending.
     #[serde(default)]
     pub queue: Vec<String>,
-    /// How many of `queue` are handled (indexed, skipped or given up on).
     #[serde(default)]
     pub position: usize,
-    /// The user paused; a restart shows it paused rather than resuming.
     #[serde(default)]
     pub paused: bool,
-    /// Rooms walked to the bound or their start with nothing undecryptable
-    /// left. Later runs skip them.
     #[serde(default)]
     pub complete: BTreeSet<String>,
-    /// Counters of the current run.
     #[serde(default)]
     pub written: u64,
     #[serde(default)]
@@ -96,7 +49,6 @@ pub(crate) struct Progress {
     pub undecryptable_rooms: u64,
     #[serde(default)]
     pub failed_rooms: u64,
-    /// Time spent working on this run, for the estimate.
     #[serde(default)]
     pub elapsed_ms: u64,
 }
@@ -110,7 +62,6 @@ impl Progress {
         self.queue.get(self.position).map(String::as_str)
     }
 
-    /// Repair what a hand-edited or truncated file could hold.
     fn sanitized(mut self) -> Self {
         self.queue.truncate(MAX_QUEUE);
         if self.position > self.queue.len() {
@@ -138,13 +89,6 @@ impl Progress {
     }
 }
 
-/// The order a new run visits rooms: most recently active first (those are
-/// the ones people search), rooms already complete left out, duplicates
-/// dropped, ties broken on the room id so the order is deterministic.
-/// `rooms` is (room id, latest activity in ms; 0 = unknown, encrypted).
-/// Only encrypted rooms need background history fetching; server search covers
-/// unencrypted rooms. Returns the queue
-/// and how many rooms were skipped as complete.
 pub(crate) fn plan_queue(
     rooms: Vec<(String, u64, bool)>,
     complete: &BTreeSet<String>,
@@ -167,10 +111,6 @@ pub(crate) fn plan_queue(
     (wanted.into_iter().map(|(id, _)| id).collect(), skipped)
 }
 
-/// How long the queue waits after a failed room. A server that said how long
-/// is obeyed (never below `MIN_BACKOFF_MS`); a rate limit without a hint waits
-/// at least `RATE_LIMITED_FLOOR_MS`; anything else backs off exponentially.
-/// `attempt` counts from 1. Always capped at `MAX_BACKOFF_MS`.
 pub(crate) fn backoff_ms(rate_limited: bool, retry_after_ms: Option<u64>, attempt: u32) -> u64 {
     let shift = attempt.clamp(1, 16) - 1;
     let exponential = MIN_BACKOFF_MS.saturating_mul(1u64 << shift);
@@ -182,16 +122,12 @@ pub(crate) fn backoff_ms(rate_limited: bool, retry_after_ms: Option<u64>, attemp
     chosen.min(MAX_BACKOFF_MS)
 }
 
-/// A snapshot for the UI. `state`: "idle" (nothing pending), "running",
-/// "held" (a call or scrolling), "backoff", "paused", "done", "cancelled",
-/// "stopped" (the session ended mid-run; the next session resumes it).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Status {
     pub state: &'static str,
     pub total: usize,
     pub position: usize,
     pub current_room: String,
-    /// Messages written by this run, including the room in progress.
     pub written: u64,
     pub skipped: u64,
     pub undecryptable: u64,
@@ -202,47 +138,34 @@ pub(crate) struct Status {
     pub elapsed_ms: u64,
 }
 
-/// What `begin` did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Begin {
-    /// A run is now pending and the caller must spawn the driver.
     Started,
-    /// The driver is already running; a pause or cancel request was withdrawn.
     AlreadyRunning,
-    /// `resume_only` and nothing was interrupted.
     NothingPending,
-    /// `resume_only` and the pending run was paused by the user.
     PausedPending,
-    /// Every encrypted joined room is already complete (or there are none).
     NothingToDo,
 }
 
-/// How the driver ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Ending {
     Finished,
     Paused,
     Cancelled,
-    /// The session ended (sign-out, account switch, teardown).
     Stopped,
 }
 
-/// What happened to one room.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RoomResult {
-    /// Walked to the bound or the room start.
     Done {
         written: usize,
         undecryptable: usize,
     },
-    /// Stopped mid-room (pause, cancel, sign-out); revisited next time.
     Interrupted { written: usize },
-    /// The walk failed.
     Failed {
         rate_limited: bool,
         retry_after_ms: Option<u64>,
     },
-    /// No longer joined, or unknown: moved past.
     Gone,
 }
 
@@ -254,9 +177,7 @@ struct Inner {
     /// Bumped when the index is cleared: a room finished under an older
     /// epoch must not be recorded as complete in the new, empty index.
     epoch: u64,
-    /// Loaded lazily from `path`.
     progress: Option<Progress>,
-    /// Written by the room in progress, not yet committed.
     in_room_written: u64,
     retry_in_ms: u64,
     held_reported: bool,
@@ -271,8 +192,6 @@ pub(crate) struct Control {
 }
 
 impl Control {
-    /// `store_dir` empty (tests, or a bridge without a store): nothing is
-    /// persisted.
     pub(crate) fn new(store_dir: &Path) -> Self {
         let path = if store_dir.as_os_str().is_empty() {
             None
@@ -287,7 +206,6 @@ impl Control {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
-        // A poisoned lock only means a panic elsewhere; the record is plain data.
         self.inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -307,7 +225,6 @@ impl Control {
         let Ok(bytes) = std::fs::read(path) else {
             return Progress::default();
         };
-        // A corrupt record costs a re-walk, never a failure.
         let mut progress = serde_json::from_slice::<Progress>(&bytes)
             .map(Progress::sanitized)
             .unwrap_or_default();
@@ -356,8 +273,6 @@ impl Control {
         }
     }
 
-    /// Start a run, or continue the pending one. `joined` lists the joined
-    /// rooms with current encryption state, including when resuming a stored queue.
     pub(crate) fn begin(
         &self,
         resume_only: bool,
@@ -365,8 +280,6 @@ impl Control {
     ) -> Begin {
         let mut inner = self.lock();
         if inner.running {
-            // Only the user's own start withdraws their pause or cancel; the
-            // automatic resume on every sync must never override either.
             if !resume_only {
                 inner.pause_requested = false;
                 inner.cancel_requested = false;
@@ -375,10 +288,6 @@ impl Control {
         }
         let joined = joined();
         let progress = self.loaded(&mut inner);
-        // Old versions queued public rooms too. Reconcile before even a paused
-        // resume, and persist the upgrade so those rooms cannot be fetched later.
-        // Forget their completion markers so enabling encryption later makes
-        // them eligible on the next user-started run.
         let eligible: HashSet<&str> = joined
             .iter()
             .filter(|(_, _, encrypted)| *encrypted)
@@ -435,8 +344,6 @@ impl Control {
         Begin::Started
     }
 
-    /// Ask a running driver to pause at its next check; a pending run that is
-    /// not running is marked paused directly.
     pub(crate) fn pause(&self) {
         let mut inner = self.lock();
         if inner.running {
@@ -451,7 +358,6 @@ impl Control {
         }
     }
 
-    /// Drop the pending run. Rooms already complete stay complete.
     pub(crate) fn cancel(&self) {
         let mut inner = self.lock();
         if inner.running {
@@ -466,8 +372,6 @@ impl Control {
         }
     }
 
-    /// The index was cleared: forget every run and every completed room, and
-    /// make any late result from a running driver land nowhere.
     pub(crate) fn reset(&self) {
         let mut inner = self.lock();
         inner.epoch = inner.epoch.wrapping_add(1);
@@ -480,7 +384,6 @@ impl Control {
         }
     }
 
-    /// A room was forgotten from the index; it is no longer complete.
     pub(crate) fn forget_room(&self, room_id: &str) {
         let mut inner = self.lock();
         let progress = self.loaded(&mut inner);
@@ -490,7 +393,6 @@ impl Control {
         }
     }
 
-    /// Automatic holds (bits of `HOLD_*`), replacing the previous set.
     pub(crate) fn set_hold(&self, bits: u32) {
         self.hold.store(bits, Ordering::Relaxed);
     }
@@ -517,8 +419,6 @@ impl Control {
         self.loaded(&mut inner).current().map(str::to_owned)
     }
 
-    /// The UI snapshot. `state` is chosen by the caller when it knows better
-    /// (a driver reporting "held" or "backoff"); `None` derives it.
     pub(crate) fn status(&self, state: Option<&'static str>) -> Status {
         let mut inner = self.lock();
         let running = inner.running;
@@ -530,7 +430,6 @@ impl Control {
         } else if progress.pending() && progress.paused {
             "paused"
         } else if progress.pending() {
-            // Interrupted by the end of a session and not paused.
             "stopped"
         } else {
             "idle"
@@ -559,8 +458,6 @@ impl Control {
         self.lock().retry_in_ms = ms;
     }
 
-    /// Record whether "held" is what was last reported; true when that
-    /// changed, so a long call reports "held" once, not every poll.
     fn note_held(&self, held: bool) -> bool {
         let mut inner = self.lock();
         let changed = inner.held_reported != held;
@@ -568,9 +465,6 @@ impl Control {
         changed
     }
 
-    /// Record the room at the head of the queue and move past it. Dropped when
-    /// the index was cleared since the driver started (`epoch`), or when the
-    /// head is no longer that room.
     fn commit_room(&self, epoch: u64, room_id: &str, result: RoomResult, spent: Duration) {
         let mut inner = self.lock();
         inner.in_room_written = 0;
@@ -608,7 +502,6 @@ impl Control {
         self.persist(&snapshot);
     }
 
-    /// Count what an interrupted room wrote without moving past it.
     fn commit_partial(&self, epoch: u64, written: usize, spent: Duration) {
         let mut inner = self.lock();
         inner.in_room_written = 0;
@@ -622,8 +515,6 @@ impl Control {
             .saturating_add(u64::try_from(spent.as_millis()).unwrap_or(u64::MAX));
     }
 
-    /// Settle the run under one lock hold, so a `begin` racing the end can
-    /// never see `running` false with the old run's state unwritten.
     fn finish(&self, ending: Ending) {
         let mut inner = self.lock();
         inner.running = false;
@@ -644,8 +535,6 @@ impl Control {
         self.persist(&snapshot);
     }
 
-    /// The ending decided under the lock: every way a run stops, in priority
-    /// order. `alive` is false once this session is over.
     fn ending_now(&self, alive: &dyn Fn() -> bool) -> Option<Ending> {
         if !alive() {
             return Some(Ending::Stopped);
@@ -662,12 +551,6 @@ impl Control {
 }
 
 impl Progress {
-    /// End of a run: the counters stay readable until the next run so the UI
-    /// can report what the finished run did.
-    ///
-    /// A finished run keeps its queue with the position at its end, so "done"
-    /// can still say how many rooms it walked (and `pending()` is false); a
-    /// cancelled one drops it. The next run plans a fresh queue either way.
     fn reset_run_keeping_counters(&mut self, ending: Ending) {
         if ending == Ending::Finished {
             self.position = self.queue.len();
@@ -679,12 +562,9 @@ impl Progress {
     }
 }
 
-/// The gate a room walk reads, and the channel it reports through. Owns its
-/// parts so a walk future can hold it without borrowing the driver.
 #[derive(Clone)]
 pub(crate) struct RunGate {
     pub control: Arc<Control>,
-    /// False once this session is over.
     pub alive: Arc<dyn Fn() -> bool + Send + Sync>,
     pub emit: Arc<dyn Fn(Status) + Send + Sync>,
 }
@@ -716,8 +596,6 @@ impl PageGate for RunGate {
     }
 }
 
-/// Sleep `total` in `POLL_MS` slices through `sleep`, re-reading the controls
-/// between slices. False when the run must end.
 async fn wait_checked<S, SF>(gate: &RunGate, total: Duration, sleep: &mut S) -> bool
 where
     S: FnMut(Duration) -> SF,
@@ -736,9 +614,6 @@ where
     gate.control.ending_now(&*gate.alive).is_none()
 }
 
-/// Run the queue until it finishes, pauses, is cancelled or the session ends.
-/// `walk` indexes one room; `sleep` is `tokio::time::sleep` in production and
-/// a recorder in tests. Strictly sequential: one `walk` in flight at a time.
 pub(crate) async fn drive<W, WF, S, SF>(gate: RunGate, mut walk: W, mut sleep: S) -> Ending
 where
     W: FnMut(String, RunGate) -> WF,
@@ -837,7 +712,6 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::atomic::AtomicBool;
 
-    /// A store directory under the system temp dir, removed on drop.
     struct Store(PathBuf);
 
     impl Store {
@@ -876,8 +750,6 @@ mod tests {
         (gate, seen)
     }
 
-    /// A walk that answers from a script, in order, and records the rooms
-    /// it was asked for.
     fn scripted(
         script: Vec<RoomResult>,
     ) -> (
@@ -933,7 +805,6 @@ mod tests {
     #[test]
     fn background_upgrade_drops_public_rooms_and_preserves_resume_position() {
         let store = Store::new("encrypted-upgrade");
-        // A v1 record from the old all-joined-rooms walk, paused mid-run.
         let old = Progress {
             version: 2,
             queue: vec![
@@ -980,9 +851,6 @@ mod tests {
         assert_eq!(restarted.status(None).current_room, "!private:x");
     }
 
-    // Schema 1 of the local index added file names. A room completed before
-    // that was walked without them, so its completion is forgotten once. The
-    // queue is untouched and nothing starts by itself.
     #[test]
     fn a_record_from_before_file_names_forgets_completed_rooms_once_and_starts_nothing() {
         let store = Store::new("filename-upgrade");
@@ -998,9 +866,7 @@ mod tests {
         let control = Control::new(&store.0);
         let status = control.status(None);
         assert_eq!(status.complete_rooms, 0, "a pre-file-name completion survived");
-        // Nothing was started or unpaused: the pending run is as it was.
         assert_eq!(status.total, 1);
-        // Once a record is written at the new version, completion is kept.
         let again = Progress { version: 2, complete: ["!done:x".into()].into_iter().collect(), ..Progress::default() };
         std::fs::write(store.0.join(PROGRESS_FILE), serde_json::to_vec(&again).unwrap()).unwrap();
         let reread = Control::new(&store.0);
@@ -1054,7 +920,6 @@ mod tests {
             control.begin(false, || vec![("!later:x".into(), 1, false)]),
             Begin::NothingToDo
         );
-        // New SDK encryption state after a restart; no manual clear required.
         let control = Control::new(&store.0);
         assert_eq!(
             control.begin(false, || vec![("!later:x".into(), 2, true)]),
@@ -1063,7 +928,6 @@ mod tests {
         assert_eq!(control.status(None).current_room, "!later:x");
     }
 
-    // ── Ordering and skipping ────────────────────────────────────────────
     #[test]
     fn the_queue_visits_the_most_recent_rooms_first_and_skips_complete_ones() {
         let complete: BTreeSet<String> = ["!done:x".to_owned()].into_iter().collect();
@@ -1117,7 +981,6 @@ mod tests {
         );
         control.finish(Ending::Finished);
 
-        // Both complete, one new room joined since.
         let begin = control.begin(false, || rooms(&[("!a:x", 2), ("!b:x", 1), ("!c:x", 3)]));
         assert_eq!(begin, Begin::Started);
         let status = control.status(None);
@@ -1126,13 +989,11 @@ mod tests {
         assert_eq!(status.skipped, 2);
         control.finish(Ending::Finished);
 
-        // Nothing left to do is its own answer, not a silent no-op.
         let control = Control::new(&store.0);
         let begin = control.begin(false, || rooms(&[("!a:x", 2), ("!b:x", 1)]));
         assert_eq!(begin, Begin::NothingToDo);
     }
 
-    // ── Undecryptable history ────────────────────────────────────────────
     #[test]
     fn a_room_with_undecryptable_history_is_not_recorded_complete() {
         let control = Control::new(Path::new(""));
@@ -1158,7 +1019,6 @@ mod tests {
         assert_eq!(status.undecryptable, 4);
         assert_eq!(status.undecryptable_rooms, 1);
         control.finish(Ending::Finished);
-        // So the next run revisits it.
         assert_eq!(
             control.begin(false, || rooms(&[("!e2e:x", 1)])),
             Begin::Started
@@ -1166,7 +1026,6 @@ mod tests {
         assert_eq!(control.status(None).current_room, "!e2e:x");
     }
 
-    // ── Restart ──────────────────────────────────────────────────────────
     #[test]
     fn a_restart_resumes_from_the_persisted_position() {
         let store = Store::new("resume");
@@ -1184,7 +1043,6 @@ mod tests {
                 },
                 Duration::from_millis(40),
             );
-            // The process dies here: no finish().
         }
         #[cfg(unix)]
         {
@@ -1200,7 +1058,6 @@ mod tests {
             );
         }
         let control = Control::new(&store.0);
-        // Resume checks eligibility without changing the persisted order.
         let begin = control.begin(true, || rooms(&[("!r3:x", 9), ("!r2:x", 1), ("!r1:x", 0)]));
         assert_eq!(begin, Begin::Started, "an interrupted run did not resume");
         let status = control.status(None);
@@ -1231,19 +1088,15 @@ mod tests {
             Begin::PausedPending
         );
         assert_eq!(control.status(None).state, "paused");
-        // An explicit start continues it, from where it was.
         assert_eq!(
             control.begin(false, || rooms(&[("!a:x", 2), ("!b:x", 1)])),
             Begin::Started
         );
         assert_eq!(control.status(None).current_room, "!a:x");
-        // Nothing interrupted and nothing paused: a resume does nothing.
         control.finish(Ending::Finished);
         assert_eq!(control.begin(true, Vec::new), Begin::NothingPending);
     }
 
-    // The app asks to resume on every sync; that must not undo a pause the
-    // driver has not reached yet. Clearing the request on any begin() fails.
     #[test]
     fn a_resume_on_sync_never_withdraws_a_pending_pause() {
         let control = Control::new(Path::new(""));
@@ -1257,7 +1110,6 @@ mod tests {
             control.stop_requested(),
             "a resume on sync withdrew the pause"
         );
-        // The user's own start does withdraw it.
         assert_eq!(control.begin(false, Vec::new), Begin::AlreadyRunning);
         assert!(!control.stop_requested());
     }
@@ -1274,7 +1126,6 @@ mod tests {
         assert_eq!(control.status(None).current_room, "!a:x");
     }
 
-    // ── The driver ───────────────────────────────────────────────────────
     #[tokio::test]
     async fn the_driver_walks_rooms_one_at_a_time_in_queue_order() {
         let control = Arc::new(Control::new(Path::new("")));
@@ -1287,7 +1138,6 @@ mod tests {
         let (sleep, slept) = recorder();
         assert_eq!(drive(gate, walk, sleep).await, Ending::Finished);
         assert_eq!(*asked.lock().unwrap(), vec!["!a:x", "!b:x"]);
-        // Paced: a room gap was slept before the second room.
         let total: Duration = slept.lock().unwrap().iter().sum();
         assert!(
             total >= Duration::from_millis(ROOM_GAP_MS),
@@ -1344,7 +1194,6 @@ mod tests {
             backoff.retry_in_ms, 7_300,
             "the server's retry_after was not honoured"
         );
-        // Slept: the hint, then two room gaps (retry, next room).
         let total: u64 = slept
             .lock()
             .unwrap()
@@ -1402,7 +1251,6 @@ mod tests {
         );
     }
 
-    // ── Lifecycle ────────────────────────────────────────────────────────
     #[tokio::test]
     async fn a_session_ending_stops_the_run_and_writes_nothing_more() {
         let store = Store::new("lifecycle");
@@ -1416,7 +1264,6 @@ mod tests {
         let asked: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let log = Arc::clone(&asked);
         let flag = Arc::clone(&alive);
-        // Sign-out lands while the first room is being walked.
         let walk = move |room: String, _gate: RunGate| {
             log.lock().unwrap().push(room);
             flag.store(false, Ordering::SeqCst);
@@ -1444,7 +1291,6 @@ mod tests {
             before, after,
             "the record was rewritten after the session ended"
         );
-        // The next session of the same account picks it up at the same room.
         let next = Control::new(&store.0);
         assert_eq!(
             next.begin(true, || rooms(&[("!a:x", 2), ("!b:x", 1)])),
@@ -1476,7 +1322,6 @@ mod tests {
         assert_eq!(status.position, 1, "the finished room was not kept");
         assert_eq!(statuses.lock().unwrap().last().unwrap().state, "paused");
 
-        // Resume, then cancel mid-room: the queue goes, complete rooms stay.
         assert_eq!(
             control.begin(false, || rooms(&[("!a:x", 2), ("!b:x", 1)])),
             Begin::Started

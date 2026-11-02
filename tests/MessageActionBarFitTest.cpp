@@ -1,8 +1,3 @@
-// The message hover action bar must fit a thin one-line row.
-//
-// The bar is a per-row Loader anchored inside the row with a -3px top
-// overhang, so the row must not clip. Rows are not recycled and size to
-// their content, and the thread panel runs the same delegate unclipped.
 
 #include <QtTest/QtTest>
 
@@ -20,8 +15,6 @@ class MessageActionBarFitTest : public QObject
     }
 
 private Q_SLOTS:
-    // The row must not clip, or the bar is chopped on any row shorter than
-    // it.
     void theRowDoesNotClipItsHoverBar()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
@@ -33,9 +26,6 @@ private Q_SLOTS:
                  "the TableView-era conditional clip is what chopped the bar");
     }
 
-    // One bar per row, anchored in place. No mapToItem: rows are rotated
-    // 180 degrees, so a mapped overlay anchor lands at the visual bottom,
-    // and it has nothing to re-evaluate on when the view scrolls.
     void theBarIsAnchoredInTheRowNotMappedIntoAnOverlay()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
@@ -53,9 +43,6 @@ private Q_SLOTS:
                  "the claim/release handshake was reverted");
     }
 
-    // Serves BOTH panels. The gate is hover/pin/menu only — restricting it
-    // to the thread panel is what left the room timeline on the shared
-    // instance.
     void bothPanelsUseTheSameBar()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
@@ -66,11 +53,6 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("visible: root.actionsVisible")));
     }
 
-    // Exactly one row may show a bar. A pinned row (context menu open, or the
-    // reply/edit target) keeps its bar while the pointer moves elsewhere, so
-    // rows agree through one shared value: the view publishes the hovered
-    // row's key, a row shows its bar when that key is its own, and a pinned
-    // row yields as soon as any row is hovered.
     void onlyOneRowCanShowTheBar()
     {
         const QString pane = read(QStringLiteral("TimelinePane.qml"));
@@ -78,20 +60,15 @@ private Q_SLOTS:
                  "the view must own the single hovered-row key");
 
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));
-        // The row shows its bar only when the shared key names IT.
         QVERIFY(delegate.contains(QStringLiteral(
             "root.timelineView.hoveredActionsKey === actionKey")));
-        // A pinned row defers the moment any other row is hovered.
         QVERIFY2(delegate.contains(QStringLiteral(
                      "&& root.timelineView.hoveredActionsKey === \"\"")),
                  "a pinned row must yield to a hovered one, or two bars show");
-        // Publishing: hover sets the key, un-hover clears only its own.
         QVERIFY(delegate.contains(QStringLiteral(
             "root.timelineView.hoveredActionsKey = root.actionKey")));
     }
 
-    // Lazily created, then latched for the delegate's lifetime — zero
-    // creation cost for rows the pointer never visits.
     void theBarIsCreatedOnFirstNeed()
     {
         const QString delegate = read(QStringLiteral("MessageDelegate.qml"));

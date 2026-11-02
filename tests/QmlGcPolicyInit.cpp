@@ -10,6 +10,6 @@ void applyQmlGcPolicyForTests()
 {
     lightning::applyQmlGcPolicy();
 }
-} // namespace
+}
 
 Q_CONSTRUCTOR_FUNCTION(applyQmlGcPolicyForTests)

@@ -64,4 +64,4 @@ bool queryNamesServer(const QString &rawQuery)
     return query.contains(QLatin1Char(':'));
 }
 
-} // namespace matrix::user_lookup
+}

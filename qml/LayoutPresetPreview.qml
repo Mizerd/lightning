@@ -3,8 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// A bounded production-style fixture: theme, font and effective layout values
-// come from the same settings as the conversation. No room data is fetched.
 Rectangle {
     id: root
     objectName: "layoutPresetPreview"
@@ -95,8 +93,6 @@ Rectangle {
                 spacing: root.rowGap
                 RowLayout {
                     Layout.fillWidth: true
-                    // The avatar's height is reserved in every layout so the
-                    // header row never changes height with the choice.
                     Layout.minimumHeight: 20
                     spacing: 5
                     Rectangle {

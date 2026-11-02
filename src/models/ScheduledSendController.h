@@ -35,12 +35,8 @@ class SettingsManager;
 class ScheduledSendController : public QObject
 {
     Q_OBJECT
-    // [{id, roomId, roomName, body, html, sendAtMs, mode ("server"|"local"),
-    //   status ("pending"|"sending"|"failed"), busy, error, volatile,
-    //   delayId, threadRootId, replyToEventId}] sorted by sendAtMs.
     Q_PROPERTY(QVariantList pending READ pending NOTIFY pendingChanged)
     Q_PROPERTY(int pendingCount READ pendingCount NOTIFY pendingChanged)
-    // -1 unknown (not probed / no answer), 0 not supported, 1 supported.
     Q_PROPERTY(int serverScheduling READ serverScheduling NOTIFY supportChanged)
 
 public:
@@ -53,10 +49,6 @@ public:
     int serverScheduling() const { return m_serverScheduling; }
 
     Q_INVOKABLE void probeSupport();
-    // `message` is MessageComposer::composedMessage() (optionally merged with
-    // the rich bridge's composeDocument): {roomId, body, html, mentionIds,
-    // threadRootId, replyToEventId}. Returns the entry id, or "" when refused
-    // (empty body, past deadline, no room).
     Q_INVOKABLE QString schedule(const QVariantMap &message, qint64 sendAtMs);
     Q_INVOKABLE void cancel(const QString &id);
     Q_INVOKABLE void sendNow(const QString &id);
@@ -64,14 +56,11 @@ public:
     Q_INVOKABLE void updateText(const QString &id, const QString &body,
                                 const QString &html);
     Q_INVOKABLE QVariantList pendingForRoom(const QString &roomId) const;
-    // Whether a message for this room would be scheduled server-side.
     Q_INVOKABLE bool wouldUseServer(const QString &roomId,
                                     const QString &threadRootId,
                                     const QString &replyToEventId) const;
     Q_INVOKABLE bool roomIsEncrypted(const QString &roomId) const;
 
-    // A server-held entry this far past its deadline is taken as sent and
-    // retired.
     static constexpr qint64 kServerRetireGraceMs = 60 * 1000;
 
 Q_SIGNALS:
@@ -88,14 +77,13 @@ private:
         QString threadRootId;
         QString replyToEventId;
         qint64 sendAtMs = 0;
-        QString mode;      // "server" | "local"
-        QString status;    // "pending" | "sending" | "failed"
+        QString mode;
+        QString status;
         QString error;
-        bool isVolatile = false; // encrypted room: memory-only
-        QString delayId;   // server mode
-        quint64 op = 0;    // in-flight server op (schedule / cancel / send)
-        quint64 sendOp = 0; // in-flight local room send
-        // Server mode: what to apply once the in-flight op has answered.
+        bool isVolatile = false;
+        QString delayId;
+        quint64 op = 0;
+        quint64 sendOp = 0;
         bool cancelRequested = false;
         bool resubmitAfterCancel = false;
         qint64 nextSendAtMs = -1;

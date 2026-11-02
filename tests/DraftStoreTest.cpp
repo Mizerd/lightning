@@ -1,8 +1,3 @@
-// Drafts: account/room/thread scoping, the encrypted-room memory-only policy
-// (never QSettings, fail-closed for unknown rooms), debounce staleness (a
-// late timer cannot resurrect a cleared or switched-away draft), retirement
-// on send/clear, reply-target and mention-ref restoration, and account
-// isolation.
 
 #include "app/DraftStore.h"
 #include "app/SettingsManager.h"
@@ -70,7 +65,7 @@ QVariantMap textDraft(const QString &text)
     draft.insert(QStringLiteral("text"), text);
     return draft;
 }
-} // namespace
+}
 
 class DraftStoreTest : public QObject
 {
@@ -114,9 +109,6 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // Photo metadata policy (a privacy setting that lives beside the composer
-    // ones): defaults to removing the location, round-trips, and an
-    // unreadable stored value reads as the default, never as "keep".
     void imageMetadataModeDefaultsRoundTripsAndNeverReadsAsKeep()
     {
         SettingsManager settings;
@@ -143,7 +135,6 @@ private Q_SLOTS:
         DraftFakeSecretStore secrets;
         SettingsManager settings;
         settings.setSecretStore(&secrets);
-        // No account: writes refused, reads empty.
         settings.setRoomDraft(kPlainRoom, textDraft(QStringLiteral("lost")));
         QVERIFY(settings.roomDraft(kPlainRoom).isEmpty());
 
@@ -153,7 +144,6 @@ private Q_SLOTS:
                      .value(QStringLiteral("text"))
                      .toString(),
                  QStringLiteral("kept"));
-        // An empty map removes.
         settings.setRoomDraft(kPlainRoom, {});
         QVERIFY(settings.roomDraft(kPlainRoom).isEmpty());
     }
@@ -171,7 +161,6 @@ private Q_SLOTS:
         store.setSettings(&settings);
         store.setClient(&client);
 
-        // Unencrypted room: persists (survives the memory wipe).
         store.save(kPlainRoom, kPlainRoom, textDraft(QStringLiteral("plain")));
         store.clearMemoryDrafts();
         QCOMPARE(store.load(kPlainRoom)
@@ -179,8 +168,6 @@ private Q_SLOTS:
                      .toString(),
                  QStringLiteral("plain"));
 
-        // Encrypted room: memory only; gone after the wipe and never in
-        // QSettings.
         store.save(kEncryptedRoom, kEncryptedRoom,
                    textDraft(QStringLiteral("secret sentence")));
         QCOMPARE(store.load(kEncryptedRoom)
@@ -191,16 +178,12 @@ private Q_SLOTS:
         store.clearMemoryDrafts();
         QVERIFY(store.load(kEncryptedRoom).isEmpty());
 
-        // Unknown room: fail closed to memory.
         const QString unknown = QStringLiteral("!nowhere:mock.local");
         store.save(unknown, unknown, textDraft(QStringLiteral("limbo")));
         QVERIFY(settings.roomDraft(unknown).isEmpty());
         store.clearMemoryDrafts();
         QVERIFY(store.load(unknown).isEmpty());
 
-        // A listed room whose encryption state has not synced
-        // (encryptionKnown=false, as in the first-sync window) also fails
-        // closed: encrypted=false without encryptionKnown is unknown.
         const QString fresh = QStringLiteral("!fresh:mock.local");
         QSignalSpy joined(&client, &MatrixClient::roomJoinFinished);
         client.joinRoomByIdOrAlias(fresh, {});
@@ -238,11 +221,9 @@ private Q_SLOTS:
         composer.setText(QStringLiteral("encrypted-room words"));
         composer.setRoomId(kPlainRoom);
         QCOMPARE(composer.text(), QStringLiteral("half-written thought"));
-        // The Settings round-trip (room cleared, then restored).
         composer.setRoomId(QString());
         composer.setRoomId(kPlainRoom);
         QCOMPARE(composer.text(), QStringLiteral("half-written thought"));
-        // The encrypted room's draft survived the switches in memory.
         composer.setRoomId(kEncryptedRoom);
         QCOMPARE(composer.text(), QStringLiteral("encrypted-room words"));
     }
@@ -266,7 +247,6 @@ private Q_SLOTS:
         composer.setText(QStringLiteral("about to send"));
         composer.send();
         QVERIFY(composer.text().isEmpty());
-        // Outwait the debounce: the stopped timer must not resurrect.
         QTest::qWait(1300);
         composer.setRoomId(QString());
         composer.setRoomId(kPlainRoom);
@@ -297,8 +277,6 @@ private Q_SLOTS:
 
         composer.setRoomId(kPlainRoom);
         composer.setText(QStringLiteral("room A text"));
-        // Switch immediately: the save happens synchronously and the pending
-        // timer is stopped, so nothing lands under B's key.
         composer.setRoomId(kEncryptedRoom);
         QTest::qWait(1300);
         QVERIFY(store.load(kEncryptedRoom).isEmpty());
@@ -334,12 +312,8 @@ private Q_SLOTS:
         QCOMPARE(composer.text(), QStringLiteral("replying to that"));
         QCOMPARE(composer.replyingToEventId(), QStringLiteral("$target"));
         QCOMPARE(composer.replyingToSender(), QStringLiteral("Bob"));
-        // The reply banner's thumbnail media key survives the round trip like
-        // the text fields.
         QCOMPARE(composer.replyingToMediaKey(), QStringLiteral("$target"));
 
-        // Edit mode replaces the text with the edited body; leaving the room
-        // then must not save that as a draft; the pre-edit draft survives.
         composer.beginEdit(QStringLiteral("$edited"),
                            QStringLiteral("old message body"));
         composer.setRoomId(QString());
@@ -359,8 +333,6 @@ private Q_SLOTS:
         store.setSettings(&settings);
         store.setClient(&client);
 
-        // A valid ref whose slice matches, and a corrupted one that does not;
-        // only the valid one comes back.
         QVariantMap draft;
         draft.insert(QStringLiteral("text"),
                      QStringLiteral("hi @Bob and @Eve"));
@@ -403,7 +375,6 @@ private Q_SLOTS:
         thread.setClient(&client);
         thread.setDraftStore(&store);
 
-        // Any event id works as a root for composer-draft purposes.
         thread.openThread(kPlainRoom, QStringLiteral("$root1"));
         thread.setText(QStringLiteral("thread one draft"));
         thread.openThread(kPlainRoom, QStringLiteral("$root2"));
@@ -411,11 +382,9 @@ private Q_SLOTS:
         thread.setText(QStringLiteral("thread two draft"));
         thread.openThread(kPlainRoom, QStringLiteral("$root1"));
         QCOMPARE(thread.text(), QStringLiteral("thread one draft"));
-        // Close keeps the draft; reopening restores it.
         thread.close();
         thread.openThread(kPlainRoom, QStringLiteral("$root1"));
         QCOMPARE(thread.text(), QStringLiteral("thread one draft"));
-        // A dispatched send retires it.
         thread.sendText(thread.text());
         QVERIFY(thread.text().isEmpty());
         thread.close();
@@ -423,11 +392,6 @@ private Q_SLOTS:
         QVERIFY(thread.text().isEmpty());
     }
 
-    // Inline thread focus retargets the ROOM composer (setThreadTargetRootId)
-    // instead of opening the thread panel. Each conversation keeps its own
-    // draft: room text must not ride into thread A (and be sent there), A's
-    // text must not appear in B, and the thread key is the one the panel
-    // uses, so a draft follows the thread between placements.
     void inlineThreadTargetsKeepPerConversationDrafts()
     {
         DraftFakeSecretStore secrets;
@@ -472,14 +436,12 @@ private Q_SLOTS:
         QCOMPARE(composer.text(), QStringLiteral("room text"));
         QCOMPARE(composer.replyingToEventId(), QStringLiteral("$target"));
 
-        // Leaving the room while focused on B keeps B's draft under B's key.
         composer.setThreadTargetRootId(QStringLiteral("$rootB"));
         composer.setRoomId(kEncryptedRoom);
         QVERIFY(composer.threadTargetRootId().isEmpty());
         composer.setRoomId(kPlainRoom);
         QCOMPARE(composer.text(), QStringLiteral("room text"));
 
-        // The thread panel reads the same key: B's inline draft is there.
         ThreadController thread;
         thread.setClient(&client);
         thread.setDraftStore(&store);
@@ -487,9 +449,6 @@ private Q_SLOTS:
         QCOMPARE(thread.text(), QStringLiteral("thread B text"));
     }
 
-    // Editing replaces the composer text with the edited body; leaving edit
-    // mode -- cancel or a sent edit -- must give the conversation its own
-    // draft back rather than an empty composer (and never retire that draft).
     void leavingEditModeRestoresThePreEditDraft()
     {
         DraftFakeSecretStore secrets;
@@ -506,7 +465,6 @@ private Q_SLOTS:
         composer.setDraftStore(&store);
 
         composer.setRoomId(kPlainRoom);
-        // Typed just now: the debounce has not fired yet.
         composer.setText(QStringLiteral("half-written reply"));
         composer.beginEdit(QStringLiteral("$edited"),
                            QStringLiteral("old message body"));
@@ -545,7 +503,6 @@ private Q_SLOTS:
                      .toString(),
                  QStringLiteral("alice draft"));
 
-        // Another account does not see it, and its writes do not leak back.
         activateAccount(settings, QStringLiteral("@second:mock.local"));
         store.clearMemoryDrafts();
         QVERIFY(store.load(kPlainRoom).isEmpty());

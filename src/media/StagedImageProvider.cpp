@@ -6,9 +6,8 @@
 #include <QImageReader>
 
 namespace {
-// Same hard bound as MediaImageProvider: nothing decodes above this edge.
 constexpr int kMaxDecodeEdge = 4096;
-} // namespace
+}
 
 StagedImageProvider::StagedImageProvider(StagedImageStore *store)
     : QQuickImageProvider(QQuickImageProvider::Image)
@@ -36,8 +35,6 @@ QImage StagedImageProvider::requestImage(const QString &id, QSize *size,
     reader.setAutoTransform(true);
 
     const QSize natural = reader.size();
-    // QML's width-only `sourceSize` idiom leaves the other axis 0, and
-    // QSize::isEmpty() is then true; resolve each axis explicitly.
     const int rw = qMax(0, requestedSize.width());
     const int rh = qMax(0, requestedSize.height());
     QSize target;
@@ -50,8 +47,6 @@ QImage StagedImageProvider::requestImage(const QString &id, QSize *size,
         else
             target = QSize(qMax(1, qRound(double(natural.width()) * rh
                                           / natural.height())), rh);
-        // Never upscale: the scene graph interpolates from the source pixels
-        // just as well, and inflating in memory only costs.
         if (target.width() >= natural.width()
             || target.height() >= natural.height())
             target = QSize();

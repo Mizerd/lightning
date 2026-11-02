@@ -3,22 +3,13 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Microphone / output / camera pickers for Settings.
-//
-// Lists are populated lazily: reading them initialises Qt Multimedia, which
-// is slow on a PipeWire desktop, so nothing is enumerated until the section
-// is shown.
 ColumnLayout {
     id: root
 
     spacing: AppTheme.spacing8
 
-    /// Set by the host when this section becomes visible; construction alone
-    /// doesn't enumerate.
     property bool activated: false
 
-    // A device test never outlives the page: leaving the section (or closing
-    // Settings) ends it, as does destroying the page.
     onActivatedChanged: {
         if (!activated && app.audioTester.mode !== "idle")
             app.audioTester.stop();
@@ -29,8 +20,6 @@ ColumnLayout {
             app.audioTester.stop();
     }
 
-    // Bumped on device/selection changes. Bindings that call the controller
-    // read it, since Qt can't observe a C++ call as a dependency.
     property int refreshTick: 0
     Connections {
         target: app.callDevices
@@ -49,8 +38,6 @@ ColumnLayout {
         property var entries: []
         property string activeId: ""
         property string emptyText: ""
-        /// The chosen device is gone and nothing replaces it (the camera):
-        /// no row is selected, and the field says why.
         property bool missing: false
 
         Layout.fillWidth: true
@@ -68,12 +55,8 @@ ColumnLayout {
         AppComboBox {
             objectName: "callDevice_" + picker.kind
             Layout.fillWidth: true
-            // The device list is data: a same-size rebuild is a real change,
-            // not a retranslation to undo (AppComboBox).
             restoreAfterModelReset: false
             enabled: picker.entries.length > 0
-            // "System default" (index 0) follows the system default as it
-            // changes, rather than pinning today's default device.
             displayText: picker.missing ? qsTr("Chosen camera not connected")
                                         : currentText
             model: {
@@ -107,7 +90,6 @@ ColumnLayout {
             }
         }
 
-        // Only when the machine has no device of this class.
         Loader {
             active: picker.entries.length === 0 && picker.emptyText.length > 0
             visible: active
@@ -135,8 +117,6 @@ ColumnLayout {
         emptyText: qsTr("No microphone was found. You can still join a call " + "and listen.")
     }
 
-    // Only when the chosen device is absent. The choice is kept, so
-    // reconnecting the device restores it.
     Loader {
         active: root.activated && app.callDevices.preferredMicrophoneMissing
         visible: active
@@ -149,11 +129,6 @@ ColumnLayout {
         }
     }
 
-    // ── Microphone gain ──
-    // What others hear, a property of this computer's microphone (unlike the
-    // per-person playback volumes on the call stage). Bound to
-    // `app.settings.microphoneGain`; SettingsManager owns the key, clamp and
-    // account scoping and is the only writer. QML never touches QSettings.
     ColumnLayout {
         Layout.fillWidth: true
         Layout.topMargin: AppTheme.spacing4
@@ -164,9 +139,6 @@ ColumnLayout {
             spacing: AppTheme.spacing8
 
             Icon {
-                // `graphic_eq` for level (mic/mic_off are the mute button's);
-                // the only amplitude glyph mapped in Icon.qml (the bundled font
-                // is a subset).
                 name: micGainSlider.value > 100 ? "graphic_eq" : "mic"
                 size: 18
                 color: micGainSlider.value > 100 ? AppTheme.accent : AppTheme.stormTextSecondary
@@ -202,19 +174,12 @@ ColumnLayout {
             // `onMoved`, not `onValueChanged`, which also fires for values from
             // the store and would write them straight back.
             onMoved: app.settings.microphoneGain = Math.round(value)
-            // One write on release; the live effect follows every step.
             onPressedChanged: if (app.settings.holdWritesWhileDragging)
                 app.settings.holdWritesWhileDragging(pressed)
             Component.onDestruction: if (pressed
                     && app.settings.holdWritesWhileDragging)
                 app.settings.holdWritesWhileDragging(false)
-            // Home/End/Page/Up/Down as every slider answers them; the Slider
-            // itself takes Left/Right only. The setting is written, never
-            // `value`, so the binding above survives.
             Keys.onPressed: event => {
-                // `handled` is separate from the arithmetic: a legitimate
-                // result can be negative (PageDown at 5, Down at 0) and must
-                // still clamp to `from` rather than fall through.
                 let handled = true
                 let target = 0
                 const cur = Math.round(value)
@@ -241,8 +206,6 @@ ColumnLayout {
 
                 Rectangle {
                     objectName: "microphoneGainFill"
-                    // visualPosition is already mirrored in RTL, so the fill
-                    // runs from the edge the handle travels away from.
                     x: micGainSlider.mirrored ? parent.width - width : 0
                     width: (micGainSlider.mirrored
                             ? 1 - micGainSlider.visualPosition
@@ -252,8 +215,6 @@ ColumnLayout {
                     color: AppTheme.bolt
                 }
 
-                // The neutral point (100%), marked as on the call stage's
-                // slider.
                 Rectangle {
                     objectName: "microphoneGainNeutralMark"
                     x: Math.round(parent.width / 2) - 1
@@ -270,10 +231,7 @@ ColumnLayout {
                 width: 16
                 height: 16
                 radius: 8
-                // White: a dark thumb on the fill boundary reads as disabled.
                 color: "#FFFFFF"
-                // A resting edge, as Settings' other thumbs: white on a
-                // light theme's white card had none.
                 border.width: micGainSlider.visualFocus ? 2 : 1
                 border.color: micGainSlider.visualFocus ? AppTheme.bolt
                                                         : AppTheme.stormBorderStrong
@@ -286,14 +244,10 @@ ColumnLayout {
 
             Label {
                 Layout.fillWidth: true
-                // Preferred width 1 + fillWidth: a wrapping paragraph reports
-                // its unwrapped width as preferred and would squeeze the Reset
-                // button.
                 Layout.preferredWidth: 1
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta
-                // Always shown, so the consequence is disclosed up front.
                 text: qsTr("Above 100% amplifies and can clip. 200% applies the maximum the audio stage can reach.")
             }
 
@@ -305,20 +259,12 @@ ColumnLayout {
                     storm: true
                     kind: "ghost"
                     text: qsTr("Reset")
-                    // Written explicitly: a programmatic `value` change doesn't
-                    // fire onMoved.
                     onClicked: app.settings.microphoneGain = 100
                 }
             }
         }
     }
 
-    // ── Microphone test ──
-    // Discord's "Let's check" and Teams' bar under the microphone: the chosen
-    // microphone, opened the way a call opens it and at the volume above,
-    // into a level bar and optionally back out of the output device. C++
-    // owns the pipeline (app.audioTester); it refuses during a call and ends
-    // by itself.
     ColumnLayout {
         id: micTest
         objectName: "microphoneTestSection"
@@ -329,7 +275,6 @@ ColumnLayout {
         readonly property bool running: app.audioTester.microphoneTestRunning
         readonly property bool usable: app.audioTester.available
                                        && !app.audioTester.blockedByCall
-        /// Plays the voice back (Discord's test); off is the level bar alone.
         property bool playBack: true
 
         readonly property string notice: {
@@ -397,8 +342,6 @@ ColumnLayout {
                 storm: true
                 kind: micTest.running ? "secondary" : "primary"
                 enabled: micTest.usable
-                // Says what it does: "Let's check" read as a slogan, and
-                // nobody searching for a microphone test typed it.
                 text: micTest.running ? qsTr("Stop testing")
                                       : qsTr("Test microphone")
                 onClicked: {
@@ -413,7 +356,6 @@ ColumnLayout {
                 palette.windowText: AppTheme.stormText
                 text: qsTr("Hear yourself")
                 checked: micTest.playBack
-                // Changing it mid-test would need a new capture; stop first.
                 enabled: micTest.usable && !micTest.running
                 onToggled: micTest.playBack = checked
             }
@@ -454,8 +396,6 @@ ColumnLayout {
         }
     }
 
-    // Teams' speaker test: a short tone on the chosen output, the way call
-    // audio is played.
     RowLayout {
         Layout.fillWidth: true
         spacing: AppTheme.spacing8
@@ -490,15 +430,11 @@ ColumnLayout {
             var _ = root.refreshTick;
             return root.activated && app.callDevices.preferredCameraMissing;
         }
-        // In a Flatpak nothing can be listed: the camera portal supplies a
-        // camera when it's turned on.
         emptyText: app.callDevices.camerasChosenByDesktop
                    ? qsTr("Your desktop chooses the camera when you turn it on in a call.")
                    : qsTr("No camera was found.")
     }
 
-    // The camera has no fallback, unlike the microphone: another camera is
-    // never opened in its place.
     Loader {
         objectName: "callDeviceCameraMissing"
         active: root.activated && app.callDevices.preferredCameraMissing
@@ -513,7 +449,6 @@ ColumnLayout {
         }
     }
 
-    // The floating call window.
     SettingsCheckBox {
         objectName: "callPictureInPictureCheck"
         palette.windowText: AppTheme.stormText
@@ -542,9 +477,6 @@ ColumnLayout {
         lineHeightMode: Text.ProportionalHeight
         color: AppTheme.stormTextMuted
         font.pixelSize: AppTheme.textMeta
-        // Says when changes take effect, and which settings are per computer
-        // (device ids, global keys) versus per account (the microphone level,
-        // SettingsManager::setMicrophoneGain -> setAppearanceValue).
         text: qsTr("Devices belong to this computer, not to your account. "
                    + "The microphone level belongs to your account. "
                    + "A change applies to your next call; during a call you "

@@ -97,7 +97,7 @@ QVariantMap pin(const QString &eventId, bool available)
     return e;
 }
 
-} // namespace
+}
 
 class RoomInfoKeyboardQmlTest : public QObject
 {
@@ -182,8 +182,6 @@ class RoomInfoKeyboardQmlTest : public QObject
         snap.insert(QStringLiteral("ids"), ids);
         snap.insert(QStringLiteral("entries"), entries);
         snap.insert(QStringLiteral("category"), QString());
-        // Point the pin controller at a client whose read this test answers,
-        // on the room the panel shows.
         m_mock->lastOp = 0;
         m_controller->pinned()->setRoomId(QString());
         m_controller->pinned()->setRoomId(kRoom);
@@ -237,8 +235,6 @@ private Q_SLOTS:
         m_mock.reset();
     }
 
-    // Fails on the old panel: the list was bare, so a pin list taller than
-    // the panel had no scrollbar at all.
     void thePinnedListHasAScrollBar()
     {
         QVariantList pins;
@@ -254,8 +250,6 @@ private Q_SLOTS:
         QVERIFY2(hasBar, "the pinned list has no scrollbar");
     }
 
-    // Fails on the old panel: the rows were Items with a TapHandler, so no
-    // row took focus and Enter did nothing.
     void pinnedRowsAreTabStopsAndEnterJumps()
     {
         sendPins({pin(QStringLiteral("$ok"), true),
@@ -279,7 +273,6 @@ private Q_SLOTS:
         QCOMPARE(jump.count(), 2);
     }
 
-    // Fails on the old panel: a focused row below the fold stayed clipped.
     void aFocusedPinBelowTheFoldScrollsIntoView()
     {
         QVariantList pins;
@@ -307,7 +300,6 @@ private Q_SLOTS:
                      "the focused row is still clipped");
     }
 
-    // Fails on the old panel: nothing said why the list was blank.
     void anEmptyListSaysWhy()
     {
         m_mock->roster.clear();
@@ -327,7 +319,6 @@ private Q_SLOTS:
         QTRY_COMPARE(text(), QStringLiteral("No members match this name."));
         search->setProperty("text", QString());
         QTRY_COMPARE(text(), QStringLiteral("No members to show."));
-        // With people in the room the message is gone.
         QVariantMap m;
         m.insert(QStringLiteral("userId"), QStringLiteral("@bob:mock.local"));
         m.insert(QStringLiteral("displayName"), QStringLiteral("Bob"));
@@ -344,8 +335,6 @@ private Q_SLOTS:
         QTRY_COMPARE(text(), QStringLiteral("No members match this name."));
     }
 
-    // Fails on the old panel: Escape in a field was never claimed, so the
-    // host's close-the-panel shortcut fired and the draft went with it.
     void escapeInATextFieldLeavesTheFieldNotThePanel()
     {
         reopen();
@@ -366,14 +355,12 @@ private Q_SLOTS:
         QTest::keyClick(m_quick, Qt::Key_Escape);
         QTRY_VERIFY(!search->hasActiveFocus());
 
-        // Focus is out of the field now: the next Escape belongs to the host.
         QKeyEvent second(QEvent::ShortcutOverride, Qt::Key_Escape, Qt::NoModifier);
         second.setAccepted(false);
         QCoreApplication::sendEvent(m_quick, &second);
         QVERIFY(!second.isAccepted());
     }
 
-    // Fails on the old panel: Menu / Shift+F10 did nothing on a member row.
     void memberRowsOpenFromTheKeyboard()
     {
         QVariantMap m;
@@ -410,7 +397,6 @@ private Q_SLOTS:
         QVERIFY(focusOn(row));
         QTest::keyClick(m_quick, Qt::Key_Return);
         QCOMPARE(clicked.count(), 1);
-        // The profile card is open now; close it before the menu check.
         QTest::keyClick(m_quick, Qt::Key_Escape);
         settle();
 
@@ -422,8 +408,6 @@ private Q_SLOTS:
         QTRY_VERIFY(menu->property("visible").toBool());
     }
 
-    // Fails on the old panel: a wheel over an open (detached, non-modal)
-    // combo popup scrolled the page away from it.
     void anOpenComboFreezesTheOverviewWheel()
     {
         reopen();

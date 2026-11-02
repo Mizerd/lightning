@@ -1,9 +1,3 @@
-// Keyboard and focus behaviour of the theme editor's own parts (C65 round 1):
-// the level switch's roving focus, the preset prompt taking and returning
-// focus, the popover releasing focus on close, Return on the link buttons, the
-// toast timer pausing, the Simple panel following focus, and the theme list
-// revealing the current row. Each part is loaded standalone from the shipped
-// MatrixClient module and driven with real key events on a shown window.
 
 #include <QQmlComponent>
 #include <QQmlEngine>
@@ -41,8 +35,6 @@ struct Host
         window.requestActivate();
         return QTest::qWaitForWindowActive(&window);
     }
-    // Repeater/ListView delegates are not QObject children of the item they
-    // sit in, so the search walks the visual tree as well.
     static QQuickItem *findVisual(QQuickItem *from, const QString &name)
     {
         if (from->objectName() == name)
@@ -65,7 +57,7 @@ struct Host
     }
 };
 
-} // namespace
+}
 
 class ThemeEditorPartsQmlTest : public QObject
 {
@@ -80,7 +72,6 @@ private Q_SLOTS:
                 onLevelRequested: (l) => ls.level = l }
         )QML", &err), qPrintable(err));
         QQuickItem *sw = h.item("themeLevelSwitch");
-        // ONE tab stop for the group, and no segment is a stop of its own.
         QVERIFY(sw->activeFocusOnTab());
         for (const char *seg : {"themeLevel_0", "themeLevel_1", "themeLevel_2"})
             QVERIFY(!h.item(seg)->activeFocusOnTab());
@@ -91,7 +82,7 @@ private Q_SLOTS:
         QCOMPARE(level(), 1);
         QTest::keyClick(&h.window, Qt::Key_Right);
         QCOMPARE(level(), 2);
-        QTest::keyClick(&h.window, Qt::Key_Right);   // clamps, no wrap
+        QTest::keyClick(&h.window, Qt::Key_Right);
         QCOMPARE(level(), 2);
         QTest::keyClick(&h.window, Qt::Key_Left);
         QCOMPARE(level(), 1);
@@ -99,7 +90,7 @@ private Q_SLOTS:
         QCOMPARE(level(), 0);
         QTest::keyClick(&h.window, Qt::Key_End);
         QCOMPARE(level(), 2);
-        QVERIFY(sw->hasActiveFocus());   // focus stays: the ring follows the level
+        QVERIFY(sw->hasActiveFocus());
     }
 
     void clickingASegmentFocusesTheSwitchSoArrowsWork()
@@ -206,7 +197,6 @@ private Q_SLOTS:
         h.item("themeToastAction")->setFocus(false);
         QVERIFY(!t->property("paused").toBool());
         QVERIFY(t->property("dismissTimerRunning").toBool());
-        // With an action it stays longer than the bare message.
         QVERIFY(t->property("actionDuration").toInt()
                 > t->property("duration").toInt());
     }
@@ -238,7 +228,6 @@ private Q_SLOTS:
                                                 .value<QQuickItem *>(), {0, 0});
         QVERIFY(top.y() >= y - 1 && top.y() + last->height() <= y + panel->height() + 1);
 
-        // Keys no control handles scroll the panel.
         panel->setProperty("contentY", 0);
         panel->forceActiveFocus();
         QTest::keyClick(&h.window, Qt::Key_End);
@@ -268,7 +257,6 @@ private Q_SLOTS:
         const qreal y = list->property("contentY").toReal();
         QVERIFY(row->y() >= y - 1 && row->y() + row->height() <= y + list->height() + 1);
 
-        // A later themes change must not move a list the user scrolled away.
         list->setProperty("contentY", 0);
         QVERIFY(qFuzzyIsNull(list->property("contentY").toReal()));
         QQuickItem *panel = h.item("revealPanel");

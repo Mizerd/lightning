@@ -1,8 +1,3 @@
-// UserProfileResolver: the global-profile lookup behind mention pills and the
-// profile popover for users the room member snapshot cannot name. One ask per
-// user per session, a cached answer afterwards, a refused answer remembered
-// (re-asked only after the retry interval), and another caller's profile
-// fetch never lands in its cache.
 
 #include "matrix/MockMatrixClient.h"
 #include "profile/UserProfileResolver.h"
@@ -20,7 +15,7 @@ bool login(MockMatrixClient &client)
                  QStringLiteral("alice"), QStringLiteral("x"));
     return spy.wait(kSignalTimeoutMs);
 }
-} // namespace
+}
 
 class UserProfileResolverTest : public QObject
 {
@@ -42,7 +37,6 @@ private Q_SLOTS:
         const QVariantMap first = resolver.lookup(QStringLiteral("@dim:example.org"));
         QVERIFY(!first.value(QStringLiteral("known")).toBool());
         QCOMPARE(resolver.inFlightCount(), 1);
-        // A second lookup while the first is in flight asks nothing more.
         resolver.lookup(QStringLiteral("@dim:example.org"));
         QCOMPARE(resolver.inFlightCount(), 1);
 
@@ -59,7 +53,6 @@ private Q_SLOTS:
         QCOMPARE(p.displayName, QStringLiteral("dim"));
         QCOMPARE(p.avatarUrl, QStringLiteral("mxc://example.org/dim"));
 
-        // Answered from the cache: no fetch, no signal.
         const QVariantMap again = resolver.lookup(QStringLiteral("@dim:example.org"));
         QVERIFY(again.value(QStringLiteral("known")).toBool());
         QCOMPARE(again.value(QStringLiteral("displayName")).toString(),
@@ -82,11 +75,9 @@ private Q_SLOTS:
         QCOMPARE(resolved.count(), 0);
         QVERIFY(!resolver.profile(QStringLiteral("@nobody:example.org")).known);
 
-        // Within the retry interval the refusal stands: nothing is asked.
         resolver.request(QStringLiteral("@nobody:example.org"));
         QCOMPARE(resolver.inFlightCount(), 0);
 
-        // Past it, one more ask.
         resolver.setFailureRetryForTest(0);
         resolver.request(QStringLiteral("@nobody:example.org"));
         QCOMPARE(resolver.inFlightCount(), 1);
@@ -103,7 +94,6 @@ private Q_SLOTS:
         QSignalSpy resolved(&resolver, &UserProfileResolver::resolved);
         QSignalSpy finished(&client, &MatrixClient::userProfileFinished);
 
-        // The controller (or anyone) fetching the same profile directly.
         QVERIFY(client.fetchUserProfile(QStringLiteral("@bob:example.org")) != 0);
         QVERIFY(finished.wait(kSignalTimeoutMs));
         QCOMPARE(resolved.count(), 0);
@@ -143,10 +133,6 @@ private Q_SLOTS:
         QVERIFY(!resolver.profile(QStringLiteral("@dim:example.org")).known);
     }
 
-    // An account switch keeps the same MatrixClient (detachSession() emits
-    // loggedOut, then restoreSession()), so `setClient` never sees a new
-    // pointer; the resolver must drop its cache on loggedOut, like
-    // NameColorManager, ProfileBannerManager and ProfileBioManager.
     void signingOutDropsTheProfilesTheAccountResolved()
     {
         MockMatrixClient client;
@@ -162,7 +148,6 @@ private Q_SLOTS:
         QVERIFY(resolved.wait(kSignalTimeoutMs));
         QCOMPARE(resolver.cachedCount(), 1);
 
-        // The account goes; the client object does not.
         client.logout();
         QCOMPARE(resolver.cachedCount(), 0);
         QVERIFY(!resolver.profile(QStringLiteral("@dim:example.org")).known);
@@ -173,8 +158,6 @@ private Q_SLOTS:
         QVERIFY(after.value(QStringLiteral("avatarUrl")).toString().isEmpty());
     }
 
-    // ...and a refusal is account-scoped too: the next account must be free to
-    // ask about a user the previous account's server would not name.
     void signingOutAlsoDropsARememberedRefusal()
     {
         MockMatrixClient client;
@@ -185,7 +168,6 @@ private Q_SLOTS:
         QCOMPARE(resolver.inFlightCount(), 1);
         QTRY_COMPARE_WITH_TIMEOUT(resolver.inFlightCount(), 0,
                                   kSignalTimeoutMs);
-        // Within the retry interval the refusal stands.
         resolver.request(QStringLiteral("@nobody:example.org"));
         QCOMPARE(resolver.inFlightCount(), 0);
 

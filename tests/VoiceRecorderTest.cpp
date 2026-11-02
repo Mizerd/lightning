@@ -1,5 +1,3 @@
-// The waveform bucket math behind MSC3245 voice sends. Pure static helper: no
-// capture chain, no audio backend, headless-safe.
 
 #include "media/VoiceRecorder.h"
 
@@ -22,7 +20,6 @@ private Q_SLOTS:
         const QList<int> out =
             VoiceRecorder::bucketsFromPeaks({0.25f, 0.5f, 1.0f}, 100);
         QCOMPARE(out.size(), 3);
-        // Normalized against the loudest chunk.
         QCOMPARE(out.at(2), 100);
         QCOMPARE(out.at(1), 50);
         QCOMPARE(out.at(0), 25);
@@ -30,9 +27,8 @@ private Q_SLOTS:
 
     void longRecordingDownsamplesMaxPreserving()
     {
-        // 10 chunks -> 5 buckets; a short spike inside a bucket survives.
         QList<float> peaks(10, 0.1f);
-        peaks[3] = 1.0f; // lands in bucket 1 (chunks 2-3)
+        peaks[3] = 1.0f;
         const QList<int> out = VoiceRecorder::bucketsFromPeaks(peaks, 5);
         QCOMPARE(out.size(), 5);
         QCOMPARE(out.at(1), 100);
@@ -51,7 +47,6 @@ private Q_SLOTS:
 
     void valuesAreAlwaysWithinBridgeBounds()
     {
-        // Out-of-range float peaks (decoder artifacts) must still clamp.
         QList<float> peaks;
         for (int i = 0; i < 500; ++i)
             peaks.append(i % 7 == 0 ? 3.5f : 0.4f);

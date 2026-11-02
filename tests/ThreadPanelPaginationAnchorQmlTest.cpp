@@ -1,12 +1,3 @@
-// ThreadPanel.qml's backward pagination (app.thread.model.requestOlder(), a
-// ListView prepend) must keep the reader's place, like TimelinePane's
-// captureAnchor()/restoreCapturedAnchor(). The restore reads the live
-// contentY and applies a relative shift, so a reader still scrolling when
-// the page lands is not snapped back.
-//
-// Same method as TimelinePaneQmlTest's
-// paginationAnchorRestorePreservesConcurrentScroll (a direct contentY write
-// stands in for a continuing gesture), adapted to ThreadPanel's replyList.
 #include <functional>
 #include <QMetaProperty>
 #include <QtTest/QtTest>
@@ -48,9 +39,6 @@ private:
         return loginSpy.wait(kSignalTimeoutMs);
     }
 
-    // First fixture thread root of a room: the first event some other event
-    // names as its threadRootId (mirrors ThreadControllerTest.cpp's
-    // firstThreadRootId).
     static QString firstThreadRootId(MockMatrixClient &client,
                                      const QString &roomId)
     {
@@ -100,12 +88,6 @@ private Q_SLOTS:
             MatrixClient::threadTimelineId(kGeneral, rootId);
 
         mock->setPaginationDelayForTest(60);
-        // Replace the built-in fixture with 30 replies, more than the
-        // viewport. Resetting the composite thread timeline id reloads the
-        // model like a real room. The first row is the thread ROOT: an open
-        // thread whose root is not loaded fills its history on a reset
-        // (break-it B022), which would spend this fixture's one page before
-        // the request under test.
         QList<TimelineEvent> events;
         for (int i = 0; i < 30; ++i) {
             TimelineEvent e;
@@ -120,7 +102,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(timelineId, events, /*paginationPages=*/1);
+        mock->resetTimelineForTest(timelineId, events,1);
         QTRY_VERIFY_WITH_TIMEOUT(
             controller.thread()->model()->rowCount() >= 30, kSignalTimeoutMs);
 
@@ -156,7 +138,7 @@ private Q_SLOTS:
         QVERIFY(replyList->setProperty("followLatest", false));
         QVERIFY(QMetaObject::invokeMethod(replyList, "positionViewAtIndex",
                                           Q_ARG(int, anchorRow),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+                                          Q_ARG(int, 0)));
         QCoreApplication::processEvents();
 
         // A real near-top request. The mock flips paginating() synchronously,
@@ -175,9 +157,6 @@ private Q_SLOTS:
         const double capturedContentY =
             replyList->property("contentY").toDouble();
 
-        // Simulate the reader continuing to scroll while the request is
-        // still in flight: a direct contentY write, exactly what
-        // threadWheelHandler's pixelDelta branch performs.
         constexpr double simulatedScrollDelta = 40.0;
         const double scrolledContentY = capturedContentY - simulatedScrollDelta;
         QVERIFY(replyList->setProperty("contentY", scrolledContentY));
@@ -189,8 +168,6 @@ private Q_SLOTS:
             replyList->property("anchorStableId").toString().isEmpty(),
             kSignalTimeoutMs);
 
-        // Independently re-derive the anchor row's real post-prepend
-        // geometry rather than trusting anything the panel itself reports.
         const int newRow =
             controller.thread()->model()->rowForStableId(capturedAnchorId);
         QVERIFY(newRow >= 0);
@@ -200,9 +177,6 @@ private Q_SLOTS:
                                           Q_ARG(int, newRow)));
         QVERIFY(anchorItem != nullptr);
 
-        // The correct relative restore: whatever contentY was at the moment
-        // of restore (the reader's continued scroll), shifted by exactly
-        // how far the prepend moved the anchor row's own y.
         const double expected =
             scrolledContentY + (anchorItem->y() - anchorItemY);
         const double actual = replyList->property("contentY").toDouble();
@@ -214,12 +188,6 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // SC41 (the gap this file's CMake note recorded): an older page landing
-    // while the panel's own wheel engine is gliding. restoreCapturedAnchor()
-    // used to cancel the glide, so every page that landed mid-gesture stopped
-    // the reader's wheel motion dead. The glide is now translated by the
-    // prepend's shift, as the room timeline does. Driven through the same
-    // engine call threadWheelHandler makes for a wheel notch.
     void anOlderPageLandingMidGlideKeepsTheGlideGoing()
     {
         AppController controller(AppController::MockBackend);
@@ -236,12 +204,6 @@ private Q_SLOTS:
             MatrixClient::threadTimelineId(kGeneral, rootId);
 
         mock->setPaginationDelayForTest(40);
-        // Replace the built-in fixture with 30 replies, more than the
-        // viewport. Resetting the composite thread timeline id reloads the
-        // model like a real room. The first row is the thread ROOT: an open
-        // thread whose root is not loaded fills its history on a reset
-        // (break-it B022), which would spend this fixture's one page before
-        // the request under test.
         QList<TimelineEvent> events;
         for (int i = 0; i < 30; ++i) {
             TimelineEvent e;
@@ -256,7 +218,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(timelineId, events, /*paginationPages=*/1);
+        mock->resetTimelineForTest(timelineId, events,1);
         QTRY_VERIFY_WITH_TIMEOUT(
             controller.thread()->model()->rowCount() >= 30, kSignalTimeoutMs);
 
@@ -292,7 +254,7 @@ private Q_SLOTS:
         QVERIFY(replyList->setProperty("followLatest", false));
         QVERIFY(QMetaObject::invokeMethod(replyList, "positionViewAtIndex",
                                           Q_ARG(int, anchorRow),
-                                          Q_ARG(int, 0 /*ListView.Beginning*/)));
+                                          Q_ARG(int, 0)));
         QCoreApplication::processEvents();
 
         // A real near-top request. The mock flips paginating() synchronously,
@@ -311,8 +273,6 @@ private Q_SLOTS:
         const double capturedContentY =
             replyList->property("contentY").toDouble();
 
-        // The reader keeps wheeling up while the page is in flight: a real
-        // multi-notch glide on the panel's engine.
         TimelineScrollController *engineCtl = controller.threadScroll();
         bool sawRestore = false;
         bool glidingAtRestore = false;
@@ -333,7 +293,6 @@ private Q_SLOTS:
                                           Q_RETURN_ARG(QVariant, lo)));
         QVERIFY(QMetaObject::invokeMethod(replyList, "wheelMaxY",
                                           Q_RETURN_ARG(QVariant, hi)));
-        // Three notches up, exactly as threadWheelHandler forwards them.
         engineCtl->wheelNotch(360, replyList->property("contentY").toDouble(),
                               lo.toDouble(), hi.toDouble(),
                               replyList->property("height").toDouble());
@@ -349,15 +308,10 @@ private Q_SLOTS:
         QCOMPARE(capturedAnchorId.isEmpty(), false);
         Q_UNUSED(anchorItemY);
         Q_UNUSED(capturedContentY);
-        // The glide still settles on its own, inside the list.
         QTRY_VERIFY_WITH_TIMEOUT(!engineCtl->motionActive(), 5000);
         QCOMPARE(warnings, QStringList{});
     }
 
-    // GitHub #38 for the thread panel: PgUp/PgDn and Ctrl+Up/Down from the
-    // thread composer drive the reply list (a plain, non-rotated ListView:
-    // contentY grows towards the newest reply), and the list takes the same
-    // keys when it has focus.
     void threadComposerForwardsThePagingKeysToTheReplyList()
     {
         AppController controller(AppController::MockBackend);
@@ -383,7 +337,7 @@ private Q_SLOTS:
             e.status = TimelineEvent::Sent;
             events.append(e);
         }
-        mock->resetTimelineForTest(timelineId, events, /*paginationPages=*/0);
+        mock->resetTimelineForTest(timelineId, events,0);
         QTRY_VERIFY_WITH_TIMEOUT(
             controller.thread()->model()->rowCount() >= 40, kSignalTimeoutMs);
 
@@ -428,15 +382,11 @@ private Q_SLOTS:
             return v.toDouble();
         };
 
-        // Ctrl+Up: the oldest loaded reply; Ctrl+Down: the newest.
         const double minBefore = bounds("wheelMinY");
         QTest::keyClick(&window, Qt::Key_Up, Qt::ControlModifier);
         QCoreApplication::processEvents();
-        // Against the bound as it was at the keypress: reaching the top asks
-        // for older replies, whose header then moves the origin.
         QVERIFY(replyList->property("contentY").toDouble() <= minBefore + 1.0);
         QCOMPARE(replyList->property("followLatest").toBool(), false);
-        // PgDn from an empty draft pages down (animated).
         const double top = replyList->property("contentY").toDouble();
         QTest::keyClick(&window, Qt::Key_PageDown);
         QTRY_VERIFY_WITH_TIMEOUT(
@@ -447,16 +397,12 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
         QVERIFY(replyList->property("contentY").toDouble() >= maxBefore - 1.0);
         QCOMPARE(replyList->property("followLatest").toBool(), true);
-        // PgUp pages back up.
         const double bottom = replyList->property("contentY").toDouble();
         QTest::keyClick(&window, Qt::Key_PageUp);
         QTRY_VERIFY_WITH_TIMEOUT(
             replyList->property("contentY").toDouble() < bottom - 100,
             kSignalTimeoutMs);
 
-        // A multi-line draft with the caret on its first line keeps PgDn (the
-        // caret can still move down), so the list stays at the top; on the
-        // last line the same key pages the list.
         QVERIFY(QMetaObject::invokeMethod(replyList, "runKeyAction",
                     Q_ARG(QVariant, QStringLiteral("timeline.jumpToStart"))));
         QVERIFY(editor->setProperty("text", QStringLiteral("a\nb\nc\nd")));
@@ -476,16 +422,6 @@ private Q_SLOTS:
         QCOMPARE(warnings, QStringList{});
     }
 
-    // ── The thread root card never draws wider than its column ───────────
-    //
-    // The body Label (a fillWidth child of a ColumnLayout anchored to the
-    // card) came out at the layout's implicit width, wrapped for that, and
-    // the card's `clip: true` cut the overhang out of the middle of the text.
-    // Scale-free rule: nothing in the root card may be wider than its column.
-    //
-    // This is an invariant guard, not a regression test: offscreen, with the
-    // panel as the window's root, the body gets the right width with or
-    // without the caps. The overflow reproduced only as a SplitView child.
     void theThreadRootCardNeverDrawsWiderThanItsColumn()
     {
         AppController controller(AppController::MockBackend);
@@ -511,8 +447,6 @@ private Q_SLOTS:
         QVERIFY(root != nullptr);
 
         QQuickWindow window;
-        // Narrow on purpose: the overflow only appears once the card is too
-        // small for the header's natural width.
         window.resize(340, 700);
         root->setParentItem(window.contentItem());
         root->setSize(QSizeF(window.width(), window.height()));
@@ -538,8 +472,6 @@ private Q_SLOTS:
                  "the thread root card's column, header or body is gone — "
                  "re-anchor this case");
 
-        // 100 % first, then the size the defect was found at. Both, because
-        // a fix that only holds at one of them is not a fix.
         for (const qreal scale : { 1.0, 1.4 }) {
             theme->setProperty("textScale", scale);
             QCoreApplication::processEvents();
@@ -574,8 +506,6 @@ private:
 
 int main(int argc, char *argv[])
 {
-    // Real Qt Quick item creation (even offscreen) needs a QGuiApplication,
-    // matching main.cpp's application class exactly.
     QGuiApplication app(argc, argv);
     ThreadPanelPaginationAnchorQmlTest testObject;
     return QTest::qExec(&testObject, argc, argv);

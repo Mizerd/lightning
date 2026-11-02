@@ -14,9 +14,6 @@
 
 Q_LOGGING_CATEGORY(lcVoicePlayback, "matrix.media.voiceplayback")
 
-// The audio output the voice player plays through. A QAudioOutput with the one
-// extra property MediaVolumeControl.qml writes (`userUnmuted`), so the shared
-// volume control works on it exactly as on a QML AudioOutput.
 class VoiceAudioOutput : public QAudioOutput
 {
     Q_OBJECT
@@ -37,9 +34,7 @@ namespace {
 const QString kIdle = QStringLiteral("idle");
 const QString kFetching = QStringLiteral("fetching");
 const QString kFailed = QStringLiteral("failed");
-// How many audio files' tags and art clipInfo() remembers (RAM only).
 constexpr int kMaxClipInfo = 64;
-// Tag text is remote input shown as plain text; bound it and drop controls.
 constexpr int kMaxTagLength = 200;
 
 QString cleanTag(const QVariant &value)
@@ -52,7 +47,6 @@ QString cleanTag(const QVariant &value)
     for (const QChar c : std::as_const(text)) {
         if (out.size() >= kMaxTagLength)
             break;
-        // Line breaks and other controls would break a one-line label.
         out.append(c.category() == QChar::Other_Control
                            || c == QChar::LineSeparator
                            || c == QChar::ParagraphSeparator
@@ -60,7 +54,7 @@ QString cleanTag(const QVariant &value)
     }
     return out.simplified();
 }
-} // namespace
+}
 
 VoicePlaybackController::VoicePlaybackController(QObject *parent)
     : QObject(parent)
@@ -69,8 +63,6 @@ VoicePlaybackController::VoicePlaybackController(QObject *parent)
 
 VoicePlaybackController::~VoicePlaybackController()
 {
-    // The player first: it must not deliver state into a half-destroyed
-    // controller, and it holds the output.
     if (m_player)
         m_player->disconnect(this);
     m_player.reset();
@@ -117,9 +109,6 @@ void VoicePlaybackController::setSettings(SettingsManager *settings)
         m_settings->disconnect(this);
     m_settings = settings;
     if (m_settings) {
-        // The remembered level and speed apply to this player as to every
-        // card. The volume control writes the setting as well as the output,
-        // so following the setting never fights the user.
         connect(m_settings, &SettingsManager::mediaVolumeChanged, this,
                 &VoicePlaybackController::applySettings);
         connect(m_settings, &SettingsManager::voicePlaybackRateChanged, this,
@@ -150,7 +139,6 @@ bool VoicePlaybackController::playing() const
 
 qint64 VoicePlaybackController::position() const
 {
-    // A start position not applied yet is where the clip is about to be.
     if (m_pendingSeekMs >= 0)
         return m_pendingSeekMs;
     return (m_player && m_loaded) ? m_player->position() : 0;
@@ -158,7 +146,6 @@ qint64 VoicePlaybackController::position() const
 
 qreal VoicePlaybackController::rate() const
 {
-    // Without settings (a bare controller) a voice clip keeps its own too.
     if (!m_isVoice || !m_settings)
         return m_clipRate;
     return m_settings->voicePlaybackRate();
@@ -249,7 +236,6 @@ QString VoicePlaybackController::ownerKey() const
 
 QString VoicePlaybackController::cacheKey() const
 {
-    // MediaBridge's playable cache key (mediaCacheKey(key, 0)).
     return QStringLiteral("full:") + m_mediaKey;
 }
 
@@ -279,9 +265,6 @@ void VoicePlaybackController::ensurePlayer()
             });
     connect(m_player.get(), &QMediaPlayer::metaDataChanged, this,
             &VoicePlaybackController::readMetadata);
-    // A pause the reader (or another card taking the speaker) makes is not
-    // the call's: the end of the call must not undo it. A resume, likewise,
-    // ends the call's claim.
     connect(m_player.get(), &QMediaPlayer::playbackStateChanged, this,
             [this](QMediaPlayer::PlaybackState state) {
                 if (!m_callPausing && state != QMediaPlayer::PausedState)
@@ -333,15 +316,12 @@ void VoicePlaybackController::play(const QString &eventId,
         return;
     }
 
-    // Starting the head of the run keeps the rest of it (the chain, or the
-    // bar's Next); anything else starts a new one, resolved by AppController.
     QVariantList carried;
     if (!m_upNext.isEmpty()
         && m_upNext.constFirst().toMap().value(QStringLiteral("eventId"))
                .toString() == eventId)
         carried = m_upNext.mid(1);
 
-    // One clip at a time: the previous one is unloaded, not merely paused.
     stop();
 
     m_eventId = eventId;
@@ -354,7 +334,6 @@ void VoicePlaybackController::play(const QString &eventId,
     m_filename = meta.value(QStringLiteral("filename")).toString();
     m_isVoice = meta.value(QStringLiteral("isVoice")).toBool();
     m_waveform = meta.value(QStringLiteral("waveform")).toList();
-    // Bounded like the ingest's (at most 96 buckets).
     if (m_waveform.size() > 96)
         m_waveform = m_waveform.mid(0, 96);
     m_declaredDurationMs =
@@ -411,9 +390,6 @@ void VoicePlaybackController::pause()
         m_player->pause();
         return;
     }
-    // Still fetching: it would start by itself once the file arrives, in the
-    // middle of whatever asked for the pause (a recording, a call). It stays
-    // the current clip, and Play fetches it again.
     if (active() && !m_loaded && m_fetchState == kFetching) {
         cancelFetch();
         setFetchState(kIdle);
@@ -424,10 +400,8 @@ void VoicePlaybackController::resume()
 {
     if (!active())
         return;
-    // The reader (or the end of the call) resumed it: the call's claim ends.
     setPausedForCall(false);
     if (!m_loaded) {
-        // Still fetching: playback starts when the file arrives.
         if (m_fetchState != kFetching)
             startOrFetch();
         return;
@@ -446,7 +420,6 @@ void VoicePlaybackController::seek(qint64 positionMs)
     if (total > 0)
         target = qMin(target, total);
     if (!m_player || !m_loaded || !m_player->isSeekable()) {
-        // Still fetching or opening: start there once the file is open.
         m_pendingSeekMs = target;
         Q_EMIT positionChanged();
         return;
@@ -506,7 +479,6 @@ void VoicePlaybackController::setRate(qreal rate)
     if (!(rate >= 0.25) || !(rate <= 4.0))
         return;
     if ((!active() || m_isVoice) && m_settings) {
-        // A voice message, or no clip: the remembered voice speed.
         m_settings->setVoicePlaybackRate(rate);
         return;
     }
@@ -530,7 +502,7 @@ void VoicePlaybackController::setVolume(qreal volume)
 {
     const qreal v = qBound<qreal>(0.0, volume, 1.0);
     if (m_settings)
-        m_settings->setMediaVolume(v); // applySettings() follows it
+        m_settings->setMediaVolume(v);
     else if (m_output)
         m_output->setVolume(float(v));
 }
@@ -555,10 +527,6 @@ void VoicePlaybackController::pauseForCall()
 {
     if (!active())
         return;
-    // Only a clip that was going to make sound has anything to resume: one
-    // playing, one still fetching, or one whose start waits at the audio gate
-    // (pause() drops that start, so it neither begins mid-call nor loses its
-    // resume; resumeAfterCall() goes through the gate again).
     const bool wasRunning = playing()
         || (!m_loaded && m_fetchState == kFetching)
         || m_gateWaiting;
@@ -574,8 +542,6 @@ void VoicePlaybackController::resumeAfterCall()
     if (!m_pausedForCall)
         return;
     setPausedForCall(false);
-    // Not over something else the reader started meanwhile (a video took
-    // the speaker): that one keeps it.
     const QString owner = m_audibility ? m_audibility->audibleOwner()
                                        : QString();
     if (active() && !playing() && (owner.isEmpty() || owner == ownerKey()))
@@ -627,8 +593,6 @@ void VoicePlaybackController::readMetadata()
     if (m_bridge && image.isValid())
         art = m_bridge->audioArtworkSource(m_mediaKey, image);
     QVariantMap info = m_clipInfo.value(m_mediaKey);
-    // A later, emptier report (backends deliver tags in steps) never erases
-    // what an earlier one found.
     if (!title.isEmpty())
         info.insert(QStringLiteral("title"), title);
     if (!artist.isEmpty())
@@ -655,7 +619,6 @@ void VoicePlaybackController::stop()
     const QString owner = ownerKey();
     if (m_player) {
         m_player->stop();
-        // Releases the decrypted temp file's handle.
         m_player->setSource(QUrl());
     }
     unpin();
@@ -700,9 +663,6 @@ void VoicePlaybackController::stop()
 
 void VoicePlaybackController::reclaimAudibility()
 {
-    // Paused as well as playing: a clip paused before the switch is still
-    // the one Space should resume (design-media U5). Never one still being
-    // fetched or failed, which has nothing to toggle.
     if (m_audibility && active() && m_loaded)
         m_audibility->acquire(ownerKey());
 }
@@ -732,8 +692,6 @@ void VoicePlaybackController::startOrFetch()
         setFetchState(kFailed);
         return;
     }
-    // MediaBridge writes the file on a worker thread; playableMediaReady
-    // brings us back. A fetch it refuses outright reports failure there too.
     m_fetchingKey = m_mediaKey;
     setFetchState(kFetching);
 }
@@ -744,8 +702,6 @@ void VoicePlaybackController::startSource(const QString &url)
     m_fetchingKey.clear();
     setFetchState(kIdle);
     m_player->setSource(QUrl(url));
-    // The player holds the materialised file open; the LRU must not delete it
-    // under a seek or a replay.
     if (m_pinnedKey != m_mediaKey) {
         unpin();
         if (m_bridge) {
@@ -757,7 +713,6 @@ void VoicePlaybackController::startSource(const QString &url)
     if (m_audibility)
         m_audibility->acquire(ownerKey());
     playGated();
-    // A file already open (cached) may be seekable at once.
     applyPendingSeek();
 }
 
@@ -769,10 +724,6 @@ void VoicePlaybackController::setAudioGateForTest(
 
 void VoicePlaybackController::playGated()
 {
-    // QMediaPlayer::play() opens the audio stream, which aborts the process
-    // while Qt's PulseAudio backend has no connection (QtAudioGate.h). Held
-    // until it has one; the newest request wins, and a pause or stop in the
-    // meantime cancels it.
     using lightning::media::QtAudioGate;
     QtAudioGate *gate = m_audioGate ? m_audioGate.data() : QtAudioGate::current();
     const quint64 tag = ++m_playTag;
@@ -843,15 +794,11 @@ void VoicePlaybackController::unpin()
 
 void VoicePlaybackController::onAudibleOwnerChanged()
 {
-    // Another card (a video) took the speaker. An empty owner is a stopAll()
-    // (room switch): that is AppController's to resolve, not a competitor.
     if (!m_audibility)
         return;
     const QString owner = m_audibility->audibleOwner();
     if (owner.isEmpty() || owner == ownerKey())
         return;
-    // A start still waiting at the audio gate lost the speaker too: it must
-    // not begin later over the card that took it.
     dropWaitingStart();
     if (playing())
         m_player->pause();
@@ -889,7 +836,7 @@ void VoicePlaybackController::onFetchFailed(const QString &cacheKey)
 {
     if (m_fetchState != kFetching || cacheKey != this->cacheKey())
         return;
-    m_fetchingKey.clear(); // the fetch is over; nothing to cancel
+    m_fetchingKey.clear();
     setFetchState(kFailed);
 }
 
@@ -906,7 +853,6 @@ void VoicePlaybackController::onMediaStatus(int status)
         QMetaObject::invokeMethod(this, [this, finished, room, thread, voice] {
             if (m_eventId != finished)
                 return;
-            // The run as it stands now, before stop() forgets it.
             const QVariantList queue = m_upNext;
             stop();
             Q_EMIT clipFinished(finished, room, thread, voice, queue);

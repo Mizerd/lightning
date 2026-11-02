@@ -2,10 +2,6 @@ import QtQuick
 import QtTest
 import MatrixClient
 
-// The media browser's grid tile against a recording bridge: which class it
-// asks for (an encrypted picture without a thumbnail has no list thumbnail, so
-// it must ask for the file, within bounds), that a drawn tile keeps its
-// picture, and that the crop/fit choice does not feed back into the Image.
 TestCase {
     id: test
     name: "MediaBrowserTile"
@@ -14,9 +10,7 @@ TestCase {
     visible: true
     when: windowShown
 
-    // 300x100 and 120x100 PNGs.
     readonly property string widePng: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAABkCAIAAACzY5qXAAABkUlEQVR4nO3OQQ0AMBADoEo5qZM+GX2UBAHk3QFFqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMalPoBxqQ9gXOoDGJf6AMZ9cgzpGuKgPukAAAAASUVORK5CYII="
-    // Longer than the tile's settle delay, for asserting that nothing came.
     readonly property int settle: 600
     readonly property string squarePng: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAABkCAIAAADCEmNlAAAAyUlEQVR4nO3QAQkAIBDAQKN8VKPbQmEeLMC4tWd0ofX84JNAg24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag24FGnQr0KBbgQbdCjToVqBBtwINuhVo0K1Ag251ALhnKg4MJ0UcAAAAAElFTkSuQmCC"
 
@@ -89,7 +83,6 @@ TestCase {
         verify(t, "the tile did not build")
         return t
     }
-    // The tile's one Image, found by shape rather than by name.
     function findImage(item) {
         if (item.fillMode !== undefined && item.sourceSize !== undefined)
             return item
@@ -113,9 +106,6 @@ TestCase {
         failOnWarning(/Binding loop/)
     }
 
-    // The reported tiles: an encrypted image without thumbnail_file. The list
-    // class is refused for it by design, so asking only for that left the
-    // placeholder until the viewer happened to cache the file.
     function test_anEncryptedImageWithoutAThumbnailShowsItsFile() {
         bridge.answers = { "full:$enc": test.squarePng }
         var t = tile({})
@@ -127,7 +117,6 @@ TestCase {
         tryCompare(preview(t), "status", Image.Ready)
     }
 
-    // A miss now, the bytes later: the tile asks again on mediaCached.
     function test_theFileShowsWhenItArrives() {
         var t = tile({})
         tryVerify(function() { return bridge.asked("full:$enc") }, 2000)
@@ -144,7 +133,6 @@ TestCase {
         compare(bridge.askedFor("full:").length, 0)
     }
 
-    // A server can scale a plain file itself.
     function test_anUnencryptedImageAsksTheServerThumbnail() {
         tile({ encrypted: false })
         wait(test.settle)
@@ -172,9 +160,6 @@ TestCase {
         compare(bridge.askedFor("full:").length, 0)
     }
 
-    // A drawn tile keeps its picture: the bridge's RAM cache may evict the
-    // bytes later, and an empty answer then must not blank the tile and start
-    // the fetch again (a page of full files would evict each other forever).
     function test_aDrawnTileKeepsItsPicture() {
         bridge.answers = { "full:$enc": test.squarePng }
         var t = tile({})
@@ -186,9 +171,6 @@ TestCase {
         compare(bridge.calls.length, 0, JSON.stringify(bridge.calls))
     }
 
-    // The maintainer's log: "Binding loop detected for property aspect" on
-    // every scroll (failOnWarning in init()). The fill mode follows the
-    // declared size and the picture loads once.
     function test_aWidePictureFitsWithoutABindingLoop() {
         bridge.answers = { "list_thumb:$enc": test.widePng }
         var t = tile({ encrypted: false, mediaWidth: 3000, mediaHeight: 1000 })
@@ -220,7 +202,6 @@ TestCase {
             gridModel.append(row({ mediaKey: "$e" + i, eventId: "$e" + i }))
         var grid = createTemporaryObject(gridComponent, test)
         verify(grid)
-        // 3 x 3 cells on screen, and a fourth row the view may build.
         tryVerify(function() { return bridge.askedFor("full:").length >= 9 },
                   2000, JSON.stringify(bridge.askedFor("full:")))
         wait(test.settle)
@@ -231,7 +212,6 @@ TestCase {
         bridge.calls = []
         return grid
     }
-    // Every file asked for since the last reset belongs to a tile on screen.
     function verifyOnlyOnScreen(grid) {
         var fetched = bridge.askedFor("full:")
         verify(fetched.length > 0 && fetched.length <= 12,
@@ -246,8 +226,6 @@ TestCase {
         }
     }
 
-    // A whole history of such pictures: only the tiles on screen with the grid
-    // at rest fetch, and a flick through the rest fetches nothing.
     function test_aFlickFetchesOnlyWhereItStops() {
         var grid = fillGrid()
         var duringFlick = []
@@ -265,8 +243,6 @@ TestCase {
         verifyOnlyOnScreen(grid)
     }
 
-    // SmoothWheelArea glides by writing contentY, so `moving` never turns on:
-    // tiles the glide passes must still not fetch.
     function test_aWheelGlideFetchesOnlyWhereItStops() {
         var grid = fillGrid()
         for (var step = 1; step <= 30; ++step) {
@@ -289,8 +265,6 @@ TestCase {
         return null
     }
 
-    // A video whose thumbnail never arrives shows its filename; the play badge
-    // used to be drawn centred on top of that text.
     function test_aVideoWithoutAPictureHasNoBadgeOverItsName() {
         var t = tile({ kind: "video", mimetype: "video/mp4",
                        filename: "silent-clip.mp4", mediaKey: "", encrypted: false })
@@ -312,7 +286,6 @@ TestCase {
         compare(t.displayName, "a-very-long-name-that-elides.png")
     }
 
-    // Menu key opens the tile's menu through the same path as a right click.
     function test_openMenuIsExposedForTheMenuKey() {
         var t = tile({})
         verify(typeof t.openMenu === "function")

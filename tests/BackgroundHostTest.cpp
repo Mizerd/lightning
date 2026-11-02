@@ -1,16 +1,3 @@
-// Live accounts Phase 1: one background host's drain (design §3.3.1, §10.1).
-//
-//  * the badge summary is the foreground's own unread rule over the WHOLE
-//    counts table (more than 200 unread rooms), with each account's own
-//    notification modes, written as one model row and never accountsChanged;
-//  * a host event's notification context is its own account's (uid, label,
-//    mode, ignored list), never the active account's, with no avatar fetch;
-//  * the backlog floor is max(appStart, lastLiveAt) - 30 s;
-//  * the drain stays inside its budget and round-robins, and a 10k-event
-//    flood loses nothing while badges keep moving;
-//  * the sticky session state drives the host's lifecycle.
-//
-// UNRUN when written (WP agents do not build); the lead runs it offscreen.
 #include "accounts/BackgroundDrainer.h"
 #include "accounts/BackgroundSessionHost.h"
 #include "accounts/RevocationProofs.h"
@@ -48,7 +35,6 @@ const QString kAlice = QStringLiteral("@alice:example.org");
 const QString kBob = QStringLiteral("@bob:example.org");
 const QString kHs = QStringLiteral("https://example.org");
 
-// counts-tuple flags (contract §3.2)
 constexpr int kHasUnread = 1, kMarkedUnread = 2, kThreadsOnly = 4, kMentionInThreads = 8,
               kEncrypted = 16, kEncryptionKnown = 32, kLowerBound = 64;
 
@@ -96,7 +82,7 @@ QJsonObject timelineEvent(const QString &roomId, const QString &eventId, const Q
                      {QStringLiteral("sender_display_name"), QStringLiteral("Carol")}}}};
 }
 
-} // namespace
+}
 
 class BackgroundHostTest : public QObject
 {
@@ -140,9 +126,6 @@ void BackgroundHostTest::initTestCase()
 {
     QVERIFY(m_config.isValid());
     qputenv("XDG_CONFIG_HOME", m_config.path().toUtf8());
-    // A dead session bus, set before any NotificationManager first asks for
-    // one: every card goes to the tray path these cases count, whatever bus
-    // the machine running them has (§18 round 1, MUST 5; CMake sets the same).
     qputenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/lightning-no-daemon");
     QCoreApplication::setOrganizationName(QStringLiteral("MatrixClientTests"));
     QCoreApplication::setApplicationName(QStringLiteral("background-host-test"));
@@ -175,8 +158,6 @@ void BackgroundHostTest::cleanup()
 
 void BackgroundHostTest::setModeFor(const QString &uid, const QString &roomId, int mode)
 {
-    // The setter writes the active account's scope; the host must then read
-    // it back through roomNotificationModeFor(uid, ...) whatever is active.
     const QString was = m_settings->activeAccountUserId();
     m_settings->setActiveAccountUserId(uid);
     m_settings->setRoomNotificationMode(roomId, mode);
@@ -205,8 +186,6 @@ BackgroundHostTest::makeHost(const QString &uid, const QString &label,
     return std::make_unique<BackgroundSessionHost>(std::move(deps), identity, handle, 1, 0);
 }
 
-// R2-M4: the counts table is the whole table (no 200 cap) and the totals are
-// the foreground's own rule with this account's modes.
 void BackgroundHostTest::theSummaryIsTheForegroundRuleOverTheWholeCountsTable()
 {
     m_settings->setActiveAccountUserId(kBob);
@@ -229,7 +208,6 @@ void BackgroundHostTest::theSummaryIsTheForegroundRuleOverTheWholeCountsTable()
         case 5: unread = 5; flags |= kHasUnread | kEncrypted; break;
         default: flags |= kHasUnread; break;
         }
-        // Alice mutes every tenth room and sets every eleventh to mentions.
         int mode = roomunread::kModeAllMessages;
         if (i % 10 == 0)
             mode = roomunread::kModeMute;
@@ -241,7 +219,6 @@ void BackgroundHostTest::theSummaryIsTheForegroundRuleOverTheWholeCountsTable()
         counts.append(QJsonArray{room, unread, highlight, flags});
     }
 
-    // The oracle: RoomInfo per tuple, through roomunread with Alice's modes.
     int expectedRooms = 0;
     int expectedMentions = 0;
     bool expectedLowerBound = false;
@@ -279,7 +256,6 @@ void BackgroundHostTest::theSummaryIsTheForegroundRuleOverTheWholeCountsTable()
     QCOMPARE(seen.invites, 3);
     QCOMPARE(seen.lowerBound, expectedLowerBound);
     QCOMPARE(host->unreadRoomsForTest().size(), expectedRooms);
-    // One row, never a reset, never the account list.
     QVERIFY(dataChanged.size() >= 1);
     for (const auto &args : dataChanged) {
         const QModelIndex top = args.at(0).value<QModelIndex>();
@@ -288,7 +264,6 @@ void BackgroundHostTest::theSummaryIsTheForegroundRuleOverTheWholeCountsTable()
     }
     QCOMPARE(reset.size(), 0);
     QCOMPARE(accountsChanged.size(), 0);
-    // Unchanged counts on the next take: no row update at all.
     dataChanged.clear();
     m_fake->setCounts(handleOf(*host), counts, 3);
     host->drainOnce();
@@ -300,8 +275,6 @@ void BackgroundHostTest::modesAreReadPerAccountNeverFromTheActiveOne()
     const QString room = QStringLiteral("!shared:example.org");
     setModeFor(kAlice, room, roomunread::kModeMute);
     setModeFor(kBob, room, roomunread::kModeAllMessages);
-    // Bob is active: a host reading the active account's mode would not see
-    // Alice's mute.
     m_settings->setActiveAccountUserId(kBob);
     auto alice = makeHost(kAlice, QStringLiteral("Alice"));
     auto bob = makeHost(kBob, QStringLiteral("Bob"));
@@ -317,13 +290,11 @@ void BackgroundHostTest::modesAreReadPerAccountNeverFromTheActiveOne()
     QCOMPARE(seenFor(*m_activity, kBob).unreadRooms, 1);
     QCOMPARE(seenFor(*m_activity, kBob).mentions, 1);
 
-    // Alice unmutes it (her scope): the host re-reads when told.
     setModeFor(kAlice, room, roomunread::kModeAllMessages);
     alice->refreshModes(room);
     QCOMPARE(seenFor(*m_activity, kAlice).unreadRooms, 1);
 }
 
-// I8, R1-H7: the context is the host's own account's.
 void BackgroundHostTest::aBackgroundEventGetsItsOwnAccountsContext()
 {
     const QString room = QStringLiteral("!ctx:example.org");
@@ -344,7 +315,7 @@ void BackgroundHostTest::aBackgroundEventGetsItsOwnAccountsContext()
     QCOMPARE(ctx.selfUserId, kAlice);
     QVERIFY2(ctx.avatarMxc.isEmpty(), "a host never fetches through the foreground's bridge");
     QCOMPARE(ctx.roomName, QStringLiteral("Fixture room"));
-    QCOMPARE(int(ctx.roomMode), int(roomunread::kModeMentions));   // Alice's, not Bob's mute
+    QCOMPARE(int(ctx.roomMode), int(roomunread::kModeMentions));
     QVERIFY(!ctx.roomVisibleAtLatest);
     QVERIFY(!ctx.roomHydrating);
     QVERIFY(ctx.senderIsIgnored);
@@ -360,12 +331,6 @@ void BackgroundHostTest::aBackgroundEventGetsItsOwnAccountsContext()
     QVERIFY(!host->lastContextForTest().senderIsIgnored);
 }
 
-// Review WP1-R N2 (contract §3.5): Rust forwards an event_decrypted for an id
-// it never forwarded as a timeline_event once its decrypted facts pass the
-// filter. The host must raise it as a new candidate; handing it to
-// processDecrypted() drops it, because no live UTD was ever recorded for it.
-// An id the host DID see undecryptable still goes the replacement way.
-// Fails with: the lateForwarded branch removed (no card for $late).
 void BackgroundHostTest::aLateForwardedDecryptionIsANewCandidate()
 {
     NotificationManager notifications;
@@ -390,7 +355,6 @@ void BackgroundHostTest::aLateForwardedDecryptionIsANewCandidate()
                  .value(QStringLiteral("eventId")).toString(),
              QStringLiteral("$late"));
 
-    // Seen undecryptable first: its decryption is a replacement, not new.
     QJsonObject utd = timelineEvent(room, QStringLiteral("$utd"),
                                     QStringLiteral("@carol:example.org"));
     QJsonObject utdEvent = utd.value(QStringLiteral("event")).toObject();
@@ -407,7 +371,6 @@ void BackgroundHostTest::aLateForwardedDecryptionIsANewCandidate()
     QCOMPARE(host->lateDecryptedEventsForTest(), 1);
 }
 
-// R2-M5: the floor handed to Rust at create.
 void BackgroundHostTest::theBacklogFloorIsTheLaterOfAppStartAndLastLiveAt()
 {
     for (const bool lastLiveIsLater : {true, false}) {
@@ -428,14 +391,12 @@ void BackgroundHostTest::theBacklogFloorIsTheLaterOfAppStartAndLastLiveAt()
         deps.proofs = &proofs;
         deps.registry = &registry;
         deps.api = &fake;
-        deps.guiSecretStore = &m_secrets;   // process-local: GUI-queued reads
+        deps.guiSecretStore = &m_secrets;
         deps.appStartMs = appStart;
         deps.monotonicMs = [this] { return m_now; };
         SessionPool pool(deps);
         pool.setForegroundUserId(kAlice);
         pool.start();
-        // The clock is scripted: the real-time lag probe would read a jump as a
-        // suspend. And the fd limit is not under test here.
         pool.schedulerForTest()->stopProbe();
         pool.schedulerForTest()->setFdSoftLimitForTest(0);
         pool.noteForegroundInitialSyncDone();
@@ -462,26 +423,18 @@ void BackgroundHostTest::theDrainStaysInsideItsBudgetAndRoundRobins()
     drainer.addHost(b.get());
     drainer.addHost(c.get());
     QVERIFY(drainer.running());
-    // Every host costs 3 ms: the budget (4 ms) is spent after the second.
     qint64 spent = 0;
     drainer.setElapsedForTest([&spent] { return spent += 3; });
     spent = 0;
     QCOMPARE(drainer.tick(), 2);
-    // The host the budget did not reach still had its token step (one more
-    // poll): a waiting rotation is answered every tick (§18 round 1, L6).
     QCOMPARE(m_fake->calls(QStringLiteral("bgPoll")), 3);
-    // The next tick starts where this one stopped: c first, then a.
     spent = 0;
     QCOMPARE(drainer.tick(), 2);
     QCOMPARE(m_fake->calls(QStringLiteral("bgPoll")), 6);
-    // An idle host costs only its poll: no take, no session state, no queue.
     QCOMPARE(m_fake->calls(QStringLiteral("bgTake")), 0);
     QCOMPARE(m_fake->calls(QStringLiteral("bgTakeSessionState")), 0);
     QCOMPARE(m_fake->calls(QStringLiteral("pollEvent")), 0);
     QCOMPARE(m_fake->calls(QStringLiteral("takeCustody")), 0);
-    // A rotation on the host the next tick's budget will not reach (that
-    // tick runs b then c, so a) is taken this tick all the same. Mutation:
-    // drop the drainTokensOnly() loop and takeCustody stays 0.
     m_fake->setCustody(handleOf(*a), QJsonObject{{QStringLiteral("v"), 1},
                                                  {QStringLiteral("has_session"), true},
                                                  {QStringLiteral("access_token"), QStringLiteral("b-rotated")},
@@ -491,7 +444,6 @@ void BackgroundHostTest::theDrainStaysInsideItsBudgetAndRoundRobins()
     QCOMPARE(drainer.tick(), 2);
     QCOMPARE(m_fake->calls(QStringLiteral("takeCustody")), 1);
     QCOMPARE(m_fake->calls(QStringLiteral("bgTake")), 0);
-    // With the budget never spent, every host is polled once per tick.
     drainer.setElapsedForTest([] { return qint64(0); });
     QCOMPARE(drainer.tick(), 3);
     drainer.removeHost(a.get());
@@ -500,8 +452,6 @@ void BackgroundHostTest::theDrainStaysInsideItsBudgetAndRoundRobins()
     QVERIFY(!drainer.running());
 }
 
-// R2-H3: 10 000 queued notify events drain 64 per pass with nothing lost,
-// and the badge take runs every pass the table is dirty, flood or not.
 void BackgroundHostTest::aFloodLosesNothingAndBadgesKeepMoving()
 {
     auto host = makeHost(kAlice, QStringLiteral("Alice"));
@@ -518,7 +468,6 @@ void BackgroundHostTest::aFloodLosesNothingAndBadgesKeepMoving()
     QCOMPARE(mentions, 100);
     int pass = 0;
     while (h->status.queuedEvents > 0 && pass < 400) {
-        // The badge moves every pass while the queue is far from empty.
         const QString unreadRoom = QStringLiteral("!badge%1:example.org").arg(pass);
         m_fake->setCounts(h, QJsonArray{QJsonArray{unreadRoom, pass + 1, 0,
                                                    kHasUnread | kEncryptionKnown}});
@@ -549,7 +498,6 @@ void BackgroundHostTest::theStickySessionStateDrivesTheHost()
     QCOMPARE(ok.size(), 1);
     QCOMPARE(host->phase(), BackgroundSessionHost::Phase::Running);
     QCOMPARE(m_fake->calls(QStringLiteral("startSync")), 1);
-    // The same sticky payload again is not a second login.
     m_fake->setSticky(h, QStringLiteral("initial_sync_done"), QJsonObject{});
     host->drainOnce();
     QCOMPARE(ok.size(), 1);
@@ -565,7 +513,6 @@ void BackgroundHostTest::theStickySessionStateDrivesTheHost()
     host->drainOnce();
     QCOMPARE(lost.size(), 1);
 
-    // The precheck's refusals are named, never a retry-able failure.
     const struct {
         QJsonObject failed;
         BackgroundSessionHost::FailureKind kind;
@@ -603,7 +550,6 @@ void BackgroundHostTest::queueCopiesOfStickyTypesAreCountedAndDropped()
     host->drainOnce();
     QCOMPARE(host->droppedEventsForTest(), 2);
     QCOMPARE(host->notifyEventsForTest(), 0);
-    // A login_ok on the QUEUE is not the sticky one: still starting.
     QCOMPARE(host->phase(), BackgroundSessionHost::Phase::Starting);
 }
 
@@ -612,24 +558,21 @@ void BackgroundHostTest::aVerificationRequestRaisesOneLabelledCard()
     NotificationManager notifications;
     notifications.setBalloonWithdrawableForTest(false);
     notifications.setTrayShowsForTest(true);
-    notifications.setAccountUserId(kBob);   // the foreground is someone else
+    notifications.setAccountUserId(kBob);
     auto host = makeHost(kAlice, QStringLiteral("Alice"), &notifications);
     const int before = notifications.genericNoticeCountForTest();
     const QJsonObject request{{QStringLiteral("type"), QStringLiteral("verification_request_received")},
                               {QStringLiteral("flow_id"), QStringLiteral("flow-1")},
                               {QStringLiteral("other_user_id"), kAlice}};
     m_fake->pushEvent(handleOf(*host), request);
-    m_fake->pushEvent(handleOf(*host), request);   // the same flow again
+    m_fake->pushEvent(handleOf(*host), request);
     host->drainOnce();
     QCOMPARE(notifications.genericNoticeCountForTest(), before + 1);
-    // §18 round 1, L5: stamped for the background account (a click opens
-    // it, not the one in front), with the label isolated (FSI .. PDI).
     QCOMPARE(notifications.lastTrayPayloadForTest()
                  .value(QStringLiteral("accountUserId")).toString(),
              kAlice);
     QVERIFY(notifications.lastTrayTitleForTest().contains(
         QChar(0x2068) + QStringLiteral("Alice") + QChar(0x2069)));
-    // Notifications turned off: no card from a background account either.
     m_settings->setNotificationsEnabled(false);
     const QJsonObject another{{QStringLiteral("type"), QStringLiteral("verification_request_received")},
                               {QStringLiteral("flow_id"), QStringLiteral("flow-2")},
@@ -640,10 +583,6 @@ void BackgroundHostTest::aVerificationRequestRaisesOneLabelledCard()
     m_settings->setNotificationsEnabled(true);
 }
 
-// Review L10: a request the other side cancelled withdraws its card (the
-// withdrawal goes through NotificationManager::withdrawGeneric, keyed as the
-// card was). Observed here by its other half: the flow's key is forgotten, so
-// the same flow asking again raises a card again instead of being deduped.
 void BackgroundHostTest::aCancelledVerificationRequestDropsItsCard()
 {
     NotificationManager notifications;
@@ -659,7 +598,7 @@ void BackgroundHostTest::aCancelledVerificationRequestDropsItsCard()
                                 {QStringLiteral("flow_id"), QStringLiteral("flow-2")},
                                 {QStringLiteral("message"), QStringLiteral("cancelled")}};
     m_fake->pushEvent(handleOf(*host), request);
-    m_fake->pushEvent(handleOf(*host), otherFlow);   // another flow: no effect
+    m_fake->pushEvent(handleOf(*host), otherFlow);
     m_fake->pushEvent(handleOf(*host), request);
     host->drainOnce();
     QCOMPARE(notifications.genericNoticeCountForTest(), before + 1);
@@ -670,10 +609,6 @@ void BackgroundHostTest::aCancelledVerificationRequestDropsItsCard()
     QCOMPARE(host->droppedEventsForTest(), 0);
 }
 
-// Review L13: a host retired by its own signal in the middle of a tick (here:
-// its login result removes it) must not shift the hosts after it: the pass
-// drains the hosts it started with, in order, and the next tick resumes with
-// the right one.
 void BackgroundHostTest::aHostRetiredMidTickShiftsNoOtherHost()
 {
     auto a = makeHost(kAlice, QStringLiteral("A"));
@@ -683,7 +618,6 @@ void BackgroundHostTest::aHostRetiredMidTickShiftsNoOtherHost()
     drainer.addHost(a.get());
     drainer.addHost(b.get());
     drainer.addHost(c.get());
-    // Every host has a login result to act on; a's retires a at once.
     for (BackgroundSessionHost *host : {a.get(), b.get(), c.get()}) {
         m_fake->setSticky(handleOf(*host), QStringLiteral("login_ok"),
                           QJsonObject{{QStringLiteral("type"), QStringLiteral("login_ok")}});
@@ -693,21 +627,18 @@ void BackgroundHostTest::aHostRetiredMidTickShiftsNoOtherHost()
     const auto started = [this](BackgroundSessionHost *host) {
         return m_fake->log(handleOf(*host)).count(QStringLiteral("startSync"));
     };
-    // Every host costs 3 ms: the 4 ms budget is spent after the second.
     qint64 spent = 0;
     drainer.setElapsedForTest([&spent] { return spent += 3; });
     QCOMPARE(drainer.tick(), 2);
     QCOMPARE(started(a.get()), 1);
-    QCOMPARE(started(b.get()), 1);   // b, not c moved into a's place
+    QCOMPARE(started(b.get()), 1);
     QCOMPARE(started(c.get()), 0);
     QCOMPARE(drainer.hostCount(), 2);
     spent = 0;
     QCOMPARE(drainer.tick(), 2);
-    QCOMPARE(started(c.get()), 1);   // the next tick starts where this one stopped
+    QCOMPARE(started(c.get()), 1);
     QCOMPARE(started(b.get()), 1);
 }
 
-// A GUI application: a card's decision reads the font database (the late-
-// forwarded decryption case raises a real card).
 QTEST_MAIN(BackgroundHostTest)
 #include "BackgroundHostTest.moc"

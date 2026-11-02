@@ -13,7 +13,6 @@
 
 namespace lightning {
 
-// The compile-time default backend for this build.
 constexpr AppController::Backend defaultBackend()
 {
 #ifdef ENABLE_RUST_SDK_BACKEND
@@ -24,13 +23,10 @@ constexpr AppController::Backend defaultBackend()
 }
 
 #ifdef LIGHTNING_RUST_ONLY
-// Fail a misconfigured Rust-only release build at compile time.
 static_assert(defaultBackend() == AppController::RustBackend,
     "LIGHTNING_RUST_ONLY requires the Rust backend to be the compiled default");
 #endif
 
-// Resolve --backend=NAME (case-insensitive). Returns HttpBackend on unknown
-// values and reports the ambiguity via *ok.
 inline AppController::Backend backendFromName(const QString &name, bool *ok)
 {
     if (ok) *ok = true;
@@ -55,4 +51,4 @@ inline QString backendNameFor(AppController::Backend backend)
     return QStringLiteral("http");
 }
 
-} // namespace lightning
+}

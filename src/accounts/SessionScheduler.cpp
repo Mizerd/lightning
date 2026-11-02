@@ -25,9 +25,6 @@ Q_LOGGING_CATEGORY(lcScheduler, "lightning.accounts.scheduler")
 #if defined(Q_OS_WIN)
 namespace {
 
-// The resume probe's two Windows clocks, resolved at runtime from kernel32
-// (Vista and 7 respectively) so no _WIN32_WINNT floor can hide their
-// declarations, as WindowCaptureSrc resolves its own. Both or neither.
 struct WinClocks {
     using TickCount64Fn = unsigned long long(WINAPI *)();
     using UnbiasedInterruptTimeFn = BOOL(WINAPI *)(unsigned long long *);
@@ -51,12 +48,10 @@ const WinClocks &winClocks()
     return clocks;
 }
 
-} // namespace
+}
 #endif
 
 namespace lightning::accounts {
-
-// ---- CatchUpTracker -------------------------------------------------------------
 
 void CatchUpTracker::begin(qint64 nowMs, quint64 sessionStateVersion)
 {
@@ -70,7 +65,6 @@ void CatchUpTracker::sample(qint64 nowMs, quint64 notableUpdatesTotal)
     if (!active())
         return;
     m_samples.append({nowMs, notableUpdatesTotal});
-    // Keep one sample older than the window, so the rate always spans it.
     while (m_samples.size() > 2 && m_samples.at(1).first <= nowMs - kRateWindowMs)
         m_samples.removeFirst();
 }
@@ -82,8 +76,6 @@ bool CatchUpTracker::complete(qint64 nowMs, bool initialSyncDone, bool roomListR
         return true;
     if (nowMs - m_startedMs >= kCapMs)
         return true;
-    // A "running" carried over from before this catch-up began says nothing:
-    // the state must have moved since.
     if (!initialSyncDone || !roomListRunning || sessionStateVersion == m_baseVersion)
         return false;
     if (m_samples.size() < 2)
@@ -103,8 +95,6 @@ void CatchUpTracker::reset()
     m_baseVersion = 0;
     m_samples.clear();
 }
-
-// ---- SessionScheduler -------------------------------------------------------------
 
 SessionScheduler::SessionScheduler(std::function<qint64()> monotonicMs,
                                    std::function<double()> jitterUnit, QObject *parent)
@@ -149,26 +139,17 @@ qint64 SessionScheduler::suspendAwareNow() const
         return qint64(ts.tv_sec) * 1000 + qint64(ts.tv_nsec) / 1000000;
 #endif
 #if defined(Q_OS_WIN)
-    // Interrupt time WITH the time spent asleep or hibernating; paired with
-    // QueryUnbiasedInterruptTime in awakeNow(), never with QElapsedTimer,
-    // whose QueryPerformanceCounter may count sleep too (review round 2).
     if (const WinClocks &clocks = winClocks(); clocks.usable())
         return qint64(clocks.tickCount64());
 #endif
-    // Elsewhere the wall clock: it counts sleep, and a clock set forward by
-    // over 10 s reads as a resume, which only makes every host catch up.
     return QDateTime::currentMSecsSinceEpoch();
 }
 
 qint64 SessionScheduler::awakeNow() const
 {
-    // An injected suspend-aware clock is measured against the injected (or
-    // QElapsedTimer) monotonic one: the tests script both.
     if (m_suspendAwareMs)
         return now();
 #if defined(Q_OS_WIN)
-    // Interrupt time WITHOUT sleep and hibernation, in 100 ns units: its gap
-    // against GetTickCount64's is the time suspended, whatever QPC does.
     if (const WinClocks &clocks = winClocks(); clocks.usable()) {
         unsigned long long unbiased = 0;
         if (clocks.unbiasedInterruptTime(&unbiased))
@@ -206,18 +187,14 @@ void SessionScheduler::probeTick()
     const qint64 s = suspendAwareNow();
     const qint64 a = awakeNow();
     if (m_lastProbeMs >= 0) {
-        // GUI-thread lateness: the lag gate only.
         const qint64 lateness = (t - m_lastProbeMs) - kProbeIntervalMs;
         m_worstLatenessMs = std::max(m_worstLatenessMs, lateness);
         if (lateness > kLagThresholdMs)
             m_lateAt.append(t);
-        // Time that passed for the machine but not for the awake clock: the
-        // process was suspended. A stall moves both clocks alike.
         const qint64 suspended = m_lastProbeSuspendAwareMs >= 0 && m_lastProbeAwakeMs >= 0
             ? (s - m_lastProbeSuspendAwareMs) - (a - m_lastProbeAwakeMs)
             : 0;
         if (suspended > kResumeLagMs) {
-            // Every catch-up after a suspend waits for the foreground first.
             m_foregroundFirstUntilMs = t + kResumeForegroundGraceMs;
             qCInfo(lcScheduler) << "resume from suspend detected"
                                 << "suspended_ms=" << suspended;
@@ -252,7 +229,6 @@ void SessionScheduler::noteStarted()
 void SessionScheduler::noteForegroundInitialSyncDone()
 {
     m_foregroundSynced = true;
-    // The foreground caught up: a resume's "foreground first" is over.
     m_foregroundFirstUntilMs = 0;
     Q_EMIT admissionMayHaveChanged();
 }
@@ -407,8 +383,6 @@ bool SessionScheduler::fdHeadroomFor(int hostsAfterStart) const
     const qint64 soft = fdSoftLimit();
     if (soft <= 0)
         return true;
-    // Configured maxima, not observed use (HYPOTHESIS until S5): every host
-    // and the foreground at about 56, on top of the application's own.
     const qint64 needed = kFdBaseline + qint64(kFdsPerHost) * (hostsAfterStart + 1);
     return double(needed) <= double(soft) * (1.0 - kFdSpare);
 }
@@ -454,4 +428,4 @@ bool SessionScheduler::memoryGuardWouldPause()
 #endif
 }
 
-} // namespace lightning::accounts
+}

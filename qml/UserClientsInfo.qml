@@ -2,29 +2,16 @@ import QtQuick
 import QtQuick.Layouts
 import MatrixClient
 
-// Developer mode: the sessions a user has, as far as this device's crypto
-// store knows. The protocol carries two facts about a session, its device id
-// and the name its OWNER gave it; Element's default names ("Element Web:
-// Firefox on Linux") are the only reason a name tells you the app. This
-// component shows exactly those two facts, says whose words they are, and
-// never infers a client from a name. With `deviceId` set it shows that one
-// session only (a call participant's own device).
-//
-// Self-contained: needs only `app.about` and `app.settings.developerTools`,
-// and draws nothing when developer mode is off.
 ColumnLayout {
     id: root
     objectName: "userClientsInfo"
 
-    /// The Matrix user whose sessions are shown.
     property string userId: ""
-    /// Optional: narrow to one session (the device id from a call membership).
     property string deviceId: ""
 
     readonly property bool devMode:
         (typeof app !== "undefined" && app) ? app.settings.developerTools : false
     readonly property var about: (typeof app !== "undefined" && app) ? app.about : null
-    // Reading the revision makes the binding follow arrivals.
     readonly property var info: {
         if (!about || userId.length === 0) return ({ state: "idle", devices: [] })
         const revision = about.userClientsRevision
@@ -46,8 +33,6 @@ ColumnLayout {
     }
     onDevModeChanged: ask()
     onUserIdChanged: ask()
-    // Shown again (the popover reopened): the controller throttles, so this
-    // only refetches once the earlier answer has aged out.
     onVisibleChanged: if (visible) ask()
     Component.onCompleted: ask()
 

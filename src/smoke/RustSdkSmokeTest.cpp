@@ -117,7 +117,7 @@ struct Counters {
     QString syncResult  = QStringLiteral("n/a");
     QString restoreResult = QStringLiteral("n/a");
     QString sendResult  = QStringLiteral("n/a");
-    QString sendReason;  // only populated when sendResult is skipped/blocked
+    QString sendReason;
     QString encryptedSendResult = QStringLiteral("n/a");
     QString encryptedSendReason;
     QString encryptedSendMarker;
@@ -129,41 +129,27 @@ struct Counters {
     int decryptedEventCount = 0;
     int undecryptableCount = 0;
     int timelineEventsSinceExpect = 0;
-    // Room-spam throttle bookkeeping.
     QString lastRoomsLine;
     bool initialSyncDone = false;
     bool sendActive = false;
     bool encryptedSendActive = false;
     bool finalised = false;
 
-    // LIGHTNING_TEST_EXPECT_TEXT: a marker sent from another client into an
-    // encrypted room. Only whether it was seen is recorded; it is never
-    // printed.
     QString expectText;
     bool    requireExpect = false;
     QString expectResult = QStringLiteral("n/a");
     int     expectWaitSeconds = 90;
 
-    // Wait loop after send/probe completes.
     bool    waitingForExpect = false;
     bool    firstTimelineAfterExpect = false;
     int     encryptedEventsSinceExpect = 0;
     int     decryptedEventsSinceExpect = 0;
     int     undecryptableSinceExpect = 0;
 
-    // Key backup recovery via matrix-sdk.
     QString keyBackupResult = QStringLiteral("n/a");
     QString keyBackupReason;
 };
 
-// Exit-code policy:
-//   10 login failed
-//   11 sync did not complete
-//   12 zero joined rooms
-//   13 real send failed / timed out (send=skipped and send=blocked are NOT
-//      failures — expected on all-encrypted accounts)
-//   14 LIGHTNING_TEST_REQUIRE_EXPECT=1 was set and the marker was not seen
-//   15 LIGHTNING_TEST_SEND_ENCRYPTED=1 was set and the probe failed / timed out
 int exitCodeFor(const Counters &c)
 {
     if (c.loginResult != QLatin1String("ok"))                       return 10;
@@ -182,7 +168,7 @@ int exitCodeFor(const Counters &c)
     return 0;
 }
 
-} // namespace
+}
 
 int runRustSdkSmokeTest(int argc, char *argv[])
 {
@@ -267,8 +253,6 @@ int runRustSdkSmokeTest(int argc, char *argv[])
             restoreAvailable = accountMatches;
         }
     } else {
-        // Fresh crypto store per run; it outlives the client so SDK background
-        // threads stop before cleanup.
         tempStore = std::make_unique<QTemporaryDir>(
             QDir::tempPath()
             + QStringLiteral("/lightning-rust-sdk-smoke-XXXXXX"));
@@ -318,7 +302,6 @@ int runRustSdkSmokeTest(int argc, char *argv[])
     counters.expectWaitSeconds = expectWaitSeconds;
     if (!expectText.isEmpty()) {
         counters.expectResult = QStringLiteral("not_seen");
-        // Deliberately not printing the expected text itself.
         say(QStringLiteral("expect_text=configured require=%1")
                 .arg(requireExpect
                      ? QStringLiteral("true")
@@ -376,8 +359,6 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         QCoreApplication::exit(exitCodeFor(counters));
     };
 
-    // After sending: if EXPECT_TEXT is set and not yet seen, wait (bounded). A
-    // decrypted event containing the marker ends the wait early.
     auto postSendFinalise = std::make_shared<std::function<void()>>();
     *postSendFinalise = [&, finalise]() {
         if (counters.finalised) return;
@@ -396,8 +377,6 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         say(QStringLiteral("expect_text=waiting timeout_s=%1")
                 .arg(counters.expectWaitSeconds));
 
-        // Heartbeat every 30 s during a long expect wait so a stalled sync is
-        // visible.
         auto heartbeat = std::make_shared<QTimer>();
         heartbeat->setInterval(30 * 1000);
         heartbeat->setSingleShot(false);
@@ -437,8 +416,6 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         });
     };
 
-    // Global budget: with EXPECT_TEXT, cover the full expect wait plus shutdown
-    // slack; recovery-key restores need ~60 s more for secret import.
     int totalBudgetSec = 60;
     if (!expectText.isEmpty()) {
         totalBudgetSec = qMax(totalBudgetSec, expectWaitSeconds + 30);
@@ -629,7 +606,6 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         counters.encryptedSendActive = true;
         counters.encryptedSendMarker = QStringLiteral("SMK-%1")
             .arg(QDateTime::currentSecsSinceEpoch());
-        // The body embeds the marker; the harness never prints bodies.
         const QString body = QStringLiteral(
             "Lightning encrypted-send probe %1")
             .arg(counters.encryptedSendMarker);
@@ -672,8 +648,6 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         (*postSendFinalise)();
     });
 
-    // Key backup recovery, started once login and sync settle. Never prints the
-    // recovery key or imported key material.
     QObject::connect(client.get(),
                      &RustSdkMatrixClient::keyBackupResult, &app,
                      [&](const QString &state, const QString &message) {
@@ -697,8 +671,6 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         counters.syncResult = QStringLiteral("ok");
         say(QStringLiteral("initial_sync=done"));
 
-        // Start key backup recovery if a key was supplied; runs alongside
-        // send/probe.
         if (!recoveryKey.isEmpty()) {
             if (!persistentStore) {
                 counters.keyBackupResult = QStringLiteral("failed");
@@ -707,8 +679,6 @@ int runRustSdkSmokeTest(int argc, char *argv[])
                 say(QStringLiteral(
                     "key_backup=failed reason=persistent_store_required"));
             } else {
-                // The Rust bridge reports "attempted" itself; don't print it
-                // twice.
                 counters.keyBackupResult = QStringLiteral("attempted");
                 client->recoverFromBackup(recoveryKey);
             }
@@ -724,8 +694,6 @@ int runRustSdkSmokeTest(int argc, char *argv[])
 
         QTimer::singleShot(2000, &app, [&, postSendFinalise, attemptSend,
                                         attemptEncryptedProbe]() {
-            // Send/probe first; postSendFinalise then waits for EXPECT_TEXT or
-            // exits.
             if (doSendEncrypted) (*attemptEncryptedProbe)();
             else if (doSend)     (*attemptSend)();
             else                 (*postSendFinalise)();
@@ -744,8 +712,6 @@ int runRustSdkSmokeTest(int argc, char *argv[])
         counters.roomCount = joined;
         counters.encryptedRoomCount = encrypted;
         counters.spaceCount = spaces;
-        // Print "rooms joined=..." only when the counts change; the sync
-        // callback fires repeatedly with identical counts.
         const QString line = QStringLiteral(
                 "rooms joined=%1 encrypted=%2 spaces=%3")
                 .arg(joined).arg(encrypted).arg(spaces);
@@ -773,8 +739,6 @@ int runRustSdkSmokeTest(int argc, char *argv[])
             if (ev.undecryptable) ++counters.undecryptableSinceExpect;
         }
 
-        // Matched against decrypted bodies only; only "seen"/"not_seen" is
-        // exposed.
         if (!counters.expectText.isEmpty()
             && ev.isDecrypted && !ev.undecryptable
             && !ev.body.isEmpty()
@@ -866,4 +830,4 @@ int runRustSdkSmokeTest(int argc, char *argv[])
     return rc;
 }
 
-#endif  // ENABLE_RUST_SDK_BACKEND
+#endif

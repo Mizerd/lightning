@@ -41,9 +41,6 @@ QString tokenOwnerFor(const TokenStore &store, const QStringList &candidates,
 LiveWrite writeLive(TokenStore *store, const QString &tokenOwner,
                     const QString &currentAccess, const SessionTokenPair &rotated)
 {
-    // Only the pair the session holds NOW is written: two rotations can wait
-    // in one drain, and the older one must never land over the newer (its
-    // refresh token is already used up).
     if (!currentAccess.isEmpty()
         && accessTokenDigest(currentAccess) != accessTokenDigest(rotated.accessToken))
         return LiveWrite::SkippedRotatedPast;
@@ -103,12 +100,8 @@ Handback writeHandback(TokenStore *store, const HandbackEntry &entry,
 {
     if (!store)
         return Handback::SkippedNoStore;
-    // A session of that very device running again already holds newer tokens
-    // than the one that retired.
     if (sameDeviceRunningAndNotRestoring)
         return Handback::SkippedSameDeviceRunning;
-    // Signed out, removed, or signed in again as another device since: what
-    // was deleted must stay deleted (CLAUDE.md §6).
     const QVariantMap record = store->accountRecord(entry.userId);
     if (record.isEmpty()
         || record.value(QStringLiteral("deviceId")).toString() != entry.deviceId)
@@ -124,4 +117,4 @@ Handback writeHandback(TokenStore *store, const HandbackEntry &entry,
         : Handback::WriteFailed;
 }
 
-} // namespace lightning::accounts::custody
+}

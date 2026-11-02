@@ -3,9 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Reusable bounded, virtualized member multi-select for the From and Mentions
-// filters. The parent owns draft state, so opening a section never changes an
-// applied query.
 ColumnLayout {
     id: root
 
@@ -103,7 +100,6 @@ ColumnLayout {
                         text: memberRow.modelData.displayName
                               || memberRow.modelData.userId
                         textFormat: Text.PlainText
-                        // Identity ink: the list exists to pick out a person.
                         color: AppTheme.userColor(
                                    memberRow.modelData.userId || "")
                         font.pixelSize: AppTheme.textBody
@@ -111,7 +107,6 @@ ColumnLayout {
                         elide: Label.ElideRight
                     }
                     Label {
-                        // Remote or externally chosen text: never markup.
                         textFormat: Text.PlainText
                         visible: memberRow.modelData.displayName
                                  && memberRow.modelData.displayName.length > 0

@@ -1,10 +1,3 @@
-// CameraPortal against a fake xdg-desktop-portal on a private session bus.
-// With the camera permission already stored, a real portal sends the
-// `AccessCamera` reply and the Request's `Response` back to back, so
-// CameraPortal must subscribe to `Response` before the reply is handled or
-// the grant is lost. The fake reproduces that shape on the same connection.
-// A private `dbus-daemon`, because the fake must own
-// org.freedesktop.portal.Desktop, which a real desktop already does.
 
 #include "calls/CameraPortal.h"
 #include "calls/PortalRequest.h"
@@ -36,11 +29,11 @@ class FakeCameraPortal : public QDBusVirtualObject
 {
 public:
     enum class Answer {
-        InstantGrant,     // Response 0 immediately after the reply (the race)
-        InstantDecline,   // Response 1 immediately after the reply
-        LateGrantOnOtherPath, // an older portal: unpredicted path, answered later
-        AccessError,      // AccessCamera answers the D-Bus error `errorName`
-        OpenError,        // granted, then OpenPipeWireRemote answers `errorName`
+        InstantGrant,
+        InstantDecline,
+        LateGrantOnOtherPath,
+        AccessError,
+        OpenError,
     };
 
     explicit FakeCameraPortal(QDBusConnection bus) : m_bus(bus) {}
@@ -49,7 +42,7 @@ public:
     QString errorName;
     int accessCalls = 0;
     int openCalls = 0;
-    int fixtureErrors = 0; // the fake failed, not the code under test
+    int fixtureErrors = 0;
 
     QString introspect(const QString &) const override { return {}; }
 
@@ -62,15 +55,10 @@ public:
         if (message.member() == QLatin1String("AccessCamera")) {
             ++accessCalls;
             if (answer == Answer::AccessError) {
-                // xdg-desktop-portal 1.16 camera.c: a lockdown is an error on
-                // the call itself, before any Request exists.
                 m_bus.send(message.createErrorReply(
                     errorName, QStringLiteral("Camera access disabled")));
                 return true;
             }
-            // A virtual object receives the raw message, so the a{sv} is a
-            // QDBusArgument here, not a QVariantMap; `toMap()` would lose the
-            // token and the fake would reply with an invalid path.
             const QVariantMap options =
                 qdbus_cast<QVariantMap>(message.arguments().value(0));
             const QString token =
@@ -95,14 +83,12 @@ public:
                 QStringLiteral("Response"));
             response << code << QVariantMap();
             if (otherPath) {
-                // Late enough that subscribe-after-reply would also catch it:
-                // this case pins the fallback, not the race.
                 QDBusConnection bus = m_bus;
                 QTimer::singleShot(200, [bus, response]() mutable {
                     bus.send(response);
                 });
             } else {
-                m_bus.send(response); // back to back with the reply
+                m_bus.send(response);
             }
             return true;
         }
@@ -130,7 +116,7 @@ private:
     QDBusConnection m_bus;
 };
 
-} // namespace
+}
 
 class CameraPortalTest : public QObject
 {
@@ -159,9 +145,6 @@ void CameraPortalTest::initTestCase()
     if (daemon.isEmpty())
         QSKIP("dbus-daemon not found; this suite needs a private bus");
 
-    // The daemon's own session.conf rather than `--session`, which reads
-    // /etc/dbus-1/session.conf; Fedora (dbus-broker) lacks it and the daemon
-    // exits with "Configuration file needs one or more <listen> elements".
     QStringList args{QStringLiteral("--nofork"),
                      QStringLiteral("--print-address=1")};
     const QString packaged = QFileInfo(daemon).absolutePath()
@@ -177,8 +160,6 @@ void CameraPortalTest::initTestCase()
     const QByteArray address = m_daemon.readLine().trimmed();
     QVERIFY(!address.isEmpty());
 
-    // QDBusConnection::sessionBus() reads this on first use, which has not
-    // happened yet.
     qputenv("DBUS_SESSION_BUS_ADDRESS", address);
     QVERIFY(QDBusConnection::sessionBus().isConnected());
 
@@ -204,8 +185,6 @@ void CameraPortalTest::cleanupTestCase()
 
 void CameraPortalTest::thePredictedPathFollowsThePortalSpec()
 {
-    // The shape seen on a live portal: sender :1.189, token lightprobe27560
-    // -> .../request/1_189/lightprobe27560.
     QCOMPARE(portal::predictedRequestPath(QStringLiteral(":1.189"),
                                           QStringLiteral("lightprobe27560")),
              QStringLiteral("/org/freedesktop/portal/desktop/request/1_189/"
@@ -228,8 +207,6 @@ void CameraPortalTest::anInstantGrantIsNotLost()
     portal.requestAccess();
     const int fixtureErrorsBefore = m_fake->fixtureErrors;
 
-    // Generous: the race does not fail slowly, it never answers (only the
-    // 120 s timeout would end it).
     QVERIFY2(ready.wait(5000),
              "the portal granted the camera in the same breath as its reply, "
              "and CameraPortal missed the grant");
@@ -271,11 +248,6 @@ void CameraPortalTest::aPortalThatUsesAnotherPathIsStillFollowed()
     ::close(ready.takeFirst().at(0).toInt());
 }
 
-// 2026-10-07 review: every AccessCamera error was reported as `no_portal`, and
-// the controller then opened /dev/video* instead, routing around a camera the
-// desktop had locked down. The error NAME decides: a refusal is `not_allowed`
-// (never routed around), only absence is `no_portal`. Fails on the old code,
-// which had no such mapping (and sent `no_portal` for NotAllowed).
 void CameraPortalTest::aRefusalIsNeverMistakenForAMissingPortal()
 {
     const auto access = [](const char *name) {
@@ -299,7 +271,6 @@ void CameraPortalTest::aRefusalIsNeverMistakenForAMissingPortal()
         QCOMPARE(access(absent), QStringLiteral("no_portal"));
         QCOMPARE(open(absent), QStringLiteral("no_portal"));
     }
-    // Anything else is a failure, not an absence.
     QCOMPARE(access("org.freedesktop.portal.Error.Failed"),
              QStringLiteral("portal_failed"));
     QCOMPARE(open("org.freedesktop.portal.Error.Failed"),

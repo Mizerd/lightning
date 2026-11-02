@@ -3,20 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Custom theme editor (Settings → Appearance → Custom theme): a full-window
-// workspace with the editable roles, a live preview of the whole app, and the
-// colour picker. The picker is inline rather than a ColorDialog so it never
-// covers the preview.
-//
-// A Popup parented to Overlay.overlay with explicit geometry: AppDialog centres
-// in its parent, which here is a scrolled settings column.
-//
-// The chrome uses AppTheme's invariant editor tokens and draws its own controls
-// (see `editorCanvas` in AppTheme.qml): the shared controls follow the selected
-// theme, and a theme being edited can make them unreadable.
-//
-// No draft: every change commits to CustomThemeStore immediately, so there is
-// no Save button and Reset is the undo.
 Popup {
     id: root
     objectName: "themeEditorDialog"
@@ -37,12 +23,7 @@ Popup {
     // closes only the picker.
     closePolicy: Popup.NoAutoClose
 
-    // Create the theme on open so there is something to edit; a theme with no
-    // overrides simply follows its base. A host that opened the editor for one
-    // job ("Add a gradient" in Settings) names the role to open with.
     property string initialRole: ""
-    // The theme this open created and its untouched shape, so closing without
-    // an edit or "Use this theme" leaves nothing stored behind.
     property string createdId: ""
     property string createdName: ""
     property int createdBase: -1
@@ -66,9 +47,6 @@ Popup {
             root.createdName = root.store.name
             root.createdBase = root.store.baseTheme
         }
-        // A theme with nothing changed starts at Simple; one that has been
-        // worked on starts where its changes are. A level the user has picked
-        // is kept for as long as the editor lives.
         if (!root.levelChosen)
             root.level = root.store.overrideCount > 0 || root.gradientCount > 0
                          ? 2 : 0
@@ -83,7 +61,6 @@ Popup {
 
     readonly property var store: app.customTheme
 
-    // Something Escape should close before the editor itself.
     readonly property bool hasTransientState:
         root.confirmingReset || root.confirmingDelete
         || root.editingRole.length > 0
@@ -102,10 +79,8 @@ Popup {
     }
 
     function dismissTransient() {
-        // The topmost layer first: a popover, then the preset question.
         if (root.reportOpen) {
             root.reportOpen = false
-            // Back on the chip that opened it.
             readabilityBadge.forceActiveFocus()
         } else if (root.shareOpen)
             root.shareOpen = false
@@ -123,9 +98,6 @@ Popup {
             root.setSelecting(false)
     }
 
-    // ---- undo ----
-    // The history lives in the store (one step per drag, reset or base
-    // change); these keep the open picker in step with it.
     function undoEdit() {
         if (root.store.undo())
             root.afterHistoryMove()
@@ -136,9 +108,6 @@ Popup {
     }
     function afterHistoryMove() {
         root.confirmingReset = false
-        // Undo moves colours, not gradients: a role with a gradient stays on
-        // the gradient colour it was editing (the one that is painted), any
-        // other goes back to its own colour.
         if (root.editingRole.length > 0) {
             root.editingStop = root.startingStop(root.editingRole, root.editingStop)
             picker.show(root.pickerColourFor(root.editingRole, root.editingStop))
@@ -147,7 +116,6 @@ Popup {
         }
     }
 
-    // The gradient stops of a role, or null.
     function gradientStopsOf(key) {
         var all = root.storeGradients
         var g = all && root.store.isGradientRole(key) ? all[key] : undefined
@@ -169,55 +137,23 @@ Popup {
                ? stops[stop] : root.effectiveColor(key)
     }
 
-    // Geometry. Side columns are ranges rather than fixed widths, so the
-    // preview stays usable on ordinary windows. Below `compact` the picker
-    // overlays the role column instead of taking a third column; the picker
-    // must never cover the preview, and the role list is not needed while a
-    // role is open. The preview never reflows when a role is selected: in wide
-    // mode the third column is always reserved (holding the readability report
-    // when no role is open), and in compact mode the picker is an overlay. The
-    // breakpoint (1380) is where three columns still give the preview a usable
-    // scale; below it they fold, and the preview visibly grows as the column
-    // folds away.
-    // Below this width the header's actions do not fit beside the theme
-    // name and the level switch (the window is the dialog): they move to a
-    // second line instead of running off the right edge.
     readonly property bool narrowHeader: root.width < 1100
     readonly property int headerHeight: root.narrowHeader ? 112 : 68
     readonly property bool compact: root.width < 1380
     readonly property int workColumnWidth:
         Math.max(268, Math.min(330, Math.round(root.width * 0.235)))
-    // Slightly tighter than the role column: ColorPickerPanel's natural width
-    // is 288 and everything in it stretches.
     readonly property int pickerColumnWidth:
         Math.max(272, Math.min(304, Math.round(root.width * 0.222)))
-    // Where the picker sits while open; in compact mode it covers the role
-    // column.
     readonly property int pickerPanelX:
         root.compact ? 0 : root.width - root.pickerColumnWidth
     readonly property int pickerPanelWidth:
         root.compact ? root.workColumnWidth : root.pickerColumnWidth
-    // The readability report is a popover under the header's readability pill,
-    // at every width; the right-hand panel is the inspector alone (with a
-    // hint while nothing is open, in wide mode, so the preview does not
-    // reflow when a colour is opened).
     property bool reportOpen: false
     readonly property bool pickerPanelVisible:
         !root.compact || root.editingRole.length > 0
-    // True while the panel covers the role column; everything underneath must
-    // stop taking input.
     readonly property bool pickerPanelCovers:
         root.compact && root.pickerPanelVisible
 
-    // Readability findings for the palette as the app would paint it:
-    // previewPalette is the same resolved object the preview renders, so
-    // inherited colours are checked too. See CustomThemeStore for what is
-    // checked. Throttled: graded on every drag sample, the palette crossed into
-    // C++ several times per sample and the report rebuilt its delegates,
-    // costing about a second of CPU per drag. A trailing 120 ms throttle
-    // (auditTimer starts only when not running) updates during the drag and
-    // always lands the final sample; a debounce would freeze the numbers for
-    // the whole gesture.
     property var auditPalette: root.previewPalette
     onPreviewPaletteChanged: if (!auditTimer.running) auditTimer.start()
     Timer {
@@ -226,21 +162,13 @@ Popup {
         onTriggered: root.auditPalette = root.previewPalette
     }
 
-    // Graded at the WORST stop of every gradient the preview paints (the
-    // theme's own and Depth's); with none it is exactly audit().
     readonly property var readabilityReport:
         root.store.auditWithGradients(root.auditPalette, root.previewGradients)
     readonly property int readabilityProblems: root.readabilityReport.length
 
-    // What could not be checked is not what passed. The store refuses to grade
-    // a translucent colour (its contrast is unknowable), so report those
-    // separately rather than letting the badge say "Readable".
     readonly property var readabilitySkipped:
         root.store.auditSkipped(root.auditPalette, "")
     readonly property int readabilityUnchecked: root.readabilitySkipped.length
-    // "Your colour is see-through" (the user's choice) and "this build has no
-    // such colour" (our bug) are counted and reported separately; a palette can
-    // hold both.
     readonly property int readabilityMissing: {
         var rows = root.readabilitySkipped
         var n = 0
@@ -257,30 +185,17 @@ Popup {
     // destroyed while the picker is open.
     property string editingRole: ""
     property string editingLabel: ""
-    // The gradient colour (stop index) the picker is changing instead of the
-    // role's own colour, or -1. Chosen in GradientEditor.
     property int editingStop: -1
     readonly property bool editingTakesGradient:
         root.editingRole.length > 0 && root.store.isGradientRole(root.editingRole)
-    // The stored gradients, read once per change (a QVariantMap by value).
     readonly property var storeGradients: root.store.gradients
     readonly property int gradientCount:
         root.storeGradients ? Object.keys(root.storeGradients).length : 0
-    // The role under the pointer (or the keyboard) in the list, outlined in the
-    // preview so it can be traced to where it paints.
     property string hoverRole: ""
 
-    // ---- user colour groups (master prompt Part 6, 4) ----
-    //
-    // "Select elements" turns a click on a row (or on the preview) into a
-    // selection toggle instead of opening the picker; two or more selected
-    // roles can then be linked under a name. The relationship lives in the
-    // store (CustomThemeStore::createColorGroup and friends), which keeps the
-    // members' colours equal and makes every edit one undo step.
     property bool selectingRoles: false
     property var selectedRoles: []
     property string groupError: ""
-    // Selected roles already in another group move only when this is on.
     property bool moveIntoGroup: false
     readonly property var colorGroups: root.store.colorGroups
     function groupFor(key) {
@@ -308,9 +223,6 @@ Popup {
         root.groupError = ""
         root.moveIntoGroup = false
     }
-    // What the selection would change: the members, plus every role that
-    // inherits from one of them (shown, so "only these change" is never
-    // claimed when a parent role fans out).
     readonly property var selectionImpact:
         root.selectedRoles.length > 0
         ? root.store.colorGroupImpact(root.selectedRoles)
@@ -325,8 +237,6 @@ Popup {
     }
     readonly property var selectionWithGradient:
         root.selectedRoles.filter((k) => root.hasOwnGradient(k))
-    // The group starts with the colour the FIRST selected element shows now:
-    // a definite, visible choice rather than whichever role came last.
     readonly property string selectionStartColour:
         root.selectedRoles.length > 0
         ? root.toHex(Qt.color(String(root.effectiveColor(root.selectedRoles[0]))))
@@ -347,16 +257,12 @@ Popup {
                            count), function () { root.undoEdit() })
         return true
     }
-    // A theme or account change drops a half-made selection: its roles may
-    // mean nothing in the theme now shown.
     readonly property string activeIdForSelection: root.store.activeThemeId
     onActiveIdForSelectionChanged: root.setSelecting(false)
     readonly property var editingColorGroup:
         root.editingRole.length > 0 ? root.groupFor(root.editingRole) : null
     property bool confirmingReset: false
     property bool confirmingDelete: false
-    // The theme menu under the top bar (the list of themes, New, Duplicate,
-    // Share, Import, Delete), and the Share / Import popover.
     property bool menuOpen: false
     onMenuOpenChanged: {
         if (menuOpen) {
@@ -388,10 +294,7 @@ Popup {
             editingStop = -1
         }
     }
-    // A preset asked for while the theme has edits of its own: -1 or its id,
-    // waiting on the Keep / Replace / Cancel question.
     property int pendingBase: -1
-    // Another theme is a different question.
     readonly property string activeId: root.store.activeThemeId
     onActiveIdChanged: root.pendingBase = -1
     function presetName(id) {
@@ -402,8 +305,6 @@ Popup {
         }
         return ""
     }
-    // Every way of choosing a preset comes through here. With nothing of the
-    // user's own to lose it applies at once; otherwise it asks.
     function requestBase(id) {
         if (id === root.store.baseTheme)
             return
@@ -412,8 +313,6 @@ Popup {
         else
             root.store.baseTheme = id
     }
-    // Keep: the preset becomes the base and the edits stay on top of it.
-    // Replace: the edits go too, as one undoable step.
     function resolvePendingBase(replace) {
         var id = root.pendingBase
         root.pendingBase = -1
@@ -438,27 +337,15 @@ Popup {
                       root.undoEdit)
     }
 
-    // The base-theme grid, collapsed by default (see below).
     property bool basesExpanded: false
-    // Filter for the role list.
     property string roleFilter: ""
-    // How much structure the editor shows: 0 Simple (presets and four base
-    // colours), 1 Groups (the colours that others follow), 2 Elements (every
-    // part of the window). It changes what the left column lists and which
-    // action the inspector leads with; a click on the sample window always
-    // opens the element it landed on, at every level.
     property int level: 0
     property bool levelChosen: false
     function setLevel(n) {
         root.levelChosen = true
         root.level = Math.max(0, Math.min(2, n))
     }
-    // The inspector's list of what follows the open colour is folded away
-    // until asked for.
     property bool showDependents: false
-    // Share / Import. `shareMode` is "share" or "import"; `importText` is the
-    // field's text (a dropped file lands in it too); `copyNote` says the code
-    // was copied.
     property string shareMode: "share"
     property string importText: ""
     property string copyNote: ""
@@ -469,12 +356,6 @@ Popup {
         root.shareOpen = true
     }
 
-    // The store's own validation, plus what the editor can say about the
-    // incoming theme: a small swatch and a readability count. The palette is an
-    // ESTIMATE: the incoming base preset with the colours it sets laid on top,
-    // and each unset element that follows a colour the theme sets taking that
-    // colour. The live resolver (AppTheme.paletteForTheme) can only resolve the
-    // theme the editor is editing, so this stands in for it.
     function resolveImported(baseId, colours) {
         var pal = AppTheme.paletteForTheme(baseId)
         var raw = AppTheme.rawPaletteForTheme(baseId)
@@ -531,7 +412,6 @@ Popup {
         && root.importText.trim().length > 0
         ? root.describeImport(root.importText) : null
 
-    // "Copy code": the active theme, to the clipboard.
     function copyThemeCode() {
         var payload = root.store.exportTheme(root.store.activeThemeId)
         if (payload.length === 0)
@@ -543,11 +423,6 @@ Popup {
         root.copyNote = qsTr("Copied. Paste it to share it.")
     }
 
-    // After an import landed: close the popover and report what the theme
-    // holds, since nobody has checked it. Deferred a frame because the store
-    // has only just emitted its change. The audit is forced first: the
-    // throttle assigns auditPalette imperatively, which destroyed its binding,
-    // so otherwise the count would describe the previous theme.
     function importLanded(replaced) {
         root.importText = ""
         root.shareOpen = false
@@ -581,13 +456,10 @@ Popup {
                 ? qsTr("Theme imported. %n thing(s) in it will be hard to read.",
                        "custom theme readability", root.readabilityProblems)
                 : qsTr("Theme imported.")
-            // A replaced theme can be put back; a new one is just another theme.
             root.announce(text, importNoticeTimer.replaced ? root.undoEdit : null)
         }
     }
 
-    // A theme file or code dropped on the editor: it goes to the Import tab
-    // with its preview, never straight into the collection.
     function receiveThemeText(text) {
         if (text.length === 0) {
             root.announce(qsTr("That is not a theme file Lightning can read."), null)
@@ -606,7 +478,6 @@ Popup {
         root.receiveThemeText(text)
     }
 
-    // Clipboard shuttle for Share, as used elsewhere in the app.
     TextEdit {
         id: themeClipboard
         visible: false
@@ -614,15 +485,8 @@ Popup {
         height: 0
     }
 
-    // The palette the preview paints, resolved by id so it shows the custom
-    // theme whether or not it is active. Uses the same resolver as the running
-    // app (Main.qml keeps AppTheme.customOverrides/customBase bound to the
-    // store).
     readonly property var previewPalette: AppTheme.paletteForTheme(12)
 
-    // The surface gradients the preview paints: the theme's own, and, while
-    // Settings -> Appearance -> Depth is on, Depth's for the grounds the theme
-    // leaves flat (the same C++ stops the app draws).
     readonly property var previewGradients: {
         var out = {}
         var own = root.store.gradients
@@ -630,8 +494,6 @@ Popup {
             for (var k in own)
                 out[k] = own[k]
         }
-        // An element of a gradient group shows the group's gradient until it
-        // has a colour of its own (the rule the live shell paints by).
         var overrides = root.overrideColors
         for (var el in AppTheme.gradientGroups) {
             if (out[el])
@@ -658,10 +520,6 @@ Popup {
         return out
     }
 
-    // The two hot inputs, read once per change instead of per row: store.colors
-    // returns a QVariantMap by value (a fresh conversion per read), and
-    // paletteForTheme() builds a fresh object per call. The role list
-    // instantiates every role row and repaints on every drag sample.
     readonly property var overrideColors: root.store.colors
     readonly property var basePalette:
         AppTheme.paletteForTheme(root.store.baseTheme)
@@ -670,14 +528,8 @@ Popup {
         var overrides = root.overrideColors
         if (overrides && overrides[rolekey] !== undefined)
             return overrides[rolekey]
-        // paletteForTheme uses semantic names; a few store keys differ (inputBg
-        // -> inputBackground, mention -> mentionBadge, reaction ->
-        // reactionBackground).
         var alias = root.storeKeyAliases[rolekey]
         var lookup = alias !== undefined ? alias : rolekey
-        // The resolved custom palette first: an unset role that follows an
-        // edited one (Open room row after Selection) paints the EDITED colour,
-        // and reading the base alone showed the stale inherited one.
         var resolved = root.previewPalette
         if (resolved && resolved[lookup] !== undefined)
             return resolved[lookup]
@@ -687,17 +539,9 @@ Popup {
         return AppTheme.editorTextMuted
     }
 
-    // ---- links between roles ----
-    // The base preset as stored, before paletteForTheme() fills fallbacks: a
-    // role it does not set is one that follows its parent.
     readonly property var rawBasePalette:
         AppTheme.rawPaletteForTheme(root.store.baseTheme)
 
-    // role -> parent, for every role that is unset AND takes its parent's
-    // colour right now, so editing the parent recolours it. The declared
-    // shape comes from the store (`follows`); a preset that sets the child
-    // itself, or a user who did, breaks the link, and the colour check keeps
-    // the claim honest for anything the declaration cannot see.
     readonly property var liveLinks: {
         var out = {}
         var list = root.store.roles
@@ -720,8 +564,6 @@ Popup {
         return out
     }
 
-    // Every role that would change with `key`, directly or through a chain
-    // (Selection -> Soft accent -> Your reaction pill), in list order.
     function dependentsOf(key) {
         var out = []
         if (!key || key.length === 0)
@@ -741,8 +583,6 @@ Popup {
         return out
     }
 
-    // The role the preview is tracing: the one pointed at in the list, else
-    // the one open in the picker.
     readonly property string focusRole:
         root.hoverRole.length > 0 ? root.hoverRole : root.editingRole
     readonly property var focusDependents: root.dependentsOf(root.focusRole)
@@ -754,8 +594,6 @@ Popup {
         return out
     }
     readonly property var editingDependents: root.dependentsOf(root.editingRole)
-    // The open role's declared parent when the base leaves it unset, so a
-    // reset makes it follow that parent again ("" otherwise).
     readonly property string editingFollowsDeclared: {
         var key = root.editingRole
         if (key.length === 0)
@@ -770,9 +608,6 @@ Popup {
         }
         return ""
     }
-    // The group the open role belongs to (its declared `follows`), whether or
-    // not it currently takes the group's colour: "Apply to all <group>" is
-    // offered on it either way.
     readonly property string editingGroup: {
         var key = root.editingRole
         if (key.length === 0)
@@ -784,18 +619,12 @@ Popup {
         }
         return ""
     }
-    // True while the open role has a colour or a gradient of its own, so
-    // "Reset to group" has something to drop.
     readonly property bool editingHasOwn:
         root.editingRole.length > 0
         && (root.isOverridden(root.editingRole)
             || (root.storeGradients
                 && root.storeGradients[root.editingRole] !== undefined))
 
-    // A message over the preview after an edit that does not look
-    // reversible. `undoAction` (a function) adds an Undo, named after the
-    // history step it takes (the step just recorded); without one the message
-    // stands alone.
     property var toastUndoAction: null
     function announce(text, undoAction) {
         root.toastUndoAction = undoAction ? undoAction : null
@@ -804,7 +633,6 @@ Popup {
         toast.show(text, undoAction ? qsTr("Undo") : "")
     }
 
-    // The Undo / Redo tooltips: what the next step would take back or return.
     readonly property string undoTip:
         root.store.canUndo
         ? qsTr("Undo: %1").arg(root.store.undoLabel)
@@ -818,14 +646,11 @@ Popup {
         return root.storeGradients && root.storeGradients[key] !== undefined
     }
 
-    // "Reset to group": the open element drops its own colour and gradient
-    // and shows its group's again.
     function resetToGroup() {
         var key = root.editingRole
         if (key.length === 0)
             return
         var group = root.editingGroup
-        // A colour and a gradient, one step.
         root.store.beginUndoGroup(qsTr("Reset %1 to its group")
                                   .arg(root.labelForRole(key)))
         root.store.resetGradient(key)
@@ -839,8 +664,6 @@ Popup {
                           .arg(root.labelForRole(group)),
                           root.undoEdit)
     }
-    // "Apply to all <group>": the group takes this element's colour (and
-    // gradient) and every element of the group follows it again.
     function applyToGroup() {
         var key = root.editingRole
         if (key.length === 0 || root.editingGroup.length === 0)
@@ -858,8 +681,6 @@ Popup {
         }
     }
 
-    // The open role is a group and some of its elements keep a colour of their
-    // own: how many.
     readonly property int editingKeepOwn: {
         var key = root.editingRole
         if (key.length === 0)
@@ -875,8 +696,6 @@ Popup {
         return n
     }
 
-    // "Include them": the open group's colour goes to every element of it,
-    // dropping what they had of their own.
     function includeOwnMembers() {
         var key = root.editingRole
         if (key.length === 0)
@@ -895,8 +714,6 @@ Popup {
         root.store.beginUndoGroup(qsTr("Include the elements of %1")
                                   .arg(root.labelForRole(key)))
         if (probe.length > 0) {
-            // One step: the store applies the group's colour and frees every
-            // member in a single write.
             root.store.applyToGroup(probe, hex)
         } else {
             for (var j = 0; j < members.length; ++j) {
@@ -910,16 +727,12 @@ Popup {
                       root.undoEdit)
     }
 
-    // "Edit <group>": the colour the open element is linked to.
     function editParent() {
         var parentKey = root.editingParent
         if (parentKey.length > 0)
             root.beginEdit(parentKey, root.labelForRole(parentKey))
     }
 
-    // Unlinking keeps what is on screen: the colour the element has now
-    // (and the gradient it was showing from its group) becomes its own, so
-    // nothing changes until it is edited.
     readonly property bool editingCanUnlink:
         root.editingRole.length > 0 && root.editingParent.length > 0
         && Qt.color(String(root.effectiveColor(root.editingRole))).a > 0.999
@@ -929,7 +742,6 @@ Popup {
         if (key.length === 0 || parentKey.length === 0
                 || !root.editingCanUnlink)
             return
-        // The colour and the inherited gradient it copies are one step.
         root.store.beginUndoGroup(qsTr("Unlink %1").arg(root.labelForRole(key)))
         if (root.store.isGradientRole(key) && !root.hasOwnGradient(key)) {
             var inherited = AppTheme.inheritedGradient(
@@ -946,9 +758,6 @@ Popup {
                       root.undoEdit)
     }
 
-    // The colours a palette key is DRAWN in: every stop of the gradient the
-    // preview paints for it (graded the way auditWithGradients does), else
-    // its flat colour.
     function drawnColoursOf(paletteKey) {
         var g = root.previewGradients
         if (g) {
@@ -965,12 +774,6 @@ Popup {
         return [String(root.auditPalette[paletteKey])]
     }
 
-    // Every (other colour, bar) pair `key` is held to: its own checks AND
-    // those of the roles that follow it, so a colour that fixes one state is
-    // not allowed to break its siblings (a button label fixed on the accent
-    // took the hover and pressed labels with it), and graded at every stop of
-    // a gradient behind it, so a fix for text on a gradient backdrop is not
-    // judged against the flat colour the gradient paints over.
     function readableConstraints(key) {
         var scope = [key].concat(root.dependentsOf(key))
         var mine = {}
@@ -991,9 +794,6 @@ Popup {
         }
         return out
     }
-    // How many bars `hex` is under, by the contrast itself. Asking
-    // readableColor() instead counts a bar NO lightness can reach as met (it
-    // answers "" there), which let a fix trade one failure for two.
     function constraintFailures(hex, constraints) {
         var n = 0
         for (var i = 0; i < constraints.length; ++i) {
@@ -1004,8 +804,6 @@ Popup {
         return n
     }
 
-    // True when `next` leaves fewer bars failing than `current` AND puts no
-    // bar under that `current` met: a fix may not buy one row with two.
     function betterWithoutNewFailures(current, next, constraints) {
         var fewer = root.constraintFailures(next, constraints)
                     < root.constraintFailures(current, constraints)
@@ -1018,14 +816,9 @@ Popup {
         return fewer
     }
 
-    // "Make readable": moves the open colour, and nothing else, to the nearest
-    // lightness that clears every bar it fails against its neighbours. A
-    // nudge, not a guarantee: the readability list still says what is left.
     function makeReadable(roleArg) {
         var key = roleArg !== undefined && roleArg !== "" ? roleArg
                                                           : root.editingRole
-        // The open role is edited in the picker, which may be on a gradient
-        // colour; any other role is just a flat colour.
         var open = key === root.editingRole
         if (key.length === 0 || (open && root.editingStop >= 0))
             return
@@ -1053,8 +846,6 @@ Popup {
             if (!moved)
                 break
         }
-        // Accept only a colour that leaves fewer bars failing, siblings and
-        // every gradient stop counted.
         if (next === current
                 || !root.betterWithoutNewFailures(current, next, constraints)) {
             root.announce(qsTr("No lightness of %1 clears the bar without breaking another. Try changing the colour beside it.")
@@ -1072,15 +863,11 @@ Popup {
                       .arg(root.labelForRole(key)), root.undoEdit)
     }
 
-    // What the open role is currently following, or "".
     readonly property string editingParent: {
         var p = root.liveLinks[root.editingRole]
         return p !== undefined ? p : ""
     }
 
-    // The store's own alias map, read once.
-    // everyCheckGradesTheColourItsRoleWouldEdit keeps the two spellings in
-    // agreement.
     readonly property var storeKeyAliases: root.store.roleAliases()
 
     function isOverridden(rolekey) {
@@ -1088,28 +875,22 @@ Popup {
         return overrides !== undefined && overrides[rolekey] !== undefined
     }
 
-    // One entry point for pointer and keyboard.
     function openReport() {
         root.reportOpen = true
     }
 
     function beginEdit(key, label) {
-        // A new role is a new undo step, even if the last drag never ended.
         root.store.sealUndoStep()
-        // The "under the pointer" chips stay while hopping between them.
         if (root.spotRoles.indexOf(key) < 0)
             root.spotRoles = []
         root.ownColoursAtOpen = root.overrideColors
         root.editingStop = root.startingStop(key, -1)
         root.editingRole = key
         root.editingLabel = label
-        // The panel holds one thing at a time; opening a colour takes it.
         root.reportOpen = false
         picker.load(root.pickerColourFor(key, root.editingStop))
     }
 
-    // A click in the preview: open the role, and keep every role painted
-    // under the pointer so the surface behind a label can be reached too.
     function openFromPreview(role, stack) {
         if (root.selectingRoles) {
             root.toggleSelected(role)
@@ -1119,14 +900,9 @@ Popup {
         root.beginEdit(role, root.labelForRole(role))
     }
 
-    // Roles under the last preview click, the clicked one first.
     property var spotRoles: []
-    // This theme's own colours when the open role was opened (see
-    // paletteSwatches).
     property var ownColoursAtOpen: ({})
 
-    // role -> label, built once: the sample window asks for every region's
-    // name, and a list search per ask meant copying the roles a hundred times.
     readonly property var roleLabelMap: {
         var out = {}
         var list = root.store.roles
@@ -1138,8 +914,6 @@ Popup {
         var v = root.roleLabelMap[key]
         return v !== undefined ? v : key
     }
-    // One line a screen reader adds to an element: whether its colour is its
-    // own or follows another.
     function describeRoleState(role) {
         if (root.isOverridden(role))
             return qsTr("Own colour")
@@ -1156,7 +930,6 @@ Popup {
         return ""
     }
 
-    // CustomThemeStore stores #RRGGBB; a QML color's toString() is #AARRGGBB.
     function toHex(c) {
         function two(v) {
             var s = Math.round(v * 255).toString(16).toUpperCase()
@@ -1176,8 +949,6 @@ Popup {
 
     readonly property string gradientWord: qsTr("gradient").toLowerCase()
 
-    // The four colours Simple edits; everything else follows them through the
-    // groups.
     readonly property var simpleSwatches: {
         var keys = ["background", "surface", "textPrimary", "accent"]
         var out = []
@@ -1186,8 +957,6 @@ Popup {
                        color: root.effectiveColor(keys[i]) })
         return out
     }
-    // The surfaces that can be a gradient, offered at Simple so gradients are
-    // found without reading the list.
     readonly property var simpleGradientRoles: {
         var keys = ["background", "sidebar", "rail", "surface"]
         var out = []
@@ -1201,8 +970,6 @@ Popup {
     readonly property string changedWord: qsTr("changed").toLowerCase()
     readonly property string hardWord: qsTr("unreadable").toLowerCase()
 
-    // { role: true } for the roles the audit flags, to dot them in the preview
-    // and to find them by searching "unreadable".
     readonly property var problemRoleSet: {
         var out = {}
         var rows = root.readabilityReport
@@ -1211,22 +978,10 @@ Popup {
         return out
     }
 
-    // Groups narrowed by the filter; empty groups are dropped.
-    //
-    // Within a section every element role sits under the group it inherits
-    // from (its `follows`), indented by `depth`, so "Panels and cards" lists
-    // the room header, the side panel and the menus beneath it. A section is
-    // the one its top-level group names; an element whose group lives in
-    // another section is listed there, under that group. A filter hit on an
-    // element keeps its group above it for context; a hit on a group keeps
-    // its elements (typing "panels" shows everything that follows it).
     readonly property var roleGroups: {
         var out = []
         var seen = {}
         var needle = root.roleFilter.trim().toLowerCase()
-        // "#283097" (or "283097") finds every role painted that colour: the
-        // reverse lookup. Only a hex-looking needle reads the colours, so
-        // typing a word does not rebuild the list on every drag sample.
         var hexNeedle = /^#?[0-9a-f]{3,6}$/.test(needle)
                         ? (needle.charAt(0) === "#" ? needle : "#" + needle)
                         : ""
@@ -1244,9 +999,6 @@ Popup {
             }
         }
         var shown = {}
-        // Groups lists the colours others follow and Elements lists every
-        // part; a search always looks at everything.
-        // Selecting elements for a colour group lists them all too.
         var depthCap = root.level === 2 || needle.length > 0
                        || root.selectingRoles ? 6 : 0
         var changedHit = needle.length >= 3
@@ -1262,13 +1014,10 @@ Popup {
                     || list[i].key.toLowerCase().indexOf(needle) >= 0)
             var wordHit = textHit && hexNeedle.length === 0
             var hit = needle.length === 0 || textHit
-            // "grad…" lists the surfaces that can be a gradient.
             if (!hit && needle.length >= 3
                     && root.gradientWord.indexOf(needle) === 0
                     && root.store.isGradientRole(list[i].key))
                 hit = true
-            // "changed" lists what this theme sets itself, "unreadable" what
-            // the audit flags.
             if (!hit && changedHit
                     && (root.isOverridden(list[i].key)
                         || (root.storeGradients
@@ -1284,8 +1033,6 @@ Popup {
             if (!hit)
                 continue
             shown[list[i].key] = true
-            // A word hit on a group's own name brings its elements; a colour
-            // hit, or the "grad…" shortcut, is about this role alone.
             if (wordHit) {
                 var stack = (children[list[i].key] || []).slice()
                 for (var guard = 0; stack.length > 0 && guard < 400; ++guard) {
@@ -1297,7 +1044,6 @@ Popup {
                 }
             }
         }
-        // Context: every shown element keeps the chain of groups above it.
         for (var key in shown) {
             var p = byKey[key] ? byKey[key].follows : ""
             for (var hops = 0; p && p.length > 0 && hops < 8; ++hops) {
@@ -1321,7 +1067,6 @@ Popup {
         for (i = 0; i < list.length; ++i) {
             var k = list[i].key
             var parent = list[i].follows
-            // Elements are emitted under their group.
             if (!shown[k] || (parent && parent.length > 0 && byKey[parent]))
                 continue
             var g = list[i].group
@@ -1334,7 +1079,6 @@ Popup {
         return out
     }
 
-    // Self-contained controls, painted in the invariant editor tokens.
     component EditorButton: AbstractButton {
         id: btn
         property bool primary: false
@@ -1363,13 +1107,10 @@ Popup {
                 radius: AppTheme.radiusSm
                 color: "transparent"
                 border.width: 2
-                // A filled primary button IS the accent: a ring in the accent
-                // colour on it is invisible, so it takes the ink colour.
                 border.color: btn.primary ? AppTheme.editorAccentInk
                                           : AppTheme.editorAccent
             }
         }
-        // Return and Enter press a focused button like Space does.
         Keys.onReturnPressed: (e) => { btn.click(); e.accepted = true }
         Keys.onEnterPressed: (e) => { btn.click(); e.accepted = true }
         contentItem: Label {
@@ -1388,8 +1129,6 @@ Popup {
         }
     }
 
-    // A role as a small clickable chip (its colour and name) that opens it:
-    // the "under the pointer" list and the follows/followed-by links.
     component RoleChip: Rectangle {
         id: chip
         required property string roleKey
@@ -1413,8 +1152,6 @@ Popup {
                 e.accepted = true
             }
         }
-        // Pointing at a chip traces the role in the preview, as a list row
-        // does.
         readonly property bool pointed: chipHover.containsMouse || activeFocus
         onPointedChanged: {
             if (pointed)
@@ -1471,9 +1208,6 @@ Popup {
         color: AppTheme.editorCanvas
     }
 
-    // A plain Item: the picker/report panel is positioned, not laid out (it
-    // moves column in compact mode), and a child of a ColumnLayout would become
-    // a layout item.
     contentItem: Item {
 
     // Inside the popup, so the modal editor's own shortcuts are the live
@@ -1485,11 +1219,6 @@ Popup {
         onActivated: root.undoEdit()
     }
     Shortcut {
-        // Ctrl+Y as well: StandardKey.Redo is Ctrl+Shift+Z alone on some
-        // platform themes, and Ctrl+Y is what most Linux users press.
-        // Where StandardKey.Redo already includes Ctrl+Y (Windows) the two
-        // entries are the same sequence and Qt may report the press as
-        // ambiguous instead of activated; both mean "redo", once.
         sequences: [StandardKey.Redo, "Ctrl+Y"]
         enabled: root.opened && root.store.canRedo
         onActivated: root.redoEdit()
@@ -1500,7 +1229,6 @@ Popup {
         enabled: root.opened
         onActivated: root.peelEscape()
     }
-    // Detail level, and the search field.
     Shortcut {
         sequence: "Ctrl+1"
         enabled: root.opened
@@ -1520,7 +1248,6 @@ Popup {
         sequences: [StandardKey.Find]
         enabled: root.opened
         onActivated: {
-            // Narrow: the open colour's panel hides the field; put it away.
             if (root.pickerPanelCovers)
                 root.editingRole = ""
             filterField.forceActiveFocus()
@@ -1532,7 +1259,6 @@ Popup {
         anchors.fill: parent
         spacing: 0
 
-        // Header
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: root.headerHeight
@@ -1548,8 +1274,6 @@ Popup {
                 rowSpacing: AppTheme.spacing4
                 columns: root.narrowHeader ? 3 : 4
 
-                // The theme being edited, as the button that opens the theme
-                // menu: switch, rename, new, duplicate, share, import, delete.
                 Rectangle {
                     id: themeMenuButton
                     objectName: "themeMenuButton"
@@ -1620,8 +1344,6 @@ Popup {
                     }
                 }
 
-                // Elides: an unelided Label's implicit width would push the
-                // button cluster, including Done, off a narrow window.
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
@@ -1645,8 +1367,6 @@ Popup {
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             Layout.minimumWidth: 0
-                            // Said first when it matters: the app keeps its
-                            // current theme until "Use this theme".
                             readonly property bool previewOnly:
                                 app.settings.theme !== 12
                                 && (root.store.overrideCount > 0
@@ -1664,18 +1384,12 @@ Popup {
                             font.pixelSize: AppTheme.textMeta
                             elide: Label.ElideRight
                             Accessible.name: text
-                            // Elided exactly where the warning matters: the
-                            // whole sentence on hover.
                             HoverHandler { id: subtitleHover }
                             ToolTip.visible: subtitleHover.hovered && truncated
                             ToolTip.delay: 400
                             ToolTip.text: text
                         }
 
-                        // The verdict, always on screen. The full report shares
-                        // a panel with the picker, so this badge is the one
-                        // place the answer is always visible; clicking it opens
-                        // the report.
                         Rectangle {
                             id: readabilityBadge
                             objectName: "themeReadabilityBadge"
@@ -1683,10 +1397,6 @@ Popup {
                                            + AppTheme.spacing8 * 2
                             implicitHeight: 22
                             radius: AppTheme.radiusPill
-                            // The one way into the report, so it is always
-                            // there. The "could not check" clause waits for an
-                            // edit: a stock base always has an ungradable
-                            // pair, and it would qualify every pristine theme.
                             visible: true
                             color: verdictHover.containsMouse
                                    ? AppTheme.editorSelection
@@ -1695,7 +1405,6 @@ Popup {
                             border.color: root.readabilityProblems > 0
                                           ? AppTheme.editorDanger
                                           : AppTheme.editorBorderStrong
-                            // Keyboard reachable.
                             activeFocusOnTab: true
                             Accessible.role: Accessible.Button
                             Accessible.name: verdictLabel.text
@@ -1720,8 +1429,6 @@ Popup {
                             Label {
                                 id: verdictLabel
                                 anchors.centerIn: parent
-                                // A pass that leaves something unchecked says
-                                // so (see readabilitySkipped).
                                 text: root.readabilityProblems > 0
                                       ? qsTr("%n thing(s) hard to read",
                                              "custom theme readability",
@@ -1757,18 +1464,10 @@ Popup {
                     onLevelRequested: (n) => root.setLevel(n)
                 }
 
-                // A Row rather than RowLayout children: a layout hands slack to
-                // its items and spread the buttons apart.
-                // At a narrow window the cluster (Undo ... Done) is wider than
-                // the header, and a clipped Done / Use this theme is
-                // unreachable. It scrolls sideways instead of overflowing; at
-                // a normal width it fits and the Flickable is inert.
                 Flickable {
                     id: headerActions
                     objectName: "themeHeaderActions"
                     Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
-                    // On its own line when the window is narrow (C85), and
-                    // scrolling sideways if even that is too narrow (C77).
                     Layout.columnSpan: root.narrowHeader ? 3 : 1
                     Layout.minimumWidth: Math.min(headerActionRow.implicitWidth, 200)
                     Layout.preferredWidth: headerActionRow.implicitWidth
@@ -1779,7 +1478,6 @@ Popup {
                     boundsBehavior: Flickable.StopAtBounds
                     clip: true
 
-                    // A Tab to a clipped button scrolls it into view.
                     Connections {
                         target: headerActions.Window.window
                         function onActiveFocusItemChanged() {
@@ -1807,9 +1505,6 @@ Popup {
                         id: headerActionRow
                         spacing: AppTheme.spacing8
 
-                        // Undo/redo of colour edits (also Ctrl+Z and
-                        // Ctrl+Shift+Z). Hidden while the reset question is up,
-                        // which they would answer behind its back.
                         EditorButton {
                             objectName: "themeUndoButton"
                             visible: !root.confirmingReset
@@ -1840,9 +1535,6 @@ Popup {
                             color: AppTheme.editorBorder
                         }
 
-                        // Reset with an inline confirmation; a second dialog would
-                        // use the shared dialog shell, which this surface cannot
-                        // depend on.
                         Label {
                             anchors.verticalCenter: parent.verticalCenter
                             visible: root.confirmingReset
@@ -1877,8 +1569,6 @@ Popup {
                             onClicked: root.confirmingReset = true
                         }
 
-                        // Applying is separate from authoring: the preview shows
-                        // the custom palette whether or not the app uses it.
                         EditorButton {
                             objectName: "themeApplyButton"
                             visible: app.settings.theme !== 12
@@ -1909,7 +1599,6 @@ Popup {
             Layout.fillHeight: true
             spacing: 0
 
-            // Roles
             Rectangle {
                 id: workColumn
                 Layout.preferredWidth: root.workColumnWidth
@@ -1918,13 +1607,8 @@ Popup {
                 Layout.fillHeight: true
                 color: AppTheme.editorPanel
 
-                // Nothing under the overlay may take input: in compact mode the
-                // picker panel covers this column and a plain Rectangle accepts
-                // no buttons, so clicks fell through to hidden rows. `enabled:
-                // false` also removes them from the tab chain.
                 enabled: !root.pickerPanelCovers
 
-                // A seam on this side too, matching the picker column's border.
                 Rectangle {
                     anchors.right: parent.right
                     height: parent.height
@@ -1937,11 +1621,6 @@ Popup {
                     anchors.margins: AppTheme.spacing16
                     spacing: AppTheme.spacing8
 
-                    // Collapsed by default: the full grid takes about 235px
-                    // permanently for a control used once per theme, starving
-                    // the role list. One row: the label and the current base,
-                    // which is itself the toggle (two rows cost a role's worth
-                    // of height on a small window).
                     RowLayout {
                         Layout.fillWidth: true
                         visible: root.level > 0
@@ -2032,7 +1711,6 @@ Popup {
                         }
                     }
 
-                    // Base-theme chips painted in their own palettes.
                     Flow {
                         Layout.fillWidth: true
                         visible: root.basesExpanded && root.level > 0
@@ -2091,7 +1769,6 @@ Popup {
                                     }
                                 }
 
-                                // Keyboard reachable.
                                 activeFocusOnTab: true
                                 Accessible.role: Accessible.RadioButton
                                 Accessible.name: baseChip.modelData.name
@@ -2104,9 +1781,6 @@ Popup {
                                         e.accepted = true
                                     }
                                 }
-                                // Inset, not outset: an outset ring breaks
-                                // neighbours' spacing. Same inset as
-                                // EditorButton.
                                 Rectangle {
                                     anchors.fill: parent
                                     anchors.margins: 2
@@ -2135,8 +1809,6 @@ Popup {
                         color: AppTheme.editorBorder
                     }
 
-                    // Filter field: with 26 roles, typing beats scrolling,
-                    // especially on small windows.
                     Rectangle {
                         Layout.fillWidth: true
                         implicitHeight: 30
@@ -2199,8 +1871,6 @@ Popup {
                         font.pixelSize: AppTheme.textMeta
                     }
 
-                    // Colour groups: link two or more elements so one colour
-                    // edit changes them together.
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing6
@@ -2413,9 +2083,6 @@ Popup {
                         contentHeight: roleColumn.implicitHeight
                         boundsBehavior: Flickable.StopAtBounds
 
-                        // The custom handle has no fade of its own, so
-                        // AsNeeded drew a full-height bar over a filtered
-                        // list that fits; show it only when it scrolls.
                         ScrollBar.vertical: ScrollBar {
                             policy: roleScroll.contentHeight > roleScroll.height + 1
                                     ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
@@ -2431,9 +2098,6 @@ Popup {
                             width: roleScroll.width
                             spacing: AppTheme.spacing8
 
-                            // This theme's colour groups: open one to edit
-                            // its colour (every member follows), rename it,
-                            // or ungroup it (the colours stay).
                             ColumnLayout {
                                 objectName: "themeColorGroups"
                                 visible: root.colorGroups.length > 0
@@ -2488,10 +2152,6 @@ Popup {
                                             onClicked: root.beginEdit(groupRow.modelData.members[0],
                                                 root.labelForRole(groupRow.modelData.members[0]))
                                         }
-                                        // Name and members on one line,
-                                        // the actions under them: in one
-                                        // row the buttons squeezed the
-                                        // group's name to "Send ...".
                                         ColumnLayout {
                                             id: groupRowLayout
                                             anchors.left: parent.left
@@ -2605,9 +2265,6 @@ Popup {
                                     Layout.fillWidth: true
                                     spacing: 2
 
-                                    // editorTextSecondary: the muted ink was
-                                    // nearly invisible, leaving the list
-                                    // without navigation.
                                     Label {
                                         Layout.topMargin: AppTheme.spacing6
                                         text: modelData.name
@@ -2634,31 +2291,18 @@ Popup {
                                                         modelData.key)))
                                             readonly property string hex:
                                                 root.toHex(resolved)
-                                            // A translucent inherited value (e.g.
-                                            // Storm's `hover`) paints with its alpha
-                                            // in the swatch, prints as an opaque hex,
-                                            // and is not graded by the audit; this
-                                            // flag lets the row explain that.
                                             readonly property bool seeThrough:
                                                 resolved.a < 0.999
-                                            // The role's gradient, or null: painted
-                                            // in the swatch and named on the row,
-                                            // so a gradient is visible in the list.
                                             readonly property var gradientSpec: {
                                                 var g = root.storeGradients
                                                 return g && g[modelData.key]
                                                        ? g[modelData.key] : null
                                             }
-                                            // The role this one is riding on
-                                            // right now ("" if it has its own
-                                            // colour), named on the row.
                                             readonly property string followsKey: {
                                                 var p = root.liveLinks[modelData.key]
                                                 return p !== undefined ? p : ""
                                             }
                                             Layout.fillWidth: true
-                                            // An element sits under the group it
-                                            // inherits from.
                                             Layout.leftMargin:
                                                 Math.min(3, modelData.depth || 0)
                                                 * AppTheme.spacing12
@@ -2669,9 +2313,6 @@ Popup {
                                                    ? AppTheme.editorInset
                                                    : "transparent"
 
-                                            // Where this role paints, shown in the
-                                            // preview while the row is pointed at or
-                                            // focused.
                                             readonly property bool pointed:
                                                 roleHover.containsMouse || activeFocus
                                             onPointedChanged: {
@@ -2685,7 +2326,6 @@ Popup {
                                                     root.hoverRole = ""
                                             }
 
-                                            // Keyboard reachable.
                                             activeFocusOnTab: true
                                             Accessible.role: Accessible.Button
                                             Accessible.name:
@@ -2700,8 +2340,6 @@ Popup {
                                                     e.accepted = true
                                                 }
                                             }
-                                            // Selecting for a colour group, or
-                                            // opening the picker.
                                             function activate() {
                                                 if (root.selectingRoles)
                                                     root.toggleSelected(roleRow.modelData.key)
@@ -2722,11 +2360,6 @@ Popup {
                                                 border.width: 2
                                                 border.color: AppTheme.editorAccent
                                             }
-                                            // A Flickable does not follow focus, so
-                                            // scroll the focused row into view.
-                                            // mapToItem because the row's parent is
-                                            // its group's ColumnLayout. Clamped, since
-                                            // assigning contentY does not clamp.
                                             function revealInList() {
                                                 var top = mapToItem(roleColumn,
                                                                     0, 0).y
@@ -2745,9 +2378,6 @@ Popup {
                                             }
                                             onActiveFocusChanged:
                                                 if (activeFocus) revealInList()
-                                            // A role opened from the preview is
-                                            // shown in the list too, so a click
-                                            // there says which row it was.
                                             onEditingChanged:
                                                 if (editing) revealInList()
 
@@ -2765,8 +2395,6 @@ Popup {
                                                 anchors.rightMargin: AppTheme.spacing6
                                                 spacing: AppTheme.spacing8
 
-                                                // Selection mark while choosing
-                                                // elements for a colour group.
                                                 Rectangle {
                                                     objectName: "themeRoleSelect_"
                                                         + roleRow.modelData.key
@@ -2789,12 +2417,6 @@ Popup {
                                                     }
                                                 }
 
-                                                // The swatch is the data; the "changed"
-                                                // mark is a separate dot rather than an
-                                                // accent ring that would dominate the
-                                                // list. The dot sits inside the cell's own
-                                                // bounds (the swatch is inset 4px), so
-                                                // nothing overhangs.
                                                 Item {
                                                     implicitWidth: 30
                                                     implicitHeight: 30
@@ -2841,7 +2463,6 @@ Popup {
                                                     Layout.fillWidth: true
                                                     spacing: 0
                                                     Label {
-                                                        // Untrusted text: never markup.
                                                         textFormat: Text.PlainText
                                                         Layout.fillWidth: true
                                                         text: roleRow.modelData.label
@@ -2850,15 +2471,6 @@ Popup {
                                                         font.pixelSize: AppTheme.textMeta
                                                         elide: Label.ElideRight
                                                     }
-                                                    // The value, shown on every row so a tone
-                                                    // can be read and copied between roles
-                                                    // without opening the picker.
-                                                    // The hex in mono, then what
-                                                    // the role follows in the UI
-                                                    // face: one mono run read as
-                                                    // code and elided the parent's
-                                                    // name ("follows Conversation
-                                                    // ba…").
                                                     RowLayout {
                                                         Layout.fillWidth: true
                                                         spacing: AppTheme.spacing6
@@ -2866,9 +2478,6 @@ Popup {
                                                             objectName: "themeRoleHex_"
                                                                 + roleRow.modelData.key
                                                             textFormat: Text.PlainText
-                                                            // A follower's parent row
-                                                            // already says when it is
-                                                            // see-through.
                                                             text: roleRow.gradientSpec !== null
                                                                   ? (roleRow.gradientSpec.type === "radial"
                                                                      ? qsTr("Radial gradient")
@@ -2883,15 +2492,10 @@ Popup {
                                                                          ? AppTheme.uiFont
                                                                          : AppTheme.monoFont
                                                             font.pixelSize: AppTheme.menuSectionSize
-                                                            // Elides: a run past the column drew into the scrollbar.
                                                             elide: Label.ElideRight
                                                             Layout.maximumWidth: implicitWidth
                                                             Layout.minimumWidth: 0
                                                         }
-                                                        // Editing the parent
-                                                        // recolours this one.
-                                                        // Linked in a colour group: one
-                                                        // edit changes every member.
                                                         Label {
                                                             objectName: "themeRoleGroup_"
                                                                 + roleRow.modelData.key
@@ -2921,9 +2525,6 @@ Popup {
                                                             font.pixelSize: AppTheme.menuSectionSize
                                                             elide: Label.ElideRight
                                                         }
-                                                        // What a group carries, below
-                                                        // Elements, where its members
-                                                        // are not listed.
                                                         Label {
                                                             objectName: "themeRoleMembers_"
                                                                 + roleRow.modelData.key
@@ -2991,7 +2592,6 @@ Popup {
                 }
             }
 
-            // Preview
             Item {
                 id: previewFrame
                 Layout.fillWidth: true
@@ -3019,21 +2619,13 @@ Popup {
                             id: preview
                             objectName: "themePreviewDemo"
                             pal: root.previewPalette
-                            // The user's own layout, so colours land where they
-                            // will actually be seen.
                             channels: app.settings
                                       && app.settings.roomNavigationLayout === 1
                             highlightRole: root.editingRole
                             hoverRole: root.hoverRole
-                            // Surface gradients (the theme's own and Depth's).
                             gradients: root.previewGradients
-                            // Everything that changes with the role being
-                            // traced, outlined lightly.
                             linkedRoles: root.linkedRoleSet
-                            // Amber dots on what the audit flags.
                             problemRoles: root.problemRoleSet
-                            // Names for the keyboard and screen readers, and
-                            // Escape back to the list.
                             roleLabel: root.labelForRole
                             roleState: root.describeRoleState
                             onKeyboardEscape: {
@@ -3041,15 +2633,11 @@ Popup {
                                         || root.menuOpen || root.pendingBase >= 0)
                                     root.dismissTransient()
                                 else {
-                                    // Narrow: the open colour's panel covers the
-                                    // list and disables it, so the list can take
-                                    // focus only once that panel is put away.
                                     if (root.pickerPanelCovers)
                                         root.editingRole = ""
                                     filterField.forceActiveFocus()
                                 }
                             }
-                            // 2px on screen at any scale.
                             outlineWidth: 2 / Math.max(0.25, scale)
                             width: implicitWidth
                             height: implicitHeight
@@ -3075,7 +2663,6 @@ Popup {
                     }
                 }
 
-                // Asked over the preview, where the eye already is.
                 ThemePresetPrompt {
                     id: presetPrompt
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -3090,7 +2677,6 @@ Popup {
                     onCancelRequested: root.pendingBase = -1
                 }
 
-                // Said over the preview, where the eye already is.
                 ThemeToast {
                     id: toast
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -3104,10 +2690,6 @@ Popup {
                 }
             }
 
-            // Picker slot: reserved, not occupied. The picker is positioned
-            // manually below (it overlays the role column in compact mode,
-            // keeping one instance of its HSV state); this item keeps the
-            // preview from reflowing in wide mode.
             Item {
                 Layout.preferredWidth: root.pickerColumnWidth
                 Layout.minimumWidth: root.pickerColumnWidth
@@ -3118,7 +2700,6 @@ Popup {
         }
     }
 
-    // The theme menu, under the theme button.
     ThemePopover {
         id: themeMenuPopover
         objectName: "themeMenuPopover"
@@ -3152,8 +2733,6 @@ Popup {
             onDuplicateRequested: root.store.duplicateActiveTheme("")
             onShareRequested: root.openShare("share")
             onImportRequested: root.openShare("import")
-            // Asks first: a deleted theme cannot be undone, and its history
-            // goes with it.
             onDeleteRequested: root.confirmingDelete = true
             onDeleteCancelled: root.confirmingDelete = false
             onDeleteConfirmed: {
@@ -3164,7 +2743,6 @@ Popup {
         }
     }
 
-    // Share and Import, with a preview of what an import would do.
     ThemePopover {
         id: themeSharePopover
         objectName: "themeSharePopover"
@@ -3198,7 +2776,6 @@ Popup {
         }
     }
 
-    // The readability report, under the header's readability pill.
     ThemePopover {
         id: readabilityPopover
         objectName: "themeReadabilityPopover"
@@ -3229,8 +2806,6 @@ Popup {
         }
     }
 
-    // A theme file (or its code) dropped anywhere on the editor opens the
-    // Import tab with its preview. It takes no mouse input of its own.
     DropArea {
         id: themeDrop
         objectName: "themeDropArea"
@@ -3258,9 +2833,6 @@ Popup {
         }
     }
 
-    // The inspector panel, one instance with two homes. Wide: the reserved
-    // third column, showing the picker when a role is open and a hint
-    // otherwise. Compact: an overlay on the role column while editing.
     Rectangle {
         id: pickerPanel
         x: root.pickerPanelX
@@ -3270,10 +2842,6 @@ Popup {
         visible: root.pickerPanelVisible
         color: AppTheme.editorPanel
 
-        // Event sink, declared first so it is the bottom sibling: a Rectangle
-        // accepts no mouse buttons, so without it presses, hover, wheel and
-        // cursor shape fell through to the column underneath. Controls above it
-        // still win.
         MouseArea {
             anchors.fill: parent
             hoverEnabled: true
@@ -3299,10 +2867,6 @@ Popup {
             anchors.margins: AppTheme.spacing16
             spacing: AppTheme.spacing12
 
-            // Everything about the open role, scrollable: on a 768px window
-            // the picker, its links and the readability rows are taller than
-            // the panel. The picker's own drags never scroll it (they set
-            // preventStealing).
             Flickable {
                 id: editScroll
                 objectName: "themeEditScroll"
@@ -3313,10 +2877,6 @@ Popup {
                 contentWidth: width
                 contentHeight: editColumn.implicitHeight
                 boundsBehavior: Flickable.StopAtBounds
-                // Content taller than the panel. Only then is there a bar,
-                // and only then does the column give up a gutter for it: a
-                // bar drawn over the content covered the hex field's edge
-                // and the last digit of every readability target.
                 readonly property bool overflows: contentHeight > height + 1
                 interactive: overflows
 
@@ -3336,9 +2896,6 @@ Popup {
                            - (editScroll.overflows ? AppTheme.spacing12 : 0)
                     spacing: AppTheme.spacing12
 
-                    // Every role painted where the preview was clicked, so the
-                    // fill behind a label is one click away (clicking the Send
-                    // button lands on its label).
                     ColumnLayout {
                         objectName: "themeSpotRoles"
                         Layout.fillWidth: true
@@ -3365,10 +2922,6 @@ Popup {
                         }
                     }
 
-                    // A member of a user colour group: said FIRST, above the
-                    // picker, because the picker edits the whole group. Text
-                    // on its own line, the action under it (in a row the label
-                    // was squeezed to one word per line).
                     Rectangle {
                         objectName: "themeEditingGroupScope"
                         visible: root.editingColorGroup !== null
@@ -3433,22 +2986,15 @@ Popup {
                         visible: root.editingRole.length > 0
                         title: root.editingLabel
                         subtitle: root.hintForRole(root.editingRole)
-                        // The reset button resets the role's own colour, so it
-                        // is not offered while the picker is on a gradient
-                        // colour.
                         canReset: root.editingRole.length > 0
                                   && root.editingStop < 0
                                   && root.isOverridden(root.editingRole)
-                        // A role with a parent goes back to following it.
                         resetLabel: root.editingFollowsDeclared.length > 0
                                     ? qsTr("Reset: follow %1 again")
                                       .arg(root.labelForRole(
                                           root.editingFollowsDeclared))
                                     : qsTr("Reset to the base theme")
                         suggestions: root.paletteSwatches
-                        // Surface roles: the Fill choice (solid or gradient)
-                        // first, then the picker for whichever colour is
-                        // being changed.
                         accessoryVisible: root.editingTakesGradient
                         bodyCaption: {
                             if (!root.editingTakesGradient || !gradientEditor.hasGradient)
@@ -3470,10 +3016,6 @@ Popup {
                                        : AppTheme.editorCanvas
                             gradedPalette: root.auditPalette
                             selectedStop: root.editingStop
-                            // Held on "background" while a flat role is open (so
-                            // the editor stays loaded); that role's gradient must
-                            // not hand the picker a stop of its own, or an edit of
-                            // this flat role lands on the backdrop's glow.
                             autoSelect: root.editingTakesGradient
                             onStopSelected: (index) => {
                                 if (index >= 0 && !root.editingTakesGradient)
@@ -3494,15 +3036,11 @@ Popup {
                                 root.store.setColor(root.editingRole,
                                                     root.toHex(value))
                         }
-                        // One drag, swatch or typed value is one undo step.
                         onGestureFinished: root.store.sealUndoStep()
                         onResetRequested: {
                             if (root.editingRole.length > 0) {
                                 root.store.resetColor(root.editingRole)
-                                // show(), not load(): the "before" half keeps
-                                // the colour the role had when it was opened.
                                 picker.show(root.effectiveColor(root.editingRole))
-                                // Instant, so say it can be taken back.
                                 root.announce(qsTr("%1 was reset.")
                                               .arg(root.labelForRole(root.editingRole)),
                                               root.undoEdit)
@@ -3511,9 +3049,6 @@ Popup {
                         onClosed: root.editingRole = ""
                     }
 
-                    // How the open role is tied to the rest of the theme, as
-                    // things to act on: linked to a group (edit it, or unlink),
-                    // or its own (reset it, or give it to the group).
                     ThemeLinkRow {
                         id: linkRow
                         Layout.fillWidth: true
@@ -3557,9 +3092,6 @@ Popup {
                         }
                     }
 
-                    // Live readout: every pair the open role takes part in, graded as
-                    // you drag, passes included, so a number climbing past its bar
-                    // shows the relationship.
                     ColumnLayout {
                         id: roleReadability
                         objectName: "themeRoleReadability"
@@ -3567,23 +3099,14 @@ Popup {
                         visible: root.editingRole.length > 0 && roleChecks.count > 0
                         spacing: 2
 
-                        // Two lines per row at a constant height from FontMetrics: one
-                        // line truncated the pair description at this column width. A
-                        // wrapping Label feeding its own row height is a layout loop
-                        // waiting to happen; FontMetrics depends only on the font, so
-                        // it adapts to the UI font without folding back.
                         FontMetrics {
                             id: checkMetrics
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
                         }
-                        // Ceiling per line: Qt lays out each line at an integral
-                        // height, so two 16.5px lines need 34px, and 33 shows one line
-                        // elided.
                         readonly property int checkRowHeight:
                             2 * Math.ceil(checkMetrics.lineSpacing)
 
-                        // How many of this colour's pairs fail right now.
                         readonly property int failing: {
                             var rows = roleChecks.model
                             var n = 0
@@ -3619,9 +3142,6 @@ Popup {
                         }
                         Repeater {
                             id: roleChecks
-                            // The throttled palette (see auditPalette). Ungradable
-                            // pairs are included as "not checked" rows so the count is
-                            // honest.
                             model: root.editingRole.length > 0
                                    ? root.store.auditForRole(root.auditPalette,
                                                              root.editingRole)
@@ -3631,7 +3151,6 @@ Popup {
                             delegate: RowLayout {
                                 id: checkRow
                                 required property var modelData
-                                // `passes` is absent on a skipped row, never false.
                                 readonly property bool graded:
                                     modelData.passes !== undefined
                                 Layout.fillWidth: true
@@ -3649,16 +3168,12 @@ Popup {
                                 Label {
                                     objectName: "themeRoleCheckLabel"
                                     Layout.fillWidth: true
-                                    // Pinned to the row's constant height and centred,
-                                    // so rows are uniform.
                                     Layout.preferredHeight:
                                         roleReadability.checkRowHeight
                                     verticalAlignment: Text.AlignVCenter
                                     wrapMode: Text.WordWrap
                                     maximumLineCount: 2
                                     textFormat: Text.PlainText
-                                    // The check's own sentence (see the phrase field in
-                                    // CustomThemeStore.cpp).
                                     text: checkRow.modelData.label
                                     color: AppTheme.editorTextSecondary
                                     font.family: AppTheme.uiFont
@@ -3668,8 +3183,6 @@ Popup {
                                 Label {
                                     objectName: "themeRoleCheckValue"
                                     textFormat: Text.PlainText
-                                    // A WCAG ratio reads "4.6:1"; a lightness
-                                    // separation is not a ratio.
                                     text: !checkRow.graded
                                           ? qsTr("see-through")
                                           : checkRow.modelData.kind === "ink"
@@ -3686,8 +3199,6 @@ Popup {
                                     font.pixelSize: AppTheme.textMeta
                                     font.weight: AppTheme.weightStrong
                                 }
-                                // The target the number is climbing towards, as in the
-                                // report rows.
                                 Label {
                                     objectName: "themeRoleCheckTarget"
                                     visible: checkRow.graded
@@ -3704,8 +3215,6 @@ Popup {
                 }
             }
 
-            // Nothing open: say how to open something, and where the
-            // readability verdict went.
             ColumnLayout {
                 objectName: "themeInspectorEmpty"
                 Layout.fillWidth: true
@@ -3745,11 +3254,6 @@ Popup {
 
     }
 
-    // The base theme's own colours, and every colour this theme has set, offered
-    // in the picker for reuse (the user's own choices are the ones most worth
-    // repeating across roles). Sorted by CIE L* rather than key order, so the
-    // strip reads as a ladder instead of a run of indistinguishable
-    // near-blacks.
     readonly property var paletteSwatches: {
         var pal = root.basePalette
         var keys = ["background", "sidebar", "rail", "surface", "cardElevated",
@@ -3758,9 +3262,6 @@ Popup {
                     "textSecondary", "textMuted", "ownBubble", "otherBubble"]
         var out = []
         var seen = {}
-        // A snapshot taken when a role opens: read live, the strip would be
-        // rebuilt, and the dragged colour would wander along the ladder, on
-        // every sample of a drag.
         var overrides = root.ownColoursAtOpen
         if (overrides) {
             for (var role in overrides) {

@@ -2,8 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// Shared room/thread attachment editor. Every preview URL is a re-encoded
-// raster working copy from AttachmentQueueModel; the chosen file stays intact.
 AppDialog {
     id: root
     objectName: "attachmentImageEditDialog"
@@ -155,8 +153,6 @@ AppDialog {
                 Canvas {
                     id: ink
                     anchors.fill: parent
-                    // Only the live stroke is drawn here. Committed strokes
-                    // are already flattened into the preview PNG.
                     onPaint: {
                         var ctx = getContext("2d")
                         ctx.clearRect(0, 0, width, height)

@@ -2,28 +2,10 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// Lightning scrollbar, a drop-in for the stock control in both forms:
-//
-//   ScrollBar.vertical: AppScrollBar {}        // attached
-//   AppScrollBar { orientation: Qt.Vertical }  // standalone
-//
-// The Basic ScrollBar is a border grey on border grey with square ends and
-// no hover or press states.
-//
-// A pill handle that darkens through hover and press, a track shown only
-// under the pointer, and a bar that stays thin (`scrollbarWidthThin`) unless
-// in use. `thin: true` pins the narrow size for dense hosts (combo popups,
-// code blocks, inline lists) where widening would reflow their layout.
-//
-// The fade states reproduce Basic's show/hide contract: replacing
-// `contentItem` drops the style's opacity states, and an AsNeeded bar would
-// otherwise never hide.
 ScrollBar {
     id: root
 
-    // Dense hosts keep the narrow bar even while hovered.
     property bool thin: false
-    // For hosts painting over media/scrim rather than a theme surface.
     property bool scrim: false
 
     readonly property bool _wide: !thin && (hovered || pressed)
@@ -36,7 +18,6 @@ ScrollBar {
     // Explicit: widen-on-hover depends on it, and Basic's default has changed
     // between Qt versions.
     hoverEnabled: true
-    // Keeps the handle grabbable in long content.
     minimumSize: orientation === Qt.Vertical
                  ? Math.min(1, 28 / Math.max(1, height))
                  : Math.min(1, 28 / Math.max(1, width))
@@ -82,8 +63,6 @@ ScrollBar {
         when: root.policy === ScrollBar.AlwaysOn
               || (root.active && root.size < 1.0)
         PropertyChanges { handle.opacity: 1.0 }
-        // The groove appears only under the pointer; a permanent track reads
-        // as a border.
         PropertyChanges { groove.opacity: root.hovered || root.pressed ? 1.0 : 0.0 }
     }
 

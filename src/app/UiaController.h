@@ -6,28 +6,14 @@
 
 class MatrixClient;
 
-// User-Interactive Authentication flow and device sign-out, one operation at
-// a time. The operation is attempted first; only a real UIA challenge opens the
-// prompt. Only the password stage is supported; others are reported as such.
-//
-// The password passes through submitPassword() transiently: never stored,
-// logged or emitted, and scrubbed by every layer below. Cancellation,
-// completion, failure, sign-out and account switches clear the challenge.
-//
-// OAuth (MAS) accounts manage devices in the account web console instead;
-// managementUrlReady hands its URL to the UI.
 class UiaController : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool supported READ supported NOTIFY stateChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
-    // A UIA challenge is waiting for the user.
     Q_PROPERTY(bool challengeActive READ challengeActive NOTIFY stateChanged)
-    // The challenge can be completed with the account password.
     Q_PROPERTY(bool passwordStage READ passwordStage NOTIFY stateChanged)
-    // A previous password answer was rejected — offer retry.
     Q_PROPERTY(bool wrongPassword READ wrongPassword NOTIFY stateChanged)
-    // Raw stage names, for the unsupported-stage message.
     Q_PROPERTY(QStringList stages READ stages NOTIFY stateChanged)
 
 public:
@@ -42,8 +28,6 @@ public:
     bool wrongPassword() const { return m_wrongPassword; }
     QStringList stages() const { return m_stages; }
 
-    // Sign out other devices of this account. The current device is refused:
-    // that is the normal logout flow.
     Q_INVOKABLE void signOutDevices(const QStringList &deviceIds,
                                     const QString &currentDeviceId);
 
@@ -52,13 +36,10 @@ public:
     Q_INVOKABLE void submitPassword(const QString &password);
     Q_INVOKABLE void cancel();
 
-    // OAuth accounts: fetch the account-console URL (deviceId "" = sessions
-    // list). The result arrives on managementUrlReady.
     Q_INVOKABLE void requestManagementUrl(const QString &deviceId);
 
 Q_SIGNALS:
     void stateChanged();
-    // Terminal outcome of a sign-out operation (after any UIA round).
     void signOutFinished(bool ok, const QString &message);
     void managementUrlReady(const QString &url);
 

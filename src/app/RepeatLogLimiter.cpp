@@ -65,7 +65,6 @@ RepeatLogLimiter::Decision RepeatLogLimiter::admit(QtMsgType type,
         }
     }
 
-    // Other floods that have gone quiet: say what they cost, now.
     for (Slot &other : m_slots) {
         if (&other == slot || !other.used || !other.flooding)
             continue;
@@ -77,7 +76,6 @@ RepeatLogLimiter::Decision RepeatLogLimiter::admit(QtMsgType type,
     }
 
     if (!slot) {
-        // A free slot, else the one seen longest ago.
         for (Slot &candidate : m_slots) {
             if (!candidate.used) {
                 slot = &candidate;
@@ -93,13 +91,12 @@ RepeatLogLimiter::Decision RepeatLogLimiter::admit(QtMsgType type,
         slot->key = key;
         slot->type = type;
         slot->category = QByteArray(categoryName);
-        slot->message = message; // shared, not copied
+        slot->message = message;
         slot->windowStartMs = nowMs;
         slot->lastSeenMs = nowMs;
     }
 
     if (slot->flooding && nowMs - slot->lastSeenMs >= m_limits.windowMs) {
-        // Quiet for a whole window: that flood is over.
         if (slot->suppressed > 0)
             decision.summaries.append(takeSummary(*slot, nowMs));
         slot->flooding = false;
@@ -148,4 +145,4 @@ quint64 RepeatLogLimiter::suppressedTotal() const
     return m_suppressedTotal;
 }
 
-} // namespace lightning::logging
+}

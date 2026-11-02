@@ -4,46 +4,15 @@ import QtQuick.Layouts
 import QtQuick.Shapes
 import MatrixClient
 
-// The fill of one surface role of the custom theme (theme 12): a solid colour,
-// or a linear or radial gradient. Hosted at the TOP of the colour picker in
-// ThemeEditorDialog (ColorPickerPanel's accessory slot) for roles where
-// app.customTheme.isGradientRole(role) is true, so the choice is the first
-// thing a large surface offers instead of a control found below the picker.
-// Drawn in the editor's own chrome tokens (AppTheme.editor*), like everything
-// else in that dialog, so it stays legible while the theme being edited is
-// half finished.
-//
-// One click makes a gradient that can be SEEN: the presets and the Linear /
-// Radial buttons step the second colour a tenth of the lightness range away
-// from the first. The old seed was Qt.darker(base, 1.12), which on a
-// near-black ground (#02051D -> #02041A) changed nothing visible, so turning a
-// gradient on looked like a control that did nothing.
-//
-// A stop is edited with the host's picker: clicking a stop emits
-// stopSelected(index) and the host points its picker at that stop until
-// stopSelected(-1) (the solid colour again).
-//
-// Writes go straight to app.customTheme.setGradient()/resetGradient(), as the
-// picker writes setColor(); the store sanitises them. The readability line
-// grades every check at the WORST stop (CustomThemeStore::auditWithGradients)
-// and warns, never refuses. Gradients are not part of the editor's undo
-// history (it records colours and the base).
 ColumnLayout {
     id: editor
     objectName: "gradientEditor"
 
     property string role: "background"
-    // The role's flat colour in the theme being edited (the editor passes its
-    // effectiveColor), used to seed a new gradient and as the fallback.
     property color baseColor: AppTheme.surfaceFlat(role)
-    // The resolved palette graded with the gradient (the editor passes its
-    // throttled audit palette).
     property var gradedPalette: AppTheme.paletteForTheme(12)
-    // The stop the host's picker is editing, or -1 for the solid colour. Set
-    // by the host in answer to stopSelected().
     property int selectedStop: -1
     signal stopSelected(int index)
-    // The store's own limits (CustomThemeStore::kMin/kMaxGradientStops).
     readonly property int minStops: 2
     readonly property int maxStops: 3
 
@@ -52,7 +21,6 @@ ColumnLayout {
     readonly property bool available: typeof app !== "undefined" && app
                                       && !!app.customTheme
                                       && app.customTheme.isGradientRole(role)
-    // The stored spec for the role, or null.
     readonly property var stored: {
         if (!editor.available)
             return null
@@ -63,13 +31,6 @@ ColumnLayout {
     readonly property bool radial: editor.hasGradient && editor.stored.type === "radial"
     readonly property int stopCount: editor.hasGradient ? editor.stored.stops.length : 0
 
-    // The host decides which stop a newly opened role starts on (it knows
-    // whether the role was just opened or just changed under it). Here only
-    // the two transitions that happen inside the editor: a gradient that goes
-    // away takes the picker back to the solid colour, and one that appears
-    // hands the picker its first colour. Left on the solid colour the picker
-    // would keep recolouring a fill the gradient paints over, and nothing on
-    // screen would move.
     onHasGradientChanged: {
         if (!editor.hasGradient && editor.selectedStop >= 0)
             editor.stopSelected(-1)
@@ -77,7 +38,6 @@ ColumnLayout {
                  && editor.autoSelect)
             editor.stopSelected(0)
     }
-    // Off for a host that wants the solid colour after a gradient appears.
     property bool autoSelect: true
 
     function stopAt(i) {
@@ -88,9 +48,6 @@ ColumnLayout {
     function hexOf(c) {
         return Qt.color(String(c)).toString().toUpperCase()
     }
-    // `c` moved `amount` of the HSL lightness range towards the middle: a
-    // dark ground gets lighter, a light one darker, so the step is visible on
-    // both (a near-black colour has no room to get darker).
     function stepped(c, amount) {
         var q = Qt.color(String(c))
         var l = q.hslLightness
@@ -112,9 +69,6 @@ ColumnLayout {
         return editor.baseHex
     }
 
-    // One-click starting points, all built from the role's own colour (and
-    // the theme's accent for the last), so each is a variation of the theme
-    // rather than a stranger's palette.
     readonly property var presets: [
         { key: "soft", label: qsTr("Soft fade"),
           spec: { type: "linear", angle: 180,
@@ -134,8 +88,6 @@ ColumnLayout {
                           editor.mixed(editor.baseHex, editor.accentHex, 0.3)] } },
     ]
 
-    // Where each stop sits along the gradient (0..1). A stored gradient with
-    // no `positions` spreads its stops evenly.
     function positionsOf() {
         var n = editor.stopCount
         var p = editor.hasGradient ? editor.stored.positions : undefined
@@ -144,8 +96,6 @@ ColumnLayout {
             out.push(p && p.length === n ? p[i] : (n > 1 ? i / (n - 1) : 0))
         return out
     }
-    // The colour the gradient shows at `position`, so a stop added there
-    // changes nothing until it is edited.
     function colourAtPosition(position) {
         var stops = editor.hasGradient ? editor.stored.stops : []
         var pos = editor.positionsOf()
@@ -181,7 +131,6 @@ ColumnLayout {
             delete spec.positions
         return spec
     }
-    // Drag or keyboard: stop `i` goes to `position`, between its neighbours.
     function moveStop(i, position) {
         if (!editor.hasGradient || i < 0 || i >= editor.stopCount)
             return false
@@ -191,9 +140,6 @@ ColumnLayout {
         pos[i] = Math.round(Math.max(lo, Math.min(hi, position)) * 100) / 100
         return editor.write(editor.specWith({ positions: pos }), true)
     }
-    // Click on the bar: a new stop at `position` in the colour already
-    // showing there. Returns the new stop's index, or -1 when the gradient is
-    // full or the write failed.
     function addStopAt(position) {
         if (!editor.hasGradient || editor.stopCount >= editor.maxStops)
             return -1
@@ -246,7 +192,6 @@ ColumnLayout {
         if (!editor.write({ type: spec.type, angle: spec.angle,
                             stops: spec.stops.slice(0) }))
             return false
-        // The picker may be on a stop the preset does not have.
         if (editor.selectedStop >= spec.stops.length)
             editor.stopSelected(-1)
         return true
@@ -260,11 +205,9 @@ ColumnLayout {
             pos[i] = Math.round((1 - pos[i]) * 100) / 100
         if (!editor.write(editor.specWith({ stops: stops, positions: pos })))
             return
-        // Keep the picker on the colour it was editing, now at the far end.
         if (editor.selectedStop >= 0)
             editor.stopSelected(stops.length - 1 - editor.selectedStop)
     }
-    // "Start" / "Middle" / "End"; a radial gradient runs from the centre out.
     function stopName(i) {
         if (i === 0)
             return editor.radial ? qsTr("Centre") : qsTr("Start")
@@ -273,7 +216,6 @@ ColumnLayout {
         return qsTr("Middle")
     }
 
-    // Grades the palette as it would render with every stored gradient.
     readonly property var failures: {
         if (!editor.available || !editor.hasGradient)
             return []
@@ -281,8 +223,6 @@ ColumnLayout {
                                                   app.customTheme.gradients)
     }
 
-    // The editor's button, in its chrome (EditorButton is private to the
-    // dialog).
     component ChromeButton: AbstractButton {
         id: btn
         property bool selected: false
@@ -346,9 +286,6 @@ ColumnLayout {
         text: qsTr("Fill")
     }
 
-    // Solid, or one of the two gradient kinds. Three equal columns so the
-    // longer labels never push a button onto a second line in the narrow
-    // picker column.
     RowLayout {
         Layout.fillWidth: true
         spacing: AppTheme.spacing6
@@ -408,15 +345,12 @@ ColumnLayout {
                    + "change its colours.")
     }
 
-    // Presets: what each one looks like, painted from this role's colour.
     Flow {
         id: presetFlow
         objectName: "gradientPresets"
         Layout.fillWidth: true
         spacing: AppTheme.spacing6
         visible: editor.available
-        // Three per row, sized from the column: at a fixed 58px "Strong fade"
-        // and "Accent wash" were elided in the 240-300px picker column.
         readonly property real tileWidth:
             Math.max(58, Math.floor((presetFlow.width - presetFlow.spacing * 2) / 3))
         Repeater {
@@ -472,7 +406,6 @@ ColumnLayout {
         visible: editor.hasGradient
         spacing: AppTheme.spacing8
 
-        // Exactly what will be drawn.
         Rectangle {
             objectName: "gradientPreview"
             Layout.fillWidth: true
@@ -553,8 +486,6 @@ ColumnLayout {
             text: qsTr("Colour stops")
         }
 
-        // The gradient with a handle per colour: drag to move, click the bar to
-        // add, arrow keys to nudge (see GradientBar for the full list).
         GradientBar {
             id: stopBar
             Layout.fillWidth: true
@@ -588,9 +519,6 @@ ColumnLayout {
             text: qsTr("Gradient colours")
         }
 
-        // The stops, start to end (top to bottom at 180°, centre outwards for
-        // radial). The swatch and the name select the stop for the picker; the
-        // field takes a typed value.
         Repeater {
             model: editor.stopCount
             delegate: Rectangle {
@@ -614,7 +542,6 @@ ColumnLayout {
                     anchors.rightMargin: AppTheme.spacing4
                     spacing: AppTheme.spacing8
 
-                    // Swatch + name: the target for "edit this colour".
                     AbstractButton {
                         id: stopPick
                         objectName: "gradientStopSwatch_" + stopRow.index
@@ -704,13 +631,8 @@ ColumnLayout {
                         text: qsTr("Remove")
                         Accessible.name: qsTr("Remove the %1 colour")
                                          .arg(editor.stopName(stopRow.index))
-                        // Two stops is the minimum the store accepts.
                         visible: editor.stopCount > editor.minStops
                         onClicked: {
-                            // Read before the write: the row is rebuilt by it.
-                            // The write destroys this delegate and its context
-                            // with it, so `editor` can no longer be looked up
-                            // afterwards: hold the object in a local first.
                             var removed = stopRow.index
                             var ed = editor
                             if (ed.removeStopAt(removed))
@@ -780,7 +702,6 @@ ColumnLayout {
         }
     }
 
-    // A thin rule between the fill and the picker below it.
     Rectangle {
         Layout.fillWidth: true
         Layout.topMargin: AppTheme.spacing4

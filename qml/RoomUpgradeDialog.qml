@@ -3,13 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Room upgrade confirmation, opened from a room's Access block and from Space
-// settings. Versions come from the homeserver (requestRoomVersions), the
-// default is its recommendation, and the text is blunt: an upgrade is
-// irreversible and tombstones the old room. The opener names the room and this
-// dialog passes it to the controller; upgrading whatever room is open behind
-// the dialog would tombstone the wrong room. openFor() without a room id is
-// refused; never add a default.
 Dialog {
     id: root
     objectName: "roomUpgradeDialog"
@@ -23,11 +16,9 @@ Dialog {
     anchors.centerIn: parent
     padding: AppTheme.spacing16
 
-    // "room" or "space": copy only.
     property string kind: "room"
     readonly property bool isSpace: kind === "space"
     property string chosenVersion: ""
-    // The room to upgrade. Set by openFor(); never defaulted.
     property string targetRoomId: ""
 
     function openFor(roomId) {
@@ -41,8 +32,6 @@ Dialog {
     }
     onOpened: Qt.callLater(function () { versionCombo.forceActiveFocus() })
 
-    // The controller emits navigateRequested on success; close as the room
-    // changes.
     Connections {
         target: app.roomUpgrade
         function onUpgradeStateChanged() {
@@ -72,8 +61,6 @@ Dialog {
         contentHeight: bodyColumn.implicitHeight
         implicitHeight: bodyColumn.implicitHeight
         boundsBehavior: Flickable.StopAtBounds
-        // Scrolls in a window too short for the dialog (a quarter of a
-        // screen), so the buttons at the end stay reachable.
         ScrollBar.vertical: AppScrollBar {}
         ColumnLayout {
             id: bodyColumn

@@ -86,8 +86,6 @@ struct RoomSend {
     QString threadRootId;
     QString replyToEventId;
     QVariantMap spec;
-    // What the persisted queue said about this entry at the moment the
-    // send left — the "marked before dispatch" guard.
     QString persistedStatusAtSend;
 };
 
@@ -107,7 +105,7 @@ public:
     bool refuseServerScheduling = false;
     bool roomSendSupported = true;
     int probes = 0;
-    QList<RoomSend> roomSends;          // the room-level lane
+    QList<RoomSend> roomSends;
     QList<RoomSend> legacySends;        // the timeline lane (mock/HTTP)
     struct ScheduleCall { QString roomId; QString body; qint64 delayMs; quint64 op; };
     QList<ScheduleCall> scheduleCalls;
@@ -177,7 +175,6 @@ public:
                              persistedStatusFor(body) });
     }
 
-    // MatrixClient pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -256,7 +253,7 @@ struct Harness {
                              QStringLiteral("token-fixture"));
         client.settings = &settings;
         client.roomSet = { room(kPlain, false), room(kEncrypted, true),
-                           room(kUnknown, false, /*encryptionKnown=*/false) };
+                           room(kUnknown, false,false) };
         scheduler.setSettings(&settings);
         scheduler.setClient(&client);
     }
@@ -272,7 +269,6 @@ struct Harness {
     {
         Q_EMIT client.delayedEventsSupportReceived(true, true);
     }
-    // Schedules a server entry and lets the server answer with a delay id.
     QString serverEntry(const QString &body, const QString &delayId)
     {
         const QString id = scheduler.schedule(message(kPlain, body), nowMs() + 90000);
@@ -286,7 +282,7 @@ struct Harness {
     }
 };
 
-} // namespace
+}
 
 class ScheduledSendTest : public QObject
 {
@@ -345,8 +341,6 @@ private Q_SLOTS:
         QCOMPARE(h.entry(unknownId).value(QStringLiteral("volatile")).toBool(), true);
 
         QCOMPARE(h.scheduler.pendingCount(), 3);
-        // Only the unencrypted room's row reached disk, and no encrypted
-        // body appears anywhere in the persisted rows.
         const QVariantList rows = h.settings.scheduledSends();
         QCOMPARE(rows.size(), 1);
         QCOMPARE(rows.first().toMap().value(QStringLiteral("roomId")).toString(),
@@ -361,7 +355,6 @@ private Q_SLOTS:
     void serverModeNeedsSupportAnUnencryptedRoomAndNoRelation()
     {
         Harness h;
-        // Support unknown: everything is local.
         QVERIFY(!h.scheduler.wouldUseServer(kPlain, {}, {}));
         h.enableServer();
         QCOMPARE(h.scheduler.serverScheduling(), 1);
@@ -378,12 +371,9 @@ private Q_SLOTS:
         QCOMPARE(h.entry(id).value(QStringLiteral("busy")).toBool(), true);
         QCOMPARE(h.client.scheduleCalls.size(), 1);
         QCOMPARE(h.client.scheduleCalls.first().roomId, kPlain);
-        // The delay handed to the server is the remaining time, not an
-        // absolute instant.
         QVERIFY(h.client.scheduleCalls.first().delayMs > 80000);
         QVERIFY(h.client.scheduleCalls.first().delayMs <= 90000);
 
-        // The server's answer records the delay id.
         Q_EMIT h.client.scheduledSendFinished(h.client.scheduleCalls.first().op,
                                               kPlain, true,
                                               QStringLiteral("delay-1"), QString());
@@ -393,8 +383,6 @@ private Q_SLOTS:
                  QStringLiteral("pending"));
         QCOMPARE(h.entry(id).value(QStringLiteral("busy")).toBool(), false);
 
-        // Cancelling a server-held message asks the server and only drops
-        // the entry once the server has answered.
         h.scheduler.cancel(id);
         QCOMPARE(h.client.updateCalls.size(), 1);
         QCOMPARE(h.client.updateCalls.first().delayId, QStringLiteral("delay-1"));
@@ -407,7 +395,6 @@ private Q_SLOTS:
                                                 QString());
         QVERIFY(h.entry(id).isEmpty());
         QVERIFY(h.settings.scheduledSends().isEmpty());
-        // A server-held message never went through a local send lane.
         QVERIFY(h.client.roomSends.isEmpty());
         QVERIFY(h.client.legacySends.isEmpty());
     }
@@ -427,7 +414,6 @@ private Q_SLOTS:
         QCOMPARE(e.value(QStringLiteral("status")).toString(), QStringLiteral("pending"));
         QVERIFY(!e.value(QStringLiteral("error")).toString().isEmpty());
 
-        // Any other refusal is a failure the user sees, not a silent retry.
         const QString id2 = h.scheduler.schedule(message(kPlain, QStringLiteral("y")),
                                                  nowMs() + 90000);
         Q_EMIT h.client.scheduledSendFinished(h.client.scheduleCalls.last().op,
@@ -446,17 +432,13 @@ private Q_SLOTS:
         QCOMPARE(h.client.scheduleCalls.size(), 1);
         const qint64 later = nowMs() + 300000;
         h.scheduler.reschedule(id, later);
-        // Exactly one cancel, and NO new delayed event yet.
         QCOMPARE(h.client.updateCalls.size(), 1);
         QCOMPARE(h.client.updateCalls.last().action, QStringLiteral("cancel"));
         QCOMPARE(h.client.scheduleCalls.size(), 1);
         QCOMPARE(h.entry(id).value(QStringLiteral("busy")).toBool(), true);
-        // While busy, further edits are refused rather than piled up.
         h.scheduler.updateText(id, QStringLiteral("ignored"), QString());
         QCOMPARE(h.entry(id).value(QStringLiteral("body")).toString(),
                  QStringLiteral("held"));
-        // The server confirms the cancel: only now the replacement goes out,
-        // with the new deadline.
         Q_EMIT h.client.scheduledUpdateFinished(h.client.updateCalls.last().op,
                                                 QStringLiteral("delay-1"),
                                                 QStringLiteral("cancel"), true,
@@ -472,7 +454,6 @@ private Q_SLOTS:
         QCOMPARE(h.entry(id).value(QStringLiteral("status")).toString(),
                  QStringLiteral("pending"));
 
-        // An edit takes the same path and carries the new text.
         h.scheduler.updateText(id, QStringLiteral("  edited  "), QString());
         QCOMPARE(h.client.updateCalls.size(), 2);
         QCOMPARE(h.client.scheduleCalls.size(), 2);
@@ -495,7 +476,6 @@ private Q_SLOTS:
         const QString id = h.serverEntry(QStringLiteral("held"), QStringLiteral("delay-1"));
         h.scheduler.reschedule(id, nowMs() + 300000);
         QCOMPARE(h.client.updateCalls.size(), 1);
-        // The server no longer holds it (it may already have been sent).
         Q_EMIT h.client.scheduledUpdateFinished(h.client.updateCalls.last().op,
                                                 QStringLiteral("delay-1"),
                                                 QStringLiteral("cancel"), false,
@@ -506,8 +486,6 @@ private Q_SLOTS:
         QVERIFY(e.value(QStringLiteral("error")).toString().contains(
             QStringLiteral("already have been sent")));
         QCOMPARE(e.value(QStringLiteral("busy")).toBool(), false);
-        // A plain cancel of that failed row is a local removal: there is
-        // nothing left on the server to ask about.
         h.scheduler.cancel(id);
         QCOMPARE(h.client.updateCalls.size(), 1);
         QVERIFY(h.entry(id).isEmpty());
@@ -520,15 +498,10 @@ private Q_SLOTS:
         const QString id = h.scheduler.schedule(message(kPlain, QStringLiteral("held")),
                                                 nowMs() + 90000);
         QCOMPARE(h.client.scheduleCalls.size(), 1);
-        // The user reschedules before the server has answered.
         const qint64 later = nowMs() + 300000;
         h.scheduler.reschedule(id, later);
         QCOMPARE(h.client.updateCalls.size(), 0);
-        // Nothing changes yet: the server still holds the original deadline
-        // and the entry says so rather than showing a time the server does
-        // not know about.
         QVERIFY(h.entry(id).value(QStringLiteral("sendAtMs")).toLongLong() < later);
-        // The delay id arrives: the deferred change becomes cancel + resubmit.
         Q_EMIT h.client.scheduledSendFinished(h.client.scheduleCalls.first().op, kPlain,
                                               true, QStringLiteral("delay-1"), QString());
         QCOMPARE(h.client.updateCalls.size(), 1);
@@ -541,7 +514,6 @@ private Q_SLOTS:
         QCOMPARE(h.client.scheduleCalls.size(), 2);
         QCOMPARE(h.entry(id).value(QStringLiteral("sendAtMs")).toLongLong(), later);
 
-        // A cancel asked while in flight is issued once the id is known.
         const QString id2 = h.scheduler.schedule(message(kPlain, QStringLiteral("two")),
                                                  nowMs() + 90000);
         h.scheduler.cancel(id2);
@@ -568,10 +540,8 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(h.client.roomSends.size(), 1, 3000);
         QCOMPARE(h.client.roomSends.first().roomId, kPlain);
         QCOMPARE(h.client.roomSends.first().body, QStringLiteral("due soon"));
-        // The persisted row read "sending" at the moment the send left.
         QCOMPARE(h.client.roomSends.first().persistedStatusAtSend,
                  QStringLiteral("sending"));
-        // Still listed, busy, until the room answers.
         QCOMPARE(h.entry(id).value(QStringLiteral("status")).toString(),
                  QStringLiteral("sending"));
         QCOMPARE(h.entry(id).value(QStringLiteral("busy")).toBool(), true);
@@ -595,7 +565,6 @@ private Q_SLOTS:
         QVERIFY(e.value(QStringLiteral("error")).toString().contains(
             QStringLiteral("not sent")));
         QCOMPARE(e.value(QStringLiteral("busy")).toBool(), false);
-        // It is not re-fired by the timer, only by the user.
         QTest::qWait(150);
         QCOMPARE(h.client.roomSends.size(), 1);
         h.scheduler.sendNow(id);
@@ -657,7 +626,6 @@ private Q_SLOTS:
         Q_EMIT h.client.connectionStateChanged(MatrixClient::Syncing);
         QTRY_COMPARE_WITH_TIMEOUT(h.client.roomSends.size(), 1, 3000);
         QCOMPARE(h.client.roomSends.first().body, QStringLiteral("after reconnect"));
-        // The reconnect also (re)probes server support.
         QVERIFY(h.client.probes >= 1);
     }
 
@@ -665,7 +633,6 @@ private Q_SLOTS:
     {
         Harness h;
         h.settings.setScheduledSends({
-            // A local row caught mid-dispatch by a crash.
             QVariantMap{
                 { QStringLiteral("id"), QStringLiteral("crashed") },
                 { QStringLiteral("roomId"), kPlain },
@@ -674,7 +641,6 @@ private Q_SLOTS:
                 { QStringLiteral("mode"), QStringLiteral("local") },
                 { QStringLiteral("status"), QStringLiteral("sending") },
             },
-            // A server row persisted before the server confirmed it.
             QVariantMap{
                 { QStringLiteral("id"), QStringLiteral("unconfirmed") },
                 { QStringLiteral("roomId"), kPlain },
@@ -683,7 +649,6 @@ private Q_SLOTS:
                 { QStringLiteral("mode"), QStringLiteral("server") },
                 { QStringLiteral("status"), QStringLiteral("pending") },
             },
-            // A server row whose deadline passed: the server sent it.
             QVariantMap{
                 { QStringLiteral("id"), QStringLiteral("done") },
                 { QStringLiteral("roomId"), kPlain },
@@ -737,14 +702,12 @@ private Q_SLOTS:
         h.scheduler.updateText(id, QStringLiteral("  final  "), QString());
         QCOMPARE(h.entry(id).value(QStringLiteral("body")).toString(),
                  QStringLiteral("final"));
-        // An empty edit is refused, never a blank message.
         h.scheduler.updateText(id, QStringLiteral("   "), QString());
         QCOMPARE(h.entry(id).value(QStringLiteral("body")).toString(),
                  QStringLiteral("final"));
         const qint64 later = nowMs() + 120000;
         h.scheduler.reschedule(id, later);
         QCOMPARE(h.entry(id).value(QStringLiteral("sendAtMs")).toLongLong(), later);
-        // A past deadline is refused.
         h.scheduler.reschedule(id, nowMs() - 1);
         QCOMPARE(h.entry(id).value(QStringLiteral("sendAtMs")).toLongLong(), later);
         QCOMPARE(h.settings.scheduledSends().size(), 1);

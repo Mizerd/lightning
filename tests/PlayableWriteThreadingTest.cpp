@@ -1,14 +1,3 @@
-// Materializing a playable payload must not run on the thread that asks for
-// it: MediaBridge's playable file is written on a private worker thread.
-//
-// Pinned here, none of it visible to a source scan: the call returns before
-// the bytes are on disk, the completion arrives on the caller's thread, a
-// heartbeat on the caller's thread keeps ticking through a large write, a
-// cancelled job leaves nothing behind (not even QSaveFile's temporary), and
-// two writes for one key collapse into one.
-//
-// Every case measures its own synchronous baseline with the same payload on
-// the same filesystem, rather than hardcoding one.
 
 #include "media/PlayableFileWriter.h"
 
@@ -31,9 +20,6 @@
 
 namespace {
 
-// Large enough that a synchronous write is unmistakably a stall, and well
-// past the 32 MiB speculative cap so it represents a real pressed-play
-// video rather than a best case.
 constexpr qint64 kPayloadBytes = 48 * 1024 * 1024;
 
 // Deliberately not a uniform fill: a compressing filesystem would write a
@@ -64,7 +50,7 @@ bool waitForCount(QSignalSpy &spy, int expected, int timeoutMs = 30000)
     return spy.count() >= expected;
 }
 
-} // namespace
+}
 
 class PlayableWriteThreadingTest : public QObject
 {
@@ -77,8 +63,6 @@ private Q_SLOTS:
         m_payload = makePayload();
         QCOMPARE(static_cast<qint64>(m_payload.size()), kPayloadBytes);
 
-        // The baseline: a synchronous QSaveFile write of this payload on this
-        // thread. Measured once and reported by every case below.
         QElapsedTimer clock;
         clock.start();
         {
@@ -94,9 +78,6 @@ private Q_SLOTS:
               static_cast<long long>(m_syncMs));
     }
 
-    // The whole point. Handing a QByteArray to another thread is a
-    // refcount bump and an event post; the old path wrote the payload
-    // first and returned afterwards.
     void writeReturnsBeforeTheBytesAreOnDisk()
     {
         QTemporaryDir dir;
@@ -118,8 +99,6 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("write() blocked the calling "
                                            "thread for %1 ms")
                                 .arg(blockedMs)));
-        // Nothing is published until the completion: the file is either
-        // absent or still QSaveFile's temporary, never the final path.
         QVERIFY(!QFileInfo::exists(path));
 
         QVERIFY(waitForCount(finished, 1));
@@ -127,20 +106,15 @@ private Q_SLOTS:
         QCOMPARE(finished.at(0).at(1).toString(),
                  QStringLiteral("full:$clip"));
         QCOMPARE(finished.at(0).at(2).toString(), path);
-        // The lifecycle token is carried through untouched — MediaBridge
-        // compares it against its own session generation.
         QCOMPARE(finished.at(0).at(3).toULongLong(), quint64(7));
         QVERIFY(finished.at(0).at(4).toBool());
         QVERIFY(QFileInfo::exists(path));
         QCOMPARE(QFileInfo(path).size(), kPayloadBytes);
-        // Owner-only, set before any byte was written.
         const auto perms = QFileInfo(path).permissions();
         QVERIFY(!(perms & QFileDevice::ReadGroup));
         QVERIFY(!(perms & QFileDevice::ReadOther));
     }
 
-    // MediaBridge's completion handler touches GUI-owned state, so the reply
-    // lands on the caller's thread, which must keep running during the write.
     void theCallersThreadKeepsBeatingThroughALargeWrite()
     {
         QTemporaryDir dir;
@@ -175,9 +149,6 @@ private Q_SLOTS:
               static_cast<long long>(worstGapMs),
               static_cast<long long>(kPayloadBytes / (1024 * 1024)),
               static_cast<long long>(m_syncMs));
-        // Absolute, not a fraction of the baseline: the caller's thread is
-        // supposed to be idle, so any gap here is scheduler noise. The old
-        // inline write showed up as one gap of the whole baseline.
         QVERIFY2(worstGapMs < 100,
                  qPrintable(QStringLiteral("caller thread stalled %1 ms "
                                            "(baseline %2 ms)")
@@ -186,9 +157,6 @@ private Q_SLOTS:
         QCOMPARE(deliveredOn.load(), QThread::currentThread());
     }
 
-    // A cancelled job leaves nothing (neither the final file nor the writer's
-    // temporary) and owes no completion, since the caller already dropped its
-    // tracking entry.
     void aCancelledWriteLeavesNothingBehindAndNoCompletion()
     {
         QTemporaryDir dir;
@@ -198,9 +166,6 @@ private Q_SLOTS:
         const QString busyPath = dir.filePath(QStringLiteral("busy.mp4"));
         const QString doomedPath = dir.filePath(QStringLiteral("doomed.mp4"));
 
-        // The worker's event loop serializes jobs, so queueing a long job
-        // first makes this deterministic rather than a race: the doomed
-        // job provably has not started when it is cancelled.
         QVERIFY(writer.write(QStringLiteral("busy"), busyPath, m_payload, 1)
                 != 0);
         QVERIFY(writer.write(QStringLiteral("doomed"), doomedPath, m_payload,
@@ -208,22 +173,16 @@ private Q_SLOTS:
         writer.cancel(QStringLiteral("doomed"));
 
         QVERIFY(waitForCount(finished, 1));
-        QTest::qWait(200); // a second completion would have landed by now
+        QTest::qWait(200);
         QCOMPARE(finished.count(), 1);
         QCOMPARE(finished.at(0).at(1).toString(), QStringLiteral("busy"));
         QStringList leftovers =
             QDir(dir.path()).entryList(QDir::Files | QDir::Hidden);
         leftovers.sort();
-        // Exactly the committed file: a partial write, or QSaveFile's
-        // temporary, would show up as a second entry here.
         QCOMPARE(leftovers, QStringList{QStringLiteral("busy.mp4")});
         QVERIFY(!QFileInfo::exists(doomedPath));
     }
 
-    // The writer publishes like QSaveFile without its fsync
-    // (storage/ScratchFile.h): a write over a file already at the path
-    // replaces it whole, owner-only, and leaves no temporary beside it.
-    // MediaBridge re-materializes a key at the same path after an eviction.
     void aWriteOverAnExistingFileReplacesItAndLeavesNoTemporary()
     {
         QTemporaryDir dir;
@@ -250,9 +209,6 @@ private Q_SLOTS:
                  QStringList{QStringLiteral("again.mp4")});
     }
 
-    // A cancelled key is released immediately, so the caller can re-ask
-    // without waiting for the abandoned job to notice. Keying cancellation
-    // on the cache key alone would kill this second job too.
     void aReRequestAfterACancelIsAccepted()
     {
         QTemporaryDir dir;
@@ -277,7 +233,6 @@ private Q_SLOTS:
         QVERIFY(QFileInfo::exists(path));
     }
 
-    // One key is one write: the single completion services every claimant.
     void aSecondWriteForOneKeyIsRefused()
     {
         QTemporaryDir dir;
@@ -295,15 +250,11 @@ private Q_SLOTS:
         QTest::qWait(200);
         QCOMPARE(finished.count(), 1);
 
-        // Once the job has been retired the key is free again.
         QVERIFY(writer.write(QStringLiteral("full:$shared"), path, m_payload,
                              1) != 0);
         QVERIFY(waitForCount(finished, 2));
     }
 
-    // Destruction cancels everything outstanding, so tearing the writer
-    // down (sign-out, account switch, exit) cannot block on a
-    // multi-hundred-megabyte write nobody is left to receive.
     void destructionAbandonsOutstandingWork()
     {
         QTemporaryDir dir;
@@ -316,19 +267,16 @@ private Q_SLOTS:
             writer.write(QStringLiteral("a"), pathA, m_payload, 1);
             writer.write(QStringLiteral("b"), pathB, m_payload, 1);
             clock.start();
-        } // ~PlayableFileWriter: cancelAll(), then join
+        }
         const qint64 teardownMs = clock.elapsed();
         qInfo("teardown with two %lld MiB writes queued: %lld ms "
               "(synchronous baseline for ONE of them %lld ms)",
               static_cast<long long>(kPayloadBytes / (1024 * 1024)),
               static_cast<long long>(teardownMs),
               static_cast<long long>(m_syncMs));
-        // Bounded by one chunk plus the join, never by the queued payload.
         QVERIFY2(teardownMs < 5000,
                  qPrintable(QStringLiteral("teardown took %1 ms")
                                 .arg(teardownMs)));
-        // The second job never ran; the first was abandoned mid-chunk at
-        // the latest. Neither may be left half-written under its real name.
         QVERIFY(!QFileInfo::exists(pathB));
     }
 

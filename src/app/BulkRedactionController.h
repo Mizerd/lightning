@@ -9,8 +9,6 @@
 class MatrixClient;
 class TimelineModel;
 
-// One selected timeline and one in-flight Matrix request. A result, not a
-// timeline diff, advances the queue: sync may arrive much later or not at all.
 class BulkRedactionController : public QObject
 {
     Q_OBJECT
@@ -46,11 +44,7 @@ public:
     Q_INVOKABLE void start(const QString &reason);
     Q_INVOKABLE void cancel();
 
-    /// A request with no result within this window counts as failed and the
-    /// run moves on; its late result is ignored. Default 60 s.
     void setRequestTimeoutForTest(int ms) { m_requestTimeoutMs = ms; }
-    /// How long an abandoned request (cancelled or timed out while on the
-    /// wire) keeps blocking a re-selection of its message. Default 10 min.
     void setAbandonedExpiryForTest(qint64 ms) { m_abandonedExpiryMs = ms; }
 
 signals:
@@ -82,8 +76,6 @@ private:
     /// message for the rest of the session.
     struct Abandoned {
         qint64 atMs = 0;
-        /// A timed-out request was already counted as failed; its late
-        /// result must not be counted again.
         bool counted = false;
     };
     QHash<QString, Abandoned> m_abandonedRequests;

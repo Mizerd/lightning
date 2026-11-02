@@ -49,8 +49,6 @@ class MessageSelectionQmlTest : public QObject
         return m_window->findChild<QQuickItem *>(QString::fromLatin1(name));
     }
 
-    // Visual-tree search: an item a Loader creates is parented visually, not
-    // always as a QObject child, so findChildren() could miss it.
     static void collectItems(QQuickItem *root, const QString &name,
                              QList<QQuickItem *> &out)
     {
@@ -110,8 +108,6 @@ private:
         QTRY_COMPARE(m_controller->currentRoomId(), roomId);
         QTRY_VERIFY(item("composerInput")->hasActiveFocus());
         QTRY_VERIFY(m_controller->timeline()->realEventCount() > 2);
-        // Let upstream's one-shot automatic composer focus settle. It must
-        // not make an absent explicit shortcut look as if it worked.
         QTest::qWait(300);
     }
 
@@ -128,8 +124,6 @@ private slots:
     void init()
     {
         QSettings().clear();
-        // In-memory secrets and deterministic rooms, Spaces and invitations;
-        // the screenshot UI itself is not enabled.
         m_controller = new AppController(AppController::MockBackend, true);
         auto *mock = m_controller->findChild<MockMatrixClient *>();
         QVERIFY(mock);
@@ -284,8 +278,6 @@ ApplicationWindow {
         auto *card = qobject_cast<QQuickItem *>(value.value<QObject *>());
         QVERIFY(card);
         QVERIFY(!card->property("replyEligible").toBool());
-        // Make the excluded region taller than the viewport without depending
-        // on theme-specific call-card sizing or creating a real call.
         card->setHeight(view->height() * 3);
         QTest::qWait(100);
         QVERIFY(view->setProperty("contentY", card->y() + view->height() * 0.5));
@@ -450,23 +442,19 @@ ApplicationWindow {
         bulk.toggle(events.first().eventId, true);
         bulk.start({});
         QCOMPARE(client.requestedIds.size(), 1);
-        bulk.cancel(); // The first request is already on the wire.
+        bulk.cancel();
         client.requestedIds.clear();
         bulk.begin(&model);
         bulk.toggle(events.last().eventId, true);
         bulk.start({});
         QCOMPARE(client.requestedIds.size(), 1);
         Q_EMIT client.redactionFinished(room, events.first().eventId, true, {});
-        QCOMPARE(bulk.completed(), 0); // Old result cannot finish the new batch.
+        QCOMPARE(bulk.completed(), 0);
         Q_EMIT client.redactionFinished(room, events.last().eventId, true, {});
         QTRY_VERIFY(!bulk.running());
         QCOMPARE(bulk.completed(), 1);
     }
 
-    // A result the client never delivers (a timeline reset dropped it, a
-    // refusal never answered) must not stall the run: the request times out,
-    // counts as failed, and the next one goes. Its late result counts nothing
-    // (review S1).
     void bulkDeletionRecoversFromADroppedResult()
     {
         DeferredRedactionClient client;
@@ -493,7 +481,6 @@ ApplicationWindow {
         QCOMPARE(bulk.selectedCount(), 2);
         bulk.start({});
         QCOMPARE(client.requestedIds.size(), 1);
-        // No result for the first request, ever.
         QTRY_COMPARE_WITH_TIMEOUT(client.requestedIds.size(), 2, 3000);
         QVERIFY(bulk.running());
         QCOMPARE(bulk.completed(), 1);
@@ -504,17 +491,12 @@ ApplicationWindow {
         QTRY_VERIFY(!bulk.running());
         QCOMPARE(bulk.completed(), 2);
         QCOMPARE(bulk.failed(), 1);
-        // The first request's late result is not counted a second time.
         Q_EMIT client.redactionFinished(room, client.requestedIds.first(), true,
                                         {});
         QCOMPARE(bulk.completed(), 2);
         QCOMPARE(bulk.failed(), 1);
     }
 
-    // A failure reaches the user as translated wording for its category, and
-    // the run stops on the rate_limited CATEGORY, never on text: a string that
-    // merely contains "M_LIMIT_EXCEEDED" or "429" is not a category, shows the
-    // generic wording and does not stop the run (review S2).
     void bulkDeletionShowsCategoryWordingAndStopsOnlyOnTheRateLimitCategory()
     {
         DeferredRedactionClient client;
@@ -556,8 +538,6 @@ ApplicationWindow {
         QTRY_VERIFY(!bulk.running());
     }
 
-    // A request abandoned on the wire blocks re-selecting its message only for
-    // a bound: a result that never comes must not block it for the session.
     void anAbandonedRequestStopsBlockingItsMessageAfterTheBound()
     {
         DeferredRedactionClient client;
@@ -579,11 +559,11 @@ ApplicationWindow {
         bulk.toggle(event.eventId, true);
         bulk.start({});
         QCOMPARE(client.requestedIds.size(), 1);
-        bulk.cancel(); // On the wire: abandoned, result unknown.
-        bulk.cancel(); // Leave the finished run.
+        bulk.cancel();
+        bulk.cancel();
         bulk.begin(&model);
         bulk.toggle(event.eventId, true);
-        QCOMPARE(bulk.selectedCount(), 0); // Still in progress: refused.
+        QCOMPARE(bulk.selectedCount(), 0);
         QTest::qWait(250);
         bulk.toggle(event.eventId, true);
         QCOMPARE(bulk.selectedCount(), 1);
@@ -660,7 +640,6 @@ ApplicationWindow {
         QVERIFY(view->setProperty("contentY", minimum));
         QCOMPARE(proxy->windowSkip(), 5);
         const auto selected = item("timelinePane")->property("keyboardSelectedEventId");
-        // No event-loop pause: a held key must not rely on the settle timer.
         for (int i = 0; i < 8; ++i)
             QTest::keyClick(m_window, Qt::Key_D);
         QCOMPARE(proxy->windowSkip(), 0);
@@ -863,7 +842,7 @@ ApplicationWindow {
             const QVariantMap details = m_controller->timeline()->messageDetails(id);
             QVERIFY(details.isEmpty() || details.value("redacted").toBool());
         }
-        QTest::qWait(50); // Drain the bounded row-window exposure callback.
+        QTest::qWait(50);
         const qreal before = view->property("contentY").toReal();
         QTest::keyClick(m_window, Qt::Key_K);
         QVERIFY(pane->property("keyboardSelectedEventId").toString() != selected);
@@ -929,12 +908,10 @@ ApplicationWindow {
         auto *message = qobject_cast<QQuickItem *>(value.value<QObject *>());
         QVERIFY(message);
         const qreal y = view->property("contentY").toReal();
-        // Paging selects the newest intersecting message, including a row
-        // clipped at the edge, without scrolling back to reveal it in full.
         QVERIFY(message->y() < y + view->height());
         QVERIFY(message->y() + message->height() > y);
         QCOMPARE(y, pageY);
-        QTest::qWait(300); // Settling must not reselect a center row.
+        QTest::qWait(300);
         QCOMPARE(pane->property("keyboardSelectedEventId").toString(), selected);
     }
 
@@ -967,8 +944,6 @@ ApplicationWindow {
             Q_RETURN_ARG(QVariant, value), Q_ARG(QVariant, row)));
         auto *message = qobject_cast<QQuickItem *>(value.value<QObject *>());
         QVERIFY(message);
-        // A media row can span several half-pages. Keep its selection while
-        // scrolling through it; selecting it must not undo viewport progress.
         message->setHeight(view->height() * heightInViewports);
         QTest::qWait(100);
         QVERIFY(QMetaObject::invokeMethod(view, "enterMessageNavigation"));
@@ -985,8 +960,6 @@ ApplicationWindow {
         const qreal before = view->property("contentY").toReal();
         QTest::keyClick(m_window, Qt::Key_D);
         QVERIFY(view->property("contentY").toReal() < before - 1);
-        // Continue beyond the media row into older messages, rather than only
-        // proving that the viewport can move within the same selection.
         for (int page = 0; page < 6; ++page) {
             QTest::keyClick(m_window, Qt::Key_U);
             QTest::qWait(30);
@@ -1075,9 +1048,6 @@ ApplicationWindow {
         QVERIFY(pane->property("keyboardSelectedEventId").toString().isEmpty());
     }
 
-    // GitHub #51: the context menu's actions on the selected message, by key.
-    // Each goes through the row's own delegate, so the hotkey and the menu
-    // cannot disagree about eligibility or skip the delete confirmation.
     void selectedMessageActionsRunFromTheKeyboard()
     {
         openJoinedRoom();
@@ -1096,23 +1066,18 @@ ApplicationWindow {
                  "would pass vacuously");
         QGuiApplication::clipboard()->clear();
 
-        // C copies the message link, Ctrl+C its text.
         QTest::keyClick(m_window, Qt::Key_C);
         QTRY_COMPARE(QGuiApplication::clipboard()->text(), link);
         QTest::keyClick(m_window, Qt::Key_C, Qt::ControlModifier);
         QTRY_COMPARE(QGuiApplication::clipboard()->text(), text);
         QCOMPARE(pane->property("keyboardSelectedEventId").toString(), selected);
 
-        // F starts forwarding that message.
         QVERIFY(!m_controller->forward()->active());
         QTest::keyClick(m_window, Qt::Key_F);
         QTRY_VERIFY(m_controller->forward()->active());
         QCOMPARE(m_controller->forward()->sourceEventId(), selected);
         m_controller->forward()->cancel();
 
-        // Delete asks first and removes nothing by itself.
-        // Walk to one of our own messages: another member's is not ours to
-        // delete without a moderator grant.
         for (int i = 0; i < 40; ++i) {
             const QString cur =
                 pane->property("keyboardSelectedEventId").toString();
@@ -1128,8 +1093,6 @@ ApplicationWindow {
         QVERIFY2(redactable,
                  "the selected message is not deletable, so the confirmation "
                  "path was not exercised");
-        // The dialog is a Popup created under the row's delegate: found by
-        // walking the visual tree and each item's QObject children.
         const auto findDialog = [&]() -> QObject * {
             QList<QQuickItem *> stack{ m_window->contentItem() };
             while (!stack.isEmpty()) {
@@ -1214,8 +1177,6 @@ ApplicationWindow {
         QTRY_VERIFY(!item("timelineListView")->property("enteringMessageNavigation").toBool());
         QTest::keyClick(m_window, Qt::Key_U);
         QTRY_VERIFY(!view->property("stickToBottom").toBool());
-        // First save a genuine historical viewport, with no pending scroll
-        // timer left to incidentally save a subsequent latest jump.
         QTest::qWait(350);
         if (entry == QStringLiteral("selection")) {
             QTest::keyClick(m_window, Qt::Key_Space,
@@ -1282,9 +1243,6 @@ ApplicationWindow {
         }
     }
 
-    // GitHub #51: a manual return to a room saved mid-history must not show
-    // the newest rows before the saved spot. The model reset pins to the
-    // newest row, so the gate must stay closed until the restore has landed.
     void historicalReturnNeverPresentsTheLatestRows()
     {
         openJoinedRoom();
@@ -1313,10 +1271,6 @@ ApplicationWindow {
         QTRY_COMPARE(m_controller->currentRoomId(), roomB);
         QTRY_VERIFY(item("composerInput")->hasActiveFocus());
         QTest::qWait(350);
-        // While away, make room A tall (the gate's "fills the viewport" test
-        // then passes at once) and leave the saved target a page of history
-        // away, behind a slow pagination, so only the restore can keep the
-        // latest rows from being presented.
         QList<TimelineEvent> tall;
         for (int i = 0; i < 80; ++i) {
             TimelineEvent e;
@@ -1334,11 +1288,9 @@ ApplicationWindow {
         older.timestamp = QDateTime::currentDateTimeUtc().addSecs(-7200);
         mock->setPaginationChunkForTest({older});
         mock->setPaginationDelayForTest(400);
-        // Leaving saved the live-edge position; save a historical one.
         m_controller->pagination()->saveScrollAnchor(roomA, target, 0, false);
         QVERIFY(m_controller->pagination()->hasHistoricalScrollAnchor(roomA));
 
-        // Record the viewport at every instant the gate presents rows.
         int presentations = 0;
         int presentedAtLatest = 0;
         int presentedFollowing = 0;
@@ -1358,7 +1310,6 @@ ApplicationWindow {
                 ++presentedFollowing;
             probe.stop();
         });
-        // The gate is open while room B is shown; start probing at the switch.
         openSwitcher();
         int returnRow = -1;
         for (int row = 0; row < m_controller->quickSwitcher()->rowCount(); ++row) {
@@ -1413,11 +1364,6 @@ ApplicationWindow {
         QCOMPARE(pane->property("resumeSelectedEventId").toString(), QString());
     }
 
-    // Master prompt Part 3 §6.5 (SC49, SC53): a selection is remembered per
-    // room apart from the viewport. Returning restores its identity (resume
-    // continues from it) without moving focus; the outline shows without
-    // keyboard focus only when "Show the message selection outline when
-    // returning" is on.
     void returningToARoomRestoresItsSelectionWithoutTakingFocus()
     {
         openJoinedRoom();
@@ -1428,8 +1374,6 @@ ApplicationWindow {
         QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
         QTRY_VERIFY(!pane->property("keyboardSelectedEventId").toString().isEmpty());
         const QString previous = pane->property("keyboardSelectedEventId").toString();
-        // Back to typing: the selection becomes the resume point and the
-        // composer holds focus, which no restore below may take.
         QTest::keyClick(m_window, Qt::Key_L, Qt::ControlModifier);
         QTRY_VERIFY(item("composerInput")->hasActiveFocus());
         QCOMPARE(pane->property("resumeSelectedEventId").toString(), previous);
@@ -1449,7 +1393,6 @@ ApplicationWindow {
         }
         QVERIFY(!otherRoom.isEmpty());
 
-        // Outline off (default): identity comes back, nothing is outlined.
         m_controller->openRoom(otherRoom);
         QTRY_COMPARE(m_controller->currentRoomId(), otherRoom);
         QCOMPARE(pane->property("resumeSelectedEventId").toString(), QString());
@@ -1459,7 +1402,6 @@ ApplicationWindow {
         QCOMPARE(pane->property("keyboardSelectedEventId").toString(), QString());
         QVERIFY(!item("timelineListView")->hasActiveFocus());
         QTRY_VERIFY(item("composerInput")->hasActiveFocus());
-        // Issue #55: the resume shortcut reselects what was selected.
         QTest::keyClick(m_window, Qt::Key_W,
                         Qt::ControlModifier | Qt::ShiftModifier);
         QTRY_VERIFY(item("timelineListView")->hasActiveFocus());
@@ -1467,7 +1409,6 @@ ApplicationWindow {
         QTest::keyClick(m_window, Qt::Key_L, Qt::ControlModifier);
         QTRY_VERIFY(item("composerInput")->hasActiveFocus());
 
-        // Outline on: the same selection is outlined, focus still elsewhere.
         m_controller->settings()->setShowSelectionOnReturn(true);
         m_controller->openRoom(otherRoom);
         QTRY_COMPARE(m_controller->currentRoomId(), otherRoom);
@@ -1480,7 +1421,6 @@ ApplicationWindow {
         QTRY_COMPARE(itemsNamed(QStringLiteral("keyboardMessageSelection")).size(), 1);
     }
 
-    // L1: only the selected row instantiates a selection outline.
     void onlyTheSelectedRowInstantiatesTheSelectionOutline()
     {
         openJoinedRoom();

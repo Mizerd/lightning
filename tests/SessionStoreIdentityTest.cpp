@@ -1,8 +1,3 @@
-// The account-identity <-> SDK-store binding. Matrix localparts are
-// case-sensitive: resolveAccountIdentity() keeps what the user typed, while
-// the homeserver answers with its canonical id, which is what gets persisted.
-// The invariant: the store path used to create a session equals the store
-// path used to restore it, and resets act on the saved account.
 
 #include "app/SettingsManager.h"
 #include "matrix/RustSessionPolicy.h"
@@ -43,9 +38,6 @@ public:
         m_values.remove(userId + QLatin1Char('/') + key);
         return true;
     }
-    // Like the real backends, clearing an account with no secrets is a
-    // successful no-op, so the return value cannot say whether a reset did
-    // anything.
     bool clearAccountSecrets(const QString &userId) override
     {
         const QString prefix = userId + QLatin1Char('/');
@@ -69,7 +61,7 @@ private:
 
 constexpr auto kServer = "https://matrix.example";
 
-} // namespace
+}
 
 class SessionStoreIdentityTest : public QObject
 {
@@ -79,7 +71,6 @@ private Q_SLOTS:
     void initTestCase();
     void init();
 
-    // Identity → store path binding.
     void sameAccountResolvesToOneStoreAcrossRestarts();
     void typedLocalpartCaseIsPreservedByResolution();
     void typedCaseVariantAdoptsTheSavedCanonicalAccount();
@@ -89,13 +80,11 @@ private Q_SLOTS:
     void sameLocalpartOnDifferentHomeserversStaysIsolated();
     void equivalentHomeserverUrlsShareOneSlot();
 
-    // A bare username against an address that is not the server name.
     void aBareUsernameIsSentAsTypedNeverCompletedWithTheAddress();
     void aBareUsernameFindsItsAccountFromTheRecordOnThatAddressOnly();
     void aSignInAnswerNeverTakesAnotherAccountsStore();
     void aCaseFoldedBareUsernameNeverResumesTheSavedDevice();
 
-    // Store adoption by recording.
     void adoptionRecordsTheStoreAndIsIdempotent();
     void recordingSurvivesRestartAndIsReversible();
     void ambiguousOwnershipRefusesAdoption();
@@ -105,7 +94,6 @@ private Q_SLOTS:
     void delegationDivergenceIsAdoptableAndCaseScanIsNot();
     void savedSessionWithoutStoreEndsInASignInableState();
 
-    // login() orphan-cleanup safety.
     void delegatedStoreIsOwnedAndSurvivesLoginOrphanCleanup();
     void ownershipCheckCoversAllThreeBindings();
     void unclaimedStoreIsQuarantinedNotDeleted();
@@ -118,12 +106,10 @@ private Q_SLOTS:
     void anUnreadableSecretBlocksTheLoginThatWouldDeleteTheStore();
     void codeKeyedResetPolicyMatchesTheEnum();
 
-    // Reset honesty.
     void resetOfUnknownAccountReportsNoMatch();
     void resetOfCaseVariantMatchesTheSavedRecord();
     void removalSummaryDistinguishesMissingFromDeleted();
 
-    // Failure classification.
     void everyBlockReasonHasItsOwnCode();
     void missingStoreIsNotReportedAsAForeignStore();
     void onlyRepairableReasonsOfferALocalReset();
@@ -131,8 +117,6 @@ private Q_SLOTS:
 private:
     matrix::app_data::AccountIdentity identityFor(
         const QString &user, const QString &homeserver = QLatin1String(kServer)) const;
-    // Create <primaryRoot>/<slug>/matrix-rust-sdk-store with one marker file,
-    // so a migration can be shown to have kept the same store.
     void seedStore(const QString &slug, const QString &marker) const;
     QString markerIn(const QString &slug) const;
     bool storeExists(const QString &slug) const;
@@ -155,7 +139,6 @@ void SessionStoreIdentityTest::initTestCase()
 
 void SessionStoreIdentityTest::init()
 {
-    // Every test starts from an empty registry and an empty data root.
     m_settings.reset();
     QDir(m_configHome.path()).removeRecursively();
     QDir().mkpath(m_configHome.path());
@@ -206,13 +189,8 @@ bool SessionStoreIdentityTest::storeExists(const QString &slug) const
                      + QLatin1String("/matrix-rust-sdk-store")).isDir();
 }
 
-// --- identity → store path -------------------------------------------------
-
 void SessionStoreIdentityTest::sameAccountResolvesToOneStoreAcrossRestarts()
 {
-    // A login persists the server-canonical id, and every later start
-    // re-derives the store path from it, landing on the store the login
-    // created.
     const auto atLogin = identityFor(QStringLiteral("@alice:matrix.example"));
     seedStore(atLogin.slug, QStringLiteral("real-store"));
 
@@ -221,7 +199,6 @@ void SessionStoreIdentityTest::sameAccountResolvesToOneStoreAcrossRestarts()
                             QStringLiteral("DEVICE1"),
                             QStringLiteral("token"));
 
-    // "Restart": a fresh SettingsManager reading the persisted registry.
     m_settings.reset();
     m_settings = std::make_unique<SettingsManager>();
     m_settings->setSecretStore(m_secrets.get());
@@ -234,23 +211,17 @@ void SessionStoreIdentityTest::sameAccountResolvesToOneStoreAcrossRestarts()
 
 void SessionStoreIdentityTest::typedLocalpartCaseIsPreservedByResolution()
 {
-    // Localparts are not lowercased: uppercase localparts are legal Matrix ids,
-    // and folding them would alias two accounts onto one store. Divergence is
-    // repaired by canonicalizing against saved records.
     const auto upper = identityFor(QStringLiteral("@Mizerd:matrix.example"));
     const auto lower = identityFor(QStringLiteral("@mizerd:matrix.example"));
     QCOMPARE(upper.userId, QStringLiteral("@Mizerd:matrix.example"));
     QCOMPARE(lower.userId, QStringLiteral("@mizerd:matrix.example"));
     QVERIFY(upper.rustStorePath != lower.rustStorePath);
-    // The server name IS lowercased, so only the localpart can diverge.
     QCOMPARE(identityFor(QStringLiteral("@mizerd:MATRIX.EXAMPLE")).userId,
              lower.userId);
 }
 
 void SessionStoreIdentityTest::typedCaseVariantAdoptsTheSavedCanonicalAccount()
 {
-    // The user types "Mizerd" and the homeserver knows "@mizerd:...": the
-    // login lands on the saved account's store instead of creating a second.
     m_settings->saveSession(QLatin1String(kServer),
                             QStringLiteral("@mizerd:matrix.example"),
                             QStringLiteral("DEVICE1"),
@@ -271,9 +242,6 @@ void SessionStoreIdentityTest::typedCaseVariantAdoptsTheSavedCanonicalAccount()
 
 void SessionStoreIdentityTest::aBareUsernameIsSentAsTypedNeverCompletedWithTheAddress()
 {
-    // Break-it rerun 2026-10-16: the server at http://127.0.0.1:18008 is named
-    // localhs.test. The identity resolved from "bk010" carries the address's
-    // host, and that id was what reached the server: 404 M_NOT_FOUND.
     const QString address = QStringLiteral("http://127.0.0.1:18008");
     const auto typed = identityFor(QStringLiteral("bk010"), address);
     QCOMPARE(typed.userId, QStringLiteral("@bk010:127.0.0.1:18008"));
@@ -282,7 +250,6 @@ void SessionStoreIdentityTest::aBareUsernameIsSentAsTypedNeverCompletedWithTheAd
     QCOMPARE(matrix::rust_session::passwordLoginIdentifier(QStringLiteral("  bk010 "), typed),
              QStringLiteral("bk010"));
 
-    // A full Matrix ID names its own server and goes as resolved.
     const auto full = identityFor(QStringLiteral("@bk010:LocalHS.test"), address);
     QCOMPARE(matrix::rust_session::passwordLoginIdentifier(
                  QStringLiteral("@bk010:LocalHS.test"), full),
@@ -293,8 +260,6 @@ void SessionStoreIdentityTest::aBareUsernameFindsItsAccountFromTheRecordOnThatAd
 {
     using matrix::rust_session::savedAccountForBareUsername;
     const QString address = QStringLiteral("http://127.0.0.1:18008");
-    // Saved through the real records, so the homeserver spelling compared is
-    // the one login() resolves (a trailing slash normalises away).
     m_settings->saveSession(address + QLatin1Char('/'), QStringLiteral("@bk010:localhs.test"),
                             QStringLiteral("D1"), QStringLiteral("t1"));
     m_settings->saveSession(QLatin1String(kServer), QStringLiteral("@bk010:matrix.example"),
@@ -312,18 +277,13 @@ void SessionStoreIdentityTest::aBareUsernameFindsItsAccountFromTheRecordOnThatAd
     QCOMPARE(savedAccountForBareUsername(QStringLiteral("bk010"), onAddress, saved, &ambiguous),
              QStringLiteral("@bk010:localhs.test"));
     QVERIFY(!ambiguous);
-    // Only records on that address: the same localpart elsewhere is another
-    // person.
     QCOMPARE(savedAccountForBareUsername(QStringLiteral("bk010"),
                                          QStringLiteral("https://elsewhere.example"), saved),
              QString());
     QCOMPARE(savedAccountForBareUsername(QStringLiteral("bk011"), onAddress, saved), QString());
-    // A full id is never looked up this way; it names its own server.
     QCOMPARE(savedAccountForBareUsername(QStringLiteral("@bk010:localhs.test"), onAddress,
                                          saved),
              QString());
-    // Case folding finds one, as canonicalUserIdForTypedIdentity does for a
-    // full id; an exact localpart beats a folded one.
     QCOMPARE(savedAccountForBareUsername(QStringLiteral("BK010"), onAddress, saved),
              QStringLiteral("@bk010:localhs.test"));
     matrix::app_data::AccountIdentity upper = identityFor(
@@ -333,11 +293,9 @@ void SessionStoreIdentityTest::aBareUsernameFindsItsAccountFromTheRecordOnThatAd
     QCOMPARE(savedAccountForBareUsername(QStringLiteral("BK010"), onAddress, both, &ambiguous),
              QStringLiteral("@BK010:localhs.test"));
     QVERIFY(!ambiguous);
-    // Two folded candidates and no exact one: refuse, never guess a store.
     QCOMPARE(savedAccountForBareUsername(QStringLiteral("Bk010"), onAddress, both, &ambiguous),
              QString());
     QVERIFY(ambiguous);
-    // One username on two server names behind one address: refuse.
     QList<matrix::app_data::AccountIdentity> twins = saved;
     twins.append(identityFor(QStringLiteral("@bk010:other.test"), address));
     QCOMPARE(savedAccountForBareUsername(QStringLiteral("bk010"), onAddress, twins, &ambiguous),
@@ -354,29 +312,20 @@ void SessionStoreIdentityTest::aSignInAnswerNeverTakesAnotherAccountsStore()
         root + QStringLiteral("/bk010_127.0.0.1_18008/matrix-rust-sdk-store");
     const QString recorded = root + QStringLiteral("/bk010_localhs.test/matrix-rust-sdk-store");
 
-    // A first sign-in: nobody owns the store and nothing is saved for the
-    // answer, so the answer is saved over it (the reported case).
     QVERIFY(!signInAnswerCollidesWithSavedStore(answer, provisional, QString(), false,
                                                 QString()));
-    // The account's own recorded store, however the path is spelled.
     QVERIFY(!signInAnswerCollidesWithSavedStore(
         answer, recorded, answer, true,
         root + QStringLiteral("/bk010_localhs.test/./matrix-rust-sdk-store/")));
-    // The answer is saved with its store elsewhere: saving would orphan it.
     QVERIFY(signInAnswerCollidesWithSavedStore(answer, provisional, QString(), true, recorded));
-    // The opened store is recorded for someone else, even a case variant.
     QVERIFY(signInAnswerCollidesWithSavedStore(answer, recorded,
                                                QStringLiteral("@BK010:localhs.test"), false,
                                                QString()));
-    // No store opened (the smoke harness's override): nothing to protect.
     QVERIFY(!signInAnswerCollidesWithSavedStore(answer, QString(), QString(), true, recorded));
 }
 
 void SessionStoreIdentityTest::aCaseFoldedBareUsernameNeverResumesTheSavedDevice()
 {
-    // §18 review: "BK010" located @bk010:localhs.test, and the record's own id
-    // then reached the exact-id resume checks as the typed one. The checks
-    // must see the casing that was typed.
     using namespace matrix::rust_session;
     const QString saved = QStringLiteral("@bk010:localhs.test");
     const QString hs = QStringLiteral("http://127.0.0.1:18008");
@@ -384,19 +333,15 @@ void SessionStoreIdentityTest::aCaseFoldedBareUsernameNeverResumesTheSavedDevice
     QCOMPARE(typedUserIdOnSavedServer(QStringLiteral("bk010"), saved), saved);
     QCOMPARE(typedUserIdOnSavedServer(QStringLiteral(" BK010 "), saved),
              QStringLiteral("@BK010:localhs.test"));
-    // Only a bare username against a well-formed saved id; anything else is
-    // empty, which no resume check accepts.
     QVERIFY(typedUserIdOnSavedServer(saved, saved).isEmpty());
     QVERIFY(typedUserIdOnSavedServer(QStringLiteral("bk010:x"), saved).isEmpty());
     QVERIFY(typedUserIdOnSavedServer(QString(), saved).isEmpty());
     QVERIFY(typedUserIdOnSavedServer(QStringLiteral("bk010"), QStringLiteral("bk010"))
                 .isEmpty());
 
-    // Exactly the saved localpart: both resumes stay possible (the control).
     const QString exact = typedUserIdOnSavedServer(QStringLiteral("bk010"), saved);
     QVERIFY(softLoggedOutDeviceMayResume(exact, hs, saved, hs, device, saved, hs, device));
     QVERIFY(lostSignInDeviceMayResume(exact, hs, saved, hs, device, false));
-    // Folded: neither, as for a typed @BK010:localhs.test.
     const QString folded = typedUserIdOnSavedServer(QStringLiteral("BK010"), saved);
     QVERIFY(!softLoggedOutDeviceMayResume(folded, hs, saved, hs, device, saved, hs, device));
     QVERIFY(!lostSignInDeviceMayResume(folded, hs, saved, hs, device, false));
@@ -407,8 +352,6 @@ void SessionStoreIdentityTest::aCaseFoldedBareUsernameNeverResumesTheSavedDevice
 
 void SessionStoreIdentityTest::exactMatchWinsOverCaseInsensitiveSibling()
 {
-    // Both casings are saved, real accounts: an exact hit is never redirected
-    // to its sibling.
     m_settings->saveSession(QLatin1String(kServer),
                             QStringLiteral("@mizerd:matrix.example"),
                             QStringLiteral("D1"), QStringLiteral("t1"));
@@ -428,8 +371,6 @@ void SessionStoreIdentityTest::exactMatchWinsOverCaseInsensitiveSibling()
 
 void SessionStoreIdentityTest::ambiguousSavedCasingsRefuseCanonicalization()
 {
-    // Two saved accounts differ only by case and the typed id matches neither
-    // exactly: no guess.
     m_settings->saveSession(QLatin1String(kServer),
                             QStringLiteral("@mizerd:matrix.example"),
                             QStringLiteral("D1"), QStringLiteral("t1"));
@@ -454,7 +395,6 @@ void SessionStoreIdentityTest::distinctUsersOnOneHomeserverStayIsolated()
     m_settings->saveSession(QLatin1String(kServer),
                             QStringLiteral("@alice:matrix.example"),
                             QStringLiteral("D1"), QStringLiteral("t1"));
-    // A different localpart is never a case variant of ours.
     QCOMPARE(m_settings->canonicalUserIdForTypedIdentity(
                  QStringLiteral("@bob:matrix.example")),
              QString());
@@ -472,7 +412,6 @@ void SessionStoreIdentityTest::sameLocalpartOnDifferentHomeserversStaysIsolated(
     m_settings->saveSession(QLatin1String(kServer),
                             QStringLiteral("@alice:matrix.example"),
                             QStringLiteral("D1"), QStringLiteral("t1"));
-    // Same localpart, different server: not a candidate for canonicalization.
     QCOMPARE(m_settings->canonicalUserIdForTypedIdentity(
                  QStringLiteral("@Alice:other.example")),
              QString());
@@ -482,8 +421,6 @@ void SessionStoreIdentityTest::sameLocalpartOnDifferentHomeserversStaysIsolated(
 
 void SessionStoreIdentityTest::equivalentHomeserverUrlsShareOneSlot()
 {
-    // URL spellings of the same homeserver do not multiply the account's
-    // storage slots.
     const auto plain = identityFor(QStringLiteral("alice"),
                                    QStringLiteral("https://matrix.example"));
     for (const QString &variant : {QStringLiteral("https://matrix.example/"),
@@ -496,8 +433,6 @@ void SessionStoreIdentityTest::equivalentHomeserverUrlsShareOneSlot()
         QCOMPARE(other.rustStorePath, plain.rustStorePath);
     }
 
-    // An explicit port is part of the server name, so a different identity,
-    // but still stable and slash-insensitive.
     const auto ported = identityFor(QStringLiteral("alice"),
                                     QStringLiteral("https://matrix.example:8448"));
     const auto portedSlash = identityFor(QStringLiteral("alice"),
@@ -506,13 +441,8 @@ void SessionStoreIdentityTest::equivalentHomeserverUrlsShareOneSlot()
     QVERIFY(ported.rustStorePath != plain.rustStorePath);
 }
 
-// --- adoption / migration --------------------------------------------------
-
 void SessionStoreIdentityTest::adoptionRecordsTheStoreAndIsIdempotent()
 {
-    // Adoption points the account at the divergent directory and never moves
-    // it: the store holds the only copy of its Megolm keys, and a recording is
-    // reversible where a rename is not.
     const auto canonical = identityFor(QStringLiteral("@mizerd:matrix.example"));
     const QString typedSlug = QStringLiteral("Mizerd_matrix.example");
     seedStore(typedSlug, QStringLiteral("the-only-real-store"));
@@ -530,15 +460,13 @@ void SessionStoreIdentityTest::adoptionRecordsTheStoreAndIsIdempotent()
     QVERIFY(m_settings->resolveSavedIdentity(
         QStringLiteral("@mizerd:matrix.example"), &bound));
     QCOMPARE(bound.storeSlug, typedSlug);
-    QCOMPARE(bound.slug, canonical.slug);          // identity unchanged
+    QCOMPARE(bound.slug, canonical.slug);
     QVERIFY(bound.isValid());
     QVERIFY(QFileInfo(bound.rustStorePath).isDir());
     QCOMPARE(markerIn(typedSlug), QStringLiteral("the-only-real-store"));
 
-    // Nothing moved, nothing created at the canonical path.
     QVERIFY(!storeExists(canonical.slug));
 
-    // Recording the same slug again changes nothing.
     m_settings->setStoreSlugFor(QStringLiteral("@mizerd:matrix.example"),
                                 typedSlug);
     matrix::app_data::AccountIdentity again;
@@ -558,7 +486,6 @@ void SessionStoreIdentityTest::recordingSurvivesRestartAndIsReversible()
     m_settings->setStoreSlugFor(QStringLiteral("@mizerd:matrix.example"),
                                 typedSlug);
 
-    // "Restart".
     m_settings.reset();
     m_settings = std::make_unique<SettingsManager>();
     m_settings->setSecretStore(m_secrets.get());
@@ -569,8 +496,6 @@ void SessionStoreIdentityTest::recordingSurvivesRestartAndIsReversible()
     QCOMPARE(bound.storeSlug, typedSlug);
     QVERIFY(QFileInfo(bound.rustStorePath).isDir());
 
-    // When the SDK rejects an adopted store, clearing the recording returns
-    // the account to the canonical layout without touching any store.
     m_settings->setStoreSlugFor(QStringLiteral("@mizerd:matrix.example"),
                                 QString{});
     matrix::app_data::AccountIdentity reverted;
@@ -582,16 +507,12 @@ void SessionStoreIdentityTest::recordingSurvivesRestartAndIsReversible()
 
 void SessionStoreIdentityTest::ambiguousOwnershipRefusesAdoption()
 {
-    // Two stores whose slugs both differ from the canonical one only by case:
-    // adopting either would be a guess that could hand over another account's
-    // crypto store.
     const auto canonical = identityFor(QStringLiteral("@mizerd:matrix.example"));
     seedStore(QStringLiteral("Mizerd_matrix.example"), QStringLiteral("one"));
     seedStore(QStringLiteral("MIZERD_matrix.example"), QStringLiteral("two"));
 
     QCOMPARE(matrix::app_data::findCaseVariantStoreSlugs(canonical).size(), 2);
 
-    // Nothing was destroyed or claimed.
     QCOMPARE(markerIn(QStringLiteral("Mizerd_matrix.example")),
              QStringLiteral("one"));
     QCOMPARE(markerIn(QStringLiteral("MIZERD_matrix.example")),
@@ -612,11 +533,9 @@ void SessionStoreIdentityTest::bindingRefusesUnsafeOrUnscopedSlugs()
         auto probe = canonical;
         QVERIFY2(!matrix::app_data::bindStoreSlug(&probe, bad),
                  qPrintable(bad));
-        // Refused, not half-applied.
         QCOMPARE(probe.rustStorePath, original);
     }
 
-    // An empty slug means "drop the recording" and returns to canonical.
     auto probe = canonical;
     QVERIFY(matrix::app_data::bindStoreSlug(&probe, QStringLiteral("Other_x")));
     QVERIFY(probe.rustStorePath != original);
@@ -632,7 +551,6 @@ void SessionStoreIdentityTest::adoptionLeavesOtherAccountsUntouched()
     seedStore(QStringLiteral("Mizerd_matrix.example"), QStringLiteral("mine"));
     seedStore(other.slug, QStringLiteral("not-mine"));
 
-    // A different account is not a case variant, so it is never a candidate.
     QCOMPARE(matrix::app_data::findCaseVariantStoreSlugs(canonical),
              QStringList{QStringLiteral("Mizerd_matrix.example")});
     QCOMPARE(markerIn(other.slug), QStringLiteral("not-mine"));
@@ -640,10 +558,6 @@ void SessionStoreIdentityTest::adoptionLeavesOtherAccountsUntouched()
 
 void SessionStoreIdentityTest::delegatedHomeserverSlugIsReconstructedExactly()
 {
-    // .well-known delegation: https://matrix.example.com serves
-    // @alice:example.com. Older builds paired the typed bare localpart with the
-    // URL host (alice_matrix.example.com) while the record said
-    // alice_example.com; the case scan cannot see that.
     matrix::app_data::AccountIdentity delegated;
     QVERIFY(matrix::app_data::resolveAccountIdentity(
         QStringLiteral("https://matrix.example.com"),
@@ -652,12 +566,10 @@ void SessionStoreIdentityTest::delegatedHomeserverSlugIsReconstructedExactly()
     QCOMPARE(matrix::app_data::delegatedHomeserverStoreSlug(delegated),
              QStringLiteral("alice_matrix.example.com"));
 
-    // The old computation: resolving the bare localpart against the same URL.
     const auto legacy = identityFor(QStringLiteral("alice"),
                                     QStringLiteral("https://matrix.example.com"));
     QCOMPARE(legacy.slug, QStringLiteral("alice_matrix.example.com"));
 
-    // No delegation: nothing to reconstruct.
     const auto plain = identityFor(QStringLiteral("@alice:matrix.example"));
     QCOMPARE(matrix::app_data::delegatedHomeserverStoreSlug(plain), QString());
 }
@@ -671,10 +583,8 @@ void SessionStoreIdentityTest::delegationDivergenceIsAdoptableAndCaseScanIsNot()
     seedStore(QStringLiteral("alice_matrix.example.com"),
               QStringLiteral("delegated-store"));
 
-    // The case scan is blind to it; the reconstruction fills that gap.
     QVERIFY(matrix::app_data::findCaseVariantStoreSlugs(delegated).isEmpty());
 
-    // Recording the reconstructed slug binds the real store; nothing moves.
     m_settings->saveSession(QStringLiteral("https://matrix.example.com"),
                             QStringLiteral("@alice:example.com"),
                             QStringLiteral("D1"), QStringLiteral("t1"));
@@ -697,15 +607,10 @@ void SessionStoreIdentityTest::delegationDivergenceIsAdoptableAndCaseScanIsNot()
 
 void SessionStoreIdentityTest::savedSessionWithoutStoreEndsInASignInableState()
 {
-    // The repair path when the store is gone: restore reports
-    // saved_session_without_store (sign in again as a new device), and signing
-    // in must not write the store under the typed slug and the record under
-    // the canonical one, which would fail the same way on the next start.
     using R = matrix::rust_session::StoreBlockReason;
     const QString typed = QStringLiteral("@Mizerd:matrix.example");
     const QString canonicalId = QStringLiteral("@mizerd:matrix.example");
 
-    // Saved record + token, a device id, and no store anywhere.
     m_settings->saveSession(QLatin1String(kServer), canonicalId,
                             QStringLiteral("DCRVACHEGL"), QStringLiteral("token"));
     matrix::app_data::AccountIdentity saved;
@@ -713,7 +618,6 @@ void SessionStoreIdentityTest::savedSessionWithoutStoreEndsInASignInableState()
     QVERIFY(!QFileInfo(saved.rustStorePath).exists());
     QVERIFY(matrix::app_data::findCaseVariantStoreSlugs(saved).isEmpty());
 
-    // 1. The verdict is specific and does not offer to delete a missing store.
     const auto block = matrix::rust_session::restoreBlockReason(
         saved, false, QStringLiteral("DCRVACHEGL"));
     QCOMPARE(block, R::MissingStoreForSavedSession);
@@ -723,32 +627,23 @@ void SessionStoreIdentityTest::savedSessionWithoutStoreEndsInASignInableState()
     QVERIFY(!matrix::rust_session::userMessage(block)
                  .contains(QStringLiteral("different Matrix session or device")));
 
-    // 2. Signing in with the typed casing canonicalizes onto the saved
-    //    account.
     bool ambiguous = true;
     const QString resolved =
         m_settings->canonicalUserIdForTypedIdentity(typed, &ambiguous);
     QVERIFY(!ambiguous);
     QCOMPARE(resolved, canonicalId);
 
-    // 3. A fresh password login is not blocked: no store, no ownership
-    //    conflict.
     auto loginIdentity = identityFor(resolved);
     QCOMPARE(matrix::rust_session::passwordLoginBlockReason(
                  loginIdentity, false, true, QStringLiteral("DCRVACHEGL")),
              R::None);
 
-    // 4. The login opens a store and the server answers with the canonical
-    //    id; the directory actually opened is what gets recorded (here, one
-    //    that diverges from the record).
     const QString openedSlug = QStringLiteral("Mizerd_matrix.example");
     seedStore(openedSlug, QStringLiteral("new-device-store"));
     m_settings->saveSession(QLatin1String(kServer), canonicalId,
                             QStringLiteral("NEWDEVICE"), QStringLiteral("token2"));
     m_settings->setStoreSlugFor(canonicalId, openedSlug);
 
-    // 5. Restart: the account resolves to the store that exists, so restore
-    //    is not blocked.
     m_settings.reset();
     m_settings = std::make_unique<SettingsManager>();
     m_settings->setSecretStore(m_secrets.get());
@@ -763,7 +658,6 @@ void SessionStoreIdentityTest::savedSessionWithoutStoreEndsInASignInableState()
              R::None);
     QCOMPARE(m_settings->deviceId(), QStringLiteral("NEWDEVICE"));
 
-    // 6. Still true on the next restart: stable, not a one-shot repair.
     m_settings.reset();
     m_settings = std::make_unique<SettingsManager>();
     m_settings->setSecretStore(m_secrets.get());
@@ -775,47 +669,34 @@ void SessionStoreIdentityTest::savedSessionWithoutStoreEndsInASignInableState()
                  m_settings->deviceId()),
              R::None);
 
-    // 7. Sign-out deletes the store really in use.
     const auto removed = matrix::app_data::removeAccountRustState(third);
     QVERIFY(removed.ok());
     QVERIFY(removed.removedAnything());
     QVERIFY(!storeExists(openedSlug));
 }
 
-// --- login() orphan-cleanup safety ----------------------------------------
-
 void SessionStoreIdentityTest::delegatedStoreIsOwnedAndSurvivesLoginOrphanCleanup()
 {
-    // Driven through login()'s decision inputs (RustSdkMatrixClient needs the
-    // FFI). https://matrix.example.com serves @alice:example.com and the user
-    // types "alice": the derived @alice:matrix.example.com has no record, but
-    // its directory is the account's real crypto store and must not be
-    // deleted.
     m_settings->saveSession(QStringLiteral("https://matrix.example.com"),
                             QStringLiteral("@alice:example.com"),
                             QStringLiteral("D1"), QStringLiteral("t1"));
     seedStore(QStringLiteral("alice_matrix.example.com"),
               QStringLiteral("real-keys"));
 
-    // What login() derives from the typed input.
     const auto typed = identityFor(QStringLiteral("alice"),
                                    QStringLiteral("https://matrix.example.com"));
     QCOMPARE(typed.userId, QStringLiteral("@alice:matrix.example.com"));
     QCOMPARE(typed.effectiveStoreSlug(),
              QStringLiteral("alice_matrix.example.com"));
 
-    // Every older signal says "unclaimed".
     QVERIFY(!m_settings->hasSavedAccount(typed.userId));
     QCOMPARE(m_settings->canonicalUserIdForTypedIdentity(typed.userId),
              QString());
     QVERIFY(matrix::app_data::findCaseVariantStoreSlugs(typed).isEmpty());
 
-    // The ownership check sees it.
     QCOMPARE(m_settings->accountOwningStoreSlug(typed.effectiveStoreSlug()),
              QStringLiteral("@alice:example.com"));
 
-    // So the store is untouched: the owner has a record and a readable token,
-    // which is the "switch to that account" state, not an orphan.
     QVERIFY(m_settings->hasSavedAccount(QStringLiteral("@alice:example.com")));
     QVERIFY(!m_settings->accessTokenFor(QStringLiteral("@alice:example.com"))
                  .isEmpty());
@@ -826,8 +707,6 @@ void SessionStoreIdentityTest::delegatedStoreIsOwnedAndSurvivesLoginOrphanCleanu
 
 void SessionStoreIdentityTest::ownershipCheckCoversAllThreeBindings()
 {
-    // An account can be bound to a directory three ways; missing any one makes
-    // a real store look unclaimed.
     m_settings->saveSession(QLatin1String(kServer),
                             QStringLiteral("@canonical:matrix.example"),
                             QStringLiteral("D1"), QStringLiteral("t1"));
@@ -850,7 +729,6 @@ void SessionStoreIdentityTest::ownershipCheckCoversAllThreeBindings()
                  QStringLiteral("delegated_matrix.example.com")),
              QStringLiteral("@delegated:example.com"));
 
-    // An unbound directory stays unowned, so something is still cleanable.
     QCOMPARE(m_settings->accountOwningStoreSlug(
                  QStringLiteral("stranger_matrix.example")),
              QString());
@@ -859,32 +737,25 @@ void SessionStoreIdentityTest::ownershipCheckCoversAllThreeBindings()
 
 void SessionStoreIdentityTest::unclaimedStoreIsQuarantinedNotDeleted()
 {
-    // A genuinely unclaimed store is moved aside, not destroyed, so a wrong
-    // verdict stays recoverable.
     const auto stray = identityFor(QStringLiteral("@stray:matrix.example"));
     seedStore(stray.slug, QStringLiteral("might-matter"));
     QCOMPARE(m_settings->accountOwningStoreSlug(stray.slug), QString());
 
     const QString moved = matrix::app_data::quarantineRustStore(stray);
     QVERIFY(!moved.isEmpty());
-    QVERIFY(!QFileInfo(stray.rustStorePath).exists());   // path is free again
+    QVERIFY(!QFileInfo(stray.rustStorePath).exists());
     QVERIFY(QFileInfo(moved).isDir());
     QVERIFY(moved.startsWith(stray.rustStorePath + QLatin1String(".orphaned-")));
 
-    // The bytes survived.
     QFile f(moved + QLatin1String("/marker"));
     QVERIFY(f.open(QIODevice::ReadOnly));
     QCOMPARE(QString::fromUtf8(f.readAll()), QStringLiteral("might-matter"));
     f.close();
 
-    // Nothing to move a second time, and no store is invented.
     QCOMPARE(matrix::app_data::quarantineRustStore(stray), QString());
 }
 
 namespace {
-// Simulates Windows: renames fail while "open files" exist. `failFor` is the
-// number of leading calls that fail; a rename of one named entry (the second
-// seeded file) also fails on the first pass, so a partial move is exercised.
 struct FlakyRename {
     int failFor = 0;
     int calls = 0;
@@ -898,7 +769,7 @@ bool flakyRename(const QString &from, const QString &to, void *ctx)
         return false;
     return QDir().rename(from, to);
 }
-} // namespace
+}
 
 void SessionStoreIdentityTest::quarantineRetriesASharingViolationAndNeverSplitsTheStore()
 {
@@ -909,8 +780,6 @@ void SessionStoreIdentityTest::quarantineRetriesASharingViolationAndNeverSplitsT
     second.write("2");
     second.close();
 
-    // Dir rename fails, first entry moves, second entry fails (calls 1 and 3),
-    // then the rollback and the whole of the second pass succeed.
     struct Ctx { FlakyRename f; int n = 0; } ctx;
     auto rename = [](const QString &from, const QString &to, void *c) {
         auto *x = static_cast<Ctx *>(c);
@@ -937,8 +806,6 @@ void SessionStoreIdentityTest::aFailedEntryMoveIsRolledBackAndTheStoreStaysWhole
     second.write("2");
     second.close();
 
-    // One attempt: the directory rename fails, the first entry moves, the
-    // SECOND entry's rename fails. Without a rollback the first stays aside.
     struct Ctx { int n = 0; } ctx;
     auto rename = [](const QString &from, const QString &to, void *c) {
         auto *x = static_cast<Ctx *>(c);
@@ -974,7 +841,6 @@ void SessionStoreIdentityTest::quarantineNamesAStoreInUse()
     QVERIFY(moved.isEmpty());
     QCOMPARE(why, matrix::app_data::QuarantineFailure::InUse);
     QVERIFY2(always.calls >= 2, "no retry was made");
-    // Untouched, and no half-made sibling left behind.
     QCOMPARE(markerIn(stray.slug), QStringLiteral("held-open"));
     const QDir account(QFileInfo(stray.rustStorePath).absolutePath());
     QVERIFY(account.entryList({QStringLiteral("*.orphaned-*")},
@@ -983,15 +849,11 @@ void SessionStoreIdentityTest::quarantineNamesAStoreInUse()
 
 void SessionStoreIdentityTest::asciiOnlyCaseFoldingForAdoptionCandidates()
 {
-    // Adoption recognises only a-z/A-Z divergence; full Unicode folding would
-    // equate slugs from genuinely distinct localparts.
     const auto canonical = identityFor(QStringLiteral("@mizerd:matrix.example"));
     seedStore(QStringLiteral("Mizerd_matrix.example"), QStringLiteral("ascii"));
     QCOMPARE(matrix::app_data::findCaseVariantStoreSlugs(canonical),
              QStringList{QStringLiteral("Mizerd_matrix.example")});
 
-    // Turkish dotless i folds to "i" under Unicode rules but is a different
-    // localpart.
     const auto turkish = identityFor(QStringLiteral("@ismail:matrix.example"));
     seedStore(QString::fromUtf8("\xc4\xb1smail_matrix.example"),
               QStringLiteral("different-person"));
@@ -1000,18 +862,14 @@ void SessionStoreIdentityTest::asciiOnlyCaseFoldingForAdoptionCandidates()
 
 void SessionStoreIdentityTest::repairQuarantinesTheStoreInsteadOfDeletingIt()
 {
-    // "Quarantine and rebuild" quarantines rather than deletes: several reason
-    // codes route to it where the store is believed to belong to someone
-    // else, and that belief can be wrong.
     const auto identity = identityFor(QStringLiteral("@mizerd:matrix.example"));
     seedStore(identity.slug, QStringLiteral("possibly-the-only-copy"));
 
     const auto files = matrix::app_data::quarantineAccountRustState(identity);
     QVERIFY(files.ok());
-    QVERIFY(files.removedAnything());          // still real work, not a no-op
-    QVERIFY(!storeExists(identity.slug));      // out of service
+    QVERIFY(files.removedAnything());
+    QVERIFY(!storeExists(identity.slug));
 
-    // ...but recoverable: the quarantined copy exists with its bytes.
     QDir account(identity.accountRoot);
     const auto kept = account.entryList(
         {QStringLiteral("matrix-rust-sdk-store.orphaned-*")},
@@ -1024,14 +882,10 @@ void SessionStoreIdentityTest::repairQuarantinesTheStoreInsteadOfDeletingIt()
              QStringLiteral("possibly-the-only-copy"));
     f.close();
 
-    // A repair with nothing to act on is still an honest no-op.
     const auto again = matrix::app_data::quarantineAccountRustState(identity);
     QVERIFY(again.ok());
     QVERIFY(!again.removedAnything());
 
-    // Explicit sign-out still deletes, including quarantined copies: the user
-    // asked for the account to be gone, and a quarantine is a complete crypto
-    // store. This also bounds the copies.
     seedStore(identity.slug, QStringLiteral("signing-out"));
     const auto removed = matrix::app_data::removeAccountRustState(identity);
     QVERIFY(removed.removedAnything());
@@ -1040,13 +894,11 @@ void SessionStoreIdentityTest::repairQuarantinesTheStoreInsteadOfDeletingIt()
                  .entryList({QStringLiteral("matrix-rust-sdk-store.orphaned-*")},
                             QDir::Dirs | QDir::NoDotAndDotDot)
                  .size(),
-             0);   // sign-out takes the quarantines with it
+             0);
 }
 
 void SessionStoreIdentityTest::unreadableSecretBackendIsNeverADestructiveVerdict()
 {
-    // A locked keyring makes token lookups empty while record and store are
-    // intact, so it must not route to a destructive repair.
     using R = matrix::rust_session::StoreBlockReason;
     QVERIFY(!matrix::rust_session::suggestsLocalReset(R::SecretBackendUnavailable));
     QCOMPARE(matrix::rust_session::diagnosticName(R::SecretBackendUnavailable),
@@ -1056,14 +908,11 @@ void SessionStoreIdentityTest::unreadableSecretBackendIsNeverADestructiveVerdict
         matrix::rust_session::userMessage(R::SecretBackendUnavailable);
     QVERIFY(!message.isEmpty());
     QVERIFY(!message.contains(QStringLiteral("different Matrix session or device")));
-    // The message says the data is safe.
     QVERIFY(message.contains(QStringLiteral("Nothing has been deleted")));
 
-    // With no secret store wired the backend cannot answer, which login()
-    // checks before MissingSessionMetadata (destructive) may claim the case.
     SettingsManager bare;
     QVERIFY(bare.secretBackendUnavailable());
-    QVERIFY(!m_settings->secretBackendUnavailable());   // fake store answers
+    QVERIFY(!m_settings->secretBackendUnavailable());
 }
 
 void SessionStoreIdentityTest::
@@ -1071,14 +920,6 @@ void SessionStoreIdentityTest::
 {
     using matrix::rust_session::unreadableSecretBlocksLogin;
 
-    // unreadableSecretBlocksLogin guards a repair that deletes a crypto store:
-    // a record + a store + a token we could not read is not evidence of an
-    // orphan. Destructive cleanup keys on the record being absent, never on an
-    // unreadable secret.
-
-    // Both "could not ask" routes block: a keyring that locked after startup,
-    // and a fallback store standing in for a native backend that would not
-    // open.
     QVERIFY2(unreadableSecretBlocksLogin(true, true, false, true, false),
              "a locked keyring let a store-deleting repair through");
     QVERIFY2(unreadableSecretBlocksLogin(true, true, false, false, true),
@@ -1086,23 +927,16 @@ void SessionStoreIdentityTest::
              "through — this is the one the 2026-09-10 correction exposed");
     QVERIFY(unreadableSecretBlocksLogin(true, true, false, true, true));
 
-    // A token we did read answers the question, so ordinary sign-ins are not
-    // blocked.
     QVERIFY(!unreadableSecretBlocksLogin(true, true, true, true, true));
 
-    // Nothing is blocked when nothing is at risk: no store, or no record.
     QVERIFY(!unreadableSecretBlocksLogin(false, true, false, true, true));
     QVERIFY(!unreadableSecretBlocksLogin(true, false, false, true, true));
 
-    // A readable-but-absent secret with a record is an ordinary expired
-    // sign-in and stays reachable.
     QVERIFY(!unreadableSecretBlocksLogin(true, true, false, false, false));
 }
 
 void SessionStoreIdentityTest::codeKeyedResetPolicyMatchesTheEnum()
 {
-    // "No destructive action for a reason a reset cannot repair" is enforced
-    // in C++ from the reason code, not by a QML label.
     using R = matrix::rust_session::StoreBlockReason;
     for (R r : {R::None, R::MissingSessionMetadata, R::MissingDeviceId,
                 R::DifferentAccount, R::ExistingStoreNeedsRestore,
@@ -1115,19 +949,15 @@ void SessionStoreIdentityTest::codeKeyedResetPolicyMatchesTheEnum()
                  qPrintable(matrix::rust_session::diagnosticName(r)));
     }
 
-    // Codes emitted outside the enum.
     QVERIFY(matrix::rust_session::suggestsLocalResetForCode(
         QStringLiteral("cleanup_incomplete")));
     QVERIFY(matrix::rust_session::suggestsLocalResetForCode(
         QStringLiteral("sdk_store_ownership_mismatch")));
 
-    // Unknown and empty codes default to not destructive.
     QVERIFY(!matrix::rust_session::suggestsLocalResetForCode(QString{}));
     QVERIFY(!matrix::rust_session::suggestsLocalResetForCode(
         QStringLiteral("something_a_future_build_emits")));
 }
-
-// --- reset honesty ---------------------------------------------------------
 
 void SessionStoreIdentityTest::resetOfUnknownAccountReportsNoMatch()
 {
@@ -1136,9 +966,6 @@ void SessionStoreIdentityTest::resetOfUnknownAccountReportsNoMatch()
                             QStringLiteral("DEVICE1"),
                             QStringLiteral("token"));
 
-    // Resetting an unknown account reports no match: SecretStore clears are
-    // successful no-ops, so success alone would claim a reset that did
-    // nothing.
     bool matched = true;
     const bool ok = m_settings->clearSessionForAccount(
         QStringLiteral("@nobody:matrix.example"), &matched);
@@ -1159,8 +986,6 @@ void SessionStoreIdentityTest::resetOfCaseVariantMatchesTheSavedRecord()
                             QStringLiteral("DEVICE1"),
                             QStringLiteral("token"));
 
-    // Typed with the wrong casing, the reset still finds the account that
-    // failed.
     bool matched = false;
     QVERIFY(m_settings->clearSessionForAccount(
         QStringLiteral("@Mizerd:matrix.example"), &matched));
@@ -1173,8 +998,6 @@ void SessionStoreIdentityTest::resetOfCaseVariantMatchesTheSavedRecord()
 
 void SessionStoreIdentityTest::removalSummaryDistinguishesMissingFromDeleted()
 {
-    // ok() is true for an idempotent no-op; removedAnything() is the signal
-    // that a reset did something.
     const auto canonical = identityFor(QStringLiteral("@mizerd:matrix.example"));
     const auto nothing = matrix::app_data::removeAccountRustState(canonical);
     QVERIFY(nothing.ok());
@@ -1186,8 +1009,6 @@ void SessionStoreIdentityTest::removalSummaryDistinguishesMissingFromDeleted()
     QVERIFY(real.removedAnything());
     QVERIFY(!storeExists(canonical.slug));
 }
-
-// --- classification --------------------------------------------------------
 
 void SessionStoreIdentityTest::everyBlockReasonHasItsOwnCode()
 {
@@ -1207,14 +1028,12 @@ void SessionStoreIdentityTest::everyBlockReasonHasItsOwnCode()
         codes.insert(code);
     }
     QCOMPARE(codes.size(), all.size());
-    // The tokens AppController and the logs use must not drift.
     QCOMPARE(matrix::rust_session::diagnosticName(R::MissingStoreForSavedSession),
              QStringLiteral("saved_session_without_store"));
     QCOMPARE(matrix::rust_session::diagnosticName(R::AccessTokenRevoked),
              QStringLiteral("access_token_revoked"));
     QCOMPARE(matrix::rust_session::diagnosticName(R::AccessTokenExpired),
              QStringLiteral("access_token_expired"));
-    // Neither kind of logout may ever offer to reset the store.
     QVERIFY(!matrix::rust_session::suggestsLocalReset(R::AccessTokenExpired));
     QVERIFY(!matrix::rust_session::suggestsLocalResetForCode(
         QStringLiteral("access_token_expired")));
@@ -1228,7 +1047,6 @@ void SessionStoreIdentityTest::missingStoreIsNotReportedAsAForeignStore()
     const QString foreign =
         QStringLiteral("belongs to a different Matrix session or device");
 
-    // Only a real SDK ownership mismatch may use this message.
     QVERIFY(matrix::rust_session::userMessage(R::DifferentAccount)
                 .contains(foreign));
     for (R r : {R::MissingStoreForSavedSession, R::AccessTokenRevoked,
@@ -1244,7 +1062,6 @@ void SessionStoreIdentityTest::missingStoreIsNotReportedAsAForeignStore()
     }
     QCOMPARE(matrix::rust_session::userMessage(R::None), QString());
 
-    // Distinct conditions read differently.
     QSet<QString> seen;
     for (R r : {R::MissingStoreForSavedSession, R::AccessTokenRevoked,
                 R::AccessTokenExpired,
@@ -1260,9 +1077,6 @@ void SessionStoreIdentityTest::missingStoreIsNotReportedAsAForeignStore()
 void SessionStoreIdentityTest::onlyRepairableReasonsOfferALocalReset()
 {
     using R = matrix::rust_session::StoreBlockReason;
-    // Deleting local data cannot conjure a missing store, renew a revoked
-    // token, or settle contested ownership, and would destroy the only copy of
-    // the room keys.
     QVERIFY(!matrix::rust_session::suggestsLocalReset(R::MissingStoreForSavedSession));
     QVERIFY(!matrix::rust_session::suggestsLocalReset(R::AccessTokenRevoked));
     QVERIFY(!matrix::rust_session::suggestsLocalReset(R::AmbiguousStoreCandidates));
@@ -1272,8 +1086,6 @@ void SessionStoreIdentityTest::onlyRepairableReasonsOfferALocalReset()
     QVERIFY(matrix::rust_session::suggestsLocalReset(R::DifferentAccount));
     QVERIFY(matrix::rust_session::suggestsLocalReset(R::MissingDeviceId));
     QVERIFY(matrix::rust_session::suggestsLocalReset(R::MissingSessionMetadata));
-    // A corrupt saved record is repairable by clearing it, with a message that
-    // says so.
     QVERIFY(matrix::rust_session::suggestsLocalReset(R::InvalidSavedIdentity));
     QCOMPARE(matrix::rust_session::diagnosticName(R::InvalidSavedIdentity),
              QStringLiteral("invalid_saved_account_identity"));

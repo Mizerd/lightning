@@ -16,8 +16,8 @@ void GifRecentModel::setRecordingEnabled(bool on)
 void GifRecentModel::recordSent(const gif::GifResult &r)
 {
     if (!m_recording)
-        return; // history disabled — do not record; favorites untouched
+        return;
     if (r.provider.isEmpty() || r.id.isEmpty())
         return;
-    insertFront(r); // newest first, dedup-to-front, bounded
+    insertFront(r);
 }

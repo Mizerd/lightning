@@ -15,7 +15,6 @@ Q_LOGGING_CATEGORY(lcMacKeychain, "matrix.secret.mackeychain")
 
 namespace {
 
-// Owns one CF object; releases it on scope exit.
 template <typename T>
 class CfRef
 {
@@ -58,8 +57,6 @@ QString osErr(OSStatus status)
     return QStringLiteral("Keychain error %1").arg(static_cast<int>(status));
 }
 
-// The query selecting one item, or every item of the account when `key` is
-// empty.
 CfRef<CFMutableDictionaryRef> baseQuery(const QString &userId, const QString &key)
 {
     CfRef<CFMutableDictionaryRef> q(CFDictionaryCreateMutable(
@@ -77,12 +74,10 @@ CfRef<CFMutableDictionaryRef> baseQuery(const QString &userId, const QString &ke
     return q;
 }
 
-} // namespace
+}
 
 MacKeychainStore::MacKeychainStore(QObject *parent) : SecretStore(parent)
 {
-    // The login keychain exists for any interactive macOS user. A locked or
-    // unreachable one shows up per call, as a failed read, not here.
     m_available = true;
     qCInfo(lcMacKeychain) << "macOS Keychain secret store active";
 }
@@ -101,7 +96,7 @@ bool MacKeychainStore::storeSecret(const QString &userId,
                                    const QString &value)
 {
     m_lastError.clear();
-    const QByteArray blob = value.toUtf8();   // token bytes: never logged
+    const QByteArray blob = value.toUtf8();
     CfRef<CFDataRef> data(CFDataCreate(
         kCFAllocatorDefault, reinterpret_cast<const UInt8 *>(blob.constData()),
         static_cast<CFIndex>(blob.size())));
@@ -151,9 +146,6 @@ bool MacKeychainStore::storeSecret(const QString &userId,
 QString MacKeychainStore::readSecret(const QString &userId, const QString &key) const
 {
     m_lastError.clear();
-    // Only a completed lookup, hit or miss, clears this. A locked keychain or a
-    // denied access prompt must read as "cannot tell", never as "no saved
-    // sign-in" (CLAUDE.md §6), which would arm the destructive local reset.
     m_lastReadFailed = false;
 
     auto q = baseQuery(userId, key);
@@ -175,9 +167,6 @@ QString MacKeychainStore::readSecret(const QString &userId, const QString &key) 
         m_lastError = osErr(st);
         return {};
     }
-    // A success that is not data is a keychain answer we do not understand, not
-    // proof the item is absent: inconclusive, so no destructive decision may key
-    // on it (CLAUDE.md section 6).
     if (!result || CFGetTypeID(result) != CFDataGetTypeID()) {
         m_lastReadFailed = true;
         m_lastError = QStringLiteral("Keychain: unexpected result type");
@@ -199,7 +188,7 @@ bool MacKeychainStore::deleteSecret(const QString &userId, const QString &key)
     }
     const OSStatus st = SecItemDelete(q.get());
     if (st == errSecSuccess || st == errSecItemNotFound)
-        return true;   // nothing to remove == success (matches libsecret)
+        return true;
     m_lastError = osErr(st);
     return false;
 }
@@ -207,9 +196,6 @@ bool MacKeychainStore::deleteSecret(const QString &userId, const QString &key)
 bool MacKeychainStore::clearAccountSecrets(const QString &userId)
 {
     m_lastError.clear();
-    // The service names the account, so leaving out the account attribute
-    // selects every key of this user. kSecMatchLimitAll makes macOS delete all
-    // of them rather than the first match.
     auto q = baseQuery(userId, QString());
     if (!q) {
         m_lastError = QStringLiteral("Keychain: out of memory");
@@ -223,7 +209,7 @@ bool MacKeychainStore::clearAccountSecrets(const QString &userId)
     return false;
 }
 
-#else // HAVE_MAC_KEYCHAIN
+#else
 
 MacKeychainStore::MacKeychainStore(QObject *parent) : SecretStore(parent) {}
 MacKeychainStore::~MacKeychainStore() = default;
@@ -238,4 +224,4 @@ QString MacKeychainStore::readSecret(const QString &, const QString &) const { r
 bool MacKeychainStore::deleteSecret(const QString &, const QString &) { return false; }
 bool MacKeychainStore::clearAccountSecrets(const QString &) { return false; }
 
-#endif // HAVE_MAC_KEYCHAIN
+#endif

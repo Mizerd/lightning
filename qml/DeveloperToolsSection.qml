@@ -3,16 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings -> About -> Developer tools. One switch (app.settings.developerTools,
-// off by default) reveals two read-only views:
-//   * the homeserver's spec versions and every optional feature it lists;
-//   * an account-data browser, global or for one room, as pretty JSON.
-//
-// Nothing here writes. Account data whose content is a secret (secret storage,
-// cross-signing keys, the backup key) is shown as its TYPE NAME ONLY: the
-// content is replaced in Rust before it reaches the UI (CLAUDE.md §6), so
-// nothing on this page can reveal it. The plaintext shown for any other type
-// stays in this component and is dropped when the tools are switched off.
 ColumnLayout {
     id: root
     objectName: "developerToolsSection"
@@ -76,7 +66,6 @@ ColumnLayout {
         }
     }
 
-    // This session: facts that are not on the About page above.
     DevCard {
         visible: root.enabledTools
         ColumnLayout {
@@ -124,7 +113,6 @@ ColumnLayout {
         }
     }
 
-    // Homeserver versions and features
     DevCard {
         visible: root.enabledTools
         ColumnLayout {
@@ -201,7 +189,6 @@ ColumnLayout {
         }
     }
 
-    // Account data browser
     DevCard {
         visible: root.enabledTools
         ColumnLayout {
@@ -282,7 +269,6 @@ ColumnLayout {
                     ItemDelegate {
                         Layout.fillWidth: true
                         padding: AppTheme.spacing4
-                        // A redacted entry has nothing to expand.
                         enabled: !entry.modelData.redacted
                         onClicked: entry.expanded = !entry.expanded
                         Accessible.name: entry.modelData.type

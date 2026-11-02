@@ -4,19 +4,6 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// One modal for starting a DM, creating a room or creating a Space. DM: search,
-// select a user; existing joined DMs (the SDK's m.direct projection) are
-// offered for reuse first, with a new encrypted DM as the secondary action. A
-// target the homeserver does not know (404 on its profile) is asked about
-// before any room is created.
-// Room: name/topic, Private/Public, encryption (on by default for private,
-// forced off for public), alias for public rooms, invites, optional placement
-// in the active Space, and an optional picture applied after creation (a failed
-// upload is a warning, not a failed create). Space: name/topic/visibility only;
-// no encryption control. Tabs are Loaders: only the active tab's controls
-// exist, form state lives on the root so switching tabs keeps input, and the
-// shared UserSearchModel is cleared on every switch. ConversationController's
-// single-flight `busy` blocks duplicate submissions.
 Dialog {
     id: root
     objectName: "newConversationDialog"
@@ -30,15 +17,12 @@ Dialog {
     anchors.centerIn: parent
     padding: AppTheme.spacing16
 
-    // "dm" | "room" | "space"
     property string mode: "dm"
 
-    // DM selection state.
     property string selectedUserId: ""
     property string selectedDisplayName: ""
     property string selectedAvatarUrl: ""
 
-    // Room form state (on the root so tab Loaders can unload).
     property string roomNameText: ""
     property bool roomNameEdited: false
     property string roomTopicText: ""
@@ -47,18 +31,14 @@ Dialog {
     property bool roomEncrypted: true
     property bool addToSpaceChecked: false
     property var roomInvites: []
-    // Local file URL for the optional room picture ("" = none).
     property string roomAvatarPath: ""
 
-    // Space form state.
     property string spaceNameText: ""
     property bool spaceNameEdited: false
     property string spaceTopicText: ""
     property bool spaceIsPublic: false
 
     readonly property bool busy: app.conversations.busy
-    // Why the typed address would be refused ("" when fine or empty), from
-    // the controller's rule so the dialog and createRoom() cannot disagree.
     readonly property string roomAliasProblem:
         roomIsPublic ? app.conversations.aliasLocalpartProblem(roomAliasText)
                      : ""
@@ -70,8 +50,6 @@ Dialog {
         && app.spaces.activeSpaceId.startsWith("!")
         && app.spaces.activeSpaceCanManageChildren
 
-    // startMode ("dm" | "room" | "space") opens straight into a tab (default DM
-    // search). options.addToSpace preselects placement in the active Space.
     function openDialog(startMode, options) {
         resetAll()
         if (startMode === "room" || startMode === "dm" || startMode === "space")
@@ -103,8 +81,6 @@ Dialog {
         app.conversations.userSearch.clear()
     }
 
-    // Every tab switch clears the shared search model and focuses the new tab's
-    // first field.
     function switchMode(newMode) {
         if (newMode !== "dm" && newMode !== "room" && newMode !== "space")
             return
@@ -115,9 +91,6 @@ Dialog {
         mode = newMode
     }
 
-    // A tab switch must not carry the previous tab's scroll position into the
-    // new, possibly shorter, tab (B056: a form drawn far below the title with
-    // a blank band above it).
     onModeChanged: {
         tabFlick.contentY = 0
         Qt.callLater(tabFlick.returnToBounds)
@@ -159,8 +132,6 @@ Dialog {
             "public": spaceIsPublic,
             encrypted: false,
             isSpace: true,
-            // From a Space Home the new Space nests under it (B058); the
-            // controller sends it as an m.space.child of that Space.
             spaceId: (spacePlacementAvailable && addToSpaceChecked)
                      ? app.spaces.activeSpaceId : ""
         })
@@ -168,10 +139,6 @@ Dialog {
 
     onClosed: resetAll()
 
-    // The banner reports the LAST attempt. Once the user edits what it was
-    // about, it no longer describes the form, and leaving it up read as the
-    // fix having failed (break-it s03: still "rejected as invalid" after the
-    // address was corrected). Never while a create is in flight.
     function dropStaleError() {
         if (!busy && app.conversations.errorMessage.length > 0)
             app.conversations.clearError()
@@ -181,13 +148,9 @@ Dialog {
     onRoomIsPublicChanged: dropStaleError()
     onOpened: Qt.callLater(focusCurrentTab)
 
-    // Footer shortcut chip, switching flows through the same switchMode() as
-    // the tabs (the Loader contract CreationDialogQmlTest checks).
     component ConversationChip: AbstractButton {
         id: chip
         property string iconName: ""
-        // Real padding: an AbstractButton stretches its contentItem, so extra
-        // width without padding pins the content left.
         leftPadding: AppTheme.spacing12
         rightPadding: AppTheme.spacing12
         implicitHeight: 28
@@ -195,7 +158,6 @@ Dialog {
         focusPolicy: Qt.TabFocus
         Accessible.role: Accessible.Button
         Accessible.name: chip.text
-        // Footer chips are outline pills.
         contentItem: RowLayout {
             id: chipRow
             spacing: AppTheme.spacing4
@@ -207,7 +169,6 @@ Dialog {
             Label {
                 text: chip.text
                 color: AppTheme.stormTextMuted
-                // The UI face at meta size, like other chips.
                 font.family: AppTheme.menuFont
                 font.pixelSize: AppTheme.textMeta
                 font.weight: AppTheme.weightStrong
@@ -266,7 +227,6 @@ Dialog {
     }
 
     background: Rectangle {
-        // Storm chrome.
         color: AppTheme.stormPanel
         border.color: AppTheme.stormBorder
         border.width: 1
@@ -276,7 +236,6 @@ Dialog {
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
 
-        // Header: bolt mark, mode title, close
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -288,9 +247,6 @@ Dialog {
             Label {
                 objectName: "creationTitle"
                 Layout.fillWidth: true
-                // The omnibox screen reads "Start something"; Room/Space keep
-                // their titles; a DM with a user picked reads "New
-                // conversation".
                 text: root.mode === "room" ? qsTr("Create a room")
                     : root.mode === "space" ? qsTr("Create a Space")
                     : root.selectedUserId === "" ? qsTr("Start something")
@@ -316,7 +272,6 @@ Dialog {
             }
         }
 
-        // Helper line shown only while picking a DM target.
         Label {
             objectName: "creationHelperLine"
             visible: root.mode === "dm" && root.selectedUserId === ""
@@ -331,7 +286,6 @@ Dialog {
             wrapMode: Text.WordWrap
         }
 
-        // Single error banner
         Rectangle {
             objectName: "creationErrorBanner"
             visible: app.conversations.errorMessage.length > 0
@@ -355,7 +309,6 @@ Dialog {
             }
         }
 
-        // Active tab (scrolls when height-constrained)
         Flickable {
             id: tabFlick
             objectName: "creationTabFlick"
@@ -367,7 +320,6 @@ Dialog {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-            // Same wheel/touchpad feel as the timeline.
             SmoothWheelArea {}
 
             ColumnLayout {
@@ -391,8 +343,6 @@ Dialog {
                 Loader {
                     id: roomTabLoader
                     Layout.fillWidth: true
-                    // An empty Loader must not count as a layout item: its
-                    // spacing would be added to the tab area's height.
                     visible: active
                     active: root.visible && root.mode === "room"
                     sourceComponent: roomTabComponent
@@ -404,8 +354,6 @@ Dialog {
                 Loader {
                     id: spaceTabLoader
                     Layout.fillWidth: true
-                    // An empty Loader must not count as a layout item: its
-                    // spacing would be added to the tab area's height.
                     visible: active
                     active: root.visible && root.mode === "space"
                     sourceComponent: spaceTabComponent
@@ -417,7 +365,6 @@ Dialog {
             }
         }
 
-        // Footer: shortcut chips, busy state, Cancel (always enabled)
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -468,7 +415,6 @@ Dialog {
         }
     }
 
-    // Direct Message tab
     Component {
         id: dmTabComponent
         ColumnLayout {
@@ -491,15 +437,6 @@ Dialog {
                     root.selectedDisplayName = displayName
                     root.selectedAvatarUrl = avatarUrl || ""
                     app.conversations.checkExistingDm(userId)
-                    // The search field that held focus is hidden now, which
-                    // leaves no focus owner and the first Tab on an invisible
-                    // stop (C12-F02, HYPOTHESIS: no live Tab pass yet). Land on
-                    // the dialog's own content item: always visible, and with no
-                    // action of its own. The primary button is NOT a safe target:
-                    // the unknown-user warning arrives asynchronously, so a
-                    // second Enter could start a DM before it is read, and the
-                    // button hides when the panel appears. The X would discard
-                    // the choice.
                     Qt.callLater(function() {
                         if (root.contentItem)
                             root.contentItem.forceActiveFocus(Qt.TabFocusReason)
@@ -507,9 +444,6 @@ Dialog {
                 }
             }
 
-            // "#name" or plain text also offers creating a room with that name
-            // ("#" stripped); "@" stays a plain people search. There is no
-            // directory/join backend here.
             Rectangle {
                 id: createRoomSuggestion
                 objectName: "dmCreateRoomSuggestion"
@@ -566,14 +500,11 @@ Dialog {
                         }
                         Label {
                             Layout.fillWidth: true
-                            // Reads the Room tab's actual defaults, which may
-                            // carry over from an earlier visit in this dialog.
                             text: root.roomIsPublic
                                 ? qsTr("Public · not encrypted")
                                 : (root.roomEncrypted
                                     ? qsTr("Private · encrypted · invite-only by default")
                                     : qsTr("Private · not encrypted · invite-only by default"))
-                            // Sentence case at a readable size.
                             color: AppTheme.stormTextMuted
                             font.family: AppTheme.menuFont
                             font.pixelSize: AppTheme.textMeta
@@ -594,7 +525,6 @@ Dialog {
                 }
             }
 
-            // Selected-user card.
             Rectangle {
                 objectName: "dmSelectedCard"
                 visible: root.selectedUserId !== ""
@@ -621,7 +551,6 @@ Dialog {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing2
                         Label {
-                            // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             text: root.selectedDisplayName.length > 0
@@ -632,7 +561,6 @@ Dialog {
                             elide: Label.ElideRight
                         }
                         Label {
-                            // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             visible: root.selectedDisplayName.length > 0
@@ -666,7 +594,6 @@ Dialog {
                 }
             }
 
-            // Existing-DM reuse comes first.
             Label {
                 visible: root.selectedUserId !== ""
                          && app.conversations.existingDms.length > 0
@@ -689,14 +616,11 @@ Dialog {
                     border.color: AppTheme.stormBorder
                     implicitHeight: existingRowContent.implicitHeight
                                     + AppTheme.spacing8 * 2
-                    // The room list's name for the room, else the person
-                    // this dialog is about: every row here is a DM with them.
                     readonly property string dmName:
                         modelData.name && modelData.name.length > 0
                         ? modelData.name
                         : (root.selectedDisplayName.length > 0
                            ? root.selectedDisplayName : root.selectedUserId)
-                    // Same rule for the picture; a group DM keeps its own.
                     readonly property string dmAvatar:
                         modelData.avatarUrl && modelData.avatarUrl.length > 0
                         ? modelData.avatarUrl
@@ -713,13 +637,10 @@ Dialog {
                             circle: true
                             mxc: existingRow.dmAvatar
                             name: existingRow.dmName
-                            // Keyed by the person, like every other surface
-                            // showing them.
                             colorKey: root.selectedUserId
                         }
                         Label {
                             objectName: "existingDmName_" + existingRow.index
-                            // Untrusted text: never markup.
                             textFormat: Text.PlainText
                             Layout.fillWidth: true
                             text: existingRow.dmName
@@ -743,10 +664,6 @@ Dialog {
                 }
             }
 
-            // The target's homeserver says there is no such user (404
-            // M_NOT_FOUND on the profile lookup), or it did not answer at all.
-            // As in Element: say so and let the person decide, rather than
-            // leave an encrypted room nobody will ever join.
             Rectangle {
                 id: unknownTargetPanel
                 objectName: "dmUnknownTargetPanel"
@@ -780,7 +697,6 @@ Dialog {
                     }
                     Label {
                         objectName: "dmUnknownTargetText"
-                        // Carries a typed user id: never markup.
                         textFormat: Text.PlainText
                         Layout.fillWidth: true
                         text: (app.conversations.unknownTargetUnreachable
@@ -824,7 +740,6 @@ Dialog {
                 }
             }
 
-            // Primary action when there is nothing to reuse…
             AppButton {
                 storm: true
                 id: dmStartButton
@@ -839,7 +754,6 @@ Dialog {
                 Accessible.name: text
                 onClicked: app.conversations.startDirectMessage(root.selectedUserId)
             }
-            // …secondary when there is.
             AppButton {
                 storm: true
                 id: dmStartAnywayButton
@@ -865,7 +779,6 @@ Dialog {
         }
     }
 
-    // Room tab
     Component {
         id: roomTabComponent
         ColumnLayout {
@@ -876,8 +789,6 @@ Dialog {
                 roomNameField.forceActiveFocus()
             }
 
-            // The hint shares the title's line, so it needs no room of its own
-            // under the field and nothing jumps as the name is edited.
             RowLayout {
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing8
@@ -963,7 +874,6 @@ Dialog {
                 wrapMode: Text.WordWrap
             }
 
-            // Encryption switch row (labels toggle it too).
             RowLayout {
                 objectName: "roomEncryptRow"
                 Layout.fillWidth: true
@@ -1045,7 +955,6 @@ Dialog {
                 wrapMode: Text.WordWrap
             }
 
-            // Optional placement into the current Space.
             RowLayout {
                 objectName: "addToSpaceRow"
                 visible: root.spacePlacementAvailable
@@ -1100,8 +1009,6 @@ Dialog {
                                 text: modelData
                                 color: AppTheme.stormText
                                 font.pixelSize: AppTheme.textBody
-                                // A Flow wraps between chips, never inside one;
-                                // cap a long MXID.
                                 Layout.maximumWidth: 320
                                 elide: Label.ElideMiddle
                             }
@@ -1137,8 +1044,6 @@ Dialog {
                 }
             }
 
-            // Optional room picture, applied after creation; a failed upload is
-            // a warning, never a failed create.
             Label {
                 Layout.topMargin: AppTheme.spacing4
                 text: qsTr("Room picture (optional)")
@@ -1227,7 +1132,6 @@ Dialog {
         }
     }
 
-    // Space tab (no encryption control)
     Component {
         id: spaceTabComponent
         ColumnLayout {
@@ -1269,9 +1173,6 @@ Dialog {
                 onAccepted: root.submitSpace()
                 KeyNavigation.tab: spaceTopicField
             }
-            // The slot keeps the hint's height whether or not the hint is
-            // showing, so the fields and the Create button below do not jump
-            // about 17px under the pointer as the name is edited.
             Item {
                 objectName: "spaceNameHintSlot"
                 Layout.fillWidth: true
@@ -1341,7 +1242,6 @@ Dialog {
                 wrapMode: Text.WordWrap
             }
 
-            // Optional placement under the current Space (a subspace).
             Loader {
                 objectName: "spaceAddToSpaceLoader"
                 Layout.fillWidth: true

@@ -50,7 +50,6 @@ QString readQml(const QString &name)
                                           : QString{};
 }
 
-// CIE L* of an opaque sRGB colour.
 double lstar(const QColor &c)
 {
     auto lin = [](double v) {
@@ -61,7 +60,6 @@ double lstar(const QColor &c)
     return y > 0.008856 ? 116.0 * std::cbrt(y) - 16.0 : 903.3 * y;
 }
 
-// `top` (possibly translucent) composited over opaque `base`.
 QColor over(const QColor &top, const QColor &base)
 {
     const double a = top.alphaF();
@@ -69,7 +67,7 @@ QColor over(const QColor &top, const QColor &base)
                             top.greenF() * a + base.greenF() * (1 - a),
                             top.blueF() * a + base.blueF() * (1 - a));
 }
-} // namespace
+}
 
 class ConvoUxQmlTest : public QObject
 {
@@ -90,8 +88,6 @@ class ConvoUxQmlTest : public QObject
         return spy.wait(3000);
     }
 
-    /// A complete role map for MessageDelegate (the shape
-    /// MessageRailCollisionTest uses), so it binds without undefined reads.
     static QVariantMap baseFixture()
     {
         QVariantMap f;
@@ -194,8 +190,6 @@ class ConvoUxQmlTest : public QObject
         return loader;
     }
 
-    // Every item with this objectName in the visual tree (Loader content and
-    // Repeater delegates are not reachable through findChild).
     static void collect(QQuickItem *parent, const QString &name,
                         QList<QQuickItem *> &out)
     {
@@ -219,7 +213,6 @@ class ConvoUxQmlTest : public QObject
         return QRectF(it->mapToScene(QPointF(0, 0)),
                       QSizeF(it->width(), it->height()));
     }
-    // A Popup's x/y are in its `parent` item's coordinates.
     static QRectF popupSceneRect(QObject *popup)
     {
         auto *host = qobject_cast<QQuickItem *>(
@@ -242,8 +235,6 @@ class ConvoUxQmlTest : public QObject
         return nullptr;
     }
 
-    // A CallHeaderBar in preview mode, pinned to the top or bottom edge of a
-    // tall window.
     std::unique_ptr<QObject> callBarScene(QQmlEngine &engine, bool atBottom)
     {
         QQmlComponent component(&engine);
@@ -286,8 +277,6 @@ private Q_SLOTS:
             QStringLiteral("convo-ux-qml-test"));
     }
 
-    // Fails on the old layout: there was no titled group, and the bare editor
-    // sat after "Your profile in this room", the fifth group on the page.
     void chatBackgroundIsATitledGroupDirectlyUnderTheRoomIdentity()
     {
         AppController controller(AppController::MockBackend);
@@ -315,7 +304,6 @@ private Q_SLOTS:
             QStringLiteral("roomChatBackgroundEditor"));
         QVERIFY(editor);
         QCOMPARE(editor->parentItem(), section);
-        // The group carries the title, so the editor's own is off.
         QCOMPARE(editor->property("showTitle").toBool(), false);
 
         auto *editRoom = root->findChild<QQuickItem *>(
@@ -335,9 +323,6 @@ private Q_SLOTS:
                  "room-profile group again");
     }
 
-    // Fails on the old editor: the empty preview said "No background" in a
-    // box that did nothing, and Choose was a secondary button below the
-    // privacy text.
     void anEmptyBackgroundPreviewIsTheWayToChooseOne()
     {
         AppController controller(AppController::MockBackend);
@@ -373,7 +358,6 @@ ApplicationWindow {
         QVERIFY(editor);
         QCoreApplication::processEvents();
 
-        // The fixture must really be empty, or this case proves nothing.
         QCOMPARE(editor->property("hasCurrent").toBool(), false);
         QCOMPARE(editor->property("hasPrepared").toBool(), false);
 
@@ -390,7 +374,6 @@ ApplicationWindow {
         auto *choose = findItem(editor, QStringLiteral("chatBackgroundChoose"));
         QVERIFY(choose);
         QCOMPARE(choose->property("kind").toString(), QStringLiteral("primary"));
-        // At rest with nothing set: no Apply, no Cancel, no Remove.
         for (const char *name : { "chatBackgroundApply", "chatBackgroundCancel",
                                   "chatBackgroundRemove" }) {
             auto *b = findItem(editor, QLatin1String(name));
@@ -399,10 +382,6 @@ ApplicationWindow {
         }
     }
 
-    // app.backdrops.lastError is one value for the app, and several editors
-    // can be alive at once. An error from an action in one (the room header's
-    // dialog) showed in the other (Settings) though nobody touched it. Fails
-    // on the old editor, which showed lastError in every instance.
     void aBackgroundErrorShowsOnlyInTheEditorThatActed()
     {
         AppController controller(AppController::MockBackend);
@@ -439,8 +418,6 @@ ApplicationWindow {
         auto *acting = owner->property("acting").value<QQuickItem *>();
         QVERIFY(idle && acting);
 
-        // An action in `acting` only. Nothing is prepared, so the controller
-        // refuses and records an error.
         QVERIFY(acting->setProperty("actedHere", true));
         bool ok = true;
         QMetaObject::invokeMethod(backdrops, "setPersonal",
@@ -463,7 +440,6 @@ ApplicationWindow {
                                 .arg(errorOf(idle))));
     }
 
-    // Fails on the old bar: Reply in thread was in the overflow menu only.
     void theHoverBarOffersReplyInThread()
     {
         AppController controller(AppController::MockBackend);
@@ -483,8 +459,6 @@ ApplicationWindow {
         QVERIFY(thread->isVisible());
         QVERIFY(thread->isEnabled());
 
-        // The wider bar still ends before the receipt facepile (the shared
-        // right rail, CLAUDE.md §16) and inside the row.
         auto *pile = d.root->findChild<QQuickItem *>(
             QStringLiteral("readReceiptRow"));
         QVERIFY(pile && pile->width() > 0);
@@ -495,16 +469,11 @@ ApplicationWindow {
                  qPrintable(QStringLiteral("bar ends at %1, facepile starts "
                                            "at %2").arg(barRight).arg(pileLeft)));
         QVERIFY(bar->mapToItem(d.root, QPointF(0, 0)).x() >= 0);
-        // Every button of the bar sits inside the bar.
         const QRectF barRect = sceneRect(bar);
         const QRectF threadRect = sceneRect(thread);
         QVERIFY(barRect.adjusted(-0.5, -0.5, 0.5, 0.5).contains(threadRect));
     }
 
-    // F4 (2026-10-14): an undecryptable thread reply in the room timeline was
-    // drawn as a standalone "Waiting for keys" message (CLAUDE.md §8). It is a
-    // one-line thread notice now, with Open thread and Retry, and nothing of a
-    // message: no body layout, no hover bar.
     void anUndecryptableThreadReplyRendersAsAThreadNotice()
     {
         AppController controller(AppController::MockBackend);
@@ -526,13 +495,10 @@ ApplicationWindow {
             auto *item = findItem(d.root, QString::fromLatin1(name));
             QVERIFY2(item && item->isVisible(), name);
         }
-        // Not a message: no row selection, no focus stop, one compact line.
         QVERIFY(!d.root->property("rowSelectable").toBool());
         QVERIFY(!d.root->property("activeFocusOnTab").toBool());
         QVERIFY2(d.root->implicitHeight() < 48,
                  qPrintable(QString::number(d.root->implicitHeight())));
-        // The same row in the model's other shape (an ordinary undecryptable
-        // message) keeps the message layout and no notice.
         f.insert(QStringLiteral("threadReplyAwaitingKeys"), false);
         Delegate plain;
         QVERIFY(buildDelegate(controller, f, plain));
@@ -540,8 +506,6 @@ ApplicationWindow {
         QVERIFY(!none || !none->isVisible());
     }
 
-    // The thread panel's own rows: its composer already replies in the
-    // thread, so the button would only reopen the same thread.
     void theThreadPanelsRowsDoNotOfferIt()
     {
         AppController controller(AppController::MockBackend);
@@ -565,9 +529,6 @@ ApplicationWindow {
         QQmlProperty::write(d.root, QStringLiteral("timelineView"), QVariant());
     }
 
-    // A hovered row must be visible and quiet on EVERY preset. Fails on the
-    // old tint (AppTheme.hover): +0.4 L* on Light and Moss Light, +1.0 on
-    // Warm, and 15-27 L* on the dark presets.
     void theHoveredRowIsVisibleAndQuietOnEveryPreset()
     {
         AppController controller(AppController::MockBackend);
@@ -602,8 +563,6 @@ ApplicationWindow {
             ++checked;
         }
         QCOMPARE(checked, 11);
-        // Prove the palettes really changed (see CLAUDE.md §16, "the suite that
-        // certified eleven themes was measuring one").
         QVERIFY2(backgrounds.size() >= 9,
                  qPrintable(QStringLiteral("only %1 distinct backgrounds")
                                 .arg(backgrounds.size())));
@@ -612,8 +571,6 @@ ApplicationWindow {
         reset.evaluate();
     }
 
-    // Fails on the old chip: at rest its outline was AppTheme.border, within
-    // 1 L* of Moss Light's canvas, with a fill as close.
     void aReactionChipIsOutlinedOnEveryPreset()
     {
         AppController controller(AppController::MockBackend);
@@ -661,8 +618,6 @@ ApplicationWindow {
         reset.evaluate();
     }
 
-    // Fails on the old bar: camera, share, hand, reactions, people and pop-out
-    // all came before the microphone.
     void theMicrophoneLeadsTheCallBar()
     {
         AppController controller(AppController::MockBackend);
@@ -692,8 +647,6 @@ ApplicationWindow {
                                 .arg(leave)));
     }
 
-    // Fails on the old chevron: popup() with no position opened the menu at
-    // the pointer, over the bar (Leave included).
     void aDeviceMenuOpensAgainstItsChevron()
     {
         AppController controller(AppController::MockBackend);
@@ -734,13 +687,11 @@ ApplicationWindow {
                                    .arg(window->height())),
                     kSignalTimeoutMs);
             }
-            // And beside it, not across the window.
             QVERIFY2(m.left() <= c.right() + 1.0
                          && m.right() >= c.left() - 1.0,
                      qPrintable(QStringLiteral("chevron x %1-%2, menu x %3-%4")
                                     .arg(c.left()).arg(c.right())
                                     .arg(m.left()).arg(m.right())));
-            // Never over the bar's Leave button.
             auto *leave = bar->findChild<QQuickItem *>(
                 QStringLiteral("callBarHangUpButton"));
             QVERIFY(leave);
@@ -750,9 +701,6 @@ ApplicationWindow {
         }
     }
 
-    // Collapse (the stage folding into a strip) and pop-out (a floating
-    // window) sat side by side wearing the same close_fullscreen glyph. Fails
-    // on the old source.
     void collapseAndPopOutDoNotShareAGlyph()
     {
         const QString stage = readQml(QStringLiteral("CallStage.qml"));
@@ -785,7 +733,6 @@ ApplicationWindow {
                                                "use %1").arg(name)));
     }
 
-    // Fails on the old panel: it opened with the keyboard elsewhere.
     void openingRoomSearchFocusesTheQuery()
     {
         AppController controller(AppController::MockBackend);

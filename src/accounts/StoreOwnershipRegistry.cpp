@@ -21,8 +21,6 @@ StoreOwnershipRegistry &StoreOwnershipRegistry::process()
 quint64 StoreOwnershipRegistry::recordOpen(const QString &storePath, const QString &slug,
                                            Role role)
 {
-    // Resolved outside the lock: stat() (or CreateFileW) is disk I/O, and a
-    // retirement worker reporting a close must never wait behind it.
     Record record;
     record.id = m_resolver(storePath);
     record.absPath = QFileInfo(storePath).absoluteFilePath();
@@ -74,8 +72,6 @@ bool StoreOwnershipRegistry::wouldRefuse(const QString &storePath,
     if (conflictSerial)
         *conflictSerial = 0;
     const FileIdentity id = m_resolver(storePath);
-    // Two unreadable identities are never the same store: an id we could
-    // not read proves nothing about sharing.
     if (!id.valid)
         return false;
     QMutexLocker lock(&m_mutex);
@@ -114,13 +110,11 @@ void StoreOwnershipRegistry::clearForTest()
     QMutexLocker lock(&m_mutex);
     m_records.clear();
     m_nextSerial = 1;
-    // Tests only: the one place the one-way flag goes back.
     m_enforced.store(false);
 }
 
 void StoreOwnershipRegistry::setEnforced(bool on)
 {
-    // One-way: nothing turns the claims off again in this process.
     if (on)
         m_enforced.store(true);
 }
@@ -137,9 +131,6 @@ StoreOwnershipRegistry::conflictLocked(const FileIdentity &id, const QString &ab
     for (const Record &record : m_records) {
         if (record.serial == exceptSerial)
             continue;
-        // Both identities read: they decide. Otherwise the spelling decides,
-        // which can only refuse more: an identity we could not read proves
-        // nothing about sharing, so it never lets a claim through on its own.
         const bool same = (id.valid && record.id.valid) ? record.id == id
                                                         : record.absPath == absPath;
         if (same)
@@ -171,7 +162,6 @@ StoreOwnershipRegistry::claimOpen(const QString &storePath, const QString &slug,
             *serialOut = serial;
         return ClaimVerdict::Granted;
     }
-    // Resolved outside the lock, as recordOpen() does.
     Record record;
     record.id = m_resolver(storePath);
     record.absPath = QFileInfo(storePath).absoluteFilePath();
@@ -182,8 +172,6 @@ StoreOwnershipRegistry::claimOpen(const QString &storePath, const QString &slug,
     if (const Record *other = conflictLocked(record.id, record.absPath, 0)) {
         if (conflictSerial)
             *conflictSerial = other->serial;
-        // Two accounts whose recorded stores are one directory: neither may
-        // open it while the other's record exists.
         if (!slug.isEmpty() && !other->slug.isEmpty() && other->slug != slug)
             return ClaimVerdict::RefusedDuplicateRecord;
         return verdictFor(*other);
@@ -233,8 +221,6 @@ StoreOwnershipRegistry::Hold StoreOwnershipRegistry::holdOn(const QString &store
                                                         : record.absPath == absPath;
         if (!same)
             continue;
-        // The strongest answer wins: a duplicate or an unconfirmed close never
-        // changes in this process, a close in progress may.
         if (!slug.isEmpty() && !record.slug.isEmpty() && record.slug != slug)
             return Hold::Duplicate;
         if (record.closeUnconfirmed)
@@ -262,4 +248,4 @@ const char *StoreOwnershipRegistry::verdictName(ClaimVerdict verdict)
     return "unknown";
 }
 
-} // namespace lightning::accounts
+}

@@ -1,12 +1,3 @@
-//! Ignored users (`m.ignored_user_list`) and event reporting.
-//!
-//! Both are SDK-owned: `Account::ignore_user`/`unignore_user` do an atomic
-//! read-modify-write of the account-data event, and reporting is
-//! `Room::report_content` (stable /v3). Remote changes reach C++ through the
-//! sync loop's `ignored_users_changed` subscriber.
-//!
-//! Only Matrix user IDs cross the FFI. A report carries only the room id,
-//! event id and the user's optional reason.
 
 use std::sync::Arc;
 
@@ -21,9 +12,6 @@ use crate::{enqueue, RustClient};
 /// Reports run on the room-action pool (joined during sign-out): bounded.
 const REPORT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
-/// Ignore or unignore one user. Result event: `ignore_user_result
-/// { op_id, lifecycle, user_id, ignored, ok, category }`. Self-ignore is
-/// refused synchronously.
 pub(crate) fn set_user_ignored(
     bridge: &RustClient,
     user_id: String,
@@ -65,9 +53,6 @@ pub(crate) fn set_user_ignored(
     Ok(())
 }
 
-/// Read the ignored-user list from account data (matrix-sdk 0.18 has no
-/// `ignored_users()` accessor). Result event: `ignored_users_list { op_id,
-/// lifecycle, ok, users[] }`.
 pub(crate) fn list_ignored_users(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -116,10 +101,6 @@ pub(crate) fn list_ignored_users(bridge: &RustClient, op_id: u64) -> Result<(), 
     Ok(())
 }
 
-/// Report one event to the homeserver administrator (`Room::report_content`;
-/// requires a joined room). Sends only the event reference and the user's
-/// reason, never decrypted content. Result event: `report_message_result
-/// { op_id, lifecycle, room_id, event_id, ok, category }`.
 pub(crate) fn report_message(
     bridge: &RustClient,
     room_id: String,

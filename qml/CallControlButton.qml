@@ -2,25 +2,13 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// One circular control on the call bar.
-//
-// Roles:
-//   "neutral" — normal control, subdued fill
-//   "active"  — an engaged toggle (mic muted, camera on, sharing)
-//   "danger"  — leave/hang up, deliberately distinct
-//
-// Icon-only, so the tooltip (also the accessible name) is mandatory.
 AbstractButton {
     id: root
 
     property string iconName: ""
-    /// "neutral" | "active" | "danger"
     property string role: "neutral"
     property int diameter: 44
     property int glyphSize: 20
-    /// Corner radius. -1 (default) is a circle; pass a token for a rounded
-    /// square (the per-participant volume button over video). Everything else
-    /// is the dock treatment, so there's no second styling path.
     property int cornerRadius: -1
     /// Shown on hover/focus and used as the accessible name. There is no
     /// "unavailableReason": a disabled control gets no hover, so a tooltip
@@ -62,8 +50,6 @@ AbstractButton {
     }
 
     background: Rectangle {
-        // min(w,h)/2: the hang-up control is wider, and w/2 would make an
-        // ellipse.
         radius: root.cornerRadius >= 0 ? root.cornerRadius
                                        : Math.min(width, height) / 2
         color: root._fill

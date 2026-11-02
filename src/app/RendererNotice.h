@@ -20,9 +20,6 @@ inline bool isSoftwareRasterizerRenderer(const QString &glRenderer)
     return false;
 }
 
-/// True when the user asked for software rendering themselves, so a notice
-/// about it would be noise. Takes the two environment values rather than
-/// reading them, so the decision is testable.
 inline bool softwareRenderingChosenByUser(const QString &quickBackend,
                                           const QString &rhiBackend)
 {
@@ -32,9 +29,6 @@ inline bool softwareRenderingChosenByUser(const QString &quickBackend,
                               Qt::CaseInsensitive) == 0;
 }
 
-/// Whether to show the "this is software rendering" notice: a known CPU
-/// rasteriser, not chosen on purpose, and not already dismissed for this
-/// version of the application.
 inline bool shouldShowSoftwareRendererNotice(const QString &glRenderer,
                                              const QString &quickBackend,
                                              const QString &rhiBackend,
@@ -48,26 +42,19 @@ inline bool shouldShowSoftwareRendererNotice(const QString &glRenderer,
     return dismissedVersion != currentVersion;
 }
 
-/// Which explanation the notice gives. The likely cause depends on the package
-/// and the platform, and naming one that does not apply misleads: the notice
-/// used to say "common with the AppImage on NixOS" on every package,
-/// including a .deb in a virtual machine (VM test, 2026-10-07).
 enum class SoftwareRendererContext {
-    Generic,          // e.g. a VM or remote session, or a missing driver
-    AppImageOnNixOS,  // the documented case, with a documented fix
-    AppImage,         // an AppImage elsewhere
-    NixOS,            // NixOS, not an AppImage
+    Generic,
+    AppImageOnNixOS,
+    AppImage,
+    NixOS,
 };
 
-/// True when QSysInfo::productType() names NixOS (os-release ID=nixos).
 inline bool isNixOsProductType(const QString &productType)
 {
     return productType.compare(QLatin1String("nixos"), Qt::CaseInsensitive)
         == 0;
 }
 
-/// Names NixOS only on NixOS and the AppImage only for an AppImage. Takes the
-/// two facts rather than detecting them, so the choice is testable.
 inline SoftwareRendererContext softwareRendererContext(bool appImage,
                                                        bool nixos)
 {
@@ -80,7 +67,6 @@ inline SoftwareRendererContext softwareRendererContext(bool appImage,
     return SoftwareRendererContext::Generic;
 }
 
-/// The stable id QML words the notice from.
 inline QString softwareRendererContextId(SoftwareRendererContext context)
 {
     switch (context) {
@@ -96,4 +82,4 @@ inline QString softwareRendererContextId(SoftwareRendererContext context)
     return QStringLiteral("generic");
 }
 
-} // namespace lightning
+}

@@ -38,11 +38,8 @@ Assessment assess(const QString &backupState, const QString &uploadState,
     if (!answered || backupState.isEmpty()) {
         a = make(Level::Checking, QStringLiteral("checking"));
     } else if (backupOnServer == 1) {
-        // The server was asked and holds no backup version.
         a = make(Level::NoBackup, QStringLiteral("no_backup"));
     } else if (backupState != QLatin1String("enabled")) {
-        // unknown / creating / enabling / resuming / downloading / disabling:
-        // the backup is not (yet) in use, so nothing can be promised.
         a = make(Level::Unknown, QStringLiteral("unknown"));
     } else if (total > backedUp) {
         // Keys this backup version does not hold yet, whatever the upload
@@ -54,19 +51,16 @@ Assessment assess(const QString &backupState, const QString &uploadState,
     } else if (uploadState != QLatin1String("done")
                && uploadState != QLatin1String("idle")
                && uploadState != QLatin1String("uploading")) {
-        // "unknown" (the SDK did not report within the bound) and "error".
         a = make(Level::Unknown, QStringLiteral("unknown"));
     } else if (recoveryState == QLatin1String("disabled")) {
         a = make(Level::NoRecovery, QStringLiteral("no_recovery"));
     } else if (recoveryState == QLatin1String("unknown") || recoveryState.isEmpty()) {
         a = make(Level::Unknown, QStringLiteral("unknown"));
     } else {
-        // enabled, or incomplete (secret storage exists; this session simply
-        // does not hold its secrets, so signing out loses nothing more).
         a = make(Level::Ok, QStringLiteral("ok"));
     }
     a.otherVerifiedDevices = otherVerified(devices);
     return a;
 }
 
-} // namespace SignOutKeyRisk
+}

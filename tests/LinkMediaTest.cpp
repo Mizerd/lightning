@@ -1,16 +1,3 @@
-// A link that is itself an image or a video ("Show images and videos from
-// links inline"). Pinned here, below QML:
-//   * LinkPreviewController resolves a "link:" key only for a preview that
-//     LOADED as direct media, only with inline media on, and never a URL the
-//     preview already knows is over the cap;
-//   * what each kind resolves to: the preview's own bytes, the homeserver's
-//     copy, or a fetch of the link;
-//   * MediaBridge sends a "link:" key through that resolver and nowhere else,
-//     delivers held bytes through its ordinary completion (so the markup
-//     refusal applies), gives a link fetch at least the playable timeout
-//     class, and learns no persistent size for a link;
-//   * preview images are held within a byte budget;
-//   * the caption strips bidi overrides; the setting defaults on.
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
@@ -47,7 +34,7 @@ public:
         int timeoutClass;
     };
     QList<LinkFetch> linkFetches;
-    QStringList mediaFetches; // ordinary fetchMedia keys
+    QStringList mediaFetches;
     struct MxcFetch {
         quint64 opId;
         QString mxc;
@@ -97,7 +84,6 @@ public:
         Q_EMIT mediaFailed(opId, key, 0, category);
     }
 
-    // Pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -152,12 +138,11 @@ QByteArray mp4Bytes()
     return b;
 }
 
-// RIFF/WEBP with a VP8X chunk; `animated` sets the animation flag bit.
 QByteArray webpBytes(bool animated)
 {
     QByteArray b("RIFF\x00\x00\x00\x00" "WEBP" "VP8X", 16);
-    b.append(QByteArray("\x0a\x00\x00\x00", 4)); // chunk size
-    b.append(char(animated ? 0x02 : 0x00));        // flags (offset 20)
+    b.append(QByteArray("\x0a\x00\x00\x00", 4));
+    b.append(char(animated ? 0x02 : 0x00));
     b.append(QByteArray(9, '\0'));
     return b;
 }
@@ -188,7 +173,7 @@ QVariantMap videoFields(qint64 size, bool tooLarge = false)
 
 const QString kRoom = QStringLiteral("!room:example.org");
 
-} // namespace
+}
 
 class LinkMediaTest : public QObject
 {
@@ -197,8 +182,6 @@ class LinkMediaTest : public QObject
 private:
     QTemporaryDir m_configHome;
 
-    // Loads `url`'s preview into `c` with `fields`, through the real
-    // previewFor -> dispatch -> completion path.
     static void load(LinkPreviewController &c, FakeClient &client,
                      const QString &eventId, const QString &url,
                      const QVariantMap &fields)
@@ -216,8 +199,6 @@ private Q_SLOTS:
         QCoreApplication::setApplicationName(QStringLiteral("link-media-test"));
     }
 
-    // ---- LinkPreviewController ------------------------------------------
-
     // The privacy gate: a link's media resolves only once its preview has
     // loaded under the preview policy, and not with inline media off.
     void mediaResolvesOnlyForALoadedPreviewWithInlineMediaOn()
@@ -231,7 +212,6 @@ private Q_SLOTS:
         QVERIFY(key.startsWith(QStringLiteral("link:")));
         QCOMPARE(key.size(), 5 + 40);
 
-        // Unknown before any preview, and while it is still loading.
         QVERIFY(c.resolveLinkMedia(key).isEmpty());
         c.previewForEvent(kRoom, QStringLiteral("$e1"), url, false);
         QVERIFY(c.resolveLinkMedia(key).isEmpty());
@@ -244,7 +224,6 @@ private Q_SLOTS:
         QCOMPARE(target.value(QStringLiteral("bytes")).toByteArray(), png);
         QCOMPARE(target.value(QStringLiteral("mime")).toString(),
                  QStringLiteral("image/png"));
-        // Never a URL for bytes already in hand: no second contact.
         QVERIFY(!target.contains(QStringLiteral("url")));
 
         c.setInlineMedia(false);
@@ -253,7 +232,6 @@ private Q_SLOTS:
         c.setInlineMedia(true);
         QVERIFY(!c.resolveLinkMedia(key).isEmpty());
 
-        // An ordinary page is not a media key at all.
         const QString page = QStringLiteral("https://example.org/article");
         load(c, client, QStringLiteral("$e2"), page,
              { { QStringLiteral("previewKind"), QStringLiteral("metadata") },
@@ -262,7 +240,6 @@ private Q_SLOTS:
                      LinkPreviewController::mediaKeyForUrl(page)).isEmpty());
         QCOMPARE(c.mediaKeyCount(), 1);
 
-        // Sign-out forgets every key.
         c.clear();
         QVERIFY(c.resolveLinkMedia(key).isEmpty());
         QCOMPARE(c.mediaKeyCount(), 0);
@@ -307,7 +284,6 @@ private Q_SLOTS:
         QCOMPARE(l.value(QStringLiteral("url")).toString(), large);
         QCOMPARE(l.value(QStringLiteral("expect")).toInt(), 0);
 
-        // A data: source that is not exactly what Rust builds is refused.
         const QString odd = QStringLiteral("https://img.example.org/odd.png");
         load(c, client, QStringLiteral("$o"), odd,
              imageFields(dataUrl(pngBytes(), QStringLiteral("image/svg+xml")),
@@ -339,7 +315,6 @@ private Q_SLOTS:
         QCOMPARE(state.value(QStringLiteral("fileName")).toString(),
                  QStringLiteral("clip one.webm"));
 
-        // A bidi override cannot make "exe.png" out of "gnp.exe".
         const QString spoof =
             QStringLiteral("https://x.example.org/a%E2%80%AEgnp.exe");
         c.previewForEvent(kRoom, QStringLiteral("$s"), spoof, false);
@@ -357,7 +332,6 @@ private Q_SLOTS:
                  QStringLiteral("x.example.org"));
         QVERIFY(c.viewerEntry(QStringLiteral("link:unknown")).isEmpty());
 
-        // Line and paragraph separators and the Arabic letter mark go too.
         const QString seps =
             QStringLiteral("https://x.example.org/a%E2%80%A8b%E2%80%A9c%D8%9Cd.png");
         c.previewForEvent(kRoom, QStringLiteral("$p"), seps, false);
@@ -367,8 +341,6 @@ private Q_SLOTS:
                      .value(QStringLiteral("fileName")).toString(),
                  QStringLiteral("abcd.png"));
 
-        // A long name is clipped between code points, never inside a
-        // surrogate pair: 78 letters, then an emoji straddling the cut.
         const QString longName = QStringLiteral("https://x.example.org/")
             + QString(78, QLatin1Char('a'))
             + QStringLiteral("%F0%9F%98%80bbbbbbbb.png");
@@ -383,9 +355,6 @@ private Q_SLOTS:
             QVERIFY2(!clipped.at(i).isSurrogate(), "a lone surrogate was left");
     }
 
-    // Loaded is per URL, but contacting the site again is per row: a card
-    // another room loaded is shown, and Play/View there needs this row's
-    // own consent.
     void aCardFromAnotherRoomNeedsThisRowsConsent()
     {
         FakeClient client;
@@ -409,12 +378,9 @@ private Q_SLOTS:
         c.requestPreviewForEvent(secret, QStringLiteral("$enc"));
         QVERIFY(c.previewForEvent(secret, QStringLiteral("$enc"), url, true)
                     .value(QStringLiteral("mediaAllowed")).toBool());
-        // Consent for a loaded URL fetches nothing again.
         QCOMPARE(client.requestedUrls, QStringList{ url });
     }
 
-    // The inline-media switch is presentation: it must not make rows ask for
-    // their previews again (policyChanged re-dispatches evicted ones).
     void theInlineSwitchDoesNotReaskPreviews()
     {
         LinkPreviewController c;
@@ -426,8 +392,6 @@ private Q_SLOTS:
         QCOMPARE(inlineSpy.count(), 2);
     }
 
-    // Preview images are held as base64 text; the cache must stay within its
-    // byte budget, dropping the oldest image first and never the newest.
     void heldPreviewImagesStayWithinTheirBudget()
     {
         FakeClient client;
@@ -451,14 +415,11 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("held %1 bytes over a %2 budget")
                                 .arg(c.heldBytes()).arg(each * 2 + each / 2)));
         QVERIFY(c.heldBytes() > 0);
-        // The newest survives; the oldest went, and its media key with it.
         QVERIFY(!c.resolveLinkMedia(
                      LinkPreviewController::mediaKeyForUrl(urls.last())).isEmpty());
         QVERIFY(c.resolveLinkMedia(
                     LinkPreviewController::mediaKeyForUrl(urls.first())).isEmpty());
         QCOMPARE(c.mediaKeyCount(), 2);
-        // The evicted row is still drawn; availability is what its click asks
-        // before choosing the viewer or the browser.
         QVERIFY(c.linkMediaAvailable(
             LinkPreviewController::mediaKeyForUrl(urls.last())));
         QVERIFY2(!c.linkMediaAvailable(
@@ -468,8 +429,6 @@ private Q_SLOTS:
         QCOMPARE(c.heldBytes(), 0);
     }
 
-    // ---- MediaBridge ----------------------------------------------------
-
     void aLinkKeyFetchesThroughTheResolverOnly()
     {
         FakeClient client;
@@ -478,7 +437,6 @@ private Q_SLOTS:
         const QString key = LinkPreviewController::mediaKeyForUrl(
             QStringLiteral("https://cdn.example.org/clip.mp4"));
 
-        // Without a resolver nothing is fetched and the key fails.
         QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
         QCOMPARE(bridge.mediaSource(key, QStringLiteral("full")), QString());
         QVERIFY(client.linkFetches.isEmpty());
@@ -489,7 +447,6 @@ private Q_SLOTS:
 
         QVariantMap answer;
         bridge.setLinkMediaResolver([&answer](const QString &) { return answer; });
-        // A refusal is the same: no fetch.
         QCOMPARE(bridge.mediaSource(key, QStringLiteral("full")), QString());
         QVERIFY(client.linkFetches.isEmpty());
         bridge.retry(QStringLiteral("full:") + key);
@@ -503,10 +460,8 @@ private Q_SLOTS:
         QCOMPARE(client.linkFetches.at(0).expect, 1);
         QVERIFY2(client.linkFetches.at(0).timeoutClass >= 1,
                  "a link fetch must not get the 40 s class");
-        // Never the Matrix media path.
         QVERIFY(client.mediaFetches.isEmpty());
 
-        // A viewer (class 0) request is raised too.
         const QString imageKey = LinkPreviewController::mediaKeyForUrl(
             QStringLiteral("https://img.example.org/big.jpg"));
         answer = { { QStringLiteral("url"),
@@ -517,8 +472,6 @@ private Q_SLOTS:
         QCOMPARE(client.linkFetches.at(1).expect, 0);
         QVERIFY(client.linkFetches.at(1).timeoutClass >= 1);
 
-        // Thumbnail classes never fetch a link, and are not failures either
-        // (the viewer's strip asks for one on every open).
         const int before = client.linkFetches.size();
         const int failuresBefore = failed.count();
         bridge.mediaSource(key, QStringLiteral("thumb"));
@@ -527,8 +480,6 @@ private Q_SLOTS:
         QCOMPARE(failed.count(), failuresBefore);
     }
 
-    // Held bytes complete through the ordinary path, so every check there
-    // applies, and no request leaves the process.
     void heldLinkBytesCompleteThroughTheOrdinaryPath()
     {
         FakeClient client;
@@ -553,7 +504,6 @@ private Q_SLOTS:
         QVERIFY(client.mxcFetches.isEmpty());
         QVERIFY(client.mediaFetches.isEmpty());
 
-        // Markup is refused even from held bytes.
         held = QByteArray("<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
         const QString svgKey = LinkPreviewController::mediaKeyForUrl(
             QStringLiteral("https://img.example.org/x.png"));
@@ -563,7 +513,6 @@ private Q_SLOTS:
         QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("rejected"));
         QCOMPARE(bridge.cachedSource(QStringLiteral("full:") + svgKey), QString());
 
-        // Sign-out before the queued completion: nothing lands.
         held = png;
         const QString lateKey = LinkPreviewController::mediaKeyForUrl(
             QStringLiteral("https://img.example.org/late.png"));
@@ -573,8 +522,6 @@ private Q_SLOTS:
         QCOMPARE(bridge.cachedSource(QStringLiteral("full:") + lateKey), QString());
     }
 
-    // A server-route preview: the viewer gets the homeserver's original, and
-    // the site is not contacted.
     void aServerRouteImageFetchesTheHomeserverCopy()
     {
         FakeClient client;
@@ -592,7 +539,6 @@ private Q_SLOTS:
         QCOMPARE(client.mxcFetches.at(0).width, 0);
         QCOMPARE(client.mxcFetches.at(0).height, 0);
         QVERIFY(client.linkFetches.isEmpty());
-        // The answer arrives under the mxc key and still lands on the link key.
         QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
         client.media(client.mxcFetches.at(0).opId,
                      QStringLiteral("mxc://example.org/abc"), pngBytes(),
@@ -601,8 +547,6 @@ private Q_SLOTS:
         QCOMPARE(cached.at(0).at(0).toString(), QStringLiteral("full:") + key);
     }
 
-    // Played sizes persist per account for Matrix media; a link must leave no
-    // such record.
     void aPlayedLinkLeavesNoLearnedSize()
     {
         FakeClient client;
@@ -625,7 +569,6 @@ private Q_SLOTS:
         QVERIFY(bridge.playableSource(key).startsWith(QStringLiteral("file:")));
         QCOMPARE(learned.count(), 0);
 
-        // Control: the same payload for a Matrix event is learned.
         bridge.playableSource(QStringLiteral("$event:example.org"));
         QCOMPARE(client.mediaFetches.size(), 1);
         client.media(client.nextOp - 1, QStringLiteral("$event:example.org"),
@@ -633,7 +576,6 @@ private Q_SLOTS:
         QCOMPARE(learned.count(), 1);
     }
 
-    // "too_large" reaches the card by its category, so it can say so.
     void anOverCapFetchFailsAsTooLarge()
     {
         FakeClient client;
@@ -655,7 +597,6 @@ private Q_SLOTS:
         QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("too_large"));
     }
 
-    // Link previews of animated WebP play like GIFs; a still WebP stays still.
     void aPreviewWebpAnimatesOnlyWhenItIsAnimated()
     {
         MediaBridge bridge;
@@ -669,17 +610,12 @@ private Q_SLOTS:
                      dataUrl(webpBytes(false), QStringLiteral("image/webp")),
                      QStringLiteral("image/webp")),
                  QString());
-        // The label must match the data: prefix.
         QCOMPARE(bridge.previewAnimatedSource(
                      dataUrl(webpBytes(true), QStringLiteral("image/gif")),
                      QStringLiteral("image/webp")),
                  QString());
     }
 
-    // The call sits in a binding that re-runs on every tick: a repeat of the
-    // same payload must not decode and hash it again, and a still WebP
-    // (which has no file) must be remembered too. Fails on the old code: the
-    // decode counter rose on every call.
     void aRepeatedPreviewPayloadIsDecodedOnce()
     {
         MediaBridge bridge;
@@ -702,8 +638,6 @@ private Q_SLOTS:
         QCOMPARE(bridge.previewDecodeCount(), 2);
     }
 
-    // Session isolation: the memo is dropped with the other memos, so a new
-    // account decodes (and is not handed) the previous account's file URL.
     void theClearedBridgeForgetsMemoisedPreviews()
     {
         MediaBridge bridge;
@@ -721,11 +655,8 @@ private Q_SLOTS:
         QVERIFY(second != first);
     }
 
-    // ---- Settings -------------------------------------------------------
-
     void theSettingDefaultsOnAndPersists()
     {
-        // Restored however the case ends, or the next run reads "false".
         const auto restore = qScopeGuard([] {
             SettingsManager settings;
             settings.setShowLinkMediaInline(true);
@@ -733,7 +664,6 @@ private Q_SLOTS:
         {
             SettingsManager settings;
             QCOMPARE(settings.showLinkMediaInline(), true);
-            // The preview switches it rides on stay off by default.
             QCOMPARE(settings.autoLoadLinkPreviews(), false);
             QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
             QSignalSpy spy(&settings, &SettingsManager::showLinkMediaInlineChanged);
@@ -746,6 +676,5 @@ private Q_SLOTS:
     }
 };
 
-// Guiless, like media-bridge-test: no decoder may be constructed here.
 QTEST_GUILESS_MAIN(LinkMediaTest)
 #include "LinkMediaTest.moc"

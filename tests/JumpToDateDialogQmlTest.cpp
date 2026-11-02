@@ -1,9 +1,3 @@
-// The Jump to date dialog, loaded for real (offscreen) against a stub `app`.
-// Pins (C32-F01, C32-F02):
-//   * Return on the focused Jump button submits, Return on Cancel closes;
-//   * Return in the date field submits (and an invalid date does not);
-//   * the date field and the dialog carry an accessible name, and the field
-//     has no inputMask (which would hide the placeholder format hint).
 
 #include <QAccessible>
 #include <QQmlComponent>
@@ -50,7 +44,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class JumpToDateDialogQmlTest : public QObject
 {
@@ -142,10 +136,7 @@ private Q_SLOTS:
         QVERIFY(field->property("inputMask").toString().isEmpty());
         QAccessibleInterface *fi = QAccessible::queryAccessibleInterface(field);
         QVERIFY(fi);
-        // Equality, not "non-empty": a TextField may fall back to its
-        // placeholder ("yyyy-mm-dd") for the name.
         QCOMPARE(fi->text(QAccessible::Name), QStringLiteral("Pick a date"));
-        // A Popup is not an item, so read the attached properties in QML.
         QCOMPARE(m_root->property("dialogName").toString(), QStringLiteral("Jump to date"));
         QCOMPARE(m_root->property("dialogRole").toInt(), int(QAccessible::Dialog));
     }

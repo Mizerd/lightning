@@ -47,71 +47,44 @@ namespace lightning::media {
 class QtAudioGate : public QObject
 {
     Q_OBJECT
-    /// The last answer: a new audio stream could be started. Asked on demand
-    /// (checkNow(), and every start) and while a start waits, never polled
-    /// otherwise, so it can be stale; QML that needs the answer now calls
-    /// checkNow(), and a player uses play(). Always true where no gate is
-    /// needed.
     Q_PROPERTY(bool ready READ ready NOTIFY readyChanged)
 
 public:
     enum class Mode {
-        /// The backend is known not to be PulseAudio: never held.
         Ungated,
-        /// The backend is PulseAudio (Qt said so).
         Pulse,
-        /// Not known: held only after the PulseAudio thread was seen to go.
         MaybePulse,
     };
     struct Probes {
-        /// Qt's PulseAudio mainloop thread is running.
         std::function<bool()> qtThreadRunning;
-        /// The PulseAudio server's socket accepts a connection.
         std::function<bool()> serverReachable;
     };
 
     QtAudioGate(Mode mode, Probes probes, QObject *parent = nullptr);
 
-    /// Creates the process-wide gate, with the production probes and the
-    /// mode read from Qt. main() calls it once the application exists; until
-    /// then (and in tests that do not) current() is null and nothing is held.
     static QtAudioGate &install();
-    /// The gate installed for this process, or null.
     static QtAudioGate *current();
 
     Mode mode() const { return m_mode; }
     bool ready() const { return m_ready; }
 
-    /// Asks the probes now (a /proc read, and a socket connect only while
-    /// Qt's thread runs) and updates `ready`. QML may call it before play().
     Q_INVOKABLE bool checkNow();
 
-    /// Runs `start` on this thread once a new stream is safe: at once when it
-    /// is now, otherwise as soon as the gate opens. Runs `giveUp` instead if
-    /// it has not opened within `maxWaitMs`. Neither runs if `context` is
-    /// destroyed first. Never calls into Qt Multimedia itself.
     void whenReady(QObject *context, std::function<void()> start,
                    std::function<void()> giveUp, int maxWaitMs = kDefaultWaitMs);
-    /// Drops every waiting start of `context` (a cancel), running nothing.
     void cancel(QObject *context);
 
-    /// For QML: calls `player`'s play() now, or once the gate opens (a
-    /// MediaPlayer, or anything with a play() slot). Given up after
-    /// kDefaultWaitMs with playGivenUp(player). Use instead of player.play().
     Q_INVOKABLE void play(QObject *player);
-    /// For QML: a pause or stop drops a play() still waiting.
     Q_INVOKABLE void cancelPlay(QObject *player) { cancel(player); }
 
     static constexpr int kDefaultWaitMs = 8000;
 
-    // Tests.
     void setTimingForTest(int pollMs, int liveMs);
     int pendingForTest() const { return int(m_pending.size()); }
     bool pollingForTest() const { return m_timer.isActive(); }
 
 Q_SIGNALS:
     void readyChanged();
-    /// A play() from QML waited kDefaultWaitMs and was dropped.
     void playGivenUp(QObject *player);
 
 private:
@@ -123,7 +96,6 @@ private:
         QElapsedTimer waited;
         int maxWaitMs = kDefaultWaitMs;
     };
-    /// The probes' raw answer, before the liveMs debounce.
     bool probeNow(bool full);
     void setReady(bool ready);
     void poll();
@@ -133,7 +105,6 @@ private:
     Probes m_probes;
     bool m_ready = true;
     bool m_threadSeen = false;
-    /// When the probes last turned from "no" to "yes"; invalid otherwise.
     QElapsedTimer m_yesSince;
     std::vector<Pending> m_pending;
     QTimer m_timer;
@@ -141,4 +112,4 @@ private:
     int m_liveMs = 500;
 };
 
-} // namespace lightning::media
+}

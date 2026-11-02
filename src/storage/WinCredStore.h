@@ -2,16 +2,6 @@
 
 #include "storage/SecretStore.h"
 
-// Windows Credential Manager backend (CredWriteW / CredReadW / CredDeleteW /
-// CredEnumerateW via advapi32). Blobs are DPAPI-protected per Windows user.
-//
-// Implemented only with HAVE_WINCRED (set for WIN32 in CMakeLists.txt); other
-// platforms get a stub that reports unavailable.
-//
-// Credentials are CRED_TYPE_GENERIC with target "Lightning/secret/<userId>/
-// <key>". The user id is public; the token lives only in the encrypted blob,
-// never in the target name or a log. CredEnumerateW's trailing wildcard
-// drives clearAccountSecrets().
 class WinCredStore final : public SecretStore
 {
     Q_OBJECT

@@ -30,13 +30,11 @@ bool CryptoManager::supportsE2ee() const
 
 bool CryptoManager::supportsEncryptedMedia() const
 {
-    // Follows supportsE2ee().
     return supportsE2ee();
 }
 
 bool CryptoManager::supportsDeviceVerification() const
 {
-    // Not wired through this class.
     return false;
 }
 
@@ -91,6 +89,5 @@ bool CryptoManager::isDeviceVerified(const QString &, const QString &) const
 
 bool CryptoManager::isRoomEncrypted(const QString &) const
 {
-    // The room list model's `encrypted` flag is the UI's source of truth.
     return false;
 }

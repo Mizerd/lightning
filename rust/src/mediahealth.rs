@@ -1,27 +1,3 @@
-//! A circuit breaker for media downloads, per media origin and per file.
-//!
-//! A media server that is down answers slowly or not at all, and every fetch
-//! to it holds one of MediaBridge's eight slots until its timeout. A timeline
-//! full of images from one dead origin then stalls everything else behind it.
-//! After a few failures this module REFUSES further requests to that origin
-//! (or that one file) instantly, so the UI can say so and move on.
-//!
-//! Policy (after Sable's `media_health.rs`):
-//! * per FILE: 3 consecutive failures open that file's breaker;
-//! * per ORIGIN (the mxc server name): 3 DISTINCT files failing within 10
-//!   minutes open the origin's breaker. One broken file is not a dead server;
-//! * an open breaker refuses for 1 minute, then 5 minutes for every further
-//!   trip, then lets exactly ONE request through (half-open). That probe's
-//!   success closes the breaker and forgets the history; its failure re-opens
-//!   it at the next backoff;
-//! * a probe that never reports (its task was aborted) is treated as lost
-//!   after `PROBE_LOST_AFTER`, so a breaker cannot stick half-open.
-//!
-//! Only failures that say the SERVER (or the path to it) is unhealthy count:
-//! a 5xx or a transport error. A 404, a refusal, a size cap or a decrypt
-//! failure is a statement about one file, not about the server, and never
-//! feeds the breaker. This module changes no validation: it only decides
-//! whether a request that would have been made is made now.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -36,8 +12,6 @@ pub(crate) const PROBE_LOST_AFTER: Duration = Duration::from_secs(60);
 const MAX_FILES: usize = 4096;
 const MAX_ORIGINS: usize = 256;
 
-/// The error a refused request fails with. `fetch_uncached` wraps it in
-/// `matrix_sdk::Error::UnknownError`; the classifier downcasts it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BreakerOpen {
     pub retry_after_ms: u64,
@@ -53,14 +27,12 @@ impl std::error::Error for BreakerOpen {}
 
 #[derive(Debug, Default)]
 struct Breaker {
-    /// Index into `BACKOFF` of the CURRENT (or most recent) open period.
     stage: usize,
     open_until: Option<Instant>,
     probe_started: Option<Instant>,
 }
 
 impl Breaker {
-    /// Read-only: may a request go now, or how long until one may.
     fn peek(&self, now: Instant) -> Result<(), Duration> {
         let Some(until) = self.open_until else {
             return Ok(());
@@ -76,7 +48,6 @@ impl Breaker {
         }
     }
 
-    /// A request is being let through: if half-open, it is THE probe.
     fn admit(&mut self, now: Instant) {
         if self.open_until.is_some_and(|until| now >= until) {
             self.probe_started = Some(now);
@@ -110,7 +81,6 @@ struct FileState {
 
 #[derive(Debug, Default)]
 struct OriginState {
-    /// Distinct files that failed, with when they last did.
     recent: HashMap<String, Instant>,
     breaker: Breaker,
 }
@@ -121,15 +91,12 @@ struct State {
     origins: HashMap<String, OriginState>,
 }
 
-/// The breaker table. Cheap to lock: every operation is a few map lookups.
 #[derive(Default)]
 pub(crate) struct MediaHealth {
     state: Mutex<State>,
 }
 
 impl MediaHealth {
-    /// `Ok` to make the request, or `Err(retry_after)`. Letting a request
-    /// through a half-open breaker makes it the probe.
     pub(crate) fn check(&self, origin: Option<&str>, file: &str, now: Instant) -> Result<(), Duration> {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         let file_wait = state.files.get(file).map(|f| f.breaker.peek(now)).unwrap_or(Ok(()));
@@ -151,8 +118,6 @@ impl MediaHealth {
         Ok(())
     }
 
-    /// A fetch from `origin` succeeded: the file is healthy, and so is the
-    /// origin, whatever its history.
     pub(crate) fn record_success(&self, origin: Option<&str>, file: &str) {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         state.files.remove(file);
@@ -166,15 +131,12 @@ impl MediaHealth {
         }
     }
 
-    /// A fetch failed in a way that says the server is unhealthy.
     pub(crate) fn record_failure(&self, origin: Option<&str>, file: &str, now: Instant) {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         if state.files.len() >= MAX_FILES && !state.files.contains_key(file) {
-            state.files.clear(); // defensive bound
+            state.files.clear();
         }
         let f = state.files.entry(file.to_owned()).or_default();
-        // A straggler that was already in flight when the breaker opened adds
-        // nothing: the period is already running.
         let file_open_and_waiting = f.breaker.is_open() && !f.breaker.half_open(now);
         if !file_open_and_waiting {
             f.consecutive += 1;
@@ -219,15 +181,11 @@ pub(crate) fn global() -> &'static MediaHealth {
     HEALTH.with(|h| *h)
 }
 
-/// The origin (mxc server name) and file identity of a media source, or None
-/// for a URI that is not a well-formed mxc (those never reach the network).
 pub(crate) fn identify(uri: &matrix_sdk::ruma::MxcUri) -> Option<(String, String)> {
     let server = uri.server_name().ok()?;
     Some((server.to_string(), uri.to_string()))
 }
 
-/// A request that outran its overall timeout (the future was dropped before
-/// it could report): the server did not answer in time, which counts.
 pub(crate) fn record_timeout(identity: &Option<(String, String)>) {
     if let Some((origin, file)) = identity {
         global().record_failure(Some(origin), file, Instant::now());
@@ -255,7 +213,6 @@ mod tests {
         h.record_failure(O, "c", t0);
         let wait = h.check(O, "never-seen", t0).expect_err("origin is open");
         assert_eq!(wait, BACKOFF[0]);
-        // Another origin is untouched.
         assert!(h.check(Some("fine.example"), "x", t0).is_ok());
     }
 
@@ -288,15 +245,12 @@ mod tests {
             h.record_failure(O, f, t0);
         }
         assert!(h.check(O, "z", t0 + secs(59)).is_err());
-        // Half-open: exactly one request goes, the next waits for its verdict.
         let t1 = t0 + secs(60);
         assert!(h.check(O, "z", t1).is_ok(), "the probe");
         assert!(h.check(O, "y", t1).is_err(), "only one probe at a time");
-        // The probe fails: re-opened for FIVE minutes.
         h.record_failure(O, "z", t1);
         assert_eq!(h.check(O, "y", t1).unwrap_err(), BACKOFF[1]);
         assert!(h.check(O, "y", t1 + secs(299)).is_err());
-        // And it stays at five minutes after another failed probe.
         let t2 = t1 + secs(300);
         assert!(h.check(O, "y", t2).is_ok());
         h.record_failure(O, "y", t2);
@@ -314,8 +268,6 @@ mod tests {
         assert!(h.check(O, "z", t1).is_ok());
         h.record_success(O, "z");
         assert!(h.check(O, "anything", t1).is_ok());
-        // History is gone: it takes three fresh files to open it again, and
-        // the first trip is back to the SHORT backoff.
         h.record_failure(O, "p", t1);
         h.record_failure(O, "q", t1);
         assert!(h.check(O, "r", t1).is_ok());
@@ -343,7 +295,6 @@ mod tests {
         for f in ["a", "b", "c"] {
             h.record_failure(O, f, t0);
         }
-        // Fetches already running when it opened fail later.
         h.record_failure(O, "d", t0 + secs(20));
         h.record_failure(O, "e", t0 + secs(21));
         assert!(h.check(O, "z", t0 + secs(60)).is_ok(), "still the one-minute period");
@@ -370,9 +321,7 @@ mod tests {
         for f in ["a", "b", "c"] {
             h.record_failure(O, f, t0 + secs(30));
         }
-        // The file's period is over at 60 s but the origin's runs to 90 s.
         assert!(h.check(O, "f", t0 + secs(70)).is_err());
-        // When the origin's period ends, the FILE's probe is still available.
         assert!(h.check(O, "f", t0 + secs(91)).is_ok());
     }
 }

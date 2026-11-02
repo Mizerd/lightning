@@ -2,10 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// How a call is placed, on the chevron beside the room header's call button:
-// start one now, and which call type the button uses. "Automatic" is what the
-// button has always done. A type this room cannot carry is disabled, not
-// hidden, so the choice reads the same in every room.
 AppMenu {
     id: root
     objectName: "callFormatMenu"
@@ -13,7 +9,6 @@ AppMenu {
     property string roomId: ""
     menuWidth: 268
 
-    // callFormats() is an invokable: read when the menu opens.
     property var formats: ({})
     // Why MatrixRTC is greyed (RtcController::joinBlockReason's closed set),
     // read with the formats: a disabled row alone said nothing.
@@ -98,7 +93,6 @@ AppMenu {
         text: qsTr("Direct (1:1 peer-to-peer)")
         onTriggered: app.settings.callFormat = "legacy"
     }
-    // The reason a type is greyed, under the list, in the room's own words.
     MenuSectionLabel {
         objectName: "callFormatMenuReason"
         readonly property string note: {

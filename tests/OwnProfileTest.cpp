@@ -28,9 +28,6 @@ namespace {
 const QString kAlice = QStringLiteral("@alice:one.example");
 const QString kHsOne = QStringLiteral("https://one.example");
 
-// Mirrors AccountSwitchTest.cpp's own FakeSecretStore: an in-memory,
-// always-available secret backend so saveSession()/switchToAccount() do
-// not depend on a real Secret Service being reachable here.
 class FakeSecretStore final : public SecretStore
 {
     Q_OBJECT
@@ -68,7 +65,7 @@ private:
     QHash<QString, QString> m_values;
 };
 
-} // namespace
+}
 
 class OwnProfileTest : public QObject
 {
@@ -146,8 +143,6 @@ private Q_SLOTS:
                  QStringLiteral("not_found"));
     }
 
-    // The round trip. The last assertion is the one that needs the
-    // completion handler's re-fetch.
     void aConfirmedRenameRefreshesTheCachedName()
     {
         AppController app(AppController::MockBackend);
@@ -159,8 +154,6 @@ private Q_SLOTS:
 
         QSignalSpy saved(&app, &AppController::ownDisplayNameSaved);
         QVERIFY(app.submitOwnDisplayName(QStringLiteral("Rokas Smetonis")));
-        // Busy the instant the call returns: the op id is claimed BEFORE
-        // the backend is called, so a synchronous answer cannot be dropped.
         QVERIFY(app.ownDisplayNameBusy());
 
         QTRY_COMPARE(saved.count(), 1);
@@ -169,8 +162,6 @@ private Q_SLOTS:
         QTRY_COMPARE(cachedName(app), QStringLiteral("Rokas Smetonis"));
     }
 
-    // Confirmation comes from the op and arrives before the registry catches
-    // up (and never, if the server already held the name).
     void confirmationArrivesBeforeTheRegistryCatchesUp()
     {
         AppController app(AppController::MockBackend);
@@ -191,8 +182,6 @@ private Q_SLOTS:
         QTRY_COMPARE(cachedName(app), QStringLiteral("Bravo"));
     }
 
-    // A refusal keeps the write unconfirmed: no saved signal, the server's
-    // message shown verbatim, and the stored name untouched.
     void aRefusalReportsTheServerMessageAndCachesNothing()
     {
         AppController app(AppController::MockBackend);
@@ -210,23 +199,18 @@ private Q_SLOTS:
         QVERIFY(app.submitOwnDisplayName(QStringLiteral("Blocked")));
         QTRY_VERIFY(!app.ownDisplayNameBusy());
         QCOMPARE(saved.count(), 0);
-        QVERIFY(state.count() >= 2); // dispatch, then the failure
+        QVERIFY(state.count() >= 2);
         QCOMPARE(app.ownDisplayNameError(),
                  QStringLiteral("Display name is not allowed on this server"));
         QVERIFY(!client->mockDisplayNames.contains(kAlice));
         QCOMPARE(cachedName(app), QStringLiteral("alice"));
 
-        // A retry after the server stops refusing succeeds and clears the
-        // error — a failure must not latch the editor.
         client->mockDisplayNameFailReason.clear();
         QVERIFY(app.submitOwnDisplayName(QStringLiteral("Blocked")));
         QTRY_COMPARE(saved.count(), 1);
         QVERIFY(app.ownDisplayNameError().isEmpty());
     }
 
-    // A failure with NO server message (a timeout, a transport failure)
-    // must not show an empty red line, and must not invent a sentence and
-    // attribute it to the server.
     void aFailureWithNoServerMessageGetsOurOwnWording()
     {
         AppController app(AppController::MockBackend);
@@ -242,7 +226,6 @@ private Q_SLOTS:
         QVERIFY(!app.ownDisplayNameError().isEmpty());
     }
 
-    // Single-flight: a second Save while one is in flight is suppressed.
     void aSecondSubmitWhileBusyIsSuppressed()
     {
         AppController app(AppController::MockBackend);
@@ -260,8 +243,6 @@ private Q_SLOTS:
         QTRY_VERIFY(!app.ownDisplayNameBusy());
     }
 
-    // An emptied editor never erases the name; Clear is a separate action and
-    // reaches the backend as an empty string (Rust maps it to None).
     void anEmptyNameIsRefusedButAnExplicitClearIsDispatched()
     {
         AppController app(AppController::MockBackend);
@@ -285,14 +266,9 @@ private Q_SLOTS:
         QCOMPARE(client->displayNameWrites, before + 1);
         QVERIFY(client->mockDisplayNames.contains(kAlice));
         QVERIFY(client->mockDisplayNames.value(kAlice).isEmpty());
-        // Present-but-empty reads back as empty, not as the localpart:
-        // otherwise a successful clear would be indistinguishable from a
-        // failed one on every identity surface.
         QTRY_VERIFY(cachedName(app).isEmpty());
     }
 
-    // Unchanged is a no-op: nothing is sent, and no error is raised
-    // either, because nothing went wrong.
     void anUnchangedNameIsNotSent()
     {
         AppController app(AppController::MockBackend);
@@ -310,8 +286,6 @@ private Q_SLOTS:
         QVERIFY(app.ownDisplayNameError().isEmpty());
     }
 
-    // Length is counted in code points: UTF-16 units would make every emoji
-    // cost two and could truncate between surrogates.
     void lengthIsCountedInCodePointsNotUtf16Units()
     {
         AppController app(AppController::MockBackend);
@@ -322,12 +296,10 @@ private Q_SLOTS:
         QVERIFY(client != nullptr);
 
         const QString fox = QString::fromUcs4(U"\U0001F98A");
-        QCOMPARE(int(fox.size()), 2);                  // a surrogate PAIR
-        QCOMPARE(app.displayNameLength(fox), 1);       // ONE character
+        QCOMPARE(int(fox.size()), 2);
+        QCOMPARE(app.displayNameLength(fox), 1);
         QCOMPARE(app.displayNameLength(QString(255, QLatin1Char('a'))), 255);
 
-        // Exactly at the ceiling with an astral character as the 255th:
-        // accepted, and it arrives whole.
         const QString atLimit = QString(254, QLatin1Char('a')) + fox;
         QCOMPARE(app.displayNameLength(atLimit), 255);
         QSignalSpy saved(&app, &AppController::ownDisplayNameSaved);
@@ -335,9 +307,6 @@ private Q_SLOTS:
         QTRY_COMPARE(saved.count(), 1);
         QCOMPARE(client->mockDisplayNames.value(kAlice), atLimit);
 
-        // One character past it: REFUSED, never truncated. A silent cut
-        // would send something the user did not type and then report it
-        // as saved.
         const int before = client->displayNameWrites;
         const QString overLimit = QString(255, QLatin1Char('a')) + fox;
         QCOMPARE(app.displayNameLength(overLimit), 256);
@@ -347,9 +316,6 @@ private Q_SLOTS:
         QCOMPARE(client->mockDisplayNames.value(kAlice), atLimit);
     }
 
-    // No ASCII filter, no normalisation, no case folding: emoji, ZWJ
-    // sequences, combining marks, non-Latin scripts and mixed scripts all
-    // reach the backend byte-identical to what was typed.
     void unicodeNamesRoundTripUnchanged()
     {
         AppController app(AppController::MockBackend);
@@ -359,16 +325,11 @@ private Q_SLOTS:
         auto *client = mock(app);
         QVERIFY(client != nullptr);
 
-        // Written as escapes, never as raw source bytes: a suite whose
-        // own file encoding is load-bearing proves nothing about the
-        // pipeline it is testing.
         const QStringList names = {
             QString::fromUcs4(U"\u0104\u017Euolas U\u017Eupis"),
             QString::fromUcs4(U"\u65E5\u672C\u8A9E\u306E\u540D\u524D"),
-            // ZWJ family: four astral characters joined by U+200D.
             QString::fromUcs4(U"\U0001F468\u200D\U0001F469\u200D"
                               U"\U0001F467\u200D\U0001F466"),
-            // Base letter + two combining marks.
             QString::fromUcs4(U"e\u0301\u0327"),
             QString::fromUcs4(U"\u03A9 mixed \u6F22\u5B57 \U0001F98A"),
         };
@@ -380,9 +341,6 @@ private Q_SLOTS:
         }
     }
 
-    // A write in flight when the session goes away belongs to the account
-    // that is going away. Retiring the op id is what makes the late answer
-    // stale — without it the next account's editor takes it as ITS answer.
     void anAnswerThatOutlivedItsSessionIsDropped()
     {
         AppController app(AppController::MockBackend);
@@ -405,9 +363,6 @@ private Q_SLOTS:
         QVERIFY(app.ownDisplayNameError().isEmpty());
     }
 
-    // Signed out, nothing is offered and nothing is dispatched: the
-    // command returns void, so an unanswerable dispatch would leave the
-    // editor spinning forever with nothing left to answer it.
     void signedOutRefusesEverythingWithoutDispatching()
     {
         AppController app(AppController::MockBackend);
@@ -420,10 +375,6 @@ private Q_SLOTS:
         QVERIFY(app.ownDisplayNameError().isEmpty());
     }
 
-    // B112: a name changed on another device never reached the account menu
-    // or Settings > Account until the next sign-in (sync does not carry the
-    // global profile). Our own m.room.member profile event is the cue to ask
-    // again; another user's is not, and a burst asks once.
     void anOwnProfileEventFromElsewhereRefreshesTheCachedName()
     {
         AppController app(AppController::MockBackend);
@@ -435,10 +386,7 @@ private Q_SLOTS:
         QVERIFY(client);
         const QString me = client->currentUserId();
         QVERIFY(!me.isEmpty());
-        // Renamed on another device: the server knows, this app does not.
         client->mockDisplayNames.insert(me, QStringLiteral("Self Renamed"));
-        // Past the sign-in fetch's rate-limit window
-        // (AppController::kOwnProfileEventRefreshMs, 2 s).
         QTest::qWait(2200);
 
         const auto profileEvent = [](const QString &sender) {
@@ -452,8 +400,6 @@ private Q_SLOTS:
             return e;
         };
         QSignalSpy profiles(client, &MatrixClient::userProfileFinished);
-        // Answers about the own account only; other surfaces may ask about
-        // other users meanwhile.
         const auto ownAnswers = [&profiles, me] {
             int n = 0;
             for (const QList<QVariant> &args : profiles)

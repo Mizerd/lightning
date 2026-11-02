@@ -1,18 +1,3 @@
-//! A display-name colour the user chooses, carried in their Matrix profile so
-//! other Lightning clients see it.
-//!
-//! Matrix has no standard for this. Account data is private and per-room
-//! state would differ per room and need a write to every room; an extended
-//! profile field is global and one write. The field is
-//! `org.lightning.name_color` over MSC4133, using `banner.rs`'s transport
-//! (ruma's typed endpoints cannot reach Synapse's stable path).
-//!
-//! A server without extended profile fields answers M_UNRECOGNIZED, reported
-//! as unsupported rather than an error; names keep their derived colour.
-//!
-//! The stored value is a preferred hue, not a rendered colour: the viewer's
-//! client adapts it to its background (`AppTheme.userColor`), so nobody can
-//! hand others an unreadable name.
 
 use crate::banner::{is_unsupported, profile_field};
 use crate::rooms::require_client;
@@ -23,7 +8,6 @@ use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// The profile field; `org.` because it is not a spec key.
 pub(crate) const FIELD: &str = "org.lightning.name_color";
 
 const TIMEOUT: Duration = Duration::from_secs(15);
@@ -40,14 +24,11 @@ pub(crate) fn normalized(value: &str) -> Option<String> {
     Some(format!("#{}", hex.to_ascii_lowercase()))
 }
 
-/// Pull the colour out of a `{"org.lightning.name_color": "#aabbcc"}` body.
 fn from_body(body: &str) -> Option<String> {
     let parsed: serde_json::Value = serde_json::from_str(body).ok()?;
     normalized(parsed.get(FIELD)?.as_str()?)
 }
 
-/// Read one user's colour. `Ok(None)` means not set (a 404 on the field),
-/// the ordinary case. Only an unknown endpoint is reported as unsupported.
 pub(crate) async fn fetch(client: &Client, user_id: &str)
     -> Result<Option<String>, String>
 {
@@ -61,7 +42,6 @@ pub(crate) async fn fetch(client: &Client, user_id: &str)
     }
 }
 
-/// Set (or, with an empty value, clear) the local user's colour.
 pub(crate) async fn set_own(client: &Client, value: &str) -> Result<(), String> {
     let user_id = client
         .user_id()
@@ -77,7 +57,6 @@ pub(crate) async fn set_own(client: &Client, value: &str) -> Result<(), String> 
 
     match answer.status {
         200 | 201 | 204 => Ok(()),
-        // Clearing a never-set field is a success.
         404 if !is_unsupported(&answer.body) => Ok(()),
         404 => Err("unsupported".to_owned()),
         403 => Err("forbidden".to_owned()),
@@ -93,16 +72,14 @@ mod tests {
     fn onlySixHexDigitsBehindAHashSurvive() {
         assert_eq!(normalized("#AABBCC").as_deref(), Some("#aabbcc"));
         assert_eq!(normalized("  #a1b2c3  ").as_deref(), Some("#a1b2c3"));
-        // Anything else is dropped, not repaired.
-        assert_eq!(normalized("aabbcc"), None);      // no hash
-        assert_eq!(normalized("#abc"), None);        // short form not accepted
-        assert_eq!(normalized("#aabbccdd"), None);   // alpha not accepted
-        assert_eq!(normalized("#gggggg"), None);     // not hex
+        assert_eq!(normalized("aabbcc"), None);
+        assert_eq!(normalized("#abc"), None);
+        assert_eq!(normalized("#aabbccdd"), None);
+        assert_eq!(normalized("#gggggg"), None);
         assert_eq!(normalized(""), None);
         assert_eq!(normalized("#"), None);
     }
 
-    // The value reaches a QML colour property; non-colours must never get there.
     #[test]
     fn aHostileFieldValueIsDroppedRatherThanPassedOn() {
         for hostile in [
@@ -122,7 +99,6 @@ mod tests {
             from_body(r##"{"org.lightning.name_color":"#123456"}"##).as_deref(),
             Some("#123456")
         );
-        // Another key in the body says nothing about this one.
         assert_eq!(from_body(r##"{"displayname":"#123456"}"##), None);
         assert_eq!(from_body(r##"{"org.lightning.name_color":42}"##), None);
         assert_eq!(from_body("not json"), None);
@@ -130,11 +106,6 @@ mod tests {
     }
 }
 
-// ── Dispatch, shaped like the other profile reads ──────────────────────────
-
-/// Read one user's colour; answers on `name_color`. `supported: false` means
-/// no extended profile fields; the UI renders nothing rather than "no
-/// colour chosen".
 pub(crate) fn fetch_name_color(
     bridge: &RustClient,
     op_id: u64,
@@ -151,8 +122,6 @@ pub(crate) fn fetch_name_color(
         let (colour, supported) = match fetch(&client, uid.as_str()).await {
             Ok(value) => (value.unwrap_or_default(), true),
             Err(reason) if reason == "unsupported" => (String::new(), false),
-            // Other failures are transient: report "no colour, supported" so the
-            // derived colour is used and the next sync retries.
             Err(_) => (String::new(), true),
         };
         if !timelines.lifecycle_current(lifecycle) {
@@ -166,7 +135,6 @@ pub(crate) fn fetch_name_color(
     Ok(())
 }
 
-/// Set or clear this account's colour; answers on `name_color_set`.
 pub(crate) fn set_name_color(
     bridge: &RustClient,
     op_id: u64,
@@ -176,7 +144,6 @@ pub(crate) fn set_name_color(
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
-    // Normalised here too, so the report carries what was actually stored.
     let stored = normalized(&value).unwrap_or_default();
     bridge.spawn_room_action(async move {
         let outcome = set_own(&client, &value).await;

@@ -3,25 +3,12 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// MSC3381 poll creation. Presentation only: collects the question, 2..20
-// answers, the disclosure kind and whether multiple answers are allowed, then
-// hands them to app.composer.createPoll; the Rust bridge builds the Matrix
-// content with ruma constructors. In thread-reply mode the composer routes to
-// the open thread.
-//
-// Two columns: the form on the left and a live "as sent" preview on the
-// right. The add-answer row uses a solid subtle border rather than a dashed
-// one.
 Dialog {
     id: root
     objectName: "createPollDialog"
 
     readonly property int maxAnswers: 20
-    // Answer texts, index-addressed; the ListModel keeps TextField focus stable
-    // as rows are added and removed.
     property var answerModel: ListModel {}
-    // Bumped on every per-row edit: ListModel setProperty() changes carry no
-    // QML-tracked dependency, so bindings reading answerTexts() read this too.
     property int answerRevision: 0
     function bumpAnswerRevision() { answerRevision = answerRevision + 1 }
     // Removal lives here, not in the delegate: a statement after remove() in
@@ -31,7 +18,6 @@ Dialog {
         answerModel.remove(i)
         bumpAnswerRevision()
     }
-    // Focus the answer field of row i (after the Repeater has built it).
     function focusAnswer(i) {
         var item = answerRepeater.itemAt(i)
         if (item && item.answerField) item.answerField.forceActiveFocus()
@@ -59,9 +45,7 @@ Dialog {
         }
         return texts
     }
-    // Live preview data; depends on answerRevision so per-row edits refresh it.
     readonly property var previewAnswers: { answerRevision; return answerTexts() }
-    // Depends on answerRevision too, so Create reacts to per-row edits.
     readonly property bool formValid: {
         answerRevision
         return questionField.text.trim().length > 0
@@ -78,10 +62,6 @@ Dialog {
         close()
     }
 
-    // Anything typed makes the poll dirty: outside clicks no longer discard it,
-    // and Cancel/X ask first. Escape stays a deliberate close. Reads
-    // answerRevision like its siblings, or a draft typed only into answer rows
-    // would stay clean and be discarded silently.
     readonly property bool dirty: {
         answerRevision
         return questionField.text.trim().length > 0
@@ -101,8 +81,6 @@ Dialog {
     closePolicy: dirty ? Popup.CloseOnEscape
                        : (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
     width: Math.min(680, (parent ? parent.width : 680) - AppTheme.spacing24 * 2)
-    // Clamp to the window so the body Flickable scrolls instead of the dialog
-    // growing.
     height: Math.min(implicitHeight,
                      parent ? parent.height - AppTheme.spacing24 * 2 : implicitHeight)
     padding: AppTheme.spacing20
@@ -160,8 +138,6 @@ Dialog {
 
     onClosed: resetAll()
 
-    // Notifications or the quick switcher can change the room while open; a
-    // draft must never post into the wrong room.
     Connections {
         target: app
         function onCurrentRoomIdChanged() {
@@ -179,7 +155,6 @@ Dialog {
                 text: qsTr("Create a poll")
                 color: AppTheme.stormText
                 font.family: AppTheme.menuFont
-                // Bold, matching the other dialogs opened from the composer.
                 font.pixelSize: AppTheme.textTitle
                 font.weight: AppTheme.weightBold
                 Layout.fillWidth: true
@@ -195,8 +170,6 @@ Dialog {
             }
         }
 
-        // ── Form + preview body (scrolls when height-constrained, so up to 20
-        // answers never push the title or buttons off screen) ──
         Flickable {
             id: pollBodyFlick
             objectName: "pollBodyFlick"
@@ -208,12 +181,8 @@ Dialog {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
-            // Same wheel/touchpad feel as the room timeline; see
-            // qml/SmoothWheelArea.qml.
             SmoothWheelArea {}
 
-            // Keep the focused control visible, and let Page keys scroll the
-            // body when a field leaves them unhandled.
             function ensureVisible(item) {
                 if (!item || !pollBody.visible) return
                 for (var p = item; p; p = p.parent) {
@@ -264,7 +233,6 @@ Dialog {
                 width: pollBodyFlick.width
                 spacing: AppTheme.spacing16
 
-                // ── Left: form ──
                 ColumnLayout {
                     Layout.preferredWidth: 320
                     Layout.alignment: Qt.AlignTop
@@ -316,11 +284,6 @@ Dialog {
                                             index, "answerText", text)
                                         root.bumpAnswerRevision()
                                     }
-                                    // Enter walks the list: it adds a row after
-                                    // the last answer and moves focus to the
-                                    // next row, so sending always needs the
-                                    // Send button (or Enter in the question /
-                                    // the final row of a full list).
                                     onAccepted: {
                                         var last = root.answerModel.count - 1
                                         if (index < last) {
@@ -339,8 +302,6 @@ Dialog {
                                     iconName: "close"
                                     iconSize: 14
                                     implicitWidth: 24; implicitHeight: 24
-                                    // A poll needs two answers; the last two
-                                    // rows only clear.
                                     enabled: root.answerModel.count > 2
                                     Accessible.name: qsTr("Remove answer %1").arg(index + 1)
                                     onClicked: root.removeAnswer(index)
@@ -349,8 +310,6 @@ Dialog {
                         }
                     }
 
-                    // Add-option row (solid subtle border; see the file
-                    // header).
                     Rectangle {
                         id: addAnswerRow
                         objectName: "pollAddAnswerButton"
@@ -372,8 +331,6 @@ Dialog {
                         }
                         Keys.onReturnPressed: activateAdd()
                         Keys.onSpacePressed: activateAdd()
-                        // stormLink, not bolt: Send poll is this surface's one
-                        // bolt primary.
                         RowLayout {
                             id: addAnswerContent
                             anchors.centerIn: parent
@@ -406,8 +363,6 @@ Dialog {
                         }
                     }
 
-                    // Options: the whole row is clickable, as in Settings;
-                    // AppSwitch stays a bare bound control.
                     ColumnLayout {
                         Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacing8
@@ -468,7 +423,6 @@ Dialog {
                     }
                 }
 
-                // ── Right: live "as sent" preview ──
                 ColumnLayout {
                     Layout.preferredWidth: 260
                     Layout.fillHeight: true
@@ -477,17 +431,11 @@ Dialog {
 
                     MenuSectionLabel { text: qsTr("Preview · as sent") }
 
-                    // A stormInset panel like other nested modules. "As sent"
-                    // means content fidelity, not the viewer's timeline
-                    // palette.
                     Rectangle {
                         objectName: "pollPreviewPanel"
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         Layout.minimumHeight: 220
-                        // The body Flickable sizes from the form/preview
-                        // implicit heights; without this the preview's content
-                        // never reached it and long polls were clipped.
                         implicitHeight: pollPreviewContent.implicitHeight
                                         + AppTheme.spacing12 * 2
                         radius: AppTheme.radiusLg
@@ -501,10 +449,6 @@ Dialog {
                             anchors.margins: AppTheme.spacing12
                             spacing: AppTheme.spacing8
 
-                            // Plain text and Text.Wrap, exactly as the
-                            // timeline's poll card draws it: poll text is never
-                            // markup, and a long unbroken word breaks rather
-                            // than running off the card.
                             Label {
                                 objectName: "pollPreviewQuestion"
                                 Layout.fillWidth: true
@@ -537,14 +481,8 @@ Dialog {
                                         border.width: 1
                                         border.color: first ? AppTheme.stormBorderStrong
                                                             : AppTheme.stormBorder
-                                        // The label has spacing8 margins on
-                                        // both edges, so budget for both.
                                         implicitHeight: previewOptionLabel.implicitHeight
                                                         + AppTheme.spacing8 * 2
-                                        // Wraps like the timeline's answer
-                                        // rows. Anchored left/right/top, not
-                                        // filled: the row's height is derived
-                                        // from this label's wrapped height.
                                         Label {
                                             id: previewOptionLabel
                                             objectName: "pollPreviewAnswer"

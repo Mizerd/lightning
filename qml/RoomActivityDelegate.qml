@@ -3,9 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Compact room-state annotation shared by the timeline delegate and tests.
-// Entries are typed maps from TimelineModel; nothing is reconstructed from the
-// summary label.
 Item {
     id: root
     property string groupId: ""
@@ -13,9 +10,6 @@ Item {
     property bool expanded: false
     signal toggleRequested()
 
-    // A call is not a room update. TimelineModel breaks groups at call rows and
-    // CallEventDelegate draws them, so this normally removes nothing; it guards
-    // fixtures and backends that phrase their own state rows.
     function entryIsCall(entry) {
         if (!entry)
             return false;
@@ -57,8 +51,6 @@ Item {
                && a.getMonth() === b.getMonth()
                && a.getDate() === b.getDate()
     }
-    // Duck-typed rather than instanceof Date: a value from a QVariantMap may
-    // arrive wrapped.
     function validDate(value) {
         if (!value || typeof value.getTime !== "function")
             return false
@@ -105,14 +97,12 @@ Item {
                 radius: AppTheme.radiusSm
                 color: summaryRow.hovered || summaryRow.activeFocus
                        ? AppTheme.hover : "transparent"
-                // A visible keyboard ring, not only the hover tint (C08-F06).
                 border.width: summaryRow.visualFocus ? 2 : 0
                 border.color: AppTheme.focusRing
             }
             contentItem: RowLayout {
                 id: summaryContent
                 spacing: AppTheme.spacingXS
-                // From the icon font, like every other disclosure control.
                 Icon {
                     objectName: "stateActivityChevron"
                     visible: root.canExpand
@@ -124,8 +114,6 @@ Item {
                     id: summaryLabel
                     objectName: "stateActivitySummaryLabel"
                     Layout.fillWidth: true
-                    // The summary can carry a member-chosen display name: never
-                    // markup.
                     textFormat: Text.PlainText
                     text: {
                         if (root.entryCount === 0)
@@ -185,10 +173,6 @@ Item {
                     width: expandedColumn.width
                     spacing: 6
 
-                    // A glyph per action, derived from the closed set the
-                    // bridge sends (never from the translated sentence).
-                    // Unknown actions get a neutral mark. Every name must be in
-                    // the bundled Material Symbols subset (IconChromeTest).
                     readonly property string entryGlyph: {
                         var kind = entryRow.modelData.eventKind || ""
                         if (kind === "membership") {
@@ -230,7 +214,6 @@ Item {
                         color: AppTheme.textMuted
                         Layout.alignment: Qt.AlignTop
                         Layout.topMargin: 2
-                        // Decorative: the sentence carries the meaning.
                         Accessible.ignored: true
                     }
 

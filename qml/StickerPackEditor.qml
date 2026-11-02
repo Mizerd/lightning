@@ -3,30 +3,16 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Managing a custom emoji/sticker pack: rename or remove an image, rename the
-// pack, empty it. Nothing is optimistic: each action waits for the bridge, and
-// on success the manager re-reads the authoritative pack, so the list (bound to
-// the live model) always shows what the server holds. Room packs are
-// power-level gated: canManagePack is the snapshot's recorded permission, and
-// its absence is not permission. Without it the actions are absent and the
-// reason is shown.
 Dialog {
     id: root
     objectName: "stickerPackEditor"
 
-    /// The manager, passed in so this component has no globals and can be
-    /// tested.
     property var stickers: null
-    /// The pack being edited; the manager's grid model is already narrowed to
-    /// it.
     property string packId: ""
     property string packName: ""
     property bool canManage: false
-    /// The control that opened the dialog; it gets the focus back on close
-    /// (C41-D04, C41-F09).
     property Item restoreTo: null
 
-    /// The last outcome, in the user's words rather than the bridge's category.
     property string notice: ""
     property bool noticeIsError: false
 
@@ -36,10 +22,6 @@ Dialog {
     standardButtons: Dialog.NoButton
     closePolicy: Popup.CloseOnEscape
     parent: Overlay.overlay
-    // Centred on a NOMINAL height, not the live one: the dialog's own height
-    // moves with the notice and the delete confirmation, and a centring
-    // anchor re-centred it on every change so the button under the pointer
-    // moved (C41-D03).
     readonly property real nominalHeight: 520
     x: parent ? Math.round((parent.width - width) / 2) : 0
     y: parent ? Math.max(AppTheme.spacing24,
@@ -48,8 +30,6 @@ Dialog {
     padding: AppTheme.spacing16
 
     function openFor(id, name, manageable) {
-        // The editor's own target: the picker changing its selection, or a
-        // refresh moving it, cannot swap these rows (PACK-UX-021).
         if (root.stickers)
             root.stickers.editorPackId = id
         root.info = root.stickers ? root.stickers.packInfo(id) : ({})
@@ -80,39 +60,25 @@ Dialog {
     /// removes it.
     property var removingKey: null
 
-    /// The image being renamed, by exact key (`null` when none). One at a
-    /// time, in place, so only one field competes for Return.
     property var renamingKey: null
-    /// The image whose description is being edited, by exact key, or null.
     property var describingKey: null
-    /// packInfo() of the pack, taken at openFor (dialect, room, availability).
     property var info: ({})
-    /// The images as this editor last accepted them (open, own save, or the
-    /// user acknowledging a change from elsewhere).
     property var base: ({})
-    /// What changed since `base` that this editor did not do.
     readonly property var remoteChange: root.visible && root.stickers
         && root.stickers.revision >= 0 && !root.ownEditPending
         && !root.transferring
         ? root.stickers.comparePack(root.packId, root.base) : ({ any: false })
-    /// An own edit is in flight: its echo is not "changed elsewhere".
     property bool ownEditPending: false
     readonly property bool isStable: !!root.info && root.info.namespace === "stable"
                                      && root.packId !== "user"
-    /// Why the name being typed cannot be used, "" when it can. Fed by the one
-    /// visible rename field so the reason shows once, in the notice area.
     property string renameProblem: ""
     /// Deleting a pack takes two clicks and the second says what is destroyed.
     /// Not undoable: Matrix has no delete verb for either store, so the pack is
     /// emptied and its name dropped.
     property bool confirmingDelete: false
-    /// Move to standard packs takes two clicks; the second shows the plan.
     property bool confirmingMigrate: false
-    /// The last move answered that the pack room was left: offer to start a
-    /// new one (an explicit choice, never automatic).
     property bool homeUnavailable: false
 
-    // Export / import outcomes, in the same notice line as an edit's.
     Connections {
         target: root.stickers
         function onTransferFinished(kind, ok, category, added, skipped, failed, name) {
@@ -140,8 +106,6 @@ Dialog {
         nameFilters: [qsTr("Sticker pack (*.zip)")]
         onAccepted: root.stickers.exportPack(root.packId, selectedFile)
     }
-    // "Add images" for a room pack: several files at once, each uploaded and
-    // added in the pack's own format.
     NativeFileDialog {
         id: addImagesDialog
         purpose: "stickerpack"
@@ -189,8 +153,6 @@ Dialog {
                                    + "unchanged; try again later.")
         }
         function onEditFinished(ok, category, shortcode) {
-            // Our own change is now part of what this editor accepts; the
-            // re-read that follows refreshes the base when it lands.
             root.ownEditPending = ok
             if (ok)
                 rebaseTimer.restart()
@@ -203,8 +165,6 @@ Dialog {
                 root.notice = qsTr("Saved.")
                 return
             }
-            // The bridge's categories in words; unknown ones get a generic
-            // message.
             if (category === "shortcode_taken")
                 root.notice = qsTr("That name is already used in this pack.")
             else if (category === "invalid_shortcode")
@@ -228,7 +188,6 @@ Dialog {
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
 
-        // The pack's own name
         Label {
             Layout.fillWidth: true
             text: qsTr("Manage pack")
@@ -244,8 +203,6 @@ Dialog {
             AppTextField {
                 id: nameField
                 Layout.fillWidth: true
-                // Without a zero minimum the field would take its neighbour's
-                // width.
                 Layout.minimumWidth: 0
                 placeholderText: qsTr("Pack name")
                 enabled: !root.busy
@@ -267,8 +224,6 @@ Dialog {
                        + "room's pack that is the room's own name.")
         }
 
-        // Stable packs: what the pack is for, pack-wide (Matrix v1.19 has no
-        // per-image usage). Older-format packs keep their per-image kinds.
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -304,10 +259,6 @@ Dialog {
                        + "that format so older apps keep working.")
         }
 
-        // The account's own pack is the older personal format, which the
-        // current Matrix standard has no equivalent for. Moving it copies its
-        // images into standard packs in a private room of yours, then turns
-        // them on; this pack stays as it is (MIG-001/002).
         ColumnLayout {
             objectName: "stickerPackMigrateBox"
             Layout.fillWidth: true
@@ -391,9 +342,6 @@ Dialog {
             }
         }
 
-        // Another device or member changed this pack while it was open. Edits
-        // here always apply to the latest copy (nothing is overwritten), so
-        // this only tells the user what moved under them.
         Rectangle {
             objectName: "stickerPackChangedElsewhere"
             Layout.fillWidth: true
@@ -437,7 +385,6 @@ Dialog {
             }
         }
 
-        // Not manageable: say why once.
         Label {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
@@ -471,8 +418,6 @@ Dialog {
             font.pixelSize: AppTheme.textMeta
         }
 
-        // The images. The band keeps its height when the pack is empty or
-        // shrinks, so the dialog does not collapse around the footer.
         Item {
         Layout.fillWidth: true
         Layout.preferredHeight: 280
@@ -481,10 +426,7 @@ Dialog {
             objectName: "stickerPackEditorList"
             anchors.fill: parent
             clip: true
-            // Every image of the pack, not the picker's usage-narrowed grid.
             model: root.stickers ? root.stickers.editorImages : null
-            // Arrow keys do not move a hidden current item under a focused
-            // button; paging is done here (C41-F11).
             keyNavigationEnabled: false
             Keys.onPressed: (event) => {
                 var page = Math.max(44, imageList.height - 44)
@@ -515,16 +457,12 @@ Dialog {
                 required property bool isEmoticon
                 required property bool isSticker
 
-                // A focused control inside a row brings the row into view.
                 function reveal() {
                     ListView.view.positionViewAtIndex(index, ListView.Contain)
                 }
 
                 width: ListView.view.width
                 height: 44
-                // The row itself does nothing; every action is a deliberate
-                // button. Not `enabled: false`: enabled propagates and would
-                // disable the per-image buttons and rename field.
                 hoverEnabled: false
                 background: null
 
@@ -557,23 +495,15 @@ Dialog {
                         }
                     }
 
-                    // The name, or the field renaming it.
                     Label {
                         Layout.fillWidth: true
-                        // Never squeezed to nothing: an invalid key's row also
-                        // carries the badge, and the name is what identifies
-                        // it (live run 2026-10-26 showed only the badge).
                         Layout.minimumWidth: 56
                         visible: root.renamingKey !== imageRow.key
-                        // A shortcode is remote text: never markup.
                         textFormat: Text.PlainText
                         text: ":" + imageRow.shortcode + ":"
                         color: AppTheme.textPrimary
                         elide: Label.ElideRight
                     }
-                    // A key another client wrote outside the shortcode rules:
-                    // shown as it is (never silently renamed), with the reason
-                    // and a Rename to repair it.
                     Label {
                         objectName: "stickerInvalidKeyBadge"
                         visible: !imageRow.keyValid
@@ -593,9 +523,6 @@ Dialog {
                         Layout.minimumWidth: 0
                         visible: root.renamingKey === imageRow.key
                         enabled: visible && !root.busy
-                        // Why this name cannot be used, from the same rules
-                        // the backend applies, so the answer is a sentence
-                        // here and not a different name saved quietly.
                         readonly property string problem:
                             visible && root.stickers
                                 ? root.stickers.shortcodeError(
@@ -610,8 +537,6 @@ Dialog {
                             value: renameField.problem
                             when: renameField.visible
                         }
-                        // The first Escape cancels the edit; the dialog stays
-                        // (C41-F10).
                         Keys.onEscapePressed: (event) => {
                             root.renamingKey = null
                             event.accepted = true
@@ -619,8 +544,6 @@ Dialog {
                         onActiveFocusChanged: if (activeFocus) imageRow.reveal()
                         onVisibleChanged: {
                             if (visible) {
-                                // A malformed key starts from a suggested
-                                // repair; a valid one from itself.
                                 text = imageRow.keyValid
                                     ? imageRow.key
                                     : root.stickers.sanitizeShortcode(imageRow.key)
@@ -656,8 +579,6 @@ Dialog {
                             root.packId, imageRow.key, text)
                     }
 
-                    // Which kind the image is, so a pack's emoji are not
-                    // mistaken for stickers (and vice versa).
                     Label {
                         textFormat: Text.PlainText
                         text: imageRow.isEmoticon
@@ -709,8 +630,6 @@ Dialog {
                     AppButton {
                         objectName: "stickerRemoveButton"
                         onActiveFocusChanged: if (activeFocus) imageRow.reveal()
-                        // Two presses, like Delete pack: a removal is not
-                        // undoable and sat one stray click away (C41-D03).
                         readonly property bool armed:
                             root.removingKey === imageRow.key
                         text: armed ? qsTr("Confirm remove") : qsTr("Remove")
@@ -740,7 +659,6 @@ Dialog {
         }
         }
 
-        // Footer
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -809,8 +727,6 @@ Dialog {
                     exportDialog.open()
                 }
             }
-            // Only your own pack takes imports; a room's pack is changed
-            // through the room's own permissions.
             AppButton {
                 objectName: "stickerPackImportButton"
                 visible: root.packId === "user"
@@ -839,9 +755,6 @@ Dialog {
             textFormat: Text.PlainText
             color: AppTheme.danger
             font.pixelSize: AppTheme.textMeta
-            // Matrix has no delete verb for either store, so this empties the
-            // pack; it is not a redaction and old state stays in the room's
-            // history.
             text: root.isStable
                   ? qsTr("This removes every image from the pack for "
                          + "everyone who uses it. Messages already sent keep "
@@ -853,8 +766,6 @@ Dialog {
         }
     }
 
-    // After an own successful edit, the authoritative re-read replaces the
-    // base once it has landed (a short settle covers the refresh round trip).
     Timer {
         id: rebaseTimer
         interval: 3000

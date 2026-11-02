@@ -30,7 +30,6 @@ constexpr int kRetryMs = 45 * 1000;
 
 QString reasonText(const QString &code)
 {
-    // Short, user-facing; the codes come from SettingsPortable::check().
     if (code == QLatin1String("range"))
         return QObject::tr("out of range");
     if (code == QLatin1String("type"))
@@ -57,9 +56,6 @@ QString importErrorText(const QString &code)
     return QObject::tr("That file is not a Lightning settings file.");
 }
 
-// Human names for the integer-coded choices the import preview lists, so a
-// row reads "Indigo Night -> Moss Light" and not "9 -> 8". Empty means "no
-// name known": the caller shows the raw value.
 QString enumText(const QString &name, const QVariant &v)
 {
     if (!v.isValid() || v.typeId() == QMetaType::Bool)
@@ -127,7 +123,7 @@ QString enumText(const QString &name, const QVariant &v)
     return {};
 }
 
-} // namespace
+}
 
 SettingsSyncController::SettingsSyncController(QObject *parent)
     : QObject(parent)
@@ -137,8 +133,6 @@ SettingsSyncController::SettingsSyncController(QObject *parent)
     connect(&m_localTimer, &QTimer::timeout, this, [this] { checkLocalNow(); });
     m_changedTimer.setSingleShot(true);
     m_changedTimer.setInterval(kChangedDebounceMs);
-    // The blob or the switch moved (the switch may have been turned on by
-    // another device): ask the server, which is the only authority.
     connect(&m_changedTimer, &QTimer::timeout, this, [this] { requestRead(); });
     m_retryTimer.setSingleShot(true);
     m_retryTimer.setInterval(kRetryMs);
@@ -204,7 +198,6 @@ void SettingsSyncController::setClient(MatrixClient *client)
         connect(m_client, &MatrixClient::syncedSettingsWritten, this, &SettingsSyncController::onWritten);
         connect(m_client, &MatrixClient::syncedSettingsChanged, this, &SettingsSyncController::onSyncedChanged);
         connect(m_client, &MatrixClient::loggedOut, this, [this] { resetForAccount(); });
-        // Account data is in place once the first sync has run.
         connect(m_client, &MatrixClient::initialSyncDoneChanged, this, &SettingsSyncController::startSync);
     }
     Q_EMIT changed();
@@ -305,8 +298,6 @@ QVariantMap SettingsSyncController::localView() const
     return readSettings(m_settings.data(), Sync);
 }
 
-// ---- sync ------------------------------------------------------------------
-
 void SettingsSyncController::startSync()
 {
     if (!supported() || !m_settings || !m_client->initialSyncDone())
@@ -391,7 +382,7 @@ void SettingsSyncController::checkLocalNow()
     if (m_state.pending.isEmpty())
         return;
     if (m_writeOp != 0 || m_readOp != 0) {
-        m_rereadWanted = true; // pushed as soon as the current round trip ends
+        m_rereadWanted = true;
         return;
     }
     requestRead();
@@ -416,8 +407,6 @@ void SettingsSyncController::onRead(quint64 opId, bool ok, const QString &catego
         m_switchKnown = true;
     }
     if (!m_enabled) {
-        // Off (or never on): nothing is read into settings, no baseline kept,
-        // so a later enable starts from the question.
         const bool had = m_hasBaseline;
         m_hasBaseline = false;
         m_choiceNeeded = false;
@@ -486,8 +475,6 @@ void SettingsSyncController::applyMerge(const MergeResult &r, const ParsedBlob &
     Q_UNUSED(server);
     if (!r.applyLocal.isEmpty()) {
         m_applying = true;
-        // Presentation keys land in the Lightning configuration, never in the
-        // selected layout preset's profile (see localView).
         const QStringList failed = writeSettings(m_settings.data(), r.applyLocal);
         m_applying = false;
         if (!failed.isEmpty())
@@ -548,7 +535,6 @@ void SettingsSyncController::onWritten(quint64 opId, int kind, bool ok, const QS
             return;
         if (!ok) {
             if (category == QLatin1String("sync_disabled")) {
-                // Another device turned sync off while this write was in flight.
                 m_enabled = false;
                 m_hasBaseline = false;
                 m_state = State();
@@ -565,7 +551,6 @@ void SettingsSyncController::onWritten(quint64 opId, int kind, bool ok, const QS
         m_error.clear();
         persistState();
         Q_EMIT changed();
-        // Edits made while the write was in flight.
         m_localTimer.start();
         return;
     }
@@ -589,7 +574,7 @@ void SettingsSyncController::onWritten(quint64 opId, int kind, bool ok, const QS
     m_switchKnown = true;
     m_error.clear();
     if (!m_enabled) {
-        ++m_gen; // anything still in flight belongs to the sync that just ended
+        ++m_gen;
         m_readOp = m_writeOp = 0;
         m_hasBaseline = false;
         m_choiceNeeded = false;
@@ -672,8 +657,6 @@ QString SettingsSyncController::labelFor(const QString &name) const
     return out;
 }
 
-// ---- export / import ---------------------------------------------------------
-
 QString SettingsSyncController::exportSettings(const QUrl &file)
 {
     if (!m_settings)
@@ -713,8 +696,6 @@ QString SettingsSyncController::exportSettings(const QUrl &file)
     QSaveFile out(path);
     if (!out.open(QIODevice::WriteOnly))
         return tr("Could not write that file.");
-    // The file holds preferences only, but there is no reason for it to be
-    // world-readable.
     out.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     if (out.write(bytes) != bytes.size() || !out.commit())
         return tr("Could not write that file.");
@@ -742,7 +723,6 @@ QVariantMap SettingsSyncController::previewImport(const QUrl &file)
         return out;
     }
 
-    // A Custom theme choice needs a custom theme to point at.
     if (parsed.doc.settings.contains(QStringLiteral("theme"))
         && parsed.doc.settings.value(QStringLiteral("theme")).toInt() == SettingsManager::CustomTheme
         && parsed.doc.themes.isEmpty() && (!m_themes || m_themes->themes().isEmpty())) {
@@ -772,8 +752,6 @@ QVariantMap SettingsSyncController::previewImport(const QUrl &file)
     }
     int shortcutChanges = 0;
     if (m_shortcuts) {
-        // An action this version does not have cannot change anything, so it
-        // is not counted (applying it is skipped the same way).
         QSet<QString> known;
         for (int row = 0; row < m_shortcuts->rowCount(); ++row)
             known.insert(m_shortcuts->data(m_shortcuts->index(row), ShortcutRegistry::IdRole).toString());
@@ -824,8 +802,6 @@ QVariantMap SettingsSyncController::applyImport()
     const ParseResult parsed = m_import;
     m_haveImport = false;
 
-    // Everything in `parsed` has already passed check(). Applied in one go; a
-    // value the setter then refuses puts every earlier one back.
     const QVariantMap before = readSettings(m_settings.data(), Export);
 
     int themesAdded = 0;
@@ -886,13 +862,9 @@ QVariantMap SettingsSyncController::applyImport()
     }
 
     out.insert(QStringLiteral("ok"), true);
-    // The settings that actually changed, which is what the preview counted.
-    // The file carries every exported setting, most of them already at the
-    // value they hold here, so its size would report 73 for "1 change".
     out.insert(QStringLiteral("applied"), changedCount);
     out.insert(QStringLiteral("shortcutsSkipped"), shortcutsSkipped);
     out.insert(QStringLiteral("themesAdded"), themesAdded);
-    // The edits are picked up by sync like any other.
     onLocalTouched();
     return out;
 }

@@ -45,7 +45,7 @@ bool isControl(const QByteArray &cls)
         || cls.contains("Switch") || cls.contains("Slider")
         || cls.contains("TextArea");
 }
-} // namespace
+}
 
 class SmallWindowQmlTest : public QObject
 {
@@ -87,8 +87,6 @@ private:
         if (isControl(cls) && it->width() > 0 && it->height() > 0) {
             QRectF r = space->mapRectFromItem(
                 it, QRectF(0, 0, it->width(), it->height()));
-            // A control inside a nested scroller (the emoji category rail) is
-            // reached by scrolling, so only what that scroller shows counts.
             for (QQuickItem *a = it->parentItem(); a && a != space;
                  a = a->parentItem())
                 if (a->inherits("QQuickFlickable"))
@@ -106,9 +104,6 @@ private:
             controlsOutsideHorizontally(c, space, out);
     }
 
-    // Every visible control under `it` (after what a nested scroller shows)
-    // that leaves `box`, in scene coordinates. Both axes: a dialog whose body
-    // is not scrollable loses its bottom controls past the box.
     static void controlsOutsideBox(QQuickItem *it, const QRectF &box,
                                    QStringList &out)
     {
@@ -176,7 +171,6 @@ private Q_SLOTS:
         delete m_controller;
     }
 
-    // The application's floor is what this file measures against.
     void theWindowFloorIsTheSizeTheCasesAssume()
     {
         QCOMPARE(m_window->minimumWidth(), 640);
@@ -229,10 +223,6 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
     }
 
-    // The composer's pickers are anchored to a card that is only ~300 px wide
-    // at the floor. Their panel may be narrower than their content wants; the
-    // content must adapt, not run past the panel (the GIF picker's tabs and
-    // its third column of results hung off the window edge).
     void thePickersKeepEveryControlInsideTheirPanelAndTheWindow_data()
     {
         QTest::addColumn<QString>("opener");
@@ -264,7 +254,6 @@ private Q_SLOTS:
         auto *panel = popup->property("contentItem").value<QQuickItem *>();
         QVERIFY(panel);
         QTest::qWait(300);
-        // The panel inside the window.
         const QRectF pr = panel->mapRectToScene(
             QRectF(0, 0, panel->width(), panel->height()));
         QVERIFY2(QRectF(0, 0, m_window->width(), m_window->height())
@@ -281,11 +270,6 @@ private Q_SLOTS:
         QTest::qWait(100);
     }
 
-    // During a call the stage takes a share of the column. In a short window
-    // that share must leave room for the composer: the largest panel the pane
-    // will ever request still keeps header + call controls + composer + a
-    // sliver of timeline inside the pane (the composer used to be pushed off
-    // the bottom of the window).
     void theCallPanelNeverPushesTheComposerOutOfAShortWindow()
     {
         m_controller->showMain();
@@ -311,11 +295,6 @@ private Q_SLOTS:
                                 .arg(used).arg(pane->height())));
     }
 
-    // The stage's header row holds the call controls, and beside a spotlight
-    // the participant faces too. Neither cell's rect shows the fault on its
-    // own: the row squeezes the controls' CELL and the bar inside it keeps its
-    // width, so what is measured is the bar's own buttons. The faces must still
-    // be drawn somewhere.
     void theCallControlsNeverDrawOverTheParticipantFaces_data()
     {
         QTest::addColumn<QSize>("size");
@@ -363,8 +342,6 @@ private Q_SLOTS:
         }
         call->ingestParticipantsForTest(people);
         call->stageState()->restoreShare(QStringLiteral("TR_share"));
-        // Straight into the model: these people have no Matrix membership, so
-        // the controller's own rebuild keeps only the local row.
         QList<CallParticipantRow> rows;
         for (int i = 0; i < 6; ++i) {
             CallParticipantRow person;
@@ -392,13 +369,11 @@ private Q_SLOTS:
                  "no spotlight, so the faces are not in play");
         const auto shown = [this](const char *name) {
             QQuickItem *it = item(name);
-            // All it asked for: a host squeezed down shows one face of six.
             return it && it->isVisible() && it->width() > 0
                 && it->width() + 1 >= it->implicitWidth();
         };
         const bool facesDrawn = shown("callHeaderBubblesHost")
             || shown("callStrip") || shown("callStripBubblesHost");
-        // The stage, not the row: a row wider than its stage reports nothing.
         const QRectF rowBox = stage->mapRectToScene(
             QRectF(0, 0, stage->width(), stage->height()));
         QStringList faults;
@@ -415,7 +390,6 @@ private Q_SLOTS:
                 : c->objectName();
             cells.append({name, box(c)});
         }
-        // What the controls really occupy, not the cell they were given.
         for (QQuickItem *c : bar->childItems())
             if (c->isVisible() && c->width() > 0 && c->height() > 0) {
                 const QRectF r = box(c);
@@ -442,14 +416,10 @@ private Q_SLOTS:
         call->setCallStateForTest(SfuCallController::State::Idle);
         Q_EMIT call->stateChanged();
         QVERIFY2(faults.isEmpty(), qPrintable(faults.join(QStringLiteral("; "))));
-        // Collapsed, the narrowest strip has room for the controls alone;
-        // expanding it shows everyone.
         QVERIFY2(collapsed || facesDrawn, "the faces went nowhere");
 #endif
     }
 
-    // The chevron beside the call button is the only way to a video call and
-    // the call type; it folds out of a narrow header with that button.
     void theCallTypeMenuIsReachableWhenTheCallButtonFolds()
     {
         // The mock has no call lane until a backend exists; then a 1:1 DM has.
@@ -523,8 +493,6 @@ private Q_SLOTS:
         m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
     }
 
-    // The find bar was one row of seven controls in a card 288 px wide at the
-    // floor: the field was squeezed away and Close sat outside the card.
     void theFindBarKeepsEveryControlInsideItsCardAtTheFloor_data()
     {
         QTest::addColumn<QSize>("size");
@@ -557,9 +525,6 @@ private Q_SLOTS:
         QTest::qWait(100);
     }
 
-    // Every main dialog, opened in the floor-sized window: its box must be
-    // inside the window. A dialog taller than the window loses its footer
-    // buttons below the edge, where nothing can reach them.
     void everyMainDialogFitsTheWindowAtTheFloor_data()
     {
         QTest::addColumn<QString>("type");
@@ -639,8 +604,6 @@ private Q_SLOTS:
                                 .arg(win.width()).arg(win.height())));
     }
 
-    // The image viewer's own chrome (toolbar, arrows, close, thumbnail strip)
-    // in a window a quarter of a screen: every control inside the window.
     void theImageViewerChromeStaysInsideTheWindowAtTheFloor()
     {
         m_controller->showMain();
@@ -671,7 +634,6 @@ private Q_SLOTS:
                                           Q_ARG(QVariant, entries),
                                           Q_ARG(QVariant, 2)));
         QTest::qWait(500);
-        // Not vacuous: the chrome under test must really be on screen.
         for (const char *name : { "viewerCloseButton", "viewerToolbar" }) {
             QQuickItem *chrome = item(name);
             QVERIFY2(chrome && chrome->isVisible() && chrome->width() > 0,
@@ -681,7 +643,6 @@ private Q_SLOTS:
         controlsOutsideBox(m_window->contentItem(),
                            QRectF(0, 0, m_window->width(), m_window->height()),
                            stray);
-        // Only the viewer's controls are of interest here.
         QStringList viewerOnly;
         for (const QString &s : stray)
             if (s.contains(QLatin1String("viewer"), Qt::CaseInsensitive))
@@ -691,8 +652,6 @@ private Q_SLOTS:
         QVERIFY2(viewerOnly.isEmpty(), qPrintable(viewerOnly.join(QStringLiteral("; "))));
     }
 
-    // Room Information beside the room, or over it when the pane is too
-    // narrow for both: either way its controls sit inside the window.
     void theRoomInfoPanelStaysInsideTheWindowAtTheFloor_data()
     {
         QTest::addColumn<QSize>("size");
@@ -716,16 +675,12 @@ private Q_SLOTS:
         controlsOutsideBox(m_window->contentItem(),
                            QRectF(0, 0, m_window->width(), m_window->height()),
                            stray);
-        // Opening Room Information must always show it, beside the room or
-        // (in a pane too narrow for both) over it. It used to vanish below a
-        // 700 px pane: the header button did nothing in a quarter-screen window.
         QQuickItem *panel = item("roomInfoPanel");
         const bool shown = panel && panel->isVisible() && panel->width() > 100;
         const qreal paneW = pane->width();
         const qreal panelW = panel ? panel->width() : 0;
         QQuickItem *roomColumn = item("roomColumn");
         const bool roomHidden = roomColumn && !roomColumn->isVisible();
-        // A file dropped on the panel is not for a composer nobody can see.
         QQuickItem *drop = item("chatDropArea");
         QVERIFY(drop);
         const qreal dropW = drop->width();
@@ -741,8 +696,6 @@ private Q_SLOTS:
         QVERIFY2(stray.isEmpty(), qPrintable(stray.join(QStringLiteral("; "))));
     }
 
-    // The sign-in screen at the floor: nothing the user must press lies
-    // outside the window.
     void theLoginScreenStaysInsideTheWindowAtTheFloor_data()
     {
         QTest::addColumn<QSize>("size");
@@ -770,9 +723,6 @@ private Q_SLOTS:
         QVERIFY(ok);
     }
 
-    // The account switcher grows from the rail's bottom tile. Its quick rows
-    // and the Add / Settings / Sign out footer must stay on screen in a short
-    // window (the footer used to be cut by the window edge).
     void theAccountSwitcherFooterStaysInsideTheWindowAtTheFloor()
     {
         m_controller->showMain();

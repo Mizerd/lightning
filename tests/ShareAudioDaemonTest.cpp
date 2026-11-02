@@ -33,13 +33,6 @@ class ShareAudioDaemonTest : public QObject
     Q_OBJECT
 
 private slots:
-    // The PipeWire device provider reports a successful start even when it
-    // reaches no daemon ("failed: return TRUE" in every version through 1.6).
-    // Trusting that made a PulseAudio-only machine (Linux Mint 21's default)
-    // with a PipeWire plugin look capable of per-application capture, and
-    // every share then carried the silence floor alone: the far end heard
-    // nothing and nothing on screen said so. Fails on the old SourceMonitor,
-    // which started an unfiltered device monitor and answered true.
     void perApplicationCaptureNeedsAPipeWireDaemonItCanReach()
     {
         // Before anything initialises GStreamer or PipeWire in this process:
@@ -69,17 +62,11 @@ private slots:
         QCOMPARE(capture.kind,
                  lightning::shareaudio::SystemCapture::Kind::Unavailable);
         QVERIFY(capture.description.isEmpty());
-        // And the cached, bounded answer the UI binds to agrees.
         QVERIFY2(!lightning::shareaudio::perApplicationCaptureAvailable(),
                  "the UI would offer to choose applications that cannot be "
                  "captured");
     }
 
-    // The probe's answer is cached only when it is DEFINITE. A first probe
-    // that ran before the audio daemon was up (or timed out) used to be kept
-    // for the whole session through a function-local static, switching share
-    // sound off until restart with nothing to say why. Driven through the
-    // probe seam, so no daemon is involved and the three outcomes are exact.
     void anInconclusiveProbeIsAskedAgainWhenTheShareOptionsOpen()
     {
         using namespace lightning::shareaudio;
@@ -94,25 +81,19 @@ private slots:
             return ProbeOutcome(state->outcome.load());
         });
 
-        // No daemon yet: off for now, and not remembered.
         QVERIFY(!perApplicationCaptureAvailable());
         QCOMPARE(state->calls.load(), 1);
-        // The daemon comes up. An ordinary read does not hammer the probe...
         state->outcome = int(ProbeOutcome::Available);
         QVERIFY(!perApplicationCaptureAvailable());
         QCOMPARE(state->calls.load(), 1);
-        // ...but the share menu opening asks at once and gets the new answer.
         QVERIFY(perApplicationCaptureAvailable(true));
         QCOMPARE(state->calls.load(), 2);
-        // A definite answer is kept: a later flap is not believed.
         state->outcome = int(ProbeOutcome::Unavailable);
         QVERIFY(perApplicationCaptureAvailable(true));
         QCOMPARE(state->calls.load(), 2);
         resetPerApplicationProbeForTest();
     }
 
-    // A plugin that is missing does not appear later: that "no" is final, so
-    // the probe is not repeated for it.
     void aDefiniteNoIsKeptForTheRun()
     {
         using namespace lightning::shareaudio;
@@ -128,9 +109,6 @@ private slots:
         resetPerApplicationProbeForTest();
     }
 
-    // A probe that does not answer in time answers false to its caller, is not
-    // cached, is not joined by a second worker while it is stuck, and its own
-    // late answer is the one that counts.
     void aTimedOutProbeIsNeitherCachedNorDuplicated()
     {
         using namespace lightning::shareaudio;
@@ -142,7 +120,7 @@ private slots:
             ++*calls;
             released.wait();
             return ProbeOutcome::Available;
-        }, /*timeoutMs=*/50);
+        },50);
         QVERIFY(!perApplicationCaptureAvailable(true));
         QVERIFY(!perApplicationCaptureAvailable(true));
         QCOMPARE(calls->load(), 1);
@@ -152,11 +130,6 @@ private slots:
         resetPerApplicationProbeForTest();
     }
 
-    // Every enumeration and every capture branch gets a PipeWire connection
-    // of its own: the plugin's shared one stays dead after a daemon restart
-    // while anything holds it, and a provider started on it waited for ever
-    // (measured live). The socket is found where libpipewire looks, and the
-    // fd lives exactly as long as the element it was given to.
     void privateConnectionsAreFoundAndLiveAsLongAsTheirElement()
     {
 #if !defined(Q_OS_UNIX) || defined(Q_OS_DARWIN)
@@ -178,22 +151,18 @@ private slots:
                  0);
         QCOMPARE(::listen(listener, 8), 0);
 
-        // An absolute remote is the socket itself.
         qputenv("PIPEWIRE_REMOTE", socketPath);
         int fd = lightning::shareaudio::privatePipeWireConnection();
         QVERIFY2(fd >= 0, "an absolute PIPEWIRE_REMOTE was not connected to");
         ::close(fd);
-        // A name is looked up in PIPEWIRE_RUNTIME_DIR.
         qputenv("PIPEWIRE_REMOTE", "pipewire-test");
         qputenv("PIPEWIRE_RUNTIME_DIR", QFile::encodeName(dir.path()));
         fd = lightning::shareaudio::privatePipeWireConnection();
         QVERIFY2(fd >= 0, "a remote name was not found in PIPEWIRE_RUNTIME_DIR");
         ::close(fd);
-        // Nothing there: no connection, and the caller keeps the shared one.
         qputenv("PIPEWIRE_REMOTE", "no-such-remote");
         QCOMPARE(lightning::shareaudio::privatePipeWireConnection(), -1);
 
-        // Given to a pipewiresrc: set as its fd, closed once it is gone.
         qputenv("PIPEWIRE_REMOTE", socketPath);
         QVERIFY(lightning::gst::ensureInitialised());
         GstElement *source = gst_element_factory_make("pipewiresrc", nullptr);
@@ -218,14 +187,6 @@ private slots:
 #endif
     }
 
-    // The device provider is a process-wide singleton that is never
-    // finalized, so a connection handed to it with a weak-ref close leaked:
-    // one connected socket per pass (and a client on the daemon, which the
-    // plugin's dup kept alive), ~30 a minute while a list showed or a share
-    // ran — EMFILE for everything else in the process within the hour. A pass
-    // owns and closes its fd. The "daemon" here accepts each connection and
-    // hangs up 100 ms later, which ends the provider's start() with a core
-    // error, as a real daemon going away does.
     void enumerationPassesLeakNoFileDescriptors()
     {
 #if !defined(Q_OS_UNIX) || defined(Q_OS_DARWIN)
@@ -264,8 +225,6 @@ private slots:
                 .entryList(QDir::NoDotAndDotDot | QDir::AllEntries)
                 .size();
         };
-        // One pass first: the plugin's own one-time state (its loop's
-        // eventfds) is not a leak.
         std::atomic<int> done{0};
         std::thread passes([&done] {
             for (int i = 0; i < kPasses; ++i) {
@@ -277,8 +236,6 @@ private slots:
             }
             done.store(3);
         });
-        // A hung pass must fail the case, not hang the suite or terminate it
-        // with a joinable thread.
         const auto waitFor = [&done](int value, int ms) {
             QElapsedTimer clock;
             clock.start();
@@ -310,13 +267,6 @@ private slots:
 #endif
     }
 
-    // Opt-in, against a PipeWire graph YOU name (never the session's by
-    // default): LIGHTNING_TEST_PIPEWIRE_REMOTE=<socket path>, with at least one
-    // application playing. Enumerates over a private connection, captures the
-    // first stream through a pipewiresrc on its own connection, and checks
-    // audio arrives and the fd is released with the element. Run it ALONE
-    // (name it on the command line): the probe answers once per process, and
-    // the first case has already made it answer "no daemon".
     void aPrivateConnectionEnumeratesAndCapturesOnARealGraph()
     {
 #if !defined(Q_OS_UNIX) || defined(Q_OS_DARWIN)
@@ -327,7 +277,6 @@ private slots:
             QSKIP("set LIGHTNING_TEST_PIPEWIRE_REMOTE to a PipeWire socket");
         qputenv("PIPEWIRE_REMOTE", remote);
         QVERIFY(lightning::gst::ensureInitialised());
-        // The probe's own pass is on a private connection too.
         QVERIFY(lightning::shareaudio::perApplicationCaptureAvailable());
         const lightning::shareaudio::Enumeration e =
             lightning::shareaudio::enumerate(QCoreApplication::applicationPid(),
@@ -371,8 +320,6 @@ private slots:
 #endif
     }
 
-    // Parse the production share track and emulate a package lacking its
-    // mixer. Availability must then refuse capture, rather than use a monitor.
     void theReportedVerdictIsWhatTheShareTrackCanBeBuiltFrom()
     {
 #if !defined(Q_OS_LINUX)
@@ -425,12 +372,9 @@ private slots:
         QVERIFY(systemExclusionStatusLine(full).startsWith(QLatin1String(
             "screen-share sound exclusion capability: available")));
 
-        // The 0.10.1 AppImage's plugin set.
         gst_registry_remove_feature(registry, mixer);
         const SystemExclusion without = systemExclusion();
         const bool parsedWithout = trackParses();
-        // A fresh process is needed for the cached runtime probe, but the
-        // decision after a failed probe must never choose an output monitor.
         const auto disabled = systemCaptureFor(Platform::Linux, false, false,
                                                QCoreApplication::applicationPid());
         gst_registry_add_feature(registry, mixer);
@@ -447,7 +391,6 @@ private slots:
                  qPrintable(without.missing.join(u';')));
         QVERIFY(systemExclusionStatusLine(without).startsWith(QLatin1String(
             "screen-share sound exclusion capability: unavailable")));
-        // Put back for anything after this case.
         QVERIFY(systemExclusion().possible);
 #endif
     }

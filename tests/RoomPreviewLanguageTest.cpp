@@ -1,14 +1,3 @@
-// Room-list previews follow the UI language (2026-10-18 live runs, every
-// platform: "You joined", "Unable to decrypt" and media rows stayed English
-// after switching to German).
-//
-// A preview that is words rather than the sender's text is kept as a KIND
-// (matrix/PreviewToken.h) and worded with the translators installed now:
-//   * at ingest, for a kind the Rust bridge sends instead of English words;
-//   * again after a switch (RoomInfo::retranslatePreview, which the backends
-//     run on AppLocale::changed);
-//   * when a cached room is loaded (CacheStore keeps the kind, never the
-//     words, and still persists nothing for an encrypted room).
 
 #include "matrix/EventPreview.h"
 #include "matrix/RustRoomRegistry.h"
@@ -38,7 +27,6 @@ namespace {
 const QString kRoom = QStringLiteral("!lang:example.org");
 const QString kUser = QStringLiteral("@lang-test:example.org");
 
-// German for the EventPreview context, nothing else.
 struct German : QTranslator {
     QString translate(const char *ctx, const char *src, const char *,
                       int n) const override
@@ -59,8 +47,6 @@ struct German : QTranslator {
     bool isEmpty() const override { return false; }
 };
 
-// Installs for the scope of one case, so a failing case cannot leave German
-// behind for the next one.
 struct Installed {
     explicit Installed(QTranslator *t) : t(t) { QCoreApplication::installTranslator(t); }
     ~Installed() { QCoreApplication::removeTranslator(t); }
@@ -73,7 +59,7 @@ QJsonObject payload(QJsonObject fields)
     return fields;
 }
 
-} // namespace
+}
 
 class RoomPreviewLanguageTest : public QObject
 {
@@ -83,13 +69,9 @@ private Q_SLOTS:
     void initTestCase()
     {
         QVERIFY(m_dataDir.isValid());
-        // Isolate the XDG data root so the cache cases never touch a real one.
         qputenv("XDG_DATA_HOME", m_dataDir.path().toUtf8());
     }
 
-    // What the room list showed in German for a room just joined: "You
-    // joined", worded once at ingest and kept. Old code: the text stays
-    // English after the switch (and there was nothing to re-word it with).
     void aJoinedRoomIsWordedAgainAfterASwitch()
     {
         RoomInfo room = matrix::rust_rooms::roomInfoFromJson(
@@ -100,14 +82,12 @@ private Q_SLOTS:
             Installed on(&german);
             QVERIFY(room.retranslatePreview());
             QCOMPARE(room.lastMessagePreview, QStringLiteral("Du bist beigetreten"));
-            // Nothing more to do in the same language.
             QVERIFY(!room.retranslatePreview());
         }
         QVERIFY(room.retranslatePreview());
         QCOMPARE(room.lastMessagePreview, QStringLiteral("You joined"));
     }
 
-    // The undecryptable placeholder from a room_activity payload, likewise.
     void theUndecryptablePlaceholderIsWordedAgainAfterASwitch()
     {
         QHash<QString, RoomInfo> rooms;
@@ -130,9 +110,6 @@ private Q_SLOTS:
                  QStringLiteral("Entschlüsselung fehlgeschlagen"));
     }
 
-    // Rust words media rows in English ("Image", "Poll: …", "3 images"); it
-    // sends the kind too, and the words are made here. Old code: the English
-    // text was shown whatever the language.
     void aKindFromTheBridgeIsWordedInTheUiLanguage()
     {
         German german;
@@ -155,10 +132,8 @@ private Q_SLOTS:
         QCOMPARE(ingest(QStringLiteral("3 images"), QStringLiteral("images"),
                         QStringLiteral("3")),
                  QStringLiteral("3 Bilder"));
-        // A kind this build does not know: the English words, not a guess.
         QCOMPARE(ingest(QStringLiteral("Hologram"), QStringLiteral("hologram"), {}),
                  QStringLiteral("Hologram"));
-        // The sender's own text is text, even when it reads like a label.
         const RoomInfo body = matrix::rust_rooms::roomInfoFromJson(
             payload({ { QStringLiteral("last_message_preview"), QStringLiteral("Image") } }),
             RoomInfo{});
@@ -166,8 +141,6 @@ private Q_SLOTS:
         QCOMPARE(body.previewKind, Kind::Text);
     }
 
-    // A later free-text preview must clear the kind, or the next switch
-    // would put the old label back over the new message.
     void aNewMessageClearsTheKind()
     {
         RoomInfo room;
@@ -182,7 +155,6 @@ private Q_SLOTS:
         QCOMPARE(room.lastMessagePreview, QStringLiteral("hallo"));
     }
 
-    // The token the live-event path stores words exactly as oneLineSummary.
     void theSummaryTokenSaysWhatTheSummarySays()
     {
         QList<TimelineEvent> events;
@@ -239,9 +211,6 @@ private Q_SLOTS:
         }
     }
 
-    // ---- CacheStore (the HTTP backend's persisted rooms) ----
-
-    // A cache written before the migration keeps every room and its words.
     void aCacheFromBeforeTheMigrationLosesNothing()
     {
         const QString root = matrix::app_data::accountRoot(kUser);
@@ -254,7 +223,6 @@ private Q_SLOTS:
             db.setDatabaseName(path);
             QVERIFY(db.open());
             QSqlQuery q(db);
-            // The rooms table as 0.10.x created it.
             QVERIFY(q.exec(QStringLiteral(
                 "CREATE TABLE rooms (id TEXT PRIMARY KEY, name TEXT, topic TEXT,"
                 " avatar_mxc TEXT, encrypted INTEGER, unread INTEGER,"
@@ -278,7 +246,6 @@ private Q_SLOTS:
         QCOMPARE(rooms.first().previewKind, Kind::Text);
         QCOMPARE(rooms.first().unreadCount, 2);
         QCOMPARE(rooms.first().prevBatchToken, QStringLiteral("tok"));
-        // And the migrated table takes a kind from now on.
         RoomInfo again = rooms.first();
         again.setPreview(Kind::Removed);
         store.saveRoom(again);
@@ -287,10 +254,6 @@ private Q_SLOTS:
         store.close();
     }
 
-    // Review round 1 (L6): a migration that cannot run (here: a read-only
-    // cache file, so the ALTER fails) must not cost the cached rooms. The
-    // store falls back to the old column list. Old code selected the new
-    // columns regardless and loaded nothing.
     void aCacheWhoseMigrationFailedStillLoads()
     {
         const QString root = matrix::app_data::accountRoot(kUser);
@@ -303,7 +266,6 @@ private Q_SLOTS:
             db.setDatabaseName(path);
             QVERIFY(db.open());
             QSqlQuery q(db);
-            // The whole 0.10.x schema, so only the ALTERs need to write.
             QVERIFY(q.exec(QStringLiteral(
                 "CREATE TABLE rooms (id TEXT PRIMARY KEY, name TEXT, topic TEXT,"
                 " avatar_mxc TEXT, encrypted INTEGER, unread INTEGER,"
@@ -344,8 +306,6 @@ private Q_SLOTS:
         store.close();
     }
 
-    // The words of a cached kind are made when the cache is read, in the
-    // language current then. Old code: the cache held the words.
     void aCachedKindIsWordedInTheLanguageOfTheLoad()
     {
         {
@@ -371,9 +331,6 @@ private Q_SLOTS:
         store.close();
     }
 
-    // CLAUDE.md §6: an encrypted room's preview never reaches the cache. The
-    // kind's argument can be decrypted text (a file name, a poll question)
-    // and the kind itself says what the message was, so neither is written.
     void anEncryptedRoomPersistsNoKindAndNoArgument()
     {
         const QString marker = QStringLiteral("LIGHTNING_PREVIEW_ARG_MARKER_R9");

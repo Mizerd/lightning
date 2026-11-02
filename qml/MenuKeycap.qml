@@ -10,21 +10,12 @@ import MatrixClient
 Rectangle {
     id: root
 
-    // Text part ("R", "Ctrl+C", "Shift"); may be empty for icon-only chips.
     property string keys: ""
-    // Material Symbols glyph after the text.
     property string iconName: ""
-    // Header-scale chips (the quick-switcher ESC) use larger padding.
     property bool header: false
-    // Storm treatment by default; false for keycaps on theme-following
-    // surfaces.
     property bool storm: true
-    // The chip on the selected row: bolt fill, panel ink.
     property bool active: false
-    // Danger-group chip: stormDanger ink and border.
     property bool danger: false
-    // Older alias kept for hosts that set it; equivalent to `active` under
-    // Storm.
     property bool tinted: false
 
     readonly property bool _hot: active || tinted
@@ -37,7 +28,6 @@ Rectangle {
     readonly property color _ink: {
         if (!storm)
             return tinted ? AppTheme.selectedText : AppTheme.keycapText
-        // Ink on the bolt fill: boltInk.
         if (_hot) return AppTheme.boltInk
         if (danger) return AppTheme.stormDanger
         return AppTheme.stormTextMuted

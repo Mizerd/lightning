@@ -28,7 +28,6 @@ void ProfileBannerManager::setClient(MatrixClient *client)
             &ProfileBannerManager::handleRoomReceived);
     connect(m_client, &MatrixClient::roomBannerSet, this,
             &ProfileBannerManager::handleRoomSet);
-    // Answers belong to the account that fetched them.
     connect(m_client, &MatrixClient::loggedOut, this,
             &ProfileBannerManager::clearSession);
     Q_EMIT availableChanged();
@@ -60,7 +59,6 @@ void ProfileBannerManager::request(const QString &userId)
 {
     if (!available() || userId.isEmpty() || !m_supported)
         return;
-    // Once per user per session, and once in flight.
     if (m_asked.contains(userId))
         return;
     if (m_cache.size() >= kMaxCached)
@@ -79,8 +77,6 @@ static QString localPathFrom(const QString &pathOrUrl)
         const QUrl url(pathOrUrl);
         return url.isLocalFile() ? url.toLocalFile() : QString();
     }
-    // Refuse other schemes rather than treat them as paths. Matched on
-    // "scheme://", not QUrl::scheme(): QUrl("C:/x.png").scheme() is "c".
     static const QRegularExpression scheme(
         QStringLiteral("^[A-Za-z][A-Za-z0-9+.-]*://"));
     if (scheme.match(pathOrUrl).hasMatch())
@@ -106,7 +102,6 @@ void ProfileBannerManager::clearOwnBanner()
     setLastError({});
     m_pendingWrite = m_nextOpId++;
     Q_EMIT busyChanged();
-    // An empty path clears; Rust deletes both field names.
     m_client->setProfileBanner(QString(), m_pendingWrite);
 }
 
@@ -115,11 +110,10 @@ void ProfileBannerManager::handleReceived(quint64 opId, const QString &userId,
 {
     const auto it = m_inFlight.constFind(opId);
     if (it == m_inFlight.constEnd())
-        return;   // a stale answer from a previous session
+        return;
     m_inFlight.erase(it);
 
     if (!supported && m_supported) {
-        // Latched for the session: the server does not know the endpoint.
         m_supported = false;
         Q_EMIT supportedChanged();
     }
@@ -140,8 +134,6 @@ void ProfileBannerManager::handleSet(quint64 opId, bool ok, const QString &mxc,
     Q_EMIT busyChanged();
     if (!ok) {
         setLastError(category.isEmpty() ? QStringLiteral("failed") : category);
-        // An unrecognised write settles the same question; latch it too, or the
-        // account could retry a failing upload forever.
         if (category == QLatin1String("unsupported") && m_supported) {
             m_supported = false;
             Q_EMIT supportedChanged();
@@ -151,8 +143,6 @@ void ProfileBannerManager::handleSet(quint64 opId, bool ok, const QString &mxc,
     setLastError({});
     if (!m_client)
         return;
-    // Not optimistic: the server acknowledged the write, so our own answer is
-    // now authoritative without a re-read.
     const QString self = m_client->currentUserId();
     if (self.isEmpty())
         return;
@@ -183,9 +173,6 @@ void ProfileBannerManager::refreshRoom(const QString &roomId)
 {
     if (!roomBannersAvailable() || roomId.isEmpty())
         return;
-    // The cap bounds growth only; re-reading a cached room must stay possible,
-    // since sliding sync never delivers this state and refreshRoom() is the
-    // only way a remote change arrives.
     if (!m_roomCache.contains(roomId) && m_roomCache.size() >= kMaxCached)
         return;
     m_roomAsked.insert(roomId);
@@ -214,7 +201,6 @@ void ProfileBannerManager::clearRoomBanner(const QString &roomId)
     setLastError({});
     m_pendingWrite = m_nextOpId++;
     Q_EMIT busyChanged();
-    // An empty path clears; Rust sends an empty content object.
     m_client->setRoomBanner(roomId, QString(), m_pendingWrite);
 }
 
@@ -224,7 +210,7 @@ void ProfileBannerManager::handleRoomReceived(quint64 opId,
 {
     const auto it = m_roomInFlight.constFind(opId);
     if (it == m_roomInFlight.constEnd())
-        return;   // a stale answer from a previous session
+        return;
     m_roomInFlight.erase(it);
 
     const QString previous = m_roomCache.value(roomId);
@@ -253,7 +239,6 @@ void ProfileBannerManager::handleRoomSet(quint64 opId, const QString &roomId,
         return;
     }
     setLastError({});
-    // The server acknowledged the state event; no re-read needed.
     m_roomCache.insert(roomId, mxc);
     m_roomAsked.insert(roomId);
     ++m_revision;
@@ -271,8 +256,6 @@ void ProfileBannerManager::clearSession()
     m_roomInFlight.clear();
     m_pendingWrite = 0;
     setLastError({});
-    // Another account may be on a server that supports it; the latch is per
-    // session.
     if (!m_supported) {
         m_supported = true;
         Q_EMIT supportedChanged();

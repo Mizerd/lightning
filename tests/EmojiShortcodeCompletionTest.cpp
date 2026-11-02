@@ -1,12 +1,3 @@
-// Colon-shortcode completion for standard Unicode emoji (":thumbs" -> 👍),
-// merged into MessageComposer's existing MSC2545 custom-pack popup. Exercises
-// MessageComposer's own merge/guard/accept/auto-convert logic against FAKE
-// search/resolver callbacks (EmojiCatalog's real ranking is EmojiCatalogTest's
-// job) plus a recording MatrixClient for the send-time pass. On the
-// pre-feature code this file fails to compile outright: none of
-// setUnicodeEmojiSearch, setUnicodeShortcodeResolver,
-// acceptUnicodeEmojiCompletionAt or maybeAutoConvertShortcodeBeforeCursor
-// existed.
 
 #include "app/DraftStore.h"
 #include "matrix/MatrixClient.h"
@@ -17,7 +8,6 @@
 namespace {
 
 const QString kRoom = QStringLiteral("!room:example.org");
-// U+1F44D THUMBS UP SIGN, a surrogate pair: QString::length() == 2.
 const QString kThumbsUp = QStringLiteral("👍");
 
 class RecordingClient : public MatrixClient
@@ -76,7 +66,7 @@ public:
     QStringList editBodies;
 };
 
-} // namespace
+}
 
 class EmojiShortcodeCompletionTest : public QObject
 {
@@ -90,8 +80,6 @@ private Q_SLOTS:
         m_composer->setClient(m_client);
         m_composer->setRoomId(kRoom);
 
-        // A fake custom pack: only "blob_wave" resolves, mirroring one
-        // installed MSC2545 emoticon.
         m_composer->setEmoticonSearch(
             [](const QString &prefix, int limit) {
                 QVariantList out;
@@ -109,8 +97,6 @@ private Q_SLOTS:
                 ? QStringLiteral("mxc://x/1") : QString();
         });
 
-        // A fake Unicode catalogue: "thumbsup"/"+1" -> 👍, nothing else,
-        // standing in for EmojiCatalog's real (separately tested) ranking.
         m_composer->setUnicodeEmojiSearch(
             [](const QString &prefix, int limit) {
                 QVariantList out;
@@ -139,10 +125,6 @@ private Q_SLOTS:
         m_recordedUses.clear();
     }
 
-    // ── Merged popup: custom + Unicode, capped, one-vs-two-char gate ─────
-
-    // Custom pack completions must still be found (existing behaviour
-    // intact), and merge with Unicode ones in the same list.
     void customEmoticonsStillFoundAlongsideUnicode()
     {
         m_composer->setText(QStringLiteral(":blob"));
@@ -150,7 +132,6 @@ private Q_SLOTS:
         QVERIFY2(!rows.isEmpty(), "custom pack completion must still work");
         QCOMPARE(rows.first().toMap().value(QStringLiteral("shortcode")).toString(),
                  QStringLiteral("blob_wave"));
-        // Not tagged "unicode": exactly today's shape, untouched.
         QVERIFY(!rows.first().toMap().contains(QStringLiteral("kind")));
     }
 
@@ -170,14 +151,9 @@ private Q_SLOTS:
         QVERIFY2(found, "no Unicode row in the merged popup");
     }
 
-    // A Unicode match needs two query characters; ":D" (a one-character
-    // query "D") must not turn into an emoji menu that was never asked for.
-    // Custom packs are unaffected: they still complete on one character.
     void unicodeNeedsTwoCharactersCustomNeedsOne()
     {
         m_composer->setUnicodeEmojiSearch([](const QString &, int) {
-            // Would match anything; proves the composer's own length gate,
-            // not the (fake) catalogue's.
             return QVariantList{ QVariantMap{
                 { QStringLiteral("kind"), QStringLiteral("unicode") },
                 { QStringLiteral("emoji"), kThumbsUp },
@@ -198,10 +174,6 @@ private Q_SLOTS:
         QVERIFY2(!stillCustom.isEmpty(), "custom packs must still complete on one+ chars");
     }
 
-    // ":)"  and "12:30" must never open the popup at all — neither an
-    // emoticon nor a time is a shortcode. (emojiTokenAt's own word-boundary
-    // and character-class rules; re-asserted here because the merge is the
-    // new code path that could have bypassed them.)
     void noPopupForEmoticonsOrTimes_data()
     {
         QTest::addColumn<QString>("text");
@@ -217,8 +189,6 @@ private Q_SLOTS:
         QVERIFY(m_composer->emojiCompletionsAt(cursor).isEmpty());
     }
 
-    // ── Accepting a Unicode completion: glyph + space, not `:shortcode:` ──
-
     void acceptingUnicodeInsertsTheGlyphAndRecordsRecents()
     {
         m_composer->setText(QStringLiteral(":thumb"));
@@ -228,8 +198,6 @@ private Q_SLOTS:
         QCOMPARE(pos, expected.length());
         QCOMPARE(m_recordedUses, QStringList{ kThumbsUp });
     }
-
-    // ── `:shortcode:` auto-convert while typing (a space just landed) ────
 
     void aCompleteAliasConvertsOnceASpaceFollows()
     {
@@ -259,8 +227,6 @@ private Q_SLOTS:
         QCOMPARE(m_composer->text(), kThumbsUp + QLatin1Char(' '));
     }
 
-    // Without a trailing space nothing converts live — that half is the
-    // send-time pass, tested below.
     void noTrailingSpaceDoesNotConvertLive()
     {
         m_composer->setText(QStringLiteral("hi :thumbsup:"));
@@ -268,8 +234,6 @@ private Q_SLOTS:
         QCOMPARE(m_composer->text(), QStringLiteral("hi :thumbsup:"));
     }
 
-    // A custom pack shortcode of the same name is never shadowed by the
-    // Unicode table: today's "stays literal until send" behaviour continues.
     void customPackShortcodeIsNeverAutoConverted()
     {
         m_composer->setText(QStringLiteral("wave :blob_wave: "));
@@ -277,21 +241,14 @@ private Q_SLOTS:
         QCOMPARE(m_composer->text(), QStringLiteral("wave :blob_wave: "));
     }
 
-    // Inside a code span or fence a shortcode is literal text, live or at
-    // send — the same rule `insideCode` already enforces for the popup.
     void noConversionInsideACodeSpan()
     {
-        // "`x :thumbsup: `" — an opening backtick before the shortcode (with
-        // its own space-preceded word boundary) leaves an odd tick count at
-        // the cursor, so insideCode() is what refuses this, not the
-        // word-boundary rule alone.
         const QString text = QStringLiteral("`x :thumbsup: `");
         m_composer->setText(text);
         QCOMPARE(m_composer->maybeAutoConvertShortcodeBeforeCursor(14), -1);
         QCOMPARE(m_composer->text(), text);
     }
 
-    // Turning the setting off disables both halves.
     void settingOffDisablesAutoConvert()
     {
         m_composer->setEmojiAutoConvertEnabled(false);
@@ -303,8 +260,6 @@ private Q_SLOTS:
         m_composer->send();
         QCOMPARE(m_client->sentBodies, QStringList{ QStringLiteral(":thumbsup:") });
     }
-
-    // ── The "or send" half: a trailing alias with no space still converts ─
 
     void sendConvertsATrailingAliasWithNoSpace()
     {
@@ -318,8 +273,6 @@ private Q_SLOTS:
     {
         m_composer->setText(QStringLiteral("wave :blob_wave:"));
         m_composer->send();
-        // Unconverted by the Unicode pass: sendComposed's own resolver
-        // (untouched by this feature) is what turns this into an image.
         QCOMPARE(m_client->sentBodies, QStringList{ QStringLiteral("wave :blob_wave:") });
     }
 
@@ -331,8 +284,6 @@ private Q_SLOTS:
                  QStringList{ QStringLiteral("`:thumbsup:` literal") });
     }
 
-    // ── Explicit selection (Matrix v1.19 image packs) ─────────────────────
-
     QVariantMap row(const QString &key, const QString &url, const QString &body)
     {
         return QVariantMap{ { QStringLiteral("key"), key },
@@ -343,14 +294,11 @@ private Q_SLOTS:
 
     void aChosenImageIsSentNotWhicheverPackOwnsTheShortcodeLater()
     {
-        // PACK-LTN-023/024, PACK-PRO-032: two packs have `:blob_wave:`; the
-        // user picked the second. The send-time resolver (standing in for
-        // "today's packs") would say mxc://x/1 - or nothing when ambiguous.
         m_composer->setText(QStringLiteral("hi :blob"));
         const int pos = m_composer->acceptEmoticonCompletionAt(
             8, row(QStringLiteral("blob_wave"), QStringLiteral("mxc://x/2"),
                    QStringLiteral("A waving blob")));
-        QCOMPARE(pos, 15);  // after "hi :blob_wave: "
+        QCOMPARE(pos, 15);
         QCOMPARE(m_composer->text(), QStringLiteral("hi :blob_wave: "));
         QCOMPARE(m_composer->selectedEmoticons().size(), 1);
         m_composer->send();
@@ -361,7 +309,6 @@ private Q_SLOTS:
         QCOMPARE(chosen.value(QStringLiteral("url")).toString(), QStringLiteral("mxc://x/2"));
         QCOMPARE(chosen.value(QStringLiteral("body")).toString(),
                  QStringLiteral("A waving blob"));
-        // A send retires the selection with the text.
         QVERIFY(m_composer->selectedEmoticons().isEmpty());
     }
 
@@ -370,23 +317,17 @@ private Q_SLOTS:
         m_composer->setText(QStringLiteral(":blob"));
         m_composer->acceptEmoticonCompletionAt(
             5, row(QStringLiteral("blob_wave"), QStringLiteral("mxc://x/2"), QString()));
-        // Typing before and after (one edit at a time, as an editor sends
-        // them) shifts the range; the image survives.
         m_composer->setText(QStringLiteral("so :blob_wave: "));
         m_composer->setText(QStringLiteral("so :blob_wave: yes"));
         QCOMPARE(m_composer->selectedEmoticons().size(), 1);
         QCOMPARE(m_composer->selectedEmoticons().at(0).toMap()
                      .value(QStringLiteral("start")).toInt(), 3);
-        // Editing inside it drops the selection: it is literal text now.
         m_composer->setText(QStringLiteral("so :blob_wavy: yes"));
         QVERIFY(m_composer->selectedEmoticons().isEmpty());
     }
 
     void aSelectionSurvivesARoomRoundTripInMemoryAndNeverReachesTheThreadComposer()
     {
-        // PACK-LTN-025 (in-memory half), PACK-CTX-003: the selection belongs
-        // to this room's draft, and the shared send pass used by the thread
-        // composer never applies it.
         m_composer->setText(QStringLiteral(":blob"));
         m_composer->acceptEmoticonCompletionAt(
             5, row(QStringLiteral("blob_wave"), QStringLiteral("mxc://x/2"), QString()));
@@ -395,19 +336,15 @@ private Q_SLOTS:
         m_composer->applyOutgoingEmoji(body, spec);
         QCOMPARE(spec.value(QStringLiteral("emoticons")).toMap()
                      .value(QStringLiteral(":blob_wave:")).toString(),
-                 QStringLiteral("mxc://x/1"));  // the typed rule, not the choice
+                 QStringLiteral("mxc://x/1"));
         m_composer->setRoomId(QStringLiteral("!other:example.org"));
         QVERIFY(m_composer->selectedEmoticons().isEmpty());
         m_composer->setRoomId(kRoom);
-        // The draft store is absent in this fixture, so the text did not come
-        // back and neither may a selection without its text.
         QVERIFY(m_composer->selectedEmoticons().isEmpty());
     }
 
     void aPalettePickBindsTheTextItInserted()
     {
-        // PACK-LTN-029 / PACK-UX-005: the emoji palette inserts `:key: ` and
-        // binds it; a bind against text that is not there records nothing.
         m_composer->setText(QStringLiteral("ok :blob_wave: "));
         QVERIFY(!m_composer->bindEmoticonAt(
             0, row(QStringLiteral("blob_wave"), QStringLiteral("mxc://x/2"), QString())));
@@ -422,9 +359,6 @@ private Q_SLOTS:
 
     void aChosenOrAmbiguousCustomNameIsNeverTurnedIntoAUnicodeGlyph()
     {
-        // Live run 2026-10-26: a pack image named `wave` chosen from the popup
-        // was sent as U+1F44B, because the Unicode pass asked only the
-        // (now unique-only) resolver whether a custom image owned the name.
         m_composer->setEmoticonSearch([](const QString &prefix, int) {
             QVariantList out;
             if (QStringLiteral("thumbsup").startsWith(prefix))
@@ -433,7 +367,6 @@ private Q_SLOTS:
                                         { QStringLiteral("url"), QStringLiteral("mxc://x/9") } });
             return out;
         });
-        // Two packs own it: the unique resolver answers nothing.
         m_composer->setEmoticonResolver([](const QString &) { return QString(); });
         m_composer->setText(QStringLiteral("typed :thumbsup:"));
         m_composer->send();
@@ -452,8 +385,6 @@ private Q_SLOTS:
 
     void aSentChosenImageCountsAsOneUseAndADraftDoesNot()
     {
-        // PACK-REC-010/011: the custom recents learn from a send, not from a
-        // pick that never went out.
         QList<QVariantMap> uses;
         m_composer->setCustomEmojiUseRecorder(
             [&uses](const QVariantMap &row) { uses.append(row); });
@@ -468,11 +399,6 @@ private Q_SLOTS:
 
     void anEditKeepsTheImagesTheMessageWasSentWith()
     {
-        // PACK-LIVE-011 (live run 2026-10-26): editing a message that shows a
-        // chosen custom image sent plain ":redball:" text, because beginEdit
-        // recovered mentions but not images and the edit lane sent no emoji
-        // spec at all. The image is the one the message carried, even though
-        // no pack resolves that shortcode today.
         m_composer->setText(QStringLiteral("draft :blob_wave:"));
         m_composer->bindEmoticonAt(6, row(QStringLiteral("blob_wave"),
                                           QStringLiteral("mxc://x/draft"), QString()));
@@ -494,8 +420,7 @@ private Q_SLOTS:
 
     void cancellingAnEditGivesTheDraftItsOwnImagesBack()
     {
-        // Memory-only drafts (no settings; the room is unknown to the client).
-        auto *drafts = new DraftStore(m_composer);   // lives as long as the composer
+        auto *drafts = new DraftStore(m_composer);
         drafts->setClient(m_client);
         m_composer->setDraftStore(drafts);
         m_composer->setText(QStringLiteral("draft :blob_wave:"));
@@ -513,9 +438,6 @@ private Q_SLOTS:
 
     void aThreadPopupChoiceIsSentByTheThreadAndSpent()
     {
-        // The thread composer completes through emojiCompletionEdit over its
-        // own text; its choice must reach the thread send (the typed rule
-        // would give mxc://x/1), and only once.
         const QVariantMap edit = m_composer->emojiCompletionEdit(
             QStringLiteral("t :blob"), 7,
             row(QStringLiteral("blob_wave"), QStringLiteral("mxc://x/2"), QStringLiteral("d")));
@@ -534,14 +456,11 @@ private Q_SLOTS:
         QCOMPARE(spec2.value(QStringLiteral("emoticons")).toMap()
                      .value(QStringLiteral(":blob_wave:")).toString(),
                  QStringLiteral("mxc://x/1"));
-        // The main composer's own send never sees the thread's choice.
         QVERIFY(m_composer->selectedEmoticons().isEmpty());
     }
 
     void anAmbiguousTypedShortcodeStaysLiteral()
     {
-        // The resolver answers "" for an ambiguous key (uniqueEmoticonUrl);
-        // nothing is substituted rather than picking the first pack.
         m_composer->setEmoticonResolver([](const QString &) { return QString(); });
         m_composer->setText(QStringLiteral("x :blob_wave: y"));
         m_composer->send();

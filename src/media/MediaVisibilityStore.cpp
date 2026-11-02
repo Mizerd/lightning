@@ -53,7 +53,6 @@ void MediaVisibilityStore::clear()
     const QStringList keys = m_order;
     m_hidden.clear();
     m_order.clear();
-    // Announced per key; rows re-query by key.
     for (const QString &key : keys)
         Q_EMIT hiddenChanged(key, false);
     Q_EMIT hiddenCountChanged();
@@ -83,14 +82,11 @@ void MediaVisibilityStore::setSettings(SettingsManager *settings)
 
 void MediaVisibilityStore::reloadForAccount()
 {
-    // Announce the old keys as shown first, so rows still on screen from the
-    // previous account reveal.
     const QStringList previous = m_order;
     m_hidden.clear();
     m_order.clear();
 
     if (m_settings) {
-        // A user-editable INI: drop empty keys and apply the cap on read too.
         const QStringList stored = m_settings->hiddenMediaKeys();
         for (const QString &key : stored) {
             if (key.isEmpty() || m_hidden.contains(key))

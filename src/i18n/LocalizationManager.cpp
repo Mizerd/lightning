@@ -18,16 +18,12 @@ namespace {
 constexpr auto kSystemPolicy = "system";
 
 struct Language {
-    const char *code;      // catalog suffix: i18n/lightning_<code>.ts
-    const char *english;   // for logs and for translators' context
-    const char *endonym;   // the language's own name, shown in the picker
+    const char *code;
+    const char *english;
+    const char *endonym;
     bool rtl;
 };
 
-// English first, as the source language. Its catalog still carries plural
-// forms, without which "%n room(s)" renders literally. Adding a language: a
-// row here, an i18n/lightning_<code>.ts file and an entry in
-// LIGHTNING_LANGUAGE_CODES.
 constexpr Language kLanguages[] = {
     { "en",    "English",                    "English",          false },
     { "zh_CN", "Chinese (Simplified)",       "中文（简体）", false },
@@ -52,14 +48,12 @@ const Language *lookup(const QString &code)
     return nullptr;
 }
 
-// "pt-BR" and "pt_BR" are the same tag; Qt hands out both spellings
-// (uiLanguages() uses '-', QLocale::name() uses '_').
 QString canonical(const QString &tag)
 {
     return QString(tag).replace(QLatin1Char('-'), QLatin1Char('_'));
 }
 
-} // namespace
+}
 
 AppLocale *AppLocale::instance()
 {
@@ -72,7 +66,6 @@ AppLocale *AppLocale::instance()
 AppLocale *AppLocale::create(QQmlEngine *, QJSEngine *)
 {
     AppLocale *self = instance();
-    // Shared by every engine; no engine may delete it.
     QJSEngine::setObjectOwnership(self, QJSEngine::CppOwnership);
     return self;
 }
@@ -118,10 +111,6 @@ QString LocalizationManager::englishName(const QString &code)
     return l ? QString::fromUtf8(l->english) : QString();
 }
 
-// Exact tag first, then the bare language subtag (es_MX -> "es",
-// pt_BR -> "pt", fr_CA -> "fr"). For Chinese the script decides: zh_CN/zh_SG/
-// zh_MY and Hans reach Simplified; zh_TW/zh_HK/zh_MO and Hant fall back to
-// English, since there is no Traditional catalog.
 QString LocalizationManager::matchLanguageTag(const QString &tag)
 {
     const QString t = canonical(tag.trimmed());
@@ -149,7 +138,6 @@ QString LocalizationManager::matchLanguageTag(const QString &tag)
         return QStringLiteral("zh_CN");
     }
 
-    // Every other supported language is identified by its bare subtag.
     if (isSupported(lang))
         return lang;
     return {};
@@ -167,8 +155,6 @@ QString LocalizationManager::matchPreferenceList(const QStringList &uiLanguages)
 
 QString LocalizationManager::systemLanguage()
 {
-    // uiLanguages() is the ordered preference list, so "French, then English"
-    // reaches French even with an unknown region.
     return matchPreferenceList(QLocale::system().uiLanguages());
 }
 
@@ -182,17 +168,10 @@ QLocale LocalizationManager::formattingLocale(const QString &uiCode,
                                               const QLocale &timeCategory)
 {
     const QLocale ui(uiCode);
-    // The desktop's time category speaks the UI language: it is the user's
-    // own choice of conventions for that language (LANG=en_US with
-    // LC_TIME=en_GB writes 20/10/2026 and 24-hour time), territory included.
     if (timeCategory.language() == ui.language())
         return timeCategory;
     if (ui.language() != system.language())
         return ui;
-    // Same language as the desktop but another one for dates (LC_TIME=lt_LT
-    // under an English LANG): the language's CLDR data in the desktop's
-    // territory, never the time category's foreign month names. A pair CLDR
-    // does not know resolves to another language's locale; keep the UI's.
     const QLocale regional(ui.language(), ui.script(), system.territory());
     return regional.language() == ui.language() ? regional : ui;
 }
@@ -213,8 +192,6 @@ QString LocalizationManager::language() const
     const QString stored = m_settings->language();
     if (stored == QLatin1String(kSystemPolicy) || isSupported(stored))
         return stored;
-    // An unreadable or retired value falls back to the system policy, not
-    // English.
     return QString::fromLatin1(kSystemPolicy);
 }
 
@@ -270,23 +247,14 @@ void LocalizationManager::applyLanguage(const QString &policy)
 
     removeTranslators();
     m_effective = code;
-    // A language whose catalog does not load falls back to English, and
-    // English needs its own catalog too: without it every "%n room(s)"
-    // renders its "(s)".
     if (!installCatalog(code)) {
         m_effective = QStringLiteral("en");
         installCatalog(m_effective);
     }
 
-    // Numbers, sizes and dates read the default QLocale, which is the system's
-    // and not the UI language: an English UI on a Lithuanian desktop showed
-    // "1,28 MiB", and with LANG=en_US but LC_TIME=lt_LT "10 spal." (the
-    // system locale mixes categories). See formattingLocale().
     QLocale::setDefault(formattingLocale(m_effective, QLocale::system(),
                                          i18n::timeCategoryLocale()));
 
-    // Layout direction is process-wide; Main.qml applies it via
-    // LayoutMirroring.
     if (auto *gui = qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
         gui->setLayoutDirection(isRightToLeft(m_effective) ? Qt::RightToLeft
                                                            : Qt::LeftToRight);
@@ -294,8 +262,6 @@ void LocalizationManager::applyLanguage(const QString &policy)
 
     Q_EMIT languageChanged();
     Q_EMIT retranslateRequested();
-    // After both: the QML engine has retranslated, so a binding that re-runs
-    // on AppLocale.name sees the new catalog too.
     AppLocale::instance()->notifyChanged();
 }
 
@@ -304,9 +270,6 @@ bool LocalizationManager::installCatalog(const QString &code)
     if (code.isEmpty())
         return true;
 
-    // English is the source language, so its catalog holds little but plural
-    // forms; it is still loaded so "%n room(s)" does not render "(s)"
-    // literally. Its absence (no Linguist tools) is not a failure.
     const bool isSource = code == QLatin1String("en");
 
     auto translator = std::make_unique<QTranslator>();

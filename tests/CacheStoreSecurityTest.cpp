@@ -30,11 +30,11 @@ TimelineEvent encryptedEvent(const QString &eventId, const QString &body)
 {
     TimelineEvent e = plainEvent(eventId, body);
     e.isEncrypted = true;
-    e.isDecrypted = true; // decrypted in memory — still must not persist
+    e.isDecrypted = true;
     return e;
 }
 
-} // namespace
+}
 
 class CacheStoreSecurityTest : public QObject
 {
@@ -65,7 +65,6 @@ private:
 void CacheStoreSecurityTest::initTestCase()
 {
     QVERIFY(m_dataDir.isValid());
-    // Isolate the XDG data root so the test can never touch a real cache.
     qputenv("XDG_DATA_HOME", m_dataDir.path().toUtf8());
 }
 
@@ -85,7 +84,6 @@ void CacheStoreSecurityTest::cleanup()
 
 QString CacheStoreSecurityTest::databaseFilePath() const
 {
-    // Locate cache.sqlite under the isolated XDG data root.
     QDirIterator it(m_dataDir.path(), { QStringLiteral("cache.sqlite") },
                     QDir::Files, QDirIterator::Subdirectories);
     return it.hasNext() ? it.next() : QString();
@@ -140,12 +138,9 @@ void CacheStoreSecurityTest::encryptedEditNotPersisted()
 
 void CacheStoreSecurityTest::encryptedReplacementPurgesPlaceholder()
 {
-    // A plaintext placeholder row exists (e.g. from an older run)...
     m_store->appendEvent(plainEvent(QStringLiteral("local:txn9"),
                                     QStringLiteral("placeholder")));
     QCOMPARE(m_store->loadTimeline(kRoom).size(), 1);
-    // ...and its encrypted replacement deletes it rather than upserting
-    // plaintext.
     m_store->replaceEventId(QStringLiteral("local:txn9"),
                             encryptedEvent(QStringLiteral("$real"), kMarker));
     QVERIFY(m_store->loadTimeline(kRoom).isEmpty());
@@ -156,16 +151,13 @@ void CacheStoreSecurityTest::encryptedReplyPreviewNotPersisted()
     TimelineEvent reply = encryptedEvent(QStringLiteral("$reply"), kMarker);
     reply.replyToEventId = QStringLiteral("$orig");
     reply.replyToSender = QStringLiteral("@bob:example.org");
-    reply.replyToPreview = kMarker; // preview of an encrypted message
+    reply.replyToPreview = kMarker;
     m_store->appendEvent(reply);
     QVERIFY(m_store->loadTimeline(kRoom).isEmpty());
 }
 
 void CacheStoreSecurityTest::encryptedMediaMetadataNotPersisted()
 {
-    // Encrypted-room media rows (filename, media key, MIME) are refused like
-    // text. Decrypted media bytes never reach CacheStore (the media bridge is
-    // memory-only), so metadata is the only possible leak here.
     const QString marker = QStringLiteral("LIGHTNING_MEDIA_CACHE_TEST_059");
     TimelineEvent media = encryptedEvent(QStringLiteral("$encmedia"), marker);
     media.type = TimelineEvent::Image;
@@ -179,7 +171,6 @@ void CacheStoreSecurityTest::encryptedMediaMetadataNotPersisted()
     m_store->updateEvent(media);
     QVERIFY(m_store->loadTimeline(kRoom).isEmpty());
 
-    // Raw-byte scan: the marker must not exist anywhere in cache.sqlite.
     m_store->close();
     const QString path = databaseFilePath();
     QVERIFY(!path.isEmpty());
@@ -192,8 +183,6 @@ void CacheStoreSecurityTest::encryptedMediaMetadataNotPersisted()
 
 void CacheStoreSecurityTest::markerNeverAppearsInDatabaseFile()
 {
-        // After all the attempts above, the marker must not exist anywhere in
-        // the raw cache.sqlite bytes.
     m_store->appendEvent(encryptedEvent(QStringLiteral("$final"), kMarker));
     RoomInfo encryptedRoom;
     encryptedRoom.id = kRoom;
@@ -212,7 +201,6 @@ void CacheStoreSecurityTest::markerNeverAppearsInDatabaseFile()
     QVERIFY2(!raw.contains(kMarker.toUtf8()),
              "encrypted-room plaintext leaked into cache.sqlite");
 
-    // Reopen for cleanup().
     QVERIFY(m_store->openFor(QStringLiteral("@cache-test:example.org")));
 }
 

@@ -1,17 +1,11 @@
 import QtQuick
 import MatrixClient
 
-// The icon primitive for all interface chrome: a Material Symbols Rounded
-// glyph by name (codepoint-mapped, so no ligature shaping), theme-coloured,
-// one optical size. Interface chrome never uses emoji as icons.
 Text {
-    // Remote or externally chosen text: never markup.
     textFormat: Text.PlainText
     id: root
 
-    // Material Symbols icon name, e.g. "home", "forum", "group".
     property string name: ""
-    // Optical/pixel size of the glyph.
     property int size: 18
 
     readonly property var _codepoints: ({
@@ -47,8 +41,6 @@ Text {
         "done_all": "\ue877",
         "lock": "\ue899",
         "lock_open": "\ue898",
-        // The Symbols font's codepoint (the legacy Material Icons one renders
-        // blank).
         "account_circle": "\uf20b",
         "verified_user": "\uf013",
         "palette": "\ue40a",
@@ -92,7 +84,6 @@ Text {
         "link": "\ue250",
         "format_list_bulleted": "\ue241",
         "format_quote": "\ue244",
-        // Inline media playback controls.
         "pause": "\ue034",
         "stop": "\ue047",
         "volume_up": "\ue050",
@@ -106,8 +97,6 @@ Text {
         "fit_screen": "\uea10",
         "chevron_left": "\ue5cb",
         "chevron_right": "\ue5cc",
-        // Menu glyphs: flyout radio rows, the bolt (outline, as the subset is
-        // FILL=0), keycap icons, new-conversation rows, emoji category rail.
         "radio_button_checked": "\ue837",
         "radio_button_unchecked": "\ue836",
         "bolt": "\uea0b",
@@ -132,7 +121,6 @@ Text {
         "headset_off": "\ue33a",
         "grid_view": "\ue9b0",
         "flag": "\uf0c6",
-        // The in-app file chooser (FileChooserDialog.qml).
         "folder": "\ue2c7",
         "arrow_upward": "\ue5d8",
         "create_new_folder": "\ue2cc",
@@ -145,21 +133,14 @@ Text {
         "hard_drive": "\uf80e",
         "bookmark": "\ue8e7",
         "unfold_less": "\ue5d6",
-        // Message search: a list with a lens, distinct from the plain lens
-        // that searches rooms.
         "manage_search": "\uf02f",
     })
 
     text: _codepoints[name] !== undefined ? _codepoints[name] : ""
-    // The family comes from AppTheme like every other face.
     font.family: AppTheme.iconFont
     font.pixelSize: size
     color: AppTheme.textSecondary
     verticalAlignment: Text.AlignVCenter
     horizontalAlignment: Text.AlignHCenter
-    // Native (hinted) rasterisation rather than distance fields, whose
-    // resampling looks pixelated for static glyphs. Interface zoom goes
-    // through the DPR, so native glyphs stay crisp; no icon is animated with
-    // `scale`.
     renderType: Text.NativeRendering
 }

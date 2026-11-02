@@ -1,47 +1,3 @@
-//! Exporting this session's room keys to a passphrase-protected file: the
-//! counterpart of `mx_rust_import_room_keys`.
-//!
-//! Only matrix-sdk's own export is used: `Encryption::export_room_keys`, which
-//! reads the inbound group sessions through the SDK's store API and writes the
-//! standard encrypted Megolm key-export format (`-----BEGIN MEGOLM SESSION
-//! DATA-----`, PBKDF2-HMAC-SHA-512 at 500,000 rounds, AES-256-CTR plus
-//! HMAC-SHA-256), the file Element, Sable and every other client import.
-//! Nothing here opens the crypto store, formats key material or encrypts
-//! anything itself (CLAUDE.md §6).
-//!
-//! Writing: the SDK writes to a sibling temporary file this module created
-//! first (mode 0600 on Unix, `create_new`, so it never follows or reuses an
-//! existing path), and only a successful export is renamed over the chosen
-//! path. A failed export therefore never leaves a truncated file where the
-//! user asked for one, and never destroys a file being replaced. Where a
-//! sibling cannot be created (a read-only directory with a writable file,
-//! some sandbox portals) the SDK writes the chosen path directly: a path that
-//! did not exist is pre-created the same private way (and removed again on
-//! failure), an existing one keeps its mode, and a failure there is reported
-//! as possibly leaving a partial file.
-//!
-//! Cancellation (§18 review, 2026-10-13): matrix-sdk does its `File::create`
-//! and `write_all` inside `spawn_blocking`, which no abort can stop. So the
-//! export runs in its own task that the room action only AWAITS: sign-out
-//! aborting the room action detaches that task and never cancels it, and the
-//! task always ends after the SDK has returned, in a rename or a removal.
-//! Nothing deletes a file the SDK may still be writing (deleting it early let
-//! the blocking write re-create it at the umask). If the session ended in the
-//! meantime the finished file is removed rather than renamed into place, as
-//! nobody is left to be told it exists.
-//!
-//! Secrets: the passphrase arrives as an owned String held in `Secret`, which
-//! scrubs on drop on every path (refusal, error, sign-out, abort); the SDK
-//! keeps its own copy in `Zeroizing`. It is never logged, enqueued or
-//! returned. Events carry counts and a category only: never the path, the
-//! passphrase, a room or session id, or anything read from the file.
-//!
-//! Events:
-//!   room_key_export_progress { op_id, lifecycle, collected }
-//!   room_key_export_result   { op_id, lifecycle, ok, exported, category }
-//! Categories ("" when ok): empty_passphrase, invalid_path, already_running,
-//! permission_denied, disk_full, write_failed, partial_file, no_encryption,
-//! failed.
 
 use std::ffi::{c_void, OsString};
 use std::io;
@@ -56,18 +12,10 @@ use crate::password::Secret;
 use crate::rooms::require_client;
 use crate::{bridge, cstr_arg, enqueue, ffi_string, RustClient};
 
-/// A progress event per this many sessions gathered. The store hands every
-/// session over at once, so this is about keeping the event queue small on
-/// an account with hundreds of thousands of keys, not about smoothness.
 const PROGRESS_EVERY: usize = 500;
 
-/// One export at a time per process. Exports are rare, user-initiated and
-/// hold every session in memory while they run; a second one queued behind a
-/// slow disk would only double that.
 static EXPORT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-/// Holds `EXPORT_ACTIVE` for the lifetime of one export, released on every
-/// exit path including a task aborted at sign-out.
 struct ActiveGuard;
 
 impl ActiveGuard {
@@ -88,15 +36,10 @@ impl Drop for ActiveGuard {
 /// Where the SDK writes. Cleaned up explicitly once the SDK has returned,
 /// never on drop: a drop can happen while the SDK's blocking write still runs.
 enum WriteTarget {
-    /// A private sibling, renamed over the target on success.
     Staging(PathBuf),
-    /// The target itself. `created` when this export created it (and may
-    /// therefore remove it again).
     Direct { created: bool },
 }
 
-/// `.<name>.partial-<pid>-<nanos>` beside the target. Hidden, and never the
-/// target's own name.
 fn staging_path(target: &Path) -> Option<PathBuf> {
     let parent = target.parent()?;
     let name = target.file_name()?;
@@ -124,16 +67,12 @@ fn create_private(path: &Path) -> io::Result<()> {
     options.open(path).map(drop)
 }
 
-/// Flush a file to disk. Opened for writing: Windows' FlushFileBuffers
-/// refuses a read-only handle.
 fn sync_file(path: &Path) {
     if let Ok(file) = std::fs::OpenOptions::new().write(true).open(path) {
         let _ = file.sync_all();
     }
 }
 
-/// Make a rename durable (Unix; a directory cannot be opened this way on
-/// Windows, where the rename is journaled by NTFS).
 fn sync_parent(path: &Path) {
     #[cfg(unix)]
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -163,8 +102,6 @@ fn sdk_category(err: &matrix_sdk::Error) -> &'static str {
     }
 }
 
-/// Refusals that need no I/O beyond a metadata read: an empty passphrase, an
-/// empty path, a path naming a directory, or a parent that does not exist.
 fn precheck(target: &Path, passphrase: &str) -> Result<(), &'static str> {
     if passphrase.is_empty() {
         return Err("empty_passphrase");
@@ -184,13 +121,6 @@ fn precheck(target: &Path, passphrase: &str) -> Result<(), &'static str> {
     }
 }
 
-/// Export every room key this session holds to `target`, encrypted with
-/// `passphrase`, through `Encryption::export_room_keys`. `on_collected` is
-/// called with the running count while the SDK gathers sessions; `keep` is
-/// asked once the SDK has returned (false: the session ended, so remove the
-/// file instead of putting it in place). Returns the number of keys in the
-/// file, or a category. Must run to completion (see the module docs), which
-/// is why `spawn_export` gives it a task of its own.
 pub(crate) async fn export_to(
     client: &matrix_sdk::Client,
     target: &Path,
@@ -217,9 +147,6 @@ async fn export_with(
     let (write_path, how) = match staging {
         Some(path) => (path.clone(), WriteTarget::Staging(path)),
         None => {
-            // Pre-create a missing target privately: the SDK's File::create
-            // then truncates it and keeps the mode. An existing one keeps its
-            // own mode.
             let created = create_private(target).is_ok();
             (target.to_path_buf(), WriteTarget::Direct { created })
         }
@@ -233,14 +160,11 @@ async fn export_with(
             if n % PROGRESS_EVERY == 0 {
                 on_collected(n);
             }
-            // Every session, as Element exports them.
             true
         })
         .await;
     let exported = collected.load(Ordering::Relaxed);
 
-    // The SDK has returned, so its blocking write is over: only now is any
-    // file removed or moved.
     let wanted = keep();
     match (result, how) {
         (Ok(()), WriteTarget::Staging(path)) => {
@@ -248,7 +172,6 @@ async fn export_with(
                 let _ = std::fs::remove_file(&path);
                 return Err("cancelled");
             }
-            // Durable before it replaces anything.
             sync_file(&path);
             if let Err(err) = std::fs::rename(&path, target) {
                 let _ = std::fs::remove_file(&path);
@@ -259,8 +182,6 @@ async fn export_with(
         }
         (Ok(()), WriteTarget::Direct { created }) => {
             if !wanted {
-                // Only a file this export created; an overwritten one cannot
-                // be given back.
                 if created {
                     let _ = std::fs::remove_file(target);
                 }
@@ -269,19 +190,14 @@ async fn export_with(
             sync_file(target);
             Ok(exported)
         }
-        // The target is untouched.
         (Err(err), WriteTarget::Staging(path)) => {
             let _ = std::fs::remove_file(&path);
             Err(sdk_category(&err))
         }
-        // A target this export created holds nothing worth keeping.
         (Err(err), WriteTarget::Direct { created: true }) => {
             let _ = std::fs::remove_file(target);
             Err(sdk_category(&err))
         }
-        // Written over an existing file: an error while writing may have
-        // left it truncated. A refused open (permission, bad path) wrote
-        // nothing.
         (Err(err @ matrix_sdk::Error::Io(_)), WriteTarget::Direct { created: false }) => {
             let category = sdk_category(&err);
             Err(if matches!(category, "write_failed" | "disk_full") {
@@ -294,11 +210,6 @@ async fn export_with(
     }
 }
 
-/// Run one export in a task of its own on `runtime` and hand its outcome to
-/// `on_done`. `hold` (the passphrase, the single-flight guard) lives until the
-/// export has finished. The caller may await the returned handle or drop it:
-/// dropping or aborting the awaiting task detaches this one, it never cancels
-/// it, so the cleanup in `export_with` always runs after the SDK's write.
 #[allow(clippy::too_many_arguments)]
 fn spawn_export<H, P, K, D>(
     runtime: &tokio::runtime::Handle,
@@ -353,9 +264,6 @@ fn result_event(
     })
 }
 
-/// Validate synchronously, then run the export on the room-action pool, which
-/// sign-out joins (and aborts past its budget). Synchronous refusals come
-/// back as the category alone.
 fn start_export(
     handle: &RustClient,
     target: PathBuf,
@@ -384,19 +292,12 @@ fn start_export(
             }
         },
     );
-    // Sign-out joins the room-action pool and aborts past its budget; that
-    // abort lands here and detaches the export, which then finishes (and
-    // cleans up) on its own.
     handle.spawn_room_action(async move {
         let _ = export.await;
     });
     Ok(())
 }
 
-/// Export this session's room keys to `file_path`, encrypted with
-/// `passphrase`. Returns "" when started (the answer is a
-/// `room_key_export_result` event), or "error: <category>" when refused:
-/// empty_passphrase, invalid_path, not_signed_in, already_running.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_export_room_keys(
     ptr: *mut c_void,
@@ -405,7 +306,6 @@ pub unsafe extern "C" fn mx_rust_export_room_keys(
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
-        // First, so it is scrubbed on every refusal below.
         let passphrase = Secret(unsafe { cstr_arg(passphrase) }?);
         let handle = unsafe { bridge(ptr)? };
         let file_path = unsafe { cstr_arg(file_path) }?;
@@ -432,7 +332,6 @@ mod tests {
 
     use super::*;
 
-    /// A scratch directory removed on drop.
     struct Scratch(PathBuf);
 
     impl Scratch {
@@ -456,8 +355,6 @@ mod tests {
         }
     }
 
-    /// A signed-in client on its own fresh SQLite store, as Lightning builds
-    /// one. Nothing here talks to a server.
     async fn client_on_store(store: &Path, device: &str) -> Client {
         let client = Client::builder()
             .homeserver_url("http://127.0.0.1:9")
@@ -483,9 +380,6 @@ mod tests {
         client
     }
 
-    /// Create a Megolm session in `room` on `client` (through the SDK's
-    /// `share_room_key` with nobody to share to) and encrypt one message
-    /// with it. Returns the encrypted event and its session id.
     async fn encrypted_message(
         client: &Client,
         room: &matrix_sdk::ruma::RoomId,
@@ -529,11 +423,6 @@ mod tests {
         }
     }
 
-    // The round trip the feature exists for: what this module writes, the
-    // SDK's import (the call mx_rust_import_room_keys makes) reads into a
-    // brand-new store, and the message encrypted before the export decrypts
-    // there. Fails if the export wrote nothing, wrote another format, or
-    // dropped the session.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_export_imports_into_a_fresh_store_and_decrypts_the_same_messages() {
         let scratch = Scratch::new("roundtrip");
@@ -560,11 +449,8 @@ mod tests {
         assert!(text
             .trim_end()
             .ends_with("-----END MEGOLM SESSION DATA-----"));
-        // Encrypted, not a JSON dump: neither the session id nor the room
-        // appears in the file.
         assert!(!text.contains(&session_id));
         assert!(!text.contains(room.as_str()));
-        // Nothing left beside it.
         let leftovers: Vec<_> = std::fs::read_dir(&scratch.0)
             .unwrap()
             .filter_map(|e| e.ok())
@@ -634,8 +520,6 @@ mod tests {
             .is_err());
     }
 
-    // Replacing an existing file: the old one survives a refused export
-    // untouched, and is replaced only by a complete one.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_existing_file_is_replaced_whole_or_not_at_all() {
         let scratch = Scratch::new("replace");
@@ -686,13 +570,6 @@ mod tests {
             .collect()
     }
 
-    // §18 review: sign-out aborts the room action that awaits the export.
-    // That abort must detach the export task, not cancel it, so the SDK's
-    // blocking write is followed by the rename (or a removal) and never by
-    // a deletion it then re-creates at the umask. Abort the awaiting task at
-    // once and the export still lands whole, private, with nothing left
-    // beside it. (The old design ran the export inside the aborted task; its
-    // failure was timing-dependent, so this pins the structure.)
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn aborting_the_awaiting_task_never_cancels_the_export_or_its_cleanup() {
         let scratch = Scratch::new("abort");
@@ -738,8 +615,6 @@ mod tests {
         }
     }
 
-    // The session ended while the SDK was writing: the finished file is
-    // removed, not put in place, and nothing is left beside it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_export_whose_session_ended_leaves_no_file() {
         let scratch = Scratch::new("ended");
@@ -753,7 +628,6 @@ mod tests {
         assert!(!file.exists());
         assert!(partial_files(&scratch.0).is_empty());
 
-        // An existing file at the target is left alone.
         std::fs::write(&file, "previous export").unwrap();
         assert_eq!(
             export_to(&source, &file, "pass", |_| {}, || false).await,
@@ -763,9 +637,6 @@ mod tests {
         assert!(partial_files(&scratch.0).is_empty());
     }
 
-    // §18 review: without a sibling, a target the export creates is created
-    // private too (the SDK's File::create keeps the mode of the file it
-    // truncates; on its own it would use the umask, 0644 here).
     #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_direct_write_creates_the_target_private() {
@@ -810,8 +681,6 @@ mod tests {
         );
     }
 
-    // Everything an export puts on the event queue, for a passphrase and a
-    // path that are easy to find: neither appears, nor any key material.
     #[test]
     fn events_carry_counts_and_a_category_only() {
         let progress = progress_event(7, 3, 1000).to_string();

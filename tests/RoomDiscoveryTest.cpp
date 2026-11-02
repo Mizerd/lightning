@@ -1,7 +1,3 @@
-// Discover / Join: RoomDirectorySearchModel (debounce, paging, stale-op
-// rejection) and RoomDiscoveryController (resolve preview, join and knock
-// outcomes, error categories, wait-for-room navigation, bounded
-// space-children cache, sign-out invalidation) against MockMatrixClient.
 
 #include "app/RoomDiscoveryController.h"
 #include "matrix/MockMatrixClient.h"
@@ -29,7 +25,7 @@ QVariantMap directoryRow(const QString &id, const QString &name,
     row.insert(QStringLiteral("isSpace"), false);
     return row;
 }
-} // namespace
+}
 
 class RoomDiscoveryTest : public QObject
 {
@@ -68,7 +64,6 @@ private Q_SLOTS:
                  QStringLiteral("!pub:mock.local"));
         QVERIFY(model.canLoadMore());
 
-        // The next page appends and the cleared token ends pagination.
         model.loadMore();
         QTRY_COMPARE(model.rowCount(), 2);
         QVERIFY(!model.canLoadMore());
@@ -98,8 +93,6 @@ private Q_SLOTS:
             QStringLiteral("!a:mock.local"), QStringLiteral("A"),
             QStringLiteral("public")) };
         model.setQuery(QStringLiteral("a"));
-        // Supersede before the first answer lands (answers are queued
-        // singleShot(0), so both dispatches are in flight now).
         client.mockPublicRooms = { directoryRow(
             QStringLiteral("!b:mock.local"), QStringLiteral("B"),
             QStringLiteral("public")) };
@@ -205,14 +198,11 @@ private Q_SLOTS:
         QCOMPARE(inPlace.first().first().toString(),
                  QStringLiteral("!space:mock.local"));
         QCOMPARE(joinedSpace.count(), 0);
-        // The flag is per join: a Discover join afterwards still opens.
         controller.join(QStringLiteral("!space2:mock.local"), {}, true);
         QTRY_COMPARE(joinedSpace.count(), 1);
         QCOMPARE(inPlace.count(), 1);
     }
 
-    // joinRoomByIdOrAlias returning 0 (dispatch refused) answers nothing, so
-    // the banner stayed on "Joining..." for ever unless joinFailed fires.
     void aRefusedJoinDispatchStillReportsJoinFailed()
     {
         struct Refusing : MockMatrixClient {
@@ -274,7 +264,6 @@ private Q_SLOTS:
         QCOMPARE(controller.resolveState(), QStringLiteral("idle"));
         QVERIFY(controller.resolved().isEmpty());
 
-        // Any other failure keeps the card: the room is still joinable later.
         controller.resolve(QStringLiteral("#nonexist:mock.local"));
         QTRY_COMPARE(controller.resolveState(), QStringLiteral("resolved"));
         client.mockJoinFailCategory = QStringLiteral("forbidden");
@@ -288,8 +277,6 @@ private Q_SLOTS:
     void describeJoinCategoryDistinguishesConditions()
     {
         using C = RoomDiscoveryController;
-        // Every category maps to its own honest sentence — in particular
-        // restricted is NEVER presented as plain invite-only.
         const QStringList categories = {
             QStringLiteral("banned"), QStringLiteral("forbidden"),
             QStringLiteral("restricted_denied"), QStringLiteral("not_found"),
@@ -358,7 +345,6 @@ private Q_SLOTS:
             controller.spaceChildren(QStringLiteral("!space:mock.local"))
                 .size(),
             1);
-        // Another space is independent.
         QCOMPARE(controller.spaceChildrenState(
                      QStringLiteral("!other:mock.local")),
                  QString());

@@ -1,17 +1,3 @@
-// Measures state-change floods through the real pipeline (real AppController,
-// MockMatrixClient, and the compiled TimelinePane.qml/MessageDelegate.qml).
-// TimelineModel widens dataChanged() across a whole contiguous state group on
-// each insertion (see TimelineStateFloodPerfTest.cpp), and every loaded row is
-// a live delegate, so that signal re-evaluates every group member's bindings.
-// Four interactions:
-//
-//   1. Pagination completion, up to n=500/1000 across several pages.
-//   2. Direct large-N hydration (the whole room seeded at once).
-//   3. Repeated wheel scrolling over an already-loaded flood.
-//   4. Expanding a large collapsed state group (one Label per entry).
-//
-// Figures are real but headless (QT_QPA_PLATFORM=offscreen), so absolute
-// numbers are not the on-screen feel.
 
 #include <QtTest/QtTest>
 
@@ -32,8 +18,6 @@
 
 namespace {
 constexpr int kSignalTimeoutMs = 2000;
-// A generous absolute bound that only catches a hang or runaway loop, not a
-// performance target.
 constexpr int kHangGuardMs = 15000;
 
 QList<TimelineEvent> makeStateChangeChunk(int n, int startOffsetMinutes,
@@ -92,7 +76,7 @@ QList<TimelineEvent> makeSeedMessages(int n)
     return events;
 }
 
-} // namespace
+}
 
 class TimelineStateFloodQmlPerfTest : public QObject
 {
@@ -227,16 +211,11 @@ private:
                 return { PageOutcome::ReachedStart, 0 };
             return { PageOutcome::TimedOut, -1 };
         }
-        // Drain a few more turns so this batch's relayout is charged here.
         for (int i = 0; i < 5; ++i)
             QCoreApplication::processEvents();
         return { PageOutcome::Completed, timer.elapsed() };
     }
 
-    // Sends `count` discrete wheel notches upward over the timeline, timing
-    // each. Offscreen wheel delivery is not guaranteed per event and there is
-    // no retry, so compare sums/averages rather than single notches.
-    // `engagedOut` reports whether any motion was observed at all.
     QList<qint64> timeWheelNotches(QQuickWindow &window, QQuickItem *timeline,
                                    int count, bool &engagedOut)
     {
@@ -248,7 +227,7 @@ private:
             QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
                               QPoint(0, 0), QPoint(0, 120), Qt::NoButton,
                               Qt::NoModifier, Qt::NoScrollPhase,
-                              /*inverted=*/false);
+false);
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
             timings.append(timer.elapsed());
@@ -258,8 +237,6 @@ private:
     }
 
 private Q_SLOTS:
-    // One page of 100 contiguous state-change rows vs one page of 100
-    // ordinary messages, same room, same pipeline.
     void singlePageStateFloodVsMessageFloodWallTime()
     {
         {
@@ -271,7 +248,7 @@ private Q_SLOTS:
             QQuickItem *timeline = nullptr;
             QQuickItem *root = bootRoomTimeline(controller, engine, window,
                                                warnings, mock, timeline,
-                                               /*seed=*/60, /*pages=*/3);
+60,3);
             QVERIFY(root != nullptr);
             mock->setPaginationChunkForTest(makeStateChangeChunk(100, 600));
 
@@ -292,7 +269,7 @@ private Q_SLOTS:
             QQuickItem *timeline = nullptr;
             QQuickItem *root = bootRoomTimeline(controller, engine, window,
                                                warnings, mock, timeline,
-                                               /*seed=*/60, /*pages=*/3);
+60,3);
             QVERIFY(root != nullptr);
             mock->setPaginationChunkForTest(makeMessageChunk(100, 600));
 
@@ -306,13 +283,10 @@ private Q_SLOTS:
         }
     }
 
-    // One contiguous state group loaded across consecutive pages up to
-    // 500-1000 rows, printing per-page wall time. Stops early on a legitimate
-    // reachedStart; no pass/fail threshold on the trend.
     void repeatedPagesStateFloodScalesToLargeN()
     {
         const int pageSize = 100;
-        const int targetPages = 10; // 60 seed + up to 1000 more, 100 at a time.
+        const int targetPages = 10;
         AppController controller(AppController::MockBackend);
         QQmlApplicationEngine engine;
         QQuickWindow window;
@@ -321,7 +295,7 @@ private Q_SLOTS:
         QQuickItem *timeline = nullptr;
         QQuickItem *root = bootRoomTimeline(controller, engine, window,
                                            warnings, mock, timeline,
-                                           /*seed=*/60, /*pages=*/targetPages + 5);
+60,targetPages + 5);
         QVERIFY(root != nullptr);
         mock->setPaginationChunkForTest(
             makeStateChangeChunk(pageSize, 600, QStringLiteral("g")));
@@ -349,8 +323,6 @@ private Q_SLOTS:
               controller.timeline()->rowCount());
     }
 
-    // Control: the same shape with ordinary messages, to separate row count
-    // from state-group size.
     void repeatedPagesMessageFloodScalesToLargeN()
     {
         const int pageSize = 100;
@@ -363,7 +335,7 @@ private Q_SLOTS:
         QQuickItem *timeline = nullptr;
         QQuickItem *root = bootRoomTimeline(controller, engine, window,
                                            warnings, mock, timeline,
-                                           /*seed=*/60, /*pages=*/targetPages + 5);
+60,targetPages + 5);
         QVERIFY(root != nullptr);
         mock->setPaginationChunkForTest(makeMessageChunk(pageSize, 600));
 
@@ -390,9 +362,6 @@ private Q_SLOTS:
               controller.timeline()->rowCount());
     }
 
-    // The whole flood seeded as the room's initial content (no pagination),
-    // timing boot to presentationReady: delegate creation and relayout for all
-    // rows at once, at n=500 and n=1000.
     void directLargeHydrationWallTime()
     {
         for (const int n : { 500, 1000 }) {
@@ -408,7 +377,7 @@ private Q_SLOTS:
                 QQuickItem *root = bootRoomTimeline(
                     controller, engine, window, warnings, mock, timeline,
                     makeStateChangeChunk(n, 600, QStringLiteral("h")),
-                    /*pages=*/0);
+0);
                 const qint64 elapsedMs = timer.elapsed();
                 QVERIFY2(root != nullptr,
                          qPrintable(QStringLiteral(
@@ -428,7 +397,7 @@ private Q_SLOTS:
                 timer.start();
                 QQuickItem *root = bootRoomTimeline(
                     controller, engine, window, warnings, mock, timeline,
-                    makeMessageChunk(n, 600), /*pages=*/0);
+                    makeMessageChunk(n, 600),0);
                 const qint64 elapsedMs = timer.elapsed();
                 QVERIFY2(root != nullptr,
                          qPrintable(QStringLiteral(
@@ -440,8 +409,6 @@ private Q_SLOTS:
         }
     }
 
-    // Repeated wheel-up input over an already-loaded flood (n=500, seeded
-    // directly), timing each notch.
     void wheelScrollOverLoadedStateFloodVsMessages()
     {
         constexpr int n = 500;
@@ -459,7 +426,7 @@ private Q_SLOTS:
             QQuickItem *timeline = nullptr;
             QQuickItem *root = bootRoomTimeline(
                 controller, engine, window, warnings, mock, timeline,
-                makeStateChangeChunk(n, 600, QStringLiteral("w")), /*pages=*/0);
+                makeStateChangeChunk(n, 600, QStringLiteral("w")),0);
             QVERIFY(root != nullptr);
             QVERIFY(timeline->setProperty("stickToBottom", true));
             stateTimings = timeWheelNotches(window, timeline, notches, stateEngaged);
@@ -473,13 +440,11 @@ private Q_SLOTS:
             QQuickItem *timeline = nullptr;
             QQuickItem *root = bootRoomTimeline(
                 controller, engine, window, warnings, mock, timeline,
-                makeMessageChunk(n, 600), /*pages=*/0);
+                makeMessageChunk(n, 600),0);
             QVERIFY(root != nullptr);
             QVERIFY(timeline->setProperty("stickToBottom", true));
             messageTimings = timeWheelNotches(window, timeline, notches, messageEngaged);
         }
-        // Skip, not fail: offscreen wheel delivery is not guaranteed, and a
-        // run without input produced no evidence either way.
         if (!stateEngaged || !messageEngaged) {
             QSKIP("wheel notches were not delivered in this offscreen run; "
                   "no timing evidence produced (not a regression)");
@@ -500,10 +465,6 @@ private Q_SLOTS:
               double(stateTotal) / notches, double(messageTotal) / notches);
     }
 
-    // Expanding a large group: RoomActivityDelegate's `expandedColumn`
-    // Repeater instantiates one Label per entry only when expanded. Seeds one
-    // group, toggles it via toggleStateGroup() (as the summary row does), and
-    // times expansion and collapse.
     void expandingLargeStateGroupWallTime()
     {
         constexpr int groupSize = 300;
@@ -516,7 +477,7 @@ private Q_SLOTS:
         QQuickItem *root = bootRoomTimeline(
             controller, engine, window, warnings, mock, timeline,
             makeStateChangeChunk(groupSize, 600, QStringLiteral("e")),
-            /*pages=*/0);
+0);
         QVERIFY(root != nullptr);
 
         QString groupId;
@@ -554,11 +515,6 @@ private Q_SLOTS:
               static_cast<long long>(collapseMs));
     }
 
-    // A contiguous 100-event state group should collapse to a few view rows.
-    // Today every loaded event gets its own view row even though only the
-    // leader renders content; the fix belongs in ReverseListProxyModel, which
-    // must keep TimelineModel's per-event rows for other consumers and handle
-    // jumps into suppressed rows, the read marker and virtual rows.
     void hundredEventStateGroupShouldCollapseToFewViewRows()
     {
         constexpr int groupSize = 100;
@@ -571,12 +527,10 @@ private Q_SLOTS:
         QQuickItem *root = bootRoomTimeline(
             controller, engine, window, warnings, mock, timeline,
             makeStateChangeChunk(groupSize, 600, QStringLiteral("r")),
-            /*pages=*/0);
+0);
         QVERIFY(root != nullptr);
 
         const int modelRows = controller.timeline()->rowCount();
-        // `count` is the Repeater's own instantiated item count
-        // (rowRepeater.count): the real number of view rows built.
         const int viewRows = timeline->property("count").toInt();
         qInfo("viewRowCollapse groupSize=%d modelRows=%d viewRows=%d",
               groupSize, modelRows, viewRows);
@@ -585,9 +539,6 @@ private Q_SLOTS:
                  "fixture assumption: TimelineModel must keep one row per "
                  "real event regardless of any view-level collapsing — a "
                  "row-count fix must never shrink the authoritative model");
-        // Allow a small constant for the surviving representative row plus
-        // virtual rows. Marked QEXPECT_FAIL until view-row suppression lands;
-        // when it does, the XPASS fails the run and forces removing the marker.
         QEXPECT_FAIL("", "view-row suppression not implemented yet: a 100-event "
                          "state group still materialises ~100 view rows",
                      Abort);

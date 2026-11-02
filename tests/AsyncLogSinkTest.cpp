@@ -1,10 +1,3 @@
-// AsyncLogSink: the --log-file writer must never block the thread that logs.
-//
-// A stalled log pipe used to silence call audio both ways, because the
-// handler wrote and flushed the file on the calling thread and GStreamer
-// streaming threads log. Every case drives a device whose writeData() blocks
-// on a gate the test holds, and every call that could block runs on a helper
-// thread with a bound, so a regression FAILS instead of hanging the suite.
 #include <QtTest/QtTest>
 
 #include <QByteArray>
@@ -29,15 +22,14 @@ using lightning::logging::AsyncLogSink;
 
 namespace {
 
-// What the device saw, shared so it outlives a device a detached writer keeps.
 struct Tap {
     std::mutex mutex;
     QByteArray data;
     std::atomic<bool> gated{false};
-    QSemaphore gate;      // one permit per write while gated
-    QSemaphore entered;   // released as each write starts
-    std::atomic<int> writes{0};   // writes that got past the gate
-    std::function<void()> onWrite;   // runs inside writeData(), on the writer
+    QSemaphore gate;
+    QSemaphore entered;
+    std::atomic<int> writes{0};
+    std::function<void()> onWrite;
 };
 
 class GatedDevice : public QIODevice
@@ -48,7 +40,7 @@ public:
         open(QIODevice::WriteOnly | QIODevice::Unbuffered);
     }
 
-    bool isSequential() const override { return true; }   // like a pipe
+    bool isSequential() const override { return true; }
 
 protected:
     qint64 readData(char *, qint64) override { return -1; }
@@ -71,9 +63,6 @@ private:
     std::shared_ptr<Tap> m_tap;
 };
 
-// Owns the sink and every helper thread. Tear-down opens the gate first, so
-// a thread stuck in the device (the regression under test) can finish and be
-// joined before the sink goes.
 struct Fixture {
     std::shared_ptr<Tap> tap = std::make_shared<Tap>();
     std::unique_ptr<AsyncLogSink> sink;
@@ -101,7 +90,6 @@ struct Fixture {
         tap->gate.release(1 << 20);
     }
 
-    // Runs fn on a helper thread; true when it returned within boundMs.
     bool call(int boundMs, std::function<void()> fn, qint64 *tookMs = nullptr)
     {
         auto done = std::make_shared<QSemaphore>();
@@ -119,8 +107,6 @@ struct Fixture {
         return returned;
     }
 
-    // Logs `text` and waits until the writer is inside the device with it,
-    // where the closed gate keeps it.
     bool holdTheWriterIn(const QString &text)
     {
         const bool returned = call(2000, [this, text] {
@@ -143,7 +129,6 @@ struct Fixture {
     }
 };
 
-// The message after "<stamp> <level> <category>: ".
 QByteArray messageOf(const QByteArray &line)
 {
     const int at = line.indexOf(": ");
@@ -155,18 +140,16 @@ QByteArray numbered(const char *prefix, int i)
     return QByteArray(prefix) + ' ' + QByteArray::number(i);
 }
 
-} // namespace
+}
 
 class AsyncLogSinkTest : public QObject
 {
     Q_OBJECT
 
 private Q_SLOTS:
-    // The defect: a caller must return while the writer is stuck in the
-    // device. A handler that writes on the calling thread blocks here.
     void aLogCallReturnsWhileTheDeviceIsBlocked()
     {
-        Fixture f(/*gated=*/true);
+        Fixture f(true);
         QVERIFY2(f.holdTheWriterIn(QStringLiteral("held")),
                  "the first log() did not return while the device was "
                  "blocked: it writes on the calling thread");
@@ -181,7 +164,6 @@ private Q_SLOTS:
                  "device was blocked: a caller waits for the log file");
         QVERIFY2(took < 1000,
                  qPrintable(QStringLiteral("200 queued lines took %1 ms").arg(took)));
-        // Still blocked the whole time: nothing got past the gate.
         QCOMPARE(f.tap->writes.load(), 0);
 
         f.openGate();
@@ -194,16 +176,13 @@ private Q_SLOTS:
         QCOMPARE(f.sink->droppedTotal(), quint64(0));
     }
 
-    // A full queue drops and counts, never waits, and the count is written
-    // exactly where the gap is once the writer is back.
     void aFullQueueDropsCountsAndReportsTheGap()
     {
-        // Declared before the fixture: a thread it joins may still write them.
         std::atomic<int> keptAccepted{0};
         std::atomic<int> lostAccepted{0};
         AsyncLogSink::Limits limits;
         limits.maxLines = 8;
-        Fixture f(/*gated=*/true, limits);
+        Fixture f(true, limits);
         QVERIFY(f.holdTheWriterIn(QStringLiteral("held")));
 
         qint64 took = -1;
@@ -245,13 +224,11 @@ private Q_SLOTS:
             QVERIFY2(!line.contains("lost"), line.constData());
     }
 
-    // One line larger than the byte bound is dropped and reported too, with
-    // nothing else queued to carry the notice.
     void aLineOverTheByteBoundIsDroppedAndReported()
     {
         AsyncLogSink::Limits limits;
         limits.maxBytes = 64;
-        Fixture f(/*gated=*/false, limits);
+        Fixture f(false, limits);
         QVERIFY(!f.sink->log(QtInfoMsg, "test", QString(200, QLatin1Char('x'))));
         QVERIFY(f.sink->flush(5000));
         QVERIFY(f.sink->log(QtInfoMsg, "test", QStringLiteral("small")));
@@ -262,11 +239,9 @@ private Q_SLOTS:
         QCOMPARE(messageOf(lines.at(1)), QByteArray("small"));
     }
 
-    // Per thread, lines reach the device in the order they were logged,
-    // across many batches; verbatim output interleaves in place.
     void linesKeepTheirOrder()
     {
-        Fixture f(/*gated=*/false);
+        Fixture f(false);
         constexpr int kThreads = 4;
         constexpr int kLines = 2000;
         std::vector<std::thread> producers;
@@ -303,11 +278,9 @@ private Q_SLOTS:
         QCOMPARE(messageOf(lines.at(kThreads * kLines + 2)), QByteArray("C"));
     }
 
-    // A line logged during a stall carries the time it was logged, not the
-    // time the writer got to it.
     void theTimestampIsTakenAtTheCall()
     {
-        Fixture f(/*gated=*/true);
+        Fixture f(true);
         QVERIFY(f.holdTheWriterIn(QStringLiteral("held")));
 
         const qint64 before = QDateTime::currentMSecsSinceEpoch();
@@ -333,16 +306,15 @@ private Q_SLOTS:
                                 .arg(at).arg(before).arg(after)));
     }
 
-    // Byte for byte the line the synchronous handler wrote.
     void theLineFormatIsUnchanged()
     {
         const qint64 instants[] = {
             0,
-            951782400000,      // 2000-02-29T00:00:00.000
-            1709251199999,     // 2024-02-29T23:59:59.999
-            1790689717035,     // 2026-09-29
-            4102444800000,     // 2100-01-01
-            253402300799999,   // 9999-12-31T23:59:59.999
+            951782400000,
+            1709251199999,
+            1790689717035,
+            4102444800000,
+            253402300799999,
         };
         for (const qint64 ms : instants) {
             const QByteArray expected =
@@ -366,12 +338,10 @@ private Q_SLOTS:
         }
     }
 
-    // The fatal path does not return until what was queued before it, and
-    // then its own line, is in the file: Qt aborts right after.
     void aFatalLineDrainsTheQueueThenWritesItself()
     {
-        std::atomic<bool> wrote{false};   // outlives the fixture's threads
-        Fixture f(/*gated=*/true);
+        std::atomic<bool> wrote{false};
+        Fixture f(true);
         QVERIFY(f.holdTheWriterIn(QStringLiteral("held")));
         QVERIFY(f.call(2000, [&f] {
             for (int i = 0; i < 5; ++i)
@@ -400,18 +370,15 @@ private Q_SLOTS:
         QVERIFY2(lines.at(6).endsWith(" fatal test: fatal line"),
                  lines.at(6).constData());
 
-        // The sink carries on after a fatal write that did not abort.
         QVERIFY(f.sink->log(QtInfoMsg, "test", QStringLiteral("after")));
         QVERIFY(f.sink->flush(5000));
         QCOMPARE(messageOf(f.lines().last()), QByteArray("after"));
     }
 
-    // With the writer stuck for good, the fatal path gives up at its bound
-    // (the abort must still happen); its line stays queued.
     void aFatalLineGivesUpAtItsBound()
     {
-        std::atomic<bool> wrote{true};   // outlives the fixture's threads
-        Fixture f(/*gated=*/true);
+        std::atomic<bool> wrote{true};
+        Fixture f(true);
         QVERIFY(f.holdTheWriterIn(QStringLiteral("held")));
 
         qint64 took = -1;
@@ -429,14 +396,12 @@ private Q_SLOTS:
         QVERIFY(lines.at(1).endsWith(" fatal test: fatal line"));
     }
 
-    // A full queue never drops the fatal line, and the notice for the gap
-    // before it still lands in place.
     void aFatalLineIsNeverDroppedAndFollowsTheGapNotice()
     {
-        std::atomic<bool> wrote{false};   // outlives the fixture's threads
+        std::atomic<bool> wrote{false};
         AsyncLogSink::Limits limits;
         limits.maxLines = 4;
-        Fixture f(/*gated=*/true, limits);
+        Fixture f(true, limits);
         QVERIFY(f.holdTheWriterIn(QStringLiteral("held")));
         QVERIFY(f.call(2000, [&f] {
             for (int i = 0; i < 4; ++i)
@@ -465,11 +430,9 @@ private Q_SLOTS:
         QVERIFY2(lines.at(6).endsWith(" fatal test: fatal line"), lines.at(6).constData());
     }
 
-    // Shutdown writes everything queued before it returns, and a line or a
-    // fatal after it is harmless (a handler during static destruction).
     void shutdownWritesWhatIsQueued()
     {
-        Fixture f(/*gated=*/true);
+        Fixture f(true);
         QVERIFY(f.holdTheWriterIn(QStringLiteral("held")));
         QVERIFY(f.call(2000, [&f] {
             for (int i = 0; i < 1000; ++i)
@@ -493,13 +456,12 @@ private Q_SLOTS:
         QVERIFY(f.sink->flush(100));
         QVERIFY(f.sink->logFatal("test", QStringLiteral("late fatal"), 500));
         QVERIFY(f.lines().last().endsWith(" fatal test: late fatal"));
-        f.sink->shutdown(100);   // idempotent
+        f.sink->shutdown(100);
     }
 
-    // A writer stuck in the device cannot hold shutdown past its bound.
     void shutdownIsBoundedWhenTheDeviceIsStuck()
     {
-        Fixture f(/*gated=*/true);
+        Fixture f(true);
         QVERIFY(f.holdTheWriterIn(QStringLiteral("held")));
         QVERIFY(f.call(2000, [&f] {
             f.sink->log(QtInfoMsg, "test", QStringLiteral("queued"));
@@ -512,17 +474,13 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("gave up after %1 ms, bound 200").arg(took)));
         QVERIFY(!f.sink->log(QtInfoMsg, "test", QStringLiteral("late")));
         QVERIFY(!f.sink->flush(50));
-        // Tear-down opens the gate; the writer left behind finishes on its
-        // own and keeps its state alive until then.
     }
 
-    // A device that logs from inside its own write is not fed back into the
-    // queue it is draining.
     void theWriterDoesNotQueueItsOwnLines()
     {
-        std::atomic<int> refused{0};    // outlive the writer
+        std::atomic<int> refused{0};
         std::atomic<int> accepted{0};
-        Fixture f(/*gated=*/false);
+        Fixture f(false);
         AsyncLogSink *sink = f.sink.get();
         f.tap->onWrite = [sink, &refused, &accepted] {
             if (sink->log(QtWarningMsg, "device", QStringLiteral("inner")))
@@ -544,7 +502,7 @@ private Q_SLOTS:
     {
         QVERIFY(!lightning::logging::processLogSink());
         QVERIFY(lightning::logging::flushProcessLog(0));
-        Fixture f(/*gated=*/false);
+        Fixture f(false);
         lightning::logging::setProcessLogSink(f.sink.get());
         QVERIFY(lightning::logging::processLogSink()->log(
             QtInfoMsg, "test", QStringLiteral("via the process sink")));

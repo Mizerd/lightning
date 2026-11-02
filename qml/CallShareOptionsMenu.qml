@@ -2,15 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// Screen-share options, on the chevron beside the share button. On Wayland
-// (LinuxShareRoute::Portal) the desktop draws its own source dialog and
-// Lightning's picker never opens, so options must also live on the call bar,
-// the one surface every route shows.
 AppMenu {
     id: root
 
-    // Explicit width, as in the other menus whose labels are full phrases, so
-    // labels don't elide.
     menuWidth: 260
 
     // Keeps the menu open while options change: a MenuItem always closes its
@@ -28,18 +22,11 @@ AppMenu {
         }
     }
 
-    /// "Choose apps…" was picked: the host opens ShareAudioAppsDialog (a
-    /// dialog cannot live inside a Menu, whose children become rows).
     signal chooseAppsRequested()
 
     readonly property bool _soundSupported:
         !!app.groupCall && app.groupCall.shareAudioSupported
-    // The section stays while a call exists, even where nothing can capture:
-    // the line at its foot then says why, and the two choices that remain are
-    // disabled. Absent would leave a user with no sound and no reason.
     readonly property bool _soundShown: !!app.groupCall
-    // An earlier probe may have been inconclusive (the audio daemon was not
-    // up yet): ask again as the menu opens. Bounded in the controller.
     onAboutToShow: {
         if (app.groupCall)
             app.groupCall.refreshShareAudioCapability();
@@ -47,13 +34,6 @@ AppMenu {
     readonly property int _soundMode:
         app.groupCall ? app.groupCall.shareAudioMode : 0
 
-    // ── Sound ──
-    // Three choices, not a toggle: no sound, the whole system (Lightning is
-    // always left out; share sound is off where it cannot be), or only chosen
-    // apps. Where nothing can capture, "No sound" and "Entire system" stay
-    // but are disabled, and the status line below gives the reason in words
-    // (a disabled control gets no hover to explain itself). Short labels: the
-    // label column is 200px (theShareOptionsMenuShowsItsLabelsWithoutEliding).
     MenuSectionLabel {
         visible: root._soundShown
         height: root._soundShown ? implicitHeight : 0
@@ -90,8 +70,6 @@ AppMenu {
 
     AppMenuItem {
         objectName: "shareAudioAppsItem"
-        // Only where single applications can be captured; elsewhere the
-        // status line says why not.
         visible: root._soundSupported && !!app.groupCall
                  && app.groupCall.shareAudioCanChooseApps
         height: visible ? implicitHeight : 0
@@ -99,23 +77,16 @@ AppMenu {
         radioSelected: root._soundMode === 2
         text: qsTr("Choose apps…")
         onTriggered: {
-            // A choice made earlier applies at once; with none, the mode
-            // changes on the first tick in the dialog.
             if (app.groupCall && app.groupCall.shareAudioApps.length > 0)
                 app.groupCall.shareAudioMode = 2;
             root.chooseAppsRequested();
         }
     }
 
-    // Mute the running share's sound alone, never the microphone. Only while a
-    // share is carrying sound: before one there is nothing to mute, and the
-    // three choices above already say "No sound". Lasts for this share.
     AppMenuItem {
         objectName: "shareAudioMuteItem"
         readonly property bool _muted:
             !!app.groupCall && app.groupCall.shareAudioMuted
-        // Applications mode with none chosen carries no sound: nothing to
-        // mute (the status line already says so).
         visible: root._soundSupported && !!app.groupCall
                  && app.groupCall.screenSharing && root._soundMode !== 0
                  && !(root._soundMode === 2
@@ -129,9 +100,6 @@ AppMenu {
         })
     }
 
-    // What the sound carries, in words, including "nothing is being heard"
-    // during a share. Not a row: sized to the menu so it wraps, and it does
-    // not vote in AppMenu's width fit.
     Label {
         objectName: "shareAudioStatusLabel"
         visible: root._soundShown
@@ -141,7 +109,6 @@ AppMenu {
         rightPadding: AppTheme.menuItemPadding
         topPadding: AppTheme.spacing4
         bottomPadding: AppTheme.spacing6
-        // Application names reach this sentence: never markup.
         textFormat: Text.PlainText
         text: app.groupCall ? app.groupCall.shareAudioStatus : ""
         color: AppTheme.stormTextMuted
@@ -179,8 +146,6 @@ AppMenu {
 
     MenuSectionLabel { text: qsTr("Frame rate") }
 
-
-
     Repeater {
         model: [
             { label: qsTr("Auto"), value: 0 },
@@ -190,8 +155,6 @@ AppMenu {
         ]
         delegate: AppMenuItem {
             required property var modelData
-            // The marker sits on the row it applies to. The rule comes from
-            // SettingsManager, not re-derived here.
             readonly property bool slow:
                 app.settings.shareQualityDemandingAt(
                     app.settings.shareMaxHeight, modelData.value)

@@ -49,16 +49,12 @@ class PortableSecretStore final : public SecretStore
 {
     Q_OBJECT
 public:
-    // Directory holding the sealed document, normally dataRoot() + "/secrets".
-    // Passed in so tests are hermetic and relocation is testable.
     explicit PortableSecretStore(const QString &secretsDir,
                                  QObject *parent = nullptr);
     ~PortableSecretStore() override;
 
-    // Always false; see the security position above.
     bool isSecure() const override { return false; }
 
-    // False only when the on-disk document exists and could not be read.
     bool isAvailable() const override { return m_state == State::Ok; }
 
     QString backendName() const override;
@@ -74,7 +70,6 @@ public:
     QString lastError() const override { return m_lastError; }
     bool lastReadFailed() const override { return m_lastReadFailed; }
 
-    // File names this store owns, for diagnostics and tests.
     static QString dataFileName();
     static QString keyFileName();
     QString directory() const { return m_dir; }
@@ -82,14 +77,10 @@ public:
 private:
     enum class State { Ok, Failed };
 
-    // Reads and authenticates the document, or starts empty when none exists.
     void load();
 
-    // Seals and atomically rewrites the document. Refuses while failed.
     bool persist();
 
-    // Loads or mints the key file, never touching the data file on failure, so
-    // the pair cannot become unopenable.
     bool ensureKey();
 
     static QString mapKey(const QString &userId, const QString &key);
@@ -98,11 +89,8 @@ private:
     const QString m_dir;
     State m_state = State::Ok;
 
-    // Raw 32-byte AES-256 key; cleansed in the destructor.
     QByteArray m_key;
 
-    // (userId \x1f key) -> value, as in InMemorySecretStore. Held decrypted for
-    // the process lifetime like every backend; never logged or exposed to QML.
     QHash<QString, QString> m_secrets;
 
     mutable bool m_lastReadFailed = false;

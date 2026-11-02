@@ -7,24 +7,15 @@
 
 #include <cmath>
 
-// Exact port of storm-band-export.html's <script id="storm-band"> painters.
-// Comments quote the reference where the code would otherwise look odd —
-// several loops deliberately re-evaluate the PRNG inside their condition
-// because the JS source does, and the sequence must match bit-for-bit.
-
 namespace stormband {
 
 namespace {
-
-// --- palette helpers (hexA/hexS/mix/rgba/lum ports) ------------------------
 
 int clamp255(double v)
 {
     return int(std::max(0.0, std::min(255.0, std::round(v))));
 }
 
-// mix(): components are ROUNDED at every call, exactly like the reference's
-// hexS() round-trip — nested mixes re-quantize at each level.
 QColor mixc(const QColor &a, const QColor &b, double t)
 {
     return QColor(clamp255(a.red() + (b.red() - a.red()) * t),
@@ -51,7 +42,6 @@ QImage makeCanvas(int w, int h)
     return img;
 }
 
-// canvas fillRect with globalAlpha: source-over with the alpha folded in.
 void fillRect(QPainter &p, int x, int y, int w, int h, const QColor &c,
               double globalAlpha = 1.0)
 {
@@ -60,7 +50,6 @@ void fillRect(QPainter &p, int x, int y, int w, int h, const QColor &c,
     p.fillRect(x, y, w, h, col);
 }
 
-// Two-pass box blur over an alpha plane (for the baked bolt glows).
 void boxBlurAlpha(QVector<float> &a, int w, int h, int r)
 {
     if (r <= 0)
@@ -89,7 +78,7 @@ void boxBlurAlpha(QVector<float> &a, int w, int h, int r)
     }
 }
 
-} // namespace
+}
 
 Palette derivePalette(const QColor &bg, const QColor &ac)
 {
@@ -97,7 +86,6 @@ Palette derivePalette(const QColor &bg, const QColor &ac)
     const bool light = lum(bg) > 0.5;
     P.light = light;
     const QColor up = light ? QColor("#FFFFFF") : QColor("#C9D2F2");
-    // "Scene tint: a cool violet base with only a hint of the theme accent."
     const QColor tint =
         mixc(light ? QColor("#4A4670") : QColor("#6B5AA8"), ac, 0.22);
     const QColor ink = mixc(
@@ -300,27 +288,27 @@ QImage spireTile(const Palette &P)
         const int top = bot - hgt;
         const double lean = (r() - .5) * 2;
         const int cx = int(std::round(px));
-        if (kind == 0) { // needle
+        if (kind == 0) {
             col(cx, top, bot, 1, 3 + std::floor(r() * 2), lean);
-        } else if (kind == 1) { // block
+        } else if (kind == 1) {
             col(cx, top + 2, bot, 3 + std::floor(r() * 2),
                 4 + std::floor(r() * 3), 0);
             fillRect(p, cx - 4, top + 1, 4, 2, OL);
             fillRect(p, cx + 1, top, 4, 2, OL);
-        } else if (kind == 2) { // broken
+        } else if (kind == 2) {
             col(cx, top + 4, bot, 3, 4, 0);
             fillRect(p, cx - 3, top + 3, 3, 2, DK);
             fillRect(p, cx + 1, top + 5, 3, 2, DK);
-        } else if (kind == 3) { // crystal
+        } else if (kind == 3) {
             for (int k = -1; k <= 1; ++k)
                 col(cx + k * 4, top + std::abs(k) * 6, bot, 1, 2, k * 1.4);
-        } else if (kind == 4) { // arch
+        } else if (kind == 4) {
             col(cx - 5, top + 4, bot, 2, 2, 0);
             col(cx + 5, top + 4, bot, 2, 2, 0);
             fillRect(p, cx - 8, top + 2, 17, 4, OL);
             fillRect(p, cx - 7, top + 3, 15, 2, DK);
             fillRect(p, cx, top + 3, 7, 1, LT);
-        } else if (kind == 5) { // twin
+        } else if (kind == 5) {
             col(cx - 3, top, bot, 1, 2, -.6);
             col(cx + 4, top + 5, bot, 1, 2, .6);
         } else { // stack — the JS re-rolls the loop bound EVERY iteration
@@ -374,7 +362,7 @@ QImage frontTile(const Palette &P)
         const int cx = int(std::round(px));
         const int gy = int(std::round(top[cx]));
         const double pick = r();
-        if (pick < .3) { // boulder
+        if (pick < .3) {
             const int rad = 2 + int(std::floor(r() * 4));
             for (int dy = 0; dy <= rad; ++dy) {
                 const int w = int(std::round(
@@ -383,7 +371,7 @@ QImage frontTile(const Palette &P)
                 if (!dy)
                     fillRect(p, cx - (w >> 1), gy - rad, w, 1, P.frontRim);
             }
-        } else if (pick < .52) { // dead tree
+        } else if (pick < .52) {
             const int hgt = 6 + int(std::floor(r() * 8));
             fillRect(p, cx, gy - hgt, 2, hgt, P.frontFill);
             for (int b = 0; b < 3; ++b) {
@@ -394,13 +382,13 @@ QImage frontTile(const Palette &P)
                     fillRect(p, cx + (dir > 0 ? 2 + k : -1 - k), by + k / 2,
                              1, 1, P.frontFill);
             }
-        } else if (pick < .7) { // shard
+        } else if (pick < .7) {
             const int hgt = 3 + int(std::floor(r() * 5));
             fillRect(p, cx - 2, gy - hgt, 5, hgt, P.inkLine);
             fillRect(p, cx, gy - hgt + 1, 2, hgt - 1, P.inkLit);
             if (r() > .6)
                 fillRect(p, cx, gy - hgt + 2, 1, 1, P.rune1, .55);
-        } else if (pick < .84) { // grass tuft — bound re-rolled per iteration
+        } else if (pick < .84) {
             int k = 0;
             while (true) {
                 const int bound = 3 + int(std::floor(r() * 3));
@@ -526,7 +514,6 @@ QImage boltSprite(const Palette &P, quint32 seed)
         };
         const QVector<Pt> main =
             path(W / 2.0 + (r() - .5) * 8, 0, H - 6, 15, false);
-        // Fork count: the JS re-rolls "2 + floor(r()*2)" per loop check.
         int b = 0;
         while (true) {
             const int bound = 2 + int(std::floor(r() * 2));
@@ -545,10 +532,6 @@ QImage boltSprite(const Palette &P, quint32 seed)
         fillRect(p, int(tip.x) - 1, int(tip.y) - 1, 3, 2, P.boltCore);
     }
 
-    // Bake the reference's CSS drop-shadow pair —
-    // drop-shadow(0 0 5px rgba(255,212,71,.55)) and
-    // drop-shadow(0 0 14px rgba(169,139,245,.4)) — into a padded canvas so
-    // QML needs no runtime filter. Radii halved to source scale (art is 2x).
     const int PW = W + 2 * kBoltPad, PH = H + 2 * kBoltPad;
     QVector<float> alpha(PW * PH, 0.0f);
     for (int y = 0; y < H; ++y)
@@ -584,8 +567,6 @@ QImage boltSprite(const Palette &P, quint32 seed)
 
 QImage skyGradient(const Palette &P)
 {
-    // "linear-gradient(to bottom, transparent 0%, sky1 30%, sky2 64%,
-    //  sky3 100%)" across the 190px band.
     QImage img(8, 190, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::transparent);
     QPainter p(&img);
@@ -600,7 +581,6 @@ QImage skyGradient(const Palette &P)
 
 QImage horizonGradient(const Palette &P)
 {
-    // "linear-gradient(to top, horizon, transparent)" over 70px.
     QImage img(8, 70, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::transparent);
     QPainter p(&img);
@@ -613,7 +593,6 @@ QImage horizonGradient(const Palette &P)
 
 QImage bloomSprite(const QColor &glow)
 {
-    // "radial-gradient(170px 120px at ..., glow, transparent 70%)".
     QImage img(340, 240, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::transparent);
     QPainter p(&img);
@@ -639,7 +618,6 @@ QImage emberDot(const QColor &color)
 
 QImage imageForId(const QString &id)
 {
-    // "<layer>?bg=RRGGBB&accent=RRGGBB"
     const int q = id.indexOf(QLatin1Char('?'));
     const QString layer = q >= 0 ? id.left(q) : id;
     const QUrlQuery query(q >= 0 ? id.mid(q + 1) : QString());
@@ -676,7 +654,6 @@ QImage imageForId(const QString &id)
     if (layer == QLatin1String("ember1")) return emberDot(P.ember1);
     if (layer == QLatin1String("ember2")) return emberDot(P.ember2);
     if (layer == QLatin1String("ember3")) return emberDot(P.ember3);
-    // Bolt seeds from the reference: 5, 41, 97, 163, 211, 307.
     static const quint32 kBoltSeeds[6] = { 5, 41, 97, 163, 211, 307 };
     if (layer.startsWith(QLatin1String("bolt")) && layer.size() == 5) {
         const int n = layer.at(4).digitValue();
@@ -686,12 +663,12 @@ QImage imageForId(const QString &id)
     return {};
 }
 
-} // namespace stormband
+}
 
 QImage StormBandImageProvider::requestImage(const QString &id, QSize *size,
                                             const QSize &requestedSize)
 {
-    Q_UNUSED(requestedSize); // every layer has its reference-fixed size
+    Q_UNUSED(requestedSize);
     const QImage img = stormband::imageForId(id);
     if (size)
         *size = img.size();

@@ -1,6 +1,3 @@
-// Create poll dialog (swarm C44): Enter in an answer must move focus instead
-// of sending, removing a row must not throw, the preview's height must reach
-// the scrolling body, and focus must scroll into view.
 #include <QtTest/QtTest>
 
 #include <QElapsedTimer>
@@ -53,7 +50,7 @@ void typeText(QQuickWindow *w, const char *text)
     for (const char *c = text; *c; ++c)
         QTest::keyClick(w, *c);
 }
-} // namespace
+}
 
 class CreatePollDialogKeysTest : public QObject
 {
@@ -115,19 +112,19 @@ private Q_SLOTS:
         QCOMPARE(fields.size(), 2);
         fields[0]->forceActiveFocus();
         typeText(window, "red");
-        QTest::keyClick(window, Qt::Key_Return); // non-last: focus row 2
+        QTest::keyClick(window, Qt::Key_Return);
         settle();
         QVERIFY2(dialog->property("opened").toBool(),
                  "Enter in a non-last answer sent the poll");
         fields = answerFields();
         QVERIFY2(fields[1]->hasActiveFocus(), "Enter did not focus the next row");
         typeText(window, "blue");
-        QTest::keyClick(window, Qt::Key_Return); // last: add + focus row 3
+        QTest::keyClick(window, Qt::Key_Return);
         settle();
         fields = answerFields();
         QCOMPARE(fields.size(), 3);
         QVERIFY2(fields[2]->hasActiveFocus(), "the added row was not focused");
-        QTest::keyClick(window, Qt::Key_Return); // empty last row: add another
+        QTest::keyClick(window, Qt::Key_Return);
         settle();
         QVERIFY2(dialog->property("opened").toBool(),
                  "a second Enter sent the poll");
@@ -136,8 +133,6 @@ private Q_SLOTS:
 
     void enterInANonLastRowOfAValidFormNeverSends()
     {
-        // The reported regression: a valid form, Enter in a row that is not
-        // the last one. The old handler called submit() here.
         setup();
         QQuickItem *q = findVisual(content, QStringLiteral("pollQuestionField"));
         q->setProperty("text", "Lunch?");
@@ -162,7 +157,6 @@ private Q_SLOTS:
 
     void enterInTheLastRowOfAFullValidListSends()
     {
-        // The one branch that must still send.
         setup();
         QQuickItem *q = findVisual(content, QStringLiteral("pollQuestionField"));
         q->setProperty("text", "Lunch?");
@@ -186,8 +180,6 @@ private Q_SLOTS:
 
     void enterInTheLastRowOfALongListKeepsTheNewRowInView()
     {
-        // Adding a row and focusing it happen in one JS call, before layout:
-        // the follow-focus measurement must wait for the new row's geometry.
         setup();
         QQmlExpression ex(engine->contextForObject(dialog), dialog,
                           QStringLiteral("for (var i=2;i<12;++i) "
@@ -200,7 +192,7 @@ private Q_SLOTS:
         QVERIFY(flick->property("contentHeight").toReal() > flick->height());
         fields.last()->forceActiveFocus();
         settle();
-        QTest::keyClick(window, Qt::Key_Return); // appends row 13, focuses it
+        QTest::keyClick(window, Qt::Key_Return);
         settle();
         fields = answerFields();
         QCOMPARE(fields.size(), 13);
@@ -219,7 +211,6 @@ private Q_SLOTS:
     void removingARowThrowsNothingAndRefreshesThePreview()
     {
         setup();
-        // two rows only clear, so add a third first through the UI path
         auto fields = answerFields();
         fields.last()->forceActiveFocus();
         typeText(window, "x");

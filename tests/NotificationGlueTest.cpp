@@ -58,7 +58,6 @@ CallSignal hangup(const QString &callId, const QString &sender = kPeer)
     return s;
 }
 
-// Enough of a keyring for the add-account flow; never the host's.
 class FakeSecretStore final : public SecretStore
 {
 public:
@@ -99,7 +98,7 @@ public:
 private:
     QHash<QString, QString> m_values;
 };
-} // namespace
+}
 
 class NotificationGlueTest : public QObject
 {
@@ -140,9 +139,6 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // Old code: a second call from the same sender inside 30 s was dropped
-    // before m_announcedCallId was set, so it neither rang nor produced a
-    // missed-call notice. A redial is the most ordinary thing a call does.
     void aRedialInsideTheOldCooldownIsAnnouncedInFull()
     {
         AppController controller(AppController::MockBackend);
@@ -163,8 +159,6 @@ private Q_SLOTS:
                  "never came");
     }
 
-    // The bound still exists: a burst of fresh call ids from one sender is
-    // refused past the cap, announcement and missed notice alike.
     void aBurstOfFreshCallIdsIsStillBounded()
     {
         AppController controller(AppController::MockBackend);
@@ -185,16 +179,13 @@ private Q_SLOTS:
         QCOMPARE(notices->genericNoticeCountForTest(), before);
     }
 
-    // Old code: `sound = ringForCalls && notificationSound != Off`, so turning
-    // chat chimes off made every call arrive silently. No player is installed
-    // under test, so the ring is the desktop's call sound on the card.
     void turningMessageSoundsOffDoesNotSilenceCalls()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(login(controller));
         auto *client = mock(controller);
         QVERIFY(client);
-        controller.settings()->setNotificationSound(0 /* Off */);
+        controller.settings()->setNotificationSound(0);
         QVERIFY(controller.settings()->ringForCalls());
         client->emitCallSignalForTest(invite(QStringLiteral("call-1")));
         QCOMPARE(controller.calls()->state(), CallController::State::Ringing);
@@ -202,7 +193,6 @@ private Q_SLOTS:
                  "the message sound setting silenced the call ring");
     }
 
-    // The ring switch itself still decides.
     void theRingSwitchStillSilencesTheRing()
     {
         AppController controller(AppController::MockBackend);
@@ -215,9 +205,6 @@ private Q_SLOTS:
         QVERIFY(!controller.notificationsForTest()->callSoundActiveForTest());
     }
 
-    // Old code: closing the desktop call card stopped only the card's own
-    // re-post timer; Lightning's ringer kept ringing with nothing on screen
-    // to stop it.
     void closingTheCallCardStopsOurRinger()
     {
         AppController controller(AppController::MockBackend);
@@ -232,12 +219,9 @@ private Q_SLOTS:
             QStringLiteral("call-1"));
         QVERIFY(controller.callSounds()->isRingSilenced(
             QStringLiteral("call-1")));
-        // Dismissed locally only: the call itself is still ringing.
         QCOMPARE(controller.calls()->state(), CallController::State::Ringing);
     }
 
-    // Old code: a card for a room the client does not know (left and
-    // forgotten, a declined invite) opened it anyway, onto nothing.
     void aCardForARoomTheUserIsNotInDoesNotOpenIt()
     {
         AppController controller(AppController::MockBackend);
@@ -257,18 +241,13 @@ private Q_SLOTS:
                 explained = true;
         }
         QVERIFY2(explained, "the refusal was silent");
-        // The window is still raised (an empty room id), so the notice is
-        // seen.
         QCOMPARE(routed.count(), 1);
         QVERIFY(routed.at(0).at(0).toString().isEmpty());
-        // A joined room still opens.
         Q_EMIT controller.notificationsForTest()->openRequested(
             kRoom, QStringLiteral("$e:mock"), QString());
         QCOMPARE(controller.currentRoomId(), kRoom);
     }
 
-    // Old code: add-account never reached ActivityModel's loggedOut reset, so
-    // the new account's bell listed the previous account's mentions.
     void addingAnAccountStartsWithAnEmptyBell()
     {
         const QString alice = QStringLiteral("@alice:one.example");
@@ -293,8 +272,6 @@ private Q_SLOTS:
         mention.mentionsMe = true;
         mention.timestamp = QDateTime::currentDateTimeUtc();
         activity->ingest(mention, QStringLiteral("General"));
-        // Looked up by event id rather than counted: the new account may
-        // legitimately list rows of its own.
         const auto listsAlicesMention = [activity] {
             const int role = activity->roleNames().key(QByteArrayLiteral("eventId"),
                                                        -1);
@@ -312,16 +289,11 @@ private Q_SLOTS:
                           QStringLiteral("bob"), QStringLiteral("pw"));
         QTRY_COMPARE(app.auth()->currentUserId(),
                      QStringLiteral("@bob:two.example"));
-        // The auth manager names the new user before AppController's
-        // onLoginSucceeded (which clears the bell) has run, so wait for it.
         QTRY_VERIFY2(!listsAlicesMention(),
                      "the added account's bell lists the previous account's "
                      "mention");
     }
 
-    // Old code: receipts followed APPLICATION activation, so focusing the
-    // call's picture-in-picture window (a top-level window of the same
-    // application) marked the hidden main window's room read.
     void receiptsFollowTheMainWindowNotTheApplication()
     {
         AppController controller(AppController::MockBackend);
@@ -339,8 +311,6 @@ private Q_SLOTS:
         pip.show();
         pip.requestActivate();
         QVERIFY(QTest::qWaitForWindowActive(&pip));
-        // The application is still the active one: only the main window's
-        // own state can tell these apart.
         QCOMPARE(QGuiApplication::applicationState(), Qt::ApplicationActive);
         QTRY_VERIFY2(!controller.readReceipts()->windowActive(),
                      "a focused call window counted as the user reading the "
@@ -350,12 +320,6 @@ private Q_SLOTS:
         QVERIFY(QTest::qWaitForWindowActive(&main));
         QTRY_VERIFY(controller.readReceipts()->windowActive());
 
-        // The full-screen call window (CallStage.qml) is a QML Window
-        // declared inside Main.qml, so Qt makes the main window its
-        // TRANSIENT PARENT. QWindow::isActive() on a parentless window
-        // includes transient children, so the main window still reads as
-        // active while the call window has focus. Old code (isActive())
-        // kept receipts on here; the unrelated pip above cannot show it.
         QQuickWindow fullScreen;
         fullScreen.setTransientParent(&main);
         fullScreen.resize(100, 100);
@@ -370,8 +334,6 @@ private Q_SLOTS:
                      "the main window) counted as the user reading the room");
         fullScreen.hide();
 
-        // A window the main window opened that is not a Qt Quick window of
-        // its own (a native menu or dialog) still counts as the main window.
         main.requestActivate();
         QVERIFY(QTest::qWaitForWindowActive(&main));
         QTRY_VERIFY(controller.readReceipts()->windowActive());
@@ -393,9 +355,6 @@ private Q_SLOTS:
         QTRY_VERIFY(!controller.readReceipts()->windowActive());
     }
 
-    // The rule itself, with no window activation (runs on every platform
-    // plugin): focus on the main window or on something it opened counts;
-    // focus in another Qt Quick window does not, transient child or not.
     void focusOnACallWindowIsNotFocusOnTheMainWindow()
     {
         QQuickWindow main;

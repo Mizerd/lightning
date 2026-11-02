@@ -3,15 +3,10 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The one reusable User-Interactive Authentication prompt, opened by
-// UiaController's challenge state. Renders the password stage and states
-// unsupported stages honestly. The field is wiped after every dispatch, on
-// cancel and on close; echoMode stays Password with no reveal toggle.
 Dialog {
     id: root
     objectName: "uiaPromptDialog"
     modal: true
-    // The shared modal scrim.
     Overlay.modal: Rectangle { color: AppTheme.modalScrim }
     focus: true
     standardButtons: Dialog.NoButton
@@ -35,7 +30,6 @@ Dialog {
     }
     onClosed: {
         passwordField.text = ""
-        // Escape or a programmatic close while a challenge is live cancels it.
         if (app.uia.challengeActive)
             app.uia.cancel()
     }
@@ -115,7 +109,6 @@ Dialog {
                 text: qsTr("Confirm")
                 onClicked: {
                     app.uia.submitPassword(passwordField.text)
-                    // Wipe immediately after dispatch.
                     passwordField.text = ""
                 }
             }

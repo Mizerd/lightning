@@ -3,32 +3,11 @@ import QtQuick.Controls
 import QtQuick.Effects
 import MatrixClient
 
-// The Lightning dialog shell; use it instead of a bare `Dialog`.
-//
-// The Basic style's Dialog has square corners, a canvas-coloured panel
-// (indistinguishable from the screen under Storm) and a footer of square
-// stock Buttons whose focus border is invisible under Storm. This gives a
-// rounded storm panel and AppButton footer buttons with a visible focus ring
-// on every theme.
-//
-// Usage:
-//   AppDialog {
-//       title: qsTr("Clear saved GIFs?")
-//       standardButtons: Dialog.Yes | Dialog.Cancel
-//       destructive: true
-//       ColumnLayout { ... }
-//   }
 Dialog {
     id: root
 
-    // Renders the accept/yes button as a solid danger button instead of the
-    // accent primary.
     property bool destructive: false
-    // Dialogs are storm surfaces by default; one hosted in a themed pane can
-    // opt out.
     property bool storm: true
-    // Dialogs that are their own header (hero card, avatar row) leave `title`
-    // empty and get no header strip.
     readonly property bool _hasHeader: title.length > 0
 
     modal: true
@@ -37,7 +16,6 @@ Dialog {
     topPadding: _hasHeader ? AppTheme.spacing4 : AppTheme.dialogInset
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-    // The theme-aware modal dim, matching every other modal.
     Overlay.modal: Rectangle {
         color: AppTheme.modalScrim
     }
@@ -76,8 +54,6 @@ Dialog {
         topPadding: AppTheme.dialogFooterGap
         background: Item {}
 
-        // Every footer button is an AppButton, for the app's geometry, states
-        // and focus ring.
         delegate: AppButton {
             storm: root.storm
             readonly property int _role: DialogButtonBox.buttonRole
@@ -96,8 +72,6 @@ Dialog {
     background: Item {
         implicitWidth: 320
 
-        // Sibling shadow sized to the panel, so the dialog's measured geometry
-        // is untouched (as in AppMenu).
         MultiEffect {
             source: dialogPanel
             anchors.fill: dialogPanel

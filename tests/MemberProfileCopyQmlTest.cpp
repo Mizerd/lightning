@@ -46,7 +46,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class MemberProfileCopyQmlTest : public QObject
 {
@@ -82,15 +82,11 @@ private:
         return findItem(m_window->contentItem(), QLatin1String(name));
     }
 
-    // Emits the shared UserPicker's userSelected(userId, displayName,
-    // avatarUrl) directly, as a click or Enter on a result row would.
     void selectUser(const QString &userId, const QString &displayName)
     {
         auto *picker = m_window->findChild<QObject *>(
             QStringLiteral("invitePeoplePicker"));
         QVERIFY(picker);
-        // QML-declared signals take exact QString parameters; QVariant args
-        // make invokeMethod miss the overload.
         QVERIFY(QMetaObject::invokeMethod(
             picker, "userSelected",
             Q_ARG(QString, userId),
@@ -155,10 +151,6 @@ private slots:
                  QStringLiteral("@bob:mock.local"));
     }
 
-    // The banner's rounded corners are a MultiEffect mask over a layer. The
-    // software scene graph draws no effect, and a layered Item whose effect
-    // is not drawn is not drawn at all: the banner vanished. On that backend
-    // the layer must be off (the picture is clipped square instead).
     void theBannerIsNotLayeredWhereNoEffectCanBeDrawn()
     {
         QVariantMap member;

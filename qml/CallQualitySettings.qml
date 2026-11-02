@@ -3,20 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings -> Sound & video: how much picture and processing a call uses.
-//
-// Camera resolution, screen-share resolution / frame rate / bitrate limit, and
-// the two webrtcdsp switches (echo cancellation, automatic gain). Every choice
-// has "Auto", which is what Lightning did before these were settings, and Auto
-// is the default. A camera or share change applies to the next camera or
-// share you start; the voice switches apply to the next call.
 ColumnLayout {
     id: root
 
     spacing: AppTheme.spacing8
 
-    /// One labelled choice. `setting` is the SettingsManager property name,
-    /// `changed` the signal that announces it.
     component QualityRow: RowLayout {
         id: row
         property string title: ""

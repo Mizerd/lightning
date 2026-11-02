@@ -74,8 +74,6 @@ private:
         QTRY_COMPARE(m_controller->currentRoomId(), roomId);
         QTRY_VERIFY_WITH_TIMEOUT(item("composerInput")->hasActiveFocus(), 1500);
         QTRY_VERIFY(m_controller->timeline()->realEventCount() > 2);
-        // Let upstream's one-shot automatic composer focus settle. It must
-        // not make an absent explicit shortcut look as if it worked.
         QTest::qWait(300);
     }
 
@@ -92,8 +90,6 @@ private slots:
     void init()
     {
         QSettings().clear();
-        // In-memory secrets and deterministic rooms, Spaces and invitations;
-        // the screenshot UI itself is not enabled.
         m_controller = new AppController(AppController::MockBackend, true);
         auto *mock = m_controller->findChild<MockMatrixClient *>();
         QVERIFY(mock);

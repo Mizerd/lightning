@@ -1,12 +1,3 @@
-//! The signed-in account's own profile.
-//!
-//! Display-name writes use the SDK's `Account::set_display_name` (the
-//! displayname endpoint, or delete-profile-field when clearing and the server
-//! supports it). This module adds a length bound, the session-generation
-//! guard, and a sanitized result.
-//!
-//! The name is never logged and never echoed back across the FFI; C++
-//! already has the string it submitted.
 
 use std::sync::Arc;
 
@@ -22,22 +13,12 @@ use crate::{enqueue, RustClient};
 const DISPLAY_NAME_REQUEST_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(15);
 
-/// Client-side ceiling; Matrix specifies no maximum display-name length.
 const DISPLAY_NAME_MAX_CHARS: usize = 255;
 
-/// Bound a display name to [`DISPLAY_NAME_MAX_CHARS`] Unicode scalar values.
-///
-/// `chars()`, never a byte slice (which panics on a multi-byte boundary or
-/// sends a split UTF-8 sequence). Scalar values also avoid cutting a
-/// surrogate pair, as a UTF-16 bound would. A grapheme cluster may still be
-/// split; accepted, since there is no segmentation crate in this offline
-/// build and the result is always valid UTF-8.
 pub(crate) fn bound_display_name(name: &str) -> String {
     name.chars().take(DISPLAY_NAME_MAX_CHARS).collect()
 }
 
-/// Collapse control characters and whitespace runs, then bound the length.
-/// The message is server-authored and shown in a UI label.
 pub(crate) fn sanitize_error_message(message: &str) -> String {
     let collapsed: String = message
         .chars()
@@ -65,12 +46,6 @@ fn server_error_message(err: &matrix_sdk::Error) -> String {
     sanitize_error_message(&body.message)
 }
 
-/// Set or clear the account's display name. An empty `name` clears it:
-/// `Some("")` would ask the server to store an empty name instead. The UI
-/// makes clearing an explicit action, so an empty editor cannot arrive here
-/// by accident.
-///
-/// Result event: `own_display_name_result { op_id, lifecycle, ok, error }`.
 pub(crate) fn set_own_display_name(
     bridge: &RustClient,
     name: String,
@@ -92,15 +67,12 @@ pub(crate) fn set_own_display_name(
             client.account().set_display_name(arg),
         )
         .await;
-        // A completion that outlived its session must not be reported to the next
-        // account.
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
         let (ok, error) = match result {
             Ok(Ok(())) => (true, String::new()),
             Ok(Err(err)) => (false, server_error_message(&err)),
-            // A timeout has no server message; C++ words it.
             Err(_) => (false, String::new()),
         };
         enqueue(
@@ -117,22 +89,6 @@ pub(crate) fn set_own_display_name(
     Ok(())
 }
 
-// ── Per-room profiles ────────────────────────────────────────────────────
-//
-// The display name and avatar this account shows in one room, stored in
-// its own `m.room.member` event there.
-//
-// Every field of that event not copied forward is deleted
-// (`RoomMemberEventContent` skips absent fields), including
-// `join_authorised_via_users_server`, which keeps a restricted-room
-// membership valid. So the avatar path edits the raw event's one key rather
-// than round-tripping the typed struct (which has no catch-all for unknown
-// fields). The SDK's `set_own_member_display_name` has the same weakness
-// and also flattens a redacted event; it is still used for the name, where
-// it is the supported API and a joined member editing themselves cannot hit
-// the redacted case.
-
-/// Set or clear (empty) this account's display name in one room.
 pub(crate) fn set_room_display_name(
     bridge: &RustClient,
     room_id: String,
@@ -174,13 +130,8 @@ pub(crate) fn set_room_display_name(
     Ok(())
 }
 
-/// The member-event keys a per-room profile edit may touch; everything else
-/// is carried forward verbatim.
 const PROFILE_KEYS: [&str; 2] = ["displayname", "avatar_url"];
 
-/// Set or clear this account's avatar in one room. Empty `mxc` clears the
-/// override. Validated as an `mxc:` URI first, since every member of the
-/// room reads it.
 pub(crate) fn set_room_avatar(
     bridge: &RustClient,
     room_id: String,
@@ -188,9 +139,6 @@ pub(crate) fn set_room_avatar(
     op_id: u64,
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
-    // Three shapes: empty clears, an `mxc:` is used as-is, anything else is a
-    // local file to upload. The global avatar path's size and regular-file
-    // checks run before the file is read.
     let upload_from = if source.is_empty() || source.starts_with("mxc://") {
         None
     } else {
@@ -216,8 +164,6 @@ pub(crate) fn set_room_avatar(
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
         let outcome = async {
-            // Upload first for a local file. Not `Account::upload_avatar`, which would
-            // also change the global avatar.
             let mut mxc = mxc;
             if let Some(path) = upload_from {
                 let data = tokio::fs::read(&path)
@@ -244,7 +190,6 @@ pub(crate) fn set_room_avatar(
                 .await
                 .map_err(|e| server_error_message(&e))?
                 .ok_or_else(|| "no membership to edit".to_owned())?;
-            // Stripped state is an invite preview, not an editable membership.
             let matrix_sdk::deserialized_responses::RawAnySyncOrStrippedState::Sync(
                 sync_raw,
             ) = raw
@@ -261,7 +206,6 @@ pub(crate) fn set_room_avatar(
             let object = content
                 .as_object_mut()
                 .ok_or_else(|| "membership has no content".to_owned())?;
-            // Only a `join` membership carries a profile to edit.
             if object.get("membership").and_then(|v| v.as_str()) != Some("join") {
                 return Err("not a joined membership".to_owned());
             }
@@ -309,7 +253,7 @@ mod tests {
             "日本語の名前",
             "🦊",
             "👨‍👩‍👧‍👦",
-            "e\u{0301}\u{0327}", // e + combining acute + combining cedilla
+            "e\u{0301}\u{0327}",
             "Ω mixed Ωmega 漢字 🦊",
         ] {
             assert_eq!(bound_display_name(name), name, "mangled {name:?}");
@@ -318,17 +262,13 @@ mod tests {
 
     #[test]
     fn bound_cuts_at_a_scalar_boundary_never_inside_one() {
-        // 254 ASCII characters then one astral emoji: the emoji is the 255th
-        // character and survives whole (a UTF-16 or byte bound would split it).
         let name = format!("{}{}", "a".repeat(254), '\u{1F98A}');
         let bounded = bound_display_name(&name);
         assert_eq!(bounded.chars().count(), 255);
         assert_eq!(bounded, name);
         assert!(bounded.ends_with('\u{1F98A}'));
-        // The astral scalar came through as one char.
         assert_eq!(bounded.chars().last(), Some('\u{1F98A}'));
 
-        // One character past the bound, the emoji is dropped entirely.
         let over = format!("{}{}", "a".repeat(255), '\u{1F98A}');
         let bounded_over = bound_display_name(&over);
         assert_eq!(bounded_over.chars().count(), 255);
@@ -338,10 +278,10 @@ mod tests {
 
     #[test]
     fn bound_truncates_long_non_latin_names_at_255_scalars() {
-        let name = "\u{65E5}".repeat(300); // 300 × U+65E5, 3 bytes each
+        let name = "\u{65E5}".repeat(300);
         let bounded = bound_display_name(&name);
         assert_eq!(bounded.chars().count(), 255);
-        assert_eq!(bounded.len(), 255 * 3); // no partial 3-byte sequence
+        assert_eq!(bounded.len(), 255 * 3);
     }
 
     #[test]
@@ -361,20 +301,12 @@ mod tests {
     }
 }
 
-
-/// Upload and set the account's own avatar via `Account::upload_avatar`,
-/// which uploads and writes `avatar_url`.
-///
-/// The MIME is sniffed from the bytes, never the file name, with the same
-/// `sniff_image_mime` as the room-avatar path (which refuses SVG). The path
-/// is never logged: it contains the user's home directory.
 pub(crate) fn set_own_avatar(
     bridge: &RustClient,
     local_path: String,
     op_id: u64,
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
-    // Checked before reading, so an absurd file never reaches memory.
     let metadata = std::fs::metadata(&local_path)
         .map_err(|_| "avatar file is not readable".to_owned())?;
     if !metadata.is_file() {
@@ -403,7 +335,6 @@ pub(crate) fn set_own_avatar(
                 .map_err(|err| server_error_message(&err))
         }
         .await;
-        // A completion that outlived its session must not be reported.
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
@@ -425,7 +356,6 @@ pub(crate) fn set_own_avatar(
     Ok(())
 }
 
-/// Clear the account's avatar (`None` is the SDK's "remove").
 pub(crate) fn clear_own_avatar(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -459,15 +389,8 @@ pub(crate) fn clear_own_avatar(bridge: &RustClient, op_id: u64) -> Result<(), St
     Ok(())
 }
 
-
-/// Mutual rooms reported; a profile card lists a handful.
 const MAX_MUTUAL_ROOMS: usize = 24;
 
-/// Rooms this account and `user_id` are both joined to, from the store only
-/// (`get_member_no_sync` never issues a request). Asking the server would
-/// cost a `/state` per idle room each time a profile card opens, so rooms
-/// whose members were never synced are omitted: under-reporting is the
-/// better failure. DMs are included and marked.
 pub(crate) fn mutual_rooms(
     bridge: &RustClient,
     user_id: String,
@@ -485,8 +408,6 @@ pub(crate) fn mutual_rooms(
             if rooms.len() >= MAX_MUTUAL_ROOMS {
                 break;
             }
-            // `Ok(None)` (not a member as far as the store knows) and `Err` are both
-            // skipped rather than guessed at.
             let joined = matches!(
                 room.get_member_no_sync(&target).await,
                 Ok(Some(ref m))

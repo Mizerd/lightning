@@ -29,12 +29,8 @@ public:
     static constexpr qint64 kWindowMs = 60 * 1000;
 
     enum class Verdict {
-        // Reopen now; it has been counted.
         Reopen,
-        // Over the cap. Log the escalation and schedule one deferred reopen
-        // after `retryInMs`, then call takeDeferred() when it fires.
         Defer,
-        // Over the cap with a deferred reopen already scheduled: do nothing.
         AlreadyDeferred,
     };
 
@@ -54,8 +50,6 @@ public:
         return Verdict::Defer;
     }
 
-    // The deferred reopen fired. True when it is still owed (it is counted
-    // now); false when clear() dropped it in the meantime.
     bool takeDeferred(const QString &timelineId, qint64 nowMs)
     {
         auto it = m_entries.find(timelineId);
@@ -67,11 +61,9 @@ public:
         return true;
     }
 
-    // Session end: nothing owed to a timeline of the previous session.
     void clear() { m_entries.clear(); }
 
     qint64 windowMs() const { return m_windowMs; }
-    // Tests only: a short window so a deferred reopen fires within a test.
     void setWindowMsForTest(qint64 ms) { m_windowMs = ms; }
 
     int reopensInWindow(const QString &timelineId, qint64 nowMs)
@@ -99,4 +91,4 @@ private:
     qint64 m_windowMs = kWindowMs;
 };
 
-} // namespace matrix
+}

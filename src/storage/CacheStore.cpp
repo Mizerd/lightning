@@ -48,7 +48,7 @@ QList<Reaction> decodeReactions(const QByteArray &blob)
     return out;
 }
 
-} // namespace
+}
 
 CacheStore::CacheStore(QObject *parent)
     : QObject(parent)
@@ -61,7 +61,7 @@ CacheStore::~CacheStore()
 
 QSqlDatabase CacheStore::database() const
 {
-    return QSqlDatabase::database(m_connectionName, /*open=*/false);
+    return QSqlDatabase::database(m_connectionName,false);
 }
 
 bool CacheStore::openFor(const QString &userId)
@@ -131,7 +131,6 @@ static QVariant textNonNull(const QString &s)
     return QVariant(s.isEmpty() ? QString(QLatin1String("")) : s);
 }
 
-// True if the given column already exists on the given SQLite table.
 static bool columnExists(QSqlDatabase &db,
                          const QString &table,
                          const QString &column)
@@ -152,8 +151,6 @@ bool CacheStore::ensureSchema()
     QSqlQuery q(db);
 
     static const char *ddl[] = {
-        // Fresh databases get the full column set here; older ones get the same
-        // columns from the idempotent migration below.
         "CREATE TABLE IF NOT EXISTS rooms ("
         "  id TEXT PRIMARY KEY,"
         "  name TEXT,"
@@ -209,8 +206,6 @@ bool CacheStore::ensureSchema()
         }
     }
 
-    // Additive migrations for existing databases. PRAGMA table_info is probed
-    // first so a fresh database logs no warnings.
     struct AddCol { const char *table; const char *col; const char *ddl; };
     static const AddCol adds[] = {
         { "rooms",  "is_space",
@@ -219,9 +214,6 @@ bool CacheStore::ensureSchema()
           "ALTER TABLE rooms ADD COLUMN child_room_ids TEXT NOT NULL DEFAULT ''" },
         { "events", "thread_root_id",
           "ALTER TABLE events ADD COLUMN thread_root_id TEXT NOT NULL DEFAULT ''" },
-        // A preview kept as a kind (matrix/PreviewToken.h) rather than words.
-        // An existing row gets kind 0, Text: its last_preview is shown as it
-        // was, exactly as before the migration.
         { "rooms",  "preview_kind",
           "ALTER TABLE rooms ADD COLUMN preview_kind INTEGER NOT NULL DEFAULT 0" },
         { "rooms",  "preview_arg",
@@ -234,10 +226,6 @@ bool CacheStore::ensureSchema()
         if (!m.exec(QLatin1String(a.ddl))) {
             qCWarning(lcCache) << "migration failed for" << a.table << a.col
                                << m.lastError().text();
-            // Non-fatal: the new fields do not persist. The preview columns
-            // are read and written only when present (m_previewColumns); the
-            // older is_space/child_room_ids/thread_root_id are not guarded and
-            // a failure there does fail their queries.
         } else {
             qCInfo(lcCache) << "migrated" << a.table << "->" << a.col;
         }
@@ -247,12 +235,10 @@ bool CacheStore::ensureSchema()
                                     QStringLiteral("preview_kind"))
         && columnExists(db, QStringLiteral("rooms"), QStringLiteral("preview_arg"));
 
-    // Repair NULLs that older builds wrote into NOT NULL columns (see
-    // textNonNull()). Idempotent, and a no-op on clean databases.
     struct Repair { const char *table; const char *column; };
     static const Repair repairs[] = {
         { "rooms",  "child_room_ids" },
-        { "rooms",  "preview_arg" },  // a harmless failed UPDATE when absent
+        { "rooms",  "preview_arg" },
         { "events", "thread_root_id" },
     };
     for (const auto &r : repairs) {
@@ -304,13 +290,6 @@ QList<RoomInfo> CacheStore::loadRooms()
         if (ms > 0)
             r.lastActivity   = QDateTime::fromMSecsSinceEpoch(ms);
         r.lastMessagePreview = q.value(7).toString();
-        // Worded now, in the language current at load. An unknown kind (a
-        // newer build's) keeps the stored words.
-        // Known limit (HTTP backend only): a build older than these columns
-        // rewrites last_preview and leaves preview_kind alone, so after a
-        // downgrade and re-upgrade a room can show its stale kind over newer
-        // words until it next syncs. Accepted: the store cannot tell which of
-        // the two an older build wrote.
         const int kind = m_previewColumns ? q.value(11).toInt() : 0;
         if (kind != 0 && matrix::preview::isKnownKind(kind))
             r.setPreview(static_cast<matrix::preview::Kind>(kind),
@@ -319,10 +298,8 @@ QList<RoomInfo> CacheStore::loadRooms()
         r.isSpace            = q.value(9).toBool();
         const QString ids    = q.value(10).toString();
         if (!ids.isEmpty()) {
-            // Matrix room ids never contain commas, so comma-joining is safe.
             r.childRoomIds = ids.split(QLatin1Char(','), Qt::SkipEmptyParts);
         }
-        // Members are loaded separately via loadMembers().
         out.append(r);
     }
     return out;
@@ -364,9 +341,6 @@ void CacheStore::saveRoom(const RoomInfo &r)
     // custom C++ cache; the SDK store remains the sole encrypted-state owner.
     q.bindValue(QStringLiteral(":prev"),
                 r.encrypted ? QString{} : r.lastMessagePreview);
-    // The same rule for the kind and its argument: the argument can be
-    // decrypted text (a file name, a poll question) and the kind says what
-    // an encrypted message was. Neither is written for an encrypted room.
     if (m_previewColumns) {
         q.bindValue(QStringLiteral(":previewKind"),
                     r.encrypted ? 0 : static_cast<int>(r.previewKind));
@@ -375,7 +349,6 @@ void CacheStore::saveRoom(const RoomInfo &r)
     }
     q.bindValue(QStringLiteral(":prevBatch"), r.prevBatchToken);
     q.bindValue(QStringLiteral(":space"),     r.isSpace ? 1 : 0);
-    // Non-null, so rooms without children store '' (see textNonNull()).
     q.bindValue(QStringLiteral(":children"),
                 textNonNull(r.childRoomIds.join(QLatin1Char(','))));
     if (!q.exec())
@@ -430,7 +403,6 @@ QList<TimelineEvent> CacheStore::loadTimeline(const QString &roomId, int limit)
     QList<TimelineEvent> out;
     if (!isOpen()) return out;
 
-    // Fetch newest N in descending order, then reverse to chronological.
     QSqlQuery q(database());
     q.prepare(QStringLiteral(
         "SELECT event_id, room_id, sender, ts_ms, type, status, body, "
@@ -465,9 +437,6 @@ void CacheStore::updateEvent(const TimelineEvent &e)
 {
     if (!isOpen() || e.eventId.isEmpty()) return;
     if (e.isEncrypted) {
-        // Decrypted plaintext may be shown in memory but never persisted to
-        // this cache; the SDK store owns encrypted state. Delete any stale row
-        // and skip.
         deleteEvent(e.eventId);
         return;
     }
@@ -517,7 +486,6 @@ void CacheStore::updateEvent(const TimelineEvent &e)
     q.bindValue(QStringLiteral(":h"),       e.mediaHeight);
     q.bindValue(QStringLiteral(":thumb"),   e.mediaThumbnailMxcUrl);
     q.bindValue(QStringLiteral(":react"),   encodeReactions(e.reactions));
-    // Non-null, see textNonNull().
     q.bindValue(QStringLiteral(":thread"),  textNonNull(e.threadRootId));
     if (!q.exec())
         qCWarning(lcCache) << "updateEvent" << q.lastError().text();
@@ -551,8 +519,6 @@ void CacheStore::replaceEventId(const QString &oldEventId,
         deleteEvent(newEvent.eventId);
         return;
     }
-    // If the real event already exists (e.g. from /sync), just drop the local
-    // placeholder.
     QSqlQuery lookup(database());
     lookup.prepare(QStringLiteral(
         "SELECT event_id FROM events WHERE event_id=:id"));

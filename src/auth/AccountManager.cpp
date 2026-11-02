@@ -11,8 +11,6 @@ AccountManager::AccountManager(SettingsManager *settings, QObject *parent)
                 this, &AccountManager::accountsChanged);
         connect(m_settings, &SettingsManager::sessionChanged,
                 this, &AccountManager::activeUserIdChanged);
-        // Each row's isActive derives from the active account, so the list
-        // must refresh on a switch too.
         connect(m_settings, &SettingsManager::sessionChanged,
                 this, &AccountManager::accountsChanged);
     }
@@ -49,8 +47,6 @@ QVariantList AccountManager::accounts() const
 
 bool AccountManager::needsSignIn(const QString &userId) const
 {
-    // Crypto health of inactive accounts is not reported: the SDK only knows
-    // it for the attached account.
     if (!m_settings)
         return false;
     if (!m_settings->hasSavedAccount(userId))
@@ -65,7 +61,6 @@ bool AccountManager::needsSignIn(const QString &userId) const
 
 bool AccountManager::secretBackendUnavailable() const
 {
-    // Delegated so this and the login path's destructive checks agree.
     return !m_settings || m_settings->secretBackendUnavailable();
 }
 
@@ -108,8 +103,6 @@ void AccountManager::updateProfile(const QString &userId,
     m_settings->updateAccountProfile(userId, displayName, avatarUrl);
 }
 
-// Exact: the client names the account by the server's id, the same id the
-// record is kept under, and two accounts may differ only by case.
 void AccountManager::markSessionRevoked(const QString &userId)
 {
     if (userId.isEmpty() || sessionRevoked(userId))

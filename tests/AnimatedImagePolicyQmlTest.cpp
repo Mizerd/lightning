@@ -1,22 +1,3 @@
-// "Animated images" (Settings > Appearance > Motion and time): one rule for
-// every animated image, qml/MotionPolicy.qml, fed by C++ facts (the
-// gifAutoplay setting, Reduce motion, AppController::animationsSuspended).
-// Pinned:
-//   * the rule itself: Play automatically / Play on hover / Don't play, Reduce
-//     motion turning automatic into on-hover, and an unreadable setting
-//     playing nothing;
-//   * an unfocused Lightning PAUSES a playing avatar on its frame (no frame
-//     advances, nothing torn down) and resumes it;
-//   * under Reduce motion an animated avatar still plays when the pointer
-//     rests on it, and fetches nothing until then;
-//   * a GIF on a link-preview card obeys the policy: still under Play on hover
-//     until hovered, running under Play automatically, paused while
-//     unfocused, never decoded under Don't play;
-//   * a GIF row showing its still says it is a GIF;
-//   * AppController::animationsSuspended follows the application state;
-//   * every AnimatedImage in qml/ pauses on suspension and none reads the
-//     setting around the rule (count-asserted sweep);
-//   * the option lives in Appearance, where its search entry points.
 #include <QtTest/QtTest>
 
 #include <QBuffer>
@@ -72,7 +53,6 @@ public:
     QList<Fetch> fetches;
 
     bool supportsMediaBridge() const override { return true; }
-    // In flight for ever: a 0 would read as a failed dispatch.
     quint64 fetchMedia(const QString &, int, int) override { return nextOp++; }
     quint64 fetchMxcThumbnail(const QString &mxc, int width, int) override
     {
@@ -119,7 +99,6 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-// The settings the rule reads.
 class SettingsShim : public QObject
 {
     Q_OBJECT
@@ -136,7 +115,6 @@ Q_SIGNALS:
     void gifAutoplayChanged();
 };
 
-// Minimal `app`: the bridge, the settings, and the focus fact.
 class AppShim : public QObject
 {
     Q_OBJECT
@@ -163,8 +141,6 @@ private:
     QObject *m_settings;
 };
 
-// A real looping GIF: edge x edge, one full-canvas frame per colour, 100 ms
-// each (the generator AvatarPipelineQmlTest uses).
 QByteArray solidFramesGif(int edge, const QList<QColor> &colours)
 {
     QByteArray g("GIF89a");
@@ -248,7 +224,6 @@ QString readQml(const QString &name)
     return QString::fromUtf8(f.readAll());
 }
 
-// The text of every `AnimatedImage {` block in `qml`, braces matched.
 QStringList animatedImageBlocks(const QString &qml)
 {
     QStringList out;
@@ -273,11 +248,6 @@ QStringList animatedImageBlocks(const QString &qml)
     return out;
 }
 
-// An AnimatedImage block obeys the focus rule (MotionPolicy.qml): a dynamic
-// `playing` folds `!MotionPolicy.suspended` into itself and sets no `paused`
-// (QMovie loses a pause set before it starts), while a constant
-// `playing: true` is held by `paused: MotionPolicy.suspended`. Checked as a
-// rule, not a spelling.
 bool suspendsCorrectly(const QString &block)
 {
     static const QRegularExpression playingRe(QStringLiteral(
@@ -296,7 +266,6 @@ bool suspendsCorrectly(const QString &block)
         && paused.isEmpty();
 }
 
-// Frames shown over `ms` by an AnimatedImage.
 QSet<int> framesOver(QQuickItem *movie, int ms)
 {
     QSet<int> frames;
@@ -309,7 +278,7 @@ QSet<int> framesOver(QQuickItem *movie, int ms)
     return frames;
 }
 
-} // namespace
+}
 
 class AnimatedImagePolicyQmlTest : public QObject
 {
@@ -365,7 +334,6 @@ private:
         return -1;
     }
 
-    // An avatar whose still thumbnail has loaded.
     bool readyAvatar(Harness &h, const QString &mxc, int size = 48)
     {
         QSignalSpy created(h.engine.get(),
@@ -389,8 +357,6 @@ private:
         h.avatar->setPosition(QPointF(20, 20));
         h.window->show();
         QCoreApplication::processEvents();
-        // The software scene graph cannot draw the shape mask; the logic is
-        // under test here (AvatarPipelineQmlTest does the same).
         h.avatar->setProperty("motionMaskable", true);
         const int thumb = fetchIndex(h, mxc, 224);
         if (thumb < 0)
@@ -493,7 +459,6 @@ private:
         return true;
     }
 
-    // A loaded page preview whose og:image is a looping GIF.
     static QVariantMap gifCardPreview()
     {
         const QByteArray gif = solidFramesGif(32, kFrames);
@@ -533,7 +498,6 @@ private Q_SLOTS:
             QStringLiteral("animated-image-policy-qml-test"));
     }
 
-    // The rule itself, for every setting with and without Reduce motion.
     void thePolicyFollowsTheSettingReducedMotionAndFocus()
     {
         Harness h;
@@ -559,11 +523,11 @@ QtObject {
 
         struct Row { int setting; bool reduced; int mode; bool idle; bool hovered; };
         const QList<Row> rows = {
-            { 0, false, 0, true, true },   // Play automatically
-            { 0, true, 1, false, true },   // ... with Reduce motion: on hover
-            { 1, false, 1, false, true },  // Play on hover
+            { 0, false, 0, true, true },
+            { 0, true, 1, false, true },
+            { 1, false, 1, false, true },
             { 1, true, 1, false, true },
-            { 2, false, 2, false, false }, // Don't play
+            { 2, false, 2, false, false },
             { 2, true, 2, false, false },
         };
         int checked = 0;
@@ -591,14 +555,11 @@ QtObject {
         h.shim->setSuspended(false);
         QCOMPARE(p->property("suspended").toBool(), false);
 
-        // No readable setting plays nothing.
         h.settings->setMode(7);
         QCOMPARE(p->property("mode").toInt(), 2);
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // Unfocused: a playing avatar holds its frame, keeps its decoder and its
-    // slot, and runs again on focus. On the old code it kept decoding.
     void anUnfocusedWindowPausesAPlayingAvatarAndFocusResumesIt()
     {
         Harness h;
@@ -624,7 +585,6 @@ QtObject {
         QVERIFY2(held.size() == 1,
                  qPrintable(QStringLiteral("an unfocused avatar showed %1 frames")
                                 .arg(held.size())));
-        // Paused, not torn down: the same decoder, the slot still held.
         QCOMPARE(h.avatar->findChild<QQuickItem *>(
                      QStringLiteral("avatarAnimatedImage")), movie);
         QVERIFY(h.avatar->property("motionShown").toBool());
@@ -636,9 +596,6 @@ QtObject {
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // Reduce motion turns Play automatically into Play on hover: nothing is
-    // fetched for a still avatar, and resting the pointer on it plays it. On
-    // the old code Reduce motion made it unreachable.
     void reducedMotionPlaysAnAvatarOnlyUnderThePointer()
     {
         Harness h;
@@ -670,20 +627,15 @@ QtObject {
         QCOMPARE(h.warnings, QStringList{});
     }
 
-    // A GIF on a link-preview card. On the old code it ran under every
-    // setting but Don't play, hovered or not, on screen or not, focused or
-    // not.
     void aLinkPreviewGifFollowsThePolicy()
     {
         AppController controller(AppController::MockBackend);
-        controller.settings()->setGifAutoplay(1); // Play on hover
+        controller.settings()->setGifAutoplay(1);
         QVariantMap fixture = baseFixture(controller);
         fixture.insert(QStringLiteral("body"),
                        QStringLiteral("https://example.org/cat"));
         Delegate d;
         QVERIFY(createDelegate(controller, fixture, d));
-        // No timeline pane here: the row is on screen by assignment, as the
-        // pane's per-row Loader does.
         d.root->setProperty("rowOnScreen", true);
         d.root->setProperty("preview", gifCardPreview());
         QQuickItem *movie = nullptr;
@@ -692,9 +644,8 @@ QtObject {
                  QStringLiteral("linkPreviewCardAnimation"))) != nullptr,
             kTimeoutMs);
         QTRY_VERIFY_WITH_TIMEOUT(movie->isVisible(), kTimeoutMs);
-        QCOMPARE(movie->property("status").toInt(), 1); // Ready
+        QCOMPARE(movie->property("status").toInt(), 1);
 
-        // Play on hover, pointer elsewhere: its first frame, not running.
         QCOMPARE(movie->property("playing").toBool(), false);
         QCOMPARE(framesOver(movie, 500).size(), 1);
         (void)d.window->grabWindow();
@@ -706,7 +657,6 @@ QtObject {
         QTest::mouseMove(d.window.get(), QPoint(2, 2));
         QTRY_VERIFY_WITH_TIMEOUT(!movie->property("playing").toBool(), kTimeoutMs);
 
-        // Play automatically: runs without the pointer, but not off screen.
         controller.settings()->setGifAutoplay(0);
         QTRY_VERIFY_WITH_TIMEOUT(movie->property("playing").toBool(), kTimeoutMs);
         d.root->setProperty("rowOnScreen", false);
@@ -715,26 +665,17 @@ QtObject {
         QTRY_VERIFY_WITH_TIMEOUT(movie->property("playing").toBool(), kTimeoutMs);
 
 #ifdef LIGHTNING_HAVE_APP_STATE_SEAM
-        // Lightning loses focus: it stops on its frame; focus resumes it.
         setAppState(Qt::ApplicationActive);
         QCOMPARE(controller.animationsSuspended(), false);
         setAppState(Qt::ApplicationInactive);
         QCOMPARE(controller.animationsSuspended(), true);
-        // Behaviour, not spelling: whichever property a site uses, no frame
-        // may advance.
         QTest::qWait(100);
         QCOMPARE(framesOver(movie, 500).size(), 1);
-        // The row leaves the screen and comes back while still unfocused:
-        // `playing` goes false -> true underneath. A `paused` applied before
-        // that start is lost (QMovie::start() clears it), which is how the
-        // first version of this change animated an unfocused window.
         d.root->setProperty("rowOnScreen", false);
         QCoreApplication::processEvents();
         d.root->setProperty("rowOnScreen", true);
         QCoreApplication::processEvents();
         QCOMPARE(framesOver(movie, 500).size(), 1);
-        // Same under Play on hover: the pointer arriving while unfocused
-        // starts nothing.
         controller.settings()->setGifAutoplay(1);
         QTest::qWait(100);
         QTest::mouseMove(d.window.get(), centre.toPoint());
@@ -747,7 +688,6 @@ QtObject {
         QVERIFY(framesOver(movie, 600).size() >= 2);
 #endif
 
-        // Don't play: no source, so nothing decodes; the still is drawn.
         controller.settings()->setGifAutoplay(2);
         QTRY_VERIFY_WITH_TIMEOUT(
             movie->property("source").toUrl().isEmpty(), kTimeoutMs);
@@ -755,9 +695,6 @@ QtObject {
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // A GIF row drawing its still (Don't play) says it is a GIF. On the old
-    // code the badge belonged to the loading placeholder alone and vanished
-    // with it.
     void aStillGifRowCarriesTheGifBadge()
     {
         QTemporaryDir dir;
@@ -798,8 +735,6 @@ QtObject {
         badge = d.root->findChild<QQuickItem *>(QStringLiteral("imageGifBadge"));
         QVERIFY2(badge, "no GIF badge on the image row");
         QTRY_VERIFY_WITH_TIMEOUT(badge->isVisible(), kTimeoutMs);
-        // Drawn OVER the still, not under it: siblings paint by z, then by
-        // order (a visible badge under an opaque picture is no badge).
         QQuickItem *stillItem = images.first();
         QCOMPARE(badge->parentItem(), stillItem->parentItem());
         const QList<QQuickItem *> siblings = badge->parentItem()->childItems();
@@ -810,17 +745,13 @@ QtObject {
         QCOMPARE(d.warnings, QStringList{});
     }
 
-    // Data use is not animation: Don't play leaves the speculative download
-    // of a video to "Preload videos and audio" alone, and that switch still
-    // stops it. On the old code Don't play (gif/autoplay 2) also refused the
-    // video prefetch.
     void dontPlayLeavesVideoPreloadToItsOwnSwitch()
     {
-        FakeClient bridgeClient; // declared first: outlives the controller
+        FakeClient bridgeClient;
         struct Case { int mode; bool preload; bool expectPrefetch; };
         const QList<Case> cases = {
-            { 2, true, true },   // Don't play, preload on: still prefetched
-            { 0, false, false }, // Play automatically, preload off: never
+            { 2, true, true },
+            { 0, false, false },
         };
         int checked = 0;
         for (const Case &c : cases) {
@@ -861,11 +792,6 @@ QtObject {
         QCOMPARE(checked, 2);
     }
 
-    // Upgrading must not start downloads a "Never" user had off in effect:
-    // before the decoupling, gif/autoplay 2 refused video/audio preloading
-    // whatever media/videoPrefetchEnabled said (default on). The migration
-    // runs once, so turning preloading back on afterwards sticks. Without it
-    // the first case reads true.
     void aNeverChoiceKeepsPreloadingOffAcrossTheUpgradeOnce()
     {
         struct Case { const char *what; QVariantMap stored; bool expect; };
@@ -893,7 +819,6 @@ QtObject {
             ++checked;
         }
         QCOMPARE(checked, 5);
-        // Once: the user turns preloading back on, and a restart keeps it.
         {
             QSettings raw;
             raw.clear();
@@ -913,9 +838,6 @@ QtObject {
         QSettings().clear();
     }
 
-    // The same for a settings file exported before the decoupling (file
-    // version 1): an old "Never" export imports with preloading off; a
-    // version 2 export means what it says.
     void anOldNeverExportImportsWithPreloadingOff()
     {
         const auto parse = [](int version, const QJsonObject &values) {
@@ -940,7 +862,6 @@ QtObject {
         QCOMPARE(settingsport::kFileVersion, 2);
     }
 
-    // The C++ fact the rule's suspension reads.
     void animationsSuspendedFollowsTheApplicationState()
     {
 #ifndef LIGHTNING_HAVE_APP_STATE_SEAM
@@ -955,7 +876,7 @@ QtObject {
         QCOMPARE(controller.animationsSuspended(), true);
         setAppState(Qt::ApplicationHidden);
         QCOMPARE(controller.animationsSuspended(), true);
-        QCOMPARE(spy.count(), 1); // Inactive -> Hidden is no change
+        QCOMPARE(spy.count(), 1);
         setAppState(Qt::ApplicationActive);
         QCOMPARE(controller.animationsSuspended(), false);
         QCOMPARE(spy.count(), 2);
@@ -963,10 +884,6 @@ QtObject {
 #endif
     }
 
-    // Every AnimatedImage in qml/ pauses on suspension, and none reads the
-    // setting or Reduce motion around MotionPolicy. Count-asserted, so a new
-    // site has to be added here on purpose; a sweep that silently finds fewer
-    // files is the defect it exists to catch.
     void everyAnimatedImageFollowsTheOneRule()
     {
         QDir qmlDir(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml"));
@@ -990,8 +907,6 @@ QtObject {
             }
             if (name == QLatin1String("MotionPolicy.qml"))
                 continue;
-            // The setting governs animation only, so the one reader outside
-            // MotionPolicy is the Settings row that shows and writes it.
             static const QRegularExpression read(
                 QStringLiteral("app\\.settings\\.gifAutoplay(?!\\s*=[^=])"));
             auto it = read.globalMatch(qml);
@@ -1001,7 +916,7 @@ QtObject {
                 ++reads;
             }
             const int allowed =
-                name == QLatin1String("SettingsScreen.qml") ? 1 : 0; // the combo's sync
+                name == QLatin1String("SettingsScreen.qml") ? 1 : 0;
             if (reads != allowed)
                 settingReaders << QStringLiteral("%1 (%2)").arg(name).arg(reads);
         }
@@ -1026,8 +941,6 @@ QtObject {
                  qPrintable(QStringLiteral("read the setting around "
                                            "MotionPolicy: %1")
                                 .arg(settingReaders.join(QStringLiteral(", ")))));
-        // Nor does any C++ gate data use on it: speculative downloads follow
-        // "Preload videos and audio" (videoPrefetchEnabled) alone.
         int cppReaders = 0;
         int cppFiles = 0;
         QStringList cppHits;
@@ -1050,7 +963,6 @@ QtObject {
         }
         QVERIFY2(cppFiles > 100, qPrintable(QString::number(cppFiles)));
         QVERIFY2(cppReaders == 0, qPrintable(cppHits.join(QStringLiteral(", "))));
-        // A timeline animation never runs for a row off screen.
         const QStringList delegateBlocks =
             animatedImageBlocks(readQml(QStringLiteral("MessageDelegate.qml")));
         int rowGated = 0;
@@ -1062,13 +974,10 @@ QtObject {
         QCOMPARE(rowGated, 4);
     }
 
-    // The option lives in Appearance > Motion and time, and Settings search
-    // leads there.
     void theOptionLivesInAppearanceAndSearchFindsIt()
     {
         const QString qml = readQml(QStringLiteral("SettingsScreen.qml"));
         QVERIFY(!qml.isEmpty());
-        // The search entry for the combo.
         const qsizetype anchor =
             qml.indexOf(QStringLiteral("anchor: \"gifAutoplayCombo\""));
         QVERIFY(anchor > 0);
@@ -1078,8 +987,6 @@ QtObject {
                  qPrintable(text));
         QVERIFY(text.contains(QStringLiteral("qsTr(\"Animated images\")")));
         QVERIFY(text.contains(QStringLiteral("avatar")));
-        // The combo sits in the Appearance page, under Reduce motion and
-        // before the next page begins.
         const qsizetype reduce =
             qml.indexOf(QStringLiteral("objectName: \"reducedMotionCheck\""));
         const qsizetype combo =
@@ -1090,14 +997,11 @@ QtObject {
         QVERIFY2(reduce < combo && combo < nextPage,
                  "the Animated images combo is not in Appearance > Motion and time");
         QCOMPARE(qml.count(QStringLiteral("objectName: \"gifAutoplayCombo\"")), 1);
-        // Data use lives in Privacy · Media, under one switch that says it
-        // covers audio too; the Animated images hint no longer claims it.
         QVERIFY(qml.contains(QStringLiteral("text: qsTr(\"Preload videos and audio\")")));
         const qsizetype hint = qml.indexOf(QStringLiteral("objectName: \"gifAutoplayHint\""));
         QVERIFY(hint > 0);
         QVERIFY2(!qml.mid(hint, 900).contains(QStringLiteral("prefetch")),
                  "the Animated images hint still claims downloads");
-        // Its three choices, by the words the user reads.
         const QString block = qml.mid(combo, 900);
         for (const char *label : { "qsTr(\"Play automatically\")",
                                    "qsTr(\"Play on hover\")",

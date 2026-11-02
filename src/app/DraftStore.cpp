@@ -31,10 +31,10 @@ bool DraftStore::draftIsEmpty(const QVariantMap &draft)
 bool DraftStore::persistAllowed(const QString &realRoomId) const
 {
     if (!m_client || realRoomId.isEmpty())
-        return false; // unknown room → fail closed, memory only
+        return false;
     const RoomInfo info = m_client->roomInfo(realRoomId);
     if (info.id.isEmpty())
-        return false; // room not in the authoritative list yet
+        return false;
     // Persist only on an affirmative "not encrypted": a just-joined room reads
     // encrypted=false before its encryption state has synced.
     return info.encryptionKnown && !info.encrypted;
@@ -45,8 +45,6 @@ void DraftStore::save(const QString &draftKey, const QString &realRoomId,
 {
     if (draftKey.isEmpty())
         return;
-    // A late save during sign-out must not leak into the next account or
-    // re-create a wiped entry.
     if (!m_client || !m_client->isLoggedIn())
         return;
     if (draftIsEmpty(draft)) {
@@ -59,7 +57,6 @@ void DraftStore::save(const QString &draftKey, const QString &realRoomId,
             m_settings->setRoomDraft(draftKey, draft);
         return;
     }
-    // Memory only; drop any persisted copy from before encryption was enabled.
     m_memory.insert(draftKey, draft);
     if (m_settings)
         m_settings->setRoomDraft(draftKey, {});

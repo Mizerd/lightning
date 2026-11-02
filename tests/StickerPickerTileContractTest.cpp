@@ -52,16 +52,13 @@ QString settingsQml()
     return readFile(QStringLiteral(QML_DIR "/StickerPacksSettings.qml"));
 }
 
-} // namespace
+}
 
 class StickerPickerTileContractTest : public QObject
 {
     Q_OBJECT
 
 private slots:
-    // Every `required property` a StickerPicker delegate declares must be a
-    // role one of the picker's two models serves (`index` is built in). A
-    // dropped role fails naming that property.
     void everyRequiredPropertyOfAPickerTileIsARoleSomeModelServes()
     {
         const QString qml = pickerQml();
@@ -92,16 +89,12 @@ private slots:
                          "the correct number of empty tiles.")
                                  .arg(name)));
         }
-        // The sweep must have swept something.
         QVERIFY2(found >= 10,
                  qPrintable(QStringLiteral("only %1 required properties matched "
                                            "— the scan regex has drifted")
                                 .arg(found)));
     }
 
-    // The picker's `onAnimatedMediaReady` / `onMediaCached` handlers compare
-    // the signal's cacheKey against keys they build; both prefixes must exist
-    // on both sides, and a rename fails naming the missing prefix.
     void thePickerAndTheBridgeAgreeOnTheCacheKeyPrefixes()
     {
         const QString qml = pickerQml();
@@ -109,7 +102,6 @@ private slots:
         QVERIFY2(!qml.isEmpty(), "StickerPicker.qml could not be read");
         QVERIFY2(!bridge.isEmpty(), "MediaBridge.cpp could not be read");
 
-        // The animated ORIGINAL, materialised for the AnimatedImage.
         QVERIFY2(bridge.contains(QStringLiteral("\"mxcanim:\"")),
                  "MediaBridge.cpp no longer builds an \"mxcanim:\" cache key; "
                  "StickerPicker.qml's animatedCacheKey comparison can then "
@@ -119,9 +111,6 @@ private slots:
                  "StickerPicker.qml no longer builds the \"mxcanim:\" key it "
                  "compares onAnimatedMediaReady against");
 
-        // The still tile's server thumbnail: MediaBridge formats
-        // "mxcimg:%1:%2" (edge, mxc); the picker rebuilds that spelling to
-        // re-resolve its Image source on mediaCached.
         QVERIFY2(bridge.contains(QStringLiteral("mxcimg:%1:%2")),
                  "MediaBridge.cpp no longer builds \"mxcimg:<edge>:<mxc>\"; "
                  "StickerPicker.qml's stillCacheKey would stop matching and "
@@ -130,9 +119,6 @@ private slots:
                  "StickerPicker.qml no longer builds the \"mxcimg:\" key");
     }
 
-    // The editor's delegate needs every role it declares, and it must list the
-    // un-narrowed model (C41-F07) and read permission from the manager's rule,
-    // not the model role that is false for the account's own pack (C41-D01).
     void thePackEditorAndSettingsUseTheRightSources()
     {
         const QString editor = editorQml();
@@ -164,10 +150,6 @@ private slots:
                  "Settings passes the ROOM permission role to the editor again");
     }
 
-    // Keyboard behaviour added for C41-F03/F04/F09/F10/F11, as text: Escape
-    // cancels an inline rename before it can close the dialog, focus goes
-    // back to the opener, the grid takes Home/End/Page/Space and a focused
-    // pack tile draws a ring.
     void theKeyboardPathsAreWired()
     {
         const QString editor = editorQml();

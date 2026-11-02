@@ -21,9 +21,6 @@
 
 namespace portal {
 
-/// The Request path a portal will use for `token` and the caller's unique bus
-/// name (":1.189"). Empty when either input is empty; the caller then
-/// subscribes after the reply.
 inline QString predictedRequestPath(QString uniqueName, const QString &token)
 {
     if (uniqueName.isEmpty() || token.isEmpty())
@@ -35,9 +32,6 @@ inline QString predictedRequestPath(QString uniqueName, const QString &token)
         .arg(uniqueName, token);
 }
 
-/// A subscription made before the call: the step (null once it has answered,
-/// since steps delete themselves) and its path, kept separately because a
-/// missing step means "already answered", not "never subscribed".
 template <typename Step>
 struct Subscription
 {
@@ -45,9 +39,6 @@ struct Subscription
     QString path;
 };
 
-/// Subscribe a new `Step` (a QObject that subscribes to `Response` on the
-/// given path and emits `answered`) to the predicted path, before the call.
-/// Empty when nothing can be predicted.
 template <typename Step, typename Owner, typename OnAnswer>
 Subscription<Step> subscribeBeforeCall(Owner *owner, const QString &uniqueName,
                                        const QString &token, OnAnswer onAnswer)
@@ -61,9 +52,6 @@ Subscription<Step> subscribeBeforeCall(Owner *owner, const QString &uniqueName,
     return sub;
 }
 
-/// Called once the reply names the real Request path. If it matches the
-/// prediction, the subscription is already in place (and may have answered);
-/// otherwise (portals older than 0.9) follow the returned path.
 template <typename Step, typename Owner, typename OnAnswer>
 void reconcileRequestPath(Owner *owner, Subscription<Step> &sub,
                           const QString &actualPath, OnAnswer onAnswer)
@@ -80,7 +68,6 @@ void reconcileRequestPath(Owner *owner, Subscription<Step> &sub,
     QObject::connect(sub.step.data(), &Step::answered, owner, onAnswer);
 }
 
-/// Drop a subscription whose call failed, so no step outlives the request.
 template <typename Step>
 void dropSubscription(Subscription<Step> &sub)
 {
@@ -89,4 +76,4 @@ void dropSubscription(Subscription<Step> &sub)
     sub.step.clear();
 }
 
-} // namespace portal
+}

@@ -10,8 +10,6 @@ void SfuVideoRouter::attachSink(const QString &streamId, QVideoSink *sink)
     if (streamId.isEmpty())
         return;
     if (!sink) {
-        // A no-op, not a removal: "I have no sink yet" must not evict a
-        // working surface.
         return;
     }
     QMutexLocker lock(&m_mutex);
@@ -24,8 +22,6 @@ void SfuVideoRouter::releaseSink(QVideoSink *sink)
         return;
     QMutexLocker lock(&m_mutex);
     for (auto it = m_sinks.begin(); it != m_sinks.end();) {
-        // Also sweep dead entries left by surfaces destroyed without a
-        // release.
         if (it->isNull() || it->data() == sink)
             it = m_sinks.erase(it);
         else
@@ -44,8 +40,6 @@ bool SfuVideoRouter::watching(const QString &streamId) const
 {
     QMutexLocker lock(&m_mutex);
     const auto it = m_sinks.constFind(streamId);
-    // A nulled QPointer is not a watcher; otherwise the engine would copy
-    // frames for a destroyed tile.
     return it != m_sinks.cend() && !it->isNull();
 }
 
@@ -70,7 +64,6 @@ void SfuVideoRouter::deliverFrame(const QString &streamId,
             return;
         sink = it->data();
         if (!sink) {
-            // The tile went away; drop the stale entry.
             m_sinks.remove(streamId);
             return;
         }
@@ -85,7 +78,6 @@ bool SfuVideoRouter::offerFrame(const QString &streamId,
 {
     QMutexLocker lock(&m_mutex);
     const bool scheduled = m_pending.contains(streamId);
-    // Replaces (and so frees) a frame the GUI thread has not taken yet.
     m_pending.insert(streamId, frame);
     return !scheduled;
 }
@@ -105,7 +97,6 @@ void SfuVideoRouter::deliverPending(const QString &streamId)
         if (it == m_pending.end())
             return;
         frame = it.value();
-        // Taken: the next offer schedules the next delivery.
         m_pending.erase(it);
     }
     deliverFrame(streamId, frame);

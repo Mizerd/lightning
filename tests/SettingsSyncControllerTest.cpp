@@ -1,8 +1,3 @@
-// SettingsSyncController: the account-wide switch, the first-enable question,
-// server-first reads, debounced pushes, conflict reporting, and the settings
-// file export / import, driven through a recording client that answers with
-// the signals the Rust bridge emits. The merge arithmetic itself is covered in
-// SettingsPortableTest.
 
 #include "app/CustomThemeStore.h"
 #include "app/SettingsManager.h"
@@ -105,7 +100,7 @@ QJsonObject settingsOf(const Write &w)
 
 constexpr qint64 kT0 = 1760000000000LL;
 
-} // namespace
+}
 
 class SettingsSyncControllerTest : public QObject
 {
@@ -149,7 +144,6 @@ class SettingsSyncControllerTest : public QObject
             const Write w = client.writes.last();
             Q_EMIT client.syncedSettingsWritten(w.opId, w.kind, ok, category);
         }
-        // Turned on and settled, with the server holding `server`.
         void settleOn(const QVariantMap &server)
         {
             answerRead(server.isEmpty() ? "absent" : "present", server.isEmpty() ? QString() : blobOf(server, kT0 - 5000), 1);
@@ -172,9 +166,6 @@ private Q_SLOTS:
         s.sync();
     }
 
-    // ---- the switch --------------------------------------------------------
-
-    // Opt-in: with the switch absent nothing is written, whatever changes.
     void syncIsOffUntilTheAccountSwitchIsOn()
     {
         Rig r;
@@ -207,14 +198,10 @@ private Q_SLOTS:
         QCOMPARE(QJsonDocument::fromJson(r.client.writes.last().json.toUtf8()).object().value("enabled").toBool(), true);
         const int readsBefore = r.client.reads.size();
         r.answerWrite();
-        QCOMPARE(r.client.reads.size(), readsBefore + 1); // server-first, not the store
+        QCOMPARE(r.client.reads.size(), readsBefore + 1);
         QVERIFY(r.sync.enabled());
     }
 
-    // ---- first enable ------------------------------------------------------
-
-    // A fresh install holds only defaults, none of which is a choice: it takes
-    // the account's settings and uploads nothing.
     void aFreshDeviceAdoptsTheAccountsSettingsSilently()
     {
         Rig r;
@@ -226,7 +213,6 @@ private Q_SLOTS:
         QCOMPARE(r.sync.state(), QStringLiteral("idle"));
     }
 
-    // Nothing on the server: this device's own choices (and only those) go up.
     void anEmptyAccountReceivesOnlyWhatThisDeviceChose()
     {
         Rig r;
@@ -275,13 +261,11 @@ private Q_SLOTS:
         r.sync.chooseUploadMine();
         r.answerRead("present", blobOf({ { "textScale", 100 }, { "reducedMotion", true } }, kT0 - 5000), 1);
         QCOMPARE(r.settings.textScale(), 120);
-        QCOMPARE(r.settings.reducedMotion(), true); // never chosen here: the account's
+        QCOMPARE(r.settings.reducedMotion(), true);
         const QList<Write> w = r.client.writesOf(0);
         QCOMPARE(w.size(), 1);
         QCOMPARE(settingsOf(w.first()).value("textScale").toObject().value("v").toInt(), 120);
     }
-
-    // ---- steady state ------------------------------------------------------
 
     void aLocalEditIsPushedAfterTheDebounceAndOnlyAfterAServerRead()
     {
@@ -290,20 +274,19 @@ private Q_SLOTS:
         QVERIFY(r.client.writes.isEmpty());
         const int reads = r.client.reads.size();
         r.settings.setReducedMotion(true);
-        QCOMPARE(r.client.reads.size(), reads); // debounced: nothing yet
+        QCOMPARE(r.client.reads.size(), reads);
         QTRY_COMPARE(r.client.reads.size(), reads + 1);
-        QVERIFY(r.client.writes.isEmpty());      // read first, write after
+        QVERIFY(r.client.writes.isEmpty());
         r.answerRead("present", blobOf({ { "textScale", 100 } }, kT0 - 5000), 1);
         const QList<Write> w = r.client.writesOf(0);
         QCOMPARE(w.size(), 1);
         const QJsonObject s = settingsOf(w.first());
         QVERIFY(s.contains("reducedMotion"));
-        QVERIFY(s.contains("textScale"));          // the rest of the blob is kept
+        QVERIFY(s.contains("textScale"));
         r.answerWrite();
         QCOMPARE(r.sync.pendingCount(), 0);
     }
 
-    // An edit that is not acknowledged stays owed.
     void aFailedWriteKeepsTheEditOwedAndRetries()
     {
         Rig r;
@@ -317,7 +300,6 @@ private Q_SLOTS:
         QCOMPARE(r.sync.pendingCount(), 1);
     }
 
-    // The naive last-writer-wins replaces an unsynced edit with no word.
     void aLaterChangeElsewhereReplacesAnUnsyncedEditAndSaysSo()
     {
         Rig r;
@@ -325,7 +307,6 @@ private Q_SLOTS:
         r.settings.setTextScale(110);
         r.sync.setClockForTesting(kT0 + 1000);
         r.sync.checkLocalNow();
-        // The server meanwhile got a LATER value from another device.
         r.answerRead("present", blobOf({ { "textScale", 135 } }, kT0 + 5000), 1);
         QCOMPARE(r.settings.textScale(), 135);
         QCOMPARE(r.sync.conflicts().size(), 1);
@@ -347,8 +328,6 @@ private Q_SLOTS:
         QVERIFY(r.client.writes.isEmpty());
     }
 
-    // ---- turning it off ----------------------------------------------------
-
     void whenAnotherDeviceTurnsItOffNothingIsWrittenAnyMore()
     {
         Rig r;
@@ -364,8 +343,6 @@ private Q_SLOTS:
         QCOMPARE(r.sync.state(), QStringLiteral("off"));
     }
 
-    // A blob write that began before the switch went off is refused by the
-    // backend and the device stops.
     void aRefusedBlobWriteBecauseTheSwitchWentOffStopsSync()
     {
         Rig r;
@@ -389,10 +366,8 @@ private Q_SLOTS:
         r.answerWrite();
         QCOMPARE(r.client.writesOf(2).size(), 1); // the blob is emptied only after the switch is off
         QCOMPARE(r.client.writes.last().json, QStringLiteral("{}"));
-        QCOMPARE(r.settings.textScale(), 130);    // this device keeps its settings
+        QCOMPARE(r.settings.textScale(), 130);
     }
-
-    // ---- hygiene -----------------------------------------------------------
 
     void nothingTheServerReceivesCanBeASecretOrADeviceSetting()
     {
@@ -416,7 +391,6 @@ private Q_SLOTS:
             QVERIFY2(allowed.contains(k), qPrintable(k));
     }
 
-    // An answer for the previous account must not touch the next one.
     void aStaleAnswerAfterAnAccountChangeIsIgnored()
     {
         Rig r;
@@ -431,8 +405,6 @@ private Q_SLOTS:
         QVERIFY(r.client.writes.isEmpty());
     }
 
-    // The persisted baseline resumes after a restart: an edit made offline is
-    // still owed, and is pushed (after a server read) on the next start.
     void anOwedEditSurvivesARestart()
     {
         Rig r;
@@ -441,7 +413,7 @@ private Q_SLOTS:
         r.sync.setClockForTesting(kT0 + 50);
         r.sync.checkLocalNow();
         QCOMPARE(r.sync.pendingCount(), 1);
-        r.sync.setClient(nullptr); // restart: memory goes, the store stays
+        r.sync.setClient(nullptr);
         r.sync.setClient(&r.client);
         QCOMPARE(r.sync.pendingCount(), 1);
         r.answerRead("present", blobOf({ { "textScale", 100 } }, kT0 - 5000), 1);
@@ -449,8 +421,6 @@ private Q_SLOTS:
         QVERIFY(!w.isEmpty());
         QVERIFY(settingsOf(w.last()).contains("reducedMotion"));
     }
-
-    // ---- export / import ---------------------------------------------------
 
     void exportWritesAFileThatImportReadsBack()
     {
@@ -477,15 +447,12 @@ private Q_SLOTS:
         const QVariantMap preview = r.sync.previewImport(file);
         QVERIFY(preview.value("ok").toBool());
         QCOMPARE(preview.value("changes").toList().size(), 3);
-        // Previewing changes nothing.
         QCOMPARE(r.settings.textScale(), 100);
         const QVariantMap applied = r.sync.applyImport();
         QVERIFY2(applied.value("ok").toBool(), qPrintable(applied.value("error").toString()));
         QCOMPARE(r.settings.textScale(), 125);
         QCOMPARE(r.settings.reducedMotion(), true);
         QCOMPARE(r.settings.messageLayout(), 2);
-        // The result counts what changed, as the preview did, and not every
-        // setting the file carries.
         QCOMPARE(applied.value("applied").toInt(), 3);
     }
 
@@ -524,7 +491,6 @@ private Q_SLOTS:
         QVERIFY(!r.sync.previewImport(QUrl::fromLocalFile(dir.filePath("missing.json"))).value("ok").toBool());
     }
 
-    // An import is an edit like any other: sync picks it up.
     void anImportedChangeIsPushedLikeAnyEdit()
     {
         Rig r;
@@ -542,8 +508,6 @@ private Q_SLOTS:
         QVERIFY(settingsOf(r.client.writesOf(0).last()).contains("clockFormat"));
     }
 
-    // C84-F07: the preview names integer-coded choices, and an action this
-    // version does not have is not counted as a shortcut change.
     void importPreviewNamesChoicesAndIgnoresUnknownShortcuts()
     {
         Rig r(false);

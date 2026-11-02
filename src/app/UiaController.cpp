@@ -16,7 +16,7 @@ void UiaController::setClient(MatrixClient *client)
     if (m_client)
         m_client->disconnect(this);
     m_client = client;
-    onLoggedOut(); // reset for the new client
+    onLoggedOut();
     if (m_client) {
         connect(m_client, &MatrixClient::uiaRequired, this,
                 &UiaController::onUiaRequired);
@@ -42,8 +42,6 @@ void UiaController::signOutDevices(const QStringList &deviceIds,
         return;
     QStringList ids;
     for (const QString &id : deviceIds) {
-        // Deleting the current device is a logout; the Sign out flow (with
-        // its store cleanup) owns that.
         if (id.isEmpty() || id == currentDeviceId)
             continue;
         if (!ids.contains(id))
@@ -67,10 +65,8 @@ void UiaController::submitPassword(const QString &password)
         || password.isEmpty()) {
         return;
     }
-    // Close optimistically; a wrong password reopens it via uiaRequired.
     const bool accepted = m_client->uiaSubmitPassword(m_deleteOp, password);
     if (!accepted) {
-        // Stale or lost challenge: report it rather than hang.
         m_deleteOp = 0;
         clearChallenge();
         Q_EMIT signOutFinished(
@@ -116,7 +112,7 @@ void UiaController::onUiaRequired(quint64 uiaId, bool hasPasswordStage,
                                   const QStringList &stages)
 {
     if (uiaId == 0 || uiaId != m_deleteOp)
-        return; // a stale/foreign challenge must not open our prompt
+        return;
     m_challengeActive = true;
     m_passwordStage = hasPasswordStage;
     m_wrongPassword = wrongPassword;
@@ -184,7 +180,6 @@ QString UiaController::describeCategory(const QString &category)
             "or the session may not be yours to remove.");
     }
     if (category == QLatin1String("not_found")) {
-        // The device is already gone — the refreshed list is the truth.
         return QCoreApplication::translate(
             "UiaController", "That session no longer exists.");
     }

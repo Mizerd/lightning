@@ -1,9 +1,3 @@
-// Personal chat backgrounds kept on the homeserver (ChatBackdropController's
-// sync half; the protocol half is rust/src/bgsync.rs).
-//
-// The controller is driven through a fake client that records what it is
-// asked and answers with the signals the Rust bridge emits, so every case
-// runs the real reconcile, migration, queue, switch and settings logic.
 
 #include "app/SettingsManager.h"
 #include "backdrop/ChatBackdropController.h"
@@ -74,7 +68,6 @@ public:
         clears.append({ knownRooms, opId });
     }
 
-    // The writes of one mode, in order (the switch writes are mode 3).
     QList<Write> writesOf(int mode) const
     {
         QList<Write> out;
@@ -91,7 +84,7 @@ public:
     QList<RoomInfo> roomList;
     QList<Read> reads;
     QList<Read> downloads;
-    QStringList downloadIds;   // the picture each download named
+    QStringList downloadIds;
     QList<Write> writes;
     QList<Clear> clears;
 };
@@ -115,7 +108,6 @@ RoomInfo joined(const QString &id)
     return r;
 }
 
-// A real picture, as another device's upload decrypts to.
 QByteArray pictureBytes(const QColor &colour)
 {
     QImage image(48, 32, QImage::Format_RGB32);
@@ -151,7 +143,6 @@ QVariantMap withState(const QString &scope, const QString &state)
 
 QVariantMap cleared(const QString &scope) { return withState(scope, QStringLiteral("cleared")); }
 
-// The account-wide switch as a read reports it (its own account-data type).
 constexpr int kOn = 1;
 constexpr int kOff = 0;
 
@@ -185,7 +176,7 @@ QJsonObject requestOf(const Write &w)
     return QJsonDocument::fromJson(w.json.toUtf8()).object();
 }
 
-} // namespace
+}
 
 class BackgroundSyncTest : public QObject
 {
@@ -206,14 +197,11 @@ class BackgroundSyncTest : public QObject
             backdrops.setSettings(&settings);
             backdrops.setClient(&client);
         }
-        // A restart of this device: everything in memory goes, the settings
-        // (the personal store and its owed writes) stay.
         void restart()
         {
             backdrops.setClient(nullptr);
             backdrops.setClient(&client);
         }
-        // Answers the "*" read the controller sends on start.
         void answerFullRead(const QVariantList &entries, int enabled = kOn)
         {
             QVERIFY(!client.reads.isEmpty());
@@ -247,8 +235,6 @@ class BackgroundSyncTest : public QObject
                                                        present(d.scope, id),
                                                        pictureBytes(colour), QString());
         }
-        // Answers every download in flight that is only a comparison with a
-        // DIFFERENT picture (another size and colour): a real conflict.
         void answerComparesDifferent()
         {
             const int n = int(client.downloads.size());
@@ -260,7 +246,6 @@ class BackgroundSyncTest : public QObject
                 answerDownload(d, client.downloadIds.at(i), Qt::yellow);
             }
         }
-        // The bytes of this device's own stored picture for a scope.
         QByteArray localBytes(const QString &scope) const
         {
             QFile file(QDir(dir.path()).filePath(
@@ -284,7 +269,6 @@ class BackgroundSyncTest : public QObject
         }
     };
 
-    // The one-time notice is answered, as on any account that saw it once.
     static void markNoticeSeen()
     {
         QSettings raw;
@@ -308,15 +292,13 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // The setting is on by default; without a backend that can keep it,
-    // nothing is ever asked.
     void onByDefaultAndSilentWithoutABackend()
     {
         {
             Rig rig;
             QVERIFY(rig.backdrops.syncEnabled());
             QVERIFY(rig.backdrops.syncAvailable());
-            QCOMPARE(rig.client.reads.size(), 1);   // the start-up "*" read
+            QCOMPARE(rig.client.reads.size(), 1);
         }
         init();
         Rig rig;
@@ -329,8 +311,6 @@ private Q_SLOTS:
         QCOMPARE(rig.state(), QStringLiteral("unavailable"));
     }
 
-    // Another device sets, changes and removes the every-room background:
-    // each change arrives as a poke, is re-read, and lands without a restart.
     void anotherDevicesChangesApplyLive()
     {
         Rig rig;
@@ -349,31 +329,24 @@ private Q_SLOTS:
         QCOMPARE(mine.value(QStringLiteral("fit")).toString(), QStringLiteral("contain"));
         QCOMPARE(mine.value(QStringLiteral("dim")).toDouble(), 0.30);
 
-        // The same copy again (our own echo): nothing is downloaded, the
-        // presentation follows.
         rig.poke(QString(), { present(QString(), kIdA, 60) });
         QCOMPARE(rig.client.downloads.size(), 1);
         QCOMPARE(rig.backdrops.personalFor(QString()).value(QStringLiteral("dim")).toDouble(),
                  0.60);
 
-        // Changed on another device: replaced, the old file gone.
         rig.poke(QString(), { present(QString(), kIdB) });
         QCOMPARE(rig.client.downloads.size(), 2);
         rig.answerDownload(rig.client.downloads.last(), kIdB, Qt::darkRed);
         QCOMPARE(stored(QString()), kIdB);
         QCOMPARE(filesIn(rig.dir.path()), 1);
 
-        // Removed on another device.
         rig.poke(QString(), { cleared(QString()) });
         QCOMPARE(rig.backdrops.backdropFor(kRoom).value(QStringLiteral("source")).toString(),
                  QStringLiteral("none"));
         QCOMPARE(filesIn(rig.dir.path()), 0);
-        QVERIFY(rig.client.writes.isEmpty());   // nothing echoed back
+        QVERIFY(rig.client.writes.isEmpty());
     }
 
-    // "Nothing stored" and "malformed" are not "removed": neither deletes a
-    // local picture. A picture that arrives undecodable is refused, reported,
-    // and never stored.
     void absentOrInvalidKeepsTheLocalPictureAndBadBytesAreRefused()
     {
         markNoticeSeen();
@@ -389,23 +362,19 @@ private Q_SLOTS:
                  QStringLiteral("personal-default"));
         QCOMPARE(stored(QString()), kIdA);
         QVERIFY(rig.client.downloads.isEmpty());
-        QCOMPARE(rig.client.writesOf(kUpload).size(), 1);   // nothing re-sent over it
+        QCOMPARE(rig.client.writesOf(kUpload).size(), 1);
 
         rig.poke(QString(), { present(QString(), kIdB) });
         Q_EMIT rig.client.personalBackgroundDownloaded(
             rig.client.downloads.last().opId, QString(), true, present(QString(), kIdB),
             QByteArrayLiteral("<svg xmlns='http://www.w3.org/2000/svg'/>"), QString());
-        QCOMPARE(stored(QString()), kIdA);   // kept, not replaced
+        QCOMPARE(stored(QString()), kIdA);
         QCOMPARE(rig.state(), QStringLiteral("failed"));
     }
 
-    // Review M7, half one: pictures chosen before sync existed are uploaded
-    // only after the one-time notice. OK uploads each ONCE, with integer
-    // percentages only (canonical JSON), and marks it; a later start sends
-    // nothing. Fails on the first version, which uploaded at once.
     void earlierPicturesWaitForTheNoticeThenUploadOnce()
     {
-        Rig rig(/*signedIn=*/false);
+        Rig rig(false);
         rig.setLocal(QString(), Qt::darkCyan);
         rig.setLocal(kRoom, Qt::darkMagenta);
         QVERIFY(rig.client.writes.isEmpty());
@@ -417,7 +386,6 @@ private Q_SLOTS:
 
         rig.backdrops.acknowledgeMigration(false);
         QVERIFY(!rig.backdrops.migrationNoticeNeeded());
-        // One write at a time, the default first.
         QCOMPARE(rig.client.writes.size(), 1);
         const Write first = rig.client.writes.last();
         QCOMPARE(first.scope, QString());
@@ -446,8 +414,6 @@ private Q_SLOTS:
         QVERIFY(!rig.backdrops.migrationNoticeNeeded());
     }
 
-    // "Keep on this device only" in the notice turns the switch off for the
-    // account, uploading nothing.
     void theNoticeCanKeepPicturesOnThisDeviceOnly()
     {
         Rig rig(false);
@@ -464,15 +430,10 @@ private Q_SLOTS:
                  false);
     }
 
-    // Review M7, half two: the switch is ACCOUNT-WIDE. Nothing is written
-    // before the server's switch is known; an opt-out made on another device
-    // stops this one (no upload); turning it back on elsewhere resumes it.
-    // Fails on the first version, which uploaded on the local setting alone.
     void theServersSwitchDecidesBeforeAnyUpload()
     {
         markNoticeSeen();
         Rig rig;
-        // Not answered yet: a new picture waits.
         rig.setLocal(QString(), Qt::darkBlue);
         QVERIFY2(rig.client.writes.isEmpty(), "uploaded before the switch was read");
 
@@ -483,25 +444,18 @@ private Q_SLOTS:
         rig.setLocal(kRoom, Qt::darkRed);
         QVERIFY(rig.client.writes.isEmpty());
 
-        // Turned on again on another device.
         rig.poke(QString(), { cleared(QString()) });
         QVERIFY(rig.backdrops.syncEnabled());
         rig.answerFullRead({ cleared(QString()) });
         QVERIFY(!rig.client.writesOf(kUpload).isEmpty());
     }
 
-    // Review M1: a presentation change names the picture it is for. When the
-    // server holds another one ("changed"), this device follows the server
-    // (read, then download) instead of marking a picture it never saw, and
-    // reports no failure. A change queued behind this device's own upload
-    // names that upload. Fails on the first version: no expected id.
     void aPresentationChangeNamesItsPicture()
     {
         markNoticeSeen();
         Rig rig;
         rig.answerFullRead({});
         rig.setLocal(kRoom, Qt::darkYellow);
-        // A change while the upload is still in flight goes after it.
         QVERIFY(rig.backdrops.setPersonal(kRoom, QVariantMap{
             { QStringLiteral("dim"), 0.5 }, { QStringLiteral("fit"), QStringLiteral("tile") } }));
         QCOMPARE(rig.client.writes.size(), 1);
@@ -512,7 +466,6 @@ private Q_SLOTS:
         QVERIFY(change.path.isEmpty());
         QCOMPARE(requestOf(change).value(QStringLiteral("expected_id")).toString(), kIdA);
 
-        // Another device replaced the picture meanwhile.
         const int reads = int(rig.client.reads.size());
         rig.answerWrite(false, {}, QStringLiteral("changed"));
         QCOMPARE(rig.client.reads.size(), reads + 1);
@@ -525,10 +478,6 @@ private Q_SLOTS:
         QVERIFY(storedStore().value(QStringLiteral("pending")).toObject().isEmpty());
     }
 
-    // Review M3: a picture only this device has and a DIFFERENT one on the
-    // server are both kept. Nothing is uploaded over the server's and the
-    // local one is not deleted; the user picks. Fails on the first version,
-    // which migrated (uploaded) over the other device's picture.
     void aDifferentServerPictureIsKeptBothWays()
     {
         markNoticeSeen();
@@ -539,7 +488,6 @@ private Q_SLOTS:
         rig.restart();
         rig.answerFullRead({ present(QString(), kIdA), present(kRoom, kIdB) });
         QVERIFY2(rig.client.writes.isEmpty(), "uploaded over the other device's picture");
-        // Both synced pictures are fetched only to compare: they differ.
         QCOMPARE(rig.client.downloads.size(), 2);
         const QString defaultFile = storedRecord(QString()).value(QStringLiteral("file")).toString();
         rig.answerComparesDifferent();
@@ -549,12 +497,10 @@ private Q_SLOTS:
         QCOMPARE(conflicts.size(), 2);
         QCOMPARE(rig.backdrops.syncUnsaved(), 2);
 
-        // The synced one for every room...
         rig.backdrops.resolveConflict(QString(), false);
         QCOMPARE(rig.client.downloads.size(), 3);
         rig.answerDownload(rig.client.downloads.last(), kIdA, Qt::darkBlue);
         QCOMPARE(stored(QString()), kIdA);
-        // ...and this device's one for the room.
         rig.backdrops.resolveConflict(kRoom, true);
         QCOMPARE(rig.client.writes.size(), 1);
         QCOMPARE(rig.client.writes.last().mode, kUpload);
@@ -564,11 +510,6 @@ private Q_SLOTS:
         QCOMPARE(rig.backdrops.syncUnsaved(), 0);
     }
 
-    // Review M4: a removal (or presentation change) that could not reach the
-    // homeserver is OWED, and survives a restart: it is replayed, and until
-    // it lands the server's old copy is neither downloaded nor followed.
-    // Fails on the first version, which forgot it and downloaded the copy
-    // back.
     void owedChangesSurviveARestart()
     {
         markNoticeSeen();
@@ -585,7 +526,7 @@ private Q_SLOTS:
         rig.restart();
         rig.answerFullRead({ present(kRoom, kIdA) });
         QVERIFY2(rig.client.downloads.isEmpty(), "the removed picture came back");
-        QCOMPARE(rig.client.writes.size(), sent + 1);   // replayed
+        QCOMPARE(rig.client.writes.size(), sent + 1);
         const Write replay = rig.client.writes.last();
         QCOMPARE(replay.scope, kRoom);
         QCOMPARE(replay.mode, kClearMode);
@@ -595,10 +536,6 @@ private Q_SLOTS:
                  QStringLiteral("none"));
     }
 
-    // Review M5: downloads run two at a time; the per-room bound is checked
-    // BEFORE downloading; a picture that failed is not fetched again on
-    // every poke, only after Retry. Fails on the first version, which
-    // started every download at once.
     void downloadsAreQueuedBoundedAndNotRepeated()
     {
         Rig rig;
@@ -610,15 +547,13 @@ private Q_SLOTS:
         rig.answerDownload(rig.client.downloads.at(0), kIdA, Qt::red);
         QCOMPARE(rig.client.downloads.size(), 3);
 
-        // A failed picture waits for Retry.
         const Read failing = rig.client.downloads.at(1);
         Q_EMIT rig.client.personalBackgroundDownloaded(failing.opId, failing.scope, false,
                                                        {}, {}, QStringLiteral("network"));
-        // Never more than two at once, and the queue drains as they land.
         QCOMPARE(rig.client.downloads.size(), 4);
         rig.answerDownload(rig.client.downloads.at(2), kIdA, Qt::green);
         rig.answerDownload(rig.client.downloads.at(3), kIdA, Qt::blue);
-        QCOMPARE(rig.client.downloads.size(), 5);   // the last one, alone
+        QCOMPARE(rig.client.downloads.size(), 5);
         const int asked = int(rig.client.downloads.size());
         rig.poke(failing.scope, { present(failing.scope, kIdA) });
         for (int i = asked; i < rig.client.downloads.size(); ++i)
@@ -634,7 +569,6 @@ private Q_SLOTS:
 
     void thePerRoomBoundIsCheckedBeforeDownloading()
     {
-        // 64 rooms already have their own picture (files need not exist).
         QJsonObject rooms;
         for (int i = 0; i < ChatBackdropController::kMaxPersonalRooms; ++i) {
             rooms.insert(QStringLiteral("!full%1:example.org").arg(i),
@@ -656,14 +590,12 @@ private Q_SLOTS:
                  QStringLiteral("too_many"));
     }
 
-    // Review M6: a removal pass that skipped scopes (a room left, a newer
-    // schema) is PARTIAL, counted, never "ok".
     void aPartialRemovalIsReportedHonestly()
     {
         markNoticeSeen();
         Rig rig;
         rig.answerFullRead({});
-        rig.backdrops.setSyncEnabled(false, /*removeServerCopies=*/true);
+        rig.backdrops.setSyncEnabled(false,true);
         QCOMPARE(rig.client.clears.size(), 1);
         Q_EMIT rig.client.personalBackgroundsCleared(rig.client.clears.last().opId,
                                                      false, 2, 0, 1, true);
@@ -673,8 +605,6 @@ private Q_SLOTS:
         QCOMPARE(status.value(QStringLiteral("removeFailed")).toInt(), 1);
     }
 
-    // A failed upload is reported honestly and retried on request, not
-    // silently and not in a loop.
     void aFailedUploadIsReportedAndRetried()
     {
         markNoticeSeen();
@@ -699,8 +629,6 @@ private Q_SLOTS:
         QCOMPARE(stored(QString()), kIdA);
     }
 
-    // Removing a picture locally removes the server copy too, so another
-    // device and the next sign-in do not bring it back.
     void removingAPictureRemovesTheServerCopy()
     {
         markNoticeSeen();
@@ -716,10 +644,6 @@ private Q_SLOTS:
                  QStringLiteral("none"));
     }
 
-    // Off asks the user (QML) and then either keeps the server copies (and
-    // tells the homeserver the switch is off, for every device) or removes
-    // them; removing drops every "mirrors the server" mark, so turning sync
-    // on later uploads afresh instead of following a copy that is gone.
     void turningSyncOffKeepsOrRemovesTheServerCopies()
     {
         markNoticeSeen();
@@ -728,12 +652,11 @@ private Q_SLOTS:
         rig.setLocal(kRoom, Qt::darkGray);
         rig.answerWrite(true, present(kRoom, kIdA));
 
-        rig.backdrops.setSyncEnabled(false, /*removeServerCopies=*/false);
+        rig.backdrops.setSyncEnabled(false,false);
         QVERIFY(!rig.backdrops.syncEnabled());
         QVERIFY(rig.client.clears.isEmpty());
         QCOMPARE(rig.client.writes.last().mode, kSwitch);
         rig.answerWrite(true, {});
-        // Still the server's copy, but dormant: nothing can delete it now.
         QVERIFY(stored(kRoom).isEmpty());
         QCOMPARE(storedRecord(kRoom).value(QStringLiteral("was")).toString(), kIdA);
         QCOMPARE(rig.state(), QStringLiteral("off"));
@@ -741,7 +664,7 @@ private Q_SLOTS:
         Q_EMIT rig.client.personalBackgroundChanged(kRoom);
         QCOMPARE(rig.client.reads.size(), reads);
 
-        rig.backdrops.setSyncEnabled(false, /*removeServerCopies=*/true);
+        rig.backdrops.setSyncEnabled(false,true);
         QCOMPARE(rig.client.clears.size(), 1);
         QVERIFY(rig.client.clears.last().known.contains(kRoom));
         QVERIFY(stored(kRoom).isEmpty());
@@ -761,15 +684,12 @@ private Q_SLOTS:
                  true);
         rig.answerWrite(true, cleared(QString()));
         rig.answerFullRead({ cleared(kRoom) });
-        // Local-only again, so it is uploaded, not deleted by the "cleared".
         QCOMPARE(rig.client.writes.last().scope, kRoom);
         QCOMPARE(rig.client.writes.last().mode, kUpload);
         QCOMPARE(rig.backdrops.backdropFor(kRoom).value(QStringLiteral("source")).toString(),
                  QStringLiteral("personal-room"));
     }
 
-    // Removal asked while an upload is in flight waits for it, so the
-    // upload cannot land after the removal and resurrect the copy.
     void removalWaitsForAnUploadInFlight()
     {
         markNoticeSeen();
@@ -786,8 +706,6 @@ private Q_SLOTS:
         QVERIFY(stored(QString()).isEmpty());
     }
 
-    // After a sign-out this device holds nothing; signing in again reads the
-    // server copies and restores them.
     void aFreshSignInRestoresFromTheServer()
     {
         Rig rig;
@@ -805,7 +723,6 @@ private Q_SLOTS:
                  QStringLiteral("personal-default"));
         QVERIFY(rig.client.writes.isEmpty());
 
-        // Sign-out: answers for the old session are dropped.
         Q_EMIT rig.client.loggedOut();
         Q_EMIT rig.client.personalBackgroundDownloaded(9999, QString(), true,
                                                        present(QString(), kIdB),
@@ -813,13 +730,11 @@ private Q_SLOTS:
         QCOMPARE(rig.backdrops.syncStatus().value(QStringLiteral("pending")).toInt(), 0);
     }
 
-    // Review M8: what a sign-out would lose is counted, and the sign-out
-    // dialog shows it.
     void theSignOutDialogWarnsAboutUnsavedBackgrounds()
     {
         markNoticeSeen();
         Rig rig;
-        rig.setLocal(QString(), Qt::darkBlue);   // before the switch is known
+        rig.setLocal(QString(), Qt::darkBlue);
         QCOMPARE(rig.backdrops.syncUnsaved(), 1);
         rig.answerFullRead({});
         rig.answerWrite(true, present(QString(), kIdA));
@@ -833,16 +748,11 @@ private Q_SLOTS:
         QVERIFY(dialog > 0);
         QVERIFY2(warning > dialog, "the warning is not in the sign-out dialog");
         QVERIFY(qml.indexOf(QStringLiteral("app.backdrops.syncUnsaved"), warning) > warning);
-        // Owed removals are worded on their own line.
         const qsizetype removals = qml.indexOf(QStringLiteral("objectName: \"signOutOwedRemovals\""));
         QVERIFY(removals > dialog);
         QVERIFY(qml.indexOf(QStringLiteral("app.backdrops.syncOwedRemovals"), removals) > removals);
     }
 
-    // Review R1: a NEW picture whose upload fails must not lend a queued
-    // presentation change the id of the PREVIOUS picture. bgsync-2 fell back
-    // to the scope's last upload, sent the presentation against the old
-    // picture's id, and then marked the new picture as that old copy.
     void aFailedUploadNeverLendsItsPresentationAnEarlierId()
     {
         markNoticeSeen();
@@ -852,16 +762,15 @@ private Q_SLOTS:
         rig.answerWrite(true, present(kRoom, kIdA));
         QCOMPARE(stored(kRoom), kIdA);
 
-        rig.setLocal(kRoom, Qt::blue);                      // a new picture
+        rig.setLocal(kRoom, Qt::blue);
         QCOMPARE(rig.client.writes.last().mode, kUpload);
         QVERIFY(rig.backdrops.setPersonal(kRoom, QVariantMap{
-            { QStringLiteral("dim"), 0.55 } }));            // queued behind it
+            { QStringLiteral("dim"), 0.55 } }));
         rig.answerWrite(false, {}, QStringLiteral("network"));
         QVERIFY2(rig.client.writesOf(kPresentation).isEmpty(),
                  "a presentation was sent against the previous picture");
         QVERIFY(stored(kRoom).isEmpty());
         QVERIFY(storedStore().value(QStringLiteral("pending")).toObject().isEmpty());
-        // The retry uploads the new picture, with its current presentation.
         rig.backdrops.retrySync();
         const Write retry = rig.client.writes.last();
         QCOMPARE(retry.mode, kUpload);
@@ -870,11 +779,6 @@ private Q_SLOTS:
                  QStringLiteral("55"));
     }
 
-    // Review R3: another device's "Remove server copies" never deletes this
-    // device's pictures, now or later. The switch arrives with every read,
-    // so even a room read that answers "cleared" first is seen with the
-    // switch off; the marks go dormant, and turning sync on again here
-    // deletes nothing. Fails on bgsync-2, which deleted both pictures.
     void anotherDevicesRemovalNeverDeletesThisDevicesPictures()
     {
         markNoticeSeen();
@@ -886,7 +790,6 @@ private Q_SLOTS:
         rig.answerWrite(true, present(kRoom, kIdB));
         QCOMPARE(filesIn(rig.dir.path()), 2);
 
-        // The room's "cleared" arrives first, together with the switch off.
         rig.poke(kRoom, { cleared(kRoom) }, kOff);
         QVERIFY(!rig.backdrops.syncEnabled());
         Q_EMIT rig.client.personalBackgroundChanged(QString());
@@ -898,12 +801,9 @@ private Q_SLOTS:
                      .value(QStringLiteral("source")).toString(),
                  QStringLiteral("personal-default"));
 
-        // Turned on again HERE: the cleared copies delete nothing.
         rig.backdrops.setSyncEnabled(true);
         rig.answerWrite(true, {});
         rig.answerFullRead({ cleared(QString()), cleared(kRoom) });
-        // The room was written this session, so the full read's (store)
-        // answer for it is asked of the server again.
         rig.answerRead(kRoom, { cleared(kRoom) });
         QCOMPARE(filesIn(rig.dir.path()), 2);
         QCOMPARE(rig.backdrops.backdropFor(kRoom).value(QStringLiteral("source")).toString(),
@@ -911,10 +811,6 @@ private Q_SLOTS:
         QVERIFY(storedRecord(kRoom).value(QStringLiteral("was")).toString().isEmpty());
     }
 
-    // Review R4: a presentation edit made while sync is off keeps the
-    // picture's (dormant) mark and is OWED: turning sync on sends it for that
-    // picture, with no false conflict. bgsync-2 dropped the mark, and the
-    // same picture on the server then came back as a "conflict".
     void aPresentationEditWhileOffIsOwedNotAConflict()
     {
         markNoticeSeen();
@@ -923,12 +819,12 @@ private Q_SLOTS:
         rig.setLocal(kRoom, Qt::darkGreen);
         rig.answerWrite(true, present(kRoom, kIdA));
         rig.backdrops.setSyncEnabled(false, false);
-        rig.answerWrite(true, {});                    // the switch write
+        rig.answerWrite(true, {});
         const int sent = int(rig.client.writes.size());
 
         QVERIFY(rig.backdrops.setPersonal(kRoom, QVariantMap{
             { QStringLiteral("dim"), 0.7 } }));
-        QCOMPARE(rig.client.writes.size(), sent);    // off: nothing sent
+        QCOMPARE(rig.client.writes.size(), sent);
         QCOMPARE(storedStore().value(QStringLiteral("pending")).toObject()
                      .value(kRoom).toString(), QStringLiteral("presentation"));
 
@@ -944,9 +840,6 @@ private Q_SLOTS:
         QVERIFY(storedStore().value(QStringLiteral("pending")).toObject().isEmpty());
     }
 
-    // A removal owed for a room this account has left can never happen: it
-    // is dropped, rather than replayed for ever and pinning the sign-out
-    // warning.
     void anOwedRemovalForALeftRoomIsDropped()
     {
         markNoticeSeen();
@@ -963,8 +856,6 @@ private Q_SLOTS:
         QVERIFY(storedStore().value(QStringLiteral("pending")).toObject().isEmpty());
     }
 
-    // A removal pass that did not finish is retried as a REMOVAL, without
-    // turning sync on (which would upload this device's pictures).
     void aRemovalIsRetriedAsARemoval()
     {
         markNoticeSeen();
@@ -981,15 +872,10 @@ private Q_SLOTS:
         rig.backdrops.retryRemoval();
         QCOMPARE(rig.client.clears.size(), 2);
         QVERIFY(rig.client.clears.last().known.contains(kRoom));
-        QCOMPARE(rig.client.writes.size(), sent);   // nothing uploaded, no switch
+        QCOMPARE(rig.client.writes.size(), sent);
         QVERIFY(!rig.backdrops.syncEnabled());
     }
 
-    // Live, 2026-10-07: a read can be answered from a moment before this
-    // device's own write landed. A read issued while the write was in flight
-    // and answered after it must not be acted on for that scope: a stale
-    // "cleared" deleted the picture the user had just chosen. It is asked
-    // again instead. Fails without the op-ordering guard.
     void aReadThatPredatesOurOwnWriteIsAskedAgain()
     {
         markNoticeSeen();
@@ -997,8 +883,6 @@ private Q_SLOTS:
         rig.answerFullRead({});
         rig.setLocal(kRoom, Qt::darkGreen);
         QCOMPARE(rig.client.writes.size(), 1);
-        // The room is opened while the upload is in flight (its first read);
-        // the server answers that read before the upload's PUT lands.
         rig.backdrops.requestRoom(kRoom);
         const Read early = rig.client.reads.last();
         QCOMPARE(early.scope, kRoom);
@@ -1010,7 +894,6 @@ private Q_SLOTS:
         QCOMPARE(filesIn(rig.dir.path()), 1);
         QCOMPARE(rig.backdrops.personalFor(kRoom).isEmpty(), false);
         QCOMPARE(stored(kRoom), kIdB);
-        // ...and asked of the server again, which is then believed.
         QVERIFY(rig.client.reads.size() > readsBefore);
         QCOMPARE(rig.client.reads.last().scope, kRoom);
         QVERIFY(rig.client.reads.last().opId > early.opId);
@@ -1019,9 +902,6 @@ private Q_SLOTS:
         QVERIFY(rig.client.downloads.isEmpty());
     }
 
-    // The same for the switch: a read issued before this device turned sync
-    // off, answered after, still says "on" and must not turn it back on.
-    // Fails without the guard.
     void aReadIssuedBeforeOurSwitchWriteCannotUndoIt()
     {
         markNoticeSeen();
@@ -1035,16 +915,11 @@ private Q_SLOTS:
         QVERIFY(!rig.backdrops.syncEnabled());
         Q_EMIT rig.client.personalBackgroundsRead(early.opId, early.scope, {}, {}, kOn);
         QVERIFY2(!rig.backdrops.syncEnabled(), "a stale read turned sync back on");
-        // A read issued after the write is believed (another device's change).
         Q_EMIT rig.client.personalBackgroundChanged(QString());
         rig.answerRead(QString(), {}, kOn);
         QVERIFY(rig.backdrops.syncEnabled());
     }
 
-    // A full read takes every room from the store, which lags this device's
-    // own writes until sync echoes them: a room written this session is
-    // asked of the server instead. Fails without the guard (the stale
-    // "cleared" dropped the mark and left the picture local-only).
     void aFullReadAsksTheServerForARoomWeWrote()
     {
         markNoticeSeen();
@@ -1052,8 +927,6 @@ private Q_SLOTS:
         rig.answerFullRead({});
         rig.setLocal(kRoom, Qt::darkGreen);
         rig.answerWrite(true, present(kRoom, kIdB));
-        // Off and on again here (the live sequence): turning it on reads
-        // everything again.
         rig.backdrops.setSyncEnabled(false, false);
         rig.answerWrite(true, {});
         rig.backdrops.setSyncEnabled(true, false);
@@ -1066,8 +939,6 @@ private Q_SLOTS:
         QCOMPARE(filesIn(rig.dir.path()), 1);
     }
 
-    // A download names the picture the read reported; one that found
-    // another picture is not a failure of that picture, it reads again.
     void aDownloadNamesItsPictureAndAChangeReadsAgain()
     {
         markNoticeSeen();
@@ -1085,12 +956,6 @@ private Q_SLOTS:
         QCOMPARE(rig.client.downloadIds.last(), kIdC);
     }
 
-    // Live, 2026-10-07: after "Remove server copies" every device keeps its
-    // pictures local-only, and turning sync on again migrates them on every
-    // device AT ONCE. Each upload replaced the one before it and each loser
-    // downloaded the winner's over its own, unasked. A migration now fills
-    // only an empty place; one another device filled first is a conflict.
-    // Fails on the plain upload.
     void aMigrationNeverOverwritesAnotherDevicesPicture()
     {
         markNoticeSeen();
@@ -1102,7 +967,6 @@ private Q_SLOTS:
         QCOMPARE(rig.client.writesOf(kUpload).size(), 1);
         QCOMPARE(requestOf(rig.client.writes.last())
                      .value(QStringLiteral("only_if_empty")).toBool(), true);
-        // Another device got there first.
         rig.answerWrite(false, {}, QStringLiteral("changed"));
         QCOMPARE(rig.client.reads.last().scope, kRoom);
         rig.answerRead(kRoom, { present(kRoom, kIdA) });
@@ -1112,16 +976,11 @@ private Q_SLOTS:
         QCOMPARE(storedRecord(kRoom).value(QStringLiteral("file")).toString(), mine);
         QCOMPARE(filesIn(rig.dir.path()), 1);
         QCOMPARE(rig.state() == QStringLiteral("failed"), false);
-        // A picture the user picks now is theirs to place: no such limit.
         rig.setLocal(QString(), Qt::darkRed);
         QCOMPARE(requestOf(rig.client.writes.last())
                      .contains(QStringLiteral("only_if_empty")), false);
     }
 
-    // Live, 2026-10-07: the notice stayed up after its only picture had
-    // turned into a conflict (the other device had one for the same place),
-    // over a card that already asked the real question. It speaks only while
-    // a picture still waits for it. Fails on the latch alone.
     void theNoticeGoesWhenNothingWaitsForIt()
     {
         Rig rig(false);
@@ -1138,12 +997,6 @@ private Q_SLOTS:
         QCOMPARE(rig.client.writesOf(kUpload).size(), 0);
     }
 
-    // Review N2: "only if empty" is a check and a PUT, two requests. Two
-    // devices can both find the place empty and both write it; the one that
-    // wrote first then reads the other's picture. Its own mark is not trusted
-    // until a read confirms it, so that is a conflict, never a download over
-    // this device's picture (whose file the orphan sweep would then delete).
-    // Fails while the migration's mark is trusted like any other.
     void anUnconfirmedMarkNeverDownloadsOverThisPicture()
     {
         markNoticeSeen();
@@ -1157,7 +1010,6 @@ private Q_SLOTS:
         QCOMPARE(stored(kRoom), kIdA);
         const QString mine = storedRecord(kRoom).value(QStringLiteral("file")).toString();
 
-        // The other device's PUT landed after ours.
         rig.poke(kRoom, { present(kRoom, kIdB) });
         rig.answerComparesDifferent();
         QCOMPARE(rig.backdrops.syncConflicts().size(), 1);
@@ -1167,8 +1019,6 @@ private Q_SLOTS:
         QCOMPARE(filesIn(rig.dir.path()), 1);
     }
 
-    // ...and once a read shows the server holds our upload, the mark is an
-    // ordinary one: a later change on another device is followed.
     void aConfirmedMarkFollowsLaterChanges()
     {
         markNoticeSeen();
@@ -1187,11 +1037,6 @@ private Q_SLOTS:
         QVERIFY(rig.backdrops.syncConflicts().isEmpty());
     }
 
-    // Review LOW (a): re-enabling after a removal made every place a
-    // "conflict" between two copies of ONE picture (4 identical cards live).
-    // The synced picture is compared first: the same bytes, the file this one
-    // was made from, or the same pixels adopt it with no card. Fails while
-    // every different id is asked about.
     void theSamePictureComingBackIsNotAConflict()
     {
         markNoticeSeen();
@@ -1205,12 +1050,10 @@ private Q_SLOTS:
         for (int i = 0; i < 2; ++i) {
             const Read d = rig.client.downloads.at(i);
             if (d.scope == kRoom) {
-                // The very bytes this device holds.
                 Q_EMIT rig.client.personalBackgroundDownloaded(
                     d.opId, d.scope, true, present(d.scope, kIdB),
                     rig.localBytes(kRoom), QString());
             } else {
-                // Another encoding (PNG) of the same pixels.
                 QImage image(40, 30, QImage::Format_RGB32);
                 image.fill(QColor(Qt::darkGreen));
                 QByteArray png;
@@ -1221,10 +1064,7 @@ private Q_SLOTS:
                     d.opId, d.scope, true, present(d.scope, kIdA), png, QString());
             }
         }
-        // The same bytes: adopted, no card.
         QCOMPARE(stored(kRoom), kIdB);
-        // The same pixels in other bytes: still a card (review-4 LOW 1),
-        // with the synced one pre-selected; nothing adopted or replaced.
         const QVariantList conflicts = rig.backdrops.syncConflicts();
         QCOMPARE(conflicts.size(), 1);
         QCOMPARE(conflicts.first().toMap().value(QStringLiteral("scope")).toString(), QString());
@@ -1232,16 +1072,11 @@ private Q_SLOTS:
         QVERIFY(stored(QString()).isEmpty());
         QCOMPARE(filesIn(rig.dir.path()), 2);
         QVERIFY(rig.client.writes.isEmpty());
-        // ...and the hint survives a reload.
         Q_EMIT rig.settings.sessionChanged();
         QVERIFY(rig.backdrops.syncConflicts().first().toMap()
                     .value(QStringLiteral("looksSame")).toBool());
     }
 
-    // Review F2: a reload (start-up, or sessionChanged for the same account)
-    // read the store back through cleanPersonalRecord, which dropped
-    // `unconfirmed`: the mark was silently confirmed and the N2 race was
-    // back. Fails while the flag is not kept.
     void anUnconfirmedMarkSurvivesAReload()
     {
         markNoticeSeen();
@@ -1252,7 +1087,7 @@ private Q_SLOTS:
         rig.answerFullRead({});
         rig.answerWrite(true, present(kRoom, kIdA));
         const QString mine = storedRecord(kRoom).value(QStringLiteral("file")).toString();
-        Q_EMIT rig.settings.sessionChanged();   // the same account: a reload
+        Q_EMIT rig.settings.sessionChanged();
         QVERIFY(storedRecord(kRoom).value(QStringLiteral("unconfirmed")).toBool());
         rig.poke(kRoom, { present(kRoom, kIdB) });
         rig.answerComparesDifferent();
@@ -1262,15 +1097,11 @@ private Q_SLOTS:
                  "this device's picture was replaced after a reload");
     }
 
-    // Two DIFFERENT pictures that look alike once shrunk (random noise
-    // averages to grey) are a conflict, not "the same": live, 2026-10-07,
-    // a 32x32 comparison adopted another device's noise picture as this one.
     void lookalikeNoiseIsStillAConflict()
     {
         markNoticeSeen();
         Rig rig(false);
         auto noise = [](quint32 seed) {
-            // Large enough that a 32x32 average is near-flat grey.
             QImage image(1600, 1200, QImage::Format_RGB32);
             QRandomGenerator gen(seed);
             for (int y = 0; y < image.height(); ++y)
@@ -1298,10 +1129,6 @@ private Q_SLOTS:
         QVERIFY(stored(kRoom).isEmpty());
     }
 
-    // Review LOW (b): initial sync pokes every room at once, and each poke
-    // was a read. Room notices wait for the start-up full read; one that
-    // arrives while it is out is read after it; at most six single reads are
-    // in flight, the rest queued, none dropped.
     void startupNoticesWaitAndReadsAreCapped()
     {
         markNoticeSeen();
@@ -1311,12 +1138,11 @@ private Q_SLOTS:
             rooms.append(QStringLiteral("!r%1:example.org").arg(i));
             rig.client.roomList.append(joined(rooms.last()));
         }
-        QCOMPARE(rig.client.reads.size(), 1);   // the full read, unanswered
+        QCOMPARE(rig.client.reads.size(), 1);
         for (const QString &room : std::as_const(rooms))
             Q_EMIT rig.client.personalBackgroundChanged(room);
         QCOMPARE(rig.client.reads.size(), 1);
         rig.answerFullRead({});
-        // Read after it, six at a time.
         auto inFlight = [&rig] {
             return int(rig.client.reads.size()) - 1 - rig.answeredReads;
         };
@@ -1333,8 +1159,6 @@ private Q_SLOTS:
         QCOMPARE(asked.size(), 10);
     }
 
-    // A write whose answer never comes is failed after a bound, and the next
-    // queued write goes; its late answer is dropped.
     void aWriteThatNeverAnswersTimesOut()
     {
         markNoticeSeen();
@@ -1351,13 +1175,9 @@ private Q_SLOTS:
                  QStringLiteral("timeout"));
         Q_EMIT rig.client.personalBackgroundWritten(stuck.opId, stuck.scope, true,
                                                     present(QString(), kIdA), {});
-        QVERIFY(stored(QString()).isEmpty());   // the late answer was dropped
+        QVERIFY(stored(QString()).isEmpty());
     }
 
-    // The Settings contract: one switch, a privacy sentence that names the
-    // administrator, and turning it OFF always goes through the question
-    // about the server copies. The corner prompt answers both one-time
-    // questions both ways.
     void theSettingsAndPromptContracts()
     {
         QFile file(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/ChatBackgroundSettings.qml"));
@@ -1374,8 +1194,6 @@ private Q_SLOTS:
         const qsizetype dialog = qml.indexOf(QStringLiteral("id: syncOffDialog"));
         QVERIFY(dialog > 0);
         QVERIFY(qml.indexOf(offCall) > dialog);
-        // The partial removal names both counts; a removal is retried as a
-        // removal; other devices keep their pictures, and the copy says so.
         QVERIFY(qml.contains(QStringLiteral(".arg(s.removed).arg(s.removeFailed)")));
         QVERIFY(qml.contains(QStringLiteral("app.backdrops.retryRemoval()")));
         QVERIFY(qml.contains(QStringLiteral("devices keep their own copies until you")));
@@ -1391,12 +1209,9 @@ private Q_SLOTS:
                                   "resolveConflict(root.conflict.scope, false)" })
             QVERIFY2(p.contains(QLatin1String(call)), call);
         QVERIFY(!p.contains(bareText));
-        // Off is account-wide, and the notice says where the key lives.
         QVERIFY(p.contains(QStringLiteral("qsTr(\"Don't keep them on my homeserver\")")));
         QVERIFY(!p.contains(QStringLiteral("Keep on this device only")));
         QVERIFY(p.contains(QStringLiteral("administrator")));
-        // The notice's long second label is not squeezed beside the first:
-        // its buttons stack (seen clipped live in a two-column row).
         QVERIFY(p.contains(QStringLiteral("columns: root.noticeShown ? 1 : 2")));
         QFile main(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/Main.qml"));
         QVERIFY(main.open(QIODevice::ReadOnly | QIODevice::Text));

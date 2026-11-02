@@ -1,15 +1,5 @@
 #pragma once
 
-// The status-strip line for a room the server confirmed we are no longer in
-// (MatrixClient::roomMembershipLost, rust/src/membership_lost.rs). Header-only
-// and pure so the wording is decided in one place.
-//
-// A kick or a ban is always said: the room leaves the list and the user did
-// not ask for that. Our own leave from another session, or an exit whose
-// cause the server did not show, is said only when the room was open, where
-// the pane closing under the reader needs a reason; a list row that goes
-// because the user left it elsewhere is what they did.
-
 #include <QCoreApplication>
 #include <QString>
 
@@ -46,4 +36,4 @@ inline QString membershipLostNotice(const QString &loss, const QString &roomName
                          "MembershipLostNotice", "You are no longer in this room.");
 }
 
-} // namespace lightning::rooms
+}

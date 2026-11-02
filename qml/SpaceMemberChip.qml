@@ -3,12 +3,9 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// One member of a Space on Space Home: avatar and name in a pill, sized to
-// its content up to 240 px. A tap asks for the member's profile card.
 Rectangle {
     id: spaceMemberChip
     required property var modelData
-    // Empty for isolated previews; real Space Home supplies its room id.
     property string spaceId: ""
     signal profileRequested(var member)
     signal moderationRequested(var member, string action)
@@ -27,8 +24,6 @@ Rectangle {
     border.color: spaceMemberChip.activeFocus ? AppTheme.focusRing
                                               : AppTheme.border
     border.width: spaceMemberChip.activeFocus ? 2 : 1
-    // A chip opens a profile card, so it is a Tab stop with a ring and a
-    // name a screen reader can speak.
     activeFocusOnTab: true
     Accessible.role: Accessible.Button
     Accessible.name: spaceMemberChip.modelData.displayName
@@ -48,8 +43,6 @@ Rectangle {
             event.accepted = true
         }
     }
-    // The row's own side margins, so the name gets all of its width; a
-    // fractional text width is rounded up, never down into an elision.
     implicitWidth: Math.min(Math.ceil(chipRow.implicitWidth)
                             + chipRow.anchors.leftMargin
                             + chipRow.anchors.rightMargin, 240)

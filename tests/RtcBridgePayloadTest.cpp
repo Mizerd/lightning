@@ -1,11 +1,3 @@
-// Fields the Rust lane computes must survive the bridge. SfuCallController's
-// tests drive a fake client that emits the signal directly, so only the real
-// dispatcher (`handleRustEventForTest`) with the real payload shows whether
-// `RustSdkMatrixClient::handleRustEvent` carries a field.
-//
-// `delayed_category` in `rtc_membership_published` says whether a refused
-// delayed event means "no MSC4140 endpoint" (permanent) or "this write was
-// refused" (transient).
 
 #include "app/SettingsManager.h"
 
@@ -27,9 +19,6 @@ class RtcBridgePayloadTest : public QObject
 
 #ifdef ENABLE_RUST_SDK_BACKEND
 private:
-    /// The payload rust/src/rtc.rs enqueues, field for field. Spelled out
-    /// here rather than built by a helper so that a rename on the Rust side
-    /// shows up as a failing test and not as a silently absent field.
     static QJsonObject publishedEvent(const QString &delayId,
                                       const QString &delayedCategory)
     {
@@ -72,14 +61,10 @@ private slots:
             client.m_rustHandle = nullptr;
         });
         const auto before = client.m_opCounter;
-        // With no signed-in SDK client Rust refuses synchronously. The
-        // operation must still reach that validation, rather than being
-        // dropped by the C++ bridge because the picker supplied no name.
         QCOMPARE(client.rtcSendCallReaction(QStringLiteral("!r:example.org"),
                                            QStringLiteral("$membership"),
                                            emoji, QString()), 0ULL);
         QCOMPARE(client.m_opCounter, before + 1);
-        // Empty emoji remains a bridge-level refusal.
         client.rtcSendCallReaction(QStringLiteral("!r:example.org"),
                                    QStringLiteral("$membership"),
                                    QString(), QString());
@@ -87,9 +72,6 @@ private slots:
 #endif
     }
 
-    /// rooms.rs reports `own_can_publish_rtc_membership` as null when our own
-    /// member is not in the store yet. That must reach the call gate as
-    /// UNKNOWN (no key), not as false, which would read as refused.
     void anUnknownCallPermissionIsNotReportedAsRefused()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -113,7 +95,6 @@ private slots:
         QVERIFY2(!snapshot.contains(QStringLiteral("canPublishCallMembership")),
                  "an unknown permission crossed the bridge as a refusal");
 
-        // A real answer still crosses, both ways.
         event.insert(QStringLiteral("own_can_publish_rtc_membership"), false);
         client.handleRustEventForTest(event);
         QCOMPARE(spy.count(), 1);
@@ -128,9 +109,6 @@ private slots:
 #endif
     }
 
-    /// rooms.rs's posting/redaction answers and own membership must reach
-    /// RoomInfoController: null is unknown (no key), a bool crosses, and a
-    /// not_joined answer still says what the membership is (B027/B123).
     void theSendRedactAndMembershipAnswersSurviveTheBridge()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -161,7 +139,6 @@ private slots:
         QCOMPARE(snapshot.value(QStringLiteral("ownMembership")).toString(),
                  QStringLiteral("joined"));
 
-        // Two DIFFERENT answers, so a swapped key fails.
         event.insert(QStringLiteral("own_can_send_message"), false);
         event.insert(QStringLiteral("own_can_redact_other"), true);
         client.handleRustEventForTest(event);
@@ -185,10 +162,6 @@ private slots:
 #endif
     }
 
-    /// rooms.rs's open-room facts (`room_own_permissions`, the composer's
-    /// posting block and moderator Delete with no room panel open) cross as
-    /// the room_members answers do: null is unknown (no key), a bool crosses
-    /// under its own key, and the membership and op id always do.
     void theOpenRoomFactsSurviveTheBridge()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -221,7 +194,6 @@ private slots:
         QCOMPARE(facts.value(QStringLiteral("ownMembership")).toString(),
                  QStringLiteral("joined"));
 
-        // Two DIFFERENT answers, so a swapped key fails.
         event.insert(QStringLiteral("own_can_send_message"), false);
         event.insert(QStringLiteral("own_can_redact_other"), true);
         client.handleRustEventForTest(event);
@@ -243,9 +215,6 @@ private slots:
 #endif
     }
 
-    /// The open-room answer's slash-command facts cross under their own keys
-    /// (six DIFFERENT values, so a swapped key fails); null stays absent
-    /// (unknown, never a refusal), and an answer without the keys carries none.
     void theOpenRoomModerationFactsSurviveTheBridge()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -292,8 +261,6 @@ private slots:
 #endif
     }
 
-    /// A typing set nothing refreshes is dropped (a missed "stopped" update
-    /// left "X is typing" up for the whole session); a refreshed one is kept.
     void aTypingSetNobodyRefreshesExpires()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -320,25 +287,19 @@ private slots:
 
         client.handleRustEventForTest(typing);
         QCOMPARE(client.typingUsersFor(room).size(), 1);
-        // A refresh (the same set again) restarts the clock.
         QTest::qWait(200);
         client.handleRustEventForTest(typing);
         QTest::qWait(200);
         QCOMPARE(client.typingUsersFor(room).size(), 1);
-        // Silence: dropped, and the indicator is told.
         const int before = changed.size();
         QTRY_VERIFY_WITH_TIMEOUT(client.typingUsersFor(room).isEmpty(), 2000);
         QVERIFY(changed.size() > before);
-        // An explicit stop is not turned into an expiry later.
         typing.insert(QStringLiteral("users"), QJsonArray{});
         client.handleRustEventForTest(typing);
         QVERIFY(client.typingUsersFor(room).isEmpty());
 #endif
     }
 
-    /// A typist who left (kicked, banned) gets no typing stop from the server;
-    /// a full roster without them drops them from the indicator, a partial or
-    /// truncated one cannot prove they left (B026).
     void aFullRosterDropsTypistsWhoAreNoLongerJoined()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -387,11 +348,9 @@ private slots:
                                      QStringLiteral("banned"))});
         QSignalSpy typingSpy(&client, &MatrixClient::typingChanged);
 
-        // A partial roster proves nothing.
         roster.insert(QStringLiteral("partial"), true);
         client.handleRustEventForTest(roster);
         QCOMPARE(client.typingUsersFor(room).size(), 2);
-        // Nor does a truncated one.
         roster.insert(QStringLiteral("partial"), false);
         roster.insert(QStringLiteral("truncated"), true);
         client.handleRustEventForTest(roster);
@@ -406,9 +365,6 @@ private slots:
 #endif
     }
 
-    /// The room payload's joined head count and join rule reach RoomInfo, so
-    /// the room list's Leave can say whether the room would be left empty
-    /// (B133).
     void theJoinedCountAndJoinRuleReachTheRoom()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -442,9 +398,6 @@ private slots:
         SettingsManager settings;
         RustSdkMatrixClient client(&settings);
         QSignalSpy spy(&client, &MatrixClient::rtcMembershipPublished);
-        // A homeserver with no MSC4140 endpoint at all: no delay id, and the
-        // category that says the absence is PERMANENT rather than a refusal
-        // this once. rtc.rs latches on exactly this vocabulary.
         client.handleRustEventForTest(
             publishedEvent(QString(), QStringLiteral("unrecognized")));
         QCOMPARE(spy.count(), 1);
@@ -452,14 +405,10 @@ private slots:
         QCOMPARE(args.at(1).toBool(), true);
         QCOMPARE(args.at(3).toString(), QStringLiteral("$evt"));
         QVERIFY(args.at(4).toString().isEmpty());
-        // The field under test. Empty here is the defect, not a default.
         QCOMPARE(args.at(5).toString(), QStringLiteral("unrecognized"));
 #endif
     }
 
-    /// `auto_key_recovery`'s `inconclusive` count must survive the bridge: it
-    /// is what distinguishes one downloaded session out of 32 from a server
-    /// that refused thirty-one times.
     void theInconclusiveCountSurvivesTheBridge()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -484,12 +433,10 @@ private slots:
         QCOMPARE(args.at(0).toString(), QStringLiteral("auto_key_recovery"));
         QCOMPARE(args.at(1).toString(), QStringLiteral("ok"));
         QCOMPARE(args.at(2).toULongLong(), 1ULL);
-        // The field under test. 0 here is the defect, not a default.
         QCOMPARE(args.at(3).toULongLong(), 31ULL);
 #endif
     }
 
-    /// A kind with no such notion must report zero rather than stale data.
     void anEventWithoutTheCountReportsZero()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -518,8 +465,6 @@ private slots:
 #ifndef ENABLE_RUST_SDK_BACKEND
         QSKIP("needs the Rust backend");
 #else
-        // Success must not invent a reason: an empty `delayed_category` beside
-        // a non-empty delay id means nothing went wrong.
         SettingsManager settings;
         RustSdkMatrixClient client(&settings);
         QSignalSpy spy(&client, &MatrixClient::rtcMembershipPublished);

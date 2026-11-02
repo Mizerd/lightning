@@ -4,11 +4,9 @@
 
 namespace {
 
-// Ceiling on preview size, whatever the picker requests: readable on high-DPI
-// screens, cheap enough to grab per row, and never a full-resolution copy.
 constexpr int kMaxEdge = 640;
 
-} // namespace
+}
 
 ShareSourceImageProvider::ShareSourceImageProvider()
     : QQuickImageProvider(QQuickImageProvider::Image)
@@ -18,8 +16,6 @@ ShareSourceImageProvider::ShareSourceImageProvider()
 QImage ShareSourceImageProvider::requestImage(const QString &id, QSize *size,
                                               const QSize &requestedSize)
 {
-    // A null image is a valid answer (the picker then draws its glyph); a
-    // window can close between being listed and drawn.
     QImage image;
 
     const int edge = requestedSize.isValid() && requestedSize.width() > 0

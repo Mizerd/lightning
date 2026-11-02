@@ -29,7 +29,7 @@
 #include "app/SingleInstanceGuard.h"
 #include "app/StartupChecks.h"
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-#include "app/ScreenshotDemoController.h"  // demo CLI validation (dev builds only)
+#include "app/ScreenshotDemoController.h"
 #endif
 #include "crypto/QrImageProvider.h"
 #include "gif/GifBuildKeys.h"
@@ -83,7 +83,6 @@
 #include <QIcon>
 #include <QLibraryInfo>
 #include <QQmlApplicationEngine>
-// Needed by the software-renderer fallback in every build.
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
@@ -122,13 +121,11 @@
 #endif
 
 namespace {
-/// Lightning itself set QT_AUDIO_BACKEND (see QtAudioBackendChoice.h), as
-/// opposed to the user; reported by --call-sounds-status with its reason.
 bool g_qtAudioBackendSetHere = false;
 const char *g_qtAudioBackendReason = "";
 QString g_qtAudioBackendLine;
 Q_LOGGING_CATEGORY(lcQtAudioBackend, "lightning.calls.sound")
-} // namespace
+}
 
 namespace {
 
@@ -136,18 +133,11 @@ using lightning::backendFromName;
 using lightning::backendNameFor;
 
 #ifdef Q_OS_WIN
-// The Windows binary is a GUI-subsystem PE, so it attaches to the parent
-// console (when there is one) to keep --version/--help and logging usable;
-// --console forces a visible console.
-//
-// Returns true when the handle is an inherited redirect (file or pipe). Must
-// be checked before AttachConsole, which replaces the standard handles.
 bool standardHandleAlreadyGoesSomewhere(DWORD which)
 {
     const HANDLE h = GetStdHandle(which);
     if (h == nullptr || h == INVALID_HANDLE_VALUE)
         return false;
-    // FILE_TYPE_CHAR is a console or NUL; disk files and pipes are redirects.
     const DWORD type = GetFileType(h) & ~DWORD(FILE_TYPE_REMOTE);
     return type == FILE_TYPE_DISK || type == FILE_TYPE_PIPE;
 }
@@ -177,10 +167,6 @@ void configureWindowsConsole(bool forceAlloc)
 }
 #endif
 
-// --log-file: mirror the diagnostic log to a file. On Windows stdout is
-// reopened onto the console, so a shell redirect cannot capture it. The file
-// carries exactly what the console does (no tokens, keys or message bodies)
-// and is appended to.
 namespace {
 using lightning::logging::AsyncLogSink;
 using lightning::logging::processLogSink;
@@ -207,8 +193,6 @@ std::atomic<QtMessageHandler> g_previousHandler{nullptr};
 void logFileHandler(QtMsgType type, const QMessageLogContext &context,
                     const QString &message)
 {
-    // The always-on rolling log (Settings -> About -> Export logs). Same
-    // rules: queue only, never wait.
     if (AsyncLogSink *rolling = lightning::logexport::rollingLogSink()) {
         if (type == QtFatalMsg) {
             rolling->logFatal(context.category, message,
@@ -217,8 +201,6 @@ void logFileHandler(QtMsgType type, const QMessageLogContext &context,
             rolling->log(type, context.category, message);
         }
     }
-    // First: it never blocks and stamps the line now, so a stalled stderr
-    // can neither hold it back nor re-date it.
     if (AsyncLogSink *sink = processLogSink()) {
         if (type == QtFatalMsg) {
             // Qt aborts when the handlers return: the line is queued past
@@ -233,9 +215,6 @@ void logFileHandler(QtMsgType type, const QMessageLogContext &context,
         previous(type, context, message);
 }
 
-// Append program output verbatim to the --log-file, if one is open. The
-// status commands print to stdout rather than log, so the message handler
-// never sees their output.
 void mirrorToLogFile(const QString &text)
 {
     if (text.isEmpty())
@@ -244,10 +223,6 @@ void mirrorToLogFile(const QString &text)
         sink->writeVerbatim(text);
 }
 
-// Registered with atexit, so it runs on a return from main() and on exit()
-// alike (QCommandLineParser exits directly): what is queued reaches the
-// file before the process ends, the status commands' output included.
-// Bounded, so a stalled file delays the exit by kShutdownMs at most.
 void flushLogFileAtExit()
 {
     if (AsyncLogSink *sink = processLogSink())
@@ -256,8 +231,6 @@ void flushLogFileAtExit()
         rolling->shutdown(AsyncLogSink::kShutdownMs);
 }
 
-// Last in the chain: stands in for Qt's own stderr writer on a terminal, where
-// Qt would not use the journal either.
 void colourLogHandler(QtMsgType type, const QMessageLogContext &context,
                       const QString &message)
 {
@@ -276,8 +249,6 @@ void installLogColours()
     }
 }
 
-// One handler serves both destinations; whichever is installed first
-// installs it, and the second finds it there.
 void ensureLogHandlerInstalled()
 {
     static std::atomic<bool> installed{false};
@@ -285,10 +256,8 @@ void ensureLogHandlerInstalled()
         return;
     g_previousHandler.store(qInstallMessageHandler(logFileHandler));
 }
-} // namespace
+}
 
-// Drop-in for `QTextStream out(stdout)` that also mirrors to --log-file, a
-// whole line at a time so it interleaves with log lines as on the console.
 class DiagnosticStream
 {
 public:
@@ -327,7 +296,6 @@ private:
             QTextStream out(m_device);
             out << text;
         }
-        // Flush per line so an abort does not lose buffered output.
         std::fflush(m_device);
         mirrorToLogFile(text);
     }
@@ -356,10 +324,7 @@ void installLogFile(const QString &path)
         return;
     }
     file->setPermissions(QFile::ReadOwner | QFile::WriteOwner);
-    // The writer owns the file from here, so not even the header can block
-    // this thread. Never freed; see processLogSink().
     auto *sink = new AsyncLogSink(std::unique_ptr<QIODevice>(file));
-    // Local logs carry account slugs and store paths; say so up front.
     sink->writeVerbatim(QStringLiteral(
         "# Lightning debug log. Contains Matrix user ids and local file "
         "paths; never message content, keys or tokens. Review before "
@@ -369,15 +334,8 @@ void installLogFile(const QString &path)
     ensureLogHandlerInstalled();
 }
 
-// The rolling log: the last few MB of the application's own log, written only
-// when the user turned on "Keep a diagnostic log" (Settings -> About), so
-// "Export logs" has something to export after the problem already happened. Cache directory (expendable; follows a portable folder),
-// append-only, bounded (RollingLimits), coalesced to about one write per
-// second. LIGHTNING_NO_ROLLING_LOG=1 is a hard off.
 void installRollingLog()
 {
-    // The handler is installed either way: it costs two atomic loads per
-    // message, and "Keep a diagnostic log" can be switched on at runtime.
     static std::once_flag hooks;
     std::call_once(hooks, [] { std::atexit(flushLogFileAtExit); });
     ensureLogHandlerInstalled();
@@ -386,8 +344,6 @@ void installRollingLog()
     if (cache.isEmpty())
         return;
     const QString dir = cache + QStringLiteral("/logs");
-    // Known even while the log is off, so what an earlier session saved can
-    // still be exported.
     lightning::logexport::setRollingLogDirectory(dir);
     if (!lightning::logexport::keepLogEnabled())
         return;
@@ -398,9 +354,6 @@ void installRollingLog()
 #define LIGHTNING_BUILD_TYPE "unknown"
 #endif
 
-// Non-secret build metadata for --build-info, as `key: value` lines that CI
-// asserts on. Never prints keys, tokens, URLs or account data;
-// gif_keys_embedded reports only whether the compiled keys are non-empty.
 QString buildInfoString()
 {
     const bool rustCompiled =
@@ -446,7 +399,6 @@ QString buildInfoString()
     out += QStringLiteral("source: %1\n").arg(QLatin1String(LIGHTNING_SOURCE_SHA));
     out += QStringLiteral("target: %1\n").arg(QLatin1String(LIGHTNING_BUILD_TARGET));
     out += QStringLiteral("build_type: %1\n").arg(QLatin1String(LIGHTNING_BUILD_TYPE));
-    // default_backend is a legacy alias of matrix_backend kept for CI checks.
     out += QStringLiteral("matrix_backend: %1\n").arg(backendName);
     out += QStringLiteral("default_backend: %1\n").arg(backendName);
     out += QStringLiteral("backends: %1\n").arg(backends.join(QLatin1Char(',')));
@@ -454,7 +406,6 @@ QString buildInfoString()
     out += QStringLiteral("http_backend_compiled: %1\n").arg(yn(httpMockCompiled));
     out += QStringLiteral("mock_backend_compiled: %1\n").arg(yn(httpMockCompiled));
     out += QStringLiteral("gif_keys_embedded: %1\n").arg(yn(gifKeysEmbedded));
-    // CI asserts this is false in release builds.
     const bool screenshotDemoCompiled =
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
         true;
@@ -470,55 +421,42 @@ QString buildInfoString()
     return out;
 }
 
-// Pre-flight CLI parser that runs before QGuiApplication exists, so --help
-// and bad --backend values are reported even when the platform plugin would
-// abort (e.g. no display). Everything else is left to QCommandLineParser.
-// A flag handled here that does not exit must also be registered with
-// QCommandLineParser, or process() rejects it as unknown.
 struct PreflightResult {
     enum Action {
-        Continue,      // proceed with normal startup
-        ExitSuccess,   // e.g. --help emitted, exit 0
-        ExitError,     // bad argument, exit 2
-        ExitResetError, // --reset-crypto-store failed, exit 3
-        ExitResetRefused, // --reset-crypto-store: a running instance owns
-                          // this data root, exit 6
-        RunSmokeTest,  // --rust-sdk-smoke-test (Rust build only)
-        RunGifStatus,  // --gif-status: print provider-configured booleans
-        RunGifSelfTest, // --gif-selftest: bounded live provider request
-        RunCallMediaStatus, // --call-media-status: probe the media engines
-        RunCallQueueSelfTest, // --call-queue-selftest: the voice-delay check
-        RunCallSoundsStatus, // --call-sounds-status: are the sounds loadable
-        RunCallSoundsDemo,   // --call-sounds-demo: play every call sound once
-        RunImageFormatStatus, // --image-format-status: probe the image decoders
-        RunSpellStatus, // --spell-status: probe the platform spell checker
-        RunSpellSelfTest, // --spell-selftest: booleans a package validator asserts
-        RunDesktopStatus, // --desktop-status: launcher entry + icon association
-        RunRasterizeSvg,  // --rasterize-svg IN OUT MIN MAX: the SVG helper process
+        Continue,
+        ExitSuccess,
+        ExitError,
+        ExitResetError,
+        ExitResetRefused,
+        RunSmokeTest,
+        RunGifStatus,
+        RunGifSelfTest,
+        RunCallMediaStatus,
+        RunCallQueueSelfTest,
+        RunCallSoundsStatus,
+        RunCallSoundsDemo,
+        RunImageFormatStatus,
+        RunSpellStatus,
+        RunSpellSelfTest,
+        RunDesktopStatus,
+        RunRasterizeSvg,
     };
     Action action = Continue;
-    // Compile-time default (Rust when built, else HTTP); --backend overrides.
     AppController::Backend backend = lightning::defaultBackend();
     bool backendExplicit = false;
     bool mockAliasUsed = false;
     bool smokeTestRequested = false;
-    bool consoleRequested = false;   // Windows: force a visible console.
-    /// --log-file PATH: mirror the diagnostic log to a file.
+    bool consoleRequested = false;
     QString logFilePath;
-    // Development-only; rejected unless LIGHTNING_ENABLE_SCREENSHOT_DEMO is on.
     bool screenshotDemo = false;
-    // Development-only --demo-* options; unknown flags in a normal build.
     QString demoScenario;
     QString demoAccount;
     QString demoTheme;
     QString demoAppearance;
     QString demoSize;
     bool demoHideControls = false;
-    // Grab the window to a PNG once the scene settles, then quit.
     QString demoCapture;
     int demoCaptureDelayMs = 1400;
-    // --rasterize-svg: the helper process behind "rasterize on send"
-    // (media/SvgRasterJob.h). Hidden; never in --help.
     QString svgIn;
     QString svgOut;
     int svgMinEdge = 0;
@@ -528,8 +466,6 @@ struct PreflightResult {
     QString stdoutMsg;
 };
 
-// Applies the stored "Text rendering" choice. Anything but the native id,
-// including an unreadable value, keeps Qt's default.
 void applyTextRenderingPreference(const QVariant &stored)
 {
     QQuickWindow::setTextRenderType(
@@ -543,10 +479,6 @@ PreflightResult preflightParse(int argc, char *argv[])
 {
     PreflightResult r;
 
-    // First pass: --log-file and --console decide where output goes, so they
-    // are read from the whole command line before any terminating flag
-    // (e.g. `--call-media-status --log-file x.log`) can return early.
-    // Malformed values are still diagnosed by the main loop.
     for (int i = 1; i < argc; ++i) {
         const QString a = QString::fromLocal8Bit(argv[i]);
         if (a.startsWith(QLatin1String("--log-file="))) {
@@ -556,7 +488,6 @@ PreflightResult preflightParse(int argc, char *argv[])
             continue;
         }
         if (a == QLatin1String("--log-file")) {
-            // Skip the value so a path spelled like a flag is not parsed.
             if (i + 1 < argc)
                 r.logFilePath = QString::fromLocal8Bit(argv[++i]);
             continue;
@@ -681,7 +612,6 @@ PreflightResult preflightParse(int argc, char *argv[])
         }
         if (a == QLatin1String("-v") || a == QLatin1String("--version")) {
             r.action = PreflightResult::ExitSuccess;
-            // Packaging validators pin this exact shape on every platform.
             r.stdoutMsg = QStringLiteral("Lightning %1\n").arg(QLatin1String(APP_VERSION));
 #ifdef LIGHTNING_TEST_LOOPBACK_FOCI
             r.stdoutMsg += QStringLiteral("WARNING: TEST BUILD permits loopback MatrixRTC foci\n");
@@ -712,7 +642,6 @@ PreflightResult preflightParse(int argc, char *argv[])
             continue;
         }
         if (a == QLatin1String("--console")) {
-            // Accepted everywhere; only acted on under Q_OS_WIN.
             r.consoleRequested = true;
             continue;
         }
@@ -732,7 +661,6 @@ PreflightResult preflightParse(int argc, char *argv[])
             r.backendExplicit = true;
             continue;
 #else
-            // Not compiled in: reject before QGuiApplication exists.
             r.action = PreflightResult::ExitError;
             r.stderrMsg = QStringLiteral(
                 "lightning-matrix: --screenshot-demo is a development-only build "
@@ -743,7 +671,6 @@ PreflightResult preflightParse(int argc, char *argv[])
 #endif
         }
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-        // In any other build these fall through and are rejected as unknown.
         if (a.startsWith(QLatin1String("--demo-scenario="))) {
             r.demoScenario = a.mid(QStringLiteral("--demo-scenario=").size());
             if (!ScreenshotDemoController::isValidScenario(r.demoScenario)) {
@@ -785,7 +712,6 @@ PreflightResult preflightParse(int argc, char *argv[])
             continue;
         }
         if (a.startsWith(QLatin1String("--demo-capture="))) {
-            // --demo-capture=PATH.png[,delayMs]
             const QString v = a.mid(QStringLiteral("--demo-capture=").size());
             const int comma = v.indexOf(QLatin1Char(','));
             if (comma > 0) {
@@ -800,8 +726,6 @@ PreflightResult preflightParse(int argc, char *argv[])
         }
 #endif
         if (a == QLatin1String("--rasterize-svg")) {
-            // Exits: it never reaches the Qt parser, so it is not registered
-            // there. Four values follow: input, output, min edge, max edge.
             if (i + 4 >= argc) {
                 r.action = PreflightResult::ExitError;
                 r.stderrMsg = QStringLiteral(
@@ -812,8 +736,6 @@ PreflightResult preflightParse(int argc, char *argv[])
             r.svgOut = QString::fromLocal8Bit(argv[i + 2]);
             r.svgMinEdge = QString::fromLocal8Bit(argv[i + 3]).toInt();
             r.svgMaxEdge = QString::fromLocal8Bit(argv[i + 4]).toInt();
-            // Optional 5th value: the job's retry after a GUI-app start
-            // failure, converting without text.
             r.svgNoText = i + 5 < argc
                 && QString::fromLocal8Bit(argv[i + 5]) == QLatin1String("--no-text");
             r.action = PreflightResult::RunRasterizeSvg;
@@ -862,8 +784,6 @@ PreflightResult preflightParse(int argc, char *argv[])
         if (a == QLatin1String("--reset-crypto-store")) {
             r.action = PreflightResult::ExitSuccess;
 
-            // The same roots RustSdkMatrixClient uses, plus legacy ones,
-            // resolved without a QCoreApplication.
             const QStringList roots = matrix::app_data::allRoots();
 
             r.stdoutMsg = QStringLiteral(
@@ -876,16 +796,6 @@ PreflightResult preflightParse(int argc, char *argv[])
                 return r;
             }
 
-            // A running instance's SingleInstanceGuard holds exactly this
-            // lock (main.cpp keys it the same way, on the same literal app
-            // name — applicationName() is not set yet this early). No
-            // QCoreApplication exists here, so this can only take the lock,
-            // not also probe the socket the way claim()'s Lock::Error path
-            // can. Held for the rest of this block, across the whole scan
-            // and delete below: probing and releasing before deleting would
-            // leave a window where a starting instance opens the very store
-            // being deleted. A starting instance's own claim() waits out its
-            // budget against this lock instead.
             lightning::SingleInstanceGuard::RootLock rootLock(
                 roots.first(), QStringLiteral("matrix-client"));
             if (rootLock.result()
@@ -930,10 +840,8 @@ PreflightResult preflightParse(int argc, char *argv[])
             }
             return r;
         }
-        // Reject these plausible-looking shortcuts here with a hint, before
-        // a platform-plugin abort could hide the error.
         if (a == QLatin1String("--http") || a == QLatin1String("--rust")) {
-            const QString value = a.mid(2); // strip leading "--"
+            const QString value = a.mid(2);
             r.action = PreflightResult::ExitError;
             r.stderrMsg = QStringLiteral(
                 "lightning-matrix: '%1' is not a supported flag. "
@@ -976,7 +884,6 @@ PreflightResult preflightParse(int argc, char *argv[])
             r.backendExplicit = true;
             continue;
         }
-        // Any other flag is deferred to QCommandLineParser after Qt is up.
     }
 
     if (r.mockAliasUsed) {
@@ -1028,8 +935,6 @@ PreflightResult preflightParse(int argc, char *argv[])
     return r;
 }
 
-// Chained handler that rate-limits the VAAPI texture-export warnings (see
-// VaapiLogGate). Called from arbitrary threads; the gate's counter is atomic.
 QtMessageHandler g_previousMessageHandler = nullptr;
 VaapiLogGate g_vaapiLogGate;
 
@@ -1056,10 +961,6 @@ void installVaapiLogGate()
     g_previousMessageHandler = qInstallMessageHandler(vaapiGatedMessageHandler);
 }
 
-// A message repeated without end costs a bounded number of lines on stderr and
-// in --log-file alike (RepeatLogLimiter.h). Installed around the --log-file
-// handler and inside the VAAPI gate, so that gate still counts every export
-// warning. Never freed: a handler can still run during static destruction.
 QtMessageHandler g_beforeRepeatLimiter = nullptr;
 lightning::logging::RepeatLogLimiter *g_repeatLimiter = nullptr;
 
@@ -1091,8 +992,6 @@ void repeatLimitedMessageHandler(QtMsgType type, const QMessageLogContext &ctx,
         next(type, ctx, msg);
 }
 
-// Registered with atexit after the --log-file drain, so it runs before it: a
-// flood that ends with the process still says what it cost.
 void flushRepeatLimiterAtExit()
 {
     const QtMessageHandler next = g_beforeRepeatLimiter;
@@ -1112,35 +1011,13 @@ void installRepeatLimiter()
     std::atexit(flushRepeatLimiterAtExit);
 }
 
-} // namespace
+}
 
-// Window icon and the AppImage launcher entry.
-//
-// Qt's Wayland client implements no icon protocol, so setWindowIcon() does
-// nothing on native Wayland. The compositor resolves the icon from the
-// toplevel's app id (desktopFileName()) via an installed `<app id>.desktop`.
-// An AppImage installs nothing, so it publishes its own entry and icons under
-// XDG_DATA_HOME.
-//
-// Only when both APPIMAGE and APPDIR are set and resolve; other package types
-// install their own entry. Never overwrites an entry without the
-// X-Lightning-Generated marker, and LIGHTNING_NO_DESKTOP_INTEGRATION=1
-// disables it. A session with a cached application index may only pick the
-// entry up on the next launch.
 namespace {
 
-// The app id, the launcher entry basename and the Icon= name; they must agree.
 constexpr QLatin1String kAppId("lightning");
-// Qt's xcb plugin takes the WM_CLASS instance from argv[0] (the binary name),
-// independent of resolvedAppId().
 constexpr QLatin1String kWmClass("lightning-matrix");
 
-/// The app id this installation's launcher entry is published under.
-///
-/// A Flatpak exports only app-id-prefixed files, so its entry is
-/// `$FLATPAK_ID.desktop` rather than `lightning.desktop`. Same resolution as
-/// the notification desktop-entry hint in NotificationManager. Everywhere
-/// else FLATPAK_ID is unset and kAppId is used.
 QString resolvedAppId()
 {
     const QString flatpakId = qEnvironmentVariable("FLATPAK_ID");
@@ -1151,20 +1028,16 @@ struct LauncherEntryReport {
     bool appImageRun = false;
     QString appImagePath;
     QString appDir;
-    QString payloadEntry;     // launcher entry inside the AppImage payload
-    QString payloadIconName;  // its Icon= value
-    int payloadIcons = 0;     // icon files in the payload's hicolor tree
-    QString userEntry;        // launcher entry under the user's data dir
+    QString payloadEntry;
+    QString payloadIconName;
+    int payloadIcons = 0;
+    QString userEntry;
     int iconsCopied = 0;
     QString outcome = QStringLiteral("not an AppImage run");
 };
 
 #if defined(Q_OS_LINUX)
-// AppImage-only helpers; compiled on Linux only to avoid unused-function
-// warnings elsewhere.
 
-// Lives in DesktopEntryQuoting so tests can call it; main.cpp cannot be linked
-// into a test.
 using lightning::desktop_entry::quoteExecArgument;
 
 QStringList launcherEntrySource(const QString &payloadEntry)
@@ -1172,7 +1045,6 @@ QStringList launcherEntrySource(const QString &payloadEntry)
     QFile file(payloadEntry);
     if (file.open(QIODevice::ReadOnly | QIODevice::Text))
         return QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
-    // Fallback only; validate-appimage.sh asserts the payload entry exists.
     return QStringList{
         QStringLiteral("[Desktop Entry]"),
         QStringLiteral("Type=Application"),
@@ -1185,22 +1057,17 @@ QStringList launcherEntrySource(const QString &payloadEntry)
     };
 }
 
-/// The launcher entry to publish: the payload's own entry (so translations
-/// and metadata stay in data/lightning.desktop) with the keys a single-file
-/// bundle gets wrong rewritten.
 QString launcherEntryText(const QString &payloadEntry,
                           const QString &appImagePath)
 {
     const QStringList source = launcherEntrySource(payloadEntry);
 
-    // Exec arguments are taken from the payload entry, not duplicated here.
     QString execArguments;
     QStringList kept;
     bool seenHeader = false;
     for (const QString &raw : source) {
         const QString line = raw.trimmed();
         if (line.startsWith(QLatin1Char('['))) {
-            // Our keys are appended, so stop before a second group.
             if (seenHeader)
                 break;
             seenHeader = true;
@@ -1228,17 +1095,11 @@ QString launcherEntryText(const QString &payloadEntry,
         kept.prepend(QStringLiteral("[Desktop Entry]"));
 
     QString exec = quoteExecArgument(appImagePath);
-    // A path with a control character cannot be represented safely (it could
-    // inject a key); an empty result tells the caller to skip.
     if (exec.isEmpty())
         return {};
     if (!execArguments.isEmpty())
         exec += QLatin1Char(' ') + execArguments;
     kept.append(QStringLiteral("Exec=") + exec);
-    // TryExec hides the entry once the AppImage is deleted. It cannot be
-    // quoted, so omit it for paths with whitespace (it would hide a working
-    // entry). It is still a desktop-entry string, so backslashes must be
-    // escaped; `%` and `$` have no meaning here.
     if (!appImagePath.contains(QLatin1Char(' '))
         && !appImagePath.contains(QLatin1Char('\t'))) {
         QString tryExec = appImagePath;
@@ -1249,14 +1110,10 @@ QString launcherEntryText(const QString &payloadEntry,
     kept.append(QStringLiteral("StartupWMClass=") + kWmClass);
     kept.append(QStringLiteral("X-AppImage-Version=")
                 + QLatin1String(APP_VERSION));
-    // Marks the file as ours; entries without it are never overwritten.
     kept.append(QStringLiteral("X-Lightning-Generated=true"));
     return kept.join(QLatin1Char('\n')) + QLatin1Char('\n');
 }
 
-/// The manifest of icon files this code wrote, one relative path per line.
-/// It keeps user-placed icons from being overwritten and lets our copies be
-/// removed when an installed package's entry takes over.
 QString userIconManifestPath(const QString &dataHome)
 {
     return dataHome
@@ -1272,15 +1129,11 @@ QStringList readUserIconManifest(const QString &dataHome)
         .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
 }
 
-/// Remove every icon we recorded, and the manifest. Used when an installed
-/// package's entry wins, so our copies stop shadowing its artwork.
 void removeUserIcons(const QString &dataHome)
 {
     const QString root = dataHome + QStringLiteral("/icons/hicolor/");
     const QString canonicalRoot = QFileInfo(root).canonicalFilePath();
     for (const QString &relative : readUserIconManifest(dataHome)) {
-        // Check containment on canonical paths so a symlinked directory
-        // cannot redirect the removal outside the icon tree.
         const QString target = root + relative;
         const QString canonicalTarget = QFileInfo(target).canonicalFilePath();
         if (canonicalRoot.isEmpty() || canonicalTarget.isEmpty())
@@ -1292,8 +1145,6 @@ void removeUserIcons(const QString &dataHome)
     QFile::remove(userIconManifestPath(dataHome));
 }
 
-/// Count the payload's icons without writing anything, for the diagnostic
-/// when publication is skipped.
 void countPayloadIcons(const QString &appDir, int *payloadIcons)
 {
     if (!payloadIcons)
@@ -1349,17 +1200,14 @@ int installUserIcons(const QString &appDir, const QString &dataHome,
                                  && theirs.open(QIODevice::ReadOnly)
                                  && ours.readAll() == theirs.readAll();
                 if (identical)
-                    written.append(relative);   // a copy of ours from before
+                    written.append(relative);
                 continue;
             }
             written.append(relative);
-            // Size is a cheap enough change check for a startup path.
             if (QFileInfo(to).size() == QFileInfo(from).size())
                 continue;
             if (!QDir().mkpath(toDir))
                 continue;
-            // Copy beside and rename, so a full disk leaves the old icon in
-            // place instead of no icon at all.
             const QString staging = to + QStringLiteral(".new");
             QFile::remove(staging);
             if (!QFile::copy(from, staging))
@@ -1371,7 +1219,6 @@ int installUserIcons(const QString &appDir, const QString &dataHome,
                 QFile::remove(staging);
         }
     }
-    // Keep earlier entries so sizes a newer release dropped stay reclaimable.
     for (const QString &earlier : recorded) {
         if (!written.contains(earlier))
             written.append(earlier);
@@ -1381,7 +1228,6 @@ int installUserIcons(const QString &appDir, const QString &dataHome,
         QSaveFile manifest(userIconManifestPath(dataHome));
         if (manifest.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
             manifest.write(written.join(QLatin1Char('\n')).toUtf8());
-            // Not fatal, but the next run would treat our copies as the user's.
             if (!manifest.commit())
                 qWarning("lightning: could not record the icons written");
         }
@@ -1389,12 +1235,6 @@ int installUserIcons(const QString &appDir, const QString &dataHome,
     return copied;
 }
 
-/// The launcher entry an installed package published, if any (XDG_DATA_DIRS
-/// only), so we do not shadow it.
-///
-/// Directories under $APPDIR are skipped: linuxdeploy's AppRun prepends
-/// `$APPDIR/usr/share` to XDG_DATA_DIRS, and the payload's own entry is not
-/// visible to the compositor.
 QString systemLauncherEntry()
 {
     QString dirs = QString::fromLocal8Bit(qgetenv("XDG_DATA_DIRS"));
@@ -1414,10 +1254,8 @@ QString systemLauncherEntry()
     return {};
 }
 
-#endif // Q_OS_LINUX
+#endif
 
-/// Publish the launcher entry and its icons for an AppImage run; a no-op
-/// everywhere else, and when everything is already current.
 LauncherEntryReport publishAppImageLauncherEntry()
 {
     LauncherEntryReport report;
@@ -1484,12 +1322,7 @@ LauncherEntryReport publishAppImageLauncherEntry()
         return report;
     }
 
-    // Defer to an installed package: a user-level entry of the same name
-    // would shadow it, and our TryExec would hide it once the AppImage is
-    // deleted. Remove our own copy if one exists.
     if (const QString installed = systemLauncherEntry(); !installed.isEmpty()) {
-        // Our user-level icons would shadow the package's; remove the ones
-        // we recorded.
         removeUserIcons(dataHome);
         if (!existing.isEmpty() && QFile::remove(report.userEntry))
             report.outcome = QStringLiteral(
@@ -1501,12 +1334,9 @@ LauncherEntryReport publishAppImageLauncherEntry()
         return report;
     }
 
-    // Build the entry first: it can be refused, and icons without an entry
-    // would be left orphaned.
     const QByteArray wanted =
         launcherEntryText(report.payloadEntry, report.appImagePath).toUtf8();
     if (wanted.isEmpty()) {
-        // Still count the payload icons so --desktop-status is accurate.
         countPayloadIcons(report.appDir, &report.payloadIcons);
         report.outcome = QStringLiteral(
             "skipped: the AppImage path cannot be represented in Exec=");
@@ -1537,9 +1367,6 @@ LauncherEntryReport publishAppImageLauncherEntry()
 #endif
 }
 
-/// The directories a session searches for launcher entries and icons:
-/// $XDG_DATA_HOME first, then $XDG_DATA_DIRS, excluding $APPDIR (see
-/// systemLauncherEntry()).
 QStringList xdgDataDirs()
 {
     QStringList dirs;
@@ -1562,17 +1389,12 @@ QStringList xdgDataDirs()
     return dirs;
 }
 
-} // namespace
+}
 
-/// `--desktop-status`: report whether this session can resolve the app id to
-/// a launcher entry and an icon, which decides the window icon on Wayland.
-/// Performs the same publication a normal launch does, so the write itself is
-/// exercised.
 static int printDesktopStatus()
 {
     DiagnosticStream out(stdout);
 
-    // Must match the app id the startup path applies.
     const QString appId = resolvedAppId();
     QGuiApplication::setDesktopFileName(resolvedAppId());
     out << "qt version: " << QLatin1String(qVersion()) << "\n";
@@ -1604,7 +1426,6 @@ static int printDesktopStatus()
     }
     out << "launcher entry: " << report.outcome << "\n";
 
-    // Search the way the session does.
     QString visibleEntry;
     QString visibleIcon;
     const QStringList dirs = xdgDataDirs();
@@ -1652,13 +1473,6 @@ static int printDesktopStatus()
     return 0;
 }
 
-/// `--rasterize-svg IN OUT MIN MAX`: the helper process behind "rasterize on
-/// send" (media/SvgRasterJob.h starts it and kills it on a timeout). Reads the
-/// SVG at IN, writes the PNG to OUT and exits 0, or writes a reason code to OUT
-/// and exits 3. Never prints to stdout: a Windows GUI binary has none.
-///
-/// It runs under a QGuiApplication (offscreen on Linux, the native plugin
-/// elsewhere) so SVG text has fonts. A CPU limit backs the parent's kill.
 static int runRasterizeSvg(int &argc, char *argv[], const QString &in,
                            const QString &out, int minEdge, int maxEdge,
                            bool noText)
@@ -1667,20 +1481,12 @@ static int runRasterizeSvg(int &argc, char *argv[], const QString &in,
     struct rlimit cpu { 20, 25 };
     setrlimit(RLIMIT_CPU, &cpu);
 #endif
-    // A QGuiApplication on every platform, so SVG text has a font database.
-    // It never shows a window: Linux uses the offscreen plugin, Windows and
-    // macOS their own native one (shipped in every package). Only when the
-    // parent retries after that failed to start (--no-text) does this fall
-    // back to a core-only app, where the screen refuses text.
     std::unique_ptr<QCoreApplication> app;
     bool allowText = !noText;
 #ifdef Q_OS_LINUX
     qputenv("QT_QPA_PLATFORM", "offscreen");
 #endif
 #ifdef Q_OS_MACOS
-    // A helper must not flash a second Dock icon: keep it a background
-    // process (no Dock icon, no menu bar); Qt skips turning the process into
-    // a foreground application when this is set.
     qputenv("QT_MAC_DISABLE_FOREGROUND_APPLICATION_TRANSFORM", "1");
 #endif
     if (allowText)
@@ -1706,30 +1512,19 @@ static int runRasterizeSvg(int &argc, char *argv[], const QString &in,
     return target.write(result.png) == result.png.size() ? 0 : 4;
 }
 
-/// `--image-format-status`: report which image formats this build can decode
-/// and whether that covers what Lightning accepts. Qt image formats are
-/// dlopen'd plugins, so this is a property of the package, not the source.
-///
-/// Exit 0 only when every required format decodes. Optional formats (JPEG XL)
-/// are reported but never fail: no plugin is available on Windows or macOS.
 static int printImageFormatStatus()
 {
     namespace ifmt = lightning::imagefmt;
     DiagnosticStream out(stdout);
 
     out << "qt version: " << QLatin1String(qVersion()) << "\n";
-    // Qt searches every libraryPaths() entry, not just the compiled-in
-    // prefix, so report where the decoders actually come from.
     out << "plugin path (compiled-in): "
         << QLibraryInfo::path(QLibraryInfo::PluginsPath) << "\n";
-    // List only paths with image-format plugins (a dev shell has ~100
-    // paths), plus the total searched.
     const QStringList libraryPaths = QCoreApplication::libraryPaths();
     int dirsWithPlugins = 0;
     QString pluginLines;
     {
         QTextStream ps(&pluginLines);
-        // libraryPaths() can repeat a directory.
         QSet<QString> seen;
         for (const QString &path : libraryPaths) {
             QDir dir(path + QStringLiteral("/imageformats"));
@@ -1769,8 +1564,8 @@ static int printImageFormatStatus()
             << "\n";
     }
 
-    const QStringList missingRequired = ifmt::undecodable(/*requiredOnly=*/true);
-    const QStringList missingAny = ifmt::undecodable(/*requiredOnly=*/false);
+    const QStringList missingRequired = ifmt::undecodable(true);
+    const QStringList missingAny = ifmt::undecodable(false);
     if (!missingRequired.isEmpty()) {
         out << "\nRESULT: this build ACCEPTS image formats it cannot decode: "
             << missingRequired.join(QStringLiteral(", ")) << "\n";
@@ -1788,10 +1583,6 @@ static int printImageFormatStatus()
 }
 
 #ifdef HAVE_LIGHTNING_WEBRTC
-/// `--call-media-status`: probe both media engines the way a real launch does.
-///
-/// Kept out of GstBootstrap because it names both engines, and test targets
-/// that link the bootstrap build only one of them.
 static int printCallMediaStatus()
 {
     DiagnosticStream out(stdout);
@@ -1809,8 +1600,6 @@ static int printCallMediaStatus()
                 ? QStringLiteral("<none - using system GStreamer>")
                 : bundled)
         << "\n";
-    // GStreamer silently falls back to an in-process registry scan when
-    // gst-plugin-scanner is missing, so report which one is used.
     const QString scanner = lightning::gst::bundledScannerPath();
     out << "plugin scanner: "
         << (scanner.isEmpty()
@@ -1823,12 +1612,9 @@ static int printCallMediaStatus()
             << "\nRESULT: calls will be refused by this build.\n";
         return 1;
     }
-    // The loaded version: webrtcbin behaviour differs between releases and
-    // packaged runtimes differ from the dev shell.
     out << "gstreamer: initialised, " << lightning::gst::versionString()
         << "\n";
 
-    // Same probes, same order as AppController, so the answer matches.
     QString oneToOneWhy;
     const bool oneToOne = GstCallMediaBackend::runtimeAvailable(&oneToOneWhy);
     out << "1:1 call engine: "
@@ -1843,9 +1629,6 @@ static int printCallMediaStatus()
                 : QStringLiteral("unavailable (%1)").arg(sfuWhy))
         << "\n";
 
-    // Microphone noise suppression (#20): which of the four modes this
-    // package can run. Package validation reads this line, so a backend that
-    // works from the source tree and is missing from a package shows up.
     {
         QStringList modes;
         for (const calls::noise::Mode mode :
@@ -1863,9 +1646,6 @@ static int printCallMediaStatus()
             << "\n";
     }
 
-    // Asks the registry for the JPEG elements rather than checking for the
-    // plugin file. Reported, not required: without it cameras fall back to
-    // the raw chain at a lower frame rate.
     out << "camera compressed (MJPG) chain: "
         << (SfuMediaEngine::jpegCameraChainAvailable()
                 ? QStringLiteral("available")
@@ -1874,9 +1654,6 @@ static int printCallMediaStatus()
         << "\n";
 
 #if defined(Q_OS_LINUX)
-    // The screen share used when no portal offers ScreenCast (an X11 session
-    // without a backend). Reported, not required: Wayland shares through the
-    // portal and never needs it.
     out << "X11 screen capture (" << SfuMediaEngine::x11ScreenCaptureElementName()
         << "): "
         << (SfuMediaEngine::elementAvailable(
@@ -1887,13 +1664,10 @@ static int printCallMediaStatus()
         << "\n";
 #endif
 
-    // Plugin capability, without connecting to a sound server. Runtime
-    // availability additionally requires a reachable PipeWire daemon on Linux.
     out << lightning::shareaudio::systemExclusionStatusLine(
                lightning::shareaudio::systemExclusion())
         << "\n";
 
-    // Only the SFU engine decides the exit code; every MatrixRTC call uses it.
     out << "\nRESULT: "
         << (sfu ? QStringLiteral("calls can be placed and answered.")
                 : QStringLiteral("calls will be refused by this build."))
@@ -1904,33 +1678,23 @@ static int printCallMediaStatus()
 
 int main(int argc, char *argv[])
 {
-    // Before anything large is allocated: see AllocatorPolicy.h.
     lightning::applyAllocatorPolicy();
 
-    // Before any QML engine exists: see QmlGcPolicy.h.
     lightning::applyQmlGcPolicy();
 
-    // Qt 5 search paths a session exports are read before Qt's own and shadow
-    // its modules (ForeignQtEnvironment.h). Before any Qt object: the helper
-    // processes this binary re-executes inherit the cleaned environment.
     const QStringList foreignQtReport =
         lightning::sanitizeForeignQtEnvironment();
 
-    // Before QGuiApplication, so a platform-plugin abort cannot mask errors.
     const PreflightResult pf = preflightParse(argc, argv);
 
 #ifdef Q_OS_WIN
     configureWindowsConsole(pf.consoleRequested);
 #endif
-    // Before every other handler, which all forward to this one.
     installLogColours();
-    // All platforms: a macOS bundle launched from Finder has no terminal.
     installLogFile(pf.logFilePath);
     for (const QString &line : foreignQtReport)
         qInfo().noquote() << "lightning: Qt environment:" << line;
 
-    // Qt logs to the journal when stderr is not a TTY; headless and self-test
-    // runs need stderr so a harness can capture them. An explicit value wins.
     if (!qEnvironmentVariableIsSet("QT_FORCE_STDERR_LOGGING")) {
         const QByteArray platform = qgetenv("QT_QPA_PLATFORM");
         const bool headless = platform.startsWith("offscreen")
@@ -1949,25 +1713,9 @@ int main(int argc, char *argv[])
     // decode. An explicit value (including "") wins.
     if (!qEnvironmentVariableIsSet("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"))
         qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", ",");
-    // Only video encoding asks for a device and nothing here encodes video
-    // with Qt: the voice recorder is audio only, and call video is GStreamer.
-    // Left unset, Qt opens every device type once when its media backend
-    // starts, which loads each vendor's VDPAU, VA-API and CUDA stack for good:
-    // 60 MB of RSS, 14 MB of it private, measured on an NVIDIA driver.
     if (!qEnvironmentVariableIsSet("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES"))
         qputenv("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES", ",");
 
-    // Qt Multimedia's audio goes through its PulseAudio backend
-    // (pipewire-pulse) wherever the running Qt (6.10+) would otherwise use its
-    // native PipeWire one: that sink can orphan a stream whose device went
-    // away and, when the daemon then restarts, spin the GUI thread for ever
-    // (Qt bug; docs/open-items.md, 2026-10-07), and after a restart it stops
-    // reporting device changes (measured 2026-10-20). Qt picks the backend on
-    // first use, so this is set before ANY of it, including the
-    // --call-sounds-status preflight below (the Flatpak validator runs it, and
-    // must see the backend a real launch uses). A user override wins; outside
-    // the Flatpak only when this Qt has the PulseAudio backend and a server
-    // answers (QtAudioBackendChoice.h). sandboxenv needs no QCoreApplication.
     {
         using namespace lightning::calls;
         QtAudioBackendInputs in;
@@ -1984,8 +1732,6 @@ int main(int argc, char *argv[])
             QVersionNumber::fromString(QLatin1String(qVersion()));
         in.qtMajor = running.majorVersion();
         in.qtMinor = running.minorVersion();
-        // Asked only where the answer matters: the probe connects to the
-        // server's socket (which may socket-activate pipewire-pulse).
         if (in.platform == AudioPlatform::Linux && !in.flatpak
             && !in.userSetBackend && running >= QVersionNumber(6, 10)) {
             in.qtHasPulseBackend = qtMultimediaHasPulseBackend();
@@ -1998,7 +1744,6 @@ int main(int argc, char *argv[])
             g_qtAudioBackendSetHere = true;
         }
         g_qtAudioBackendReason = decision.reason;
-        // Logged once the app starts (a preflight that exits stays quiet).
         g_qtAudioBackendLine =
             QStringLiteral("qt audio backend choice: %1 set-by-lightning=%2 (%3, Qt %4)")
                 .arg(in.userSetBackend
@@ -2013,15 +1758,9 @@ int main(int argc, char *argv[])
                      QString::fromLatin1(qVersion()));
     }
 
-    // Bound any message repeated without end, on stderr and in --log-file
-    // alike. Before the VAAPI gate, so it sits inside it (that gate counts
-    // every export warning itself).
     installRepeatLimiter();
-    // Rate-limit Qt FFmpeg's per-frame VAAPI export warnings. Installed
-    // before QGuiApplication so the earliest warnings are gated too.
     installVaapiLogGate();
 
-    // Through DiagnosticStream so preflight output also reaches --log-file.
     if (pf.action == PreflightResult::ExitSuccess) {
         DiagnosticStream(stdout) << pf.stdoutMsg;
         return 0;
@@ -2041,16 +1780,12 @@ int main(int argc, char *argv[])
         return 6;
     }
     if (pf.action == PreflightResult::RunCallMediaStatus) {
-        // Uses the same bootstrap and probes as a normal launch, so it tells
-        // "not built in", "plugins not found" and "element missing" apart.
-        // The bootstrap needs a QCoreApplication for applicationDirPath().
         QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
         QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
 #ifdef HAVE_LIGHTNING_WEBRTC
         QCoreApplication probeApp(argc, argv);
         return printCallMediaStatus();
 #else
-        // Configured without GStreamer.
         DiagnosticStream(stdout)
             << "call media engine built in: no\n"
             << "\nRESULT: calls will be refused by this build "
@@ -2059,12 +1794,9 @@ int main(int argc, char *argv[])
 #endif
     }
     if (pf.action == PreflightResult::RunCallQueueSelfTest) {
-        // Measures the publish pipeline's queue latency directly, without a
-        // sound card or a second machine.
         QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
         QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
 #ifdef HAVE_LIGHTNING_WEBRTC
-        // The bootstrap needs a QCoreApplication for applicationDirPath().
         QCoreApplication probeApp(argc, argv);
         DiagnosticStream out(stdout);
         QString whyNot;
@@ -2090,10 +1822,6 @@ int main(int argc, char *argv[])
     }
     if (pf.action == PreflightResult::RunCallSoundsStatus
         || pf.action == PreflightResult::RunCallSoundsDemo) {
-        // Whether the sounds play depends on the packaged Qt Multimedia
-        // backend, so load each through the real CallSoundPlayer and report
-        // which it calls playable (QSoundEffect::Ready before Qt 6.10;
-        // decoded and suited to the default output from 6.10).
         QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
         QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
         QCoreApplication probeApp(argc, argv);
@@ -2103,8 +1831,6 @@ int main(int argc, char *argv[])
             << (output.isNull() ? QStringLiteral("none")
                                 : output.description())
             << "\n"
-            // What was asked for, and whether Lightning asked (the Flatpak
-            // default) or the user did. A request, not proof of the backend.
             << "qt audio backend requested: "
             << (qEnvironmentVariableIsSet("QT_AUDIO_BACKEND")
                     ? QString::fromLocal8Bit(qgetenv("QT_AUDIO_BACKEND"))
@@ -2114,11 +1840,6 @@ int main(int argc, char *argv[])
             << g_qtAudioBackendReason << "\n"
             << "call sounds voiced by: " << CallSoundPlayer::cueBackend()
             << "\n";
-        // The backend Qt actually chose, in its own words ("PipeWire",
-        // "PulseAudio", "ALSA"): Qt's private API, so only in builds that
-        // link it and only when the running Qt is the one built against, as
-        // CallSoundPlayer guards its own private call. validate-flatpak.sh
-        // requires "PulseAudio" from this line.
 #if defined(LIGHTNING_HAVE_QT_AUDIO_BACKEND_NAME)
         if (qstrcmp(qVersion(), QT_VERSION_STR) == 0) {
             out << "qt audio backend: "
@@ -2130,11 +1851,6 @@ int main(int argc, char *argv[])
                    " this was built against)\n";
         }
 #endif
-        // Fallback where Qt cannot be asked, and labelled as such: only that
-        // libpipewire is (or is not) mapped, which Qt's PipeWire backend
-        // loads and the others do not need. Not proof either way (libpulse
-        // is linked into Qt Multimedia whenever its PulseAudio feature is
-        // on, so it says nothing; something else could load libpipewire).
         out << "qt audio backend fallback (inferred, not proof): libpipewire "
                "loaded="
             << (lightning::calls::sharedObjectLoaded("libpipewire") ? "yes"
@@ -2170,7 +1886,7 @@ int main(int argc, char *argv[])
         if (pf.action == PreflightResult::RunCallSoundsDemo) {
             for (const QString &sound : sounds) {
                 out << "playing " << sound << "\n";
-                player.play(sound, 0.7, /*inCall=*/false);
+                player.play(sound, 0.7,false);
                 const bool bar = sound == QLatin1String("ring")
                     || sound == QLatin1String("call-waiting")
                     || sound == QLatin1String("ringback");
@@ -2186,16 +1902,12 @@ int main(int argc, char *argv[])
                                pf.svgMaxEdge, pf.svgNoText);
     }
     if (pf.action == PreflightResult::RunImageFormatStatus) {
-        // QImageReader needs only a QCoreApplication. Not an offscreen
-        // QGuiApplication: the Windows package ships no offscreen plugin.
         QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
         QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
         QCoreApplication probeApp(argc, argv);
         return printImageFormatStatus();
     }
     if (pf.action == PreflightResult::RunSpellStatus) {
-        // The backend is resolved at runtime (dlopen on Linux, COM on
-        // Windows), so only running the artifact can answer this.
         QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
         QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
         QCoreApplication spellProbeApp(argc, argv);
@@ -2225,11 +1937,7 @@ int main(int argc, char *argv[])
             << "languages: " << checker.availableLanguages().join(QStringLiteral(" "))
             << "\n";
 #if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
-        // A transcript gets pasted into bug reports: no home path, no user
-        // name (CLAUDE.md §6).
         QStringList shownDirs;
-        // $HOME as given and as the filesystem resolves it (a symlinked
-        // home lists its directories under the real path).
         QStringList homes{ QDir::homePath() };
         const QString canonicalHome = QFileInfo(homes.first()).canonicalFilePath();
         if (!canonicalHome.isEmpty() && canonicalHome != homes.first())
@@ -2250,7 +1958,6 @@ int main(int argc, char *argv[])
         out << "dictionary directories: " << shownDirs.join(QStringLiteral(" "))
             << "\n";
 #endif
-        // A misspelling proves the dictionary actually answers.
         const QVariantList wrong =
             checker.misspelledRanges(QStringLiteral("teh"));
         out << "sample check (\"teh\"): "
@@ -2261,8 +1968,6 @@ int main(int argc, char *argv[])
                    "treat spell checking as not working.\n";
             return 1;
         }
-        // Exercise suggestions too: they hand memory across the backend
-        // boundary, so a wrong signature shows up here.
         const QStringList ideas = checker.suggestions(QStringLiteral("teh"));
         out << "sample suggestions: " << ideas.size() << "\n";
         out << "\nRESULT: spell checking works in this build on this "
@@ -2270,8 +1975,6 @@ int main(int argc, char *argv[])
         return 0;
     }
     if (pf.action == PreflightResult::RunSpellSelfTest) {
-        // Booleans only: what a package validator needs to assert, and
-        // nothing about the machine beyond yes/no.
         QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
         QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
         QCoreApplication spellProbeApp(argc, argv);
@@ -2303,8 +2006,6 @@ int main(int argc, char *argv[])
             << "autocorrect fixed a known typo: " << yn(corrects) << "\n";
         bool bundledOk = true;
 #if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
-        // The bundle on its own, whatever the host offers: Hunspell against
-        // only the directories shipped inside this package.
         const QStringList bundled = bundledSpellDictionaryDirectories();
         bool bundledWorks = false;
         int usable = 0;
@@ -2315,15 +2016,11 @@ int main(int argc, char *argv[])
                                                   nullptr, &bundledLanguages);
             bundledWorks = own && !own->isCorrect(QStringLiteral("teh"))
                 && own->isCorrect(QStringLiteral("the"));
-            // Every bundled dictionary must OPEN, not just the English one: a
-            // dictionary in an 8-bit encoding this Qt cannot convert (no ICU)
-            // is refused at open, and must not hide behind an English pass.
             for (const QString &tag : std::as_const(bundledLanguages)) {
                 auto backend = createHunspellSpellBackend(tag, bundled, nullptr, nullptr);
                 if (backend && !backend->isCorrect(QStringLiteral("qzxjvkwq")))
                     ++usable;
             }
-            // Lithuanian ships ISO-8859-13: a real word with its letters.
             auto lt = createHunspellSpellBackend(QStringLiteral("lt-LT"), bundled,
                                                  nullptr, nullptr);
             lithuanianWorks = lt && lt->isCorrect(QString::fromUtf8("\u0105\u017euolas"))
@@ -2345,18 +2042,15 @@ int main(int argc, char *argv[])
         return pass ? 0 : 1;
     }
     if (pf.action == PreflightResult::RunDesktopStatus) {
-        // A filesystem lookup; a QCoreApplication is enough.
         QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
         QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
         QCoreApplication desktopProbeApp(argc, argv);
         return printDesktopStatus();
     }
     if (pf.action == PreflightResult::RunGifStatus) {
-        // Booleans only; no Qt application or network needed.
         return gif::printProviderStatus();
     }
     if (pf.action == PreflightResult::RunGifSelfTest) {
-        // Needs an event loop for the bounded network request, but no GUI.
         QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
         QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
         QCoreApplication selftestApp(argc, argv);
@@ -2364,8 +2058,6 @@ int main(int argc, char *argv[])
     }
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (pf.action == PreflightResult::RunSmokeTest) {
-        // A persistent smoke run shares the GUI's stores. Hold the same OS
-        // profile lock, including across asynchronous Rust teardown at exit.
         std::unique_ptr<lightning::SingleInstanceGuard::RootLock> profileLock;
         if (qgetenv("LIGHTNING_TEST_PERSISTENT_STORE") == "1") {
             const QString root = matrix::app_data::primaryRoot();
@@ -2384,7 +2076,6 @@ int main(int argc, char *argv[])
             }
             profileLock->holdLockUntilProcessExit();
         }
-        // Headless: no QGuiApplication, no QML engine, no display probe.
         QCoreApplication::setOrganizationName(
             QStringLiteral("MatrixClient"));
         QCoreApplication::setOrganizationDomain(
@@ -2393,9 +2084,6 @@ int main(int argc, char *argv[])
     }
 #endif
 
-    // Refuse to construct QGuiApplication without a display, where Qt would
-    // otherwise abort in the platform plugin. QT_QPA_PLATFORM overrides.
-    // Only meaningful on X11/Wayland platforms, not Windows or macOS.
     {
 #if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
         constexpr bool kPlatformRequiresDisplayServer = true;
@@ -2417,17 +2105,12 @@ int main(int argc, char *argv[])
         }
     }
 
-    // The persistent identity: these name the settings file, data/cache
-    // roots, credential namespace and SDK stores of every existing install.
-    // Changing them would sign every user out.
     QCoreApplication::setOrganizationName("MatrixClient");
     QCoreApplication::setOrganizationDomain("matrix-client.local");
     QCoreApplication::setApplicationName("matrix-client");
     QCoreApplication::setApplicationVersion(APP_VERSION);
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    // A distinct application name isolates every default QSettings store
-    // from the developer's real configuration.
     if (pf.screenshotDemo)
         QCoreApplication::setApplicationName(
             QStringLiteral("matrix-client-screenshot-demo"));
@@ -2446,26 +2129,17 @@ int main(int argc, char *argv[])
                                "a writable location and try again.");
             QTextStream(stderr) << portableProblem << "\n" << advice << "\n";
 #ifdef Q_OS_WIN
-            // A double-clicked GUI-subsystem binary has no console. No
-            // QGuiApplication exists yet, so use MessageBoxW directly.
             const QString text = portableProblem + QStringLiteral("\n\n") + advice;
             MessageBoxW(nullptr,
                         reinterpret_cast<const wchar_t *>(text.utf16()),
                         L"Lightning", MB_OK | MB_ICONERROR);
 #endif
-            // No fallback to the installed locations: a portable copy must
-            // never silently write outside its folder.
             return 4;
         }
-        // Every default QSettings lands in
-        // <dataRoot>/config/MatrixClient/matrix-client.ini, never the registry.
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
                            lightning::portable::configDir());
 
-        // Qt's own caches default to %LOCALAPPDATA%. Redirect the QML disk
-        // cache; disable the shader cache, whose path can only be set per
-        // window. Qt reads both when QGuiApplication is constructed.
         qputenv("QML_DISK_CACHE_PATH",
                 QDir::toNativeSeparators(
                     lightning::portable::cacheDir()
@@ -2475,8 +2149,6 @@ int main(int argc, char *argv[])
         qputenv("QT_DISABLE_SHADER_DISK_CACHE", "1");
     }
 
-    // Remove scratch directories left by a crashed run (ours only: name
-    // prefix, own uid, no symlinks). They can hold decrypted media.
     {
         const int swept = lightning::portable::cleanStaleTempDirs();
         if (swept > 0) {
@@ -2487,8 +2159,6 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Interface zoom: Qt reads QT_SCALE_FACTOR once at startup, so zoom
-    // changes take effect on the next launch. A user-set value wins.
     bool zoomEnvSetHere = false;
     if (!qEnvironmentVariableIsSet("QT_SCALE_FACTOR")) {
         const int zoom =
@@ -2501,17 +2171,10 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Text rendering: Qt Quick's own (distance-field) renderer ignores the
-    // system's font hinting and anti-aliasing; "Native" hands glyphs to the
-    // platform rasteriser so they follow it. A window reads the type at
-    // creation, so this must precede the first one. The key is read here, as
-    // the zoom is, because SettingsManager does not exist yet.
     applyTextRenderingPreference(
         QSettings().value(QLatin1String(SettingsManager::kTextRenderingKey)));
 
 #ifdef Q_OS_WIN
-    // The Media Foundation backend stalls the video surface after the first
-    // frames; the package ships the FFmpeg plugin. A user override wins.
     if (!qEnvironmentVariableIsSet("QT_MEDIA_BACKEND"))
         qputenv("QT_MEDIA_BACKEND", "ffmpeg");
 #endif
@@ -2521,8 +2184,6 @@ int main(int argc, char *argv[])
     // a QWidget.
     QApplication app(argc, argv);
     qCInfo(lcQtAudioBackend).noquote() << g_qtAudioBackendLine;
-    // "Rasterize on send" keeps its scratch files where every other media
-    // scratch lives (inside a portable folder, swept after a crash).
     lightning::svgraster::hooks().scratchRoot = [] {
         return lightning::portable::mediaScratchRoot();
     };
@@ -2532,16 +2193,9 @@ int main(int argc, char *argv[])
     lightning::svgraster::hooks().releaseScratchDir = [](const QString &dir) {
         lightning::portable::releaseScratchDir(dir);
     };
-    // Opt-in GUI-thread stall tracing (LIGHTNING_GUI_STALL_TRACE).
     stalltrace::install();
-    // Windows: the title bar follows the app theme's light or dark palette
-    // (WindowFrameTheme.h). Before any window exists; a no-op elsewhere.
     lightning::windowframe::install();
 
-    // One process per data root: two SDK clients on one store corrupt it.
-    // After every preflight flag that exits (validators run those while the
-    // app is open) and before any store opens. A second launch asks the
-    // running one to show its window and exits.
     lightning::SingleInstanceGuard instanceGuard(
         matrix::app_data::primaryRoot(), QCoreApplication::applicationName());
     // Held until the OS reclaims the fd/handle at real process exit, never
@@ -2569,32 +2223,21 @@ int main(int argc, char *argv[])
             "it in the task manager) and start it again.");
         QTextStream(stderr) << "lightning-matrix: " << text << "\n";
 #ifdef Q_OS_WIN
-        // No console for a double-clicked GUI-subsystem binary.
         MessageBoxW(nullptr, reinterpret_cast<const wchar_t *>(text.utf16()),
                     L"Lightning", MB_OK | MB_ICONWARNING);
 #endif
         return 5;
     }
     }
-    // After the claim: a second launch that only raises the first window
-    // must not open a log file beside the running one's.
     installRollingLog();
 #ifdef LIGHTNING_TEST_LOOPBACK_FOCI
     qWarning("WARNING: TEST BUILD permits loopback MatrixRTC foci; never distribute this binary");
 #endif
     lightning::logexport::setBuildInfo(buildInfoString());
-    // Closed once quitting starts; the lock stays held past that and past
-    // this guard's own destruction (see holdLockUntilProcessExit() above),
-    // until the process truly exits, so a relaunch during teardown waits for
-    // the lock instead of for an answer from an event loop that has stopped.
     QObject::connect(&app, &QCoreApplication::aboutToQuit,
                      &instanceGuard,
                      &lightning::SingleInstanceGuard::stopListening);
 
-    // A missing GL stack must degrade rather than exit: Qt Quick fails to
-    // create its RHI and quits before any window appears (e.g. an AppImage
-    // whose host libEGL is unreachable). Probe before any QQuickWindow exists
-    // and pick another backend. Never overrides an explicit choice.
     if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND")
         && qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND")
         && QGuiApplication::platformName() != QLatin1String("offscreen")
@@ -2612,10 +2255,6 @@ int main(int argc, char *argv[])
             }
         }
         if (!glUsable) {
-            // Windows and macOS have native backends that need no OpenGL
-            // (Direct3D 11 falls back to WARP without a GPU). The software
-            // renderer cannot draw video nodes, so it is used only where no
-            // such backend exists.
 #if defined(Q_OS_WIN)
             QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
             qInfo("lightning: no usable OpenGL context on the \"%s\" platform "
@@ -2628,8 +2267,6 @@ int main(int argc, char *argv[])
                   qUtf8Printable(QGuiApplication::platformName()));
 #else
             QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
-            // The software adaptation cannot draw VideoOutput at all, even
-            // though frames keep arriving and decrypting.
             qWarning("lightning: no usable OpenGL context on the \"%s\" "
                      "platform - falling back to the software renderer. "
                      "CALL AND SCREEN-SHARE VIDEO WILL NOT BE DISPLAYED on "
@@ -2639,16 +2276,9 @@ int main(int argc, char *argv[])
 #endif
         }
     }
-    // Qt has read the scale factor; unset it so child processes (the OAuth
-    // browser, xdg-open) are not zoomed. A user-set value is left alone.
     if (zoomEnvSetHere)
         qunsetenv("QT_SCALE_FACTOR");
-    // Wayland matches the window to its launcher entry via the desktop-file
-    // name; X11 matches WM_CLASS via StartupWMClass. resolvedAppId() covers
-    // the Flatpak case.
     QGuiApplication::setDesktopFileName(resolvedAppId());
-    // For an AppImage, publish a launcher entry for that id (the only route
-    // to a window icon on Wayland). A no-op for other install types.
     {
         const LauncherEntryReport entry = publishAppImageLauncherEntry();
         if (entry.appImageRun)
@@ -2656,8 +2286,6 @@ int main(int argc, char *argv[])
                   qUtf8Printable(entry.outcome), entry.iconsCopied);
     }
 
-    // Warn once when a required image format has no decoder; otherwise it
-    // is only a blank box in the timeline. Names formats only.
     {
         const QStringList missing = lightning::imagefmt::undecodable(true);
         if (!missing.isEmpty())
@@ -2671,8 +2299,6 @@ int main(int argc, char *argv[])
         QIcon(QStringLiteral(
             ":/qt/qml/MatrixClient/data/icons/hicolor/256x256/apps/lightning.png"))));
 
-    // Bundled UI fonts (OFL), all loaded up front so switching the font in
-    // Settings is instant. A failed load falls back to platform fonts.
     for (const char *font : { "Manrope[wght].ttf", "JetBrainsMono[wght].ttf",
                               "Inter[wght].ttf", "IBMPlexSans[wght].ttf",
                               "SourceSans3[wght].ttf",
@@ -2686,20 +2312,11 @@ int main(int argc, char *argv[])
         if (file.open(QIODevice::ReadOnly))
             QFontDatabase::addApplicationFontFromData(file.readAll());
     }
-    // Default application font, including native menus that never read
-    // AppTheme, with the emoji face as a fallback family. The selected family
-    // is applied once the controller exists, before the first frame.
     QGuiApplication::setFont(
         FontManager::withEmojiFallback(QStringLiteral("Manrope"), 14));
-    // Also Qt's own fallback: a QML `font.family` drops the families list,
-    // and Qt 6.8 then falls back to a monochrome emoji face. Only there: on
-    // newer Qt the extra family reached a crash in Qt's fontconfig fallback
-    // check (see emojiFallbackNeeded).
     if (FontManager::emojiFallbackNeeded(QLibraryInfo::version()))
         FontManager::installEmojiFallback(FontManager::emojiFamily());
 
-    // Second pass through QCommandLineParser for Qt's own flags and its
-    // standard unknown-option error.
     QCommandLineParser parser;
     parser.setApplicationDescription(
         QGuiApplication::translate("main",
@@ -2712,8 +2329,6 @@ int main(int argc, char *argv[])
         QGuiApplication::translate("main",
             "Compatibility alias for --backend=mock."));
     parser.addOption(mockOpt);
-    // Consumed by preflight but non-exiting, so they must be registered here
-    // or process() rejects them (DesktopIntegrationTest checks this).
     QCommandLineOption consoleOpt(
         QStringLiteral("console"),
         QGuiApplication::translate("main",
@@ -2726,7 +2341,6 @@ int main(int argc, char *argv[])
         QStringLiteral("path"));
     parser.addOption(logFileOpt);
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    // Consumed by preflight; registered so process() accepts it.
     QCommandLineOption screenshotDemoOpt(
         QStringLiteral("screenshot-demo"),
         QGuiApplication::translate("main",
@@ -2756,26 +2370,17 @@ int main(int argc, char *argv[])
     parser.addOption(backendOpt);
     parser.process(app);
 
-    // Basic: flat, palette-driven stock controls; our own controls draw the
-    // rest.
     QQuickStyle::setStyle("Basic");
 
     AppController controller(pf.backend, pf.screenshotDemo);
-    // Here rather than in the AppController constructor so tests do not
-    // initialise GStreamer.
     controller.enableCallMediaEngine();
     controller.enableCallSounds();
 
-    // Gives the allocator's free arena memory back once the app has been quiet
-    // for a minute; see IdleTrim.h.
     lightning::IdleTrim idleTrim(&app);
     app.installEventFilter(&idleTrim);
     QObject::connect(&controller, &AppController::currentRoomIdChanged,
                      &idleTrim, [&idleTrim] { idleTrim.noteActivity(); });
 
-    // Another launch on this data root: raise the window the way a tray click
-    // does. On Wayland the launcher's activation token lets it take focus;
-    // Qt's shell integration reads and clears the variable when activating.
     QObject::connect(
         &instanceGuard, &lightning::SingleInstanceGuard::activationRequested,
         &controller, [&controller](const QString &activationToken) {
@@ -2787,11 +2392,6 @@ int main(int argc, char *argv[])
             Q_EMIT controller.trayShowRequested();
         });
 
-    // SIGTERM, SIGINT and SIGHUP (a desktop logout, `kill`, Ctrl+C) quit the
-    // way Ctrl+Q does, so aboutToQuit stops sync and closes the store; they
-    // used to end the process on the spot. The intent comes first, or
-    // close-to-tray refuses the window close and aborts the quit. The same
-    // signal again ends the process at once (QuitSignalBridge.h).
     lightning::quitsignals::install(&controller, [&controller](int) {
         Q_EMIT controller.applicationQuitIntended();
         QCoreApplication::quit();
@@ -2800,7 +2400,6 @@ int main(int argc, char *argv[])
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
     // Auto-login into the deterministic demo account on the mock backend.
     if (pf.screenshotDemo) {
-        // Prefer the scenario's own account so no visible switch happens.
         QString initialAccount = pf.demoAccount;
         if (!pf.demoScenario.isEmpty()) {
             const QString scenarioAcct =
@@ -2818,13 +2417,9 @@ int main(int argc, char *argv[])
     }
 #endif
 
-    // Imported fonts must be registered before the UI font is resolved, or
-    // an imported family reads as missing.
     FontManager fontManager(controller.settings());
     fontManager.loadImportedFonts();
 
-    // The resolved UI family (a missing family falls back to the bundled
-    // face, keeping the stored value), applied now and on every change.
     const auto applyUiFont = [](const QString &family) {
         QGuiApplication::setFont(FontManager::withEmojiFallback(family, 14));
     };
@@ -2834,47 +2429,27 @@ int main(int argc, char *argv[])
                          applyUiFont(fontManager.uiFamily());
                      });
 
-    // Before the engine loads, so the first frame is translated.
     controller.localization()->applyStoredLanguage();
 
     QQmlApplicationEngine engine;
-    // Live language switching. retranslate() does not reach strings already
-    // stored in C++ models or JS variables (see docs/localization.md).
     QObject::connect(controller.localization(),
                      &LocalizationManager::retranslateRequested,
                      &engine, [&engine] { engine.retranslate(); });
     engine.rootContext()->setContextProperty("app", &controller);
-    // Whether a new audio stream is safe now (QtAudioGate.h): QML players
-    // start through `qtAudio.play(player)`. Installed before anything plays.
     engine.rootContext()->setContextProperty(
         "qtAudio", &lightning::media::QtAudioGate::install());
-    // Qt's audio is up by now (the call sounds and the gate both asked it),
-    // and Qt read QT_AUDIO_BACKEND once, when it created its audio devices.
-    // A value Lightning set is taken out again, so an application the user
-    // opens from here (a Qt media player, through QDesktopServices) chooses
-    // its own backend. A value the user set stays.
     lightning::calls::releaseQtAudioBackendVariable(g_qtAudioBackendSetHere);
-    // Separate from the controller: FontManager holds no session state.
-    // Main.qml guards it with `typeof` for test harnesses.
     engine.rootContext()->setContextProperty("fonts", &fontManager);
-    // Decrypted media from the in-memory bridge cache. The engine owns the
-    // provider; the bridge outlives it.
     engine.addImageProvider(QStringLiteral("lightning-media"),
                             new MediaImageProvider(controller.mediaBridge()));
-    // Show-QR verification: memory-only module grid, cleared when the flow
-    // ends. The QR payload itself never reaches this side.
     engine.addImageProvider(QStringLiteral("lightning-qr"),
                             new QrImageProvider(controller.qrCodeStore()));
-    // About page's procedural storm art; stateless, parameters are in the id.
     engine.addImageProvider(QStringLiteral("storm-band"),
                             new StormBandImageProvider());
-    // Live preview grabs for the screen-share picker (Windows only; null
-    // elsewhere). Never written to disk. Only compiled with the media engine.
 #ifdef HAVE_LIGHTNING_WEBRTC
     engine.addImageProvider(QStringLiteral("lightning-sharesource"),
                             new ShareSourceImageProvider());
 #endif
-    // Queued composer images (e.g. clipboard pastes) that have no file URL.
     engine.addImageProvider(QStringLiteral("lightning-staged"),
                             new StagedImageProvider(controller.stagedImages()));
 
@@ -2883,7 +2458,6 @@ int main(int argc, char *argv[])
         &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    // Grab the settled demo window to a PNG and quit.
     if (pf.screenshotDemo && !pf.demoCapture.isEmpty()) {
         const QString capturePath = pf.demoCapture;
         const int captureDelay = pf.demoCaptureDelayMs;
@@ -2892,10 +2466,6 @@ int main(int argc, char *argv[])
                 auto *win = qobject_cast<QQuickWindow *>(obj);
                 if (!win)
                     return;
-                // Wait for the scene to have caught up with the window: under load
-                // the offscreen platform applies a resize late, and a capture or
-                // an audit taken against the stale layout reports items hanging
-                // off a window that no longer exists.
                 auto settled = std::make_shared<int>(0);
                 auto *poll = new QTimer(win);
                 poll->setInterval(200);
@@ -2911,10 +2481,6 @@ int main(int argc, char *argv[])
                 QTimer::singleShot(captureDelay, win, [win, capturePath, settled] {
                     for (int i = 0; i < 100 && *settled < 5; ++i)
                         QCoreApplication::processEvents(QEventLoop::AllEvents, 200);
-                    // Development-only geometry audit (small-window round):
-                    // LIGHTNING_DEMO_AUDIT=1 lists every visible control
-                    // whose box, after its clipping ancestors, still leaves
-                    // the window, and every popup taller or wider than it.
                     if (qEnvironmentVariableIntValue("LIGHTNING_DEMO_AUDIT")
                         != 0) {
                         const QRectF wr(0, 0, win->width(), win->height());
@@ -2982,24 +2548,14 @@ int main(int argc, char *argv[])
     }
 #endif
 
-    // Log which backend the scene graph actually got (setGraphicsApi() is
-    // only a request), with the screen refresh rate for context. Plain qInfo
-    // so it appears without QT_LOGGING_RULES.
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreated, &app,
         [&controller](QObject *obj, const QUrl &) {
             auto *win = qobject_cast<QQuickWindow *>(obj);
             if (!win)
                 return;
-            // Opt-in frame cadence summaries (LIGHTNING_FRAME_TRACE); owned
-            // by the window.
             if (FrameIntervalProbe::enabledByEnvironment())
                 new FrameIntervalProbe(win, win);
-            // Emitted on the render thread; `win` as context queues it to
-            // the GUI thread.
-            // Direct connection: the GL context is only current on the render
-            // thread, inside this signal. Logs the driver so a software
-            // rasteriser (llvmpipe) is visible in every log.
             QObject::connect(
                 win, &QQuickWindow::sceneGraphInitialized, win,
                 [&controller] {
@@ -3012,9 +2568,6 @@ int main(int argc, char *argv[])
                         ctx->functions()->glGetString(GL_RENDERER));
                     qInfo("lightning: GL_RENDERER=%s GL_VENDOR=%s",
                           renderer ? renderer : "?", vendor ? vendor : "?");
-                    // On the render thread: hand the string to the GUI thread,
-                    // where AppController decides whether to show the
-                    // "software rendering" notice.
                     if (renderer) {
                         const QString glRenderer =
                             QString::fromLatin1(renderer);
@@ -3050,7 +2603,6 @@ int main(int argc, char *argv[])
                           qUtf8Printable(QGuiApplication::platformName()),
                           screen ? screen->refreshRate() : 0.0,
                           win->effectiveDevicePixelRatio());
-                    // The software backend cannot draw video; let the UI say so.
                     controller.setSoftwareRenderer(software);
                 },
                 Qt::SingleShotConnection);
@@ -3058,10 +2610,6 @@ int main(int argc, char *argv[])
 
     engine.loadFromModule("MatrixClient", "Main");
 
-    // The engine is destroyed after app.exec(), while the controller is still
-    // alive. Remove the timeline's model before that teardown so thousands of
-    // row delegates cannot be destroyed as part of an opaque engine destructor.
-    // This also gives a phase timestamp if the reset itself is slow.
     QObject::connect(&app, &QCoreApplication::aboutToQuit, &engine,
                      [&engine, &controller] {
         QElapsedTimer clock;
@@ -3076,9 +2624,6 @@ int main(int argc, char *argv[])
               static_cast<long long>(clock.elapsed()));
     });
 
-    // Public Qt has no QQuickPixmap cache occupancy API. The byte cache is
-    // reported separately; the QPixmapCache value below is its configured
-    // limit, not a claim about Qt Quick's decoded texture use.
     QTimer scrollMemoryTimer;
     if (qEnvironmentVariableIsSet("LIGHTNING_SCROLL_MEMORY_TRACE")) {
         QObject::connect(&scrollMemoryTimer, &QTimer::timeout, &app,
@@ -3111,8 +2656,6 @@ int main(int argc, char *argv[])
     }
 
     const int status = app.exec();
-    // Kept for the one exit that bypasses the normal return: see
-    // CallSoundPlayer::soundThreadStuck().
     CallSoundPlayer::setExitStatus(status);
     return status;
 }

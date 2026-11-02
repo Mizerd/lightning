@@ -25,8 +25,6 @@ constexpr int kBeatIntervalMs = 25;
 constexpr int kWatchdogIntervalMs = 50;
 
 std::atomic<qint64> g_lastBeatNs{0};
-// Written by the GUI thread, read by the watchdog. String literals only, so
-// no lifetime concerns.
 std::atomic<const char *> g_category{nullptr};
 
 std::atomic<int> g_stallCount{0};
@@ -34,8 +32,6 @@ std::atomic<qint64> g_lastStallMs{0};
 std::atomic<const char *> g_lastStallCategory{nullptr};
 
 std::atomic<bool> g_installed{false};
-// Scopes on other threads are inert, or a GUI stall would be attributed to
-// whatever a worker happened to be doing.
 std::atomic<QThread *> g_guiThread{nullptr};
 
 std::thread g_watchdog;
@@ -48,16 +44,12 @@ BeatHost *g_host = nullptr;
 
 void stopWatchdog();
 
-// Parented to the application so shutdown joins the watchdog before the
-// event loop dies (which would otherwise read as one final stall).
 class BeatHost : public QObject
 {
 public:
     using QObject::QObject;
     ~BeatHost() override
     {
-        // Clear the global first so shutdown() cannot double-delete us
-        // when the application object destroys its children.
         g_host = nullptr;
         stopWatchdog();
     }
@@ -83,17 +75,15 @@ void watchdogLoop(qint64 thresholdNs)
             break;
         const qint64 lastBeat = g_lastBeatNs.load(std::memory_order_relaxed);
         if (lastBeat == 0)
-            continue; // no beat yet — the timer has not started
+            continue;
         if (!inStall) {
             if (nowNs() - lastBeat > thresholdNs) {
                 inStall = true;
                 beatAtStallStart = lastBeat;
-                // Sampled mid-stall: the section the GUI thread is stuck in.
                 categoryAtStall =
                     g_category.load(std::memory_order_relaxed);
             }
         } else if (lastBeat != beatAtStallStart) {
-            // The stall is over; its duration is accurate to one beat.
             const qint64 stallMs =
                 (lastBeat - beatAtStallStart) / 1000000;
             g_lastStallMs.store(stallMs, std::memory_order_relaxed);
@@ -119,7 +109,7 @@ int thresholdFromEnvironment()
     return kDefaultThresholdMs;
 }
 
-} // namespace
+}
 
 bool enabled()
 {
@@ -155,7 +145,6 @@ void install(int thresholdMsOverride)
         g_lastBeatNs.store(nowNs(), std::memory_order_relaxed);
     });
     beat->start();
-    // Beat now so the watchdog has a baseline before the first tick.
     g_lastBeatNs.store(nowNs(), std::memory_order_relaxed);
 
     {
@@ -183,15 +172,14 @@ void stopWatchdog()
     g_installed.store(false);
     g_lastBeatNs.store(0, std::memory_order_relaxed);
 }
-} // namespace
+}
 
 void shutdown()
 {
     stopWatchdog();
-    // Retire the beat timer too, so a re-install does not stack timers.
     if (g_host) {
         BeatHost *host = g_host;
-        g_host = nullptr; // the destructor re-checks; avoid double delete
+        g_host = nullptr;
         delete host;
     }
 }
@@ -217,7 +205,6 @@ Scope::Scope(const char *category)
 {
     if (!g_installed.load(std::memory_order_relaxed))
         return;
-    // Inert off the GUI thread, so it is safe in code that runs on either.
     if (QThread::currentThread()
         != g_guiThread.load(std::memory_order_relaxed))
         return;
@@ -232,4 +219,4 @@ Scope::~Scope()
         g_category.store(m_previous, std::memory_order_relaxed);
 }
 
-} // namespace stalltrace
+}

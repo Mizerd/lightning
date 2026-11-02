@@ -1,6 +1,3 @@
-// What the incoming-call card calls the caller: the room member's display
-// name when it is known, else the MXID localpart. Reported live: a Nheko user
-// named in the room rang as "cmtest11 is calling".
 #include <QtTest/QtTest>
 
 #include <QDateTime>
@@ -25,7 +22,6 @@ public:
     QString displayNameFor(const QString &roomId,
                            const QString &userId) const override
     {
-        // As the real client: the MXID when the member is not known.
         return names.value(roomId + QLatin1Char('|') + userId, userId);
     }
     RoomInfo roomInfo(const QString &roomId) const override
@@ -67,7 +63,7 @@ CallSignal invite(const QString &callId)
     return s;
 }
 
-} // namespace
+}
 
 class CallCallerNameTest : public QObject
 {
@@ -79,19 +75,16 @@ private Q_SLOTS:
         using C = CallController;
         QCOMPARE(C::presentableCallerName(kCaller, QStringLiteral("Nheko Tester")),
                  QStringLiteral("Nheko Tester"));
-        // Unknown member: the client answers with the MXID itself.
         QCOMPARE(C::presentableCallerName(kCaller, kCaller),
                  QStringLiteral("cmtest11"));
         QCOMPARE(C::presentableCallerName(kCaller, QString()),
                  QStringLiteral("cmtest11"));
         QCOMPARE(C::presentableCallerName(kCaller, QStringLiteral("   ")),
                  QStringLiteral("cmtest11"));
-        // One line, no direction overrides that reorder the sentence.
         const QString spoof = QStringLiteral("Ali") + QChar(0x202E)
             + QStringLiteral("ce\nBob") + QChar(0x2066);
         QCOMPARE(C::presentableCallerName(kCaller, spoof),
                  QStringLiteral("Alice Bob"));
-        // Bounded, and never cut inside a surrogate pair.
         const QString longName = QString(63, QLatin1Char('a'))
             + QStringLiteral("\U0001F600") + QStringLiteral("tail");
         const QString bounded = C::presentableCallerName(kCaller, longName);
@@ -99,8 +92,6 @@ private Q_SLOTS:
         QVERIFY(!bounded.back().isHighSurrogate());
     }
 
-    // Review S5: the card asks the user to pick up, so it must not wear
-    // someone else's name or address.
     void aBorrowedNameOrAddressCarriesTheLocalpart()
     {
         using C = CallController;
@@ -110,7 +101,6 @@ private Q_SLOTS:
         QCOMPARE(C::presentableCallerName(QStringLiteral("@mallory:x"),
                                           QStringLiteral("Alice"), true),
                  QStringLiteral("Alice (mallory)"));
-        // Nothing to disambiguate when the name is the localpart itself.
         QCOMPARE(C::presentableCallerName(QStringLiteral("@bob:x"),
                                           QStringLiteral("bob"), true),
                  QStringLiteral("bob"));
@@ -128,19 +118,14 @@ private Q_SLOTS:
                  QStringLiteral("Alice (alice)"));
         QCOMPARE(C::callerNameIn(&client, kRoom, QStringLiteral("@carol:x")),
                  QStringLiteral("Carol"));
-        // Another room's members are not this room's.
         QCOMPARE(C::callerNameIn(&client, QStringLiteral("!other:x"),
                                  QStringLiteral("@carol:x")),
                  QStringLiteral("carol"));
     }
 
-    // Final review S4: the collision check compared RAW names while the card
-    // showed them sanitised, so "Alice" + LRM was "not ambiguous" and
-    // rendered as "Alice"; zero-width characters were not stripped at all.
     void anInvisibleCharacterCannotEscapeTheCollisionCheck()
     {
         using C = CallController;
-        // Every one of these renders as "Alice".
         const QList<QChar> invisible{QChar(0x200E), QChar(0x200B),
                                      QChar(0x200D), QChar(0x2060),
                                      QChar(0x2063), QChar(0xFEFF),
@@ -162,8 +147,6 @@ private Q_SLOTS:
                                     .arg(int(mark.unicode()), 4, 16,
                                          QLatin1Char('0'))));
         }
-        // Invisible marks that are not Cf: the combining grapheme joiner,
-        // a Hangul filler, a Mongolian selector, a variation selector.
         for (const char32_t mark : {char32_t(0x034F), char32_t(0x2065),
                                     char32_t(0x3164),
                                     char32_t(0x180B), char32_t(0xFE0F),
@@ -172,16 +155,13 @@ private Q_SLOTS:
                 + QString::fromUcs4(&mark, 1);
             QCOMPARE(C::sanitizedCallerName(disguised), QStringLiteral("Alice"));
         }
-        // A fullwidth address is still an address.
         QCOMPARE(C::presentableCallerName(QStringLiteral("@mallory:x"),
                                           QStringLiteral("\uFF20alice\uFF1Ax.org")),
                  QStringLiteral("\uFF20alice\uFF1Ax.org (mallory)"));
-        // A name that is nothing but a filler shows the localpart.
         QCOMPARE(C::presentableCallerName(QStringLiteral("@mallory:x"),
                                           QString(QChar(0x3164))),
                  QStringLiteral("mallory"));
         {
-            // The same name in another normalization form is the same name.
             NamedMembersClient client;
             client.names.insert(kRoom + QStringLiteral("|@zoe:x"),
                                 QStringLiteral("Zo\u00EB"));
@@ -191,12 +171,10 @@ private Q_SLOTS:
                                      QStringLiteral("@mallory:x")),
                      QStringLiteral("Zoe\u0308 (mallory)"));
         }
-        // A format character outside the BMP (a tag character) too.
         const char32_t tag = 0xE0041;
         QCOMPARE(C::sanitizedCallerName(QStringLiteral("Alice")
                                         + QString::fromUcs4(&tag, 1)),
                  QStringLiteral("Alice"));
-        // Visible text is left alone.
         QCOMPARE(C::sanitizedCallerName(QStringLiteral("Zoë 🎉")),
                  QStringLiteral("Zoë 🎉"));
     }
@@ -210,7 +188,6 @@ private Q_SLOTS:
         calls.setBacklogSuppressed(false);
         QVERIFY(calls.callerDisplayName().isEmpty());
 
-        // The member list has not loaded yet: the localpart, never the MXID.
         QSignalSpy nameChanged(&calls,
                                &CallController::callerDisplayNameChanged);
         client.emitCallSignalForTest(invite(QStringLiteral("call-1")));
@@ -219,18 +196,15 @@ private Q_SLOTS:
         QCOMPARE(calls.callerDisplayName(), QStringLiteral("cmtest11"));
         QVERIFY(!nameChanged.isEmpty());
 
-        // The roster lands while it rings: the card follows.
         client.names.insert(kRoom + QLatin1Char('|') + kCaller,
                             QStringLiteral("Nheko Tester"));
         nameChanged.clear();
         Q_EMIT client.membersChanged(kRoom);
         QCOMPARE(nameChanged.count(), 1);
         QCOMPARE(calls.callerDisplayName(), QStringLiteral("Nheko Tester"));
-        // Another room's roster is not this call's.
         Q_EMIT client.membersChanged(QStringLiteral("!other:x"));
         QCOMPARE(nameChanged.count(), 1);
 
-        // Exposed to QML under that name.
         QCOMPARE(calls.property("callerDisplayName").toString(),
                  QStringLiteral("Nheko Tester"));
 
@@ -238,8 +212,6 @@ private Q_SLOTS:
         QVERIFY(calls.callerDisplayName().isEmpty());
     }
 
-    // Live 2026-10-20 (C59-F04): a ring from a room nobody opened named the
-    // caller by localpart because nothing ever asked for that room's roster.
     void aRingFromAnUnloadedRoomAsksForTheRoster()
     {
         NamedMembersClient client;
@@ -252,7 +224,6 @@ private Q_SLOTS:
         QCOMPARE(client.memberRequests, QStringList{kRoom});
         QVERIFY(calls.rejectIncoming());
 
-        // A caller whose name is already known costs no request.
         NamedMembersClient known;
         known.names.insert(kRoom + QLatin1Char('|') + kCaller,
                            QStringLiteral("Nheko Tester"));

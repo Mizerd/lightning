@@ -16,17 +16,11 @@
 class QrCodeStore
 {
 public:
-    // Replace the stored code. `token` is an opaque per-code key used in the
-    // provider URL; flow ids never appear in a URL. Returns false (and
-    // stores nothing) when the geometry does not describe a square grid.
     bool setCode(const QString &token, int modules, const QByteArray &bits);
     void clear();
 
-    // The grid for `token`, or empty with `modules` 0 when the token does not
-    // match: a stale URL renders nothing.
     QByteArray gridFor(const QString &token, int *modules) const;
 
-    // QR version 40, far beyond any verification payload, is 177 modules.
     static constexpr int kMaxModules = 200;
 
 private:
@@ -36,10 +30,6 @@ private:
     QByteArray m_bits;
 };
 
-// Serves the stored grid to QML under image://lightning-qr/<token>.
-//
-// Always black on white with a 4-module quiet zone, whatever the theme: it
-// must scan. Nearest-neighbour scaling keeps module edges hard.
 class QrImageProvider : public QQuickImageProvider
 {
 public:
@@ -48,9 +38,8 @@ public:
     QImage requestImage(const QString &id, QSize *size,
                         const QSize &requestedSize) override;
 
-    // Quiet zone required by the QR specification, in modules.
     static constexpr int kQuietZoneModules = 4;
 
 private:
-    QrCodeStore *m_store; // not owned; outlives the QML engine
+    QrCodeStore *m_store;
 };

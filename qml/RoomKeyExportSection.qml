@@ -3,15 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings → Privacy & security → Export room keys, the counterpart of
-// "Import room keys" beside it. matrix-sdk writes the file
-// (Encryption::export_room_keys) in the standard encrypted format Element and
-// other Matrix apps import; app.roomKeyExport is the policy around it.
-//
-// The passphrase lives only in the two fields. It reaches C++ as an argument
-// of one call, and the fields are wiped right after it, when the section
-// hides and when the account changes. echoMode stays Password with no reveal
-// toggle, as in ChangePasswordSection.
 ColumnLayout {
     id: root
     objectName: "roomKeyExportSection"
@@ -22,8 +13,6 @@ ColumnLayout {
     readonly property bool busy: ctl ? ctl.busy : false
     readonly property int minimumLength: ctl ? ctl.minimumLength : 8
     readonly property int level: ctl ? ctl.strength(passphraseField.text) : 0
-    // As Element: below this rung (its zxcvbn score 3) the export is
-    // refused, not just warned about. The controller checks it again.
     readonly property int requiredStrength: ctl ? ctl.requiredStrength : 3
     readonly property bool tooWeak: passphraseField.text.length > 0
                                     && level < requiredStrength
@@ -39,8 +28,6 @@ ColumnLayout {
         confirmField.text = ""
     }
 
-    // The fields first, then the native save dialog; the export starts when
-    // a location is chosen.
     function chooseLocation() {
         if (!ctl || !exportButton.enabled)
             return
@@ -52,7 +39,6 @@ ColumnLayout {
         if (!ctl)
             return
         ctl.exportKeys(fileUrl, passphraseField.text, confirmField.text)
-        // Wiped whatever the outcome; a refusal says why in place.
         wipe()
     }
 
@@ -116,7 +102,6 @@ ColumnLayout {
         onTextEdited: if (root.ctl) root.ctl.clearResult()
         onAccepted: confirmField.forceActiveFocus()
     }
-    // Strength hint under the passphrase.
     RowLayout {
         id: strengthRow
         objectName: "roomKeyExportStrengthRow"
@@ -140,7 +125,6 @@ ColumnLayout {
                 }
             }
         }
-        // While too weak this is also why the export button is disabled.
         Label {
             objectName: "roomKeyExportStrengthLabel"
             Layout.fillWidth: true
@@ -192,7 +176,6 @@ ColumnLayout {
         storm: true
         Layout.alignment: Qt.AlignLeft
         text: root.busy ? qsTr("Exporting…") : qsTr("Export keys…")
-        // The controller checks the same again before starting.
         enabled: root.ctl !== null && root.ctl.available && root.signedIn
                  && !root.busy && !saveDialog.busy && root.fieldsReady
         Accessible.description: root.tooWeak
@@ -200,8 +183,6 @@ ColumnLayout {
         onClicked: root.chooseLocation()
     }
 
-    // Progress: the SDK gathers every session, then encrypts the file in one
-    // step, so the bar sweeps and the count is what it has gathered.
     AppProgressBar {
         objectName: "roomKeyExportProgress"
         Layout.fillWidth: true
@@ -222,7 +203,6 @@ ColumnLayout {
                      + "account with a long history.")
     }
 
-    // The outcome, in place.
     Label {
         objectName: "roomKeyExportResult"
         Layout.fillWidth: true

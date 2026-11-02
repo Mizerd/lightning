@@ -6,23 +6,9 @@
 #include <QVariantList>
 #include <QVariantMap>
 
-// The notification settings page's view of the account's push rules, as the
-// Rust bridge reports it (`push_rules_snapshot`, rust/src/pushrules.rs) turned
-// into the flat map QML and PushRulesController read.
-//
-// Keys:
-//   masterMute            bool   the .m.rule.master override is on
-//   dmAll, roomsAll       bool   the default level is "all messages"
-//   dmDrift, roomsDrift   bool   the plain and the encrypted rule disagree
-//   mentionUserId, mentionDisplayName, mentionUsername, mentionRoom
-//   eventReactions, eventInvites, eventNotices
-//                         int    -1 the server has no such rule, 0 Off,
-//                                1 Notify, 2 Loud
-//   keywords              list of { keyword: string, level: 0|1|2 }
 namespace PushRulesSnapshot {
 
 enum Level { Absent = -1, Off = 0, Notify = 1, Loud = 2 };
-
 
 namespace detail {
 
@@ -38,7 +24,7 @@ inline int levelOf(const QJsonObject &row)
     return Off;
 }
 
-} // namespace detail
+}
 
 inline QVariantMap empty()
 {
@@ -114,6 +100,4 @@ inline QVariantMap fromRustEvent(const QJsonObject &event)
     return out;
 }
 
-
-
-} // namespace PushRulesSnapshot
+}

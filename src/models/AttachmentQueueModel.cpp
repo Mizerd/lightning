@@ -48,7 +48,6 @@ AttachmentQueueModel::AttachmentQueueModel(QObject *parent)
 
 AttachmentQueueModel::~AttachmentQueueModel()
 {
-    // Before the directory goes, so no sweep is left holding a stale mark.
     const auto &release = lightning::svgraster::hooks().releaseScratchDir;
     if (m_convertedDir && release)
         release(m_convertedDir->path());
@@ -72,8 +71,6 @@ qint64 AttachmentQueueModel::uploadLimit() const
 bool AttachmentQueueModel::exceedsUploadLimit(qint64 bytes) const
 {
     const qint64 limit = uploadLimit();
-    // Exactly at the limit is allowed: m.upload.size is the largest accepted
-    // payload, not the first rejected one.
     return limit > 0 && bytes > limit;
 }
 
@@ -96,15 +93,10 @@ QString AttachmentQueueModel::humanSize(qint64 bytes)
     return QStringLiteral("%1 GB").arg(mb / 1024.0, 0, 'f', 2);
 }
 
-// Upload-path diagnostics; warnings fire only on refusal. Enable everything
-// with QT_LOGGING_RULES='lightning.attach=true'.
 Q_LOGGING_CATEGORY(lcAttach, "lightning.attach")
 
 namespace {
 
-// Why an attachment was refused, safe to paste into a bug report. Never the
-// path (it contains the user's account name); only its shape: spaces,
-// non-ASCII and UNC prefixes, the classic Windows path hazards.
 QString pathShape(const QString &path)
 {
     bool nonAscii = false;
@@ -173,7 +165,6 @@ void retrieveFromPortal(
         w->deleteLater();
         const QDBusPendingReply<QStringList> reply = *w;
         if (reply.isError()) {
-            // The error NAME only: its message may carry a path.
             qCWarning(lcAttach) << "drop portal refused error="
                                 << qPrintable(reply.error().name());
             done(false, {});
@@ -188,7 +179,7 @@ void retrieveFromPortal(
 #endif
 }
 
-} // namespace
+}
 
 QString AttachmentQueueModel::detectMime(const QString &path)
 {
@@ -198,7 +189,6 @@ QString AttachmentQueueModel::detectMime(const QString &path)
         db.mimeTypeForFile(info, QMimeDatabase::MatchContent);
     const QMimeType byName =
         db.mimeTypeForFile(info, QMimeDatabase::MatchExtension);
-    // Content proved nothing: the extension decides.
     if (!content.isValid() || content.isDefault()) {
         const QString name = byName.isValid() && !byName.isDefault()
             ? byName.name()
@@ -206,15 +196,6 @@ QString AttachmentQueueModel::detectMime(const QString &path)
         return name.isEmpty() ? QStringLiteral("application/octet-stream")
                               : name;
     }
-    // Content proved a CONTAINER that carries either sound or picture, and the
-    // shared MIME database names it generically: Matroska is
-    // application/x-matroska, ASF is application/vnd.ms-asf. Taken as is, an
-    // .mkv recording (OBS's default) or a .wmv went out as m.file and played
-    // nowhere. The extension may only narrow one of these containers to an
-    // audio or video type that INHERITS from what the bytes proved, so a .mkv
-    // name on PNG bytes stays a PNG. A closed list, because other generic
-    // parents have audio/video children that are not media at all: text/plain
-    // (.m4u and .vlc playlists) and application/zip (.yt).
     static const QStringList kGenericMediaContainers = {
         QStringLiteral("application/x-matroska"),
         QStringLiteral("application/vnd.ms-asf"),
@@ -233,7 +214,6 @@ QString AttachmentQueueModel::detectMime(const QString &path)
 
 QString AttachmentQueueModel::portalKeyFrom(const QByteArray &raw)
 {
-    // GTK writes the key with its terminating NUL, KDE without.
     QByteArray key = raw;
     while (!key.isEmpty() && key.back() == '\0')
         key.chop(1);
@@ -279,8 +259,6 @@ QUrl AttachmentQueueModel::normalizeDroppedUrl(const QUrl &url)
         const bool localhost =
             host.compare(QLatin1String("localhost"), Qt::CaseInsensitive) == 0;
 #ifdef Q_OS_WIN
-        // \\HOST\share is a real UNC path on Windows, so only "localhost"
-        // (whose "C:" is no share name) is folded.
         const bool ownHost = false;
 #else
         const bool ownHost = host.compare(QSysInfo::machineHostName(),
@@ -331,15 +309,12 @@ void AttachmentQueueModel::resolveDroppedUrls(
     const QList<QUrl> &urls, const QString &portalKey, QObject *context,
     std::function<void(const QList<QUrl> &)> done)
 {
-    // QML reads the key with DragEvent.getDataAsString, which keeps GTK's
-    // terminating NUL inside the string; the portal would refuse that key.
     const QString key = portalKeyFrom(portalKey.toUtf8());
     QList<QUrl> normalized;
     normalized.reserve(urls.size());
     for (const QUrl &url : urls) {
         const QUrl local = normalizeDroppedUrl(url);
         if (local != url) {
-            // Which repair applied, never the path.
             const bool hostFolded = url.host() != local.host();
             const bool literalRestored = (url.hasFragment() || url.hasQuery())
                 && !local.hasFragment() && !local.hasQuery();
@@ -349,9 +324,6 @@ void AttachmentQueueModel::resolveDroppedUrls(
         }
         normalized.append(local);
     }
-    // A key is authoritative even when a host path happens to be readable:
-    // the source explicitly offered the portal's exported files. With no key,
-    // document-portal URLs and ordinary file URLs follow the same direct path.
     if (key.isEmpty()) {
         const bool documentPortalPath = std::any_of(
             normalized.cbegin(), normalized.cend(),
@@ -400,8 +372,6 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
         return tr("Folders cannot be attached.");
     }
     if (!info.isFile() || !info.isReadable()) {
-        // exists() and isReadable() disagreeing points to permissions or path
-        // translation, not a user mistake.
         const QString sandbox = sandboxKind();
         qCWarning(lcAttach) << "attachment refused reason=unreadable"
                             << "exists=" << info.exists()
@@ -409,10 +379,6 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
                             << "readable=" << info.isReadable()
                             << "sandbox=" << qPrintable(sandbox)
                             << qPrintable(pathShape(path));
-        // A path that does not exist inside a sandbox is almost always a host
-        // path the sandbox cannot see (a drop from a file manager that offered
-        // no portal key). Say so, and name the way that works: the picker goes
-        // through the file chooser portal.
         if (!info.exists() && sandbox != QLatin1String("none"))
             return tr("Lightning's sandbox can't see that file. Attach it "
                       "with the + button instead.");
@@ -437,14 +403,10 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
 
     Entry entry;
     entry.localPath = path;
-    // The chip shows this name and the send reuses it: format characters
-    // (bidi overrides) would let "r<RLO>txt.exe" read as a .txt.
     entry.fileName =
         matrix::presentable_name::withoutFormatCharacters(info.fileName());
     entry.sizeBytes = info.size();
 
-    // MIME from content first, extension only as tie-breaker or to narrow a
-    // generic container, so a mislabelled extension cannot pick the send path.
     entry.mime = detectMime(path);
     qCDebug(lcAttach) << "attachment classified mime=" << entry.mime;
     entry.isImage = entry.mime.startsWith(QLatin1String("image/"));
@@ -454,7 +416,6 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
     // An SVG is not read here: QImageReader would hand it to Qt's SVG plugin
     // unscreened. Its size comes from the conversion's PNG.
     if (entry.isImage && !entry.isSvg) {
-        // Header-only read; never decodes the full image here.
         QImageReader reader(path);
         const QSize size = reader.size();
         if (size.isValid()) {
@@ -462,9 +423,6 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
             entry.height = size.height();
         }
     }
-    // Audio is decoded too, not for a picture but for its duration, which audio
-    // attachments would otherwise lack. The extractor reports duration without
-    // a frame, and applyPoster() stores it independently.
     entry.isAudio = entry.mime.startsWith(QLatin1String("audio/"));
     if (entry.isVideo || entry.isAudio || entry.isSvg) {
         entry.posterPending = true;
@@ -476,8 +434,6 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
     m_entries.append(entry);
     endInsertRows();
     Q_EMIT countChanged();
-    // Started only after the row exists: an outcome may arrive synchronously
-    // and applyPoster() must find its entry.
     if (m_entries.at(row).posterPending)
         startPosterJob(row);
     return {};
@@ -493,8 +449,6 @@ void AttachmentQueueModel::startPosterJob(int row)
     if (row < 0 || row >= m_entries.size())
         return;
     const Entry &entry = m_entries.at(row);
-    // An SVG is converted, never postered, and the poster hook (a stand-in for
-    // the video decoder) has nothing to say about it.
     if (entry.isSvg) {
         startSvgConversion(row);
         return;
@@ -516,9 +470,6 @@ QString AttachmentQueueModel::convertedDirectory()
     if (m_convertedDir && m_convertedDir->isValid())
         return m_convertedDir->path();
     namespace svg = lightning::svgraster;
-    // The shared scratch root, never QDir::temp() when the app set one: keeps
-    // these files inside a portable folder and within the startup sweep's reach
-    // after a crash.
     const QString root = svg::hooks().scratchRoot ? svg::hooks().scratchRoot()
                                                   : QDir::tempPath();
     m_convertedDir = std::make_unique<QTemporaryDir>(
@@ -529,18 +480,11 @@ QString AttachmentQueueModel::convertedDirectory()
     }
     QFile::setPermissions(m_convertedDir->path(),
                           QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
-    // Marked live so another instance's startup sweep cannot delete a picture
-    // an upload is still reading.
     if (svg::hooks().holdScratchDir)
         svg::hooks().holdScratchDir(m_convertedDir->path());
     return m_convertedDir->path();
 }
 
-// "Rasterize on send": the SVG is converted to a PNG in a helper process
-// (SvgRasterJob.h, killed on a timeout) and the entry turns into that PNG. The
-// dispatch of this entry waits on posterPending, exactly as a video waits for
-// its poster. A refusal fails the entry with a sentence naming the reason; a
-// retry converts again.
 void AttachmentQueueModel::startSvgConversion(int row)
 {
     namespace svg = lightning::svgraster;
@@ -561,7 +505,7 @@ void AttachmentQueueModel::finishSvgConversion(
     namespace svg = lightning::svgraster;
     const int row = rowForPosterTag(tag);
     if (row < 0)
-        return; // the entry was removed while converting
+        return;
     Entry &entry = m_entries[row];
     if (!entry.posterPending)
         return;
@@ -601,8 +545,6 @@ void AttachmentQueueModel::finishSvgConversion(
     out.close();
     out.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
 
-    // The entry IS the PNG from here on: a file with its real size, type and
-    // dimensions, which is all the send path reads.
     entry.sourcePath = entry.localPath;
     entry.localPath = pngPath;
     entry.converted = true;
@@ -616,7 +558,7 @@ void AttachmentQueueModel::finishSvgConversion(
     entry.animated = false;
     entry.error.clear();
     entry.retryable = true;
-    updateEntry(row); // name, size, type and preview all changed
+    updateEntry(row);
     Q_EMIT entryPrepared(row);
 }
 
@@ -637,18 +579,16 @@ void AttachmentQueueModel::applyPoster(const QString &tag,
 {
     const int row = rowForPosterTag(tag);
     if (row < 0)
-        return; // the entry was removed while decoding
+        return;
     Entry &entry = m_entries[row];
     if (!entry.posterPending)
-        return; // already resolved; a second callback must not re-dispatch
+        return;
     entry.posterPending = false;
     if (!poster.isEmpty() && posterSize.isValid() && !posterSize.isEmpty()) {
         entry.poster = poster;
         entry.posterWidth = posterSize.width();
         entry.posterHeight = posterSize.height();
     }
-    // The decoded frame is the only source of the dimensions on the send side;
-    // fabricated ones would make receivers lay it out wrong.
     if (sourceSize.isValid() && !sourceSize.isEmpty()) {
         entry.width = sourceSize.width();
         entry.height = sourceSize.height();
@@ -676,8 +616,6 @@ QString AttachmentQueueModel::addImageData(const QByteArray &bytes,
     entry.width = width;
     entry.height = height;
     entry.isImage = true;
-    // Pasted bytes have no file, so register them for preview. A full store
-    // only means no thumbnail.
     if (m_stagedImages)
         entry.stagedToken = m_stagedImages->add(bytes);
 
@@ -704,7 +642,6 @@ void AttachmentQueueModel::releaseStaged(const Entry &entry)
 {
     if (m_stagedImages && !entry.stagedToken.isEmpty())
         m_stagedImages->remove(entry.stagedToken);
-    // A converted SVG's PNG is ours; a picked file never is.
     if (entry.converted)
         removeOwnedRendition(entry.localPath);
     removeOwnedRendition(entry.editPreviewPath);
@@ -729,8 +666,6 @@ QVariantMap AttachmentQueueModel::renderImageEdit(
         || quarterTurns < 0 || quarterTurns > 3 || strokes.size() > 128)
         return fail(tr("Invalid image edit."));
 
-    // Limit compressed input and decoded pixels. Qt may retain a full image
-    // while scaling, so refuse pathological dimensions before decoding.
     constexpr qint64 maxInput = 64LL * 1024 * 1024;
     constexpr int maxEdge = 4096;
     if (entry.data.size() > maxInput
@@ -746,7 +681,6 @@ QVariantMap AttachmentQueueModel::renderImageEdit(
     } else {
         reader.setFileName(entry.localPath);
     }
-    // A MIME guess alone does not permit SVG into Qt's image handlers.
     const QByteArray format = reader.format().toLower();
     if (format != "png" && format != "jpeg" && format != "jpg"
         && format != "gif" && format != "webp" && format != "bmp"
@@ -793,8 +727,6 @@ QVariantMap AttachmentQueueModel::renderImageEdit(
     if (clipped.isEmpty())
         return fail(tr("The crop is empty."));
     output = output.copy(clipped);
-    // A fresh pixel-only surface prevents QImage text fields from being
-    // carried into the PNG by a format plugin. Alpha remains intact.
     QImage clean(output.size(), QImage::Format_ARGB32_Premultiplied);
     if (clean.isNull())
         return fail(tr("The image edit failed."));
@@ -842,13 +774,10 @@ QVariantMap AttachmentQueueModel::renderImageEdit(
     QString base = QFileInfo(entry.fileName).completeBaseName();
     if (base.isEmpty())
         base = QStringLiteral("image");
-    // The source's format where it can hold the result: a photo re-encoded as
-    // PNG came back ten times the size. Anything else, alpha included, is PNG.
     const bool jpeg = entry.mime == QLatin1String("image/jpeg");
     const QString path = QDir(workDir).filePath(
         base + (jpeg ? QStringLiteral(".jpg") : QStringLiteral(".png")));
     if (jpeg) {
-        // No alpha in a JPEG, and quarter turns and crops add none.
         QImage opaque(output.size(), QImage::Format_RGB32);
         if (opaque.isNull())
             return fail(tr("The image edit failed."));
@@ -932,7 +861,6 @@ void AttachmentQueueModel::removeAt(int row)
 {
     if (row < 0 || row >= m_entries.size())
         return;
-    // Entries mid-dispatch cannot be removed; they leave on completion.
     if (m_entries.at(row).state == QLatin1String("dispatching"))
         return;
     releaseStaged(m_entries.at(row));
@@ -995,8 +923,6 @@ void AttachmentQueueModel::retryAt(int row)
         return;
     entry.committed = false;
     if (entry.isSvg) {
-        // Refused or unreadable conversion: convert again, the file may have
-        // changed. It dispatches once it resolves, if the user already sent.
         entry.state = QStringLiteral("queued");
         entry.error.clear();
         entry.retryable = true;
@@ -1010,8 +936,6 @@ void AttachmentQueueModel::retryAt(int row)
     entry.error.clear();
     entry.retryable = true;
     entry.opId = 0;
-    // A retry waits for the user to send again rather than dispatching off a
-    // stale request.
     entry.sendRequested = false;
     updateEntry(row);
 }
@@ -1045,9 +969,6 @@ QVariant AttachmentQueueModel::data(const QModelIndex &index, int role) const
     case PreviewSourceRole: {
         if (!e.isImage && !e.isVideo)
             return QString();
-        // Never the SVG file: QML would hand it to Qt's SVG plugin. Until its
-        // conversion lands there is no picture; afterwards the entry is the
-        // converted PNG.
         if (e.isSvg)
             return QString();
         if (!e.localPath.isEmpty())

@@ -1,12 +1,3 @@
-// Answers "which picture does this conversation wear?".
-//
-// A Matrix DM usually has no room avatar, so clients show the peer's profile
-// picture: decide whether the room is an unambiguous 1:1, find the peer, and
-// fetch their profile once. The peer's own member event in the room, when sync
-// delivers one, then keeps that face current. Both room-list models own one of
-// these so every surface derives it the same way. Caches are per-owner on
-// purpose: they are presentation memory and the fetch is idempotent and
-// bounded.
 #pragma once
 
 #include <QHash>
@@ -25,8 +16,6 @@ class DirectAvatarResolver : public QObject
 public:
     explicit DirectAvatarResolver(QObject *parent = nullptr);
 
-    /// Follows the client for a session. A different client (or nullptr) drops
-    /// everything learned: the cache is account-scoped.
     void setClient(MatrixClient *client);
     void clear();
 
@@ -35,32 +24,16 @@ public:
     /// classifies as a strict 1:1 (never an arbitrary face for a group DM).
     QString avatarFor(const RoomInfo &room) const;
 
-    /// Starts at most one bounded profile fetch per unanswered peer. Safe on
-    /// every rebuild: pending and cached peers are skipped.
     void resolveMissing(const QList<RoomInfo> &rooms);
 
-    /// How long an answered profile stays fresh before the next rebuild asks
-    /// again. The peer's member event does not reach a closed DM under lazy
-    /// loading, so without a refresh a changed face stayed stale for the whole
-    /// session. Default 15 minutes plus a per-peer jitter of up to two thirds
-    /// of that (15-25 min), so a long contact list does not refresh in one
-    /// burst; at most kMaxRefreshesPerPass (the oldest) go out per
-    /// resolveMissing() call. Tests shorten the interval and inject the clock.
     static constexpr int kMaxRefreshesPerPass = 6;
     void setRefreshIntervalMs(qint64 ms) { m_refreshMs = ms; }
     void setClockForTest(std::function<qint64()> nowMs) { m_clock = std::move(nowMs); }
 
-    /// The avatar `userId` wears in `roomId` per their latest member event
-    /// there (sync room state), empty for none. For that room's peer it wins
-    /// over the roster snapshot and the profile, which can be older. Announces
-    /// only a change.
     void applyPeerAvatar(const QString &roomId, const QString &userId,
                          const QString &avatarUrl);
 
 Q_SIGNALS:
-    /// A peer's face changed (learned, replaced or removed). Owners emit
-    /// dataChanged for the affected rows instead of rebuilding, so a late
-    /// profile cannot move anything.
     void avatarResolved(const QString &userId);
 
 private Q_SLOTS:
@@ -70,30 +43,17 @@ private Q_SLOTS:
                                const QString &category);
 
 private:
-    /// The peer whose face this room would wear, or empty when the room is not
-    /// an unambiguous 1:1 DM or has its own avatar.
     QString directPeer(const RoomInfo &room) const;
 
     MatrixClient *m_client = nullptr;
     QHash<QString, QString> m_avatars;
     QHash<quint64, QString> m_ops;
     QSet<QString> m_pending;
-    /// When each peer's profile is next due a refresh (ms since epoch): the
-    /// answer time plus the interval plus that peer's jitter.
     QHash<QString, qint64> m_refreshDueAt;
     qint64 m_refreshMs = 15 * 60 * 1000;
     std::function<qint64()> m_clock;
     qint64 nowMs() const;
-    /// Peers we asked about and learned no picture for (no avatar set, or our
-    /// own lookup failed). Distinguishes "asked, nothing there" from "never
-    /// asked", so rebuilds do not re-fetch in a loop. Session-scoped and
-    /// cleared on sign-out. Only failures this resolver incurred are recorded;
-    /// the shared signal also carries other consumers' failures, which must not
-    /// pin a DM to initials. avatarFor() checks the member snapshot first, so a
-    /// later face still wins.
     QSet<QString> m_noAvatar;
-    /// By room id: the peer a member event was about and the avatar it
-    /// carried. Only read while that user is still the room's peer.
     struct PeerFace
     {
         QString userId;

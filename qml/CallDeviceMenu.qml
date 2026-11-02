@@ -3,27 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Device chooser for a call control: the chevron dropdown beside the mic,
-// speaker and camera buttons.
-//
-// The microphone menu also carries the input level. It writes the same
-// `app.settings.microphoneGain` as Settings, and SfuCallController applies
-// `microphoneGainChanged` to the live pipeline. There is no global output
-// level (only per-participant volumes and deafen), so no slider for that.
-//
-// Lists what the machine reports, marks the system default, and offers
-// "System default" as an explicit first choice. `chosen` (what the user
-// picked) and `active` (what audio flows through) differ when a chosen device
-// is unplugged; the menu then shows both.
 AppMenu {
     id: root
 
-    /// "microphone" | "speaker" | "camera"
     property string kind: "microphone"
 
-    // Rows bind on `kind` rather than branch at construction: a hidden
-    // AppMenuItem / AppMenuSeparator collapses to implicitHeight 0, so unused
-    // rows take no space.
     readonly property bool isMicrophone: kind === "microphone"
 
     readonly property var _entries: {
@@ -35,8 +19,6 @@ AppMenu {
         return app.callDevices.microphones
     }
 
-    // The rows are rebuilt on every read, so the menu refreshes when the device
-    // list or selection changes.
     property int refreshTick: 0
     Connections {
         target: app.callDevices
@@ -60,18 +42,12 @@ AppMenu {
     }
 
     AppMenuItem {
-        // Explicit: no selection means "follow the system default", which
-        // differs from pinning today's default device.
         text: qsTr("System default")
-        // AppMenuItem's own radio idiom; Qt's `checkable` would draw its
-        // default indicator over the custom content.
         radio: true
         radioSelected: {
             var _ = root.refreshTick
             if (root.kind === "speaker")
                 return app.callDevices.activeSpeakerId === ""
-            // A missing chosen camera also reads as "", but no camera opens
-            // then, so "System default" is not what the call uses.
             if (root.kind === "camera")
                 return app.callDevices.activeCameraId === ""
                        && !app.callDevices.preferredCameraMissing
@@ -86,7 +62,6 @@ AppMenu {
         model: root._entries
         delegate: AppMenuItem {
             required property var modelData
-            // The device's own name; not ours to translate.
             text: modelData.description
                   + (modelData.isDefault ? " " + qsTr("(default)") : "")
             radio: true
@@ -95,7 +70,6 @@ AppMenu {
         }
     }
 
-    // Only when the chosen device is unavailable.
     Loader {
         active: root.isMicrophone
                 && app.callDevices.preferredMicrophoneMissing
@@ -105,8 +79,6 @@ AppMenu {
             enabled: false
         }
     }
-    // The camera has no fallback: none opens until it is back or another is
-    // chosen, and no radio above is selected meanwhile.
     Loader {
         objectName: "callMenuCameraMissing"
         active: root.kind === "camera"
@@ -118,11 +90,6 @@ AppMenu {
         }
     }
 
-    // ── Live level ──
-    // Teams' bar under the microphone: what the call's own capture hears,
-    // from its `level` element (no second capture of the device). Group calls
-    // only: the 1:1 lane has no meter. Read only while the menu is open, so a
-    // closed menu keeps no binding on a value that changes 20 times a second.
     readonly property bool showsLevel: root.isMicrophone
                                        && app.groupCall.active
     AppMenuSeparator { visible: root.showsLevel }
@@ -158,8 +125,6 @@ AppMenu {
                 }
                 Label {
                     objectName: "callMenuMicLevelState"
-                    // Says why the bar is still, so a muted microphone is not
-                    // mistaken for a dead one.
                     visible: app.groupCall.microphoneMuted
                              || app.groupCall.microphoneSilent
                     text: app.groupCall.microphoneMuted
@@ -180,12 +145,8 @@ AppMenu {
         }
     }
 
-    // ── Input volume ──
     AppMenuSeparator { visible: root.isMicrophone }
 
-    // A plain Item, not a Layout: QQuickMenu sizes rows it didn't size
-    // explicitly to the content width, so this anchors to its own edges and
-    // reports a height. implicitWidth is a floor for the menu's width.
     Item {
         id: gainRow
         objectName: "callMenuMicGainRow"
@@ -200,8 +161,6 @@ AppMenu {
             anchors.right: parent.right
             anchors.top: parent.top
             anchors.topMargin: AppTheme.spacing6
-            // AppMenuItem's content inset, so the label aligns with the
-            // devices.
             anchors.leftMargin: AppTheme.menuItemPadding + 6
             anchors.rightMargin: AppTheme.menuItemPadding + 6
             spacing: 2
@@ -211,16 +170,12 @@ AppMenu {
                 spacing: AppTheme.spacing6
 
                 Icon {
-                    // `graphic_eq` for level above 100, `mic` otherwise; both
-                    // mapped in Icon.qml (the bundled font is a subset).
                     name: micGain.value > 100 ? "graphic_eq" : "mic"
                     size: 15
                     color: micGain.value > 100 ? AppTheme.bolt
                                                : AppTheme.stormTextSecondary
                 }
                 Label {
-                    // fillWidth + elide, not a minimumWidth floor, which would
-                    // make the row overflow the menu.
                     Layout.fillWidth: true
                     text: qsTr("Input volume")
                     elide: Label.ElideRight
@@ -230,7 +185,6 @@ AppMenu {
                 }
                 Label {
                     objectName: "callMenuMicGainReadout"
-                    // Never empty, so no Loader needed.
                     text: Math.round(micGain.value) + "%"
                     color: AppTheme.stormText
                     font.pixelSize: AppTheme.textMeta
@@ -242,21 +196,16 @@ AppMenu {
                 id: micGain
                 objectName: "callMenuMicGainSlider"
                 Layout.fillWidth: true
-                // Same range and neutral point as the Settings and
-                // per-participant controls.
                 from: 0
                 to: 200
                 stepSize: 1
                 snapMode: Slider.SnapAlways
-                // A plain binding, so changes from Settings, resets or another
-                // account's value show here.
                 value: app.settings.microphoneGain
                 Accessible.name: qsTr("Input volume")
                 // `onMoved`, never `onValueChanged`, which also fires for
                 // values arriving from the store and would write them straight
                 // back.
                 onMoved: app.settings.microphoneGain = Math.round(value)
-                // One write on release; the live effect follows every step.
                 onPressedChanged: if (app.settings.holdWritesWhileDragging)
                     app.settings.holdWritesWhileDragging(pressed)
                 Component.onDestruction: if (pressed
@@ -295,8 +244,6 @@ AppMenu {
                     width: 14
                     height: 14
                     radius: 7
-                    // White: a dark thumb on the fill boundary reads as
-                    // disabled.
                     color: "#FFFFFF"
                     border.width: micGain.visualFocus ? 2 : 0
                     border.color: AppTheme.bolt
@@ -305,12 +252,7 @@ AppMenu {
 
             Label {
                 Layout.fillWidth: true
-                // Preferred width 1 + fillWidth: a wrapping paragraph reports
-                // its unwrapped width as preferred and would squeeze siblings.
                 Layout.preferredWidth: 1
-                // Hidden below 100; a ColumnLayout skips invisible children, so
-                // no preferredHeight override (a common binding-loop source on
-                // wrapping labels).
                 visible: micGain.value > 100
                 wrapMode: Text.WordWrap
                 text: qsTr("Above 100% amplifies and can clip.")
@@ -320,8 +262,6 @@ AppMenu {
         }
     }
 
-    // Shown only off the neutral point, as a real row rather than a hidden
-    // slider gesture.
     AppMenuItem {
         objectName: "callMenuMicGainReset"
         visible: root.isMicrophone && app.settings.microphoneGain !== 100
@@ -331,10 +271,6 @@ AppMenu {
         onTriggered: app.settings.microphoneGain = 100
     }
 
-    // ── Noise suppression (GitHub #20) ──
-    // The same setting as Settings → Labs. A change applies to the running
-    // call at once (SfuCallController::applyAudioState); nobody has to leave
-    // and rejoin. Engines this build cannot run are listed but disabled.
     AppMenuSeparator { visible: root.isMicrophone }
 
     MenuSectionLabel {
@@ -348,10 +284,6 @@ AppMenu {
     onAboutToShow: if (root.isMicrophone && app.groupCall)
                        root._noiseChoices = app.groupCall.noiseSuppressionChoices()
 
-    // What each engine does first, its name second: mid-call, "RNNoise" and
-    // "DeepFilterNet" say nothing about which one removes more, and this menu
-    // has no room for Settings' descriptions. The words follow those
-    // descriptions (NoiseSuppressionSelector.qml): standard, more, advanced.
     function noiseTitle(key) {
         if (key === "off") return qsTr("Off")
         if (key === "webrtc") return qsTr("Standard (WebRTC)")
@@ -360,9 +292,6 @@ AppMenu {
         return key
     }
 
-    // Four fixed rows, not a Repeater: a Repeater inside a Menu places its
-    // items where the Menu happens to insert them (they landed under the
-    // device list), not here.
     function noiseChoice(key) {
         for (var i = 0; i < root._noiseChoices.length; ++i)
             if (root._noiseChoices[i].key === key)
@@ -382,7 +311,6 @@ AppMenu {
                          && (choice.reason || "").length > 0
         ToolTip.text: choice !== null ? (choice.reason || "") : ""
         onTriggered: {
-            // The mode that failed in this call, chosen again: retry it.
             if (app.groupCall
                     && modeKey === app.groupCall.noiseSuppressionFailedMode
                     && modeKey === app.settings.noiseSuppressionMode)
@@ -417,9 +345,6 @@ AppMenu {
         onTriggered: app.showSettingsSection("labs")
     }
 
-    // ── Everything else ──
-    // Camera picker, float-the-call and playback level are settings, not call
-    // controls; one row links to the section that owns them.
     AppMenuSeparator {}
 
     AppMenuItem {

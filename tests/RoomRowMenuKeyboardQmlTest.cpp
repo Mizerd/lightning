@@ -1,11 +1,3 @@
-// Break-it chunk C06 (room row, room context menu, leave and close dialogs),
-// the keyboard and invitation findings, on the real components:
-//   F01/F03  the Leave dialog opens with Cancel holding VISIBLE keyboard
-//            focus, and Return / Enter press the focused button (a Button
-//            answers Space only); the same for the Close room dialog.
-//   F02      the room row that holds keyboard focus draws a ring.
-//   F06      a pending invitation's menu carries no read-state, notification,
-//            background or room-link rows.
 
 #include <QtTest/QtTest>
 
@@ -153,7 +145,7 @@ QQuickItem *focusItem(QObject *window)
     return qobject_cast<QQuickWindow *>(window)->activeFocusItem();
 }
 
-} // namespace
+}
 
 class RoomRowMenuKeyboardQmlTest : public QObject
 {
@@ -207,8 +199,6 @@ private slots:
         QTRY_VERIFY(focusItem(root.get()));
         QQuickItem *item = focusItem(root.get());
         QCOMPARE(item->objectName(), QStringLiteral("leaveRoomConfirmCancel"));
-        // The ring is drawn only for visualFocus: PopupFocusReason, which the
-        // popup uses on its own, draws none.
         QVERIFY2(item->property("visualFocus").toBool(),
                  "Cancel has the focus but no ring shows it");
     }
@@ -226,20 +216,17 @@ private slots:
         QVERIFY(dlg);
         QSignalSpy confirmed(dlg, SIGNAL(confirmed(QString)));
 
-        // Return on the default, Cancel: closes, leaves nothing.
         openLeave(dlg);
         QTest::keyClick(window, Qt::Key_Return);
         QTRY_VERIFY2(!dlg->property("opened").toBool(),
                      "Return did nothing in the Leave dialog");
         QCOMPARE(confirmed.size(), 0);
 
-        // Space on Cancel: closes, leaves nothing.
         openLeave(dlg);
         QTest::keyClick(window, Qt::Key_Space);
         QTRY_VERIFY(!dlg->property("opened").toBool());
         QCOMPARE(confirmed.size(), 0);
 
-        // Tab to Leave room, then Return: that is a deliberate confirm.
         openLeave(dlg);
         QTest::keyClick(window, Qt::Key_Tab);
         QCOMPARE(focusItem(root.get())->objectName(),
@@ -267,7 +254,6 @@ private slots:
         QVERIFY(leave);
         for (int key : {int(Qt::Key_Space), int(Qt::Key_Return), int(Qt::Key_Enter)}) {
             openLeave(dlg);
-            // Focus on Leave by any non-keyboard route: no ring, no consent.
             leave->forceActiveFocus(Qt::OtherFocusReason);
             QVERIFY(leave->hasActiveFocus());
             QVERIFY(!leave->property("visualFocus").toBool());
@@ -303,7 +289,6 @@ private slots:
         auto *ctl = app->property("roomClosure").value<QObject *>();
         QVERIFY(ctl);
 
-        // A text field keeps its own Return.
         auto *reason = dlg->findChild<QQuickItem *>(QStringLiteral("roomCloseReason"));
         if (reason && reason->isVisible()) {
             reason->forceActiveFocus(Qt::TabFocusReason);
@@ -313,12 +298,10 @@ private slots:
 
         auto *confirm = dlg->findChild<QQuickItem *>(QStringLiteral("roomCloseConfirm"));
         QVERIFY(confirm);
-        // A ring-less focus (not reached by the keyboard) never starts it.
         confirm->forceActiveFocus(Qt::OtherFocusReason);
         QVERIFY(!confirm->property("visualFocus").toBool());
         QTest::keyClick(window, Qt::Key_Space);
         QCOMPARE(ctl->property("confirms").toInt(), 0);
-        // forceActiveFocus on the holder keeps the old reason: release first.
         confirm->setFocus(false);
         confirm->forceActiveFocus(Qt::TabFocusReason);
         QVERIFY(confirm->hasActiveFocus());
@@ -410,14 +393,11 @@ private slots:
                          qPrintable(QStringLiteral("invitation menu offers '%1'")
                                         .arg(t)));
         QVERIFY(invite.contains(QStringLiteral("Accept invitation")));
-        // The same delegate turning into a joined room gets the rows back.
         collectRows(root.get(), menu, false, joinedAgain);
         QVERIFY(joinedAgain.join(QLatin1Char('|'))
                     .contains(QStringLiteral("Notifications")));
     }
 
-    // A room the server counts 13 unread without a read-receipt flag drew a
-    // badge but its menu offered only "Mark as unread".
     void aCountedRoomWithoutAReceiptFlagCanBeMarkedRead()
     {
         QQmlEngine engine;
@@ -455,8 +435,6 @@ private slots:
                  "a 13-unread room would not offer Mark as read");
     }
 
-    // The last administrator leaving strands a room or a Space. The check
-    // answers true only from a complete roster of the same room.
     void theLastAdminCheckNeverGuesses()
     {
         QQmlEngine engine;
@@ -488,7 +466,6 @@ QtObject {
         };
         const QString here = QStringLiteral("!r:x");
         QVERIFY(call({}, here));
-        // Another admin, another room, a partial roster, no power, nobody left.
         QVERIFY(!call({{"joinedMembers", QVariantList{
             QVariantMap{{"powerLevel", 100}}, QVariantMap{{"powerLevel", 100}}}}}, here));
         QVERIFY(!call({}, QStringLiteral("!other:x")));
@@ -502,7 +479,6 @@ QtObject {
         QVERIFY(!none.toBool());
     }
 
-    // Both Space leave surfaces ask it, not only the room dialog.
     void bothSpaceLeaveSurfacesAskTheLastAdminCheck()
     {
         const auto read = [](const char *name) {
@@ -518,8 +494,6 @@ QtObject {
             QStringLiteral("AdminCheck.soleAdminOf(app.roomInfo")));
     }
 
-    // The marker is a short bar, not a click target across every row's edge,
-    // and a mention differs from an unread by shape as well as colour.
     void theAttentionBarIsShortAndAMentionIsShapedDifferently()
     {
         QQmlEngine engine;
@@ -573,14 +547,11 @@ Item {
         QQuickItem *mention = pillOf(mentionScene);
         QVERIFY(mention);
         QTRY_VERIFY(mention->isVisible());
-        // Neither spans the list's row area.
         QVERIFY2(unread->width() <= 100, "the unread bar's target spans the rows");
         QVERIFY2(mention->width() <= 100, "the mention bar's target spans the rows");
-        // And the mention is shaped differently, not only coloured.
         QVERIFY2(mention->width() > unread->width(),
                  "a mention has no end cue beyond its colour");
         QVERIFY(mention->height() > unread->height());
-        // Both sit inside the list.
         QVERIFY(mention->x() >= 0 && mention->x() + mention->width() <= 300);
         QVERIFY(mention->y() + mention->height() <= 400);
     }

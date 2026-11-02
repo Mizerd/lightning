@@ -1,6 +1,3 @@
-// Contract pins for several QML surfaces. Whitespace-normalized scans (the
-// VerificationCardContractTest convention): only predicate text is pinned,
-// never formatting.
 #include <QFile>
 #include <QRegularExpression>
 #include <QtTest>
@@ -60,8 +57,6 @@ private Q_SLOTS:
             read(QStringLiteral(QML_DIR "/TimelinePane.qml")));
         QVERIFY(pane.contains(
             QStringLiteral("objectName: \"receiptListPopover\"")));
-        // The tail line is driven by the uncapped total minus the delivered
-        // names, never fabricated entries.
         QVERIFY(pane.contains(QStringLiteral("names not loaded")));
         QVERIFY(pane.contains(QStringLiteral(
             "Math.max(0, totalOthers - readers.length)")));
@@ -78,16 +73,11 @@ private Q_SLOTS:
         const int invite = pane.indexOf(
             QStringLiteral("objectName: \"spaceInviteButton\""));
         QVERIFY(invite >= 0);
-        // Honestly permission-gated, and on the SPACE's own roster.
         const QString inviteScope = pane.mid(invite, 500);
         QVERIFY(inviteScope.contains(
             QStringLiteral("app.roomInfo.canInvite")));
         QVERIFY(inviteScope.contains(QStringLiteral(
             "app.roomInfo.roomId === spaceHome.spaceId")));
-        // Nested subspaces (a section each in the lobby, built by
-        // SpaceManager::lobbySections): a nested sub-space row drills in, the
-        // unjoined offer names itself a Space, and a successful sub-space join
-        // drills in.
         const QString lobby = normalized(
             read(QStringLiteral(QML_DIR "/SpaceLobby.qml")));
         QVERIFY(lobby.contains(
@@ -106,21 +96,14 @@ private Q_SLOTS:
     {
         const QString rail = normalized(
             read(QStringLiteral(QML_DIR "/SpacesRail.qml")));
-        // The rail's rows come from RailEntryModel, so the roles are required
-        // properties on the delegate. Depth is drawn as nested tinted regions,
-        // not an indent: every tile sits on one x and the nesting level drives
-        // the regions.
         QVERIFY(rail.contains(QStringLiteral("required property int level")));
         QVERIFY2(rail.contains(QStringLiteral("bandLayers")),
                  "the rail no longer derives anything from a row's depth");
         QVERIFY2(!rail.contains(
                      QStringLiteral("anchors.horizontalCenterOffset:")),
                  "a tile is offset per level again — that is the wave");
-        // No tile offset in the folder path either.
         QVERIFY2(!rail.contains(QStringLiteral("tileIndent")),
                  "a tile is offset again, in the folder path this time");
-        // The folder's container is on the same inset ladder as the hierarchy
-        // regions.
         QVERIFY2(rail.contains(QStringLiteral("root.bandInset(0)")),
                  "the folder container has its own geometry again, so it can "
                  "drift out of step with the regions nested inside it");
@@ -132,8 +115,6 @@ private Q_SLOTS:
 
     void roomAvatarsFallBackToInitialsNeverHash()
     {
-        // The '#' glyph fallback is retired everywhere: Avatar renders
-        // initials, and no caller re-enables the glyph.
         const QString avatar = normalized(
             read(QStringLiteral(QML_DIR "/Avatar.qml")));
         QVERIFY(!avatar.contains(

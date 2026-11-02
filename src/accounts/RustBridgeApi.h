@@ -1,20 +1,3 @@
-// The function table for the live-accounts (Labs) FFIs, and the existing ones
-// a background host uses, so new code never calls mx_rust_* directly and a
-// test can script every answer (tests/support/FakeRustBridge.h).
-//
-// Header-only and Qt Core only: it is included by code compiled in builds
-// without the Rust backend, where the table is a null one whose available()
-// is false and every call refuses. Nothing here keeps state besides the test
-// override.
-//
-// Threads (contract §2): the GUI thread may call only the non-blocking
-// entries; the four marked BLOCKING, and finalSessionTokens(), run on the
-// HostRetirementPool, as do the token-ledger entries. The table is never
-// asked which thread it is on.
-//
-// SENSITIVE: restore()/oauthRestore() take tokens, takeCustody() and
-// finalSessionTokens() return them, setMediaStoreKey() takes a key. None of
-// them is logged here, and a caller must never log what it passes or gets.
 #pragma once
 
 #include <QByteArray>
@@ -34,7 +17,6 @@
 
 namespace lightning::accounts {
 
-// mx_rust_bg_status, in Qt types. One tick's state; filled without allocation.
 struct BgStatus {
     quint64 sessionStateVersion = 0, tokenGeneration = 0, notableUpdatesTotal = 0;
     quint32 queuedEvents = 0, queuedCommands = 0;
@@ -43,19 +25,15 @@ struct BgStatus {
 
 // mx_rust_take_custody, parsed. SENSITIVE: never log any field but the flags.
 struct CustodySnapshot {
-    bool valid = false;        // false: "" (no client), "error: ...", or not JSON
+    bool valid = false;
     bool hasSession = false;
     QString accessToken, refreshToken;
     quint64 generation = 0;
     bool revoked = false;
     std::optional<bool> softLogout, hadRefreshToken;
-    // The newest rotation the handle's token ledger recorded, read before the
-    // tokens: answered with sessionTokensPersisted() once the pair is written
-    // (rust/src/sessiontokens.rs). 0: none, or a Rust side without it.
     quint64 ledgerGeneration = 0;
 };
 
-// Parses the §3.4 JSON. Pure; also used by the fake so both read one shape.
 inline CustodySnapshot parseCustodyJson(const QByteArray &json)
 {
     CustodySnapshot out;
@@ -97,8 +75,8 @@ public:
                                  const QString &device, const QString &clientId,
                                  const QString &access, const QString &refresh) = 0;
     virtual void startSync(void *h) = 0;
-    virtual bool stopSync(void *h) = 0;                       // BLOCKING
-    virtual QString pollEvent(void *h) = 0;                   // "" = empty
+    virtual bool stopSync(void *h) = 0;
+    virtual QString pollEvent(void *h) = 0;
     virtual QString pollCommandEvent(void *h) = 0;
     virtual bool bgPoll(void *h, BgStatus *out) = 0;
     virtual QByteArray bgTake(void *h, quint32 maxRows) = 0;
@@ -106,29 +84,19 @@ public:
     virtual QString bgSetLocalRules(void *h, const QStringList &rooms) = 0;
     virtual QString bgSetSendQueueEnabled(void *h, bool enabled) = 0;
     virtual CustodySnapshot takeCustody(void *h) = 0;
-    // The answer for one rotation (CustodySnapshot::ledgerGeneration): the
-    // pair is in the keyring (saved) or the write was refused or not made.
-    // Releases that rotation's wait inside matrix-sdk's refresh. No secret.
     virtual void sessionTokensPersisted(void *h, quint64 generation, bool saved) = 0;
-    virtual void logout(void *h) = 0;                         // BLOCKING (dispatch; result: logged_out)
-    virtual QString oauthLogout(void *h) = 0;                 // BLOCKING (dispatch; result: logged_out)
-    virtual QString shutdownTasks(void *h) = 0;               // BLOCKING
-    virtual QString finalSessionTokens(void *h) = 0;          // BLOCKING after shutdown; SENSITIVE
-    virtual QString destroyAndReport(void *h) = 0;            // BLOCKING
-    // The token ledger, which outlives the handle: retained before
-    // destroyAndReport(), read once the runtime is shut down (nothing can
-    // rotate any more), then released. latest: final_session_tokens' shape,
-    // "" when the handle's last client never rotated. SENSITIVE.
+    virtual void logout(void *h) = 0;
+    virtual QString oauthLogout(void *h) = 0;
+    virtual QString shutdownTasks(void *h) = 0;
+    virtual QString finalSessionTokens(void *h) = 0;
+    virtual QString destroyAndReport(void *h) = 0;
     virtual void *tokenLedgerRetain(void *h) = 0;
     virtual QString tokenLedgerLatest(void *ledger) = 0;
     virtual void tokenLedgerRelease(void *ledger) = 0;
-    virtual int storeAnyHeld(const QString &storePath) = 0;   // 1 held, 0 free, -1 bad path
+    virtual int storeAnyHeld(const QString &storePath) = 0;
     virtual quint64 handleSerial(void *h) = 0;
 };
 
-// The table of a build without the Rust backend: nothing is available and
-// every call refuses, so a caller that forgot to check available() still
-// creates nothing.
 class NullRustBridgeApi final : public RustBridgeApi
 {
 public:
@@ -168,8 +136,6 @@ private:
 };
 
 #ifdef ENABLE_RUST_SDK_BACKEND
-// The production table: each entry is the one FFI it names, its char* freed
-// with mx_rust_free_cstring.
 class ProductionRustBridgeApi final : public RustBridgeApi
 {
 public:
@@ -292,12 +258,8 @@ inline RustBridgeApi *&rustBridgeApiTestOverride()
     static RustBridgeApi *override = nullptr;
     return override;
 }
-} // namespace detail
+}
 
-// The test override when set; else the production table (a Rust build) or the
-// null one. Contract deviation: a NON-const reference, because every entry but
-// available() is a non-const call (binding it to a const reference still
-// works for available()).
 inline RustBridgeApi &rustBridgeApi()
 {
     if (RustBridgeApi *api = detail::rustBridgeApiTestOverride())
@@ -310,11 +272,9 @@ inline RustBridgeApi &rustBridgeApi()
     return table;
 }
 
-// nullptr restores the real table. Tests only; set before anything resolves
-// the table (SessionPool resolves it once, at construction).
 inline void setRustBridgeApiForTest(RustBridgeApi *api)
 {
     detail::rustBridgeApiTestOverride() = api;
 }
 
-} // namespace lightning::accounts
+}

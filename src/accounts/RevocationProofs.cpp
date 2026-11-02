@@ -24,9 +24,6 @@ RevocationClassification classifyRevocation(const RevocationEventFacts &f,
                                             bool keyringHoldsOrCannotTell)
 {
     const bool softLogoutReported = f.softLogout.has_value() && *f.softLogout;
-    // had_refresh_token=false on an OAuth session: matrix-sdk had nothing to
-    // renew with. Only a keyring that holds one (or cannot answer) turns that
-    // into "the session never got it"; otherwise it is ended.
     const bool oauthWithoutRefreshToken = revocationNeedsKeyringProbe(f);
     RevocationClassification out{RevocationOutcome::Unproven, softLogoutReported,
                                  oauthWithoutRefreshToken};
@@ -53,7 +50,6 @@ void RevocationProofs::recordHard(const QString &userId, const QString &deviceId
     if (userId.isEmpty())
         return;
     m_hard.insert(userId, HardProof{deviceId});
-    // An ended device is never resumed, whatever was said before.
     const auto soft = m_soft.constFind(userId);
     if (soft != m_soft.cend() && soft->deviceId == deviceId)
         m_soft.erase(soft);
@@ -113,4 +109,4 @@ int RevocationProofs::size() const
     return int(uids.size());
 }
 
-} // namespace lightning::accounts
+}

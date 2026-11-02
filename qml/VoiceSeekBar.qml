@@ -2,26 +2,12 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// The scrubber of the "now playing" strip, the popped-out card and the
-// timeline's audio rows: a real seek target over the app-owned player
-// (app.voicePlayback). The visible track is thin, the hit band is at least
-// 12 px tall (design-media B1: the old 3 px bar sat inside the card's one tap
-// target, so a click on it left the room instead of seeking). The knob shows
-// on hover, press and keyboard focus. Keys: Left/Right step 5 s, Home/End
-// jump to the ends. Its accessible name is stable; the position is its
-// value.
-//
-// A row whose clip is not the player's (followsPlayer false) shows 0 of its
-// own length, and a seek on it asks the row to START there (seekRequested):
-// an idle voice message can be started mid-clip (U5).
 Slider {
     id: root
     objectName: "voiceSeekBar"
 
     readonly property var voice: app.voicePlayback
-    // This bar shows the player's current clip.
     property bool followsPlayer: true
-    // Not following: the clip's own length, and whether seeking may start it.
     property real idleDuration: 0
     property bool idleSeekable: false
     signal seekRequested(real ms)
@@ -39,15 +25,11 @@ Slider {
     property real trackHeight: 3
     property color trackColor: AppTheme.borderStrong
     property color fillColor: AppTheme.accent
-    // Always draw the knob (the large card), not only on hover or focus.
     property bool knobAlways: false
-    // MSC3245 buckets (0..100): drawn as bars across the whole width instead
-    // of the thin track, lit up to the position. Empty: the track.
     property var waveform: []
     readonly property bool showsWaveform: root.waveform
                                           && root.waveform.length > 0
 
-    // The same clocks as everywhere (position floors, total rounds).
     function clock(ms, round) {
         if (!ms || ms < 0) ms = 0
         var t = round ? Math.round(ms / 1000) : Math.floor(ms / 1000)
@@ -63,8 +45,6 @@ Slider {
     stepSize: 5000
     snapMode: Slider.NoSnap
     live: true
-    // Seeking needs the file open; before that (fetching) a seek is kept and
-    // applied once it is (VoicePlaybackController::seek).
     enabled: root.followsPlayer
              ? (root.voice.active && root.voice.fetchState !== "failed")
              : root.idleSeekable
@@ -74,11 +54,6 @@ Slider {
     implicitWidth: 120
     hoverEnabled: true
 
-    // While following, every move seeks (a live scrub); an idle row starts
-    // only on release, so a drag across it does not start and restart it.
-    // The target is kept from the last move: by the time `pressed` falls the
-    // value binding has gone back to the idle 0 (measured live: an idle
-    // click started the clip from the beginning).
     property real idleTarget: -1
     onMoved: {
         if (root.followsPlayer || !root.pressed)
@@ -109,8 +84,6 @@ Slider {
 
     ToolTip.visible: root.hovered && !root.pressed && root.enabled
     ToolTip.delay: 600
-    // Where a click would land, under the pointer (C21-D08); plain "Seek"
-    // while the clip's length is not known.
     HoverHandler { id: hoverPoint }
     readonly property real hoverMs: root.availableWidth > 0
         ? Math.max(0, Math.min(1, (hoverPoint.point.position.x
@@ -126,16 +99,12 @@ Slider {
         y: root.topPadding
         width: root.availableWidth
         height: root.availableHeight
-        // Bars over the whole available width, so a short waveform has no
-        // dead space after it.
         Row {
             id: waveBars
             objectName: "voiceSeekWave"
             anchors.fill: parent
             visible: root.showsWaveform
             spacing: 1
-            // Slim 2 px bars across the whole width, each sampling its
-            // bucket: a short waveform is stretched, not left-aligned.
             readonly property int count: root.showsWaveform
                 ? Math.max(1, Math.floor((width + 1) / 3)) : 0
             readonly property real barWidth: count > 0
@@ -154,7 +123,6 @@ Slider {
                     height: waveBars.height * amp
                     anchors.verticalCenter: parent.verticalCenter
                     radius: Math.min(1, width / 2)
-                    // Lit only past its own start, so nothing is lit at 0.
                     color: (index / waveBars.count) < root.visualPosition
                            ? root.fillColor : root.trackColor
                 }

@@ -1,21 +1,3 @@
-// Live accounts Phase 1: the pool of background accounts (design §5, §6,
-// §9.2, §10.1; contract §5.2).
-//
-//  * nothing runs before start(); start() is the only labs_enable;
-//  * 200 saved accounts, 30 pin requests: four pins, zero keyring reads for
-//    everything that is not a candidate;
-//  * the gate, one catch-up at a time (first start AND resume, foreground
-//    first), backoff and its reset when the foreground reaches the server;
-//  * revoked, precheck-refused, legacy-keyring and store-busy accounts are
-//    never started;
-//  * the click path: retire, hand back, await the latch; a Starting host is
-//    retired only after its login result (R1-C3); the C2 sequence;
-//  * removal signs out, writes nothing back, awaits that store's latch;
-//  * revocation: classification, proof, revoked mark, retire, signal;
-//  * a failed token write pauses sync and the send queue and retries.
-// Plus the scheduler's pure rules (backoff table, jitter, probe, tracker).
-//
-// UNRUN when written (WP agents do not build); the lead runs it offscreen.
 #include "accounts/BackgroundDrainer.h"
 #include "accounts/BackgroundSessionHost.h"
 #include "accounts/HostRetirementPool.h"
@@ -86,7 +68,7 @@ QString uidOf(int i, const QString &server = QStringLiteral("example.org"))
 
 const QString kForeground = QStringLiteral("@fg:example.org");
 
-} // namespace
+}
 
 class SessionPoolTest : public QObject
 {
@@ -96,13 +78,11 @@ private Q_SLOTS:
     void initTestCase();
     void init();
     void cleanup();
-    // scheduler rules (pure)
     void backoffIsOneFiveFifteenSixtyMinutesPlusMinusTwentyPercent();
     void theLagProbeGatesAndDetectsAResume();
     void catchUpCompletesOnRunningAfterSyncWithALowRateOrAfterSixtySeconds();
     void fdHeadroomComesFromConfiguredMaxima();
     void homeserverRulesPauseAndReset();
-    // pool
     void nothingRunsBeforeStartAndStartEnablesLabsOnce();
     void twoHundredAccountsThirtyPinsFourRunAndNothingElseIsRead();
     void nothingStartsBeforeTheGate();
@@ -120,7 +100,6 @@ private Q_SLOTS:
     void removalSignsOutWritesNothingBackAndAwaitsThatStore();
     void aRevokedHostRecordsTheProofAndIsNeverRestarted();
     void aFailedTokenWritePausesSyncAndTheSendQueueAndRetries();
-    // review round 1
     void aRetireAfterALostConnectionWaitsForTheStop();
     void unpinThenRemoveFinishesTheHandbackAndWritesNothing();
     void aLateRevocationProbeForARetiredHostChangesNothing();
@@ -128,28 +107,21 @@ private Q_SLOTS:
     void anUnconfirmedForegroundCloseIsStoreBusy();
     void aDelegatedStoreSlugWaitsForTheForegroundInsteadOfStoreBusy();
     void aSignOutWithNoSessionIsNotReportedAsDone();
-    // review round 2
     void quitRetiresEveryHostInParallel();
     void aRemovedAccountSignedInAgainMayRunInTheBackgroundAgain();
     void aLiveWriteCancelledOutsideARemovalPausesInsteadOfVanishing();
     void anAccountRemovedWhileNotLiveShowsItsRowWhenAdmitted();
 
-    // liveacc port onto 24a485c5 (2026-10-20)
     void aBackgroundRotationIsAnsweredOnlyOnceTheKeyringHoldsIt();
     void anAbandonedReleaseLetsThePinRunAgain();
-    // §18 round 1, MUST 1
     void aRefusedHandbackIsParkedForTheForegroundsRead();
     void aTimedOutHandbackKeepsTheStoreUntilTheWriteReturns();
-    // §18 round 1, follow-ups
     void aRuntimeOffWaitsForAHostStillRestoring();
     void aForegroundOpenDropsABackgroundKeyringReadInFlight();
     void nothingPinnedOrHostedStopsTheTimers();
-    // §18 round 2
     void aParkedPairIsWrittenOverTheHostsOwnStrandedLiveWriteBeforeItStartsAgain();
     void aQuitLeavesAParkedPairBehindAWriteStillInFlightAndStaysInBudget();
-    // §18 round 3
     void aSwitchWaitsForAParkedPairStillBeingWritten();
-    // §18 round 4
     void aRemovalWaitsForAParkedPairsWriteAndDiscardsThePair();
 
 private:
@@ -157,11 +129,8 @@ private:
     std::unique_ptr<SessionPool> makePool();
     FakeHandle *handleFor(const QString &uid) const;
     QString storePathOf(const QString &uid) const;
-    // A host from create to Running with its catch-up complete.
     void bringToRunning(SessionPool &pool, const QString &uid);
     void drain(SessionPool &pool) { pool.drainerForTest()->tick(); }
-    // start(), then the real-time lag probe off (the clock here is scripted:
-    // a jump would read as a suspend) and the fd limit out of the picture.
     void startPool(SessionPool &pool)
     {
         pool.start();
@@ -274,18 +243,16 @@ void SessionPoolTest::bringToRunning(SessionPool &pool, const QString &uid)
     QTRY_VERIFY_WITH_TIMEOUT(handleFor(uid) != nullptr, 3000);
     FakeHandle *h = handleFor(uid);
     m_fake->setSticky(h, QStringLiteral("initial_sync_done"), QJsonObject{});
-    drain(pool);   // login_ok (auto) and the initial sync
+    drain(pool);
     QCOMPARE(pool.liveState(uid), AccountActivityModel::Running);
     m_fake->setSticky(h, QStringLiteral("room_list_sync_state"),
                       QJsonObject{{QStringLiteral("state"), QStringLiteral("running")}});
     drain(pool);
     m_now += CatchUpTracker::kRateWindowMs + 100;
-    drain(pool);   // a quiet 3 s: catch-up complete, the semaphore released
-    m_now += 1100;  // past the U(0, 1 s) cooldown
+    drain(pool);
+    m_now += 1100;
     QVERIFY(pool.schedulerForTest()->catchUpHolder().isEmpty());
 }
-
-// ---- scheduler rules -------------------------------------------------------------------
 
 void SessionPoolTest::backoffIsOneFiveFifteenSixtyMinutesPlusMinusTwentyPercent()
 {
@@ -295,7 +262,6 @@ void SessionPoolTest::backoffIsOneFiveFifteenSixtyMinutesPlusMinusTwentyPercent(
     QCOMPARE(SessionScheduler::backoffDelayMs(3, 0.5), 15 * minute);
     QCOMPARE(SessionScheduler::backoffDelayMs(4, 0.5), 60 * minute);
     QCOMPARE(SessionScheduler::backoffDelayMs(9, 0.5), 60 * minute);
-    // +-20 %, to the millisecond (the jitter is computed in floating point).
     QVERIFY(qAbs(SessionScheduler::backoffDelayMs(1, 0.0) - 48 * 1000) <= 1);
     QVERIFY(qAbs(SessionScheduler::backoffDelayMs(1, 1.0) - 72 * 1000) <= 1);
     QVERIFY(qAbs(SessionScheduler::backoffDelayMs(4, 1.0) - 72 * minute) <= 1);
@@ -308,14 +274,13 @@ void SessionPoolTest::theLagProbeGatesAndDetectsAResume()
     SessionScheduler scheduler([&now] { return now; }, [] { return 0.5; });
     scheduler.setSuspendAwareClock([&now, &asleep] { return now + asleep; });
     QSignalSpy resumed(&scheduler, &SessionScheduler::resumeDetected);
-    QVERIFY(!scheduler.gateOpen());   // not started
+    QVERIFY(!scheduler.gateOpen());
     scheduler.noteStarted();
     scheduler.startProbe();
-    scheduler.stopProbe();   // ticks are driven by hand below
-    QVERIFY(!scheduler.gateOpen());   // the foreground has not synced, 15 s not passed
+    scheduler.stopProbe();
+    QVERIFY(!scheduler.gateOpen());
     scheduler.noteForegroundInitialSyncDone();
     QVERIFY(scheduler.gateOpen());
-    // A tick 300 ms late: not clear for the next 2 s.
     now = 0;
     scheduler.probeTick();
     now += 100;
@@ -330,8 +295,6 @@ void SessionPoolTest::theLagProbeGatesAndDetectsAResume()
     }
     QVERIFY(scheduler.lagClear());
     QCOMPARE(resumed.size(), 0);
-    // A GUI stall of 11 s moves both clocks alike: lateness, never a resume
-    // (review M3: it was one, and it restarted every host's sync).
     now += 11000;
     scheduler.probeTick();
     QCOMPARE(resumed.size(), 0);
@@ -343,20 +306,15 @@ void SessionPoolTest::theLagProbeGatesAndDetectsAResume()
     }
     QVERIFY(scheduler.lagClear());
     QVERIFY(scheduler.catchUpFree());
-    // A suspend: the monotonic clock stood still (no lateness at all), the
-    // suspend-aware one moved 11 s.
     asleep += 11000;
     now += 100;
     scheduler.probeTick();
     QCOMPARE(resumed.size(), 1);
     QVERIFY(scheduler.lagClear());
-    // After a resume the foreground goes first: no catch-up until it synced
-    // (or the grace ends).
     QVERIFY(!scheduler.catchUpFree());
     scheduler.noteForegroundInitialSyncDone();
     QVERIFY(scheduler.catchUpFree());
 
-    // The 15 s fallback when the foreground never reports.
     qint64 t2 = 0;
     SessionScheduler late([&t2] { return t2; }, [] { return 0.5; });
     late.noteStarted();
@@ -371,19 +329,14 @@ void SessionPoolTest::catchUpCompletesOnRunningAfterSyncWithALowRateOrAfterSixty
     tracker.begin(0, 5);
     tracker.sample(0, 100);
     tracker.sample(3100, 110);
-    // "running" carried over (version unchanged): not yet.
     QVERIFY(!tracker.complete(3100, true, true, 5));
-    // initial sync not done: not yet.
     QVERIFY(!tracker.complete(3100, false, true, 6));
-    // A fresh running, 10 updates in 3.1 s (< 5/s): complete.
     QVERIFY(tracker.complete(3100, true, true, 6));
-    // A busy host (100/s) is not caught up...
     CatchUpTracker busy;
     busy.begin(0, 1);
     busy.sample(0, 0);
     busy.sample(3000, 300);
     QVERIFY(!busy.complete(3000, true, true, 2));
-    // ...until the 60 s cap.
     QVERIFY(busy.complete(CatchUpTracker::kCapMs, false, false, 1));
 }
 
@@ -391,10 +344,9 @@ void SessionPoolTest::fdHeadroomComesFromConfiguredMaxima()
 {
     SessionScheduler scheduler([] { return qint64(0); }, [] { return 0.5; });
     scheduler.setFdSoftLimitForTest(1024);
-    // 256 + 56 * (hosts + foreground) <= 70 % of 1024 = 716.8
-    QVERIFY(scheduler.fdHeadroomFor(7));    // 256 + 448 = 704
-    QVERIFY(!scheduler.fdHeadroomFor(8));   // 760
-    scheduler.setFdSoftLimitForTest(0);     // unlimited / not applicable
+    QVERIFY(scheduler.fdHeadroomFor(7));
+    QVERIFY(!scheduler.fdHeadroomFor(8));
+    scheduler.setFdSoftLimitForTest(0);
     QVERIFY(scheduler.fdHeadroomFor(100));
     scheduler.setCap(5);
     QVERIFY(scheduler.underCap(3, true));
@@ -409,7 +361,7 @@ void SessionPoolTest::homeserverRulesPauseAndReset()
     const QString hs = QStringLiteral("https://example.org");
     scheduler.noteStarting(hs, QStringLiteral("@a:example.org"));
     QVERIFY(scheduler.homeserverStarting(hs));
-    scheduler.noteStartFinished(hs, QStringLiteral("@b:example.org"));   // not the starter
+    scheduler.noteStartFinished(hs, QStringLiteral("@b:example.org"));
     QVERIFY(scheduler.homeserverStarting(hs));
     scheduler.noteStartFinished(hs, QStringLiteral("@a:example.org"));
     QVERIFY(!scheduler.homeserverStarting(hs));
@@ -426,11 +378,8 @@ void SessionPoolTest::homeserverRulesPauseAndReset()
     scheduler.noteFailure(QStringLiteral("@p:example.org"), hs, true);
     scheduler.noteHomeserverReachable(hs);
     QVERIFY(!scheduler.inBackoff(QStringLiteral("@a:example.org")));
-    // A permanent refusal is not a network question: reachability resets nothing.
     QVERIFY(scheduler.permanentlyRefused(QStringLiteral("@p:example.org")));
 }
-
-// ---- pool --------------------------------------------------------------------------------
 
 void SessionPoolTest::nothingRunsBeforeStartAndStartEnablesLabsOnce()
 {
@@ -447,7 +396,6 @@ void SessionPoolTest::nothingRunsBeforeStartAndStartEnablesLabsOnce()
     pool->shutdownAsync([] {});
 }
 
-// §6.3: 200 saved accounts cost nothing but their pins.
 void SessionPoolTest::twoHundredAccountsThirtyPinsFourRunAndNothingElseIsRead()
 {
     for (int i = 0; i < 200; ++i)
@@ -471,8 +419,6 @@ void SessionPoolTest::twoHundredAccountsThirtyPinsFourRunAndNothingElseIsRead()
 
     startPool(*pool);
     pool->noteForegroundInitialSyncDone();
-    // Admitted in the settings' saved order (keepRunningUserIds()), not in
-    // the order they were pinned: "@u12" sorts before "@u6" (integration).
     const QStringList admissionOrder = m_settings->keepRunningUserIds();
     QCOMPARE(QSet<QString>(admissionOrder.cbegin(), admissionOrder.cend()),
              QSet<QString>(pinned.cbegin(), pinned.cend()));
@@ -482,7 +428,6 @@ void SessionPoolTest::twoHundredAccountsThirtyPinsFourRunAndNothingElseIsRead()
     }
     QCOMPARE(pool->liveHostCount(), SettingsManager::kMaxPinnedAccounts);
     QCOMPARE(m_fake->calls(QStringLiteral("createBackground")), SettingsManager::kMaxPinnedAccounts);
-    // Keyring reads only for the four pins; none for the 196 others.
     const QSet<QString> readUsers = m_store.readUsers();
     QCOMPARE(readUsers, QSet<QString>(pinned.cbegin(), pinned.cend()));
     pool->shutdownAsync([] {});
@@ -499,7 +444,6 @@ void SessionPoolTest::nothingStartsBeforeTheGate()
     QTest::qWait(50);
     QCOMPARE(m_fake->calls(QStringLiteral("createBackground")), 0);
     QCOMPARE(m_store.reads(uidOf(1)), 0);
-    // The 15 s fallback opens it without the foreground's initial sync.
     m_now = SessionScheduler::kGateFallbackMs;
     pool->admitNowForTest();
     QTRY_COMPARE_WITH_TIMEOUT(m_fake->calls(QStringLiteral("createBackground")), 1, 3000);
@@ -519,7 +463,6 @@ void SessionPoolTest::oneCatchUpAtATime()
     pool->noteForegroundInitialSyncDone();
     pool->admitNowForTest();
     QTRY_COMPARE_WITH_TIMEOUT(m_fake->calls(QStringLiteral("createBackground")), 1, 3000);
-    // A different homeserver, and still: B waits for A's catch-up.
     for (int i = 0; i < 5; ++i) {
         drain(*pool);
         pool->admitNowForTest();
@@ -555,28 +498,24 @@ void SessionPoolTest::aResumeRestartsHostsOneAtATimeAfterTheForeground()
     bringToRunning(*pool, second);
     QCOMPARE(m_fake->calls(QStringLiteral("startSync")), 2);
 
-    // A GUI stall of 11 s is not a suspend: nothing is stopped.
     pool->schedulerForTest()->probeTick();
     m_now += 11000;
     pool->schedulerForTest()->probeTick();
     QCoreApplication::processEvents();
     QCOMPARE(m_fake->calls(QStringLiteral("stopSync")), 0);
-    // A suspend of 11 s: only the suspend-aware clock moved.
     m_asleep += 11000;
     m_now += 100;
     pool->schedulerForTest()->probeTick();
     QTRY_COMPARE_WITH_TIMEOUT(m_fake->calls(QStringLiteral("stopSync")), 2, 3000);
     QTRY_COMPARE_WITH_TIMEOUT(pool->retirementForTest()->activeJobs(), 0, 3000);
-    m_now += SessionScheduler::kLagWindowMs + 100;   // the suspend's own lateness ages out
-    // The foreground first: nothing restarts during its grace.
+    m_now += SessionScheduler::kLagWindowMs + 100;
     pool->admitNowForTest();
     QCOMPARE(m_fake->calls(QStringLiteral("startSync")), 2);
     pool->noteForegroundInitialSyncDone();
     pool->admitNowForTest();
-    QCOMPARE(m_fake->calls(QStringLiteral("startSync")), 3);   // ONE host
+    QCOMPARE(m_fake->calls(QStringLiteral("startSync")), 3);
     pool->admitNowForTest();
     QCOMPARE(m_fake->calls(QStringLiteral("startSync")), 3);
-    // That host catches up; then the other.
     const QString restarted = m_fake->log(handleFor(a)).count(QStringLiteral("startSync")) == 2 ? a : b;
     FakeHandle *h = handleFor(restarted);
     m_fake->setSticky(h, QStringLiteral("room_list_sync_state"),
@@ -608,13 +547,11 @@ void SessionPoolTest::aTransientFailureBacksOffUntilTheForegroundReachesTheServe
     drain(*pool);
     QCOMPARE(pool->liveState(a), AccountActivityModel::Stopped);
     QVERIFY(!attention.isEmpty());
-    QTRY_VERIFY_WITH_TIMEOUT(!pool->holdsStore(a), 3000);   // retired, latch free
-    // Within the backoff: no new attempt.
+    QTRY_VERIFY_WITH_TIMEOUT(!pool->holdsStore(a), 3000);
     m_now += 30 * 1000;
     pool->admitNowForTest();
     QCoreApplication::processEvents();
     QCOMPARE(m_fake->calls(QStringLiteral("createBackground")), 1);
-    // The foreground reaches the same server: the backoff resets at once.
     pool->noteForegroundHomeserverReachable(QStringLiteral("https://example.org/"));
     pool->admitNowForTest();
     QTRY_COMPARE_WITH_TIMEOUT(m_fake->calls(QStringLiteral("createBackground")), 2, 3000);
@@ -627,8 +564,6 @@ void SessionPoolTest::accountsThatMustNotRunNeverStart()
     const QString proven = uidOf(2);
     const QString missing = uidOf(3);
     const QString legacy = uidOf(4);
-    // A keyring shared between installs: every account saved by this install
-    // has current items of its own, except `legacy`, marked below.
     m_store.setShared(true);
     m_fake->setAutoLoginOk(false);
     for (const QString &uid : {revoked, proven, missing, legacy}) {
@@ -637,8 +572,6 @@ void SessionPoolTest::accountsThatMustNotRunNeverStart()
     }
     m_accounts->markSessionRevoked(revoked);
     m_proofs->recordHard(proven, QStringLiteral("DEV-u2"));
-    // `legacy`'s items were adopted from before install scoping and never
-    // verified (design §9.2, R1-M7).
     {
         QSettings s;
         const QString slug = matrix::app_data::safeUserSlug(legacy);
@@ -653,8 +586,6 @@ void SessionPoolTest::accountsThatMustNotRunNeverStart()
     startPool(*pool);
     pool->noteForegroundInitialSyncDone();
     pool->admitNowForTest();
-    // `missing`: the precheck refuses (no crypto store), nothing is created
-    // and it is never retried.
     QTRY_VERIFY_WITH_TIMEOUT(handleFor(missing), 3000);
     m_fake->setSticky(handleFor(missing), QStringLiteral("login_failed"),
                       QJsonObject{{QStringLiteral("stage"), QStringLiteral("store")},
@@ -674,8 +605,6 @@ void SessionPoolTest::accountsThatMustNotRunNeverStart()
     pool->shutdownAsync([] {});
 }
 
-// The click path, and R1-C2: the store is free only when Rust holds nothing
-// AND the handback landed, so the foreground's first read sees the rotation.
 void SessionPoolTest::releaseRetiresHandsBackThenFreesTheStore()
 {
     const QString a = uidOf(1);
@@ -688,7 +617,6 @@ void SessionPoolTest::releaseRetiresHandsBackThenFreesTheStore()
     bringToRunning(*pool, a);
     FakeHandle *h = handleFor(a);
     QCOMPARE(h->restoredAccess, QStringLiteral("a-token-at-start"));
-    // The session rotated after its last drained write.
     m_fake->setFinalTokens(h, QStringLiteral("a-token-final"), QStringLiteral("a-refresh-final"));
     m_store.setWriteLatencyMs(300);
     SessionPool::ReleaseResult result = SessionPool::ReleaseResult::Cancelled;
@@ -701,7 +629,7 @@ void SessionPoolTest::releaseRetiresHandsBackThenFreesTheStore()
         hostRetiringAtFree = HostSignInRetirements::process().contains(a);
         done = true;
     });
-    QVERIFY(!done);   // never inside the call
+    QVERIFY(!done);
     QCOMPARE(pool->liveState(a), AccountActivityModel::Stopping);
     QVERIFY(pool->holdsStore(a));
     QTRY_VERIFY_WITH_TIMEOUT(done, 10000);
@@ -715,7 +643,6 @@ void SessionPoolTest::releaseRetiresHandsBackThenFreesTheStore()
     QVERIFY(!pool->holdsStore(a));
     QVERIFY(m_registry->records().isEmpty());
     QCOMPARE(pool->epochFor(a), quint64(1));
-    // Released for the foreground: never restarted behind the switch's back.
     m_now += 10000;
     pool->admitNowForTest();
     QCoreApplication::processEvents();
@@ -723,11 +650,6 @@ void SessionPoolTest::releaseRetiresHandsBackThenFreesTheStore()
     pool->shutdownAsync([] {});
 }
 
-// Warm account adoption (master prompt Part 4 §4): a RUNNING host's live
-// handle goes to the foreground as it is. Nothing is retired, destroyed,
-// handed back or re-opened; the store record moves Host -> Foreground on the
-// SAME serial; the epoch moves so every late host callback is stale; and the
-// account is not restarted in the background behind the switch.
 void SessionPoolTest::aRunningHostIsHandedOverForAdoptionWithoutRetiringIt()
 {
     const QString a = uidOf(1);
@@ -751,13 +673,11 @@ void SessionPoolTest::aRunningHostIsHandedOverForAdoptionWithoutRetiringIt()
     QCOMPARE(ticket->userId, a);
     QCOMPARE(ticket->storePath, storePathOf(a));
     QCOMPARE(ticket->storeSerial, serial);
-    // Not retired: no teardown, no handback, no destroy on that handle.
     QCoreApplication::processEvents();
     QVERIFY2(!h->log.contains(QStringLiteral("shutdownTasks"))
                  && !h->log.contains(QStringLiteral("destroyAndReport"))
                  && !h->log.contains(QStringLiteral("finalSessionTokens")),
              qPrintable(h->log.join(QLatin1Char(','))));
-    // One store, one owner, same record, now the foreground's.
     QCOMPARE(m_registry->records().size(), 1);
     QCOMPARE(m_registry->records().first().serial, serial);
     QCOMPARE(m_registry->records().first().role,
@@ -767,7 +687,6 @@ void SessionPoolTest::aRunningHostIsHandedOverForAdoptionWithoutRetiringIt()
     QVERIFY(!pool->holdsStore(a));
     QCOMPARE(pool->liveHostCount(), 0);
     QVERIFY(pool->epochFor(a) > epochBefore);
-    // Draining no longer reaches it, and nothing restarts it.
     const int pollsBefore = m_fake->calls(QStringLiteral("bgPoll"));
     drain(*pool);
     QCOMPARE(m_fake->calls(QStringLiteral("bgPoll")), pollsBefore);
@@ -775,13 +694,10 @@ void SessionPoolTest::aRunningHostIsHandedOverForAdoptionWithoutRetiringIt()
     pool->admitNowForTest();
     QCoreApplication::processEvents();
     QCOMPARE(m_fake->calls(QStringLiteral("createBackground")), 1);
-    // A second take has nothing to hand over.
     QVERIFY(!pool->takeForAdoption(a).has_value());
     pool->shutdownAsync([] {});
 }
 
-// Anything that could lose or race the handover keeps the host, untouched,
-// and leaves the switch to the cold release path.
 void SessionPoolTest::anAccountThatCannotBeHandedOverStaysWithItsHost()
 {
     const QString a = uidOf(1);
@@ -793,18 +709,14 @@ void SessionPoolTest::anAccountThatCannotBeHandedOverStaysWithItsHost()
     pool->noteForegroundInitialSyncDone();
     pool->admitNowForTest();
     QTRY_VERIFY_WITH_TIMEOUT(handleFor(a), 3000);
-    // Still Starting (no login result yet).
     QVERIFY(!pool->canAdopt(a));
     QVERIFY(!pool->takeForAdoption(a).has_value());
     QVERIFY(pool->holdsStore(a));
     QCOMPARE(pool->liveHostCount(), 1);
-    // Not live at all.
     QVERIFY(!pool->takeForAdoption(uidOf(2)).has_value());
     pool->shutdownAsync([] {});
 }
 
-// R1-C3: a restore can rotate tokens and send the unsent queue; a Starting
-// host is retired only once it has a login result.
 void SessionPoolTest::aStartingHostIsRetiredOnlyAfterItsLoginResult()
 {
     const QString a = uidOf(1);
@@ -839,11 +751,6 @@ void SessionPoolTest::aStartingHostIsRetiredOnlyAfterItsLoginResult()
     pool->shutdownAsync([] {});
 }
 
-// C53-F01: a runtime shutdown that timed out under load reports an
-// unconfirmed close, yet no store handle is left, so the latch frees at once.
-// The release used to answer Free, the foreground's open was then refused
-// (refused_retiring) and the switch fell to the login chooser. It must answer
-// StoreBusy, so the user stays where they were with an honest message.
 void SessionPoolTest::anUnconfirmedCloseThatLooksIdleIsNotHandedToTheForeground()
 {
     const QString a = uidOf(1);
@@ -886,12 +793,11 @@ void SessionPoolTest::anUnconfirmedCloseKeepsTheStoreBusy()
     const quint64 ticket =
         pool->releaseForForeground(a, [&](SessionPool::ReleaseResult r) { first = r; });
     QTRY_COMPARE_WITH_TIMEOUT(pool->liveState(a), AccountActivityModel::StoreBusy, 5000);
-    QCOMPARE(m_registry->records().size(), 1);   // still Retiring
+    QCOMPARE(m_registry->records().size(), 1);
     QCOMPARE(m_registry->records().first().state,
              lightning::accounts::StoreOwnershipRegistry::State::Retiring);
     pool->cancelRelease(ticket);
     QCOMPARE(first, SessionPool::ReleaseResult::Cancelled);
-    // Asked again: busy at once, and never restarted.
     bool again = false;
     pool->releaseForForeground(a, [&](SessionPool::ReleaseResult r) {
         again = r == SessionPool::ReleaseResult::StoreBusy;
@@ -905,10 +811,6 @@ void SessionPoolTest::anUnconfirmedCloseKeepsTheStoreBusy()
     pool->shutdownAsync([] {});
 }
 
-// A switch away from a pinned account leaves the foreground's handle of its
-// store retiring for a moment: the host waits (no keyring read, no open) for
-// as long as that close may still come, and starts once it is confirmed. A
-// close slower than 15 s that succeeds is NOT "Store busy" (review M6).
 void SessionPoolTest::aStoreTheForegroundStillHoldsIsWaitedForWithoutKeyringReads()
 {
     const QString a = uidOf(1);
@@ -928,7 +830,7 @@ void SessionPoolTest::aStoreTheForegroundStillHoldsIsWaitedForWithoutKeyringRead
     startPool(*pool);
     pool->noteForegroundInitialSyncDone();
     for (int i = 0; i < 20; ++i) {
-        m_now += 1000;   // 20 s: past the old 15 s cut-off
+        m_now += 1000;
         pool->admitNowForTest();
         QCoreApplication::processEvents();
     }
@@ -936,7 +838,6 @@ void SessionPoolTest::aStoreTheForegroundStillHoldsIsWaitedForWithoutKeyringRead
     QCOMPARE(m_store.reads(a), 0);
     QCOMPARE(pool->liveState(a), AccountActivityModel::Stopping);
     QVERIFY(attention.isEmpty());
-    // Closed at last: the host starts.
     m_registry->noteClosed(foregroundSerial, true);
     pool->admitNowForTest();
     QTRY_COMPARE_WITH_TIMEOUT(m_fake->calls(QStringLiteral("createBackground")), 1, 3000);
@@ -962,7 +863,6 @@ void SessionPoolTest::removalSignsOutWritesNothingBackAndAwaitsThatStore()
         result = r;
         done = true;
     });
-    // The sign-out dispatched on the pool; its sticky result is drained.
     QTRY_VERIFY_WITH_TIMEOUT(m_fake->calls(QStringLiteral("logout")) == 1, 3000);
     QTRY_VERIFY_WITH_TIMEOUT((drain(*pool), done), 10000);
     QVERIFY(result.storeFree);
@@ -970,16 +870,13 @@ void SessionPoolTest::removalSignsOutWritesNothingBackAndAwaitsThatStore()
     QCOMPARE(m_fake->log(h).count(QStringLiteral("finalSessionTokens")), 0);
     QCOMPARE(m_store.writes(a), 0);
     QCOMPARE(m_store.value(a, QStringLiteral("accessToken")), QStringLiteral("a-token"));
-    // The pool deletes nothing: the record is AppController's to remove.
     QVERIFY(m_settings->hasSavedAccount(a));
     QCOMPARE(m_store.deletes(a), 0);
-    // Never restarted.
     m_now += 3600 * 1000;
     pool->admitNowForTest();
     QCoreApplication::processEvents();
     QCOMPARE(m_fake->calls(QStringLiteral("createBackground")), 1);
 
-    // A non-live account: NotLive, store free.
     bool notLive = false;
     pool->retireForRemoval(uidOf(9), [&](SessionPool::RemovalResult r) {
         notLive = r.storeFree && r.serverSignOut == SessionPool::ServerSignOut::NotLive;
@@ -988,8 +885,6 @@ void SessionPoolTest::removalSignsOutWritesNothingBackAndAwaitsThatStore()
     pool->shutdownAsync([] {});
 }
 
-// R1-C1: the foreground's classification, the per-account proof, the revoked
-// mark, retire without handback, then the signal; nothing deleted.
 void SessionPoolTest::aRevokedHostRecordsTheProofAndIsNeverRestarted()
 {
     const QString a = uidOf(1);
@@ -1053,12 +948,10 @@ void SessionPoolTest::aFailedTokenWritePausesSyncAndTheSendQueueAndRetries()
     drain(*pool);
     QTRY_VERIFY_WITH_TIMEOUT(!h->sendQueueEnabled, 3000);
     QTRY_COMPARE_WITH_TIMEOUT(m_fake->log(h).count(QStringLiteral("stopSync")), 1, 3000);
-    // Paused, never retired, nothing deleted; the old pair stays at rest.
     QVERIFY(pool->holdsStore(a));
     QCOMPARE(pool->liveState(a), AccountActivityModel::Running);
     QCOMPARE(m_store.deletes(a), 0);
     QCOMPARE(m_store.value(a, QStringLiteral("accessToken")), QStringLiteral("a-token"));
-    // The keyring answers again: the retry writes the session's pair now.
     m_store.setFailWrites(false);
     QTRY_COMPARE_WITH_TIMEOUT(m_store.value(a, QStringLiteral("accessToken")),
                               QStringLiteral("a-rotated"), 5000);
@@ -1068,12 +961,6 @@ void SessionPoolTest::aFailedTokenWritePausesSyncAndTheSendQueueAndRetries()
     pool->shutdownAsync([] {});
 }
 
-// 24a485c5 for a BACKGROUND account: matrix-sdk holds the request it retries
-// with the new access token until the rotation is answered, so the answer
-// must come after the keyring write, never before (and a failed write still
-// answers, so a broken keyring never holds sync for the wait's bound).
-// Mutations: answering in onCustody before the write fails the "nothing yet"
-// check; no answer at all fails the QTRY.
 void SessionPoolTest::aBackgroundRotationIsAnsweredOnlyOnceTheKeyringHoldsIt()
 {
     const QString a = uidOf(1);
@@ -1101,8 +988,6 @@ void SessionPoolTest::aBackgroundRotationIsAnsweredOnlyOnceTheKeyringHoldsIt()
     QCOMPARE(m_fake->persistedAnswers(h).constFirst(), qMakePair(quint64(7), true));
     QCOMPARE(m_store.value(a, QStringLiteral("accessToken")), QStringLiteral("a-rotated"));
 
-    // The same pair again (custody re-taken for nothing): the keyring already
-    // holds it, so it is answered at once and nothing is written.
     m_store.setWriteLatencyMs(0);
     const int writesBefore = m_store.writes(a);
     m_fake->setCustody(h, QJsonObject{{QStringLiteral("v"), 1},
@@ -1116,8 +1001,6 @@ void SessionPoolTest::aBackgroundRotationIsAnsweredOnlyOnceTheKeyringHoldsIt()
     QCOMPARE(m_fake->persistedAnswers(h).at(1), qMakePair(quint64(8), true));
     QCOMPARE(m_store.writes(a), writesBefore);
 
-    // A keyring that refuses: answered NOT saved (the wait ends), and the
-    // pause takes over.
     m_store.setFailWrites(true);
     m_fake->setCustody(h, QJsonObject{{QStringLiteral("v"), 1},
                                       {QStringLiteral("has_session"), true},
@@ -1133,11 +1016,6 @@ void SessionPoolTest::aBackgroundRotationIsAnsweredOnlyOnceTheKeyringHoldsIt()
     pool->shutdownAsync([] {});
 }
 
-// la1-A N1/N2: a release that answered Free whose switch was then refused on
-// the spot (or answered StoreBusy) left the account in the "released for the
-// foreground" set for the rest of the process, so its pin never ran again.
-// Mutation: without abandonRelease() the second create never happens (the
-// release test above asserts exactly that without it).
 void SessionPoolTest::anAbandonedReleaseLetsThePinRunAgain()
 {
     const QString a = uidOf(1);
@@ -1160,9 +1038,7 @@ void SessionPoolTest::anAbandonedReleaseLetsThePinRunAgain()
     pool->admitNowForTest();
     QCoreApplication::processEvents();
     QCOMPARE(m_fake->calls(QStringLiteral("createBackground")), 1);
-    // The foreground never changed (the switch was refused): hand it back.
     pool->abandonRelease(a);
-    // The foreground account itself is never handed to the pool this way.
     pool->abandonRelease(kForeground);
     pool->admitNowForTest();
     QTRY_COMPARE_WITH_TIMEOUT(m_fake->calls(QStringLiteral("createBackground")), 2, 5000);
@@ -1170,13 +1046,6 @@ void SessionPoolTest::anAbandonedReleaseLetsThePinRunAgain()
     pool->shutdownAsync([] {});
 }
 
-// §18 round 1, MUST 1: the click path answered Free from the latch alone, and
-// the latch frees once the handback SETTLED, written or not. A refused
-// handback left the keyring on the older pair (for MAS, a consumed refresh
-// token) and the foreground read it. Now the pair is parked for the
-// foreground, which writes it by the same compare-and-swap right before its
-// read (RustSdkMatrixClient::persistRetiredSessionTokens). Mutation: drop the
-// parkUnsaved() call and hasUnsaved() is false.
 void SessionPoolTest::aRefusedHandbackIsParkedForTheForegroundsRead()
 {
     const QString a = uidOf(1);
@@ -1197,8 +1066,6 @@ void SessionPoolTest::aRefusedHandbackIsParkedForTheForegroundsRead()
         done = true;
     });
     QTRY_VERIFY_WITH_TIMEOUT(done, 10000);
-    // The store is free (nothing holds it, nothing is still being written),
-    // and the session's last pair is waiting for the foreground's read.
     QCOMPARE(result, SessionPool::ReleaseResult::Free);
     QCOMPARE(m_store.value(a, QStringLiteral("accessToken")), QStringLiteral("a-token-at-start"));
     QVERIFY(HostSignInRetirements::process().hasUnsaved(a));
@@ -1211,11 +1078,6 @@ void SessionPoolTest::aRefusedHandbackIsParkedForTheForegroundsRead()
     pool->shutdownAsync([] {});
 }
 
-// ... and a handback the keyring has not answered (timed out, still inside
-// the store) can still land AFTER the foreground's read: the store is not
-// reported free until it returned (the release waits for it within its
-// budget, §18 round 3). Mutation: drop the write check in settleRelease()
-// and the release answers Free while the write is stranded.
 void SessionPoolTest::aTimedOutHandbackKeepsTheStoreUntilTheWriteReturns()
 {
     const QString a = uidOf(1);
@@ -1247,10 +1109,6 @@ void SessionPoolTest::aTimedOutHandbackKeepsTheStoreUntilTheWriteReturns()
     pool->shutdownAsync([] {});
 }
 
-// L2: a runtime off whose budget for Starting hosts ran out released the pool
-// while a host was still restoring: its handle leaked and its store stayed
-// claimed. Now the pool answers only once that host retired. Mutation:
-// restore `|| overBudget` in checkShutdownDrained.
 void SessionPoolTest::aRuntimeOffWaitsForAHostStillRestoring()
 {
     const QString a = uidOf(1);
@@ -1269,16 +1127,11 @@ void SessionPoolTest::aRuntimeOffWaitsForAHostStillRestoring()
     QTest::qWait(3 * SessionPool::kShutdownPollMs);
     QVERIFY2(!done, "the pool was released under a host still restoring");
     QVERIFY(pool->holdsStore(a));
-    // The restore ends: the host retires, and only then is the pool done.
     m_fake->releaseStarting(handleFor(a));
     QTRY_VERIFY_WITH_TIMEOUT(done, 10000);
     QCOMPARE(m_fake->calls(QStringLiteral("destroyAndReport")), 1);
 }
 
-// L1: the account opened in the foreground while its background start was
-// still reading the keyring: the read is dropped and no host is created for
-// the account now in front. Mutation: remove the m_reading branch in
-// setForegroundUserId and the createHost re-check (a second handle opens).
 void SessionPoolTest::aForegroundOpenDropsABackgroundKeyringReadInFlight()
 {
     const QString a = uidOf(1);
@@ -1290,7 +1143,7 @@ void SessionPoolTest::aForegroundOpenDropsABackgroundKeyringReadInFlight()
     pool->noteForegroundInitialSyncDone();
     pool->admitNowForTest();
     QTRY_COMPARE_WITH_TIMEOUT(pool->liveState(a), AccountActivityModel::Starting, 3000);
-    QCOMPARE(m_fake->calls(QStringLiteral("createBackground")), 0);   // still reading
+    QCOMPARE(m_fake->calls(QStringLiteral("createBackground")), 0);
     pool->setForegroundUserId(a);
     QTest::qWait(800);
     QCOMPARE(m_fake->calls(QStringLiteral("createBackground")), 0);
@@ -1299,8 +1152,6 @@ void SessionPoolTest::aForegroundOpenDropsABackgroundKeyringReadInFlight()
     pool->shutdownAsync([] {});
 }
 
-// L7: with Labs on and nothing pinned or hosted, the lag probe, the admission
-// tick and the memory read stopped waking the process; a pin starts them.
 void SessionPoolTest::nothingPinnedOrHostedStopsTheTimers()
 {
     auto pool = makePool();
@@ -1315,13 +1166,6 @@ void SessionPoolTest::nothingPinnedOrHostedStopsTheTimers()
     pool->shutdownAsync([] {});
 }
 
-// R2-1 + R2-2: a live write P1 the keyring did not answer in time, the
-// session's last pair P2 refused while the keyring is wedged (parked), then P1
-// lands. Back in the pool, P2 is written BEFORE the account's sign-in is read,
-// over P1, because P1 is the host's own pair. Mutations: park without the
-// accepted digests (or drop TimedOut digests from the book) and the
-// compare-and-swap refuses, so the keyring keeps P1; drop writeParked() from
-// admit() and the new host restores on P1.
 void SessionPoolTest::aParkedPairIsWrittenOverTheHostsOwnStrandedLiveWriteBeforeItStartsAgain()
 {
     const QString a = uidOf(1);
@@ -1349,12 +1193,10 @@ void SessionPoolTest::aParkedPairIsWrittenOverTheHostsOwnStrandedLiveWriteBefore
     pool->releaseForForeground(a, [&](SessionPool::ReleaseResult) { done = true; });
     QTRY_VERIFY_WITH_TIMEOUT(done, 10000);
     QVERIFY(HostSignInRetirements::process().hasUnsaved(a));
-    // P1 lands after all.
     QTRY_COMPARE_WITH_TIMEOUT(m_store.value(a, QStringLiteral("accessToken")),
                               QStringLiteral("a-rotated"), 5000);
     QTRY_VERIFY_WITH_TIMEOUT(!pool->keyringForTest()->wedged(), 5000);
     m_store.setWriteLatencyMs(0);
-    // Back to the pool (as after StoreBusy): P2 first, then the host.
     const int created = m_fake->calls(QStringLiteral("createBackground"));
     pool->abandonRelease(a);
     pool->admitNowForTest();
@@ -1370,11 +1212,6 @@ void SessionPoolTest::aParkedPairIsWrittenOverTheHostsOwnStrandedLiveWriteBefore
     pool->shutdownAsync([] {});
 }
 
-// R2-3 + L-a: at quit the pool writes the parked pairs through its worker,
-// but not one whose account still has a write inside the store (it stays
-// parked rather than queue behind a write that may never return), and the
-// quit keeps its budget. Mutation: drop the writeInFlightFor() skip and b's
-// pair is taken.
 void SessionPoolTest::aQuitLeavesAParkedPairBehindAWriteStillInFlightAndStaysInBudget()
 {
     const QString a = uidOf(1);
@@ -1393,7 +1230,6 @@ void SessionPoolTest::aQuitLeavesAParkedPairBehindAWriteStillInFlightAndStaysInB
                                                         QStringLiteral("a-final")));
     HostSignInRetirements::process().parkUnsaved(parked(b, QStringLiteral("b-start"),
                                                         QStringLiteral("b-final")));
-    // b's own write, still inside the store for the whole quit.
     m_store.setWriteLatencyMs(2000);
     KeyringWorker::WriteRequest inFlight;
     inFlight.userId = b;
@@ -1408,19 +1244,11 @@ void SessionPoolTest::aQuitLeavesAParkedPairBehindAWriteStillInFlightAndStaysInB
     pool->waitForQuit(600);
     QVERIFY2(quit.elapsed() < 3000, qPrintable(QString::number(quit.elapsed())));
     QVERIFY(HostSignInRetirements::process().hasUnsaved(b));
-    QVERIFY(!HostSignInRetirements::process().hasUnsaved(a));   // taken, queued
-    // Let b's write return before the pool and the store go away.
+    QVERIFY(!HostSignInRetirements::process().hasUnsaved(a));
     QTRY_VERIFY_WITH_TIMEOUT(!pool->keyringForTest()->writeInFlightFor(b), 5000);
     m_store.setWriteLatencyMs(0);
 }
 
-// R3-1: a parked pair being written through the worker took it out of
-// HostSignInRetirements while no host held the store, so holdsStore() was
-// false and today's switch read the keyring before the write landed. Now the
-// account holds its sign-in until the write returns, and a release for it
-// answers Free only after that. Mutations: holdsSignIn() without the write
-// check (false while writing); settleRelease() without it (Free at once,
-// before the keyring holds the pair).
 void SessionPoolTest::aSwitchWaitsForAParkedPairStillBeingWritten()
 {
     const QString a = uidOf(1);
@@ -1435,9 +1263,9 @@ void SessionPoolTest::aSwitchWaitsForAParkedPairStillBeingWritten()
     pool->noteForegroundInitialSyncDone();
     pool->admitNowForTest();
     QTRY_VERIFY_WITH_TIMEOUT(pool->keyringForTest()->writeInFlightFor(a), 3000);
-    QVERIFY(!HostSignInRetirements::process().hasUnsaved(a));   // taken for the write
+    QVERIFY(!HostSignInRetirements::process().hasUnsaved(a));
     QVERIFY(!pool->holdsStore(a));
-    QVERIFY(pool->holdsSignIn(a));   // so the switch goes through a release
+    QVERIFY(pool->holdsSignIn(a));
     QString keyringWhenAnswered;
     SessionPool::ReleaseResult result = SessionPool::ReleaseResult::Cancelled;
     bool done = false;
@@ -1456,12 +1284,6 @@ void SessionPoolTest::aSwitchWaitsForAParkedPairStillBeingWritten()
     pool->shutdownAsync([] {});
 }
 
-// R4-1: a removal of an account with no host, whose parked pair is being
-// written, answers only once that write returned (nothing deleted while it
-// can still land), and a pair parked for it is discarded, not written later.
-// Mutation: finishRemoval() on writeInFlightFor() alone and the answer comes
-// in the window where the write answered but its callback has not run; drop
-// the takeUnsaved() and the second parked pair survives the removal.
 void SessionPoolTest::aRemovalWaitsForAParkedPairsWriteAndDiscardsThePair()
 {
     const QString a = uidOf(1);
@@ -1476,12 +1298,8 @@ void SessionPoolTest::aRemovalWaitsForAParkedPairsWriteAndDiscardsThePair()
     pool->noteForegroundInitialSyncDone();
     pool->admitNowForTest();
     QTRY_VERIFY_WITH_TIMEOUT(pool->keyringForTest()->writeInFlightFor(a), 3000);
-    // In flight counts a write still QUEUED, which the removal simply
-    // cancels (nothing can land). The case is the write already inside the
-    // store: let the worker start it (800 ms in the store from then on).
     QTest::qWait(200);
     QVERIFY(pool->keyringForTest()->writeInFlightFor(a));
-    // Another pair parked meanwhile (a retirement of an earlier host).
     HostSignInRetirements::process().parkUnsaved(HostSignInRetirements::UnsavedHandback{
         a, QStringLiteral("DEV-u1"), custody::accessTokenDigest(QStringLiteral("a-start")), {},
         SessionTokenPair{QStringLiteral("a-later"), QString()}});
@@ -1502,11 +1320,6 @@ void SessionPoolTest::aRemovalWaitsForAParkedPairsWriteAndDiscardsThePair()
     pool->shutdownAsync([] {});
 }
 
-// ---- review round 1 ------------------------------------------------------------------------
-
-// H1: a lost connection sends stop_sync to the pool; an unpin a moment later
-// retires the host. The destroy frees the client stop_sync still holds, so it
-// must run after stop_sync returned, never beside it.
 void SessionPoolTest::aRetireAfterALostConnectionWaitsForTheStop()
 {
     const QString a = uidOf(1);
@@ -1529,14 +1342,9 @@ void SessionPoolTest::aRetireAfterALostConnectionWaitsForTheStop()
     QCOMPARE(m_fake->callsAfterDestroy(), 0);
     const QStringList log = m_fake->log(h);
     QVERIFY(log.indexOf(QStringLiteral("stopSync")) < log.indexOf(QStringLiteral("shutdownTasks")));
-    // The quit path (every host retired at once) meets the same queue.
     pool->shutdownAsync([] {});
 }
 
-// M1 and M2: an unpin retires the host and queues its handback; a removal a
-// moment later cancels that write. The cancelled handback still finishes the
-// retirement (the record closes, the latch frees), the removal reports the
-// store free, and the final pair never reaches the keyring.
 void SessionPoolTest::unpinThenRemoveFinishesTheHandbackAndWritesNothing()
 {
     const QString a = uidOf(1);
@@ -1552,7 +1360,6 @@ void SessionPoolTest::unpinThenRemoveFinishesTheHandbackAndWritesNothing()
                            QStringLiteral("a-final-refresh"));
     m_store.setWriteLatencyMs(400);
     QCOMPARE(pool->setKeepRunning(a, false), SessionPool::PinResult::Ok);
-    // The retirement ran; its handback is queued or inside the store.
     QTRY_VERIFY_WITH_TIMEOUT(pool->keyringForTest()->writeInFlightFor(a), 5000);
     QVERIFY(HostSignInRetirements::process().contains(a));
     SessionPool::RemovalResult result;
@@ -1561,7 +1368,6 @@ void SessionPoolTest::unpinThenRemoveFinishesTheHandbackAndWritesNothing()
         result = r;
         done = true;
     });
-    // Well inside the 15 s budget: nothing waits for a callback that never runs.
     QTRY_VERIFY_WITH_TIMEOUT(done, 5000);
     QVERIFY(result.storeFree);
     QCOMPARE(result.serverSignOut, SessionPool::ServerSignOut::NotLive);
@@ -1570,17 +1376,12 @@ void SessionPoolTest::unpinThenRemoveFinishesTheHandbackAndWritesNothing()
     QVERIFY(!pool->latchesForTest()->isArmed(a));
     QVERIFY(m_registry->records().isEmpty());
     QCOMPARE(m_store.value(a, QStringLiteral("accessToken")), QStringLiteral("a-token-at-start"));
-    // Nothing more lands later either.
     m_store.setWriteLatencyMs(0);
     QTest::qWait(500);
     QCOMPARE(m_store.value(a, QStringLiteral("accessToken")), QStringLiteral("a-token-at-start"));
     pool->shutdownAsync([] {});
 }
 
-// M4: the keyring probe of an OAuth revocation answers after the click path
-// retired the host and the account became the foreground's: the answer is
-// about a session that is gone, so no proof, no revoked mark, no signal, and
-// the foreground's Active state stays.
 void SessionPoolTest::aLateRevocationProbeForARetiredHostChangesNothing()
 {
     const QString a = uidOf(1);
@@ -1596,11 +1397,8 @@ void SessionPoolTest::aLateRevocationProbeForARetiredHostChangesNothing()
     bringToRunning(*pool, a);
     FakeHandle *h = handleFor(a);
     QVERIFY(h->oauth);
-    // The keyring holds no refresh token either, so the probe, when it
-    // answers, proves the session ended (Hard): what a stale answer would act on.
     m_store.setValue(a, QStringLiteral("refreshToken"), QString());
-    m_store.setReadLatencyMs(1000);   // the probe answers late (two reads, inside 3 s)
-    // OAuth without a refresh token: the classification asks the keyring.
+    m_store.setReadLatencyMs(1000);
     m_fake->setCustody(h, QJsonObject{{QStringLiteral("v"), 1},
                                       {QStringLiteral("has_session"), true},
                                       {QStringLiteral("access_token"), QStringLiteral("dead")},
@@ -1609,12 +1407,12 @@ void SessionPoolTest::aLateRevocationProbeForARetiredHostChangesNothing()
                                       {QStringLiteral("soft_logout"), QJsonValue()},
                                       {QStringLiteral("had_refresh_token"), false}});
     drain(*pool);
-    QVERIFY(expired.isEmpty());   // waiting on the probe
+    QVERIFY(expired.isEmpty());
     bool released = false;
     pool->releaseForForeground(a, [&](SessionPool::ReleaseResult) { released = true; });
     QTRY_VERIFY_WITH_TIMEOUT(released, 10000);
     pool->setForegroundUserId(a);
-    QTest::qWait(3000);   // the probe has answered by now
+    QTest::qWait(3000);
     QVERIFY(expired.isEmpty());
     QVERIFY(!m_proofs->hardFor(a).has_value());
     QVERIFY(!m_accounts->sessionRevoked(a));
@@ -1622,9 +1420,6 @@ void SessionPoolTest::aLateRevocationProbeForARetiredHostChangesNothing()
     pool->shutdownAsync([] {});
 }
 
-// M5: a refusal recorded while the account ran in the background (here: the
-// keyring held no sign-in) is the foreground's to fix. Once the account has
-// been the foreground's, it is asked again when it is a background one.
 void SessionPoolTest::openingAnAccountInTheForegroundClearsItsRefusals()
 {
     const QString a = uidOf(1);
@@ -1640,7 +1435,6 @@ void SessionPoolTest::openingAnAccountInTheForegroundClearsItsRefusals()
     pool->admitNowForTest();
     QCoreApplication::processEvents();
     QCOMPARE(m_fake->calls(QStringLiteral("createBackground")), 0);
-    // Signed in again in the foreground, then switched away.
     pool->setForegroundUserId(a);
     m_store.setValue(a, QStringLiteral("accessToken"), QStringLiteral("a-token-after-sign-in"));
     pool->setForegroundUserId(kForeground);
@@ -1649,7 +1443,6 @@ void SessionPoolTest::openingAnAccountInTheForegroundClearsItsRefusals()
     pool->shutdownAsync([] {});
 }
 
-// M6: only a close REPORTED unconfirmed is Store busy, and then for good.
 void SessionPoolTest::anUnconfirmedForegroundCloseIsStoreBusy()
 {
     const QString a = uidOf(1);
@@ -1679,10 +1472,6 @@ void SessionPoolTest::anUnconfirmedForegroundCloseIsStoreBusy()
     pool->shutdownAsync([] {});
 }
 
-// M7: an account whose RECORDED store slug differs from its canonical slug
-// (delegation, a case variant). The foreground claims under the recorded one;
-// so must the host, or the foreground's own retiring handle reads as another
-// account's record and the account is Store busy for good.
 void SessionPoolTest::aDelegatedStoreSlugWaitsForTheForegroundInsteadOfStoreBusy()
 {
     const QString a = uidOf(1);
@@ -1694,22 +1483,17 @@ void SessionPoolTest::aDelegatedStoreSlugWaitsForTheForegroundInsteadOfStoreBusy
     QCOMPARE(identity.effectiveStoreSlug(), QStringLiteral("delegated-store-u1"));
     QVERIFY(identity.slug != identity.effectiveStoreSlug());
     using Registry = lightning::accounts::StoreOwnershipRegistry;
-    // Labs is on (RustSdkMatrixClient::setLiveAccountsLabs enforces the
-    // process registry); unenforced, every claim is Granted and the slug
-    // path under test never runs (integration).
     m_registry->setEnforced(true);
     auto pool = makePool();
     startPool(*pool);
     pool->noteForegroundInitialSyncDone();
-    pool->admitNowForTest();   // the keyring read is queued
-    // The foreground opens the store meanwhile (as its claim names it).
+    pool->admitNowForTest();
     quint64 foregroundSerial = 0;
     QCOMPARE(m_registry->claimOpen(identity.rustStorePath, identity.effectiveStoreSlug(),
                                    Registry::Role::Foreground, &foregroundSerial),
              Registry::ClaimVerdict::Granted);
     QTRY_COMPARE_WITH_TIMEOUT(pool->liveState(a), AccountActivityModel::Stopping, 3000);
     QCOMPARE(m_fake->calls(QStringLiteral("createBackground")), 0);
-    // It closes: the host starts.
     m_registry->noteReleasing(foregroundSerial);
     m_registry->noteClosed(foregroundSerial, true);
     m_now += 1100;
@@ -1718,7 +1502,6 @@ void SessionPoolTest::aDelegatedStoreSlugWaitsForTheForegroundInsteadOfStoreBusy
     pool->shutdownAsync([] {});
 }
 
-// L12: "no_session" signed nothing out on the server.
 void SessionPoolTest::aSignOutWithNoSessionIsNotReportedAsDone()
 {
     const QString a = uidOf(1);
@@ -1741,12 +1524,6 @@ void SessionPoolTest::aSignOutWithNoSessionIsNotReportedAsDone()
     pool->shutdownAsync([] {});
 }
 
-// ---- review round 2 ------------------------------------------------------------------------
-
-// The retirement pool was sized from the LIVE hosts alone, and retireHost()
-// removes the host before it submits the job: at quit the cap fell 4, 3, 2, 1
-// while four retirements were submitted, so QThreadPool queued the last two
-// behind one thread. Every retiring host keeps its thread now.
 void SessionPoolTest::quitRetiresEveryHostInParallel()
 {
     QStringList uids;
@@ -1765,24 +1542,17 @@ void SessionPoolTest::quitRetiresEveryHostInParallel()
     }
     QCOMPARE(pool->liveHostCount(), int(uids.size()));
     QCOMPARE(m_fake->maxConcurrentBlocking(), 0);
-    m_fake->setRetireDelayMs(500);   // shutdown and destroy each
+    m_fake->setRetireDelayMs(500);
     pool->beginQuit();
     QCOMPARE(pool->liveHostCount(), 0);
-    // Old code: 1 (live hosts 0, + 1).
     QCOMPARE(pool->retirementForTest()->maxThreadCount(), int(uids.size()) + 1);
     QVERIFY(pool->waitForQuit(20000));
-    // All four closes overlapped; the old cap ran at most two at a time.
     QCOMPARE(m_fake->maxConcurrentBlocking(), int(uids.size()));
     for (const QString &uid : uids)
         QVERIFY(m_fake->log(handleFor(uid)).contains(QStringLiteral("destroyAndReport")));
     QCOMPARE(m_fake->destroyOverlaps(), 0);
 }
 
-// A removal's "never restarted" and "no keyring writes" were for the life of
-// the process: the same account removed and added again stayed NotLive with no
-// message, and a live write a stale forbid cancelled was dropped. A fresh
-// sign-in (the account opened in the foreground after the removal answered)
-// lifts both.
 void SessionPoolTest::aRemovedAccountSignedInAgainMayRunInTheBackgroundAgain()
 {
     const QString a = uidOf(1);
@@ -1801,7 +1571,6 @@ void SessionPoolTest::aRemovedAccountSignedInAgainMayRunInTheBackgroundAgain()
     });
     QTRY_VERIFY_WITH_TIMEOUT((drain(*pool), done), 10000);
     QVERIFY(result.storeFree);
-    // Signed in again: AppController removed the record, the user added it.
     saveAccount(a, QStringLiteral("a-token-new"));
     pool->setForegroundUserId(a);
     QCOMPARE(pool->liveState(a), AccountActivityModel::Active);
@@ -1809,12 +1578,10 @@ void SessionPoolTest::aRemovedAccountSignedInAgainMayRunInTheBackgroundAgain()
     QCOMPARE(pool->setKeepRunning(a, true), SessionPool::PinResult::Ok);
     m_now += 60 * 1000;
     pool->admitNowForTest();
-    // Old code: still 1, for the rest of the process.
     QTRY_COMPARE_WITH_TIMEOUT(m_fake->calls(QStringLiteral("createBackground")), 2, 3000);
     bringToRunning(*pool, a);
     FakeHandle *h = handleFor(a);
     QCOMPARE(h->restoredAccess, QStringLiteral("a-token-new"));
-    // Its rotations reach the keyring again.
     m_fake->setCustody(h, QJsonObject{{QStringLiteral("v"), 1},
                                       {QStringLiteral("has_session"), true},
                                       {QStringLiteral("access_token"), QStringLiteral("a-rotated")},
@@ -1827,9 +1594,6 @@ void SessionPoolTest::aRemovedAccountSignedInAgainMayRunInTheBackgroundAgain()
     pool->shutdownAsync([] {});
 }
 
-// A live host's write answered Cancelled by anything but its own removal (or
-// a retirement, whose epoch drops the answer) is a write that did not land:
-// sync and the send queue pause as for a failed write. It was dropped.
 void SessionPoolTest::aLiveWriteCancelledOutsideARemovalPausesInsteadOfVanishing()
 {
     const QString a = uidOf(1);
@@ -1851,11 +1615,9 @@ void SessionPoolTest::aLiveWriteCancelledOutsideARemovalPausesInsteadOfVanishing
     drain(*pool);
     QTRY_VERIFY_WITH_TIMEOUT(pool->keyringForTest()->writeInFlightFor(a), 3000);
     pool->keyringForTest()->cancelFor(a);
-    // Old code: the Cancelled answer was dropped and nothing paused.
     QTRY_VERIFY_WITH_TIMEOUT(!h->sendQueueEnabled, 3000);
     QTRY_COMPARE_WITH_TIMEOUT(m_fake->log(h).count(QStringLiteral("stopSync")), 1, 3000);
     QVERIFY(pool->holdsStore(a));
-    // The retry writes the session's pair and resumes.
     m_store.setWriteLatencyMs(0);
     QTRY_COMPARE_WITH_TIMEOUT(m_store.value(a, QStringLiteral("accessToken")),
                               QStringLiteral("a-rotated"), 5000);
@@ -1865,12 +1627,6 @@ void SessionPoolTest::aLiveWriteCancelledOutsideARemovalPausesInsteadOfVanishing
 
 QTEST_GUILESS_MAIN(SessionPoolTest)
 
-// la1-M contract (review round 2, N1): an account removed while NOT live
-// (AppController's non-live path tombstones the activity row; the pool's
-// m_removing never saw it), then signed in again and pinned, is reopened at
-// the pool's epoch when its host is admitted, so its row and badge show.
-// Fails with: the reopen in SessionPool::beginStart removed (the row stays
-// tombstoned and never reads Running).
 void SessionPoolTest::anAccountRemovedWhileNotLiveShowsItsRowWhenAdmitted()
 {
     const QString a = uidOf(1);

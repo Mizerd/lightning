@@ -1,21 +1,3 @@
-// A scripted RustBridgeApi for the live-accounts tests (contract §5.1).
-//
-// Every entry counts its calls by name (calls("createBackground"),
-// totalCalls()), so the flag-off gate can assert that nothing reached the
-// table. Handles are FakeHandle objects the fake owns; a test scripts what
-// each one answers: queued events, the bg_take payload, the sticky session
-// state, custody, the destroy report. Blocking entries honour an injectable
-// retirement delay, and a "Starting" hold keeps a restore from reporting
-// login_ok until the test releases it.
-//
-// Thread-safe: HostRetirementPool workers call the blocking entries while the
-// test thread scripts and inspects. The delay sleeps outside the lock.
-//
-// The real destroy FREES the client, which this fake cannot do; it counts
-// what would have been a use-after-free instead (review H1): a
-// destroyAndReport() that began while another blocking call on the same
-// handle had not returned (destroyOverlaps()), and any entry reached on a
-// handle already destroyed (callsAfterDestroy()).
 #pragma once
 
 #include "accounts/RustBridgeApi.h"
@@ -46,26 +28,25 @@ struct FakeHandle {
     QQueue<QString> events;
     QQueue<QString> commands;
     BgStatus status;
-    QByteArray take;                       // next bg_take answer
-    QJsonObject sticky;                    // session state "state" object
-    QByteArray custody;                    // next take_custody answer (JSON)
-    QString finalTokens;                   // final_session_tokens answer (JSON)
-    QString ledgerLatest;                  // token_ledger_latest answer (JSON), read after destroy
-    // sessionTokensPersisted() answers, in order: (generation, saved).
+    QByteArray take;
+    QJsonObject sticky;
+    QByteArray custody;
+    QString finalTokens;
+    QString ledgerLatest;
     QList<QPair<quint64, bool>> persistedAnswers;
-    int ledgerRetains = 0;                 // retained and not yet released
-    QStringList log;                       // entry names, in call order
+    int ledgerRetains = 0;
+    QStringList log;
     QStringList localRules;
     bool restored = false;
     bool oauth = false;
-    QString restoredAccess;                // what restore() was given (tests only)
+    QString restoredAccess;
     QString restoredRefresh;
     bool syncing = false;
     bool sendQueueEnabled = true;
     bool shutdown = false;
     bool destroyed = false;
     bool holdStarting = false;
-    int blockingInFlight = 0;              // blocking entries running now
+    int blockingInFlight = 0;
     QByteArray mediaKey;
     bool mediaAdmitEncrypted = false;
 };
@@ -73,24 +54,15 @@ struct FakeHandle {
 class FakeRustBridge final : public RustBridgeApi
 {
 public:
-    // ---- scripting -----------------------------------------------------------
     void setAvailable(bool on) { QMutexLocker l(&m_mutex); m_available = on; }
     void setCreateFails(bool fail) { QMutexLocker l(&m_mutex); m_createFails = fail; }
-    // Every new handle starts held: restore() dispatches and login_ok waits for
-    // releaseStarting().
     void setHoldStarting(bool hold) { QMutexLocker l(&m_mutex); m_holdStarting = hold; }
     void setAutoLoginOk(bool on) { QMutexLocker l(&m_mutex); m_autoLoginOk = on; }
-    // Sleeps inside shutdownTasks() and destroyAndReport() (each half).
     void setRetireDelayMs(int ms) { QMutexLocker l(&m_mutex); m_retireDelayMs = ms; }
     void setLogoutDelayMs(int ms) { QMutexLocker l(&m_mutex); m_logoutDelayMs = ms; }
-    // Sleeps inside stopSync().
     void setStopSyncDelayMs(int ms) { QMutexLocker l(&m_mutex); m_stopSyncDelayMs = ms; }
-    // What destroyAndReport() answers; "store_closed=true ..." by default.
     void setDestroyReport(const QString &r) { QMutexLocker l(&m_mutex); m_destroyReport = r; }
-    // logged_out "result" a server sign-out reports ("ok", "already_invalid",
-    // "failed"); empty: no logged_out at all (a hang).
     void setLogoutResult(const QString &r) { QMutexLocker l(&m_mutex); m_logoutResult = r; }
-    // storeAnyHeld() verdict for a path (default 0, free).
     void setAnyHeld(const QString &storePath, int verdict)
     {
         QMutexLocker l(&m_mutex);
@@ -133,7 +105,6 @@ public:
         h->events.enqueue(QString::fromUtf8(QJsonDocument(event).toJson(QJsonDocument::Compact)));
         h->status.queuedEvents = quint32(h->events.size());
     }
-    // counts tuples [room, unread, highlight, flags]; marks dirty.
     void setCounts(FakeHandle *h, const QJsonArray &counts, int invites = 0, bool baseline = false)
     {
         QMutexLocker l(&m_mutex);
@@ -154,8 +125,6 @@ public:
         h->sticky.insert(type, payload);
         ++h->status.sessionStateVersion;
     }
-    // custody JSON (§3.4); bumps token_generation (and sets revoked when the
-    // JSON says so).
     void setCustody(FakeHandle *h, const QJsonObject &custody)
     {
         QMutexLocker l(&m_mutex);
@@ -163,8 +132,6 @@ public:
         ++h->status.tokenGeneration;
         h->status.revoked = custody.value(QStringLiteral("revoked")).toBool(false);
     }
-    // What token_ledger_latest() answers once the handle is destroyed: the
-    // pair the handle's client last rotated to (a rotation while closing).
     void setLedgerLatest(FakeHandle *h, const QString &access, const QString &refresh)
     {
         QMutexLocker l(&m_mutex);
@@ -188,7 +155,6 @@ public:
                 .toJson(QJsonDocument::Compact));
     }
 
-    // ---- inspection -----------------------------------------------------------
     int calls(const QString &name) const { QMutexLocker l(&m_mutex); return m_calls.value(name); }
     int totalCalls() const
     {
@@ -199,14 +165,11 @@ public:
         return n;
     }
     QStringList log(FakeHandle *h) const { QMutexLocker l(&m_mutex); return h->log; }
-    // Threads the blocking entries ran on (never the GUI thread, tests assert).
     QList<QThread *> blockingThreads() const { QMutexLocker l(&m_mutex); return m_blockingThreads; }
-    // The most blocking entries ever running at once, over every handle.
     int maxConcurrentBlocking() const { QMutexLocker l(&m_mutex); return m_maxConcurrent; }
     int destroyOverlaps() const { QMutexLocker l(&m_mutex); return m_destroyOverlaps; }
     int callsAfterDestroy() const { QMutexLocker l(&m_mutex); return m_callsAfterDestroy; }
 
-    // ---- RustBridgeApi ----------------------------------------------------------
     bool available() const override { QMutexLocker l(&m_mutex); return m_available; }
     void labsEnable() override { count(QStringLiteral("labsEnable")); }
     void *createBackground(const QString &storePath, const QByteArray &profileJson) override
@@ -284,7 +247,7 @@ public:
     }
     QString pollEvent(void *h) override
     {
-        FakeHandle *f = note(h, QStringLiteral("pollEvent"), /*log=*/false);
+        FakeHandle *f = note(h, QStringLiteral("pollEvent"),false);
         QMutexLocker l(&m_mutex);
         if (f->events.isEmpty())
             return {};
@@ -294,13 +257,13 @@ public:
     }
     QString pollCommandEvent(void *h) override
     {
-        FakeHandle *f = note(h, QStringLiteral("pollCommandEvent"), /*log=*/false);
+        FakeHandle *f = note(h, QStringLiteral("pollCommandEvent"),false);
         QMutexLocker l(&m_mutex);
         return f->commands.isEmpty() ? QString() : f->commands.dequeue();
     }
     bool bgPoll(void *h, BgStatus *out) override
     {
-        FakeHandle *f = note(h, QStringLiteral("bgPoll"), /*log=*/false);
+        FakeHandle *f = note(h, QStringLiteral("bgPoll"),false);
         QMutexLocker l(&m_mutex);
         if (!out || f->destroyed)
             return false;
@@ -309,14 +272,14 @@ public:
     }
     QByteArray bgTake(void *h, quint32) override
     {
-        FakeHandle *f = note(h, QStringLiteral("bgTake"), /*log=*/false);
+        FakeHandle *f = note(h, QStringLiteral("bgTake"),false);
         QMutexLocker l(&m_mutex);
         f->status.dirty = false;
         return f->take;
     }
     QByteArray bgTakeSessionState(void *h) override
     {
-        FakeHandle *f = note(h, QStringLiteral("bgTakeSessionState"), /*log=*/false);
+        FakeHandle *f = note(h, QStringLiteral("bgTakeSessionState"),false);
         QMutexLocker l(&m_mutex);
         return QJsonDocument(QJsonObject{{QStringLiteral("v"), 1},
                                          {QStringLiteral("version"),
@@ -377,8 +340,6 @@ public:
     {
         FakeHandle *f = noteBlocking(h, QStringLiteral("destroyAndReport"));
         {
-            // Anything else still inside this handle would now touch a freed
-            // client.
             QMutexLocker l(&m_mutex);
             if (f->blockingInFlight > 1)
                 ++m_destroyOverlaps;
@@ -389,9 +350,6 @@ public:
         endBlockingLocked(f);
         return m_destroyReport;
     }
-    // The ledger outlives the handle (Rust's is an Arc): reading it after the
-    // destroy is legal, so these are deliberately not counted as calls after
-    // destroy. The "ledger" is the FakeHandle itself, which the fake owns.
     void *tokenLedgerRetain(void *h) override
     {
         FakeHandle *f = note(h, QStringLiteral("tokenLedgerRetain"));
@@ -421,8 +379,6 @@ public:
     {
         count(QStringLiteral("storeAnyHeld"));
         QMutexLocker l(&m_mutex);
-        // A handle not yet destroyed on that path holds it, as Rust's
-        // reservation and live probe do; a scripted verdict overrides.
         if (m_anyHeld.contains(storePath))
             return m_anyHeld.value(storePath);
         for (const auto &h : m_handles) {
@@ -454,7 +410,6 @@ private:
             f->log << name;
         return f;
     }
-    // Every blocking entry ends with endBlockingLocked() on the same handle.
     FakeHandle *noteBlocking(void *h, const QString &name)
     {
         FakeHandle *f = note(h, name);
@@ -530,4 +485,4 @@ private:
     bool m_autoLoginOk = true;
 };
 
-} // namespace lightning::accounts::testing
+}

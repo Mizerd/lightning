@@ -3,18 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Corner card for personal chat backgrounds kept on the homeserver
-// (app.backdrops, ChatBackdropController). Two one-time questions, never
-// both at once:
-//
-//   * Before pictures chosen earlier (before sync existed, or while it was
-//     off) are uploaded for the first time: "Lightning will now keep your
-//     chat backgrounds on your homeserver, encrypted." OK uploads them;
-//     "Don't keep them on my homeserver" turns the account-wide switch off.
-//   * A picture only this device has, while the homeserver holds a different
-//     one for the same place: both are kept until the user picks one here.
-//
-// Non-modal and in the chat shell only, like the other corner prompts.
 Rectangle {
     id: root
 
@@ -27,8 +15,6 @@ Rectangle {
     readonly property var conflict: available
                                     && app.backdrops.syncConflicts.length > 0
                                     ? app.backdrops.syncConflicts[0] : null
-    // A conflict between two pictures that look alike: "Use the synced one"
-    // is the pre-selected (primary) answer.
     readonly property bool syncedPreselected: !noticeShown && conflict !== null
                                               && conflict.looksSame === true
     readonly property bool shouldShow: available && !blocked
@@ -80,8 +66,6 @@ Rectangle {
                 color: AppTheme.stormText
                 font.pixelSize: AppTheme.textBody
                 font.weight: AppTheme.weightBold
-                // Wraps: the notice's title does not fit 284 px (seen
-                // elided live), and a heading must not lose its last word.
                 wrapMode: Text.WordWrap
             }
         }
@@ -114,16 +98,12 @@ Rectangle {
                               + "other device.")
                          .arg(root.conflict.name !== "" ? root.conflict.name
                                                         : qsTr("a room"))
-                // Alike pixels are a hint, never a decision: the synced one
-                // is pre-selected, the user still picks.
                 return root.syncedPreselected
                        ? body + " " + qsTr("They look the same.")
                        : body
             }
         }
 
-        // The notice's second label is long: its buttons stack, full width,
-        // rather than squeeze two into a 284 px row (seen clipped live).
         GridLayout {
             objectName: "backgroundSyncPromptButtons"
             Layout.fillWidth: true
@@ -148,7 +128,6 @@ Rectangle {
                 storm: true
                 kind: root.syncedPreselected ? "primary" : "secondary"
                 Layout.fillWidth: true
-                // Off is account-wide: the label says so (review R5).
                 text: root.noticeShown ? qsTr("Don't keep them on my homeserver")
                                        : qsTr("Use the synced one")
                 onClicked: {

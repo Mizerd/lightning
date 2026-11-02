@@ -73,10 +73,6 @@ bool copyFileDurably(const QString &source, const QString &destination)
     return true;
 }
 
-// Recursive copy used only as the cross-filesystem fallback. It refuses
-// symbolic links outright rather than following or recreating them: the
-// staged tree comes from our own extractor, which never writes one, so a
-// symlink here means something unexpected touched the staging directory.
 bool copyDirectoryTree(const QString &source, const QString &destination)
 {
     const QFileInfo sourceInfo(source);
@@ -103,27 +99,18 @@ bool copyDirectoryTree(const QString &source, const QString &destination)
             QFile::setPermissions(child,
                                   QFile::permissions(entry.absoluteFilePath()));
         } else {
-            return false; // device nodes, fifos and the like are never copied
+            return false;
         }
     }
     return true;
 }
 
-// Every top-level name in `directory`, hidden and system entries included.
-// Missing any of them would leave part of the old installation behind.
 QStringList directoryEntryNames(const QString &directory)
 {
     return QDir(directory).entryList(QDir::AllEntries | QDir::Hidden
                                      | QDir::System | QDir::NoDotAndDotDot);
 }
 
-// Moves every top-level entry of `from` into `to`, recording each name so the
-// caller can move them back. Stops at the first failure.
-//
-// Windows refuses to rename a directory while a file inside it is open, and
-// the running helper and its Qt DLLs live in the installation. Renaming the
-// files themselves is allowed (images are opened with FILE_SHARE_DELETE), so
-// entries move and the directory stays.
 bool moveDirectoryEntries(const QString &from, const QString &to,
                           QStringList *movedNames,
                           const QStringList &preserveNames = QStringList())
@@ -146,8 +133,6 @@ bool moveDirectoryEntries(const QString &from, const QString &to,
     return true;
 }
 
-// Best-effort reverse of the above, used only on a rollback path where the
-// caller is already reporting a failure.
 void moveEntriesBack(const QString &from, const QString &to,
                      const QStringList &names)
 {
@@ -172,15 +157,10 @@ bool removeTreeGuarded(const QString &path, const QString &mustNotContain)
         return QFile::remove(path);
 
     const QString clean = QDir::cleanPath(info.absoluteFilePath());
-    // Not a separator count: "E:/Lightning.lightning-previous" has one slash,
-    // and counting refused portable installs just below a Windows drive root.
-    // The guard's purpose is to refuse a path at or one step from a root, so
-    // strip the root and require something left.
     const QString root = QDir::rootPath();
     QString relative = clean;
     if (!root.isEmpty() && clean.startsWith(root, Qt::CaseInsensitive))
         relative = clean.mid(root.size());
-    // A Windows absolute path ("E:/x") is not under QDir::rootPath() at all.
     static const QRegularExpression driveRoot(
         QStringLiteral("^[A-Za-z]:/"));
     const QRegularExpressionMatch drive = driveRoot.match(clean);
@@ -190,17 +170,17 @@ bool removeTreeGuarded(const QString &path, const QString &mustNotContain)
     while (relative.startsWith(QLatin1Char('/')))
         relative.remove(0, 1);
     if (relative.isEmpty())
-        return false; // the root itself
+        return false;
     if (!mustNotContain.isEmpty()) {
         const QString guard = QDir::cleanPath(mustNotContain);
         if (guard == clean
             || guard.startsWith(clean + QLatin1Char('/')))
-            return false; // would delete the thing we are protecting
+            return false;
     }
     return QDir(clean).removeRecursively();
 }
 
-} // namespace
+}
 
 const char *replaceErrorName(ReplaceError error)
 {
@@ -247,10 +227,6 @@ QString portableBackupPath(const QString &targetDir)
     return clean + QStringLiteral(".lightning-previous");
 }
 
-// ---------------------------------------------------------------------------
-// File replacement (AppImage)
-// ---------------------------------------------------------------------------
-
 ReplaceResult replaceFileAtomically(const QString &newFile,
                                     const QString &targetPath,
                                     const QString &backupPath,
@@ -283,8 +259,6 @@ ReplaceResult replaceFileAtomically(const QString &newFile,
         return replaceFail(ReplaceError::BackupPathUnusable,
                            QStringLiteral("the backup path must be absolute"));
     if (backupInfo.exists()) {
-        // A leftover from a crashed run must not block future updates; only a
-        // plain file is cleared.
         if (backupInfo.isDir() || backupInfo.isSymLink()
             || !QFile::remove(backupPath))
             return replaceFail(ReplaceError::BackupPathUnusable,
@@ -296,13 +270,10 @@ ReplaceResult replaceFileAtomically(const QString &newFile,
         return replaceFail(ReplaceError::RefusedUnsafePath,
                            QStringLiteral("the backup path is the target path"));
 
-    // Keep the target's permissions and guarantee the executable bit.
     QFile::Permissions permissions = QFile::permissions(targetPath);
     permissions |= QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner
                  | QFile::ReadUser | QFile::WriteUser | QFile::ExeUser;
 
-    // Step 1: get the new bytes into the TARGET's own directory, so the
-    // decisive rename never crosses a filesystem.
     ReplaceResult result;
     const QString scratch = siblingScratchPath(targetDir,
                                                QStringLiteral(".lightning-new-"));
@@ -330,16 +301,15 @@ ReplaceResult replaceFileAtomically(const QString &newFile,
         return replaceFail(ReplaceError::BackupFailed,
                            QStringLiteral("simulated failure before the backup "
                                           "rename; nothing was changed"),
-                           /*rolledBack=*/true);
+true);
     }
 
-    // Step 2: move the current version aside.
     if (!QFile::rename(targetPath, backupPath)) {
         QFile::remove(scratch);
         return replaceFail(ReplaceError::BackupFailed,
                            QStringLiteral("could not move the current version "
                                           "aside; nothing was changed"),
-                           /*rolledBack=*/true);
+true);
     }
 
     const auto rollback = [&]() -> bool {
@@ -356,10 +326,9 @@ ReplaceResult replaceFileAtomically(const QString &newFile,
         return replaceFail(ReplaceError::PromoteFailed,
                            QStringLiteral("simulated failure before promoting the "
                                           "new version"),
-                           /*rolledBack=*/true);
+true);
     }
 
-    // Step 3: promote.
     if (!QFile::rename(scratch, targetPath)) {
         if (!rollback())
             return replaceFail(ReplaceError::RollbackFailed,
@@ -368,18 +337,13 @@ ReplaceResult replaceFileAtomically(const QString &newFile,
                                               "could not be restored"));
         return replaceFail(ReplaceError::PromoteFailed,
                            QStringLiteral("could not promote the new version"),
-                           /*rolledBack=*/true);
+true);
     }
 
     QFile::setPermissions(targetPath, permissions);
-    // Remove the previous version so AppImages do not accumulate.
     QFile::remove(backupPath);
     return result;
 }
-
-// ---------------------------------------------------------------------------
-// Directory swap (portable Windows)
-// ---------------------------------------------------------------------------
 
 QString resolveStagedRoot(const QString &stagedDir,
                           const QString &expectedExecutableName)
@@ -392,8 +356,6 @@ QString resolveStagedRoot(const QString &stagedDir,
     if (QFileInfo(dir.absoluteFilePath(expectedExecutableName)).isFile())
         return dir.absolutePath();
 
-    // A portable ZIP unpacks into one top-level folder. More than one candidate
-    // is ambiguous and refused.
     const QStringList subdirs =
         dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     if (subdirs.size() != 1)
@@ -451,15 +413,12 @@ ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
         }
     }
 
-    // Layout first: touch nothing until the staged tree is a real installation.
     const QString sourceRoot = resolveStagedRoot(stagedDir, expectedExecutableName);
     if (sourceRoot.isEmpty())
         return replaceFail(ReplaceError::LayoutInvalid,
                            QStringLiteral("the staged archive does not contain the "
                                           "expected Lightning executable"));
 
-    // Writability next, as a distinct failure. Both the target and its parent
-    // must be writable.
     if (!directoryIsWritable(parentDir) || !directoryIsWritable(cleanTarget))
         return replaceFail(ReplaceError::TargetNotWritable,
                            QStringLiteral("the installation directory is not "
@@ -467,8 +426,6 @@ ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
 
     ReplaceResult result;
 
-    // Step 1: bring the new tree into the same parent, so the renames stay on
-    // one filesystem.
     const QString scratch = siblingScratchPath(parentDir,
                                                QStringLiteral(".lightning-new-"));
     if (scratch.isEmpty())
@@ -495,18 +452,15 @@ ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
         return replaceFail(ReplaceError::BackupFailed,
                            QStringLiteral("simulated failure before the backup "
                                           "rename; nothing was changed"),
-                           /*rolledBack=*/true);
+true);
     }
 
-    // Step 2: move the current installation aside entry by entry (see
-    // moveDirectoryEntries). The empty target directory stays, which also
-    // protects a process whose working directory is the installation.
     if (!QDir().mkpath(cleanBackup)) {
         removeTreeGuarded(scratch, cleanTarget);
         return replaceFail(ReplaceError::BackupFailed,
                            QStringLiteral("could not create the backup directory; "
                                           "nothing was changed"),
-                           /*rolledBack=*/true);
+true);
     }
     QStringList backedUp;
     if (!moveDirectoryEntries(cleanTarget, cleanBackup, &backedUp,
@@ -517,17 +471,10 @@ ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
         return replaceFail(ReplaceError::BackupFailed,
                            QStringLiteral("could not move the current installation "
                                           "aside; nothing was changed"),
-                           /*rolledBack=*/true);
+true);
     }
 
-    // Undo of step 2, and of step 3 when it got part-way: anything already
-    // promoted into the target is taken back out before the previous version
-    // returns, so the two sets can never interleave.
     const auto rollback = [&]() -> bool {
-        // Preserved names are not part of the swap, so not part of the
-        // rollback: sweeping `data` here would delete the portable session and
-        // crypto store on a failed promote. The success check counts only
-        // swapped entries.
         QStringList undo;
         for (const QString &name : directoryEntryNames(cleanTarget)) {
             if (!preserveNames.contains(name, Qt::CaseInsensitive))
@@ -560,11 +507,9 @@ ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
         return replaceFail(ReplaceError::PromoteFailed,
                            QStringLiteral("simulated failure before promoting the "
                                           "new installation"),
-                           /*rolledBack=*/true);
+true);
     }
 
-    // Step 3: promote entry by entry (the target directory still exists). A
-    // package entry colliding with a preserved name is skipped; user data wins.
     if (!moveDirectoryEntries(scratch, cleanTarget, nullptr, preserveNames)) {
         if (!rollback()) {
             ReplaceResult failure =
@@ -577,18 +522,14 @@ ReplaceResult swapDirectory(const QString &stagedDir, const QString &targetDir,
         }
         return replaceFail(ReplaceError::PromoteFailed,
                            QStringLiteral("could not promote the new installation"),
-                           /*rolledBack=*/true);
+true);
     }
 
-    // Step 4: remove the previous installation with the guard. On Windows this
-    // is expected to fail (the backup holds the running helper's mapped
-    // images); report the path instead and let the next update clear it.
     if (!removeTreeGuarded(cleanBackup, cleanTarget))
-        result.backupPath = cleanBackup; // left behind; not a failure
-    // The scratch tree is empty after promotion.
+        result.backupPath = cleanBackup;
     removeTreeGuarded(scratch, cleanTarget);
 
     return result;
 }
 
-} // namespace updater
+}

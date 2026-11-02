@@ -1,6 +1,3 @@
-// What SfuCallController tells the SFU about a share, with the real engine
-// behind it: the declaration must match the encoder ladder's final choice and
-// must arrive before the offer that carries the track.
 #include "calls/SfuCallController.h"
 #include "calls/SfuMediaEngine.h"
 #include "matrix/MockMatrixClient.h"
@@ -37,7 +34,7 @@ public:
     }
     QStringList calls;
 };
-} // namespace
+}
 
 class SfuShareDeclarationTest : public QObject
 {
@@ -144,7 +141,6 @@ private slots:
         QVERIFY(client.calls.isEmpty());
         QVERIFY(SfuMediaEngine::shareHardwareEncoderFailedForTest());
 
-        // The next share is the plain one, which every viewer can watch.
         QVERIFY(call.startScreenShare(0));
         QTRY_VERIFY_WITH_TIMEOUT(client.calls.contains(QStringLiteral("offer")),
                                  10000);

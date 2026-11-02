@@ -1,45 +1,3 @@
-//! Shared chat backgrounds: one image per room or Space that every Lightning
-//! user in it sees behind the timeline.
-//!
-//! Matrix has no such thing, so this is Lightning's own state event,
-//! `org.lightning_matrix.room.background`, state key "". Other clients do not
-//! know the type and render nothing for it. The room's power levels decide who
-//! may set it (the SDK's `can_send_state`, never a role label), and a Space is
-//! a room, so the same event in a Space room covers its child rooms (the
-//! precedence is decided in C++, `backdrop::resolve`).
-//!
-//! Content, schema version 1:
-//!
-//! ```json
-//! { "version": 1,
-//!   "url": "mxc://example.org/AbCd",
-//!   "info": { "mimetype": "image/jpeg", "size": 412345, "w": 2560, "h": 1440 },
-//!   "color": "#2B3A4F",
-//!   "presentation": { "dim": 20, "blur": 0, "tint": 25,
-//!                     "fit": "cover", "align": "center" } }
-//! ```
-//!
-//! * dim, blur and tint are INTEGER percentages, 0..100. Event content is
-//!   canonical JSON, which has no floating-point numbers: Synapse refuses a
-//!   float anywhere in it with `400 M_BAD_JSON "Bad JSON value: float"`. The
-//!   first version of this schema wrote 0.2 and every write failed that way
-//!   (2026-10-06). `compose_content` refuses to produce a float at all.
-//!
-//! * `{}` (no `url`) clears it: a state event cannot be deleted.
-//! * Unknown keys are ignored at every level, so additive changes keep
-//!   version 1. A change an older reader would MISRENDER bumps `version`, and
-//!   this reader then renders nothing (`unsupported_version`). A missing
-//!   version is 1.
-//! * Every field is room state any member with the power level can write, so
-//!   all of it is clamped here, and `info` is advisory: the media bridge sniffs
-//!   the bytes whatever it says.
-//! * `url` must be `mxc://`: an http URL would be a tracking pixel fetched by
-//!   everyone who opens the room. The image is fetched only through the
-//!   authenticated media bridge.
-//!
-//! PRIVACY: state is cleartext to the homeserver even in an encrypted room, so
-//! the picture is uploaded unencrypted (a key sitting in cleartext state would
-//! protect nothing) and the editor says so before upload.
 
 use std::sync::Arc;
 
@@ -59,11 +17,8 @@ use serde_json::{json, Map, Value};
 use crate::rooms::{require_client, sniff_image_mime};
 use crate::{enqueue, EventQueueRef, RustClient};
 
-/// The event type. Namespaced under the project's reverse domain, like the
-/// legacy banner type.
 pub(crate) const ROOM_BACKGROUND_EVENT: &str = "org.lightning_matrix.room.background";
 
-/// The schema this build reads and writes.
 pub(crate) const SCHEMA_VERSION: i64 = 1;
 
 /// One state round trip. Runs on the room-action pool, which sign-out joins,
@@ -74,11 +29,8 @@ const BACKGROUND_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::fro
 /// ImageCropper's "background" role (<= 2560 px, re-encoded), far below this.
 pub(crate) const MAX_BACKGROUND_BYTES: u64 = 16 * 1024 * 1024;
 
-/// Longest accepted mxc URI (remote text).
 const MAX_URL_LEN: usize = 512;
 
-/// Defaults for presentation fields that are absent or malformed, in
-/// integer percent (canonical JSON has no floats).
 const DEFAULT_DIM: i64 = 20;
 const DEFAULT_BLUR: i64 = 0;
 const DEFAULT_TINT: i64 = 25;
@@ -87,19 +39,12 @@ const FITS: [&str; 3] = ["cover", "contain", "tile"];
 const ALIGNS: [&str; 3] = ["center", "top", "bottom"];
 const MIMES: [&str; 5] = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/bmp"];
 
-/// A failed write: (stage, category, detail). The stage names the step
-/// ("read", "sniff", "upload", "compose", "send_state"); the detail is the
-/// HTTP status and Matrix errcode only.
 type WriteError = (&'static str, String, String);
 
-/// Outcome of reading one content object.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Parsed {
-    /// No background (`{}`, no url, or an unusable url).
     None,
-    /// A newer schema this build must not guess at.
     UnsupportedVersion(i64),
-    /// The canonical content: only known keys, every value clamped.
     Background(Value),
 }
 
@@ -117,10 +62,6 @@ fn is_hex_colour(value: &str) -> bool {
         && value[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
-/// An integer percentage 0..100, or the default for anything that is not a
-/// number. Out-of-range values are clamped rather than refused; a non-integer
-/// number (which no server accepts in an event, but a caller might hand us)
-/// is rounded. The result is always an integer.
 fn percent(value: Option<&Value>, default: i64) -> i64 {
     let Some(value) = value else {
         return default;
@@ -129,7 +70,7 @@ fn percent(value: Option<&Value>, default: i64) -> i64 {
         return n.clamp(0, 100);
     }
     if value.as_u64().is_some() {
-        return 100; // larger than i64::MAX
+        return 100;
     }
     match value.as_f64() {
         Some(v) if v.is_finite() => (v.round() as i64).clamp(0, 100),
@@ -137,15 +78,13 @@ fn percent(value: Option<&Value>, default: i64) -> i64 {
     }
 }
 
-/// Whether a value is valid canonical JSON as Matrix requires for event
-/// content: no floats anywhere, and every integer within +-(2^53 - 1).
 pub(crate) fn is_canonical_json_safe(value: &Value) -> bool {
     const MAX_SAFE: i64 = (1 << 53) - 1;
     match value {
         Value::Number(n) => match (n.as_i64(), n.as_u64()) {
             (Some(i), _) => (-MAX_SAFE..=MAX_SAFE).contains(&i),
             (None, Some(u)) => u <= MAX_SAFE as u64,
-            _ => false, // a float
+            _ => false,
         },
         Value::Array(items) => items.iter().all(is_canonical_json_safe),
         Value::Object(map) => map.values().all(is_canonical_json_safe),
@@ -153,9 +92,6 @@ pub(crate) fn is_canonical_json_safe(value: &Value) -> bool {
     }
 }
 
-/// A write failure as a stable category the UI words, plus a bounded detail
-/// for the log: the HTTP status and Matrix errcode only, never the server's
-/// message text, a URL or content.
 pub(crate) fn classify_write_error(text: &str) -> (&'static str, String) {
     let status: Option<u16> = text
         .match_indices('[')
@@ -210,10 +146,6 @@ fn bounded_count(value: Option<&Value>) -> Option<u64> {
     (n <= i32::MAX as u64).then_some(n)
 }
 
-/// The event as the SDK's event handlers see it. Typed only so the SDK
-/// dispatches this one state type to [`install_change_handler`] (as rtc.rs
-/// does for the legacy call member): the content is a passthrough, never read.
-/// A change is re-read through [`fetch_room_background`], the one parser.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
 #[ruma_event(
     type = "org.lightning_matrix.room.background",
@@ -222,23 +154,10 @@ fn bounded_count(value: Option<&Value>) -> Option<u64> {
 )]
 pub(crate) struct RoomBackgroundEventContent {}
 
-/// What crosses to C++ when a room's (or Space's) background changed in sync:
-/// the room id only. C++ re-reads only the scopes it already shows, so a
-/// change in a room nobody opened costs no request.
 pub(crate) fn change_payload(room_id: &str) -> Value {
     json!({ "type": "room_background_changed", "room_id": room_id })
 }
 
-/// Observe live background changes.
-///
-/// Sliding sync never puts this type in `required_state`, so the store never
-/// learns of a change, and `fetch_room_background` ran only when a room was
-/// opened: a background set while the room was open appeared only after
-/// leaving and re-opening it (VM test, 2026-10-07). The change DOES arrive as
-/// a timeline event (the open room's subscription, the room list's latest
-/// event), and matrix-sdk dispatches timeline state events to state handlers
-/// by type (`handle_sync_timeline_events`), so this fires for it. A Space is a
-/// room, so a Space's change arrives the same way.
 pub(crate) fn install_change_handler(client: &Client, events: EventQueueRef) -> EventHandlerHandle {
     client.add_event_handler(move |_ev: SyncRoomBackgroundEvent, room: Room| {
         let events = Arc::clone(&events);
@@ -248,9 +167,6 @@ pub(crate) fn install_change_handler(client: &Client, events: EventQueueRef) -> 
     })
 }
 
-/// Read a content object (bare content from `/state`, or a full event from the
-/// store, whose `content` is used). Pure, so the rules are testable without a
-/// homeserver.
 pub(crate) fn parse_content(raw: &Value) -> Parsed {
     let content = match raw.get("content") {
         Some(inner) if inner.is_object() && raw.get("type").is_some() => inner,
@@ -263,7 +179,6 @@ pub(crate) fn parse_content(raw: &Value) -> Parsed {
         None => SCHEMA_VERSION,
         Some(v) => match v.as_i64() {
             Some(n) if n >= 1 => n,
-            // A version that is not a positive integer is not a schema we know.
             _ => return Parsed::None,
         },
     };
@@ -284,11 +199,6 @@ pub(crate) fn parse_content(raw: &Value) -> Parsed {
     Parsed::Background(Value::Object(out))
 }
 
-/// The picture fields every background record carries, clamped exactly as
-/// the shared event's: advisory `info` (allowlisted mimetype, bounded
-/// counts), a `#RRGGBB` `color`, and `presentation` as integer percentages
-/// plus the two choices. Shared with the personal records kept in account
-/// data (`bgsync.rs`), so both schemas read and write one shape.
 pub(crate) fn normalise_picture_fields(object: &Map<String, Value>, out: &mut Map<String, Value>) {
     if let Some(info) = object.get("info").and_then(Value::as_object) {
         let mut clean = Map::new();
@@ -327,9 +237,6 @@ pub(crate) fn normalise_picture_fields(object: &Map<String, Value>, out: &mut Ma
     );
 }
 
-/// Build the content to SEND from what C++ composed (presentation, info,
-/// colour) and the url. The same normaliser as the read path, so Lightning
-/// never writes anything it would not read back identically.
 pub(crate) fn compose_content(requested: &Value, url: &str) -> Option<Value> {
     let mut candidate = match requested.as_object() {
         Some(object) => Value::Object(object.clone()),
@@ -338,14 +245,11 @@ pub(crate) fn compose_content(requested: &Value, url: &str) -> Option<Value> {
     candidate["url"] = json!(url);
     candidate["version"] = json!(SCHEMA_VERSION);
     match parse_content(&candidate) {
-        // Never hand the server something it must refuse.
         Parsed::Background(clean) if is_canonical_json_safe(&clean) => Some(clean),
         _ => None,
     }
 }
 
-/// The answer for one room: the canonical content (or JSON null), and the
-/// schema version this build cannot read (0 when it can).
 fn answer_fields(parsed: &Parsed) -> (Value, i64) {
     match parsed {
         Parsed::Background(content) => (content.clone(), 0),
@@ -354,10 +258,6 @@ fn answer_fields(parsed: &Parsed) -> (Value, i64) {
     }
 }
 
-/// Read one room's (or Space's) background and whether this account may change
-/// it. Emits `room_background`. Sliding sync does not deliver custom state
-/// types, so a store miss is normal and the homeserver read decides (404 means
-/// none).
 pub(crate) fn fetch_room_background(
     bridge: &RustClient,
     op_id: u64,
@@ -370,9 +270,6 @@ pub(crate) fn fetch_room_background(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        // Network first: the store copy can be stale for a type sliding sync
-        // never refreshes, and this read is what makes a change arrive. The
-        // store answers only when the network read fails outright.
         let config = RequestConfig::new()
             .disable_retry()
             .timeout(BACKGROUND_REQUEST_TIMEOUT);
@@ -388,7 +285,6 @@ pub(crate) fn fetch_room_background(
             Err(err) => {
                 let text = err.to_string().to_ascii_lowercase();
                 if text.contains("m_not_found") || text.contains("404") {
-                    // The server says there is none.
                     Parsed::None
                 } else {
                     let stored = room
@@ -445,15 +341,6 @@ pub(crate) fn fetch_room_background(
     Ok(())
 }
 
-/// Set (or clear) a room's background.
-///
-/// * `local_path` non-empty: upload it (content decides the type), then send
-///   `requested` with the new url.
-/// * `local_path` empty and `requested` carries a usable `url`: re-send with
-///   that url (a presentation-only change; nothing is uploaded again).
-/// * both empty / no url: clear (`{}`).
-///
-/// Emits `room_background_set`.
 pub(crate) fn set_room_background(
     bridge: &RustClient,
     op_id: u64,
@@ -476,8 +363,6 @@ pub(crate) fn set_room_background(
     let uploading = !local_path.is_empty();
     let clearing = !uploading && reuse_url.is_none();
     if uploading {
-        // Stable tokens: C++ maps them to a category and logs them; none
-        // carries the path.
         let metadata = std::fs::metadata(&local_path).map_err(|_| "read_failed".to_owned())?;
         if !metadata.is_file() {
             return Err("not_a_file".to_owned());
@@ -490,8 +375,6 @@ pub(crate) fn set_room_background(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        // (stage, category, detail) on failure; the stage says which step
-        // failed, the detail is status/errcode only.
         let result: Result<Value, WriteError> = async {
             let failed = |stage: &'static str, err: String| {
                 let (category, detail) = classify_write_error(&err);
@@ -507,8 +390,6 @@ pub(crate) fn set_room_background(
                 let data = tokio::fs::read(&local_path).await.map_err(|_| {
                     ("read", "read_failed".to_owned(), "io".to_owned())
                 })?;
-                // The CONTENT decides the type, never the file name; SVG and
-                // anything else non-raster is refused here.
                 let mime_str = sniff_image_mime(&data).ok_or_else(|| {
                     ("sniff", "unsupported_image".to_owned(), "magic".to_owned())
                 })?;
@@ -588,7 +469,6 @@ mod tests {
         // every shared background vanish.
         assert_eq!(ROOM_BACKGROUND_EVENT, "org.lightning_matrix.room.background");
         assert_eq!(SCHEMA_VERSION, 1);
-        // The handler's typed event is the same type, or it never fires.
         use matrix_sdk::ruma::events::StaticEventContent;
         assert_eq!(RoomBackgroundEventContent::TYPE, ROOM_BACKGROUND_EVENT);
     }
@@ -596,7 +476,6 @@ mod tests {
     #[test]
     fn only_mxc_urls_are_usable() {
         assert!(is_usable_url("mxc://example.org/abc"));
-        // A remote URL would be fetched by everyone who opens the room.
         assert!(!is_usable_url("https://example.org/bg.png"));
         assert!(!is_usable_url("http://example.org/bg.png"));
         assert!(!is_usable_url("mxc://"));
@@ -639,7 +518,6 @@ mod tests {
                               "fit": "stretch", "align": "<b>left</b>" },
             "script": "alert(1)"
         }));
-        // SVG is never a background (§6); bad numbers vanish.
         assert!(v.get("info").is_none(), "{v}");
         assert!(v.get("color").is_none());
         assert_eq!(v["presentation"]["dim"], json!(100));
@@ -647,7 +525,6 @@ mod tests {
         assert_eq!(v["presentation"]["tint"], json!(25));
         assert_eq!(v["presentation"]["fit"], json!("cover"));
         assert_eq!(v["presentation"]["align"], json!("center"));
-        // Unknown keys never survive into the canonical content.
         assert!(v.get("script").is_none());
     }
 
@@ -668,7 +545,6 @@ mod tests {
         assert_eq!(v["presentation"]["fit"], json!("tile"));
         assert_eq!(v["presentation"]["align"], json!("top"));
         assert_eq!(v["presentation"]["blur"], json!(50));
-        // Reading the canonical form again changes nothing.
         assert_eq!(background(v.clone()), v);
     }
 
@@ -694,7 +570,6 @@ mod tests {
         assert_eq!(newer, 3);
         let (_, none) = answer_fields(&parse_content(&json!({"url": "mxc://e.org/a"})));
         assert_eq!(none, 0);
-        // Not a positive integer: not a schema at all.
         assert_eq!(parse_content(&json!({"version": 0, "url": "mxc://e.org/a"})), Parsed::None);
         assert_eq!(parse_content(&json!({"version": "1", "url": "mxc://e.org/a"})), Parsed::None);
         assert_eq!(parse_content(&json!({"version": 1.5, "url": "mxc://e.org/a"})), Parsed::None);
@@ -712,21 +587,13 @@ mod tests {
         assert_eq!(sent["version"], json!(1));
         assert_eq!(sent["presentation"]["dim"], json!(100));
         assert_eq!(sent["presentation"]["fit"], json!("contain"));
-        // What we send is exactly what any Lightning reads back.
         assert_eq!(background(sent.clone()), sent);
-        // A url we would refuse to read is never written.
         assert!(compose_content(&requested, "https://example.org/x.png").is_none());
-        // A non-object request still composes from defaults.
         assert!(compose_content(&json!(42), "mxc://example.org/new").is_some());
     }
 
-    // The defect behind "The background could not be saved." (2026-10-06):
-    // the first schema wrote dim 0.2 and Synapse refuses ANY float in event
-    // content (400 M_BAD_JSON "Bad JSON value: float"). Whatever the caller
-    // hands in, what we send is canonical JSON. Fails on the float schema.
     #[test]
     fn what_we_send_is_canonical_json_with_no_float_anywhere() {
-        // What the C++ side composed before the fix: unit floats.
         let requested = json!({
             "version": 1,
             "presentation": { "dim": 0.2, "blur": 0.0, "tint": 0.25 },
@@ -738,18 +605,11 @@ mod tests {
         for key in ["dim", "blur", "tint"] {
             assert!(sent["presentation"][key].is_i64(), "{key} is not an integer: {sent}");
         }
-        // The guard itself: floats and out-of-range integers are not canonical.
         assert!(!is_canonical_json_safe(&json!({"a": [1, {"b": 0.5}]})));
         assert!(!is_canonical_json_safe(&json!(9_007_199_254_740_993_u64)));
         assert!(is_canonical_json_safe(&json!({"a": [1, -2, "x", null, true]})));
     }
 
-    // The VM-test defect (2026-10-07): a background set by another member
-    // never reached a room that was already open, because nothing observed the
-    // event in sync. Feeds a sliding-sync response through the SDK's own
-    // processing (the path the app's sync loop takes) and requires the
-    // handler to report the room, once per change. Fails without
-    // `install_change_handler`: nothing is enqueued.
     #[tokio::test]
     async fn a_background_change_in_sync_reaches_cpp_with_its_room() {
         use matrix_sdk::ruma::{api::client::sync::sync_events::v5, room_id, serde::Raw};
@@ -780,14 +640,12 @@ mod tests {
         };
         let mut update = v5::response::Room::default();
         update.timeline = vec![
-            // An unrelated state event must not be reported.
             state_event("m.room.topic", "$topic", json!({ "topic": "t" })),
             state_event(
                 ROOM_BACKGROUND_EVENT,
                 "$bg",
                 json!({ "version": 1, "url": "mxc://example.org/abc" }),
             ),
-            // Clearing is a change too.
             state_event(ROOM_BACKGROUND_EVENT, "$clear", json!({})),
         ];
         let mut response = v5::Response::new("pos-1".to_owned());
@@ -805,7 +663,6 @@ mod tests {
             .collect();
         let expected = change_payload(room.as_str());
         assert_eq!(queued, vec![expected.clone(), expected], "{queued:?}");
-        // The id only: no url, content or sender crosses.
         assert_eq!(queued[0].as_object().map(|o| o.len()), Some(2));
     }
 

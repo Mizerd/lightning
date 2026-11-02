@@ -3,36 +3,18 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The far-left rail: Home, Space tiles, then a bottom cluster with Settings and
-// the account avatar (opens the account switcher). Always visible.
-//
-// Dragging: rows come from app.railEntries, a real QAbstractListModel, so a
-// preview position is a genuine beginMoveRows. Neighbours animate aside while
-// the pointer is down and the dragged delegate is never destroyed. The tile
-// itself follows the pointer, and where it sits is where it lands; no separate
-// insertion line. The only overlay is a ring on the Space or folder a release
-// would file into. Nothing moves while the pointer is on a tile (see
-// `readingAt`), so that target needs no dwell.
 Rectangle {
     id: root
     color: AppTheme.rail
 
-    // The rail's ground when the theme gives `rail` a gradient (Depth or a
-    // custom theme); draws nothing otherwise.
-    // Not z: -1, which draws beneath this Rectangle's own fill; declared
-    // first, so every other child paints above it.
     ThemedSurface {
         anchors.fill: parent
         role: "rail"
         flatFill: false
     }
 
-    // Emitted by the Add Space tile; MainScreen opens the creation dialog in
-    // Space mode.
     signal createSpaceRequested()
 
-    // The Direct Messages tab, Channels only. Classic reaches DMs through its
-    // People filter chip.
     readonly property bool peopleTabVisible:
         app.settings && app.settings.roomNavigationLayout === 1
     Binding {
@@ -40,39 +22,26 @@ Rectangle {
         property: "peopleEntryVisible"
         value: root.peopleTabVisible
     }
-    // "Other rooms", Classic only: in Channels, Home already lists exactly the
-    // rooms in no Space.
     Binding {
         target: app.railEntries
         property: "orphansEntryVisible"
         value: !root.peopleTabVisible
     }
-    // Tell the badge model too: a tile's badge counts what its view lists, and
-    // Home lists different things in the two layouts.
     Binding {
         target: app.spaces
         property: "directMessagesHaveOwnTile"
         value: root.peopleTabVisible
     }
-    // A selection whose tile disappears (People tab when switching to Classic)
-    // must not survive, or the shell stays scoped to an invisible tab.
     onPeopleTabVisibleChanged: {
         if (!peopleTabVisible && app.spaces
             && app.spaces.activeSpaceId === "@people")
             app.spaces.activeSpaceId = ""
-        // Likewise the "Other rooms" tile when switching to Channels; land on
-        // Home, which shows the same rooms there.
         if (peopleTabVisible && app.spaces
             && app.spaces.activeSpaceId === "@orphans")
             app.spaces.activeSpaceId = ""
     }
 
-    // How many of a Space's rooms are revealed under its tile. Session state,
-    // unlike the expansion (persisted by RailLayoutStore). Held on the rail
-    // root so recycling and model resets do not lose it.
     property var railReveal: ({})
-    // Bumped on every SpaceManager change so the revealed-rooms bindings
-    // (function calls) re-evaluate.
     property int spacesRevision: 0
 
     /// A row's height: tile plus air above and below. The divider row adds its
@@ -82,185 +51,86 @@ Rectangle {
     readonly property int dividerRowBand: normalRowBand + AppTheme.scaled(10)
     readonly property int railRoomRowBand: railRoomTileSize + 2 * rowPad
 
-    /// Tiles do not indent and nothing is drawn between them: containment is a
-    /// tinted region behind the run (as in Discord and this rail's folders), and
-    /// depth beyond the first step is carried by tile size. Neither costs width.
-    /// The chevron is positioned by its ink, not its box (the glyph's advance is
-    /// wider than its ink, and a right-anchored box leaves side bearing in the
-    /// gutter).
     readonly property int chevronGlyphSize: AppTheme.scaled(16)
-    /// Approximate ink width of the chevron glyph relative to its font size;
-    /// used to place the ink rather than the box.
     readonly property int chevronInkWidth: Math.round(chevronGlyphSize * 0.36)
-    /// Ink to tile: a control sits against the thing it acts on.
     readonly property int chevronTileGap: AppTheme.scaled(2)
-    /// How far the active ring reaches outside its tile. The chevron's gap is
-    /// measured from the ring, not the tile, or the glyph overlaps the ring on
-    /// the selected tile. The gutter's budget is written only at railSideMargin.
     readonly property int tileRingOutset: AppTheme.scaled(2)
 
-    /// Tooltips hang off an invisible anchor at the rail's right edge. The Basic
-    /// style centres a tooltip on its anchor, so a tip wider than the anchor
-    /// spills back over the rail. The anchor is therefore at least as wide as
-    /// the shared tooltip (railTipWidth, the one instance Main.qml configures),
-    /// with 150 as a floor. Read as a property so the binding tracks it. No
-    /// loop: the tip's implicitWidth depends only on its text and font.
     readonly property int railTipFloor: AppTheme.scaled(150)
     readonly property real railTipWidth:
         ToolTip.toolTip ? ToolTip.toolTip.implicitWidth : 0
-    /// Left wall of the chevron's slot: the deepest region inset any row can
-    /// carry, so the glyph never leaves the innermost region. Derived from the
-    /// cap, not the row's depth, so chevrons align across levels.
     readonly property int chevronSlotLeft: bandInset(maxBandLayers)
-    /// The self badge sits on the avatar's edge: its centre is placed at avatarR
-    /// + dotR - ring along the 45° diagonal, so only its rail-coloured ring
-    /// overlaps the picture.
     readonly property int selfDotSize: AppTheme.scaled(13)
-    /// Matches PresenceDot's 2px inset of its state disc.
     readonly property int selfDotRing: 2
-    /// The account tile's "other accounts have new messages" dot (Labs). Smaller
-    /// than the presence badge so the two never read as one control, and on the
-    /// opposite (top-right) end of the same rim.
     readonly property int otherAccountsDotSize: AppTheme.scaled(10)
     readonly property real selfDotMargin: rimDotMargin(selfDotSize)
-    /// The same rule as the self badge, mirrored to the top-right: centre at
-    /// avatarR + dotR - ring on the 45° diagonal, so the dot sits ON the
-    /// avatar's rim with only its ring over the picture, not in the tile's
-    /// empty corner.
     readonly property real otherAccountsDotMargin:
         rimDotMargin(otherAccountsDotSize)
-    /// Anchor margin, from a tile corner, that puts a `dotSize` disc on the
-    /// avatar's rim (see selfDotSize). Negative when the disc pokes past the
-    /// tile's square, which is intended.
     function rimDotMargin(dotSize) {
         return railTileSize
             - (railTileSize / 2
                + (railTileSize / 2 + dotSize / 2 - selfDotRing) / Math.SQRT2
                + dotSize / 2)
     }
-    /// A plate behind the chevron, resting and hovered, so it reads as a control
-    /// rather than a stray mark. Square and sized for the wider of the two
-    /// glyphs: expand_more and chevron_right have transposed ink boxes, so any
-    /// other shape looks like it changes size between states.
     readonly property int chevronPlatePad:
         AppTheme.scaled(AppTheme.compactDensity ? 0 : 2)
     readonly property int chevronInkLongest: AppTheme.scaled(8)
     readonly property int chevronPlateWidth:
         chevronInkLongest + 2 * chevronPlatePad
     readonly property int chevronPlateHeight: chevronPlateWidth
-    /// expand_more's ink sits about 1px high in its box, so nudge it down; place
-    /// the ink, never the box.
     readonly property int chevronInkRise: AppTheme.scaled(1)
-    /// One place decides where the control goes. The plate is the control's real
-    /// edge, so the gap to the ring is measured from the plate.
     readonly property real chevronPlateLeft:
         Math.max(chevronSlotLeft,
                  tileColumnX - tileRingOutset - chevronTileGap
                  - chevronPlateWidth)
     readonly property real chevronInkLeft:
         chevronPlateLeft + (chevronPlateWidth - chevronInkWidth) / 2
-    /// One margin on both sides, so the tile column stays centred on the rail.
-    /// The left gutter holds the chevron control: inset 3 + plate 12 + gap 2 +
-    /// ring 2 = 19. The same air appears on the right. If the rail must narrow,
-    /// shrink the plate. The Icon's box width is its advance and its ink centres
-    /// in it, so the placement is written at the Icon itself.
     readonly property int railSideMargin:
         root.classicDepth ? AppTheme.scaled(10)
                           : AppTheme.scaled(AppTheme.compactDensity ? 15 : 19)
 
-    /// Classic depth: a plain top-level Space list, as before the hierarchy.
-    /// RailEntryModel::setFlat drops subspaces and expansion from the rows; this
-    /// component then draws no regions, cap backdrops or chevron plates, one
-    /// tile size, and the narrower margin. `app.settings` is read defensively
-    /// because suites load this component standalone. Nothing is hidden:
-    /// subspaces stay joined and reachable via their parent's room list, search
-    /// and permalinks. Expansion state is kept, so switching back restores the
-    /// rail exactly.
     readonly property bool classicDepth:
         app.settings ? app.settings.spacesRailDepthStyle === 1 : false
-    /// Past the preset's default width the tile grows up to a ceiling, then
-    /// the margins take the rest. Compact uses a 32..36 tile and a tighter
-    /// gutter; Lightning keeps 40..48. Derived tiers share the same axis.
     readonly property int railTileSize:
         Math.min(AppTheme.scaled(AppTheme.railTileMax),
                  Math.max(AppTheme.scaled(AppTheme.railTileMin),
                           width - 2 * railSideMargin))
-    /// Proportional corners (0.30 of the tile) at every tier via
-    /// tileRadiusFor(), so the size ladder is not undone by flatter corners.
     readonly property int railTileRadius: tileRadiusFor(railTileSize)
     function tileRadiusFor(size) { return Math.round(size * 0.30) }
-    /// Glyph size inside a pseudo tile (Home, People, cog, "+"): half the tile.
     readonly property int railChipIconSize: Math.round(railTileSize * 0.5)
-    /// Both dividers, one rule.
     readonly property int railDividerWidth: Math.round(railTileSize * 0.8)
     readonly property int railDividerX:
         tileColumnX + Math.round((railTileSize - railDividerWidth) / 2)
-    /// One centred x for every tile. Extra width splits evenly.
     readonly property int tileColumnX: Math.round((width - railTileSize) / 2)
-    /// One step down for anything nested, however deep (as Element does). The
-    /// derived size must have the same parity as railTileSize, or the halved
-    /// difference is .5 and the tile sits half a pixel off the shared axis; so
-    /// round the half difference and double it. Written out at both tiers rather
-    /// than through a helper function, which the binding would not track.
     readonly property int railNestedTileSize:
         railTileSize - 2 * Math.round((railTileSize
                                        - railTileSize * 0.833) / 2)
-    /// A revealed room's tile: 0.7 of the Space tile, paired for parity as
-    /// above.
     readonly property int railRoomTileSize:
         railTileSize - 2 * Math.round((railTileSize
                                        - railTileSize * 0.7) / 2)
-    /// Air above and below a tile in a run. The tile, add button and drag
-    /// bands all read this same value.
     readonly property int rowPad: AppTheme.scaled(AppTheme.railRowPadding)
-    /// The gap between two tiles. One number, shared with the bottom cluster.
     readonly property int railTileGap: 2 * rowPad + AppTheme.spacing4
-    /// Two gap sizes for two meanings: leaving a nested region needs only enough
-    /// air to show the parent's tint; a top-level break must carry on its own.
     readonly property int groupGap: AppTheme.scaled(AppTheme.railGroupGap)
     readonly property int groupBreakGap: AppTheme.scaled(AppTheme.railGroupBreakGap)
-    /// Regions stack, one per ancestor, outermost first, each inset a step
-    /// further, so a parent's region runs unbroken behind all its descendants.
-    /// Depth is carried mainly by tone (AppTheme.railNestSurfaces); the inset
-    /// provides an edge to see it against. Capped at three: the rail must stay
-    /// dark and receding, and more rungs than that are not distinguishable. The
-    /// deepest inset, bandInset(maxBandLayers), is the chevron slot's left wall
-    /// (chevronSlotLeft); change them together.
     readonly property int maxBandLayers: 3
-    /// Base 1, step 1: insets 1/2/3. Moving the deepest inset moves the wall the
-    /// expander is clamped against.
     readonly property int bandInsetBase: AppTheme.scaled(1)
-    /// 1px: the tone ladder steps evenly in lightness, so the inset only needs
-    /// to provide an edge.
     readonly property int bandInsetStep: AppTheme.scaled(1)
-    /// Rung 0 is a folder's container, one step outside hierarchy depth 1.
     function bandInset(depth) {
         return bandInsetBase
                + (Math.min(depth, maxBandLayers) - 1) * bandInsetStep
     }
-    /// Concentric: an inset of N inside a rounded rectangle is concentric only
-    /// if its radius is smaller by exactly N. Scaled, so corners grow with the
-    /// interface.
     function bandRadius(depth) {
-        // Rounder corners, still concentric: the radius steps by bandInsetStep,
-        // exactly as the inset does.
         return Math.max(AppTheme.scaled(4),
                         AppTheme.scaled(16)
                         - Math.min(depth, maxBandLayers) * bandInsetStep)
     }
 
-    /// Both stops are the tile range plus the gutter, so the gutter is constant
-    /// across the draggable range.
     readonly property int minRailWidth:
         AppTheme.scaled(AppTheme.railTileMin) + 2 * railSideMargin
     readonly property int maxRailWidth:
         AppTheme.scaled(AppTheme.railTileMax) + 2 * railSideMargin
 
     function revealCount(spaceId) {
-        // No revealed rooms in Classic. The model drops nested Spaces, but
-        // revealed rooms come from railLayout's expansion state, which Classic
-        // keeps so that switching back is lossless; so the rail declines to
-        // read it.
         if (root.classicDepth)
             return 0
         if (!app.railLayout || !app.railLayout.spaceExpanded(spaceId))
@@ -275,19 +145,11 @@ Rectangle {
         next[spaceId] = revealCount(spaceId) + 5
         railReveal = next
     }
-    // The Space's direct joined child rooms in its shared default order.
-    // Unjoined children are join offers and live on Space Home. Direct, not
-    // transitive (childRoomsDetailed returns the whole subtree, which listed
-    // every descendant's rooms under every ancestor). directChildRoomsDetailed
-    // carries lastActivity for the sort; the `|| 0` guards keep it from being
-    // NaN.
     function topRoomsInSpace(spaceId) {
         void spacesRevision
         if (!app.spaces || !spaceId || spaceId.charAt(0) !== "!")
             return []
         var rooms = app.spaces.directChildRoomsDetailed(spaceId)
-        // A-Z and Recent activity are derived orders: the stored arrangement
-        // is left alone (Manual restores it) and not consulted.
         var sortMode = app.settings ? app.settings.railSort : 0
         if (sortMode === 1) {
             rooms.sort(function(a, b) {
@@ -302,8 +164,6 @@ Rectangle {
             })
             return rooms
         }
-        // The user's own arrangement overrides the shared Space default;
-        // rooms without a personal position retain their shared order.
         if (!app.railLayout)
             return rooms
         var ids = []
@@ -326,9 +186,6 @@ Rectangle {
         target: app.spaces
         function onSpacesChanged() { root.spacesRevision++ }
     }
-    // Scroll a requested Space into view. The model has already expanded and
-    // rebuilt the rows; Qt.callLater because the ListView has not laid them out
-    // yet.
     Connections {
         target: app.railEntries
         function onRevealRequested(spaceId) {
@@ -342,8 +199,6 @@ Rectangle {
             })
         }
     }
-    // Expansion lives in the store, so a toggle re-evaluates the reveal
-    // bindings.
     Connections {
         target: app.railLayout
         function onLayoutChanged() { root.spacesRevision++ }
@@ -356,18 +211,10 @@ Rectangle {
         }
     }
 
-    // View-side drag state. Order, drop target and the reorder/group decision
-    // live in RailEntryModel; the view only knows the pointer and the proxy's
-    // look.
     readonly property bool dragging: app.railEntries.dragging
     property real dragViewportY: 0
-    // The pointer in content coordinates. The dragged tile centres on this so
-    // it follows the pointer; the model reorder moves its neighbours.
     property real dragContentY: 0
 
-    // Escape abandons a drag: nothing is filed, moved or selected. The
-    // handler stays active until release, but endDrag(true) then finds no drag
-    // and the pointer reading is ignored.
     function cancelTileDrag() {
         if (!root.dragging)
             return false
@@ -376,8 +223,6 @@ Rectangle {
     }
     Keys.onEscapePressed: (event) => { event.accepted = root.cancelTileDrag() }
 
-    // Whoever held the keyboard when a tile drag began (the composer, say).
-    // A drag takes focus to read Escape and must not keep it.
     property Item focusBeforeDrag: null
     // From the model's own flag, not the delegate's handler: a drop reorders
     // rows and the delegate that began the drag may be gone before its
@@ -398,9 +243,6 @@ Rectangle {
         return true
     }
 
-    // Each row derives its own band (tile size, trailing gap, divider). Read
-    // from the model rather than the delegate, whose `y` is being animated by
-    // move/displaced transitions during a drag.
     function rowBand(index) {
         var e = app.railEntries.entryAt(index)
         if (!e)
@@ -420,8 +262,6 @@ Rectangle {
         var gap = depth > 0 && e.bandNextLevel >= 0
                   && e.bandNextLevel < depth
                   ? (e.bandNextLevel < 1 ? groupBreakGap : groupGap) : 0
-        // The cap seam too, which the delegate adds to its height. Any term in
-        // one and not the other maps the pointer to the wrong row.
         var seam = groupGap
         var capOpens = owns && depth > maxBandLayers
                        && e.bandPrevLevel >= maxBandLayers
@@ -441,14 +281,8 @@ Rectangle {
             y += rowBand(i) + list.spacing
         return y
     }
-    // The tile is the group target; the gap between tiles is the reorder target
-    // (Discord's rule). Nothing moves while the pointer is on a tile, so aiming
-    // at a tile never disturbs it and no dwell is needed. A 24px group band
-    // centred on each tile leaves a 28px reorder gap between adjacent rows.
     readonly property int tileGroupInset: 12
     readonly property int tileGroupBand: 24
-    // A total, monotone reading of the pointer: { row: i } (on row i's tile) or
-    // { gap: g } (in the gap before row g; `count` is the end).
     function readingAt(contentY) {
         for (var i = 0; i < list.count; ++i) {
             var top = rowTop(i)
@@ -459,10 +293,6 @@ Rectangle {
         }
         return { gap: list.count }
     }
-    // The dragged block's own slot holds everything still.
-    /// Only a top-level entry can be dropped onto a tile (folders are
-    /// top-level). The model refuses otherwise; asking here keeps the view from
-    /// sending a gesture that would do nothing.
     function draggedCanGroup() {
         var held = app.railEntries ? app.railEntries.draggingEntryId : ""
         if (!held)
@@ -481,16 +311,10 @@ Rectangle {
         return entry.entryId === held
                || (entry.folderId !== undefined && entry.folderId === held)
     }
-    // One dispatch for the pointer and the auto-scroll, so auto-scroll steps do
-    // not disarm a grouping the user is aiming at.
     function applyPointerReading(contentY) {
         if (!root.dragging)
             return
         var reading = readingAt(contentY)
-        // A drag that cannot group (a subspace) treats a tile as a position:
-        // above its midpoint is before it, below is after. legalGap() snaps
-        // that to a boundary between the dragged row's own siblings, so it
-        // cannot reparent.
         if (reading.row !== undefined && !draggedCanGroup()) {
             var rowMid = rowTop(reading.row) + rowBand(reading.row) / 2
             app.railEntries.hoverGap(contentY < rowMid ? reading.row
@@ -498,8 +322,6 @@ Rectangle {
             return
         }
         if (reading.row !== undefined) {
-            // A target the pointer has left must also be disarmed: endDrag
-            // groups on the flag, not the pointer position.
             if (rowIsDraggedBlock(reading.row))
                 app.railEntries.clearDropTarget()
             else
@@ -517,9 +339,6 @@ Rectangle {
         applyPointerReading(dragContentY)
     }
 
-    // Where the dragged tile parks when a release would group: the target row's
-    // centre. It shrinks onto the target and stops covering the target ring. -1
-    // while reordering.
     readonly property real groupAnchorY: {
         if (!root.dragging || !app.railEntries.grouping)
             return -1
@@ -527,7 +346,6 @@ Rectangle {
         return r < 0 ? -1 : rowTop(r) + rowBand(r) / 2
     }
 
-    // Auto-scroll while dragging near either end.
     Timer {
         id: autoScroll
         interval: 16
@@ -538,7 +356,6 @@ Rectangle {
             var maxY = Math.max(0, list.contentHeight - list.height)
             var step = 0
             if (root.dragViewportY < zone) {
-                // Progressive: faster closer to the edge.
                 step = -Math.ceil((zone - root.dragViewportY) / 4)
             } else if (root.dragViewportY > list.height - zone) {
                 step = Math.ceil(
@@ -550,8 +367,6 @@ Rectangle {
             if (next === list.contentY)
                 return
             list.contentY = next
-            // The row under a still pointer changed, so go through the same
-            // dispatch as a pointer move.
             root.dragContentY = root.dragViewportY + list.contentY
             root.applyPointerReading(root.dragContentY)
         }
@@ -562,18 +377,6 @@ Rectangle {
     property bool railAddVisible:
         app.loggedIn && app.conversations && app.conversations.supported
     readonly property int railAddCellHeight: railTileSize + 2 * rowPad
-    // True once the tiles alone fill the rail. Written by pinAddIfNeeded(),
-    // never bound: it decides the footer's height, which feeds contentHeight,
-    // which it reads, and a binding there would read its own result.
-    //
-    // The decision compares two numbers that do not depend on the answer: the
-    // tiles' own height (the content minus whatever the footer currently adds)
-    // and the room for them (the list plus whatever the pinned slot currently
-    // takes). It is made a turn after the change that asked for it, never
-    // inside contentHeightChanged: written from there it re-entered the same
-    // change and logged a binding loop, and read against a content height the
-    // footer had not yet re-measured it left a band of rail heights where the
-    // button was in neither place.
     property bool railAddPinned: false
     property bool railAddPinQueued: false
     function queuePinAdd() {
@@ -588,15 +391,11 @@ Rectangle {
             return
         const footerHeight = list.footerItem ? list.footerItem.height : 0
         const tiles = list.contentHeight - footerHeight
-        // The slot's own height lags the decision that sized it; what it takes
-        // when pinned is known, so use that.
         const room = list.height + (railAddPinned ? railAddCellHeight : 0)
         railAddPinned = railAddVisible && tiles + railAddCellHeight > room
     }
     onRailAddVisibleChanged: queuePinAdd()
     Component.onCompleted: queuePinAdd()
-    // "Create a Space" tile with its tooltip anchor, the same in the list's
-    // footer and in the pinned slot.
     component RailAddSpaceCell: Item {
         property string buttonName: ""
         width: root.width
@@ -614,8 +413,6 @@ Rectangle {
             visible: root.railAddVisible
             Accessible.name: qsTr("Create a Space")
             onClicked: root.createSpaceRequested()
-            // Filled at 40% so it reads as the lightest tile rather than a
-            // gap.
             Rectangle {
                 anchors.fill: parent
                 z: -1
@@ -627,7 +424,6 @@ Rectangle {
                 border.color: AppTheme.borderStrong
             }
         }
-        // Off the rail, like the Space tile's anchor.
         Item {
             x: root.width
             y: addButton.y + addButton.height
@@ -641,7 +437,6 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        // Symmetric with the bottom inset.
         anchors.topMargin: AppTheme.spacing12
         anchors.bottomMargin: AppTheme.spacing12
         spacing: 0
@@ -651,10 +446,7 @@ Rectangle {
             objectName: "spacesRailList"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            // Air before the divider, enough that the bottom fade only covers
-            // empty rail rather than dimming the last tile.
             Layout.bottomMargin: AppTheme.scaled(16)
-            // A real model, so a preview reorder is a move, not a reset.
             model: app.railEntries
             clip: true
             spacing: AppTheme.spacing4
@@ -664,13 +456,6 @@ Rectangle {
             // the tile.
             reuseItems: false
 
-            // No scrollbar: there is no room beside the tiles, and the fade
-            // shows the column continues. Wheel, drag and keyboard still
-            // scroll.
-
-            // Bottom fade: a partly scrolled tile dissolves instead of being
-            // cut flat, and it is the only scroll indicator. A direct child of
-            // the ListView, not its contentItem, so it does not scroll away.
             Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
@@ -680,7 +465,6 @@ Rectangle {
                 visible: list.contentHeight > list.height
                 gradient: Gradient {
                     GradientStop { position: 0.0; color: "transparent" }
-                    // The ground actually drawn at the bottom (Depth).
                     GradientStop {
                         position: 1.0
                         color: AppTheme.surfaceColorAt("rail", 1)
@@ -688,8 +472,6 @@ Rectangle {
                 }
             }
 
-            // Animated moves; `displaced` covers the rows the moved one pushed
-            // past.
             move: Transition {
                 NumberAnimation {
                     properties: "y"
@@ -744,58 +526,35 @@ Rectangle {
                     folderId.length > 0 && !isFolder
 
                 width: list.width
-                // The handoff divider sits under the last navigation tab,
-                // separating the tabs from the Spaces.
                 readonly property bool carriesDivider:
                     root.peopleTabVisible ? isPeople : isHome
-                // Scaled with its tile: tile + 8 (4px above and below); the
-                // divider row adds its own 10.
                 readonly property int tileBandHeight:
                     carriesDivider
                     ? root.dividerRowBand
                     : spaceItem.rowTileSize + 2 * root.rowPad
-                /// Anything nested is one step smaller, at any depth. Every row
-                /// is the same size in Classic, where there are no regions to
-                /// explain the step.
                 readonly property int rowTileSize:
                     (spaceItem.hierarchyChild && !root.classicDepth)
                     ? root.railNestedTileSize : root.railTileSize
 
-                /// Nested regions this row draws, capped: one per ancestor, plus
-                /// its own when it owns the run below.
                 readonly property int bandLayers:
                     Math.min(root.maxBandLayers,
                              Math.max(0, spaceItem.level)
                              + (spaceItem.ownsRegion ? 1 : 0))
-                /// The ladder rung for the expander's plate: two rungs above the
-                /// region it sits on, or two below where that runs past the top
-                /// of the ladder (clamping would make the plate the band's own
-                /// colour). A row with no region counts as rung 0, so the
-                /// plate's contrast is the same collapsed or expanded.
                 readonly property int plateRung: {
                     var last = AppTheme.railNestSurfaces.length - 1
                     var up = spaceItem.innermostTint + 2
                     return up <= last ? up
                                       : Math.max(0, spaceItem.innermostTint - 2)
                 }
-                /// `bandLayers`, not `bandLayers - 1`: the layer at index i
-                /// draws depth i + 1, so the innermost layer's depth is
-                /// bandLayers.
                 readonly property int innermostTint:
                     spaceItem.bandLayers > 0
                     ? spaceItem.bandTint(spaceItem.bandLayers) : 0
-                /// Whether a run hangs off this tile: subspace rows or revealed
-                /// rooms.
                 readonly property bool ownsRegion:
                     spaceItem.bandNextLevel > spaceItem.level
                     || expansionCol.visible
-                /// This row's own region depth, uncapped.
                 readonly property int trueBandDepth:
                     Math.max(0, spaceItem.level)
                     + (spaceItem.ownsRegion ? 1 : 0)
-                /// Past the cap, the innermost layer alternates between the last
-                /// two rungs so a parent and the child drawn on it always
-                /// differ. Ancestor layers are unchanged.
                 function bandTint(depth) {
                     if (depth < spaceItem.bandLayers)
                         return depth
@@ -804,20 +563,7 @@ Rectangle {
                         return depth
                     return root.maxBandLayers + (overflow % 2)
                 }
-                /// The air after the last row of a run, keyed on the row's
-                /// innermost region at its true (uncapped) depth, so sibling
-                /// runs never touch and two same-tinted regions cannot merge. A
-                /// layer whose own run continues bridges the gap, so the reader
-                /// sees the parent's tint between siblings. Past the cap a child
-                /// region cannot be inset further, so parent and child would
-                /// share an edge. The cap seam is air in the parent's tone, with
-                /// the radius keeping it from reading as a slot: a run that ends
-                /// shows 8px of the grandparent; a child that begins shows the
-                /// parent. Eight, the same as a run ending, so every region
-                /// boundary uses one number.
                 readonly property int capSeamSize: root.groupGap
-                /// Only when the parent's band is present at this inset, so a
-                /// cap seam never stacks with a run's end gap.
                 readonly property bool capOpens:
                     spaceItem.ownsRegion
                     && spaceItem.trueBandDepth > root.maxBandLayers
@@ -827,9 +573,6 @@ Rectangle {
                     && spaceItem.bandNextLevel < spaceItem.trueBandDepth
                     && spaceItem.bandNextLevel >= root.maxBandLayers
                 readonly property int capSeamTop: capOpens ? capSeamSize : 0
-                /// Where this row's content starts: the cap seam moves the band
-                /// down, and the tile, chevron and revealed rooms must move with
-                /// it.
                 readonly property int contentTop: capSeamTop
                 readonly property int capSeamBottom:
                     capCloses ? capSeamSize : 0
@@ -840,8 +583,6 @@ Rectangle {
                     ? (spaceItem.bandNextLevel < 1 ? root.groupBreakGap
                                                    : root.groupGap)
                     : 0
-                // The seam comes out of the row, not the band, which has only
-                // 4px above the tile.
                 height: tileBandHeight
                         + (expansionCol.visible ? expansionCol.height + 2 : 0)
                         + spaceItem.trailingGap
@@ -849,15 +590,12 @@ Rectangle {
 
                 property bool isActive: app.spaces && !isFolder
                                         && app.spaces.activeSpaceId === spaceItem.spaceId
-                // Lift from the tile's own slot to sit under the pointer; zero
-                // for other rows.
                 readonly property real dragLift:
                     !spaceItem.dragged
                     ? 0
                     : (root.groupAnchorY >= 0 ? root.groupAnchorY
                                               : root.dragContentY)
                       - (spaceItem.y + spaceItem.tileBandHeight / 2)
-                // Above its neighbours while it travels.
                 z: spaceItem.dragged ? 10 : 0
                 // Gated on the `expanded` role, not revealCount(), which calls
                 // a Q_INVOKABLE and records no dependency: a leaf Space's
@@ -868,12 +606,8 @@ Rectangle {
                         ? root.revealCount(spaceItem.spaceId) : 0
                 readonly property var revealedRooms:
                     revealed > 0 ? root.topRoomsInSpace(spaceItem.spaceId) : []
-                /// The revealed rooms as the live gesture has arranged them, or
-                /// null. While dragging this is the Repeater's model, so what
-                /// the reader sees is what the release writes.
                 property var roomPreview: null
                 property int roomDragIndex: -1
-                /// Moves the dragged room to `to`, clamped to the ends.
                 function moveRoomPreview(to) {
                     if (!spaceItem.roomPreview || spaceItem.roomDragIndex < 0)
                         return
@@ -901,10 +635,6 @@ Rectangle {
                     app.railLayout.setRoomOrder(spaceItem.spaceId, ids)
                 }
 
-                // Keyboard: every tile is a Tab stop (the rail was pointer-only,
-                // so Tab skipped every Space, folder and chevron). Return, Enter
-                // and Space do what a tap does; Menu and Shift+F10 open the
-                // context menu, as a right-click does.
                 activeFocusOnTab: true
                 objectName: "railSpaceDelegate"
                 function activateTile() {
@@ -915,17 +645,11 @@ Rectangle {
                     }
                     if (spaceItem.isRealSpace)
                         app.openSpaceHome(spaceItem.spaceId)
-                    // A second tap on the Home tile that is already
-                    // selected goes to Home itself. Without it the only
-                    // way back from an open room to Home was through a
-                    // Space and out again (GUI check 2026-10-07); the first
-                    // tap still only filters, so it never closes a room.
                     else if (spaceItem.isHome && spaceItem.isActive)
                         app.openSpaceHome("")
                     else if (app.spaces)
                         app.spaces.activeSpaceId = spaceItem.spaceId
                 }
-                // (x, y) in this delegate's coordinates.
                 function openContextMenu(x, y) {
                     railMenu.entryId = spaceItem.entryId
                     railMenu.isFolder = spaceItem.isFolder
@@ -949,11 +673,6 @@ Rectangle {
                     if (root.dragging)
                         return
                     var k = event.key
-                    // A held key must not repeat the action: on a folder it
-                    // would flicker collapse/expand, on Home it would bounce
-                    // between Home and the open Space.
-                    // Classify first: an unrelated held key (Tab) must stay
-                    // unaccepted or Qt stops its focus traversal repeating.
                     if (k === Qt.Key_Return || k === Qt.Key_Enter
                             || k === Qt.Key_Space) {
                         if (!event.isAutoRepeat)
@@ -962,8 +681,6 @@ Rectangle {
                     } else if ((k === Qt.Key_Right || k === Qt.Key_Left)
                                && spaceItem.isRealSpace
                                && spaceItem.expandable) {
-                        // The chevron's keyboard equivalent, as in a tree:
-                        // Right opens, Left closes, neither toggles.
                         if (!event.isAutoRepeat
                                 && (k === Qt.Key_Right) !== spaceItem.expanded)
                             app.railLayout.toggleSpaceExpanded(
@@ -981,8 +698,6 @@ Rectangle {
                 }
 
                 Accessible.role: Accessible.Button
-                // A folder nobody named (stored empty; older configs hold the
-                // literal default) reads "Folder", not "Folder: Folder".
                 readonly property bool folderNamed:
                     isFolder && spaceItem.name.length > 0
                     && spaceItem.name !== qsTr("Folder")
@@ -994,22 +709,14 @@ Rectangle {
                                  : isPeople ? qsTr("Direct Messages")
                                  : spaceItem.spaceId === "@orphans"
                                    ? qsTr("Other rooms") : spaceItem.name
-                // Separate from the name, which is also the tooltip.
                 Accessible.description:
                     spaceItem.mentionCount > 0
                     ? qsTr("Mentions: %1").arg(spaceItem.mentionCount)
                     : spaceItem.hasUnread ? qsTr("Unread messages") : ""
 
-                // The open folder's container: one surface behind the header
-                // and members, squared off between rows so the run reads as
-                // continuous.
                 Rectangle {
                     visible: (spaceItem.isFolder && !spaceItem.collapsed)
                              || spaceItem.inFolder
-                    // On the same ladder as the hierarchy regions: rung 0,
-                    // outside depth 1, behind everything, with scaled margins.
-                    // Drawn above the regions or at a raw inset, it flattened a
-                    // Space tree filed into a folder.
                     anchors.left: parent.left
                     anchors.right: parent.right
                     objectName: "railFolderContainer"
@@ -1023,7 +730,6 @@ Rectangle {
                     z: -22
                     color: AppTheme.railNestSurfaces[0]
                     radius: root.bandRadius(0)
-                    // Square off the joins so the container is one shape.
                     Rectangle {
                         visible: spaceItem.isFolder
                         anchors.left: parent.left
@@ -1050,14 +756,10 @@ Rectangle {
                     }
                 }
 
-                // Active outline: 2px accent ring offset by tileRingOutset,
-                // which the chevron's placement is measured from.
                 Rectangle {
                     objectName: "railSpaceActiveRing"
                     anchors.fill: spaceTile
                     anchors.margins: -root.tileRingOutset
-                    // Concentric: an outset of N needs a radius larger by
-                    // exactly N.
                     radius: root.railTileRadius + root.tileRingOutset
                     color: "transparent"
                     border.color: AppTheme.railActiveRing
@@ -1065,12 +767,8 @@ Rectangle {
                     visible: spaceItem.isActive
                 }
 
-                // Handoff divider between Home and the Space tiles, four fifths
-                // of a tile wide.
                 Rectangle {
                     visible: spaceItem.carriesDivider
-                    // Centred under the tile; shares its rule with the bottom
-                    // separator.
                     width: root.railDividerWidth
                     height: 2; radius: 1
                     color: AppTheme.border
@@ -1079,22 +777,8 @@ Rectangle {
                     anchors.bottomMargin: 2
                 }
 
-                // The group field: nested rows sit on a tinted region instead
-                // of anything drawn between them (no horizontal cost). At a cap
-                // seam this supplies the parent's tone; without it the seam
-                // would show the grandparent's band behind the cap layer. Its
-                // own objectName (railGroupField) because a geometric test
-                // requires each region layer to be narrower than its container,
-                // and this one shares the inset by design. A fractional z so
-                // paint order does not depend on document order.
                 Rectangle {
                     objectName: "railCapBackdrop"
-                    // Visible on every row past the cap, not only where a seam
-                    // opens: the cap layer's rounded corners would otherwise
-                    // expose the grandparent's band. The seam asks whether
-                    // there is air; this answers what colour is behind the
-                    // child's corners (always its parent). Off in Classic,
-                    // which draws no regions.
                     visible: !root.classicDepth
                              && spaceItem.trueBandDepth > root.maxBandLayers
                     anchors.left: parent.left
@@ -1112,7 +796,6 @@ Rectangle {
                     // grandparent. A rounded run end would need a separate
                     // rectangle.
                     radius: 0
-                    // The other parity: the rung the child is not wearing.
                     color: AppTheme.railNestSurfaces[
                         Math.min(AppTheme.railNestSurfaces.length - 1,
                                  root.maxBandLayers
@@ -1121,16 +804,6 @@ Rectangle {
                 }
 
                 Repeater {
-                    // One region per ancestor, outermost first: `model` is the
-                    // row's depth, so a depth-3 row draws three rectangles and
-                    // a parent's region runs unbroken behind its descendants.
-                    // The row that owns the run below draws one more, so an
-                    // expanded Space is boxed with its contents. Not hidden
-                    // during a drag: stampGroupField runs in applyRows, which
-                    // the drag preview also passes through, so the layers shown
-                    // are what the release produces. Zero in Classic: a model
-                    // of 0 instantiates nothing, where `visible` on each
-                    // delegate would build and hide them.
                     model: root.classicDepth
                            ? 0
                            : Math.min(root.maxBandLayers,
@@ -1141,16 +814,9 @@ Rectangle {
                         objectName: "railGroupField"
                         required property int index
                         readonly property int depth: index + 1
-                        // Past the cap a row joins the innermost drawn layer,
-                        // whose bounds are then "depth >= cap".
                         readonly property int bandDepth:
                             depth === root.maxBandLayers
                             ? root.maxBandLayers : depth
-                        // Compared against the neighbours' depths per layer.
-                        // The owner's layer opens on the owner; any other layer
-                        // opens only where the row above is outside it. Must
-                        // survive the cap: `depth === level + 1` is already
-                        // clipped away for an over-cap owner.
                         readonly property bool isOwnerLayer:
                             spaceItem.ownsRegion
                             && depth === Math.min(spaceItem.trueBandDepth,
@@ -1158,8 +824,6 @@ Rectangle {
                         readonly property bool opensHere:
                             isOwnerLayer
                             || spaceItem.bandPrevLevel < bandDepth - 1
-                        // True depth on the cap layer; the capped depth would
-                        // never close.
                         readonly property bool closesHere:
                             spaceItem.bandNextLevel
                             < (depth === root.maxBandLayers
@@ -1168,14 +832,8 @@ Rectangle {
                         anchors.right: parent.right
                         anchors.leftMargin: root.bandInset(depth)
                         anchors.rightMargin: root.bandInset(depth)
-                        // The cap layer starts below the seam; the seam belongs
-                        // to the child that opens.
                         y: depth === root.maxBandLayers
                            ? spaceItem.capSeamTop : 0
-                        // Plus the list's spacing while this layer's run
-                        // continues, or a 4px strip of rail shows between rows.
-                        // Plus the trailing gap for a layer whose run carries
-                        // on, since that gap belongs to the run that ended.
                         height: spaceItem.height - spaceItem.trailingGap
                                 - (depth === root.maxBandLayers
                                    ? spaceItem.capSeamTop
@@ -1183,16 +841,12 @@ Rectangle {
                                 + (closesHere
                                    ? 0
                                    : list.spacing + spaceItem.trailingGap)
-                        // Outermost furthest back.
                         z: -20 + depth
                         radius: root.bandRadius(depth)
-                        // Index `depth`, not `depth - 1`: rung 0 is a folder's
-                        // container, outside hierarchy depth 1.
                         color: AppTheme.railNestSurfaces[
                             Math.min(AppTheme.railNestSurfaces.length - 1,
                                      spaceItem.bandTint(depth))]
                         Rectangle {
-                            // Square off the top while the run continues above.
                             visible: !bandLayer.opensHere
                             anchors.left: parent.left
                             anchors.right: parent.right
@@ -1211,19 +865,11 @@ Rectangle {
                     }
                 }
 
-                // The expander, in the gutter left of the tile, never touching
-                // the active ring. Right when closed, down when open. Reveals
-                // the Space's subspaces (as model rows) and its top rooms.
                 Item {
                     id: expandChevronArea
                     objectName: "railSpaceExpandChevron"
-                    // Only when there is something to expand (`expandable`,
-                    // from the model), and permanent rather than hover-only so
-                    // it is discoverable.
                     visible: spaceItem.isRealSpace && spaceItem.expandable
                              && !root.dragging
-                    // In the gutter, leaving the tile whole, at one x for every
-                    // depth.
                     width: root.tileColumnX
                     height: spaceItem.tileBandHeight
                     x: 0
@@ -1231,49 +877,26 @@ Rectangle {
                     Icon {
                         id: expandGlyph
                         objectName: "railSpaceExpandGlyph"
-                        // Placed by its ink: `width` is the glyph's advance
-                        // with the ink centred in it, so the box is offset by
-                        // half the side bearing. Not a loop: an Icon's width
-                        // depends only on font metrics. Tracks its tile,
-                        // clamped into the innermost region. Not rounded:
-                        // rounding the box moves the ink, and the gutter is
-                        // exactly full.
                         x: root.chevronInkLeft
                            - (width - root.chevronInkWidth) / 2
                         anchors.verticalCenter: parent.verticalCenter
-                        // Both glyphs sit high in their box by different
-                        // amounts (expand_more 1.33, chevron_right 0.67 of the
-                        // rise). Not rounded, like x.
                         anchors.verticalCenterOffset:
                             (spaceItem.expanded ? 1.33 : 0.67)
                             * root.chevronInkRise
-                        // One meaning: open or closed.
                         name: spaceItem.expanded ? "expand_more"
                                                  : "chevron_right"
                         size: root.chevronGlyphSize
-                        // One ink at every depth: the region ladder is narrow
-                        // enough that a single colour clears its contrast floor
-                        // everywhere.
                         color: chevronHover.hovered ? AppTheme.text
                                                     : AppTheme.textSecondary
                     }
-                    // The plate: always drawn, positioned from the same place
-                    // as the ink; hover brightens it.
                     Rectangle {
                         objectName: "railSpaceExpandPlate"
-                        // Not drawn in Classic: its job is to lift the chevron
-                        // off a region, and there are none.
                         visible: !root.classicDepth
                         x: root.chevronPlateLeft
                         width: root.chevronPlateWidth
                         height: root.chevronPlateHeight
-                        // Centred on the row; the glyph moves to meet it.
                         anchors.verticalCenter: parent.verticalCenter
                         radius: AppTheme.radiusSm
-                        // Two rungs up the rail's own ladder, not `hover`,
-                        // which would be brighter than the ladder's ceiling and
-                        // the room list. One rung is the step between regions;
-                        // two reads as a control.
                         color: chevronHover.hovered
                                ? AppTheme.hover
                                : AppTheme.railNestSurfaces[spaceItem.plateRung]
@@ -1297,27 +920,17 @@ Rectangle {
                     objectName: "railSpaceTile"
                     width: spaceItem.rowTileSize
                     height: spaceItem.rowTileSize
-                    // Centred on the column, so a smaller tile reads as
-                    // smaller, not misaligned.
                     x: root.tileColumnX
                        + Math.round((root.railTileSize
                                      - spaceItem.rowTileSize) / 2)
                     y: spaceItem.contentTop + root.rowPad
                        + spaceItem.dragLift
-                    // This row's own size: a nested tile at the full tile's
-                    // radius would look rounder than its parent.
                     radius: root.tileRadiusFor(spaceItem.rowTileSize)
-                    // Active: the accent ring plus a soft accent wash.
                     color: spaceItem.dropTarget ? AppTheme.accentSoft
                            : spaceItem.isActive ? AppTheme.railTileActive
                            : spaceItem.isFolder ? AppTheme.railTile
                            : spaceItem.pseudo ? AppTheme.railTile
                                               : "transparent"
-                    // No border here (see railSpaceDropRing): a Qt border
-                    // paints inside the bounds, under the children. Full
-                    // opacity while dragged. Scale carries the merge: the
-                    // dragged tile shrinks onto the target and the target grows
-                    // slightly to receive it.
                     scale: spaceItem.dragged
                            ? (root.groupAnchorY >= 0 ? 0.56 : 1.06)
                            : spaceItem.dropTarget ? 1.08 : 1.0
@@ -1325,26 +938,16 @@ Rectangle {
                     Behavior on color { ColorAnimation { duration: 120 } }
                     Behavior on scale { NumberAnimation { duration: 90 } }
 
-                    // Pseudo rows use monochrome icons; real Spaces show
-                    // palette initials until the avatar loads. "Other rooms"
-                    // (rooms in no Space) is a "#": its old cluster of dots
-                    // said nothing, and "workspaces" is the glyph menus use
-                    // for a Space itself.
                     Icon {
                         anchors.centerIn: parent
                         visible: spaceItem.pseudo
                         name: spaceItem.isHome ? "home"
                               : spaceItem.isPeople ? "person" : "tag"
-                        // Half the tile.
                         size: root.railChipIconSize
-                        // Plain text ink when selected: the accent on an accent
-                        // wash is unreadable. The wash carries the state.
                         color: spaceItem.isActive ? AppTheme.text
                                                   : AppTheme.textSecondary
                     }
 
-                    // The folder tile is a composite of its members' avatars,
-                    // which identifies the folder.
                     Loader {
                         anchors.fill: parent
                         active: spaceItem.isFolder
@@ -1372,11 +975,6 @@ Rectangle {
                         mxc: spaceItem.avatarUrl
                     }
 
-                    // Activity from RailEntryModel: a count for mentions, a dot
-                    // for anything else unread. Muted rooms light neither, a
-                    // mention excepted. Hidden on the open view, which already
-                    // shows it. Bottom-right, where Discord puts a server's
-                    // badge; the room dots below follow the same corner.
                     Rectangle {
                         objectName: "railMentionBadge"
                         visible: spaceItem.mentionCount > 0
@@ -1405,10 +1003,6 @@ Rectangle {
                             color: AppTheme.mentionBadgeInk
                         }
                     }
-                    // Same size, gap and ring as a revealed room's dot: a
-                    // 2 px rail-coloured gap parts it from the tile it
-                    // overlaps, and the ringed dot sits inside it (the
-                    // centre where the gap-ringed dot always was).
                     Rectangle {
                         objectName: "railUnreadDot"
                         visible: spaceItem.hasUnread
@@ -1432,28 +1026,18 @@ Rectangle {
                         }
                     }
 
-                    // The group ring, drawn wholly outside the tile (outset by
-                    // its own stroke): a border inside the tile would be
-                    // covered by the Avatar. A child rather than a sibling so
-                    // it rides the tile's scale transform. 3px against the
-                    // active ring's 2px so "you are here" and "a release merges
-                    // these" differ. It may exceed tileRingOutset because the
-                    // chevron is hidden during drags, the only time a tile is a
-                    // drop target.
                     Rectangle {
                         id: spaceDropRing
                         objectName: "railSpaceDropRing"
                         readonly property int stroke: AppTheme.scaled(3)
                         anchors.fill: parent
                         anchors.margins: -stroke
-                        // Concentric with this row's tile radius.
                         radius: spaceTile.radius + stroke
                         color: "transparent"
                         border.color: AppTheme.accent
                         border.width: stroke
                         visible: spaceItem.dropTarget
                     }
-                    // Keyboard focus, outside the tile like the other rings.
                     Rectangle {
                         objectName: "railSpaceFocusRing"
                         anchors.fill: parent
@@ -1466,11 +1050,6 @@ Rectangle {
                     }
                 }
 
-                // Drag to rearrange, vertical only; pseudo rows are excluded.
-                // Gesture state lives in the model. Parented to an item
-                // covering only the tile band: a handler acts within its
-                // parent, and on the whole delegate a press on a revealed room
-                // would arm the Space's drag instead.
                 Item {
                     id: tileDragArea
                     width: parent.width
@@ -1485,9 +1064,6 @@ Rectangle {
                         if (active) {
                             if (root.beginTileDrag(spaceItem.entryId,
                                                    centroid.scenePosition.y)) {
-                                // Escape is read here, so the rail must hold
-                                // the focus for the length of the gesture;
-                                // the previous holder gets it back after.
                                 var w = root.Window.window
                                 root.focusBeforeDrag =
                                     w ? w.activeFocusItem : null
@@ -1503,18 +1079,10 @@ Rectangle {
                             root.updateTileDrag(centroid.scenePosition.y)
                     }
                 }
-                // Hover over the tile band only, for the same reason as the
-                // DragHandler: on the whole delegate it would report hover over
-                // revealed rooms too, lighting the wrong ring and showing the
-                // parent's tooltip for a room.
                 HoverHandler { id: spaceHover }
                 }
 
-                // Right-click: rename or unmake folders, or file a Space
-                // without a drag. Dropping a Space onto another is the primary
-                // way to make a folder.
                 TapHandler {
-                    // Touch has no buttons, so a tap would fire this too.
                     acceptedButtons: Qt.RightButton
                     acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                     enabled: !root.dragging
@@ -1523,8 +1091,6 @@ Rectangle {
                                   eventPoint.position.y)
                 }
 
-                // Same outset as the ring; the chevron's gap is budgeted
-                // against it.
                 Rectangle {
                     anchors.fill: spaceTile
                     anchors.margins: -root.tileRingOutset
@@ -1532,18 +1098,10 @@ Rectangle {
                     color: AppTheme.hover
                     visible: spaceHover.hovered && !spaceItem.isActive
                              && !root.dragging
-                    // Below the tree, so the halo does not paint over the
-                    // elbow.
                     z: -2
                 }
 
                 TapHandler {
-                    // A tap on a real Space opens its overview (openSpaceHome
-                    // also activates the Space). Pseudo tiles only filter and
-                    // must not close the open room. No double-tap: the chevron
-                    // is the one expansion trigger. Scoped to the tile band and
-                    // excluding the chevron gutter, since TapHandlers are
-                    // non-exclusive across subtrees.
                     enabled: !root.dragging
                     function pointOnChevron(eventPoint) {
                         if (!expandChevronArea.visible)
@@ -1564,13 +1122,6 @@ Rectangle {
                     }
                 }
 
-                // Tooltip anchor. Attached rather than a declared ToolTip,
-                // which would build a Popup per row; the shared instance in
-                // Main.qml is hardened to plain text, which a remote Space name
-                // requires. Qt centres an attached tooltip on its item and
-                // places it above, which covered the tile above; so it hangs
-                // off an invisible anchor starting at the rail's right edge,
-                // below the row.
                 Item {
                     objectName: "railSpaceTipAnchor"
                     x: spaceItem.width
@@ -1582,9 +1133,6 @@ Rectangle {
                     ToolTip.delay: 500
                 }
 
-                // Inline expansion: up to `revealed` top rooms as small tiles,
-                // then a "+N" pill revealing 5 more. The reorder gesture is on
-                // an item of its own (see below).
                 Item {
                     id: roomDragArea
                     x: 0
@@ -1598,8 +1146,6 @@ Rectangle {
                         return Math.floor(Math.max(0, py) / pitch)
                     }
                     DragHandler {
-                        // A derived order (A-Z, Recent activity) cannot take a
-                        // drop; Manual is where rooms are arranged.
                         enabled: app.settings.railSort === 0
                         target: null
                         xAxis.enabled: false
@@ -1651,9 +1197,6 @@ Rectangle {
                             id: expansionRoomRow
                             required property var modelData
                             required property int index
-                            // The dot's meaning in words too, so a mention
-                            // and an unread room are not told apart by colour
-                            // alone (WCAG 1.4.1).
                             readonly property string roomName:
                                 modelData.name || modelData.roomId
                             readonly property string roomLabel:
@@ -1669,8 +1212,6 @@ Rectangle {
                             Rectangle {
                                 anchors.fill: roomTile
                                 anchors.margins: -root.tileRingOutset
-                                // Concentric: the tile's radius plus the
-                                // outset, at every size.
                                 radius: roomTile.radius + root.tileRingOutset
                                 color: AppTheme.hover
                                 visible: roomHover.hovered
@@ -1683,8 +1224,6 @@ Rectangle {
                                 radius: root.tileRadiusFor(
                                             root.railRoomTileSize)
                                 color: "transparent"
-                                // The same x as every other tile; the smaller
-                                // size says it is a room.
                                 x: root.tileColumnX
                                    + Math.round((root.railTileSize
                                                  - root.railRoomTileSize) / 2)
@@ -1706,17 +1245,12 @@ Rectangle {
                                              .avatarUrl || ""
                                 }
                                 Rectangle {
-                                    // The room list's rule: a count alone
-                                    // misses rooms that do not notify, and
-                                    // hasUnread alone misses a server count.
                                     visible: expansionRoomRow.modelData
                                                  .hasUnread === true
                                              || (expansionRoomRow.modelData
                                                      .unreadCount || 0) > 0
                                              || (expansionRoomRow.modelData
                                                      .highlightCount || 0) > 0
-                                    // A 2 px rail-coloured gap from the
-                                    // avatar, around the ringed dot.
                                     width: AppTheme.scaled(10) + 2
                                     height: width
                                     radius: height / 2
@@ -1733,8 +1267,6 @@ Rectangle {
                                                     .highlightCount || 0) > 0
                                                ? AppTheme.mentionDot
                                                : AppTheme.railUnreadDot
-                                        // The theme's colour; the ring carries
-                                        // its 3:1 against the rail.
                                         border.color: (expansionRoomRow.modelData
                                                            .highlightCount || 0) > 0
                                                       ? AppTheme.mentionDotRing
@@ -1745,9 +1277,6 @@ Rectangle {
                             }
                             HoverHandler { id: roomHover }
                             TapHandler {
-                                // Opening from the rail also activates the
-                                // Space so the room list follows; openRoom
-                                // never touches activeSpaceId.
                                 onTapped: {
                                     if (app.spaces)
                                         app.spaces.activeSpaceId =
@@ -1758,7 +1287,6 @@ Rectangle {
                                         expansionRoomRow.modelData.roomId)
                                 }
                             }
-                            // Off the rail, like the Space tile's anchor.
                             Item {
                                 x: expansionRoomRow.width
                                    - expansionRoomRow.x
@@ -1808,9 +1336,6 @@ Rectangle {
                         TapHandler {
                             onTapped: root.showMoreRooms(spaceItem.spaceId)
                         }
-                        // Off the rail: `root.width` is this row's right edge;
-                        // `morePill.y` because the pill is centred in a taller
-                        // row.
                         Item {
                             x: root.width
                             y: morePill.y + morePill.height
@@ -1827,15 +1352,8 @@ Rectangle {
                 }
             }
 
-            // Add Space, part of the list content while everything fits: it
-            // follows the last tile and scrolls with the list. Once the tiles
-            // outgrow the rail it is pinned above the bottom cluster instead
-            // (railAddPinned), because a button that only wheel-scrolling
-            // reveals, behind a fade that reads as "more tiles", was reported
-            // as missing with eleven Spaces at 1280x800. Element pins it too.
             footer: Item {
                 width: list.width
-                // The tile's own height, so contentHeight is correct.
                 height: root.railAddVisible && !root.railAddPinned
                         ? root.railAddCellHeight : 0
                 visible: height > 0
@@ -1843,7 +1361,6 @@ Rectangle {
             }
         }
 
-        // The pinned copy: the same cell, outside the scrolling list.
         Item {
             id: railAddPinnedSlot
             Layout.fillWidth: true
@@ -1854,8 +1371,6 @@ Rectangle {
             RailAddSpaceCell { buttonName: "railAddSpaceButtonPinned" }
         }
 
-        // Bottom cluster: settings and account. The same divider as the handoff
-        // row, centred on the tile column.
         Rectangle {
             Layout.alignment: Qt.AlignLeft
             Layout.leftMargin: root.railDividerX
@@ -1866,30 +1381,21 @@ Rectangle {
             visible: app.loggedIn
         }
 
-        // The column's own gap.
         Item { implicitHeight: root.railTileGap; visible: app.loggedIn }
 
         IconButton {
             id: railSettingsButton
             objectName: "railSettingsButton"
-            // On the column, which is the rail's centre.
             Layout.alignment: Qt.AlignLeft
             Layout.leftMargin: root.tileColumnX
             implicitWidth: root.railTileSize
             implicitHeight: root.railTileSize
             radius: root.railTileRadius
-            // A fill, like the Home and People chips, so it sits with the
-            // avatar below.
             restingColor: AppTheme.cardElevated
             iconName: "settings"
             iconSize: root.railChipIconSize
-            // Accent chip while in-shell Settings is open; clicking again
-            // returns to chat.
             active: app.currentScreen === 2
             visible: app.loggedIn
-            // The badge says why the cog wants attention (for screen readers
-            // too). One badge: verification outranks an update. Shows the
-            // persistent state, not the dismissible prompt.
             readonly property bool _updateBadge:
                 app.updateManager && app.updateManager.updateAvailable
             readonly property string _attentionText:
@@ -1902,8 +1408,6 @@ Rectangle {
             onClicked: app.currentScreen === 2 ? app.showMain()
                                                : app.showSettings()
 
-            // Off the rail, following the cog's layout x; hangs off its bottom
-            // so the tip sits beside the cog.
             Item {
                 x: root.width - railSettingsButton.x
                 y: railSettingsButton.height
@@ -1914,24 +1418,17 @@ Rectangle {
                 ToolTip.delay: 500
             }
 
-            // Attention badge: this session is unverified and the reminder has
-            // not been dismissed. A dot; the tooltip carries the words.
-            // Rail-coloured ring.
             Rectangle {
                 objectName: "railSettingsAlertBadge"
                 visible: app.sessionVerificationWarning || parent._updateBadge
                 anchors.right: parent.right
                 anchors.top: parent.top
-                // On the gear's shoulder, relative to the glyph rather than the
-                // button.
                 anchors.margins:
                     Math.round((root.railTileSize - root.railChipIconSize) / 2)
                     - AppTheme.scaled(3)
                 width: AppTheme.scaled(10)
                 height: AppTheme.scaled(10)
                 radius: height / 2
-                // danger/warning are ink-only roles; a badge is a fill and asks
-                // for the saturated fill by name.
                 color: app.sessionVerificationWarning ? AppTheme.dangerFill
                                                       : AppTheme.warningFill
                 border.color: AppTheme.rail
@@ -1941,15 +1438,11 @@ Rectangle {
 
         Item { implicitHeight: root.railTileGap; visible: app.loggedIn }
 
-        // Account avatar with presence; opens the account switcher.
         Item {
             id: railAccount
             objectName: "railAccountTile"
-            // On the column, like the cog.
             Layout.alignment: Qt.AlignLeft
             Layout.leftMargin: root.tileColumnX
-            // implicitWidth, not width: a layout takes the preferred size, and
-            // `width` would stick at its first value instead of scaling.
             implicitWidth: root.railTileSize
             implicitHeight: root.railTileSize
             visible: app.loggedIn
@@ -1974,8 +1467,6 @@ Rectangle {
                 return colon > 0 ? uid.slice(0, colon) : uid
             }
 
-            // Keyboard: a Tab stop that opens the switcher on Return, Enter,
-            // Space or the Menu key.
             activeFocusOnTab: true
             Keys.onPressed: (event) => {
                 var k = event.key
@@ -2003,19 +1494,13 @@ Rectangle {
             Avatar {
                 id: railAvatar
                 anchors.fill: parent
-                // Avatar's mask is a permille of `size`, so it must be the
-                // rendered edge.
                 size: root.railTileSize
                 circle: true
                 name: railAccount.activeAccount.displayName
                       || railAccount.localpart
                 mxc: railAccount.activeAccount.avatarUrl || ""
-                // Keyed by MXID like every self-avatar.
                 colorKey: app.accounts ? app.accounts.activeUserId : ""
             }
-            // The account's real presence via PresenceDot (unknown renders
-            // nothing, offline is a hollow ring). Connection state goes in the
-            // tooltip rather than a second colour.
             PresenceDot {
                 id: railSelfPresence
                 objectName: "railSelfPresenceDot"
@@ -2029,9 +1514,6 @@ Rectangle {
                 Accessible.role: Accessible.Indicator
                 Accessible.name: statusText
             }
-            // Fallback when the server has no presence to give: the connection
-            // dot, visible only then, so the user's own tile always has an
-            // indicator.
             Rectangle {
                 objectName: "railConnectionDot"
                 visible: !railSelfPresence.visible
@@ -2052,15 +1534,6 @@ Rectangle {
                                  : qsTr("Not connected to your homeserver")
             }
 
-            // Labs (concurrent accounts): new messages on another account
-            // that is running in the background. A dot, never a number: the
-            // rail cannot say which account, the switcher does. On the
-            // avatar's rim at the top-right, by the presence dot's own rule
-            // mirrored, so the two sit on opposite ends of one diagonal; the
-            // geometric case in AccountBadgesQmlTest holds both.
-            // `otherAccountsWithActivity` is a NOTIFY property, so this is an
-            // ordinary binding; with Labs off `app.accountActivity` is null and
-            // the dot never shows.
             readonly property int otherAccountsWithActivity:
                 app.accountActivity
                 ? app.accountActivity.otherAccountsWithActivity : 0
@@ -2102,8 +1575,6 @@ Rectangle {
                       || !!(app.auth && app.auth.logoutPending)
                 onSwitchRequested: (userId) => app.switchToAccount(userId)
             }
-            // Off the rail: the user id is the widest tooltip and would cover
-            // the cog.
             Item {
                 x: root.width - railAccount.x
                 y: railAccount.height
@@ -2118,16 +1589,9 @@ Rectangle {
             AccountMenu {
                 id: railAccountMenu
                 x: parent.width + AppTheme.spacing8
-                // The popover grows upward from the tile's bottom; keeping it
-                // inside the window is left to `margins`, which QQuickPopup
-                // enforces at every reposition. A binding using mapFromItem()
-                // is not reactive and was cached before first layout, pushing
-                // the popover off-screen.
                 margins: AppTheme.spacing12
                 y: parent.height - implicitHeight
             }
-            // Screenshot demo: the account-switching scenario opens the real
-            // popover. Inert in a non-demo build.
             Connections {
                 target: app.demo
                 enabled: app.screenshotDemoActive
@@ -2136,8 +1600,6 @@ Rectangle {
         }
     }
 
-    // Folders. Ordering and grouping are device-local: Matrix has no standard
-    // for either (see RailLayoutStore).
     AppMenu {
         id: railMenu
         objectName: "railContextMenu"
@@ -2147,19 +1609,11 @@ Rectangle {
         property string folderName: ""
         property bool isFolder: false
         property bool collapsed: false
-        // A subspace is Matrix's arrangement: it can be expanded and opened,
-        // not filed or ordered.
         property bool hierarchyChild: false
-        // Space-only actions are offered only on a real Space.
         readonly property bool isRealSpace:
             !isFolder && spaceId.charAt(0) === "!"
-        // Sampled when the menu opens: spaceIsMuted() has no NOTIFY.
         property bool spaceMuted: false
-        // Read once so "Mark as read" can be disabled when there is nothing to
-        // mark.
         property bool spaceUnread: false
-        // Names the Space the menu belongs to, since the row is no longer under
-        // the pointer.
         contextLabel: railMenu.isFolder
                       ? (railMenu.folderName.length > 0 ? railMenu.folderName
                                                         : qsTr("Folder"))
@@ -2181,8 +1635,6 @@ Rectangle {
             iconName: "edit_square"
             text: qsTr("Rename folder…")
             visible: railMenu.isFolder
-            // A hidden row must not take the keyboard: an enabled one absorbs Down
-            // presses and Return would trigger it unseen.
             enabled: visible
             onTriggered: {
                 folderNameDialog.folderId = railMenu.entryId
@@ -2194,24 +1646,17 @@ Rectangle {
             iconName: "delete"
             text: qsTr("Delete folder")
             visible: railMenu.isFolder
-            // A hidden row must not take the keyboard: an enabled one absorbs Down
-            // presses and Return would trigger it unseen.
             enabled: visible
-            // The Spaces inside return to the top level; nothing is removed
-            // from the account, so no confirmation.
             onTriggered: app.railLayout.deleteFolder(railMenu.entryId)
         }
 
         AppMenuSeparator { visible: railMenu.isFolder }
 
-        // Home: mark every room read. It clears the bell too, since the receipt
-        // is what ActivityModel::markRoomReadUpTo listens for.
         AppMenuItem {
             objectName: "railMarkAllRoomsRead"
             iconName: "done_all"
             text: qsTr("Mark all rooms read")
             visible: !railMenu.isFolder && railMenu.spaceId === ""
-            // Disabled when nothing is unread.
             enabled: visible && (railMenu.spaceUnread)
             onTriggered: app.roomList.markAllRoomsRead()
         }
@@ -2220,7 +1665,6 @@ Rectangle {
             iconName: "done_all"
             text: qsTr("Mark as read")
             visible: railMenu.isRealSpace
-            // Disabled when nothing is unread.
             enabled: visible && (railMenu.spaceUnread)
             onTriggered: app.markSpaceRead(railMenu.spaceId)
         }
@@ -2230,8 +1674,6 @@ Rectangle {
             text: railMenu.spaceMuted ? qsTr("Unmute space")
                                       : qsTr("Mute space")
             visible: railMenu.isRealSpace
-            // A hidden row must not take the keyboard: an enabled one absorbs Down
-            // presses and Return would trigger it unseen.
             enabled: visible
             onTriggered: app.setSpaceMuted(railMenu.spaceId,
                                            !railMenu.spaceMuted)
@@ -2240,12 +1682,7 @@ Rectangle {
             objectName: "railSpaceInvite"
             iconName: "person_add"
             text: qsTr("Invite")
-            // Not gated on canInvite: app.roomInfo usually points at the open
-            // room, not this Space. The invite dialog reports the server's
-            // answer.
             visible: railMenu.isRealSpace
-            // A hidden row must not take the keyboard: an enabled one absorbs Down
-            // presses and Return would trigger it unseen.
             enabled: visible
             onTriggered: spaceInviteDialog.openFor(railMenu.spaceId)
         }
@@ -2254,8 +1691,6 @@ Rectangle {
             iconName: "content_copy"
             text: qsTr("Copy link")
             visible: railMenu.isRealSpace
-            // A hidden row must not take the keyboard: an enabled one absorbs Down
-            // presses and Return would trigger it unseen.
             enabled: visible
             onTriggered: root.copySpaceLink(railMenu.spaceId)
         }
@@ -2266,8 +1701,6 @@ Rectangle {
             iconName: "link"
             text: qsTr("Share link…")
             visible: railMenu.isRealSpace
-            // A hidden row must not take the keyboard: an enabled one absorbs Down
-            // presses and Return would trigger it unseen.
             enabled: visible
             onTriggered: shareLinkDialog.openFor(
                              railMenu.spaceId,
@@ -2278,8 +1711,6 @@ Rectangle {
             iconName: "settings"
             text: qsTr("Space settings")
             visible: railMenu.isRealSpace
-            // A hidden row must not take the keyboard: an enabled one absorbs Down
-            // presses and Return would trigger it unseen.
             enabled: visible
             onTriggered: {
                 spaceSettingsLoader.active = true
@@ -2294,8 +1725,6 @@ Rectangle {
             iconName: "add"
             text: qsTr("New folder…")
             visible: !railMenu.hierarchyChild
-            // A hidden row must not take the keyboard: an enabled one absorbs Down
-            // presses and Return would trigger it unseen.
             enabled: visible
             onTriggered: {
                 folderNameDialog.folderId = ""
@@ -2308,15 +1737,10 @@ Rectangle {
             iconName: "logout"
             text: qsTr("Move out of folder")
             visible: !railMenu.isFolder && railMenu.inFolder.length > 0
-            // A hidden row must not take the keyboard: an enabled one absorbs Down
-            // presses and Return would trigger it unseen.
             enabled: visible
             onTriggered: app.railLayout.setSpaceFolder(railMenu.spaceId, "")
         }
-        // One entry per folder, so filing a Space never requires a drag.
         Repeater {
-            // Real Spaces only: Home and Other rooms cannot be filed, and the
-            // entry used to close the menu and do nothing.
             model: (railMenu.isFolder || railMenu.hierarchyChild
                     || !railMenu.isRealSpace)
                    ? [] : app.railLayout.folders
@@ -2327,7 +1751,6 @@ Rectangle {
                 text: qsTr("Move to “%1”").arg(modelData.name && modelData.name.length > 0
                                          ? modelData.name : qsTr("Folder"))
                 visible: modelData.id !== railMenu.inFolder
-                // Same rule as every other row: hidden means unreachable.
                 enabled: visible
                 onTriggered: {
                     // Close first: the move rebuilds this Repeater, destroying
@@ -2363,10 +1786,6 @@ Rectangle {
         }
     }
 
-    // Shared surfaces for the Space menu, one instance owned by the view; rows
-    // only emit signals.
-
-    // Hidden TextEdit clipboard proxy (as in RoomsPanel), cleared immediately.
     TextEdit {
         id: railLinkClipboard
         visible: false
@@ -2374,8 +1793,6 @@ Rectangle {
         height: 0
     }
 
-    // matrix.to public link; alias preferred, id fallback (RoomListModel's
-    // convention).
     function spaceLink(spaceId) {
         if (!app.roomList || !spaceId || spaceId.length === 0)
             return ""
@@ -2394,14 +1811,11 @@ Rectangle {
         linkCopiedTip.show(qsTr("Link copied"))
     }
 
-    // The clipboard has no visible effect, so say it happened.
     ToolTip {
         id: linkCopiedTip
         objectName: "railLinkCopiedTip"
         parent: Overlay.overlay
         x: root.width + AppTheme.spacing8
-        // A fixed anchor (the rail's top): the Share dialog also copies, and
-        // the context menu's last y is stale there.
         y: AppTheme.spacing8
         timeout: 1800
     }
@@ -2411,8 +1825,6 @@ Rectangle {
         parent: Overlay.overlay
     }
 
-    // Built on first use, as the room permissions dialog is: 3,500 QObjects
-    // for a dialog most sessions never open.
     Loader {
         id: spaceSettingsLoader
         active: false
@@ -2421,8 +1833,6 @@ Rectangle {
         }
     }
 
-    // Share: the link, selectable, with its two actions. There is no OS share
-    // sheet, so no fake one.
     AppDialog {
         id: shareLinkDialog
         objectName: "railShareLinkDialog"
@@ -2495,8 +1905,6 @@ Rectangle {
         id: folderNameDialog
         objectName: "railFolderNameDialog"
         property string folderId: ""
-        // Set when creating the folder from a Space's menu: that Space goes
-        // straight in.
         property string pendingSpaceId: ""
         title: folderId.length > 0 ? qsTr("Rename folder") : qsTr("New folder")
         standardButtons: Dialog.Ok | Dialog.Cancel
@@ -2523,8 +1931,6 @@ Rectangle {
         }
         onRejected: pendingSpaceId = ""
 
-        // A laid-out content item: a raw Item in a Dialog's contentData is
-        // positioned by nothing (see AppDialog's usage note).
         contentItem: ColumnLayout {
             spacing: AppTheme.spacing8
 
@@ -2536,7 +1942,6 @@ Rectangle {
                 lineHeightMode: Text.ProportionalHeight
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta
-                // Folders are local to this device.
                 text: qsTr("Folders are only on this device. Other clients, "
                            + "and everyone else, see your spaces unchanged.")
             }

@@ -1,22 +1,3 @@
-// Rasterize on send (src/media/SvgRaster.h, SvgRasterJob.h).
-//
-// A picked SVG is converted LOCALLY to a PNG before anything is uploaded. What
-// this pins:
-//   * the size rules: declared size with units, viewBox-only files, a floor so
-//     a tiny icon is drawn crisp at the target size (not upscaled), a ceiling
-//     so `width="100000"` cannot ask for a gigantic PNG, and the aspect ratio
-//     kept to within a pixel, extreme ratios included;
-//   * the screen over hostile files: entities, gzip, oversized input, external
-//     references, nesting, element and <use> counts, text where there is no
-//     font database;
-//   * the helper process: success, a helper's own refusal, a crash, a bad
-//     output, and above all the TIMEOUT KILL, proved by the helper's pid being
-//     gone afterwards;
-//   * the real binary's hidden `--rasterize-svg` flag, which is how the app
-//     runs all of the above.
-//
-// Not exercised: the GUI flows around it (picker, crop dialog, composer tray);
-// those are in their own suites and the live check.
 
 #include "media/SvgRasterJob.h"
 
@@ -57,8 +38,6 @@ QImage decode(const QByteArray &png)
     return QImage::fromData(png, "PNG");
 }
 
-// Pixels in row `y` whose alpha is neither fully clear nor fully opaque: the
-// width of an antialiased edge.
 int partialAlphaInRow(const QImage &image, int y)
 {
     int partial = 0;
@@ -70,13 +49,12 @@ int partialAlphaInRow(const QImage &image, int y)
     return partial;
 }
 
-// Helper-process doubles. `sh -c SCRIPT $0 $1...`: %OUT lands in $0.
 struct ShHelper {
     QString program = QStandardPaths::findExecutable(QStringLiteral("sh"));
     bool ok() const { return !program.isEmpty(); }
 };
 
-} // namespace
+}
 
 class SvgRasterTest : public QObject
 {
@@ -85,8 +63,6 @@ class SvgRasterTest : public QObject
 private Q_SLOTS:
     void init() { svg::hooks() = svg::Hooks{}; }
     void cleanup() { svg::hooks() = svg::Hooks{}; }
-
-    // ---- shape detection ----------------------------------------------------
 
     void svgIsRecognisedByShapeNotByName()
     {
@@ -100,8 +76,6 @@ private Q_SLOTS:
         QVERIFY(svg::isSvgMime(QStringLiteral("image/svg+xml")));
         QVERIFY(!svg::isSvgMime(QStringLiteral("image/png")));
     }
-
-    // ---- the declared size ----------------------------------------------------
 
     void unitsConvertAtNinetySixDpi()
     {
@@ -122,7 +96,6 @@ private Q_SLOTS:
         const QSizeF cm = size("2.54cm", "5.08cm");
         QVERIFY(qAbs(cm.width() - 96.0) < 0.001);
         QVERIFY(qAbs(cm.height() - 192.0) < 0.001);
-        // An exponent is not a unit, and `em` is not an exponent.
         QCOMPARE(size("1e2", "5e1"), QSizeF(100, 50));
     }
 
@@ -132,22 +105,17 @@ private Q_SLOTS:
                  QSizeF(300, 100));
         QCOMPARE(svg::declaredSize(doc("viewBox=\"10,20,640,480\"", {})),
                  QSizeF(640, 480));
-        // One dimension, the shape from the viewBox.
         QCOMPARE(svg::declaredSize(doc("width=\"600\" viewBox=\"0 0 300 100\"", {})),
                  QSizeF(600, 200));
         QCOMPARE(svg::declaredSize(doc("height=\"50\" viewBox=\"0 0 300 100\"", {})),
                  QSizeF(150, 50));
-        // A percentage declares nothing.
         QCOMPARE(svg::declaredSize(
                      doc("width=\"100%\" height=\"100%\" viewBox=\"0 0 30 20\"", {})),
                  QSizeF(30, 20));
-        // Nothing at all, or nonsense.
         QVERIFY(!svg::declaredSize(doc("", {})).isValid());
         QVERIFY(!svg::declaredSize(doc("width=\"abc\" height=\"-4\"", {})).isValid());
         QVERIFY(!svg::declaredSize(doc("viewBox=\"0 0 0 10\"", {})).isValid());
     }
-
-    // ---- the target size ------------------------------------------------------
 
     void aTinyIconIsDrawnAtTheFloorAndNeverBelowIt()
     {
@@ -183,7 +151,6 @@ private Q_SLOTS:
         const QSize wild = svg::targetSize(QSizeF(1e12, 1e12), { 50000, 90000 });
         QVERIFY(wild.width() <= svg::kAbsoluteMaxEdge);
         QVERIFY(wild.height() <= svg::kAbsoluteMaxEdge);
-        // Not a size.
         QVERIFY(!svg::targetSize(QSizeF(0, 10), svg::attachmentPolicy()).isValid());
         QVERIFY(!svg::targetSize(QSizeF(qQNaN(), 10), svg::attachmentPolicy()).isValid());
         QVERIFY(!svg::targetSize(QSizeF(qInf(), 10), svg::attachmentPolicy()).isValid());
@@ -218,7 +185,6 @@ private Q_SLOTS:
                 QVERIFY(out.isValid());
                 const double longest = qMax(shape.width(), shape.height());
                 const int outLongest = qMax(out.width(), out.height());
-                // The scale actually applied, from the longest side.
                 const double scale = outLongest / longest;
                 QVERIFY2(qAbs(out.width() - shape.width() * scale) <= 1.0,
                          qPrintable(QStringLiteral("%1x%2 -> %3x%4")
@@ -234,8 +200,6 @@ private Q_SLOTS:
         QCOMPARE(checked, 4 * 9);
     }
 
-    // ---- the render -------------------------------------------------------------
-
     void aViewBoxOnlyFileFillsItsCanvasWithoutStretchOrLetterbox()
     {
         if (!svg::available())
@@ -248,7 +212,6 @@ private Q_SLOTS:
         QCOMPARE(result.size, QSize(1024, 341));
         const QImage image = decode(result.png);
         QCOMPARE(image.size(), result.size);
-        // Opaque to every corner: nothing letterboxed, nothing stretched away.
         QCOMPARE(image.pixelColor(0, 0), QColor(0, 0, 255));
         QCOMPARE(image.pixelColor(1023, 340), QColor(0, 0, 255));
         QCOMPARE(image.pixelColor(512, 170), QColor(0, 0, 255));
@@ -263,7 +226,6 @@ private Q_SLOTS:
                 "<rect width=\"793\" height=\"1122\" fill=\"#ff0000\"/>"),
             svg::attachmentPolicy());
         QCOMPARE(result.refusal, QString());
-        // 793.7 x 1122.5 CSS px at 96 dpi, within a pixel.
         QVERIFY(qAbs(result.size.width() - 794) <= 1);
         QVERIFY(qAbs(result.size.height() - 1123) <= 1);
         const QImage image = decode(result.png);
@@ -271,8 +233,6 @@ private Q_SLOTS:
                                     result.size.height() / 2)) == 255);
     }
 
-    // A 24x24 icon is DRAWN at 1024, so its edge is as sharp as the vector, not
-    // the ~43 px smear of a small raster scaled up.
     void aTinyIconIsCrispNotAnUpscaledRaster()
     {
         if (!svg::available())
@@ -292,7 +252,6 @@ private Q_SLOTS:
         QCOMPARE(qAlpha(crisp.pixel(900, 512)), 0);
 
 #if defined(LIGHTNING_HAVE_QT_SVG)
-        // The reference render: the same renderer drawn straight to 1024.
         QSvgRenderer renderer;
         QVERIFY(renderer.load(icon));
         QImage reference(1024, 1024, QImage::Format_ARGB32_Premultiplied);
@@ -303,7 +262,6 @@ private Q_SLOTS:
         }
         QCOMPARE(partialAlphaInRow(reference, 512), crispEdge);
 
-        // The failure this guards: render at the icon's own size, then scale.
         QImage small(24, 24, QImage::Format_ARGB32_Premultiplied);
         small.fill(Qt::transparent);
         {
@@ -378,8 +336,6 @@ private Q_SLOTS:
         QCOMPARE(qAlpha(image.pixel(512, 512)), 255);
     }
 
-    // ---- the screen over hostile files --------------------------------------------
-
     void hostileFilesAreRefusedBeforeTheRenderer()
     {
         const QByteArray ten = "<!DOCTYPE svg [<!ENTITY a \"aaaaaaaaaa\">"
@@ -389,7 +345,6 @@ private Q_SLOTS:
                                "<!ENTITY e \"&d;&d;&d;&d;&d;&d;&d;&d;&d;&d;\">]>";
         QByteArray laughs = ten + doc("width=\"1\" height=\"1\"",
                                       "<desc>&e;&e;&e;&e;&e;&e;&e;&e;&e;&e;</desc>");
-        // A billion-laughs shape: refused in some way, never expanded, and fast.
         QElapsedTimer timer;
         timer.start();
         QVERIFY(!svg::screen(laughs).isEmpty());
@@ -398,13 +353,11 @@ private Q_SLOTS:
         QVERIFY(bomb.png.isEmpty());
         QVERIFY(!bomb.refusal.isEmpty());
 
-        // Entities that look small but reference past the budget.
         QByteArray refs = QByteArray("<!DOCTYPE svg [<!ENTITY e \"")
             + QByteArray(4000, 'a') + QByteArray("\">]>")
             + doc("", "<desc t=\"" + QByteArray("&e;").repeated(1000) + "\"/>");
         QCOMPARE(svg::screen(refs), QStringLiteral("entities"));
 
-        // An external entity.
         QCOMPARE(svg::screen(QByteArray("<?xml version=\"1.0\"?><!DOCTYPE svg ["
                                         "<!ENTITY x SYSTEM \"file:///etc/passwd\">]>")
                              + doc("", "<text>&x;</text>")),
@@ -413,8 +366,6 @@ private Q_SLOTS:
 
     void anSvgzAndAGzipBombAreRefusedWithoutBeingInflated()
     {
-        // Real gzip magic followed by a megabyte: the 1 MB is never read as
-        // anything, because the first two bytes decide.
         const QByteArray gz = QByteArray("\x1f\x8b\x08\x00", 4)
             + QByteArray(1024 * 1024, '\0');
         QCOMPARE(svg::screen(gz), QStringLiteral("compressed"));
@@ -428,7 +379,6 @@ private Q_SLOTS:
         QCOMPARE(svg::screen(QByteArray(svg::kMaxSourceBytes + 1, ' ')),
                  QStringLiteral("too_large"));
         QCOMPARE(svg::kMaxSourceBytes, qsizetype(2 * 1024 * 1024));
-        // Exactly the limit is not "too large" (it is just not an SVG).
         QVERIFY(svg::screen(QByteArray(svg::kMaxSourceBytes, ' '))
                 != QStringLiteral("too_large"));
     }
@@ -447,7 +397,6 @@ private Q_SLOTS:
                  QStringLiteral("external_reference"));
         QCOMPARE(svg::screen(doc("", "<style>@import url(x.css);</style>")),
                  QStringLiteral("external_reference"));
-        // Document-internal references are fine.
         QCOMPARE(svg::screen(doc("", "<defs><linearGradient id=\"g\"/></defs>"
                                      "<rect fill=\"url(#g)\"/><use xlink:href=\"#g\"/>")),
                  QString());
@@ -498,8 +447,6 @@ private Q_SLOTS:
                     .contains(QStringLiteral("too complex")));
     }
 
-    // ---- the job runner ----------------------------------------------------------
-
     void theCallbackIsAsynchronousAndCarriesThePng()
     {
         if (!svg::available())
@@ -520,8 +467,6 @@ private Q_SLOTS:
         QCOMPARE(got.size, QSize(1024, 512));
     }
 
-    // B071: a sizeless SVG is told so, not given the generic sentence, and
-    // only refusals about the moment may be retried.
     void aSizelessSvgHasItsOwnSentenceAndContentRefusalsAreFinal()
     {
         const QString text = svg::userMessage(QStringLiteral("no_size"));
@@ -537,8 +482,6 @@ private Q_SLOTS:
 
     void aPlainlyBadFileNeverCostsAProcess()
     {
-        // No helper configured: if one were started it would be the test
-        // binary itself with a flag it does not know, and fail differently.
         QObject context;
         QString refusal;
         bool done = false;
@@ -567,8 +510,6 @@ private Q_SLOTS:
     }
 
 #ifdef Q_OS_UNIX
-    // THE TIMEOUT KILLS THE HELPER. The pid is read from the helper's own
-    // write, and afterwards no process with it exists.
     void aHelperPastItsTimeoutIsKilled()
     {
         ShHelper sh;
@@ -604,7 +545,6 @@ private Q_SLOTS:
         QVERIFY2(file.open(QIODevice::ReadOnly), "the helper never started");
         const pid_t pid = file.readAll().trimmed().toInt();
         QVERIFY(pid > 1);
-        // Reaped by QProcess; allow the kernel a moment.
         bool gone = false;
         for (int i = 0; i < 50 && !gone; ++i) {
             gone = ::kill(pid, 0) != 0;
@@ -634,9 +574,6 @@ private Q_SLOTS:
         QCOMPARE(refusal, QStringLiteral("crashed"));
     }
 
-    // A helper whose GUI app cannot start crashes; the job asks once more with
-    // --no-text and the second answer is delivered. A helper that crashes both
-    // times is reported as crashed, after exactly two starts.
     void aCrashedHelperIsRetriedOnceWithNoText()
     {
         ShHelper sh;
@@ -672,7 +609,6 @@ private Q_SLOTS:
             return f.open(QIODevice::ReadOnly) ? f.readAll().count('\n') : 0;
         };
 
-        // $0=%OUT $1=png $2=runs, then the optional --no-text as $3.
         const svg::Result healed = run(QStringLiteral(
             "echo x >> \"$2\"; if [ \"$3\" = --no-text ]; then cp \"$1\" \"$0\"; "
             "else kill -SEGV $$; fi"));
@@ -708,8 +644,6 @@ private Q_SLOTS:
         QCOMPARE(refusal, QStringLiteral("too_deep"));
     }
 
-    // The helper's output is not trusted either: a PNG over the ceiling, or
-    // not a PNG at all, is refused rather than uploaded.
     void aHelperOutputThatIsNotAnAcceptablePngIsRefused()
     {
         ShHelper sh;
@@ -776,7 +710,6 @@ private Q_SLOTS:
         QCOMPARE(refusal, QStringLiteral("helper_failed"));
     }
 
-    // At most three helpers run at once; the rest queue and all complete.
     void manyRequestsAllCompleteAndNeverRunMoreThanTheLimit()
     {
         ShHelper sh;
@@ -788,7 +721,6 @@ private Q_SLOTS:
         fine.fill(Qt::green);
         const QString okPng = dir.filePath(QStringLiteral("ok.png"));
         QVERIFY(fine.save(okPng, "PNG"));
-        // Each helper records the number of its siblings alive when it began.
         const QString log = dir.filePath(QStringLiteral("log"));
         svg::hooks().program = sh.program;
         svg::hooks().args = {
@@ -819,14 +751,10 @@ private Q_SLOTS:
         }
         QVERIFY2(peak <= svg::kMaxParallel,
                  qPrintable(QStringLiteral("peak %1").arg(peak)));
-        QVERIFY(peak >= 2); // they did overlap, so the limit was exercised
+        QVERIFY(peak >= 2);
     }
 #endif
 
-    // ---- the real binary ----------------------------------------------------------
-
-    // The hidden flag is registered in the preflight pass, exits, and speaks the
-    // protocol: PNG on success, reason code and exit 3 on refusal.
     void theRealBinaryConvertsAndRefusesThroughItsHiddenFlag()
     {
         if (!svg::available())
@@ -871,15 +799,12 @@ private Q_SLOTS:
         QCOMPARE(code, 3);
         QCOMPARE(reason, QByteArray("external_image"));
 
-        // Missing arguments are a usage error, not a launched application.
         QProcess usage;
         usage.start(binary, { QStringLiteral("--rasterize-svg"), QStringLiteral("only-one") });
         QVERIFY(usage.waitForFinished(30000));
         QCOMPARE(usage.exitCode(), 2);
     }
 
-    // The point of the process: a file that would hold QtSvg for ever is killed
-    // at the timeout and the app is none the worse.
     void aPathologicalFileIsKilledThroughTheRealHelper()
     {
         if (!svg::available())
@@ -888,7 +813,6 @@ private Q_SLOTS:
         if (!QFileInfo::exists(binary))
             QSKIP("the app binary is not built");
 
-        // Eight levels of ten <use>s: 10^8 draws from 90 elements.
         QByteArray defs = "<defs><path id=\"p\" d=\"M0 0h9v9z\"/>"
                           "<g id=\"g0\"><use xlink:href=\"#p\"/></g>";
         for (int level = 1; level <= 8; ++level) {
@@ -900,7 +824,7 @@ private Q_SLOTS:
         defs += "</defs>";
         const QByteArray bomb =
             doc("width=\"64\" height=\"64\"", defs + "<use xlink:href=\"#g8\"/>");
-        QCOMPARE(svg::screen(bomb), QString()); // it passes the screen: only the kill stops it
+        QCOMPARE(svg::screen(bomb), QString());
 
         svg::hooks().program = binary;
         svg::hooks().args = { QStringLiteral("--rasterize-svg"), QStringLiteral("%IN"),

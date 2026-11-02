@@ -1,10 +1,3 @@
-// The sign-in screen, loaded for real: the server first, then only the ways
-// that server lets people in (docs/feature-contracts.md, "Sign-in screen").
-//
-// LoginScreen runs against a small `app` object and the real AuthManager over
-// a backend that answers discovery the way RustSdkMatrixClient does (details,
-// then methods, then providers a turn later), so every state is reachable
-// without a server.
 
 #include "auth/AuthManager.h"
 #include "matrix/MockMatrixClient.h"
@@ -51,8 +44,6 @@ public:
         ssoStarts.append(homeserver + QLatin1Char('|') + idpId);
         ssoInFlight = true;
     }
-    // As RustSdkMatrixClient: a no-op unless that flow runs, else a resolved
-    // answer.
     void cancelOAuthLogin() override
     {
         if (std::exchange(oauthInFlight, false))
@@ -63,7 +54,6 @@ public:
         if (std::exchange(ssoInFlight, false))
             Q_EMIT loginFailed(QStringLiteral("Sign-in was cancelled."));
     }
-    // Recorded and never answered: a server that has not replied yet.
     void login(const QString &, const QString &user, const QString &) override
     {
         logins.append(user);
@@ -86,8 +76,6 @@ public:
     {
         Q_EMIT ssoProvidersReceived(homeserver, true, list);
     }
-    // As the backend does with a page it will not hand on: says so, then
-    // reports the page anyway.
     void launchFails()
     {
         Q_EMIT browserLaunchFailed();
@@ -111,7 +99,6 @@ class FakeSettings : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString loginHomeserverPrefill MEMBER prefill NOTIFY prefillChanged)
-    // SettingsManager::SettingsReadProblem: 0 none, 1 unreadable, 2 accounts missing.
     Q_PROPERTY(int settingsReadProblem MEMBER readProblem NOTIFY readProblemChanged)
 public:
     QString prefill = QStringLiteral("https://example.org");
@@ -121,7 +108,6 @@ Q_SIGNALS:
     void readProblemChanged();
 };
 
-// Only what LoginScreen.qml reads from `app`.
 class FakeApp : public QObject
 {
     Q_OBJECT
@@ -138,8 +124,6 @@ class FakeApp : public QObject
                    NOTIFY localSessionFailureChanged)
     Q_PROPERTY(QStringList accountRemovalLeftovers MEMBER leftovers
                    NOTIFY localSessionFailureChanged)
-    // As AppController: whether the error is the card's own text. This fixture
-    // raises its cards with their errors.
     Q_PROPERTY(bool signInErrorExplainedByCard MEMBER explainedByCard
                    NOTIFY localSessionFailureChanged)
 public:
@@ -152,8 +136,6 @@ public:
     QString empty() const { return {}; }
 
     Q_INVOKABLE bool localResetHelpsFor(const QString &) const { return false; }
-    // As AppController: leaving cancels a browser sign-in still waiting,
-    // whose backend answers at once.
     Q_INVOKABLE bool showMain()
     {
         ++mainShown;
@@ -202,7 +184,7 @@ QVariantMap provider(const QString &id, const QString &name, const QString &bran
 
 const QString kServer = QStringLiteral("https://example.org");
 
-} // namespace
+}
 
 class LoginScreenQmlTest : public QObject
 {
@@ -258,13 +240,6 @@ class LoginScreenQmlTest : public QObject
         QVERIFY2(QMetaObject::invokeMethod(item, "clicked"), qPrintable(name));
     }
 
-    // Where an item is drawn once the layouts have run. A layout places its
-    // children when the window polishes, on its next frame, so a read straight
-    // after a change can see the old places: theFieldsStayPutWhenTheWaysChange
-    // compared an unplaced userField (y 117, its form still at y 0) with a
-    // placed one (y 328) whenever that frame fell between its two reads, which
-    // the timing of a parallel ctest made likely. grabWindow() polishes and
-    // renders one.
     QPointF placed(QQuickItem *item)
     {
         QCoreApplication::processEvents();
@@ -272,8 +247,6 @@ class LoginScreenQmlTest : public QObject
         return item->mapToScene(QPointF(0, 0));
     }
 
-    // A new server typed into the field and Enter pressed (Qt emits
-    // accepted, then editingFinished).
     void typeServer(const QString &server)
     {
         QQuickItem *field = find(QStringLiteral("homeserverField"));
@@ -286,8 +259,6 @@ class LoginScreenQmlTest : public QObject
         QCoreApplication::processEvents();
     }
 
-    // Builds the screen over the current m_app: what the Loader in Main.qml
-    // does each time the login screen is shown.
     void loadScreen()
     {
         m_engine = new QQmlApplicationEngine;
@@ -298,7 +269,6 @@ class LoginScreenQmlTest : public QObject
                 });
         m_engine->rootContext()->setContextProperty(QStringLiteral("app"), m_app);
         if (m_rtl) {
-            // The screen under a mirrored layout, as the app draws it in Arabic.
             QQmlComponent component(m_engine);
             component.setData(
                 "import QtQuick\nimport MatrixClient\n"
@@ -327,10 +297,6 @@ class LoginScreenQmlTest : public QObject
 
     bool m_rtl = false;
 
-    // Throws the screen away, keeping m_app and the AuthManager, as the
-    // Loader does when the session view replaces it. loadScreen() builds it
-    // again: whatever m_app says in between is known BEFORE the new screen
-    // exists, which is how a session the server ends reaches it.
     void unloadScreen()
     {
         delete m_window;
@@ -351,7 +317,6 @@ private slots:
         loadScreen();
         if (QTest::currentTestFailed())
             return;
-        // The prefill is asked about as the screen opens.
         QCOMPARE(m_client->discoveries, QStringList{ kServer });
     }
 
@@ -366,8 +331,6 @@ private slots:
         delete m_client;
     }
 
-    // A server with its own sign-in page (MAS, matrix.org): that page is the
-    // main way in, as Element shows it, with sign-up and the account page.
     void aServerWithItsOwnPageShowsOnlyThatWayIn()
     {
         QVERIFY(shown(QStringLiteral("homeserverField")));
@@ -398,15 +361,11 @@ private slots:
         click(QStringLiteral("createAccountButton"));
         QCOMPARE(m_client->signUps, QStringList{ kServer });
         QVERIFY(m_client->oauthStarts.isEmpty());
-        // Waiting: only the way out is left.
         QVERIFY(shown(QStringLiteral("browserLoginCancelButton")));
         QVERIFY(!shown(QStringLiteral("browserLoginButton")));
         QVERIFY(!shown(QStringLiteral("accountLinks")));
     }
 
-    // Password plus several providers: the form first, then "Or continue
-    // with" and a grid of named buttons, each with the provider's logo or a
-    // neutral glyph. Never a letter.
     void aPasswordServerWithProvidersShowsBothWithRealLogos()
     {
         m_client->answer(kServer, true, false, true, true, QStringLiteral("https://example.org/"));
@@ -414,10 +373,6 @@ private slots:
         m_client->providers(kServer, {
             provider(QStringLiteral("oidc-google"), QStringLiteral("Google"), QStringLiteral("google")),
             provider(QStringLiteral("oidc-gitlab"), QStringLiteral("GitLab"), QStringLiteral("gitlab")),
-            // A brand token that names an Object property must not reach
-            // the prototype: it gets the neutral glyph. "__proto__" is the
-            // one a plain lookup would turn into a non-empty path (an object
-            // coerces to a string; "constructor", a function, does not).
             provider(QStringLiteral("oidc-kc"), QStringLiteral("Keycloak"),
                      QStringLiteral("constructor")),
             provider(QStringLiteral("oidc-proto"), QStringLiteral("Example"),
@@ -454,11 +409,8 @@ private slots:
 
         click(QStringLiteral("ssoProviderButton1"));
         QCOMPARE(m_client->ssoStarts, QStringList{ kServer + QStringLiteral("|oidc-gitlab") });
-        // The browser is in charge: the password form steps aside.
         QVERIFY(!shown(QStringLiteral("passwordForm")));
         QVERIFY(shown(QStringLiteral("browserLoginCancelButton")));
-        // A browser that would not start ends the attempt (nothing could
-        // finish it): the password form is back, with the reason under it.
         m_client->launchFails();
         QTRY_VERIFY(!m_auth->browserLoginInProgress());
         QVERIFY(!shown(QStringLiteral("browserLoginCancelButton")));
@@ -468,8 +420,6 @@ private slots:
         QVERIFY(text(QStringLiteral("loginErrorLabel")).contains(QStringLiteral("browser")));
     }
 
-    // C48-F01: the browser would not open and the password form took its
-    // place: its first field has focus, so typing lands somewhere.
     void aBrowserThatWillNotOpenLeavesTheUsernameFocused()
     {
         m_client->answer(kServer, true, true, false, true, QStringLiteral("https://example.org/"));
@@ -484,8 +434,6 @@ private slots:
         QTRY_VERIFY(user->hasActiveFocus());
     }
 
-    // C48-F02: a password typed for one server never survives an edit of the
-    // server address.
     void editingTheServerWipesATypedPassword()
     {
         m_client->answer(kServer, true, false, false);
@@ -503,9 +451,6 @@ private slots:
         QCOMPARE(pass->property("text").toString(), QString());
     }
 
-    // C48-F06: Enter on the address that was there leaves a password-chosen
-    // sign-in on its form, as Escape does; it used to ask again and bring the
-    // browser page back.
     void enterOnAnUnchangedServerKeepsThePasswordForm()
     {
         m_client->answer(kServer, true, true, false, true,
@@ -523,8 +468,6 @@ private slots:
         QCOMPARE(m_auth->discoveryState(), QStringLiteral("done"));
     }
 
-    // C48-D04: while a new address is typed, the last server's tick and name
-    // are gone.
     void typingANewServerClearsTheOldAnswer()
     {
         m_client->answer(kServer, true, true, false, true,
@@ -541,10 +484,6 @@ private slots:
         QCOMPARE(text(QStringLiteral("browserLoginButton")), QStringLiteral("Continue"));
     }
 
-    // C48-D03: after a failed sign-in the password field has focus, its text
-    // is NOT selected (a timeout or a cancel also fails the sign-in, and a
-    // stray keystroke must not replace the password), and the line carries an
-    // icon.
     void aFailedSignInFocusesThePasswordWithoutSelectingItAndHasAnIcon()
     {
         m_client->answer(kServer, true, false, false, true,
@@ -563,8 +502,6 @@ private slots:
         QVERIFY(shown(QStringLiteral("loginErrorIcon")));
     }
 
-    // C48-D02: mirrored, the reveal toggle is on the left and the password
-    // text starts clear of it.
     void mirroredThePasswordTextClearsTheRevealToggle()
     {
         unloadScreen();
@@ -588,7 +525,6 @@ private slots:
                                 .arg(eye->x()).arg(eye->width())));
     }
 
-    // C48-F04: the form scrolls with the middle button as the timeline does.
     void theFormHasMiddleClickAutoscroll()
     {
         QQuickItem *scroller = find(QStringLiteral("loginMiddleClickScroller"));
@@ -597,8 +533,6 @@ private slots:
                  static_cast<QObject *>(find(QStringLiteral("loginFlick"))));
     }
 
-    // C48-F07: on a window too short for the form, Tab keeps the focused
-    // control on screen.
     void tabKeepsTheFocusedControlInView()
     {
         m_client->answer(kServer, true, false, false);
@@ -635,8 +569,6 @@ private slots:
         QVERIFY(scrolled);
     }
 
-    // Single sign-on only (matrix.debian.social): no password form, and the
-    // one provider is the main button.
     void aSingleSignOnServerHasNoPasswordForm()
     {
         m_client->answer(kServer, false, false, true, true, QStringLiteral("https://example.org/"));
@@ -681,15 +613,12 @@ private slots:
         QVERIFY(!shown(QStringLiteral("passwordForm")));
     }
 
-    // The warning follows the base URL discovery resolved, and a server on
-    // this machine never gets it.
     void thePlainHttpWarningFollowsTheResolvedUrl()
     {
         m_client->answer(kServer, true, false, false, true,
                          QStringLiteral("http://192.168.1.20:8008/"));
         QCoreApplication::processEvents();
         QVERIFY(shown(QStringLiteral("serverNotEncryptedChip")));
-        // A warning, not a gate: the form is still there.
         QVERIFY(shown(QStringLiteral("passwordForm")));
 
         typeServer(QStringLiteral("http://localhost:8008"));
@@ -701,8 +630,6 @@ private slots:
         QCOMPARE(text(QStringLiteral("serverNameLabel")), QStringLiteral("http://localhost:8008"));
     }
 
-    // "Change" turns the summary back into the field; Escape leaves it as it
-    // was, without asking the server again.
     void changeEditsTheServerAndEscapeKeepsIt()
     {
         m_client->answer(kServer, true, false, false);
@@ -721,13 +648,10 @@ private slots:
         QTRY_VERIFY(shown(QStringLiteral("serverSummary")));
         QCOMPARE(field->property("text").toString(), kServer);
         QCOMPARE(m_client->discoveries.size(), 1);
-        // Nothing moved while the row swapped.
         QCOMPARE(placed(field), fieldAt);
         QCOMPARE(placed(find(QStringLiteral("userField"))), userAt);
     }
 
-    // The fields never move when the choices below them change: the card is
-    // anchored at the top, so a server answering cannot slide it.
     void theFieldsStayPutWhenTheWaysChange()
     {
         QQuickItem *field = find(QStringLiteral("homeserverField"));
@@ -744,7 +668,6 @@ private slots:
         QVERIFY2(userAt.y() > before.y(), "the form was read before it was laid out");
         QCOMPARE(placed(find(QStringLiteral("serverSummary"))), before);
 
-        // The server changes and everything below goes; nothing above moves.
         typeServer(QStringLiteral("other.example"));
         QCOMPARE(placed(field), before);
         m_client->answer(QStringLiteral("https://other.example"), true, false, false);
@@ -753,9 +676,6 @@ private slots:
         QCOMPARE(placed(find(QStringLiteral("userField"))), userAt);
     }
 
-    // A session already on this device that blocks a new sign-in (D6: one a
-    // failed restore left behind) always has a way out on this screen: open
-    // it, or remove it from this device and sign in again.
     void aBlockingSessionOffersOpenAndRemove()
     {
         const QString dave = QStringLiteral("@dave:example.org");
@@ -765,13 +685,11 @@ private slots:
         QVERIFY(text(QStringLiteral("loginRepairBody")).contains(dave));
         QVERIFY(shown(QStringLiteral("loginRepairOpenAccount")));
         QVERIFY(shown(QStringLiteral("loginRepairRemoveAccount")));
-        // Nothing destructive is the main action.
         QVERIFY(!shown(QStringLiteral("loginRepairPrimaryAction")));
 
         click(QStringLiteral("loginRepairOpenAccount"));
         QCOMPARE(m_app->switched, QStringList{ dave });
 
-        // Remove goes through the confirmation that names the account.
         click(QStringLiteral("loginRepairRemoveAccount"));
         QObject *dialog = m_window->contentItem()->findChild<QObject *>(
             QStringLiteral("loginRepairConfirmDialog"));
@@ -792,8 +710,6 @@ private slots:
         QCOMPARE(m_app->removed, QStringList{ dave });
     }
 
-    // A removal that left files behind: the card says what is still here and
-    // tries again, with no button that no longer does anything.
     void aPartlyFailedRemovalSaysWhatIsLeftAndRetries()
     {
         const QString dave = QStringLiteral("@dave:example.org");
@@ -812,10 +728,6 @@ private slots:
         QCOMPARE(m_app->retries, 1);
     }
 
-    // A card that appears below the sign-in form is scrolled into view, its
-    // buttons included: at the default window height they ended up below
-    // the fold (LoginRepairQmlTest::accessTokenRevokedExposesNoDestructiveAction
-    // clicked there and missed).
     void aRepairCardIsScrolledIntoView()
     {
         m_root->setSize(QSizeF(900, 520));
@@ -830,9 +742,6 @@ private slots:
         QQuickItem *remove = find(QStringLiteral("loginRepairRemoveAccount"));
         QVERIFY(card && flick && remove);
         QTRY_VERIFY(card->isVisible() && card->height() > 0);
-        // The premise: without scrolling the card does not fit. Measured in
-        // content coordinates, and only once the column has placed the card:
-        // right after it appears its y is still the unpositioned 0.
         const auto cardBottom = [&] {
             return card->mapToItem(flick, QPointF(0, card->height())).y()
                 + flick->property("contentY").toReal();
@@ -849,9 +758,6 @@ private slots:
                                 .arg(centre.y()).arg(flick->height())));
     }
 
-    // The card goes away (the failure is cleared, or the account removed):
-    // the view returns within the shorter content. It used to stay scrolled
-    // past the end, and the form jumped at the next size change.
     void aRepairCardThatGoesAwayLeavesNoScrollBehind()
     {
         m_root->setSize(QSizeF(900, 520));
@@ -876,14 +782,6 @@ private slots:
                                     .arg(maxY())));
     }
 
-    // Reported 2026-10-01: an OAuth account on matrix.org was signed out
-    // remotely and the repair form asked for a PASSWORD on the last-used
-    // server (matrix.smetonis.net), under the failed account's user id. The
-    // failure is recorded before the session ends and the Loader builds this
-    // screen, so the root's prefill from the failure and the server field's
-    // own prefill from the last-used server both run at completion, in an
-    // order QML does not define. The failed account's server must win, and
-    // its own way in (here the browser) be offered, not the other server's.
     void aFailureKnownBeforeTheScreenOpensUsesTheFailedAccountsServer()
     {
         const QString failedUser = QStringLiteral("@mizerd:matrix.org");
@@ -898,15 +796,11 @@ private slots:
 
         QCOMPARE(text(QStringLiteral("homeserverField")), failedServer);
         QCOMPARE(text(QStringLiteral("userField")), failedUser);
-        // The last server asked about is the failed account's; nothing asked
-        // about the other one after it.
         QVERIFY(!m_client->discoveries.isEmpty());
         QCOMPARE(m_client->discoveries.last(), failedServer);
         QVERIFY2(!m_client->discoveries.contains(lastUsed),
                  qPrintable(m_client->discoveries.join(QLatin1Char(','))));
 
-        // matrix.org answers as MAS does (its own page, and a password API
-        // beside it): the browser is the way in, and no password is asked.
         m_client->answer(failedServer, true, true, false, true,
                          QStringLiteral("https://matrix-client.matrix.org/"));
         QCoreApplication::processEvents();
@@ -920,8 +814,6 @@ private slots:
         QVERIFY(!m_client->oauthStarts.first().contains(QStringLiteral("smetonis")));
     }
 
-    // With no failure the field still opens on the last-used server, asked
-    // about once.
     void withoutAFailureTheScreenStillOpensOnTheLastUsedServer()
     {
         const QString lastUsed = QStringLiteral("https://matrix.smetonis.example");
@@ -934,11 +826,6 @@ private slots:
         QCOMPARE(m_client->discoveries, QStringList{ lastUsed });
     }
 
-    // The password field is as wide as the username field above it, and its
-    // show/hide toggle is drawn inside it, with the typed text kept clear of
-    // it. Until 2026-10-07 the toggle sat beside the field, so the password
-    // field was ~38 px narrower than the one above it: two fields of one form
-    // that did not line up. Measured on placed geometry.
     void thePasswordFieldLinesUpWithTheUsernameAndHoldsItsToggle()
     {
         m_client->answer(kServer, true, false, false, true,
@@ -973,7 +860,6 @@ private slots:
                      .arg(toggleRect.width()).arg(toggleRect.height())
                      .arg(fieldRect.x()).arg(fieldRect.y())
                      .arg(fieldRect.width()).arg(fieldRect.height())));
-        // The text area ends before the toggle starts.
         const qreal textRight = passAt.x() + pass->width()
                                 - pass->property("rightPadding").toReal();
         QVERIFY2(textRight <= toggleRect.left() + 0.5,
@@ -982,10 +868,6 @@ private slots:
                      .arg(textRight).arg(toggleRect.left())));
     }
 
-    // Reported five times from one homeserver (B005, B007, B040, B046, B050):
-    // a server offering its own sign-in page AND a password showed only the
-    // browser button. The page stays the main way in, and the password is one
-    // click away; another server starts on its own page again.
     void aServerWithItsOwnPageKeepsThePasswordOneClickAway()
     {
         m_client->answer(kServer, true, true, false, true,
@@ -1007,7 +889,6 @@ private slots:
         QTRY_VERIFY(shown(QStringLiteral("browserLoginButton")));
         QVERIFY(!shown(QStringLiteral("passwordForm")));
 
-        // Chosen for one server only.
         click(QStringLiteral("passwordInsteadButton"));
         QTRY_VERIFY(shown(QStringLiteral("passwordForm")));
         typeServer(QStringLiteral("other.example"));
@@ -1016,7 +897,6 @@ private slots:
         QTRY_VERIFY(shown(QStringLiteral("browserLoginButton")));
         QVERIFY(!shown(QStringLiteral("passwordForm")));
 
-        // A page with no password beside it offers none.
         typeServer(QStringLiteral("third.example"));
         m_client->answer(QStringLiteral("https://third.example"), false, true, false);
         QCoreApplication::processEvents();
@@ -1024,12 +904,6 @@ private slots:
         QVERIFY(!shown(QStringLiteral("passwordInsteadButton")));
     }
 
-    // The same reports' second half (B005, B007, B050, B062, B075, B085): the
-    // browser could not be handed the page (plain http), and the screen said
-    // "Couldn't open your web browser... sign in another way" beside
-    // "Waiting for your browser... the page that opened", until the timeout,
-    // with no other way shown. Now one state: the wait is gone, the password
-    // form is there, and one error under it says to use it.
     void aRefusedSignInPageFallsBackToThePasswordForm()
     {
         m_client->answer(kServer, true, true, false, true,
@@ -1045,16 +919,12 @@ private slots:
         QVERIFY(!shown(QStringLiteral("browserLoginCancelButton")));
         QVERIFY(shown(QStringLiteral("passwordForm")));
         QVERIFY(!shown(QStringLiteral("browserLoginButton")));
-        // Not offered back: the browser cannot be handed this page.
         QVERIFY(!shown(QStringLiteral("browserInsteadButton")));
-        // Exactly one error, and it names the way forward.
         QVERIFY(shown(QStringLiteral("loginErrorLabel")));
         QVERIFY(!shown(QStringLiteral("loginErrorLabelNoForm")));
         QVERIFY2(text(QStringLiteral("loginErrorLabel")).contains(QStringLiteral("password")),
                  qPrintable(text(QStringLiteral("loginErrorLabel"))));
 
-        // A server with no password: its button is back, with the reason and
-        // no claim of a wait.
         typeServer(QStringLiteral("other.example"));
         m_client->answer(QStringLiteral("https://other.example"), false, true, false);
         QCoreApplication::processEvents();
@@ -1068,8 +938,6 @@ private slots:
         QVERIFY(!text(QStringLiteral("loginErrorLabelNoForm")).contains(QStringLiteral("another way")));
     }
 
-    // A slow server held a password sign-in with no way out until the request
-    // timed out (B041): Escape and Cancel give the form back, Change included.
     void aPasswordSignInCanBeCancelled()
     {
         m_client->answer(kServer, true, false, false, true,
@@ -1093,8 +961,6 @@ private slots:
                      .startsWith(QStringLiteral("Stopped waiting for the server.")),
                  qPrintable(text(QStringLiteral("loginErrorLabel"))));
 
-        // The abandoned request answers; the next attempt is cancelled by the
-        // button.
         Q_EMIT m_client->loginFailed(QStringLiteral("Can't reach the server."));
         click(QStringLiteral("loginSubmitButton"));
         QCOMPARE(m_client->logins.size(), 2);
@@ -1102,8 +968,6 @@ private slots:
         QVERIFY(!m_auth->isLoggingIn());
     }
 
-    // An error stayed on the form until the next submit, after the field it
-    // was about had been corrected (B045).
     void editingAFieldClearsTheError()
     {
         m_client->answer(kServer, true, false, false, true,
@@ -1129,8 +993,6 @@ private slots:
         }
     }
 
-    // Enter on the address already answered asks the server again; leaving
-    // the field does not (B048).
     void enterAsksAnAnsweredServerAgain()
     {
         m_client->answer(kServer, true, false, false);
@@ -1148,10 +1010,6 @@ private slots:
         QCOMPARE(m_client->discoveries.size(), 2);
     }
 
-    // The usual path: an address typed, the debounce asks, "Found", then
-    // Enter. That answer is newer than the edit, so Enter goes on to the way
-    // in without asking again; a second probe would make every way in
-    // disappear and come back.
     void enterAfterTheDebounceAnsweredDoesNotAskAgain()
     {
         m_client->answer(kServer, true, false, false);
@@ -1177,32 +1035,24 @@ private slots:
         QTRY_VERIFY(shown(QStringLiteral("passwordForm")));
     }
 
-    // Back during a browser sign-in cancels it (AppController::showMain), and
-    // that cancel's answer was kept through the restore that follows: a
-    // login screen opened later showed "cancelled" for nothing.
     void backDuringABrowserSignInLeavesNoError()
     {
         m_client->answer(kServer, true, true, false);
         QCoreApplication::processEvents();
         click(QStringLiteral("browserLoginButton"));
         QVERIFY(m_auth->browserLoginInProgress());
-        // Shown only with a saved account, which this fixture has none of;
-        // its handler is what is under test.
         click(QStringLiteral("backToAppButton"));
         QCOMPARE(m_app->mainShown, 1);
         QVERIFY(!m_auth->browserLoginInProgress());
         QCOMPARE(m_auth->lastError(), QString());
-        // The restore of the account the user went back to.
         Q_EMIT m_client->loginSucceeded(QStringLiteral("@alice:example.org"));
         QCOMPARE(m_auth->lastError(), QString());
     }
 
-    // Saved settings that could not be read are said, not shown as a fresh
-    // sign-in (B118's notice, read when SettingsManager offers it).
     void unreadableSettingsAreSaid()
     {
         QVERIFY(!shown(QStringLiteral("settingsReadProblemNotice")));
-        m_app->settings.readProblem = 1; // SettingsUnreadable
+        m_app->settings.readProblem = 1;
         Q_EMIT m_app->settings.readProblemChanged();
         QTRY_VERIFY(shown(QStringLiteral("settingsReadProblemNotice")));
         QVERIFY(text(QStringLiteral("settingsReadProblemText"))
@@ -1212,13 +1062,9 @@ private slots:
         QTRY_VERIFY(!shown(QStringLiteral("settingsReadProblemNotice")));
     }
 
-    // A settings file that reads fine but lists no account while account data
-    // exists is NOT damage (SettingsManager.h: a sign-in cancelled or killed
-    // before its record was written looks the same), so its notice must not
-    // claim the settings were unreadable. It used the unreadable-file text.
     void accountDataNoAccountListsIsNotCalledUnreadable()
     {
-        m_app->settings.readProblem = 2; // AccountsMissing
+        m_app->settings.readProblem = 2;
         Q_EMIT m_app->settings.readProblemChanged();
         QTRY_VERIFY(shown(QStringLiteral("settingsReadProblemNotice")));
         const QString said = text(QStringLiteral("settingsReadProblemText"));

@@ -10,7 +10,6 @@ namespace matrix::network_route {
 
 namespace {
 
-// rust/src/route.rs holds the same limits; it re-validates everything.
 constexpr int kMaxHost = 253;
 constexpr int kMaxUsername = 256;
 constexpr int kMaxPassword = 1024;
@@ -51,7 +50,6 @@ bool validHost(const QString &host)
     return true;
 }
 
-// A bare IPv6 literal as typed ("::1") is bracketed, as a URL needs it.
 QString normalizedHost(const QString &typed)
 {
     const QString host = typed.trimmed();
@@ -66,7 +64,7 @@ QByteArray stateOnly(const char *state)
         .toJson(QJsonDocument::Compact);
 }
 
-} // namespace
+}
 
 Kind kindFromName(const QString &name)
 {
@@ -132,8 +130,6 @@ Route load(const SettingsManager *settings, const QString &userId)
     const QVariantMap record = settings->networkRouteRecord(userId);
     if (record.isEmpty())
         return {};
-    // A stored kind this build does not know loads as None here, and
-    // rustJson() still answers "unavailable" for it: the record exists.
     return fromRecord(record);
 }
 
@@ -161,7 +157,6 @@ QString save(SettingsManager *settings, SecretStore *store, const QString &userI
         && (password.isEmpty() || password.size() > kMaxPassword || hasControl(password)))
         return QStringLiteral("password_required");
     if (change == PasswordChange::Keep) {
-        // Keeping needs something to keep, for this same username.
         const Route stored = load(settings, userId);
         if (stored.username != route.username)
             return QStringLiteral("password_required");
@@ -270,8 +265,6 @@ QByteArray rustJsonForSignIn(const SettingsManager *settings, const SecretStore 
         if (chosen.isEmpty()) {
             chosen = json;
         } else if (chosen != json) {
-            // Two routed accounts there disagree: which one is signing in is
-            // not known yet, so neither route is guessed and none is skipped.
             json.fill('\0');
             chosen.fill('\0');
             return stateOnly("unavailable");
@@ -290,4 +283,4 @@ QString describeJson(const QByteArray &json)
     return state.isEmpty() ? QStringLiteral("unavailable") : state;
 }
 
-} // namespace matrix::network_route
+}

@@ -17,7 +17,6 @@
 #include <malloc.h>
 #endif
 
-// Native-endian float: the frames are handed to the backend as float*.
 #if G_BYTE_ORDER == G_LITTLE_ENDIAN
 #define LIGHTNING_DENOISE_FORMAT "F32LE"
 #else
@@ -27,28 +26,14 @@
 namespace calls::noise {
 namespace {
 
-// No spaces: the same text goes into a gst_parse description.
 constexpr const char *kParseCaps = "audio/x-raw,format=" LIGHTNING_DENOISE_FORMAT
                                    ",rate=48000,channels=1,layout=interleaved";
 
-// ── Backend construction (never on the streaming thread) ──────────────────
-
 std::mutex g_factoryMutex;
-SuppressorFactory g_factory; // empty: createSuppressor()
+SuppressorFactory g_factory;
 
 std::atomic<int> g_liveElements{0};
 
-/// Hands the freed pages of a destroyed neural backend back to the system.
-///
-/// A neural backend allocates on the threads that touch it: its model is
-/// unpacked on a pool thread, and tract allocates per frame on the streaming
-/// thread. Every call builds a new pipeline with new streaming threads, and
-/// glibc gives a new thread its own malloc arena; memory freed inside a
-/// non-main arena stays mapped unless the top of that heap happens to be
-/// free. Measured live (DeepFilterNet, 2026-10-06): RSS +11..19 MB per
-/// leave/rejoin while Off stayed flat. malloc_trim(0) releases the free pages
-/// of every arena. Runs on the calling thread, which is never the streaming
-/// thread; it costs a few ms and only after a backend was destroyed.
 void releaseFreedBackendMemory()
 {
 #if defined(__GLIBC__)
@@ -69,8 +54,6 @@ std::unique_ptr<NoiseSuppressor> buildSuppressor(Mode mode)
     } catch (...) {
         made.reset();
     }
-    // The element frames for exactly kFrameSamples; anything else, or a
-    // backend that says it failed, is no backend at all.
     if (made
         && (!made->ok() || made->frameSize() != kFrameSamples
             || made->latencySamples() < 0 || made->mode() != mode)) {
@@ -79,9 +62,6 @@ std::unique_ptr<NoiseSuppressor> buildSuppressor(Mode mode)
     return made;
 }
 
-/// One requested change, built off the streaming thread and adopted by it
-/// between frames. After adoption it carries the RETIRED backend back off the
-/// streaming thread to be destroyed.
 struct Handoff {
     std::unique_ptr<NoiseSuppressor> suppressor;
     Mode requested = Mode::Off;
@@ -90,25 +70,18 @@ struct Handoff {
 };
 
 struct State {
-    // Control side (GUI or pool threads). The mutex serialises requests and
-    // publications so a slow, superseded build can never overwrite a newer
-    // request; the streaming thread never takes it.
     std::mutex controlMutex;
     std::atomic<int> requested{int(Mode::Off)};
     std::atomic<unsigned long long> generation{0};
     std::atomic<Handoff *> next{nullptr};
 
-    // Streaming thread only.
     std::unique_ptr<NoiseSuppressor> active;
     std::array<float, kFrameSamples> frameA{};
     std::array<float, kFrameSamples> frameB{};
-    /// Input being collected into the next frame.
     float *filling = frameA.data();
-    /// The last processed frame, being emitted.
     float *draining = frameB.data();
     int position = 0;
 
-    // Status, read from any thread.
     std::atomic<int> activeMode{int(Mode::Off)};
     std::atomic<bool> ok{true};
     std::atomic<int> latency{0};
@@ -170,20 +143,15 @@ GstStaticPadTemplate kSrcTemplate = GST_STATIC_PAD_TEMPLATE(
                     ", rate=(int)48000, channels=(int)1, "
                     "layout=(string)interleaved"));
 
-// ── Retiring: backends are destroyed on GStreamer's thread pool ───────────
-
 void destroyHandoff(GstElement *, gpointer data)
 {
     auto *h = static_cast<Handoff *>(data);
     const bool hadBackend = h->suppressor != nullptr;
     delete h;
-    // A pool thread: trimming here never stalls the stream.
     if (hadBackend)
         releaseFreedBackendMemory();
 }
 
-/// Hands `h` (and the backend it carries) to a pool thread to be destroyed.
-/// Never called from finalize: call_async takes a reference on the element.
 void retire(GstElement *element, Handoff *h)
 {
     if (!h)
@@ -191,11 +159,9 @@ void retire(GstElement *element, Handoff *h)
     gst_element_call_async(element, destroyHandoff, h, nullptr);
 }
 
-/// Control side, under State::controlMutex.
 void publishLocked(GstElement *element, State *s, Handoff *h)
 {
     if (h->generation != s->generation.load(std::memory_order_acquire)) {
-        // Superseded while it was being built.
         retire(element, h);
         return;
     }
@@ -210,13 +176,12 @@ struct Request {
 
 void freeRequest(gpointer data) { delete static_cast<Request *>(data); }
 
-/// Pool thread: build the backend, then publish it for the streaming thread.
 void buildTask(GstElement *element, gpointer data)
 {
     const auto *request = static_cast<const Request *>(data);
     State *s = LIGHTNING_DENOISE(element)->state;
     if (!s || request->generation != s->generation.load())
-        return; // superseded before it started
+        return;
     auto *h = new Handoff;
     h->requested = request->mode;
     h->generation = request->generation;
@@ -230,14 +195,10 @@ void requestMode(GstElement *element, Mode mode)
 {
     State *s = LIGHTNING_DENOISE(element)->state;
     std::lock_guard<std::mutex> lock(s->controlMutex);
-    // The same mode again is nothing to do, unless it FAILED: then a
-    // re-select is how the user retries it (a backend that failed to build,
-    // or one that failed mid-call and was retired).
     if (s->requested.exchange(int(mode)) == int(mode) && s->ok.load())
         return;
     const unsigned long long generation = ++s->generation;
     if (mode == Mode::Off || mode == Mode::WebRtc) {
-        // Nothing to build: pass-through. WebRTC suppression is webrtcdsp's.
         auto *h = new Handoff;
         h->requested = mode;
         h->generation = generation;
@@ -251,18 +212,12 @@ void requestMode(GstElement *element, Mode mode)
                            new Request{mode, generation}, freeRequest);
 }
 
-// ── Streaming thread ──────────────────────────────────────────────────────
-
 void clearDelayLine(State *s)
 {
     s->position = 0;
-    // What the next frame's worth of output reads until a real processed
-    // frame replaces it: silence, never stale audio from before a gap.
     std::fill(s->draining, s->draining + kFrameSamples, 0.0f);
 }
 
-/// Every backend receives finite samples in a sane range, whatever the
-/// capture produced.
 void sanitise(float *frame)
 {
     for (int i = 0; i < kFrameSamples; ++i) {
@@ -274,7 +229,6 @@ void sanitise(float *frame)
 void postStatus(GstElement *element, Mode requested, Mode active, bool ok,
                 int latency)
 {
-    // Once per mode change, never per frame.
     GstStructure *fields = gst_structure_new(
         kStatusMessageName, "requested", G_TYPE_STRING, modeKey(requested),
         "active", G_TYPE_STRING, modeKey(active), "ok", G_TYPE_BOOLEAN,
@@ -286,12 +240,8 @@ void postStatus(GstElement *element, Mode requested, Mode active, bool ok,
 void adopt(GstElement *element, State *s, Handoff *h)
 {
     const bool wasActive = s->active != nullptr;
-    // h now carries the previous backend, to be destroyed elsewhere.
     std::swap(s->active, h->suppressor);
     const bool isActive = s->active != nullptr;
-    // Backend to backend keeps the framing (both run 480-sample frames), so
-    // the swap lands exactly between two frames. Into or out of
-    // pass-through, the delay line starts or ends: reset it.
     if (wasActive != isActive)
         clearDelayLine(s);
     const Mode active = isActive ? s->active->mode() : Mode::Off;
@@ -311,13 +261,12 @@ void adopt(GstElement *element, State *s, Handoff *h)
 GstFlowReturn transformIp(GstBaseTransform *trans, GstBuffer *buffer)
 {
     State *s = LIGHTNING_DENOISE(trans)->state;
-    // A relaxed peek first: the exchange is only paid on a real change.
     if (s->next.load(std::memory_order_relaxed)) {
         if (Handoff *h = s->next.exchange(nullptr, std::memory_order_acq_rel))
             adopt(GST_ELEMENT(trans), s, h);
     }
     if (!s->active)
-        return GST_FLOW_OK; // pass-through: not one byte touched
+        return GST_FLOW_OK;
 
     GstMapInfo map;
     if (!gst_buffer_map(buffer, &map, GST_MAP_READWRITE))
@@ -332,15 +281,12 @@ GstFlowReturn transformIp(GstBaseTransform *trans, GstBuffer *buffer)
         if (s->active->resetIsRealtimeSafe())
             s->active->reset();
     }
-    // A trailing partial sample (a malformed buffer) is left as it is.
     const gsize samples = map.size / sizeof(float);
     guint8 *bytes = map.data;
     gsize done = 0;
     while (done < samples) {
         const gsize room = gsize(kFrameSamples - s->position);
         const gsize take = std::min(room, samples - done);
-        // memcpy, not float access: nothing guarantees the buffer's
-        // alignment. Input in first, then the delayed output over it.
         std::memcpy(s->filling + s->position, bytes + done * sizeof(float),
                     take * sizeof(float));
         std::memcpy(bytes + done * sizeof(float), s->draining + s->position,
@@ -371,7 +317,6 @@ GstFlowReturn transformIp(GstBaseTransform *trans, GstBuffer *buffer)
         }
     }
     gst_buffer_unmap(buffer, &map);
-    // The output now carries delayed audio, whatever this buffer held.
     GST_BUFFER_FLAG_UNSET(buffer, GST_BUFFER_FLAG_GAP);
     return GST_FLOW_OK;
 }
@@ -385,7 +330,6 @@ void resetStreamingState(State *s)
 
 gboolean stop(GstBaseTransform *trans)
 {
-    // Streaming has stopped: a restarted capture starts clean.
     resetStreamingState(LIGHTNING_DENOISE(trans)->state);
     return TRUE;
 }
@@ -464,8 +408,6 @@ void getProperty(GObject *object, guint id, GValue *value, GParamSpec *spec)
 void finalize(GObject *object)
 {
     auto *self = LIGHTNING_DENOISE(object);
-    // No streaming and no pending pool task (each holds a reference), so the
-    // backends are destroyed right here.
     const bool hadBackend = self->state
         && (self->state->active
             || (self->state->next.load() && self->state->next.load()->suppressor));
@@ -541,7 +483,7 @@ void lightning_denoise_init(LightningDenoise *self)
     gst_base_transform_set_in_place(GST_BASE_TRANSFORM(self), TRUE);
 }
 
-} // namespace
+}
 
 void registerDenoiseElement()
 {
@@ -592,4 +534,4 @@ void setSuppressorFactoryForTest(SuppressorFactory factory)
     g_factory = std::move(factory);
 }
 
-} // namespace calls::noise
+}

@@ -1,7 +1,3 @@
-// Attachment pipeline: file validation (directories, unreadable, empty,
-// oversized, MIME from content), the queue state machine (dispatch, success
-// removal, failure and retry), and lifecycle safety (room switch and sign-out
-// clear the tray; stale completions are ignored).
 
 #include "matrix/MatrixClient.h"
 #include "media/ImageFormatSupport.h"
@@ -72,8 +68,6 @@ public:
 
     bool supportsAttachmentSend() const override { return true; }
     qint64 maxUploadSize() const override { return serverLimit; }
-    // Shares `lastDurationMs` with the video path: what matters is the
-    // duration the send declared, so players do not show "0:00".
     QString lastFilePath;
     int lastFileWidth = 0;
     int lastFileHeight = 0;
@@ -95,8 +89,6 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
-    // The reply target the most recent attachment send of ANY kind carried;
-    // "" for a plain send. Proves the reply survives every send path.
     QString lastReplyTo;
     QString lastCaption;
     int threadFileSends = 0;
@@ -117,8 +109,6 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
-    // Records what the video send path declared, so a test can prove the
-    // poster and geometry reached the client.
     int videoSends = 0;
     QByteArray lastThumbnail;
     int lastThumbWidth = 0;
@@ -146,7 +136,6 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
-    // Records the still-image-with-thumbnail path (an SVG's PNG preview).
     int imageThumbSends = 0;
     int lastImageWidth = 0;
     int lastImageHeight = 0;
@@ -186,7 +175,6 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
-    // Records the voice send so a test can prove the preflight ran first.
     int voiceSends = 0;
     QString lastVoiceRoom;
     quint64 sendVoiceMessage(const QString &roomId, const QString &,
@@ -216,7 +204,6 @@ QString writeFile(const QTemporaryDir &dir, const QString &name,
     return path;
 }
 
-// Minimal valid 1x1 PNG.
 QByteArray tinyPng()
 {
     QByteArray png = QByteArray::fromHex(
@@ -226,8 +213,6 @@ QByteArray tinyPng()
     return png;
 }
 
-// A PNG that actually decodes (tinyPng() only has to sniff as one), for the
-// image-edit cases that render it.
 QByteArray decodablePng()
 {
     QImage image(4, 3, QImage::Format_ARGB32);
@@ -239,9 +224,6 @@ QByteArray decodablePng()
     return bytes;
 }
 
-// The first bytes of a Matroska file: the EBML header with DocType
-// "matroska". The shared MIME database proves only the CONTAINER from these
-// (application/x-matroska); whether it holds a picture is in the tracks.
 QByteArray tinyMatroskaHeader()
 {
     return QByteArray::fromHex(
@@ -249,15 +231,12 @@ QByteArray tinyMatroskaHeader()
         + QByteArray(64, '\0');
 }
 
-// An ASF header object GUID (WMV, WMA): proven as application/vnd.ms-asf.
 QByteArray tinyAsfHeader()
 {
     return QByteArray::fromHex("3026b2758e66cf11a6d900aa0062ce6c")
         + QByteArray(64, '\0');
 }
 
-// An ISO base-media header whose brand (avc1) the shared MIME database does
-// not know, so the content proves nothing and the extension decides.
 QByteArray unknownBrandMp4Header()
 {
     return QByteArray::fromHex(
@@ -265,16 +244,12 @@ QByteArray unknownBrandMp4Header()
         + QByteArray(64, '\0');
 }
 
-// Minimal ISO base-media (MP4) header: an `ftyp` box with the `isom` brand.
-// Enough for MIME detection, not a decodable clip; the poster hook stands in
-// for the decoder.
 QByteArray tinyMp4Header()
 {
     return QByteArray::fromHex(
         "000000206674797069736f6d0000020069736f6d69736f32617663316d703431");
 }
 
-// Minimal valid 2x1 JPEG, standing in for an extracted poster frame.
 QByteArray tinyJpeg()
 {
     QImage image(2, 1, QImage::Format_RGB32);
@@ -286,11 +261,8 @@ QByteArray tinyJpeg()
     return bytes;
 }
 
-// The "coordinates" a GPS-tagged test photo carries.
 const QByteArray kGpsMarker(24, '\xAB');
 
-// A real JPEG with an Exif block (orientation 1 and a GPS IFD) right after SOI,
-// the way a phone writes it.
 QByteArray jpegWithGps()
 {
     QImage image(16, 16, QImage::Format_RGB32);
@@ -325,7 +297,6 @@ QByteArray readAll(const QString &path)
     return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
 }
 
-// A plain 1600x1200 SVG: a red square filling the canvas.
 QByteArray redSquareSvg()
 {
     return QByteArrayLiteral(
@@ -336,8 +307,6 @@ QByteArray redSquareSvg()
         "</svg>");
 }
 
-// An SVG that asks QtSvg to draw a file from the local disk into the
-// thumbnail, which would then be uploaded.
 QByteArray svgReadingALocalFile(const QString &path)
 {
     return QByteArrayLiteral(
@@ -348,7 +317,7 @@ QByteArray svgReadingALocalFile(const QString &path)
         + QByteArrayLiteral("\"/></svg>");
 }
 
-} // namespace
+}
 
 class AttachmentQueueTest : public QObject
 {
@@ -387,7 +356,6 @@ private Q_SLOTS:
         const QString previewPath = preview.value(QStringLiteral("url"))
                                         .toUrl().toLocalFile();
         const QByteArray previewBytes = readAll(previewPath);
-        // A photo stays a JPEG: as PNG it came back ten times the size.
         QVERIFY(previewBytes.startsWith("\xFF\xD8\xFF"));
         QVERIFY(!previewBytes.contains("Exif"));
         QVERIFY(!previewBytes.contains(kGpsMarker));
@@ -400,7 +368,6 @@ private Q_SLOTS:
         composer.send();
         QCOMPARE(client.fileSends, 1);
         QCOMPARE(client.lastMime, QStringLiteral("image/jpeg"));
-        // The announced size is the size of the PNG actually sent.
         QCOMPARE(client.lastFileWidth, edited.width());
         QCOMPARE(client.lastFileHeight, edited.height());
         QCOMPARE(readAll(client.lastFilePath), previewBytes);
@@ -450,8 +417,6 @@ private Q_SLOTS:
             0, 0, 0, 1, 0.5, 1, false, {});
         QImage result(preview.value(QStringLiteral("url")).toUrl().toLocalFile());
         QCOMPARE(result.size(), QSize(4, 2));
-        // After a clockwise turn the red source right edge is the visible
-        // bottom edge. Bottom trims those rows from the displayed image.
         for (int y = 0; y < result.height(); ++y)
             for (int x = 0; x < result.width(); ++x)
                 QCOMPARE(result.pixelColor(x, y), QColor(Qt::blue));
@@ -513,8 +478,6 @@ private Q_SLOTS:
         QCOMPARE(client.fileSends, 0);
         QCOMPARE(client.lastThreadRoot, QStringLiteral("$root:example.org"));
         QCOMPARE(client.lastReplyTo, QStringLiteral("$reply:example.org"));
-        // In a thread the typed text never rides as a caption
-        // (MessageComposer::takeTextAsCaption): it is its own thread reply.
         QCOMPARE(client.lastCaption, QString());
         QCOMPARE(client.lastMime, QStringLiteral("image/png"));
     }
@@ -530,11 +493,11 @@ private Q_SLOTS:
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
 
-        composer.addAttachment(QUrl::fromLocalFile(dir.path())); // directory
+        composer.addAttachment(QUrl::fromLocalFile(dir.path()));
         QCOMPARE(rejected.count(), 1);
 
         const QString empty = writeFile(dir, QStringLiteral("empty.bin"), {});
-        composer.addAttachment(QUrl::fromLocalFile(empty)); // zero bytes
+        composer.addAttachment(QUrl::fromLocalFile(empty));
         QCOMPARE(rejected.count(), 2);
 
         composer.addAttachment(
@@ -550,7 +513,7 @@ private Q_SLOTS:
     void enforcesServerUploadLimit()
     {
         FakeClient client;
-        client.serverLimit = 8; // absurdly small, for the test
+        client.serverLimit = 8;
         MessageComposer composer;
         composer.setClient(&client);
         composer.setRoomId(QStringLiteral("!room:example.org"));
@@ -564,20 +527,16 @@ private Q_SLOTS:
         QCOMPARE(composer.attachments()->rowCount(), 0);
     }
 
-    // An unknown server limit (0: not advertised or not yet answered) must not
-    // reject anything locally; this file exceeds the old fabricated 100 MiB
-    // ceiling.
     void unknownServerLimitDoesNotRejectLocally()
     {
         FakeClient client;
-        client.serverLimit = 0;   // unknown
+        client.serverLimit = 0;
         MessageComposer composer;
         composer.setClient(&client);
         composer.setRoomId(QStringLiteral("!room:example.org"));
         QSignalSpy rejected(&composer, &MessageComposer::attachmentRejected);
 
         QTemporaryDir dir;
-        // 101 MiB: over the old fallback ceiling, under no real limit.
         QFile f(dir.filePath(QStringLiteral("huge.bin")));
         QVERIFY(f.open(QIODevice::WriteOnly));
         QVERIFY(f.resize(101ll * 1024 * 1024));
@@ -588,8 +547,6 @@ private Q_SLOTS:
         QCOMPARE(composer.attachments()->rowCount(), 1);
     }
 
-    // m.upload.size is the largest accepted payload: exactly at the limit
-    // passes, one byte more does not.
     void exactlyAtServerLimitIsAllowed()
     {
         FakeClient client;
@@ -613,8 +570,6 @@ private Q_SLOTS:
         QCOMPARE(composer.attachments()->rowCount(), 1);
     }
 
-    // Voice messages are preflighted against the server limit before any
-    // upload.
     void voiceMessageIsPreflightedAgainstServerLimit()
     {
         FakeClient client;
@@ -631,12 +586,9 @@ private Q_SLOTS:
                                   QVariantList{});
         QCOMPARE(rejected.count(), 1);
         QCOMPARE(client.voiceSends, 0);
-        // The refused recording is deleted, not orphaned.
         QVERIFY(!QFile::exists(rec));
     }
 
-    // A voice send failing after the user switched rooms must not surface in
-    // the room they are now in.
     void lateVoiceFailureDoesNotBleedIntoAnotherRoom()
     {
         FakeClient client;
@@ -652,18 +604,14 @@ private Q_SLOTS:
         QCOMPARE(client.voiceSends, 1);
         const quint64 op = client.lastOpId;
 
-        // The user moves to another room before the upload resolves.
         composer.setRoomId(QStringLiteral("!b:example.org"));
         QSignalSpy rejected(&composer, &MessageComposer::attachmentRejected);
         Q_EMIT client.attachmentQueueFinished(op, QStringLiteral("!a:example.org"),
                                               false, QString());
         QCOMPARE(rejected.count(), 0);
-        // Cleanup happens even though reporting was suppressed.
         QVERIFY(!QFile::exists(rec));
     }
 
-    // With the user still in the originating room, the failure is reported:
-    // the scoping suppresses only the wrong context.
     void voiceFailureInCurrentRoomIsStillReported()
     {
         FakeClient client;
@@ -693,7 +641,6 @@ private Q_SLOTS:
         composer.setRoomId(QStringLiteral("!room:example.org"));
 
         QTemporaryDir dir;
-        // PNG bytes labelled .txt: content wins.
         const QString disguised =
             writeFile(dir, QStringLiteral("actually-a-png.txt"), tinyPng());
         composer.addAttachment(QUrl::fromLocalFile(disguised));
@@ -706,7 +653,6 @@ private Q_SLOTS:
                     ->data(idx, AttachmentQueueModel::IsImageRole).toBool());
     }
 
-    // B011: the chip's name carries no bidi override.
     void chipNameLosesBidiControls()
     {
         FakeClient client;
@@ -752,21 +698,17 @@ private Q_SLOTS:
         const QString path =
             writeFile(dir, QStringLiteral("photo.png"), tinyPng());
         composer.addAttachment(QUrl::fromLocalFile(path));
-        QVERIFY(composer.canSend()); // attachments alone are sendable
+        QVERIFY(composer.canSend());
 
         composer.send();
         QCOMPARE(client.fileSends, 1);
-        QCOMPARE(composer.attachments()->rowCount(), 1); // dispatching
+        QCOMPARE(composer.attachments()->rowCount(), 1);
 
-        // Success: the SDK local echo owns it now; the tray entry leaves.
         Q_EMIT client.attachmentQueueFinished(
             client.lastOpId, QStringLiteral("!room:example.org"), true, {});
         QCOMPARE(composer.attachments()->rowCount(), 0);
     }
 
-    // "If I reply to a text with an image it just sends the image": the reply
-    // target never reached any attachment send, so the event went out with no
-    // m.in_reply_to. Every send path below must carry it.
     void anAttachmentSentWhileReplyingCarriesTheReplyAndSpendsIt()
     {
         FakeClient client;
@@ -785,7 +727,6 @@ private Q_SLOTS:
         composer.send();
         QCOMPARE(client.fileSends, 1);
         QCOMPARE(client.lastReplyTo, QStringLiteral("$target:example.org"));
-        // Spent exactly as after a text reply.
         QVERIFY(!composer.isReplying());
         QVERIFY(composer.replyingToEventId().isEmpty());
     }
@@ -805,8 +746,6 @@ private Q_SLOTS:
         QVERIFY(client.lastReplyTo.isEmpty());
     }
 
-    // -- Photo metadata ------------------------------------------------------
-
     void theMetadataModeDefaultsToLocationAndNeverFallsToKeep()
     {
         MessageComposer composer;
@@ -817,8 +756,6 @@ private Q_SLOTS:
         QCOMPARE(composer.imageMetadataMode(), QStringLiteral("location"));
     }
 
-    // The picked file is never modified: a stripped COPY, under the same file
-    // name, is what the client is handed.
     void aPickedPhotoIsSentWithoutItsLocationAndTheOriginalIsUntouched()
     {
         FakeClient client;
@@ -842,10 +779,8 @@ private Q_SLOTS:
         QVERIFY(!imagemeta::containsLocation(sent));
         QImage image;
         QVERIFY(image.loadFromData(sent));
-        // The user's own file still has everything.
         QCOMPARE(readAll(path), original);
 
-        // The copy is removed once the SDK has taken the send.
         const QString copy = client.lastFilePath;
         Q_EMIT client.attachmentQueueFinished(
             client.lastOpId, QStringLiteral("!room:example.org"), true,
@@ -885,7 +820,6 @@ private Q_SLOTS:
         QVERIFY(!sent.contains("Exif"));
     }
 
-    // Paste and clipboard images carry bytes, not a path: same policy.
     void aPastedPhotoIsStrippedToo()
     {
         FakeClient client;
@@ -903,8 +837,6 @@ private Q_SLOTS:
         QVERIFY(client.lastBytes.size() <= original.size());
     }
 
-    // The user asked for the location to go. If it cannot be removed from a
-    // recognised image, the image is not sent.
     void aPhotoWhoseMetadataCannotBeRemovedIsNotSent()
     {
         FakeClient client;
@@ -913,7 +845,7 @@ private Q_SLOTS:
         composer.setRoomId(QStringLiteral("!room:example.org"));
         QTemporaryDir dir;
         QByteArray broken = jpegWithGps();
-        broken.chop(20);  // no EOI: cannot be vouched for
+        broken.chop(20);
         composer.addAttachment(QUrl::fromLocalFile(
             writeFile(dir, QStringLiteral("broken.jpg"), broken)));
         composer.send();
@@ -921,7 +853,6 @@ private Q_SLOTS:
         QCOMPARE(composer.attachments()->entries().size(), 1);
         QCOMPARE(composer.attachments()->entries().first().state,
                  QStringLiteral("failed"));
-        // And "keep" is the explicit way to send it anyway.
         composer.setImageMetadataMode(QStringLiteral("keep"));
         composer.attachments()->retryAt(0);
         composer.send();
@@ -942,8 +873,6 @@ private Q_SLOTS:
         QCOMPARE(client.lastFilePath, doc);
     }
 
-    // The typed text rides as the caption (when that setting is on) and the
-    // reply survives alongside it: one event, both properties.
     void aCaptionedAttachmentKeepsItsCaptionAndItsReply()
     {
         FakeClient client;
@@ -965,8 +894,6 @@ private Q_SLOTS:
         QCOMPARE(client.lastReplyTo, QStringLiteral("$target:example.org"));
     }
 
-    // A video waits for its poster, and the composer's reply chip is gone by
-    // the time it dispatches: the target must be captured at send time.
     void aVideoThatWaitsForItsPosterStillCarriesTheReply()
     {
         FakeClient client;
@@ -987,8 +914,8 @@ private Q_SLOTS:
                             QString());
 
         composer.send();
-        QCOMPARE(client.videoSends, 0);       // held for the poster
-        QVERIFY(!composer.isReplying());      // chip already spent
+        QCOMPARE(client.videoSends, 0);
+        QVERIFY(!composer.isReplying());
 
         composer.attachments()->applyPoster(capturedTag, tinyJpeg(),
                                             QSize(320, 180), QSize(1920, 1080),
@@ -1024,7 +951,6 @@ private Q_SLOTS:
         QCOMPARE(client.voiceSends, 1);
         QCOMPARE(client.lastReplyTo, QStringLiteral("$voice:example.org"));
         QVERIFY(!composer.isReplying());
-        // A voice message is not the typed text: that stays.
         QCOMPARE(composer.text(), QStringLiteral("draft stays"));
     }
 
@@ -1051,14 +977,11 @@ private Q_SLOTS:
                      ->data(idx, AttachmentQueueModel::StateRole).toString(),
                  QStringLiteral("failed"));
 
-        // Retry re-queues and a new send dispatches it again.
         composer.attachments()->retryAt(0);
         composer.send();
         QCOMPARE(client.fileSends, 2);
     }
 
-    // An attached song is decoded for its length (there is no frame), and
-    // that length reaches the send.
     void audioSendCarriesItsDecodedDuration()
     {
         FakeClient client;
@@ -1083,15 +1006,12 @@ private Q_SLOTS:
                  "an audio attachment was never decoded, so nothing could "
                  "have learned its duration");
 
-        // What the decoder reports without a video track: no poster, no frame
-        // geometry, a real length.
         composer.attachments()->applyPoster(capturedTag, {}, {}, {}, 185000);
         composer.send();
         QCOMPARE(client.fileSends, 1);
         QCOMPARE(client.lastDurationMs, 185000);
     }
 
-    // An undecodable file still sends, without a duration.
     void audioThatCannotBeDecodedStillSends()
     {
         FakeClient client;
@@ -1113,9 +1033,6 @@ private Q_SLOTS:
         QCOMPARE(client.lastDurationMs, 0);
     }
 
-    // A video is postered from the picked file before dispatch, and the
-    // poster plus the decoder's geometry and duration are what the send
-    // declares on the Matrix event.
     void videoSendCarriesExtractedPoster()
     {
         FakeClient client;
@@ -1140,10 +1057,8 @@ private Q_SLOTS:
                             AttachmentQueueModel::MimeRole)
                      .toString(),
                  QStringLiteral("video/mp4"));
-        // Extraction started on add, not on send.
         QVERIFY(!capturedTag.isEmpty());
 
-        // Send while the poster is still decoding must not dispatch.
         composer.send();
         QCOMPARE(client.videoSends, 0);
         QCOMPARE(client.fileSends, 0);
@@ -1154,23 +1069,18 @@ private Q_SLOTS:
                                             QSize(1920, 1080), 4200);
 
         QCOMPARE(client.videoSends, 1);
-        QCOMPARE(client.fileSends, 0); // never the plain attachment path
+        QCOMPARE(client.fileSends, 0);
         QCOMPARE(client.lastMime, QStringLiteral("video/mp4"));
         QCOMPARE(client.lastThumbnail, poster);
         QCOMPARE(client.lastThumbWidth, 320);
         QCOMPARE(client.lastThumbHeight, 180);
-        // The decoded frame is the only source of the video's dimensions on
-        // the send side.
         QCOMPARE(client.lastVideoWidth, 1920);
         QCOMPARE(client.lastVideoHeight, 1080);
         QCOMPARE(client.lastDurationMs, 4200);
-        // 16:9 in, 16:9 out: the poster never distorts the frame.
         QCOMPARE(client.lastThumbWidth * client.lastVideoHeight,
                  client.lastThumbHeight * client.lastVideoWidth);
     }
 
-    // Failed poster extraction does not fail the send: the video goes without
-    // a poster.
     void videoSendsWithoutPosterWhenExtractionFails()
     {
         FakeClient client;
@@ -1191,7 +1101,6 @@ private Q_SLOTS:
         composer.send();
         QCOMPARE(client.videoSends, 0);
 
-        // The decoder gave up: no poster, geometry or duration.
         composer.attachments()->applyPoster(capturedTag, {}, {}, {}, 0);
 
         QCOMPARE(client.videoSends, 1);
@@ -1203,8 +1112,6 @@ private Q_SLOTS:
         QCOMPARE(client.lastDurationMs, 0);
     }
 
-    // A poster with no pending send dispatches nothing, and a duplicate
-    // callback does not send twice.
     void posterWithoutSendRequestDoesNotDispatch()
     {
         FakeClient client;
@@ -1223,7 +1130,6 @@ private Q_SLOTS:
             writeFile(dir, QStringLiteral("clip.mp4"), tinyMp4Header());
         composer.addAttachment(QUrl::fromLocalFile(path));
 
-        // The poster resolves before send was pressed.
         composer.attachments()->applyPoster(capturedTag, tinyJpeg(),
                                             QSize(64, 36), QSize(640, 360), 1000);
         QCOMPARE(client.videoSends, 0);
@@ -1232,13 +1138,11 @@ private Q_SLOTS:
         composer.send();
         QCOMPARE(client.videoSends, 1);
 
-        // A duplicate callback for a job that already resolved is inert.
         composer.attachments()->applyPoster(capturedTag, tinyJpeg(),
                                             QSize(64, 36), QSize(640, 360), 1000);
         QCOMPARE(client.videoSends, 1);
     }
 
-    // A poster for a removed entry (unknown tag) is ignored.
     void posterForRemovedEntryIsIgnored()
     {
         FakeClient client;
@@ -1260,7 +1164,6 @@ private Q_SLOTS:
         QCOMPARE(client.videoSends, 0);
     }
 
-    // Non-video attachments request no poster and take the plain send path.
     void nonVideoAttachmentsNeverRequestAPoster()
     {
         FakeClient client;
@@ -1283,8 +1186,6 @@ private Q_SLOTS:
 
         composer.send();
         QCOMPARE(posterRequests, 0);
-        // Rows go one at a time in tray order (B010): the second waits for
-        // the first to finish.
         QCOMPARE(client.fileSends, 1);
         Q_EMIT client.attachmentQueueFinished(
             client.lastOpId, QStringLiteral("!room:example.org"), true, {});
@@ -1305,7 +1206,6 @@ private Q_SLOTS:
         composer.addAttachment(QUrl::fromLocalFile(path));
         composer.send();
 
-        // A completion with an unknown op id must not touch the tray.
         Q_EMIT client.attachmentQueueFinished(
             9999, QStringLiteral("!room:example.org"), true, {});
         QCOMPARE(composer.attachments()->rowCount(), 1);
@@ -1340,7 +1240,6 @@ private Q_SLOTS:
         composer.setClient(&client);
         composer.setRoomId(QStringLiteral("!room:example.org"));
 
-        // The in-memory path used by clipboard paste.
         const QString reason = composer.attachments()->addImageData(
             tinyPng(), QStringLiteral("image/png"), 1, 1);
         QVERIFY(reason.isEmpty());
@@ -1352,13 +1251,9 @@ private Q_SLOTS:
         QCOMPARE(client.lastMime, QStringLiteral("image/png"));
     }
 
-    // ---- SVG: rasterized on send (media/SvgRaster.h) ----
-
     void init() { lightning::svgraster::hooks() = {}; }
     void cleanup() { lightning::svgraster::hooks() = {}; }
 
-    // The screen refuses every way an SVG can make QtSvg read something
-    // outside the document, and passes ordinary self-contained drawings.
     void svgScreenRefusesAnythingThatReachesOutsideTheDocument()
     {
         using lightning::svgraster::screen;
@@ -1372,7 +1267,6 @@ private Q_SLOTS:
         };
 
         const QList<std::pair<QByteArray, QString>> refused = {
-            // QtSvg would load these from the local disk.
             { wrap("<image href=\"/home/user/private.png\"/>"),
               QStringLiteral("external_image") },
             { wrap("<image xlink:href=\"data:image/png;base64,AAAA\"/>"),
@@ -1395,17 +1289,13 @@ private Q_SLOTS:
               QStringLiteral("external_reference") },
             { wrap("<style><![CDATA[rect { fill: url(x.png) }]]></style>"),
               QStringLiteral("external_reference") },
-            // CSS continues past a child element until </style>.
             { wrap("<style>rect {}<x/>@import 'x.css';</style>"),
               QStringLiteral("external_reference") },
-            // References that could expand past the budget are refused before
-            // any expansion (4000-character entity, 1000 references).
             { QByteArray("<!DOCTYPE svg [<!ENTITY e \"") + QByteArray(4000, 'a')
                   + QByteArray("\">]>")
                   + wrap("<desc t=\"" + QByteArray("&e;").repeated(1000)
                          + "\"/>"),
               QStringLiteral("entities") },
-            // Document-level refusals.
             { QByteArray("<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY e "
                          "SYSTEM \"file:///etc/passwd\">]>")
                   + wrap("<text>&e;</text>"),
@@ -1431,9 +1321,7 @@ private Q_SLOTS:
             redSquareSvg(),
             wrap("<defs><linearGradient id=\"g\"/></defs>"
                  "<rect fill=\"url(#g)\"/><use xlink:href=\"#g\"/>"),
-            // A hyperlink is inert to QtSvg.
             wrap("<a xlink:href=\"https://example.org/\"><rect/></a>"),
-            // Internal entities, as older Illustrator exports declare them.
             QByteArray("<!DOCTYPE svg [<!ENTITY w \"10\">]>")
                 + wrap("<rect width=\"&w;\" height=\"&w;\"/>"),
         };
@@ -1441,8 +1329,6 @@ private Q_SLOTS:
             QCOMPARE(screen(bytes), QString());
     }
 
-    // A picked SVG becomes a PNG file BEFORE it can send: the client is handed
-    // image/png and that file's real dimensions, and nothing named SVG.
     void aPickedSvgIsUploadedAsAPngNeverAsSvg()
     {
         if (!lightning::svgraster::available())
@@ -1459,7 +1345,6 @@ private Q_SLOTS:
             writeFile(dir, QStringLiteral("logo.svg"), redSquareSvg());
         composer.addAttachment(QUrl::fromLocalFile(svgPath));
         QCOMPARE(model->rowCount(), 1);
-        // Until the conversion lands there is nothing to show or send.
         QVERIFY(model->data(model->index(0, 0),
                             AttachmentQueueModel::PreviewSourceRole)
                     .toString().isEmpty());
@@ -1474,8 +1359,6 @@ private Q_SLOTS:
         QVERIFY(client.lastFilePath.endsWith(QStringLiteral("/logo.png")));
         QVERIFY(client.lastFilePath != svgPath);
 
-        // The declared geometry is the PNG's real geometry, and its bytes are
-        // that PNG: 1600x1200 is above the 1024 floor, so it keeps its size.
         QFile file(client.lastFilePath);
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QByteArray bytes = file.readAll();
@@ -1487,7 +1370,6 @@ private Q_SLOTS:
         QCOMPARE(client.lastFileHeight, 1200);
         QCOMPARE(decoded.pixelColor(800, 600), QColor(Qt::red));
 
-        // The entry says what it now is.
         QCOMPARE(model->data(model->index(0, 0), AttachmentQueueModel::FileNameRole)
                      .toString(), QStringLiteral("logo.png"));
         QCOMPARE(model->data(model->index(0, 0), AttachmentQueueModel::MimeRole)
@@ -1496,8 +1378,6 @@ private Q_SLOTS:
                      .toLongLong(), qint64(bytes.size()));
     }
 
-    // A small icon is converted at a useful size, not at its own tiny one, and
-    // the PNG's real size is what the send declares.
     void aTinySvgIsConvertedAtTheAttachmentFloor()
     {
         if (!lightning::svgraster::available())
@@ -1520,8 +1400,6 @@ private Q_SLOTS:
         QCOMPARE(QImage(client.lastFilePath).size(), QSize(1024, 512));
     }
 
-    // A refused SVG fails ITS entry with a sentence naming the reason. It is
-    // never uploaded in any form (the old behaviour sent it with no thumbnail).
     void aRefusedSvgFailsWithItsReasonAndSendsNothing()
     {
         FakeClient client;
@@ -1546,7 +1424,6 @@ private Q_SLOTS:
                 .toString();
         QVERIFY2(error.contains(QStringLiteral("links to other files")),
                  qPrintable(error));
-        // B071: the same file would be refused again, so Retry is not offered.
         QVERIFY(!model->data(model->index(0, 0),
                              AttachmentQueueModel::RetryableRole).toBool());
         QCOMPARE(client.fileSends, 0);
@@ -1554,8 +1431,6 @@ private Q_SLOTS:
         QCOMPARE(client.byteSends, 0);
     }
 
-    // An SVG whose PNG would exceed the server's limit fails with the limit
-    // message, not a send the server will refuse.
     void aConvertedSvgPastTheUploadLimitFails()
     {
         if (!lightning::svgraster::available())
@@ -1568,8 +1443,6 @@ private Q_SLOTS:
         composer.setRoomId(QStringLiteral("!room:example.org"));
         AttachmentQueueModel *model = composer.attachments();
         QTemporaryDir dir;
-        // A source under the limit (so the pre-check passes) whose 1024 px PNG
-        // is far over it.
         composer.addAttachment(QUrl::fromLocalFile(writeFile(
             dir, QStringLiteral("big.svg"),
             QByteArrayLiteral("<svg xmlns=\"http://www.w3.org/2000/svg\" "
@@ -1584,7 +1457,6 @@ private Q_SLOTS:
                     .toString().contains(QStringLiteral("upload limit")));
     }
 
-    // The same file twice is refused whether or not it has been converted.
     void theSameSvgCannotBeQueuedTwice()
     {
         if (!lightning::svgraster::available())
@@ -1600,13 +1472,11 @@ private Q_SLOTS:
             writeFile(dir, QStringLiteral("logo.svg"), redSquareSvg()));
         QVERIFY(model->addFile(url).isEmpty());
         QTRY_VERIFY_WITH_TIMEOUT(!model->entries().at(0).posterPending, 10000);
-        QVERIFY(!model->entries().at(0).isSvg); // converted
+        QVERIFY(!model->entries().at(0).isSvg);
         QVERIFY(!model->addFile(url).isEmpty());
         QCOMPARE(model->rowCount(), 1);
     }
 
-    // Removing the entry removes the PNG this model wrote, and only that: the
-    // user's own SVG is never touched.
     void removingAnEntryDeletesItsConvertedPngButNeverTheSource()
     {
         if (!lightning::svgraster::available())
@@ -1630,15 +1500,12 @@ private Q_SLOTS:
         QVERIFY(QFileInfo::exists(svgPath));
     }
 
-    // Received SVG is untouched: the shape sniff on the bytes a recipient would
-    // fetch still refuses SVG under every label.
     void receivedSvgStaysRefused()
     {
         const QByteArray svg = redSquareSvg();
         QVERIFY(lightning::imagefmt::sniffRasterMime(svg).isEmpty());
         QVERIFY(lightning::imagefmt::sniffRasterMime(
                     QByteArray("<?xml version=\"1.0\"?>") + svg).isEmpty());
-        // The converted output, by contrast, is a raster the sniff accepts.
         if (lightning::svgraster::available()) {
             const auto result = lightning::svgraster::rasterize(
                 svg, lightning::svgraster::attachmentPolicy());
@@ -1647,13 +1514,6 @@ private Q_SLOTS:
         }
     }
 
-    // --- #41: a picked video or audio file is classified by what it is ---
-
-    // The shared MIME database names Matroska and ASF generically by content
-    // (application/x-matroska, application/vnd.ms-asf), so before the fix an
-    // .mkv (OBS's default recording), .mka, .wmv or .wma was queued as a plain
-    // file and went out as m.file. The extension may NARROW a proven container
-    // to the audio or video type that inherits from it, and nothing else.
     void detectMimeNarrowsAGenericContainerByItsExtension()
     {
         QTemporaryDir dir;
@@ -1668,12 +1528,9 @@ private Q_SLOTS:
             {"album.mka", tinyMatroskaHeader(), "audio/x-matroska"},
             {"clip.wmv", tinyAsfHeader(), "video/x-ms-wmv"},
             {"song.wma", tinyAsfHeader(), "audio/x-ms-wma"},
-            // Content still wins over a name that disagrees with it.
             {"picture.mkv", tinyPng(), "image/png"},
             {"clip.mp4", tinyMp4Header(), "video/mp4"},
-            // Proved nothing: the extension decides, as before.
             {"camera.mp4", unknownBrandMp4Header(), "video/mp4"},
-            // A container with no name to narrow it stays a file.
             {"no-extension", tinyMatroskaHeader(), "application/x-matroska"},
         };
         for (const Case &c : cases) {
@@ -1683,9 +1540,6 @@ private Q_SLOTS:
             QCOMPARE(AttachmentQueueModel::detectMime(path),
                      QString::fromLatin1(c.expected));
         }
-        // Only a proven MEDIA container is narrowed. A playlist name is an
-        // audio/* type inheriting text/plain, and .yt a video/* type inheriting
-        // application/zip: neither is sound or picture.
         const QString playlist = writeFile(
             dir, QStringLiteral("list.vlc"),
             QByteArrayLiteral("song one.mp3\nsong two.mp3\n"));
@@ -1698,9 +1552,6 @@ private Q_SLOTS:
                  QStringLiteral("application/zip"));
     }
 
-    // End to end through the composer: an .mkv takes the VIDEO send path, with
-    // its poster, geometry and duration; before the fix it took the plain
-    // attachment path as application/x-matroska.
     void aPickedMatroskaVideoIsSentAsAVideo()
     {
         FakeClient client;
@@ -1732,8 +1583,6 @@ private Q_SLOTS:
         QCOMPARE(client.lastDurationMs, 9000);
     }
 
-    // The audio twin: an .mka or .wma is sent with an audio/* type (the Rust
-    // side turns that into m.audio) and its decoded duration.
     void aPickedMatroskaOrWmaAudioIsSentAsAudio()
     {
         for (const auto &[name, bytes, mime] :
@@ -1764,11 +1613,6 @@ private Q_SLOTS:
         }
     }
 
-    // --- #42: a dropped file reaches the queue ------------------------------
-
-    // "file://localhost/x" is the local path /x, but QUrl makes it the
-    // UNC-style "//localhost/x", which never exists: such a drop failed with
-    // "That file cannot be read." before the fix.
     void aLocalhostFileUrlIsTheLocalPath()
     {
         QTemporaryDir dir;
@@ -1780,7 +1624,6 @@ private Q_SLOTS:
         QCOMPARE(AttachmentQueueModel::normalizeDroppedUrl(localhost)
                      .toLocalFile(),
                  path);
-        // A sloppy uri-list wrote the '#' unescaped: QUrl reads a fragment.
         const QUrl sloppy = QUrl::fromEncoded(
             QUrl::fromLocalFile(dir.path()).toEncoded()
             + QByteArrayLiteral("/a%20b#1.bin"));
@@ -1788,7 +1631,6 @@ private Q_SLOTS:
         QCOMPARE(AttachmentQueueModel::normalizeDroppedUrl(sloppy)
                      .toLocalFile(),
                  path);
-        // Anything that is not a local file is left alone.
         const QUrl web(QStringLiteral("https://example.org/a#b"));
         QCOMPARE(AttachmentQueueModel::normalizeDroppedUrl(web), web);
 
@@ -1802,7 +1644,6 @@ private Q_SLOTS:
         QCOMPARE(composer.attachments()->rowCount(), 1);
     }
 
-    // GTK writes the portal key with its NUL terminator, KDE without.
     void thePortalKeyIsReadWithOrWithoutItsNul()
     {
         QCOMPARE(AttachmentQueueModel::portalKeyFrom(
@@ -1844,10 +1685,6 @@ private Q_SLOTS:
             QStringLiteral("https://example.org/run/user/1000/doc/abc"))));
     }
 
-    // A Flatpak build is handed the HOST path, which does not exist inside the
-    // sandbox; the file is reachable through the FileTransfer portal key the
-    // file manager put beside it. Before the fix the key was never read and the
-    // drop failed with "That file cannot be read."
     void aSandboxedDropIsResolvedThroughThePortal()
     {
         const auto reset = qScopeGuard([] {
@@ -1882,7 +1719,6 @@ private Q_SLOTS:
                      .toLocalFile(),
                  exported);
 
-        // A key takes precedence even if the URL also happens to be readable.
         composer.attachments()->clearAll();
         const QString readable = writeFile(dir, QStringLiteral("here.bin"),
                                            QByteArray(8, 'h'));
@@ -1896,8 +1732,6 @@ private Q_SLOTS:
                             AttachmentQueueModel::LocalUrlRole)
                      .toUrl().toLocalFile(), exported);
 
-        // With no key, an already exported document URL and a plain file URL
-        // both take the direct path. No D-Bus request is made.
         composer.attachments()->clearAll();
         composer.addDroppedAttachments({QUrl::fromLocalFile(readable)}, {});
         QCOMPARE(askedKeys.size(), 2);
@@ -1908,9 +1742,6 @@ private Q_SLOTS:
                      .toUrl().toLocalFile(), readable);
     }
 
-    // The portal failing falls back to the dropped URLs, so the user still
-    // gets addFile's refusal, and in a sandbox it names the way that works.
-    // An answer that arrives after a room switch queues nothing.
     void aPortalFailureOrALateAnswerIsHandled()
     {
         const auto reset = qScopeGuard([] {
@@ -1943,13 +1774,11 @@ private Q_SLOTS:
                  qPrintable(rejected.at(0).at(0).toString()));
         QCOMPARE(composer.attachments()->rowCount(), 0);
 
-        // Without a key in a sandbox: the same sentence, no portal call.
         pending = nullptr;
         composer.addDroppedAttachments({hostPath}, QString());
         QVERIFY(!pending);
         QCOMPARE(rejected.count(), 2);
 
-        // Room switch while the portal is answering.
         const QString exported = writeFile(dir, QStringLiteral("late.bin"),
                                            QByteArray(8, 'l'));
         composer.addDroppedAttachments({hostPath}, QStringLiteral("k2"));
@@ -1960,9 +1789,6 @@ private Q_SLOTS:
         QCOMPARE(rejected.count(), 2);
     }
 
-    // A portal answer for a drop made in one account must never stage a file in
-    // the next one. The room id alone cannot tell: room A, sign-out, the next
-    // account opens room A (§9).
     void aLatePortalAnswerNeverCrossesIntoAnotherAccount()
     {
         const auto reset = qScopeGuard([] {
@@ -1986,14 +1812,12 @@ private Q_SLOTS:
         composer.setClient(&client);
         composer.setRoomId(room);
 
-        // Another account, same room id, before the answer.
         composer.addDroppedAttachments({hostPath}, QStringLiteral("k1"));
         QVERIFY(pending);
         client.userId = QStringLiteral("@someone-else:example.org");
         pending(true, {exported});
         QCOMPARE(composer.attachments()->rowCount(), 0);
 
-        // Sign-out and back into the same room before the answer.
         pending = nullptr;
         composer.addDroppedAttachments({hostPath}, QStringLiteral("k2"));
         QVERIFY(pending);
@@ -2002,8 +1826,6 @@ private Q_SLOTS:
         pending(true, {exported});
         QCOMPARE(composer.attachments()->rowCount(), 0);
 
-        // Control: the same answer in the same session is queued and the bar
-        // is told, so it can focus the editor after an async drop.
         QSignalSpy resolved(&composer,
                             &MessageComposer::droppedAttachmentsResolved);
         pending = nullptr;

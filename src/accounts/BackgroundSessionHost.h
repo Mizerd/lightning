@@ -1,31 +1,3 @@
-// One background account's live session (live accounts, Labs; design
-// §3.3.1): a thin host around its own Background Rust handle, drained on the
-// GUI thread by BackgroundDrainer.
-//
-// Every drain pass, within its share of the tick's budget:
-//  1. bg_poll (atomic loads, no allocation). When dirty, bg_take: the counts
-//     table becomes this account's badge summary through the SAME rule the
-//     foreground list uses (roomunread::countsAsUnread / mentionCount, with
-//     roomNotificationModeFor(uid, room)); never ported to Rust. Rooms whose
-//     unread state flipped are told to NotificationManager, which withdraws
-//     their cards when read elsewhere.
-//  2. When the session-state version moved: the sticky slot (login result,
-//     initial sync, room-list state, sync errors, the ignored list, the
-//     sign-out result).
-//  3. The queue, at most 64 events: timeline_event and event_decrypted through
-//     NotificationContextBuilder into processEvent/processDecrypted with this
-//     account's own context; event_redacted withdraws; a verification request
-//     raises a labelled card and its cancellation withdraws it; anything else
-//     is counted and dropped without being parsed.
-//  4. When the token generation moved or the session was revoked: custody,
-//     handed to the pool (onCustody) for the keyring worker or revocation.
-//
-// I8, binding and source-scanned (HostSettingsScanTest): nothing here reads or
-// writes the ACTIVE account's state. Uid-explicit settings reads only; no
-// client, no media bridge, no keyring. The card's avatar stays empty: the
-// foreground's media bridge would fetch with another account's token.
-//
-// Logs carry acct=<safeUserSlug> and redactId() room/event ids only.
 #pragma once
 
 #include "accounts/RustBridgeApi.h"
@@ -63,22 +35,20 @@ public:
         // or the session was revoked. Never log the snapshot.
         std::function<void(BackgroundSessionHost *, const CustodySnapshot &)> onCustody;
     };
-    // Who this host is, recorded at start from the account record and the
-    // recorded store location; never re-derived later.
     struct Identity {
         QString userId;
         QString deviceId;
         QString homeserver;
         QString storePath;
-        QString slug;     // safeUserSlug(userId), for logs
-        QString label;    // the account's display name, else its user id
+        QString slug;
+        QString label;
         bool oauth = false;
     };
     enum class Phase : quint8 { Starting, Running, Reconnecting, Stopping };
     enum class FailureKind : quint8 {
-        Transient,              // a network or server failure: backoff
-        StoreInUse,             // store_in_use: Store busy, no retry
-        EncryptionDataMissing   // crypto_account_missing / _mismatch: no retry, nothing created
+        Transient,
+        StoreInUse,
+        EncryptionDataMissing
     };
     Q_ENUM(FailureKind)
 
@@ -98,34 +68,20 @@ public:
     // from here afterwards.
     void *takeHandle();
 
-    // One pass. Returns true when it did more than poll (for the drain stats).
     bool drainOnce();
-    // The token step alone (bg_poll, then custody when the generation moved
-    // or the session was revoked): what a drainer tick runs for a host its
-    // budget did not reach, so a waiting rotation is answered every tick.
     void drainTokensOnly();
 
-    // Catch-up (the scheduler's semaphore): begun by the pool, checked every
-    // pass, reported once by catchUpComplete().
     void beginCatchUp();
     bool catchingUp() const { return m_catchUp.active(); }
 
-    // Removal in progress (the account's row and cards are already gone):
-    // keep draining, so the sign-out result is read, but raise no card,
-    // withdrawal or badge any more.
     void setQuiet(bool quiet) { m_quiet = quiet; }
     bool quiet() const { return m_quiet; }
 
-    // Notification modes changed for this account (or for a room): forget the
-    // cached modes and re-push the local-rule set.
     void refreshModes(const QString &roomId = QString());
 
-    // ---- test hooks ----------------------------------------------------------
     NotificationManager::Context lastContextForTest() const { return m_lastContext; }
     int droppedEventsForTest() const { return m_droppedEvents; }
     int notifyEventsForTest() const { return m_notifyEvents; }
-    /// event_decrypted events for an id never handed over as an undecryptable
-    /// timeline_event, raised as new candidates (review WP1-R N2).
     int lateDecryptedEventsForTest() const { return m_lateDecryptedEvents; }
     QSet<QString> unreadRoomsForTest() const { return m_unreadRooms; }
     QStringList ignoredUsersForTest() const { return QStringList(m_ignored.begin(), m_ignored.end()); }
@@ -133,11 +89,9 @@ public:
 Q_SIGNALS:
     void loginSucceeded();
     void loginFailed(lightning::accounts::BackgroundSessionHost::FailureKind kind);
-    // room_list_sync_state went offline while running.
     void connectionLost();
     void rateLimited(qint64 retryAfterMs);
     void catchUpComplete();
-    // The sticky logged_out result (a server sign-out this pool asked for).
     void loggedOut(const QString &result);
     void summaryUpdated();
 
@@ -168,13 +122,12 @@ private:
     bool m_sessionStateEverTaken = false;
     quint64 m_seenTokenGeneration = 0;
     bool m_revokedSeen = false;
-    QHash<QString, QJsonObject> m_sticky;   // last payload per sticky type acted on
+    QHash<QString, QJsonObject> m_sticky;
     bool m_initialSyncDone = false;
     QString m_roomListState;
     QSet<QString> m_ignored;
     CatchUpTracker m_catchUp;
 
-    // The last take's counts table, per room (a room absent from it is zero).
     struct RoomCounts {
         int unread = 0;
         int highlight = 0;
@@ -196,9 +149,8 @@ private:
     int m_droppedEvents = 0;
     int m_notifyEvents = 0;
     int m_lateDecryptedEvents = 0;
-    // Event id -> when it was handed over as an undecryptable timeline_event.
     QHash<QString, qint64> m_forwardedUtds;
     QSet<QString> m_verificationCards;
 };
 
-} // namespace lightning::accounts
+}

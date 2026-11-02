@@ -2,26 +2,12 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// One account's activity mark on an account surface (switcher row, quick
-// switcher entry): Labs, concurrent accounts. The ONE place the badge rule
-// lives, so the surfaces cannot drift apart:
-//
-// - a NUMBER only for mentions and highlights ("N+" when the count is a lower
-//   bound: encrypted rooms counted client-side may miss some);
-// - otherwise a dot when the account has unread rooms or invites;
-// - nothing unless the account is running in the background (a paused or
-//   non-live account's counts are not current, so they are not shown);
-// - nothing on the active account's row (its rooms are already on screen).
-//
-// The inputs are plain values the owner copies out of AccountActivityFeed.
-// With Labs off every input stays at its default and nothing renders.
 UnreadBadge {
     id: root
 
     property int mentionCount: 0
     property bool mentionsLowerBound: false
     property bool hasUnread: false
-    // AccountActivityModel.LiveState; 0 (NotLive) is the default.
     property int liveState: 0
     property bool activeAccount: false
 
@@ -32,14 +18,11 @@ UnreadBadge {
     count: root.shown ? Math.max(0, root.mentionCount) : 0
     mention: root.count > 0
     dot: root.shown && root.mentionCount <= 0
-    // "@", as every mention count (UnreadBadge): not colour alone.
     text: root.dotOnly ? ""
           : root.count > 99 ? "@99+"
           : root.mentionsLowerBound ? "@" + qsTr("%1+").arg(root.count)
           : "@" + String(root.count)
 
-    // The words for a live state, for accessible names and the Labs card.
-    // NotLive has none.
     readonly property string stateLabel: {
         switch (root.liveState) {
         case AccountActivityModel.Active: return qsTr("Active")
@@ -56,7 +39,6 @@ UnreadBadge {
         default: return ""
         }
     }
-    // What the badge says, for the row's accessible description.
     readonly property string activityLabel: !root.shown ? ""
         : root.count > 0
           ? (root.mentionsLowerBound

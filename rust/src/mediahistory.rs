@@ -1,29 +1,13 @@
-//! Room media history, walked independently of the live timeline, so the
-//! Room Information Media tab can reach the start of accessible history
-//! without moving the reader.
-//!
-//! The server's `url_filter = EventsWithUrl` is not used: encrypted events
-//! carry no `url` on the wire (so it would find nothing in encrypted rooms),
-//! and links live in ordinary `m.text` bodies. The walk is unfiltered and
-//! classifies after the SDK decrypts, so encrypted and public rooms give the
-//! same answer.
-//!
-//! Each page reports what it scanned as well as what matched, and whether
-//! it reached the start of history, so the panel does not claim "all media"
-//! from a partial walk or hide that some history is unreadable.
 
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-/// One browser row, presentation-ready: C++ stores these verbatim.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MediaEntry {
     pub event_id: String,
     pub sender: String,
     pub ts_ms: u64,
-    /// image | video | audio | voice | file | sticker | link
     pub kind: String,
-    /// The caption or filename for media; the message text for a link.
     pub body: String,
     pub filename: String,
     pub mimetype: String,
@@ -31,31 +15,18 @@ pub(crate) struct MediaEntry {
     pub width: u64,
     pub height: u64,
     pub duration_ms: u64,
-    /// `mxc://` for media, never an http URL or the bytes; MediaBridge fetches
-    /// and decrypts through the authenticated path, as for the timeline.
     pub mxc: String,
     pub thumbnail_mxc: String,
-    /// Whether the attachment is encrypted, so the fetch uses the decrypting
-    /// path.
     pub encrypted: bool,
-    /// For `kind == "link"`: the URL, and its host for grouping/filtering.
     pub url: String,
     pub host: String,
-    /// A GIF as GIF pickers send it: an `image/gif` image, or a video the
-    /// sender marked `fi.mau.gif`. A FLAG on an image/video row, not a kind of
-    /// its own, so the Images, Videos and Media views and the image viewer keep
-    /// showing it; the GIF view selects on this.
     pub gif: bool,
 }
 
-/// The newest accepted edit of one event, kept until the original is reached.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MediaEdit {
     pub sender: String,
-    /// `m.new_content.body`: the caption of a media message, the text of a
-    /// text one.
     pub body: String,
-    /// `m.new_content.filename`, when the edit states one.
     pub filename: Option<String>,
 }
 
@@ -63,8 +34,6 @@ pub(crate) struct MediaEdit {
 /// backward walk meets the replacement (newer) before the original, so the
 /// edit waits here and is applied when the original is classified.
 pub(crate) type PendingEdits = HashMap<String, MediaEdit>;
-/// Bounds the memory one walk can spend on edits whose original is never
-/// reached.
 pub(crate) const MAX_PENDING_EDITS: usize = 4096;
 
 impl MediaEntry {
@@ -84,8 +53,6 @@ impl MediaEntry {
             "mxc": self.mxc,
             "thumbnail_mxc": self.thumbnail_mxc,
             "encrypted": self.encrypted,
-            // The registry key a tile fetches through: the event id, as the timeline
-            // keys its rows (see stored_media_from_event).
             "media_key": self.event_id,
             "url": self.url,
             "host": self.host,
@@ -94,12 +61,9 @@ impl MediaEntry {
     }
 }
 
-/// What one scanned event contributed.
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Scanned {
     pub entries: Vec<MediaEntry>,
-    /// The event was `m.room.encrypted`: present but unreadable, which is
-    /// different from "no media" and is reported.
     pub undecryptable: bool,
 }
 
@@ -121,8 +85,6 @@ fn number(value: Option<&Value>, key: &str) -> u64 {
         .unwrap_or(0)
 }
 
-/// Attachment msgtypes mapped to browser categories. A voice message (an
-/// `m.audio` with MSC3245's marker) gets its own kind, separate from music.
 fn media_kind(msgtype: &str, content: &Value) -> Option<&'static str> {
     match msgtype {
         "m.image" => Some("image"),
@@ -133,20 +95,14 @@ fn media_kind(msgtype: &str, content: &Value) -> Option<&'static str> {
             Some(if voice { "voice" } else { "audio" })
         }
         "m.file" => Some("file"),
-        // Not a real msgtype: classify() maps an `m.sticker` EVENT to it so the
-        // attachment branch below serves stickers too.
         "m.sticker" => Some("sticker"),
         _ => None,
     }
 }
 
-/// Max link rows per event, so one crafted message cannot produce thousands.
 pub(crate) const MAX_LINKS_PER_EVENT: usize = 16;
 const MAX_URL_LEN: usize = 2048;
 
-/// URLs inside a message body. Conservative, not a general parser: only
-/// `http://` and `https://` starts, ending at whitespace, with common trailing
-/// punctuation trimmed. Bounded by `MAX_LINKS_PER_EVENT`; duplicates collapse.
 pub(crate) fn extract_urls(body: &str) -> Vec<String> {
     let mut found = Vec::new();
     let bytes = body.as_bytes();
@@ -159,7 +115,6 @@ pub(crate) fn extract_urls(body: &str) -> Vec<String> {
         };
         let tail = &body[start..];
         if !(tail.starts_with("http://") || tail.starts_with("https://")) {
-            // Skip past this "http" so a body full of the bare word cannot spin.
             i = start + 4;
             continue;
         }
@@ -173,7 +128,6 @@ pub(crate) fn extract_urls(body: &str) -> Vec<String> {
             continue;
         }
         url = url.trim_end_matches(|c| matches!(c, '.' | ',' | ')' | ']' | '>' | '"' | '\'' | ';' | ':' | '!' | '?'));
-        // "https://" alone is not a link.
         if url.len() > "https://".len() {
             let owned = url.to_owned();
             if !found.contains(&owned) {
@@ -185,8 +139,6 @@ pub(crate) fn extract_urls(body: &str) -> Vec<String> {
     found
 }
 
-/// The host of a URL, for grouping and filtering. Empty when unreadable,
-/// never a guess: it is shown as the destination's identity.
 pub(crate) fn host_of(url: &str) -> String {
     let after = match url.find("://") {
         Some(p) => &url[p + 3..],
@@ -202,7 +154,6 @@ pub(crate) fn host_of(url: &str) -> String {
         Some(p) => &authority[p + 1..],
         None => authority,
     };
-    // Strip the port, but not an IPv6 literal's colons.
     let host = if hostport.starts_with('[') {
         match hostport.find(']') {
             Some(p) => &hostport[..=p],
@@ -217,11 +168,6 @@ pub(crate) fn host_of(url: &str) -> String {
     host.to_ascii_lowercase()
 }
 
-/// The timeline's `StoredMedia` record, built from a raw event, so a browser
-/// tile fetches through the registry like a timeline row (asking the server
-/// to thumbnail ciphertext cannot work). Encrypted sources carry the key
-/// material; plain ones just the mxc. Thumbnails come from
-/// `info.thumbnail_file` / `thumbnail_url`.
 pub(crate) fn stored_media_from_event(value: &Value) -> Option<crate::timeline::StoredMedia> {
     use matrix_sdk::ruma::events::room::{EncryptedFile, MediaSource};
     use matrix_sdk::ruma::OwnedMxcUri;
@@ -255,9 +201,6 @@ pub(crate) fn stored_media_from_event(value: &Value) -> Option<crate::timeline::
     Some(crate::timeline::StoredMedia { source, thumbnail, filename, mimetype, declared_size })
 }
 
-/// Whether an image/video row is a GIF in the sense GIF pickers send: the
-/// mimetype says so, or the sender flagged the video (`fi.mau.gif`, set by the
-/// bridges that turn animated GIFs into looping MP4s).
 fn is_gif(kind: &str, mimetype: &str, info: Option<&Value>) -> bool {
     if kind != "image" && kind != "video" {
         return false;
@@ -271,21 +214,11 @@ fn is_gif(kind: &str, mimetype: &str, info: Option<&Value>) -> bool {
             .unwrap_or(false)
 }
 
-/// Classify one raw timeline event with no edit memory (every edit is
-/// ignored). See `classify_with_edits`.
 #[cfg(test)]
 pub(crate) fn classify(value: &Value) -> Scanned {
     classify_with_edits(value, &mut PendingEdits::new())
 }
 
-/// Classify one raw timeline event as the SDK hands it over: decrypted when
-/// possible, still `m.room.encrypted` otherwise.
-///
-/// An `m.replace` event is never a row: it is remembered in `edits` and applied
-/// to the original when the walk reaches it, so an edited caption or link shows
-/// its CURRENT text once, instead of the old text plus a "* ..." duplicate.
-/// Only an edit by the original's sender counts (the spec's rule), and the
-/// newest edit wins because the walk is newest-first.
 pub(crate) fn classify_with_edits(value: &Value, edits: &mut PendingEdits) -> Scanned {
     let mut out = Scanned::default();
     let type_str = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -316,14 +249,12 @@ pub(crate) fn classify_with_edits(value: &Value, edits: &mut PendingEdits) -> Sc
     let Some(content) = value.get("content") else {
         return out;
     };
-    // A redacted event keeps its type but has no content; it is not media.
     if content.as_object().map(|o| o.is_empty()).unwrap_or(true) {
         return out;
     }
     if type_str == "m.room.message" {
         if let Some(rel) = content.get("m.relates_to") {
             if rel.get("rel_type").and_then(|v| v.as_str()) == Some("m.replace") {
-                // Remember it (if well formed) and contribute nothing.
                 let target = rel.get("event_id").and_then(|v| v.as_str()).unwrap_or("");
                 let new_content = content.get("m.new_content");
                 let new_body = new_content.and_then(|c| c.get("body")).and_then(|v| v.as_str());
@@ -356,7 +287,6 @@ pub(crate) fn classify_with_edits(value: &Value, edits: &mut PendingEdits) -> Sc
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_owned();
-    // The current text of an edited event, if its edit was met first.
     let edit = edits
         .remove(&event_id)
         .filter(|e| e.sender == sender);
@@ -379,8 +309,6 @@ pub(crate) fn classify_with_edits(value: &Value, edits: &mut PendingEdits) -> Sc
             let from_enc = mxc_only(enc);
             if from_enc.is_empty() { mxc_only(plain) } else { from_enc }
         };
-        // No addressable content, no row: a row that can only fail is worse than
-        // none.
         if mxc.is_empty() {
             return out;
         }
@@ -390,8 +318,6 @@ pub(crate) fn classify_with_edits(value: &Value, edits: &mut PendingEdits) -> Sc
             .unwrap_or(&body)
             .to_owned();
         if let Some(edit) = &edit {
-            // A caption edit changes the body only; the file's name is what the
-            // original stated, unless the edit states one.
             body = edit.body.clone();
             if let Some(f) = &edit.filename {
                 filename = f.clone();
@@ -425,8 +351,6 @@ pub(crate) fn classify_with_edits(value: &Value, edits: &mut PendingEdits) -> Sc
         return out;
     }
 
-    // Everything else is a candidate for the Links category, from its CURRENT
-    // text.
     if let Some(edit) = &edit {
         body = edit.body.clone();
     }
@@ -484,7 +408,6 @@ mod tests {
 
     #[test]
     fn an_encrypted_attachment_is_found_exactly_like_a_plain_one() {
-        // An encrypted room must give the same answer as a public one.
         for encrypted in [false, true] {
             let scanned = classify(&image_event(encrypted));
             assert_eq!(scanned.entries.len(), 1, "encrypted={encrypted}");
@@ -512,7 +435,6 @@ mod tests {
 
     #[test]
     fn a_redacted_attachment_is_not_a_broken_thumbnail() {
-        // A redacted attachment must not appear as a broken thumbnail.
         let scanned = classify(&json!({
             "type": "m.room.message",
             "event_id": "$3",
@@ -546,7 +468,6 @@ mod tests {
             "content": { "msgtype": "m.text", "body": "see https://old.example/a" },
         });
         let mut edits = PendingEdits::new();
-        // Newest first: the edit is met before the original.
         let e = classify_with_edits(
             &edit_event("$e", "$o", "@a:example.org", "see https://new.example/b"),
             &mut edits,
@@ -581,7 +502,6 @@ mod tests {
         let scanned = classify_with_edits(&image_event(false), &mut edits);
         assert_eq!(scanned.entries.len(), 1, "one row, not two");
         assert_eq!(scanned.entries[0].body, "new caption");
-        // The original body doubled as the file name and still is.
         assert_eq!(scanned.entries[0].filename, "holiday.png");
         assert_eq!(scanned.entries[0].mxc, "mxc://example.org/plain");
     }
@@ -589,7 +509,6 @@ mod tests {
     #[test]
     fn only_the_original_senders_edit_counts_and_the_newest_wins() {
         let mut edits = PendingEdits::new();
-        // Newest first.
         classify_with_edits(&edit_event("$e2", "$1", "@a:example.org", "second"), &mut edits);
         classify_with_edits(&edit_event("$e1", "$1", "@a:example.org", "first"), &mut edits);
         let scanned = classify_with_edits(&image_event(false), &mut edits);
@@ -646,13 +565,11 @@ mod tests {
         assert_eq!(scanned.entries[0].mxc, "mxc://example.org/cat");
         assert!(!scanned.entries[0].gif);
         assert!(stored_media_from_event(&sticker).is_some());
-        // A sticker with a hostile url is dropped like any other attachment.
         let mut bad = sticker.clone();
         bad["content"]["url"] = json!("https://evil.test/x.png");
         assert!(classify(&bad).entries.is_empty());
     }
 
-    /// Non-mxc `url` values are dropped before reaching the media layer.
     #[test]
     fn a_non_mxc_url_is_refused_rather_than_fetched() {
         for hostile in [
@@ -707,14 +624,10 @@ mod tests {
         assert!(scanned.entries.iter().all(|e| e.kind == "link"));
         assert_eq!(scanned.entries[0].url, "https://example.org/a");
         assert_eq!(scanned.entries[0].host, "example.org");
-        // Trailing punctuation is not part of the URL, and the port is not part of
-        // the host.
         assert_eq!(scanned.entries[1].url, "http://b.example:8443/x?q=1");
         assert_eq!(scanned.entries[1].host, "b.example");
     }
 
-    /// Userinfo is stripped from the host: `https://example.org@evil.test/` is
-    /// evil.test.
     #[test]
     fn userinfo_cannot_disguise_the_host() {
         assert_eq!(host_of("https://example.org@evil.test/path"), "evil.test");
@@ -724,13 +637,11 @@ mod tests {
         assert_eq!(host_of("not a url"), "");
     }
 
-    /// One hostile message cannot produce unbounded rows.
     #[test]
     fn link_extraction_is_bounded_per_event() {
         let body = "https://a.example/x ".repeat(1_000);
         let urls = extract_urls(&body);
         assert!(urls.len() <= MAX_LINKS_PER_EVENT);
-        // Duplicates collapse.
         assert_eq!(urls.len(), 1);
 
         let varied: String = (0..1_000)
@@ -738,7 +649,6 @@ mod tests {
             .collect();
         assert_eq!(extract_urls(&varied).len(), MAX_LINKS_PER_EVENT);
 
-        // A body full of the bare word terminates.
         assert!(extract_urls(&"http".repeat(10_000)).is_empty());
     }
 
@@ -788,17 +698,12 @@ mod tests {
     }
 }
 
-/// Where a room's backwards walk has reached. `token` is the last
-/// `/messages` `end` (absent: start at the live edge); `exhausted` means the
-/// server said nothing is older. They differ because a walk that never ran
-/// also has no token.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Cursor {
     pub token: Option<String>,
     pub exhausted: bool,
     pub scanned_total: u64,
     pub undecryptable_total: u64,
-    /// Edits met by the walk whose originals are older than the cursor.
     pub pending_edits: PendingEdits,
 
 }

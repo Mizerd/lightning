@@ -1,9 +1,3 @@
-// The docked "now playing" strip (design-media U1) on the real TimelinePane:
-// it is laid out in a band of its own under the room header, so the timeline
-// viewport (and with it every row, its hover toolbar and its receipts) starts
-// below it and nothing is covered. Checked in all three message layouts, at a
-// wide and a narrow pane, and against the newest visible row's own geometry;
-// and the band goes away with the clip.
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
@@ -24,7 +18,6 @@
 namespace {
 constexpr int kSignalTimeoutMs = 5000;
 
-// A silent 16-bit mono PCM WAV of `seconds`.
 bool writeSilentWav(const QString &path, int seconds)
 {
     const quint32 rate = 8000;
@@ -45,14 +38,11 @@ bool writeSilentWav(const QString &path, int seconds)
     return f.open(QIODevice::WriteOnly) && f.write(out) == out.size();
 }
 
-// The item's bounds in the scene, whatever its transform: the timeline view
-// is a rotated Flickable, so its own (0, 0) is its bottom-right corner.
 QRectF sceneRect(QQuickItem *item)
 {
     return item->mapRectToScene(QRectF(0, 0, item->width(), item->height()));
 }
 
-// Every visible item under `root` whose objectName is `name`.
 void collect(QQuickItem *root, const QString &name, QList<QQuickItem *> &out)
 {
     if (!root)
@@ -63,7 +53,7 @@ void collect(QQuickItem *root, const QString &name, QList<QQuickItem *> &out)
     for (QQuickItem *kid : kids)
         collect(kid, name, out);
 }
-} // namespace
+}
 
 class VoicePlayerDockQmlTest : public QObject
 {
@@ -148,20 +138,17 @@ private Q_SLOTS:
         QVERIFY(!strip->isVisible());
         const QRectF viewBefore = sceneRect(view);
 
-        // A clip from this room: the strip shows, docked under the header.
         auto *vp = controller.voicePlayback();
         vp->play(QStringLiteral("$clip"), roomId, QStringLiteral("mk-none"),
                  { { QStringLiteral("senderName"), QStringLiteral("Alice") },
                    { QStringLiteral("isVoice"), true } });
         QVERIFY(vp->active());
         QTRY_VERIFY(strip->isVisible() && strip->height() > 20);
-        // Laid out (the column polishes on the next frame).
         QTRY_VERIFY(strip->width() > 0
                     && sceneRect(view).height() < viewBefore.height());
         QTRY_VERIFY(sceneRect(view).top() >= sceneRect(strip).bottom() - 0.5);
         const QRectF stripRect = sceneRect(strip);
         const QRectF viewRect = sceneRect(view);
-        // The view is shorter by the strip, not covered by it.
         QVERIFY2(qAbs((viewBefore.height() - viewRect.height())
                       - stripRect.height()) < 1.5,
                  qPrintable(QStringLiteral("view %1 -> %2, strip %3")
@@ -169,10 +156,8 @@ private Q_SLOTS:
                                 .arg(viewRect.height())
                                 .arg(stripRect.height())));
         QVERIFY2(view->clip(), "rows could paint above the viewport");
-        // The strip lies inside the pane, across the room column.
         QVERIFY(stripRect.left() >= -0.5 && stripRect.right() <= width + 0.5);
 
-        // No visible row (nor its action bar) starts inside the strip.
         QList<QQuickItem *> rows;
         collect(view, QStringLiteral("messageDelegateRoot"), rows);
         int onScreen = 0;
@@ -191,23 +176,16 @@ private Q_SLOTS:
         }
         QVERIFY2(onScreen > 0, "no row was on screen to check");
 
-        // The strip's controls are inside it, and its scrubber's hit band
-        // never reaches the timeline.
         auto *seek = strip->findChild<QQuickItem *>(
             QStringLiteral("voicePlayerBarSeek"));
         QVERIFY(seek);
         QVERIFY(sceneRect(seek).bottom() <= stripRect.bottom() + 0.5);
 
-        // Stopped: the band goes and the view gets its height back.
         vp->stop();
         QTRY_VERIFY(!strip->isVisible());
         QTRY_COMPARE(sceneRect(view).height(), viewBefore.height());
     }
 
-
-    // Review round 1 (M1): the window's "focus the player" shortcut lands on
-    // the docked strip; Space right after it must play or pause, not follow
-    // the "go to the message" link (it opened the clip's room).
     void spaceOnTheFocusedStripPlaysOrPauses()
     {
         QTemporaryDir media;
@@ -242,7 +220,6 @@ private Q_SLOTS:
         window.requestActivate();
         QVERIFY(QTest::qWaitForWindowActive(&window));
 
-        // A clip from another room, so following the link would switch.
         vp->play(QStringLiteral("$clip"), QStringLiteral("!elsewhere:x"),
                  QStringLiteral("mk-clip"),
                  { { QStringLiteral("senderName"), QStringLiteral("Alice") },
@@ -261,7 +238,6 @@ private Q_SLOTS:
         QTest::keyClick(&window, Qt::Key_Space);
         QTRY_VERIFY2(!vp->playing(), "Space did not pause the clip");
         QCOMPARE(controller.currentRoomId(), roomId);
-        // And the link itself, focused by Tab, takes Space as play/pause too.
         auto *link = strip->findChild<QQuickItem *>(
             QStringLiteral("voicePlayerBarSource"));
         QVERIFY(link);

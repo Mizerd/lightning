@@ -14,7 +14,7 @@ bool isColour(const QString &value)
         QStringLiteral("^#[0-9a-fA-F]{6}$"));
     return re.match(value).hasMatch();
 }
-} // namespace
+}
 
 NameColorManager::NameColorManager(QObject *parent) : QObject(parent) {
     m_clock.start();
@@ -41,10 +41,9 @@ void NameColorManager::setClient(MatrixClient *client)
                    bool supported) {
         const QString expected = m_pending.take(opId);
         if (expected.isEmpty() || expected != userId)
-            return;   // not ours, or an answer for another account's user
+            return;
         m_inFlight.remove(userId);
         setSupported(supported);
-        // "" is a real answer (no colour), stored so it is not re-fetched.
         const QString accepted = isColour(color) ? color.toLower() : QString();
         if (m_colors.value(userId) == accepted && m_colors.contains(userId))
             return;
@@ -77,7 +76,6 @@ void NameColorManager::setClient(MatrixClient *client)
         }
     });
 
-    // One account's colours never surface under another's.
     connect(m_client, &MatrixClient::loggedOut, this, [this] { clear(); });
     Q_EMIT availableChanged();
 }
@@ -99,17 +97,12 @@ QString NameColorManager::colorFor(const QString &userId)
     if (userId.isEmpty() || !available() || !m_supported)
         return {};
     if (m_asked.contains(userId)) {
-        // Refresh, bounded: past the interval the next read re-asks once (never
-        // while an ask is in flight) and keeps serving the cached value; a
-        // changed reply bumps the revision.
         m_lastRead.insert(userId, m_clock.elapsed());
         if (m_refreshMs >= 0 && !m_inFlight.contains(userId)
             && m_clock.elapsed() - m_askedAt.value(userId) >= m_refreshMs)
             dispatchFetch(userId);
         return m_colors.value(userId);
     }
-    // Mark as asked before dispatching: this runs from bindings for every name
-    // on screen, and marking on reply would dispatch once per message.
     m_asked.insert(userId);
     m_lastRead.insert(userId, m_clock.elapsed());
     dispatchFetch(userId);
@@ -132,8 +125,6 @@ void NameColorManager::sweepRecentlyRead()
     if (!available() || !m_supported)
         return;
     const qint64 now = m_clock.elapsed();
-    // Oldest ask first, so a room with more names than the cap rotates through
-    // them.
     QList<QPair<qint64, QString>> due;
     for (auto it = m_lastRead.constBegin(); it != m_lastRead.constEnd(); ++it) {
         const QString &user = it.key();
@@ -158,7 +149,6 @@ void NameColorManager::setOwnColor(const QString &value)
 {
     if (!available() || m_pendingSet != 0)
         return;
-    // An empty value is a deliberate clear; anything else must be a colour.
     const QString trimmed = value.trimmed();
     if (!trimmed.isEmpty() && !isColour(trimmed)) {
         setLastError(QStringLiteral("invalid_colour"));

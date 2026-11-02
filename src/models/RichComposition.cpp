@@ -15,9 +15,6 @@ namespace RichComposition {
 
 namespace {
 
-// Inline formats one run can carry, in the fixed nesting order the serializer
-// emits; the document stores properties, not tag order, so a fixed order
-// keeps output deterministic.
 struct InlineFlags {
     bool anchor = false;
     QString href;
@@ -52,8 +49,6 @@ InlineFlags flagsFor(const QTextCharFormat &format)
     return f;
 }
 
-// A matrix.to user permalink -> "@user:server", else empty. Duplicates
-// MessageHtml's private helper rather than adding a shared header.
 QString matrixToUserId(const QString &href)
 {
     const QUrl u(href);
@@ -72,12 +67,9 @@ QString matrixToUserId(const QString &href)
 
 QString escaped(QString text)
 {
-    // toHtmlEscaped covers & < > "; the apostrophe needs no escape in text
-    // content or double-quoted attributes, which is all this file emits.
     return text.toHtmlEscaped();
 }
 
-// One block's inline content as Matrix HTML. Appends found mention MXIDs.
 QString inlineHtml(const QTextBlock &block, QStringList *mentionIds,
                    bool *sawFormatting)
 {
@@ -87,8 +79,6 @@ QString inlineHtml(const QTextBlock &block, QStringList *mentionIds,
         if (!fragment.isValid())
             continue;
         QString text = fragment.text();
-        // Inline objects serialize to nothing: the composer never inserts them
-        // and pasted ones have no Matrix representation.
         text.remove(QChar::ObjectReplacementCharacter);
         if (text.isEmpty())
             continue;
@@ -134,7 +124,6 @@ QString inlineHtml(const QTextBlock &block, QStringList *mentionIds,
     return out;
 }
 
-// One block's inline content as plain text.
 QString inlinePlain(const QTextBlock &block)
 {
     QString text = block.text();
@@ -150,14 +139,12 @@ int quoteLevelOf(const QTextBlock &block)
 
 bool isCodeBlock(const QTextBlock &block)
 {
-    // Qt's markdown importer stamps fenced code with BlockCodeLanguage /
-    // BlockCodeFence (possibly empty strings — hasProperty is the test).
     const QTextBlockFormat bf = block.blockFormat();
     return bf.hasProperty(QTextFormat::BlockCodeLanguage)
         || bf.hasProperty(QTextFormat::BlockCodeFence);
 }
 
-} // namespace
+}
 
 bool isSafeLinkTarget(const QString &url)
 {
@@ -180,13 +167,12 @@ Composed compose(const QTextDocument &document)
     QStringList plainLines;
     bool sawFormatting = false;
 
-    // Structural context carried between blocks.
     int openQuoteLevel = 0;
     QTextList *openList = nullptr;
     bool listOrdered = false;
     int listCounter = 0;
     bool inPre = false;
-    QString structural; // the streamed structural HTML
+    QString structural;
 
     const auto closeList = [&] {
         if (openList) {
@@ -219,11 +205,9 @@ Composed compose(const QTextDocument &document)
         const bool code = isCodeBlock(block);
         const int heading = block.blockFormat().headingLevel();
 
-        // Every non-default structure is formatting.
         if (quote > 0 || list || code || heading > 0)
             sawFormatting = true;
 
-        // ---- plain body line.
         QString plain = inlinePlain(block);
         if (list) {
             if (list != openList)
@@ -244,7 +228,6 @@ Composed compose(const QTextDocument &document)
             plain.prepend(QStringLiteral("> "));
         plainLines.append(plain);
 
-        // ---- structural HTML.
         if (code) {
             closeList();
             setQuoteLevel(0);
@@ -254,7 +237,6 @@ Composed compose(const QTextDocument &document)
             } else {
                 structural += QLatin1Char('\n');
             }
-            // Code text is literal: escaped, no inline formatting.
             structural += escaped(inlinePlain(block));
             continue;
         }
@@ -297,13 +279,8 @@ Composed compose(const QTextDocument &document)
     setQuoteLevel(0);
 
     result.plainBody = plainLines.join(QLatin1Char('\n'));
-    // Formatted only when the document carries formatting, matching the
-    // markdown path. Multiple plain paragraphs are newlines in the plain body,
-    // not markup.
     if (sawFormatting) {
         result.html = structural;
-        // A single paragraph reads better unwrapped, and matches what the
-        // markdown converter emits for one-line input.
         if (result.html.startsWith(QLatin1String("<p>"))
             && result.html.endsWith(QLatin1String("</p>"))
             && result.html.indexOf(QLatin1String("<p>"), 1) < 0) {
@@ -323,8 +300,6 @@ void toggleFormat(QTextDocument *document, int selectionStart,
     cursor.setPosition(qMax(0, qMin(selectionStart, selectionEnd)));
     cursor.setPosition(qMax(selectionStart, selectionEnd),
                        QTextCursor::KeepAnchor);
-    // An empty selection formats the word under the caret; QML's TextEdit has
-    // no per-keystroke format hook for "start typing bold".
     if (!cursor.hasSelection()) {
         cursor.select(QTextCursor::WordUnderCursor);
         if (!cursor.hasSelection() && format != QLatin1String("quote")
@@ -348,8 +323,6 @@ void toggleFormat(QTextDocument *document, int selectionStart,
     } else if (format == QLatin1String("code")) {
         const bool on = !state.value(format).toBool();
         charDelta.setFontFixedPitch(on);
-        // A visible family change makes inline code read as code in the editor;
-        // the serializer keys on fixed pitch alone.
         if (on)
             charDelta.setFontFamilies({ QStringLiteral("monospace") });
         else
@@ -377,7 +350,6 @@ void toggleFormat(QTextDocument *document, int selectionStart,
                || format == QLatin1String("orderedlist")) {
         const bool ordered = format == QLatin1String("orderedlist");
         if (state.value(format).toBool()) {
-            // Detach every selected block from its list.
             QTextCursor walker(document);
             walker.setPosition(cursor.selectionStart());
             while (true) {
@@ -400,7 +372,7 @@ void toggleFormat(QTextDocument *document, int selectionStart,
         }
         return;
     } else {
-        return; // unknown format: no-op, never a guess
+        return;
     }
     cursor.mergeCharFormat(charDelta);
 }
@@ -426,10 +398,6 @@ QVariantMap formatState(const QTextDocument &document, int selectionStart,
                  cf.isAnchor() && !cf.anchorHref().isEmpty());
 
     cursor.setPosition(start);
-    // Whether an inline format would have anything to act on: toggleFormat
-    // formats the selection, or the word under the caret, and does nothing for
-    // a bare caret between words. The toolbar greys B/I/S/code/U on false
-    // rather than offering a button that silently does nothing.
     bool inlineTarget = end > start;
     if (!inlineTarget) {
         QTextCursor probe(cursor);
@@ -451,13 +419,10 @@ QVariantMap formatState(const QTextDocument &document, int selectionStart,
     return state;
 }
 
-} // namespace RichComposition
+}
 
 namespace {
 
-// A newline the reader meant as a line, as a CommonMark hard break. Fenced and
-// indented code, a setext underline and a table's lines are left exactly as
-// they are, and so is a line that already ends in a hard break.
 QString hardBreaksForNewlines(const QString &markdown)
 {
     static const QRegularExpression fence(QStringLiteral("^ {0,3}(?:> ?)*(`{3,}|~{3,})"));
@@ -497,9 +462,6 @@ QString hardBreaksForNewlines(const QString &markdown)
     return out;
 }
 
-// What survives of text once markup is set aside, for comparing text with
-// what a load made of it. Link targets and fence lines are markup; a language
-// tag is not text the reader wrote.
 QString comparableText(QString text)
 {
     static const QRegularExpression linkTarget(
@@ -514,9 +476,6 @@ QString comparableText(QString text)
     return text;
 }
 
-// True when the document holds something compose() cannot send, or lost text:
-// images, rules, tables, task marks, nested lists, or a list that does not
-// start at 1 all reach the wire differently from what the box said.
 bool loadLostSomething(const QTextDocument &document, const QString &text)
 {
     if (!document.rootFrame()->childFrames().isEmpty())
@@ -524,7 +483,6 @@ bool loadLostSomething(const QTextDocument &document, const QString &text)
     for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
         const QTextBlockFormat format = block.blockFormat();
         for (auto it = block.begin(); !it.atEnd(); ++it) {
-            // compose() would send the words without an unsafe target.
             const QTextCharFormat run = it.fragment().charFormat();
             if (run.isAnchor() && !RichComposition::isSafeLinkTarget(run.anchorHref()))
                 return true;
@@ -544,13 +502,8 @@ bool loadLostSomething(const QTextDocument &document, const QString &text)
     return comparableText(plain) != comparableText(text);
 }
 
-// Set on a document holding text the reader wrote as markdown and saw as
-// characters. Qt's writer escapes those characters for a reader; that reader
-// is the plain box, where the same text was never escaped.
 const char kOpenedLiterally[] = "lightningOpenedLiterally";
 
-// A load of user text never drops any of it: what Qt's reader would lose or
-// compose() could not send opens as the literal text instead.
 void keepTextIfLoadLostIt(QTextDocument *document, const QString &text)
 {
     const bool literal = loadLostSomething(*document, text);
@@ -567,14 +520,12 @@ QString withoutWriterEscapes(QString markdown)
     return markdown;
 }
 
-// The quote markers a line of markdown opens with.
 QString quotePrefixOf(const QString &line)
 {
     static const QRegularExpression prefix(QStringLiteral("^ {0,3}(?:> ?)+"));
     return prefix.match(line).captured();
 }
 
-// A line that opens a new block rather than continuing a paragraph.
 bool opensBlock(const QString &content)
 {
     static const QRegularExpression opener(QStringLiteral(
@@ -583,8 +534,6 @@ bool opensBlock(const QString &content)
     return opener.match(content).hasMatch();
 }
 
-// Joins the lines of each paragraph of Qt's writer output: inside one, a single
-// newline is a fold at 80 columns. Code, tables and block openers stay.
 QString unfolded(const QString &markdown)
 {
     static const QRegularExpression fence(QStringLiteral("^ {0,3}(`{3,}|~{3,})"));
@@ -626,7 +575,6 @@ QString unfolded(const QString &markdown)
     return out;
 }
 
-// One run of a seed: text with the inline formats markdown can say exactly.
 struct SeedRun {
     QString text;
     QString href;
@@ -637,9 +585,6 @@ struct SeedRun {
     bool operator==(const SeedRun &) const = default;
 };
 
-// The text of a run, or nothing for an entity or a character that would have
-// to be escaped: an escape shows in the box, so such a message is left alone.
-// What markdown makes of the rest is the read-back's question.
 bool seedTextFrom(QString text, QString *out)
 {
     text.replace(QLatin1String("&lt;"), QLatin1String("<"));
@@ -655,8 +600,6 @@ bool seedTextFrom(QString text, QString *out)
     return true;
 }
 
-// Sanitized html -> runs, refusing anything but one optional <p> around
-// bold, italic, strike, inline code and http(s) links.
 bool seedRunsFrom(const QString &html, QList<SeedRun> *runs)
 {
     static const QRegularExpression tag(QStringLiteral("<(/?)([a-zA-Z0-9]+)([^>]*)>"));
@@ -713,7 +656,6 @@ bool seedRunsFrom(const QString &html, QList<SeedRun> *runs)
         else if (name == QLatin1String("code"))
             flag = &state.code;
         if (flag) {
-            // sanitize() styles <code>; the other tags carry no attribute.
             if (name != QLatin1String("code") && !attributes.isEmpty())
                 return false;
             if (*flag == !closing)
@@ -761,7 +703,7 @@ QString seedMarkdownFrom(const QList<SeedRun> &runs)
     return out;
 }
 
-} // namespace
+}
 
 void RichComposition::loadMarkdown(QTextDocument *document,
                                    const QString &markdown)
@@ -770,7 +712,6 @@ void RichComposition::loadMarkdown(QTextDocument *document,
         return;
     document->setMarkdown(markdown, QTextDocument::MarkdownDialectGitHub);
     const bool literal = loadLostSomething(*document, markdown);
-    // The mirror's own escapes are not the reader's text.
     if (literal)
         document->setPlainText(withoutWriterEscapes(markdown).trimmed());
     document->setProperty(kOpenedLiterally, literal);
@@ -786,10 +727,6 @@ void RichComposition::loadMarkdownLines(QTextDocument *document,
     keepTextIfLoadLostIt(document, markdown);
 }
 
-// Qt pads an ordered list marker to a column ("1.  item"); the box reads as
-// typed ("1. item"). Lines in a fenced block (``` or ~~~) and in an indented
-// code block (four spaces or a tab after a blank line, outside a list) are
-// left exactly as written.
 static QString withoutMarkerPadding(const QString &box)
 {
     static const QRegularExpression padded(
@@ -808,8 +745,6 @@ static QString withoutMarkerPadding(const QString &box)
     for (const QString &line : lines) {
         const bool blank = line.trimmed().isEmpty();
         if (fenceLength > 0) {
-            // A closing fence is the same character, at least as long, and
-            // carries nothing else.
             const QRegularExpressionMatch close = fence.match(line);
             if (close.hasMatch() && close.captured(1).at(0) == fenceChar
                 && close.captured(1).size() >= fenceLength
@@ -831,7 +766,6 @@ static QString withoutMarkerPadding(const QString &box)
         const bool indent = line.startsWith(QLatin1Char('\t'))
             || line.startsWith(QStringLiteral("    "));
         if (!blank && indent && previousBlank && !inList) {
-            // Indented code.
             out << line;
             previousBlank = false;
             continue;
@@ -852,8 +786,6 @@ QString RichComposition::markdownForPlainBox(const QTextDocument &document)
 {
     constexpr auto dialect = QTextDocument::MarkdownDialectGitHub;
     const QString mirror = document.toMarkdown(dialect);
-    // A line break the reader made must not read as a fold: carried through
-    // the writer as a private-use character.
     const QString raw = document.toRawText();
     QChar lineBreak(0xE000);
     while (raw.contains(lineBreak))
@@ -865,7 +797,6 @@ QString RichComposition::markdownForPlainBox(const QTextDocument &document)
         cursor.insertText(QString(lineBreak));
     QString out = unfolded(copy->toMarkdown(dialect));
     out.replace(lineBreak, QLatin1Char('\n'));
-    // Should unfolding ever cost text, the folded mirror is still every word.
     QTextDocument check;
     check.setMarkdown(out, dialect);
     QString box = comparableText(compose(check).plainBody)
@@ -875,15 +806,12 @@ QString RichComposition::markdownForPlainBox(const QTextDocument &document)
     // Not inside code: the spaces after "1." in a fenced or indented block
     // are the author's, and collapsing them changes the code they wrote.
     box = withoutMarkerPadding(box);
-    // Text the reader never saw as formatted comes back as they wrote it. As
-    // in Element's composer, what they applied here (a list) stays applied.
     return document.property(kOpenedLiterally).toBool()
         ? withoutWriterEscapes(box) : box;
 }
 
 QString RichComposition::plainTextOfSanitizedHtml(const QString &sanitizedHtml)
 {
-    // sanitize() emits only mxc: images, which a text document cannot load.
     static const QRegularExpression image(
         QStringLiteral("<img\\b[^>]*?\\balt=\"([^\"]*)\"[^>]*>"));
     QString html = sanitizedHtml;
@@ -909,13 +837,8 @@ QString RichComposition::markdownFromSanitizedHtml(const QString &sanitizedHtml,
         formatted = formatted || run.bold || run.italic || run.strike
             || run.code || !run.href.isEmpty();
     }
-    // A body that reads differently is the sender's own markdown source and
-    // the better seed.
     if (!formatted || text != plainBody)
         return {};
-    // The proof: read back, the seed must say exactly what the html said.
-    // Anything the reader treats differently (emphasis against punctuation, a
-    // line-opening marker) fails here and the message is left alone.
     const QString seed = seedMarkdownFrom(runs);
     QTextDocument document;
     document.setMarkdown(seed, QTextDocument::MarkdownDialectGitHub);
@@ -987,8 +910,6 @@ void RichComposition::replaceRange(QTextDocument *document, int start, int lengt
     QTextCursor cursor(document);
     cursor.setPosition(start);
     cursor.setPosition(start + length, QTextCursor::KeepAnchor);
-    // Take the range's first character format before replacing, so a bold or
-    // linked word stays bold or linked.
     QTextCursor probe(document);
     probe.setPosition(start + 1);
     const QTextCharFormat keep = probe.charFormat();
@@ -1002,8 +923,6 @@ bool RichComposition::documentIsBlank(const QTextDocument &document)
     for (QTextBlock block = document.begin(); block.isValid(); block = block.next()) {
         if (!block.text().isEmpty())
             return false;
-        // Structure without text is still visible: a list marker, a quote bar,
-        // a code slab, a heading's metrics.
         if (block.textList() != nullptr)
             return false;
         const QTextBlockFormat bf = block.blockFormat();

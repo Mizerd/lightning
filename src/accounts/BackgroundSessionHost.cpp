@@ -22,7 +22,6 @@ namespace lightning::accounts {
 
 namespace {
 
-// mx_rust_bg_take counts-tuple flags (contract §3.2).
 constexpr int kFlagHasUnread = 1;
 constexpr int kFlagMarkedUnread = 2;
 constexpr int kFlagThreadsOnly = 4;
@@ -71,7 +70,7 @@ QJsonObject parseObject(const QByteArray &json)
     return doc.isObject() ? doc.object() : QJsonObject();
 }
 
-} // namespace
+}
 
 BackgroundSessionHost::BackgroundSessionHost(Deps deps, Identity identity, void *handle,
                                              quint64 storeSerial, quint64 epoch,
@@ -121,22 +120,17 @@ bool BackgroundSessionHost::drainOnce()
     if (m_catchUp.active())
         m_catchUp.sample(now(), status.notableUpdatesTotal);
 
-    // 1. Badges: at most one take, only when something changed. Phase 1 asks
-    //    for counts only (max_rows 0).
     if (status.dirty) {
         applyTake(m_deps.api->bgTake(m_handle, 0));
         worked = true;
     }
-    // 2. Session state, only when its version moved.
     if (status.sessionStateVersion != m_seenSessionVersion) {
         m_seenSessionVersion = status.sessionStateVersion;
         applySessionState(m_deps.api->bgTakeSessionState(m_handle));
         worked = true;
-        // A handler (login failed, signed out) may have handed the handle on.
         if (!m_handle)
             return true;
     }
-    // 3. The queue: Notify events and the few Session ones the host handles.
     if (status.queuedEvents > 0) {
         for (int i = 0; i < kMaxEventsPerPass && m_handle; ++i) {
             const QString raw = m_deps.api->pollEvent(m_handle);
@@ -148,7 +142,6 @@ bool BackgroundSessionHost::drainOnce()
         if (!m_handle)
             return true;
     }
-    // 4. Custody: only when the token generation moved, or on revocation.
     if (takeCustodyIfMoved(status)) {
         worked = true;
         if (!m_handle)
@@ -193,11 +186,9 @@ void BackgroundSessionHost::applyTake(const QByteArray &json)
     const QJsonObject take = parseObject(json);
     if (take.isEmpty())
         return;
-    // A baseline or a rescan is a fresh whole picture: re-read the modes too.
     if (take.value(QStringLiteral("baseline")).toBool(false)
         || take.value(QStringLiteral("rescan")).toBool(false))
         m_modes.clear();
-    // The WHOLE table every time: a room absent from it is zero.
     QHash<QString, RoomCounts> rooms;
     for (const QJsonValue &value : take.value(QStringLiteral("counts")).toArray()) {
         const QJsonArray tuple = value.toArray();
@@ -234,8 +225,6 @@ void BackgroundSessionHost::recomputeSummary(bool force)
         room.mentionInThreads = (it->flags & kFlagMentionInThreads) != 0;
         room.encrypted = (it->flags & kFlagEncrypted) != 0;
         room.encryptionKnown = (it->flags & kFlagEncryptionKnown) != 0;
-        // The foreground's rule, with THIS account's mode for the room. The
-        // mode is a settings read, so only for a room with something unread.
         if (!roomunread::rawUnread(room))
             continue;
         const int mode = modeFor(room.id);
@@ -247,8 +236,6 @@ void BackgroundSessionHost::recomputeSummary(bool force)
         if (it->flags & kFlagLowerBound)
             lowerBound = true;
     }
-    // Read elsewhere withdraws this account's cards for that room; a room
-    // becoming unread arms the withdrawal (NotificationManager's rule).
     if (m_deps.notifications) {
         for (const QString &roomId : std::as_const(m_unreadRooms)) {
             if (!unreadNow.contains(roomId))
@@ -370,12 +357,9 @@ void BackgroundSessionHost::applySessionState(const QByteArray &json)
         }
     }
 
-    // The login result last: its handlers can hand the handle on.
     if (m_phase == Phase::Starting && has("login_ok")
         && changed(QStringLiteral("login_ok"), payload("login_ok"))) {
         m_phase = Phase::Running;
-        // Start syncing at once: the catch-up semaphore was taken before the
-        // handle was created.
         m_deps.api->startSync(m_handle);
         qCInfo(lcBgHost) << "background account signed in" << "acct=" << m_identity.slug;
         Q_EMIT loginSucceeded();
@@ -391,7 +375,6 @@ void BackgroundSessionHost::applySessionState(const QByteArray &json)
                      || reason == QLatin1String("crypto_account_mismatch"))
                 kind = FailureKind::EncryptionDataMissing;
         }
-        // The reason word only; the message can quote the server.
         qCInfo(lcBgHost) << "background account could not start" << "acct=" << m_identity.slug
                          << "reason=" << failed.value(QStringLiteral("reason")).toString();
         Q_EMIT loginFailed(kind);
@@ -428,23 +411,14 @@ void BackgroundSessionHost::handleQueued(const QString &raw)
         return;
     }
     if (type == QLatin1String("reaction_event")) {
-        // Reactions raise no desktop card today (the Activity Center is the
-        // foreground's, and its background inbox is Phase 3).
         return;
     }
     if (type == QLatin1String("verification_request_received")) {
-        // Never parked, never auto-cancelled (design §9.2): a labelled card,
-        // and the request stays pending in the SDK for when the account is
-        // opened. The card says nothing but that.
         const QString key = verificationCardKey(event.value(QStringLiteral("flow_id")).toString());
-        // Notifications off is off for every account (§18 round 1, L5).
         if (m_deps.settings && !m_deps.settings->notificationsEnabled())
             return;
         if (m_deps.notifications && !m_verificationCards.contains(key)) {
             m_verificationCards.insert(key);
-            // The label is a display name from the server: isolated (FSI ..
-            // PDI) so its direction cannot reorder the title; and the card is
-            // stamped for THIS account, so "Open this account" opens it.
             m_deps.notifications->showGeneric(
                 tr("Verification request · %1")
                     .arg(QChar(0x2068) + m_identity.label + QChar(0x2069)),
@@ -454,32 +428,22 @@ void BackgroundSessionHost::handleQueued(const QString &raw)
         return;
     }
     if (type == QLatin1String("verification_cancelled")) {
-        // The other side gave up (or the request timed out): the card would
-        // only send the user to a request that no longer exists (review L10).
         const QString key = verificationCardKey(event.value(QStringLiteral("flow_id")).toString());
         if (m_verificationCards.remove(key) && m_deps.notifications)
             m_deps.notifications->withdrawGeneric(key);
         return;
     }
     if (type == QLatin1String("token_trace")) {
-        // Rust enqueues it only under LIGHTNING_TOKEN_TRACE: a rotation's
-        // generation, its wait's outcome and milliseconds, never a token
-        // (sessiontokens.rs). Logged so a background rotation's answer path
-        // can be seen working (24a485c5 for live accounts).
         qCInfo(lcBgHost).noquote()
             << "token trace acct=" + m_identity.slug
             << QString::fromUtf8(QJsonDocument(event).toJson(QJsonDocument::Compact));
         return;
     }
     if (type == QLatin1String("queue_overflow")) {
-        // Badges do not ride the queue (the aggregator's dirty flag), so only
-        // notify-worthy events can have been lost.
         qCWarning(lcBgHost) << "a background account's event queue overflowed"
                             << "acct=" << m_identity.slug;
         return;
     }
-    // Every other Session type is read from the sticky slot; a queue copy is
-    // counted and dropped.
     ++m_droppedEvents;
 }
 
@@ -500,22 +464,14 @@ void BackgroundSessionHost::handleTimelineEvent(const QJsonObject &event, bool d
         return;
     timelineEvent.roomId = roomId;
     const QJsonObject bg = event.value(QStringLiteral("bg")).toObject();
-    // Rust resolved the name from the room's member list; unresolved, the
-    // localpart, never another account's member cache.
     const QString senderName = bg.value(QStringLiteral("sender_display_name")).toString();
     timelineEvent.senderDisplayName =
         senderName.isEmpty() ? localpartOf(timelineEvent.sender) : senderName;
     if (timelineEvent.undecryptable && timelineEvent.body.isEmpty()) {
-        // The foreground's own words for it, so the translation is shared.
         timelineEvent.body =
             QCoreApplication::translate("RustSdkMatrixClient", "[unable to decrypt yet]");
         timelineEvent.type = TimelineEvent::Notice;
     }
-    // An event_decrypted for an id this host was handed as an undecryptable
-    // timeline_event replaces that card. One Rust forwarded only once its
-    // decrypted facts passed the filter (contract §3.5, review WP1-R N2) was
-    // never seen here: it is a NEW candidate, and processDecrypted() would
-    // drop it for not being a live UTD.
     bool lateForwarded = false;
     if (decrypted) {
         lateForwarded = m_forwardedUtds.remove(timelineEvent.eventId) == 0;
@@ -537,8 +493,6 @@ void BackgroundSessionHost::handleTimelineEvent(const QJsonObject &event, bool d
 
 void BackgroundSessionHost::rememberForwardedUtd(const QString &eventId)
 {
-    // Bounded like NotificationManager's own memory of live UTDs: past ten
-    // minutes a decryption no longer notifies anyway.
     constexpr qint64 kMemoryMs = 10 * 60 * 1000;
     constexpr int kMaxRemembered = 512;
     const qint64 at = now();
@@ -579,9 +533,6 @@ NotificationManager::Context BackgroundSessionHost::contextFor(const QString &ro
         in.themeId = int(m_deps.settings->theme());
         in.roomMode = m_deps.settings->roomNotificationModeFor(uid, roomId);
         in.localModeUnsynced = m_deps.settings->roomNotificationModeDecidesLocallyFor(uid, roomId);
-        // The room's encryption as the last take knew it; an unlisted room is
-        // "unknown", and the stricter preview level wins, as the foreground's
-        // noticePreviewFor() does.
         const auto facts = m_rooms.constFind(roomId);
         const bool known = facts != m_rooms.cend();
         in.previewMode = m_deps.settings->effectiveNotificationPreview(
@@ -593,7 +544,6 @@ NotificationManager::Context BackgroundSessionHost::contextFor(const QString &ro
     in.eventId = event.eventId;
     in.eventThreadRootId = event.threadRootId;
     in.fromThread = false;
-    // Nothing of a background account is on screen.
     in.currentRoomId = QString();
     in.activeRoomAtLatest = false;
     in.activeRoomHydrating = false;
@@ -605,4 +555,4 @@ NotificationManager::Context BackgroundSessionHost::contextFor(const QString &ro
     return lightning::notifications::NotificationContextBuilder::build(in);
 }
 
-} // namespace lightning::accounts
+}

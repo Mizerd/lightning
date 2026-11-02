@@ -4,23 +4,10 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// The account switcher popover, opened from the rail avatar: a header, a
-// dense list of account rows (active first), one status strip for the active
-// account, and a three-button footer. No access token, device secret or local
-// path is ever displayed.
-//
-// Rows have a fixed height owned here (`rowH`), so the list's content height
-// and viewport are the same arithmetic and it only scrolls when there are
-// more accounts than fit (as in MentionPopup). Crypto state (trust meter,
-// E2EE badge) is only known for the active account, so it lives in the
-// status strip rather than on each row.
 Popup {
     id: root
     objectName: "accountSwitcherPopover"
     modal: true
-    // Wide enough for a full Matrix ID in the row's mono line (a 34-character
-    // id is ~225 px at 11 px); at 320 the server half was elided away, and the
-    // id is the only thing separating two accounts with one display name.
     width: 352
     padding: AppTheme.spacing12
     // `CloseOnEscape` needs `focus: true`: QQuickPopup only handles Escape with
@@ -32,22 +19,15 @@ Popup {
 
     readonly property bool connected: app.connectionStatus === qsTr("Connected")
 
-    // One row height for the whole surface; the delegate, viewport and content
-    // height all derive from it.
     readonly property int rowH: AppTheme.scaled(44)
-    // Six rows before the list scrolls, as in MentionPopup.
     readonly property int maxVisibleRows: 6
 
-    // Crypto state for the active account, read once: the SDK only reports it
-    // for the attached account, so it must never be shown for an inactive one.
     readonly property bool cryptoKnown: app.backendName === "rust"
                                         && !!app.cryptoHealth
     readonly property bool activeE2eeReady: root.cryptoKnown
                                             && app.cryptoHealth.cryptoReady === true
     readonly property bool activeHealthWarning: root.cryptoKnown
                                                 && app.cryptoHealth.cryptoError === true
-    // The trust meter uses real crypto state only; -1 means no trustworthy
-    // answer, and the chip is then hidden.
     readonly property int activeTrustCompleted: {
         if (!root.cryptoKnown || !app.cryptoHealth.cryptoSupported)
             return -1
@@ -58,20 +38,14 @@ Popup {
         return n
     }
     readonly property int activeTrustTotal: 3
-    // Which check is missing decides the chip's words: this device first.
     readonly property bool activeDeviceVerified:
         root.cryptoKnown && app.cryptoHealth.cryptoSupported
         && app.cryptoHealth.currentDeviceVerified === CryptoHealthModel.Yes
 
-    // The strip describes the active account; with none attached it is hidden.
     readonly property bool hasActiveAccount:
         !!(app.accounts && app.accounts.activeUserId
            && app.accounts.activeUserId.length > 0)
 
-    // ── The strip only speaks when something is wrong ──
-    // The connection state appears only when unhealthy ("Idle" means
-    // disconnected while logged in): a line that always says "Connected" gets
-    // ignored. The user's own status text leads when set.
     readonly property string healthyConnectionText: qsTr("Connected")
     function activeMetaText() {
         var parts = []
@@ -83,11 +57,6 @@ Popup {
         return parts.join(" · ")
     }
 
-    // Labs (concurrent accounts): the rows come from AccountListModel, which
-    // reads no secret per row, instead of AccountManager's list. Its snapshot
-    // is a Q_INVOKABLE, so it is copied here by the handlers below and never
-    // read inside a binding. Null with Labs off (`app.accountList` is null),
-    // and then nothing below reads it.
     property var labsRows: null
     // A host starting, running or pausing also signals rowsChanged (its
     // liveState and section move). While the popover is open that change is
@@ -108,8 +77,6 @@ Popup {
         root.labsRows = next
     }
     Component.onCompleted: root.refreshLabsRows()
-    // The popover is persistent, so the list keeps its old offset; the active
-    // account is the first row and must be what is shown on open (C51-F06).
     onAboutToShow: cardList.positionViewAtBeginning()
     onClosed: if (root._labsRowsHeld) root.refreshLabsRows()
     Connections {
@@ -123,15 +90,12 @@ Popup {
         function onRowsChanged() { root.refreshLabsRows() }
     }
 
-    // Per-account unread and mention state for the rows (Labs). The feed reads
-    // nothing while `app.accountActivity` is null.
     readonly property AccountActivityFeed activityFeed: AccountActivityFeed {
         source: app.accountActivity ? app.accountActivity : null
         userIds: app.accountActivity
                  ? root.sortedAccounts.map(a => a.userId || "") : []
     }
 
-    // Active account first, regardless of storage order.
     readonly property var sortedAccounts: {
         var list = app.accountList ? (root.labsRows || [])
                                    : (app.accounts ? app.accounts.accounts : [])
@@ -145,7 +109,6 @@ Popup {
         return list
     }
 
-    // The row that holds focus (on the row or on its X), or -1.
     function focusedRow() {
         for (let i = 0; i < cardList.count; i++) {
             const it = cardList.itemAtIndex(i)
@@ -161,16 +124,11 @@ Popup {
             it.forceActiveFocus(Qt.TabFocusReason)
     }
 
-    // Popover shadow. MultiEffect and its source must be siblings, so both
-    // live in one background Item.
     background: Item {
         Rectangle {
             id: popoverBackground
-            // Named so a test can assert rows derive their inks against the
-            // colour this actually paints (IdentityCard's `hostSurface`).
             objectName: "accountPopoverBackground"
             anchors.fill: parent
-            // The deep canvas, so the identity rows read as raised.
             color: AppTheme.stormCanvas
             border.color: AppTheme.stormBorder
             border.width: 1
@@ -188,8 +146,6 @@ Popup {
         }
     }
 
-    // Footer action: an outline button. Add/Settings use the secondary ink;
-    // Sign out uses the danger ink and outline.
     component FooterAction: AbstractButton {
         id: footerBtn
         property string iconName: ""
@@ -205,8 +161,6 @@ Popup {
         Accessible.role: Accessible.Button
         Accessible.name: footerBtn.text
 
-        // Spacer-centred: the contentItem is stretched to the button width, so
-        // centerIn would be a no-op.
         contentItem: RowLayout {
             spacing: AppTheme.spacing4
             Item { Layout.fillWidth: true }
@@ -241,9 +195,6 @@ Popup {
         }
     }
 
-    // A full-width row for the account's own things (status, look, profile,
-    // security): one click from the avatar, where Discord and Slack keep them,
-    // instead of behind a "Manage" link.
     component QuickRow: AbstractButton {
         id: quickRow
         property string iconName: ""
@@ -290,10 +241,6 @@ Popup {
         }
     }
 
-    // The window's height bounds the popover (C51-F07). The popup is clamped
-    // to the window but its content was not, so on a short window the quick
-    // rows and the footer were cut off. Everything that is not the list is
-    // chrome; the list gets what is left, never less than a row and a half.
     readonly property real windowRoom: {
         const ov = Overlay.overlay
         return (ov && ov.height > 0) ? ov.height : 100000
@@ -309,7 +256,6 @@ Popup {
             h += k.implicitHeight
             shown++
         }
-        // The list is one more visible child, so n items have n - 1 gaps.
         return h + shown * AppTheme.spacing10
     }
     readonly property real listRoom: Math.max(Math.round(root.rowH * 1.5),
@@ -320,7 +266,6 @@ Popup {
         id: contentColumn
         spacing: AppTheme.spacing10
 
-        // Header: bolt icon and the "Accounts" label.
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -329,7 +274,6 @@ Popup {
                 size: 14
                 color: AppTheme.bolt
             }
-            // Reuse MenuSectionLabel so section headers restyle together.
             MenuSectionLabel { text: qsTr("Accounts") }
         }
 
@@ -340,7 +284,6 @@ Popup {
             objectName: "identityCardList"
             Layout.fillWidth: true
             clip: true
-            // A contiguous band; each row's selection chip separates them.
             spacing: 0
             model: root.sortedAccounts
             // From the count, not contentHeight (0 until delegates exist, and
@@ -351,14 +294,9 @@ Popup {
                     return 0
                 var natural = n <= root.maxVisibleRows
                     ? n * root.rowH
-                    // Past the cap, half a row stays visible: the AsNeeded bar
-                    // is invisible at rest, so the cut row is the cue that it
-                    // scrolls.
                     : Math.round((root.maxVisibleRows + 0.5) * root.rowH)
                 return Math.min(natural, root.listRoom)
             }
-            // Home/End/PageUp/PageDown: the delegates hold focus, not the
-            // list, so the list's own key handling never sees them (C51-F02).
             Keys.onPressed: (event) => {
                 var to = -1
                 var cur = root.focusedRow()
@@ -389,16 +327,11 @@ Popup {
                 displayName: modelData.displayName || ""
                 userId: modelData.userId || ""
                 avatarMxc: modelData.avatarUrl || ""
-                // A session the server revoked this run needs a sign-in too,
-                // though its token still reads.
                 needsSignIn: modelData.needsSignIn === true
                              || modelData.sessionRevoked === true
-                // Crypto state only for the active row.
                 healthWarning: modelData.isActive === true
                                && root.activeHealthWarning
 
-                // Labs: this account's activity, read from the feed's map.
-                // Defaults (no badge) when Labs is off.
                 readonly property var activity:
                     root.activityFeed.entryFor(modelData.userId || "")
                 liveState: card.activity.liveState
@@ -406,15 +339,10 @@ Popup {
                 mentionsLowerBound: card.activity.mentionsLowerBound
                 activityDot: card.activity.hasUnread
 
-                // Scroll the focused row (or its X) into view; Tab and the
-                // arrows otherwise walk onto clipped rows (C51-F08).
                 onFocusWithinChanged: if (card.focusWithin)
                     cardList.positionViewAtIndex(card.index, ListView.Contain)
 
                 onActivated: {
-                    // Compare against the live active account, not the row
-                    // snapshot, so a stale delegate can't swallow a real
-                    // switch.
                     if ((modelData.userId || "")
                             === (app.accounts ? app.accounts.activeUserId : ""))
                         return
@@ -436,9 +364,6 @@ Popup {
             visible: root.hasActiveAccount
         }
 
-        // ── The active account's status strip ──
-        // Presence on the left, crypto state on the right. Whatever the backend
-        // can't answer is absent, never fabricated.
         RowLayout {
             id: statusStrip
             objectName: "accountStatusStrip"
@@ -454,7 +379,6 @@ Popup {
                 width: 6
                 height: 6
                 radius: 3
-                // Bolt when connected, muted otherwise.
                 color: root.connected ? AppTheme.bolt : AppTheme.stormTextMuted
             }
             Label {
@@ -462,17 +386,14 @@ Popup {
                 objectName: "accountStatusMeta"
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignVCenter
-                // Remote or externally chosen text: never markup.
                 textFormat: Text.PlainText
                 text: root.activeMetaText()
                 color: AppTheme.stormTextMuted
-                // Prose, not an identifier.
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 font.weight: AppTheme.weightMedium
                 elide: Label.ElideRight
             }
 
-            // Trust as a chip that opens Security & Recovery.
             AbstractButton {
                 id: trustChip
                 objectName: "accountTrustChip"
@@ -488,8 +409,6 @@ Popup {
                 hoverEnabled: true
                 focusPolicy: Qt.TabFocus
                 Accessible.role: Accessible.Button
-                // What the chip says, in words: "E2EE 0/3" told nobody what
-                // the three were or what to do about the missing ones.
                 readonly property string word:
                     root.activeTrustCompleted < 0 ? qsTr("Encrypted")
                     : trustChip.full ? qsTr("Verified")
@@ -500,9 +419,6 @@ Popup {
                       .arg(trustChip.word)
                       .arg(root.activeTrustCompleted).arg(root.activeTrustTotal)
                     : qsTr("Encryption ready. Open Security and Recovery.")
-                // Below the chip: above it the sentence covered the last
-                // account's id line, the only thing telling same-named
-                // accounts apart (C51-F04).
                 ToolTip {
                     objectName: "accountTrustTip"
                     y: trustChip.height + AppTheme.spacing4
@@ -606,8 +522,6 @@ Popup {
                 text: qsTr("Add")
                 iconName: "person_add"
                 enabled: !app.accountSwitching && !(app.auth && app.auth.logoutPending)
-                // A sign-in error from an earlier visit (kept on the form
-                // through an add-account rollback) is not this visit's.
                 onClicked: {
                     root.close()
                     if (app.auth)
@@ -633,14 +547,8 @@ Popup {
         }
     }
 
-    // The status editor is hosted here so every entry point opens the same
-    // instance. The rows above deep-link with SettingsScreen.qml's section
-    // aliases (mapLegacySection).
     StatusDialog { id: statusDialog }
 
-    // Remove-account confirmation: names the exact account, Cancel is the
-    // focused default. Only that account's local session, store and token are
-    // deleted.
     Dialog {
         id: removeConfirm
         objectName: "removeAccountConfirmDialog"
@@ -654,8 +562,6 @@ Popup {
         Overlay.modal: Rectangle { color: AppTheme.modalScrim }
         title: qsTr("Remove account?")
         standardButtons: Dialog.NoButton
-        // `focus` for CloseOnEscape and Cancel's default focus (see the popover
-        // above).
         focus: true
         closePolicy: Popup.CloseOnEscape
 
@@ -665,7 +571,6 @@ Popup {
             radius: AppTheme.radiusLg
         }
 
-        // Replace Basic's stock title bar. `title` stays for accessibility.
         header: Label {
             text: removeConfirm.title
             color: AppTheme.stormText
@@ -682,7 +587,6 @@ Popup {
         contentItem: ColumnLayout {
             spacing: AppTheme.spacing12
             Label {
-                // Remote or externally chosen text: never markup.
                 textFormat: Text.PlainText
                 Layout.fillWidth: true
                 text: qsTr("Remove %1 from this device? Its local Lightning "
@@ -719,13 +623,9 @@ Popup {
         }
     }
 
-    // Sign-out confirmation: names the account it signs out, as the removal
-    // confirmation does; Cancel is the focused default.
     Dialog {
         id: signOutConfirm
         objectName: "signOutConfirmDialog"
-        // The account Sign out acts on: the active one, read live, so the
-        // dialog never names an account other than the one logout() ends.
         readonly property string targetUserId:
             app.accounts ? (app.accounts.activeUserId || "") : ""
         readonly property string targetDisplayName: {
@@ -740,23 +640,14 @@ Popup {
         }
         parent: Overlay.overlay
         anchors.centerIn: parent
-        // Bound to the overlay, not content implicitWidth, so wrapping content
-        // doesn't feed back into the Dialog width.
         width: Math.max(240, Math.min(420, parent ? parent.width - 32 : 420))
         modal: true
-        // An explicit scrim (see removeConfirm).
         Overlay.modal: Rectangle { color: AppTheme.modalScrim }
         title: qsTr("Sign out?")
         standardButtons: Dialog.NoButton
-        // See removeConfirm: `focus` for CloseOnEscape and Cancel's focus.
         focus: true
         closePolicy: Popup.CloseOnEscape
 
-        // Would signing out lose room keys? SDK facts only (backup state and
-        // upload progress, recovery state, other verified sessions). It warns
-        // and never blocks. The arguments exist so the binding re-evaluates
-        // when any of those facts changes: a function call is not bound to
-        // what it reads.
         function assessKeys(answered, bs, us, done, total, onServer, recovery, devices) {
             if (!app.backup || !app.cryptoHealth || !app.cryptoHealth.cryptoSupported)
                 return { level: "ok", warns: false, pendingKeys: 0,
@@ -783,7 +674,6 @@ Popup {
             radius: AppTheme.radiusLg
         }
 
-        // Replace Basic's stock title bar. `title` stays for accessibility.
         header: Label {
             text: signOutConfirm.title
             color: AppTheme.stormText
@@ -799,14 +689,10 @@ Popup {
 
         contentItem: ColumnLayout {
             spacing: AppTheme.spacing12
-            // Which account: with several signed in, "this session" alone did
-            // not say. The display name, then the Matrix ID that tells two
-            // accounts with one name apart.
             Label {
                 objectName: "signOutAccountName"
                 visible: signOutConfirm.targetUserId.length > 0
                 Layout.fillWidth: true
-                // Remote or externally chosen text: never markup.
                 textFormat: Text.PlainText
                 text: signOutConfirm.targetDisplayName.length > 0
                       && signOutConfirm.targetDisplayName !== signOutConfirm.targetUserId
@@ -829,8 +715,6 @@ Popup {
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormText
             }
-            // Chat backgrounds that have not reached the homeserver yet are
-            // deleted with the rest of this device's data.
             Label {
                 objectName: "signOutUnsavedBackgrounds"
                 readonly property int unsaved: app.backdrops
@@ -846,8 +730,6 @@ Popup {
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormDanger
             }
-            // Removals not yet taken by the homeserver: the copies there
-            // would come back at the next sign-in.
             Label {
                 objectName: "signOutOwedRemovals"
                 readonly property int owed: app.backdrops
@@ -863,9 +745,6 @@ Popup {
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormDanger
             }
-            // Room keys that exist only in this session. Says what will be
-            // lost; the dialog offers recovery setup and never forbids
-            // signing out.
             Label {
                 objectName: "signOutKeyWarning"
                 readonly property string level: signOutConfirm.keyRisk.level

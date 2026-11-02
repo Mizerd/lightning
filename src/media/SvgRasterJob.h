@@ -37,22 +37,13 @@ inline constexpr int kHelperRefusedExit = 3;
 
 using Callback = std::function<void(const Result &)>;
 
-/// Test and wiring seams. All GUI-thread only.
 struct Hooks {
-    /// Where the job's scratch directory is created. Empty: the system temp
-    /// directory. The app points it at the portable media scratch root.
     std::function<QString()> scratchRoot;
-    /// Mark a scratch directory live / release it, so another instance's
-    /// startup sweep cannot delete files an upload is still reading. Optional.
     std::function<void(const QString &)> holdScratchDir;
     std::function<void(const QString &)> releaseScratchDir;
-    /// A replacement helper. `args` may use %IN %OUT %MIN %MAX; an empty
-    /// program means the app binary with the real flag.
     QString program;
     QStringList args;
-    /// Convert in this process instead of spawning (model-level tests).
     bool inProcess = false;
-    /// 0 = kDefaultTimeoutMs.
     int timeoutMs = 0;
 };
 
@@ -69,7 +60,7 @@ struct Job {
     Policy policy;
     QPointer<QObject> context;
     Callback done;
-    bool noText = false; // retry without a GUI app (text refused)
+    bool noText = false;
 };
 
 inline std::deque<Job> &pending()
@@ -101,7 +92,6 @@ inline Result refusal(const QString &code)
 
 inline void startProcess(Job job)
 {
-    // Cheap Qt Core pre-screen: a plainly bad file never costs a process.
     const QString early = screen(job.svg, true);
     if (!early.isEmpty()) {
         deliver(job, refusal(early));
@@ -116,7 +106,6 @@ inline void startProcess(Job job)
         return;
     }
     if (hooks().inProcess) {
-        // Still asynchronous, so callers see one ordering in every mode.
         QTimer::singleShot(0, QCoreApplication::instance(), [job] {
             const Result r = rasterize(job.svg, job.policy, true);
             deliver(job, r);
@@ -212,8 +201,6 @@ inline void startProcess(Job job)
                 result.refusal = QStringLiteral("helper_failed");
             }
         }
-        // The helper's GUI app could not start (no usable platform plugin):
-        // once, convert again without text rather than fail.
         if (result.refusal == QLatin1String("crashed") && !job.noText) {
             Job again = job;
             again.noText = true;
@@ -235,7 +222,6 @@ inline void startProcess(Job job)
                          if (e == QProcess::FailedToStart)
                              finish(QStringLiteral("helper_failed"), -1,
                                     QProcess::CrashExit);
-                         // Crashed/Timedout: finished() follows.
                          Q_UNUSED(process)
                      });
     const int timeout =
@@ -255,29 +241,23 @@ inline void pump()
         Job job = std::move(pending().front());
         pending().pop_front();
         if (!job.context)
-            continue; // the requester is gone; nothing to deliver
+            continue;
         ++running();
         startProcess(std::move(job));
     }
 }
 
-} // namespace detail
+}
 
-/// Convert `svg` to a PNG under `policy`. `done` runs on the GUI thread, later
-/// than this call, only while `context` is alive. A refusal or failure comes
-/// back as `Result::refusal` (a code `userMessage()` understands).
 inline void rasterizeAsync(const QByteArray &svg, Policy policy,
                            QObject *context, Callback done)
 {
     detail::pending().push_back({ svg, policy, QPointer<QObject>(context),
                                   std::move(done) });
-    // Deferred so the first job never completes inside the caller.
     QTimer::singleShot(0, QCoreApplication::instance(),
                        [] { detail::pump(); });
 }
 
-/// Same, reading `path` first (bounded: a file over kMaxSourceBytes is refused
-/// as "too_large" without being read whole).
 inline void rasterizeFileAsync(const QString &path, Policy policy,
                                QObject *context, Callback done)
 {
@@ -285,8 +265,7 @@ inline void rasterizeFileAsync(const QString &path, Policy policy,
     QFile file(path);
     if (file.open(QIODevice::ReadOnly))
         bytes = file.read(kMaxSourceBytes + 1);
-    // An unreadable file reaches the screen as empty: "not a valid SVG".
     rasterizeAsync(bytes, policy, context, std::move(done));
 }
 
-} // namespace lightning::svgraster
+}

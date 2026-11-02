@@ -1,7 +1,3 @@
-// The loop breaker on the reopens that recover a damaged timeline mirror
-// (docs/open-items.md, "a LOOP BREAKER on recovery reopens, never an identity
-// guard"). The reopens are deliberate, so the bound must never turn one into a
-// no-op: past the cap it defers, once, and the mirror still recovers.
 
 #include "matrix/RecoveryReopenBudget.h"
 
@@ -24,14 +20,10 @@ private Q_SLOTS:
         qint64 retry = -1;
         for (int i = 0; i < RecoveryReopenBudget::kMaxReopens; ++i)
             QCOMPARE(budget.request(room, 1000 + i * 100, &retry), Verdict::Reopen);
-        // The next one, 50 ms after the third: deferred until the first leaves
-        // the window.
         QCOMPARE(budget.request(room, 1250, &retry), Verdict::Defer);
         QCOMPARE(retry, 1000 + RecoveryReopenBudget::kWindowMs - 1250);
-        // A storm meanwhile schedules nothing more.
         for (int i = 0; i < 50; ++i)
             QCOMPARE(budget.request(room, 1300 + i, &retry), Verdict::AlreadyDeferred);
-        // The deferred reopen runs, and it counts.
         const qint64 fired = 1000 + RecoveryReopenBudget::kWindowMs;
         QVERIFY(budget.takeDeferred(room, fired));
         QVERIFY(!budget.takeDeferred(room, fired));
@@ -69,8 +61,6 @@ private Q_SLOTS:
         QVERIFY(!budget.takeDeferred(QStringLiteral("a"), RecoveryReopenBudget::kWindowMs));
     }
 
-    // Every automatic recovery reopen goes through the budget. Before it, all
-    // four called openRoomTimeline / openThread / openEventContext directly.
     void everyRecoveryReopenIsBudgeted()
     {
         QFile f(QStringLiteral(SRC_DIR "/matrix/RustSdkMatrixClient.cpp"));
@@ -88,7 +78,7 @@ private Q_SLOTS:
                      qPrintable(body));
             ++cases;
         }
-        QCOMPARE(cases, 3); // room, thread, context
+        QCOMPARE(cases, 3);
         const int overflow = src.indexOf(QStringLiteral("type == QLatin1String(\"queue_overflow\")"));
         QVERIFY(overflow > 0);
         QVERIFY(src.mid(overflow, 2000).contains(QRegularExpression(

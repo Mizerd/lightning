@@ -9,32 +9,25 @@ AppMenu {
     id: root
     menuWidth: AppTheme.menuWidthRoom
 
-    /// The room this menu acts on, and the fields its rows read.
     property string roomId: ""
     property string roomName: ""
     property string canonicalAlias: ""
     property bool isDirect: false
     property bool isFavourite: false
     property bool isLowPriority: false
-    /// Anything to mark read: "Mark as read" is not offered on a read room.
     property bool isUnread: true
-    /// A pending invitation: the menu offers Accept and Reject in place of
-    /// Leave (the Channels row has no other invite actions; GitHub #28).
     property bool isInvite: false
 
     signal acceptInviteRequested()
     signal rejectInviteRequested()
     signal markRead()
     signal markUnread()
-    // Carries the value to write, not a toggle.
     signal setFavourite(bool on)
     signal setLowPriority(bool on)
     signal setNotificationMode(int mode)
     signal copyRoomLink()
     signal leaveRoomRequested()
-    // The host opens ChatBackgroundDialog for this room.
     signal chatBackgroundRequested()
-    // The host opens the invite dialog for this room.
     signal inviteRequested()
     signal selectRoomRequested()
 
@@ -46,16 +39,11 @@ AppMenu {
         onTriggered: root.selectRoomRequested()
     }
 
-    // The Notifications flyout is a nested Menu, so its row is the delegate
-    // AppMenu builds for it and has no `visible` of its own to bind; hide
-    // that row for an invitation, and show it again if the same delegate
-    // later becomes a joined room.
     function syncFlyoutRow() {
         for (var i = 0; i < root.count; ++i) {
             var row = root.itemAt(i)
             if (row && row.subMenu === notificationsFlyout) {
                 row.visible = !root.isInvite
-                // Menu navigation skips disabled rows, not invisible ones.
                 row.enabled = !root.isInvite
             }
         }
@@ -63,15 +51,10 @@ AppMenu {
     onIsInviteChanged: syncFlyoutRow()
     onCountChanged: syncFlyoutRow()
     Component.onCompleted: syncFlyoutRow()
-    // Mono room-address header: the canonical alias when there is one,
-    // otherwise the display name without a fabricated "#".
     contextLabel: root.isDirect
                   ? root.roomName
                   : (root.canonicalAlias.length > 0
                      ? root.canonicalAlias : root.roomName)
-    // Favourite at the top, showing the current state. Offered only where the
-    // backend can write the tag (a device-local favourite would differ from
-    // other clients).
     AppMenuItem {
         objectName: "roomFavouriteItem"
         visible: app.roomList.roomFavouritesSupported
@@ -95,9 +78,6 @@ AppMenu {
     AppMenuSeparator {
         visible: app.roomList.roomFavouritesSupported && !root.isInvite
     }
-    // A pending invitation is not a room the user is in: read state, the
-    // notification mode, the chat background and a room link all have
-    // nothing to act on until it is accepted (C06 F06).
     AppMenuItem {
         objectName: "roomMarkReadItem"
         visible: !root.isInvite && root.isUnread
@@ -110,29 +90,21 @@ AppMenu {
     AppMenuItem {
         objectName: "roomMarkUnreadItem"
         visible: !root.isInvite
-        // Hidden rows must not take the keyboard (MASTER-3 M6).
         enabled: visible
         iconName: "visibility_off"
         text: qsTr("Mark as unread")
         onTriggered: root.markUnread()
     }
     AppMenuSeparator { visible: !root.isInvite }
-    // Per-room notification mode. roomNotificationMode is a Q_INVOKABLE, so it
-    // is re-queried (refreshMode()) rather than bound; radioSelected binds to
-    // the local currentMode and is never assigned. With server push rules the
-    // setting also caches the account's server mode (see AppController).
     AppMenu {
         id: notificationsFlyout
         objectName: "roomNotificationsFlyout"
         title: qsTr("Notifications")
         submenuIconName: "notifications"
         menuWidth: AppTheme.menuWidthFlyout
-        // Flyout header: a bare mono caption.
         contextLabel: qsTr("Notify mode")
         contextBolt: false
         property int currentMode: 0
-        // True while the last server push-rule write failed; the disclaimer
-        // then says the mode was kept on this device.
         property bool syncFailed: false
         function refreshMode() {
             currentMode = app.settings.roomNotificationMode(root.roomId)
@@ -140,8 +112,6 @@ AppMenu {
         }
         onAboutToShow: {
             refreshMode()
-            // Re-query the server rule on open so changes from other clients
-            // land. A no-op without server push-rule support.
             app.requestRoomNotificationMode(root.roomId)
         }
         Connections {
@@ -165,8 +135,6 @@ AppMenu {
             onTriggered: root.setNotificationMode(0)
         }
         AppMenuItem {
-            // The SDK's MentionsAndKeywordsOnly mode keeps keyword rules
-            // firing.
             text: qsTr("Mentions & keywords")
             radio: true
             radioSelected: notificationsFlyout.currentMode === 1
@@ -178,8 +146,6 @@ AppMenu {
             radioSelected: notificationsFlyout.currentMode === 2
             onTriggered: root.setNotificationMode(2)
         }
-        // "Follow account default", as in Room Information, so mode 3 has a
-        // selected radio. Server-capable backends only.
         AppMenuItem {
             visible: app.serverRoomNotificationModes
             text: qsTr("Follow account default")
@@ -189,27 +155,18 @@ AppMenu {
         }
         Label {
             objectName: "roomNotificationDisclaimer"
-            // Sized to the menu so the text wraps (an unsized wrapping Text
-            // uses its implicit width, the whole sentence) and its height
-            // counts toward the menu's. Not a row, so it does not affect
-            // AppMenu's fit and cannot loop.
             width: notificationsFlyout.width - notificationsFlyout.leftPadding
                    - notificationsFlyout.rightPadding
             leftPadding: AppTheme.menuItemPadding
             rightPadding: AppTheme.menuItemPadding
             topPadding: AppTheme.spacing4
             bottomPadding: AppTheme.spacing6
-            // The Rust backend writes the account's server push rules ("saved",
-            // not live-synced); a failed write is admitted, with a retry on the
-            // next reconnection. Other backends are device-local.
             text: app.serverRoomNotificationModes
                   ? (notificationsFlyout.syncFailed
                      ? qsTr("Couldn't save to the server — "
                             + "kept on this device. "
                             + "Retried when you reconnect.")
                      : (notificationsFlyout.currentMode === 3
-                        // Mode 3 deletes the room's rules, so nothing was
-                        // saved: say what Room Information says.
                         ? qsTr("This room has no override — your "
                                + "account's notification settings "
                                + "apply.")
@@ -223,26 +180,20 @@ AppMenu {
         }
     }
     AppMenuSeparator { visible: !root.isInvite }
-    // Where people look for it: the room they want to change.
     AppMenuItem {
         objectName: "roomChatBackgroundItem"
         visible: !!app.backdrops && !root.isInvite
-        // Hidden rows must not take the keyboard (MASTER-3 M6).
         enabled: visible
         iconName: "image"
         text: qsTr("Chat background…")
         onTriggered: root.chatBackgroundRequested()
     }
-    // Power gate: the open room's permission is known (RoomInfoController);
-    // for any other row the room list carries none, so it is offered and the
-    // invite dialog reports the server's answer (as the Space menu does).
     AppMenuItem {
         objectName: "roomInviteItem"
         readonly property bool openRoom: !!app.roomInfo
                                          && app.roomInfo.roomId === root.roomId
         visible: !root.isInvite && !root.isDirect
                  && (!openRoom || app.roomInfo.canInvite)
-        // Hidden rows must not take the keyboard (MASTER-3 M6).
         enabled: visible
         iconName: "person_add"
         text: qsTr("Invite people…")
@@ -251,7 +202,6 @@ AppMenu {
     AppMenuItem {
         objectName: "roomCopyLinkItem"
         visible: !root.isInvite
-        // Hidden rows must not take the keyboard (MASTER-3 M6).
         enabled: visible
         iconName: "link"
         text: qsTr("Copy room link")
@@ -260,7 +210,6 @@ AppMenu {
     AppMenuItem {
         objectName: "roomLeaveItem"
         visible: !root.isInvite
-        // Hidden rows must not take the keyboard (MASTER-3 M6).
         enabled: visible
         iconName: "logout"
         text: qsTr("Leave room")
@@ -270,7 +219,6 @@ AppMenu {
     AppMenuItem {
         objectName: "roomAcceptInviteItem"
         visible: root.isInvite
-        // Hidden rows must not take the keyboard (MASTER-3 M6).
         enabled: visible
         iconName: "person_add"
         text: qsTr("Accept invitation")
@@ -279,7 +227,6 @@ AppMenu {
     AppMenuItem {
         objectName: "roomRejectInviteItem"
         visible: root.isInvite
-        // Hidden rows must not take the keyboard (MASTER-3 M6).
         enabled: visible
         iconName: "close"
         text: qsTr("Reject invitation")

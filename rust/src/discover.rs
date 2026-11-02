@@ -1,12 +1,3 @@
-//! Room discovery, preview, join and knock.
-//!
-//! Same contract as `rooms.rs`: thin `extern "C"` wrappers in `lib.rs`,
-//! synchronous validation, network work as a managed task
-//! (`spawn_room_action`), and results stamped with the lifecycle generation
-//! and an op id. Every network behaviour is the SDK call named.
-//!
-//! No tokens, raw events or server error text enter the queue; failures
-//! cross as `classify_room_error` categories.
 
 use std::sync::Arc;
 
@@ -27,16 +18,11 @@ use serde_json::json;
 use crate::rooms::{classify_room_error, require_client};
 use crate::{enqueue, RustClient};
 
-/// Bound on one public-rooms page; the directory UI paginates.
 const PUBLIC_ROOMS_PAGE_CAP: u64 = 50;
 
-/// Bounds on the space-children listing (`/hierarchy` pages and rows); a
-/// larger space reports `truncated`.
 const SPACE_CHILDREN_PAGE_CAP: usize = 10;
 const SPACE_CHILDREN_ROW_CAP: usize = 200;
 
-/// Per-request budget: these run on the room-action pool, joined at
-/// sign-out.
 const DISCOVER_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 fn join_rule_summary_str(rule: Option<&JoinRuleSummary>) -> &'static str {
@@ -62,25 +48,18 @@ fn membership_str(state: Option<RoomState>) -> &'static str {
     }
 }
 
-/// A join target parsed from user input: room id or alias, the routing
-/// servers a URI carried, and for event permalinks the event.
 struct ResolvedTarget {
     target: OwnedRoomOrAliasId,
     via: Vec<OwnedServerName>,
     event_id: String,
 }
 
-/// Parse any supported room identifier form. Pure; unit-tested below.
-/// Accepted: `#alias:server`, `!roomid:server`, `matrix:` URIs
-/// (`matrix:r/...`, `matrix:roomid/...`, optionally with `/e/...`), and
-/// `matrix.to` permalinks. User links are refused.
 fn parse_room_target(input: &str) -> Result<ResolvedTarget, &'static str> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Err("empty");
     }
     if let Some(rest) = trimmed.strip_prefix('#') {
-        // Reject "#" alone early; RoomAliasId does the real check.
         let _ = rest;
         return RoomAliasId::parse(trimmed)
             .map(|alias| ResolvedTarget {
@@ -124,21 +103,10 @@ fn parse_room_target(input: &str) -> Result<ResolvedTarget, &'static str> {
             via,
             event_id: event_id.to_string(),
         }),
-        // A user link opens a profile, never a join.
         _ => Err("not_a_room"),
     }
 }
 
-/// Resolve user input into a target and preview it.
-///
-/// Result event: `room_target_resolved { op_id, lifecycle, ok, target,
-/// via[], event_id, preview_ok, preview_category, room_id, alias, name,
-/// topic, avatar_url, members, join_rule, membership, is_space }`.
-///
-/// `ok=false` means the input is not a room identifier (`invalid` /
-/// `not_a_room`). A failed preview is not a failed resolution: servers may
-/// forbid previews of joinable rooms, so the target always crosses and the
-/// UI offers Join with `preview_ok=false`.
 pub(crate) fn resolve_room_target(
     bridge: &RustClient,
     input: String,
@@ -205,8 +173,6 @@ pub(crate) fn resolve_room_target(
                 }));
             }
             other => {
-                // Preview refused, failed or timed out; the target still resolved, and
-                // joining may work (invite-only rooms forbid previews).
                 let category = match other {
                     Ok(Err(err)) => classify_room_error(&err.to_string()),
                     _ => "network",
@@ -228,10 +194,6 @@ pub(crate) fn resolve_room_target(
     Ok(())
 }
 
-/// One page of the public room directory (`public_rooms_filtered`).
-/// Result event: `public_rooms_result { op_id, lifecycle, ok, category,
-/// results[], next_batch, total_estimate }`. Rows carry membership so the UI
-/// can label joined rooms.
 pub(crate) fn search_public_rooms(
     bridge: &RustClient,
     query: String,
@@ -241,7 +203,6 @@ pub(crate) fn search_public_rooms(
     op_id: u64,
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
-    // A bad server name is refused synchronously.
     let server = if server.trim().is_empty() {
         None
     } else {
@@ -349,12 +310,6 @@ pub(crate) fn search_public_rooms(
     Ok(())
 }
 
-/// Join a room by id or alias, optionally `via` given servers
-/// (`Client::join_room_by_id_or_alias`). On success the room snapshot is
-/// re-enqueued so the list updates before the next sync.
-///
-/// Result event: `room_join_result { op_id, lifecycle, ok, room_id,
-/// category }`.
 pub(crate) fn join_room(
     bridge: &RustClient,
     target: String,
@@ -380,7 +335,6 @@ pub(crate) fn join_room(
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
-        // Refresh the snapshot only for a still-current session, as in rooms.rs.
         if matches!(&result, Ok(Ok(_))) {
             crate::enqueue_rooms(&events, &client).await;
         }
@@ -412,8 +366,6 @@ pub(crate) fn join_room(
     Ok(())
 }
 
-/// Finer join-failure categories: the server distinguishes a ban from lack
-/// of permission, and neither is a network problem. Pure and unit-tested.
 pub(crate) fn classify_join_error(message: &str) -> &'static str {
     let lc = message.to_lowercase();
     if lc.contains("banned") {
@@ -421,18 +373,12 @@ pub(crate) fn classify_join_error(message: &str) -> &'static str {
     } else if lc.contains("restricted")
         && (lc.contains("membership") || lc.contains("join"))
     {
-        // Synapse's restricted-rule rejection mentions the unmet condition.
         "restricted_denied"
     } else {
         classify_room_error(message)
     }
 }
 
-/// Knock on a room (`Client::knock`). The UI offers it only when the join
-/// rule allows; the server decides.
-///
-/// Result event: `room_knock_result { op_id, lifecycle, ok, room_id,
-/// category }`.
 pub(crate) fn knock_room(
     bridge: &RustClient,
     target: String,
@@ -463,7 +409,6 @@ pub(crate) fn knock_room(
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
-        // Refresh the snapshot only for a still-current session, as in rooms.rs.
         if matches!(&result, Ok(Ok(_))) {
             crate::enqueue_rooms(&events, &client).await;
         }
@@ -495,11 +440,6 @@ pub(crate) fn knock_room(
     Ok(())
 }
 
-/// Withdraw a pending knock via `Room::leave()`. The `leave_room` path cannot
-/// be reused: its `joined_room()` lookup only accepts joined rooms.
-///
-/// Result event: `knock_cancel_result { op_id, lifecycle, ok, room_id,
-/// category }`.
 pub(crate) fn cancel_knock(
     bridge: &RustClient,
     room_id: String,
@@ -521,7 +461,6 @@ pub(crate) fn cancel_knock(
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
-        // Refresh the snapshot only for a still-current session, as in rooms.rs.
         if matches!(&result, Ok(Ok(_))) {
             crate::enqueue_rooms(&events, &client).await;
         }
@@ -553,12 +492,6 @@ pub(crate) fn cancel_knock(
     Ok(())
 }
 
-/// List a Space's children, joined and unjoined, via the SDK's
-/// `SpaceRoomList` (`/hierarchy`). Bounded by `SPACE_CHILDREN_PAGE_CAP`
-/// pages and `SPACE_CHILDREN_ROW_CAP` rows, with a `truncated` flag.
-///
-/// Result event: `space_children_result { op_id, lifecycle, ok, space_id,
-/// truncated, results[], category }`.
 pub(crate) fn space_children(
     bridge: &RustClient,
     space_id: String,

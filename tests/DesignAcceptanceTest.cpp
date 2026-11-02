@@ -67,10 +67,7 @@ QString snapshotDir()
     return dir;
 }
 
-// The production Main window is loaded directly — its own bindings drive
-// AppTheme from the settings backend exactly as in the shipped app.
-
-} // namespace
+}
 
 class DesignAcceptanceTest : public QObject
 {
@@ -121,17 +118,12 @@ private:
         return img;
     }
 
-    // The thread panel's side-by-side width for a pane this wide: the shared
-    // "Side panel width" setting, clamped as TimelinePane clamps it (floor 260,
-    // and the 320px timeline plus the 1px divider always fit).
     int expectedThreadPanelWidth(qreal paneWidth) const
     {
         return qMax(260, qMin(m_controller->settings()->sidePanelWidth(),
                               int(paneWidth) - 320 - 1));
     }
 
-    // Resizes the window until the timeline pane is exactly `target` wide
-    // (the shell around it is not a fixed width at every window size).
     bool setPaneWidth(QQuickItem *pane, int target)
     {
         for (int i = 0; i < 4 && int(pane->width()) != target; ++i) {
@@ -152,8 +144,6 @@ private:
         return nullptr;
     }
 
-    // Puts the shared setting back however a case ends, so a mid-case
-    // failure cannot change the geometry later cases measure.
     auto restoreSidePanelWidth()
     {
         return qScopeGuard([this] {
@@ -186,9 +176,6 @@ private slots:
             QStringLiteral("design-acceptance-test"));
         QSettings().clear();
 
-        // The bundled UI fonts, registered as main.cpp does. Each must register
-        // and report the family Settings offers, or the font option would
-        // silently fall back on user machines.
         const QList<QPair<QString, QString>> bundled = {
             { QStringLiteral("Manrope[wght].ttf"), QStringLiteral("Manrope") },
             { QStringLiteral("JetBrainsMono[wght].ttf"),
@@ -200,8 +187,6 @@ private slots:
               QStringLiteral("Source Sans 3") },
             { QStringLiteral("PlusJakartaSans[wght].ttf"),
               QStringLiteral("Plus Jakarta Sans") },
-            // Brand face for the trust surface, not a selectable body face; a
-            // stripped build must still fail loudly.
             { QStringLiteral("SpaceGrotesk[wght].ttf"),
               QStringLiteral("Space Grotesk") },
         };
@@ -264,7 +249,6 @@ private slots:
 
     void mainChatRendersAcrossDesignThemes()
     {
-        // Open the collapsible toolbar so its raised surface is sampled.
         if (auto *composer = item("messageComposer"))
             composer->setProperty("toolbarExpanded", true);
         QCoreApplication::processEvents();
@@ -273,8 +257,6 @@ private slots:
             { 8, "design-main-moss-light" },
             { 9, "design-main-indigo-night" },
             { 10, "design-main-deep-teal" },
-            // Storm (11). token() reads AppTheme live, so samples resolve
-            // against Storm's palette.
             { 11, "design-main-storm" },
         };
         for (const auto &c : cases) {
@@ -282,8 +264,6 @@ private slots:
                 static_cast<SettingsManager::Theme>(c.theme));
             const QImage img = grabAndSave(QLatin1String(c.name));
             QVERIFY(!img.isNull());
-            // Composer card: the toolbar row's empty right side, the theme's
-            // raised surface.
             auto *card = item("composerCard");
             auto *toolbar = item("composerToolbarRow");
             QVERIFY(card && toolbar);
@@ -292,7 +272,6 @@ private slots:
             QVERIFY2(channelDelta(sampleAvg(img, QRect(int(p.x()), int(p.y()) - 1, 3, 3)),
                                   token("surface")) <= kTolerance,
                      c.name);
-            // Rail tier on the far left.
             QVERIFY2(channelDelta(sampleAvg(img, QRect(4, 300, 3, 3)),
                                   token("rail")) <= kTolerance,
                      c.name);
@@ -301,10 +280,6 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // The wordmark bolt hugs the "Lightning" label: not a tile to its left,
-    // and not pinned to the room-list column's far edge by a layout that
-    // distributes surplus between non-fill children (see RoomsPanel.qml).
-    // Uses the real Main.qml shell.
     void wordmarkBoltHugsTheLabelNotTheColumnEdge()
     {
         auto *label = item("workspaceLabel");
@@ -318,29 +293,18 @@ private slots:
         const qreal boltRight =
             bolt->mapToItem(rooms, QPointF(bolt->width(), 0)).x();
 
-        // The bolt's left edge sits just past the label's right edge plus
-        // headerRow spacing (6px).
         QVERIFY2(boltLeft >= labelRight && boltLeft <= labelRight + 20,
                  qPrintable(QStringLiteral(
                      "bolt.x=%1 not within a few px of label's right edge=%2")
                                 .arg(boltLeft).arg(labelRight)));
-        // Not flush with the column's far-right edge.
         QVERIFY2(boltRight < rooms->width() - 4,
                  qPrintable(QStringLiteral(
                      "bolt right edge=%1 flush with column edge=%2")
                                 .arg(boltRight).arg(rooms->width())));
     }
 
-    // Support chat 2026-10-20: "the thread-pane settings don't work and it's
-    // hardcoded". The panel was a literal 340px that ignored Settings >
-    // Appearance > Side panel width, which only Room Information read. It
-    // takes that setting now, follows a change to it, has the same resize
-    // grab as Room Information, and the chat-wide drop area stops exactly at
-    // its divider, all from one width.
     void threadPanelFollowsTheSidePanelWidthBesideVisibleTimeline()
     {
-        // The width, the side-by-side threshold and the drop area all derive
-        // from one property: none of them may feed back into another.
         QTest::failOnWarning(QRegularExpression(
             QStringLiteral("[Bb]inding loop")));
         QCOMPARE(m_controller->settings()->sidePanelWidth(), 320);
@@ -363,14 +327,10 @@ private slots:
         auto *dropArea = item("chatDropArea");
         QVERIFY(panel && roomColumn && composer && pane && dropArea);
         QTRY_COMPARE_WITH_TIMEOUT(panel->isVisible(), true, kSignalTimeoutMs);
-        // Fixture: the pane is wide enough for the widest width used below,
-        // or "follows the setting" would be measuring the clamp.
         QVERIFY2(pane->width() >= 480 + 320 + 1,
                  qPrintable(QStringLiteral("pane only %1px wide")
                                 .arg(pane->width())));
 
-        // The default setting (320), not a literal of the panel's own;
-        // timeline and composer stay visible and interactive beside it.
         QTRY_COMPARE_WITH_TIMEOUT(
             panel->width(), qreal(expectedThreadPanelWidth(pane->width())),
             kSignalTimeoutMs);
@@ -378,7 +338,6 @@ private slots:
         QVERIFY(roomColumn->isVisible());
         QVERIFY(composer->isVisible());
 
-        // A changed setting moves the panel, and the drop area with it.
         m_controller->settings()->setSidePanelWidth(420);
         QTRY_COMPARE_WITH_TIMEOUT(panel->width(), 420.0, kSignalTimeoutMs);
         QVERIFY(roomColumn->isVisible());
@@ -389,23 +348,15 @@ private slots:
         const qreal handleLeft = handle->mapToScene(QPointF(0, 0)).x();
         const qreal dropRight =
             dropArea->mapToScene(QPointF(dropArea->width(), 0)).x();
-        // Divider immediately left of the panel; the drop area ends where the
-        // divider begins: it covers none of the thread surface and leaves no
-        // gap where a drop would be lost.
         QCOMPARE(handleLeft + handle->width(), panelLeft);
         QVERIFY2(qAbs(dropRight - handleLeft) < 0.5,
                  qPrintable(QStringLiteral("drop area ends at %1, divider at "
                                            "%2, panel at %3")
                                 .arg(dropRight).arg(handleLeft)
                                 .arg(panelLeft)));
-        // The panel's right edge is the pane's: nothing else took the space.
         QCOMPARE(panel->mapToScene(QPointF(panel->width(), 0)).x(),
                  pane->mapToScene(QPointF(pane->width(), 0)).x());
 
-        // The divider is a grab: dragging it left by 40px widens the panel
-        // through the same setting Room Information's grab writes.
-        // On the divider's own pixel: half a pixel in would round onto the
-        // panel's first column.
         const QPoint press = handle->mapToScene(
             QPointF(0, handle->height() / 2)).toPoint();
         QTest::mousePress(m_window, Qt::LeftButton, {}, press);
@@ -425,7 +376,6 @@ private slots:
 
         m_controller->settings()->setSidePanelWidth(320);
         QTRY_COMPARE_WITH_TIMEOUT(panel->width(), 320.0, kSignalTimeoutMs);
-        // Mini composer and send button render inside the panel.
         auto *miniComposer = item("threadMiniComposer");
         auto *threadSend = item("threadSendButton");
         QVERIFY(miniComposer && threadSend);
@@ -443,12 +393,10 @@ private slots:
 
         const QImage img = grabAndSave(QStringLiteral("design-thread-panel"));
         QVERIFY(!img.isNull());
-        // Panel surface: below the header, at the panel's left edge.
         const QPointF p = panel->mapToScene(QPointF(8, 70));
         QVERIFY(channelDelta(sampleAvg(img, QRect(int(p.x()), int(p.y()), 3, 3)),
                              token("sidebar")) <= kTolerance);
 
-        // Closing with the panel's X collapses the right side completely.
         auto *closeButton = item("threadCloseButton");
         QVERIFY(closeButton);
         QMetaObject::invokeMethod(closeButton, "click");
@@ -459,8 +407,6 @@ private slots:
             QStringLiteral("none"), kSignalTimeoutMs);
         QTRY_VERIFY(!panel->isVisible());
         QVERIFY(roomColumn->isVisible());
-        // Geometry, not just booleans: the panel's width returns to the
-        // timeline column.
         auto *roomColumnItem = qobject_cast<QQuickItem *>(roomColumn);
         QVERIFY(roomColumnItem);
         QTRY_VERIFY(roomColumnItem->width() >= pane->width() - 1.0);
@@ -474,7 +420,6 @@ private slots:
         auto *rooms = item("roomsPanel");
         auto *timeline = item("timelinePane");
         QVERIFY(rail && rooms && timeline);
-        // Full application view: the whole chat shell is hidden.
         QVERIFY(!rail->isVisible());
         QVERIFY(!rooms->isVisible());
         QVERIFY(!timeline->isVisible());
@@ -486,7 +431,6 @@ private slots:
         const QImage img = grabAndSave(QStringLiteral("design-settings"));
         QVERIFY(!img.isNull());
 
-        // Increased text scale renders the same shell without breaking it.
         m_controller->settings()->setTextScale(140);
         QCoreApplication::processEvents();
         const QImage scaled = grabAndSave(
@@ -526,9 +470,6 @@ private slots:
             m_window->setWidth(1600);
             m_window->setHeight(1000);
         });
-        // At 1280 wide the pane still fits the panel beside the 320px
-        // timeline: the thread stays a side panel at the setting's width and
-        // the timeline stays visible.
         QTRY_COMPARE_WITH_TIMEOUT(
             panel->width(), qreal(expectedThreadPanelWidth(pane->width())),
             kSignalTimeoutMs);
@@ -536,10 +477,6 @@ private slots:
         QVERIFY(roomColumn->isVisible());
         QVERIFY(!grabAndSave(QStringLiteral("design-1280-thread")).isNull());
 
-        // The cap: the widest setting would leave the timeline under its
-        // 320px here, so the panel takes exactly what the timeline and the
-        // 1px divider leave, and the drop area still ends at the divider.
-        // Every number derives from the pane's real width.
         m_controller->settings()->setSidePanelWidth(640);
         const qreal paneWidth = pane->width();
         QVERIFY2(paneWidth - 321 < 640 && paneWidth - 321 > 260,
@@ -557,9 +494,6 @@ private slots:
         QCOMPARE(dropArea->mapToScene(QPointF(dropArea->width(), 0)).x(),
                  handleLeft);
 
-        // The floor and the breakpoint, in the real shell: a 581px pane is
-        // the narrowest that keeps the 260px floor beside the 320px timeline;
-        // at 580 the thread takes the whole pane.
         m_controller->settings()->setSidePanelWidth(320);
         QVERIFY2(setPaneWidth(pane, 581),
                  qPrintable(QStringLiteral("could not size the pane to 581 "
@@ -568,10 +502,6 @@ private slots:
         QVERIFY(roomColumn->isVisible());
         QCOMPARE(roomColumn->width(), 320.0);
         QVERIFY(handle->isVisible());
-        // At the 260px floor the thread root's header gives way in order:
-        // the timestamp first, then the "Open in room" label, the author's
-        // name last. The name used to be the one fill child, so it went
-        // first, to nothing (measured 0px wide at this width).
         QTest::qWait(50);
         auto *senderName = item("threadRootSenderName");
         QVERIFY(senderName && senderName->isVisible());
@@ -588,17 +518,11 @@ private slots:
                  "the timestamp did not give way before the author's name");
         QVERIFY(openInRoom->isVisible());
 
-        // A name too long for the labelled button: "Open in room" goes
-        // icon-only before the name is cut. ThreadPanel.rootData is assigned
-        // (refreshRoot), not bound, so the fixture can rename the author;
-        // the guard puts the real record back.
         const QVariant originalRoot = panel->property("rootData");
         const auto restoreRoot = qScopeGuard([panel, originalRoot] {
             panel->setProperty("rootData", originalRoot);
         });
         QVariantMap renamed = originalRoot.toMap();
-        // 82px at this size: wider than the labelled button leaves (about
-        // 66px), narrower than the icon-only one does (about 125px).
         renamed.insert(QStringLiteral("senderDisplayName"),
                        QStringLiteral("Christopher"));
         QVERIFY(panel->setProperty("rootData", renamed));
@@ -623,9 +547,6 @@ private slots:
                                 QLatin1String(expression));
             return expr.evaluate();
         };
-        // An icon alone still has a name, for screen readers and as a
-        // tooltip, and the tooltip comes on KEYBOARD focus too, not only
-        // under a pointer (none is over it here).
         QCOMPARE(attached("Accessible.name").toString(),
                  QStringLiteral("Open in room"));
         QCOMPARE(attached("ToolTip.text").toString(),
@@ -655,7 +576,6 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(m_controller->thread()->state(),
                                   ThreadController::Closed, kSignalTimeoutMs);
 
-        // 960×600: composer still inside the timeline, send visible.
         m_window->setWidth(960);
         m_window->setHeight(600);
         QCoreApplication::processEvents();
@@ -672,14 +592,6 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // Support chat 2026-10-20: "In a space's lobby, the 'people in this
-    // space' should be displayed ... at the end, rather than before the
-    // channels". The card follows the room member panel's remembered flag, so
-    // anyone who keeps a member list open got a roster above every lobby's
-    // channels. Geometric, on the real pane: the card is laid out below the
-    // whole lobby, and the button that toggles it stays in the header. Being
-    // at the end, the card can open below the fold: an explicit click on
-    // "People" brings it into view, the remembered flag never scrolls.
     void spaceHomeListsChannelsBeforePeople()
     {
         auto *settings = m_controller->settings();
@@ -693,7 +605,6 @@ private slots:
             QCoreApplication::processEvents();
         });
         settings->setMemberPanelOpen(false);
-        // Short enough that the card, after the lobby, opens below the fold.
         m_window->setHeight(560);
         QCoreApplication::processEvents();
         const QString spaceId = QStringLiteral("!space-team:mock.local");
@@ -719,15 +630,10 @@ private slots:
             return card->mapToScene(QPointF(0, 0)).y();
         };
 
-        // An explicit click on People, the card's FIRST showing in this
-        // Space Home (never laid out before): it opens and comes into view.
         QMetaObject::invokeMethod(button, "click");
         QTRY_VERIFY_WITH_TIMEOUT(card->isVisible() && card->height() > 0
                                      && lobby->height() > 0,
                                  kSignalTimeoutMs);
-        // Laid out after the lobby first: a card never shown before sits at
-        // y 0 until the column places it, which would satisfy the fold check
-        // below by accident.
         QTRY_VERIFY2_WITH_TIMEOUT(
             cardTop() >= lobby->mapToScene(QPointF(0, lobby->height())).y(),
             qPrintable(QStringLiteral("the people card (y=%1) was never laid "
@@ -735,7 +641,6 @@ private slots:
                            .arg(cardTop())
                            .arg(lobby->mapToScene(QPointF(0, lobby->height())).y())),
             kSignalTimeoutMs);
-        // A card no taller than half the view is shown whole.
         QVERIFY(card->height() <= flick->height() / 2);
         QTRY_VERIFY2_WITH_TIMEOUT(
             cardTop() + card->height() <= viewBottom(),
@@ -760,8 +665,6 @@ private slots:
         QVERIFY(!grabAndSave(QStringLiteral("design-space-home-people"))
                      .isNull());
 
-        // The remembered flag (as restored at startup) shows the card and
-        // never scrolls, though the card is then cut by the fold.
         QMetaObject::invokeMethod(button, "click");
         QTRY_VERIFY_WITH_TIMEOUT(!card->isVisible(), kSignalTimeoutMs);
         QVERIFY(flick->setProperty("contentY", 0.0));
@@ -778,11 +681,6 @@ private slots:
                                 .arg(viewBottom())));
     }
 
-    // Support chat 2026-10-20 follow-ups: the search panel was a fixed 360px
-    // with its own 700px threshold, and the chat-wide drop area assumed a
-    // 320px Room information panel while that panel follows the setting, so
-    // with a wider setting a drop on Room information's left part became a
-    // composer attachment. Both now read the shared side-panel geometry.
     void searchAndRoomInfoShareTheSidePanelWidth()
     {
         QTest::failOnWarning(QRegularExpression(
@@ -806,8 +704,6 @@ private slots:
                  qPrintable(QStringLiteral("fixture: pane only %1px wide")
                                 .arg(pane->width())));
 
-        // Search: the setting's width (320 by default, not 360), beside the
-        // timeline, behind the shared divider and grab.
         QVERIFY(QMetaObject::invokeMethod(pane, "toggleSearchPanel"));
         auto *search = item("roomSearchPanel");
         auto *handle = item("sidePanelResizeHandle");
@@ -828,8 +724,6 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(pane, "toggleSearchPanel"));
         QTRY_VERIFY_WITH_TIMEOUT(!search->isVisible(), kSignalTimeoutMs);
 
-        // Room information at a setting wider than the 320 the drop area
-        // used to assume: the drop area ends at Room information's divider.
         settings->setSidePanelWidth(500);
         // Opened directly: the mock backend has no room management, so the
         // header's toggle refuses (TimelinePaneQmlTest does the same).

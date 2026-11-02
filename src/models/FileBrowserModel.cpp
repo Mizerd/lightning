@@ -31,32 +31,22 @@ struct FileBrowserModel::Shared
 
 namespace {
 
-// Test seams (FileBrowserModelTest): a lister and a stater that can block,
-// standing in for a hung mount. Empty means the real ones.
 QMutex g_seamMutex;
 FileBrowserModel::Lister g_lister;
 FileBrowserModel::Stater g_stater;
 std::atomic<int> g_runningListings{0};
 std::atomic<int> g_runningStats{0};
 
-// The listings still outstanding, by path, and every model generation that
-// wants each one's answer. A path already being read never gets a second
-// thread: re-opening a folder on a hung mount joins the read already stuck
-// there instead of leaking another thread into it.
 struct ListingWaiter
 {
-    std::shared_ptr<void> keep; // the model's Shared, kept alive
+    std::shared_ptr<void> keep;
     QMutex *mutex = nullptr;
     FileBrowserModel *const *owner = nullptr;
     int generation = 0;
 };
 struct OutstandingListing
 {
-    // Asked before the read began: its answer is theirs.
     QList<ListingWaiter> waiting;
-    // Asked while it was running (a refresh after createFolder, a reopen):
-    // that read may predate what they want to see, so the same thread reads
-    // the path once more for them when it finishes.
     QList<ListingWaiter> again;
 };
 // Allocated once and never freed: a thread stuck on a hung mount may wake
@@ -126,7 +116,7 @@ QString kindForMime(const QString &mime)
     return QStringLiteral("file");
 }
 
-} // namespace
+}
 
 FileBrowserModel::FileBrowserModel(QObject *parent)
     : QAbstractListModel(parent), m_shared(std::make_shared<Shared>())
@@ -246,7 +236,7 @@ constexpr bool kWindowsHost = true;
 #else
 constexpr bool kWindowsHost = false;
 #endif
-} // namespace
+}
 
 QVariantList FileBrowserModel::drives() const
 {
@@ -285,7 +275,6 @@ QString FileBrowserModel::displayPathFor(const QString &localPath,
     if (!windows)
         return localPath;
     QString path = localPath;
-    // A URL path's leading slash before a drive ("/C:/x") is not part of it.
     if (path.size() >= 3 && path.at(0) == QLatin1Char('/')
         && path.at(2) == QLatin1Char(':') && path.at(1).isLetter())
         path.remove(0, 1);
@@ -318,8 +307,6 @@ bool FileBrowserModel::isValidWindowsLeaf(const QString &name)
     }
     if (name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' ')))
         return false;
-    // The device names are reserved with any extension, and before one
-    // with trailing spaces ("NUL .txt").
     QString stem = name.section(QLatin1Char('.'), 0, 0);
     while (stem.endsWith(QLatin1Char(' ')))
         stem.chop(1);
@@ -334,7 +321,6 @@ bool FileBrowserModel::isValidWindowsLeaf(const QString &name)
         && (stem.startsWith(QLatin1String("COM"))
             || stem.startsWith(QLatin1String("LPT")))) {
         const QChar digit = stem.at(3);
-        // 1-9, and the superscripts Windows also treats as digits there.
         if ((digit >= QLatin1Char('1') && digit <= QLatin1Char('9'))
             || digit == QChar(0x00B9) || digit == QChar(0x00B2)
             || digit == QChar(0x00B3))
@@ -345,12 +331,10 @@ bool FileBrowserModel::isValidWindowsLeaf(const QString &name)
 
 QString FileBrowserModel::pathRoot(const QString &cleanPath)
 {
-    // "D:/..." (and a bare "D:"): that drive.
     if (cleanPath.size() >= 2 && cleanPath.at(1) == QLatin1Char(':')
         && cleanPath.at(0).isLetter()
         && (cleanPath.size() == 2 || cleanPath.at(2) == QLatin1Char('/')))
         return cleanPath.left(2) + QLatin1Char('/');
-    // "//server/share/...": that share.
     if (cleanPath.startsWith(QLatin1String("//"))) {
         const QStringList parts =
             cleanPath.mid(2).split(QLatin1Char('/'), Qt::SkipEmptyParts);
@@ -427,25 +411,15 @@ FileBrowserModel::Listing FileBrowserModel::listFolder(const QString &path)
         listing.error = QStringLiteral("denied");
         return listing;
     }
-    // Hidden entries are always read; showing them is a filter, so the
-    // toggle needs no second read.
     const QFileInfoList infos = dir.entryInfoList(
         QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot,
         QDir::NoSort);
-    // A local handle rather than a function-static one. It still reaches
-    // QMimeDatabase's own Q_GLOBAL_STATIC, and QDir/QFileInfo use Qt's
-    // globals, so a read that returns from a hung mount at the very moment
-    // the process is tearing its statics down could touch one. That window
-    // is a few instructions wide and needs a mount that answers at exit;
-    // it is negligible, not zero.
     const QMimeDatabase mimes;
     listing.entries.reserve(infos.size());
     for (const QFileInfo &fi : infos) {
         Entry e;
         e.name = fi.fileName();
         e.symlink = fi.isSymLink();
-        // A symlink to a folder is a folder to browse into, as in every file
-        // manager; a dangling one is listed as the file it claims to be.
         e.isDir = fi.isDir();
         e.hidden = e.name.startsWith(QLatin1Char('.')) || fi.isHidden();
         e.size = e.isDir ? 0 : fi.size();
@@ -461,8 +435,6 @@ FileBrowserModel::Listing FileBrowserModel::listFolder(const QString &path)
 void FileBrowserModel::startListing()
 {
     const int generation = ++m_generation;
-    // Rows from the previous folder go at once: an Enter pressed before the
-    // new listing lands must not act on a file from the folder just left.
     beginResetModel();
     m_all.clear();
     m_rows.clear();
@@ -481,16 +453,9 @@ void FileBrowserModel::startListing()
         QMutexLocker lock(&outstandingMutex());
         const auto it = outstanding().find(path);
         if (it != outstanding().end()) {
-            // Already being read (a refresh, the same folder reopened, a
-            // second chooser). That read may have started before whatever
-            // this request wants to see, so it is read once more when it
-            // finishes, on the same thread.
             it->again.append(me);
             return;
         }
-        // Each leaked thread is a read stuck on a mount that never answered.
-        // Past a ceiling, a new folder is refused rather than another thread
-        // spent on it.
         if (g_runningListings.load() >= kMaxListingThreads) {
             lock.unlock();
             Listing refused;
@@ -504,8 +469,6 @@ void FileBrowserModel::startListing()
         ++g_runningListings;
     }
     const Lister lister = currentLister();
-    // Hands one answer to each waiting generation, on its own model's
-    // thread, if that model still exists.
     const auto deliver = [](const QList<ListingWaiter> &waiters,
                             const Listing &listing) {
         for (const ListingWaiter &w : waiters) {
@@ -521,8 +484,6 @@ void FileBrowserModel::startListing()
             }
         }
     };
-    // A detached thread, never a pool: see the header. Nobody joins it, so a
-    // read stuck on a hung mount delays neither quit nor any other listing.
     try {
         std::thread([path, lister, deliver] {
             for (;;) {
@@ -551,9 +512,6 @@ void FileBrowserModel::startListing()
             --g_runningListings;
         }).detach();
     } catch (...) {
-        // No thread to be had (a process at its limit, or anything else the
-        // constructor throws): the path's entry goes, and every request on
-        // it is told, rather than read on the GUI thread.
         QList<ListingWaiter> everyone;
         {
             QMutexLocker lock(&outstandingMutex());
@@ -587,7 +545,7 @@ int FileBrowserModel::runningListings()
 void FileBrowserModel::applyListing(int generation, Listing listing)
 {
     if (generation != m_generation)
-        return; // an older folder's answer
+        return;
     m_all = std::move(listing.entries);
     m_error = listing.error;
     m_loading = false;
@@ -636,7 +594,6 @@ void FileBrowserModel::rebuild()
         }
         rows.append(e);
     }
-    // The C locale ignores numeric mode; keep file ordering independent of LANG.
     QCollator collator(QLocale(QLocale::English, QLocale::UnitedStates));
     collator.setNumericMode(true);
     collator.setCaseSensitivity(Qt::CaseInsensitive);
@@ -644,8 +601,6 @@ void FileBrowserModel::rebuild()
     const bool ascending = m_sortAscending;
     std::stable_sort(rows.begin(), rows.end(),
                      [&](const Entry &a, const Entry &b) {
-        // Folders first whichever way the list is sorted, as every file
-        // manager does.
         if (a.isDir != b.isDir)
             return a.isDir;
         int c = 0;
@@ -747,12 +702,7 @@ QVariantMap FileBrowserModel::stat(const QUrl &url) const
     const QString path = cleanLocalPath(url);
     if (path.isEmpty())
         return answer;
-    // The path is typed by the user and may sit on a hung mount: read it on
-    // a detached thread and wait a bounded time. A promise's future does not
-    // block in its destructor, so giving up costs nothing but the thread.
     const Stater stater = currentStater();
-    // Each timed-out stat leaves a thread behind on the mount that hung;
-    // past a ceiling the answer is "not responding" without another one.
     if (g_runningStats.load() >= kMaxListingThreads) {
         answer.insert(QStringLiteral("timedOut"), true);
         return answer;
@@ -818,8 +768,6 @@ QVariantList FileBrowserModel::places() const
         const QString clean = QDir::cleanPath(path);
         if (seen.contains(clean) || !QFileInfo(clean).isDir())
             return;
-        // XDG falls back to home for a folder the user never had; that is
-        // "Home" already, not a second entry called "Desktop".
         if (kind != QLatin1String("home") && clean == home)
             return;
         seen.append(clean);

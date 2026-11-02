@@ -1,9 +1,3 @@
-// Keyboard, focus and accessibility contract of the base controls (chunk C02):
-// Return/Enter activate a focused AppButton, IconButton, SegmentedControl
-// segment and closed AppComboBox like Space does; PageUp/PageDown move an open
-// combo's highlight; a click gives AppSwitch keyboard focus; AppTextField
-// opens the themed edit menu on right-click; StatusChip exposes its label as
-// an accessible name (AppDialog, a Popup, cannot carry one). Real components through the "MatrixClient" module.
 
 #include <QtTest/QtTest>
 
@@ -58,7 +52,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class BaseControlsKeyboardQmlTest : public QObject
 {
@@ -83,8 +77,6 @@ private:
         return nullptr;
     }
 
-    // Repeater delegates (SegmentedControl segments) are not QObject children
-    // of the scene root, so walk the visual tree.
     QQuickItem *item(const char *name) const
     {
         return findItem(m_window->contentItem(), QLatin1String(name));
@@ -125,10 +117,8 @@ private slots:
         QCOMPARE(m_root->property("btnClicks").toInt(), 1);
         QTest::keyClick(m_window, Qt::Key_Enter);
         QCOMPARE(m_root->property("btnClicks").toInt(), 2);
-        // Space still works.
         QTest::keyClick(m_window, Qt::Key_Space);
         QTRY_COMPARE(m_root->property("btnClicks").toInt(), 3);
-        // A disabled button ignores it.
         btn->setProperty("enabled", false);
         QTest::keyClick(m_window, Qt::Key_Return);
         QCOMPARE(m_root->property("btnClicks").toInt(), 3);
@@ -178,7 +168,6 @@ private slots:
         QTest::keyClick(m_window, Qt::Key_Escape);
         QTRY_VERIFY(!combo->property("popup").value<QObject *>()
                          ->property("visible").toBool());
-        // Enter on the keypad opens it too.
         QTRY_VERIFY(combo->hasActiveFocus());
         QTest::keyClick(m_window, Qt::Key_Enter);
         QTRY_VERIFY(combo->property("popup").value<QObject *>()
@@ -197,7 +186,6 @@ private slots:
             focus(target);
             const char *prop = target == btn ? "btnClicks" : "iconClicks";
             const int before = m_root->property(prop).toInt();
-            // QTest::keyEvent cannot set isAutoRepeat; send the event itself.
             QKeyEvent press(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier,
                             QStringLiteral("\r"), true);
             QCoreApplication::sendEvent(m_window, &press);
@@ -205,7 +193,6 @@ private slots:
                              QString(), true);
             QCoreApplication::sendEvent(m_window, &press2);
             QCOMPARE(m_root->property(prop).toInt(), before);
-            // The first, non-repeat press still activates.
             QTest::keyClick(m_window, Qt::Key_Return);
             QCOMPARE(m_root->property(prop).toInt(), before + 1);
         }
@@ -236,7 +223,6 @@ private slots:
         QVERIFY(combo);
         QObject *popup = combo->property("popup").value<QObject *>();
         focus(combo);
-        // Press only: the release is "lost" (focus moves away first).
         QKeyEvent press(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier,
                         QStringLiteral("\r"));
         QCoreApplication::sendEvent(m_window, &press);
@@ -258,16 +244,12 @@ private slots:
         QTest::mouseClick(m_window, Qt::LeftButton, {}, center(sw));
         QTRY_COMPARE(m_root->property("swToggles").toInt(), before + 1);
         QVERIFY(sw->hasActiveFocus());
-        // Mouse-given focus draws no keyboard ring.
         QVERIFY(sw->property("_mouseFocus").toBool());
         QTest::keyClick(m_window, Qt::Key_Space);
         QCOMPARE(m_root->property("swToggles").toInt(), before + 2);
-        // A key press makes the ring a keyboard cue again.
         QVERIFY(!sw->property("_mouseFocus").toBool());
     }
 
-    // A label that toggles its switch gives the same mouse focus as a tap on
-    // the switch itself, so no keyboard ring appears (MASTER-3 L3).
     void aLabelClickFocusesTheSwitchWithoutTheRing()
     {
         auto *sw = item("sw");
@@ -290,7 +272,6 @@ private slots:
         QTRY_VERIFY(menu->property("visible").toBool());
         QTest::keyClick(m_window, Qt::Key_Escape);
         QTRY_VERIFY(!menu->property("visible").toBool());
-        // Closing the menu hands focus back to the field.
         QTRY_VERIFY(tf->hasActiveFocus());
     }
 

@@ -49,7 +49,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class SendLaterDialogQmlTest : public QObject
 {
@@ -121,7 +121,6 @@ private:
             scheduler()->cancel(v.toMap().value(QStringLiteral("id")).toString());
     }
 
-    // Opens the dialog in "custom" mode with a valid future date and time.
     void openCustom(const QString &body)
     {
         openFor(message(body));
@@ -290,10 +289,6 @@ private slots:
                  QStringLiteral("after"));
     }
 
-    // Date and time come from one instant. Only a clock inside the last hour
-    // of a local day tells the old code apart (it took the date from now and
-    // the time from now + 1 h), so this asserts the property itself: the
-    // prefill is about one hour ahead, to the minute.
     void thePrefillIsOneHourAheadAsASingleInstant()
     {
         openFor(message(QStringLiteral("prefill")));

@@ -4,17 +4,9 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// First-run "verify this session" corner card, not a modal: an unverified
-// session still works. Shown when verification is needed and the reminder is
-// not dismissed for this account (app.sessionVerificationWarning), and hidden
-// while a flow is running. "Verify" starts the same flow as Settings (the
-// shared VerificationDialog opens from AppController's state). "Not now"
-// persists per account and clears once the session verifies.
 Rectangle {
     id: root
 
-    // One-shot suppression for this run, used after Verify so the card does not
-    // flash back before the flow's first state.
     property bool suppressed: false
 
     readonly property bool shouldShow:
@@ -22,11 +14,8 @@ Rectangle {
         && !app.verificationActive
         && app.verificationState === ""
         && !suppressed
-        // Chat shell only: not Settings, where the TrustCard's Verify is the
-        // single start affordance, and not login/boot.
         && app.currentScreen === 1
 
-    // Re-arm on a new situation (account switch, fresh unverified sign-in).
     Connections {
         target: app
         function onLoggedInChanged() { root.suppressed = false }
@@ -34,11 +23,6 @@ Rectangle {
 
     objectName: "verifySessionPrompt"
 
-    // The card sits last in the window's focus chain (about 70 Tab stops in),
-    // so it gets a direct way in: while it shows it is one of the regions F6
-    // cycles through (MainScreen.cycleRegions; a window Shortcut here used to
-    // take F6 from the region cycling whenever the card was up, MASTER-3 M3).
-    // Escape on any of its buttons means "Not now".
     signal regionCycleRequested(bool backward)
     // F6 inside the card goes up through the overlay, never through
     // MainScreen, so the card hands it to the shell's cycle.
@@ -50,7 +34,6 @@ Rectangle {
             event.accepted = true
         }
     }
-    // (end of the card's F6 hand-off)
     visible: opacity > 0
     opacity: shouldShow ? 1 : 0
     Behavior on opacity { NumberAnimation { duration: 140 } }
@@ -60,12 +43,8 @@ Rectangle {
     height: implicitHeight
     radius: AppTheme.radiusLg
     color: AppTheme.stormPanel
-    // A danger-toned border, not a fill: this is a nudge, not an error.
     border.color: AppTheme.stormDanger
     border.width: 1
-
-    // No shadow: the sanctioned pattern needs effect and source as siblings
-    // (see MemberProfilePopover), and the border already separates the card.
 
     Accessible.role: Accessible.AlertMessage
     Accessible.name: qsTr("This session is not verified")
@@ -136,9 +115,6 @@ Rectangle {
             }
         }
 
-        // The other way to verify: the recovery key signs this session with
-        // the account's cross-signing key, with no second device. Inline, so
-        // the card stays a nudge and not a modal.
         AppButton {
             objectName: "verifySessionPromptRecoveryToggle"
             storm: true

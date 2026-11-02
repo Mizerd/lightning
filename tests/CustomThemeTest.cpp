@@ -1,7 +1,3 @@
-// Custom-theme contract. The store sits between a hand-editable config file
-// and the renderer, so most of this is about what it refuses; the rest pins
-// the role table against AppTheme's palette keys and theme id 12 against
-// AppTheme.qml's routing.
 
 #include "app/CustomThemeStore.h"
 #include "app/SettingsManager.h"
@@ -34,9 +30,6 @@ QString appTheme()
     return QString::fromUtf8(f.readAll());
 }
 
-// Every key any palette object in AppTheme.qml defines. The custom palette
-// merges over one of these, so an editable role must be one of them or its
-// override paints nothing.
 QSet<QString> paletteKeys(const QString &qml)
 {
     QSet<QString> keys;
@@ -56,9 +49,6 @@ QSet<QString> paletteKeys(const QString &qml)
     return keys;
 }
 
-// AppTheme's `elementGroups` table: element role -> the paletteForTheme() key
-// of its group, which the resolver uses for every per-element role it does not
-// spell out.
 QHash<QString, QString> elementGroupsTable(const QString &qml)
 {
     QHash<QString, QString> out;
@@ -78,9 +68,6 @@ QHash<QString, QString> elementGroupsTable(const QString &qml)
     return out;
 }
 
-// Every key the object `AppTheme.paletteForTheme()` returns. A role split out
-// of a shared token has no value in any preset block and reaches the editor
-// and the preview through this object alone.
 QSet<QString> resolverKeys(const QString &qml)
 {
     QSet<QString> keys;
@@ -94,26 +81,18 @@ QSet<QString> resolverKeys(const QString &qml)
         return keys;
     QString body = qml.mid(ret + open.size(), end - ret - open.size());
     body.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
-    // A key starts a line: `name:`. Ternary colons sit mid-line.
     static const QRegularExpression key(
         QStringLiteral("^\\s*(\\w+)\\s*:"),
         QRegularExpression::MultilineOption);
     auto it = key.globalMatch(body);
     while (it.hasNext())
         keys.insert(it.next().captured(1));
-    // The per-element roles the resolver adds from `elementGroups`.
     const QHash<QString, QString> elements = elementGroupsTable(qml);
     for (auto e = elements.constBegin(); e != elements.constEnd(); ++e)
         keys.insert(e.key());
     return keys;
 }
 
-// The eleven shipped presets, resolved as AppTheme.paletteForTheme() does,
-// so readability checks are calibrated against real themes. Named colour
-// properties are collected first, then each `_theme` block is read through
-// them. Computed entries (`Qt.darker(...)`) are not resolved; a check with a
-// missing endpoint is skipped, and the preset sweep asserts how many checks
-// it evaluated so a parser that resolves less fails.
 QHash<QString, QHash<QString, QString>> presetPalettes(const QString &qml)
 {
     QHash<QString, QString> literals;
@@ -126,7 +105,6 @@ QHash<QString, QHash<QString, QString>> presetPalettes(const QString &qml)
         literals.insert(m.captured(1), m.captured(2).toUpper());
     }
 
-    // The eleven palette blocks, by the theme id rawPaletteForTheme() maps.
     const QHash<QString, QString> names{
         {QStringLiteral("_light"), QStringLiteral("Lightning Light")},
         {QStringLiteral("_dark"), QStringLiteral("Lightning Dark")},
@@ -169,8 +147,6 @@ QHash<QString, QHash<QString, QString>> presetPalettes(const QString &qml)
     return out;
 }
 
-// One `readonly property color _name: "#RRGGBB"` from AppTheme, read rather
-// than hand-copied so the fixture follows AppTheme.
 QString colorLiteral(const QString &qml, const QString &name)
 {
     const QRegularExpression re(
@@ -180,12 +156,6 @@ QString colorLiteral(const QString &qml, const QString &name)
     return m.hasMatch() ? m.captured(1).toUpper() : QString();
 }
 
-// The per-element roles (and the few split roles the table grades) as
-// paletteForTheme() resolves them: an element takes its group's colour unless
-// `own` (the palette or the user) names it. Run again after a test lays
-// overrides over a palette, as the resolver runs after the merge. Storm's
-// `embedSurface` is its panel in the app; the fixture uses the group, which
-// is the custom-theme rule and only matters for Storm.
 void fillElements(QVariantMap &p, const QVariantMap &own, const QString &qml)
 {
     QHash<QString, QString> groups = elementGroupsTable(qml);
@@ -198,13 +168,9 @@ void fillElements(QVariantMap &p, const QVariantMap &own, const QString &qml)
         if (p.contains(it.value()))
             p.insert(it.key(), p.value(it.value()));
     }
-    // The badge fills and inks paletteForTheme() derives after its element
-    // loop (AppTheme's badge rules; tests/support/BadgeColourRules.h).
     badgerules::addDerived(p, own);
 }
 
-// One preset as paletteForTheme() hands it to QML: semantic names plus the
-// same fallbacks, since the audit reads that object.
 QVariantMap resolvedPalette(const QHash<QString, QString> &raw,
                             const QString &onAccent,
                             const QString &dangerFill = QString())
@@ -216,20 +182,15 @@ QVariantMap resolvedPalette(const QHash<QString, QString> &raw,
         if (!p.contains(QLatin1String(key)) && !value.isEmpty())
             p.insert(QLatin1String(key), value);
     };
-    // paletteForTheme's own spellings and defaults, in its order.
     if (raw.contains(QStringLiteral("inputBg")))
         p.insert(QStringLiteral("inputBackground"),
                  raw.value(QStringLiteral("inputBg")));
     p.insert(QStringLiteral("reactionBackground"),
              raw.value(QStringLiteral("reaction"),
                        raw.value(QStringLiteral("cardElevated"))));
-    // Only four presets name a `mention`; the rest take `_accentDanger`, as
-    // paletteForTheme does. Absent (not empty) without a fallback, so the
-    // check is skipped and counted as such.
     const QString mention = raw.value(QStringLiteral("mention"), dangerFill);
     if (!mention.isEmpty())
         p.insert(QStringLiteral("mentionBadge"), mention);
-    // ownBubbleText is a literal (#FFFFFF) in AppTheme, not a palette entry.
     p.insert(QStringLiteral("ownBubbleText"), QStringLiteral("#FFFFFF"));
     fallback("rail", raw.value(QStringLiteral("sidebar")));
     fallback("accentText", onAccent);
@@ -245,7 +206,7 @@ const QString kAlice = QStringLiteral("@alice:one.example");
 const QString kBob = QStringLiteral("@bob:one.example");
 const QString kHs = QStringLiteral("https://one.example");
 
-} // namespace
+}
 
 class CustomThemeTest : public QObject
 {
@@ -253,9 +214,6 @@ class CustomThemeTest : public QObject
 
 private Q_SLOTS:
 
-    // `roles` is NOTIFY rolesChanged and builds labels with tr(); it must emit
-    // on a language change, since engine.retranslate() does not reach strings
-    // a C++ model already produced.
     void roleLabelsAreAnnouncedOnALanguageChange()
     {
         SettingsManager settings;
@@ -280,8 +238,6 @@ private Q_SLOTS:
         QCoreApplication::setApplicationName(QStringLiteral("custom-theme-test"));
     }
 
-    // Every case starts from an empty config; a stored list would otherwise
-    // leak into the next case.
     void init()
     {
         QSettings settings;
@@ -289,20 +245,14 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // ---- what it refuses ----
-
     void onlyOpaqueSixDigitHexIsAccepted()
     {
         QVERIFY(CustomThemeStore::colorIsValid(QStringLiteral("#1D57FF")));
         QVERIFY(CustomThemeStore::colorIsValid(QStringLiteral("#abcdef")));
 
-        // 8-digit ARGB is refused on purpose: a translucent shell surface makes
-        // contrast unknowable, and every contrast rule assumes opaque colours.
         QVERIFY(!CustomThemeStore::colorIsValid(QStringLiteral("#801D57FF")));
-        // Named colours would bypass the format entirely.
         QVERIFY(!CustomThemeStore::colorIsValid(QStringLiteral("red")));
         QVERIFY(!CustomThemeStore::colorIsValid(QStringLiteral("transparent")));
-        // Shorthand, missing hash, wrong length, injection attempts.
         QVERIFY(!CustomThemeStore::colorIsValid(QStringLiteral("#FFF")));
         QVERIFY(!CustomThemeStore::colorIsValid(QStringLiteral("1D57FF")));
         QVERIFY(!CustomThemeStore::colorIsValid(QStringLiteral("#1D57F")));
@@ -313,8 +263,6 @@ private Q_SLOTS:
             QStringLiteral("#000000\"; evil: 1")));
     }
 
-    // The map reaches the renderer from a hand-editable config, so anything
-    // but a known role with a valid colour is dropped.
     void sanitizeDropsEverythingItDoesNotRecognise()
     {
         QVariantMap raw;
@@ -328,7 +276,6 @@ private Q_SLOTS:
         const QVariantMap clean = CustomThemeStore::sanitize(raw);
         QCOMPARE(clean.size(), 2);
         QVERIFY(clean.contains(QStringLiteral("background")));
-        // Normalised on the way in, so comparisons never fail on case.
         QCOMPARE(clean.value(QStringLiteral("accent")).toString(),
                  QStringLiteral("#1D57FF"));
         QVERIFY(!clean.contains(QStringLiteral("notARole")));
@@ -349,17 +296,11 @@ private Q_SLOTS:
         QVERIFY(!store.setColor(QStringLiteral("accent"), QStringLiteral("bogus")));
         QVERIFY(!store.setColor(QStringLiteral("madeUpRole"),
                                 QStringLiteral("#123456")));
-        // The good value is still there and nothing else was added.
         QCOMPARE(store.overrideCount(), 1);
         QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
                  QStringLiteral("#123456"));
     }
 
-    // ---- the base theme ----
-
-    // A custom theme based on itself is a cycle that QML resolves as an
-    // undefined palette (the window paints black). System (0) is a resolution
-    // mode, not a palette, so it is also invalid as a base.
     void theBaseMustBeARealPresetNeverTheCustomThemeItself()
     {
         SettingsManager settings;
@@ -380,8 +321,6 @@ private Q_SLOTS:
         QCOMPARE(store.baseTheme(), int(SettingsManager::MossLightTheme));
     }
 
-    // A base written by a newer build or by hand must not leave the app with
-    // an undefined palette.
     void aStoredBaseOutsideTheRangeFallsBack()
     {
         {
@@ -393,8 +332,6 @@ private Q_SLOTS:
         CustomThemeStore store(&settings);
         QCOMPARE(store.baseTheme(), int(SettingsManager::StormTheme));
     }
-
-    // ---- persistence and reset ----
 
     void overridesPersistAndResetIsGranular()
     {
@@ -416,15 +353,12 @@ private Q_SLOTS:
         QCOMPARE(reopened.overrideCount(), 1);
         QVERIFY(reopened.colors().contains(QStringLiteral("background")));
 
-        // resetAll keeps the base and name ("start over from this base"). The
-        // theme itself still exists: a theme with no overrides is a real state.
         reopened.resetAll();
         QCOMPARE(reopened.overrideCount(), 0);
         QVERIFY(reopened.exists());
         QCOMPARE(reopened.baseTheme(), int(SettingsManager::GraphiteTheme));
         QCOMPARE(reopened.name(), QStringLiteral("Mine"));
 
-        // discard forgets every theme.
         reopened.setColor(QStringLiteral("accent"), QStringLiteral("#AA0000"));
         reopened.discard();
         QVERIFY(!reopened.exists());
@@ -432,11 +366,6 @@ private Q_SLOTS:
         QVERIFY(reopened.name().isEmpty());
     }
 
-    // ---- user colour groups (master prompt Part 6, 4; UI-001..015) ----
-
-    // UI-001/002/003: two unrelated roles linked under a name; one edit, from
-    // the group or from either member's own picker, recolours both; creation
-    // is one undo step that restores both originals.
     void aColourGroupLinksUnrelatedRolesInOneStep()
     {
         SettingsManager settings;
@@ -461,13 +390,11 @@ private Q_SLOTS:
                  QStringLiteral("#AA0000"));
         QCOMPARE(store.colorGroups().size(), 1);
 
-        // A member's ordinary picker edits the whole group.
         store.setColor(QStringLiteral("unreadBadge"), QStringLiteral("#00AA00"));
         store.sealUndoStep();
         QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
                  QStringLiteral("#00AA00"));
 
-        // Undo the edit, then the creation: the exact originals and no group.
         QVERIFY(store.undo());
         QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
                  QStringLiteral("#AA0000"));
@@ -481,8 +408,6 @@ private Q_SLOTS:
         QCOMPARE(store.groupOfRole(QStringLiteral("accent")), id);
     }
 
-    // UI-004: a drag through many samples is one step, and every sample
-    // updates every member (no partial group state).
     void aGroupColourDragIsOneStep()
     {
         SettingsManager settings;
@@ -511,9 +436,6 @@ private Q_SLOTS:
         QCOMPARE(store.undoLabel(), undoBefore);
     }
 
-    // UI-005/006: detaching keeps the rendered colour and later group edits
-    // leave it alone; a group below two members dissolves; ungrouping keeps
-    // appearance and undo restores the relationship.
     void detachAndUngroupKeepTheAppearance()
     {
         SettingsManager settings;
@@ -542,14 +464,12 @@ private Q_SLOTS:
         QVERIFY(store.undo());
         QCOMPARE(store.groupOfRole(QStringLiteral("link")), id);
 
-        // Down to one member: the group dissolves, the colour stays.
         QVERIFY(store.detachFromColorGroup(QStringLiteral("link")));
         QVERIFY(store.colorGroups().isEmpty());
         QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
                  QStringLiteral("#654321"));
     }
 
-    // UI-007: a role already in a group moves only when asked, atomically.
     void movingARoleBetweenGroupsIsExplicit()
     {
         SettingsManager settings;
@@ -571,18 +491,13 @@ private Q_SLOTS:
         QCOMPARE(store.groupOfRole(QStringLiteral("link")), b);
         QCOMPARE(store.colors().value(QStringLiteral("link")).toString(),
                  QStringLiteral("#222222"));
-        // Creating over a member also refuses without the explicit move.
         QVERIFY(!store.createColorGroup(QStringLiteral("C"),
                     { QStringLiteral("accent"), QStringLiteral("danger") },
                     QStringLiteral("#333333"), false).value(QStringLiteral("ok")).toBool());
-        QVERIFY(store.undo());   // the move
+        QVERIFY(store.undo());
         QCOMPARE(store.groupOfRole(QStringLiteral("link")), a);
     }
 
-    // UI-008/009/010: a parent role's inherited dependents are reported; a
-    // gradient-bearing role is refused (never silently flattened); giving a
-    // member a gradient or resetting it takes it out of the group, so a badge
-    // can never claim a link that is not there.
     void impactGradientsAndResetsAreHonest()
     {
         SettingsManager settings;
@@ -620,7 +535,6 @@ private Q_SLOTS:
         QVERIFY(store.setGradient(QStringLiteral("sidebar"), grad));
         QVERIFY(store.groupOfRole(QStringLiteral("sidebar")).isEmpty());
         store.resetColor(QStringLiteral("roomList"));
-        // roomList left; surface alone dissolves the group.
         QVERIFY(store.groupOfRole(QStringLiteral("roomList")).isEmpty());
         QVERIFY(!store.colors().contains(QStringLiteral("roomList")));
         QVERIFY(store.colorGroups().isEmpty());
@@ -628,9 +542,6 @@ private Q_SLOTS:
                  QStringLiteral("#202020"));
     }
 
-    // UI-011/013/015: groups survive restart, duplication and the share
-    // round trip; the export still carries every materialised colour, so an
-    // older build shows the same theme.
     void groupsSurviveRestartDuplicateAndExport()
     {
         SettingsManager settings;
@@ -660,9 +571,6 @@ private Q_SLOTS:
                  QStringLiteral("#ABCDEF"));
     }
 
-    // UI-012/014: malformed, oversized and conflicting groups are repaired or
-    // dropped deterministically; the rest of the theme is kept; a theme with
-    // no groups is untouched.
     void untrustedGroupsAreBoundedAndRepaired()
     {
         QVariantMap colors{ { QStringLiteral("accent"), QStringLiteral("#010101") },
@@ -681,7 +589,6 @@ private Q_SLOTS:
                 { QStringLiteral("members"),
                   QVariantList{ QStringLiteral("accent"), QStringLiteral("link") } } };
         }
-        // Same members claimed 40 times: first wins, the rest dissolve.
         groups.prepend(QVariantMap{
             { QStringLiteral("id"), QStringLiteral("<script>") },
             { QStringLiteral("name"), QString(500, QLatin1Char('x')) },
@@ -699,14 +606,9 @@ private Q_SLOTS:
         QVERIFY(g.value(QStringLiteral("name")).toString().size() <= CustomThemeStore::kMaxNameLength);
         QVERIFY(g.value(QStringLiteral("id")).toString() != QStringLiteral("<script>"));
         QCOMPARE(c.value(QStringLiteral("textPrimary")).toString(), QStringLiteral("#00FF00"));
-        // link was not in the surviving group and keeps its own colour.
         QCOMPARE(c.value(QStringLiteral("link")).toString(), QStringLiteral("#020202"));
     }
 
-    // ---- the collection ----
-
-    // B089: the first theme starts from the palette in effect, not from Storm;
-    // System and Custom are no palette and keep the Storm default.
     void theFirstThemeStartsFromTheActiveBuiltInPalette()
     {
         SettingsManager settings;
@@ -735,7 +637,6 @@ private Q_SLOTS:
         QCOMPARE(store.name(), QStringLiteral("Ocean"));
         store.setColor(QStringLiteral("accent"), QStringLiteral("#112233"));
 
-        // A duplicate carries colours and base, and becomes active.
         store.setBaseTheme(SettingsManager::GraphiteTheme);
         const QString copy = store.duplicateActiveTheme(QStringLiteral("Ocean 2"));
         QVERIFY(!copy.isEmpty());
@@ -746,14 +647,11 @@ private Q_SLOTS:
         QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
                  QStringLiteral("#112233"));
 
-        // Editing the copy leaves the original alone.
         store.setColor(QStringLiteral("accent"), QStringLiteral("#445566"));
         store.setActiveThemeId(first);
         QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
                  QStringLiteral("#112233"));
 
-        // Deleting the active theme selects a neighbour so theme id 12 still
-        // resolves.
         store.deleteTheme(first);
         QCOMPARE(store.themes().size(), 1);
         QCOMPARE(store.activeThemeId(), copy);
@@ -772,7 +670,6 @@ private Q_SLOTS:
         const QString shared = store.exportTheme(store.activeThemeId());
         QVERIFY(!shared.isEmpty());
         QVERIFY(shared.contains(QStringLiteral("lightning_theme")));
-        // One line, so it survives being pasted into chat.
         QVERIFY(!shared.contains(QLatin1Char('\n')));
 
         QCOMPARE(store.importTheme(shared), QString());
@@ -781,9 +678,6 @@ private Q_SLOTS:
         QCOMPARE(store.colors().value(QStringLiteral("sidebar")).toString(),
                  QStringLiteral("#445566"));
 
-        // An imported theme is untrusted: unknown roles and malformed colours
-        // are dropped, and the base is clamped to a real preset (12 would be a
-        // cycle).
         const QString hostile = QStringLiteral(
             "{\"lightning_theme\":1,\"name\":\"X\",\"base\":12,"
             "\"colors\":{\"accent\":\"#010203\",\"notARole\":\"#FFFFFF\","
@@ -794,7 +688,6 @@ private Q_SLOTS:
         QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
                  QStringLiteral("#010203"));
 
-        // Refusals are reported, never silently swallowed.
         QVERIFY(!store.importTheme(QStringLiteral("hello")).isEmpty());
         QVERIFY(!store.importTheme(QStringLiteral("{}")).isEmpty());
         QVERIFY(!store.importTheme(
@@ -804,7 +697,6 @@ private Q_SLOTS:
 
     void anExistingSingleThemeSurvivesTheUpgradeExactlyOnce()
     {
-        // The pre-collection keys: an upgrade keeps the user's theme, once.
         {
             QSettings raw;
             raw.setValue(QStringLiteral("appearance/customThemeColors"),
@@ -824,7 +716,6 @@ private Q_SLOTS:
             QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
                      QStringLiteral("#AA0000"));
         }
-        // Reopening must not migrate a second time.
         CustomThemeStore reopened(&settings);
         QCOMPARE(reopened.themes().size(), 1);
     }
@@ -844,8 +735,6 @@ private Q_SLOTS:
         store.resetColor(QStringLiteral("accent"));
         QCOMPARE(changed.count(), 4);
 
-        // A no-op must not notify: Main.qml binds AppTheme.customOverrides to
-        // this, and a spurious change repaints the whole window.
         store.resetColor(QStringLiteral("accent"));
         QCOMPARE(changed.count(), 4);
         store.resetAll();
@@ -856,56 +745,41 @@ private Q_SLOTS:
         QCOMPARE(changed.count(), 4);
     }
 
-    // ---- readability ----
-
-    // The editor's "Make readable": the nearest lightness that clears the bar,
-    // moving away from the colour it must stand out against, and nothing else.
     void nudgeToPassMovesOnlyLightnessAndOnlyAsFarAsNeeded()
     {
         const auto nudge = &CustomThemeStore::nudgeToPass;
         const QString ground = QStringLiteral("#202020");
 
-        // Already readable: returned unchanged (upper-cased), not "improved".
         QCOMPARE(nudge(QStringLiteral("#f0f0f0"), ground, 4.5, false),
                  QStringLiteral("#F0F0F0"));
 
-        // Too close: grey on a near-black ground gets lighter, and only until
-        // the ratio is met.
         const QString lifted = nudge(QStringLiteral("#303030"), ground, 4.5, false);
         QVERIFY2(!lifted.isEmpty(), "a reachable bar returned nothing");
         QVERIFY(CustomThemeStore::contrast(lifted, ground) >= 4.5);
         QVERIFY(CustomThemeStore::lstar(lifted) > CustomThemeStore::lstar(QStringLiteral("#303030")));
-        // Minimal: one 0.5% step darker no longer passes (the answer is not a
-        // blanket jump to white).
         QVERIFY(CustomThemeStore::lstar(lifted) < 90.0);
 
-        // Hue is kept: a blue stays blue.
         const QColor blue = QColor::fromString(
             nudge(QStringLiteral("#1a2a60"), ground, 4.5, false));
         QVERIFY(blue.isValid());
         QVERIFY(blue.blue() > blue.red() && blue.blue() > blue.green());
 
-        // A light ground pushes the other way.
         const QString darker = nudge(QStringLiteral("#d0d0d0"),
                                      QStringLiteral("#ffffff"), 4.5, false);
         QVERIFY(!darker.isEmpty());
         QVERIFY(CustomThemeStore::contrast(darker, QStringLiteral("#ffffff")) >= 4.5);
         QVERIFY(CustomThemeStore::lstar(darker) < CustomThemeStore::lstar(QStringLiteral("#d0d0d0")));
 
-        // An edge is a separation in L*, not a ratio.
         const QString edge = nudge(QStringLiteral("#252525"), ground, 8.0, true);
         QVERIFY(!edge.isEmpty());
         QVERIFY(qAbs(CustomThemeStore::lstar(edge) - CustomThemeStore::lstar(ground)) >= 8.0);
 
-        // Honest refusals: a see-through or malformed colour is not guessed at.
         QVERIFY(nudge(QStringLiteral("#80303030"), ground, 4.5, false).isEmpty());
         QVERIFY(nudge(QStringLiteral("#303030"), QStringLiteral("nonsense"), 4.5, false).isEmpty());
         QVERIFY(nudge(QStringLiteral("nonsense"), ground, 4.5, false).isEmpty());
-        // A bar no lightness can reach (above the 21:1 maximum).
         QVERIFY(nudge(QStringLiteral("#303030"), ground, 30.0, false).isEmpty());
     }
 
-    // The QML-facing wrapper is the same function.
     void readableColorIsTheSameAnswerAsNudgeToPass()
     {
         CustomThemeStore store(nullptr);
@@ -915,9 +789,6 @@ private Q_SLOTS:
                                                QStringLiteral("#202020"), 4.5, false));
     }
 
-    // The WCAG formula against published values (it is also copied in
-    // AppTheme.qml and src/theme/IdentityColors.cpp). #767676 and #949494 are
-    // the W3C's AA and AA-large boundary greys against white.
     void contrastMatchesPublishedReferenceValues()
     {
         const auto ratio = &CustomThemeStore::contrast;
@@ -925,42 +796,29 @@ private Q_SLOTS:
                            QStringLiteral("#FFFFFF")) - 21.0) < 0.001);
         QVERIFY(qAbs(ratio(QStringLiteral("#FFFFFF"),
                            QStringLiteral("#FFFFFF")) - 1.0) < 0.001);
-        // Symmetric: the brighter colour always goes on top.
         QCOMPARE(ratio(QStringLiteral("#000000"), QStringLiteral("#FFFFFF")),
                  ratio(QStringLiteral("#FFFFFF"), QStringLiteral("#000000")));
-        // The W3C's AA boundary grey on white: 4.54:1, just over 4.5.
         QVERIFY(qAbs(ratio(QStringLiteral("#767676"),
                            QStringLiteral("#FFFFFF")) - 4.54) < 0.01);
-        // The AA-large boundary grey on white: 3.03:1, just over 3.
         QVERIFY(qAbs(ratio(QStringLiteral("#949494"),
                            QStringLiteral("#FFFFFF")) - 3.03) < 0.01);
 
-        // QML passes a `color` as #AARRGGBB; the alpha must not be read as RGB.
         QCOMPARE(ratio(QStringLiteral("#FF000000"), QStringLiteral("#FFFFFF")),
                  ratio(QStringLiteral("#000000"), QStringLiteral("#FFFFFF")));
 
-        // Unparseable input is 0, never a pass.
         QCOMPARE(ratio(QStringLiteral("nonsense"), QStringLiteral("#FFFFFF")),
                  0.0);
 
-        // L*, at its two endpoints and at the CIE mid-grey.
         QVERIFY(qAbs(CustomThemeStore::lstar(QStringLiteral("#000000")))
                 < 0.001);
         QVERIFY(qAbs(CustomThemeStore::lstar(QStringLiteral("#FFFFFF")) - 100.0)
                 < 0.001);
         QVERIFY(qAbs(CustomThemeStore::lstar(QStringLiteral("#777777")) - 50.0)
                 < 0.5);
-        // A near-black pins the 903.3 coefficient of L*'s linear segment,
-        // which the other endpoints cannot (#0A0A0A has Y below 0.008856).
-        // Dark custom themes' edge checks live here.
         QVERIFY(qAbs(CustomThemeStore::lstar(QStringLiteral("#0A0A0A")) - 2.74)
                 < 0.05);
     }
 
-    // Every check must pass on all eleven shipped presets: a warning that
-    // fires on a stock theme teaches people to ignore it. Checks removed for
-    // that reason are recorded with the offending preset in the .cpp. Asserts
-    // the number of comparisons made, so a parser that resolves less fails.
     void everyReadabilityCheckPassesOnEveryShippedPreset()
     {
         const QString qml = appTheme();
@@ -982,16 +840,10 @@ private Q_SLOTS:
             const QVariantMap palette =
                 resolvedPalette(it.value(), QStringLiteral("#FFFFFF"),
                                 dangerFill);
-            // Failures come from audit(); passes are derived from what did not
-            // come back.
             const QVariantList bad = store.audit(palette);
-            // An empty role narrows nothing, so this is the full table
-            // including passes, which gives the comparison count.
             const QVariantList all = store.auditForRole(palette, QString());
             evaluated += all.size();
 
-            // Every row, passing or failing, must name a role the editor can
-            // open; a bad role on a passing row is otherwise never seen.
             for (const QVariant &row : all) {
                 const QVariantMap m = row.toMap();
                 const QString role = m.value(QStringLiteral("role")).toString();
@@ -1026,18 +878,9 @@ private Q_SLOTS:
                                 "theme, which would make it noise:\n  %1")
                                 .arg(failures.join(QStringLiteral("\n  ")))));
 
-        // 11 presets x 35 checks = 385, minus exactly one: Storm's `hover` is
-        // Qt.alpha(...), which the parser cannot resolve. `selectedHover` is
-        // deliberately unchecked (see the .cpp). The bound is exact so a
-        // renamed key or a parser regression cannot pass quietly. 35 = the 27
-        // group checks (several now naming the element actually drawn) plus
-        // seven element pairs added with the per-element split.
-        // ... plus the mention count's number on its painted fill (2026-10-20).
         QCOMPARE(CustomThemeStore::readabilityCheckCount(), 35);
         QCOMPARE(evaluated, 11 * 35 - 1);
 
-        // The unevaluated check is named, not just counted: auditSkipped says
-        // which pair and why.
         int skipped = 0;
         for (auto it = presets.constBegin(); it != presets.constEnd(); ++it) {
             const QVariantMap palette =
@@ -1052,9 +895,6 @@ private Q_SLOTS:
                          QStringLiteral("textPrimary"));
                 QCOMPARE(m.value(QStringLiteral("bg")).toString(),
                          QStringLiteral("hover"));
-                // "missing" because the fixture parser cannot resolve
-                // Qt.alpha(); the running app gets a translucent QColor and says
-                // "translucent". Both are skips, neither a pass.
                 QCOMPARE(m.value(QStringLiteral("reason")).toString(),
                          QStringLiteral("missing"));
                 QVERIFY2(!m.contains(QStringLiteral("passes")),
@@ -1065,16 +905,11 @@ private Q_SLOTS:
         QCOMPARE(skipped, 1);
     }
 
-    // A translucent palette entry is not graded: it composites over whatever
-    // is beneath, so its contrast is unknowable (the same reason 8-digit hex
-    // is refused). The parser skips Storm's translucent hover, so this hands
-    // the store a translucent value directly.
     void aTranslucentPaletteEntryIsSkippedRatherThanGuessedAt()
     {
         SettingsManager settings;
         CustomThemeStore store(&settings);
 
-        // Opaque and failing: graded and reported.
         QVariantMap opaque{
             {QStringLiteral("textPrimary"), QStringLiteral("#6E7484")},
             {QStringLiteral("hover"), QStringLiteral("#3A3F4B")}};
@@ -1084,7 +919,6 @@ private Q_SLOTS:
         QCOMPARE(graded.first().toMap().value(QStringLiteral("passes")).toBool(),
                  false);
 
-        // The same pair with a 22%-alpha hover, as Storm ships: not graded.
         QVariantMap translucent = opaque;
         translucent.insert(QStringLiteral("hover"),
                            QVariant::fromValue(QColor(0x3A, 0x3F, 0x4B, 56)));
@@ -1092,22 +926,16 @@ private Q_SLOTS:
                  0);
         QCOMPARE(store.audit(translucent).size(), 0);
 
-        // The same colour as 8-digit ARGB text, as a hand-edited config has it.
         QVariantMap asText = opaque;
         asText.insert(QStringLiteral("hover"), QStringLiteral("#383A3F4B"));
         QCOMPARE(store.audit(asText).size(), 0);
 
-        // An opaque QColor is still graded; the guard keys on alpha.
         QVariantMap opaqueColor = opaque;
         opaqueColor.insert(QStringLiteral("hover"),
                            QVariant::fromValue(QColor(0x3A, 0x3F, 0x4B)));
         QCOMPARE(store.audit(opaqueColor).size(), 1);
     }
 
-    // Every key the readability table reads must be a key paletteForTheme()
-    // returns; a missing endpoint is skipped, so a rename in AppTheme would
-    // silently stop grading. Reads the return literal (the resolved dialect);
-    // `everyEditableRoleIsARealPaletteKey` covers the other direction.
     void everyReadabilityKeyIsAKeyPaletteForThemeReturns()
     {
         const QString qml = appTheme();
@@ -1128,13 +956,10 @@ private Q_SLOTS:
         auto it = key.globalMatch(body);
         while (it.hasNext())
             returned.insert(it.next().captured(1));
-        // Per-element roles come from the `elementGroups` loop after it.
         const QHash<QString, QString> elements = elementGroupsTable(qml);
         QVERIFY2(elements.size() > 50, "the elementGroups scan found almost nothing");
         for (auto e = elements.constBegin(); e != elements.constEnd(); ++e)
             returned.insert(e.key());
-        // The derived badge keys are assigned after that loop (`out.<key> =`),
-        // and each must be one the store declares as derived.
         const int fnEnd = qml.indexOf(QStringLiteral("\n    }"), close);
         static const QRegularExpression assigned(QStringLiteral("\\bout\\.(\\w+)\\s*="));
         auto a = assigned.globalMatch(qml.mid(close, fnEnd - close));
@@ -1164,9 +989,6 @@ private Q_SLOTS:
         }
     }
 
-    // Two themes whose contrast was measured on rendered pixels (Sand's room
-    // list text at 3.08:1, its Send label at 1.62:1). The audit must name
-    // them, and the finding count is pinned so a short report fails.
     void theAuditNamesWhatTheGuiMeasuredOnTwoRealThemes()
     {
         const QString qml = appTheme();
@@ -1209,7 +1031,6 @@ private Q_SLOTS:
                                             dangerFill);
             for (auto it = over.constBegin(); it != over.constEnd(); ++it)
                 p.insert(it.key(), it.value());
-            // Elements follow the overridden groups, as in the resolver.
             fillElements(p, over, qml);
             return p;
         };
@@ -1228,28 +1049,14 @@ private Q_SLOTS:
 
         const QVariantList sandReport =
             store.audit(merged(QStringLiteral("Moss Light"), sand));
-        // 18 group findings, plus six of the seven element pairs added on
-        // 2026-10-13 (each repeats a failing group pair on the element drawn).
         QCOMPARE(sandReport.size(), 24);
-        // Rendered "Send" button: 1.62:1; arithmetic: 1.63.
         QVERIFY(qAbs(findPair(sandReport, "accentText", "accent") - 1.63)
                 < 0.01);
-        // Rendered room-list name: 3.08:1; the audit grades the same pair.
         QVERIFY(qAbs(findPair(sandReport, "roomNameUnread", "roomList") - 3.15)
                 < 0.01);
 
         const QVariantList inkReport =
             store.audit(merged(QStringLiteral("Lightning Dark"), ink));
-        // Ink darkens `accentText` but keeps the base `accentPressed`, so the
-        // label is unreadable only while the button is held down.
-        // 20, plus six of the seven element pairs (header title, typed text,
-        // menu items, link preview title, primary and send labels). The
-        // seventh, the unread number, grades `unreadBadgeText` against
-        // `roomUnreadBadge`, which inherits the `unreadBadge` GROUP and not the
-        // accent: Ink darkens only the accent, so its badge fill is the base
-        // theme's and the dark number reads fine on it. The pair is absent
-        // because it passes, and that is asserted below so a short report
-        // cannot hide behind it.
         QCOMPARE(inkReport.size(), 26);
         QCOMPARE(findPair(inkReport, "unreadCountInk", "unreadCountFill"),
                  -1.0);
@@ -1257,17 +1064,11 @@ private Q_SLOTS:
                 < 0.01);
         QVERIFY(qAbs(findPair(inkReport, "buttonPrimaryInk", "accentPressed") - 2.77)
                 < 0.01);
-        // The hovered state still passes, so the new pair is not just following
-        // its neighbour.
         QCOMPARE(findPair(inkReport, "buttonPrimaryInk", "accentHover"), -1.0);
-        // `hover` was inherited, not overridden, and now clashes with the new
-        // ink: only an audit over the resolved palette catches that.
         QVERIFY(qAbs(findPair(inkReport, "textPrimary", "hover") - 1.92)
                 < 0.01);
-        // Ink's hairline nearly vanishes: dL* 0.5 against its surface.
         QVERIFY(qAbs(findPair(inkReport, "border", "surface") - 0.50) < 0.02);
 
-        // Every finding names a role the editor can open.
         for (const QVariantList &report : {sandReport, inkReport}) {
             for (const QVariant &row : report) {
                 const QString role =
@@ -1280,8 +1081,6 @@ private Q_SLOTS:
         }
     }
 
-    // The live readout under an open picker keeps passes too, so a value
-    // crossing its bar is visible.
     void theLiveReadoutForOneRoleKeepsItsPasses()
     {
         const QString qml = appTheme();
@@ -1292,8 +1091,6 @@ private Q_SLOTS:
             resolvedPalette(presets.value(QStringLiteral("Storm")),
                             QStringLiteral("#FFFFFF"));
 
-        // Storm passes everything, so the narrowed report is all passes and
-        // must not be empty.
         const QVariantList rows =
             store.auditForRole(storm, QStringLiteral("timelineBackground"));
         QVERIFY2(!rows.isEmpty(),
@@ -1308,13 +1105,9 @@ private Q_SLOTS:
         }
         QCOMPARE(store.audit(storm).size(), 0);
 
-        // An unknown role narrows to nothing rather than to everything.
         QCOMPARE(store.auditForRole(storm, QStringLiteral("nope")).size(), 0);
     }
 
-    // A skipped check is named rather than silently dropped; otherwise every
-    // consumer reads a skip as a pass. Invariant: graded + skipped equals the
-    // whole table for any palette.
     void aSkippedCheckIsNamedRatherThanSilentlyDropped()
     {
         SettingsManager settings;
@@ -1324,7 +1117,6 @@ private Q_SLOTS:
             {QStringLiteral("textPrimary"), QStringLiteral("#6E7484")},
             {QStringLiteral("hover"), QStringLiteral("#3A3F4B")}};
 
-        // Storm's shape: a 22%-alpha hover inherited from the base.
         QVariantMap translucent = opaque;
         translucent.insert(QStringLiteral("hover"),
                            QVariant::fromValue(QColor(0x3A, 0x3F, 0x4B, 56)));
@@ -1337,17 +1129,14 @@ private Q_SLOTS:
                  QStringLiteral("translucent"));
         QCOMPARE(gap.value(QStringLiteral("bg")).toString(),
                  QStringLiteral("hover"));
-        // Presentable: the editor prints the label and links to the role.
         QVERIFY(!gap.value(QStringLiteral("label")).toString().isEmpty());
         QVERIFY(CustomThemeStore::roleIsEditable(
             gap.value(QStringLiteral("role")).toString()));
-        // No verdict: `passes: false` would read as a failure.
         QVERIFY2(!gap.contains(QStringLiteral("passes")),
                  "a check that was never made must not report a verdict");
         QVERIFY2(!gap.contains(QStringLiteral("value")),
                  "a check that was never made must not report a number");
 
-        // The other reason: this build has no such key; not the user's doing.
         QVariantMap missing{
             {QStringLiteral("textPrimary"), QStringLiteral("#6E7484")}};
         const QVariantList absent =
@@ -1356,8 +1145,6 @@ private Q_SLOTS:
         QCOMPARE(absent.first().toMap().value(QStringLiteral("reason")).toString(),
                  QStringLiteral("missing"));
 
-        // When both reasons apply, "missing" wins: it is our defect, and
-        // blaming the user's translucent colour would be unfixable for them.
         QVariantMap both{
             {QStringLiteral("hover"), QColor(0x64, 0x69, 0xBF, 56)}};
         const QVariantList mixed =
@@ -1368,12 +1155,9 @@ private Q_SLOTS:
                      QStringLiteral("missing"));
         }
 
-        // Narrowing follows auditForRole: unknown role -> nothing, empty -> all.
         QCOMPARE(store.auditSkipped(translucent, QStringLiteral("nope")).size(),
                  0);
 
-        // Every check is graded or skipped, never neither, on sparse,
-        // translucent and real palettes.
         const QString qml = appTheme();
         const auto presets = presetPalettes(qml);
         const QVariantMap storm =
@@ -1389,14 +1173,9 @@ private Q_SLOTS:
         }
     }
 
-    // A check's graded palette key and its click-through role must name the
-    // same colour, via the C++ alias map.
     void everyCheckGradesTheColourItsRoleWouldEdit()
     {
         const QVariantList checks = CustomThemeStore::readabilityChecks();
-        // Not `checks.size() == readabilityCheckCount()` (same source, cannot
-        // fail). Each entry must carry the six keys callers read; `fgRole` may
-        // be empty but must be present.
         QVERIFY(!checks.isEmpty());
         for (const QVariant &entry : checks) {
             const QVariantMap m = entry.toMap();
@@ -1418,7 +1197,6 @@ private Q_SLOTS:
 
         SettingsManager settings;
         CustomThemeStore store(&settings);
-        // roleAliases() is the invokable QML actually calls.
         QCOMPARE(store.roleAliases(), CustomThemeStore::paletteKeyAliases());
         QVERIFY(!store.roleAliases().isEmpty());
         const QStringList roles = CustomThemeStore::editableRoles();
@@ -1435,8 +1213,6 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("'%1': the background role "
                                                "'%2' is not editable")
                                     .arg(label, bgRole)));
-            // A derived key (a badge's painted fill or ink) sends the click
-            // to the role it is derived from.
             const QVariantMap derived = CustomThemeStore::derivedPaletteKeys();
             QVERIFY2(store.paletteKeyForRole(bgRole) == bg
                          || derived.value(bg).toString() == bgRole,
@@ -1448,8 +1224,6 @@ private Q_SLOTS:
                                          store.paletteKeyForRole(bgRole))));
 
             if (fgRole.isEmpty()) {
-                // An ink AppTheme pins by literal: no editable role may resolve
-                // to that key, or the report sends the user to the wrong side.
                 for (const QString &role : roles) {
                     QVERIFY2(store.paletteKeyForRole(role) != fg,
                              qPrintable(QStringLiteral(
@@ -1473,8 +1247,6 @@ private Q_SLOTS:
                                          store.paletteKeyForRole(fgRole))));
         }
 
-        // The alias map: roles whose palette spelling differs. The editor
-        // resolves every swatch through it.
         const QVariantMap aliases = CustomThemeStore::paletteKeyAliases();
         QCOMPARE(aliases.size(), 3);
         QSet<QString> targets;
@@ -1489,8 +1261,6 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("two roles both resolve to the "
                                                "palette key '%1'").arg(target)));
             targets.insert(target);
-            // Read directly, or through a derived key the table reads
-            // (`mention` -> mentionBadgeFill since 2026-10-20).
             bool readThroughDerived = false;
             const QVariantMap derivedKeys = CustomThemeStore::derivedPaletteKeys();
             for (auto d = derivedKeys.constBegin(); d != derivedKeys.constEnd(); ++d) {
@@ -1506,7 +1276,6 @@ private Q_SLOTS:
                                     "paletteForTheme()").arg(target)));
             QCOMPARE(store.paletteKeyForRole(it.key()), target);
         }
-        // Every other role is its own key; an unknown role is not invented.
         for (const QString &role : roles) {
             if (aliases.contains(role))
                 continue;
@@ -1515,8 +1284,6 @@ private Q_SLOTS:
         QCOMPARE(store.paletteKeyForRole(QStringLiteral("nope")),
                  QStringLiteral("nope"));
 
-        // The QML copy is gone; the dialog reads the map from the store.
-        // AppTheme.qml sits beside the dialog, so its path is derived.
         const QString appThemePath = QStringLiteral(APPTHEME_QML_PATH);
         QFile dialog(appThemePath.left(appThemePath.lastIndexOf(QLatin1Char('/')) + 1)
                      + QStringLiteral("ThemeEditorDialog.qml"));
@@ -1525,8 +1292,6 @@ private Q_SLOTS:
         const QString source = QString::fromUtf8(dialog.readAll());
         QVERIFY2(source.contains(QStringLiteral("store.roleAliases()")),
                  "the editor no longer reads the alias map from the store");
-        // Scoped to the shape, not the word: what must not return is a
-        // `storeKeyAliases` whose right-hand side is an object literal.
         static const QRegularExpression literalAliases(
             QStringLiteral("storeKeyAliases\\s*:\\s*\\(?\\s*\\{"));
         QVERIFY2(!literalAliases.match(source).hasMatch(),
@@ -1534,10 +1299,6 @@ private Q_SLOTS:
                  "map again");
     }
 
-    // Narrow window (C77-D03, 640 px): the header's Undo ... Done cluster is
-    // wider than the header and Use this theme / Done were clipped off with no
-    // way to reach them. The cluster must live in a horizontal Flickable (a
-    // plain Row cannot scroll), and Done must be inside it.
     void theHeaderButtonClusterScrollsInsteadOfClipping()
     {
         const QString appThemePath = QStringLiteral(APPTHEME_QML_PATH);
@@ -1555,17 +1316,10 @@ private Q_SLOTS:
                  "Use this theme / Done are not inside the scrolling cluster");
         QVERIFY(src.mid(fl - 120, 120).contains(QStringLiteral("Flickable {")));
         QVERIFY(src.mid(fl, 900).contains(QStringLiteral("HorizontalFlick")));
-        // Keyboard: Tab to a clipped button scrolls the cluster to it.
         QVERIFY2(src.mid(fl, 2500).contains(QStringLiteral("onActiveFocusItemChanged")),
                  "a focused clipped header button is not scrolled into view");
     }
 
-    // Escape on a clean editor closes it (live Flatpak FAIL 2026-10-07: three
-    // tries, nothing). The close policy needs the popup to hold active focus,
-    // which it loses once a transient field is destroyed; one always-live
-    // Shortcut peels every layer instead. Fails on the old tree, whose
-    // Shortcut was enabled only with transient state and left the last layer
-    // to CloseOnEscape.
     void aCleanThemeEditorClosesOnEscapeWhateverHasFocus()
     {
         const QString appThemePath = QStringLiteral(APPTHEME_QML_PATH);
@@ -1593,10 +1347,6 @@ private Q_SLOTS:
                  "a transient layer must close before the editor does");
     }
 
-    // ---- couplings that would fail silently ----
-
-    // AppTheme merges overrides straight over the base palette, so an editable
-    // role that is not a palette key paints nothing.
     void everyEditableRoleIsARealPaletteKey()
     {
         const QString qml = appTheme();
@@ -1606,8 +1356,6 @@ private Q_SLOTS:
         const QSet<QString> resolved = resolverKeys(qml);
         QVERIFY2(resolved.size() > 30,
                  "the paletteForTheme key scan found almost nothing");
-        // A role that no preset defines (a split role) must be a key of the
-        // resolver, or the editor cannot show its inherited colour.
         keys.unite(resolved);
 
         for (const QString &role : CustomThemeStore::editableRoles()) {
@@ -1618,9 +1366,6 @@ private Q_SLOTS:
         }
     }
 
-    // The editor's swatch for a role is read from paletteForTheme(), and the
-    // running app reads `_p.<role>`. A role missing from either side is a row
-    // that edits nothing or shows the wrong inherited colour.
     void everyEditableRoleIsReadByAppThemeAndResolvedForTheEditor()
     {
         const QString qml = appTheme();
@@ -1630,8 +1375,6 @@ private Q_SLOTS:
         const QVariantMap aliases = CustomThemeStore::paletteKeyAliases();
         int checked = 0;
         for (const QString &role : roles) {
-            // inputBg / reaction / mention are read under their own store
-            // spelling and resolved under the alias.
             const QString key = aliases.value(role, role).toString();
             QVERIFY2(resolved.contains(key),
                      qPrintable(QStringLiteral("paletteForTheme() does not "
@@ -1650,9 +1393,6 @@ private Q_SLOTS:
         QCOMPARE(checked, roles.size());
     }
 
-    // Roles split out of a shared token (2026-10-06) must default to the token
-    // they were split from, or an existing theme and every imported file would
-    // change colour on upgrade.
     void aSplitRoleFallsBackToTheTokenItWasSplitFrom()
     {
         const QString qml = appTheme();
@@ -1661,7 +1401,6 @@ private Q_SLOTS:
         flat.replace(QRegularExpression(QStringLiteral("\\s+")),
                      QStringLiteral(" "));
 
-        // role -> the token its live property must fall back to.
         const QList<QPair<QString, QString>> splits = {
             { QStringLiteral("popoverSurface"), QStringLiteral("stormPanel") },
             { QStringLiteral("focusRing"), QStringLiteral("_p.accent") },
@@ -1672,7 +1411,6 @@ private Q_SLOTS:
               QStringLiteral("_ownBubbleTextDefault") },
             { QStringLiteral("presenceOnline"), QStringLiteral("success") },
             { QStringLiteral("unreadBadge"), QStringLiteral("accent") },
-            // Round 2: one role per element that used to share a token.
             { QStringLiteral("dangerTint"), QStringLiteral("mentionBadge") },
             { QStringLiteral("messageHighlight"), QStringLiteral("selected") },
             { QStringLiteral("textSelection"), QStringLiteral("selectedHover") },
@@ -1708,13 +1446,10 @@ private Q_SLOTS:
                                                "change colour")
                                     .arg(role, fallback)));
         }
-        // Stock ink on the own bubble stays white.
         QCOMPARE(colorLiteral(qml, QStringLiteral("_ownBubbleTextDefault")),
                  QStringLiteral("#FFFFFF"));
     }
 
-    // A file exported before the split carries none of the new keys and must
-    // import untouched; a file that carries them must keep them.
     void anOldSharedFileLoadsAndANewKeyRoundTrips()
     {
         SettingsManager settings;
@@ -1739,18 +1474,10 @@ private Q_SLOTS:
                  QStringLiteral("#AA5500"));
         QCOMPARE(store.colors().value(QStringLiteral("ownBubbleText")).toString(),
                  QStringLiteral("#101010"));
-        // The pre-split keys survive beside them.
         QCOMPARE(store.colors().value(QStringLiteral("surface")).toString(),
                  QStringLiteral("#102030"));
     }
 
-    // Per-element roles (2026-10-13) are stored sparsely like every role: a
-    // theme that sets one element and one element gradient writes exactly
-    // those keys, they survive the share round trip, and the group they
-    // belong to is not written for them. A file from a newer build carrying
-    // an element this build does not know imports with that key dropped (the
-    // element then shows its group's colour), which is how an older build
-    // reads this build's files.
     void elementRolesAreSparseAndSurviveTheShareRoundTrip()
     {
         SettingsManager settings;
@@ -1769,7 +1496,6 @@ private Q_SLOTS:
               { QStringLiteral("angle"), 90 },
               { QStringLiteral("stops"),
                 QStringList{ QStringLiteral("#101010"), QStringLiteral("#202020") } } }));
-        // Not every element takes a gradient: only the grounds do.
         QVERIFY(!store.setGradient(QStringLiteral("roomHeader"),
             { { QStringLiteral("stops"),
                 QStringList{ QStringLiteral("#101010"), QStringLiteral("#202020") } } }));
@@ -1790,7 +1516,6 @@ private Q_SLOTS:
         QCOMPARE(store.gradients().value(QStringLiteral("timelineBackground"))
                      .toMap().value(QStringLiteral("angle")).toInt(), 90);
 
-        // A newer build's element: dropped, the rest kept.
         QString newer = file;
         newer.replace(QStringLiteral("\"roomHeader\""),
                       QStringLiteral("\"someFutureElement\":\"#FF0000\",\"roomHeader\""));
@@ -1801,9 +1526,6 @@ private Q_SLOTS:
                  QStringLiteral("#123456"));
     }
 
-    // "Apply to all <group>": the group takes the colour, every element of
-    // the group drops its own (so all of them show it), and it is one undo
-    // step. Elements of OTHER groups keep theirs.
     void applyToGroupRecoloursTheGroupAndFreesItsElements()
     {
         SettingsManager settings;
@@ -1820,7 +1542,6 @@ private Q_SLOTS:
         store.sealUndoStep();
         const QVariantMap before = store.colors();
 
-        // Refused for a role with no group, and for a bad colour.
         QVERIFY(!store.applyToGroup(QStringLiteral("textPrimary"), QStringLiteral("#444444")));
         QVERIFY(!store.applyToGroup(QStringLiteral("roomHeader"), QStringLiteral("red")));
         QCOMPARE(store.colors(), before);
@@ -1833,14 +1554,10 @@ private Q_SLOTS:
         QCOMPARE(store.colors().value(QStringLiteral("menuItemText")).toString(),
                  QStringLiteral("#333333"));
 
-        // One step back restores all three.
         QVERIFY(store.undo());
         QCOMPARE(store.colors(), before);
     }
 
-    // A role nothing reads is a row that edits nothing: split roles exist so a
-    // view can read them, and the split is only real once one does. Greps the
-    // views for the live token (not AppTheme.qml, not the editor itself).
     void everyEditableRoleIsReadByAView()
     {
         const QString themePath = QStringLiteral(APPTHEME_QML_PATH);
@@ -1863,9 +1580,6 @@ private Q_SLOTS:
         }
         QVERIFY2(files > 100, "the view scan found almost no QML files");
         const QVariantMap aliases = CustomThemeStore::paletteKeyAliases();
-        // A role a view paints only through a DERIVED badge token (badges,
-        // 2026-10-20: the colour fitted for contrast) is read through that
-        // token, provided AppTheme really derives it from the role.
         QFile themeFile(themePath);
         QVERIFY(themeFile.open(QIODevice::ReadOnly | QIODevice::Text));
         const QString theme = QString::fromUtf8(themeFile.readAll());
@@ -1894,9 +1608,6 @@ private Q_SLOTS:
             }
             return false;
         };
-        // A group whose elements all have roles of their own (`dangerTint`:
-        // the destructive menu tint and the error chip) is read through
-        // them: it is what those elements show until they are set.
         QHash<QString, QStringList> children;
         for (const QString &role : CustomThemeStore::editableRoles()) {
             const QString parent = CustomThemeStore::roleFollows(role);
@@ -1929,8 +1640,6 @@ private Q_SLOTS:
                                            "%1").arg(unread.join(QStringLiteral(", ")))));
     }
 
-    // Every role must be paintable in the preview, or it is "impossible to
-    // preview": a Region (click target and outline) names it.
     void everyEditableRoleHasARegionInThePreview()
     {
         const QString themePath = QStringLiteral(APPTHEME_QML_PATH);
@@ -1941,13 +1650,7 @@ private Q_SLOTS:
         QString src = QString::fromUtf8(preview.readAll());
         src.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
 
-        // A group whose every element has a role of its own (Panels and
-        // cards: the search field, the message box, menus) is painted through
-        // those elements: the preview names only per-element roles, so that a
-        // click edits one element (2026-10-13). Such a group counts as painted
-        // when some role following it, at any depth, has a Region.
         const auto named = [&src](const QString &role) {
-            // `role: "x"`, or a ternary that names it before the next `}`.
             const QRegularExpression re(
                 QStringLiteral("\\b(?:role|inkRole):[^}]{0,500}?\"%1\"").arg(role),
                 QRegularExpression::DotMatchesEverythingOption);
@@ -1982,7 +1685,6 @@ private Q_SLOTS:
             ++checked;
         }
         QVERIFY2(checked > 100, "the role table shrank");
-        // Most roles are elements with a Region of their own.
         QVERIFY2(direct > 90,
                  qPrintable(QStringLiteral("only %1 roles have a Region")
                                 .arg(direct)));
@@ -1993,12 +1695,6 @@ private Q_SLOTS:
                                 .arg(missing.join(QStringLiteral(", ")))));
     }
 
-    // The editor tells the user that editing a parent recolours its unset
-    // children, and outlines them, from the store's `follows` field. That is
-    // only true if AppTheme really falls back to that parent, both in the live
-    // property the app paints with and in paletteForTheme(), which the editor
-    // and the preview read. A wrong `follows` would point the user at the
-    // wrong row; a missing one hides a recolour (what this field exists for).
     void everyFollowingRoleFallsBackToTheRoleItNames()
     {
         const QString qml = appTheme();
@@ -2008,15 +1704,11 @@ private Q_SLOTS:
         flat.replace(QRegularExpression(QStringLiteral("\\s+")),
                      QStringLiteral(" "));
 
-        // The resolver's body, flattened the same way.
         const int fn = flat.indexOf(QStringLiteral("function paletteForTheme("));
         const int ret = flat.indexOf(QStringLiteral("var out = {"), fn);
         QVERIFY2(fn >= 0 && ret > fn, "paletteForTheme() not found");
         const QString resolver = flat.mid(ret);
 
-        // Names a parent goes by in a fallback expression: its own token, or
-        // the live alias that resolves to it for a custom theme (custom is
-        // never Storm, so the storm* aliases resolve to the plain token).
         QHash<QString, QStringList> tokens{
             {QStringLiteral("sidebar"), {QStringLiteral("sidebar")}},
             {QStringLiteral("surface"),
@@ -2034,11 +1726,8 @@ private Q_SLOTS:
             {QStringLiteral("textMuted"),
              {QStringLiteral("textMuted"), QStringLiteral("stormTextMuted")}},
             {QStringLiteral("success"), {QStringLiteral("success")}},
-            // mentionBadgeFill: the mention colour, moved in lightness only
-            // until its number reads (2026-10-20); roomMentionBadge follows it.
             {QStringLiteral("mention"),
              {QStringLiteral("mentionBadge"), QStringLiteral("mentionBadgeFill")}},
-            // Groups of the per-element roles (2026-10-13).
             {QStringLiteral("border"),
              {QStringLiteral("border"), QStringLiteral("stormBorder")}},
             {QStringLiteral("cardElevated"), {QStringLiteral("cardElevated")}},
@@ -2059,7 +1748,6 @@ private Q_SLOTS:
         };
         tokens[QStringLiteral("borderStrong")] << QStringLiteral("stormBorderStrong");
         tokens[QStringLiteral("textMuted")] << QStringLiteral("sectionLabelColor");
-        // The resolver's table for the per-element roles.
         const QHash<QString, QString> elementTable = elementGroupsTable(qml);
         QVERIFY2(elementTable.size() > 50, "the elementGroups scan found almost nothing");
         const QVariantMap aliases = CustomThemeStore::paletteKeyAliases();
@@ -2078,8 +1766,6 @@ private Q_SLOTS:
         const QStringList editable = CustomThemeStore::editableRoles();
         QStringList wrong;
         int following = 0;
-        // Read from roles(), the list the editor reads, so this runs (and
-        // fails) against a store that has no `follows` at all.
         QHash<QString, QString> follows;
         for (const QVariant &v : store.roles()) {
             const QVariantMap entry = v.toMap();
@@ -2100,8 +1786,6 @@ private Q_SLOTS:
                 continue;
             }
 
-            // Live: `readonly property color <role>: _p.<role> !== undefined
-            // ? _p.<role> : <fallback>`, up to the next declaration.
             const QString decl = QStringLiteral("readonly property color ")
                                  + role + QStringLiteral(":");
             const int at = flat.indexOf(decl);
@@ -2118,10 +1802,6 @@ private Q_SLOTS:
                              + QStringLiteral(" (live property: ")
                              + live.left(160) + QStringLiteral(")");
 
-            // Resolver: a per-element role resolves through the
-            // `elementGroups` table, which must name the parent's palette
-            // key; any other role is spelled out as `<role>: p.<role> !==
-            // undefined ? p.<role> : ...`, up to the next key.
             if (elementTable.contains(role)) {
                 const QString want = aliases.value(parent, parent).toString();
                 if (elementTable.value(role) != want)
@@ -2138,9 +1818,6 @@ private Q_SLOTS:
                 wrong << role + QStringLiteral(" -> ") + parent
                              + QStringLiteral(" (paletteForTheme)");
         }
-        // The other direction: every row of the resolver's table is a role
-        // the store says follows that same group, so the two copies of the
-        // relation cannot drift apart.
         for (auto e = elementTable.constBegin(); e != elementTable.constEnd(); ++e) {
             const QString parent = CustomThemeStore::roleFollows(e.key());
             if (aliases.value(parent, parent).toString() != e.value())
@@ -2148,8 +1825,6 @@ private Q_SLOTS:
                              + e.value() + QStringLiteral(", the store says ")
                              + parent + QStringLiteral(")");
         }
-        // Not vacuous: the 2026-10-06 split roles are twenty, the per-element
-        // roles of 2026-10-13 another sixty and more.
         QVERIFY2(following >= 80,
                  qPrintable(QStringLiteral("only %1 roles declare what they "
                                            "follow").arg(following)));
@@ -2158,7 +1833,6 @@ private Q_SLOTS:
                                            "AppTheme falls back to:\n  %1")
                                 .arg(wrong.join(QStringLiteral("\n  ")))));
 
-        // And the chain has no cycle (the editor walks it).
         for (const QString &role : editable) {
             QString p = follows.value(role);
             int hops = 0;
@@ -2172,8 +1846,6 @@ private Q_SLOTS:
         }
     }
 
-    // The editor's undo. Called through the meta-object so this compiles
-    // against a store without it and fails there, rather than not building.
     void undoMergesADragAndStepsBackThroughEveryKindOfEdit()
     {
         SettingsManager settings;
@@ -2199,7 +1871,6 @@ private Q_SLOTS:
         QSignalSpy history(&store, SIGNAL(historyChanged()));
         QVERIFY2(history.isValid(), "the store has no historyChanged()");
 
-        // Three samples of one drag are ONE step: undo goes to before it.
         store.setColor(accent, QStringLiteral("#111111"));
         store.setColor(accent, QStringLiteral("#222222"));
         store.setColor(accent, QStringLiteral("#333333"));
@@ -2212,7 +1883,6 @@ private Q_SLOTS:
         QVERIFY(call("redo"));
         QCOMPARE(value(accent), QStringLiteral("#333333"));
 
-        // A sealed gesture is a step of its own.
         seal();
         store.setColor(accent, QStringLiteral("#444444"));
         seal();
@@ -2222,17 +1892,14 @@ private Q_SLOTS:
         QVERIFY(call("undo"));
         QCOMPARE(value(accent), QStringLiteral("#333333"));
 
-        // A new edit after an undo drops what could be redone.
         QVERIFY(canRedo());
         store.setColor(QStringLiteral("background"), QStringLiteral("#0A0A0A"));
         QVERIFY(!canRedo());
 
-        // Another role never merges into the previous step, even unsealed.
         QVERIFY(call("undo"));
         QVERIFY(!store.colors().contains(QStringLiteral("background")));
         QCOMPARE(value(accent), QStringLiteral("#333333"));
 
-        // A reset, Reset all and a base change are each undoable.
         store.resetColor(accent);
         QVERIFY(!store.colors().contains(accent));
         QVERIFY(call("undo"));
@@ -2256,8 +1923,6 @@ private Q_SLOTS:
         QCOMPARE(store.baseTheme(), other);
         QVERIFY(history.count() > 0);
 
-        // The history belongs to one theme: switching away clears it, so an
-        // undo can never write one theme's colours into another.
         QVERIFY(canUndo());
         const QString first = store.activeThemeId();
         const QString second = store.createTheme(QStringLiteral("Other"));
@@ -2272,9 +1937,6 @@ private Q_SLOTS:
         QCOMPARE(value(accent), QStringLiteral("#333333"));
     }
 
-    // Every undo step has a short human name, and gradients are in the history
-    // (2026-10-14). Fails on the old tree: there was no label and a gradient
-    // was neither undoable nor redoable.
     void undoStepsAreNamedAndGradientsAreInTheHistory()
     {
         SettingsManager settings;
@@ -2286,17 +1948,14 @@ private Q_SLOTS:
                  "the store has no undoLabel");
         QCOMPARE(undoLabel(), QString());
 
-        // A colour edit is named after the role.
         store.setColor(QStringLiteral("roomHeader"), QStringLiteral("#111111"));
         QVERIFY2(undoLabel().contains(CustomThemeStore::roleLabel(
                                           QStringLiteral("roomHeader"))),
                  qPrintable(undoLabel()));
-        // A drag keeps the name of its first sample and is still one step.
         store.setColor(QStringLiteral("roomHeader"), QStringLiteral("#222222"));
         const QString dragLabel = undoLabel();
         store.sealUndoStep();
 
-        // A gradient is a step: undo removes it, redo brings it back.
         const QVariantMap spec{ { QStringLiteral("type"), QStringLiteral("linear") },
                                 { QStringLiteral("angle"), 180 },
                                 { QStringLiteral("stops"),
@@ -2316,7 +1975,6 @@ private Q_SLOTS:
         QVERIFY(store.gradients().contains(QStringLiteral("background")));
         QVERIFY(undoLabel() == gradientLabel);
 
-        // Samples of one gradient (a stop dragged) are one step.
         QVariantMap moved = spec;
         moved.insert(QStringLiteral("stops"),
                      QStringList{ QStringLiteral("#112233"), QStringLiteral("#203040") });
@@ -2330,13 +1988,11 @@ private Q_SLOTS:
                      .value(QStringLiteral("stops")).toStringList().value(0),
                  QStringLiteral("#102030"));
 
-        // Removing a gradient is a step too.
         store.resetGradient(QStringLiteral("background"));
         QVERIFY(!store.gradients().contains(QStringLiteral("background")));
         QVERIFY(store.undo());
         QVERIFY(store.gradients().contains(QStringLiteral("background")));
 
-        // nameNextStep() overrides the default for one step only.
         store.sealUndoStep();
         QVERIFY(QMetaObject::invokeMethod(&store, "nameNextStep",
                                           Q_ARG(QString, QStringLiteral("Make it pop"))));
@@ -2346,7 +2002,6 @@ private Q_SLOTS:
         store.setColor(QStringLiteral("link"), QStringLiteral("#ABCDEF"));
         QVERIFY(undoLabel() != QStringLiteral("Make it pop"));
 
-        // A group is one step with its own name, whatever it writes.
         store.sealUndoStep();
         QVERIFY(store.setColor(QStringLiteral("sidebar"), QStringLiteral("#010101")));
         store.sealUndoStep();
@@ -2365,7 +2020,6 @@ private Q_SLOTS:
         QVERIFY(store.redo());
         QVERIFY(store.gradients().contains(QStringLiteral("roomList")));
 
-        // Reset all brings the gradients back with a single undo.
         store.resetAll();
         QCOMPARE(store.gradients().size(), 0);
         QVERIFY(store.undo());
@@ -2373,11 +2027,6 @@ private Q_SLOTS:
         QVERIFY(store.gradients().contains(QStringLiteral("background")));
     }
 
-    // The Import preview and "Replace current" (2026-10-14). previewImport()
-    // is the same validation as importTheme() and changes nothing;
-    // replaceActiveTheme() swaps colours, gradients and base but keeps the
-    // name, as one undo step; readThemeFile() reads only a small local file.
-    // Fails on the old tree: none of the three existed.
     void importPreviewChangesNothingAndReplaceKeepsTheNameAndIsUndoable()
     {
         SettingsManager settings;
@@ -2399,7 +2048,6 @@ private Q_SLOTS:
         const int themesBefore = store.themes().size();
         const QVariantMap colorsBefore = store.colors();
 
-        // A preview reports what is in it and touches nothing.
         QVariantMap pv;
         QVERIFY2(QMetaObject::invokeMethod(&store, "previewImport",
                                            Q_RETURN_ARG(QVariantMap, pv),
@@ -2417,7 +2065,6 @@ private Q_SLOTS:
         QCOMPARE(store.colors(), colorsBefore);
         QCOMPARE(store.activeThemeId(), target);
 
-        // The same refusals as importTheme(), with the same words.
         for (const QString &bad : { QStringLiteral("nonsense"), QStringLiteral("{}"),
                                     QStringLiteral("{\"lightning_theme\":1,\"colors\":{}}") }) {
             QVariantMap refused;
@@ -2428,7 +2075,6 @@ private Q_SLOTS:
             QVERIFY(!refused.value(QStringLiteral("error")).toString().isEmpty());
         }
 
-        // Replace: colours, gradients and base move; the name does not.
         QCOMPARE(store.name(), QStringLiteral("Target"));
         QString reason = QStringLiteral("unset");
         QVERIFY(QMetaObject::invokeMethod(&store, "replaceActiveTheme",
@@ -2442,7 +2088,6 @@ private Q_SLOTS:
                  QStringLiteral("#123456"));
         QVERIFY(store.gradients().contains(QStringLiteral("background")));
 
-        // One step puts the old colours back, and Redo brings the import again.
         QVERIFY(store.canUndo());
         QVERIFY(store.property("undoLabel").toString().length() > 0);
         QVERIFY(store.undo());
@@ -2452,7 +2097,6 @@ private Q_SLOTS:
         QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
                  QStringLiteral("#FF8800"));
 
-        // A refused replace changes nothing.
         const QVariantMap colorsNow = store.colors();
         QVERIFY(QMetaObject::invokeMethod(&store, "replaceActiveTheme",
                                           Q_RETURN_ARG(QString, reason),
@@ -2460,7 +2104,6 @@ private Q_SLOTS:
         QVERIFY(!reason.isEmpty());
         QCOMPARE(store.colors(), colorsNow);
 
-        // A full collection reports atLimit, and still previews.
         while (store.themes().size() < CustomThemeStore::kMaxThemes)
             QVERIFY(!store.createTheme(QStringLiteral("Filler")).isEmpty());
         QVERIFY(QMetaObject::invokeMethod(&store, "previewImport",
@@ -2470,7 +2113,6 @@ private Q_SLOTS:
         QCOMPARE(pv.value(QStringLiteral("atLimit")).toBool(), true);
     }
 
-    // A dropped theme file is read only when it is a small local regular file.
     void aDroppedThemeFileIsReadOnlyWhenItIsSmallAndLocal()
     {
         SettingsManager settings;
@@ -2510,7 +2152,6 @@ private Q_SLOTS:
     void theEditorCoversTheFourShellRegionsAndTheMessageSurfaces()
     {
         const QStringList roles = CustomThemeStore::editableRoles();
-        // Required regions: room list, spaces rail, header and the rest.
         for (const char *required : { "rail", "sidebar", "background", "surface",
                                       "inputBg", "hover", "selected",
                                       "ownBubble", "otherBubble", "accent",
@@ -2521,12 +2162,9 @@ private Q_SLOTS:
         }
         QVERIFY(CustomThemeStore::roleIsEditable(QStringLiteral("rail")));
         QVERIFY(!CustomThemeStore::roleIsEditable(QStringLiteral("nope")));
-        // No duplicates: a second row would shadow the first.
         QCOMPARE(QSet<QString>(roles.begin(), roles.end()).size(), roles.size());
     }
 
-    // New shell tokens reach custom themes by deriving from an editable role,
-    // never by adding a required key to every palette.
     void theNewNavigationTokensFollowAnEditableRole()
     {
         const QString qml = appTheme();
@@ -2536,7 +2174,6 @@ private Q_SLOTS:
                      QStringLiteral(" "));
         const QStringList roles = CustomThemeStore::editableRoles();
 
-        // token -> the palette role it falls back to.
         const QList<QPair<QString, QString>> derived = {
             { QStringLiteral("channelCategoryText"), QStringLiteral("textMuted") },
             { QStringLiteral("channelText"), QStringLiteral("textSecondary") },
@@ -2558,8 +2195,6 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("%1 no longer derives from %2, so "
                                                "a custom theme cannot reach it")
                                     .arg(token, fallback)));
-            // ...and the source role is editable, so the editor moves the new
-            // surfaces.
             const QString editable =
                 fallback == QLatin1String("cardElevated")
                     ? QStringLiteral("cardElevated")
@@ -2572,8 +2207,6 @@ private Q_SLOTS:
         }
     }
 
-    // The id is duplicated between C++ and QML (QML cannot see the enum), so
-    // it is asserted.
     void theCustomThemeIdAgreesWithSettingsAndWithAppTheme()
     {
         QCOMPARE(int(CustomThemeStore::kCustomThemeId),
@@ -2585,14 +2218,10 @@ private Q_SLOTS:
         QVERIFY(qml.contains(QStringLiteral("case 12: return _custom")));
         QVERIFY2(qml.contains(QStringLiteral("readonly property var _custom")),
                  "AppTheme has no _custom palette");
-        // Second gate: this palette comes from a hand-editable file, and an
-        // unparseable colour paints the shell transparent.
         QVERIFY2(qml.contains(QStringLiteral("/^#[0-9A-Fa-f]{6}$/.test(v)")),
                  "the QML-side override guard is gone");
     }
 
-    // The custom theme is classified light or dark by its own background, not
-    // its base, since a light palette can sit on a dark base.
     void theCustomThemeClassifiesItselfLightOrDark()
     {
         const QString qml = appTheme();
@@ -2602,21 +2231,12 @@ private Q_SLOTS:
                  "the custom palette must be classified by its own background");
     }
 
-    // ---- account scoping ----
-
-    // The collection is stored per account but load() fills its cache once.
-    // Without invalidation on account change, the new account sees the old
-    // themes and its first write persists them over its own record.
-    // Asserts both what is shown and what the first write persists.
     void aSwitchDropsTheOutgoingAccountsThemesInsteadOfSavingThemOverTheNext()
     {
         SettingsManager settings;
         settings.saveSession(kHs, kBob, QStringLiteral("BDEV"), QString());
         settings.saveSession(kHs, kAlice, QStringLiteral("ADEV"), QString());
 
-        // Seeded through short-lived stores per account; one long-lived store
-        // would itself be corrupted by the defect. discard() first because
-        // appearanceValue mirrors writes into a device-global fallback.
         settings.setActiveAccountUserId(kBob);
         {
             CustomThemeStore seed(&settings);
@@ -2635,20 +2255,16 @@ private Q_SLOTS:
         QCOMPARE(themeNames(store), QStringList({ QStringLiteral("Alice one"),
                                                   QStringLiteral("Alice two") }));
 
-        // The switch.
         settings.setActiveAccountUserId(kBob);
 
-        // (a) what Bob is shown.
         QCOMPARE(themeNames(store), QStringList({ QStringLiteral("Bob only") }));
 
-        // (b) what Bob's first write persists.
         store.setName(QStringLiteral("Bob renamed"));
 
         CustomThemeStore reread(&settings);
         QCOMPARE(themeNames(reread),
                  QStringList({ QStringLiteral("Bob renamed") }));
 
-        // Alice keeps hers.
         settings.setActiveAccountUserId(kAlice);
         CustomThemeStore aliceAgain(&settings);
         QCOMPARE(themeNames(aliceAgain),
@@ -2656,8 +2272,6 @@ private Q_SLOTS:
                                QStringLiteral("Alice two") }));
     }
 
-    // A sign-in writes the active-account pointer directly (saveSession) with
-    // no switch, so invalidation hangs off sessionChanged.
     void signingAnAccountInMakesTheNextReadConsultIt()
     {
         SettingsManager settings;
@@ -2678,13 +2292,10 @@ private Q_SLOTS:
         CustomThemeStore store(&settings);
         QCOMPARE(themeNames(store).size(), 2);
 
-        // Bob signs in again: active NOW, with no switchToAccount involved.
         settings.saveSession(kHs, kBob, QStringLiteral("BDEV"), QString());
         QCOMPARE(themeNames(store), QStringList({ QStringLiteral("Bob only") }));
     }
 
-    // Invalidation notifies: the Appearance page and AppTheme.qml re-read on
-    // customThemeChanged.
     void anAccountChangeNotifiesSoTheShellRepaints()
     {
         SettingsManager settings;
@@ -2700,8 +2311,6 @@ private Q_SLOTS:
     }
 
 private:
-    // Names in stored order; the whole list, since two lists can share a
-    // length.
     static QStringList themeNames(const CustomThemeStore &store)
     {
         QStringList out;

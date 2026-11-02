@@ -34,9 +34,6 @@ QString envValue(const char *name)
     return (v && *v) ? QString::fromLocal8Bit(v) : QString();
 }
 
-// The app-data base from the process environment and the portable decision.
-// Usable before QCoreApplication exists (--reset-crypto-store); the selection
-// logic is the pure resolveAppDataBase().
 QString appDataBase()
 {
 #ifdef Q_OS_WIN
@@ -60,15 +57,11 @@ QString appDataBase()
                               portableRoot);
 }
 
-// Asks lightning::portable, which owns the cached decision.
 bool portableActive()
 {
     return lightning::portable::isPortable();
 }
 
-// ASCII-only case-insensitive equality. Full Unicode folding could equate
-// distinct localparts (dotless i, Kelvin sign); store adoption must match only
-// the a-z/A-Z divergence older builds produced.
 bool equalsIgnoringAsciiCase(const QString &a, const QString &b)
 {
     if (a.size() != b.size())
@@ -154,8 +147,6 @@ bool validServerName(const QString &serverName)
         return false;
     }
 
-    // QUrl's strict host parser handles bracketed IPv6 and a port and rejects
-    // path components.
     const QUrl probe(QLatin1String("https://") + serverName);
     return probe.isValid() && !probe.host().isEmpty()
         && (probe.path().isEmpty() || probe.path() == QLatin1String("/"));
@@ -176,7 +167,7 @@ bool removeFileOrLink(const QString &path, RemovalSummary *summary)
     return false;
 }
 
-} // namespace
+}
 
 bool AccountIdentity::isValid() const
 {
@@ -190,7 +181,6 @@ QString resolveAppDataBase(bool windows,
                            const QString &home,
                            const QString &portableRoot)
 {
-    // An override, not a fallback; see the header.
     if (!portableRoot.isEmpty())
         return portableRoot;
     if (!xdgDataHome.isEmpty())
@@ -226,7 +216,6 @@ QString cacheRoot()
 {
     if (portableActive())
         return lightning::portable::cacheDir();
-    // Unchanged for installed builds.
     return QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
 }
 
@@ -403,13 +392,10 @@ EmptyDirRemoval removeAccountRootIfEmpty(const QString &dir)
     const QString name = target.fileName();
     if (target.path() != root || !isSafePathComponent(name))
         return EmptyDirRemoval::Refused;
-    // Hidden entries count: a dot-file is still something of the account's.
     if (!QDir(target.absoluteFilePath())
              .isEmpty(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden
                       | QDir::System))
         return EmptyDirRemoval::NotEmpty;
-    // rmdir, not removeRecursively: it fails rather than delete anything that
-    // appeared since the check.
     return QDir(root).rmdir(name) ? EmptyDirRemoval::Deleted
                                   : EmptyDirRemoval::Failed;
 }
@@ -467,28 +453,18 @@ bool defaultRemoveDir(const QString &path, void *)
     return QDir(path).removeRecursively();
 }
 
-// One removal's retry allowance, shared by every directory it removes: the
-// whole removal waits at most (attempts - 1) * retryDelayMs in total, however
-// many quarantined siblings fail, because it runs on the GUI thread.
 struct RetryBudget {
     QElapsedTimer clock;
     qint64 totalMs = 0;
     int attempts = 1;
     int retryDelayMs = 0;
 
-    // Without a pause there is nothing to bound in time; `attempts` alone
-    // limits the tries.
     bool allowsAnotherTry() const
     {
         return retryDelayMs == 0 || clock.elapsed() + retryDelayMs <= totalMs;
     }
 };
 
-// Removes one store directory, retrying while something still holds a file in
-// it. QDir::removeRecursively() deletes what it can and leaves the rest, so a
-// later try only has to finish the job. Counts `deleted` only when the
-// directory is really gone afterwards, and `failed` otherwise: a partial
-// removal is never reported as a removal.
 void removeStoreDirWithRetry(const QString &path, RemoveDirFn removeDir,
                              void *ctx, const RetryBudget &budget,
                              RemovalSummary *summary)
@@ -505,7 +481,6 @@ void removeStoreDirWithRetry(const QString &path, RemoveDirFn removeDir,
         if (removeDir(path, ctx) && !QFileInfo::exists(path)) {
             ++summary->deleted;
             if (attempt > 0) {
-                // Counts only: a path contains the account's localpart.
                 qCInfo(lcStoreRemoval)
                     << "store removed after retrying attempts=" << attempt + 1;
             }
@@ -517,21 +492,14 @@ void removeStoreDirWithRetry(const QString &path, RemoveDirFn removeDir,
         << "attempts=" << attempt;
     ++summary->failed;
 }
-} // namespace
+}
 
 RemovalSummary removeAccountRustState(const AccountIdentity &identity)
 {
 #ifdef Q_OS_WIN
-    // Windows only: a file still open elsewhere cannot be deleted there, and a
-    // handle that closes a moment after the caller's retirement wait (a
-    // deferred SQLite close, an antivirus scan) is released within this. Up to
-    // six tries 300 ms apart, ~1.5 s for the WHOLE removal, as
-    // quarantineRustStore().
     return removeAccountRustStateWith(identity, &defaultRemoveDir, nullptr, 6,
                                       300);
 #else
-    // Elsewhere an open file can be unlinked, so a failure is a permission or
-    // filesystem problem that waiting does not fix: one try.
     return removeAccountRustStateWith(identity, &defaultRemoveDir, nullptr, 1,
                                       0);
 #endif
@@ -565,15 +533,9 @@ RemovalSummary removeAccountRustStateWith(const AccountIdentity &identity,
     }
 
     removeFileOrLink(identity.rustSmokeSessionPath, &summary);
-    // From the identity's own recorded session path, not re-derived from the
-    // user id: with a divergent store slug that would delete another account's
-    // file and report the reset as completed.
     removeFileOrLink(identity.rustSmokeSessionPath + QLatin1String(".tmp"),
                      &summary);
 
-    // Quarantined stores are siblings of rustStorePath, each a complete crypto
-    // store. Remove them too, or sign-out leaves key material behind (and
-    // repairs accumulate them).
     const QFileInfo storePath(identity.rustStorePath);
     QDir accountDir(storePath.absolutePath());
     const QString quarantinePattern =
@@ -606,10 +568,6 @@ RemovalSummary removeAttemptRustStore(const AccountIdentity &identity)
         ++summary.deleted;
     else
         ++summary.failed;
-    // The directory that held it is named after what was typed, and a failed
-    // sign-in left it behind, empty, for good. Removed only when nothing at all
-    // is left in it (rmdir, never recursive): a quarantined sibling, another
-    // session's files or anything else keeps it. Not counted: it held no data.
     if (summary.failed == 0
         && removeAccountRootIfEmpty(identity.accountRoot) == EmptyDirRemoval::Failed)
         qCWarning(lcStoreRemoval) << "a failed attempt's empty account directory "
@@ -629,7 +587,6 @@ RemovalSummary quarantineAccountRustState(const AccountIdentity &identity)
     if (!storeInfo.exists() && !storeInfo.isSymLink()) {
         ++summary.missing;
     } else if (storeInfo.isSymLink()) {
-        // A symlink only points at a store; removing it destroys nothing.
         removeFileOrLink(identity.rustStorePath, &summary);
     } else if (storeInfo.isDir()) {
         if (quarantineRustStore(identity).isEmpty())
@@ -640,7 +597,6 @@ RemovalSummary quarantineAccountRustState(const AccountIdentity &identity)
         ++summary.failed;
     }
 
-    // Sidecars carry an access token, not keys; do not leave it behind.
     removeFileOrLink(identity.rustSmokeSessionPath, &summary);
     removeFileOrLink(identity.rustSmokeSessionPath + QLatin1String(".tmp"),
                      &summary);
@@ -655,18 +611,12 @@ bool defaultRename(const QString &from, const QString &to, void *)
     return QDir().rename(from, to);
 }
 
-// One attempt: whole-directory rename, then entry-by-entry. Returns true when
-// the store path is free. Never leaves the store split: a partial entry move
-// is rolled back.
 bool moveStoreOnce(const QString &storePath, const QString &target,
                    RenameFn rename, void *ctx, bool *rollbackFailed)
 {
     if (rename(storePath, target, ctx))
         return true;
 
-    // Windows refuses to rename a directory while files in it are open. Moving
-    // the entries into a fresh sibling is tried next, but SQLite opens its
-    // files without FILE_SHARE_DELETE, so this can fail as well.
     QDir parent(QFileInfo(storePath).absolutePath());
     if (!parent.mkpath(QFileInfo(target).fileName()))
         return false;
@@ -678,8 +628,6 @@ bool moveStoreOnce(const QString &storePath, const QString &target,
     for (const QString &name : names) {
         if (!rename(source.absoluteFilePath(name),
                     destination.absoluteFilePath(name), ctx)) {
-            // Partial move: put back what was moved so the store is never
-            // split across two directories. Nothing is deleted.
             int notRestored = 0;
             for (const QString &done : std::as_const(moved)) {
                 if (!rename(destination.absoluteFilePath(done),
@@ -687,25 +635,21 @@ bool moveStoreOnce(const QString &storePath, const QString &target,
                     ++notRestored;
             }
             if (notRestored > 0) {
-                // The store is split and the caller must not claim otherwise.
-                // Counts only: a path contains the account's localpart.
                 qCWarning(lcAppDataPaths)
                     << "store rollback incomplete; entries left in the aside "
                        "directory:" << notRestored;
                 if (rollbackFailed)
                     *rollbackFailed = true;
             }
-            // Only if empty, so nothing is lost.
             parent.rmdir(QFileInfo(target).fileName());
             return false;
         }
         moved.append(name);
     }
-    // Removed only if still empty, so a file that appeared mid-move survives.
     parent.rmdir(QFileInfo(storePath).fileName());
     return true;
 }
-} // namespace
+}
 
 QString quarantineRustStoreWith(const AccountIdentity &identity, RenameFn rename,
                                 void *ctx, int attempts, int retryDelayMs,
@@ -719,8 +663,6 @@ QString quarantineRustStoreWith(const AccountIdentity &identity, RenameFn rename
     if (!storeInfo.exists() || !storeInfo.isDir() || storeInfo.isSymLink())
         return {};
 
-    // A timestamped sibling in the same account directory: still scoped, easy
-    // to find, and recoverable if the verdict was wrong.
     const QString stamp = QDateTime::currentDateTimeUtc()
                               .toString(QStringLiteral("yyyyMMdd-hhmmsszzz"));
     const QString target = identity.rustStorePath
@@ -735,14 +677,7 @@ QString quarantineRustStoreWith(const AccountIdentity &identity, RenameFn rename
         if (moveStoreOnce(identity.rustStorePath, target, rename, ctx,
                           &rollbackFailed))
             return target;
-        // A failed rollback still retries: every attempt moves into the SAME
-        // target, so a retry can only reunite the store there. Giving up would
-        // leave it split, and the next sign-in would move the rest into a
-        // second, differently timestamped directory.
     }
-    // A store that cannot be moved from a directory we can write to is held
-    // open by something (a sharing violation); an unwritable parent is a
-    // permission problem. Heuristic: the OS error is not exposed by QDir.
     if (failure) {
         const QFileInfo parentInfo(
             QFileInfo(identity.rustStorePath).absolutePath());
@@ -756,8 +691,6 @@ QString quarantineRustStoreWith(const AccountIdentity &identity, RenameFn rename
 QString quarantineRustStore(const AccountIdentity &identity,
                             QuarantineFailure *failure)
 {
-    // Six tries, 300 ms apart: antivirus scanners and a retiring client release
-    // their handles within moments, and the wait is bounded at ~1.5 s.
     return quarantineRustStoreWith(identity, &defaultRename, nullptr, 6, 300,
                                    failure);
 }
@@ -765,15 +698,11 @@ QString quarantineRustStore(const AccountIdentity &identity,
 QStringList legacyRoots()
 {
     QStringList out;
-    // A portable tree has no legacy layout; do not hand a never-existing
-    // directory to --reset-crypto-store's scan.
     if (portableActive())
         return out;
     const QString base = appDataBase();
     if (base.isEmpty()) return out;
 
-    // Very old builds resolved --reset-crypto-store to
-    // <XDG_DATA_HOME>/<applicationName>/ without the organization segment.
     const QString legacyDirect = base + QLatin1Char('/') + kApplicationName;
     const QString primary = primaryRoot();
     if (!legacyDirect.isEmpty() && legacyDirect != primary)
@@ -808,15 +737,8 @@ QStringList findCaseVariantStoreSlugs(const AccountIdentity &identity)
     const auto accounts = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot,
                                         QDir::Name);
     for (const QString &slug : accounts) {
-        // Skip the directory the caller already uses (its effective store slug,
-        // not the canonical one, which may be the divergent directory being
-        // sought).
         if (slug == identity.effectiveStoreSlug())
             continue;
-        // Case-insensitive on purpose. QSettings keys are case-sensitive on
-        // Linux but not on Windows/macOS; the filesystem keeps the directories
-        // apart either way, so the recovery set comes from the listing, not
-        // from settings.
         if (!equalsIgnoringAsciiCase(slug, identity.slug))
             continue;
         if (!isSafePathComponent(slug))
@@ -841,8 +763,6 @@ QString delegatedHomeserverStoreSlug(const AccountIdentity &identity)
         return {};
     const QString localpart = userId.mid(1, colon - 1);
 
-    // The same pairing resolveAccountIdentity() uses for a bare localpart: the
-    // URL host (with port), lowercased.
     const QString urlServer = serverNameForUrl(identity.homeserver);
     if (urlServer.isEmpty() || !validServerName(urlServer)
         || !validLocalpart(localpart)) {
@@ -850,7 +770,6 @@ QString delegatedHomeserverStoreSlug(const AccountIdentity &identity)
     }
     const QString slug = safeUserSlug(
         QStringLiteral("@%1:%2").arg(localpart, urlServer));
-    // No delegation: the URL host is the server name.
     return slug == identity.slug ? QString{} : slug;
 }
 
@@ -863,7 +782,6 @@ bool bindStoreSlug(AccountIdentity *identity, const QString &storeSlug)
     if (root.isEmpty())
         return false;
 
-    // Empty drops the recording and returns to the canonical layout.
     const QString slug = storeSlug.trimmed().isEmpty() ? identity->slug
                                                        : storeSlug.trimmed();
     if (!isSafePathComponent(slug))
@@ -876,7 +794,6 @@ bool bindStoreSlug(AccountIdentity *identity, const QString &storeSlug)
         probe.accountRoot + QLatin1Char('/') + kRustStoreName;
     probe.rustSmokeSessionPath =
         probe.accountRoot + QLatin1Char('/') + kSmokeSessionName;
-    // Refuse rather than half-apply; paths must stay inside the account layout.
     if (!isSafeAccountIdentity(probe))
         return false;
 
@@ -908,4 +825,4 @@ QStringList findRustStoresIn(const QString &root)
     return out;
 }
 
-} // namespace matrix::app_data
+}

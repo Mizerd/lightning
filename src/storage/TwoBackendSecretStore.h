@@ -29,9 +29,9 @@ public:
     static constexpr auto kServiceKind = "service";
 
     enum class Route {
-        Default,     // nothing recorded, or recorded where this process is
-        Service,     // the Secret Service, past this process's file keyring
-        Unreachable, // the file keyring, from a process on the Secret Service
+        Default,
+        Service,
+        Unreachable,
     };
     static Route routeFor(const QString &recorded, const QString &current)
     {
@@ -69,7 +69,6 @@ public:
         case Route::Service:
             return readFrom(Backend::Service, userId, key);
         case Route::Unreachable:
-            // Not "no such secret": the keyring that holds it did not open.
             setError(QStringLiteral(
                 "this sign-in is in the sandbox's file keyring, which did not "
                 "open in this launch (the Secret portal did not answer)"));
@@ -96,12 +95,9 @@ public:
 
 protected:
     enum class Backend {
-        Default, // this process's own choice
-        Service, // the Secret Service, whatever this process chose
+        Default,
+        Service,
     };
-    // The backends. A read sets m_lastReadFailed: true when the backend could
-    // not answer, false when it answered, found or not. A null key clears
-    // every item of the account.
     virtual QString readFrom(Backend backend, const QString &userId,
                              const QString &key) const = 0;
     virtual bool storeIn(Backend backend, const QString &userId,
@@ -119,8 +115,6 @@ private:
     {
         switch (routeFor(userId)) {
         case Route::Service: {
-            // Both: whatever either holds of this account goes. The Secret
-            // Service, where the record says the sign-in is, decides first.
             const bool service = clearFrom(Backend::Service, userId, key);
             const QString serviceError = m_lastError;
             const bool own = clearFrom(Backend::Default, userId, key);
@@ -129,9 +123,6 @@ private:
             return service && own;
         }
         case Route::Unreachable:
-            // What the Secret Service holds goes; the file keyring, where the
-            // record says the sign-in is, cannot be reached, and a removal
-            // that left it there is not reported as done.
             clearFrom(Backend::Default, userId, key);
             setError(QStringLiteral(
                 "this sign-in is in the sandbox's file keyring, which did not "

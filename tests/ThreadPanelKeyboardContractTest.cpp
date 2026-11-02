@@ -25,8 +25,6 @@ QString panelSource()
     return out;
 }
 
-/// Brace-matched body starting at the first '{' after `marker` (searched from
-/// `from`); empty when absent.
 QString bodyAfter(const QString &s, const QString &marker, int from = 0)
 {
     const int at = s.indexOf(marker, from);
@@ -45,7 +43,7 @@ QString bodyAfter(const QString &s, const QString &marker, int from = 0)
     return {};
 }
 
-} // namespace
+}
 
 class ThreadPanelKeyboardContractTest : public QObject
 {
@@ -59,7 +57,6 @@ private slots:
         QCOMPARE(s.count(QStringLiteral("panel.returnShouldSend(event.modifiers)")), 2);
         QCOMPARE(s.count(QStringLiteral("panel.composerExpanded, AppTheme.scaled(140)")), 2);
         QVERIFY(s.contains(QStringLiteral("objectName: \"threadComposerHeightButton\"")));
-        // Both send lanes return the box to normal size.
         QCOMPARE(s.count(QStringLiteral("panel.composerExpanded = false")), 2);
     }
 
@@ -75,9 +72,6 @@ private slots:
             const QString body = bodyAfter(s, QStringLiteral("Keys.onShortcutOverride"), at);
             QVERIFY2(body.contains(QStringLiteral("Qt.Key_Escape")),
                      qPrintable(editor + ": ShortcutOverride must accept Escape"));
-            // Narrow claim: only while a reply banner or mention popup can be
-            // dismissed, so the window's find/search/thread priority chain
-            // still runs for a bare composer.
             QVERIFY2(body.contains(QStringLiteral("app.thread.inReply"))
                          && body.contains(QStringLiteral("threadMentionPopup.visible")),
                      qPrintable(editor + ": Escape claim must be conditional"));
@@ -130,15 +124,12 @@ private slots:
         QVERIFY2(!handler.isEmpty(), "no listStateChanged handler");
         QVERIFY(handler.contains(QStringLiteral("_focusListPending")));
         QVERIFY(handler.contains(QStringLiteral("focusFirstThreadRow")));
-        // Thread -> list (back arrow) changes `active` through stateChanged.
         const QString back = bodyAfter(s, QStringLiteral("function onStateChanged"),
                                        s.indexOf(QStringLiteral("function onListStateChanged")));
         QVERIFY2(back.contains(QStringLiteral("_focusListPending")),
                  "back to the list must request focus again");
         const QString fn = bodyAfter(s, QStringLiteral("function focusFirstThreadRow"));
         QVERIFY(fn.contains(QStringLiteral("forceActiveFocus")));
-        // The request survives an empty list: it is cleared only once a row
-        // exists, and the list's count change retries it.
         QVERIFY(fn.contains(QStringLiteral("if (first)")));
         const int view = s.indexOf(QStringLiteral("id: threadListView"));
         QVERIFY(view >= 0);

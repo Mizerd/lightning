@@ -31,9 +31,6 @@
 #include <atomic>
 
 namespace {
-// A real client, with its own store directory. mx_rust_create builds the
-// bridge and its tokio runtime; it performs no network I/O, so this is
-// deterministic and offline.
 void *createRealClient(const QTemporaryDir &dir, const char *name)
 {
     const QByteArray path = (dir.path() + QLatin1Char('/')
@@ -41,7 +38,6 @@ void *createRealClient(const QTemporaryDir &dir, const char *name)
     return mx_rust_create(path.constData());
 }
 
-// Test fixtures only; never real credentials.
 const QString kAccess0 = QStringLiteral("fixture-access-0");
 const QString kRefresh0 = QStringLiteral("fixture-refresh-0");
 const QString kUser = QStringLiteral("@rotation:localhost");
@@ -58,7 +54,6 @@ public:
     bool storeSecret(const QString &u, const QString &k, const QString &v) override
     {
         QMutexLocker lock(&m_mutex);
-        // A keyring refusing this one write (locked, a denied prompt).
         if (m_failingWrites.contains(k))
             return false;
         m_values.insert(u + QLatin1Char('/') + k, v);
@@ -75,8 +70,6 @@ public:
     QString readSecret(const QString &u, const QString &k) const override
     {
         QMutexLocker lock(&m_mutex);
-        // A keyring that cannot answer this one read (a locked collection, a
-        // D-Bus timeout): nothing comes back and the store says so.
         m_lastReadFailed = m_failingReads.contains(k);
         if (m_lastReadFailed)
             return {};
@@ -119,15 +112,6 @@ private:
     mutable bool m_lastReadFailed = false;
 };
 
-// A homeserver with MAS's rotation rules: the first access token has expired
-// and only the newest one is accepted (anything else is refused as unknown,
-// which makes the SDK refresh);
-// the newest refresh token buys a new pair; an already used one gets back the
-// pair it bought (MAS's double-refresh grace) and anything else is refused.
-// The FIRST rotation is held until the test opens the gate, so the test
-// decides when it lands. Requests with the newest token wait, as a long-poll
-// sync does, except a logout. Runs on its own thread, so it answers while the
-// test thread deliberately does not spin its event loop.
 class RotatingHomeserver : public QObject
 {
     Q_OBJECT
@@ -136,7 +120,6 @@ public:
     std::atomic<int> refreshesAsked{0};
     QSemaphore refreshServed;
 
-    // The pair the server last issued: what the client must end up with.
     QPair<QString, QString> latest() const
     {
         QMutexLocker lock(&m_mutex);
@@ -238,7 +221,6 @@ private:
             reply(socket, 404, R"({"errcode":"M_UNRECOGNIZED","error":"not here"})");
             return;
         }
-        // The first access token has expired; only a newer one is accepted.
         if (rotations() == 0 || auth != "Bearer " + latest().first.toUtf8()) {
             reply(socket, 401, R"({"errcode":"M_UNKNOWN_TOKEN","error":"expired","soft_logout":true})");
             return;
@@ -247,7 +229,6 @@ private:
             ++logouts;
             reply(socket, 200, "{}");
         }
-        // Anything else waits, as a long-poll sync does.
     }
 
     void answerRefresh(QTcpSocket *socket, const QString &asked)
@@ -288,10 +269,6 @@ private:
     QList<QPair<QTcpSocket *, QString>> m_parked;
 };
 
-// One account restored against the rotating homeserver, its token refreshed
-// by the SDK, and the test thread then kept OFF its event loop, so the
-// `session_tokens_refreshed` event sits undrained in the handle: the window
-// between the last drain and the handle's release.
 struct RotatedSession {
     QThread serverThread;
     RotatingHomeserver *server = nullptr;
@@ -310,7 +287,6 @@ struct RotatedSession {
         serverThread.wait(5000);
     }
 
-    // False on any setup failure; the caller QVERIFYs it.
     bool start()
     {
         server = new RotatingHomeserver;
@@ -328,7 +304,6 @@ struct RotatedSession {
         matrix::app_data::AccountIdentity identity;
         if (!matrix::app_data::resolveAccountIdentity(homeserver, kUser, &identity))
             return false;
-        // The account's store, as a previous run leaves it.
         QDir().mkpath(identity.rustStorePath);
 
         client = std::make_unique<RustSdkMatrixClient>(&settings);
@@ -338,18 +313,16 @@ struct RotatedSession {
         if (restored.isEmpty() && !restored.wait(30000))
             return false;
         client->startSync();
-        // Not spinning the event loop from here on: nothing drains the handle.
         QMetaObject::invokeMethod(server, "openRefreshGate", Qt::QueuedConnection);
         if (!server->refreshServed.tryAcquire(1, 30000))
             return false;
-        // Long enough for the SDK to adopt the new pair and announce it.
         QThread::msleep(1500);
         return true;
     }
 
     QString stored(const char *key) const { return secrets.readSecret(kUser, QLatin1String(key)); }
 };
-} // namespace
+}
 
 class RustRetirementTest : public QObject
 {
@@ -370,7 +343,6 @@ private Q_SLOTS:
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         {
-            // The headless smoke harness intentionally has no SettingsManager.
             RustSdkMatrixClient client(nullptr);
             client.setStorePathOverride(dir.path() + QStringLiteral("/store"));
             QSignalSpy failed(&client, &MatrixClient::loginFailed);
@@ -383,17 +355,11 @@ private Q_SLOTS:
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
     }
 
-    // The work is still outstanding when the caller returns: done inline, the
-    // pool would be empty and `waitForRustRetirement(0)` would report drained.
-    // Several clients are handed over so the answer does not depend on
-    // winning a race against one fast close.
     void retiringClientsLeavesTheWorkOutstanding()
     {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
 
-        // Drain anything a previous case left behind, so "not drained" below
-        // can only be about the clients handed over in this one.
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
 
         for (int i = 0; i < 6; ++i) {
@@ -407,12 +373,9 @@ private Q_SLOTS:
                  "retirement had already finished when the caller returned, "
                  "so it ran on the caller's thread");
 
-        // ...and it really does finish, rather than being dropped.
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(60000));
     }
 
-    // Rapid switching hands over several clients; each owns its own store and
-    // all must close.
     void severalClientsCanBeRetiredAtOnce()
     {
         QTemporaryDir dir;
@@ -448,35 +411,21 @@ private Q_SLOTS:
         RustSdkMatrixClient::retireRustHandleAsync(client, QString());
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
 
-        // The whole point of the wait: the directory can now be removed
-        // without racing anything.
         if (QFileInfo::exists(storePath))
             QVERIFY(QDir(storePath).removeRecursively());
     }
 
-    // A null handle is a no-op rather than a crash: releaseRustHandle() can
-    // reach the hand-off with nothing to retire on a client that never
-    // logged in.
     void retiringNothingIsSafe()
     {
         RustSdkMatrixClient::retireRustHandleAsync(nullptr, QString());
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(5000));
     }
 
-    // Reported 2026-10-01 as an OAuth account "signed out remotely". The SDK
-    // rotates a refresh token and announces it through an event C++ drains
-    // every 100 ms; a handle released before that drain (account switch, a
-    // revoked session ended, quit) took the event with it, and the keyring
-    // kept the USED refresh token. MAS refuses a used one once its successor
-    // has been used, so the next start was refused as signed out. The
-    // retiring worker now reads the session's final tokens and they are
-    // written back under the account captured at release.
     void aRotationTheGuiNeverDrainedIsKeptWhenTheHandleRetires()
     {
         RotatedSession session;
         QVERIFY2(session.start(), "the fixture session did not reach a refresh");
         QVERIFY(session.server->rotations() >= 1);
-        // Undrained: the keyring still holds the pair the server used up.
         QCOMPARE(session.stored("refreshToken"), kRefresh0);
 
         QVERIFY(session.client->detachSession());
@@ -484,39 +433,28 @@ private Q_SLOTS:
         const auto latest = session.server->latest();
         QTRY_COMPARE_WITH_TIMEOUT(session.stored("refreshToken"), latest.second, 5000);
         QCOMPARE(session.stored("accessToken"), latest.first);
-        // The record is untouched: same device, same account.
         QCOMPARE(session.settings.accountRecord(kUser)
                      .value(QStringLiteral("deviceId")).toString(), kDevice);
     }
 
-    // What a removal deletes stays deleted (CLAUDE.md §6): the account goes
-    // while its retiring handle still holds a rotation nobody wrote down, and
-    // that rotation must not bring its sign-in back.
     void aRemovedAccountNeverGetsTheRetiredTokensBack()
     {
         RotatedSession session;
         QVERIFY2(session.start(), "the fixture session did not reach a refresh");
         QVERIFY(session.client->detachSession());
-        // Removed before the retiring worker hands anything back.
         QVERIFY(session.settings.clearSessionForAccount(kUser));
         QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
-        // Anything the worker queued runs here.
         QTest::qWait(500);
         QVERIFY(!session.settings.hasSavedAccount(kUser));
         QCOMPARE(session.stored("accessToken"), QString());
         QCOMPARE(session.stored("refreshToken"), QString());
     }
 
-    // A retirement can land after a newer pair is already stored (one that
-    // overran the restore's settle wait, or any later write): the retired
-    // pair is older and must not replace it. The write-back is a compare and
-    // swap against the pair that handle itself last wrote.
     void aStaleRetiredSignInNeverOverwritesANewerOne()
     {
         RotatedSession session;
         QVERIFY2(session.start(), "the fixture session did not reach a refresh");
         QVERIFY(session.client->detachSession());
-        // Stored before the retiring worker hands its pair back.
         const QString newerAccess = QStringLiteral("fixture-access-newer");
         const QString newerRefresh = QStringLiteral("fixture-refresh-newer");
         QVERIFY(session.settings.updateSessionTokens(kUser, newerAccess, newerRefresh));
@@ -526,14 +464,6 @@ private Q_SLOTS:
         QCOMPARE(session.stored("refreshToken"), newerRefresh);
     }
 
-    // A real sign-out leaves no sign-in behind, retirement included. This
-    // pins the end state and is NOT a regression test of the write-back
-    // guards: it passes on the code before them, and with them removed,
-    // because the Rust logout (`mx_rust_logout`, `mx_rust_oauth_logout`)
-    // empties the bridge's client slot, so a signed-out handle has no final
-    // tokens at all. It guards that slot clearing, and fails only if it goes
-    // AND `persist` stops honouring the sign-out. The guards themselves are
-    // tested by aRemovedAccountNeverGetsTheRetiredTokensBack.
     void aSignOutLeavesNoSignInBehind()
     {
         RotatedSession session;
@@ -549,11 +479,6 @@ private Q_SLOTS:
         QCOMPARE(session.stored("refreshToken"), QString());
     }
 
-    // The keyring refuses the rotated sign-in (a locked collection, a denied
-    // prompt) while the session runs on. The refused write was tried again
-    // only by the NEXT rotation, minutes away, or by a clean quit; a crash or
-    // a session ending in between left the consumed refresh token for the
-    // next start, which MAS refuses as signed out. Retried while running now.
     void aRotationTheKeyringRefusedIsSavedOnceItAnswers()
     {
         RotatedSession session;
@@ -561,7 +486,6 @@ private Q_SLOTS:
         session.client->m_tokenWriteRetryMs = 200;
         session.secrets.failWritesOf(QStringLiteral("refreshToken"), true);
         session.secrets.failWritesOf(QStringLiteral("accessToken"), true);
-        // The rotation is drained and its write refused.
         QTest::qWait(600);
         QCOMPARE(session.stored("refreshToken"), kRefresh0);
         session.secrets.failWritesOf(QStringLiteral("refreshToken"), false);
@@ -571,17 +495,10 @@ private Q_SLOTS:
         QCOMPARE(session.stored("accessToken"), latest.first);
     }
 
-    // The same refusal for the refresh token alone, then a session end: the
-    // retiring handle's write-back compares the keyring's access token with
-    // the one it last wrote. updateSessionTokens() wrote the access token
-    // FIRST, so the keyring held the new access token over the consumed
-    // refresh token, the write-back took that for a newer sign-in and stood
-    // aside, and the consumed refresh token stayed for good.
     void aRefusedRefreshTokenIsStillWrittenBackWhenTheSessionEnds()
     {
         RotatedSession session;
         QVERIFY2(session.start(), "the fixture session did not reach a refresh");
-        // Only the retirement path: no live retry in this window.
         session.client->m_tokenWriteRetryMs = 600000;
         session.secrets.failWritesOf(QStringLiteral("refreshToken"), true);
         QTest::qWait(600);
@@ -595,10 +512,6 @@ private Q_SLOTS:
         QCOMPARE(session.stored("accessToken"), latest.first);
     }
 
-    // Retrying a refused write stops after a spell of failures (an hour in
-    // production: a locked libsecret collection would otherwise prompt every
-    // ten minutes for ever), says so once, and starts again at the next
-    // rotation.
     void aRefusedWriteIsRetriedForABoundedSpellAndAgainAtTheNextRotation()
     {
         RotatedSession session;
@@ -617,7 +530,6 @@ private Q_SLOTS:
         QCOMPARE(client->m_tokenWriteAttempts, attempts);
         QCOMPARE(session.stored("refreshToken"), kRefresh0);
 
-        // The next rotation (its event, for the pair the session holds now).
         const auto latest = session.server->latest();
         client->handleRustEventForTest(QJsonObject{
             {QStringLiteral("type"), QStringLiteral("session_tokens_refreshed")},
@@ -630,8 +542,6 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(session.stored("refreshToken"), latest.second, 5000);
     }
 
-    // Two rotations can wait in one drain. The older pair must never land
-    // over the newer one: its refresh token is already used up.
     void anOlderRotationNeverOverwritesTheSessionsCurrentPair()
     {
         RotatedSession session;
@@ -647,7 +557,6 @@ private Q_SLOTS:
         QCOMPARE(session.stored("accessToken"), latest.first);
     }
 
-    // A retry pending when the user signs out never writes the sign-in back.
     void aRetryNeverWritesAfterASignOut()
     {
         RotatedSession session;
@@ -667,8 +576,6 @@ private Q_SLOTS:
         QCOMPARE(session.stored("refreshToken"), QString());
     }
 
-    // Opening another account whose keyring cannot answer must not tear down
-    // the running one: its sign-in is read before the running handle goes.
     void anUnreadableAccountNeverTearsDownTheRunningOne()
     {
         RotatedSession session;
@@ -695,17 +602,6 @@ private Q_SLOTS:
         QCOMPARE(client->currentUserId(), kUser);
     }
 
-    // A keyring that answers the access token and then fails the refresh
-    // token's read must not restore a session WITHOUT its refresh token. It
-    // did: the read's failure was taken for "this session has none", the SDK
-    // was handed the access token alone, and at the first 401 (an OAuth
-    // access token lives five minutes, so a restore usually meets one at
-    // once) matrix-sdk had nothing to refresh with, broadcast
-    // `SessionChange::UnknownToken`, and the session was ended as signed out
-    // by the server: the "fix this account" card, for an OAuth account the
-    // hard kind whose next sign-in starts a new device. The tokens in the
-    // keyring were fine the whole time (CLAUDE.md §6: an unreadable secret is
-    // "cannot tell", never "none").
     void anUnreadableRefreshTokenNeverRestoresASessionWithoutOne()
     {
         RotatingHomeserver *server = new RotatingHomeserver;
@@ -742,7 +638,6 @@ private Q_SLOTS:
 
         const bool restored = client->restoreSession();
         if (restored) {
-            // The defect, observed to its end: say what the session became.
             if (restoredSpy.isEmpty())
                 restoredSpy.wait(30000);
             client->startSync();
@@ -753,19 +648,16 @@ private Q_SLOTS:
                 .arg(blocked.first().at(0).toString())
                 .arg(server->refreshesAsked.load())));
         }
-        // "Cannot tell", said as such: the non-destructive keyring card.
         QCOMPARE(blocked.size(), 1);
         QCOMPARE(blocked.first().at(0).toString(),
                  QStringLiteral("secret_backend_unavailable"));
         QCOMPARE(blocked.first().at(1).toString(), kUser);
-        // Nothing was changed: the sign-in, its device and its store stay.
         secrets.failReadsOf(QStringLiteral("refreshToken"), false);
         QCOMPARE(secrets.readSecret(kUser, QStringLiteral("refreshToken")), kRefresh0);
         QCOMPARE(settings.accountRecord(kUser).value(QStringLiteral("deviceId")).toString(),
                  kDevice);
         QVERIFY(QFileInfo::exists(identity.rustStorePath));
 
-        // "Try again" once the keyring answers: the same session, refreshable.
         QVERIFY(client->restoreSession());
         QVERIFY(restoredSpy.wait(30000));
         client->startSync();

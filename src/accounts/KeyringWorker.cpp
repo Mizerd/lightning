@@ -28,8 +28,6 @@ namespace lightning::accounts {
 
 namespace {
 
-// SettingsManager's item names (kSecretAccessToken & co in SettingsManager.cpp,
-// file-local there). HostSettingsScanTest fails if they ever drift apart.
 constexpr auto kSecretAccessToken = "accessToken";
 constexpr auto kSecretRefreshToken = "refreshToken";
 constexpr auto kSecretOAuthClientId = "oauthClientId";
@@ -42,12 +40,6 @@ void forget(QString &value)
     value.clear();
 }
 
-// The worker's TokenStore: its own SecretStore, and the GUI thread's snapshot
-// of the account record. Same item names and write order as
-// SettingsManager::updateSessionTokens (refresh first, the access token that
-// names the pair last), without its legacy-copy branch: a host only runs for
-// an account whose items are this install's own and current
-// (SettingsManager::keyringItemsDirectlyReadableFor). SENSITIVE.
 class WorkerTokenStore final : public TokenStore
 {
 public:
@@ -88,8 +80,6 @@ private:
     std::function<bool()> m_forbidden;
 };
 
-// GuiQueued: SettingsManager's own calls, one for one, as the foreground's
-// SettingsTokenStore does.
 class SettingsBackedTokenStore final : public TokenStore
 {
 public:
@@ -117,8 +107,6 @@ KeyringWorker::WriteResult runWrite(TokenStore *store, const KeyringWorker::Writ
     KeyringWorker::WriteResult out;
     if (w.kind == KeyringWorker::WriteKind::Live) {
         const QString owner = custody::tokenOwnerFor(*store, {w.userId}, w.deviceId);
-        // The pair being written IS the session's current one (custody reads
-        // final_session_tokens() live), so the rotated-past check is moot.
         out.live = custody::writeLive(store, owner, w.tokens.accessToken, w.tokens);
         out.outcome = out.live == custody::LiveWrite::Written
             ? KeyringWorker::WriteOutcome::Written
@@ -127,16 +115,9 @@ KeyringWorker::WriteResult runWrite(TokenStore *store, const KeyringWorker::Writ
                    : KeyringWorker::WriteOutcome::Skipped);
         return out;
     }
-    // The keyring may hold the pair of one of this host's own live writes that
-    // were still queued at retirement (FIFO: they ran just before this). That
-    // is still "what this host last wrote", so it is the pair to compare
-    // against; anything else (a foreground sign-in) refuses as before.
     const QByteArray expected =
         custody::handbackExpectedDigest(store, w.userId, w.expectedDigest, w.acceptedDigests);
     const custody::HandbackEntry entry{w.userId, w.deviceId, expected, w.tokens};
-    // No foreground session of this device can be running: the pool never
-    // hosts the foreground account, and a store claim keeps one store to one
-    // handle.
     out.handback = custody::writeHandback(store, entry, false);
     out.outcome = out.handback == custody::Handback::Written
         ? KeyringWorker::WriteOutcome::Written
@@ -146,9 +127,8 @@ KeyringWorker::WriteResult runWrite(TokenStore *store, const KeyringWorker::Writ
     return out;
 }
 
-} // namespace
+}
 
-// forbidWritesFor(): shared with the runner, read on the worker thread.
 struct KeyringForbidden {
     mutable QMutex mutex;
     QSet<QString> users;
@@ -169,29 +149,17 @@ struct KeyringForbidden {
     }
 };
 
-// What a worker job answered, and a semaphore released once it is filled (the
-// quit path waits on it with the event loop stopped).
 struct KeyringJobSlot {
     QSemaphore done;
     KeyringWorker::ReadResult read;
     KeyringWorker::WriteResult write;
 };
 
-// Lives on the worker thread and owns the worker's SecretStore there.
 class KeyringWorkerRunner : public QObject
 {
 public:
     std::function<std::unique_ptr<SecretStore>()> factory;
     QString installScope;
-    // Each account's recorded keyring backend (SettingsManager::
-    // keyringBackendFor()), as the GUI thread read it when the job was
-    // queued. Worker thread only. The store asks for it on every use
-    // (SecretStore::setRecordedBackendLookup), as the GUI store asks
-    // SettingsManager, so a store with two backends (TwoBackendSecretStore,
-    // 356668cb) reads and writes a background account where its record says
-    // its sign-in is: never a clean miss in the other backend, which a host
-    // would take for a lost sign-in. Declared before the store, which asks it,
-    // so it outlives the store.
     QHash<QString, QString> recordedBackends;
     std::unique_ptr<SecretStore> store;
     std::shared_ptr<KeyringForbidden> forbidden;
@@ -232,8 +200,6 @@ public:
             out.locked = true;
             return out;
         }
-        // Each read is checked on its own: one can fail after another
-        // answered, and an empty answer from a FAILED read is "cannot tell".
         const auto readOne = [&](const char *key, QString *dest) {
             *dest = s->readSecret(r.userId, QLatin1String(key));
             return !s->lastReadFailed();
@@ -244,11 +210,10 @@ public:
 #ifdef ENABLE_RUST_SDK_BACKEND
         if (ok && r.mediaKey && !out.accessToken.isEmpty()) {
             namespace msk = matrix::media_store_key;
-            // Never a new key from here: a background start only uses one.
             msk::Resolution resolution = msk::resolve(s, r.userId, false);
             out.mediaKey = resolution.key;
             out.mediaAdmitEncrypted = msk::admitsEncryptedRooms(resolution, s->isSecure());
-            resolution.key.clear();   // shared with out.mediaKey: dropped, not scrubbed
+            resolution.key.clear();
         }
 #endif
         out.ok = ok;
@@ -307,9 +272,6 @@ KeyringWorker::KeyringWorker(Deps deps, QObject *parent)
     m_forbidden = std::make_shared<KeyringForbidden>();
     m_mode = modeFor(m_deps.guiSecretStore, bool(m_deps.secretStoreFactory));
     m_installScope = m_deps.guiSecretStore ? m_deps.guiSecretStore->installScope() : QString();
-    // A store that can block (an OS keyring) with no factory to make the
-    // worker's own instance: every call would run on the GUI thread. Said
-    // loudly; AppController always passes the factory (review L4).
     if (m_mode == Mode::GuiQueued && !m_deps.secretStoreFactory && m_deps.guiSecretStore
         && modeFor(m_deps.guiSecretStore, true) == Mode::WorkerThread)
         qCWarning(lcKeyringWorker) << "no keyring factory for a blocking store: background "
@@ -331,8 +293,6 @@ KeyringWorker::~KeyringWorker()
     if (!m_thread)
         return;
     m_thread->quit();
-    // A store call that never returns (a hung keyring) must not hang the
-    // quit: the thread and its store are left to the process exit.
     if (m_thread->wait(500)) {
         delete m_thread;
     } else {
@@ -354,7 +314,6 @@ void KeyringWorker::ensureThread()
     m_runner->installScope = m_installScope;
     m_runner->forbidden = m_forbidden;
     m_runner->moveToThread(m_thread);
-    // The runner, and the store it made on that thread, die on that thread.
     connect(m_thread, &QThread::finished, m_runner, &QObject::deleteLater);
     m_thread->start();
 }
@@ -372,8 +331,6 @@ quint64 KeyringWorker::read(const ReadRequest &request,
     job.id = m_nextJobId++;
     job.userId = request.userId;
     job.read = request;
-    // The account's recorded keyring (GUI thread): the worker's store reads
-    // it there, as the GUI's own store does.
     if (m_deps.settings)
         job.recordedBackend = m_deps.settings->keyringBackendFor(request.userId);
     job.onRead = std::move(done);
@@ -390,7 +347,6 @@ quint64 KeyringWorker::write(const WriteRequest &request,
     job.userId = request.userId;
     job.isWrite = true;
     job.write = request;
-    // Snapshot on this (the GUI) thread: the worker never touches SettingsManager.
     if (m_deps.settings) {
         job.recordSnapshot = m_deps.settings->accountRecord(request.userId);
         job.recordedBackend = m_deps.settings->keyringBackendFor(request.userId);
@@ -408,15 +364,12 @@ void KeyringWorker::enqueue(Job job)
         return;
     }
     if (m_wedged) {
-        // A store that has not returned in its timeout is a locked one: say so
-        // now rather than queue behind it.
         ReadResult read;
         read.locked = true;
         read.timedOut = true;
         WriteResult write;
         write.outcome = WriteOutcome::TimedOut;
         const QString uid = job.userId;
-        // Delivered on the next turn, never inside the caller's own stack.
         ++m_cancelledDeliveries;
         QMetaObject::invokeMethod(this, [this, job, read, write] {
             --m_cancelledDeliveries;
@@ -429,8 +382,6 @@ void KeyringWorker::enqueue(Job job)
     if (!m_queues.contains(job.userId))
         m_order.append(job.userId);
     m_queues[job.userId].enqueue(std::move(job));
-    // Always a queued pump: a GuiQueued call never runs inside the caller's
-    // stack (a drainer tick), and a worker job never starts from one either.
     QMetaObject::invokeMethod(this, &KeyringWorker::pump, Qt::QueuedConnection);
 }
 
@@ -438,8 +389,6 @@ void KeyringWorker::pump()
 {
     if (m_hasRunning || m_wedged)
         return;
-    // Round-robin over accounts with work; FIFO within each, so a handback
-    // write always lands before the same account's next read.
     for (int tried = 0; tried < m_order.size(); ++tried) {
         if (m_next >= m_order.size())
             m_next = 0;
@@ -473,8 +422,6 @@ KeyringWorker::ReadResult KeyringWorker::runReadOnGui(const Job &job) const
         out.locked = true;
         return out;
     }
-    // restoreSession()'s reading, for any account: an empty answer counts as
-    // "none" only while the backend can answer at all.
     out.accessToken = settings->accessTokenFor(job.userId);
     bool ok = !(out.accessToken.isEmpty() && settings->secretBackendUnavailable());
     if (ok) {
@@ -493,7 +440,7 @@ KeyringWorker::ReadResult KeyringWorker::runReadOnGui(const Job &job) const
         out.mediaKey = resolution.key;
         out.mediaAdmitEncrypted =
             msk::admitsEncryptedRooms(resolution, store && store->isSecure());
-        resolution.key.clear();   // shared with out.mediaKey: dropped, not scrubbed
+        resolution.key.clear();
     }
 #endif
     out.ok = ok;
@@ -525,7 +472,6 @@ void KeyringWorker::dispatch(Job job)
     m_runningDiscarded = false;
     m_running = std::move(job);
     if (m_mode == Mode::GuiQueued) {
-        // On this thread, now (pump() itself only ever runs queued).
         ReadResult read;
         WriteResult write;
         if (m_running.isWrite)
@@ -562,9 +508,6 @@ void KeyringWorker::finishRunning(quint64 jobId, const ReadResult &read,
                                   const WriteResult &write)
 {
     if (!m_hasRunning || m_running.id != jobId) {
-        // The answer of a call that already timed out: late, discarded. The
-        // store answered, so it is no longer wedged, and nothing of that call
-        // can land any more.
         if (jobId != 0 && jobId == m_strandedJobId) {
             if (m_strandedIsWrite && write.outcome == WriteOutcome::Written
                 && m_mode == Mode::WorkerThread && m_deps.settings)
@@ -577,10 +520,6 @@ void KeyringWorker::finishRunning(quint64 jobId, const ReadResult &read,
             m_wedged = false;
             qCInfo(lcKeyringWorker) << "the keyring answered again after a timeout";
             QMetaObject::invokeMethod(this, &KeyringWorker::pump, Qt::QueuedConnection);
-            // What the wedge answered "locked" (failQueuedWhileWedged) may
-            // try again now; without this only a backend change said so, and
-            // a paused start stayed paused for the session (§18 round 1,
-            // MUST 4).
             Q_EMIT keyringReadable();
         }
         return;
@@ -594,9 +533,6 @@ void KeyringWorker::finishRunning(quint64 jobId, const ReadResult &read,
     if (!discarded) {
         deliver(job, read, write);
     } else if (job.isWrite) {
-        // Cancelled while running: the store call has returned, and its
-        // callback still runs once (a retirement waits on it). What landed
-        // is noted for the backend all the same.
         if (write.outcome == WriteOutcome::Written && m_mode == Mode::WorkerThread
             && m_deps.settings)
             m_deps.settings->noteSessionTokensWrittenElsewhere(job.userId);
@@ -611,7 +547,7 @@ void KeyringWorker::finishRunning(quint64 jobId, const ReadResult &read,
 void KeyringWorker::deliverCancelledLater(const Job &job)
 {
     if (!job.isWrite)
-        return;   // a dropped read's callback never runs
+        return;
     ++m_cancelledDeliveries;
     QMetaObject::invokeMethod(this, [this, job] {
         --m_cancelledDeliveries;
@@ -677,8 +613,6 @@ void KeyringWorker::failQueuedWhileWedged()
 void KeyringWorker::deliver(const Job &job, const ReadResult &read, const WriteResult &write)
 {
     if (job.isWrite) {
-        // The keyring backend note SettingsManager::updateSessionTokens makes
-        // itself; a write it did not make tells it here.
         if (write.outcome == WriteOutcome::Written && m_mode == Mode::WorkerThread
             && m_deps.settings)
             m_deps.settings->noteSessionTokensWrittenElsewhere(job.userId);
@@ -694,7 +628,6 @@ void KeyringWorker::deliver(const Job &job, const ReadResult &read, const WriteR
 
 void KeyringWorker::cancelFor(const QString &userId)
 {
-    // A dropped write still answers (Cancelled), on a later turn.
     const QQueue<Job> dropped = m_queues.take(userId);
     for (const Job &job : dropped)
         deliverCancelledLater(job);
@@ -718,8 +651,6 @@ void KeyringWorker::forbidWritesFor(const QString &userId)
 
 void KeyringWorker::allowWritesFor(const QString &userId)
 {
-    // Only once nothing of the forbidden session can still land: a write
-    // still inside the store stays the caller's to wait for.
     if (userId.isEmpty() || writeInFlightFor(userId))
         return;
     m_forbidden->remove(userId);
@@ -727,10 +658,8 @@ void KeyringWorker::allowWritesFor(const QString &userId)
 
 bool KeyringWorker::writeInFlightFor(const QString &userId) const
 {
-    // Running, discarded or not: the store call has not returned.
     if (m_hasRunning && m_running.userId == userId && m_running.isWrite)
         return true;
-    // Timed out and still inside the store.
     if (m_strandedJobId != 0 && m_strandedIsWrite && m_strandedUserId == userId)
         return true;
     const auto it = m_queues.constFind(userId);
@@ -754,16 +683,12 @@ int KeyringWorker::pendingJobs() const
 bool KeyringWorker::waitForWrites(int budgetMs)
 {
     QDeadlineTimer deadline(budgetMs);
-    // The job on the worker now, whatever it is: its answer comes first.
     if (m_hasRunning && m_mode == Mode::WorkerThread && m_runningSlot) {
         const std::shared_ptr<KeyringJobSlot> slot = m_runningSlot;
         if (!slot->done.tryAcquire(1, int(deadline.remainingTime())))
             return false;
-        // Its queued finishRunning() is still on the event loop and will find
-        // no running job; the answer is taken from the slot it filled.
         finishRunning(m_running.id, slot->read, slot->write);
     }
-    // Then every queued write, in order; reads are dropped.
     QList<Job> writes;
     for (const QString &uid : std::as_const(m_order)) {
         for (const Job &job : std::as_const(m_queues[uid])) {
@@ -774,9 +699,6 @@ bool KeyringWorker::waitForWrites(int budgetMs)
     m_queues.clear();
     m_order.clear();
     m_next = 0;
-    // Writes this call did not reach go back, in order, never dropped: a
-    // caller that pumps in slices (SessionPool::waitForQuit) runs them on its
-    // next call (§18 round 1, MUST 2).
     const auto requeueFrom = [this, &writes](qsizetype first) {
         for (qsizetype k = first; k < writes.size(); ++k) {
             const Job &job = writes.at(k);
@@ -802,9 +724,6 @@ bool KeyringWorker::waitForWrites(int budgetMs)
         QMetaObject::invokeMethod(m_runner, [self, runner, slot, job] {
             slot->write = runner->write(job.write, job.recordSnapshot, job.recordedBackend);
             slot->done.release();
-            // Also answered from the event loop, as dispatch() does, for when
-            // the quit gave up on it and the loop runs again; finishRunning()
-            // ignores an answer already taken.
             if (QCoreApplication *app = QCoreApplication::instance()) {
                 QMetaObject::invokeMethod(app, [self, slot, id = job.id] {
                     if (self)
@@ -813,8 +732,6 @@ bool KeyringWorker::waitForWrites(int budgetMs)
             }
         }, Qt::QueuedConnection);
         if (!slot->done.tryAcquire(1, int(deadline.remainingTime()))) {
-            // Still inside the store: it is the running job now, answered by
-            // the next call (or the event loop) from its slot.
             m_hasRunning = true;
             m_runningDiscarded = false;
             m_running = job;
@@ -829,16 +746,11 @@ bool KeyringWorker::waitForWrites(int budgetMs)
 
 void KeyringWorker::rebuild()
 {
-    // The backend changed: a store that was locked may answer now.
     SecretStore *gui = m_deps.settings ? m_deps.settings->secretStore() : nullptr;
     if (gui)
         m_deps.guiSecretStore = gui;
     const Mode mode = modeFor(m_deps.guiSecretStore, bool(m_deps.secretStoreFactory));
     m_installScope = m_deps.guiSecretStore ? m_deps.guiSecretStore->installScope() : QString();
-    // The worker's own store is the OLD backend's whatever the new mode is:
-    // rebuilt for worker mode, dropped otherwise, so a later return to
-    // worker mode never reuses it (§18 round 1, L9). On the worker thread,
-    // where it was made.
     if (m_runner) {
         KeyringWorkerRunner *runner = m_runner;
         const QString scope = m_installScope;
@@ -858,4 +770,4 @@ void KeyringWorker::rebuild()
     Q_EMIT keyringReadable();
 }
 
-} // namespace lightning::accounts
+}

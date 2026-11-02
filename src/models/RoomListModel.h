@@ -21,39 +21,21 @@ class RoomListModel : public QAbstractListModel
     Q_OBJECT
     Q_PROPERTY(QString searchQuery READ searchQuery WRITE setSearchQuery NOTIFY searchQueryChanged)
     Q_PROPERTY(quint64 filterGeneration READ filterGeneration NOTIFY filterGenerationChanged)
-    // Element-style list filter: 0 All, 1 People (DMs), 2 Rooms, 3 Unreads.
-    // Invites always pass, and in Unreads mode the pinned (open) room stays
-    // visible so reading it does not remove the selected row.
     Q_PROPERTY(int filterMode READ filterMode WRITE setFilterMode NOTIFY filterModeChanged)
     // False on a backend that cannot write room tags; the action is then not
     // offered, since a device-local favourite would disagree with other
     // clients.
     Q_PROPERTY(bool roomFavouritesSupported READ roomFavouritesSupported
                    NOTIFY roomFavouritesSupportedChanged)
-    // Retired: always empty now that favourites have their own section header.
-    // Kept so existing bindings keep working (see updateFavouritesBoundary()).
     Q_PROPERTY(QString favouritesBoundaryRoomId READ favouritesBoundaryRoomId
                    NOTIFY favouritesBoundaryRoomIdChanged)
-    /// Joined conversations that are unread, and how many of those mention the
-    /// user. Account-wide and immune to the chips and Space scope: this feeds
-    /// the window title and tray. Counts rooms, not messages, since Matrix
-    /// message counts are often 0 for genuinely unread rooms.
     Q_PROPERTY(int unreadRoomCount READ unreadRoomCount
                    NOTIFY unreadTotalsChanged)
     Q_PROPERTY(int highlightRoomCount READ highlightRoomCount
                    NOTIFY unreadTotalsChanged)
-    /// Hold the order still: a new message updates its row in place (preview,
-    /// badge, time) and the list keeps its positions until releaseOrder() or
-    /// a view change (Space, filter tab, search). Off by default here;
-    /// AppController follows the user's setting.
     Q_PROPERTY(bool deferReordering READ deferReordering
                    WRITE setDeferReordering NOTIFY deferReorderingChanged)
-    /// True while the list is being held in an order that differs from the
-    /// live one, i.e. releaseOrder() would move something.
     Q_PROPERTY(bool orderHeld READ orderHeld NOTIFY orderHeldChanged)
-    /// How each group is ordered: conversation::SortByActivity (0, default) or
-    /// conversation::SortByName (1, A-Z). Groups and invitations are unchanged.
-    /// Any other value reads as Activity. AppController follows the setting.
     Q_PROPERTY(int sortMode READ sortMode WRITE setSortMode
                    NOTIFY sortModeChanged)
 public:
@@ -67,114 +49,60 @@ public:
         UnreadCountRole,
         EncryptedRole,
         IsSpaceRole,
-        MemberCountRole, // display/diagnostics only; never used for DM classification
-        CategoryRole,    // "invite" | "favourite" | "conversation" | "lowpriority"; see orderRankOf()
+        MemberCountRole,
+        CategoryRole,
         HighlightCountRole,
         MarkedUnreadRole,
         HasUnreadRole,
         MembershipRole,
         IsDirectRole,
-        // Matrix `m.favourite` room tag: account state shared with other
-        // clients.
         IsFavouriteRole,
         IsLowPriorityRole,
         DirectUserIdRole,
         InviterRole,
-        // The inviter's MXID only (never inferred from the display text), so
-        // "Ignore user" on an invite row acts on the real sender.
         InviterUserIdRole,
         InvitePendingRole,
         InviteErrorRole,
         CanonicalAliasRole,
-        // identityColorKey(RoomInfo): partner MXID for unambiguous 1:1 DMs,
-        // room id otherwise.
         IdentityColorKeyRole,
-        // The successor of a tombstoned room (empty otherwise), and whether the
-        // user can actually reach it; only then is the row de-emphasized.
         SuccessorRoomIdRole,
         SupersededByAccessibleSuccessorRole,
-        // Which bridged network this conversation belongs to. Empty for a
-        // native Matrix room (no badge). Presentation only, never routing.
         NetworkRole,
         NetworkLabelRole,
-        // 0 none, 1 "unread in a thread", 2 "mention in a thread": the room's
-        // remaining unread is held by threads alone. Mute-aware.
         ThreadUnreadKindRole,
     };
 
     explicit RoomListModel(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
-    /// Use `resolver` (owned by the caller, outliving this model) instead of the
-    /// model's own, so two owners share one cache and one set of fetches. Null
-    /// returns to the model's own.
     void setDirectAvatarResolver(DirectAvatarResolver *resolver);
 
-    // Optional Space filter: when bound, only rooms in
-    // SpaceManager::activeSpaceId() are shown. Space rooms themselves are
-    // always excluded (they belong to the rail).
     void setSpaceManager(SpaceManager *spaces);
-    /// Where a room's notification mode comes from (SettingsManager's
-    /// roomNotificationMode); unset means every room is All messages. The
-    /// model stays free of the settings class so its test targets need not link
-    /// it.
     void setNotificationModeSource(std::function<int(const QString &)> modeOf);
-    /// A room's mode changed: the badges and the Unreads filter follow.
     void notificationModeChanged();
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    // Look up a room by id and return the small map of fields the UI needs, or
-    // an empty map.
     Q_INVOKABLE QVariantMap findRoom(const QString &roomId) const;
     Q_INVOKABLE QStringList roomIdsBetween(int first, int last) const;
 
-    /// Record what a room's bridge advertises (MSC2346), as resolved by
-    /// matrix::bridge::labelForAdvertisedBridge. data() must stay synchronous
-    /// and never fetch, so the /state read is driven elsewhere (room open, room
-    /// info panel) and lands here; data() falls back to the ghost-mxid/alias
-    /// inference. An empty `label` removes the entry without erasing a
-    /// still-correct DM inference.
     void setAdvertisedBridge(const QString &roomId, const QString &networkId,
                              const QString &label);
-    /// Account-scoped: another account's rooms are not these rooms.
     void clearAdvertisedBridges();
-    // The most recent joined conversations (Spaces excluded) for Home, as up to
-    // `max` {roomId,name,avatarUrl,isDirect,hasUnread,unreadCount} maps in
-    // activity order.
     Q_INVOKABLE QVariantList recentRooms(int max = 6) const;
-    // Joined Spaces (presentation fields only) for Home's shortcut strip.
     Q_INVOKABLE QVariantList spacesSummary(int max = 8) const;
     Q_INVOKABLE void acceptInvite(const QString &roomId);
     Q_INVOKABLE void rejectInvite(const QString &roomId);
     Q_INVOKABLE void markRoomRead(const QString &roomId);
-    /// Mark every unread joined room read. Returns how many were marked.
-    ///
-    /// The per-room receipt is what ActivityModel::markRoomReadUpTo listens
-    /// for, so the bell clears too. Only unread rooms are touched; invites are
-    /// skipped (a decision, not unread mail), and so are `markedUnread` rooms,
-    /// which the user deliberately kept for later.
     Q_INVOKABLE int markAllRoomsRead();
-    // The room list's off-screen attention locator (Q3): the nearest shown
-    // row from `fromRow` (inclusive), walking `step` (+1 down, -1 up), that
-    // counts as unread under its notification mode -- or, with
-    // `mentionsOnly`, that has a mention it may show. -1 when none. Reads
-    // the same rules as the row badges, so a muted room never draws the
-    // locator; one bounded pass over the shown rows, never a fetch.
     Q_INVOKABLE int attentionRowFrom(int fromRow, int step,
                                      bool mentionsOnly = false) const;
     Q_INVOKABLE void markRoomUnread(const QString &roomId);
-    // Favourites (Matrix `m.favourite` tag). The toggle is not applied locally;
-    // see the .cpp. isRoomFavourite() reads the client's full room set, so it
-    // works for rooms the Space filter hides.
     Q_INVOKABLE bool isRoomFavourite(const QString &roomId) const;
     Q_INVOKABLE void setRoomFavourite(const QString &roomId, bool favourite);
     Q_INVOKABLE void setRoomLowPriority(const QString &roomId, bool lowPriority);
-    // "Copy room link": prefers the canonical alias over the room id, with
-    // TimelineModel::messagePermalink's percent-encoding (! $ : @ excluded).
-    // Static for unit testing.
     Q_INVOKABLE static QString roomPermalink(const QString &roomId,
                                              const QString &canonicalAlias = QString());
     QString searchQuery() const { return m_searchQuery; }
@@ -182,11 +110,7 @@ public:
     quint64 filterGeneration() const { return m_filterGeneration; }
     int filterMode() const { return m_filterMode; }
     void setFilterMode(int mode);
-    // The open room, kept visible in Unreads mode. Set by AppController on room
-    // switch.
     void setPinnedRoomId(const QString &roomId);
-    /// The room of the ongoing call: it leads the list, in its own "call"
-    /// section, however busy the others get (GitHub #44). "" when no call.
     void setCallRoomId(const QString &roomId);
     QString callRoomId() const { return m_callRoomId; }
 
@@ -194,19 +118,11 @@ public:
     void setDeferReordering(bool defer);
     bool orderHeld() const { return m_orderHeld; }
     int sortMode() const { return m_sortMode; }
-    /// Applies at once and drops any held order: under A-Z there is nothing to
-    /// hold, and back on Activity the live order is what the user asked for.
     void setSortMode(int mode);
-    /// Apply the held order now (the user has looked away, or the list has
-    /// been at rest). A no-op when nothing is held.
     Q_INVOKABLE void releaseOrder();
-    /// How long a held order may stay stale, in ms. A cap, so a list nobody
-    /// looks away from still catches up. Test seam; 60 s in use.
-    static constexpr int kHoldCapMs = 0; // 0 = no cap; tests set one
+    static constexpr int kHoldCapMs = 0;
     void setHoldCapMs(int ms);
 
-    // Account switch: drop DM profile lookups made under the previous account,
-    // then rebuild.
     void clearProfileCaches();
 
     bool roomFavouritesSupported() const;
@@ -216,7 +132,6 @@ public:
     // The one classification: the section string and the sort read the same
     // function, so a category is never split across two runs.
     static int orderRankOf(const RoomInfo &room);
-    /// orderRankOf(), except the ongoing call's room is -1 (first of all).
     int sortRankOf(const RoomInfo &room) const;
     bool isCallRoom(const QString &roomId) const;
     static QString categoryOf(const RoomInfo &room);
@@ -234,8 +149,6 @@ public:
 private Q_SLOTS:
     void refresh();
     void refreshRoom(const QString &roomId);
-    /// One DM peer's profile arrived. Repaints only the rows that wear that
-    /// face; a late profile must never reorder or rebuild the list.
     void onDirectAvatarResolved(const QString &userId);
 
 private:
@@ -245,19 +158,13 @@ private:
     QList<RoomInfo> desiredRooms(const QSet<QString> &superseded);
     void setOrderHeld(bool held);
     void reconcileRooms();
-    // Rooms replaced by a successor the user can reach: a successor exists, we
-    // hold a Joined or Invited record for it, and its predecessor points back
-    // here. An unverifiable chain leaves the row alone.
     QSet<QString> computeSupersededRoomIds() const;
     void resolveMissingDirectAvatars();
-    // The badge a row shows: the advertised answer, else the inference. One
-    // place, so the list and findRoom() agree.
     struct BridgeBadge {
         QString networkId;
         QString label;
     };
     BridgeBadge badgeFor(const RoomInfo &r) const;
-    // Retired; see favouritesBoundaryRoomId.
     void updateFavouritesBoundary();
 
     QString m_favouritesBoundaryRoomId;
@@ -265,47 +172,32 @@ private:
     int m_highlightRoomCount = 0;
     void updateUnreadTotals();
     int notificationModeOf(const QString &roomId) const;
-    /// The plain unread count this room may show (one rule, roomunread::).
     int shownUnread(const RoomInfo &room) const;
     std::function<int(const QString &)> m_modeOf;
     MatrixClient *m_client = nullptr;
-    /// Rooms with a mark-as-read in flight; see roomMarkedRead.
     QSet<QString> m_pendingMarkRead;
     SpaceManager *m_spaces = nullptr;
-    QList<RoomInfo> m_rooms; // Filtered subset actually shown.
-    // Rooms whose successor the user can reach, recomputed once per reconcile
-    // from the client's full room set (the successor may be filtered out).
+    QList<RoomInfo> m_rooms;
     QSet<QString> m_supersededRoomIds;
     QString m_searchQuery;
     QString m_pendingSearchQuery;
     int m_filterMode = 0;
     QString m_pinnedRoomId;
-    /// The room of the ongoing call (either lane), "" when none.
     QString m_callRoomId;
     quint64 m_filterGeneration = 1;
     QTimer m_searchDebounce;
-    // Coalesces per-event refreshRoom() calls into one reconcile per turn.
     QTimer m_reconcileCoalesce;
     DirectAvatarResolver m_ownDirectAvatars;
     DirectAvatarResolver *m_directAvatars = &m_ownDirectAvatars;
     QMetaObject::Connection m_directAvatarsConn;
-    // The keys the list is ordered by; see conversation::RecencyHold.
     conversation::RecencyHold m_hold;
     bool m_orderHeld = false;
     int m_sortMode = conversation::SortByActivity;
-    // Set by desiredRooms(): whether the order it returned differs from the
-    // live one.
     bool m_sortPending = false;
-    // Releases the hold once it has been stale this long.
     QTimer m_holdCap;
-    // roomId -> what its bridge advertises (MSC2346), filled by
-    // setAdvertisedBridge; never fetched here.
     QHash<QString, BridgeBadge> m_advertisedBridges;
 
 Q_SIGNALS:
-    /// A room was marked read without opening it (menu, notification action,
-    /// Mark space/all read) and the server ACCEPTED it. Never emitted for a
-    /// request that was rejected or failed. The bell mirrors it.
     void roomMarkedRead(const QString &roomId);
     void searchQueryChanged();
     void filterGenerationChanged();

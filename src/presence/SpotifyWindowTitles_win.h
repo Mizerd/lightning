@@ -14,4 +14,4 @@ namespace spotifywin {
 
 std::vector<std::wstring> spotifyWindowTitles();
 
-}   // namespace spotifywin
+}

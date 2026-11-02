@@ -14,7 +14,7 @@ namespace {
 const QString kClose = QStringLiteral("close");
 const QString kDelete = QStringLiteral("delete");
 
-} // namespace
+}
 
 RoomClosureController::RoomClosureController(QObject *parent)
     : QObject(parent)
@@ -51,7 +51,6 @@ void RoomClosureController::setClient(MatrixClient *client)
             &RoomClosureController::onDeleteProgress);
     connect(m_client, &MatrixClient::adminRoomDeleteFinished, this,
             &RoomClosureController::onDeleteFinished);
-    // A flow, and the administrator answer, belong to one account.
     connect(m_client, &MatrixClient::loggedOut, this,
             &RoomClosureController::forgetAccount);
 }
@@ -154,8 +153,6 @@ QString RoomClosureController::serverAdmin() const
 
 void RoomClosureController::checkServerAdmin()
 {
-    // An answer, or a question in flight, about another account is dropped
-    // and this account is asked.
     if (m_client && m_serverAdmin != QLatin1String("unknown")
         && accountMoved(m_adminUser)) {
         m_serverAdmin = QStringLiteral("unknown");
@@ -178,7 +175,6 @@ void RoomClosureController::checkServerAdmin()
     if (m_adminOp != 0) {
         m_serverAdmin = QStringLiteral("checking");
     } else {
-        // Not asked at all: try again later rather than believe "no".
         m_serverAdmin = QStringLiteral("no");
         m_adminUnavailable = true;
         m_adminAnswered.start();
@@ -192,7 +188,6 @@ void RoomClosureController::onAdminStatus(quint64 opId, bool admin,
     if (opId == 0 || opId != m_adminOp)
         return;
     m_adminOp = 0;
-    // An answer about another account says nothing about this one.
     if (accountMoved(m_adminUser)) {
         m_serverAdmin = QStringLiteral("unknown");
         m_adminUser.clear();
@@ -215,9 +210,6 @@ QString RoomClosureController::serverName() const
 
 int RoomClosureController::alsoElsewhere(const QString &roomId) const
 {
-    // Another Space than the one being closed: only a room inside a Space
-    // close can be that. A single room's own parents, and the target's, are
-    // not "elsewhere".
     if (!m_parentResolver || !m_targetIsSpace || roomId == m_targetId)
         return 0;
     const QSet<QString> scope(m_scope.constBegin(), m_scope.constEnd());
@@ -230,15 +222,12 @@ int RoomClosureController::alsoElsewhere(const QString &roomId) const
 bool RoomClosureController::begin(const QString &roomId, const QString &name,
                                   bool isSpace, const QString &mode)
 {
-    // Steps already on the server must still be counted: say so rather than
-    // start another flow over them.
     if (m_phase == QLatin1String("running")) {
         m_notice = tr("An earlier close or delete is still running and is "
                       "shown here. Start the new one when it has finished.");
         Q_EMIT stateChanged();
         return false;
     }
-    // A flow that finished while its dialog was hidden is shown once first.
     if (m_phase == QLatin1String("done") && m_resultPending) {
         m_resultPending = false;
         m_notice = tr("This is how the earlier close or delete ended. Close "
@@ -249,7 +238,6 @@ bool RoomClosureController::begin(const QString &roomId, const QString &name,
     reset();
     if (!m_client || roomId.isEmpty() || (mode != kClose && mode != kDelete))
         return false;
-    // Offered only after the server said so, about this account.
     if (mode == kDelete
         && (m_serverAdmin != QLatin1String("yes") || accountMoved(m_adminUser)))
         return false;
@@ -267,7 +255,6 @@ bool RoomClosureController::begin(const QString &roomId, const QString &name,
         m_parentCandidates = m_parentResolver(roomId);
 
     if (mode == kDelete) {
-        // The admin API needs no plan: the server decides.
         m_targetRow = deleteRow(roomId);
         m_targetRow.insert(QStringLiteral("isSpace"), isSpace);
         if (!name.isEmpty())
@@ -278,8 +265,6 @@ bool RoomClosureController::begin(const QString &roomId, const QString &name,
         return true;
     }
 
-    // The parents are asked about too, only for whether the viewer may
-    // change their children; they are not rows.
     QStringList parents;
     for (const QString &parent : m_parentCandidates) {
         if (!m_scope.contains(parent) && !parents.contains(parent))
@@ -309,7 +294,6 @@ QVariantMap RoomClosureController::deleteRow(const QString &roomId) const
         { QStringLiteral("reasonText"), QString() },
         { QStringLiteral("summary"), QString() },
         { QStringLiteral("alsoElsewhere"), elsewhere },
-        // A room another Space also lists starts unselected.
         { QStringLiteral("selected"), elsewhere == 0 },
         { QStringLiteral("status"), QString() },
         { QStringLiteral("message"), QString() },
@@ -319,7 +303,6 @@ QVariantMap RoomClosureController::deleteRow(const QString &roomId) const
 
 QVariantMap RoomClosureController::rowFromPlan(const QVariantMap &plan) const
 {
-    // Fails closed: no reason key or no room id is not offered.
     const QString roomId = plan.value(QStringLiteral("roomId")).toString();
     QString reason = plan.value(QStringLiteral("reason")).toString();
     if (!plan.contains(QStringLiteral("reason")) || roomId.isEmpty())
@@ -378,7 +361,6 @@ void RoomClosureController::onPlanReceived(quint64 opId, bool truncated,
                 m_targetRow = row;
             continue;
         }
-        // Only what was asked about.
         if (m_scope.contains(roomId))
             m_rooms.append(row);
     }
@@ -541,7 +523,6 @@ bool RoomClosureController::confirmationNameUsable() const
     const QString name = m_targetName.trimmed();
     if (name.isEmpty())
         return false;
-    // Zero-width, format, control and other characters nobody can type.
     const QList<uint> codepoints = name.toUcs4();
     for (const uint c : codepoints) {
         if (c != ' ' && (!QChar::isPrint(c) || QChar::isSpace(c)))
@@ -570,7 +551,6 @@ bool RoomClosureController::typedConfirmationMatches() const
     const QString typed = m_typed.trimmed();
     if (typed.isEmpty())
         return false;
-    // The id always works, whatever the name holds.
     return typed == confirmationPhrase() || typed == m_targetId;
 }
 
@@ -669,21 +649,16 @@ void RoomClosureController::setRowProgress(const QString &roomId,
 
 void RoomClosureController::dispatchNext()
 {
-    // Nothing more goes out through a client that now speaks for another
-    // account: the remaining steps belong to the one that started them.
     if (accountMoved(m_flowUser)) {
         qCWarning(lcRoomClosure) << "account changed; flow dropped";
         forgetAccount();
         return;
     }
-    // One room at a time: each close is many requests of its own.
     while (m_nextStep < m_steps.size()) {
         const QString roomId = m_steps.at(m_nextStep++);
         quint64 opId = 0;
         if (m_client) {
             if (m_mode == kClose) {
-                // Out of its Spaces only for a single room; a Space's own
-                // rooms keep their place in it.
                 const QStringList unlist =
                     roomId == m_targetId && !m_targetIsSpace
                             && m_unlistFromParents
@@ -772,7 +747,6 @@ void RoomClosureController::onStepTimedOut()
         return;
     qCWarning(lcRoomClosure) << m_mode << "step did not answer in"
                              << m_stepSilenceMs << "ms";
-    // A late answer is ignored; the server may still finish it.
     stepAnswered(m_stepRoom, QStringLiteral("unknown"),
                  tr("No answer yet. It may still finish on the server: check "
                     "the room before running this again."));
@@ -780,7 +754,6 @@ void RoomClosureController::onStepTimedOut()
 
 QStringList RoomClosureController::descendantsOf(const QString &spaceId) const
 {
-    // Parent links within the scope only, cycle-safe.
     QHash<QString, QStringList> children;
     if (m_parentResolver) {
         for (const QString &roomId : m_scope) {
@@ -803,7 +776,6 @@ QStringList RoomClosureController::descendantsOf(const QString &spaceId) const
             queue.append(child);
         }
     }
-    // The target owns every room in its scope, linked or not.
     if (spaceId == m_targetId) {
         for (int i = 1; i < m_scope.size(); ++i) {
             if (!seen.contains(m_scope.at(i)))
@@ -823,8 +795,6 @@ bool RoomClosureController::anyDescendantUnfinished(const QString &spaceId) cons
         withRow.insert(roomId);
         if (!below.contains(roomId))
             continue;
-        // Not done yet counts too: a room listed under two subspaces runs
-        // under only one of them.
         const QString status = row.value(QStringLiteral("status")).toString();
         if (status == QLatin1String("partial")
             || status == QLatin1String("failed")
@@ -833,15 +803,12 @@ bool RoomClosureController::anyDescendantUnfinished(const QString &spaceId) cons
             || status == QLatin1String("running")) {
             return true;
         }
-        // Rooms the plan could not assess may still need closing.
         const QString reason = row.value(QStringLiteral("reason")).toString();
         if (reason == QLatin1String("unknown")
             || reason == QLatin1String("not_checked")) {
             return true;
         }
     }
-    // A room beneath it with no row at all (past the plan's cap, or dropped
-    // by the backend) was never assessed or closed.
     for (const QString &roomId : below) {
         if (!withRow.contains(roomId))
             return true;
@@ -858,7 +825,6 @@ void RoomClosureController::onClosureFinished(quint64 opId,
         return;
     }
     const QString outcome = result.value(QStringLiteral("outcome")).toString();
-    // A join-rule change that timed out may have landed: not known.
     const bool unanswered =
         result.value(QStringLiteral("category")).toString()
         == QLatin1String("unknown");
@@ -939,7 +905,6 @@ QString RoomClosureController::closeResultText(const QVariantMap &result)
     if (!result.value(QStringLiteral("membersRead")).toBool())
         parts.append(tr("its members could not be read"));
     if (staying > 0) {
-        // Absent means an older answer: say nothing about why.
         const bool canKick = !result.contains(QStringLiteral("canKick"))
                              || result.value(QStringLiteral("canKick")).toBool();
         parts.append(canKick
@@ -1129,7 +1094,6 @@ QString RoomClosureController::statusText() const
         return tr("Lightning could not check these rooms. Nothing was "
                   "changed.");
     if (m_phase == QLatin1String("ready")) {
-        // The prompt above the field already says what to type.
         if (m_mode == kDelete && !typedConfirmationMatches())
             return QString();
         if (!canConfirm())

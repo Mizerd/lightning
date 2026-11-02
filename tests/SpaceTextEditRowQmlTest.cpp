@@ -1,23 +1,3 @@
-// SpaceTextEditRow: the draft/dirty/permission contract the inline Space Home
-// card and SpaceSettingsDialog share (master prompt Part 6, 2.3, UI-049..058).
-//
-// The inline card used to offer Rename/Save for an UNCHANGED value (sending
-// an identical m.room.name / m.room.topic), used the faint default secondary
-// kind, and checked nothing at submission time. The dialog had its own copy
-// of the rules. Both now go through this component, so this suite proves the
-// rules once, on the real compiled component:
-//   * unchanged value -> no commit; the button says why;
-//   * an edit enables a PRIMARY commit; one submission while pending;
-//   * an empty name is refused, a cleared topic is allowed;
-//   * permission and target identity are re-checked at submission;
-//   * a target change re-snaps the field; a remote change re-snaps only an
-//     untouched field;
-//   * Return in the field takes the same guarded path;
-//   * the busy spinner shows on the row that was committed, only.
-// And two source facts: both forms instantiate the component.
-//
-// Offscreen QML: no homeserver, no real permissions. Rendering on a real
-// desktop is NOT TESTED here.
 
 #include <QFile>
 #include <QKeyEvent>
@@ -80,7 +60,7 @@ QString readSource(const QString &relative)
     return QString::fromUtf8(f.readAll());
 }
 
-} // namespace
+}
 
 class SpaceTextEditRowQmlTest : public QObject
 {
@@ -134,7 +114,6 @@ private Q_SLOTS:
         resetRow(item("topicRow"), QStringLiteral("A topic"));
     }
 
-    // UI-051: an unchanged value is not offered, and the button says why.
     void anUnchangedValueCannotBeResent()
     {
         auto *row = item("nameRow");
@@ -145,15 +124,12 @@ private Q_SLOTS:
         QVERIFY(!button->property("enabled").toBool());
         QVERIFY(!submit(row));
         QVERIFY(sent().isEmpty());
-        // Whitespace around the same value is the same value once trimmed.
         field->setProperty("text", QStringLiteral("  Alpha "));
         QVERIFY(!button->property("enabled").toBool());
         QVERIFY(!submit(row));
         QVERIFY(sent().isEmpty());
     }
 
-    // UI-049/052: an edit enables a primary commit (the inline card used the
-    // faint default secondary kind).
     void anEditEnablesAPrimaryCommit()
     {
         auto *row = item("nameRow");
@@ -166,7 +142,6 @@ private Q_SLOTS:
         QCOMPARE(sent(), QStringList{ QStringLiteral("Beta") });
     }
 
-    // UI-053: a name may not be emptied; a topic may be cleared.
     void anEmptyNameIsRefusedAndAClearedTopicIsNot()
     {
         item("nameField")->setProperty("text", QStringLiteral("   "));
@@ -180,8 +155,6 @@ private Q_SLOTS:
         QCOMPARE(sent("topics"), QStringList{ QString() });
     }
 
-    // UI-054: a permission lost, or roomInfo moved to another room, after the
-    // button was enabled still refuses at submission.
     void permissionAndTargetAreRecheckedAtSubmission()
     {
         auto *row = item("nameRow");
@@ -197,8 +170,6 @@ private Q_SLOTS:
         QCOMPARE(sent().size(), 1);
     }
 
-    // UI-055: one operation while pending; the spinner shows on the row that
-    // was committed and not on its sibling sharing the same pending flag.
     void oneSubmissionWhilePendingAndOnlyThatRowIsBusy()
     {
         auto *nameRow = item("nameRow");
@@ -207,7 +178,7 @@ private Q_SLOTS:
         item("topicField")->setProperty("text", QStringLiteral("New topic"));
         QVERIFY(submit(nameRow));
         nameRow->setProperty("pending", true);
-        topicRow->setProperty("pending", true);   // roomInfo.editPending is shared
+        topicRow->setProperty("pending", true);
         QVERIFY(!submit(nameRow));
         QVERIFY(!submit(topicRow));
         QCOMPARE(sent().size(), 1);
@@ -219,8 +190,6 @@ private Q_SLOTS:
         QVERIFY(!nameRow->property("busy").toBool());
     }
 
-    // UI-057/058: a target change always wins over typed text; a remote change
-    // to the same target re-snaps only an untouched field.
     void targetChangeResnapsAndRemoteChangeSparesADraft()
     {
         auto *row = item("nameRow");
@@ -228,7 +197,6 @@ private Q_SLOTS:
         field->setProperty("text", QStringLiteral("Half typed"));
         row->setProperty("authoritative", QStringLiteral("Remote rename"));
         QCOMPARE(field->property("text").toString(), QStringLiteral("Half typed"));
-        // The baseline moved, so the draft is still dirty against it.
         QVERIFY(row->property("dirty").toBool());
 
         auto *topicField = item("topicField");
@@ -241,13 +209,11 @@ private Q_SLOTS:
         row->setProperty("targetId", QStringLiteral("!a:example.org"));
     }
 
-    // Return in the field goes through the same guards as the button.
     void returnInTheFieldTakesTheGuardedPath()
     {
         auto *field = item("nameField");
         field->forceActiveFocus();
         QVERIFY(field->hasActiveFocus());
-        // Unchanged: Return sends nothing.
         QTest::keyClick(m_window, Qt::Key_Return);
         QVERIFY(sent().isEmpty());
         field->setProperty("text", QStringLiteral("Echo"));
@@ -255,7 +221,6 @@ private Q_SLOTS:
         QCOMPARE(sent(), QStringList{ QStringLiteral("Echo") });
     }
 
-    // Both forms use the component, so they cannot drift apart again.
     void bothSpaceFormsUseTheSharedRow()
     {
         const QString pane = readSource(QStringLiteral("qml/TimelinePane.qml"));

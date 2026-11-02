@@ -1,12 +1,3 @@
-// C56 round 1: state a closed Settings page must not keep.
-//
-//  * RecoveryKeyEntry: a failed or finished attempt's answer is retired by the
-//    first edit, by the page being hidden and by a sign-out / sign-in, instead
-//    of waiting for the next visit (and for a different session).
-//  * CrossSigningSetupCard: an armed "Replace identity" confirmation and a
-//    typed account password / recovery key are cleared when the card is hidden.
-//
-// Both components run against fake `app` objects exposing only what they read.
 
 #include <QtTest/QtTest>
 
@@ -127,7 +118,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class EncryptionPromptsStaleStateTest : public QObject
 {
@@ -175,7 +166,6 @@ private slots:
         delete m_engine;
     }
 
-    // C56-F02 / C56-D03: the red line stayed beside the key being corrected.
     void theFirstEditAfterAFailureRetiresTheError()
     {
         failOnce();
@@ -183,7 +173,6 @@ private slots:
         QCOMPARE(status(), QString());
     }
 
-    // C56-F02: the error survived closing and reopening Settings.
     void hidingTheEntryRetiresTheAnswer()
     {
         failOnce();
@@ -193,7 +182,6 @@ private slots:
         QCOMPARE(status(), QString());
     }
 
-    // C56-F05: a success from the previous sign-in showed on the next one.
     void aSignOutAndSignInDoNotCarryTheLastSessionsResult()
     {
         auto *tf = find(QStringLiteral("entryField"));
@@ -205,7 +193,6 @@ private slots:
         QCOMPARE(status(), QString());
     }
 
-    // C56-F01: "Replace identity" stayed armed after Settings closed.
     void hidingTheCardDisarmsTheResetConfirmation()
     {
         auto *card = find(QStringLiteral("card"));
@@ -221,7 +208,6 @@ private slots:
         QCOMPARE(card->property("pendingConfirm").toString(), QString());
     }
 
-    // C56-F01: the typed account password stayed in the field.
     void hidingTheCardWipesATypedPassword()
     {
         m_app.backupFake.setProperty("passwordRequired", true);

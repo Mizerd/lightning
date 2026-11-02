@@ -62,17 +62,16 @@ bool collapsesMedia(const QString &mediaPreviews, const QString &joinRule,
         return false;
     if (mediaPreviews == QLatin1String("private")) {
         if (!joinRuleIsNonPublic(joinRule))
-            return true;   // public, or not known yet
+            return true;
         if (privateMeansNonPublic)
             return false;
-        return !(encrypted || direct);   // compatibility guard
+        return !(encrypted || direct);
     }
-    return true; // "off", and anything unknown
+    return true;
 }
 
 namespace {
 
-// An integer in [0, 2^53), from whichever numeric type the JSON decoder chose.
 bool readTotal(const QVariant &v, qint64 *out)
 {
     switch (v.metaType().id()) {
@@ -99,11 +98,9 @@ bool readTotal(const QVariant &v, qint64 *out)
     }
 }
 
-// A sanity bound only: a stored "emoji" is short; this keeps one hostile entry
-// from carrying megabytes, without refusing long future ZWJ sequences.
 constexpr int kMaxEmojiChars = 256;
 
-} // namespace
+}
 
 bool stableInvitePolicyBlocks(const QVariantMap &content)
 {
@@ -140,8 +137,6 @@ QList<AccountDataWrite> composeInvitePolicy(bool stableSupported,
         }
         return out;
     }
-    // Allow-all: clear every form that blocks, supported or not, so nothing
-    // stale keeps rejecting invitations.
     if (stableInvitePolicyBlocks(stableContent)) {
         QVariantMap next = stableContent;
         next.remove(QStringLiteral("default_action"));
@@ -171,7 +166,6 @@ QList<EmojiCount> parseRecentEmoji(const QVariantMap &content)
             entry.emoji = emoji.toString();
             entry.extra = object;
         } else {
-            // Legacy tuple [emoji, count] from older Element builds.
             const QVariantList pair = row.toList();
             if (pair.size() != 2 || pair.at(0).metaType().id() != QMetaType::QString
                 || !readTotal(pair.at(1), &entry.total))
@@ -201,7 +195,6 @@ QList<EmojiCount> bumpRecentEmoji(QList<EmojiCount> list, const QString &emoji)
             break;
         }
     }
-    // Saturate below the schema bound; never wrap, never decrease.
     if (used.total < kRecentEmojiTotalBound - 1)
         ++used.total;
     list.prepend(used);
@@ -240,4 +233,4 @@ QStringList mergeRecentEmoji(const QStringList &localMru,
     return out;
 }
 
-} // namespace AccountPrefs
+}

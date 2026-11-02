@@ -30,23 +30,16 @@ qint64 monotonicMs()
         clock.start();
     return clock.elapsed();
 }
-} // namespace
+}
 
-/// One test's pipeline. Shared with the worker that builds it and the one
-/// that tears it down, so neither depends on this object still existing.
 struct AudioDeviceTester::Session {
     std::mutex mutex;
-    /// Set by whoever ends the session; a worker that finishes building
-    /// afterwards tears its pipeline down itself instead of publishing it.
     bool cancelled = false;
 #ifdef HAVE_LIGHTNING_WEBRTC
     GstElement *pipeline = nullptr;
 #endif
 };
 
-/// The only way a worker or GStreamer thread reaches the tester. `target` is
-/// cleared (under the mutex) before the tester is destroyed, and a queued
-/// call whose receiver is gone is dropped by Qt.
 struct AudioDeviceTester::Relay {
     std::mutex mutex;
     AudioDeviceTester *target = nullptr;
@@ -60,8 +53,6 @@ struct AudioDeviceTester::Relay {
                                       Qt::QueuedConnection);
     }
 
-    // Member functions of a nested class may call the tester's private
-    // handlers; free functions may not.
     void deliverDescription(quint64 generation, const QString &description)
     {
         post([this, generation, description] {
@@ -107,9 +98,7 @@ struct AudioDeviceTester::Relay {
         SfuMediaEngine::DeviceChoice microphone;
         SfuMediaEngine::DeviceChoice speaker;
         int gainPercent = 100;
-        /// The microphone noise suppression, as the call would run it.
         calls::noise::Mode noiseMode = calls::noise::kDefaultMode;
-        /// webrtcdsp's automatic gain control, as the call would run it.
         bool autoGain = true;
     };
 
@@ -141,19 +130,12 @@ QString AudioDeviceTester::Relay::compose(
     bool autoGain)
 {
     if (mode == Mode::Tone) {
-        // A quiet sine (-14 dBFS) in 100 ms buffers; num-buffers ends it with
-        // an EOS, which is how the tester learns it has finished.
         return QStringLiteral("audiotestsrc name=tonesrc wave=sine freq=660 "
                               "volume=0.2 samplesperbuffer=4800 num-buffers=%1 "
                               "! audio/x-raw,rate=48000,channels=1 "
                               "! audioconvert ! audioresample ! %2")
             .arg(QString::number(kToneBuffers), sink);
     }
-    // The call's own chain up to the encoder: the same front, the same
-    // processing (with the selected noise suppression, so "Let's check"
-    // plays back what others would hear), the same gain, and the meter where
-    // the call has it (after the gain), so the bar shows what others would
-    // receive.
     const QString front = SfuMediaEngine::microphoneFrontDescription(capture);
     const QString processing =
         SfuMediaEngine::voiceProcessingDescription(noiseMode, false, autoGain);
@@ -168,19 +150,10 @@ QString AudioDeviceTester::Relay::compose(
     // as an element name ("no element \"audio\""). The call has its mute
     // valve here; so does this, never closed.
     const QString valve = QStringLiteral(" ! valve name=testvalve drop=false ");
-    // The playback sink renders as soon as audio arrives (sync=false). Synced
-    // to the capture clock, its delay depended on how the two sound streams
-    // happened to start: measured 450-1880 ms over repeated runs of this
-    // exact description, against a steady 370-390 ms unsynced on the same
-    // rig (whose floor, pulsesrc ! pulsesink, is ~400 ms). The leaky queue
-    // in front still bounds what can pile up.
     const QString playbackSink = sink.contains(QLatin1String("sync="))
         ? sink
         : sink + QStringLiteral(" sync=false");
     const QString tail = mode == Mode::Loopback
-        // Bounded and leaky like every queue on a live path: a default queue
-        // holds a second and never drains, which a loopback would play back
-        // as a growing echo.
         ? QStringLiteral("! queue max-size-buffers=0 max-size-bytes=0 "
                          "max-size-time=200000000 leaky=downstream "
                          "! audioconvert ! audioresample ! %1")
@@ -223,7 +196,6 @@ GstBusSyncReply AudioDeviceTester::Relay::onBus(GstBus *, GstMessage *message,
         GError *error = nullptr;
         gchar *debug = nullptr;
         gst_message_parse_error(message, &error, &debug);
-        // autoaudiosrc/-sink name their child "<name>-actual-...".
         const QString element = QString::fromUtf8(source ? source : "");
         QString category = QStringLiteral("pipeline");
         if (element.startsWith(QLatin1String("micsrc")))
@@ -249,8 +221,6 @@ GstBusSyncReply AudioDeviceTester::Relay::onBus(GstBus *, GstMessage *message,
     default:
         break;
     }
-    // Nothing pops this bus; a passed message would sit there for the life of
-    // the pipeline.
     gst_message_unref(message);
     return GST_BUS_DROP;
 }
@@ -259,8 +229,6 @@ void AudioDeviceTester::Relay::run(std::shared_ptr<Relay> relay,
                                    std::shared_ptr<Session> session, Plan plan,
                                    quint64 generation)
 {
-    // Device lookups may block (the device monitor, bounded at 2.5 s), which
-    // is why this runs here and not on the GUI thread.
     SfuMediaEngine::MicrophoneCapture capture;
     SfuMediaEngine::OutputSink output;
     if (plan.mode != Mode::Tone) {
@@ -307,7 +275,6 @@ void AudioDeviceTester::Relay::run(std::shared_ptr<Relay> relay,
         relay->deliverFailed(generation, QStringLiteral("pipeline"));
         return;
     }
-    // Set as properties after the parse, never interpolated.
     if (!capture.binding.isEmpty())
         SfuMediaEngine::applyCaptureBinding(pipeline, "micsrc", capture.binding);
     if (!output.binding.isEmpty())
@@ -323,8 +290,6 @@ void AudioDeviceTester::Relay::run(std::shared_ptr<Relay> relay,
 
     if (gst_element_set_state(pipeline, GST_STATE_PLAYING)
         == GST_STATE_CHANGE_FAILURE) {
-        // The bus has usually said which element already; this covers a
-        // refusal that posted nothing.
         teardown(pipeline);
         relay->deliverFailed(generation, plan.mode == Mode::Tone
                                              ? QStringLiteral("output")
@@ -346,7 +311,7 @@ void AudioDeviceTester::Relay::run(std::shared_ptr<Relay> relay,
     relay->deliverStarted(generation);
 }
 
-#endif // HAVE_LIGHTNING_WEBRTC
+#endif
 
 AudioDeviceTester::AudioDeviceTester(QObject *parent)
     : QObject(parent)
@@ -383,8 +348,6 @@ AudioDeviceTester::~AudioDeviceTester()
     if (!session)
         return;
 #ifdef HAVE_LIGHTNING_WEBRTC
-    // At quit the pipeline must be gone, but a hung sound server must not
-    // hang the quit either: wait a bounded time, then leave it to the thread.
     auto done = std::make_shared<std::promise<void>>();
     std::future<void> finished = done->get_future();
     std::thread([session, done] {
@@ -414,7 +377,6 @@ void AudioDeviceTester::setDeviceController(CallDeviceController *devices)
     m_devices = devices;
     if (!m_devices)
         return;
-    // Choosing another device while a test runs tests the new one.
     connect(m_devices, &CallDeviceController::selectionChanged, this, [this] {
         if (microphoneTestRunning())
             start(m_mode);
@@ -452,7 +414,6 @@ void AudioDeviceTester::setCallActive(bool active)
         return;
     m_callActive = active;
     Q_EMIT blockedByCallChanged();
-    // The call owns the microphone from here on.
     if (active && m_mode != Mode::Idle) {
         qCInfo(lcDeviceTest)
             << "audio device test: stopped because a call is starting";
@@ -521,18 +482,15 @@ bool AudioDeviceTester::start(Mode mode)
         return false;
     }
 #ifdef HAVE_LIGHTNING_WEBRTC
-    // Initialised at startup when the runtime was probed; cheap now.
     if (!lightning::gst::ensureInitialised()) {
         setError(QStringLiteral("unavailable"));
         return false;
     }
-    // A microphone test without a meter would look like a dead microphone.
     if (mode != Mode::Tone && !SfuMediaEngine::levelElementAvailable()) {
         setError(QStringLiteral("no_meter"));
         return false;
     }
 
-    // Whatever was running ends first: one device test at a time.
     endSession();
     m_throttle.reset();
     setLevel(0.0);
@@ -584,7 +542,6 @@ bool AudioDeviceTester::start(Mode mode)
 
 void AudioDeviceTester::endSession()
 {
-    // Anything still in flight for the old session is discarded.
     ++m_generation;
     m_limitTimer.stop();
     m_countdown.stop();
@@ -592,8 +549,6 @@ void AudioDeviceTester::endSession()
     if (!session)
         return;
 #ifdef HAVE_LIGHTNING_WEBRTC
-    // Off the GUI thread: a sound server that hangs blocks set_state(NULL)
-    // until libpulse gives up.
     std::thread([session] {
         GstElement *pipeline = nullptr;
         {
@@ -620,7 +575,6 @@ int AudioDeviceTester::limitMs(Mode mode) const
     case Mode::Loopback:
         return kLoopbackLimitMs;
     case Mode::Tone:
-        // A backstop only: the tone ends itself with an EOS long before.
         return kToneBuffers * 100 + 4000;
     case Mode::Idle:
         break;
@@ -655,16 +609,8 @@ void AudioDeviceTester::applyNoiseMode()
         m_settings->noiseSuppressionMode().toStdString(),
         calls::noise::kDefaultMode);
     std::lock_guard<std::mutex> lock(m_session->mutex);
-    // Not built yet: the worker composed the plan's mode, and a test started
-    // after this reads the new one. A switch landing in that window is
-    // picked up on the next start.
     if (!m_session->pipeline)
         return;
-    // The same live switch as a call: the denoiser swaps backends between
-    // frames, webrtcdsp is replaced under an idle probe. At once, not
-    // waiting for the denoiser: the test's bus handler does not follow the
-    // denoiser's reports, so a WebRTC -> neural switch here can leave up to
-    // a second (the model's build) unsuppressed in the playback.
     const QString did = calls::noise::applyMode(
         m_session->pipeline, mode, calls::noise::DspSwitch::Now);
     qCInfo(lcDeviceTest) << "audio device test: noise suppression mode="
@@ -760,8 +706,6 @@ void AudioDeviceTester::onFinished(quint64 generation)
 {
     if (generation != m_generation)
         return;
-    // The tone ends this way by design. A live microphone does not: an EOS
-    // there means the device went away.
     const bool microphoneEnded = microphoneTestRunning();
     stop();
     if (microphoneEnded)

@@ -1,10 +1,3 @@
-// Poster extraction must not run on the thread that asks for it: the first
-// QVideoSink in a process costs close to a second of backend initialization,
-// so the decoder lives on a private worker thread.
-//
-// Pinned, all invisible to a source scan: the call returns immediately, the
-// reply arrives on the caller's thread, and the worker's watchdog timer is
-// not disarmed by wrong thread affinity.
 
 #include "media/VideoPosterExtractor.h"
 #include "media/ShutdownThreadJoin.h"
@@ -25,10 +18,6 @@
 
 namespace {
 
-// Captured so the cross-thread timer warning ("Timers cannot be started from
-// another thread") can be asserted absent. With the wrong affinity posters
-// still extract but the watchdog that stops a hostile file wedging the
-// extraction slot is lost.
 QtMessageHandler g_previousHandler = nullptr;
 QStringList g_messages;
 QMutex g_messagesMutex;
@@ -50,7 +39,7 @@ QStringList capturedMessages()
     return g_messages;
 }
 
-} // namespace
+}
 
 class VideoPosterThreadingTest : public QObject
 {
@@ -70,17 +59,12 @@ private Q_SLOTS:
         QVERIFY(!lightning::media::quitAndJoinWorkerForShutdown(worker, 40));
         QVERIFY2(timer.elapsed() < 250,
                  "a blocked worker held the calling thread past its budget");
-        // The timeout path leaves a running QThread intact and reclaims its
-        // QObject only after finished; deleting it on timeout would crash.
         QTRY_VERIFY_WITH_TIMEOUT(guard.isNull(), 1500);
     }
 
     void initTestCase()
     {
         QVERIFY(m_dir.isValid());
-        // Any existing file drives the decoder far enough to construct the
-        // sink and player; a real clip is not needed to prove where that
-        // work happens, and the repository ships no video fixture.
         m_path = m_dir.filePath(QStringLiteral("not-really-a-video.mp4"));
         QFile file(m_path);
         QVERIFY(file.open(QIODevice::WriteOnly));
@@ -101,19 +85,14 @@ private Q_SLOTS:
         timer.start();
         extractor.requestPoster(QStringLiteral("cold-start"), m_path);
         const qint64 blockedMs = timer.elapsed();
-        // Unfixed: ~931 ms (the first QVideoSink) on this very thread.
         QVERIFY2(blockedMs < 250,
                  qPrintable(QStringLiteral("requestPoster() blocked the "
                                            "calling thread for %1 ms")
                                 .arg(blockedMs)));
-        // Drain the job so the extraction does not outlive the test.
         QSignalSpy spy(&extractor, &VideoPosterExtractor::posterReady);
         QVERIFY(spy.wait(15000));
     }
 
-    // An audio file has no poster but still has a length: when `jpeg` is
-    // empty, `durationMs` is still valid. Drives the real extractor against a
-    // real decodable file.
     void anAudioFileReportsItsLengthWithNoPoster()
     {
         const QString wav = writeSilentWav(
@@ -136,14 +115,11 @@ private Q_SLOTS:
                      "branch is discarding the value it was given, which is "
                      "what makes an attached song send as 0:00")
                      .arg(duration)));
-        // Written as 3000 ms of samples. Generous bounds: decoders round.
         QVERIFY2(duration > 2500 && duration < 3500,
                  qPrintable(QStringLiteral("expected ~3000 ms, got %1")
                                 .arg(duration)));
     }
 
-    // Both call sites (MediaBridge, AttachmentQueueModel) touch objects owned
-    // by their own thread in the slot, so the reply must arrive there.
     void posterReadyArrivesOnTheCallersThread()
     {
         VideoPosterExtractor extractor;
@@ -159,27 +135,22 @@ private Q_SLOTS:
         extractor.requestPoster(QStringLiteral("delivery"), m_path);
         QVERIFY(spy.wait(15000));
         QCOMPARE(deliveredOn.load(), QThread::currentThread());
-        // A file that is not a video is a terminal failure, reported as an
-        // empty poster rather than left to hold the extraction slot.
         QVERIFY(jpegEmpty.load());
     }
 
-    // A queued request that arrives while a job is running must still be
-    // deduplicated and served, entirely on the worker thread.
     void queuedRequestsAreServedInOrder()
     {
         VideoPosterExtractor extractor;
         QSignalSpy spy(&extractor, &VideoPosterExtractor::posterReady);
         extractor.requestPoster(QStringLiteral("first"), m_path);
         extractor.requestPoster(QStringLiteral("second"), m_path);
-        extractor.requestPoster(QStringLiteral("first"), m_path); // duplicate
+        extractor.requestPoster(QStringLiteral("first"), m_path);
         while (spy.count() < 2 && spy.wait(15000)) { }
         QCOMPARE(spy.count(), 2);
         QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("first"));
         QCOMPARE(spy.at(1).at(0).toString(), QStringLiteral("second"));
     }
 
-    // The watchdog lives on the worker thread and must be startable there.
     void workerStartsItsWatchdogWithoutACrossThreadWarning()
     {
         for (const QString &message : capturedMessages()) {
@@ -190,9 +161,6 @@ private Q_SLOTS:
     }
 
 private:
-    // A real, decodable audio file written by hand: a 44-byte canonical PCM
-    // WAV header plus silence, sized from the sample count so the expected
-    // duration is exact.
     static QString writeSilentWav(const QString &path, int milliseconds)
     {
         const int rate = 8000;

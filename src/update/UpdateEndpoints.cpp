@@ -3,31 +3,18 @@
 #include <QLatin1Char>
 #include <QLatin1String>
 
-// Canonical host and project id: compile-time constants that nothing at
-// runtime can change.
 #ifndef LIGHTNING_UPDATE_HOST
 #define LIGHTNING_UPDATE_HOST "gitlab.smetonis.net"
 #endif
 #ifndef LIGHTNING_UPDATE_PROJECT_ID
-// Project 6 is the Lightning project whose Generic Package Registry holds the
-// published packages.
 #define LIGHTNING_UPDATE_PROJECT_ID "6"
 #endif
 #ifndef LIGHTNING_UPDATE_MIRROR_HOSTS
-// Hosts that may serve artifact bytes. GitHub release downloads redirect from
-// github.com to *.githubusercontent.com, so both are needed. An empty list
-// means no mirror is trusted: a manifest naming one is refused.
 #define LIGHTNING_UPDATE_MIRROR_HOSTS                                                              \
     "github.com;objects.githubusercontent.com;release-assets.githubusercontent.com"
 #endif
 
 #ifndef LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE
-// Base URL of the mirrored manifest pair, read FIRST (the canonical GitLab
-// copy is the fallback). Empty makes the canonical copy the only source; a host outside the mirror list is
-// dropped. A fixed tag whose assets the pipeline replaces, never a "latest"
-// URL that would let GitHub choose the release. No API is called; the
-// signature makes the bytes trustworthy. update-manager-state's source scan
-// enforces this.
 #define LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE                                                      \
     "https://github.com/Mizerd/lightning/releases/download/update-latest"
 #endif
@@ -54,7 +41,6 @@ QUrl documentUrl(const QString &slot, const char *file)
                 + QString::fromLatin1(file));
 }
 
-// Transport policy shared by both roles. Only the accepted host set differs.
 bool isAllowedUrlOn(const QUrl &url, const QStringList &hosts)
 {
     if (!url.isValid() || url.isRelative())
@@ -73,9 +59,6 @@ bool isAllowedUrlOn(const QUrl &url, const QStringList &hosts)
     return hosts.contains(host);
 }
 
-// Parsed once. Anything that is not a bare host (scheme, path, port,
-// credentials, wildcard, whitespace) is dropped. ',' is accepted besides ';'
-// because a ';' splits a CMake compile definition.
 QStringList parseMirrorHosts()
 {
     QStringList hosts;
@@ -93,14 +76,14 @@ QStringList parseMirrorHosts()
             continue;
         }
         if (host == canonical)
-            continue; // already trusted for everything; not a mirror
+            continue;
         if (!hosts.contains(host))
             hosts.append(host);
     }
     return hosts;
 }
 
-} // namespace
+}
 
 QString canonicalUpdateHost()
 {
@@ -122,13 +105,11 @@ QStringList allowedUpdateHosts()
 
 bool isAllowedManifestUrl(const QUrl &url)
 {
-    // Canonical-only: GitLab decides what may be installed.
     return isAllowedUrlOn(url, QStringList{ canonicalUpdateHost() });
 }
 
 bool isAllowedFallbackManifestUrl(const QUrl &url)
 {
-    // Mirror hosts only; the canonical copy has its own predicate.
     return isAllowedUrlOn(url, mirrorArtifactHosts());
 }
 
@@ -138,8 +119,6 @@ QUrl mirrorLatestManifestUrl()
     if (base.isEmpty())
         return {};
     const QUrl url(base + QLatin1Char('/') + QLatin1String(kManifestFile));
-    // A base outside the mirror hosts is dropped: a build-time typo must not
-    // point metadata at a third party.
     return isAllowedFallbackManifestUrl(url) ? url : QUrl{};
 }
 
@@ -181,7 +160,6 @@ QUrl primaryManifestSignatureUrl()
 
 QUrl fallbackManifestUrl()
 {
-    // Only a pair whose primary is the mirror has a fallback.
     if (mirrorLatestManifestUrl().isEmpty() || mirrorLatestManifestSignatureUrl().isEmpty())
         return {};
     return latestManifestUrl();
@@ -220,4 +198,4 @@ QUrl manifestSignatureUrlForVersion(const QString &version)
                        kSignatureFile);
 }
 
-} // namespace lightning::update
+}

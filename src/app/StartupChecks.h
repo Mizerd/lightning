@@ -8,9 +8,6 @@
 
 namespace lightning::startup {
 
-// True when startup must refuse to create a GUI application: the platform
-// needs a display server (X11/Wayland), none is set, and QT_QPA_PLATFORM has
-// not been forced (e.g. offscreen for headless tests).
 inline bool shouldRejectForNoDisplay(bool platformRequiresDisplayServer,
                                      bool hasDisplay,
                                      bool platformForced)
@@ -20,4 +17,4 @@ inline bool shouldRejectForNoDisplay(bool platformRequiresDisplayServer,
     return !hasDisplay && !platformForced;
 }
 
-} // namespace lightning::startup
+}

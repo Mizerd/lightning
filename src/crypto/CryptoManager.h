@@ -3,10 +3,6 @@
 #include <QObject>
 #include <QString>
 
-// Capability and status surface for the active Matrix backend. Implements no
-// cryptography; E2EE lives in the active MatrixClient (only the Rust SDK
-// backend can decrypt; see docs/threat-model.md). Wired by AppController once
-// the backend is known.
 class CryptoManager : public QObject
 {
     Q_OBJECT
@@ -14,14 +10,10 @@ class CryptoManager : public QObject
     // Which backend is currently in use ("mock" / "http" / "rust").
     Q_PROPERTY(QString backendName READ backendName NOTIFY backendChanged)
 
-    // Human-readable description of the current crypto capability.
     Q_PROPERTY(QString backendDescription READ backendDescription NOTIFY backendChanged)
 
-    // True only when the active backend actually implements E2EE at the
-    // protocol level. HTTP and Mock always report false.
     Q_PROPERTY(bool supportsE2ee READ supportsE2ee NOTIFY backendChanged)
 
-    // Reported false until wired through the Rust SDK.
     Q_PROPERTY(bool supportsEncryptedMedia READ supportsEncryptedMedia NOTIFY backendChanged)
     Q_PROPERTY(bool supportsDeviceVerification READ supportsDeviceVerification NOTIFY backendChanged)
 
@@ -30,7 +22,6 @@ class CryptoManager : public QObject
 public:
     explicit CryptoManager(QObject *parent = nullptr);
 
-    // Called by AppController once the active backend is known.
     void setBackendName(const QString &backendName);
 
     QString backendName() const { return m_backendName; }

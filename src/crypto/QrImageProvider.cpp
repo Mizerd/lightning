@@ -4,9 +4,6 @@
 #include <QMutexLocker>
 
 namespace {
-// Default and maximum rendered edge, in pixels. The maximum bounds the
-// allocation a requested size can drive; the default keeps modules crisp
-// when QML asks for no particular size.
 constexpr int kDefaultModulePixels = 8;
 constexpr int kMaxEdgePixels = 1024;
 
@@ -14,7 +11,7 @@ int strideFor(int modules)
 {
     return modules > 0 ? (modules + 7) / 8 : 0;
 }
-} // namespace
+}
 
 bool QrCodeStore::setCode(const QString &token, int modules,
                           const QByteArray &bits)
@@ -35,9 +32,6 @@ void QrCodeStore::clear()
     QMutexLocker locker(&m_mutex);
     m_token.clear();
     m_modules = 0;
-    // Drop the grid and its key so the store stops serving the code. Not a
-    // secure erase: copies from gridFor() keep their own reference and freed
-    // memory is not zeroed.
     m_bits.clear();
     m_bits.squeeze();
 }
@@ -78,8 +72,6 @@ QImage QrImageProvider::requestImage(const QString &id, QSize *size,
     const int total = modules + 2 * kQuietZoneModules;
     const int stride = strideFor(modules);
 
-    // One pixel per module, then a nearest-neighbour upscale, so rounding
-    // cannot shave or double module rows.
     QImage base(total, total, QImage::Format_RGB32);
     base.fill(Qt::white);
     for (int y = 0; y < modules; ++y) {
@@ -96,7 +88,6 @@ QImage QrImageProvider::requestImage(const QString &id, QSize *size,
     if (requestedSize.isValid()) {
         const int wanted = qMax(requestedSize.width(), requestedSize.height());
         if (wanted > 0) {
-            // Whole-module scaling only; fractional modules fail to scan.
             const int scale = qMax(1, wanted / total);
             edge = total * scale;
         }

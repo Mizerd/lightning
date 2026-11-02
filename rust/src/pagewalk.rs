@@ -35,48 +35,29 @@ use matrix_sdk::ruma::room_version_rules::RoomVersionRules;
 use matrix_sdk_ui::eyeball_im::VectorDiff;
 use matrix_sdk_ui::timeline::Timeline;
 
-/// One backward page as the walk sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PageOutcome {
-    /// The SDK reports the start of the room's history.
     pub(crate) hit_start: bool,
-    /// The page brought at least one event the timeline will show (hidden
-    /// activity rows included), or what it brought is unknown. Either ends
-    /// the walk.
     pub(crate) grew: bool,
 }
 
-/// The bound on one walk. Both apply; whichever is hit first ends it.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct WalkBudget {
-    /// Pages per walk, the first included.
     pub(crate) max_pages: u32,
-    /// Wall-clock time after which no further page is started.
     pub(crate) max_time: Duration,
 }
 
-/// Eight chunks of about twenty events: one near-top gesture
-/// (`kMaxNearTopEmptyStrikes` = 12 pages) now covers ~1,900 filtered events
-/// instead of ~240, enough for the run measured above. The time bound keeps a
-/// walk that falls through to the network to roughly one second.
 pub(crate) const FILTERED_RUN_WALK: WalkBudget = WalkBudget {
     max_pages: 8,
     max_time: Duration::from_millis(1000),
 };
 
-/// What a walk did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WalkOutcome {
     pub(crate) hit_start: bool,
-    /// Pages taken, the first included.
     pub(crate) pages: u32,
 }
 
-/// Run `page` once, then again while every page so far added nothing, did not
-/// reach the start, the budget allows and `still_wanted()` (the room is still
-/// the open one). An error on the FIRST page is returned as is; an error on a
-/// later one ends the walk with what was already walked, since the walk is
-/// only an optimisation and the next request meets the same error honestly.
 pub(crate) async fn walk_filtered_run<F, Fut, E>(
     budget: WalkBudget,
     still_wanted: impl Fn() -> bool,
@@ -107,9 +88,6 @@ where
     Ok(WalkOutcome { hit_start: last.hit_start, pages })
 }
 
-/// Whether a batch of event-cache diffs inserts anything `shown` accepts.
-/// Only insertions count: a `Set` replaces an event already there (e.g. once
-/// it decrypts) and removals bring nothing.
 pub(crate) fn inserts_any<T: Clone>(diffs: &[VectorDiff<T>], shown: impl Fn(&T) -> bool) -> bool {
     diffs.iter().any(|diff| match diff {
         VectorDiff::Append { values } | VectorDiff::Reset { values } => {
@@ -122,9 +100,6 @@ pub(crate) fn inserts_any<T: Clone>(diffs: &[VectorDiff<T>], shown: impl Fn(&T) 
     })
 }
 
-/// Would the live timeline show this event (as any row, hidden ones
-/// included)? An event that cannot be read is assumed shown, which only ends
-/// a walk early.
 fn event_is_shown(event: &TimelineEvent, rules: &RoomVersionRules) -> bool {
     match event.raw().deserialize() {
         Ok(parsed) => crate::timeline::shown_by_lightning_filter(&parsed, rules),
@@ -132,9 +107,6 @@ fn event_is_shown(event: &TimelineEvent, rules: &RoomVersionRules) -> bool {
     }
 }
 
-/// Read every update already queued on `subscriber` and say whether any of
-/// them brought an event the timeline will show. Never waits: a pagination's
-/// update is sent before `paginate_backwards` returns.
 fn drain_shows_something(
     subscriber: &mut RoomEventCacheSubscriber,
     rules: &RoomVersionRules,
@@ -157,9 +129,6 @@ fn drain_shows_something(
     shown
 }
 
-/// One backward pagination request for the live timeline, walking any run
-/// of history the filter empties (see the module comment). This is what
-/// `TimelineRegistry::paginate_back` runs.
 pub(crate) async fn walk_backwards(
     timeline: &Arc<Timeline>,
     count: u16,
@@ -210,7 +179,6 @@ mod tests {
         WalkBudget { max_pages, max_time: Duration::from_secs(60) }
     }
 
-    /// Serves `script` one page per call; past its end every page is filtered.
     async fn walk(
         script: &[Result<PageOutcome, ()>],
         budget: WalkBudget,
@@ -229,8 +197,6 @@ mod tests {
 
     #[tokio::test]
     async fn a_filtered_run_is_walked_in_one_request_until_something_appears() {
-        // Three chunks of pure churn, then a page with a message: one walk, and
-        // the caller sees the page that grew.
         let (result, calls) =
             walk(&[Ok(FILTERED), Ok(FILTERED), Ok(FILTERED), Ok(GREW)], budget(8), true)
                 .await;
@@ -240,7 +206,6 @@ mod tests {
 
     #[tokio::test]
     async fn a_page_that_adds_anything_is_never_followed_by_another() {
-        // The ordinary case must cost exactly what it always did: one page.
         let (result, calls) = walk(&[Ok(GREW)], budget(8), true).await;
         assert_eq!(calls, 1);
         assert_eq!(result, Ok(WalkOutcome { hit_start: false, pages: 1 }));
@@ -262,8 +227,6 @@ mod tests {
 
     #[tokio::test]
     async fn an_endless_filtered_run_stops_at_the_time_bound() {
-        // Every page takes 30 ms; the walk may not START a page after 300 ms,
-        // so at most eleven are taken (fewer on a loaded machine).
         let calls = Cell::new(0usize);
         let result = walk_filtered_run(
             WalkBudget { max_pages: 1000, max_time: Duration::from_millis(300) },
@@ -304,18 +267,15 @@ mod tests {
     fn only_insertions_of_a_shown_item_count_as_growth() {
         use super::inserts_any;
         use matrix_sdk_ui::eyeball_im::VectorDiff;
-        let shown = |value: &u32| *value >= 100; // >= 100 stands for "shown"
+        let shown = |value: &u32| *value >= 100;
 
         assert!(!inserts_any::<u32>(&[], shown));
-        // A page of filtered events only.
         assert!(!inserts_any(&[VectorDiff::Append { values: vec![1, 2, 3].into() }], shown));
-        // One shown event anywhere in the batch, in any insertion shape.
         assert!(inserts_any(&[VectorDiff::Append { values: vec![1, 100].into() }], shown));
         assert!(inserts_any(&[VectorDiff::PushFront { value: 100 }], shown));
         assert!(inserts_any(&[VectorDiff::PushBack { value: 100 }], shown));
         assert!(inserts_any(&[VectorDiff::Insert { index: 0, value: 100 }], shown));
         assert!(inserts_any(&[VectorDiff::Reset { values: vec![100].into() }], shown));
-        // Replacing or removing what is already there brings nothing.
         assert!(!inserts_any(&[VectorDiff::Set { index: 0, value: 100 }], shown));
         assert!(!inserts_any(
             &[VectorDiff::Remove { index: 0 }, VectorDiff::Clear, VectorDiff::PopFront],
@@ -323,9 +283,6 @@ mod tests {
         ));
     }
 
-    /// The walk is wired into the bridge's pagination, not just written. A
-    /// revert of the `paginate_back` call site to a single
-    /// `paginate_backwards` fails here.
     #[test]
     fn paginate_back_runs_the_walk() {
         let source = include_str!("timeline.rs");
@@ -344,12 +301,6 @@ mod tests {
     }
 }
 
-/// The walk against a real matrix-sdk timeline and event cache, over a
-/// loopback homeserver: two pages of MatrixRTC membership churn, then a real
-/// message, then more history. The walk must cross the churn in ONE request
-/// and stop at the message, which is exactly what a check on the timeline's
-/// item count got wrong (the timeline applies a page on its own task, after
-/// `paginate_backwards` has returned).
 #[cfg(test)]
 mod sdk_tests {
     use super::{walk_backwards, WalkBudget};
@@ -438,7 +389,6 @@ mod sdk_tests {
         })
     }
 
-    /// Twenty churn events, newest first, numbered from `first`.
     fn churn_page(first: u64, newest_ts: u64) -> Vec<Value> {
         (0..20).map(|i| rtc(first + i, newest_ts - i)).collect()
     }
@@ -468,8 +418,6 @@ mod sdk_tests {
         json!({ "next_batch": "s1", "rooms": { "join": join } }).to_string()
     }
 
-    /// `/messages` by `from` token: t1 and t2 are churn, t3 is the message, t4
-    /// is more history the walk must NOT reach, t5 is the start.
     fn messages_body(from: &str) -> String {
         let (chunk, end): (Vec<Value>, Option<&str>) = match from {
             "t1" => (churn_page(1, 9_000_000), Some("t2")),
@@ -491,7 +439,6 @@ mod sdk_tests {
         })
     }
 
-    /// The homeserver. Records every `/messages` token it was asked for.
     fn serve(tokens: Arc<Mutex<Vec<String>>>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");
@@ -586,12 +533,9 @@ mod sdk_tests {
         });
 
         let asked = tokens.lock().unwrap().clone();
-        // Both churn pages and the message page, in this one request.
         assert!(asked.iter().any(|t| t == "t1"), "{asked:?}");
         assert!(asked.iter().any(|t| t == "t2"), "{asked:?}");
         assert!(asked.iter().any(|t| t == "t3"), "the walk stopped inside the churn: {asked:?}");
-        // And not one page past the first message: rows per request are what
-        // one ordinary page gives.
         assert!(!asked.iter().any(|t| t == "t4"),
                 "the walk went past a page that brought a message: {asked:?}");
         assert!(!outcome.hit_start, "{outcome:?}");

@@ -17,7 +17,7 @@ constexpr TrustedUpdateKey kTrustedKeys[] = {
     { "lightning-release-2026a", LIGHTNING_UPDATE_PUBKEY_2026A, false },
 };
 
-} // namespace
+}
 
 TrustStore::~TrustStore() = default;
 
@@ -29,9 +29,9 @@ const TrustedUpdateKey *findKey(QStringView keyId)
         if (keyId != QLatin1String(key.keyId))
             continue;
         if (key.retired)
-            return nullptr; // withdrawn: never usable again
+            return nullptr;
         if (!key.base64Ed25519PublicKey || *key.base64Ed25519PublicKey == '\0')
-            return nullptr; // not compiled into this build: fail closed
+            return nullptr;
         return &key;
     }
     return nullptr;
@@ -62,4 +62,4 @@ QString CompiledTrustStore::publicKeyForId(QStringView keyId) const
     return {};
 }
 
-} // namespace lightning::update
+}

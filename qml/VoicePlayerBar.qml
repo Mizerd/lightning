@@ -3,30 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The docked "now playing" strip for the app-owned voice/audio clip
-// (app.voicePlayback), in the manner of Telegram Desktop and Signal Desktop.
-// The default presentation (app.settings.voicePlayerDocked).
-//
-// Its host lays it out in a band of its own (TimelinePane: under the room
-// header and the call bars; Main.qml: along the bottom of Settings, or of a
-// pane that has no room column), so it covers nothing: the timeline is
-// shorter by its height instead. It shows for as long as a clip is loaded,
-// in the clip's own room too, so the strip does not come and go (and the
-// timeline does not resize) as the row scrolls.
-//
-// Left to right: the sender's avatar (or an audio file's cover), the title
-// and "Voice message · Thread · Room" (both a link back to the message),
-// the clock, the speed chip, play/pause, next (while a run of voice messages
-// follows), pop out (the floating card) and stop. The scrubber runs along the
-// bottom edge inside the strip, so its hit band never reaches the timeline.
 Rectangle {
     id: root
     objectName: "voicePlayerBar"
 
-    // The host decides; the strip draws nothing while false.
     property bool shown: false
-    // Shown at the bottom of a screen rather than under a header: the
-    // divider goes on top.
     property bool atBottom: false
 
     readonly property var voice: app.voicePlayback
@@ -35,8 +16,6 @@ Rectangle {
     visible: root.shown
     implicitHeight: root.shown ? row.implicitHeight + 6 + seekBand.height : 0
     color: AppTheme.cardElevated
-    // A full-width band, so its edges read against the timeline and the
-    // header in every theme (design-media P1).
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
@@ -48,16 +27,12 @@ Rectangle {
 
     VoicePlayerLogic { id: logic }
 
-    // Narrow chat columns drop the least needed parts first.
     readonly property bool roomForClock: root.width >= 420
-    // Between 300 and 420 px the position alone stays (C21-D13).
     readonly property bool roomForPosition: root.width >= 300
     readonly property bool roomForSpeed: root.width >= 360
 
     Accessible.role: Accessible.Grouping
     Accessible.name: qsTr("Now playing")
-    // State and title only: the position is the scrubber's value, never a
-    // description that changes every second.
     Accessible.description: logic.accessibleSummary
 
     RowLayout {
@@ -70,8 +45,6 @@ Rectangle {
         anchors.rightMargin: AppTheme.spacing8
         spacing: AppTheme.spacing8
 
-        // The way back to the message: avatar, title and subtitle together,
-        // with a link's hover underline.
         AbstractButton {
             id: sourceLink
             objectName: "voicePlayerBarSource"
@@ -83,9 +56,6 @@ Rectangle {
             Accessible.role: Accessible.Link
             Accessible.name: qsTr("Go to the message: %1").arg(logic.shownTitle)
             onClicked: logic.openSource()
-            // Space is play/pause everywhere on the player, also here; only
-            // Return and Enter follow the link (a focused link used to open
-            // the message on Space).
             Keys.onSpacePressed: (event) => {
                 if (!event.isAutoRepeat)
                     root.voice.togglePlayPause()
@@ -170,8 +140,6 @@ Rectangle {
                                     : logic.formatPosition(root.voice.position)
             color: logic.readable(AppTheme.textSecondary, root.color)
             font.pixelSize: AppTheme.scaled(AppTheme.textMicro + 1)
-            // The scrubber's value carries the position for assistive
-            // technology; a label re-announcing every second does not.
             Accessible.ignored: true
         }
         VoiceSpeedChip {
@@ -179,7 +147,6 @@ Rectangle {
             surface: root.color
             visible: root.roomForSpeed
         }
-        // The level and mute, on the player that stays (C21-D06).
         MediaVolumeControl {
             objectName: "voicePlayerBarVolume"
             audio: root.voice.active ? root.voice.audioOutput : null
@@ -247,7 +214,6 @@ Rectangle {
         }
     }
 
-    // The scrubber band, along the bottom edge and inside the strip.
     Item {
         id: seekBand
         anchors.left: parent.left
@@ -263,13 +229,10 @@ Rectangle {
         }
     }
 
-    // The window's "focus the player" shortcut lands on play/pause
-    // (Main.qml), so Space right after it plays or pauses.
     function focusPlayer() {
         playPauseButton.forceActiveFocus(Qt.ShortcutFocusReason)
     }
 
-    // Space here toggles the clip, as on the card.
     Keys.onSpacePressed: (event) => {
         if (event.isAutoRepeat) { event.accepted = true; return }
         root.voice.togglePlayPause()

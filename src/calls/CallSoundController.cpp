@@ -15,17 +15,13 @@ using callsound::LegacyPhase;
 using callsound::Loop;
 
 namespace {
-// Backstop for a stop signal that never comes: no announced ring outlives the
-// longest invite AppController honours (300 s).
 constexpr int kRingCapMs = 300 * 1000;
 
-/// The chat notification chimes: not call cues, so not in the policy's Cue
-/// list, but the same files and the same player.
 QString notificationSoundName(bool mention)
 {
     return mention ? QStringLiteral("mention") : QStringLiteral("message");
 }
-} // namespace
+}
 
 CallSoundController::CallSoundController(QObject *parent)
     : QObject(parent)
@@ -79,8 +75,6 @@ void CallSoundController::onSettingsChanged()
         prefs.shareAndHand = m_settings->callSoundsShareAndHand();
     }
     m_policy.setPreferences(prefs);
-    // A playing loop picks up a new volume, and the ringback stops at once
-    // when the master switch goes off.
     applyLoop();
 }
 
@@ -96,8 +90,6 @@ void CallSoundController::setGroupCall(SfuCallController *groupCall)
     connect(m_groupCall, &SfuCallController::mediaStateChanged, this,
             &CallSoundController::onGroupMedia);
     if (CallParticipantModel *model = m_groupCall->participantModel()) {
-        // Every way the roster can change: rows in and out, hand or share flags,
-        // and rebuilds.
         connect(model, &QAbstractItemModel::rowsInserted, this,
                 &CallSoundController::scheduleRoster);
         connect(model, &QAbstractItemModel::rowsRemoved, this,
@@ -109,7 +101,6 @@ void CallSoundController::setGroupCall(SfuCallController *groupCall)
         connect(model, &QAbstractItemModel::layoutChanged, this,
                 &CallSoundController::scheduleRoster);
     }
-    // Baseline silently: the call's current state is not news.
     m_policy.localAudioChanged(callsound::Lane::Group,
                                m_groupCall->microphoneMuted(),
                                m_groupCall->deafened());
@@ -174,8 +165,6 @@ void CallSoundController::onGroupState()
     case SfuCallController::State::Preparing:
     case SfuCallController::State::Authorizing:
     case SfuCallController::State::Connecting:
-        // Re-signalling under a call that was up is a reconnect; do not replay
-        // the join cue.
         phase = m_groupWasConnected ? GroupPhase::Reconnecting
                                     : GroupPhase::Joining;
         break;
@@ -198,7 +187,6 @@ void CallSoundController::onGroupState()
     const GroupPhase before = m_policy.groupPhase();
     emitCues(m_policy.groupPhaseChanged(phase, now()));
     if (phase == GroupPhase::Connected && before != GroupPhase::Connected) {
-        // The room at connect is the baseline; read it now.
         evaluateRoster();
     }
     applyLoop();
@@ -208,8 +196,6 @@ void CallSoundController::onGroupMedia()
 {
     if (!m_groupCall)
         return;
-    // Before the share cue: a share that starts capturing the output mix must
-    // not announce itself through it.
     refreshOutputCapture();
     emitCues(m_policy.localAudioChanged(callsound::Lane::Group,
                                         m_groupCall->microphoneMuted(),
@@ -277,8 +263,6 @@ void CallSoundController::onLegacyState()
         || reason == CallController::EndReason::Busy;
     emitCues(m_policy.legacyPhaseChanged(phase, remoteEndedOutgoing));
 
-    // The announced ring ends as soon as that call stops ringing, however it
-    // ended.
     if (!m_ringCallId.isEmpty()
         && (!m_calls->ringing() || m_calls->activeCallId() != m_ringCallId))
         stopIncomingRing();
@@ -306,17 +290,14 @@ void CallSoundController::startIncomingRing(const QString &callId)
 {
     if (callId.isEmpty())
         return;
-    // A ring for a call not ringing would never be stopped by onLegacyState.
     if (m_calls
         && (!m_calls->ringing() || m_calls->activeCallId() != callId))
         return;
-    // The user silenced this call; a re-announcement must not undo that.
     if (isRingSilenced(callId))
         return;
     m_policy.setIncomingRing(true);
     m_ringCap.start();
     applyLoop();
-    // Last, so ringingCallId is only set once the loop is playing.
     setRingCallId(callId);
 }
 
@@ -334,9 +315,6 @@ bool CallSoundController::silenceRing(const QString &callId)
 {
     if (callId.isEmpty())
         return false;
-    // Only the call ringing now. With the legacy lane, CallController answers
-    // (covering the desktop's themed ring, where our loop never started);
-    // without it, only our own ring can be silenced.
     const bool current = m_calls
         ? (m_calls->ringing() && m_calls->activeCallId() == callId)
         : callId == m_ringCallId;
@@ -347,8 +325,6 @@ bool CallSoundController::silenceRing(const QString &callId)
     }
     if (isRingSilenced(callId))
         return true;
-    // Record before emitting: handlers run synchronously and a re-announcement
-    // must already see it silenced.
     m_silencedCallId = callId;
     qCInfo(lcCallSound) << "call ring silenced by the user ours="
                         << (m_ringCallId == callId ? "yes" : "no");
@@ -360,9 +336,6 @@ bool CallSoundController::silenceRing(const QString &callId)
 
 bool CallSoundController::dismissRing(const QString &callId)
 {
-    // Live 2026-10-07: Dismiss only hid the card and the ring went on for
-    // 87.8 s, until the caller hung up, with no control left on screen to
-    // stop it. Silence first (same refusal rules), then the card.
     if (!silenceRing(callId))
         return false;
     qCInfo(lcCallSound) << "incoming call dismissed on this device";
@@ -399,7 +372,7 @@ bool CallSoundController::playNotificationSound(bool mention)
         return false;
     if (!m_sink->canPlay(name))
         return false;
-    m_sink->play(name, notificationVolume(), /*inCall=*/false);
+    m_sink->play(name, notificationVolume(),false);
     return true;
 }
 
@@ -408,19 +381,17 @@ void CallSoundController::previewNotification(bool mention)
     if (!m_sink)
         return;
     m_sink->play(notificationSoundName(mention), notificationVolume(),
-                 /*inCall=*/false);
+false);
 }
 
 void CallSoundController::emitCues(const QList<Cue> &cues)
 {
     for (Cue cue : cues) {
         const QString name = callsound::soundName(cue);
-        // Cue name only, never a room or person; distinguishes "triggered"
-        // from "heard" in a tester's log.
         qCInfo(lcCallSound) << "call sound cue=" << name
                             << "sink=" << (m_sink ? "yes" : "none");
         if (m_sink)
-            m_sink->play(name, cueVolume(), /*inCall=*/true);
+            m_sink->play(name, cueVolume(),true);
     }
 }
 
@@ -428,9 +399,6 @@ void CallSoundController::applyLoop()
 {
     const Loop wanted = m_policy.desiredLoop();
     const bool ringing = wanted == Loop::Ring || wanted == Loop::CallWaiting;
-    // The ringer uses the system default output, so the machine rings where
-    // its owner will hear it; in-call sounds (call waiting, ringback) follow
-    // the call's output.
     const bool inCall = wanted != Loop::Ring;
     const qreal volume = ringing ? ringVolume() : cueVolume();
     if (wanted != m_loop)
@@ -447,8 +415,8 @@ void CallSoundController::preview(const QString &sound)
     if (!m_sink)
         return;
     if (sound == callsound::soundName(Loop::Ring)) {
-        m_sink->play(sound, ringVolume(), /*inCall=*/false);
+        m_sink->play(sound, ringVolume(),false);
         return;
     }
-    m_sink->play(sound, cueVolume(), /*inCall=*/true);
+    m_sink->play(sound, cueVolume(),true);
 }

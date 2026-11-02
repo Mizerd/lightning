@@ -3,15 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// In-app image viewer: full-window scrim, click-to-zoom at the pointer,
-// wheel zoom while fitted and wheel pan once zoomed, drag panning, wrapping
-// previous/next across the images loaded in the timeline (no history is
-// fetched), a thumbnail strip, Save As through the media bridge, animated
-// GIF playback, and chrome that hides while zoomed. Escape or a click on the
-// scrim closes. A pure overlay: the SDK timeline is untouched.
-//
-// Zoom is continuous over 0.1x-10x and the +/-/0/F keys are kept alongside
-// the click/wheel gestures.
 Popup {
     id: viewer
 
@@ -45,22 +36,15 @@ Popup {
     focus: true
     closePolicy: Popup.CloseOnEscape
 
-    // Entries from TimelineModel::imageEntries(); each has
-    // {row, mediaKey, filename, sender, timestamp, mime, httpUrl}. A link's
-    // own image (a "link:" key) also carries linkUrl and linkHost.
     property var entries: []
     property int currentIndex: -1
     readonly property var current:
         (currentIndex >= 0 && currentIndex < entries.length)
         ? entries[currentIndex] : null
 
-    // `zoom` is relative to the fit-to-window size (1.0 = fits the viewport).
-    // naturalWidth/Height are the decoded dimensions; actualSizeZoom shows one
-    // image pixel per logical pixel.
     property real zoom: 1.0
     readonly property real minZoom: 0.1
     readonly property real maxZoom: 10.0
-    // The link a link's own image came from, or "".
     readonly property string currentLinkUrl:
         current !== null ? (current.linkUrl || "") : ""
     property real baseWidth: 0
@@ -74,7 +58,6 @@ Popup {
         ? Math.round(zoom * baseWidth / naturalWidth * 100)
         : Math.round(zoom * 100)
 
-    // Bridge source plumbing (as in MessageDelegate).
     readonly property bool usesBridge:
         current !== null && current.mediaKey.length > 0 && app.mediaBridge.supported
     readonly property string bridgeCacheKey:
@@ -84,9 +67,6 @@ Popup {
     property bool bridgeFailed: false
     readonly property string currentMime:
         current !== null ? (current.mime || "").toLowerCase() : ""
-    // Not a mimetype test: MSC2545 stickers often omit the mimetype. This only
-    // says "worth asking"; MediaBridge.animatedExtensionFor decides from the
-    // container magic. A declared PNG or JPEG is not asked about.
     readonly property bool maybeAnimated:
         current !== null && (currentMime === "" || currentMime === "image/gif"
                              || currentMime === "image/webp")
@@ -94,8 +74,6 @@ Popup {
     // Don't play (MotionPolicy), Reduce motion and Play on hover included.
     readonly property bool animateGifs: MotionPolicy.allowed
 
-    /// Open on an explicit list and index (e.g. the room's Media tab). The
-    /// viewer pages through the list it is given.
     function openAt(list, index) {
         if (!list || index < 0 || index >= list.length)
             return
@@ -106,12 +84,7 @@ Popup {
         loadCurrent()
     }
 
-    /// Open on the images the timeline has loaded, located by media key (or by
-    /// URL on the HTTP backend).
     function openFor(mediaKey, httpUrl) {
-        // A link that is itself an image: shown alone. MediaBridge fetches it
-        // through the "link:" key (the preview's own bytes, the homeserver's
-        // copy, or the link under the preview's size cap), never by URL.
         if (mediaKey.indexOf("link:") === 0) {
             var entry = app.linkPreviews.viewerEntry(mediaKey)
             if (!entry || !entry.url)
@@ -145,8 +118,6 @@ Popup {
             }
         }
         if (found === -1) {
-            // A miss opens the requested image alone rather than a different
-            // one.
             if (mediaKey.length === 0 && !httpUrl)
                 return
             list = [{
@@ -168,9 +139,6 @@ Popup {
         openAt(list, found)
     }
 
-    /// Open one picture that is already a MediaBridge image URL (an audio
-    /// file's cover): shown alone, titled `title`, with no Save (there is no
-    /// media key to save) and no paging.
     function openArtwork(source, title) {
         if (!source || String(source).length === 0)
             return
@@ -205,18 +173,11 @@ Popup {
         if (!usesBridge || current === null)
             return
         bridgeFailed = false
-        // Always request both; they share the "full:" cache key, so it is one
-        // fetch. The still is drawn until the animation validates. The animated
-        // request is speculative (see MediaBridge::animatedSource): a
-        // non-animated payload answers with silence rather than marking the key
-        // failed.
         if (maybeAnimated && animateGifs)
             animatedSource = app.mediaBridge.animatedSource(current.mediaKey, true)
         bridgeSource = app.mediaBridge.mediaSource(current.mediaKey, "full")
     }
 
-    // Wraps at both ends. The double modulo handles JavaScript's `%` keeping
-    // the dividend's sign (`-1 % 5` is `-1`).
     function showAt(index) {
         if (entries.length === 0)
             return
@@ -229,8 +190,6 @@ Popup {
         loadCurrent()
     }
 
-    // Page Up/Down: one strip's worth, stopping at the ends (unlike the arrow
-    // keys, which wrap), so a page key never lands somewhere unexpected.
     function pageStep() {
         return Math.max(1, Math.floor(thumbStrip.width / thumbStrip.cell))
     }
@@ -245,9 +204,6 @@ Popup {
         naturalWidth = w
         naturalHeight = h
         var availW = viewer.width - 32
-        // The picture is centred in the window, so the tallest chrome on
-        // either end decides its room: the floating toolbar and, for a set, the
-        // thumbnail strip above it must not cover the bottom of a tall image.
         var footer = toolbar.height + AppTheme.spacing16 + AppTheme.spacing8
                      + (viewer.entries.length > 1
                         ? thumbStrip.height + AppTheme.spacing12 : 0)
@@ -256,13 +212,9 @@ Popup {
         baseWidth = w * scale
         baseHeight = h * scale
     }
-    // On window resize the fit base follows the viewport; relative zoom is
-    // kept.
     onWidthChanged: if (opened && naturalWidth > 0) fitImage(naturalWidth, naturalHeight)
     onHeightChanged: if (opened && naturalWidth > 0) fitImage(naturalWidth, naturalHeight)
 
-    // Pointer-centred zoom: the image point under `viewportPoint` (flick
-    // viewport coordinates) stays put.
     function zoomAt(viewportPoint, newZoom) {
         newZoom = Math.min(maxZoom, Math.max(minZoom, newZoom))
         if (baseWidth <= 0 || newZoom === zoom) {
@@ -298,14 +250,9 @@ Popup {
                actualSizeZoom)
     }
 
-    // Click-to-zoom target: a fixed step rather than 1:1, which on a large
-    // photo jumps to a corner. The 0 key gives actual size.
     readonly property real clickZoom: 2.5
-    // Also the condition under which the wheel pans instead of zooming.
     readonly property bool zoomedIn: zoom > 1.0 + 0.001
 
-    /// Toggle between fit and `clickZoom`, anchored at `viewportPoint` (flick
-    /// viewport coordinates) so the pixel under the pointer stays under it.
     function toggleZoomAt(viewportPoint) {
         if (zoomedIn)
             zoomAt(viewportPoint, 1.0)
@@ -313,9 +260,6 @@ Popup {
             zoomAt(viewportPoint, clickZoom)
     }
 
-    // A payload can land between open() and `opened` (a link's held image
-    // completes on the next event-loop turn), while the Connections below is
-    // still disabled: read it again once open.
     onOpened: {
         if (viewer.usesBridge && viewer.bridgeSource === "")
             viewer.loadCurrent()
@@ -337,8 +281,6 @@ Popup {
             if (cacheKey === viewer.bridgeCacheKey)
                 viewer.bridgeFailed = true
         }
-        // Only this picture's save: another download finishing elsewhere is
-        // not this view's answer.
         function onSaveFinished(ok, message, mediaKey) {
             if (viewer.opened && viewer.current !== null
                     && mediaKey === (viewer.current.mediaKey || "")) {
@@ -349,7 +291,6 @@ Popup {
         }
     }
 
-    // Parented to the overlay so the image's Flickable never clips it.
     AppMenu {
         id: viewerMenu
         objectName: "imageViewerContextMenu"
@@ -388,7 +329,6 @@ Popup {
     }
 
     background: Rectangle {
-        // Dark on every theme: the viewer sits over arbitrary media.
         color: AppTheme.scrimSurface
     }
 
@@ -397,7 +337,6 @@ Popup {
         Keys.onLeftPressed: viewer.showAt(viewer.currentIndex - 1)
         Keys.onRightPressed: viewer.showAt(viewer.currentIndex + 1)
         Keys.onPressed: (event) => {
-            // Down and Space also mean "next", Up means "previous".
             if (event.key === Qt.Key_Down || event.key === Qt.Key_Space) {
                 viewer.showAt(viewer.currentIndex + 1)
                 event.accepted = true
@@ -431,23 +370,16 @@ Popup {
             } else if (event.key === Qt.Key_Menu
                        || (event.key === Qt.Key_F10
                            && (event.modifiers & Qt.ShiftModifier))) {
-                // The keyboard route to the right-click menu.
                 viewerMenu.popup(Overlay.overlay,
                                  viewer.width / 2, viewer.height / 2)
                 event.accepted = true
             }
         }
 
-        // Clicking the scrim (outside the image) closes.
         TapHandler {
             onTapped: viewer.close()
         }
 
-        // Chrome hides while zoomed in (when it would cover the detail being
-        // inspected), not on an idle timer. It stays up with reduced motion,
-        // while the toolbar is hovered (so controls don't vanish under the
-        // pointer), and after a load failure (Retry lives there). The close
-        // button is separate and never hides.
         QtObject {
             id: chrome
             readonly property bool shown:
@@ -457,7 +389,6 @@ Popup {
                 || viewer.bridgeFailed
         }
 
-        // ── Image area (fills the window; chrome floats above) ──
         Item {
             anchors.fill: parent
 
@@ -475,8 +406,6 @@ Popup {
                 // unaffected.
                 maximumFlickVelocity: 0
                 flickDeceleration: 100000
-                // Pannable only when larger than the viewport, so a fitted
-                // image can't be nudged.
                 interactive: imageHolder.width > width + 0.5
                              || imageHolder.height > height + 0.5
 
@@ -485,19 +414,9 @@ Popup {
                     width: Math.max(flick.width, viewer.baseWidth * viewer.zoom)
                     height: Math.max(flick.height, viewer.baseHeight * viewer.zoom)
 
-                    // A click on the picture zooms at that point; a click on
-                    // the scrim around it closes. A single tap, so nothing
-                    // waits out a double-click interval; Escape and the pinned
-                    // close button also close. While zoomed the Flickable takes
-                    // drags for panning, so a pan never zooms.
                     TapHandler {
                         id: imageTap
                         gesturePolicy: TapHandler.WithinBounds
-                        // One handler with a band check, not a nested
-                        // TapHandler: tap handlers are non-exclusive across
-                        // subtrees, so a nested pair would both zoom and close.
-                        // imageHolder always fills the viewport, so the margin
-                        // around a fitted image must be treated as scrim.
                         onTapped: (eventPoint) => {
                             var iw = viewer.baseWidth * viewer.zoom
                             var ih = viewer.baseHeight * viewer.zoom
@@ -515,10 +434,7 @@ Popup {
                             viewer.toggleZoomAt(Qt.point(p.x, p.y))
                         }
                     }
-                    // Right-click on the picture opens the context menu. Left
-                    // is imageTap's, so the two never both fire.
                     TapHandler {
-                        // Touch has no buttons, so a tap would fire this too.
                         acceptedButtons: Qt.RightButton
                         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                         gesturePolicy: TapHandler.WithinBounds
@@ -529,7 +445,6 @@ Popup {
                             viewerMenu.popup(Overlay.overlay, p.x, p.y)
                         }
                     }
-                    // Grab cursors while pannable.
                     HoverHandler {
                         cursorShape: flick.interactive
                                      ? (flick.dragging ? Qt.ClosedHandCursor
@@ -537,19 +452,14 @@ Popup {
                                      : Qt.ArrowCursor
                     }
 
-                    // Static image path.
                     Image {
                         id: staticImage
                         objectName: "viewerStaticImage"
-                        // The still is the default and the fallback: it yields
-                        // only once the AnimatedImage reports Ready, so
-                        // undecodable animations still show a picture.
                         visible: !animatedImage.visible
                         anchors.centerIn: parent
                         width: viewer.baseWidth * viewer.zoom
                         height: viewer.baseHeight * viewer.zoom
                         fillMode: Image.PreserveAspectFit
-                        // High-quality scaling at any zoom.
                         smooth: true
                         mipmap: true
                         asynchronous: true
@@ -564,7 +474,6 @@ Popup {
                                 viewer.fitImage(implicitWidth, implicitHeight)
                         }
                     }
-                    // Animated GIF path.
                     AnimatedImage {
                         id: animatedImage
                         visible: viewer.animateGifs
@@ -578,8 +487,6 @@ Popup {
                         cache: false
                         playing: visible && viewer.opened
                                  && !MotionPolicy.suspended
-                        // Not gated on `visible`, which waits for Ready: that
-                        // would never load.
                         source: viewer.animateGifs ? viewer.animatedSource : ""
                         // Keeps the bridge from evicting the file mid-play.
                         AnimationFileHold {}
@@ -592,9 +499,6 @@ Popup {
 
                 WheelHandler {
                     target: null
-                    // The wheel pans a zoomed image and zooms a fitted one.
-                    // Ctrl+wheel always zooms, so zooming back out by wheel
-                    // stays possible once the image is pannable.
                     onWheel: (event) => {
                         var wantsZoom = !flick.interactive
                                 || (event.modifiers & Qt.ControlModifier)
@@ -604,18 +508,12 @@ Popup {
                                           viewer.zoom * factor)
                             return
                         }
-                        // pixelDelta comes from trackpads; a notched wheel only
-                        // has angleDelta (120 units per notch).
                         var dx = event.pixelDelta.x !== 0
                                  ? event.pixelDelta.x
                                  : event.angleDelta.x / 120 * 60
                         var dy = event.pixelDelta.y !== 0
                                  ? event.pixelDelta.y
                                  : event.angleDelta.y / 120 * 60
-                        // Shift+vertical wheel scrolls sideways. X11 does not
-                        // swap the axes for us the way some platforms do.
-                        // Only when there is sideways overflow to scroll;
-                        // otherwise Shift+wheel keeps panning vertically.
                         if ((event.modifiers & Qt.ShiftModifier)
                                 && dx === 0
                                 && flick.contentWidth > flick.width + 1) {
@@ -632,8 +530,6 @@ Popup {
                 }
             }
 
-            // Custom spinner: Basic's BusyIndicator uses palette.dark, which is
-            // barely visible on the scrim.
             Item {
                 id: viewerSpinner
                 anchors.centerIn: parent
@@ -685,21 +581,17 @@ Popup {
                 }
                 AppButton {
                     Layout.alignment: Qt.AlignHCenter
-                    // Primary: a secondary button's ink is textPrimary, which
-                    // is near-black on light themes and invisible on the scrim.
                     kind: "primary"
                     text: qsTr("Retry")
                     onClicked: viewer.loadCurrent()
                 }
             }
 
-            // Previous / next navigation.
             IconButton {
                 objectName: "viewerPrevButton"
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: AppTheme.spacing12
-                // Shown for any set: the list wraps, so there are no ends.
                 visible: viewer.entries.length > 1 && chrome.shown
                 iconName: "chevron_left"
                 iconSize: 26
@@ -731,14 +623,12 @@ Popup {
             }
         }
 
-        // ── Header: filename + sender/time (floats over the image) ──
         RowLayout {
             id: headerRow
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.margins: AppTheme.spacing12
-            // Clear of the pinned close button (36 px plus margin).
             anchors.rightMargin: AppTheme.spacing12 + 36 + AppTheme.spacing8
             spacing: AppTheme.spacing8
             visible: opacity > 0
@@ -751,7 +641,6 @@ Popup {
                 Layout.fillWidth: true
                 spacing: 0
                 Label {
-                    // Remote or externally chosen text: never markup.
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
                     text: viewer.current !== null ? viewer.current.filename : ""
@@ -762,12 +651,8 @@ Popup {
                 }
                 Label {
                     objectName: "viewerSubtitle"
-                    // Remote or externally chosen text: never markup.
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
-                    // Guarded on the sender: openFor()'s miss branch knows only
-                    // the media key, and "· 1 Jan 1970" is worse than blank. A
-                    // link's image names the site instead.
                     text: viewer.current !== null
                           && (viewer.current.sender || "").length > 0
                           ? qsTr("%1 · %2")
@@ -783,9 +668,6 @@ Popup {
             }
         }
 
-        // Pinned: not part of `chrome.shown`. Once zoomed, the hidden chrome
-        // can't be hovered back and every click on the picture zooms, so a
-        // hiding close button would leave pointer users without a way out.
         IconButton {
             objectName: "viewerCloseButton"
             anchors.top: parent.top
@@ -799,9 +681,6 @@ Popup {
             onClicked: viewer.close()
         }
 
-        // ── Thumbnail strip ──
-        // Only for a real set. Uses `list_thumb`, the smallest cached kind, so
-        // opening doesn't pull full payloads for 48 px squares.
         ListView {
             id: thumbStrip
             objectName: "viewerThumbnailStrip"
@@ -814,18 +693,11 @@ Popup {
             anchors.bottom: toolbar.top
             anchors.bottomMargin: AppTheme.spacing12
 
-            // Sized to a whole number of cells so the end tiles aren't sliced
-            // by the clip (which is needed so the strip doesn't paint over the
-            // image). SnapToItem keeps that true after a flick.
             readonly property int cell: 48 + spacing
             width: {
                 var avail = parent.width - AppTheme.spacing16 * 2
                 var fit = Math.max(1, Math.floor((avail + spacing) / cell))
-                // From the entry count, not contentWidth: contentWidth depends
-                // on width, which would be a binding loop. Cells are a fixed 48
-                // px.
                 var all = viewer.entries.length * cell - spacing
-                // The last item carries no trailing spacing.
                 return Math.min(all, fit * cell - spacing)
             }
             snapMode: ListView.SnapToItem
@@ -835,17 +707,10 @@ Popup {
                 enabled: !AppTheme.reducedMotion
                 NumberAnimation { duration: 180 }
             }
-            // Keep the current thumbnail visible; `Contain` scrolls only when
-            // it falls off an edge.
             onCurrentIndexChanged: { userScrolled = false; ensureCurrentVisible() }
             currentIndex: viewer.currentIndex
-            // True once the reader scrolled the strip by hand: a resize must
-            // not snap it back to the current thumbnail. Cleared by selecting
-            // another image or reopening.
             property bool userScrolled: false
             onMovementStarted: userScrolled = true
-            // The index is set before the strip has a width or delegates, so
-            // the change handler alone leaves it at the start on open.
             onWidthChanged: if (!userScrolled) ensureCurrentVisible()
             onCountChanged: if (!userScrolled) ensureCurrentVisible()
             function ensureCurrentVisible() {
@@ -860,14 +725,9 @@ Popup {
                 }
             }
 
-            // The picture's wheel handler is not an ancestor of the strip, but
-            // a ListView only scrolls itself along its own axis for the
-            // matching wheel axis, so a vertical notch fell through to it.
-            // Scroll by whole cells so SnapToItem's alignment survives.
             WheelHandler {
                 objectName: "viewerThumbnailWheel"
                 target: null
-                // Ctrl+wheel keeps zooming the picture, as it does elsewhere.
                 acceptedModifiers: Qt.NoModifier
                 property real residual: 0
                 onWheel: (event) => {
@@ -875,8 +735,6 @@ Popup {
                                                       : event.pixelDelta.y
                     var d = event.angleDelta.x !== 0 ? event.angleDelta.x
                                                      : event.angleDelta.y
-                    // Whole cells only: pixel deltas (touchpads) accumulate
-                    // until a cell's worth, so tiles are never left sliced.
                     var cells
                     if (px !== 0) {
                         residual += px
@@ -891,7 +749,6 @@ Popup {
                                            - thumbStrip.originX)
                                           / thumbStrip.cell) * thumbStrip.cell
                                 + thumbStrip.originX
-                    // Wheel up/left moves toward the start.
                     thumbStrip.contentX = Math.max(
                         thumbStrip.originX,
                         Math.min(maxX, base - cells * thumbStrip.cell))
@@ -900,10 +757,6 @@ Popup {
                 }
             }
 
-            // Swallows taps in the gaps between thumbnails, which would
-            // otherwise reach the scrim and close. WithinBounds takes the
-            // exclusive grab; the default DragThreshold only grabs passively,
-            // so the scrim still fired.
             TapHandler {
                 gesturePolicy: TapHandler.WithinBounds
                 onTapped: {}
@@ -936,8 +789,6 @@ Popup {
                     Connections {
                         target: app.mediaBridge
                         function onMediaCached(cacheKey) {
-                            // Any class: mediaSource reads through to a larger
-                            // cached class, so a `full:` arrival also answers.
                             if ((thumbItem.modelData.mediaKey || "").length > 0
                                 && cacheKey.endsWith(
                                        ":" + thumbItem.modelData.mediaKey))
@@ -949,8 +800,6 @@ Popup {
                     smooth: true
                     mipmap: true
                 }
-                // Non-current items recede; hover brings them most of the way
-                // back.
                 Rectangle {
                     anchors.fill: parent
                     color: AppTheme.scrimBackdrop
@@ -967,8 +816,6 @@ Popup {
                     border.width: thumbItem.isCurrent ? 2 : 0
                     border.color: AppTheme.scrimInk
                 }
-                // WithinBounds takes the exclusive grab so the scrim's close
-                // handler doesn't also fire (as with imageTap).
                 HoverHandler {
                     id: thumbHover
                     cursorShape: Qt.PointingHandCursor
@@ -988,7 +835,6 @@ Popup {
             }
         }
 
-        // ── Floating toolbar: zoom cluster + actions ──
         Rectangle {
             id: toolbar
             objectName: "viewerToolbar"
@@ -1041,7 +887,6 @@ Popup {
                     implicitWidth: 32; implicitHeight: 32
                     iconColorOverride: AppTheme.scrimInk
                     Accessible.name: qsTr("Zoom in")
-                    // Named with its key, like Fit and Actual size beside it.
                     ToolTip.text: qsTr("Zoom in (+)")
                     ToolTip.visible: hovered
                     ToolTip.delay: 600
@@ -1128,10 +973,6 @@ Popup {
             }
         }
 
-        // ── Footer: save feedback + position ──
-        // Shown while a save answer is up even when zoomed in ("Save image
-        // as…" is in the context menu), so a download's confirmation is never
-        // hidden with the rest of the chrome.
         RowLayout {
             anchors.left: parent.left
             anchors.right: parent.right
@@ -1148,8 +989,6 @@ Popup {
                 objectName: "imageViewerSaveNotice"
                 property bool ok: true
                 visible: text.length > 0
-                // Scrim inks: the theme's success/danger are tuned for the
-                // theme surface, not for this always-dark one.
                 color: ok ? AppTheme.scrimSuccessInk : AppTheme.scrimDangerInk
                 font.pixelSize: AppTheme.textMeta
                 Timer {

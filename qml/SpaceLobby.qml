@@ -3,37 +3,20 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The Space Home lobby: the Space's own rooms, then one collapsible section per
-// joined subspace, each row with the room's topic. Presentation only. Sections
-// are built in C++ (SpaceManager::lobbySections: grouping, m.space.child order,
-// search, collapsed state); this file draws them and emits signals that
-// TimelinePane's Space Home turns into app calls. A folded or filtered section
-// is absent from the data, never hidden with `visible`. Moved strings keep the
-// "TimelinePane" translation context through qsTranslate, so existing
-// translations apply. Both Repeaters take a count, not the array: every sync
-// delivers a new array, which would rebuild every delegate (closing menus,
-// dropping focus).
 ColumnLayout {
     id: root
     objectName: "spaceLobby"
     spacing: AppTheme.spacingS
 
-    // ---- inputs ----
-    /// SpaceManager::lobbySections() output.
     property var sections: []
-    /// Whether the account may send m.space.child in the Home Space.
     property bool canManage: false
-    /// Selected direct children of the Home Space: { roomId: true }.
     property var selectedIds: ({})
     property string filterText: ""
-    /// A join/knock is in flight (RoomDiscoveryController.busy).
     property bool busy: false
     property string errorMessage: ""
-    /// /hierarchy has not answered yet: for the Home, and by section id.
     property bool homeLoading: false
     property var loadingIds: ({})
 
-    // ---- outputs ----
     signal filterEdited(string text)
     signal openRoomRequested(string roomId)
     signal openSpaceRequested(string spaceId)
@@ -46,7 +29,6 @@ ColumnLayout {
 
     readonly property int selectedCount: Object.keys(selectedIds).length
 
-    // Keyboard focus to restore to a header after a rebuild, by id.
     property string focusSectionId: ""
     property bool restoreFocus: false
 
@@ -57,11 +39,7 @@ ColumnLayout {
         }
         return null
     }
-    // On a Space switch, a menu aimed at the old Space's section closes.
     function closeMenus() { sectionMenu.close() }
-    // Opens the shared section menu for a subspace section at lobby
-    // coordinates. The root "Rooms" section has no menu. Used by the
-    // three-dot button, a right-click and the Menu / Shift+F10 keys alike.
     function openSectionMenu(section, ax, ay) {
         if (!section || section.isRoot === true)
             return
@@ -81,7 +59,6 @@ ColumnLayout {
         }
     }
     onSectionsChanged: {
-        // The shared menu follows its section by id, or closes with it.
         if (sectionMenu.opened) {
             var t = sectionById(sectionMenu.target.sectionId || "")
             if (t)
@@ -99,8 +76,6 @@ ColumnLayout {
         return n
     }
 
-    // Every selectable entry by id: root rows and subspace headers (a subspace
-    // is itself a direct child of the Home Space).
     function selectableById() {
         var out = {}
         for (var i = 0; i < sections.length; ++i) {
@@ -115,7 +90,6 @@ ColumnLayout {
         }
         return out
     }
-    // One suggest toggle whose action follows the selection, as in Element.
     function selectedAllSuggested() {
         var known = selectableById()
         var any = false
@@ -144,7 +118,6 @@ ColumnLayout {
         Layout.minimumWidth: 0
         Layout.topMargin: AppTheme.spacingS
         spacing: AppTheme.spacing8
-        // Width of everything but the gap, laid out on one line.
         readonly property real othersWidth: {
             var w = 0
             var n = 0
@@ -160,8 +133,6 @@ ColumnLayout {
         readonly property real rowHeight: Math.max(removeButton.implicitHeight,
                                                    suggestButton.implicitHeight)
         Label {
-            // Pinned by SpaceSettingsContractTest and
-            // ElementParityContractTest.
             text: qsTranslate("TimelinePane", "ROOMS AND SPACES")
             color: AppTheme.textSecondary
             font.family: AppTheme.uiFont
@@ -182,8 +153,6 @@ ColumnLayout {
             height: toolbar.rowHeight
             verticalAlignment: Text.AlignVCenter
         }
-        // Pushes the actions to the right edge while everything fits on one
-        // line; zero (and so out of the way) when it does not.
         Item {
             id: toolbarGap
             height: 1
@@ -226,7 +195,6 @@ ColumnLayout {
         }
     }
 
-    // A filter with no matches says so.
     Label {
         objectName: "spaceLobbyNoMatches"
         visible: root.sections.length === 0 && root.filterText !== ""
@@ -240,7 +208,6 @@ ColumnLayout {
         wrapMode: Text.Wrap
     }
 
-    // Empty state for a fresh Space.
     Rectangle {
         objectName: "spaceLobbyEmpty"
         visible: root.sections.length === 0 && root.filterText === ""
@@ -282,7 +249,6 @@ ColumnLayout {
         }
     }
 
-    // ---- the sections ----
     Repeater {
         id: sectionRepeater
         model: root.sections.length
@@ -304,9 +270,6 @@ ColumnLayout {
                                                    : AppTheme.spacingXS
             spacing: AppTheme.spacingXS
 
-            // Section header: chevron, avatar (subspaces), name, count, and for
-            // a subspace its menu and (for a manager) a selection box. Tapping
-            // elsewhere folds the section.
             Item {
                 id: sectionHeader
                 objectName: "spaceLobbySectionHeader"
@@ -337,8 +300,6 @@ ColumnLayout {
                 Keys.onReturnPressed: { if (sectionHeader.activeFocus) toggle() }
                 Keys.onEnterPressed: { if (sectionHeader.activeFocus) toggle() }
                 Keys.onSpacePressed: { if (sectionHeader.activeFocus) toggle() }
-                // True when a header-local point lies on the menu button or
-                // the selection box, which act on their own.
                 function overControl(pt) {
                     var bands = [sectionMenuButton, sectionSelectBox]
                     for (var i = 0; i < bands.length; ++i) {
@@ -353,8 +314,6 @@ ColumnLayout {
                     return false
                 }
                 Accessible.onPressAction: toggle()
-                // The context menu from the keyboard, at the header's lower
-                // left, as the three-dot button places it.
                 function openMenuFromKeyboard() {
                     var p = sectionHeader.mapToItem(
                         root, AppTheme.spacingXS,
@@ -376,13 +335,11 @@ ColumnLayout {
                     radius: AppTheme.radiusSm
                     color: headerHover.hovered || sectionHeader.activeFocus
                            ? AppTheme.hover : "transparent"
-                    // A tint alone is not a focus indicator.
                     border.width: sectionHeader.activeFocus ? 2 : 0
                     border.color: AppTheme.focusRing
                 }
                 TapHandler {
                     acceptedButtons: Qt.RightButton
-                    // A touch tap is not a right-click.
                     acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                     gesturePolicy: TapHandler.WithinBounds
                     onTapped: (eventPoint) => {
@@ -433,8 +390,6 @@ ColumnLayout {
                         font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                         font.weight: AppTheme.weightStrong
                         elide: Label.ElideRight
-                        // Against the header, never this layout's own arranged
-                        // width.
                         Layout.maximumWidth: sectionHeader.width * 0.5
                     }
                     Label {
@@ -450,7 +405,6 @@ ColumnLayout {
                         visible: !sectionItem.isRoot
                                  && sectionItem.modelData.suggested === true
                     }
-                    // A folded section still shows its rooms' activity.
                     Rectangle {
                         objectName: "spaceLobbyFoldedUnread"
                         visible: sectionItem.collapsed
@@ -489,13 +443,10 @@ ColumnLayout {
                                    === sectionItem.modelData.sectionId
                         Accessible.name: qsTr("More actions for %1")
                                              .arg(sectionItem.title)
-                        // Plain text app-wide (Main.qml's sharedToolTipGuard).
                         ToolTip.text: Accessible.name
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: {
-                            // Anchored to the lobby, not the button, which a
-                            // rebuild can destroy.
                             var p = sectionMenuButton.mapToItem(
                                 root, 0,
                                 sectionMenuButton.height + AppTheme.spacing4)
@@ -515,7 +466,6 @@ ColumnLayout {
                 }
             }
 
-            // The section's rooms in one card; a folded section has no rows.
             Rectangle {
                 objectName: "spaceLobbySectionCard"
                 visible: !sectionItem.collapsed
@@ -548,19 +498,10 @@ ColumnLayout {
                     }
                     Repeater {
                         model: (sectionItem.modelData.rows || []).length
-                        // One room (or nested Space): avatar, name, badges and
-                        // the topic as a second line, always plain text (§6).
-                        // Joined rows open on tap; unjoined ones act only
-                        // through Join. No "Joined" chip: the row's action
-                        // already says it.
                         delegate: Rectangle {
                             id: row
                             required property int index
 
-                            // Mute state, as RoomDelegate: a muted room is silent everywhere (as in
-                            // Element), so no mention pill, no unread pill, no bold name. Re-queried
-                            // when the id changes and when settings announce a write. `app` can be
-                            // undefined while a delegate is created inside a change handler.
                             property int notificationMode: 0
                             readonly property bool muted: notificationMode === 2
                             function refreshNotificationMode() {
@@ -597,12 +538,8 @@ ColumnLayout {
                             implicitHeight: Math.max(52, rowText.implicitHeight
                                                          + AppTheme.spacing8 * 2)
                             radius: AppTheme.radiusSm
-                            // Hover feedback only where a click acts.
                             color: rowHover.hovered && row.joined ? AppTheme.hover : "transparent"
                             HoverHandler { id: rowHover }
-                            // A joined row opens, so it is a Tab stop with a
-                            // ring; an unjoined one acts only through Join,
-                            // which is its own stop.
                             activeFocusOnTab: row.joined
                             border.width: row.activeFocus && row.joined ? 2 : 0
                             border.color: AppTheme.focusRing
@@ -619,7 +556,6 @@ ColumnLayout {
                             Keys.onSpacePressed: activate()
                             Accessible.onPressAction: activate()
                             TapHandler {
-                                // Exclude the selection box's band.
                                 onTapped: (eventPoint) => {
                                     if (selectBox.visible) {
                                         var sp = row.mapToItem(selectBox, eventPoint.position.x,
@@ -668,8 +604,6 @@ ColumnLayout {
                                                          ? AppTheme.weightBold
                                                          : AppTheme.weightMedium
                                             elide: Label.ElideRight
-                                            // Measured against the row, never this
-                                            // layout.
                                             Layout.maximumWidth: row.width * 0.55
                                         }
                                         SuggestedChip {
@@ -706,8 +640,6 @@ ColumnLayout {
                                         visible: row.topic.length > 0
                                         Layout.fillWidth: true
                                         text: row.topic
-                                        // Unsanitized server text; never AutoText
-                                        // or StyledText.
                                         textFormat: Text.PlainText
                                         color: AppTheme.textSecondary
                                         font.family: AppTheme.uiFont
@@ -789,7 +721,6 @@ ColumnLayout {
                                                                row.isSpace)
                                     }
                                 }
-                                // Decoration only: the whole row is the button.
                                 Rectangle {
                                     objectName: "spaceLobbyOpenGlyph"
                                     visible: row.joined
@@ -830,8 +761,6 @@ ColumnLayout {
         wrapMode: Text.Wrap
     }
 
-    // One menu for every subspace header, outside the delegates so a rebuild
-    // cannot destroy it; `target` is re-read by id in onSectionsChanged.
     AppMenu {
         id: sectionMenu
         objectName: "spaceLobbySectionMenu"
@@ -861,10 +790,6 @@ ColumnLayout {
         }
     }
 
-    // ---- building blocks ----
-
-    // "Suggested" is the owner's recommendation, a different kind of fact from
-    // membership, so it has its own chip.
     component SuggestedChip: Label {
         text: qsTranslate("TimelinePane", "Suggested")
         color: AppTheme.chipAccentInk

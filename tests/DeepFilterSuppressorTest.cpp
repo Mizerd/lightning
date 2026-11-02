@@ -1,6 +1,3 @@
-// DeepFilterSuppressor: the C++ side of the DeepFilterNet backend (#20).
-// Exercises the real model through rust/src/denoise.rs when the build carries
-// it (HAVE_DEEPFILTERNET), and the pass-through stub when it does not.
 
 #include "DeepFilterSuppressor.h"
 
@@ -24,7 +21,6 @@ constexpr int kRate = 48000;
 constexpr int kHop = 480;
 constexpr float kPi = 3.14159265358979f;
 
-// Deterministic "fan" noise: xorshift hiss + low rumble + 120 Hz hum.
 std::vector<float> fanNoise(int samples, std::uint64_t seed)
 {
     std::vector<float> out(static_cast<size_t>(samples));
@@ -68,7 +64,7 @@ bool allFinite(const std::vector<float> &v)
     return true;
 }
 
-} // namespace
+}
 
 class DeepFilterSuppressorTest : public QObject
 {
@@ -114,7 +110,6 @@ private slots:
         QVERIFY(s.ok());
         QCOMPARE(s.frameSize(), DeepFilterSuppressor::kFrameSize);
         QCOMPARE(s.frameSize(), kHop);
-        // DeepFilterNet3: 480 samples of STFT overlap + 2 frames lookahead.
         QCOMPARE(s.latencySamples(), DeepFilterSuppressor::kExpectedLatencySamples);
 #endif
     }
@@ -124,14 +119,12 @@ private slots:
 #ifndef HAVE_DEEPFILTERNET
         QSKIP("DeepFilterNet not built in");
 #else
-        // Two seconds of steady fan noise: the model must drive the floor
-        // far down once it has seen it. Pass-through would be 0 dB.
         DeepFilterSuppressor s;
         QVERIFY(s.ok());
         const auto in = fanNoise(2 * kRate, 42);
         const auto out = runAll(s, in);
         QVERIFY(allFinite(out));
-        const size_t from = size_t(kRate) / 2; // after warm-up
+        const size_t from = size_t(kRate) / 2;
         const size_t n = in.size() - from - size_t(s.latencySamples());
         const double reduction = 10.0
             * std::log10(energy(in.data() + from, n)
@@ -168,7 +161,7 @@ private slots:
 #else
         DeepFilterSuppressor s;
         QVERIFY(s.ok());
-        s.process(nullptr); // ignored, no crash
+        s.process(nullptr);
         const std::array<float, 6> specials = {
             std::numeric_limits<float>::quiet_NaN(),
             std::numeric_limits<float>::infinity(),
@@ -184,14 +177,13 @@ private slots:
             s.process(frame.data());
             QVERIFY(allFinite(frame));
         }
-        for (int i = 0; i < 60; ++i) { // full-scale square wave
+        for (int i = 0; i < 60; ++i) {
             for (int j = 0; j < kHop; ++j)
                 frame[size_t(j)] = ((i + j) % 2) ? 1.0f : -1.0f;
             s.process(frame.data());
             QVERIFY(allFinite(frame));
         }
         QCOMPARE(s.failedFrames(), std::uint64_t(0));
-        // The running state is not poisoned: it still removes noise.
         const auto in = fanNoise(2 * kRate, 3);
         const auto out = runAll(s, in);
         QVERIFY(allFinite(out));
@@ -221,10 +213,6 @@ private slots:
 #ifndef HAVE_DEEPFILTERNET
         QSKIP("DeepFilterNet not built in");
 #else
-        // The unmute case: loud audio, then the element resets on the valve's
-        // DISCONT. Nothing of the earlier audio may come out afterwards, so
-        // the output must equal an instance that never heard it. The reset
-        // runs on the streaming thread, so it must declare itself RT-safe.
         DeepFilterSuppressor s;
         QVERIFY(s.ok());
         QVERIFY(s.resetIsRealtimeSafe());
@@ -249,8 +237,6 @@ private slots:
 #ifndef HAVE_DEEPFILTERNET
         QSKIP("DeepFilterNet not built in");
 #else
-        // Two calls' microphones, or a mic test beside a call: two handles
-        // processed concurrently must give exactly what each gives alone.
         DeepFilterSuppressor ref;
         QVERIFY(ref.ok());
         const auto inA = fanNoise(kRate / 2, 21);

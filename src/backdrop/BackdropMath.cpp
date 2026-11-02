@@ -13,9 +13,6 @@ namespace backdrop {
 
 namespace {
 
-// sRGB 8-bit channel -> linear light, computed once. Every contrast in this
-// file goes through 8-bit channels (what is actually on screen), so a table
-// replaces pow() in the scrim search's inner loop.
 const std::array<double, 256> &linearTable()
 {
     static const std::array<double, 256> table = [] {
@@ -56,7 +53,6 @@ double gammaOf(double v)
     return v <= 0.0031308 ? 12.92 * v : 1.055 * std::pow(v, 1.0 / 2.4) - 0.055;
 }
 
-// D65 reference white.
 constexpr double kXn = 0.95047;
 constexpr double kYn = 1.0;
 constexpr double kZn = 1.08883;
@@ -110,11 +106,6 @@ bool isDarkGround(const QColor &ground)
     return relativeLuminance(ground) < 0.18;
 }
 
-// How far the veil (the scrim's base colour) moves away from the ink, in L*.
-// Measured on all eleven presets (2026-10-06 note): a veil equal to the ground
-// leaves Warm and Moss Light no headroom at all for textMuted, so any picture
-// would be hidden completely; lifting the veil off the ink gives every preset
-// room without moving the ink.
 constexpr double kVeilLiftLight = 8.0;
 constexpr double kVeilLiftDark = -6.0;
 
@@ -123,9 +114,7 @@ QList<QRgb> worstCaseSamples()
     return { qRgb(255, 255, 255), qRgb(0, 0, 0) };
 }
 
-} // namespace
-
-// ---- colour ----------------------------------------------------------------
+}
 
 double relativeLuminance(const QColor &c)
 {
@@ -168,8 +157,6 @@ QColor shiftLightness(const QColor &c, double deltaL)
     return fromLab(lab);
 }
 
-// ---- images ----------------------------------------------------------------
-
 ImageStats measure(const QImage &image)
 {
     ImageStats stats;
@@ -184,8 +171,6 @@ ImageStats measure(const QImage &image)
     if (thumb.isNull())
         return stats;
 
-    // Dominant colour: a 12-bin hue histogram weighted by saturation, value
-    // and alpha; a near-grey picture falls back to its mean colour.
     constexpr int kBins = 12;
     std::array<double, kBins> weight{};
     std::array<std::array<double, 3>, kBins> sum{};
@@ -219,7 +204,7 @@ ImageStats measure(const QImage &image)
         }
     }
     if (meanW <= 0.0)
-        return stats;   // fully transparent: nothing to measure
+        return stats;
     QColor dominant(int(std::lround(meanR / meanW)), int(std::lround(meanG / meanW)),
                     int(std::lround(meanB / meanW)));
     if (saturatedWeight >= 0.10 * pixels) {
@@ -233,8 +218,6 @@ ImageStats measure(const QImage &image)
     }
     stats.dominant = dominant;
 
-    // Samples as drawn: a translucent pixel shows the dominant-colour
-    // placeholder ChatBackdrop paints beneath the picture.
     stats.samples.reserve(pixels);
     for (int y = 0; y < thumb.height(); ++y) {
         const QRgb *row = reinterpret_cast<const QRgb *>(thumb.constScanLine(y));
@@ -254,9 +237,6 @@ ImageStats measureFrames(const QList<QImage> &frames)
     ImageStats merged;
     for (const QImage &raw : frames) {
         QImage frame = raw;
-        // A translucent later frame shows the colour ChatBackdrop paints
-        // beneath the picture: the FIRST frame's dominant colour. Composite
-        // it over that here, so its samples are what is drawn.
         if (merged.measured && merged.dominant.isValid() && !raw.isNull()
             && raw.hasAlphaChannel()) {
             QImage flat(raw.size(), QImage::Format_ARGB32);
@@ -277,8 +257,6 @@ ImageStats measureFrames(const QList<QImage> &frames)
     }
     return merged;
 }
-
-// ---- the scrim -------------------------------------------------------------
 
 double worstContrastAt(const QColor &scrim, double alpha,
                        const QList<QColor> &inks, const ImageStats &stats)
@@ -310,9 +288,6 @@ double worstContrastAt(const QColor &scrim, double alpha,
     }
     if (worst.isEmpty())
         return 21.0;
-    // Specks smaller than one sample are allowed to fail, and only for a
-    // measured picture with enough samples to have specks at all. The worst
-    // case is never trimmed.
     int skip = 0;
     if (measured && n >= 100)
         skip = int(std::floor(n * kOutlierShare));
@@ -333,11 +308,8 @@ ScrimPlan planScrim(const QColor &ground, const QList<QColor> &inks,
     if (!canTint)
         tint = 0.0;
 
-    // Largest usable tint first; step it down until the picture can show.
     for (;;) {
         const QColor scrim = tint > 0.0 ? mix(veil, stats.dominant, tint) : veil;
-        // The veil alone must carry the inks at full opacity, or no opacity
-        // can.
         if (worstContrastAt(scrim, 1.0, inks, stats) >= bar) {
             double floor = 0.0;
             for (int k = 99; k >= 0; --k) {
@@ -359,8 +331,6 @@ ScrimPlan planScrim(const QColor &ground, const QList<QColor> &inks,
             break;
         tint = std::max(0.0, tint - 0.05);
     }
-    // Nothing fits: the ground itself, fully opaque. The picture does not
-    // show and the room reads exactly as it would without one.
     plan.color = base;
     plan.floor = 1.0;
     plan.tint = 0.0;
@@ -377,8 +347,6 @@ double scrimAlpha(double floor, double dim)
     return floor + dim * (kMaxScrimAlpha - floor);
 }
 
-// ---- depth -----------------------------------------------------------------
-
 QStringList depthStops(const QColor &base, bool darkTheme)
 {
     const QColor b = base.toRgb();
@@ -387,11 +355,8 @@ QStringList depthStops(const QColor &base, bool darkTheme)
     const QColor shifted = shiftLightness(b, darkTheme ? -kDepthDeltaL : kDepthDeltaL);
     const QString flat = b.name(QColor::HexRgb).toUpper();
     const QString moved = shifted.name(QColor::HexRgb).toUpper();
-    // Top -> bottom; light from above in both cases.
     return darkTheme ? QStringList{ flat, moved } : QStringList{ moved, flat };
 }
-
-// ---- presentation ----------------------------------------------------------
 
 QVariantMap normalisePresentation(const QVariantMap &raw)
 {
@@ -449,8 +414,6 @@ QVariantMap presentationFromWire(const QVariantMap &wire)
     return normalisePresentation(unit);
 }
 
-// ---- precedence ------------------------------------------------------------
-
 Resolved resolve(const QString &roomId, const ResolveInput &in)
 {
     Resolved out;
@@ -486,8 +449,6 @@ Resolved resolve(const QString &roomId, const ResolveInput &in)
     return out;
 }
 
-// ---- Spaces ----------------------------------------------------------------
-
 QStringList spaceChain(const QString &roomId,
                        const QHash<QString, QStringList> &childrenOf,
                        const QStringList &spaceOrder,
@@ -503,8 +464,6 @@ QStringList spaceChain(const QString &roomId,
         }
         return parents;
     };
-    // Ancestors of `id`, nearest first, one parent per level (the first in
-    // spaceOrder), cycle-safe and bounded.
     const auto ancestors = [&](const QString &id) {
         QStringList chain;
         QSet<QString> seen{ id };
@@ -551,4 +510,4 @@ QStringList spaceChain(const QString &roomId,
     return chain;
 }
 
-} // namespace backdrop
+}

@@ -20,7 +20,7 @@ namespace lightning::accounts {
 // as the oracle and compares call logs and outcomes.
 struct SessionTokenPair { QString accessToken; QString refreshToken; };
 
-class TokenStore {   // adapter; production impl over SettingsManager lives in RustSdkMatrixClient.cpp
+class TokenStore {
 public:
     virtual ~TokenStore() = default;
     virtual QVariantMap accountRecord(const QString &userId) const = 0;
@@ -31,52 +31,30 @@ public:
 
 namespace custody {
 
-QByteArray accessTokenDigest(const QString &accessToken);   // "" -> empty; SHA-256(UTF-8).
+QByteArray accessTokenDigest(const QString &accessToken);
 
-SessionTokenPair parseFinalSessionTokens(const QString &json); // "", "error: ...", bad JSON -> {}
+SessionTokenPair parseFinalSessionTokens(const QString &json);
 
-// First candidate (non-empty) whose record's "deviceId" == deviceId; "" if none.
-// An empty deviceId owns nothing: a record without one is never this session's.
 QString tokenOwnerFor(const TokenStore &store, const QStringList &candidates,
                       const QString &deviceId);
 
 enum class LiveWrite : quint8 { Written, WriteFailed, SkippedRotatedPast, SkippedNoOwner };
-// session_tokens_refreshed. currentAccess: final_session_tokens() access, "" if no handle
-// or unreadable. Order: rotated-past check (no I/O) -> store && owner non-empty -> write.
-// The caller resolves tokenOwner BEFORE reading currentAccess, as it always has.
-LiveWrite writeLive(TokenStore *store /*nullable*/, const QString &tokenOwner,
+LiveWrite writeLive(TokenStore *store, const QString &tokenOwner,
                     const QString &currentAccess, const SessionTokenPair &rotated);
 
-// What the session_tokens_refreshed handler tells Rust about a rotation
-// (mx_rust_session_tokens_persisted), which ends that rotation's wait inside
-// matrix-sdk's refresh (rust/src/sessiontokens.rs). A refused or ownerless
-// write still answers, NotSaved, so a keyring failure never holds sync for
-// the wait's bound; only Saved claims the pair is in the keyring. A rotation
-// the session has already rotated past has nothing waiting on it: None.
 enum class PersistAnswer : quint8 { None, Saved, NotSaved };
 PersistAnswer persistAnswerFor(LiveWrite outcome);
 
-// retryRotatedTokenWrite: write only when currentAccess non-empty and its digest != persisted.
 bool retryWriteNeeded(const QString &currentAccess, const QByteArray &persistedDigest);
 
-// Warm account adoption (master prompt Part 4 §4, review M1): a rotation the
-// SDK recorded after the background host's LAST drain is in the handle and
-// not in the keyring, and adoption detaches custody, so nothing else would
-// ever notice it. Right after the promotion the foreground compares the
-// handle's live pair with the digest the host last persisted: `write` when
-// they differ (exactly one keyring write of the newer pair), and the newest
-// ledger rotation is answered either way, so a refresh waiting inside
-// matrix-sdk is released. `answerSavedIfNoWrite`: the keyring already holds
-// the live pair, so the answer is Saved without a write.
 struct AdoptionReconcile {
     bool write = false;
-    quint64 answerGeneration = 0;   // 0: nothing waits
+    quint64 answerGeneration = 0;
     bool answerSavedIfNoWrite = false;
 };
 AdoptionReconcile reconcileAdopted(const QString &liveAccess, const QByteArray &persistedDigest,
                                    quint64 ledgerGeneration);
 
-// Retirement worker: hand back when finalAccess non-empty and digest != last written.
 bool needsHandback(const QString &finalAccess, const QByteArray &lastWrittenDigest);
 
 struct HandbackEntry {
@@ -88,19 +66,12 @@ struct HandbackEntry {
 
 enum class Handback : quint8 { Written, WriteFailed, SkippedNoStore, SkippedSameDeviceRunning,
                                SkippedRecordGoneOrOtherDevice, SkippedKeyringChanged };
-// The digest a background host's handback compares against: `expected`,
-// unless the keyring holds the pair of one of that host's OWN live writes
-// that were still queued or running at its retirement (`accepted`), which is
-// still "what this host last wrote". Anything else (a foreground sign-in)
-// keeps `expected`, and the compare-and-swap refuses. One read of the store.
 QByteArray handbackExpectedDigest(TokenStore *store, const QString &userId,
                                   const QByteArray &expected,
                                   const QList<QByteArray> &accepted);
 
-// persistRetiredSessionTokens body. Caller computes sameDeviceRunningAndNotRestoring with
-// today's short-circuit expression. I/O order: accountRecord -> accessTokenFor -> update (CAS).
-Handback writeHandback(TokenStore *store /*nullable*/, const HandbackEntry &entry,
+Handback writeHandback(TokenStore *store, const HandbackEntry &entry,
                        bool sameDeviceRunningAndNotRestoring);
 
-} // namespace custody
-} // namespace lightning::accounts
+}
+}

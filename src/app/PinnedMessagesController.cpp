@@ -5,7 +5,6 @@
 #include <QCoreApplication>
 
 namespace {
-// The raw SDK error never reaches QML.
 QString messageForCategory(const QString &category)
 {
     if (category == QLatin1String("forbidden")) {
@@ -31,18 +30,16 @@ QString messageForCategory(const QString &category)
         "PinnedMessagesController",
         "Could not reach the server. Try again.");
 }
-} // namespace
+}
 
 PinnedMessagesController::PinnedMessagesController(QObject *parent)
     : QObject(parent)
 {
-    // canPin is a power-level answer, so it goes stale when membership or
-    // power levels move; a burst (a large room syncing) costs one re-read.
     m_memberRefetch.setSingleShot(true);
     m_memberRefetch.setInterval(400);
     connect(&m_memberRefetch, &QTimer::timeout, this, [this] {
         if (!m_roomId.isEmpty())
-            fetch(/*allowRemote=*/false);
+            fetch(false);
     });
 }
 
@@ -64,18 +61,15 @@ void PinnedMessagesController::setClient(MatrixClient *client)
     connect(m_client, &MatrixClient::pinnedReceived, this,
             [this](quint64 opId, const QString &roomId,
                    const QVariantMap &snapshot) {
-        // Match op id and room so a stale snapshot never repaints this one.
         if (opId == 0 || opId != m_fetchOp || roomId != m_roomId)
             return;
         m_fetchOp = 0;
-        // Taken before the early return so a failed read cannot swallow it.
         const bool owed = m_refreshOwed;
         m_refreshOwed = false;
         if (!snapshot.value(QStringLiteral("ok")).toBool()) {
-            // A failed read keeps the last known list.
             emitStateChanged();
             if (owed)
-                fetch(/*allowRemote=*/false);
+                fetch(false);
             return;
         }
         m_entries = snapshot.value(QStringLiteral("entries")).toList();
@@ -86,7 +80,7 @@ void PinnedMessagesController::setClient(MatrixClient *client)
         m_canPin = snapshot.value(QStringLiteral("canPin")).toBool();
         emitStateChanged();
         if (owed)
-            fetch(/*allowRemote=*/false);
+            fetch(false);
     });
 
     connect(m_client, &MatrixClient::pinChangeFinished, this,
@@ -102,22 +96,16 @@ void PinnedMessagesController::setClient(MatrixClient *client)
         m_error = ok ? QString() : messageForCategory(category);
         emitStateChanged();
         Q_EMIT pinActionFinished(roomId, eventId, pin, ok, m_error);
-        // Re-read either way, unless the user has moved to another room.
         if (targetRoom == m_roomId && !m_roomId.isEmpty())
-            fetch(/*allowRemote=*/false);
+            fetch(false);
     });
 
-    // Remote change: re-read, so remote and local pins share one path.
     connect(m_client, &MatrixClient::pinnedEventsChanged, this,
             [this](const QString &roomId) {
         if (roomId == m_roomId && !m_roomId.isEmpty())
-            fetch(/*allowRemote=*/false);
+            fetch(false);
     });
 
-    // Own membership arriving late or a power-level change (both reach us as
-    // a member-event poke) moves canPin without touching the pin list, so
-    // nothing else would ever re-read it. No network beyond the cache-first
-    // resolve: allowRemote stays false.
     connect(m_client, &MatrixClient::roomMemberEventSeen, this,
             [this](const QString &roomId) {
         if (roomId == m_roomId && !m_roomId.isEmpty())
@@ -151,8 +139,6 @@ void PinnedMessagesController::setRoomId(const QString &roomId)
     if (m_roomId == roomId)
         return;
     m_roomId = roomId;
-    // In-flight answers for the previous room are rejected by the checks
-    // above.
     clearSnapshot();
     Q_EMIT roomIdChanged();
     if (!m_roomId.isEmpty())
@@ -179,7 +165,6 @@ void PinnedMessagesController::clearSnapshot()
 
 void PinnedMessagesController::refresh()
 {
-    // The /state fallback runs once per room per session.
     const bool allowRemote =
         !m_roomId.isEmpty() && !m_remoteProbed.contains(m_roomId);
     fetch(allowRemote);
@@ -189,7 +174,6 @@ void PinnedMessagesController::fetch(bool allowRemote)
 {
     if (!m_client || m_roomId.isEmpty() || !supported())
         return;
-    // One read at a time; a request made meanwhile is re-issued afterwards.
     if (m_fetchOp != 0) {
         m_refreshOwed = true;
         return;
@@ -232,7 +216,6 @@ void PinnedMessagesController::unpin(const QString &eventId)
 
 void PinnedMessagesController::setPinned(const QString &eventId, bool pin)
 {
-    // Re-check: permissions can change between menu open and click.
     if (!canTogglePin(eventId, pin))
         return;
     const quint64 opId = m_client->setEventPinned(m_roomId, eventId, pin);

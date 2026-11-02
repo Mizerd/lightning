@@ -9,7 +9,7 @@
 namespace {
 constexpr int kMinQueryLength = 2;
 constexpr int kResultLimit = 20;
-} // namespace
+}
 
 UserSearchModel::UserSearchModel(QObject *parent)
     : QAbstractListModel(parent)
@@ -50,7 +50,6 @@ bool UserSearchModel::looksLikeMxid(const QString &text)
 
 void UserSearchModel::invalidatePending()
 {
-    // Any in-flight completion is stale the moment the query changes.
     m_pendingOp = 0;
     m_pendingProfileOp = 0;
     m_directoryDone = false;
@@ -135,8 +134,6 @@ void UserSearchModel::dispatchSearch()
     if (!candidate.isEmpty() && candidate != ownUser) {
         m_candidateUserId = candidate;
         m_candidateNamesServer = matrix::user_lookup::queryNamesServer(trimmed);
-        // 0 means no profile lookup on this backend: typed full ids still
-        // appear unconfirmed; bare-localpart candidates stay hidden.
         m_pendingProfileOp = m_client->fetchUserProfile(candidate);
     }
 
@@ -157,8 +154,6 @@ UserSearchModel::mergeResults(const QList<Result> &exact,
         for (Result &existing : merged) {
             if (existing.userId != row.userId)
                 continue;
-            // Duplicate: keep the first row's provenance, fill in missing
-            // presentation fields from the later source.
             if (existing.displayName.isEmpty())
                 existing.displayName = row.displayName;
             if (existing.avatarUrl.isEmpty())
@@ -222,7 +217,6 @@ void UserSearchModel::onSearchFinished(quint64 opId, bool ok,
 {
     Q_UNUSED(limited);
     Q_UNUSED(category);
-    // Only the most recently dispatched op may populate the model.
     if (opId != m_pendingOp || m_pendingOp == 0)
         return;
     m_pendingOp = 0;
@@ -257,12 +251,9 @@ void UserSearchModel::onProfileFinished(quint64 opId, bool ok,
         return;
     m_pendingProfileOp = 0;
     if (userId != m_candidateUserId)
-        return; // candidate changed while the lookup was in flight
+        return;
 
     if (ok) {
-        // The homeserver confirmed the user. A failed lookup keeps
-        // bare-localpart candidates hidden; typed full ids stay offered for
-        // federated invites.
         m_candidateConfirmed = true;
         m_candidateDisplayName = displayName;
         m_candidateAvatarUrl = avatarUrl;
@@ -275,7 +266,7 @@ void UserSearchModel::onProfileFinished(quint64 opId, bool ok,
 void UserSearchModel::setState(const QString &state)
 {
     if (m_state == state) {
-        Q_EMIT stateChanged(); // count may still have changed
+        Q_EMIT stateChanged();
         return;
     }
     m_state = state;

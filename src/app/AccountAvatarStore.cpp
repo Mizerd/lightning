@@ -12,8 +12,6 @@
 
 namespace {
 
-/// The same shape-based SVG refusal `MediaBridge` applies: every accepted
-/// raster format opens with binary magic, so data starting with `<` is markup.
 bool looksLikeSupportedRaster(const QByteArray &bytes)
 {
     if (bytes.size() < 12)
@@ -39,11 +37,10 @@ QString fileFor(const QString &userId)
     const QString root = AccountAvatarStore::storeRoot();
     if (root.isEmpty())
         return {};
-    // One extension for every format; QML's loader sniffs the bytes.
     return root + QLatin1Char('/') + slug + QStringLiteral(".avatar");
 }
 
-} // namespace
+}
 
 AccountAvatarStore::AccountAvatarStore(QObject *parent)
     : QObject(parent)
@@ -67,10 +64,6 @@ QString AccountAvatarStore::avatarUrlFor(const QString &userId) const
     const QFileInfo info(path);
     if (!info.exists() || info.size() <= 0)
         return {};
-    // The mtime makes a replaced picture reload (Qt caches Image by URL).
-    // fromLocalFile, not "file://" + path: on Windows that gives
-    // file://C:/Users/..., where Qt reads "C" as a host and the file is never
-    // opened.
     QUrl url = QUrl::fromLocalFile(path);
     url.setQuery(QStringLiteral("m=")
                  + QString::number(info.lastModified().toSecsSinceEpoch()));
@@ -116,7 +109,6 @@ bool AccountAvatarStore::forget(const QString &userId)
     const QString path = fileFor(userId);
     if (path.isEmpty() || !QFile::exists(path))
         return false;
-    // An absent file returns false: "target absent" is not "removed".
     if (!QFile::remove(path))
         return false;
     Q_EMIT avatarStored(userId);

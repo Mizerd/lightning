@@ -39,4 +39,4 @@
 // prints tokens, passwords, message bodies, or crypto material.
 int runRustSdkSmokeTest(int argc, char *argv[]);
 
-#endif  // ENABLE_RUST_SDK_BACKEND
+#endif

@@ -3,11 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings and the account menu, for when the Spaces rail is hidden. Both live
-// on the rail's bottom cluster, so hiding it ("Show the Spaces rail" off)
-// left no pointer route to either. This sits in the room list's workspace
-// header and is shown ONLY while the rail is hidden, so the two are never on
-// screen twice.
 RowLayout {
     id: root
     objectName: "railHiddenActions"
@@ -16,7 +11,6 @@ RowLayout {
     visible: app.loggedIn && app.settings
              && !app.settings.spacesRailVisible
 
-    // Same attention rule as the rail's cog: one badge, verification first.
     readonly property bool updateBadge:
         app.updateManager && app.updateManager.updateAvailable
     readonly property string settingsText:
@@ -33,8 +27,6 @@ RowLayout {
         radius: AppTheme.radiusMd
         iconName: "settings"
         iconSize: 18
-        // Accent while in-shell Settings is open; clicking again returns to
-        // chat, like the rail's cog.
         active: app.currentScreen === 2
         Accessible.name: root.settingsText
         ToolTip.text: root.settingsText
@@ -59,13 +51,10 @@ RowLayout {
         }
     }
 
-    // The account tile: the same switcher popover the rail opens.
     Item {
         id: accountTile
         objectName: "headerAccountTile"
         implicitWidth: 30; implicitHeight: 30
-        // Keyboard: a Tab stop with a ring, opening the menu on Return, Enter,
-        // Space or the Menu key (it was a TapHandler only).
         activeFocusOnTab: true
         Keys.onPressed: (event) => {
             var k = event.key
@@ -128,7 +117,6 @@ RowLayout {
 
         AccountMenu {
             id: accountMenu
-            // Opens down and to the left of the header's right edge.
             x: accountTile.width - width
             y: accountTile.height + AppTheme.spacing4
             margins: AppTheme.spacing12

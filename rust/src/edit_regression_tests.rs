@@ -1,4 +1,3 @@
-//! Sync/cache/timeline/JSON regressions for remote edits.
 use super::*;
 use matrix_sdk::ruma::{api::client::sync::sync_events::v5, room_id, serde::Raw};
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
@@ -17,12 +16,6 @@ fn edit(id: &str, target: &str, body: &str, ts: u64) -> serde_json::Value {
     value["content"]["m.relates_to"] = json!({"rel_type":"m.replace", "event_id":target});
     value
 }
-/// `process_sliding_sync_test_helper` returns once the BASE client has the
-/// response; the event cache applies the room update on its own task. A
-/// timeline built (or a second sync fed) before that task ran raced it, and
-/// the edit was then lost for good (about 3 runs in 25). Whether production
-/// can lose an edit the same way is not established (docs/open-items.md, the
-/// 2026-10-17 event-cache entry); the fixture waits for the cache instead.
 async fn cached(client: &Client, ids: &[String]) {
     let room = client.get_room(room_id!("!edits:localhost")).unwrap();
     let (cache, _handles) = room.event_cache().await.unwrap();
@@ -243,7 +236,6 @@ async fn an_edit_refreshes_thread_reply_and_main_summary() {
     wait_field(&main, "$root", "thread_latest_preview", "thread edited").await;
 }
 
-/// Opt-in: only localhs throwaway accounts, no disk SDK store or keyring.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires localhs and LIGHTNING_EDITS_LOCALHS_ACCOUNTS"]
 async fn localhs_remote_edit_over_http() {

@@ -12,10 +12,6 @@
 // TimelineModel.cpp and RoomExport.cpp without EventPreview.cpp.
 namespace matrix::preview {
 
-// The sentence the bridge named, worded in the UI language with the sender as
-// presented (`actorLabel`: the name the surface resolved, else the event's
-// own) and the target member; else the bridge's English body with its leading
-// user id replaced by that name. `isolate`: see stateSentence().
 inline QString stateRowText(const TimelineEvent &event, const QString &actorLabel,
                             bool isolate = true)
 {
@@ -32,4 +28,4 @@ inline QString stateRowText(const TimelineEvent &event, const QString &actorLabe
     return actorSentence(event.body, event.sender, label, event.senderNameAmbiguous);
 }
 
-} // namespace matrix::preview
+}

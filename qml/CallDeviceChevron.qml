@@ -2,22 +2,13 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// The chevron that opens a device chooser beside a call control. A separate
-// control, not a corner of the button: picking a device and muting are
-// different intents.
 AbstractButton {
     id: root
 
-    /// "microphone" | "speaker" | "camera"
     property string kind: "microphone"
     property string accessibleName: ""
-    /// Marks the chosen device as unavailable, explaining unexpected audio
-    /// routing on the control itself.
     property bool warn: false
 
-    // Compact and vertically centred against its control so the pair reads as
-    // one affordance, while staying a separate pointer target and keyboard
-    // stop.
     implicitWidth: 20
     implicitHeight: 26
     hoverEnabled: true
@@ -77,7 +68,6 @@ AbstractButton {
     }
     onClicked: openMenu()
 
-    // One menu per chevron, created lazily.
     CallDeviceMenu {
         id: menu
         kind: root.kind

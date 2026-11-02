@@ -1,7 +1,3 @@
-// Keyboard reachability and small-window behaviour of the verification dialog
-// and the corner prompt (swarm findings C55-F01/D01, F02, F03/D03, F05/D02,
-// D04). Source contracts: each predicate is absent from the pre-fix QML, so
-// each case fails on the old code.
 #include <QFile>
 #include <QRegularExpression>
 #include <QtTest>
@@ -31,8 +27,6 @@ private Q_SLOTS:
         const QString p = norm(QStringLiteral("VerificationPanel.qml"));
         QVERIFY(p.contains(QStringLiteral("function focusPrimary()")));
         QVERIFY(p.contains(QStringLiteral("forceActiveFocus(")));
-        // Safe action only: auto-focusing a trust-confirming button lets a
-        // stray Space/Enter confirm a SAS unseen (CLAUDE.md section 6).
         QVERIFY2(p.contains(QStringLiteral("var order = [dismissButton, cancelButton]")),
                  "initial focus must be Dismiss/Cancel only");
         const int fn = p.indexOf(QStringLiteral("function focusPrimary()"));
@@ -63,14 +57,9 @@ private Q_SLOTS:
     }
     void theCornerPromptIsReachableByKeyboardEarly()
     {
-        // F6 reaches it as a region of the shell's F6 cycle while it shows
-        // (one F6 owner, MASTER-3 M3), not through a Shortcut of its own.
         const QString v = norm(QStringLiteral("VerifySessionPrompt.qml"));
         QVERIFY(!v.contains(QStringLiteral("sequence: \"F6\"")));
         QVERIFY(v.contains(QStringLiteral("Keys.onEscapePressed: app.dismissVerificationWarning()")));
-        // The card lives on the window overlay, outside MainScreen: Main.qml
-        // hands it in, and F6 inside it is forwarded back to the shell's
-        // cycle. KeyboardNavigationQmlTest drives both directions.
         const QString m = norm(QStringLiteral("MainScreen.qml"));
         QVERIFY(m.contains(QStringLiteral("property Item promptRegion: null")));
         QVERIFY(m.contains(QStringLiteral("shellRoot._promptRegion()")));

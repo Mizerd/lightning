@@ -1,8 +1,3 @@
-// C17-F01: a covered spoiler must not be selectable. The selection highlight
-// repaints the run in clear and Ctrl+C copies it, so MessageDelegate turns
-// selectByMouse off for any body (single TextEdit or fenced-code segment)
-// that still carries a covered spoiler, and back on once it is revealed.
-// Real delegate, real sanitizer output, and a real mouse drag.
 #include <QtTest/QtTest>
 
 #include <QQmlApplicationEngine>
@@ -42,8 +37,6 @@ class MessageSpoilerSelectionQmlTest : public QObject
         QQuickItem *root = nullptr;
     };
 
-    /// A complete role map, so the production delegate binds without
-    /// undefined-property warnings. Same shape MediaPlaceholderQmlTest uses.
     static QVariantMap baseFixture()
     {
         QVariantMap f;
@@ -132,8 +125,6 @@ class MessageSpoilerSelectionQmlTest : public QObject
         return nullptr;
     }
 
-    /// Drags across the whole text item with the real pointer and returns
-    /// what the TextEdit ended up selecting.
     static QString dragSelect(Delegate &d, QQuickItem *text)
     {
         const QPointF a = text->mapToScene(QPointF(1, text->height() / 2));

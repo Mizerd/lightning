@@ -1,8 +1,3 @@
-// GIF provider response parsing (gif::parseGiphy and its safety helpers),
-// with no network, API key or homeserver: variant selection, provider-CDN
-// host and .gif validation, tracking-param stripping, safe-search rating
-// filtering (including unknown ratings), size/dimension caps, dedup,
-// pagination offset and malformed-input rejection.
 
 #include "gif/GifResponseParser.h"
 
@@ -14,7 +9,6 @@ using gif::Rating;
 
 namespace {
 
-// One GIPHY-shaped result object (numbers as strings, as GIPHY sends them).
 QByteArray giphyResponse(const QByteArray &dataItems, int totalCount = 42)
 {
     return "{\"data\":[" + dataItems + "],"
@@ -36,7 +30,7 @@ QByteArray gifItem(const QByteArray &id, const QByteArray &rating)
         + "/200w_s.jpg\",\"width\":\"200\",\"height\":\"112\"}}}";
 }
 
-} // namespace
+}
 
 class GifResponseParserTest : public QObject
 {
@@ -58,7 +52,6 @@ private Q_SLOTS:
     void paginationOffsetAdvances();
     void ratingHelpers();
     void hasMoreReflectsTotalCount();
-    // KLIPY
     void parsesKlipyResult();
     void klipyRejectsNonKlipyHost();
     void klipyResultFalseIsMalformed();
@@ -78,17 +71,14 @@ void GifResponseParserTest::parsesTrendingResult()
     QCOMPARE(r.id, QStringLiteral("abc"));
     QCOMPARE(r.title, QStringLiteral("a cat"));
     QCOMPARE(r.rating, QStringLiteral("g"));
-    // Sendable variant = original .gif, tracking stripped.
     QCOMPARE(r.gifUrl,
              QStringLiteral("https://media.giphy.com/media/abc/giphy.gif"));
     QCOMPARE(r.gifWidth, 480);
     QCOMPARE(r.gifHeight, 270);
     QCOMPARE(r.gifBytes, Q_INT64_C(1048576));
-    // Preview = smaller animated rendition.
     QCOMPARE(r.previewUrl,
              QStringLiteral("https://media.giphy.com/media/abc/200w.gif"));
     QCOMPARE(r.previewWidth, 200);
-    // Still thumbnail present, mp4 preview captured but never a gif.
     QCOMPARE(r.stillUrl,
              QStringLiteral("https://media.giphy.com/media/abc/200w_s.jpg"));
     QCOMPARE(r.mp4Url,
@@ -111,14 +101,12 @@ void GifResponseParserTest::rejectsNonGiphyHost()
         QStringLiteral("https://media0.giphy.com/media/x/giphy.gif")));
     QVERIFY(gif::isSendableGifUrl(
         QStringLiteral("https://giphy.com/media/x/giphy.gif")));
-    // A look-alike host must not slip through.
     QVERIFY(!gif::isSendableGifUrl(
         QStringLiteral("https://giphy.com.evil.net/x/giphy.gif")));
 }
 
 void GifResponseParserTest::rejectsNonGifPath()
 {
-    // http (not https), mp4, and webp are never sendable as a gif.
     QVERIFY(!gif::isSendableGifUrl(
         QStringLiteral("http://media.giphy.com/media/x/giphy.gif")));
     QVERIFY(!gif::isSendableGifUrl(
@@ -134,11 +122,11 @@ void GifResponseParserTest::safeSearchFiltersHigherRatings()
         + gifItem("p1", "pg-13"));
     const auto pg = gif::parseGiphy(body, Rating::PG, 0);
     QVERIFY(pg.ok);
-    QCOMPARE(pg.results.size(), 1);   // only the "g" result survives a PG cap
+    QCOMPARE(pg.results.size(), 1);
     QCOMPARE(pg.results.first().id, QStringLiteral("g1"));
 
     const auto r = gif::parseGiphy(body, Rating::R, 0);
-    QCOMPARE(r.results.size(), 3);    // R allows everything
+    QCOMPARE(r.results.size(), 3);
 }
 
 void GifResponseParserTest::safeSearchExcludesUnknownRating()
@@ -146,8 +134,7 @@ void GifResponseParserTest::safeSearchExcludesUnknownRating()
     const auto out = gif::parseGiphy(giphyResponse(gifItem("u1", "")),
                                      Rating::PG13, 0);
     QVERIFY(out.ok);
-    QVERIFY(out.results.isEmpty());   // missing rating treated as R → excluded
-    // …but an R cap lets an unrated item through.
+    QVERIFY(out.results.isEmpty());
     const auto allowed = gif::parseGiphy(giphyResponse(gifItem("u1", "")),
                                          Rating::R, 0);
     QCOMPARE(allowed.results.size(), 1);
@@ -169,7 +156,7 @@ void GifResponseParserTest::enforcesDimensionCap()
         "\"width\":\"9000\",\"height\":\"9000\",\"size\":\"1000\"}}}";
     const auto out = gif::parseGiphy(giphyResponse(huge), Rating::R, 0);
     QVERIFY(out.ok);
-    QVERIFY(out.results.isEmpty());   // over kMaxGifDimension
+    QVERIFY(out.results.isEmpty());
 }
 
 void GifResponseParserTest::enforcesByteCap()
@@ -179,12 +166,11 @@ void GifResponseParserTest::enforcesByteCap()
         "\"url\":\"https://media.giphy.com/media/fat/giphy.gif\","
         "\"width\":\"400\",\"height\":\"400\",\"size\":\"999999999\"}}}";
     const auto out = gif::parseGiphy(giphyResponse(fat), Rating::R, 0);
-    QVERIFY(out.results.isEmpty());   // over kMaxGifBytes
+    QVERIFY(out.results.isEmpty());
 }
 
 void GifResponseParserTest::skipsResultsWithoutSendableGif()
 {
-    // Only an mp4 rendition — nothing to send as m.image.
     QByteArray mp4Only =
         "{\"id\":\"vid\",\"rating\":\"g\",\"images\":{\"original\":{"
         "\"mp4\":\"https://media.giphy.com/media/vid/giphy.mp4\"}}}";
@@ -204,7 +190,7 @@ void GifResponseParserTest::malformedJsonIsNotOk()
 void GifResponseParserTest::emptyDataIsOkButEmpty()
 {
     const auto out = gif::parseGiphy("{\"data\":[]}", Rating::R, 0);
-    QVERIFY(out.ok);                  // no-results is not an error
+    QVERIFY(out.ok);
     QVERIFY(out.results.isEmpty());
     QVERIFY(out.errorCategory.isEmpty());
 }
@@ -214,7 +200,7 @@ void GifResponseParserTest::paginationOffsetAdvances()
     const auto out = gif::parseGiphy(
         giphyResponse(gifItem("a", "g") + "," + gifItem("b", "g")), Rating::R,
         50);
-    QCOMPARE(out.nextOffset, 52);     // requestOffset + returned count
+    QCOMPARE(out.nextOffset, 52);
 }
 
 void GifResponseParserTest::ratingHelpers()
@@ -224,24 +210,20 @@ void GifResponseParserTest::ratingHelpers()
     QVERIFY(gif::ratingWithin(QStringLiteral("pg-13"), Rating::PG13));
     QCOMPARE(static_cast<int>(gif::ratingFromString(QStringLiteral("PG"))),
              static_cast<int>(Rating::PG));
-    // Unknown → most permissive.
     QCOMPARE(static_cast<int>(gif::ratingFromString(QStringLiteral("weird"))),
              static_cast<int>(Rating::R));
 }
 
 void GifResponseParserTest::hasMoreReflectsTotalCount()
 {
-    // total_count 42, offset 0, 1 returned → more pages exist.
     const auto more = gif::parseGiphy(giphyResponse(gifItem("a", "g"), 42),
                                       Rating::R, 0);
     QVERIFY(more.hasMore);
-    // At the end (offset already past total) → no more.
     const auto end = gif::parseGiphy(giphyResponse(gifItem("z", "g"), 1),
                                      Rating::R, 5);
     QVERIFY(!end.hasMore);
 }
 
-// ---- KLIPY ----
 namespace {
 QByteArray klipyItem(const QByteArray &id)
 {
@@ -262,7 +244,7 @@ QByteArray klipyResponse(const QByteArray &items, bool hasNext = true)
         + "],\"current_page\":1,\"per_page\":24,\"has_next\":"
         + (hasNext ? "true" : "false") + "}}";
 }
-} // namespace
+}
 
 void GifResponseParserTest::parsesKlipyResult()
 {
@@ -274,20 +256,16 @@ void GifResponseParserTest::parsesKlipyResult()
     QCOMPARE(r.provider, QStringLiteral("klipy"));
     QCOMPARE(r.id, QStringLiteral("111"));
     QCOMPARE(r.title, QStringLiteral("a cat"));
-    // Sendable = md .gif on a klipy host.
     QCOMPARE(r.gifUrl,
              QStringLiteral("https://static.klipy.com/ii/x/md/111.gif"));
     QCOMPARE(r.gifWidth, 400);
     QCOMPARE(r.gifBytes, Q_INT64_C(1846435));
-    // Preview = smaller sm .gif.
     QCOMPARE(r.previewUrl,
              QStringLiteral("https://static.klipy.com/ii/x/sm/111.gif"));
-    // Still = jpg; mp4 captured but never a gif.
     QCOMPARE(r.stillUrl,
              QStringLiteral("https://static.klipy.com/ii/x/md/111.jpg"));
     QCOMPARE(r.mp4Url,
              QStringLiteral("https://static.klipy.com/ii/x/md/111.mp4"));
-    // No per-item rating → request rating stamped.
     QCOMPARE(r.rating, QStringLiteral("pg-13"));
 }
 
@@ -299,8 +277,7 @@ void GifResponseParserTest::klipyRejectsNonKlipyHost()
         "\"height\":10,\"size\":1}}}}";
     const auto out = gif::parseKlipy(klipyResponse(evil), Rating::R, 0);
     QVERIFY(out.ok);
-    QVERIFY(out.results.isEmpty()); // wrong CDN host dropped
-    // GIPHY host must not be accepted by the KLIPY host policy either.
+    QVERIFY(out.results.isEmpty());
     QVERIFY(gif::isSendableGifUrlForHosts(
         QStringLiteral("https://static.klipy.com/x.gif"),
         { QStringLiteral(".klipy.com") }));
@@ -346,7 +323,6 @@ void GifResponseParserTest::resultsCarryProviderIdentity()
     QCOMPARE(k.results.first().provider, QStringLiteral("klipy"));
 }
 
-
 void GifResponseParserTest::tileUrlsMustBeOnProviderHosts()
 {
     // Picker tiles load stillUrl/previewUrl through Qt's image loader,
@@ -361,11 +337,9 @@ void GifResponseParserTest::tileUrlsMustBeOnProviderHosts()
     QCOMPARE(out.results.size(), 1);
     QVERIFY2(out.results.first().stillUrl.isEmpty(),
              qPrintable(out.results.first().stillUrl));
-    // The animated preview goes through the sendable-gif policy already.
     QCOMPARE(out.results.first().previewUrl,
              QStringLiteral("https://media.giphy.com/media/abc/200w.gif"));
 
-    // The mp4 preview is a model role too, one field away from the same hazard.
     QByteArray mp4Item = gifItem("abc", "g");
     mp4Item.replace("https://media.giphy.com/media/abc/giphy.mp4",
                     "https://tracker.evil.example/abc.mp4");

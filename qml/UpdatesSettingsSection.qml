@@ -3,18 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings -> Updates (UPDATE-SPEC.md v1), bound to UpdateManager through
-// app.updateManager. UpdateManager is account-agnostic. `state` is its real
-// Q_ENUM (compare against UpdateManager.Idle etc., never strings);
-// lastCheckTime is a QDateTime (a JS Date). A ColumnLayout toggled by
-// visibility, never a Loader, so local state such as failureDismissed survives
-// switching categories. Trust-chain rules:
-//   - a hash/signature failure is terminal: only Retry and dismissing the
-//     banner text are offered;
-//   - Flatpak/Snap/dnf-repository installs (packageManaged) never get
-//     download/install, only a disclosure and help;
-//   - development/unknown installs never get install either;
-//   - restarting is always one explicit click, never automatic.
 ColumnLayout {
     id: root
     objectName: "updatesSettingsSection"
@@ -31,25 +19,15 @@ ColumnLayout {
     readonly property string installType: root.um ? root.um.installType : ""
     readonly property bool isDevOrUnknown:
         root.installType === "development" || root.installType === "unknown"
-    // One definition of "a check has ever run", shared by the "Last checked"
-    // row and the Idle status so they agree. Idle is also the state after a
-    // restart until a check runs, while lastCheckTime persists; an unset
-    // QDateTime arrives as Invalid Date (getTime() is NaN).
     readonly property bool everChecked:
         !!(root.um && root.um.lastCheckTime
            && !isNaN(root.um.lastCheckTime.getTime()))
 
-    // Local-only banner dismissal: hides this card's banner, never the state; a
-    // new Failed state shows it again.
     property bool failureDismissed: false
-    // Set only from UpdateManager::managedUpdateHelpRequested; nothing here
-    // constructs a command.
     property string managedHelpCommand: ""
     property string managedHelpExplanation: ""
     property bool managedHelpRevealed: false
     property bool managedHelpCopied: false
-    // installRefused can fire independently of state (managed install,
-    // development build, stale override); shown rather than dropped.
     property string installRefusedReason: ""
     Connections {
         target: root.um
@@ -78,8 +56,6 @@ ColumnLayout {
         onTriggered: root.managedHelpCopied = false
     }
 
-    // Mirrors SettingsScreen.qml's formatBytes(), duplicated by that file's
-    // convention.
     function formatBytes(n) {
         if (!n || n <= 0) return "0 B"
         if (n < 1024) return n + " B"
@@ -87,8 +63,6 @@ ColumnLayout {
         return Number(n / (1024 * 1024)).toLocaleString(Qt.locale(AppLocale.name), "f", 1) + " MB"
     }
 
-    // SettingsScreen's SettingsCard by another name, so these cards sit on the
-    // same plane (stormPanel) as every other settings page; see SettingsCard.
     component UpdateCard: Pane {
         Layout.fillWidth: true
         background: Rectangle {
@@ -102,7 +76,6 @@ ColumnLayout {
         text: qsTr("Updates")
         color: AppTheme.stormText
         font.pixelSize: AppTheme.textTitle
-        // Matches the other settings section headings.
         font.weight: AppTheme.weightBold
     }
     Label {
@@ -118,7 +91,6 @@ ColumnLayout {
                    + "before it is ever installed.")
     }
 
-    // This installation
     UpdateCard {
         ColumnLayout {
             width: parent.width
@@ -150,7 +122,6 @@ ColumnLayout {
         }
     }
 
-    // Automatic checks
     UpdateCard {
         ColumnLayout {
             width: parent.width
@@ -205,8 +176,6 @@ ColumnLayout {
             }
             Label {
                 objectName: "updateLastCheckedLabel"
-                // An unset lastCheckTime is Invalid Date; same idiom as the
-                // Sessions "last seen" row.
                 visible: root.everChecked
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
@@ -246,7 +215,6 @@ ColumnLayout {
         }
     }
 
-    // Status
     UpdateCard {
         objectName: "updateStatusCard"
         ColumnLayout {
@@ -260,14 +228,8 @@ ColumnLayout {
                 font.weight: AppTheme.weightStrong
             }
 
-            // Non-error diagnostic context ("not downgrading", "prerelease
-            // ignored", "not yet published by your package manager"); never a
-            // substitute for errorMessage.
             Label {
                 objectName: "updateStatusDetailLabel"
-                // startInstall() copies its handoff summary into statusDetail,
-                // and the restart block binds that summary, so hide it here in
-                // RestartRequired.
                 visible: root.um && root.um.statusDetail
                          && root.um.statusDetail.length > 0
                          && root.um.statusDetail !== root.um.handoffSummary
@@ -277,14 +239,10 @@ ColumnLayout {
                 lineHeightMode: Text.ProportionalHeight
                 color: AppTheme.stormTextMuted
                 font.pixelSize: AppTheme.textMeta
-                // statusDetail can carry a channel note from the signed
-                // manifest: remote text, never markup.
                 textFormat: Text.PlainText
                 text: root.um ? root.um.statusDetail : ""
             }
 
-            // A policy refusal can happen even when this pane hides the
-            // triggering button; shown and dismissible.
             RowLayout {
                 objectName: "updateInstallRefusedBlock"
                 visible: root.installRefusedReason.length > 0
@@ -345,7 +303,6 @@ ColumnLayout {
                 text: qsTr("Lightning is up to date.")
             }
 
-            // Update available
             ColumnLayout {
                 id: availableBlock
                 objectName: "updateAvailableBlock"
@@ -384,8 +341,6 @@ ColumnLayout {
                           .arg(root.um ? root.um.installTypeLabel : "")
                 }
 
-                // Package-managed (Flatpak/Snap/dnf): no download/install, only the
-                // disclosure and a help action.
                 ColumnLayout {
                     objectName: "updateManagedBlock"
                     visible: root.packageManaged
@@ -415,8 +370,6 @@ ColumnLayout {
                         text: qsTr("Get update instructions")
                         onClicked: if (root.um) root.um.openManagedUpdateHelp()
                     }
-                    // The exact command and explanation from
-                    // managedUpdateHelpRequested.
                     ColumnLayout {
                         objectName: "updateManagedCommandBlock"
                         visible: root.managedHelpRevealed
@@ -455,7 +408,6 @@ ColumnLayout {
                     }
                 }
 
-                // Self-updating installs only.
                 RowLayout {
                     objectName: "updateActionsRow"
                     visible: !root.packageManaged && root.canInstallAutomatically
@@ -477,7 +429,6 @@ ColumnLayout {
                 }
             }
 
-            // Downloading
             ColumnLayout {
                 objectName: "updateDownloadingBlock"
                 visible: root.um && root.um.state === UpdateManager.Downloading
@@ -511,7 +462,6 @@ ColumnLayout {
                 }
             }
 
-            // Verifying (indeterminate)
             RowLayout {
                 objectName: "updateVerifyingBlock"
                 visible: root.um && root.um.state === UpdateManager.Verifying
@@ -566,7 +516,6 @@ ColumnLayout {
                 }
             }
 
-            // Installing (indeterminate)
             RowLayout {
                 objectName: "updateInstallingBlock"
                 visible: root.um && root.um.state === UpdateManager.Installing
@@ -581,11 +530,6 @@ ColumnLayout {
                 }
             }
 
-            // Restart required: informational only. Both install calls guard on
-            // ReadyToInstall, so a "Restart now" button here would do nothing.
-            // After "Install and restart" the app is already quitting; after
-            // "Install without restarting" the update applies on the user's
-            // next quit.
             ColumnLayout {
                 objectName: "updateRestartRequiredBlock"
                 visible: root.um && root.um.state === UpdateManager.RestartRequired
@@ -598,9 +542,6 @@ ColumnLayout {
                     lineHeightMode: Text.ProportionalHeight
                     color: AppTheme.stormText
                     font.weight: AppTheme.weightStrong
-                    // Not "is installed": the verified artifact has been handed
-                    // to the updater helper, which waits for Lightning to exit,
-                    // so the install can still fail.
                     text: qsTr("Lightning %1 is ready to install.")
                           .arg(root.um ? root.um.latestVersion : "")
                 }
@@ -611,16 +552,10 @@ ColumnLayout {
                     lineHeightMode: Text.ProportionalHeight
                     color: AppTheme.stormTextMuted
                     font.pixelSize: AppTheme.textMeta
-                    // The manager words this per entry point; bind rather than
-                    // restate it.
                     text: root.um ? root.um.handoffSummary : ""
                 }
             }
 
-            // Outcome of the previous run's update. The helper works after
-            // Lightning exits, so its result (e.g. installer-exit-100,
-            // layout-invalid, rollback-failed) can only be shown on the next
-            // start. Shown once, then dismissed.
             ColumnLayout {
                 objectName: "updateLastResultBlock"
                 visible: root.um
@@ -633,16 +568,10 @@ ColumnLayout {
                     wrapMode: Text.WordWrap
                     lineHeight: AppTheme.lineHeightBody
                     lineHeightMode: Text.ProportionalHeight
-                    // lastUpdateError comes from a file on disk: plain text
-                    // only.
                     textFormat: Text.PlainText
                     color: root.um
                            && root.um.lastUpdateResult === UpdateManager.InstallFailed
                            ? AppTheme.stormDanger : AppTheme.stormText
-                    // lastUpdateError is a short sanitized token from the
-                    // helper's enum (never a path, command or process output).
-                    // Lead with an explanatory sentence; the token follows on
-                    // its own line for bug reports.
                     text: {
                         if (!root.um)
                             return ""
@@ -678,8 +607,6 @@ ColumnLayout {
                 }
             }
 
-            // After "Dismiss" the failure block is gone; say so rather than
-            // leave a heading over nothing.
             Label {
                 objectName: "updateFailureDismissedNote"
                 visible: root.um && root.um.state === UpdateManager.Failed
@@ -691,7 +618,6 @@ ColumnLayout {
                 text: qsTr("The last check failed. Use Check for updates to try again.")
             }
 
-            // Failed: terminal, no bypass of any kind
             ColumnLayout {
                 objectName: "updateFailedBlock"
                 visible: root.um && root.um.state === UpdateManager.Failed
@@ -706,8 +632,6 @@ ColumnLayout {
                     lineHeightMode: Text.ProportionalHeight
                     color: AppTheme.stormDanger
                     font.weight: AppTheme.weightStrong
-                    // Error text embeds manifest-derived detail; plain text
-                    // only.
                     textFormat: Text.PlainText
                     text: root.um ? root.um.errorMessage : ""
                 }

@@ -3,19 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// "An update is available" corner card, shaped like VerifySessionPrompt and
-// sharing its bottom-right column in Main.qml. "Update" opens the one update
-// dialog (release notes, size, per-package rules; package-managed installs
-// cannot update in place) rather than installing. "Not now" is a persisted
-// dismissal for this version; a later release asks again and the rail badge
-// stays.
 Rectangle {
     id: root
 
-    // One-shot suppression so the card does not flash back behind its dialog.
     property bool suppressed: false
 
-    // Emitted on Update; Main.qml opens UpdateAvailableDialog.
     signal detailsRequested()
 
     readonly property var um: app.updateManager
@@ -23,7 +15,6 @@ Rectangle {
     readonly property bool shouldShow:
         um && um.updateAvailableWarning
         && !suppressed
-        // Chat shell only: in Settings the Updates page is at hand.
         && app.currentScreen === 1
 
     // Re-arm for a different version, so dismissing one never silences the
@@ -41,7 +32,6 @@ Rectangle {
     width: implicitWidth
 
     color: AppTheme.stormPanel
-    // radiusLg, like the corner-card siblings in the same column.
     radius: AppTheme.radiusLg
     border.width: 1
     border.color: AppTheme.stormBorder
@@ -57,8 +47,6 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
-            // Warning-toned, not danger: a pending update is not a security
-            // failure. The same Icon + bold title vocabulary as its siblings.
             Icon {
                 Layout.alignment: Qt.AlignVCenter
                 name: "download"

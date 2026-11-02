@@ -99,7 +99,7 @@ double contrast(const QColor &a, const QColor &b)
     return (std::max(x, y) + 0.05) / (std::min(x, y) + 0.05);
 }
 
-} // namespace
+}
 
 class ActivitySettingsQmlTest : public QObject
 {
@@ -110,7 +110,7 @@ class ActivitySettingsQmlTest : public QObject
     QQmlEngine *m_engine = nullptr;
     QObject *m_root = nullptr;
     QQuickWindow *m_window = nullptr;
-    QStringList m_warnings;   // every QML warning since the last init()
+    QStringList m_warnings;
 
     static void collect(QQuickItem *parent, const QString &name,
                         QList<QQuickItem *> &out)
@@ -134,7 +134,6 @@ class ActivitySettingsQmlTest : public QObject
         const auto l = all(name);
         return l.isEmpty() ? nullptr : l.first();
     }
-    // The ListEditor named `list` (hide or custom) and a child of it.
     QQuickItem *inList(const char *list, const char *name) const
     {
         QQuickItem *ed = one(list);
@@ -159,7 +158,6 @@ class ActivitySettingsQmlTest : public QObject
     }
     int shortcuts() const { return m_root->property("escapeShortcuts").toInt(); }
     QStringList hidden() const { return m_controller->settings()->gameActivityHidden(); }
-    // The ListEditor that owns the active-focus item, by objectName.
     QString focusedEditor() const
     {
         for (QQuickItem *it = m_window->activeFocusItem(); it; it = it->parentItem())
@@ -216,15 +214,11 @@ private Q_SLOTS:
         QTest::qWait(30);
     }
 
-    // A load-time or handler error in the component is a failure of the case
-    // that provoked it, not a log line.
     void cleanup()
     {
         QVERIFY2(m_warnings.isEmpty(), qPrintable(m_warnings.join(QLatin1Char('\n'))));
     }
 
-    // The real SettingsScreen must keep the unconditional Escape Shortcut this
-    // fixture mirrors, or the Escape case below stops meaning anything.
     void theFixtureMirrorsSettingsScreensEscapeShortcut()
     {
         QFile f(QStringLiteral("qml/SettingsScreen.qml"));
@@ -248,9 +242,8 @@ private Q_SLOTS:
         QTest::keyClick(m_window, Qt::Key_Escape);
         QTest::qWait(30);
         QCOMPARE(field->property("text").toString(), QString());
-        QCOMPARE(shortcuts(), before);   // Settings did NOT close over the draft
+        QCOMPARE(shortcuts(), before);
 
-        // With nothing to cancel, Escape is the shortcut's again.
         QTest::keyClick(m_window, Qt::Key_Escape);
         QTest::qWait(30);
         QCOMPARE(shortcuts(), before + 1);
@@ -272,15 +265,14 @@ private Q_SLOTS:
     {
         m_controller->settings()->setGameActivityHidden(L({ "a", "b", "c", "d" }));
         QTRY_COMPARE(removeButtons().size(), 4);
-        QTest::qWait(60);   // the layout positions the new rows after they exist
+        QTest::qWait(60);
         const QPoint first = centreOf(removeButtons().first());
         QTest::mouseClick(m_window, Qt::LeftButton, {}, first);
         QTest::qWait(5);
-        QTest::mouseClick(m_window, Qt::LeftButton, {}, first);   // same spot, reflowed
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, first);
         QTest::qWait(30);
         QCOMPARE(hidden(), L({ "b", "c", "d" }));
 
-        // A second deliberate click after the double-click interval is NOT eaten.
         QTest::qWait(QGuiApplication::styleHints()->mouseDoubleClickInterval() + 100);
         QTest::mouseClick(m_window, Qt::LeftButton, {}, centreOf(removeButtons().first()));
         QTRY_COMPARE(hidden(), L({ "c", "d" }));
@@ -295,12 +287,10 @@ private Q_SLOTS:
         QTest::qWait(20);
         QTest::keyClick(m_window, Qt::Key_Space);
         QTRY_COMPARE(hidden(), L({ "b", "c" }));
-        // Focus went to the same editor's field, not to nothing.
         QTRY_COMPARE(focusedEditor(), QStringLiteral("gameActivityHideList"));
         QVERIFY(m_window->activeFocusItem()
                 && m_window->activeFocusItem()->objectName()
                        == QLatin1String("listEntryField"));
-        // A second keyboard removal straight away still works.
         removeButtons().first()->forceActiveFocus(Qt::TabFocusReason);
         QTest::keyClick(m_window, Qt::Key_Space);
         QTRY_COMPARE(hidden(), L({ "c" }));
@@ -317,14 +307,12 @@ private Q_SLOTS:
             collect(cb, QStringLiteral("activityCheckFocusRing"), rings);
             QCOMPARE(rings.size(), 1);
             QQuickItem *ring = rings.first();
-            // forceActiveFocus on an item that already has the focus changes
-            // nothing, so move the focus away before each reason.
             elsewhere->forceActiveFocus();
             QTest::qWait(20);
             cb->forceActiveFocus(Qt::MouseFocusReason);
             QTest::qWait(20);
             QVERIFY2(cb->hasActiveFocus(), box);
-            QVERIFY2(!ring->isVisible(), box);   // a mouse focus draws no ring
+            QVERIFY2(!ring->isVisible(), box);
             elsewhere->forceActiveFocus();
             QTest::qWait(20);
             cb->forceActiveFocus(Qt::TabFocusReason);
@@ -348,9 +336,6 @@ private Q_SLOTS:
             const QColor ring(m.value("ring").toString());
             const QColor page(m.value("page").toString());
             QVERIFY(ring.isValid() && page.isValid());
-            // bolt (what the text fields draw in Settings) and focusRing
-            // (what AppComboBox draws outside Storm) are one colour on every
-            // palette, so the ring token cannot differ from either.
             QCOMPARE(QColor(m.value("focusRing").toString()).name(),
                      ring.name());
             pages.insert(page.name());
@@ -360,12 +345,7 @@ private Q_SLOTS:
                 worstAt = QString::number(m.value("mode").toInt());
             }
         }
-        // The count of what actually varied, not of loop iterations.
         QVERIFY2(pages.size() >= 10, qPrintable(QString::number(pages.size())));
-        // WCAG 1.4.11 asks 3:1. Indigo Night (theme 9) is 2.86:1 for EVERY
-        // control that draws its focus in the accent, text fields included:
-        // a palette decision recorded in the fixer notes, so the floor sits
-        // just under it and any other palette (or a worse one) fails here.
         QVERIFY2(worst >= 2.8,
                  qPrintable(QStringLiteral("worst ring contrast %1 at theme %2")
                                 .arg(worst).arg(worstAt)));

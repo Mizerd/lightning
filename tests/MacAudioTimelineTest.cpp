@@ -10,8 +10,6 @@ private slots:
     {
         CaptureTimeline timeline;
         const qint64 epoch = 10'000'000'000;
-        // A scheduler stall followed by a burst of callbacks. Arrival times
-        // stay increasing while capture spacing stays exactly 512 samples.
         const qint64 delays[] = {10'000'000, 60'000'000, 50'000'000, 40'000'000};
         for (int i = 0; i < 4; ++i) {
             const qint64 captured = epoch + qint64(i) * 512 * 1'000'000'000 / 48000;

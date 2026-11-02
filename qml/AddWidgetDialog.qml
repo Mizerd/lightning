@@ -3,21 +3,12 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Adding a widget to a room (see docs/widgets.md). Writes the same
-// `im.vector.modular.widgets` state event every client lists; Lightning
-// opens widgets in the browser and never embeds them. It offers kinds of
-// widget at addresses the user already has, not a catalogue: an
-// integration manager would itself have to be embedded.
 Dialog {
     id: root
     objectName: "addWidgetDialog"
 
-    // `app` is absent when a suite loads the module without the application
-    // context; null keeps the bindings below quiet.
     readonly property var widgets: typeof app !== "undefined" ? app.widgets : null
 
-    // MSC1236 types every widget-listing client understands: the event type, a
-    // label and an address hint, ordered by how often they're added.
     readonly property var kinds: [
         { type: "m.custom",   label: qsTr("Web page"),
           hint: qsTr("Any https page — a dashboard, a document, a board.") },
@@ -54,25 +45,17 @@ Dialog {
     padding: AppTheme.spacing16
 
     onClosed: {
-        // Deferred: Popup runs its own focus restore around onClosed and
-        // must not be the last writer. The item is re-read when the call
-        // runs, so an opener destroyed meanwhile (a delegate whose model
-        // reset) is simply skipped and focus falls back as before.
         Qt.callLater(function() {
             if (root.returnFocusItem && root.returnFocusItem.visible)
                 root.returnFocusItem.forceActiveFocus(Qt.PopupFocusReason)
         })
     }
 
-    /// Same action as the Add button, so Return in a field cannot bypass the
-    /// button's own enabled conditions.
     function submit() {
         if (!(root.urlOk && root.widgets && root.widgets.canManage
               && !root.widgets.writing))
             return
         root.errorText = ""
-        // An empty name would list the widget by its type ("m.custom"), so
-        // use the kind's label, which the placeholder showed.
         const kind = root.kinds[kindBox.currentIndex]
         const name = nameField.text.trim().length > 0
                    ? nameField.text.trim() : kind.label
@@ -116,8 +99,6 @@ Dialog {
         contentHeight: bodyColumn.implicitHeight
         implicitHeight: bodyColumn.implicitHeight
         boundsBehavior: Flickable.StopAtBounds
-        // Scrolls in a window too short for the dialog (a quarter of a
-        // screen), so the buttons at the end stay reachable.
         ScrollBar.vertical: AppScrollBar {}
         ColumnLayout {
             id: bodyColumn
@@ -196,8 +177,6 @@ Dialog {
             wrapMode: Text.WordWrap
             color: AppTheme.textMuted
             font.pixelSize: AppTheme.textMeta
-            // It's public to the room and opens in a browser, as the Widgets
-            // tab says about every widget.
             text: qsTr("Everyone in the room will see this widget. Lightning "
                        + "opens widgets in your browser, so the page never "
                        + "reaches your account, keys or messages.")

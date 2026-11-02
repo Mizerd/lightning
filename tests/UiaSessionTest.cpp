@@ -1,21 +1,3 @@
-// Reusable User-Interactive Authentication + device sign-out: UiaController
-// policy against MockMatrixClient's UIA surface. Pins:
-//   * a no-challenge sign-out completes end-to-end (busy flips, the exact
-//     device ids reach the backend, signOutFinished reports ok);
-//   * the current device is refused: signing out this session is the normal
-//     logout flow, never a device deletion;
-//   * a UIA challenge opens the password prompt, a wrong password reopens it
-//     with retry offered, cancel closes it and a stale answer is refused;
-//   * terminal failure categories surface as their messages;
-//   * the OAuth management-URL path hands over exactly the scripted URL, and
-//     an undeterminable URL is a reported failure;
-//   * sign-out / account switch mid-challenge clears the challenge.
-//
-// The password passes through submitPassword() transiently and is never
-// retained (see passwordIsNeverRetainedInControllerState()).
-//
-// Policy and wiring only: real /delete_devices round trips and MAS/OAuth
-// consoles are not exercised here.
 
 #include "app/UiaController.h"
 #include "matrix/MockMatrixClient.h"
@@ -30,20 +12,16 @@ constexpr int kSignalTimeoutMs = 2000;
 
 const QString kCurrentDevice = QStringLiteral("DEV1");
 const QString kOtherDevice = QStringLiteral("DEV2");
-// Deliberately does not contain the substring "password": the stages list
-// legitimately carries "m.login.password", and the non-retention scan must
-// not trip on it.
 const QString kGoodSecret = QStringLiteral("correct-uia-answer");
 const QString kWrongSecret = QStringLiteral("wrong-uia-answer");
 
-} // namespace
+}
 
 class UiaSessionTest : public QObject
 {
     Q_OBJECT
 
 private:
-    // Drive the controller into an active password challenge.
     static bool raiseChallenge(UiaController &ctl, MockMatrixClient &client)
     {
         client.mockUiaRequired = true;
@@ -64,14 +42,13 @@ private Q_SLOTS:
 
         QSignalSpy finished(&ctl, &UiaController::signOutFinished);
         ctl.signOutDevices({ kOtherDevice }, kCurrentDevice);
-        // The operation is in flight until the backend answers.
         QVERIFY(ctl.busy());
         QCOMPARE(client.lastDeletedDevices, QStringList{ kOtherDevice });
 
         QVERIFY(finished.wait(kSignalTimeoutMs));
         QCOMPARE(finished.size(), 1);
-        QVERIFY(finished.at(0).at(0).toBool());              // ok
-        QVERIFY(!finished.at(0).at(1).toString().isEmpty()); // message
+        QVERIFY(finished.at(0).at(0).toBool());
+        QVERIFY(!finished.at(0).at(1).toString().isEmpty());
         QVERIFY(!ctl.busy());
         QVERIFY(!ctl.challengeActive());
     }
@@ -83,9 +60,6 @@ private Q_SLOTS:
         ctl.setClient(&client);
 
         QSignalSpy finished(&ctl, &UiaController::signOutFinished);
-        // The current device (and duplicates/empties of it) filter to an
-        // empty list, and an empty list dispatches NOTHING — signing out
-        // this session belongs to the logout flow with its store cleanup.
         ctl.signOutDevices({ kCurrentDevice, kCurrentDevice, QString() },
                            kCurrentDevice);
         QVERIFY(!ctl.busy());
@@ -108,12 +82,10 @@ private Q_SLOTS:
 
         QSignalSpy finished(&ctl, &UiaController::signOutFinished);
         ctl.submitPassword(kGoodSecret);
-        // The challenge closes optimistically; a fresh uiaRequired would
-        // reopen it on rejection.
         QVERIFY(!ctl.challengeActive());
         QVERIFY(finished.wait(kSignalTimeoutMs));
         QCOMPARE(finished.size(), 1);
-        QVERIFY(finished.at(0).at(0).toBool()); // ok
+        QVERIFY(finished.at(0).at(0).toBool());
         QVERIFY(!ctl.busy());
     }
 
@@ -126,8 +98,6 @@ private Q_SLOTS:
 
         QSignalSpy finished(&ctl, &UiaController::signOutFinished);
         ctl.submitPassword(kWrongSecret);
-        // Rejected: the challenge reopens with retry offered — the
-        // operation is NOT terminally failed.
         QTRY_VERIFY_WITH_TIMEOUT(ctl.challengeActive(), kSignalTimeoutMs);
         QVERIFY(ctl.wrongPassword());
         QVERIFY(ctl.passwordStage());
@@ -136,7 +106,7 @@ private Q_SLOTS:
         ctl.submitPassword(kGoodSecret);
         QVERIFY(finished.wait(kSignalTimeoutMs));
         QCOMPARE(finished.size(), 1);
-        QVERIFY(finished.at(0).at(0).toBool()); // ok
+        QVERIFY(finished.at(0).at(0).toBool());
         QVERIFY(!ctl.wrongPassword());
     }
 
@@ -152,14 +122,11 @@ private Q_SLOTS:
         QVERIFY(!ctl.challengeActive());
         QVERIFY(!ctl.busy());
         QCOMPARE(finished.size(), 1);
-        QVERIFY(!finished.at(0).at(0).toBool()); // ok == false
+        QVERIFY(!finished.at(0).at(0).toBool());
         QVERIFY(finished.at(0).at(1).toString().contains(
             QStringLiteral("cancelled")));
-        // The backend's pending challenge is gone too, so a late answer
-        // has nothing to attach to.
         QCOMPARE(client.lastDeleteOp, quint64(0));
 
-        // A later submit is refused outright: no new signal, no new state.
         ctl.submitPassword(kGoodSecret);
         QTest::qWait(80);
         QCOMPARE(finished.size(), 1);
@@ -178,9 +145,7 @@ private Q_SLOTS:
         ctl.signOutDevices({ kOtherDevice }, kCurrentDevice);
         QVERIFY(finished.wait(kSignalTimeoutMs));
         QCOMPARE(finished.size(), 1);
-        QVERIFY(!finished.at(0).at(0).toBool()); // ok == false
-        // The device is already gone — the message says so, rather than a
-        // generic error.
+        QVERIFY(!finished.at(0).at(0).toBool());
         QCOMPARE(finished.at(0).at(1).toString(),
                  QStringLiteral("That session no longer exists."));
         QVERIFY(!ctl.busy());
@@ -203,15 +168,14 @@ private Q_SLOTS:
                  QStringLiteral("https://account.example.org/sessions"));
         QVERIFY(!ctl.busy());
 
-        // An undeterminable URL is a reported failure, never silence.
         client.mockManagementUrl.clear();
         QSignalSpy finished(&ctl, &UiaController::signOutFinished);
         ctl.requestManagementUrl(QString());
         QVERIFY(finished.wait(kSignalTimeoutMs));
         QCOMPARE(finished.size(), 1);
-        QVERIFY(!finished.at(0).at(0).toBool()); // ok == false
+        QVERIFY(!finished.at(0).at(0).toBool());
         QVERIFY(!finished.at(0).at(1).toString().isEmpty());
-        QCOMPARE(ready.size(), 1); // no phantom URL alongside the failure
+        QCOMPARE(ready.size(), 1);
     }
 
     void loggedOutMidChallengeClearsIt()
@@ -221,8 +185,6 @@ private Q_SLOTS:
         ctl.setClient(&client);
         QVERIFY(raiseChallenge(ctl, client));
 
-        // A signed-out (or switched) session must never keep a challenge
-        // that a later account could answer.
         client.logout();
         QVERIFY(!ctl.challengeActive());
         QVERIFY(!ctl.passwordStage());
@@ -241,9 +203,6 @@ private Q_SLOTS:
         ctl.submitPassword(kGoodSecret);
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kSignalTimeoutMs);
 
-        // The controller exposes no property that could carry the password
-        // (its state is booleans and stage names). Retention below this
-        // boundary is not observable here; this pins the QML-facing surface.
         const QMetaObject *mo = ctl.metaObject();
         for (int i = 0; i < mo->propertyCount(); ++i) {
             const QMetaProperty prop = mo->property(i);

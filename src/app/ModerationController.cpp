@@ -16,7 +16,7 @@ void ModerationController::setClient(MatrixClient *client)
     if (m_client)
         m_client->disconnect(this);
     m_client = client;
-    onLoggedOut(); // reset all cached state for the new client
+    onLoggedOut();
     if (m_client) {
         connect(m_client, &MatrixClient::ignoreUserFinished, this,
                 &ModerationController::onIgnoreFinished);
@@ -139,7 +139,6 @@ void ModerationController::onIgnoreFinished(quint64 opId,
         return;
     m_ignoreOp = 0;
     if (ok) {
-        // Reflect now; the sync push follows and confirms it.
         if (ignored) {
             if (!m_ignored.contains(userId)) {
                 m_ignored.insert(userId);
@@ -176,7 +175,7 @@ void ModerationController::onIgnoredUsersReceived(quint64 opId, bool ok,
         return;
     m_listOp = 0;
     if (!ok)
-        return; // keep the last known list; sync pushes will correct it
+        return;
     applyIgnoredList(users);
 }
 
@@ -207,7 +206,6 @@ void ModerationController::onReportFinished(quint64 opId, const QString &,
 
 void ModerationController::onInitialSyncDoneChanged()
 {
-    // Read once per session; notifications and menus need the set early.
     if (m_client && m_client->initialSyncDone() && !m_initialListLoaded) {
         m_initialListLoaded = true;
         refreshIgnoredUsers();

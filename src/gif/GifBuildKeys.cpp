@@ -34,4 +34,4 @@ QString resolveProviderKey(const QString &runtimeOverride,
     return buildKey.trimmed();
 }
 
-} // namespace gif
+}

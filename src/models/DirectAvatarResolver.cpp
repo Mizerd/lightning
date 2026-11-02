@@ -25,8 +25,6 @@ void DirectAvatarResolver::setClient(MatrixClient *client)
             &DirectAvatarResolver::onUserProfileFinished);
     connect(m_client, &MatrixClient::directPeerAvatarChanged, this,
             &DirectAvatarResolver::applyPeerAvatar);
-    // The avatar cache is account-scoped: drop it on sign-out and account
-    // switch (same signal). Owners clearing it too is harmless.
     connect(m_client, &MatrixClient::loggedOut, this,
             &DirectAvatarResolver::clear);
     // A destroyed client must leave null here, not a dangling pointer; nothing
@@ -61,9 +59,6 @@ QString DirectAvatarResolver::directPeer(const RoomInfo &room) const
     if (!room.isDirect || room.directUserId.isEmpty())
         return {};
 
-    // The Rust backend does not populate the member snapshot (fetched on demand
-    // for Room Information only) but reports the m.direct targets, which is
-    // exactly the 1:1 signal needed. Mock/HTTP derive it from `members`.
     if (!room.directUserIds.isEmpty()) {
         if (room.directUserIds.size() > 1)
             return {};
@@ -91,8 +86,6 @@ QString DirectAvatarResolver::avatarFor(const RoomInfo &room) const
     const QString peer = directPeer(room);
     if (peer.isEmpty())
         return {};
-    // The peer's own member event in this room, as of the last sync: newer
-    // than a roster snapshot or a profile asked once, and it may say "none".
     if (hasPeerFace(room.id, peer))
         return m_peerFaces.value(room.id).avatarUrl;
 
@@ -112,8 +105,6 @@ void DirectAvatarResolver::resolveMissing(const QList<RoomInfo> &rooms)
     if (!m_client)
         return;
     const qint64 now = nowMs();
-    // Peers never asked go out at once; peers whose answer went stale are
-    // collected and only the oldest few are refreshed per pass.
     QList<QPair<qint64, QString>> stale;
     QSet<QString> seen;
     for (const RoomInfo &room : rooms) {
@@ -157,9 +148,6 @@ void DirectAvatarResolver::applyPeerAvatar(const QString &roomId,
 {
     if (roomId.isEmpty() || userId.isEmpty())
         return;
-    // A repeat of the face already recorded is silent. The first one for a
-    // room is announced even when it matches the profile: the row may be
-    // showing an older roster snapshot, which this now overrides.
     if (hasPeerFace(roomId, userId)
         && m_peerFaces.value(roomId).avatarUrl == avatarUrl)
         return;
@@ -175,26 +163,16 @@ void DirectAvatarResolver::onUserProfileFinished(quint64 opId, bool ok,
 {
     Q_UNUSED(displayName);
     Q_UNUSED(category);
-    // Release the pending marker under both the requested and the reported id:
-    // SDK normalisation can make them differ, and a stuck marker means the peer
-    // is never fetched again.
     const QString requestedUser = m_ops.take(opId);
     if (!requestedUser.isEmpty())
         m_pending.remove(requestedUser);
     if (!userId.isEmpty())
         m_pending.remove(userId);
 
-    // Cache under the SDK's authoritative id, and accept answers to ops we did
-    // not start: every consumer shares this signal (e.g. a self-DM adopts the
-    // account's own avatar fetched for the switcher). File under the SDK's id,
-    // else the requested one; an answer naming neither is dropped, and our own
-    // op must still be remembered so the next rebuild does not ask again.
     const QString subject = userId.isEmpty() ? requestedUser : userId;
     if (subject.isEmpty())
         return;
-    // Only an answer to a lookup this resolver issued starts the refresh clock.
     if (!requestedUser.isEmpty()) {
-        // Interval plus up to two thirds of it, per peer (15-25 min by default).
         const qint64 jitter = m_refreshMs > 0
             ? qint64(QRandomGenerator::global()->bounded(
                   quint32(std::max<qint64>(1, m_refreshMs * 2 / 3))))
@@ -204,12 +182,9 @@ void DirectAvatarResolver::onUserProfileFinished(quint64 opId, bool ok,
         m_refreshDueAt.insert(subject, due);
     }
     if (ok && !avatarUrl.isEmpty()) {
-        // A refresh that returns the face already held is silent.
         const bool changed = m_avatars.value(subject) != avatarUrl
             || (!requestedUser.isEmpty()
                 && m_avatars.value(requestedUser) != avatarUrl);
-        // Filed under both ids: owners look up by the room's `directUserId`,
-        // which is the id we asked with.
         m_avatars.insert(subject, avatarUrl);
         m_noAvatar.remove(subject);
         if (!requestedUser.isEmpty() && requestedUser != subject) {
@@ -218,21 +193,12 @@ void DirectAvatarResolver::onUserProfileFinished(quint64 opId, bool ok,
             if (changed)
                 Q_EMIT avatarResolved(requestedUser);
         }
-        // Announce only a learned or CHANGED face. Announcing every answer let
-        // owners rebuild, re-enter resolveMissing() and ask again forever.
         if (changed)
             Q_EMIT avatarResolved(subject);
         return;
     }
 
-    // `ok` with no avatar URL is a fact about the user and is remembered
-    // whoever asked. A failure is a fact about one request: record only our own
-    // (so we do not retry every rebuild), never another consumer's, or an
-    // unrelated bad round trip would pin a DM to initials for the session.
-    // avatarFor() checks the member snapshot first, so a face from a member
-    // event still wins.
     if (ok) {
-        // The peer removed their picture: forget the old one and say so.
         const bool hadFace = m_avatars.contains(subject)
             || (!requestedUser.isEmpty() && m_avatars.contains(requestedUser));
         m_avatars.remove(subject);

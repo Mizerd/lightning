@@ -4,16 +4,12 @@
 #include "gif/GifKeyConfig.h"
 #include "gif/GifTransport.h"
 
-// Initializer order matches member declaration order (m_provider last), as
-// the compiler runs it and -Wreorder checks.
 GifSearchController::GifSearchController(QObject *parent)
     : QObject(parent)
     , m_settings(std::make_unique<QSettings>())
     , m_favorites(std::make_unique<GifFavoritesModel>(m_settings.get(), this))
     , m_recent(std::make_unique<GifRecentModel>(m_settings.get(), this))
     , m_starred(std::make_unique<GifStarredStore>(this))
-    // A view over both saved collections, built after both exist (see
-    // GifSavedModel).
     , m_saved(std::make_unique<GifSavedModel>(m_starred->model(),
                                               m_favorites.get(), this))
     , m_previews(std::make_unique<GifPreviewCache>(this))
@@ -24,7 +20,6 @@ GifSearchController::GifSearchController(QObject *parent)
     // picker opens.
     refreshProviderKeys();
 
-    // The grid's star follows live favorite state; a toggle refreshes one tile.
     m_results.setFavoriteResolver(
         [this](const QString &provider, const QString &id) {
             return m_favorites->isFavorite(provider, id);
@@ -66,7 +61,6 @@ void GifSearchController::refreshProviderKeys()
     bool changed = false;
     for (const QString &id :
          { QStringLiteral("giphy"), QStringLiteral("klipy") }) {
-        // The test seam owns any explicitly injected key.
         if (m_apiKeyOverrides.contains(id))
             continue;
         const QString resolved = gif::resolveProviderKeyDetailed(id).key;
@@ -92,7 +86,6 @@ void GifSearchController::setApiKey(const QString &providerId, const QString &ke
 bool GifSearchController::available() const
 {
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    // A seeded demo catalogue is the result set; there is no transport to ask.
     if (m_demoCatalogue)
         return true;
 #endif
@@ -107,7 +100,6 @@ QString GifSearchController::apiKeyFor(const QString &providerId) const
 bool GifSearchController::providerConfigured(const QString &providerId) const
 {
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    // Demo mode: both provider tabs are browsable without keys or requests.
     if (m_demoCatalogue)
         return gif::knownGifProviderIds().contains(providerId);
 #endif
@@ -149,7 +141,6 @@ void GifSearchController::setRating(int rating)
         return;
     m_rating = r;
     Q_EMIT ratingChanged();
-    // Safe-search change re-runs the current view from the top.
     if (m_mode == Search && !m_query.isEmpty())
         searchNow(m_query);
     else if (m_mode == Category && !m_query.isEmpty())
@@ -164,14 +155,13 @@ void GifSearchController::setActiveProvider(const QString &providerId)
         || !gif::knownGifProviderIds().contains(providerId))
         return;
     m_debounce.stop();
-    m_activeOp = 0;              // drop any in-flight result
+    m_activeOp = 0;
     m_activeProviderId = providerId;
     m_provider = gif::makeGifProvider(providerId);
     m_page = 0;
     m_hasMore = false;
     m_results.clear();
     Q_EMIT providerChanged();
-    // Re-run the current mode on the new provider (pagination reset above).
     if (m_mode == Search && !m_query.isEmpty())
         searchNow(m_query);
     else if (m_mode == Category && !m_query.isEmpty())
@@ -192,7 +182,6 @@ void GifSearchController::setQueryText(const QString &text)
 {
     const QString trimmed = text.trimmed();
     m_pendingQuery = trimmed;
-    // Empty query → back to trending immediately (no request storm).
     if (trimmed.isEmpty()) {
         m_debounce.stop();
         showTrending();
@@ -224,7 +213,6 @@ void GifSearchController::openCategory(const QString &term)
     setMode(Category);
     m_query = trimmed;
     Q_EMIT queryChanged();
-    // A category is a normal provider search under the hood.
     runRequest(false, trimmed, 0, false);
 }
 
@@ -240,8 +228,6 @@ void GifSearchController::runRequest(bool trending, const QString &query,
                                      int page, bool appending)
 {
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    // Screenshot-demo mode never issues a request; the seeded catalogue answers
-    // trending, search and category alike.
     if (m_demoCatalogue) {
         m_activeOp = 0;
         m_hasMore = false;
@@ -297,15 +283,15 @@ gif::RequestState GifSearchController::categoryToState(const QString &category) 
         || category == QLatin1String("timeout")
         || category == QLatin1String("blocked"))
         return RequestState::Offline;
-    return RequestState::ProviderError; // provider_error / too_large / malformed
+    return RequestState::ProviderError;
 }
 
-void GifSearchController::onFinished(quint64 opId, bool ok, int /*httpStatus*/,
+void GifSearchController::onFinished(quint64 opId, bool ok, int,
                                      const QByteArray &body,
                                      const QString &category)
 {
     if (opId == 0 || opId != m_activeOp)
-        return; // stale: superseded request / provider switch / reset
+        return;
     m_activeOp = 0;
 
     if (!ok) {
@@ -336,7 +322,6 @@ void GifSearchController::onFinished(quint64 opId, bool ok, int /*httpStatus*/,
 void GifSearchController::reset()
 {
     m_debounce.stop();
-    // The picker closed; fetched previews stay cached for the next open.
     m_previews->setActive(false);
     m_activeOp = 0;
     m_page = 0;
@@ -348,7 +333,6 @@ void GifSearchController::reset()
     setState(RequestState::Idle);
     Q_EMIT queryChanged();
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
-    // Called on every close; re-seed so the next open is not empty.
     if (m_demoCatalogue) {
         m_results.reset(m_demoRows);
         setState(RequestState::Ready);
@@ -365,7 +349,6 @@ void GifSearchController::seedDemoCatalogue(const QList<gif::GifResult> &rows)
     m_hasMore = false;
     setState(m_demoRows.isEmpty() ? RequestState::NoResults
                                   : RequestState::Ready);
-    // available()/providerConfigured() answer differently now.
     Q_EMIT availableChanged();
     Q_EMIT providerConfigurationChanged();
     Q_EMIT providerChanged();
@@ -374,18 +357,13 @@ void GifSearchController::seedDemoCatalogue(const QList<gif::GifResult> &rows)
 
 void GifSearchController::notifyPickerOpening(const QString &target)
 {
-    // Stateless fan-out. Listeners run synchronously (direct connection), so
-    // any sibling picker has already closed and reset before the caller
-    // continues.
     Q_EMIT pickerOpenRequested(target);
-    // After the fan-out: a sibling's reset() deactivates the cache.
     m_previews->setActive(true);
 }
 
 bool GifSearchController::toggleFavorite(const QVariantMap &resultMap)
 {
     const bool now = m_favorites->toggle(resultMap);
-    // Refresh whichever grid shows this item.
     const QString provider = resultMap.value(QStringLiteral("provider")).toString();
     const QString id = resultMap.value(QStringLiteral("gifId")).toString();
     m_results.refreshFavorite(provider, id);
@@ -400,7 +378,6 @@ void GifSearchController::recordSent(const QVariantMap &resultMap)
 void GifSearchController::setState(RequestState state)
 {
     if (m_state == state) {
-        // hasMore may have changed on a Ready -> Ready append.
         Q_EMIT stateChanged();
         return;
     }

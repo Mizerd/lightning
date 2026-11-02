@@ -1,14 +1,3 @@
-// Development-only screenshot-demo multi-account contract.
-//
-// The three fictional accounts (Alex / Taylor / Nova), their order and
-// *.example identities, account-local dataset isolation (switching swaps the
-// whole scene and keeps each account's local mutations across a round trip),
-// deterministic reset, and SecretStore isolation (an in-memory store, never a
-// production secure store, and no token stored).
-//
-// Exercised through MockMatrixClient directly and through a real
-// AppController(MockBackend, screenshotDemo=true) using beginScreenshotDemo
-// and the real switchToAccount path.
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
@@ -35,7 +24,7 @@ bool roomsContain(const QList<RoomInfo> &rooms, const QString &id)
             return true;
     return false;
 }
-} // namespace
+}
 
 class ScreenshotDemoAccountsTest : public QObject
 {
@@ -61,15 +50,12 @@ private Q_SLOTS:
         settings.sync();
     }
 
-    // ── Mock-level dataset ──────────────────────────────────────────────
-
     void mockSeedsThreeAccountsInOrder()
     {
         MockMatrixClient c;
         c.setScreenshotDemoMode(true);
         QCOMPARE(c.demoAccountUserIds(),
                  (QStringList{ kAlex, kTaylor, kNova }));
-        // The primary account (Alex) is live immediately, no login needed.
         QCOMPARE(c.activeDemoAccount(), kAlex);
         QVERIFY(roomsContain(c.rooms(),
                              QStringLiteral("!design-lounge:lightning.example")));
@@ -83,7 +69,6 @@ private Q_SLOTS:
         QCOMPARE(c.activeDemoAccount(), kTaylor);
         QVERIFY(roomsContain(c.rooms(),
                              QStringLiteral("!aurora:workplace.example")));
-        // No cross-account leakage: Alex's rooms are gone.
         QVERIFY(!roomsContain(c.rooms(),
                               QStringLiteral("!design-lounge:lightning.example")));
 
@@ -104,7 +89,6 @@ private Q_SLOTS:
         c.sendTextMessage(aurora, QStringLiteral("demo local echo"));
         QCOMPARE(c.timeline(aurora).size(), before + 1);
 
-        // Leave Taylor, come back — the sent message must still be there.
         c.activateDemoAccount(kNova);
         c.activateDemoAccount(kAlex);
         c.activateDemoAccount(kTaylor);
@@ -123,7 +107,7 @@ private Q_SLOTS:
         QCOMPARE(c.timeline(design).size(), before + 1);
         c.resetDemoData();
         QCOMPARE(c.activeDemoAccount(), kAlex);
-        QCOMPARE(c.timeline(design).size(), before);   // mutation gone
+        QCOMPARE(c.timeline(design).size(), before);
     }
 
     void eventIdsAndDomainsAreDeterministicAndSafe()
@@ -149,7 +133,7 @@ private Q_SLOTS:
                 const auto tb = b.timeline(r.id);
                 QCOMPARE(ta.size(), tb.size());
                 for (int i = 0; i < ta.size(); ++i) {
-                    QCOMPARE(ta[i].eventId, tb[i].eventId);   // stable ids
+                    QCOMPARE(ta[i].eventId, tb[i].eventId);
                     QVERIFY2(safe(ta[i].sender),
                              qUtf8Printable("unsafe sender: " + ta[i].sender));
                     QVERIFY2(safe(ta[i].eventId),
@@ -159,12 +143,9 @@ private Q_SLOTS:
         }
     }
 
-    // ── AppController-level: registration, secret store, real switch ────
-
     void appControllerRegistersThreeAccountsOnInMemoryStore()
     {
-        AppController app(AppController::MockBackend, /*screenshotDemo=*/true);
-        // The demo must NOT be on a production secure store.
+        AppController app(AppController::MockBackend,true);
         QVERIFY(!app.settings()->secretsAreSecure());
         QVERIFY(app.settings()->secretBackendName().contains(
             QStringLiteral("in-memory")));
@@ -173,7 +154,6 @@ private Q_SLOTS:
         QTRY_COMPARE(app.currentScreen(), AppController::MainScreen);
         QCOMPARE(app.accounts()->activeUserId(), kAlex);
 
-        // Three accounts, deterministic order, .example homeservers, no token.
         const QStringList ids = app.settings()->savedAccountUserIds();
         QCOMPARE(ids, (QStringList{ kAlex, kTaylor, kNova }));
         for (const QString &uid : ids) {
@@ -181,28 +161,24 @@ private Q_SLOTS:
             QVERIFY(rec.value(QStringLiteral("homeserver")).toString()
                         .contains(QStringLiteral(".example")));
             QVERIFY(!rec.value(QStringLiteral("displayName")).toString().isEmpty());
-            // No access token was ever stored for a demo account.
             QVERIFY(app.settings()->accessTokenFor(uid).isEmpty());
         }
-        // Still not secure after registration — nothing constructed libsecret.
         QVERIFY(!app.settings()->secretsAreSecure());
     }
 
     void realSwitcherPathSwitchesBetweenDemoAccounts()
     {
-        AppController app(AppController::MockBackend, /*screenshotDemo=*/true);
+        AppController app(AppController::MockBackend,true);
         app.beginScreenshotDemo();
         QTRY_COMPARE(app.currentScreen(), AppController::MainScreen);
         QCOMPARE(app.accounts()->activeUserId(), kAlex);
 
-        // The real account-switcher entry point.
         app.switchToAccount(kTaylor);
         QVERIFY(app.accountSwitching());
         QTRY_VERIFY(!app.accountSwitching());
         QCOMPARE(app.accounts()->activeUserId(), kTaylor);
         QCOMPARE(app.currentScreen(), AppController::MainScreen);
 
-        // And back again.
         app.switchToAccount(kAlex);
         QTRY_VERIFY(!app.accountSwitching());
         QCOMPARE(app.accounts()->activeUserId(), kAlex);

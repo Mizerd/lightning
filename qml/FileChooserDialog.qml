@@ -3,26 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Lightning's own file chooser: what Linux shows when the desktop has no XDG
-// portal FileChooser (a bare window manager, a portal without a backend).
-// It replaced Qt's widget QFileDialog there, which ignored the theme, and
-// before that Qt Quick's FileDialog, which came up with an empty name on
-// every Save as (it fills the field only from a file that already exists).
-//
-// One instance lives in Main.qml and serves every request: FileChooser
-// (app.files) emits inAppRequested(id, request) and this answers with
-// answerInApp(id, ...). Call sites never see it; they keep using
-// NativeFileDialog, which cannot tell this route from the portal's.
-//
-// The listing is FileBrowserModel (C++): one folder, read off the GUI thread.
-//
-// Keys: Enter opens a folder or accepts, Backspace and Alt+Up go up,
-// Alt+Home goes home, Ctrl+L types a path, Ctrl+H shows hidden files,
-// Escape cancels, and typing a name in the list jumps to it. Choosing
-// several files (openMany) works as in a desktop's dialog: a click picks
-// one, Ctrl+click adds or removes one, Shift+click picks the run from the
-// last row clicked (Ctrl+Shift adds it), Shift+Up/Down extends, Ctrl+Up/Down
-// moves without choosing and Space then toggles, and Ctrl+A picks them all.
 Dialog {
     id: root
     objectName: "fileChooserDialog"
@@ -38,41 +18,25 @@ Dialog {
     // folder row, and only then cancels.
     closePolicy: Popup.NoAutoClose
     Overlay.modal: Rectangle { color: AppTheme.modalScrim }
-    // Above every other dialog, whichever was created last: a chooser is
-    // always opened FROM something (Export room, Settings, a sticker pack).
     z: 1000
 
     readonly property var chooser: (typeof app !== "undefined" && app && app.files)
                                    ? app.files : null
 
-    // The request being shown; -1 when none.
     property int requestId: -1
-    // "open" | "openMany" | "save" | "folder"
     property string mode: "open"
     property string acceptLabel: ""
-    // The caller's title; empty for the mode's own. (Not Dialog.title, which
-    // the Basic style would draw a second time as a header.)
     property string heading: ""
-    // [{label, patterns, raw}]
     property var filters: []
     property int filterIndex: 0
-    // The save name FileChooser suggested, kept to put back after a folder
-    // name is typed into the name field and entered.
     property string suggestedName: ""
-    // openMany: the selected rows, by name.
     property var selection: ({})
-    // openMany: the row a Shift range runs from, by name, so a re-listing
-    // (a sort, Ctrl+H) that moves it does not leave the range on a stranger.
     property string anchorName: ""
     property bool editingPath: false
     property bool creatingFolder: false
-    // An error about the new-folder row goes with the row.
     onCreatingFolderChanged: if (!creatingFolder) failure = ""
     property string failure: ""
-    // A name to select once the next listing arrives (a folder just left, a
-    // folder just created).
     property string pendingSelect: ""
-    // Requests that arrived while one was showing.
     property var queue: []
     property var places: []
 
@@ -123,8 +87,6 @@ Dialog {
         }
     }
 
-    // ── Requests ──
-
     function begin(request) {
         requestId = request.id
         mode = request.mode || "open"
@@ -148,15 +110,12 @@ Dialog {
         if (!start || start.toString().length === 0)
             start = places.length > 0 ? places[0].url : ""
         fileList.currentIndex = -1
-        // The same folder as last time is read again: it may have changed.
         if (browser.folder.toString() === start.toString())
             browser.refresh()
         else
             browser.folder = start
         nameField.text = suggestedName
         open()
-        // The name, without its extension, is selected and ready to be typed
-        // over, as in every desktop's save dialog.
         var length = request.selectionLength !== undefined
                      ? request.selectionLength : suggestedName.length
         Qt.callLater(function() { root.focusStart(length) })
@@ -203,8 +162,6 @@ Dialog {
         Qt.callLater(function() { root.begin(request) })
     }
 
-    // ── Navigation ──
-
     function navigate(url) {
         if (!url || url.toString().length === 0)
             return
@@ -246,14 +203,6 @@ Dialog {
         fileList.positionViewAtIndex(i, ListView.Contain)
     }
 
-    // ── Selection ──
-    //
-    // In openMany the selection is its own state, changed only by what the
-    // reader does (a click, Space, Ctrl+A, an arrow key). It never follows
-    // the list's currentIndex by itself: a handler that did would run inside
-    // every assignment to currentIndex, a click's included, and wipe a
-    // Ctrl+click's selection before the click could add to it.
-
     function selectOnly(row) {
         var r = browser.get(row)
         var s = ({})
@@ -276,8 +225,6 @@ Dialog {
         anchorName = r.name
     }
 
-    // The rows from the anchor to `row`, replacing the selection or added
-    // to it. With no anchor in this listing, `row` alone.
     function extendTo(row, add) {
         var anchor = anchorName.length > 0 ? browser.indexOfName(anchorName) : -1
         if (anchor < 0) {
@@ -314,14 +261,10 @@ Dialog {
             selectOnly(row)
         fileList.currentIndex = row
         fileList.forceActiveFocus()
-        // Save: a file picked from the list is the name to save under.
         if (saving && !r.isDir)
             nameField.text = r.name
     }
 
-    // openMany: Up/Down. Plain moves the selection with the cursor, Shift
-    // extends it from the anchor, Ctrl moves the cursor alone (Space then
-    // toggles the row it is on).
     function moveCursor(step, modifiers) {
         if (browser.count === 0)
             return
@@ -345,7 +288,6 @@ Dialog {
         return row === fileList.currentIndex
     }
 
-    // Enter or a double-click on a row.
     function activateRow(row) {
         var r = browser.get(row)
         if (r.name === undefined)
@@ -358,15 +300,12 @@ Dialog {
             nameField.text = r.name
             acceptSave()
         } else if (!pickingFolder) {
-            // Enter on a chosen file opens everything chosen with it, as in
-            // every desktop's dialog; on any other file, that file.
             if (many && selection[r.name] !== true)
                 selectOnly(row)
             acceptCurrent()
         }
     }
 
-    // The files the accept button would return now (open modes).
     function chosenUrls() {
         var urls = []
         if (many) {
@@ -390,10 +329,6 @@ Dialog {
             return nameField.text.trim().length > 0
         if (pickingFolder)
             return browser.error.length === 0
-        // Something to open, or a folder under the cursor that the button
-        // enters. In openMany a file under the cursor is not chosen until it
-        // is selected (a Ctrl+click can unselect the row it lands on), so
-        // the button is off rather than on and doing nothing.
         if (chosenUrls().length > 0)
             return true
         var current = browser.get(fileList.currentIndex)
@@ -433,7 +368,6 @@ Dialog {
             return
         }
         if (info.isDir) {
-            // A folder's name: go there, and keep the file's name.
             navigate(url)
             nameField.text = suggestedName
             return
@@ -449,9 +383,6 @@ Dialog {
         finish([url])
     }
 
-    // Save: choosing "PNG file (*.png)" makes "photo.jpg" "photo.png", as
-    // Qt's and GTK's dialogs do. Only a filter naming one extension changes
-    // the name, and only a name that has one.
     function chooseFilter(index) {
         filterIndex = index
         browser.nameFilters = currentFilter ? currentFilter.patterns : []
@@ -504,8 +435,6 @@ Dialog {
                     : qsTr("The folder couldn't be created.")
     }
 
-    // ── Presentation helpers ──
-
     function iconFor(kind) {
         switch (kind) {
         case "folder": return "folder"
@@ -541,7 +470,6 @@ Dialog {
         return qsTr("File system")
     }
 
-    // Binary units, one decimal, and never "0.0 KB" for a 400-byte file.
     function humanSize(bytes) {
         if (bytes < 1024)
             return qsTr("%1 B").arg(bytes)
@@ -564,7 +492,6 @@ Dialog {
             return settings ? Qt.formatTime(d, settings.clockTimeFormat)
                             : Qt.locale(AppLocale.name).toString(d, Locale.ShortFormat)
         }
-        // The UI locale's month names, not Qt.formatDate's English ones.
         return Qt.locale(AppLocale.name).toString(d, "d MMM yyyy")
     }
 
@@ -573,12 +500,10 @@ Dialog {
             browser.sortAscending = !browser.sortAscending
         } else {
             browser.sortField = field
-            // Newest and largest first is what a reader wants from those.
             browser.sortAscending = field === "name"
         }
     }
 
-    // Set once a listing has been running for a while.
     Timer {
         id: slowListing
         property bool slow: false
@@ -587,8 +512,6 @@ Dialog {
         onRunningChanged: if (running) slow = false
         onTriggered: slow = true
     }
-
-    // ── Typing a name in the list jumps to it ──
 
     property string typeAhead: ""
     Timer {
@@ -600,8 +523,6 @@ Dialog {
     function typeToSelect(text) {
         typeAhead += text
         typeAheadReset.restart()
-        // The first letter moves on from the current row (so pressing it
-        // again cycles); a longer prefix may stay on it.
         var from = typeAhead.length === 1 ? fileList.currentIndex
                                           : fileList.currentIndex - 1
         var i = browser.findPrefix(typeAhead, from)
@@ -614,7 +535,6 @@ Dialog {
     }
 
     onClosed: {
-        // Closed some other way (the window went away): still an answer.
         if (root.requestId >= 0)
             root.cancel()
     }
@@ -671,13 +591,11 @@ Dialog {
             anchors.fill: parent
             spacing: AppTheme.spacing12
 
-            // ── Title ──
             RowLayout {
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing8
                 Label {
                     objectName: "fileChooserTitle"
-                    // Caller-chosen text: never markup.
                     textFormat: Text.PlainText
                     text: root.heading.length > 0
                           ? root.heading
@@ -702,7 +620,6 @@ Dialog {
                 }
             }
 
-            // ── Toolbar: up, home, the path, new folder, hidden files ──
             RowLayout {
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing6
@@ -729,8 +646,6 @@ Dialog {
                     onClicked: root.goHome()
                 }
 
-                // The path: one button per folder, or a field after Ctrl+L
-                // or a click on its empty end.
                 Rectangle {
                     objectName: "fileChooserPathBar"
                     Layout.fillWidth: true
@@ -815,8 +730,6 @@ Dialog {
                                     }
                                     Label {
                                         id: crumbLabel
-                                        // A folder name is whatever is on disk:
-                                        // never markup.
                                         textFormat: Text.PlainText
                                         visible: crumb.modelData.kind !== "root"
                                         text: crumb.modelData.kind === "home"
@@ -884,7 +797,6 @@ Dialog {
                 }
             }
 
-            // ── New folder ──
             RowLayout {
                 objectName: "fileChooserNewFolderRow"
                 visible: root.creatingFolder
@@ -915,7 +827,6 @@ Dialog {
                 }
             }
 
-            // ── Places | files ──
             RowLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -926,7 +837,6 @@ Dialog {
                     objectName: "fileChooserPlaces"
                     Layout.preferredWidth: 172
                     Layout.fillHeight: true
-                    // Narrow windows give the room to the files.
                     visible: root.width >= 560
                     clip: true
                     spacing: AppTheme.spacing2
@@ -980,9 +890,6 @@ Dialog {
                     radius: AppTheme.radiusMd
                     color: AppTheme.stormInset
                     border.width: 1
-                    // The list takes focus with no row current (a fresh
-                    // folder), so a ring on the current row alone left the
-                    // Tab stop invisible; the frame carries it then.
                     border.color: fileList.activeFocus && fileList.currentIndex < 0
                                   ? AppTheme.focusRing : AppTheme.stormBorder
                     clip: true
@@ -992,11 +899,8 @@ Dialog {
                         anchors.margins: 1
                         spacing: 0
 
-                        // Column headers: click to sort, again to reverse.
                         RowLayout {
                             Layout.fillWidth: true
-                            // A nested layout fills both ways by default;
-                            // without this the header takes the list's height.
                             Layout.fillHeight: false
                             Layout.preferredHeight: 30
                             Layout.minimumHeight: 30
@@ -1168,8 +1072,6 @@ Dialog {
                                         opacity: row.hidden ? 0.6 : 1
                                     }
                                     Label {
-                                        // A file name is whatever is on disk:
-                                        // never markup.
                                         textFormat: Text.PlainText
                                         text: row.name
                                         Layout.fillWidth: true
@@ -1239,7 +1141,6 @@ Dialog {
                 font.pixelSize: AppTheme.textMeta
             }
 
-            // ── Name, type, buttons ──
             RowLayout {
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing8
@@ -1296,7 +1197,6 @@ Dialog {
         }
     }
 
-    // ── Overwrite ──
     AppDialog {
         id: overwriteDialog
         objectName: "fileChooserOverwriteDialog"

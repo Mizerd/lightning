@@ -3,20 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// The Classic layout's list body. A presenter: RoomsPanel (the host) owns the
-// header, search and dialogs and swaps this in place of the Channels list, so
-// both layouts share the same chrome. The default layout, since it works for
-// any account: one activity-ordered list (invites, favourites, then
-// conversations) with previews and timestamps. The section-label and
-// group-divider contract tests scan this file.
 Item {
     id: root
 
-    // Backstop against overflow into the timeline; the empty-state buttons wrap
-    // (see below).
     clip: true
 
-    /// The room the timeline is showing.
     property string currentRoomId: ""
     property int selectionAnchor: -1
     function selectAt(row, roomId, modifiers) {
@@ -28,18 +19,11 @@ Item {
     }
     Keys.onEscapePressed: app.roomBatch.exitSelection()
 
-    /// The list is scrolled to its first row and nothing is moving it. The
-    /// host reads this to decide when a held order may be applied.
     readonly property bool atRest: !roomList.moving && roomList.atYBeginning
 
-    // The host owns the dialogs, so rows ask by signal rather than reaching
-    // into a parent by id.
     signal roomActivated(string roomId)
-    /// After roomActivated for a pointer open: the host focuses the message box.
     signal roomOpenedByPointer(string roomId)
 
-    // Mirrors RoomListModel's filter modes: 0 all, 1 People, 2 Rooms, 3
-    // Unreads. Read once so the section delegate stays a binding.
     readonly property string conversationSectionLabel: {
         switch (app.roomList ? app.roomList.filterMode : 0) {
         case 1:  return qsTr("People")
@@ -52,7 +36,6 @@ Item {
     signal createRequested(string mode)
     signal discoverRequested
     signal roomLinkCopyRequested(string roomId)
-    /// The search field belongs to the host; it is not in this file's scope.
     signal clearSearchRequested
     signal leaveRoomRequested(string roomId, string roomName)
     signal chatBackgroundRequested(string roomId, string roomName)
@@ -72,16 +55,8 @@ Item {
         model: app.roomList
         currentIndex: -1
         spacing: 0
-        // Instantiate a screen's worth of rows past the viewport so avatars
-        // start fetching early.
         cacheBuffer: 600
-        // Recycle delegates; RoomDelegate keeps no per-instance state that
-        // could leak across rows.
         reuseItems: true
-        // Keyboard: ONE tab stop for the whole list (the current row, or the
-        // first when nothing is current), then arrows, Home/End and
-        // PageUp/PageDown move between rows (C04-F03). Rows used to be a tab
-        // stop each with no focus ring, so Tab vanished into the list.
         keyNavigationEnabled: false
         function focusRow(i) {
             if (count <= 0)
@@ -89,7 +64,6 @@ Item {
             const target = Math.max(0, Math.min(count - 1, i))
             currentIndex = target
             positionViewAtIndex(target, ListView.Contain)
-            // The row may not exist until the view has been positioned.
             Qt.callLater(function() {
                 if (roomList.currentItem)
                     roomList.currentItem.forceActiveFocus(Qt.TabFocusReason)
@@ -120,9 +94,6 @@ Item {
             policy: ScrollBar.AsNeeded
         }
 
-        // A different filter is a different list: it opens at its top, not at
-        // the old offset (which hid the first rows, e.g. the Invites, and read
-        // as rows missing).
         Connections {
             target: app.roomList
             function onFilterModeChanged() {
@@ -130,14 +101,8 @@ Item {
             }
         }
 
-        // Sections from the "category" role; C++ sorts by the same
-        // RoomListModel::orderRankOf(), so sort and headers cannot disagree.
         section.property: "category"
         section.criteria: ViewSection.FullString
-        // Pinned group headers, as Element does. labelPositioning is a flag
-        // set: CurrentLabelAtStart alone would draw only the current section's
-        // label and drop every other header, so InlineLabels is OR-ed in. The
-        // delegate is opaque sidebar so it covers the rows it floats over.
         section.labelPositioning: ViewSection.InlineLabels
                                   | ViewSection.CurrentLabelAtStart
         // Re-attached whenever the list empties: ListView keeps the section
@@ -180,12 +145,6 @@ Item {
                         verticalCenter: parent.verticalCenter
                         leftMargin: AppTheme.spacing12
                     }
-                    // Sentence case with the shared section-label tokens.
-                    // categoryOf() yields "invite", "favourite", "conversation"
-                    // and "lowpriority": joined rows are one activity feed with
-                    // DMs and rooms interleaved, so splitting by kind would repeat
-                    // headers constantly. The conversation section is named after
-                    // the active filter chip ("Conversations" under All).
                     text: section === "call"
                           ? qsTr("In a call")
                           : section === "invite"
@@ -210,15 +169,11 @@ Item {
             width: ListView.view.width
             selected: model.roomId === app.currentRoomId
                       || (app.roomBatch.selectionCount >= 0 && app.roomBatch.isSelected(model.roomId))
-            // Roving tab stop: only the current row (the first while none is)
-            // takes Tab, so Tab enters the list once and leaves it again.
             activeFocusOnTab: ListView.view.currentIndex < 0
                               ? index === 0
                               : index === ListView.view.currentIndex
             onActiveFocusChanged: if (activeFocus && ListView.view)
                 ListView.view.currentIndex = index
-            // Enter opens the focused room, as a click does, without the
-            // composer grab a pointer open gets.
             Keys.onReturnPressed: (event) => rowDelegate.openFromKeyboard(event)
             Keys.onEnterPressed: (event) => rowDelegate.openFromKeyboard(event)
             Keys.onSpacePressed: (event) => {
@@ -238,15 +193,8 @@ Item {
                     event.accepted = true
                 }
             }
-            // The full name on hover and the focus ring are RoomDelegate's
-            // own (the name only when truncated; one ring) - MASTER-3 M1.
-            // Favourites are now interleaved by recency, so the model reports
-            // an empty boundary; the binding stays for whatever divides next.
             showGroupDivider: app.roomList.favouritesBoundaryRoomId.length > 0 && model.roomId === app.roomList.favouritesBoundaryRoomId
-            // RoomDelegate's clicked comes from its TapHandler alone, so it
-            // is always a pointer open (GitHub #29).
             onClicked: {
-                // Tab then continues from the row that was clicked.
                 ListView.view.currentIndex = index
                 const modifiers = app.currentKeyboardModifiers()
                 if (app.roomBatch.selecting || (modifiers & (Qt.ControlModifier | Qt.ShiftModifier))) {
@@ -265,8 +213,6 @@ Item {
             onSetFavourite: on => app.roomList.setRoomFavourite(model.roomId, on)
             onSetLowPriority: on => app.roomList.setRoomLowPriority(model.roomId, on)
             onSetNotificationMode: mode => app.setRoomNotificationMode(model.roomId, mode)
-            // By signal: the clipboard proxy and confirm dialog belong to the
-            // host.
             onCopyRoomLink: root.roomLinkCopyRequested(model.roomId)
             onLeaveRoomRequested: root.leaveRoomRequested(model.roomId, model.name)
             onChatBackgroundRequested: root.chatBackgroundRequested(model.roomId, model.name)
@@ -275,8 +221,6 @@ Item {
         }
     }
 
-    // Q3: unread rooms scrolled out of sight above or below the list
-    // (shared with the Channels presenter).
     RoomListAttentionLocator {
         z: 30
         anchors.fill: parent
@@ -284,8 +228,6 @@ Item {
         attentionModel: app.roomList
     }
 
-    // Empty/loading state: glyph, heading, one line and the actions that
-    // resolve it, using the same dialogs as the header buttons.
     ColumnLayout {
         id: roomListEmptyState
         objectName: "roomListEmptyState"
@@ -296,8 +238,6 @@ Item {
 
         readonly property bool searching: app.roomList && (app.roomList.searchQuery || "").length > 0
         readonly property bool inSpace: app.spaces && app.spaces.activeSpaceId && app.spaces.activeSpaceId !== "" && app.spaces.activeSpaceId !== "@orphans"
-        // Signed out, still syncing and genuinely empty are different states;
-        // offering "New message" mid-sync would invite acting on missing data.
         readonly property int phase: !app.loggedIn ? 0 : !app.initialSyncDone ? 1 : searching ? 2 : 3
 
         Rectangle {
@@ -326,7 +266,6 @@ Item {
                     return qsTr("Loading rooms…");
                 case 2:
                     return qsTr("No matches");
-                // Keyed on the filter, not only on the Space.
                 default:
                     if (app.roomList.filterMode === 1)
                         return qsTr("No direct messages");
@@ -358,9 +297,6 @@ Item {
                 case 2:
                     return qsTr("Nothing in this list matches " + "\"%1\".").arg(app.roomList.searchQuery);
                 default:
-                    // People is scoped to the selected Space (DMs with its
-                    // members); say so in a Space, and say what the list is at
-                    // Home.
                     if (app.roomList.filterMode === 1)
                         return roomListEmptyState.inSpace ? qsTr("No direct messages with people in " + "this Space. All of them are under “All rooms”.") : qsTr("Direct messages appear here.");
                     if (app.roomList.filterMode === 3)
@@ -382,8 +318,6 @@ Item {
             onClicked: root.clearSearchRequested()
         }
 
-        // A GridLayout that drops to one column: a RowLayout would overflow a
-        // narrow pane at the buttons' minimum widths.
         GridLayout {
             Layout.alignment: Qt.AlignHCenter
             columns: roomListEmptyState.width >= 300 ? 2 : 1
@@ -405,8 +339,6 @@ Item {
             }
         }
     }
-    // Middle-click autoscroll, a sibling of the view. A room or account
-    // switch ends it, as in the timeline.
     MiddleClickScroller {
         id: middleClickScroller
         objectName: "roomListMiddleClickScroller"
@@ -425,10 +357,6 @@ Item {
         }
     }
 
-    // One room menu for the whole list, incubated in the background: a menu per
-    // row cost 633 QObjects a row, and building one on the first right-click
-    // made that click visibly slower. Rows are recycled, so it never holds one:
-    // it keeps the room it was opened on, and every action goes by that id.
     Loader {
         id: sharedRowMenuHost
         objectName: "sharedRoomMenuHost"
@@ -437,11 +365,9 @@ Item {
 
         function openFor(room) {
             menuRoom = room
-            // A click that beats the incubator finishes it now.
             asynchronous = false
             active = true
             if (!item) {
-                // A failed build: once more, then the row's own menu.
                 active = false
                 active = true
             }

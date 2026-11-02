@@ -45,12 +45,8 @@ namespace {
 const QString kPlayerInterface =
     QStringLiteral("org.mpris.MediaPlayer2.Player");
 const QString kRootInterface = QStringLiteral("org.mpris.MediaPlayer2");
-// The speeds the in-app menus offer.
 constexpr double kMinRate = 0.5;
 constexpr double kMaxRate = 2.0;
-// A position report further than this from where steady playback would be is
-// a seek (from the app's own scrubber, a row, or a remote Seek), announced
-// with Seeked as the spec asks.
 constexpr qint64 kSeekToleranceMs = 1500;
 
 QDBusConnection busFor(const QString &name)
@@ -59,10 +55,8 @@ QDBusConnection busFor(const QString &name)
                           : QDBusConnection(name);
 }
 
-} // namespace
+}
 
-// org.mpris.MediaPlayer2: identity and Raise. No Quit (the app has its own
-// close and tray rules), no track list, no URIs.
 class MprisRootAdaptor : public QDBusAbstractAdaptor
 {
     Q_OBJECT
@@ -105,7 +99,6 @@ private:
     QPointer<MprisServer> m_server;
 };
 
-// org.mpris.MediaPlayer2.Player over VoicePlaybackController.
 class MprisPlayerAdaptor : public QDBusAbstractAdaptor
 {
     Q_OBJECT
@@ -154,7 +147,6 @@ public:
             connect(m_player, signal, this, changed);
         connect(m_player, &VoicePlaybackController::playingChanged, this,
                 &MprisPlayerAdaptor::resetSeekTracking);
-        // The output is created on the first play; follow its level then.
         connect(m_player, &VoicePlaybackController::playerChanged, this,
                 [this] {
                     if (auto *out = m_player->audioOutput())
@@ -188,7 +180,6 @@ public:
     {
         if (!m_player)
             return;
-        // The spec: 0 means pause.
         if (value <= 0.0) {
             m_player->pause();
             return;
@@ -215,8 +206,6 @@ public:
                       qlonglong(duration) * 1000);
         QString title;
         QString artist;
-        // The notification preview privacy for this room decides how much
-        // a desktop widget (and a lock screen) may show.
         const int level = m_server ? m_server->previewLevelFor(
                                          m_player->roomId())
                                    : 2;
@@ -300,7 +289,6 @@ public Q_SLOTS:
         if (!m_player || !m_player->seekable())
             return;
         const qint64 target = m_player->position() + offsetUs / 1000;
-        // The spec: seeking past the end acts as Next.
         if (m_player->duration() > 0 && target > m_player->duration()) {
             if (!m_player->playNext())
                 m_player->seek(m_player->duration());
@@ -312,7 +300,6 @@ public Q_SLOTS:
     {
         if (!m_player || !m_player->seekable() || positionUs < 0)
             return;
-        // A request for a track that is no longer current is ignored.
         const QVariant current = metadata().value(
             QStringLiteral("mpris:trackid"));
         if (current.value<QDBusObjectPath>().path() != trackId.path())
@@ -399,15 +386,12 @@ MprisServer::MprisServer(VoicePlaybackController *player, QObject *parent)
     m_salt = QByteArray::number(QRandomGenerator::system()->generate64(), 16);
     if (!m_player)
         return;
-    // Debounced: a chain advance is stop() then play() in one turn, and the
-    // name must not drop off the bus (and the desktop widget flicker) between.
     auto *timer = new QTimer(this);
     timer->setSingleShot(true);
     timer->setInterval(250);
     connect(timer, &QTimer::timeout, this, &MprisServer::sync);
     connect(m_player, &VoicePlaybackController::currentChanged, this,
             [this, timer] {
-                // Joining the bus is not worth a wait; leaving it is.
                 if (m_player && m_player->active() && m_serviceName.isEmpty()
                     && !m_exported)
                     sync();
@@ -439,7 +423,6 @@ void MprisServer::refreshMetadata()
 
 int MprisServer::previewLevelFor(const QString &roomId) const
 {
-    // No policy (a bare server): the most private level.
     if (!m_policy)
         return 2;
     const int level = m_policy(roomId);
@@ -448,7 +431,6 @@ int MprisServer::previewLevelFor(const QString &roomId) const
 
 void MprisServer::sync()
 {
-    // Opted out (the test suites): never on the bus.
     const bool disabled =
         qEnvironmentVariableIntValue("LIGHTNING_DISABLE_MPRIS") != 0;
     const bool wanted = !disabled && m_player && m_player->active();
@@ -475,8 +457,6 @@ void MprisServer::registerOnBus()
         m_exported = nullptr;
         return;
     }
-    // Asynchronous: a stuck bus must never stall the GUI thread on the first
-    // Play (RequestName is a round trip to the daemon).
     requestName(baseServiceName(), true);
 }
 
@@ -487,7 +467,6 @@ void MprisServer::requestName(const QString &name, bool fallbackToInstance)
         QStringLiteral("/org/freedesktop/DBus"),
         QStringLiteral("org.freedesktop.DBus"),
         QStringLiteral("RequestName"));
-    // DBUS_NAME_FLAG_DO_NOT_QUEUE: owned now, or not at all.
     call << name << uint(4);
     const QPointer<QObject> exported = m_exported;
     auto *watcher = new QDBusPendingCallWatcher(
@@ -497,16 +476,12 @@ void MprisServer::requestName(const QString &name, bool fallbackToInstance)
                 QDBusPendingCallWatcher *w) {
         w->deleteLater();
         const QDBusPendingReply<uint> reply = *w;
-        // 1: primary owner; 4: already the owner.
         const bool owned =
             !reply.isError() && (reply.value() == 1 || reply.value() == 4);
-        // Unregistered (or registered afresh) while the answer was on its way.
         if (!exported || exported != m_exported) {
             if (!owned)
                 return;
             if (!m_exported) {
-                // Nobody wants the name any more: give it back, or the
-                // desktop would keep a player that is not there.
                 QDBusMessage release = QDBusMessage::createMethodCall(
                     QStringLiteral("org.freedesktop.DBus"),
                     QStringLiteral("/org/freedesktop/DBus"),
@@ -515,7 +490,6 @@ void MprisServer::requestName(const QString &name, bool fallbackToInstance)
                 release << name;
                 busFor(m_busName).send(release);
             } else if (m_serviceName.isEmpty()) {
-                // Registered afresh meanwhile: the name serves that one.
                 m_serviceName = name;
                 Q_EMIT registrationChanged();
             }
@@ -528,8 +502,6 @@ void MprisServer::requestName(const QString &name, bool fallbackToInstance)
             return;
         }
         if (fallbackToInstance) {
-            // Another Lightning (a second profile) holds the plain name: the
-            // spec's per-instance suffix.
             requestName(baseServiceName() + QStringLiteral(".instance")
                             + QString::number(
                                 QCoreApplication::applicationPid()),
@@ -553,7 +525,6 @@ void MprisServer::unregisterFromBus()
                 QStringLiteral("org.freedesktop.DBus"),
                 QStringLiteral("ReleaseName"));
             call << m_serviceName;
-            // Fire and forget: nothing to do with the answer.
             bus.send(call);
         }
         bus.unregisterObject(objectPath());
@@ -568,7 +539,7 @@ void MprisServer::unregisterFromBus()
 
 #include "MprisServer.moc"
 
-#else // !HAVE_QT_DBUS
+#else
 
 MprisServer::MprisServer(VoicePlaybackController *player, QObject *parent)
     : QObject(parent), m_player(player)
@@ -593,4 +564,4 @@ void MprisServer::registerOnBus() {}
 void MprisServer::requestName(const QString &, bool) {}
 void MprisServer::unregisterFromBus() {}
 
-#endif // HAVE_QT_DBUS
+#endif

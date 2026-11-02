@@ -1,26 +1,16 @@
 import QtQuick
 import MatrixClient
 
-// Small status pill (Verified, ACTIVE, MOD, LOUD, unread counts). `tone` picks
-// the colour family; `solid` switches from the soft tint (ink at 14% with a 32%
-// border) to a filled pill. `storm: true` uses the storm chip vocabulary; bolt
-// is reserved for selection/verified, and `accent` uses the link tone.
 Rectangle {
     id: root
 
     property string label: ""
-    // Optional leading Material Symbols glyph.
     property string iconName: ""
-    // neutral | accent | success | warning | danger | info | onAccent | bolt
-    // (storm-only). onAccent is a chip on an accent-gradient card and inks in
-    // accentText.
     property string tone: "neutral"
     property bool solid: false
     property bool storm: false
     property int textSize: AppTheme.textMicro
 
-    // The yellow chip: "bolt", and "onAccent" (on an accent card where a tint
-    // would vanish).
     readonly property bool _boltChip: storm && (tone === "bolt"
                                                 || tone === "onAccent")
     readonly property color _base: {
@@ -41,10 +31,6 @@ Rectangle {
              : tone === "onAccent" ? AppTheme.accentText
              : AppTheme.textMuted
     }
-    // A soft chip's ink must clear the chip, not the card: the 14% tint lifts
-    // the background toward the ink, and the muted neutral ink fails AA on most
-    // palettes. stormText clears everywhere (stormTextSecondary does not). Fill
-    // and border keep the muted base.
     readonly property bool _neutralSoft: tone === "neutral" && !solid
     // Other tones fail on the grounds chips are dropped on too, and legacy
     // tones worse. AppTheme.softChipInk keeps the hue and saturation and
@@ -57,7 +43,6 @@ Rectangle {
                                         && !_boltChip
     readonly property color _ink: {
         if (storm)
-            // Ink on the bolt/solid fill: boltInk.
             return _boltChip ? AppTheme.boltInk
                  : solid ? AppTheme.boltInk
                  : _neutralSoft ? AppTheme.stormText
@@ -76,7 +61,6 @@ Rectangle {
     implicitHeight: Math.max(AppTheme.chipHeight,
                              chipContent.implicitHeight + 2 * AppTheme.spacing2)
     radius: AppTheme.chipRadius
-    // A chip is a labelled status, not decoration: expose its text.
     Accessible.role: Accessible.StaticText
     Accessible.name: root.label
     color: {
@@ -105,13 +89,10 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
         }
         Text {
-            // Untrusted text: never markup.
             textFormat: Text.PlainText
             objectName: "chipLabel"
             visible: root.label.length > 0
             text: root.label
-            // The UI face: a status pill is a label; mono is for keycaps, code
-            // and IDs.
             font.family: AppTheme.uiFont
             font.pixelSize: root.textSize
             font.weight: AppTheme.weightBold

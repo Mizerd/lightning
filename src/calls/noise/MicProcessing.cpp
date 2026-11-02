@@ -20,7 +20,6 @@ bool factoryExists(const char *name)
     return true;
 }
 
-/// webrtcdsp exactly as voiceProcessingDescription() configures it.
 GstElement *makeDsp(bool suppress)
 {
     GstElement *dsp = gst_element_factory_make("webrtcdsp", nullptr);
@@ -41,17 +40,9 @@ bool dspSuppresses(GstElement *dsp)
 struct SwapContext {
     GstBin *parent;
     bool suppress;
-    /// Replace even when the element already reports the wanted value: it
-    /// may have negotiated (and so read its configuration) before it was set.
     bool force;
-    /// Whether the replacement may keep echo cancellation: false once no
-    /// playback probe is left, because a webrtcdsp that cannot find one is
-    /// fatal to the microphone.
     bool echoAllowed = true;
-    /// Turn echo cancellation on and keep the suppressor as it is then.
     bool engageEcho = false;
-    /// Told, on the thread the swap runs on, that an engage found no probe it
-    /// could take. See engageEchoCancel().
     EchoRefused refused;
 };
 
@@ -101,10 +92,6 @@ bool linkThrough(GstPad *upstream, GstElement *element, GstPad *downstream)
     return linked;
 }
 
-/// Runs with the pad feeding webrtcdsp IDLE: no buffer is inside the element
-/// and none can enter until this returns. Replaces it with one configured
-/// for `suppress`. The new element receives the pad's sticky events (caps,
-/// segment) again with the next buffer, because linking reschedules them.
 GstPadProbeReturn swapDsp(GstPad *upstream, GstPadProbeInfo *, gpointer data)
 {
     auto *context = static_cast<SwapContext *>(data);
@@ -131,14 +118,11 @@ GstPadProbeReturn swapDsp(GstPad *upstream, GstPadProbeInfo *, gpointer data)
     GstPad *oldSrc = gst_element_get_static_pad(old, "src");
     GstPad *feeding = oldSink ? gst_pad_get_peer(oldSink) : nullptr;
     GstPad *downstream = oldSrc ? gst_pad_get_peer(oldSrc) : nullptr;
-    // Only the chain this file builds: anything else is left alone.
     GstElement *fresh = (feeding == upstream && downstream)
         ? makeDsp(suppress)
         : nullptr;
     if (fresh) {
         gst_object_ref_sink(fresh);
-        // The user's echo and gain switches belong to the call, not to the
-        // suppressor: a mode change must not reset them.
         gboolean echo = FALSE;
         gboolean gain = TRUE;
         g_object_get(old, "echo-cancel", &echo, "gain-control", &gain,
@@ -149,8 +133,6 @@ GstPadProbeReturn swapDsp(GstPad *upstream, GstPadProbeInfo *, gpointer data)
             echo = FALSE;
         g_object_set(fresh, "echo-cancel", echo, "gain-control", gain,
                      nullptr);
-        // An `old` without echo cancellation holds no probe, so the new one
-        // can be asked first: a refusal then leaves the microphone untouched.
         gboolean oldHeldProbe = FALSE;
         g_object_get(old, "echo-cancel", &oldHeldProbe, nullptr);
         if (echo && !oldHeldProbe && !dspTakesProbe(fresh)) {
@@ -171,12 +153,9 @@ GstPadProbeReturn swapDsp(GstPad *upstream, GstPadProbeInfo *, gpointer data)
         gst_pad_unlink(upstream, oldSink);
         gst_pad_unlink(oldSrc, downstream);
         gst_element_set_state(old, GST_STATE_NULL);
-        // One that did hold it released it just now, so only now can the new
-        // one take it (or find it went with `old`, whose reference was the
-        // last on a retired receive bin's probe).
         if (echo && oldHeldProbe)
             dspTakesProbe(fresh);
-        gst_bin_remove(context->parent, old); // `old` keeps our reference
+        gst_bin_remove(context->parent, old);
         gst_object_set_name(GST_OBJECT(fresh), kDspName);
         bool replaced = gst_bin_add(context->parent, fresh);
         if (replaced && !linkThrough(upstream, fresh, downstream)) {
@@ -187,8 +166,6 @@ GstPadProbeReturn swapDsp(GstPad *upstream, GstPadProbeInfo *, gpointer data)
         if (replaced) {
             gst_element_sync_state_with_parent(fresh);
         } else {
-            // Put the old one back rather than leave the microphone cut, and
-            // never with a probe it may no longer find.
             g_object_set(old, "echo-cancel", FALSE, nullptr);
             gst_bin_add(context->parent, old);
             linkThrough(upstream, old, downstream);
@@ -208,7 +185,6 @@ GstPadProbeReturn swapDsp(GstPad *upstream, GstPadProbeInfo *, gpointer data)
     return GST_PAD_PROBE_REMOVE;
 }
 
-/// Returns false when there was nothing to schedule on.
 bool scheduleDspSwap(GstElement *dsp, bool suppress, bool force,
                      bool echoAllowed = true, bool engageEcho = false,
                      EchoRefused refused = {})
@@ -221,9 +197,7 @@ bool scheduleDspSwap(GstElement *dsp, bool suppress, bool force,
         auto *context = new SwapContext{GST_BIN(parent), suppress, force,
                                         echoAllowed, engageEcho,
                                         std::move(refused)};
-        parent = nullptr; // owned by the context now
-        // IDLE runs at once when nothing is flowing, otherwise right after
-        // the buffer in flight; a muted (valve-closed) chain is idle.
+        parent = nullptr;
         gst_pad_add_probe(upstream, GST_PAD_PROBE_TYPE_IDLE, swapDsp, context,
                           freeSwapContext);
         scheduled = true;
@@ -237,11 +211,10 @@ bool scheduleDspSwap(GstElement *dsp, bool suppress, bool force,
     return scheduled;
 }
 
-} // namespace
+}
 
 bool webrtcDspAvailable()
 {
-    // Not cached before init: the answer would stay "no" for the process.
     if (!gst_is_initialized())
         return false;
     static const bool available = factoryExists("webrtcdsp");
@@ -263,8 +236,6 @@ QString voiceProcessingDescription(Mode mode, bool dspAvailable,
 {
     QString out;
     if (denoiseAvailable) {
-        // Any capture format reaches it as F32 mono 48 kHz; the front of the
-        // chain already resampled, so audioresample is a pass-through there.
         out += QStringLiteral("! audioconvert ! audioresample ! %1 "
                               "! %2 name=%3 mode=%4 ")
                    .arg(QLatin1String(denoiseCaps()),
@@ -282,11 +253,6 @@ QString voiceProcessingDescription(Mode mode, bool dspAvailable,
         ? QStringLiteral("! audioconvert dithering=none ")
         : QStringLiteral("! audioconvert ");
     if (dspAvailable) {
-        // webrtcdsp processes fixed 10 ms S16 chunks, hence the caps. It
-        // keeps its high-pass filter and gain control in every mode; only its
-        // suppressor follows the selection. Echo cancellation is off unless
-        // the user turned it on: it cancels against a webrtcechoprobe in the
-        // playback path, which the engine adds to the receive bins then.
         const auto flag = [](bool on) {
             return on ? QLatin1String("true") : QLatin1String("false");
         };
@@ -362,11 +328,8 @@ QString applyMode(GstElement *root, Mode mode, DspSwitch when,
         did << QStringLiteral("denoise=%1").arg(QLatin1String(modeKey(mode)));
     }
     if (when == DspSwitch::Later && denoiser && dspWaitsForDenoiser(mode)) {
-        // As under WaitForDenoiser: webrtcdsp keeps suppressing until the new
-        // backend runs (the denoiser reports through the caller).
         did << QStringLiteral("dsp waits for the denoiser");
     } else if (when == DspSwitch::Later) {
-        // Property only, never a replacement (see DspSwitch::Later).
         GstElement *dsp = gst_bin_get_by_name(GST_BIN(root), kDspName);
         if (!dsp) {
             did << QStringLiteral("no dsp");
@@ -385,7 +348,6 @@ QString applyMode(GstElement *root, Mode mode, DspSwitch when,
             if (!deferred) {
                 g_object_set(dsp, "noise-suppression",
                              dspSuppressesNoise(mode) ? TRUE : FALSE, nullptr);
-                // Negotiated in between: the property may have missed it.
                 deferred = negotiated();
             }
             did << (deferred ? QStringLiteral("dsp replaced after the start")
@@ -396,7 +358,6 @@ QString applyMode(GstElement *root, Mode mode, DspSwitch when,
         }
     } else if (denoiser && when == DspSwitch::WaitForDenoiser
                && dspWaitsForDenoiser(mode)) {
-        // webrtcdsp keeps suppressing until the new backend runs.
         did << QStringLiteral("dsp waits for the denoiser");
     } else {
         did << applyDspMode(root, mode, false, echoAllowed);
@@ -415,21 +376,19 @@ QString applyDspMode(GstElement *root, Mode mode, bool forceReplace,
         GstPad *sink = gst_element_get_static_pad(dsp, "sink");
         GstCaps *caps = sink ? gst_pad_get_current_caps(sink) : nullptr;
         if (!caps) {
-            // Not negotiated yet: its setup reads this value when it does.
             g_object_set(dsp, "noise-suppression", want ? TRUE : FALSE,
                          nullptr);
-            // Unless it negotiated in between: then replace it regardless.
             caps = sink ? gst_pad_get_current_caps(sink) : nullptr;
-            if (caps && scheduleDspSwap(dsp, want, /*force=*/true, echoAllowed))
+            if (caps && scheduleDspSwap(dsp, want,true, echoAllowed))
                 did << QStringLiteral("dsp replaced (late)");
             else
                 did << QStringLiteral("dsp configured");
         } else if (forceReplace) {
-            did << (scheduleDspSwap(dsp, want, /*force=*/true, echoAllowed)
+            did << (scheduleDspSwap(dsp, want,true, echoAllowed)
                         ? QStringLiteral("dsp replaced (forced)")
                         : QStringLiteral("dsp unlinked, left alone"));
         } else if (dspSuppresses(dsp) != want) {
-            did << (scheduleDspSwap(dsp, want, /*force=*/false, echoAllowed)
+            did << (scheduleDspSwap(dsp, want,false, echoAllowed)
                         ? QStringLiteral("dsp replaced")
                         : QStringLiteral("dsp unlinked, left alone"));
         } else {
@@ -453,11 +412,9 @@ QString engageEchoCancel(GstElement *root, EchoRefused refused)
         return QStringLiteral("no dsp");
     gboolean on = FALSE;
     g_object_get(dsp, "echo-cancel", &on, nullptr);
-    // Replaced even before it negotiates: its start is what needs the probe,
-    // and it may already have run.
     const QString did = on ? QStringLiteral("echo already on")
-        : scheduleDspSwap(dsp, dspSuppresses(dsp), /*force=*/true,
-                          /*echoAllowed=*/true, /*engageEcho=*/true,
+        : scheduleDspSwap(dsp, dspSuppresses(dsp),true,
+true,true,
                           std::move(refused))
             ? QStringLiteral("echo engaged")
             : QStringLiteral("dsp unlinked, left alone");
@@ -475,12 +432,12 @@ QString dropEchoCancel(GstElement *root)
     gboolean on = FALSE;
     g_object_get(dsp, "echo-cancel", &on, nullptr);
     const QString did = !on ? QStringLiteral("echo already off")
-        : scheduleDspSwap(dsp, dspSuppresses(dsp), /*force=*/true,
-                          /*echoAllowed=*/false)
+        : scheduleDspSwap(dsp, dspSuppresses(dsp),true,
+false)
             ? QStringLiteral("echo dropped")
             : QStringLiteral("dsp unlinked, left alone");
     gst_object_unref(dsp);
     return did;
 }
 
-} // namespace calls::noise
+}

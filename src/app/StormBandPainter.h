@@ -5,15 +5,8 @@
 #include <QQuickImageProvider>
 #include <QString>
 
-// Storm Band tile/sprite painters: an exact port of the reference canvas code
-// in storm-band-export.html (same PRNG and seeds, tile sizes, dithering and
-// derivePalette() math), so a (background, accent) pair renders the same scene.
-//
-// Pure software QImage/QPainter, so it works on the offscreen platform. Tiles
-// regenerate only when the theme inputs (the provider URL) change.
 namespace stormband {
 
-// Field names match the reference's palette object 1:1.
 struct Palette {
     bool light = false;
     QColor sky1, sky2, sky3;
@@ -28,11 +21,8 @@ struct Palette {
     QColor ember1, ember2, ember3;
 };
 
-// Exact port of the reference's derivePalette(bg, accent).
 Palette derivePalette(const QColor &bg, const QColor &accent);
 
-// The reference's PRNG (rnd(seed) — a mulberry32 variant). Public so the
-// determinism tests can pin the exact sequence.
 class Rnd
 {
 public:
@@ -49,42 +39,30 @@ private:
     quint32 m_s;
 };
 
-// Source pixel height of every scrolling tile (rendered at 2x — the art is
-// authored at 1 art px = 2 css px).
 inline constexpr int kTileH = 66;
 
-// Pixel-art painters — exact ports (name-for-name) of the HTML's painters.
-QImage skyTile(const Palette &P);                       // 768 x 66
-QImage mistTile(const Palette &P);                      // 545 x 66
+QImage skyTile(const Palette &P);
+QImage mistTile(const Palette &P);
 QImage hillTile(const Palette &P, int W, double base, double amp,
                 const QColor &fill, const QColor &rim, quint32 seed,
-                int peaks);                             // far 331 / mid 397
-QImage spireTile(const Palette &P);                     // 641 x 66
-QImage frontTile(const Palette &P);                     // 719 x 66
-QImage rainTile(const Palette &P);                      // 160 x 66
-QImage moonSprite(const Palette &P);                    // 18 x 18
-QImage shootingStarSprite(const Palette &P);            // 30 x 12
-// 46x74 art in a 62x90 canvas: an 8px padding ring carries the baked
-// equivalent of the reference's CSS drop-shadow glows.
+                int peaks);
+QImage spireTile(const Palette &P);
+QImage frontTile(const Palette &P);
+QImage rainTile(const Palette &P);
+QImage moonSprite(const Palette &P);
+QImage shootingStarSprite(const Palette &P);
 QImage boltSprite(const Palette &P, quint32 seed);
 inline constexpr int kBoltPad = 8;
 
-// The reference's CSS-gradient (non-pixel-art) surfaces, rendered smooth.
-QImage skyGradient(const Palette &P);      // 8 x 190: transparent->sky1->sky2->sky3
-QImage horizonGradient(const Palette &P);  // 8 x 70: horizon color -> transparent (upward)
-QImage bloomSprite(const QColor &glow);    // 340 x 240 radial: glow -> transparent at 70%
-QImage emberDot(const QColor &color);      // 2 x 2
+QImage skyGradient(const Palette &P);
+QImage horizonGradient(const Palette &P);
+QImage bloomSprite(const QColor &glow);
+QImage emberDot(const QColor &color);
 
-// image://storm-band/<layer>?bg=RRGGBB&accent=RRGGBB
-// Layers: gradient, sky, mist, far, mid, spire, front, rain, moon, shoot,
-// bolt1..bolt6, bloomA, bloomB, bloomC, horizon, ember1..ember3.
-// Malformed ids yield a null image (never a crash, never a placeholder).
 QImage imageForId(const QString &id);
 
-} // namespace stormband
+}
 
-// Serves the painters above. Stateless: theme colors and the layer name
-// travel in the image id, so a theme change regenerates via new URLs.
 class StormBandImageProvider : public QQuickImageProvider
 {
 public:

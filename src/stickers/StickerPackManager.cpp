@@ -28,7 +28,6 @@ Q_LOGGING_CATEGORY(lcStickers, "lightning.stickers")
 
 namespace {
 
-// Keeps a completion popup from covering the composer.
 constexpr int kMaxCompletionRows = 64;
 
 bool packsTraceEnabled()
@@ -69,9 +68,6 @@ stickers::Pack packFromVariant(const QVariantMap &map)
     for (const QVariant &value : images) {
         const stickers::PackImage image =
             stickers::PackImage::fromVariantMap(value.toMap());
-        // The Rust parser requires a url. The key may be empty or malformed in
-        // a pack another client wrote: such a row stays (identified by its
-        // exact key) so it can be inspected, removed or renamed.
         if (image.url.isEmpty())
             continue;
         pack.images.append(image);
@@ -79,7 +75,7 @@ stickers::Pack packFromVariant(const QVariantMap &map)
     return pack;
 }
 
-} // namespace
+}
 
 StickerPackManager::StickerPackManager(QObject *parent)
     : QObject(parent)
@@ -125,14 +121,11 @@ void StickerPackManager::setClient(MatrixClient *client)
                     if (opId == 0 || opId != m_migrateOp)
                         return;
                     m_migrateOp = 0;
-                    // Whatever landed is re-read, success or part-way.
                     m_stale = true;
                     refresh();
                     emitStateChanged();
                     Q_EMIT migrationFinished(ok, category, detail);
                 });
-        // Export fetches pack images by their own op ids; every other op id
-        // is ignored here.
         connect(m_client, &MatrixClient::mediaReady, this,
                 [this](quint64 opId, const QString &, int,
                        const QByteArray &bytes, const QString &,
@@ -166,16 +159,11 @@ void StickerPackManager::setActiveRoomId(const QString &roomId)
         return;
     m_stale = true;
 
-    // Fetch packs for the room the user is in, so "Add to this room's stickers"
-    // is available without first opening the picker. One read per room entered,
-    // coalesced through a zero-interval timer so keyboard navigation fetches
-    // only for the room it lands on.
     if (!m_activeRoomFetch) {
         m_activeRoomFetch = new QTimer(this);
         m_activeRoomFetch->setSingleShot(true);
         m_activeRoomFetch->setInterval(0);
         connect(m_activeRoomFetch, &QTimer::timeout, this, [this] {
-            // Navigation alone never reads a room's whole state.
             if (!m_activeRoomId.isEmpty()
                 && (!m_loaded || m_stale || m_snapshotRoomId != m_activeRoomId))
                 refreshWith(false);
@@ -188,7 +176,6 @@ void StickerPackManager::setSelectedPackId(const QString &id)
 {
     if (m_selectedPackId == id)
         return;
-    // Refuse unknown ids rather than show one pack under another's tab.
     if (!id.isEmpty() && m_packs->indexOfPack(id) < 0)
         return;
     m_selectedPackId = id;
@@ -233,8 +220,6 @@ int StickerPackManager::usablePackCount() const
 
 void StickerPackManager::refresh()
 {
-    // An explicit refresh comes from a pack surface the user opened (picker,
-    // manager, editor), so the room's full state may be read once.
     refreshWith(true);
 }
 
@@ -250,24 +235,16 @@ void StickerPackManager::refreshWith(bool deep)
     const quint64 opId = m_nextOpId++;
     m_fetchOp = opId;
     m_pendingMeta.clear();
-    // Once a deep read has covered this room, later refreshes keep reading it
-    // deep (the scan is cached in Rust, so it costs nothing until it expires
-    // or sync says the room's packs changed).
     if (deep)
         m_deepRoomId = m_activeRoomId;
     const bool readDeep = deep || (!m_activeRoomId.isEmpty()
                                    && m_deepRoomId == m_activeRoomId);
-    // The answer carries the room back; applySnapshot records it.
     m_client->fetchStickerPacks(m_activeRoomId, opId, readDeep);
     emitStateChanged();
 }
 
 void StickerPackManager::refreshIfStale()
 {
-    // A snapshot taken on plain navigation never read the room's own state
-    // (sliding sync does not deliver pack events), so a pack surface opening
-    // in a room no deep read has covered yet is stale too. Live GUI run
-    // 2026-10-26: the room's stable packs appeared only after Reload packs.
     if (!m_loaded || m_stale || m_snapshotRoomId != m_activeRoomId
         || (!m_activeRoomId.isEmpty() && m_deepRoomId != m_activeRoomId))
         refresh();
@@ -275,14 +252,7 @@ void StickerPackManager::refreshIfStale()
 
 void StickerPackManager::onPacksChanged(const QString &roomId)
 {
-    // A pack or subscription changed in sync (another device, another member,
-    // or our own write's echo). Only relevant when it can change what this
-    // snapshot shows: account data always can; a room only when it is the
-    // snapshot's room or one of its packs is subscribed.
     if (!roomId.isEmpty() && roomId != m_snapshotRoomId) {
-        // A room the snapshot shows packs from, or one of the Spaces its packs
-        // were reached through (a Space's child list changing can add or drop
-        // the active room's canonical ancestry).
         bool referenced = m_snapshotAncestors.contains(roomId);
         for (const stickers::Pack &pack : m_packs->packs()) {
             if (pack.roomId == roomId) {
@@ -296,7 +266,6 @@ void StickerPackManager::onPacksChanged(const QString &roomId)
     m_stale = true;
     if (!m_loaded)
         return;
-    // Coalesce a burst (several state events in one sync) into one read.
     if (!m_changeRefresh) {
         m_changeRefresh = new QTimer(this);
         m_changeRefresh->setSingleShot(true);
@@ -375,13 +344,10 @@ void StickerPackManager::startUpload(const QUrl &fileUrl,
     const quint64 opId = m_nextOpId++;
     m_saveOp = opId;
     m_saveScope = QStringLiteral("account");
-    // The body seeds the shortcode when none is given; Rust sanitizes it.
     const QString seed = shortcode.trimmed().isEmpty()
         ? QFileInfo(path).completeBaseName()
         : shortcode.trimmed();
 
-    // An SVG (by shape: the first non-space byte is `<`) is converted to a PNG
-    // before anything is uploaded; Rust would refuse the SVG anyway.
     namespace svg = lightning::svgraster;
     QByteArray head;
     {
@@ -398,7 +364,7 @@ void StickerPackManager::startUpload(const QUrl &fileUrl,
             head, svg::stickerPolicy(), this,
             [self, opId, seed, usage](const svg::Result &converted) {
                 if (!self || self->m_saveOp != opId)
-                    return; // signed out, or superseded
+                    return;
                 if (!converted.refusal.isEmpty()) {
                     self->onSaveFinished(
                         opId, false,
@@ -447,9 +413,6 @@ void StickerPackManager::saveSticker(const QString &url, const QString &body,
     const quint64 opId = m_nextOpId++;
     m_saveOp = opId;
     m_saveScope = QStringLiteral("account");
-    // The shortcode is derived from the body and sanitized to MSC2545's
-    // alphabet in Rust. (Deriving it from the event id, as Sable does, yields
-    // characters the MSC forbids.)
     m_client->addStickerToUserPack(body, url, body, mimetype,
                                    static_cast<quint64>(qMax(0, width)),
                                    static_cast<quint64>(qMax(0, height)),
@@ -457,9 +420,6 @@ void StickerPackManager::saveSticker(const QString &url, const QString &body,
                                    QStringLiteral("sticker"), opId);
     emitStateChanged();
 }
-
-// Pack management (MSC2545 CRUD): four verbs sharing one op slot and one
-// dispatcher, so the permission and completion rules exist once.
 
 bool StickerPackManager::canManagePack(const QString &packId) const
 {
@@ -469,11 +429,8 @@ bool StickerPackManager::canManagePack(const QString &packId) const
     if (row < 0)
         return false;
     const stickers::Pack &pack = m_packs->packs().at(row);
-    // The account's own pack: always writable.
     if (pack.source != QLatin1String("room"))
         return true;
-    // A room pack: only when the snapshot recorded permission. Absence is not
-    // permission, and an unreadable pack cannot be edited at all.
     return pack.available && pack.canManage && !pack.roomId.isEmpty();
 }
 
@@ -522,8 +479,6 @@ void StickerPackManager::editPack(const QString &packId, const QString &action,
 void StickerPackManager::removeImageFromPack(const QString &packId,
                                              const QString &key)
 {
-    // An empty key is a real (malformed) key another client may have written,
-    // and must stay removable: the backend answers not_found when absent.
     editPack(packId, QStringLiteral("remove_image"), key, QString());
 }
 
@@ -538,8 +493,6 @@ void StickerPackManager::renameImageInPack(const QString &packId,
 
 void StickerPackManager::renamePack(const QString &packId, const QString &name)
 {
-    // An empty name is meaningful: it clears the display name (a room pack then
-    // falls back to the room's name).
     editPack(packId, QStringLiteral("set_name"), name, QString());
 }
 
@@ -563,8 +516,6 @@ void StickerPackManager::onEditFinished(quint64 opId, bool ok,
         return;
     m_editOp = 0;
     if (ok) {
-        // Nothing was applied optimistically; the next pack read is
-        // authoritative. A failed read keeps the last known pack.
         m_stale = true;
         refresh();
     }
@@ -581,8 +532,6 @@ void StickerPackManager::setRoomPackEnabled(const QString &packId,
     if (row < 0)
         return;
     const stickers::Pack &pack = m_packs->packs().at(row);
-    // The account's own pack is global by definition; `im.ponies.emote_rooms`
-    // cannot describe it.
     if (pack.source != QLatin1String("room") || pack.roomId.isEmpty())
         return;
     const quint64 opId = m_nextOpId++;
@@ -600,11 +549,8 @@ void StickerPackManager::onRoomsSet(quint64 opId, bool ok,
     if (opId == 0 || opId != m_roomsOp)
         return;
     m_roomsOp = 0;
-    // The standard list saved; the copy older clients read did not. Reported,
-    // not hidden, and never turned into a failure of the saved part.
     m_lastMirrorFailed = ok && mirror == QLatin1String("failed");
     if (ok) {
-        // Not optimistic: the switch moves when the snapshot says so.
         m_stale = true;
         refresh();
     }
@@ -620,11 +566,6 @@ void StickerPackManager::saveStickerToRoom(const QString &roomId,
 {
     if (!canSaveToRoom(roomId, url))
         return;
-    // The destination is an exact (dialect, state key). The empty key has no
-    // "default pack" meaning in Matrix v1.19, so it is not assumed: the first
-    // writable pack the room already has is used (stable before legacy), and a
-    // room with none gets a NEW stable pack under a fresh key (the create
-    // refuses if that key turns out to be taken).
     const RoomPackTarget target = roomSaveTarget(roomId);
     if (target.stateKey.isNull())
         return;
@@ -646,8 +587,6 @@ bool StickerPackManager::canSaveToRoom(const QString &roomId,
 {
     if (!canSave(url) || roomId.isEmpty())
         return false;
-    // The snapshot for this room must have granted write permission for the
-    // pack that would receive it; absence is not permission.
     return m_loaded && m_snapshotRoomId == roomId
         && !roomSaveTarget(roomId).stateKey.isNull();
 }
@@ -657,8 +596,6 @@ StickerPackManager::roomSaveTarget(const QString &roomId) const
 {
     RoomPackTarget legacy;
     for (const stickers::Pack &pack : m_packs->packs()) {
-        // A sticker goes only where it would be a sticker: an emoji-only pack
-        // would hide it from the sticker picker (live run 2026-10-26).
         if (pack.source != QLatin1String("room") || pack.roomId != roomId
             || !pack.available || !pack.canManage || !pack.packSticker)
             continue;
@@ -773,10 +710,8 @@ bool StickerPackManager::canSave(const QString &url) const
 {
     if (!available() || m_saveOp != 0)
         return false;
-    // Packs hold plain mxc URLs; an encrypted sticker has none.
     if (!url.startsWith(QLatin1String("mxc://")))
         return false;
-    // Not gated on isSaved(); Rust refuses duplicates authoritatively.
     return true;
 }
 
@@ -785,8 +720,6 @@ QVariantList StickerPackManager::reactionEmoticons() const
     stalltrace::Scope stallScope("pack-reaction-rows");
     QElapsedTimer timer;
     if (packsTraceEnabled()) timer.start();
-    // Favourites, then recently used custom images, then every pack image;
-    // one row per image (by url).
     QVariantList rows;
     QSet<QString> seen;
     const auto take = [&](const QVariantList &list) {
@@ -836,16 +769,11 @@ QVariantList StickerPackManager::collectEmoticons(const QString &prefix,
                 return rows;
             if (!image.isEmoticon || pack.hidden)
                 continue;
-            // A key outside the grammar cannot round-trip as `:key:` text.
             if (uniqueShortcodes && !image.keyValid)
                 continue;
             if (!prefix.isEmpty()
                 && !image.shortcode.startsWith(prefix, Qt::CaseInsensitive))
                 continue;
-            // Every image stays reachable: two packs' `:cat:` are two rows,
-            // each naming its pack, and the user's choice is what is sent
-            // (PACK-PRO-004). Only the same image reached twice (same key and
-            // url, e.g. subscribed and in this room) is shown once.
             if (uniqueShortcodes) {
                 const QString identity = image.key + QChar(0x1f) + image.url;
                 if (seen.contains(identity))
@@ -876,10 +804,6 @@ QString StickerPackManager::shortcodeForUrl(const QString &url) const
 
 QString StickerPackManager::uniqueEmoticonUrl(const QString &shortcode) const
 {
-    // A typed `:shortcode:` nobody chose from a list resolves only when it is
-    // unambiguous: every usable image with that exact key is the same media.
-    // Otherwise it stays literal text rather than silently becoming the first
-    // pack's image (Matrix v1.19 asks for disambiguation).
     if (shortcode.isEmpty())
         return {};
     QString found;
@@ -922,7 +846,6 @@ void StickerPackManager::onPacksReceived(quint64 opId, const QString &roomId,
                                          bool roomCanManage,
                                          const QVariantList &packs)
 {
-    // A late answer from a previous account or superseded request is dropped.
     if (opId == 0 || opId != m_fetchOp)
         return;
     m_fetchOp = 0;
@@ -949,7 +872,6 @@ void StickerPackManager::onSaveFinished(quint64 opId, bool ok,
         return;
     m_saveOp = 0;
     if (m_transfer.active && opId == m_transfer.op) {
-        // One image of a batch: no per-image notice, and no per-image re-read.
         onBatchItemFinished(ok, category, shortcode);
         return;
     }
@@ -957,8 +879,6 @@ void StickerPackManager::onSaveFinished(quint64 opId, bool ok,
                                                 : m_saveScope;
     m_saveScope.clear();
     if (ok) {
-        // Not optimistic: the next pack read is authoritative. A failed read
-        // keeps the last known pack.
         m_stale = true;
         refresh();
     }
@@ -968,8 +888,6 @@ void StickerPackManager::onSaveFinished(quint64 opId, bool ok,
 
 void StickerPackManager::onLoggedOut()
 {
-    // A job belongs to the account that started it: nothing it was waiting for
-    // may complete into the next one.
     ++m_transferGeneration;
     m_transfer = Transfer();
     m_importDir.reset();
@@ -1047,8 +965,6 @@ void StickerPackManager::applySnapshot(const QString &roomId,
     m_loaded = true;
     m_stale = false;
 
-    // Keep the selection if the pack survived; otherwise pick the first pack
-    // with content for the current usage.
     const QString previous = m_selectedPackId;
     if (m_selectedPackId.isEmpty() || m_packs->indexOfPack(m_selectedPackId) < 0) {
         m_selectedPackId.clear();
@@ -1076,7 +992,6 @@ void StickerPackManager::applySnapshot(const QString &roomId,
 
 void StickerPackManager::rebuildImages()
 {
-    // The editor's rows follow ITS pack, not the picker's selection.
     const QString editorId =
         m_editorPackId.isEmpty() ? m_selectedPackId : m_editorPackId;
     const int editorRow = m_packs->indexOfPack(editorId);
@@ -1100,8 +1015,6 @@ void StickerPackManager::rebuildImages()
     m_images->reset(narrowed);
 }
 
-// -- Shortcode validation ----------------------------------------------------
-
 QString StickerPackManager::sanitizeShortcode(const QString &raw) const
 {
     return stickers::archive::sanitizeShortcode(raw);
@@ -1111,9 +1024,6 @@ QString StickerPackManager::shortcodeError(const QString &packId,
                                            const QString &current,
                                            const QString &candidate) const
 {
-    // Matrix v1.19: `[A-Za-z0-9_-]{1,100}`, case-sensitive. Nothing stricter
-    // (`__`, a leading `-` and 65-100 characters are all valid) and nothing
-    // looser; the backend validates the same way and never repairs a rename.
     if (candidate.isEmpty())
         return tr("Enter a name.");
     if (candidate.size() > 100)
@@ -1125,7 +1035,6 @@ QString StickerPackManager::shortcodeError(const QString &packId,
     const int row = m_packs->indexOfPack(packId);
     if (row >= 0 && candidate != current) {
         for (const stickers::PackImage &image : m_packs->packs().at(row).images) {
-            // Exact: `Cat` and `cat` are two different names.
             if (image.key == candidate && image.key != current)
                 return tr("Another image in this pack already uses that name.");
         }
@@ -1144,12 +1053,6 @@ QSet<QString> StickerPackManager::userPackShortcodes() const
     return taken;
 }
 
-// -- Transfers ---------------------------------------------------------------
-//
-// Export, import and multi-emoji saves share one slot (`m_transfer`): a second
-// job while one runs is refused, never queued, so two jobs can never
-// interleave read-modify-writes of the same account-data event.
-
 void StickerPackManager::beginTransfer(const QString &kind, const QString &name,
                                        int total)
 {
@@ -1166,7 +1069,6 @@ void StickerPackManager::beginTransfer(const QString &kind, const QString &name,
         connect(m_transferWatchdog, &QTimer::timeout, this, [this] {
             if (!m_transfer.active)
                 return;
-            // Nothing moved for two minutes: end the job with what it has.
             if (m_transfer.kind == QLatin1String("export")) {
                 m_transfer.failed += int(m_transfer.pending.size())
                     + (m_transfer.total - m_transfer.nextFetch);
@@ -1205,8 +1107,6 @@ void StickerPackManager::finishTransfer(bool ok, const QString &category)
                                                                 : done.name);
 }
 
-// Starts a batch of pack additions. `alreadySkipped` counts entries dropped
-// before the batch (refused or already present), so the report is complete.
 void StickerPackManager::startBatch(const QString &kind, const QString &name,
                                     const QList<BatchItem> &items,
                                     int alreadySkipped)
@@ -1265,7 +1165,7 @@ void StickerPackManager::advanceBatch()
                                            opId);
         }
         emitStateChanged();
-        return;  // continues in onBatchItemFinished
+        return;
     }
 }
 
@@ -1283,7 +1183,6 @@ void StickerPackManager::onBatchItemFinished(bool ok, const QString &category,
     } else if (category == QLatin1String("duplicate")) {
         ++m_transfer.skipped;
     } else if (m_transfer.kind == QLatin1String("upload")) {
-        // Keep it for Retry, with its media if that part landed.
         ++m_transfer.failed;
         if (m_transfer.category.isEmpty())
             m_transfer.category = category;
@@ -1294,7 +1193,6 @@ void StickerPackManager::onBatchItemFinished(bool ok, const QString &category,
             m_transfer.retry.append(again);
         }
     } else if (category == QLatin1String("pack_full")) {
-        // Every remaining image would be refused the same way.
         const int left = int(m_transfer.items.size()) - m_transfer.index;
         m_transfer.failed += 1 + left;
         m_transfer.done += left;
@@ -1307,8 +1205,6 @@ void StickerPackManager::onBatchItemFinished(bool ok, const QString &category,
     }
     advanceBatch();
 }
-
-// -- Import ------------------------------------------------------------------
 
 void StickerPackManager::uploadImagesToPack(const QString &packId,
                                             const QVariantList &fileUrls)
@@ -1328,8 +1224,6 @@ void StickerPackManager::uploadImagesToPack(const QString &packId,
             continue;
         BatchItem item;
         item.path = url.toLocalFile();
-        // A proposed name from the file name, unique within this batch; the
-        // backend suffixes a name the pack already has.
         QString code = stickers::archive::proposeShortcode(
             QFileInfo(item.path).completeBaseName());
         if (code.isEmpty())
@@ -1352,7 +1246,6 @@ void StickerPackManager::uploadImagesToPack(const QString &packId,
     m_transfer.items = items;
     for (const stickers::PackImage &image : pack.images)
         m_transfer.taken.insert(image.key);
-    // Keys already in the pack are not overwritten: skipped as duplicates.
     for (BatchItem &item : m_transfer.items) {
         QString unique = item.shortcode;
         for (int n = 2; m_transfer.taken.contains(unique) && n < 1000; ++n)
@@ -1366,7 +1259,6 @@ void StickerPackManager::retryFailedUploads()
 {
     if (!m_client || !available() || m_transfer.active || m_failedUploads.isEmpty())
         return;
-    // Recorded for the account that made the batch; never replayed as another.
     if (m_client->currentUserId() != m_failedUploadsAccount) {
         m_failedUploads.clear();
         m_failedUploadsAccount.clear();
@@ -1401,7 +1293,6 @@ void StickerPackManager::importPack(const QUrl &zipFile)
     const quint64 generation = m_transfer.generation;
     const QString workDir = m_importDir->path();
     QPointer<StickerPackManager> self(this);
-    // Unzipping up to ~100 MB is not GUI-thread work.
     QThreadPool::globalInstance()->start([self, zipPath, workDir, generation] {
         stickers::archive::ReadResult read =
             stickers::archive::readArchive(zipPath, workDir);
@@ -1440,8 +1331,6 @@ void StickerPackManager::importPack(const QUrl &zipFile)
                     item.usage = image.usage;
                     items.append(item);
                 }
-                // The work directory stays: the uploads read from it, and
-                // finishTransfer() removes it.
                 self->startBatch(QStringLiteral("import"), read.pack.name,
                                  items, skipped);
             },
@@ -1523,8 +1412,6 @@ QString StickerPackManager::transferMessage(const QString &kind, bool ok,
     return text;
 }
 
-// -- Export ------------------------------------------------------------------
-
 void StickerPackManager::exportPack(const QString &packId,
                                     const QUrl &zipFile)
 {
@@ -1555,11 +1442,7 @@ void StickerPackManager::pumpExport()
 {
     if (!m_transfer.active || m_transfer.kind != QLatin1String("export"))
         return;
-    // The frozen manifest, not the live model: a refresh mid-export changes
-    // nothing about what this export is.
     const QList<stickers::PackImage> &images = m_transfer.frozen.images;
-    // A few at a time: enough to hide latency, few enough not to flood the
-    // media queue the timeline shares.
     constexpr int kInFlight = 3;
     while (m_transfer.pending.size() < kInFlight
            && m_transfer.nextFetch < images.size()) {
@@ -1627,8 +1510,6 @@ void StickerPackManager::finishExport()
     }
     int skipped = 0;
     const QByteArray zip = stickers::archive::buildArchive(out, &skipped);
-    // Images fetched but not archivable (an SVG, a truncated file) count as
-    // skipped; ones never fetched are the failures already counted.
     m_transfer.skipped += skipped;
     const int written = int(out.images.size()) - skipped;
     if (written <= 0) {
@@ -1644,8 +1525,6 @@ void StickerPackManager::finishExport()
     m_transfer.added = written;
     finishTransfer(true, QString());
 }
-
-// -- Custom emoji in a message -----------------------------------------------
 
 QVariantList StickerPackManager::emoticonsInHtml(const QString &html) const
 {
@@ -1674,7 +1553,6 @@ QVariantList StickerPackManager::emoticonsInHtml(const QString &html) const
         if (!markerRe.match(tag).hasMatch())
             continue;
         const QString src = attr(tag, QStringLiteral("src"));
-        // Only a plain mxc URI: the same rule the pack writer enforces.
         if (!src.startsWith(QLatin1String("mxc://")) || src.size() > 512
             || src.contains(QLatin1Char(' ')) || src.contains(QLatin1Char('<'))
             || seen.contains(src))
@@ -1725,8 +1603,6 @@ void StickerPackManager::saveEmoticons(const QVariantList &emoticons)
     startBatch(QStringLiteral("emoji"), QString(), items, skipped);
 }
 
-// -- Republishing a private image ----------------------------------------------
-
 void StickerPackManager::republishPrivateImage(const QString &mediaKey)
 {
     if (!m_client || !available() || mediaKey.isEmpty() || !m_privateMediaFetch
@@ -1749,7 +1625,7 @@ void StickerPackManager::cancelRepublish()
 
 void StickerPackManager::dropRepublishScratch()
 {
-    m_republishDir.reset();  // removes the decrypted copy
+    m_republishDir.reset();
     m_republishOp = 0;
 }
 
@@ -1761,7 +1637,6 @@ void StickerPackManager::onPrivateMediaBytes(const QString &mediaKey, bool ok,
     const QString account = m_republishAccount;
     m_republishKey.clear();
     m_republishAccount.clear();
-    // A different account by now, or signed out: nothing is uploaded anywhere.
     if (!m_client || m_client->currentUserId() != account) {
         emitStateChanged();
         return;
@@ -1813,8 +1688,6 @@ void StickerPackManager::onPrivateMediaBytes(const QString &mediaKey, bool ok,
         dropRepublishScratch();
 }
 
-// -- Sharing -------------------------------------------------------------------
-
 QString StickerPackManager::shareLink(const QString &packId) const
 {
     const int row = m_packs->indexOfPack(packId);
@@ -1823,10 +1696,6 @@ QString StickerPackManager::shareLink(const QString &packId) const
     const stickers::Pack &pack = m_packs->packs().at(row);
     if (pack.source != QLatin1String("room") || pack.roomId.isEmpty())
         return {};
-    // matrix.to percent-encodes the id; a via hint lets a non-member's client
-    // find the room. The id's own server when it names one; a room v12 id
-    // names none (`!<hash>`), so our own server, which is in the room (live
-    // run 2026-10-26: the link went out with no via at all).
     QString server = pack.roomId.section(QLatin1Char(':'), 1);
     if (server.isEmpty() && m_client)
         server = m_client->currentUserId().section(QLatin1Char(':'), 1);
@@ -1864,8 +1733,6 @@ QString StickerPackManager::shareText(const QString &packId) const
     return text;
 }
 
-// -- Two editors on one pack ---------------------------------------------------
-
 QVariantMap StickerPackManager::packImageMap(const QString &packId) const
 {
     QVariantMap out;
@@ -1898,8 +1765,6 @@ QVariantMap StickerPackManager::comparePack(const QString &packId,
                           !added.isEmpty() || !removed.isEmpty() || !changed.isEmpty() } };
 }
 
-// -- Local view state ----------------------------------------------------------
-
 void StickerPackManager::setLocalStatePath(const QString &path)
 {
     m_localStatePath = path;
@@ -1909,7 +1774,6 @@ QString StickerPackManager::localGroupFor(const QString &userId)
 {
     if (userId.isEmpty())
         return {};
-    // Hashed: the file name a user might share holds no Matrix id.
     return QString::fromLatin1(
         QCryptographicHash::hash(userId.toUtf8(), QCryptographicHash::Sha256)
             .toHex().left(16));
@@ -1922,8 +1786,6 @@ QString StickerPackManager::localGroup() const
 
 void StickerPackManager::forgetAccount(const QString &userId)
 {
-    // A real sign-out or removal of `userId` (active or background) drops its
-    // hidden packs, custom recents and favourites from this device.
     const QString group = localGroupFor(userId);
     if (group.isEmpty())
         return;
@@ -1945,7 +1807,6 @@ QVariantList StickerPackManager::readLocalList(const QString &name) const
     const QString group = localGroup();
     if (group.isEmpty())
         return {};
-    // No file configured (tests, a backend without one): kept in memory.
     if (m_localStatePath.isEmpty())
         return m_localMemory.value(group + QLatin1Char('/') + name);
     QSettings settings(m_localStatePath, QSettings::IniFormat);
@@ -1974,7 +1835,6 @@ void StickerPackManager::setPackHidden(const QString &packId, bool hidden)
     if (hidden)
         ids.append(packId);
     writeLocalList(QStringLiteral("hidden"), ids);
-    // Re-mark the loaded packs without a network read.
     QList<stickers::Pack> rows = m_packs->packs();
     for (stickers::Pack &pack : rows)
         pack.hidden = ids.contains(pack.id);
@@ -1991,7 +1851,6 @@ bool StickerPackManager::isPackHidden(const QString &packId) const
 namespace {
 QVariantMap customEntry(const QVariantMap &row)
 {
-    // Only what is needed to show and send it again; no pack internals.
     QVariantMap e;
     for (const char *k : { "url", "key", "shortcode", "body", "packName",
                            "mimetype", "width", "height", "size", "isSticker",
@@ -2002,7 +1861,7 @@ QVariantMap customEntry(const QVariantMap &row)
     }
     return e;
 }
-} // namespace
+}
 
 void StickerPackManager::recordCustomUse(const QVariantMap &row)
 {

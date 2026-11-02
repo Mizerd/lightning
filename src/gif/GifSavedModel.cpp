@@ -7,8 +7,6 @@ GifSavedModel::GifSavedModel(GifStoredModel *local, GifStoredModel *provider,
                              QObject *parent)
     : QConcatenateTablesProxyModel(parent)
 {
-    // Order matters: `local`'s rows come first. get() uses the proxy's mapping,
-    // so this is the single place the grouping is decided.
     addSourceModel(local);
     addSourceModel(provider);
     connect(this, &QAbstractItemModel::rowsInserted,
@@ -34,10 +32,6 @@ int GifSavedModel::count() const
 
 QVariantMap GifSavedModel::get(int row) const
 {
-    // Resolved through the proxy's own mapping, so it cannot disagree with
-    // count(). Out-of-range rows answer an empty map, which the picker's
-    // choose() drops, so a stale keyboard row sends nothing rather than the
-    // wrong GIF.
     if (row < 0 || row >= rowCount())
         return {};
     const QModelIndex sourceIndex = mapToSource(index(row, 0));

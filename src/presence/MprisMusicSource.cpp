@@ -15,9 +15,6 @@ namespace {
 
 const QString kPropertiesInterface = QStringLiteral("org.freedesktop.DBus.Properties");
 
-// One D-Bus value as a plain Qt value: an object path becomes its string, a
-// wrapped variant is unwrapped, and a string array still inside a
-// QDBusArgument becomes a QStringList.
 QVariant plainValue(const QVariant &v)
 {
     if (v.userType() == qMetaTypeId<QDBusVariant>())
@@ -32,13 +29,11 @@ QVariant plainValue(const QVariant &v)
             arg >> list;
             return list;
         }
-        return {};   // nothing else in Metadata is read
+        return {};
     }
     return v;
 }
 
-// MPRIS `Metadata` (a{sv}) as a plain map, whichever way QtDBus handed it
-// over: still marshalled (signal and GetAll replies) or already a map.
 QVariantMap plainMetadata(const QVariant &v)
 {
     QVariantMap raw;
@@ -58,7 +53,7 @@ QVariantMap plainMetadata(const QVariant &v)
     return out;
 }
 
-}   // namespace
+}
 
 MprisMusicSource::MprisMusicSource(QObject *parent)
     : MprisMusicSource(QDBusConnection::sessionBus(),
@@ -74,8 +69,6 @@ MprisMusicSource::MprisMusicSource(const QDBusConnection &bus, const QString &se
 {
     m_poll.setInterval(kPollIntervalMs);
     connect(&m_poll, &QTimer::timeout, this, [this] {
-        // Nobody owns the name: there is nothing to ask until an owner
-        // appears, which the service watcher reports.
         if (m_hasOwner)
             refresh();
     });
@@ -94,7 +87,7 @@ void MprisMusicSource::start()
     m_hasOwner = true;
     ++m_generation;
     if (!m_bus.isConnected())
-        return;   // no session bus: nothing to watch, and nothing to report
+        return;
     m_watcher = new QDBusServiceWatcher(m_service, m_bus,
                                         QDBusServiceWatcher::WatchForOwnerChange, this);
     connect(m_watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
@@ -103,7 +96,6 @@ void MprisMusicSource::start()
                     return;
                 m_hasOwner = !newOwner.isEmpty();
                 if (newOwner.isEmpty()) {
-                    // Spotify quit: whatever it was playing has stopped.
                     m_status.clear();
                     m_metadata.clear();
                     recompute();
@@ -124,7 +116,7 @@ void MprisMusicSource::stop()
     if (!m_running)
         return;
     m_running = false;
-    ++m_generation;   // a reply already in flight is dropped
+    ++m_generation;
     m_poll.stop();
     if (m_subscribed) {
         m_bus.disconnect(m_service, QString::fromLatin1(musicdetect::kMprisObjectPath),
@@ -159,8 +151,6 @@ void MprisMusicSource::refresh()
                     return;
                 const QDBusPendingReply<QVariantMap> reply = *finished;
                 if (reply.isError()) {
-                    // Not running (ServiceUnknown), hidden by a sandbox, or
-                    // not answering: nothing is known to be playing.
                     if (reply.error().type() == QDBusError::ServiceUnknown
                         || reply.error().name()
                                == QLatin1String("org.freedesktop.DBus.Error.NameHasNoOwner"))
@@ -181,7 +171,7 @@ void MprisMusicSource::onPropertiesChanged(const QString &interfaceName,
     if (!m_running
         || interfaceName != QLatin1String(musicdetect::kMprisPlayerInterface))
         return;
-    m_hasOwner = true;   // only an owner can signal
+    m_hasOwner = true;
     applyProperties(changed, false);
     if (invalidated.contains(QStringLiteral("Metadata"))
         || invalidated.contains(QStringLiteral("PlaybackStatus")))
@@ -212,4 +202,4 @@ void MprisMusicSource::recompute()
     Q_EMIT nowPlayingChanged();
 }
 
-#endif   // HAVE_QT_DBUS
+#endif

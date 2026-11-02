@@ -46,14 +46,12 @@ UpdateManifest::Result failure(ManifestError error, const QString &detail = QStr
     return result;
 }
 
-// A directly downloadable install type; the manifest may only carry
-// artifacts for these.
 bool isDownloadableInstallType(InstallType type)
 {
     return canInstallAutomatically(type);
 }
 
-} // namespace
+}
 
 QString manifestErrorText(ManifestError error)
 {
@@ -119,7 +117,7 @@ bool isValidSha256Hex(const QString &value)
         const bool digit = c >= QLatin1Char('0') && c <= QLatin1Char('9');
         const bool lower = c >= QLatin1Char('a') && c <= QLatin1Char('f');
         if (!digit && !lower)
-            return false; // uppercase is rejected: the format is fixed
+            return false;
     }
     return true;
 }
@@ -134,7 +132,6 @@ bool isSafeArtifactFilename(const QString &filename)
         return false;
     if (filename == QLatin1String(".") || filename == QLatin1String(".."))
         return false;
-    // A leading dash would be read as an option by anything taking argv.
     if (filename.startsWith(QLatin1Char('-')))
         return false;
     if (filename.contains(QLatin1Char(':')))
@@ -145,9 +142,6 @@ bool isSafeArtifactFilename(const QString &filename)
         if (c.isSpace() && c != QLatin1Char(' '))
             return false;
     }
-    // The artifact is renamed to this name in the staging directory; it must
-    // not collide with the lock or status file there. Only an operator mistake
-    // could cause it, and refusing costs nothing.
     if (filename == QLatin1String("update.lock")
         || filename == QLatin1String("update-status.json")
         || filename.endsWith(QLatin1String(".lock"))) {
@@ -163,8 +157,6 @@ QString UpdateManifest::channelIdForInstallType(InstallType type)
         return QStringLiteral("linux-flatpak");
     case InstallType::LinuxSnap:
         return QStringLiteral("linux-snap");
-    // A downloaded .deb or .rpm is not package-managed and never reads its
-    // channel; a COPR install (LinuxRpmRepo) does.
     case InstallType::LinuxDeb:
         return QStringLiteral("linux-deb-repo");
     case InstallType::LinuxRpm:
@@ -192,7 +184,6 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
     if (!signature.ok)
         return failure(manifestErrorForSignature(signature.error));
 
-    // STEP 2 — only now is the document parsed.
     QJsonParseError parseError{};
     const QJsonDocument document = QJsonDocument::fromJson(manifestBytes, &parseError);
     if (parseError.error != QJsonParseError::NoError)
@@ -240,13 +231,9 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
 
     const QJsonValue releasedValue = root.value(QLatin1String("released"));
     if (releasedValue.isString()) {
-        // Presentation only; an unparseable timestamp stays null.
         manifest.m_released = QDateTime::fromString(releasedValue.toString(), Qt::ISODate);
     }
 
-    // Optional and informational: absent or empty means no expiry; unreadable
-    // is flagged so the manager shows the stale line. Never a failure (see the
-    // accessor).
     const QJsonValue expiresValue = root.value(QLatin1String("expires"));
     if (!expiresValue.isUndefined() && !expiresValue.isNull()) {
         if (expiresValue.isString() && !expiresValue.toString().isEmpty()) {
@@ -268,7 +255,6 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
     const QJsonValue notesUrlValue = root.value(QLatin1String("release_notes_url"));
     if (notesUrlValue.isString() && !notesUrlValue.toString().isEmpty()) {
         const QUrl url(notesUrlValue.toString(), QUrl::StrictMode);
-        // Metadata: canonical host only. The link opens in the user's browser.
         if (!isAllowedManifestUrl(url))
             return failure(ManifestError::ReleaseNotesUrlRejected);
         manifest.m_releaseNotesUrl = url;
@@ -281,8 +267,6 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
         const QJsonObject artifacts = artifactsValue.toObject();
         for (auto it = artifacts.constBegin(); it != artifacts.constEnd(); ++it) {
             const std::optional<InstallType> type = installTypeFromId(it.key());
-            // Forward compatibility: unknown keys and non-downloadable install
-            // types are ignored.
             if (!type || !isDownloadableInstallType(*type))
                 continue;
             if (!it.value().isObject())
@@ -319,23 +303,12 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
             const QUrl url(urlValue.toString(), QUrl::StrictMode);
             if (!url.isValid() || url.scheme() != QLatin1String("https"))
                 return failure(ManifestError::ArtifactBadUrl, it.key());
-            // The canonical address follows the metadata host policy: it is
-            // what the mirror falls back to, so it must not be a mirror too, or
-            // one third-party outage would leave no working source.
             if (!isAllowedManifestUrl(url))
                 return failure(ManifestError::ArtifactForeignHost, it.key());
-            // The URL must name the described file, so hash, size and name
-            // agree.
             if (url.fileName() != artifact.filename)
                 return failure(ManifestError::ArtifactFilenameMismatch, it.key());
             artifact.url = url;
 
-            // Optional mirror; absent or null means none. An untrusted but
-            // well-formed mirror is dropped, not fatal: the artifact keeps its
-            // canonical address, and failing instead would make older clients
-            // reject every manifest once the mirror moves. A malformed value
-            // (non-string, non-https, unparseable, or naming a different file)
-            // is a broken document and fatal.
             const QJsonValue mirrorValue = entry.value(QLatin1String("mirror_url"));
             if (!mirrorValue.isUndefined() && !mirrorValue.isNull()) {
                 if (!mirrorValue.isString())
@@ -343,7 +316,6 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
                 const QUrl mirror(mirrorValue.toString(), QUrl::StrictMode);
                 if (!mirror.isValid() || mirror.scheme() != QLatin1String("https"))
                     return failure(ManifestError::ArtifactBadMirrorUrl, it.key());
-                // The mirror must name the same file as well.
                 if (mirror.fileName() != artifact.filename)
                     return failure(ManifestError::ArtifactFilenameMismatch, it.key());
                 if (isAllowedArtifactUrl(mirror))
@@ -381,15 +353,12 @@ UpdateManifest::Result UpdateManifest::parseVerified(const QByteArray &manifestB
                 return failure(ManifestError::ChannelMalformed, it.key());
             }
             const QJsonValue noteValue = entry.value(QLatin1String("note"));
-            // Bounded: it reaches a status label.
             if (noteValue.isString())
                 channel.note = noteValue.toString().left(kMaxChannelNoteChars);
             manifest.m_channels.insert(channel.id, channel);
         }
     }
 
-    // Every field is data; there is nowhere to put a command, and unknown
-    // fields are never read.
     manifest.m_valid = true;
 
     Result result;
@@ -435,4 +404,4 @@ bool UpdateManifest::channelOffersUpdate(const QString &channelId, const Version
     return *channel->version > installed;
 }
 
-} // namespace lightning::update
+}

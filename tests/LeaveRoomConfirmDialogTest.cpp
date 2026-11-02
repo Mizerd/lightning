@@ -1,8 +1,3 @@
-// The shared leave-room confirmation (qml/LeaveRoomConfirmDialog.qml), loaded
-// from the real module: the wording must be honest about what leaving costs
-// (a sole member empties the room; an invite-only room needs a new invite),
-// never promise "invited again later" when nobody can, and keep an unknown
-// count on the neutral text. Both hosts must use it, not a private copy.
 
 #include <QtTest/QtTest>
 
@@ -36,7 +31,7 @@ QString readQml(const QString &name)
                                        : QString();
 }
 
-} // namespace
+}
 
 class LeaveRoomConfirmDialogTest : public QObject
 {
@@ -82,7 +77,6 @@ private slots:
 
     void aSoleMemberIsToldTheRoomWillBeEmpty()
     {
-        // Closed rule, nobody invited: the one case where it is true.
         const QString t = bodyFor(1, QStringLiteral("invite"), 0);
         QVERIFY2(t.contains(QStringLiteral("only member")), qPrintable(t));
         QVERIFY2(t.contains(QStringLiteral("empty")), qPrintable(t));
@@ -95,12 +89,9 @@ private slots:
     void noClaimOfAnEmptyRoomWhereAWayBackExists()
     {
         const QString e = QStringLiteral("empty");
-        // Public and restricted rooms can be joined again.
         QVERIFY(!bodyFor(1, QStringLiteral("public"), 0).contains(e));
         QVERIFY(!bodyFor(1, QStringLiteral("restricted"), 0).contains(e));
-        // Pending invitees can still join: the room is not empty.
         QVERIFY(!bodyFor(1, QStringLiteral("invite"), 2).contains(e));
-        // Unknown rule or unknown invite count: neutral, never a promise.
         QVERIFY(!bodyFor(1, QString(), 0).contains(e));
         QVERIFY(!bodyFor(1, QStringLiteral("invite")).contains(e));
         QVERIFY(!bodyFor(1, QStringLiteral("invite"), -1).contains(e));
@@ -122,17 +113,12 @@ private slots:
         QVERIFY(bodyFor(-1, QString()).contains(QStringLiteral("invited again")));
     }
 
-    // break-it s03: a public room said "you can be invited again later",
-    // when anyone can simply join it again. Fails on the old dialog, which
-    // gave every rule but invite/knock/private the re-invite text.
     void aPublicRoomSaysItCanBeJoinedAgain()
     {
         const QString t = bodyFor(5, QStringLiteral("public"));
         QVERIFY2(t.contains(QStringLiteral("join it again at any time")),
                  qPrintable(t));
         QVERIFY2(!t.contains(QStringLiteral("invited again")), qPrintable(t));
-        // Not over-applied: restricted and unknown rules keep the neutral
-        // text, invite-only keeps its own.
         QVERIFY(!bodyFor(5, QStringLiteral("restricted"))
                      .contains(QStringLiteral("join it again")));
         QVERIFY(!bodyFor(5, QString()).contains(QStringLiteral("join it again")));
@@ -140,10 +126,6 @@ private slots:
                     .contains(QStringLiteral("new invitation")));
     }
 
-    // break-it s03: a 300-character unbroken name did not wrap (WordWrap
-    // cannot break one "word") and ran past the dialog and the window. Fails
-    // on the old dialog: the body's content was wider than the body, and the
-    // whole name was quoted.
     void aLongUnbrokenNameStaysInsideTheDialog()
     {
         const QString name(300, QLatin1Char('N'));
@@ -169,7 +151,6 @@ private slots:
             QPointF(body->width(), body->height()));
         QVERIFY2(right.x() <= window->width() && right.y() <= window->height(),
                  "the body runs past the window");
-        // The room is identified, not reproduced.
         const QString text = m_dlg->property("bodyText").toString();
         QVERIFY2(!text.contains(name), "the whole 300-character name is quoted");
         QVERIFY(text.contains(QString(80, QLatin1Char('N')) + QChar(0x2026)));
@@ -185,9 +166,6 @@ private slots:
                                   Q_ARG(QVariant, QStringLiteral("Den")),
                                   Q_ARG(QVariant, 3),
                                   Q_ARG(QVariant, QStringLiteral("public")),
-                                  // openFor takes five arguments since the
-                                  // invited count; a call with four matches
-                                  // nothing and opens nothing.
                                   Q_ARG(QVariant, QVariant(0)),
                                   Q_ARG(QVariant, false));
         QTRY_VERIFY(m_dlg->property("opened").toBool());
@@ -199,9 +177,6 @@ private slots:
         QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("!r:x"));
     }
 
-    // C06-F01 with Return (recheck N5): on a focused Leave button with no
-    // ring, Return confirms nothing and moves the focus to Cancel, exactly
-    // as Space does.
     void aRinglessReturnOnLeaveMovesToCancel()
     {
         QSignalSpy spy(m_dlg, SIGNAL(confirmed(QString)));
@@ -231,8 +206,6 @@ private slots:
         QTRY_VERIFY(!m_dlg->property("visible").toBool());
     }
 
-    // The two hosts share this component; a private copy would let the
-    // wording drift again.
     void bothHostsUseTheSharedDialog()
     {
         const QString rooms = readQml(QStringLiteral("RoomsPanel.qml"));

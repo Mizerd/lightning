@@ -27,8 +27,6 @@ bool isNumericIdentifier(const QString &id)
     return true;
 }
 
-// A strict numeric core component: digits only, no leading zero unless the
-// value is exactly "0", and small enough to be an int.
 bool parseNumericCore(const QString &text, int *out)
 {
     if (text.isEmpty())
@@ -39,7 +37,7 @@ bool parseNumericCore(const QString &text, int *out)
     }
     if (text.size() > 1 && text.at(0) == QLatin1Char('0'))
         return false;
-    if (text.size() > 9) // beyond any plausible version component
+    if (text.size() > 9)
         return false;
     bool ok = false;
     const int value = text.toInt(&ok);
@@ -49,8 +47,6 @@ bool parseNumericCore(const QString &text, int *out)
     return true;
 }
 
-// Dot-separated identifiers. `numericRulesApply` enforces the semver
-// prerelease rule that numeric identifiers carry no leading zeros.
 bool parseIdentifiers(const QString &text, bool numericRulesApply, QStringList *out)
 {
     if (text.isEmpty())
@@ -72,14 +68,10 @@ bool parseIdentifiers(const QString &text, bool numericRulesApply, QStringList *
     return true;
 }
 
-// Semver 11.4.1-11.4.4: numeric identifiers compare numerically and always
-// sort below alphanumeric ones; a longer identifier list wins when every
-// shared identifier is equal.
 int comparePrerelease(const QStringList &a, const QStringList &b)
 {
     if (a.isEmpty() && b.isEmpty())
         return 0;
-    // A version WITH a prerelease sorts below the same version without one.
     if (a.isEmpty())
         return 1;
     if (b.isEmpty())
@@ -92,7 +84,6 @@ int comparePrerelease(const QStringList &a, const QStringList &b)
         const bool lhsNumeric = isNumericIdentifier(lhs);
         const bool rhsNumeric = isNumericIdentifier(rhs);
         if (lhsNumeric && rhsNumeric) {
-            // Identifiers are validated to be short and leading-zero free.
             const qulonglong lv = lhs.toULongLong();
             const qulonglong rv = rhs.toULongLong();
             if (lv != rv)
@@ -110,13 +101,12 @@ int comparePrerelease(const QStringList &a, const QStringList &b)
     return a.size() < b.size() ? -1 : 1;
 }
 
-} // namespace
+}
 
 std::optional<Version> Version::parse(const QString &text)
 {
     if (text.isEmpty())
         return std::nullopt;
-    // No tolerance for whitespace or a "v" prefix: this is machine input.
     if (text != text.trimmed())
         return std::nullopt;
 
@@ -147,9 +137,9 @@ std::optional<Version> Version::parse(const QString &text)
     if (!parseNumericCore(numbers.at(2), &version.m_patch))
         return std::nullopt;
 
-    if (dash >= 0 && !parseIdentifiers(prerelease, /*numericRulesApply=*/true, &version.m_prerelease))
+    if (dash >= 0 && !parseIdentifiers(prerelease,true, &version.m_prerelease))
         return std::nullopt;
-    if (plus >= 0 && !parseIdentifiers(build, /*numericRulesApply=*/false, &version.m_build))
+    if (plus >= 0 && !parseIdentifiers(build,false, &version.m_build))
         return std::nullopt;
 
     return version;
@@ -183,4 +173,4 @@ int Version::compare(const Version &a, const Version &b)
     return comparePrerelease(a.m_prerelease, b.m_prerelease);
 }
 
-} // namespace lightning::update
+}

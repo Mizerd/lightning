@@ -23,20 +23,16 @@ namespace {
 ///   byte 1 : |I|L|T|K| RSV  |   I=1
 ///   byte 2 : |M| PictureID hi|   M=1, 15-bit id
 ///   byte 3 : | PictureID lo  |
-constexpr guint8 kFlagExtended = 0x80; // X
-constexpr guint8 kFlagStart = 0x10;    // S
-constexpr guint8 kFlagPictureId = 0x80; // I, in the extension byte
-constexpr guint8 kFlagLongPictureId = 0x80; // M, in the id's first byte
+constexpr guint8 kFlagExtended = 0x80;
+constexpr guint8 kFlagStart = 0x10;
+constexpr guint8 kFlagPictureId = 0x80;
+constexpr guint8 kFlagLongPictureId = 0x80;
 constexpr guint kDescriptorBytes = 4;
-/// 15 bits, wrapping as the format specifies.
 constexpr guint16 kPictureIdMask = 0x7fff;
-/// VP8 is always 90 kHz.
 constexpr gint kClockRate = 90000;
 
 struct LightningRtpVp8Pay {
     GstRTPBasePayload parent;
-    /// Incremented once per frame and carried on every packet of it, as
-    /// libwebrtc does.
     guint16 pictureId;
 };
 
@@ -66,13 +62,11 @@ GstStaticPadTemplate kSrcTemplate = GST_STATIC_PAD_TEMPLATE(
 gboolean setCaps(GstRTPBasePayload *payload, GstCaps *caps)
 {
     (void)caps;
-    // "VP8" and 90 kHz are fixed by RFC 7741; TRUE marks a dynamic payload
-    // type so the negotiated pt passes.
     gst_rtp_base_payload_set_options(payload, "video", TRUE, "VP8", kClockRate);
     return gst_rtp_base_payload_set_outcaps(payload, nullptr);
 }
 
-} // namespace
+}
 
 unsigned long lightning::rtp::rtpHeaderExtensionBudget(GstElement *element,
                                                        GstBuffer *buffer)
@@ -93,8 +87,6 @@ unsigned long lightning::rtp::rtpHeaderExtensionBudget(GstElement *element,
         }
         g_value_unset(&extensions);
     } else {
-        // GStreamer 1.20/1.22 exposes negotiated extmaps but not the extension
-        // objects. Bound each by RFC 8285's maximum two-byte data length.
         GstCaps *caps = gst_pad_get_current_caps(payload->srcpad);
         if (caps && !gst_caps_is_empty(caps)) {
             const GstStructure *s = gst_caps_get_structure(caps, 0);
@@ -119,9 +111,6 @@ GstFlowReturn handleBuffer(GstRTPBasePayload *payload, GstBuffer *buffer)
         return GST_FLOW_ERROR;
     }
 
-    // `mtu` is the whole packet budget: reserve the RTP header and the
-    // descriptor and extensions from it. The encrypted frame (including its
-    // authentication trailer) is already the input and is fragmented here.
     const guint mtu = GST_RTP_BASE_PAYLOAD_MTU(payload);
     const gsize overhead = gst_rtp_buffer_calc_header_len(0)
         + kDescriptorBytes
@@ -134,14 +123,12 @@ GstFlowReturn handleBuffer(GstRTPBasePayload *payload, GstBuffer *buffer)
     const guint maxFragment = mtu - overhead;
 
     auto *self = reinterpret_cast<LightningRtpVp8Pay *>(payload);
-    // One id per frame, taken before packetising so all packets share it.
     const guint16 pictureId = self->pictureId;
     self->pictureId = (self->pictureId + 1) & kPictureIdMask;
 
     GstBufferList *packets = gst_buffer_list_new();
     gsize offset = 0;
     const gsize total = map.size;
-    // A zero-length frame produces no packets.
     while (offset < total) {
         const gsize take = std::min<gsize>(maxFragment, total - offset);
         const bool first = offset == 0;
@@ -162,11 +149,9 @@ GstFlowReturn handleBuffer(GstRTPBasePayload *payload, GstBuffer *buffer)
         dest[2] = kFlagLongPictureId | static_cast<guint8>((pictureId >> 8) & 0x7f);
         dest[3] = static_cast<guint8>(pictureId & 0xff);
         memcpy(dest + kDescriptorBytes, map.data + offset, take);
-        // The marker bit ends the frame.
         gst_rtp_buffer_set_marker(&rtp, last ? TRUE : FALSE);
         gst_rtp_buffer_unmap(&rtp);
 
-        // All packets of a frame share the RTP timestamp derived from its PTS.
         GST_BUFFER_PTS(out) = GST_BUFFER_PTS(buffer);
         GST_BUFFER_DTS(out) = GST_BUFFER_DTS(buffer);
         GST_BUFFER_DURATION(out) = GST_BUFFER_DURATION(buffer);
@@ -204,18 +189,13 @@ void lightning_rtp_vp8_pay_class_init(LightningRtpVp8PayClass *klass)
 
 void lightning_rtp_vp8_pay_init(LightningRtpVp8Pay *self)
 {
-    // A random non-zero start, as libwebrtc does. LiveKit seeds its wrap
-    // handler with PictureID - 1, and starting where Chrome does keeps it on
-    // its well-exercised path.
     self->pictureId = static_cast<guint16>(
         (g_random_int() & kPictureIdMask) | 1u);
-    // `perfect-rtptime` derives timestamps from byte offsets, which only suits
-    // audio; video timestamps must follow the frame PTS.
     g_object_set(self, "perfect-rtptime", FALSE,
                  "mtu", lightning::rtp::kRtpPayloadMtu, nullptr);
 }
 
-} // namespace
+}
 
 namespace lightning::rtp {
 
@@ -230,4 +210,4 @@ void registerVp8Payloader()
 
 const char *vp8PayloaderName() { return "lightningrtpvp8pay"; }
 
-} // namespace lightning::rtp
+}

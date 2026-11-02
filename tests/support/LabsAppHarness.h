@@ -1,17 +1,5 @@
 #pragma once
 
-// Live accounts (Labs), Phase 1: support for WP1-A's app-level suites
-// (RemovalOrderTest, RevocationTest, QuitParallelTest, CrossAccountOpenTest,
-// FlagOffParityTest).
-//
-// ScriptedLabsBridge implements lightning::accounts::RustBridgeApi as the
-// interface contract states it (la-p1-interfaces §5.1, §3.3, §3.4), and
-// nothing more, so these suites depend on the contract rather than on another
-// package's fake. Thread-safe: SessionPool calls its blocking methods from
-// the host retirement pool.
-//
-// Never a real credential: every token below is a fixture string.
-
 #include "accounts/HostRetirementPool.h"
 #include "accounts/RustBridgeApi.h"
 #include "accounts/SessionPool.h"
@@ -48,15 +36,11 @@ inline const QString kHsOne = QStringLiteral("https://one.example");
 inline const QString kHsTwo = QStringLiteral("https://two.example");
 inline const QString kHsThree = QStringLiteral("https://three.example");
 
-// A label as titles carry it: isolated (FSI ... PDI).
 inline QString iso(const QString &label)
 {
     return QChar(0x2068) + label + QChar(0x2069);
 }
 
-// How long a background account may take to be admitted: the pool's gate
-// (foreground initial sync, a clear lag probe over 2 s) plus its keyring
-// reads and restore. Generous: a timeout here is a harness failure.
 constexpr int kHostStartTimeoutMs = 20000;
 
 class ScriptedLabsBridge final : public lightning::accounts::RustBridgeApi
@@ -71,21 +55,16 @@ public:
 
     ScriptedLabsBridge() { m_clock.start(); }
 
-    // ── Knobs ──
     void setAvailable(bool available)
     {
         QMutexLocker lock(&m_mutex);
         m_available = available;
     }
-    // Every blocking retirement step (stopSync, shutdownTasks,
-    // destroyAndReport, logout) sleeps this long, on the caller's thread.
     void setRetireDelayMs(int ms)
     {
         QMutexLocker lock(&m_mutex);
         m_retireDelayMs = ms;
     }
-    // The account's store never reports closed (store_any_held stays 1 and
-    // destroy reports store_closed=false).
     void setStoreHeldForever(const QString &userId, bool held)
     {
         QMutexLocker lock(&m_mutex);
@@ -94,7 +73,6 @@ public:
         else
             m_heldForever.remove(userId);
     }
-    // The account's restore never answers: the host stays Starting.
     void setStartingHeld(const QString &userId, bool held)
     {
         QMutexLocker lock(&m_mutex);
@@ -107,8 +85,6 @@ public:
                 ++h.version;
         }
     }
-    // The server answered M_UNKNOWN_TOKEN, not a soft logout: a hard
-    // revocation by the shared classification.
     void revoke(const QString &userId)
     {
         QMutexLocker lock(&m_mutex);
@@ -123,25 +99,17 @@ public:
         QMutexLocker lock(&m_mutex);
         m_tokens.insert(userId, token);
     }
-    // What the server sign-out reports through the session state, as the
-    // sticky `logged_out` entry the real bridge sets when logout()/
-    // oauthLogout() finishes ("ok", "already_invalid", "failed"). Empty: no
-    // answer at all (a hang, so the pool's own sign-out budget decides).
     void setLogoutResult(const QString &result)
     {
         QMutexLocker lock(&m_mutex);
         m_logoutResult = result;
     }
-    // Runs inside logout()/oauthLogout(), on the pool's thread, with the
-    // account the handle belongs to. For facts that are safe to read from
-    // any thread (QFileInfo::exists).
     void setLogoutHook(std::function<void(const QString &userId)> hook)
     {
         QMutexLocker lock(&m_mutex);
         m_logoutHook = std::move(hook);
     }
 
-    // ── Observations ──
     int calls(const QString &name) const
     {
         QMutexLocker lock(&m_mutex);
@@ -168,7 +136,6 @@ public:
         QMutexLocker lock(&m_mutex);
         return m_log;
     }
-    // Index of the first call named `name` for `userId`, or -1.
     int firstIndexOf(const QString &name, const QString &userId) const
     {
         QMutexLocker lock(&m_mutex);
@@ -189,11 +156,9 @@ public:
     }
     qint64 nowMs() const { return m_clock.elapsed(); }
 
-    // ── RustBridgeApi ──
     bool available() const override
     {
         QMutexLocker lock(&m_mutex);
-        // Counted: T-OFF-1 asserts a flag-off controller never asks.
         ++m_availableCalls;
         return m_available;
     }
@@ -283,7 +248,6 @@ public:
                          QJsonObject{ { QStringLiteral("state"),
                                         QStringLiteral("running") } });
         }
-        // The server sign-out's answer: sticky, like the bridge's.
         if (it != m_handles.cend() && !it->loggedOutResult.isEmpty()) {
             version = it->version;
             state.insert(QStringLiteral("logged_out"),
@@ -376,8 +340,6 @@ public:
                                      "runtime_shutdown=completed")
                     : QStringLiteral("store_closed=true runtime_shutdown=completed");
     }
-    // No ledger in this fixture: a retirement keeps final_session_tokens'
-    // pair (the ledger path has its own cases in HostRetirementPoolTest).
     void *tokenLedgerRetain(void *h) override
     {
         record(QStringLiteral("tokenLedgerRetain"), h);
@@ -408,7 +370,6 @@ private:
         QString deviceId;
         bool restored = false;
         bool destroyed = false;
-        // The sticky logged_out result, once the server sign-out answered.
         QString loggedOutResult;
         quint64 version = 0;
         quint64 tokenGeneration = 1;
@@ -434,8 +395,6 @@ private:
         it->restored = true;
         it->version = 1;
     }
-    // The bridge's sticky logged_out, and the session-state version bump
-    // that makes a host read it (bgPoll -> bgTakeSessionState).
     void markLoggedOut(void *h)
     {
         QMutexLocker lock(&m_mutex);
@@ -485,7 +444,6 @@ private:
     std::function<void(const QString &)> m_logoutHook;
 };
 
-// Installs the bridge for one scope; the production table comes back after.
 class BridgeScope
 {
 public:
@@ -498,10 +456,6 @@ public:
     BridgeScope &operator=(const BridgeScope &) = delete;
 };
 
-// LIGHTNING_LABS_LIVE_ACCOUNTS for one scope (read at AppController
-// construction). Since 2026-10-20 Labs is offered by default and the variable
-// only FORCES it off: `available` true leaves it unset (the shipped default),
-// false sets "0".
 class LabsEnvScope
 {
 public:
@@ -531,7 +485,6 @@ inline void isolateSettings(const QString &configHome, const QString &dataHome,
 {
     qputenv("XDG_CONFIG_HOME", configHome.toUtf8());
     qputenv("XDG_DATA_HOME", dataHome.toUtf8());
-    // No daemon: generic notices take the tray path, where they are counted.
     qputenv("DBUS_SESSION_BUS_ADDRESS",
             "unix:path=/nonexistent/lightning-no-daemon");
     QCoreApplication::setOrganizationName(QStringLiteral("MatrixClientTests"));
@@ -543,9 +496,6 @@ inline void clearSettings()
     QSettings settings;
     settings.clear();
     settings.sync();
-    // The process-wide registries outlive a case: a store a previous case
-    // left "close unconfirmed" (by design busy until restart) would refuse
-    // every later case's host on the same fixture path (integration).
     lightning::accounts::StoreOwnershipRegistry::process().clearForTest();
     lightning::accounts::HostSignInRetirements::process().clearForTest();
 }
@@ -565,8 +515,6 @@ inline void saveAccountsAndSignInAlice(AppController &app)
     QTRY_VERIFY(app.loggedIn());
 }
 
-// Pins `pinned`, turns live accounts on, and waits until the pool holds a
-// store for each pinned account. False (with a QWARN) on a harness timeout.
 inline bool startLiveAccounts(AppController &app, ScriptedLabsBridge &bridge,
                               const QStringList &pinned)
 {
@@ -596,7 +544,6 @@ inline bool startLiveAccounts(AppController &app, ScriptedLabsBridge &bridge,
     return true;
 }
 
-// The recorded identity of a saved account (its store path included).
 inline matrix::app_data::AccountIdentity identityOf(AppController &app,
                                                     const QString &uid)
 {
@@ -605,7 +552,6 @@ inline matrix::app_data::AccountIdentity identityOf(AppController &app,
     return identity;
 }
 
-// A file inside the account's store and root, so a deletion is observable.
 inline void plantStoreFile(const matrix::app_data::AccountIdentity &identity)
 {
     QDir().mkpath(identity.rustStorePath);
@@ -614,4 +560,4 @@ inline void plantStoreFile(const matrix::app_data::AccountIdentity &identity)
         marker.write("fixture");
 }
 
-} // namespace labstest
+}

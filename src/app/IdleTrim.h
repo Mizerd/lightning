@@ -24,14 +24,6 @@
 
 namespace lightning {
 
-// Hand the free memory glibc keeps inside its arenas back to the system while
-// nobody is using the app.
-//
-// Measured after a long scroll and leaving the room: 705 MB sat free inside
-// the arenas, held there by the few live blocks scattered through them, and
-// malloc_trim(0) took 45-48 ms to return 208-419 MB of it. The trim cannot run
-// while the user is scrolling (it takes every arena lock in turn), so it waits
-// for quiet and runs on a pool thread, never the GUI thread.
 inline constexpr qint64 kIdleTrimQuietMs = 60 * 1000;
 inline constexpr qint64 kIdleTrimMinGapMs = 5 * 60 * 1000;
 inline constexpr std::uint64_t kIdleTrimMinFreeBytes = 64ull * 1024 * 1024;
@@ -41,13 +33,10 @@ struct IdleTrimState
     qint64 msSinceInput = 0;
     bool windowHidden = false;
     int activeCalls = 0;
-    // Free bytes inside the arenas; negative when the allocator cannot say.
     qint64 freeArenaBytes = -1;
-    // Negative when no trim has run yet.
     qint64 msSinceLastTrim = -1;
 };
 
-// Pure: every condition must hold.
 inline bool shouldIdleTrim(const IdleTrimState &s)
 {
     if (s.activeCalls > 0)
@@ -60,9 +49,6 @@ inline bool shouldIdleTrim(const IdleTrimState &s)
     return s.windowHidden || s.msSinceInput >= kIdleTrimQuietMs;
 }
 
-// Milliseconds until the first time shouldIdleTrim could turn true on time
-// alone, or -1 when time cannot change the answer (a call, too little free
-// memory), in which case nothing is armed until the next activity.
 inline qint64 idleTrimWaitMs(const IdleTrimState &s)
 {
     if (s.activeCalls > 0 || s.freeArenaBytes < 0
@@ -74,9 +60,6 @@ inline qint64 idleTrimWaitMs(const IdleTrimState &s)
     return qMax<qint64>(wait, 0);
 }
 
-// Event-driven: a single-shot timer armed by input and room changes, and
-// re-armed from its own handler only while there is something left to wait
-// for. A process nobody touches wakes at most once after its last activity.
 class IdleTrim : public QObject
 {
 public:
@@ -87,18 +70,15 @@ public:
         m_sinceInput.start();
     }
 
-    // Room changes and anything else the user did without an input event here.
     void noteActivity()
     {
 #if defined(LIGHTNING_IDLE_TRIM)
         m_sinceInput.restart();
-        // A pending timer already fires late enough; it re-checks on fire.
         if (!m_timer.isActive())
             m_timer.start(static_cast<int>(kIdleTrimQuietMs));
 #endif
     }
 
-    // Free bytes in the arenas, or -1 when unavailable.
     static qint64 freeArenaBytes()
     {
 #if defined(LIGHTNING_IDLE_TRIM)
@@ -168,10 +148,7 @@ private:
             return;
         m_haveTrimmed = true;
         m_sinceTrim.restart();
-        // Captures nothing: the job may outlive this object (and the stack
-        // frame holding it) at quit, so it touches only static state.
         QThreadPool::globalInstance()->start([] {
-            // A call may have started while the job waited for a thread.
             if (CallAllocatorHold::activeCalls() > 0) {
                 running() = false;
                 return;
@@ -195,7 +172,6 @@ private:
 #endif
     }
 
-    // Static, so a job still running at quit never reaches a dead object.
     static std::atomic<bool> &running()
     {
         static std::atomic<bool> flag{false};
@@ -219,4 +195,4 @@ private:
     bool m_haveTrimmed = false;
 };
 
-} // namespace lightning
+}

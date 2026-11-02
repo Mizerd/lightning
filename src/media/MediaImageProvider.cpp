@@ -18,12 +18,8 @@
 namespace {
 // Hard decode bound: no attachment may decode above this edge length.
 constexpr int kMaxDecodeEdge = 4096;
-// Well below Qt's 256 MiB default; the bytes are attacker-chosen.
 constexpr int kMaxDecodeAllocationMiB = 64;
 
-// Bakes the avatar shape into the decoded bitmap (square crop plus rounded
-// alpha corners), once per image and cached by URL, instead of a per-item
-// MultiEffect mask costing two render passes per avatar per frame.
 QImage roundedMasked(const QImage &src, bool circle, qreal radiusRatio)
 {
     if (src.isNull())
@@ -48,8 +44,6 @@ QImage roundedMasked(const QImage &src, bool circle, qreal radiusRatio)
     return out;
 }
 
-// Rounds a message image's corners without cropping; radius = radiusRatio *
-// min(w, h). Baked once per image, cached by URL.
 QImage roundedCorners(const QImage &src, qreal radiusRatio)
 {
     if (src.isNull())
@@ -72,20 +66,15 @@ QImage roundedCorners(const QImage &src, qreal radiusRatio)
     return out;
 }
 
-// Resolves the QML `sourceSize` against the source dimensions. QML's idiom for
-// "scale to this width" leaves the other axis 0, and QSize::isEmpty() is true
-// then, so the usual isValid() && !isEmpty() guard would decode at full
-// resolution. Upscaling is refused unless a shape mask is baked in, which must
-// be rasterized at the requested size to avoid aliased edges.
 QSize effectiveDecodeSize(const QSize &natural, const QSize &requested,
                           bool allowUpscale)
 {
     const int rw = qMax(0, requested.width());
     const int rh = qMax(0, requested.height());
     if (rw <= 0 && rh <= 0)
-        return natural;                 // nothing asked for
+        return natural;
     if (!natural.isValid() || natural.isEmpty())
-        return QSize(rw, rh);           // source size unknown; honour the ask
+        return QSize(rw, rh);
 
     QSize target;
     if (rw > 0 && rh > 0)
@@ -103,7 +92,7 @@ QSize effectiveDecodeSize(const QSize &natural, const QSize &requested,
         return natural;
     return target;
 }
-} // namespace
+}
 
 MediaImageProvider::MediaImageProvider(MediaBridge *bridge)
     : QQuickImageProvider(QQuickImageProvider::Image)
@@ -111,9 +100,6 @@ MediaImageProvider::MediaImageProvider(MediaBridge *bridge)
 {
 }
 
-// Image providers run on the GUI thread unless the Image is async, so decodes
-// are attributed for stall tracing. stalltrace::Scope is inert off the GUI
-// thread.
 QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
                                         const QSize &requestedSize)
 {
@@ -125,11 +111,9 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
         return {};
     QString cacheKey = QUrl::fromPercentEncoding(id.toUtf8());
 
-    // Optional shape suffix from Avatar.qml/SpacesRail.qml: "|shape:circle" or
-    // "|shape:rsq:<radius permille of the edge>". Not part of the cache key.
     bool maskCircle = false;
     qreal maskRatio = 0.0;
-    qreal roundRatio = 0.0;   // aspect-preserving corner rounding (message media)
+    qreal roundRatio = 0.0;
     const int shapePos = cacheKey.lastIndexOf(QLatin1String("|shape:"));
     if (shapePos >= 0) {
         const QString shape = cacheKey.mid(shapePos + 7);
@@ -149,7 +133,6 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
         }
     }
 
-    // Strip MediaBridge's "?r=<n>" revision suffix; not part of the cache key.
     const int revisionPos = cacheKey.lastIndexOf(QLatin1String("?r="));
     if (revisionPos >= 0)
         cacheKey.truncate(revisionPos);
@@ -180,12 +163,6 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
     if (bytes.isEmpty())
         return {};
 
-    // The format is decided by the bytes. MediaBridge refuses markup first;
-    // this is the second defence where bytes reach a decoder. A recognised
-    // raster format is pinned with autodetection off, and sniffRaster's table
-    // excludes SVG, so the SVG handler is unreachable even if qsvg ships.
-    // Unrecognised formats (e.g. HEIC via qmacheif) may autodetect only after
-    // the markup/gzip check has refused SVG and SVGZ.
     const lightning::imagefmt::RasterFormat *sniffed =
         lightning::imagefmt::sniffRaster(bytes);
     if (!sniffed && MediaBridge::looksLikeMarkupOrCompressed(bytes))
@@ -199,12 +176,9 @@ QImage MediaImageProvider::requestImage(const QString &id, QSize *size,
         reader.setFormat(QByteArray(sniffed->qtFormat));
     }
     reader.setAutoTransform(true);
-    // Attacker-chosen bytes: cap the allocation as well as the edge.
     reader.setAllocationLimit(kMaxDecodeAllocationMiB);
 
-    // Bound the decode to the requested size and never beyond the safety edge.
     const QSize natural = reader.size();
-    // An unreadable header means the edge cap cannot apply; refuse.
     if (!natural.isValid())
         return {};
     const bool bakesShape = maskCircle || maskRatio > 0.0 || roundRatio > 0.0;

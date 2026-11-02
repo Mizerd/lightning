@@ -37,4 +37,4 @@ inline QString oneToOneDmPeer(const RoomInfo &room, bool requireKnownCount = fal
     return targets.first();
 }
 
-} // namespace calls
+}

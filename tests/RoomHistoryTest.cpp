@@ -10,7 +10,6 @@ const RoomHistory::Openable kAll = [](const QString &) { return true; };
 
 QString room(int n) { return QStringLiteral("!r%1:x").arg(n); }
 
-// Opens rooms 1..n in order.
 RoomHistory opened(int n)
 {
     RoomHistory h;
@@ -19,10 +18,8 @@ RoomHistory opened(int n)
     return h;
 }
 
-} // namespace
+}
 
-// Pure navigation state behind the mouse Back/Forward buttons and
-// nav.historyBack/Forward: capped, truncating, skipping, in memory only.
 class RoomHistoryTest : public QObject
 {
     Q_OBJECT
@@ -42,7 +39,7 @@ private Q_SLOTS:
         RoomHistory h = opened(3);
         QCOMPARE(h.back(kAll), room(2));
         QCOMPARE(h.back(kAll), room(1));
-        QCOMPARE(h.back(kAll), QString()); // already at the oldest
+        QCOMPARE(h.back(kAll), QString());
         QCOMPARE(h.cursor(), 0);
         QCOMPARE(h.forward(kAll), room(2));
         QCOMPARE(h.forward(kAll), room(3));
@@ -53,7 +50,7 @@ private Q_SLOTS:
     {
         RoomHistory h = opened(3);
         h.back(kAll);
-        h.back(kAll); // at room 1, forward list is 2, 3
+        h.back(kAll);
         QVERIFY(h.canGoForward(kAll));
         h.visit(room(9));
         QVERIFY(!h.canGoForward(kAll));
@@ -64,7 +61,7 @@ private Q_SLOTS:
     void reselectingTheOpenRoomIsNotANewNavigation()
     {
         RoomHistory h = opened(3);
-        h.back(kAll); // at 2, forward list has 3
+        h.back(kAll);
         h.visit(room(2));
         QVERIFY(h.canGoForward(kAll));
         QCOMPARE(h.entries().size(), 3);
@@ -78,14 +75,13 @@ private Q_SLOTS:
             ++steps;
         QCOMPARE(steps, RoomHistory::kMaxBackEntries);
         QCOMPARE(RoomHistory::kMaxBackEntries, 10);
-        // The oldest reachable room is the 11th from the end, nothing older.
         QCOMPARE(h.entries().first(), room(15));
     }
 
     void theCapAlsoHoldsWhileNoRoomIsOpen()
     {
         RoomHistory h = opened(25);
-        h.visit(QString()); // lobby: Back now returns to the room just left
+        h.visit(QString());
         QVERIFY(h.detached());
         int steps = 0;
         while (!h.back(kAll).isEmpty())
@@ -106,7 +102,7 @@ private Q_SLOTS:
     void forwardFromTheLobbyGoesToTheEntryAfterTheCursor()
     {
         RoomHistory h = opened(3);
-        h.back(kAll); // at 2
+        h.back(kAll);
         h.visit(QString());
         QCOMPARE(h.forward(kAll), room(3));
     }
@@ -154,7 +150,7 @@ private Q_SLOTS:
     {
         RoomHistory h = opened(3);
         h.back(kAll);
-        h.back(kAll); // at 1
+        h.back(kAll);
         const RoomHistory::Openable no2 = [](const QString &id) {
             return id != room(2);
         };
@@ -166,7 +162,6 @@ private Q_SLOTS:
         RoomHistory h;
         for (const QString &id : {room(1), room(2), room(1)})
             h.visit(id);
-        // 1, 2, 1 with 2 gone would make Back from 1 "go" to 1.
         const RoomHistory::Openable no2 = [](const QString &id) {
             return id != room(2);
         };
@@ -194,7 +189,7 @@ private Q_SLOTS:
             return id != room(1);
         };
         QVERIFY(h.canGoBack(no1));
-        QCOMPARE(h.entries().size(), 3); // not pruned by a query
+        QCOMPARE(h.entries().size(), 3);
     }
 
     void clearForgetsEverything()

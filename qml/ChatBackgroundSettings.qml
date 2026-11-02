@@ -3,23 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings -> Appearance: chat backgrounds and surface depth.
-//
-//   * Your own background for every room (ChatBackgroundEditor, "default").
-//   * Where the other kinds live: one room's own picture, and a picture shared
-//     with everyone in a room or Space, are set from Room information.
-//   * "Show backgrounds set by others" (app.backdrops.showShared, default on).
-//     Off hides every room's and Space's shared picture; your own still show.
-//   * Depth: flat surfaces, or a gentle light-from-above gradient on the
-//     window's large grounds that only ever raises text contrast; and the way
-//     to a gradient of your own, which is a custom theme's (Fill in the theme
-//     editor), so the two kinds of gradient point at each other.
 ColumnLayout {
     id: section
     objectName: "chatBackgroundSettings"
     spacing: AppTheme.spacing8
 
-    // "Make your own gradient": the host opens the theme editor on a surface.
     signal makeGradientRequested()
 
     readonly property bool available: typeof app !== "undefined" && app
@@ -67,17 +55,11 @@ ColumnLayout {
                    + "right-click the room in the list.")
     }
 
-    // Your own backgrounds (this one and every room's "Only me" picture) on
-    // the homeserver: account data plus an encrypted upload, so they follow
-    // the account to other devices and come back after a sign-out, which
-    // deletes every copy on this device. app.backdrops.syncEnabled, per
-    // account, default on. Turning it off asks about the server copies.
     readonly property bool syncAvailable: available && app.backdrops.syncAvailable
     readonly property var syncStatus: syncAvailable ? app.backdrops.syncStatus : ({})
     readonly property string syncState: syncStatus.state !== undefined
                                         ? syncStatus.state : "unavailable"
 
-    // On asks nothing; off asks what happens to the server copies.
     function toggleSync() {
         if (!syncAvailable)
             return
@@ -122,8 +104,6 @@ ColumnLayout {
             id: syncSwitch
             objectName: "backgroundSyncSwitch"
             checked: section.syncAvailable && app.backdrops.syncEnabled
-            // AppSwitch does not flip itself: `checked` is still the current
-            // state here, and the controller's answer moves it.
             onToggled: section.toggleSync()
             Accessible.name: syncLabel.text
         }
@@ -198,8 +178,6 @@ ColumnLayout {
                                     + "media storage, which offers no way to "
                                     + "delete them; without the key they "
                                     + "cannot be viewed.")
-                    // Removed and not removed are both counted: a room you
-                    // left or a newer version's copy is not removed either.
                     if (s.removal === "partial")
                         return qsTr("%1 removed from your homeserver, %2 could "
                                     + "not be (a room you left, or saved by a "
@@ -232,8 +210,6 @@ ColumnLayout {
             text: qsTr("Retry")
             onClicked: app.backdrops.retrySync()
         }
-        // A removal that did not finish is retried as a removal: turning
-        // sync on and off would upload this device's pictures first.
         AppButton {
             objectName: "backgroundSyncRetryRemoval"
             visible: section.syncState === "off"
@@ -252,7 +228,6 @@ ColumnLayout {
         parent: Overlay.overlay
         width: Math.min(520, parent ? parent.width - 64 : 520)
         title: qsTr("Stop keeping backgrounds on your homeserver?")
-        // Closed without a choice (Escape, outside): nothing changes.
         standardButtons: Dialog.NoButton
 
         contentItem: ColumnLayout {
@@ -362,7 +337,6 @@ ColumnLayout {
                    + "rail a soft light-from-above shading. Text never gets "
                    + "harder to read: the shading always moves away from it.")
     }
-    // Depth is the automatic gradient; this is the way to one you choose.
     ColumnLayout {
         Layout.fillWidth: true
         spacing: AppTheme.spacing6

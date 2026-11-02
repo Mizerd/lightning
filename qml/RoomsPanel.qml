@@ -3,9 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Room-list column: workspace header, search with a quick-switcher hint, filter
-// chips and the room list. The account entry point lives on the SpacesRail;
-// this column has no footer.
 Rectangle {
     id: root
     color: AppTheme.roomList
@@ -17,9 +14,6 @@ Rectangle {
             roomSearch.forceActiveFocus()
     }
     onCompactChanged: if (compact && app.roomBatch) app.roomBatch.exitSelection()
-    // A selection belongs to the rows it was made on: another layout or row
-    // density rebuilds them, and the bar used to stay up, covering the bottom
-    // of a list it no longer described, until Done.
     Connections {
         target: app.settings
         function onRoomNavigationLayoutChanged() {
@@ -36,7 +30,6 @@ Rectangle {
         onActivated: app.roomBatch.exitSelection()
     }
     function knownLastAdminCount() {
-        // Only the open room has an authoritative, complete roster here.
         if (!app.roomInfo || app.roomInfo.truncated || app.roomInfo.loading
             || app.roomInfo.ownPowerLevel < 100 || app.roomInfo.roomId.length === 0
             || !app.roomBatch.isSelected(app.roomInfo.roomId)) return 0
@@ -62,43 +55,26 @@ Rectangle {
             function() { return app.settings.roomListWidth })
     }
 
-    // The room list's ground when the theme gives `sidebar` a gradient (Depth
-    // or a custom theme); draws nothing otherwise. The header strips below
-    // turn transparent over it so the gradient runs unbroken.
-    // Not z: -1, which draws beneath this Rectangle's own fill; declared
-    // first, so every other child paints above it.
     ThemedSurface {
         id: sidebarGround
         anchors.fill: parent
         role: "roomList"
         flatFill: false
-        // The Spaces rail sits above this column in Depth.
         innerShadowEdge: "left"
     }
 
-    // Entry point for Home's and the rail's create actions (routed by
-    // MainScreen) into this column's shared new-conversation dialog. mode:
-    // "dm", "room" or "space"; options may carry {addToSpace: bool}.
     function startConversation(mode, options) {
         newConversationDialog.openDialog(mode, options)
     }
 
-    // The Activity Center for the shell's shortcut. The panel belongs to this
-    // host, so MainScreen asks through a function rather than reaching into its
-    // ids. The header bell opens the same one.
     function openActivityCenter() {
         activityPanel.openPanel()
     }
 
-    // Open Discover / Join ("browse" | "address").
     function openDiscover(startMode) {
         discoverJoinDialog.openDialog(startMode)
     }
 
-    // Room order is held still while the list is in use (Settings, Panels);
-    // the models apply a new order on a Space, tab, search or room change by
-    // themselves. Coming back to the window is the other way out. Nothing
-    // reorders the list while the user is looking at it.
     function releaseHeldOrder() {
         if (app.roomList)
             app.roomList.releaseOrder()
@@ -111,29 +87,20 @@ Rectangle {
     Connections {
         target: Qt.application
         function onStateChanged() {
-            // Back in the window after being away.
             if (Qt.application.state === Qt.ApplicationActive)
                 root.releaseHeldOrder()
         }
     }
 
-    // The Channels layout's "Message Search" row. The dialog is MainScreen's
-    // (Ctrl+Shift+F opens the same one), so ask by signal.
     signal messageSearchRequested()
 
-    // A Matrix room link from a message: resolve it in the Address tab; a
-    // joined room opens directly (and jumps when the link has an event id).
     function openDiscoverForLink(link) {
         discoverJoinDialog.openForLink(link)
     }
 
-    // Development-only: find a descendant by objectName through children and
-    // the default data list (a Menu/Popup is not an Item and appears only in
-    // data).
     function findDemoDescendant(obj, name) {
         if (!obj) return null
         if (obj.objectName === name) return obj
-        // Dialogs/Popups are not Items; their subtree hangs off contentItem.
         if (obj.contentItem) {
             var viaContent = findDemoDescendant(obj.contentItem, name)
             if (viaContent) return viaContent
@@ -151,12 +118,10 @@ Rectangle {
         return null
     }
 
-    // Screenshot-demo hooks; inert in a non-demo build.
     Connections {
         target: app.demo
         enabled: app.screenshotDemoActive
         function onDemoOpenRoomContextMenu() {
-            // The selected row, via RoomDelegate's own `selected`.
             if (!roomList.contentItem) return
             var kids = roomList.contentItem.children
             for (var i = 0; i < kids.length; ++i) {
@@ -169,9 +134,6 @@ Rectangle {
         }
         function onDemoOpenNewConversation() {
             newConversationDialog.openDialog()
-            // Seed the omnibox so the "#name" create suggestion renders;
-            // deferred one tick because the picker sits behind the DM tab's
-            // Loader.
             Qt.callLater(function() {
                 var picker = root.findDemoDescendant(newConversationDialog, "dmUserPicker")
                 if (picker)
@@ -185,19 +147,12 @@ Rectangle {
         spacing: 0
         visible: !root.compact
 
-        // Workspace header, 60px with a trailing hairline to match the other
-        // column headers.
         Rectangle {
             Layout.fillWidth: true
             color: sidebarGround.hasGradient ? "transparent" : AppTheme.roomList
             implicitHeight: Math.max(AppTheme.headerBandHeight,
                 headerRow.implicitHeight + AppTheme.spacing12 * 2)
 
-            // Wordmark: "Lightning" with the bolt trailing on the same
-            // baseline. The label is not fillWidth and the row is anchored left
-            // only, so the RowLayout takes its implicit width and the bolt hugs
-            // the label instead of being pushed to the far edge. maximumWidth
-            // lets a long Space name elide.
             RowLayout {
                 id: headerRow
                 anchors {
@@ -217,15 +172,8 @@ Rectangle {
                         - (railHiddenActions.visible
                            ? railHiddenActions.implicitWidth
                              + AppTheme.spacing8 : 0))
-                    // In Channels the header names the current view (Home,
-                    // Direct Messages or the Space); Classic keeps the wordmark
-                    // at Home.
                     readonly property bool channelsLayout:
                         app.settings && app.settings.roomNavigationLayout === 1
-                    // spaceName() is a method call and app.spaces is constant,
-                    // so the binding would evaluate once; a new Space is named
-                    // just after its room appears and would stay "Empty Room".
-                    // Read this counter so it re-evaluates.
                     property int spacesRevision: 0
                     Connections {
                         target: app.spaces
@@ -251,8 +199,6 @@ Rectangle {
                     font.weight: AppTheme.weightBold
                     elide: Label.ElideRight
 
-                    // With a real Space selected, the title also opens its
-                    // Space Home.
                     readonly property bool spaceLink:
                         app.spaces !== null
                         && app.spaces.activeSpaceId.length > 0
@@ -271,8 +217,6 @@ Rectangle {
                     ToolTip.delay: 500
                 }
 
-                // The bolt mark: a bare glyph sized near the label's cap
-                // height; never focusable or resized by hover.
                 Icon {
                     id: wordmarkBolt
                     objectName: "workspaceBoltMark"
@@ -280,13 +224,10 @@ Rectangle {
                     name: "bolt"
                     size: 15
                     color: AppTheme.wordmarkBolt
-                    // Decorative: announce the workspace name only.
                     Accessible.ignored: true
                 }
             }
 
-            // Settings and the account menu, only while the Spaces rail (their
-            // usual home) is hidden.
             RailHiddenActions {
                 id: railHiddenActions
                 anchors {
@@ -303,21 +244,12 @@ Rectangle {
             color: AppTheme.headerDivider
         }
 
-        // Search bar + new-conversation button
         Rectangle {
             id: searchHeader
             Layout.fillWidth: true
             color: sidebarGround.hasGradient ? "transparent" : AppTheme.roomList
             implicitHeight: searchRow.implicitHeight + AppTheme.spacing8 * 2
 
-            // The header wraps to two rows below a derived threshold rather
-            // than overflowing: the search card has a 120px floor and the
-            // actions are fixed, and layouts do not clip, so a narrow column
-            // pushed the actions (including the + menu, Classic's only Discover entry) off
-            // the panel. The actions keep their right edge in both
-            // arrangements. The threshold uses the card's floor and the
-            // actions' implicit width, neither of which depends on this row's
-            // width.
             readonly property real headerOneRowFloor:
                 AppTheme.spacing12 * 2 + AppTheme.spacing8
                 + searchCard.Layout.minimumWidth + headerActions.implicitWidth
@@ -335,17 +267,10 @@ Rectangle {
                 columnSpacing: AppTheme.spacing8
                 rowSpacing: AppTheme.spacing8
 
-                // The search card: surface fill, 1px border, rounded, with a
-                // borderless field inside. Focus promotes the border to the
-                // focus ring.
                 Rectangle {
                     id: searchCard
                     objectName: "roomSearchCard"
                     Layout.fillWidth: true
-                    // A floor: a RowLayout would shrink a fillWidth item to
-                    // nothing, and the contents would spill over the button
-                    // beside it. 120 leaves ~82px of field with the keycap
-                    // hidden, enough for the "Search" placeholder.
                     Layout.minimumWidth: 120
                     implicitHeight: 34
                     radius: AppTheme.radiusMd
@@ -355,7 +280,6 @@ Rectangle {
                                   : searchCardHover.hovered ? AppTheme.borderStrong
                                   : AppTheme.searchFieldBorder
                     HoverHandler { id: searchCardHover }
-                    // The whole pill focuses the field.
                     TapHandler {
                         onTapped: roomSearch.forceActiveFocus()
                     }
@@ -366,7 +290,6 @@ Rectangle {
                         anchors.rightMargin: AppTheme.spacing6
                         spacing: AppTheme.spacing6
 
-                        // Leading search glyph.
                         Icon {
                             name: "search"
                             size: 16
@@ -375,14 +298,9 @@ Rectangle {
                         TextField {
                             id: roomSearch
                             Layout.fillWidth: true
-                            // Fill the card's height so the hit area matches
-                            // the pill.
                             Layout.fillHeight: true
                             placeholderText: qsTr("Search")
                             Accessible.name: qsTr("Search rooms")
-                            // Escape clears the query, then leaves the field
-                            // so the shell's Escape (room -> overview -> Home)
-                            // is reachable again (C74-F13).
                             Keys.onEscapePressed: (event) => {
                                 if (roomSearch.text.length > 0)
                                     roomSearch.clear()
@@ -400,27 +318,17 @@ Rectangle {
                             padding: 0
                             leftPadding: 0
                             rightPadding: 0
-                            // The card is the visual container.
                             background: null
                         }
-                        // Quick-switcher keycap hint, not translated. storm:
-                        // false, since the room list keeps the user's theme.
                         MenuKeycap {
                             keys: "Ctrl+K"
                             storm: false
-                            // A hint, first to go when narrow. Tested on the
-                            // card's width, which does not depend on this
-                            // item's visibility; the field's own width would
-                            // oscillate.
                             visible: !roomSearch.activeFocus
                                      && searchCard.width >= 220
                         }
                     }
                 }
 
-                // The actions as one item, so the header can move them to a
-                // second row. Its implicitWidth is what headerOneRowFloor
-                // measures.
                 RowLayout {
                     id: headerActions
                     spacing: AppTheme.spacing8
@@ -441,8 +349,6 @@ Rectangle {
                         onClicked: app.settings.roomFilterMode = active ? 0 : 4
                     }
 
-                    // How the list is ordered (Activity / A-Z), Element's
-                    // "..." beside the search field.
                     IconButton {
                         id: sortBtn
                         objectName: "roomListOptionsButton"
@@ -454,13 +360,8 @@ Rectangle {
                         active: roomListSortMenu.opened
                         Accessible.name: qsTr("Room list options")
                         ToolTip.text: qsTr("Room list options")
-                        // Not while its own menu is open: the tip drew over
-                        // the menu's header (C04-F06).
                         ToolTip.visible: hovered && !roomListSortMenu.opened
                         ToolTip.delay: 500
-                        // Return/Enter (IconButton), the Menu key and Shift+F10
-                        // open the menu as Space does (C04-F05); the Menu key
-                        // used to fall through to the search field's edit menu.
                         Keys.onMenuPressed: (event) => { sortBtn.clicked(); event.accepted = true }
                         Keys.onPressed: (event) => {
                             if (event.key === Qt.Key_F10
@@ -469,10 +370,6 @@ Rectangle {
                                 event.accepted = true
                             }
                         }
-                        // Whether the menu was opened from the keyboard, so the
-                        // ring comes back on this button when it closes
-                        // (C04-F06): a popup closing returns focus with a
-                        // reason that draws no ring.
                         property bool openedByKeyboard: false
                         onClicked: {
                             openedByKeyboard = visualFocus
@@ -483,8 +380,6 @@ Rectangle {
                             parent: sortBtn
                             x: sortBtn.width - width
                             y: sortBtn.height + 4
-                            // After the popup has handed focus back: it does
-                            // so with a reason that draws no ring.
                             onClosed: if (sortBtn.openedByKeyboard) {
                                 // forceActiveFocus() is a no-op on an item the
                                 // popup already refocused, so the reason is set
@@ -498,12 +393,6 @@ Rectangle {
                             }
                         }
                     }
-                    // Everything that adds to the list, as one labelled menu
-                    // (Element's "+"): a message, a room, a Space, and the
-                    // public directory, which used to be an unlabelled
-                    // compass beside it. One icon fewer gives the search field
-                    // its width back. Each row is gated on its own backend
-                    // support.
                     IconButton {
                         id: newConversationBtn
                         objectName: "roomListAddButton"
@@ -519,7 +408,6 @@ Rectangle {
                         ToolTip.text: qsTr("New message, room or Space")
                         ToolTip.visible: hovered && !roomListAddMenu.opened
                         ToolTip.delay: 500
-                        // As the sort button beside it (C04-F05, F06).
                         Keys.onMenuPressed: (event) => { newConversationBtn.clicked(); event.accepted = true }
                         Keys.onPressed: (event) => {
                             if (event.key === Qt.Key_F10
@@ -587,8 +475,6 @@ Rectangle {
                             }
                         }
                     }
-                    // The Activity Center: everything addressed to you, across
-                    // rooms.
                     IconButton {
                         id: activityBtn
                         objectName: "activityCenterButton"
@@ -633,17 +519,10 @@ Rectangle {
             }
         }
 
-        // Filter chips. The model owns filtering (RoomListModel::filterMode);
-        // the chips reflect and write the persisted per-account preference,
-        // which the model follows through the Binding below.
         Rectangle {
             Layout.fillWidth: true
             color: sidebarGround.hasGradient ? "transparent" : AppTheme.roomList
             implicitHeight: filterChips.implicitHeight + AppTheme.spacing6 * 2
-            // storm: false, like MenuKeycap here.
-            // The chips keep their natural width so no label is elided; a
-            // column narrower than the five of them scrolls sideways (wheel,
-            // drag) and keeps the selected chip in view.
             Flickable {
                 id: chipsFlick
                 objectName: "roomFilterChipsFlick"
@@ -672,7 +551,6 @@ Rectangle {
                 }
                 onWidthChanged: Qt.callLater(revealSelected)
                 WheelHandler {
-                    // A vertical wheel over the row moves it sideways.
                     acceptedDevices: PointerDevice.Mouse
                     onWheel: (event) => {
                         const d = event.angleDelta.x !== 0 ? event.angleDelta.x
@@ -688,31 +566,18 @@ Rectangle {
                 width: chipsFlick.contentWidth
                 dense: true
                 onCurrentChanged: Qt.callLater(chipsFlick.revealSelected)
-                // Channels drops People and Rooms: the rail's Home and Direct
-                // Messages tabs are that split. The stored preference is not
-                // rewritten, so switching back to Classic restores it; it is
-                // mapped on the way into this row and the model.
                 readonly property bool channelsLayout:
                     app.settings && app.settings.roomNavigationLayout === 1
-                // A Space view gets People back: its People group (DMs with the
-                // Space's members) is gated on this filter. Rooms stays out,
-                // since a Space view already shows its rooms.
                 readonly property bool spaceView:
                     app.spaceChannels
                     && app.spaceChannels.viewKind === "space"
-                // Home has its own Direct Messages group, so People means that
-                // group.
                 readonly property bool homeView:
                     app.spaceChannels
                     && app.spaceChannels.viewKind === "home"
-                // The mapping, in one place, read by both the chips and the
-                // model Binding.
                 readonly property int channelsFilterMode: {
                     const stored = app.settings.roomFilterMode
                     if (stored === 3 || stored === 4)
                         return stored
-                    // People passes through only where the chip is offered (a
-                    // Space view and Home).
                     if (stored === 1 && (filterChips.spaceView || filterChips.homeView))
                         return 1
                     return 0
@@ -731,8 +596,6 @@ Rectangle {
                            { label: qsTr("Rooms"), value: 2 },
                            { label: qsTr("Favourites"), value: 4 },
                            { label: qsTr("Unreads"), value: 3 } ]
-                // Reads the setting it writes, not the model: one direction,
-                // chips -> setting -> model.
                 current: channelsLayout
                          ? filterChips.channelsFilterMode
                          : app.settings.roomFilterMode
@@ -741,9 +604,6 @@ Rectangle {
                 }
             }
             }
-            // A column too narrow for the five chips scrolls sideways, and
-            // nothing said so: "Unreads" was simply cut at 640 px. A fade and
-            // a chevron on each edge that has more, which also scroll.
             Repeater {
                 model: [ { side: "left" }, { side: "right" } ]
                 delegate: Item {
@@ -795,8 +655,6 @@ Rectangle {
             property: "filterMode"
             value: app.settings.roomFilterMode
         }
-        // The same chrome drives both layouts. In Channels only All and Unreads
-        // exist, so a stored People/Rooms reads as All.
         Binding {
             target: app.spaceChannels
             property: "filterMode"
@@ -812,9 +670,6 @@ Rectangle {
             property: "messageSearchSupported"
             value: app.loggedIn && app.messageSearch.supported
         }
-        // The rail's selection, verbatim, chooses the view (Space, Direct
-        // Messages or Home). "@people" is a real selection that is not a Space;
-        // the model does the classifying.
         Binding {
             target: app.spaceChannels
             property: "scopeSpaceId"
@@ -827,16 +682,12 @@ Rectangle {
         }
 
         ActivityCenterPanel { id: activityPanel }
-        // The row menu's "Invite people…" (RoomActionsMenu), for whichever
-        // room was right-clicked.
         InvitePeopleDialog {
             id: roomInviteDialog
             objectName: "roomListInviteDialog"
             parent: Overlay.overlay
         }
 
-        // The row menu's "Chat background…" (RoomActionsMenu), for whichever
-        // room was right-clicked.
         ChatBackgroundDialog {
             id: roomChatBackgroundDialog
             objectName: "roomListChatBackgroundDialog"
@@ -846,8 +697,6 @@ Rectangle {
             parent: Overlay.overlay
         }
 
-        // RoomDelegate is signal-only, so the clipboard write and the leave
-        // confirmation/error surfaces are one shared instance here.
         TextEdit {
             id: roomLinkClipboard
             visible: false
@@ -855,9 +704,6 @@ Rectangle {
             height: 0
         }
 
-        // Leave confirmation, shared with RoomInfoPanel (one wording, one
-        // chrome). The target may not be the open room, so the member count
-        // is that room's own.
         LeaveRoomConfirmDialog {
             id: leaveRoomConfirm
             objectName: "leaveRoomConfirmDialog"
@@ -890,8 +736,6 @@ Rectangle {
             }
         }
 
-        // A leave from the list menu has its own pending/error state
-        // (RoomInfoController tracks it separately); report failure here.
         Dialog {
             id: leaveRoomFailedDialog
             objectName: "leaveRoomFailedDialog"
@@ -899,7 +743,6 @@ Rectangle {
             anchors.centerIn: parent
             width: Math.max(240, Math.min(400, parent ? parent.width - 32 : 400))
             modal: true
-            // Same chrome as leaveRoomConfirm.
             standardButtons: Dialog.NoButton
             closePolicy: Popup.CloseOnEscape
             property string roomLabel: ""
@@ -944,8 +787,6 @@ Rectangle {
             }
         }
 
-        // A hairline between the controls and the list, so the chips do not
-        // read as list rows. borderStrong: it divides two regions of one pane.
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 1
@@ -987,18 +828,11 @@ Rectangle {
             }
         }
 
-        // List body: the chosen navigation layout. The header, search, dialogs
-        // and footer are shared by both layouts. A Loader, so the unchosen
-        // layout instantiates nothing. The empty-state label lives in this
-        // wrapper, not inside the ListView, whose contentItem collapses to 0
-        // when empty.
         Item {
             id: listBody
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            // Selection controls float over the list so selecting a row never
-            // moves the rows beneath the pointer.
             Rectangle {
                 id: batchOverlay
                 z: 40
@@ -1036,9 +870,6 @@ Rectangle {
                             AppButton { text: qsTr("Leave…"); enabled: app.roomBatch.selectionCount > 0 && !app.roomBatch.busy; onClicked: app.roomBatch.requestLeave() }
                             AppButton { text: qsTr("Retry failed"); visible: app.roomBatch.canRetry; enabled: !app.roomBatch.busy; onClicked: app.roomBatch.retryFailed() }
                             AppButton { text: qsTr("Done"); onClicked: app.roomBatch.exitSelection() }
-                            // One summary line. When everything succeeded it
-                            // dismisses itself; failures stay, with their rooms
-                            // listed below.
                             property bool summaryDismissed: false
                             readonly property bool allDone:
                                 app.roomBatch.outcomes.length > 0
@@ -1068,13 +899,9 @@ Rectangle {
                     }
                     ListView {
                         objectName: "roomBatchOutcomes"
-                        // Inset like the action bar above, so a failure line
-                        // never touches the window edge.
                         x: AppTheme.spacing8
                         width: parent.width - AppTheme.spacing8 * 2
                         height: Math.min(contentHeight, 96)
-                        // Only the rooms that need attention; the summary line
-                        // carries the counts.
                         visible: model.length > 0
                         clip: true
                         model: app.roomBatch.outcomes.filter(
@@ -1100,18 +927,13 @@ Rectangle {
                 }
             }
 
-            // The chosen layout; Channels applies everywhere, not only inside a
-            // Space.
             readonly property bool channelsChosen:
                 app.settings && app.settings.roomNavigationLayout === 1
             readonly property bool channelsUsable: channelsChosen
 
-
             Loader {
                 id: classicLoader
                 anchors.fill: parent
-                // Rows stay put (top-anchored); the bar only takes the bottom
-                // of the viewport, so rows under it scroll up into reach.
                 anchors.bottomMargin: batchOverlay.visible ? batchOverlay.height : 0
                 active: !root.compact && !parent.channelsUsable
                 visible: active
@@ -1145,8 +967,6 @@ Rectangle {
             Loader {
                 id: channelsLoader
                 anchors.fill: parent
-                // Rows stay put (top-anchored); the bar only takes the bottom
-                // of the viewport, so rows under it scroll up into reach.
                 anchors.bottomMargin: batchOverlay.visible ? batchOverlay.height : 0
                 active: !root.compact && parent.channelsUsable
                 visible: active
@@ -1156,14 +976,10 @@ Rectangle {
                     onRoomOpenedByPointer: (roomId) => app.requestComposerFocus(roomId)
                     onLobbyActivated: app.openLobby()
                     onMessageSearchRequested: root.messageSearchRequested()
-                    // Reuse the host's own dialogs, so there is one create and
-                    // one discover path.
                     onCreateRoomRequested: newConversationDialog.openDialog("room")
                     onCreateChatRequested: newConversationDialog.openDialog("dm")
                     onJoinAddressRequested: discoverJoinDialog.openDialog("address")
                     onExploreSpacesRequested: discoverJoinDialog.openDialog("browse")
-                    // The same clipboard proxy and leave confirmation as the
-                    // Classic list.
                     onRoomLinkCopyRequested: (roomId) => {
                         var row = app.roomList.findRoom(roomId)
                         var link = app.roomList.roomPermalink(
@@ -1185,7 +1001,6 @@ Rectangle {
             }
         }
 
-        // Voice Connected footer while a call is live; zero height otherwise.
         VoiceConnectedBar {
             objectName: "roomsPanelVoiceBar"
             Layout.fillWidth: true

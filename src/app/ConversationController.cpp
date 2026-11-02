@@ -14,21 +14,14 @@
 Q_LOGGING_CATEGORY(lcConv, "matrix.conversations")
 
 namespace {
-// After this, open a created room by id even if sync has not listed it yet.
 constexpr int kRoomWaitTimeoutMs = 10000;
 
-// Generous, because a federated invite is slow; it only stops a permanent hang.
 constexpr int kCreateOpTimeoutMs = 60000;
 
-// How long a create that outlived kCreateOpTimeoutMs still blocks a second
-// create for the same person. The server keeps working on it (the request has
-// no cancel and no timeout of its own), and each retry leaves one more room.
 constexpr int kAbandonedOpGuardMs = 10 * 60 * 1000;
 
-// Bounds the pre-create profile lookup. Longer than rooms.rs's own 10 s bound,
-// which answers "timeout"; this only covers a backend that never answers.
 constexpr int kTargetCheckTimeoutMs = 15000;
-} // namespace
+}
 
 ConversationController::ConversationController(QObject *parent)
     : QObject(parent)
@@ -49,11 +42,6 @@ ConversationController::ConversationController(QObject *parent)
     connect(&m_targetCheckTimeout, &QTimer::timeout, this, [this]() {
         if (m_targetCheckOp == 0)
             return;
-        // No answer is not "does not exist", but it is not "reachable"
-        // either: rooms.rs's own 10 s bound did not answer "timeout" in time,
-        // and a create now would hang on the same federation path. Ask, as for
-        // "timeout" (decided 2026-10-18, C7). A late answer is dropped by the
-        // op id below.
         const QString userId = m_targetCheckUser;
         m_targetCheckOp = 0;
         m_targetCheckUser.clear();
@@ -67,8 +55,6 @@ ConversationController::ConversationController(QObject *parent)
         if (m_pendingOp == 0)
             return;
         if (m_inviteOp == m_pendingOp) {
-            // No answer for the invite batch: end the spinner, say which
-            // rows are unconfirmed, and keep listening for a late answer.
             m_lateInviteOp = m_inviteOp;
             m_inviteOp = 0;
             m_pendingOp = 0;
@@ -93,16 +79,12 @@ ConversationController::ConversationController(QObject *parent)
             Q_EMIT inviteBatchCompleted(ok, fail);
             return;
         }
-        // The create is still running server-side: remember who it was for so
-        // that a retry for the SAME person is refused until it answers, instead
-        // of leaving one more empty room per retry.
         if (!m_pendingDmUser.isEmpty()) {
             m_abandonedDms.insert(m_pendingOp, m_pendingDmUser);
             m_abandonedGuard.start();
         }
         m_pendingDmUser.clear();
         m_pendingOp = 0;
-        // The server may still create the room, so do not claim failure.
         setError(tr("This is taking longer than expected. The other person's "
                     "server may be slow to respond. If a room appears in your "
                     "list, use that one rather than starting another."));
@@ -117,7 +99,6 @@ void ConversationController::setClient(MatrixClient *client)
     if (m_client)
         m_client->disconnect(this);
     m_client = client;
-    // An account switch: the other account's abandoned creates mean nothing.
     clearAbandonedDm();
     cancelTargetCheck();
     setUnknownTarget(QString());
@@ -160,7 +141,6 @@ QString ConversationController::describeCategory(const QString &category)
         return tr("The server rejected the request as invalid.");
     if (category == QLatin1String("not_found"))
         return tr("Not found on this server.");
-    // M_UNRECOGNIZED: the endpoint is not implemented; retrying cannot help.
     if (category == QLatin1String("unrecognized"))
         return tr("Your homeserver does not support that.");
     return tr("A network or server error occurred.");
@@ -171,11 +151,6 @@ void ConversationController::checkExistingDm(const QString &userId)
     m_existingDms.clear();
     if (m_client && !userId.isEmpty()) {
         const QVariantList found = m_client->existingDirectRooms(userId);
-        // The backend reports the explicit m.room.name, which a DM almost
-        // never has; the row then read "Existing conversation" with an "EC"
-        // avatar. Present each room the way the room list does: its computed
-        // name and its avatar. An empty field is left for the dialog to fill
-        // from the selected person.
         const QList<RoomInfo> rooms = m_client->rooms();
         for (const QVariant &value : found) {
             QVariantMap entry = value.toMap();
@@ -183,14 +158,11 @@ void ConversationController::checkExistingDm(const QString &userId)
             for (const RoomInfo &room : rooms) {
                 if (room.id != roomId)
                     continue;
-                // RustRoomRegistry falls back to the id for a nameless room;
-                // an id is not a name.
                 if (entry.value(QStringLiteral("name")).toString().isEmpty()
                     && room.name != room.id)
                     entry.insert(QStringLiteral("name"), room.name);
                 if (entry.value(QStringLiteral("avatarUrl")).toString().isEmpty())
                     entry.insert(QStringLiteral("avatarUrl"), room.avatarUrl);
-                // A group DM must not wear one member's face (identityColorKey).
                 entry.insert(QStringLiteral("oneToOne"),
                              room.directUserIds.size() <= 1);
                 break;
@@ -214,7 +186,6 @@ void ConversationController::startDirectMessage(const QString &userId)
     // target's server first; only a definite "not found" stops the create.
     const quint64 checkOp = m_client->fetchUserProfile(userId);
     if (checkOp == 0) {
-        // No profile lookup on this backend: nothing to ask, so do not block.
         createDirectChat(userId);
         Q_EMIT busyChanged();
         return;
@@ -266,7 +237,6 @@ void ConversationController::onUserProfileFinished(quint64 opId, bool ok,
 {
     Q_UNUSED(displayName);
     Q_UNUSED(avatarUrl);
-    // Other lookups (search, avatars, mention pills) share this signal.
     if (m_targetCheckOp == 0 || opId != m_targetCheckOp)
         return;
     const QString target = m_targetCheckUser;
@@ -274,11 +244,6 @@ void ConversationController::onUserProfileFinished(quint64 opId, bool ok,
     m_targetCheckUser.clear();
     m_targetCheckTimeout.stop();
     const bool notFound = category == QLatin1String("not_found");
-    // Their homeserver did not answer (our server's federation request
-    // failed, or the 10 s bound in rooms.rs ran out). /createRoom federates
-    // the invite before it answers, so creating now is how a DM to a slow or
-    // down server leaves an empty room that can never be reused. Ask, as for
-    // "not found".
     const bool unreachable = category == QLatin1String("network")
         || category == QLatin1String("timeout");
     if (!ok && (notFound || unreachable)
@@ -289,8 +254,6 @@ void ConversationController::onUserProfileFinished(quint64 opId, bool ok,
         Q_EMIT busyChanged();
         return;
     }
-    // Found, or the lookup failed for another reason (a server that refuses
-    // profile lookups, a rate limit): proceed as before.
     createDirectChat(target);
     Q_EMIT busyChanged();
 }
@@ -328,8 +291,6 @@ void ConversationController::cancelTargetCheck()
 }
 
 namespace {
-// The localpart as /createRoom wants it: trimmed, and without the '#' a user
-// types out of habit.
 QString aliasLocalpart(const QString &typed)
 {
     QString value = typed.trimmed();
@@ -337,7 +298,7 @@ QString aliasLocalpart(const QString &typed)
         value.remove(0, 1);
     return value;
 }
-} // namespace
+}
 
 void ConversationController::createRoom(const QVariantMap &options)
 {
@@ -351,14 +312,10 @@ void ConversationController::createRoom(const QVariantMap &options)
         options.value(QStringLiteral("alias")).toString();
     const QString aliasProblem = aliasLocalpartProblem(typedAlias);
     if (!aliasProblem.isEmpty()) {
-        // Said here, in words about the address, instead of the server's
-        // M_INVALID_PARAM coming back as "rejected the request as invalid"
-        // (break-it s03).
         setError(aliasProblem);
         return;
     }
     clearError();
-    // The avatar is applied after creation through the room-edit path.
     QVariantMap createOptions = options;
     if (!typedAlias.isEmpty())
         createOptions.insert(QStringLiteral("alias"),
@@ -458,9 +415,6 @@ void ConversationController::onDmCreateFinished(quint64 opId, bool ok,
                                                 const QString &roomId,
                                                 const QString &category)
 {
-    // The create we stopped waiting for has answered: lift its guard. The
-    // dialog was already told, so the room is not opened out from under
-    // whatever the user is doing now.
     if (m_abandonedDms.contains(opId)) {
         m_abandonedDms.remove(opId);
         if (m_abandonedDms.isEmpty())
@@ -528,7 +482,6 @@ void ConversationController::onRoomCreateFinished(quint64 opId, bool ok,
     qCInfo(lcConv) << "room created";
     if (warning == QLatin1String("space_add_failed"))
         Q_EMIT spacePlacementFailed(roomId);
-    // The room opens regardless of how this completes.
     if (!m_pendingAvatarPath.isEmpty()) {
         const QString path = m_pendingAvatarPath;
         m_pendingAvatarPath.clear();
@@ -549,8 +502,6 @@ void ConversationController::onInviteUserFinished(quint64 opId,
     const bool late = m_lateInviteOp != 0 && opId == m_lateInviteOp;
     if (!late && (opId != m_pendingOp || m_pendingOp == 0))
         return;
-    // Still waiting for the rest of the batch: restart the bound, never
-    // drop it, or a lost batch-done leaves the spinner for ever.
     if (!late)
         m_opTimeout.start();
     for (QVariant &value : m_inviteResults) {
@@ -572,7 +523,7 @@ void ConversationController::onInviteBatchFinished(quint64 opId,
 {
     Q_UNUSED(roomId);
     if (m_lateInviteOp != 0 && opId == m_lateInviteOp) {
-        m_lateInviteOp = 0;   // already reported as done by the bound
+        m_lateInviteOp = 0;
         return;
     }
     if (opId != m_pendingOp || m_pendingOp == 0)
@@ -593,7 +544,7 @@ void ConversationController::onRoomEditFinished(quint64 opId,
     Q_UNUSED(field);
     Q_UNUSED(category);
     if (m_avatarOp == 0 || opId != m_avatarOp)
-        return; // not our avatar upload (e.g. a RoomInfoController edit)
+        return;
     m_avatarOp = 0;
     if (!ok)
         Q_EMIT avatarUploadFailed(roomId);
@@ -605,7 +556,6 @@ void ConversationController::beginWaitForRoom(const QString &roomId)
     m_awaitedRoomId = roomId;
     m_roomWaitTimeout.start();
     Q_EMIT busyChanged();
-    // create_room may already have inserted it locally, so check now too.
     onRoomsChanged();
 }
 
@@ -628,9 +578,6 @@ void ConversationController::finishWaitForRoom()
         return;
     const QString roomId = m_awaitedRoomId;
     const bool isSpace = m_pendingIsSpace;
-    // The profile check, unlike the create, has done nothing server-side, so
-    // closing the dialog abandons it: its late answer must not create a room
-    // the user walked away from.
     cancelTargetCheck();
     setUnknownTarget(QString());
     m_waitingForRoom = false;
@@ -646,8 +593,6 @@ void ConversationController::finishWaitForRoom()
 
 void ConversationController::onLoggedOut()
 {
-    // Unlike reset(), sign-out abandons the pending op: its session is gone
-    // and the next account must start clean.
     m_pendingOp = 0;
     m_pendingDmUser.clear();
     clearAbandonedDm();
@@ -670,7 +615,6 @@ ConversationController::recentDirectPeople(const QList<RoomInfo> &rooms,
     for (const RoomInfo &room : rooms) {
         if (!room.isDirect || room.membership != RoomInfo::Joined || room.isSpace)
             continue;
-        // One person or none: a group DM is not a "recent person".
         QString peer;
         if (room.directUserIds.size() == 1)
             peer = room.directUserIds.first();
@@ -689,7 +633,6 @@ ConversationController::recentDirectPeople(const QList<RoomInfo> &rooms,
     std::stable_sort(all.begin(), all.end(),
                      [](const RecentPerson &a, const RecentPerson &b) {
                          if (a.lastActivity != b.lastActivity) {
-                             // An unknown time sorts last.
                              if (!a.lastActivity.isValid())
                                  return false;
                              if (!b.lastActivity.isValid())
@@ -702,7 +645,7 @@ ConversationController::recentDirectPeople(const QList<RoomInfo> &rooms,
     QSet<QString> seen;
     for (const RecentPerson &person : std::as_const(all)) {
         if (seen.contains(person.userId))
-            continue;   // several DMs with one person: the newest wins
+            continue;
         seen.insert(person.userId);
         out.append(person);
         if (out.size() >= cap)
@@ -719,11 +662,6 @@ QVariantList ConversationController::recentPeople(int limit) const
     const QList<RecentPerson> people =
         recentDirectPeople(m_client->rooms(), m_client->currentUserId(), limit);
     for (const RecentPerson &person : people) {
-        // The member's own name and picture in that room when the client has
-        // them cached, else nothing: the picker asks the session's profile
-        // cache (app.userProfiles, at most these few users). Never the DM's
-        // room name or avatar: a DM can carry an explicit name that is not
-        // the person (live, 2026-10-26: rows read "sw230-dm-long").
         QString name = m_client->displayNameFor(person.roomId, person.userId);
         if (name == person.userId)
             name.clear();

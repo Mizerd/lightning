@@ -1,12 +1,3 @@
-// The Change password section's own handling of the secrets, on the real QML
-// against the real controller (scripted client). Pins:
-//   * all three fields are in Password echo mode, and the new ones stop at
-//     Synapse's 512;
-//   * after submit, after the section hides, and when the account page takes
-//     over, all three fields are empty AND have no undo history: clear()
-//     would keep it, so Ctrl+Z would bring a typed password back;
-//   * the sign-out choice reaches the backend and resets after sending.
-// Each wipe is checked against fields that could undo before it.
 
 #include "app/PasswordChangeController.h"
 #include "matrix/MockMatrixClient.h"
@@ -47,7 +38,6 @@ public:
     }
 };
 
-// Only what the section reads from `app`.
 class StubApp final : public QObject
 {
     Q_OBJECT
@@ -65,7 +55,7 @@ private:
     QObject *m_passwordChange;
 };
 
-constexpr int kPasswordEcho = 2; // TextInput.Password
+constexpr int kPasswordEcho = 2;
 
 const QStringList kFields = {
     QStringLiteral("currentPasswordField"),
@@ -73,14 +63,13 @@ const QStringList kFields = {
     QStringLiteral("confirmPasswordField"),
 };
 
-} // namespace
+}
 
 class ChangePasswordSectionQmlTest : public QObject
 {
     Q_OBJECT
 
 private:
-    // Types into a field the way a user would, so it has undo history.
     static bool type(QObject *field, const QString &text)
     {
         return QMetaObject::invokeMethod(field, "insert", Q_ARG(int, 0),
@@ -166,7 +155,6 @@ private Q_SLOTS:
             root->findChild<QObject *>(QStringLiteral("signOutOtherDevicesCheck"));
         QVERIFY(signOut);
 
-        // 1. Submit.
         QVERIFY(fillAll(fields));
         QVERIFY2(allCanUndo(fields), qPrintable(state(fields)));
         QVERIFY(signOut->setProperty("checked", true));
@@ -179,15 +167,12 @@ private Q_SLOTS:
         Q_EMIT client.passwordChangeFinished(client.lastChangeOp, true, QString());
         QVERIFY(!ctl.busy());
 
-        // 2. The section hides (another settings page, or the window).
         QVERIFY(fillAll(fields));
         QVERIFY2(allCanUndo(fields), qPrintable(state(fields)));
         QVERIFY(root->setProperty("visible", false));
         QVERIFY2(emptyWithoutUndo(fields), qPrintable(state(fields)));
         QVERIFY(root->setProperty("visible", true));
 
-        // 3. The probe hands the account to its account page: the form hides
-        //    while the section stays shown.
         QVERIFY(fillAll(fields));
         QVERIFY2(allCanUndo(fields), qPrintable(state(fields)));
         ctl.refresh();
@@ -202,10 +187,6 @@ private Q_SLOTS:
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join(QLatin1Char('\n'))));
     }
 
-    // C84-F10 and C84-F01. The strength row is laid out before the first
-    // keystroke (faded, not hidden), so typing does not move Confirm and the
-    // button 40px; and the sign-out checkbox draws its own indicator, whose
-    // border is the muted ink and thickens with a keyboard-focus ring.
     void strengthRowReservesItsSpaceAndCheckboxHasAVisibleRing()
     {
         PwClient client;
@@ -236,14 +217,9 @@ private Q_SLOTS:
         QObject *ind = root->findChild<QObject *>(
             QStringLiteral("signOutOtherDevicesIndicator"));
         QVERIFY2(ind, "the checkbox must draw its own indicator");
-        // At rest the border is at least 1.5px wide (the stock one is a hairline).
         QVERIFY(ind->property("border").value<QObject *>()
                     ->property("width").toDouble() >= 1.5);
 
-        // Keyboard focus: a separate halo outside the box, shown for a
-        // Tab-reason focus, still shown once the box is checked (accent fill
-        // + accent border would otherwise hide it), and NOT shown for a
-        // mouse-reason focus.
         QObject *ring = root->findChild<QObject *>(
             QStringLiteral("signOutOtherDevicesFocusRing"));
         QVERIFY2(ring, "keyboard focus needs its own halo");
@@ -271,9 +247,6 @@ private Q_SLOTS:
                  "the halo must survive the checked state");
     }
 
-    // C84-F01 (review M3): the box's border (muted ink) and the focus halo
-    // (primary ink) are non-text UI, so WCAG 1.4.11 asks 3:1 against the card
-    // they are drawn on (SettingsCard paints stormPanel), on every theme.
     void checkboxInksMeetNonTextContrastOnEveryTheme()
     {
         PwClient client;

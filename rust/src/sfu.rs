@@ -1,25 +1,3 @@
-//! LiveKit SFU authorization and signalling for MatrixRTC.
-//!
-//! The signalling half of group calling: obtains SFU authorization, speaks
-//! LiveKit's WebSocket/protobuf protocol, and reports participants, tracks
-//! and session descriptions across the FFI. It owns no media; RTP flows
-//! through the C++ GStreamer `webrtcbin` engine.
-//!
-//! Not the `livekit` client crate: it depends on `webrtc-sys`, which
-//! downloads a prebuilt libwebrtc during the build (breaking
-//! `--offline --locked`) and adds hundreds of crates. `livekit-protocol` is
-//! message definitions only.
-//!
-//! The SFU is authorized with a Matrix OpenID token, never the access
-//! token: `POST {service_url}/sfu/get` with `{room, openid_token,
-//! device_id}` answers `{url, jwt}`. The JWT is never logged, persisted or
-//! sent across the FFI; it lives in the signalling task for one connection.
-//!
-//! The SFU is outside the homeserver's trust boundary: everything it sends
-//! is bounded and sanitized, and identities are compared, never rendered
-//! raw. SDP (host IPs, ICE credentials) crosses only in media-capable mode,
-//! is never logged and never reaches QML. One connection at a time, owned
-//! by a generation counter, so a late frame cannot reach the next session.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -29,9 +7,6 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use livekit_protocol as lkp;
 
-/// The LiveKit `TrackSource` for a track we are about to publish. A named
-/// function so tests and production share it (an inline literal mapping
-/// was once off by one, publishing screen share as SCREEN_SHARE_AUDIO).
 pub(crate) fn track_source_for(kind: i32, screen_share: bool) -> i32 {
     let video = kind == lkp::TrackType::Video as i32;
     match (screen_share, video) {
@@ -45,8 +20,6 @@ pub(crate) fn track_source_for(kind: i32, screen_share: bool) -> i32 {
     }
 }
 
-/// LiveKit's per-track E2EE declaration. Receivers use it to decide whether
-/// to decrypt, so encrypted bytes declared None render as garbage.
 pub(crate) fn track_encryption_for(encrypted: bool) -> i32 {
     if encrypted {
         lkp::encryption::Type::Gcm as i32
@@ -72,19 +45,6 @@ fn share_simulcast_codecs(cid: &str, backup: Option<&str>, width: u32, height: u
         }).collect()
 }
 
-/// What a server `LeaveRequest` asks of us, as the `sfu_state` word the
-/// controller acts on: "reconnecting" (the call survives and the client
-/// connects again) or "ended" (the server is done with us).
-///
-/// livekit-server states it in `action` from protocol 13 (RESUME and
-/// RECONNECT both mean "come back"; this client always comes back with a
-/// full re-join, since webrtcbin cannot restart ICE on a live peer
-/// connection) and only in the obsolete `can_reconnect` before that. A
-/// CONNECTION_TIMEOUT after a network blip arrives as RESUME, and reading
-/// every Leave as the end of the call is what turned a 26 s Wi-Fi loss into
-/// a dead call. An action from a newer protocol is read as the end unless
-/// `can_reconnect` says otherwise: never invent a reconnect the server did
-/// not offer.
 pub(crate) fn leave_disposition(action: i32, can_reconnect: bool)
     -> &'static str
 {
@@ -97,17 +57,6 @@ pub(crate) fn leave_disposition(action: i32, can_reconnect: bool)
     }
 }
 
-/// How long the signalling socket may stay silent before it is presumed
-/// dead, or `None` when the server set no timeout.
-///
-/// livekit-server answers every `ping` with `pong` and every `ping_req`
-/// with `pong_resp`, so a live socket is never silent for longer than one
-/// ping interval. livekit-client closes and reconnects after
-/// `JoinResponse.ping_timeout` without a pong; any frame counts here, which
-/// is a superset. Bounded both ways, and never shorter than one interval
-/// plus a margin, or a slow pong would read as a dead socket. A half-open
-/// TCP connection (a Wi-Fi change, a VPN reconnect, a sleep) otherwise
-/// looks healthy for as long as the kernel keeps it.
 pub(crate) fn signal_silence_limit(ping_timeout: i32, ping_interval: i32)
     -> Option<Duration>
 {
@@ -133,22 +82,17 @@ use crate::rtc::{
 use crate::rtc::{loopback_hostname, test_focus_ip};
 use crate::{enqueue, RustClient};
 
-/// Bound on the JWT-service response body.
 const MAX_SFU_RESPONSE: usize = 64 * 1024;
 const SFU_TIMEOUT: Duration = Duration::from_secs(20);
 /// Signalling frames are small; this party is outside the homeserver's
 /// trust boundary.
 const MAX_SIGNAL_FRAME: usize = 256 * 1024;
-/// Cap on participants and tracks tracked and reported.
 const MAX_PARTICIPANTS: usize = 128;
 const MAX_TRACKS_PER_PARTICIPANT: usize = 8;
 const MAX_FOCUS_CONNECTIONS: usize = 8;
 const COMMAND_QUEUE_CAPACITY: usize = 128;
-/// The signalling protocol version this client implements.
 const LK_PROTOCOL_VERSION: u32 = 15;
 
-/// Bounded and control-character free, or nothing (as in rtc.rs): `None`
-/// means drop the surrounding thing.
 fn sane(value: &str, max: usize) -> Option<&str> {
     if value.is_empty() || value.len() > max {
         return None;
@@ -168,14 +112,6 @@ const MIN_SIF_TRAILER: usize = 16;
 /// `CallFrameCryptor::kMaxServerTrailerBytes`, which re-checks it.
 const MAX_SIF_TRAILER: usize = 64;
 
-/// `JoinResponse.sif_trailer`, base64 for the JSON bridge, or "" when absent
-/// or unusable.
-///
-/// It marks the unencrypted blank frames the SFU injects into an encrypted
-/// track (mute, unpublish, leave), which would otherwise read as decryption
-/// failures. Oversized values are dropped, not truncated, since a truncated
-/// trailer could match unmarked frames. Not secret, but never logged in
-/// full.
 fn sif_trailer_b64(trailer: &[u8]) -> String {
     if trailer.len() < MIN_SIF_TRAILER || trailer.len() > MAX_SIF_TRAILER
         || !trailer.iter().all(u8::is_ascii_alphanumeric)
@@ -203,34 +139,18 @@ pub(crate) fn target_from_str(value: &str) -> i32 {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Why the websocket connect did not happen
-// ---------------------------------------------------------------------------
-//
-// Each step between `authorized` and `signalling` (DNS, TCP, TLS, HTTP
-// status, websocket upgrade) gets its own category, since the error text
-// can embed the URL with the JWT and is never logged; the category is all a
-// remote report carries. Only the error's shape and a status code are read,
-// both closed sets.
-
-/// The category for one refused host resolution.
 fn resolve_refusal_category(refusal: HostRefusal) -> &'static str {
     match refusal {
-        // Local-only names: nothing to look up or retry.
         HostRefusal::PrivateName => "focus_private_name",
         HostRefusal::Unresolved => "focus_unresolved",
-        // The case the `focus_unroutable` wording is true of, so it keeps it.
         HostRefusal::NonPublicAddress => "focus_unroutable",
     }
 }
 
-/// The category for one transport-level failure reaching the SFU.
 fn classify_io_error(err: &std::io::Error) -> &'static str {
     use std::io::ErrorKind as Kind;
     match err.kind() {
-        // The address answered and refused: nothing listening.
         Kind::ConnectionRefused => "sfu_refused_connection",
-        // No route: typical of an AAAA record without working IPv6.
         Kind::HostUnreachable | Kind::NetworkUnreachable => "sfu_unreachable",
         Kind::TimedOut => "connect_timeout",
         Kind::PermissionDenied => "connect_blocked",
@@ -243,15 +163,9 @@ fn classify_io_error(err: &std::io::Error) -> &'static str {
     }
 }
 
-/// What one walk over a host's approved addresses ended in: connected, the
-/// shared budget ran out, or every address failed (category from the last
-/// error). Kept apart so a timeout and a dead SFU are reported differently.
 enum ConnectWalk<S> {
     Connected(S),
-    /// Every address was tried and failed. Carries the last error, or `None`
-    /// for an empty list (not currently possible; handled anyway).
     Failed(Option<tokio_tungstenite::tungstenite::Error>),
-    /// The shared budget expired mid-attempt.
     TimedOut,
 }
 
@@ -298,18 +212,13 @@ where
     ConnectWalk::Failed(last)
 }
 
-/// Category for one failed websocket connect. Closed set; no error text.
 fn classify_ws_error(
     err: &tokio_tungstenite::tungstenite::Error,
 ) -> &'static str {
     use tokio_tungstenite::tungstenite::Error as Ws;
     match err {
         Ws::Io(io) => classify_io_error(io),
-        // rustls rejected the peer. Roots are compiled in (webpki-roots), so this
-        // concerns the server's certificate or protocol, not the local store.
         Ws::Tls(_) => "tls_failed",
-        // The SFU answered HTTP instead of upgrading; the status is the diagnosis.
-        // The body is never read.
         Ws::Http(response) => match response.status().as_u16() {
             401 | 403 => "sfu_forbidden",
             404 => "sfu_not_found",
@@ -317,31 +226,21 @@ fn classify_ws_error(
             500..=599 => "server_error",
             _ => "ws_rejected",
         },
-        // Not a websocket upgrade: usually a proxy or captive portal.
         Ws::Protocol(_) | Ws::HttpFormat(_) | Ws::Utf8 | Ws::AttackAttempt => {
             "ws_handshake_failed"
         }
         Ws::Url(_) => "focus_url_invalid",
         Ws::Capacity(_) => "ws_frame_too_large",
         Ws::ConnectionClosed | Ws::AlreadyClosed => "connection_lost",
-        // Non-exhaustive enum: unmapped shapes keep the generic word.
         _ => "connect_failed",
     }
 }
 
-// ---------------------------------------------------------------------------
-// JWT service
-// ---------------------------------------------------------------------------
-
-/// What `POST {service_url}/sfu/get` answered.
 #[derive(Clone, Debug)]
 pub(crate) struct SfuCredentials {
-    /// The SFU's websocket URL (`wss://…`), not the JWT service URL.
     pub url: String,
     /// Short-lived SFU authorization. Never logged, never crosses the FFI.
     pub jwt: String,
-    /// A preflight hint from the service's signed token. The JoinResponse is
-    /// authoritative; a false value lets us avoid publishing on this focus.
     pub can_publish: Option<bool>,
 }
 
@@ -355,19 +254,10 @@ fn jwt_can_publish(jwt: &str) -> Option<bool> {
     claims.get("video")?.get("canPublish")?.as_bool()
 }
 
-/// Normalize the SFU websocket URL from the JWT service to the one shape
-/// the connect accepts, or `None`.
-///
-/// `https` is normalized to `wss` (lk-jwt-service echoes LIVEKIT_URL, often
-/// `https://…`; livekit-client converts it the same way). `ws`/`http` would
-/// send the JWT in the clear and are refused. The host must be non-empty
-/// (`has_host()` accepts an empty one) and public: the URL is chosen by the
-/// focus, which another participant chose. Tests call this function.
 pub(crate) fn normalize_sfu_url(raw: &str) -> Option<String> {
     let mut parsed = url::Url::parse(raw).ok()?;
     match parsed.scheme() {
         "wss" => {}
-        // https -> wss is an allowed scheme change.
         "https" => parsed.set_scheme("wss").ok()?,
         _ => return None,
     }
@@ -379,8 +269,6 @@ pub(crate) fn normalize_sfu_url(raw: &str) -> Option<String> {
     Some(parsed.to_string())
 }
 
-/// The literal-host half of the SFU websocket policy; the resolved half is
-/// `rtc::resolve_public_host` at connect time.
 fn public_ws_host(url: &url::Url) -> bool {
     match url.host() {
         #[cfg(feature = "test-loopback-foci")]
@@ -399,8 +287,6 @@ fn public_ws_host(url: &url::Url) -> bool {
     }
 }
 
-/// Obtain SFU credentials for one room. The homeserver-minted OpenID token
-/// lets the JWT service verify the user without a Matrix access token.
 async fn fetch_openid_token(client: &matrix_sdk::Client)
     -> Result<serde_json::Value, String>
 {
@@ -409,7 +295,6 @@ async fn fetch_openid_token(client: &matrix_sdk::Client)
         .ok_or_else(|| "no session".to_owned())?
         .to_owned();
 
-    // Scoped, short-lived; not a credential for anything else.
     let openid = client
         .send(request_openid_token::v3::Request::new(user_id))
         .await
@@ -436,9 +321,6 @@ async fn fetch_sfu_credentials(
     }))
     .map_err(|_| "invalid_request".to_owned())?;
 
-    // The service URL was validated as https with a routable host at parse
-    // time (rtc::sane_https_url); join the documented path without letting a
-    // crafted URL escape.
     let mut url = url::Url::parse(service_url)
         .map_err(|_| "invalid_transport".to_owned())?;
     url.path_segments_mut()
@@ -461,7 +343,6 @@ async fn fetch_sfu_credentials(
         .map(ToOwned::to_owned)
         .ok_or_else(|| "invalid_transport".to_owned())?;
     let port = url.port_or_known_default().unwrap_or(443);
-    // Resolution is bounded too, so a silent resolver cannot hold the join.
     let pinned = tokio::time::timeout(SFU_TIMEOUT, resolve_public_host(&host, port))
         .await
         .ok()
@@ -501,7 +382,6 @@ async fn fetch_sfu_credentials(
     let status = response.status().as_u16();
     if !(200..300).contains(&status) {
         return Err(match status {
-            // Redirects are refused above, so a 3xx means misconfigured or hostile.
             300..=399 => "invalid".to_owned(),
             401 | 403 => "forbidden".to_owned(),
             404 => "unsupported".to_owned(),
@@ -510,8 +390,6 @@ async fn fetch_sfu_credentials(
             _ => "unknown".to_owned(),
         });
     }
-    // Refuse an oversized answer before reading, and stop at the cap without a
-    // Content-Length: `text()` buffers everything first.
     if response
         .content_length()
         .is_some_and(|len| len > MAX_SFU_RESPONSE as u64)
@@ -551,17 +429,6 @@ async fn fetch_sfu_credentials(
     Ok(SfuCredentials { url: url_ok, jwt, can_publish })
 }
 
-// ---------------------------------------------------------------------------
-// Live session
-// ---------------------------------------------------------------------------
-
-/// How long `disconnect` lets the session drain its queued Leave and close
-/// the websocket before the abort backstop.
-///
-/// Derived from `crate::SHUTDOWN_ACTION_JOIN_MS`, the budget that joins
-/// this drain at teardown: it must finish inside that, or the teardown
-/// aborts the waiter first and the Leave never goes out, leaving a ghost
-/// participant for peers. The margin lets the pool abort cleanly.
 const LEAVE_FLUSH_MARGIN_MS: u64 = 250;
 const LEAVE_FLUSH_TIMEOUT: Duration =
     Duration::from_millis(crate::SHUTDOWN_ACTION_JOIN_MS - LEAVE_FLUSH_MARGIN_MS);
@@ -573,39 +440,25 @@ const _: () = assert!(
      a participant in every call the user quits out of."
 );
 
-/// Commands the C++ side sends into a running signalling session.
 #[derive(Debug)]
 pub(crate) enum SfuCommand {
-    /// A local description for one peer connection.
     Offer { sdp: String, target: i32 },
     Answer { sdp: String, target: i32 },
-    /// One trickled local ICE candidate (`candidate_init` in LiveKit's JSON
-    /// form).
     Candidate { candidate_init: String, target: i32 },
-    /// Declare a track before publishing it.
     AddTrack {
         cid: String,
         name: String,
-        /// 0 = audio, 1 = video
         kind: i32,
-        /// Video only, 0 for audio. A video track declared without size and layer
-        /// makes the SFU assume simulcast.
         width: u32,
         height: u32,
-        /// True for a screen share, which LiveKit sources separately.
         screen_share: bool,
-        /// Whether this track's frames are E2EE-encrypted. Declared per track;
-        /// receivers use it to decide whether to decrypt.
         encrypted: bool,
         backup_cid: Option<String>,
     },
-    /// Mute/unmute a published track at the SFU so others see the state (the
-    /// valve already stopped the bytes).
     MuteTrack { sid: String, muted: bool },
     Leave,
 }
 
-/// One focus connection in the current call generation.
 pub(crate) struct SfuSession {
     pub generation: u64,
     pub connection_id: u32,
@@ -616,7 +469,6 @@ pub(crate) struct SfuSession {
 }
 
 pub(crate) struct SfuState {
-    /// The exact validated room and focus, not an untrusted display label.
     pub sessions: Mutex<BTreeMap<(String, String), SfuSession>>,
     pub generation: AtomicU64,
 }
@@ -650,8 +502,6 @@ fn command_allowed_on(connection_id: u32, command: &SfuCommand) -> bool {
 }
 
 fn participant_json(info: &lkp::ParticipantInfo) -> Option<serde_json::Value> {
-    // `identity` maps an SFU participant to a Matrix device (MatrixRTC sets it
-    // to the membership's rtc identity).
     let identity = sane(&info.identity, 512)?;
     let tracks: Vec<serde_json::Value> = info
         .tracks
@@ -661,9 +511,7 @@ fn participant_json(info: &lkp::ParticipantInfo) -> Option<serde_json::Value> {
             let sid = sane(&track.sid, 256)?;
             Some(json!({
                 "sid": sid,
-                // Closed set, never the raw wire enum.
                 "kind": if track.r#type == 1 { "video" } else { "audio" },
-                // Named constants, not literals (see track_source_for).
                 "source": match lkp::TrackSource::try_from(track.source) {
                     Ok(lkp::TrackSource::Camera) => "camera",
                     Ok(lkp::TrackSource::Microphone) => "microphone",
@@ -673,11 +521,7 @@ fn participant_json(info: &lkp::ParticipantInfo) -> Option<serde_json::Value> {
                     _ => "unknown",
                 },
                 "muted": track.muted,
-                // The media-section id this track was negotiated on: the subscriber SDP's
-                // `a=mid:` names exactly this, so a receiver can tell a camera from a
-                // screen share. Bounded.
                 "mid": sane(&track.mid, 128).unwrap_or_default(),
-                // LiveKit's stream id for the track, when stated. Fallback key only.
                 "stream": sane(&track.stream, 256).unwrap_or_default(),
             }))
         })
@@ -695,8 +539,6 @@ fn participant_json(info: &lkp::ParticipantInfo) -> Option<serde_json::Value> {
     }))
 }
 
-/// Encode and send one signalling request; `false` means the socket is
-/// gone.
 async fn send_request<S>(
     sink: &mut S,
     message: lkp::signal_request::Message,
@@ -712,8 +554,6 @@ where
     sink.send(WsMessage::Binary(buffer)).await.is_ok()
 }
 
-/// Run one signalling session to completion. Every enqueue checks the
-/// session generation, so nothing reaches a later call.
 #[allow(clippy::too_many_arguments)]
 async fn run_session(
     events: Arc<Mutex<std::collections::VecDeque<String>>>,
@@ -741,13 +581,9 @@ async fn run_session(
         }
     };
 
-    // LiveKit takes the JWT in the signalling URL's query string. The JWT is
-    // short-lived, the connection wss, and the URL never logged or enqueued.
     let mut url = match url::Url::parse(&credentials.url) {
         Ok(url) => url,
         Err(_) => {
-            // Its own category: the SFU URL is unparseable, reachable only if
-            // normalize_sfu_url accepted something this cannot re-parse.
             emit(json!({
                 "type": "sfu_state", "generation": generation,
                 "state": "failed", "category": "focus_url_invalid",
@@ -755,8 +591,6 @@ async fn run_session(
             return;
         }
     };
-    // Append `/rtc` to the existing path rather than replacing it, so a
-    // LiveKit behind a reverse proxy prefix still works.
     {
         let existing = url.path().trim_end_matches('/').to_owned();
         url.set_path(&format!("{existing}/rtc"));
@@ -768,14 +602,6 @@ async fn run_session(
         .append_pair("sdk", "cpp")
         .append_pair("version", env!("CARGO_PKG_VERSION"));
 
-    // Resolve, check every address, and connect the TCP stream ourselves so the
-    // socket goes to the approved address (TLS still verifies the hostname).
-    // Frame ceilings go in the websocket config; a check after receipt would
-    // only see what tungstenite already buffered (up to 64 MiB).
-    //
-    // Resolution has its own category: a focus resolving to a private,
-    // loopback or link-local address is refused by policy (docs/matrixrtc.md),
-    // and that deserves a clearer reason than "network down".
     let host = url.host_str().unwrap_or_default().to_owned();
     let port = url.port_or_known_default().unwrap_or(443);
     let addresses = match tokio::time::timeout(
@@ -801,9 +627,6 @@ async fn run_session(
             return;
         }
     };
-    // Every approved address, in resolver order, under one budget (see
-    // `walk_addresses`). `target` is borrowed so the URL, which carries the
-    // JWT, is not cloned per attempt.
     let target = &url;
     let stream = match walk_addresses(
         addresses,
@@ -856,17 +679,10 @@ async fn run_session(
         "category": "",
     }));
 
-    // LiveKit's application-level keepalive (not websocket ping/pong): the
-    // server disconnects clients that stop sending `ping`/`ping_req` signals.
-    // The interval comes from JoinResponse; until then the ticker is parked.
-    // Both the deprecated `ping` and `ping_req` are sent, as livekit-client
-    // does.
     let mut ping_ticker =
         tokio::time::interval(std::time::Duration::from_secs(3600));
     ping_ticker.set_missed_tick_behavior(
         tokio::time::MissedTickBehavior::Delay);
-    // A tokio interval ticks immediately; consume it so nothing is sent before
-    // the join.
     ping_ticker.tick().await;
     let mut ping_armed = false;
     // LiveKit matches an answer to its offer by `SessionDescription.id`, not
@@ -879,7 +695,6 @@ async fn run_session(
     // end: the controller keeps the membership and the call UI and joins
     // again ("reconnecting"). Before it, a failure is a failed join.
     let mut joined = false;
-    // The ping timeout's watchdog: armed at the join, fed by every frame.
     let mut silence_limit: Option<Duration> = None;
     let mut last_heard = tokio::time::Instant::now();
     let reconnecting = |category: &str| json!({
@@ -901,9 +716,6 @@ async fn run_session(
                         + silence_limit.unwrap_or(Duration::from_secs(3600))),
                 if silence_limit.is_some() =>
             {
-                // Nothing from the server for longer than its own ping
-                // timeout: the socket is dead even if the kernel has not
-                // said so.
                 emit(reconnecting("signal_timeout"));
                 break;
             }
@@ -912,8 +724,6 @@ async fn run_session(
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_millis() as i64)
                     .unwrap_or(0);
-                // Write failure: the socket is gone, stop. The ticker is armed
-                // only after the join, so this is always mid-call.
                 if !send_request(
                     &mut sink,
                     lkp::signal_request::Message::Ping(now_ms)).await
@@ -951,8 +761,6 @@ async fn run_session(
                         lkp::signal_request::Message::Answer(
                             lkp::SessionDescription {
                                 r#type: "answer".to_owned(), sdp,
-                                // The id of the offer being answered; 0 means none seen, which the
-                                // server treats as unset.
                                 id: remote_offer_id[slot],
                                 ..Default::default()
                             })
@@ -966,9 +774,6 @@ async fn run_session(
                     SfuCommand::AddTrack {
                         cid, name, kind, width, height, screen_share, encrypted, backup_cid,
                     } => {
-                        // One explicit video layer with real dimensions, as livekit-client does
-                        // (the proto: single-layer tracks should use HIGH). Without it the SFU
-                        // assumes three-layer simulcast while we send a single stream.
                         let layers = if kind == lkp::TrackType::Video as i32 {
                             vec![lkp::VideoLayer {
                                 quality: lkp::VideoQuality::High as i32,
@@ -1023,21 +828,17 @@ async fn run_session(
             }
             frame = source.next() => {
                 let Some(frame) = frame else {
-                    // The stream ended without a Leave: the socket is gone.
                     if joined {
                         emit(reconnecting("signal_lost"));
                     }
                     break;
                 };
-                // Any frame proves the socket alive (see signal_silence_limit).
                 if frame.is_ok() {
                     last_heard = tokio::time::Instant::now();
                 }
                 let payload = match frame {
                     Ok(WsMessage::Binary(bytes)) => bytes,
                     Ok(WsMessage::Close(_)) => {
-                        // A close with no Leave before it is not the server
-                        // ending the call (that sends a Leave first).
                         if joined {
                             emit(reconnecting("signal_lost"));
                         }
@@ -1058,7 +859,7 @@ async fn run_session(
                     }
                 };
                 if payload.len() > MAX_SIGNAL_FRAME {
-                    continue; // remote party; bounded, dropped, not fatal
+                    continue;
                 }
                 let Ok(response) = lkp::SignalResponse::decode(&payload[..])
                 else { continue };
@@ -1066,22 +867,17 @@ async fn run_session(
 
                 match message {
                     lkp::signal_response::Message::Join(join) => {
-                        // Arm the keepalive at the server's interval, clamped (0 would spin; a huge
-                        // value is no keepalive).
                         let interval = join.ping_interval.clamp(1, 120) as u64;
                         ping_ticker = tokio::time::interval(
                             std::time::Duration::from_secs(interval));
                         ping_ticker.set_missed_tick_behavior(
                             tokio::time::MissedTickBehavior::Delay);
-                        ping_ticker.tick().await;   // consume the immediate one
+                        ping_ticker.tick().await;
                         ping_armed = true;
                         joined = true;
                         silence_limit = signal_silence_limit(
                             join.ping_timeout, join.ping_interval);
                         last_heard = tokio::time::Instant::now();
-                        // Our own row first, then the others. JoinResponse keeps the local
-                        // participant separate; without it in the list the stage cannot draw the
-                        // local tile, and `ownParticipantRow()` (used to send mutes) finds nothing.
                         let mut participants: Vec<serde_json::Value> =
                             Vec::with_capacity(MAX_PARTICIPANTS);
                         if let Some(own) = join.participant.as_ref()
@@ -1093,8 +889,6 @@ async fn run_session(
                             .other_participants.iter()
                             .take(MAX_PARTICIPANTS.saturating_sub(1))
                             .filter_map(participant_json));
-                        // ICE servers from the SFU; their credentials are short-lived and
-                        // engine-only, like the homeserver's TURN answer.
                         let ice: Vec<serde_json::Value> = join.ice_servers
                             .iter().take(8).map(|server| json!({
                                 "urls": server.urls.iter().take(8)
@@ -1139,8 +933,6 @@ async fn run_session(
                         }));
                     }
                     lkp::signal_response::Message::Offer(sdp) => {
-                        // The server offers on subscriber (everyone else's media). Keep its id for
-                        // the answer.
                         remote_offer_id[1] = sdp.id;
                         if media_capable.load(Ordering::SeqCst) {
                             emit(json!({
@@ -1207,7 +999,6 @@ async fn run_session(
                                 Some(json!({
                                     "sid": sid,
                                     "active": speaker.active,
-                                    // 0.0..1.0; presentation-safe.
                                     "level": speaker.level,
                                 }))
                             }).collect();
@@ -1240,8 +1031,6 @@ async fn run_session(
                         }));
                     }
                     lkp::signal_response::Message::Leave(leave) => {
-                        // Include the reason (a closed enum, not content); "told to leave" alone is
-                        // unactionable. RESUME and RECONNECT keep the call: see leave_disposition.
                         emit(json!({
                             "type": "sfu_state", "generation": generation,
                             "state": leave_disposition(
@@ -1273,9 +1062,6 @@ async fn run_session(
     }));
 }
 
-/// Start one call generation with at most eight distinct, validated foci.
-/// Connection zero is the publisher; other connections only subscribe. A
-/// focus shared by several members occurs once in this list.
 pub(crate) fn connect_many(
     bridge: &RustClient,
     connections: Vec<(u32, String)>,
@@ -1311,8 +1097,6 @@ pub(crate) fn connect_many(
     let generation = bridge.sfu.generation.fetch_add(1, Ordering::SeqCst) + 1;
     let generation_now = Arc::clone(&bridge.sfu_generation);
     generation_now.store(generation, Ordering::SeqCst);
-    // Every focus authenticates the same account and device with one OpenID
-    // answer. OnceCell coalesces concurrent joins without storing it on disk.
     let openid = Arc::new(tokio::sync::OnceCell::new());
     let mut sessions = BTreeMap::new();
     for (connection_id, service_url) in connections {
@@ -1387,7 +1171,6 @@ pub(crate) fn connect_many(
     Ok(generation)
 }
 
-/// Compatibility entry point for one focus.
 pub(crate) fn connect(
     bridge: &RustClient,
     service_url: String,
@@ -1397,7 +1180,6 @@ pub(crate) fn connect(
     connect_many(bridge, vec![(0, service_url)], room_id, op_id).map(|_| ())
 }
 
-/// Reject stale callbacks before they enter a bounded live command queue.
 pub(crate) fn send_command_for(
     bridge: &RustClient,
     generation: u64,
@@ -1405,7 +1187,7 @@ pub(crate) fn send_command_for(
     command: SfuCommand,
 ) {
     if !command_allowed_on(connection_id, &command) {
-        return; // a foreign focus never gets a publisher command
+        return;
     }
     if let Ok(guard) = bridge.sfu.sessions.lock() {
         if let Some(session) = guard.values()
@@ -1427,8 +1209,6 @@ pub(crate) fn send_command_for(
     }
 }
 
-/// Returns a failure category only when a dropped negotiation message must
-/// fail the call. Every dropped command emits a counted, payload-free event.
 fn try_queue_command(
     queue: &tokio::sync::mpsc::Sender<SfuCommand>,
     dropped_count: &AtomicU64,
@@ -1455,14 +1235,11 @@ fn try_queue_command(
     negotiation.then_some(category)
 }
 
-/// Compatibility path for the original one-focus caller.
 pub(crate) fn send_command(bridge: &RustClient, command: SfuCommand) {
     let generation = bridge.sfu_generation.load(Ordering::SeqCst);
     send_command_for(bridge, generation, 0, command);
 }
 
-/// Invalidate every queued report, then drain Leave on every focus. Each
-/// connection has its own bounded flush window and abort backstop.
 pub(crate) fn disconnect(bridge: &RustClient) {
     bridge.sfu_generation.fetch_add(1, Ordering::SeqCst);
     let sessions = bridge.sfu.take_sessions();
@@ -1590,15 +1367,11 @@ mod tests {
         assert_eq!(reports[1]["dropped"], 2);
     }
 
-    // The server-injected-frame trailer crosses the bridge, bounded.
-    // Round-trips a real JoinResponse through prost so the field itself is
-    // exercised.
     #[test]
     fn sif_trailer_is_forwarded_base64_and_bounded() {
         use base64::Engine;
         let b64 = base64::engine::general_purpose::STANDARD;
 
-        // A livekit-shaped trailer: ~43 base62 characters.
         let trailer = b"6N9Qc1wR2vXz8KkLmP0aBcDeFgHiJkLmNoPqRsTuVwX".to_vec();
         let join = lkp::JoinResponse {
             sif_trailer: trailer.clone(),
@@ -1609,14 +1382,10 @@ mod tests {
         let wire = sif_trailer_b64(&decoded.sif_trailer);
         assert_eq!(b64.decode(&wire).expect("valid base64"), trailer);
 
-        // Absent: nothing armed.
         assert_eq!(sif_trailer_b64(&[]), "");
-        // Exactly at the bound: forwarded whole.
         let at_bound = vec![b'A'; MAX_SIF_TRAILER];
         assert_eq!(b64.decode(sif_trailer_b64(&at_bound)).unwrap(), at_bound);
-        // One over: dropped, never truncated.
         assert_eq!(sif_trailer_b64(&vec![b'A'; MAX_SIF_TRAILER + 1]), "");
-        // Too short, or not base62: dropped.
         assert_eq!(sif_trailer_b64(b"R"), "");
         assert_eq!(sif_trailer_b64(b"\x0cR"), "");
         assert_eq!(sif_trailer_b64(&vec![b'A'; MIN_SIF_TRAILER - 1]), "");
@@ -1625,9 +1394,6 @@ mod tests {
         assert_eq!(sif_trailer_b64(&not_base62), "");
     }
 
-    // Each failure between `authorized` and `signalling` gets a distinct
-    // category, and none is derived from an error message (which could leak
-    // the JWT).
     #[test]
     fn every_connect_failure_shape_has_its_own_category() {
         use tokio_tungstenite::tungstenite::Error as Ws;
@@ -1636,15 +1402,12 @@ mod tests {
         let io = |kind: Kind| {
             classify_ws_error(&Ws::Io(std::io::Error::new(kind, "x")))
         };
-        // No route (AAAA without IPv6) must not read as a refusal.
         assert_eq!(io(Kind::NetworkUnreachable), "sfu_unreachable");
         assert_eq!(io(Kind::HostUnreachable), "sfu_unreachable");
         assert_eq!(io(Kind::ConnectionRefused), "sfu_refused_connection");
         assert_eq!(io(Kind::TimedOut), "connect_timeout");
         assert_eq!(io(Kind::PermissionDenied), "connect_blocked");
         assert_eq!(io(Kind::ConnectionReset), "connection_lost");
-        // An unmapped socket error is a transport failure; `connect_failed` means
-        // an unknown websocket error shape.
         assert_eq!(io(Kind::InvalidData), "transport_failed");
 
         let http = |status: u16| {
@@ -1662,7 +1425,6 @@ mod tests {
         assert_eq!(http(503), "server_error");
         assert_eq!(http(418), "ws_rejected");
 
-        // A proxy or captive portal: the remedy is on the network, not the SFU.
         assert_eq!(
             classify_ws_error(&Ws::Protocol(
                 tokio_tungstenite::tungstenite::error::ProtocolError::
@@ -1676,7 +1438,6 @@ mod tests {
         assert_eq!(classify_ws_error(&Ws::ConnectionClosed),
                    "connection_lost");
 
-        // Distinct causes must have distinct words.
         let distinct = [
             io(Kind::NetworkUnreachable),
             io(Kind::ConnectionRefused),
@@ -1698,12 +1459,6 @@ mod tests {
                    "two different connect failures share one category");
     }
 
-    // ── The address walk ─────────────────────────────────────────────────
-    //
-    // Affects every platform, so it is pinned: three properties, one case each.
-
-    // 1. An unreachable first address is not the answer for the host: the
-    // second address must be tried and connect (AAAA-first without IPv6).
     #[tokio::test]
     async fn an_unreachable_first_address_is_not_the_whole_host() {
         use std::sync::{Arc, Mutex};
@@ -1740,11 +1495,6 @@ mod tests {
                    "both addresses must be tried, in resolver order");
     }
 
-    // 2. N addresses cost one budget, not N. Only a slow failure distinguishes
-    // the two: each address fails slowly but legitimately (connect sits, then
-    // ECONNREFUSED), which a per-address timeout lets run to completion while a
-    // shared `timeout_at` cuts it at the deadline. (A hanging address returns
-    // `TimedOut` either way.)
     #[tokio::test]
     async fn the_whole_address_walk_shares_one_budget() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1766,7 +1516,6 @@ mod tests {
                 let counter = Arc::clone(&counter);
                 async move {
                     counter.fetch_add(1, Ordering::SeqCst);
-                    // Slow, then a retryable transport failure, so the walk moves on.
                     tokio::time::sleep(per_attempt).await;
                     Err(tokio_tungstenite::tungstenite::Error::Io(
                         std::io::Error::new(
@@ -1777,19 +1526,14 @@ mod tests {
         .await;
         let elapsed = started.elapsed();
 
-        // The deadline ends this, not the address list.
         assert!(matches!(walk, ConnectWalk::TimedOut),
                 "six slow addresses ran to completion instead of being cut \
                  off at the shared deadline");
         assert!(attempts.load(Ordering::SeqCst) < 6,
                 "every address was tried despite the budget running out");
-        // 6 x 200 ms = 1200 ms with per-address budgets versus ~500 ms shared; wide
-        // enough for a loaded machine, narrow enough to catch the broken shape.
         assert!(elapsed < budget + per_attempt * 2,
                 "the walk took {elapsed:?} against a {budget:?} budget");
 
-        // The hanging case is bounded by the early return rather than the
-        // deadline: one attempt, then give up.
         let hangs = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&hangs);
         let walk: ConnectWalk<()> = walk_addresses(
@@ -1810,9 +1554,6 @@ mod tests {
                    "an address that never answers was followed by five more");
     }
 
-    // 3. A server refusal (HTTP status, TLS alert, refused upgrade) is not
-    // retried elsewhere: it would repeat at every address and could be masked
-    // by a later transient failure.
     #[tokio::test]
     async fn a_refusal_from_the_server_is_not_retried_at_another_address() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1856,25 +1597,20 @@ mod tests {
         }
     }
 
-    // An unresolvable name is not a private address.
     #[test]
     fn each_host_refusal_keeps_its_own_reason() {
         assert_eq!(resolve_refusal_category(HostRefusal::PrivateName),
                    "focus_private_name");
         assert_eq!(resolve_refusal_category(HostRefusal::Unresolved),
                    "focus_unresolved");
-        // The case the existing sentence is true of keeps its category.
         assert_eq!(resolve_refusal_category(HostRefusal::NonPublicAddress),
                    "focus_unroutable");
     }
 
     #[test]
     fn signal_targets_are_a_closed_set_and_round_trip() {
-        // Publisher and subscriber must never be swapped.
         assert_eq!(target_str(0), "publisher");
         assert_eq!(target_str(1), "subscriber");
-        // Unknown degrades to subscriber, never publisher (which would attach a
-        // remote description to our outgoing connection).
         assert_eq!(target_str(99), "subscriber");
         assert_eq!(target_from_str("publisher"), 0);
         assert_eq!(target_from_str("subscriber"), 1);
@@ -1883,7 +1619,6 @@ mod tests {
 
     #[test]
     fn participant_without_a_sane_identity_is_dropped() {
-        // A control character in the identity drops the whole participant.
         let mut info = lkp::ParticipantInfo {
             identity: "@a:x:DEVICE".to_owned(),
             sid: "PA_1".to_owned(),
@@ -1896,8 +1631,6 @@ mod tests {
         assert!(participant_json(&info).is_none());
     }
 
-    /// The production normalisation plus the connect's `/rtc` join, so the
-    /// assertions hold for what fetch_sfu_credentials does.
     fn normalize_sfu_url(raw: &str) -> Option<String> {
         let normalized = super::normalize_sfu_url(raw)?;
         let mut parsed = url::Url::parse(&normalized).ok()?;
@@ -1908,8 +1641,6 @@ mod tests {
 
     #[test]
     fn an_https_sfu_url_is_accepted_and_normalised_to_wss() {
-        // lk-jwt-service echoes LIVEKIT_URL verbatim, often `https://…`; rejecting
-        // it failed calls instantly.
         assert_eq!(
             normalize_sfu_url("https://livekit.example.net").as_deref(),
             Some("wss://livekit.example.net/rtc")
@@ -1922,18 +1653,12 @@ mod tests {
 
     #[test]
     fn cleartext_signalling_is_still_refused() {
-        // The JWT is in the query string: ws/http would send it in the clear.
         assert!(normalize_sfu_url("ws://livekit.example.net").is_none());
         assert!(normalize_sfu_url("http://livekit.example.net").is_none());
         assert!(normalize_sfu_url("not a url").is_none());
-        // Not `wss:///rtc`, which parses with host "rtc"; a genuinely hostless
-        // form must be refused.
         assert!(normalize_sfu_url("wss:").is_none());
     }
 
-    /// The focus chooses this URL and another participant chooses the focus.
-    /// Loopback, private ranges, IPv4-mapped loopback and local-only names are
-    /// refused at the literal, before resolution.
     #[test]
     #[cfg(not(feature = "test-loopback-foci"))]
     fn an_sfu_url_on_an_unroutable_host_is_refused() {
@@ -1968,12 +1693,10 @@ mod tests {
 
     #[test]
     fn the_rtc_path_is_appended_never_substituted() {
-        // A reverse-proxy path prefix must be kept.
         assert_eq!(
             normalize_sfu_url("https://host.example.net/livekit").as_deref(),
             Some("wss://host.example.net/livekit/rtc")
         );
-        // No double slash after a trailing slash.
         assert_eq!(
             normalize_sfu_url("https://host.example.net/livekit/").as_deref(),
             Some("wss://host.example.net/livekit/rtc")
@@ -1986,9 +1709,6 @@ mod tests {
 
     #[test]
     fn the_jwt_service_request_body_matches_the_reference_service() {
-        // lk-jwt-service uses #[serde(deny_unknown_fields)], so any extra field is
-        // a 400. The /sfu/get body is exactly `room`, `openid_token` (the
-        // homeserver's response verbatim) and `device_id`.
         let body = json!({
             "room": "!room:example.org",
             "openid_token": {
@@ -2020,28 +1740,23 @@ mod tests {
 
     #[test]
     fn track_source_numbers_match_the_livekit_wire() {
-        // The numbers Element Call and livekit-client read, pinned as literals:
-        // an assertion through the enum could not catch an off-by-one mapping.
         assert_eq!(lkp::TrackSource::Camera as i32, 1);
         assert_eq!(lkp::TrackSource::Microphone as i32, 2);
         assert_eq!(lkp::TrackSource::ScreenShare as i32, 3);
         assert_eq!(lkp::TrackSource::ScreenShareAudio as i32, 4);
         assert_eq!(lkp::TrackType::Audio as i32, 0);
         assert_eq!(lkp::TrackType::Video as i32, 1);
-        // E2EE declaration: Element Call publishes GCM in encrypted rooms.
         assert_eq!(lkp::encryption::Type::None as i32, 0);
         assert_eq!(lkp::encryption::Type::Gcm as i32, 1);
     }
 
     #[test]
     fn added_tracks_carry_the_right_source() {
-        // The same function as the AddTrack path, asserted in raw wire numbers.
-        assert_eq!(track_source_for(1, true), 3);   // screen share video
-        assert_eq!(track_source_for(0, true), 4);   // screen share AUDIO
-        assert_eq!(track_source_for(1, false), 1);  // camera
-        assert_eq!(track_source_for(0, false), 2);  // microphone
+        assert_eq!(track_source_for(1, true), 3);
+        assert_eq!(track_source_for(0, true), 4);
+        assert_eq!(track_source_for(1, false), 1);
+        assert_eq!(track_source_for(0, false), 2);
 
-        // All four combinations are distinct; two collapsing was the bug.
         let all = [
             track_source_for(1, true),
             track_source_for(0, true),
@@ -2052,15 +1767,12 @@ mod tests {
         seen.sort_unstable();
         seen.dedup();
         assert_eq!(seen.len(), 4, "two track sources collapsed onto one");
-        // A screen share is a video track sourced from the screen, never
-        // SCREEN_SHARE_AUDIO.
         assert_ne!(track_source_for(1, true),
                    lkp::TrackSource::ScreenShareAudio as i32);
-        // Nor a camera: Element lays them out differently.
         assert_ne!(track_source_for(1, true), track_source_for(1, false));
 
-        assert_eq!(track_encryption_for(true), 1);  // GCM
-        assert_eq!(track_encryption_for(false), 0); // NONE
+        assert_eq!(track_encryption_for(true), 1);
+        assert_eq!(track_encryption_for(false), 0);
     }
 
     #[test]
@@ -2083,7 +1795,7 @@ mod tests {
                 lkp::TrackInfo {
                     sid: "TR_c".to_owned(),
                     r#type: lkp::TrackType::Video as i32,
-                    source: 99, // unknown to us
+                    source: 99,
                     ..Default::default()
                 },
             ],
@@ -2095,12 +1807,9 @@ mod tests {
         assert_eq!(tracks[0]["source"], json!("microphone"));
         assert_eq!(tracks[1]["kind"], json!("video"));
         assert_eq!(tracks[1]["source"], json!("screen_share"));
-        // An unrecognised source becomes "unknown", never forwarded verbatim.
         assert_eq!(tracks[2]["source"], json!("unknown"));
     }
 
-    // A participant's camera and screen share are two tracks; `mid` (repeated
-    // as the subscriber SDP's `a=mid:`) tells them apart.
     #[test]
     fn tracks_carry_their_media_section_id() {
         let info = lkp::ParticipantInfo {
@@ -2129,13 +1838,10 @@ mod tests {
         assert_eq!(tracks[0]["mid"], json!("1"));
         assert_eq!(tracks[0]["stream"], json!("PA_sender"));
         assert_eq!(tracks[1]["mid"], json!("2"));
-        // The two video tracks are distinguishable, which is the whole point.
         assert_ne!(tracks[0]["mid"], tracks[1]["mid"]);
-        // No stream id is the empty string, not null.
         assert_eq!(tracks[1]["stream"], json!(""));
     }
 
-    // A mid is an SDP token; absurd or control-laden values are dropped.
     #[test]
     fn an_absurd_media_section_id_is_dropped_not_forwarded() {
         let info = lkp::ParticipantInfo {
@@ -2175,11 +1881,6 @@ mod tests {
         );
     }
 
-    // The live failure (2026-10-07, Windows, UDP blocked for 26 s): the SFU
-    // timed the media out and sent Leave{reason=CONNECTION_TIMEOUT,
-    // action=RESUME}, and the call ended. RESUME and RECONNECT must keep the
-    // call; only DISCONNECT ends it. Decoded from the wire, so the field
-    // numbers are exercised too.
     #[test]
     fn a_leave_that_asks_us_back_keeps_the_call() {
         use lkp::leave_request::Action;
@@ -2197,7 +1898,6 @@ mod tests {
                 _ => panic!("not a Leave"),
             }
         };
-        // The logged case: reason 14, action 1.
         assert_eq!(
             decode(lkp::LeaveRequest {
                 reason: lkp::DisconnectReason::ConnectionTimeout as i32,
@@ -2220,7 +1920,6 @@ mod tests {
             }),
             "ended",
             "a DISCONNECT (removed, room deleted) must end the call");
-        // A server older than protocol 13 says it only with can_reconnect.
         assert_eq!(
             decode(lkp::LeaveRequest {
                 can_reconnect: true,
@@ -2228,24 +1927,18 @@ mod tests {
             }),
             "reconnecting");
         assert_eq!(decode(lkp::LeaveRequest::default()), "ended");
-        // An action from a newer protocol is not a reconnect we were offered.
         assert_eq!(leave_disposition(99, false), "ended");
         assert_eq!(leave_disposition(99, true), "reconnecting");
-        // The numbers the log line prints are the wire's.
         assert_eq!(Action::Resume as i32, 1);
         assert_eq!(lkp::DisconnectReason::ConnectionTimeout as i32, 14);
     }
 
-    // The ping timeout: off when the server sets none, bounded, and never
-    // shorter than one ping interval plus a margin.
     #[test]
     fn the_signalling_watchdog_follows_the_servers_ping_timeout() {
         assert_eq!(signal_silence_limit(0, 10), None);
         assert_eq!(signal_silence_limit(-5, 10), None);
         assert_eq!(signal_silence_limit(20, 10), Some(Duration::from_secs(20)));
-        // A timeout shorter than the interval would fire between two pongs.
         assert_eq!(signal_silence_limit(5, 10), Some(Duration::from_secs(12)));
-        // Absurd values are bounded.
         assert_eq!(signal_silence_limit(1, 1), Some(Duration::from_secs(5)));
         assert_eq!(signal_silence_limit(100_000, 1),
                    Some(Duration::from_secs(120)));
@@ -2253,8 +1946,6 @@ mod tests {
 
     #[test]
     fn a_signal_request_round_trips_through_prost() {
-        // Guards the wire encoding: shifted tags would otherwise make the SFU
-        // silently ignore our offers.
         let request = lkp::SignalRequest {
             message: Some(lkp::signal_request::Message::Offer(
                 lkp::SessionDescription {

@@ -1,8 +1,3 @@
-// A SecretStore that counts per-account reads and writes, with injectable
-// latency, failure and lastReadFailed(), for the live-accounts tests
-// (contract §5.1). Thread-safe: KeyringWorker calls it on its own thread
-// while the test thread inspects it. Holds fixture values only, never a real
-// secret.
 #pragma once
 
 #include "storage/SecretStore.h"
@@ -22,12 +17,10 @@ class CountingSecretStore final : public SecretStore
 public:
     explicit CountingSecretStore(QObject *parent = nullptr) : SecretStore(parent) {}
 
-    // ---- scripting -----------------------------------------------------------
     void setSecure(bool on) { QMutexLocker l(&m_mutex); m_secure = on; }
     void setShared(bool on) { QMutexLocker l(&m_mutex); m_shared = on; }
     void setReadLatencyMs(int ms) { QMutexLocker l(&m_mutex); m_readLatencyMs = ms; }
     void setWriteLatencyMs(int ms) { QMutexLocker l(&m_mutex); m_writeLatencyMs = ms; }
-    // Reads answer "" and lastReadFailed() true: a locked collection.
     void setFailReads(bool fail) { QMutexLocker l(&m_mutex); m_failReads = fail; }
     void setFailWrites(bool fail) { QMutexLocker l(&m_mutex); m_failWrites = fail; }
     void setValue(const QString &userId, const QString &key, const QString &value)
@@ -41,7 +34,6 @@ public:
         return m_values.value(mapKey(userId, key));
     }
 
-    // ---- inspection -----------------------------------------------------------
     int reads(const QString &userId) const { QMutexLocker l(&m_mutex); return m_reads.value(userId); }
     int writes(const QString &userId) const { QMutexLocker l(&m_mutex); return m_writes.value(userId); }
     int deletes(const QString &userId) const { QMutexLocker l(&m_mutex); return m_deletes.value(userId); }
@@ -71,7 +63,6 @@ public:
         m_threads.clear();
     }
 
-    // ---- SecretStore ------------------------------------------------------------
     bool isSecure() const override { QMutexLocker l(&m_mutex); return m_secure; }
     bool isAvailable() const override { return true; }
     QString backendName() const override { return QStringLiteral("counting (test)"); }
@@ -155,4 +146,4 @@ private:
     bool m_shared = false;
 };
 
-} // namespace lightning::accounts::testing
+}

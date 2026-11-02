@@ -72,7 +72,6 @@ public:
         Q_EMIT passwordChangeProbed(opId, known, canChange, url);
     }
 
-    // Pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -114,14 +113,13 @@ const QStringList kCategories = {
     QStringLiteral("network"),        QStringLiteral("failed"),
 };
 
-} // namespace
+}
 
 class PasswordChangeControllerTest : public QObject
 {
     Q_OBJECT
 
 private:
-    // Every property value and every captured signal argument, as text.
     static QStringList everythingVisible(const PasswordChangeController &ctl,
                                          const QSignalSpy &finished)
     {
@@ -180,14 +178,12 @@ private Q_SLOTS:
         QCOMPARE(ctl.resultMessage(),
                  PasswordChangeController::describe(QStringLiteral("too_short"),
                                                     false));
-        // Four emoji are eight UTF-16 units but four characters.
         const QString emoji = QString::fromUtf8("😀😀😀😀");
         QCOMPARE(emoji.size(), 8);
         QCOMPARE(PasswordChangeController::localProblem(kCurrent, emoji, emoji),
                  QStringLiteral("too_short"));
         QCOMPARE(client.changeCalls, 0);
 
-        // Exactly the minimum is enough.
         const QString eight = QStringLiteral("abcdefgh");
         QCOMPARE(PasswordChangeController::localProblem(kCurrent, eight, eight),
                  QString());
@@ -242,12 +238,9 @@ private Q_SLOTS:
                      qPrintable(category + QStringLiteral(" shares a message")));
             seen << message;
         }
-        // The success texts are not reused for a failure.
         QVERIFY(!seen.contains(PasswordChangeController::describe({}, false)));
         QVERIFY(!seen.contains(PasswordChangeController::describe({}, true)));
 
-        // An unknown category (or none) reads as the generic failure, not as
-        // any specific cause.
         const QString generic =
             PasswordChangeController::describe(QStringLiteral("failed"), false);
         QCOMPARE(PasswordChangeController::describe(
@@ -301,7 +294,6 @@ private Q_SLOTS:
         QVERIFY(ctl.changePassword(kCurrent, kNew, kNew, true));
         const quint64 op = client.lastChangeOp;
 
-        // Sign-out and an account switch both end in loggedOut.
         client.logout();
         QVERIFY(!ctl.busy());
 
@@ -318,11 +310,9 @@ private Q_SLOTS:
         ctl.setClient(&client);
         QSignalSpy finished(&ctl, &PasswordChangeController::finished);
 
-        // Refused locally.
         QVERIFY(!ctl.changePassword(kCurrent, kNew, kCurrent, false));
         QVERIFY(!leaks(everythingVisible(ctl, finished)));
 
-        // Sent: in flight, failed, and succeeded.
         QVERIFY(ctl.changePassword(kCurrent, kNew, kNew, true));
         QVERIFY(!leaks(everythingVisible(ctl, finished)));
         client.answer(client.lastChangeOp, false,
@@ -333,7 +323,6 @@ private Q_SLOTS:
         QCOMPARE(finished.size(), 2);
         QVERIFY(!leaks(everythingVisible(ctl, finished)));
 
-        // The scan can see a leak: a property that did carry one is caught.
         QVERIFY(leaks({ QStringLiteral("x ") + kNew }));
     }
 
@@ -355,7 +344,6 @@ private Q_SLOTS:
         QCOMPARE(ctl.mode(), QStringLiteral("external"));
         QCOMPARE(ctl.managementUrl(), kAccountPage);
 
-        // A password account on the same server kind reads the probe.
         oauth = false;
         QCOMPARE(ctl.mode(), QStringLiteral("external"));
     }
@@ -367,8 +355,6 @@ private Q_SLOTS:
         ctl.setClient(&client);
         ctl.setOAuthAccountCheck([] { return false; });
 
-        // Before any answer, and when the server could not be asked, the form
-        // is offered and the server decides.
         QCOMPARE(ctl.mode(), QStringLiteral("form"));
         ctl.refresh();
         client.probed(client.lastProbeOp, false, true, QString());
@@ -378,7 +364,6 @@ private Q_SLOTS:
         client.probed(client.lastProbeOp, true, true, QString());
         QCOMPARE(ctl.mode(), QStringLiteral("form"));
 
-        // Turned off, with and without an account page.
         ctl.refresh();
         client.probed(client.lastProbeOp, true, false, QString());
         QCOMPARE(ctl.mode(), QStringLiteral("unavailable"));
@@ -398,7 +383,7 @@ private Q_SLOTS:
         ctl.setClient(&client);
         ctl.refresh();
         const quint64 op = client.lastProbeOp;
-        ctl.refresh(); // one probe at a time
+        ctl.refresh();
         QCOMPARE(client.probeCalls, 1);
 
         client.logout();
@@ -420,7 +405,6 @@ private Q_SLOTS:
         client.probed(client.lastProbeOp, true, false, kAccountPage);
         QCOMPARE(client.probeCalls, 1);
 
-        // Account switch: the old answer is gone and the new session is asked.
         client.logout();
         QVERIFY(ctl.managementUrl().isEmpty());
         Q_EMIT client.loginSucceeded(QStringLiteral("@other:example.org"));
@@ -438,13 +422,10 @@ private Q_SLOTS:
         ctl.refresh();
         QVERIFY(ctl.busy());
 
-        // A store reset releases the session without loggedOut; the next
-        // session starts with loginSucceeded.
         Q_EMIT client.loginSucceeded(QStringLiteral("@me:example.org"));
         QVERIFY(!ctl.busy());
         QVERIFY(ctl.changePassword(kCurrent, kNew, kNew, false));
         QCOMPARE(client.changeCalls, 2);
-        // The old op can no longer finish the new one.
         client.answer(op, true);
         QCOMPARE(finished.size(), 0);
         QVERIFY(ctl.busy());

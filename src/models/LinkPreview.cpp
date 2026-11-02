@@ -7,8 +7,6 @@ namespace matrix::link_preview {
 
 namespace {
 
-// Strip fenced and inline code spans so their URLs are never previewed.
-// Unterminated fences discard the rest of the message (the safe choice).
 QString withoutCodeSpans(const QString &body)
 {
     QString out = body;
@@ -21,10 +19,6 @@ QString withoutCodeSpans(const QString &body)
     return out;
 }
 
-// Trim trailing characters that are almost always sentence punctuation
-// rather than part of the URL. Closing parentheses/brackets are removed
-// only while unbalanced against the URL's own opening ones ("(see
-// https://en.wikipedia.org/wiki/Foo_(bar))" keeps the inner pair).
 QString trimTrailingPunctuation(QString url)
 {
     const QString plain = QStringLiteral(".,;:!?'\"");
@@ -51,7 +45,7 @@ QString trimTrailingPunctuation(QString url)
     return url;
 }
 
-} // namespace
+}
 
 QString firstPreviewableUrl(const QString &body)
 {
@@ -59,8 +53,6 @@ QString firstPreviewableUrl(const QString &body)
         return {};
     const QString text = withoutCodeSpans(body);
 
-    // Positive scheme allow-list. javascript:, data:, file:, blob: and
-    // friends can never match — they are not in the pattern at all.
     static const QRegularExpression urlRe(
         QStringLiteral("\\bhttps://[^\\s<>]+"),
         QRegularExpression::CaseInsensitiveOption);
@@ -77,13 +69,8 @@ QString firstPreviewableUrl(const QString &body)
         const QUrl url(candidate, QUrl::StrictMode);
         if (!url.isValid() || url.host().isEmpty())
             continue;
-        // Embedded credentials must never reach a request or a log.
         if (!url.userInfo().isEmpty())
             continue;
-        // Matrix permalinks (users, rooms, events) are navigation targets,
-        // never preview candidates; suppressed before any network contact or
-        // consent card. Continue so a real external URL in the same message
-        // still previews.
         if (url.host().compare(QLatin1String("matrix.to"),
                                Qt::CaseInsensitive) == 0)
             continue;
@@ -105,15 +92,11 @@ bool isSafeExternalUrl(const QUrl &url)
         && url.userInfo().isEmpty();
 }
 
-// One linkifier for message bodies and topics, so both keep the same escaping
-// and the same isSafeExternalUrl gate. `bareWww` adds "www." hosts (topics).
 static QString linkifiedHtml(const QString &body, bool bareWww)
 {
     static const QRegularExpression webUrl(
         QStringLiteral("\\bhttps?://[^\\s<>]+"),
         QRegularExpression::CaseInsensitiveOption);
-    // "www." only at the start of a word: not inside a host ("foo.www.x"), a
-    // path ("/www.x") or an address ("a@www.x").
     static const QRegularExpression webOrWww(
         QStringLiteral("\\bhttps?://[^\\s<>]+|(?<![\\w.@/:-])www\\.[^\\s<>]+"),
         QRegularExpression::CaseInsensitiveOption);
@@ -130,7 +113,6 @@ static QString linkifiedHtml(const QString &body, bool bareWww)
         const QString target =
             bare ? QStringLiteral("https://") + candidate : candidate;
         const QUrl url(target, QUrl::StrictMode);
-        // A bare host needs a dot after "www." ("www.x" alone is a word).
         const bool linkable = isSafeExternalUrl(url)
             && (!bare || url.host().count(QLatin1Char('.')) >= 2);
         if (linkable) {
@@ -160,7 +142,6 @@ QString linkifiedTopicHtml(const QString &topic)
 GifClass classifyGif(const QString &validatedMime, qint64 sizeBytes,
                      int width, int height, const GifLimits &limits)
 {
-    // MIME parameters ("image/gif; charset=…") are irrelevant to the type.
     const QString mime =
         validatedMime.section(QLatin1Char(';'), 0, 0).trimmed().toLower();
     if (mime != QLatin1String("image/gif"))
@@ -172,4 +153,4 @@ GifClass classifyGif(const QString &validatedMime, qint64 sizeBytes,
     return GifClass::Gif;
 }
 
-} // namespace matrix::link_preview
+}

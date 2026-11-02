@@ -3,12 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// One square in the media browser's grid. Thumbnails go through the
-// authenticated media bridge like the timeline's (encrypted attachments are
-// fetched and decrypted there; a raw mxc never reaches an Image). A miss
-// returns "" and starts a fetch; mediaCached asks again until a source
-// arrives, and an arrived source is kept, so a later eviction from the
-// bridge's RAM cache cannot blank a drawn tile and send it round again.
 Item {
     id: tile
 
@@ -30,11 +24,7 @@ Item {
     signal activated()
     signal jumpRequested(string eventId)
 
-    /// Opens the same menu a right click does; the grid calls it for the Menu
-    /// key on the current tile.
     function openMenu() { tileMenu.popup() }
-    /// True while the owning view has keyboard focus and this is its current
-    /// tile: draws the focus ring. A standalone tile never shows one.
     readonly property bool keyboardCurrent:
         !!GridView.view && GridView.isCurrentItem && GridView.view.activeFocus
     readonly property string displayName:
@@ -51,19 +41,10 @@ Item {
     readonly property bool needsFullFile: encrypted
         && thumbnailMxc.length === 0 && mediaKey.length > 0
         && (kind === "image" || kind === "sticker")
-    // Bounded, as a grid of a whole history must be: only a picture of a known
-    // size up to this many bytes (the bridge's own "large" line), never SVG
-    // (refused on every path), and only once this tile has stayed on screen
-    // for a moment. A flick, a wheel glide (which moves contentY without
-    // `moving`) or a scrollbar drag through hundreds of tiles fetches nothing,
-    // and neither does a delegate the view builds and then positions
-    // elsewhere. The bridge caps how many full payloads are in flight.
     readonly property real fullFileMaxBytes: 8 * 1024 * 1024
     readonly property bool fullFileAllowed: needsFullFile
         && Number(size) > 0 && Number(size) <= fullFileMaxBytes
         && mimetype.toLowerCase().indexOf("svg") < 0
-    // Only a tile that may fetch its file follows the scroll position; the
-    // rest never read contentY.
     readonly property bool fullFileInView: {
         if (!fullFileAllowed)
             return false
@@ -73,7 +54,6 @@ Item {
         return !view.moving && tile.y + tile.height > view.contentY
                && tile.y < view.contentY + view.height
     }
-    // Set by the settle timer, cleared when the tile leaves the screen.
     property bool fullFileSettled: false
     onFullFileInViewChanged: if (!fullFileInView) fullFileSettled = false
     Timer {
@@ -97,12 +77,8 @@ Item {
                 return
             value = app.mediaBridge.mediaSource(tile.mediaKey, "full")
         } else if (tile.mediaKey.length > 0) {
-            // Through the media registry, keyed like a timeline row, when the
-            // scanner registered one: the only path that can decrypt an
-            // encrypted thumbnail. The server's thumbnail for anything else.
             value = app.mediaBridge.mediaSource(tile.mediaKey, "list_thumb")
         } else {
-            // A row the scanner could not register.
             var uri = tile.thumbnailMxc.length > 0
                 ? tile.thumbnailMxc
                 : (kind === "image" || kind === "sticker" ? tile.mxc : "")
@@ -130,13 +106,6 @@ Item {
         }
     }
 
-    // Crop what is nearly square (between half and double), fit what is not,
-    // so tall or wide pictures keep what identifies them. The threshold is a
-    // judgement. The event's DECLARED size decides, never the loaded image's:
-    // Image's implicit size follows its fillMode (switching to or from
-    // PreserveAspectFit with a sourceSize zeroes it while the picture is loaded
-    // again), so an aspect read from it flipped crop and fit on every load and
-    // logged a binding loop. Unknown dimensions crop, as mainstream grids do.
     readonly property real declaredAspect:
         (mediaWidth > 0 && mediaHeight > 0) ? mediaWidth / mediaHeight : 1
 
@@ -168,14 +137,10 @@ Item {
                       ? Image.PreserveAspectCrop : Image.PreserveAspectFit
             asynchronous: true
             cache: true
-            // A width-only sourceSize keeps the aspect; MediaImageProvider
-            // honours it.
             sourceSize.width: 256
             visible: status === Image.Ready
         }
 
-        // A label fallback (no thumbnail, undecryptable, deleted), not an empty
-        // square.
         ColumnLayout {
             anchors.centerIn: parent
             width: parent.width - AppTheme.spacing8
@@ -203,9 +168,6 @@ Item {
             }
         }
 
-        // Marks videos, so a click does not open the wrong thing. Only over a
-        // drawn picture: the label fallback already carries the movie icon, and
-        // a badge centred there sat on top of the filename.
         Rectangle {
             objectName: "videoBadge"
             visible: tile.kind === "video" && preview.status === Image.Ready
@@ -216,7 +178,6 @@ Item {
                    color: AppTheme.scrimInk }
         }
 
-        // Encrypted is worth showing: it explains slower thumbnails.
         Icon {
             visible: tile.encrypted
             anchors.right: parent.right
@@ -232,7 +193,6 @@ Item {
         onTapped: tile.activated()
     }
     TapHandler {
-        // Touch has no buttons, so a tap would fire this too.
         acceptedButtons: Qt.RightButton
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onTapped: tileMenu.popup()
@@ -241,15 +201,12 @@ Item {
         id: tileHover
         cursorShape: Qt.PointingHandCursor
     }
-    // The label fallback elides long names; the full name is one hover away.
     ToolTip.visible: tileHover.hovered && tile.displayName.length > 0
     ToolTip.delay: 600
     ToolTip.text: tile.displayName
 
     Accessible.role: Accessible.Button
     Accessible.name: tile.displayName + " — " + tile.sender
-    // The grid is the one Tab stop and drives Return/Space for its current
-    // tile; a screen reader's press goes to the tile itself.
     Accessible.onPressAction: tile.activated()
 
     AppMenu {

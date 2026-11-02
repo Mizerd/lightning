@@ -1,9 +1,3 @@
-// The crop/adjust step for every display-image upload. Two kinds of proof:
-//   1. The maths: `imagecrop::planCrop` is pure and pinned exactly (a
-//      rectangle off the image, a cap that shrinks, a crop under the cap,
-//      degenerate cases).
-//   2. Honesty: the bytes written are the format they are named, and an SVG
-//      never reaches a decoder, checked against real encoded bytes.
 
 #include "media/ImageCropper.h"
 #include "media/StagedImageStore.h"
@@ -27,8 +21,6 @@ using imagecrop::sniffRasterMime;
 
 namespace {
 
-/// A picture with real structure, so a wrong crop rectangle produces wrong
-/// pixels rather than a uniform block any rectangle would satisfy.
 QImage patternImage(int w, int h, QImage::Format format = QImage::Format_RGB32)
 {
     QImage image(w, h, format);
@@ -51,8 +43,6 @@ QByteArray encoded(const QImage &image, const char *format)
     return bytes;
 }
 
-/// A real GIF: a w x h canvas with `frames` 1x1 frames, and an optional
-/// comment extension of `padding` bytes (to reach a byte size).
 QByteArray makeGif(int w, int h, int frames, int padding = 0)
 {
     QByteArray g("GIF89a");
@@ -99,7 +89,7 @@ bool writeFile(const QString &path, const QByteArray &bytes)
     return file.write(bytes) == bytes.size();
 }
 
-} // namespace
+}
 
 class ImageCropTest : public QObject
 {
@@ -108,21 +98,15 @@ class ImageCropTest : public QObject
 private Q_SLOTS:
     void cleanup() { lightning::svgraster::hooks() = {}; }
 
-
-    // ---- the maths ----
-
     void anOrdinaryCropIsTakenExactly()
     {
         const CropPlan plan = planCrop(QSize(800, 600), QRectF(100, 50, 400, 400), 0);
         QVERIFY(plan.ok);
         QCOMPARE(plan.sourceRect, QRect(100, 50, 400, 400));
-        // No cap requested, so the output is the crop itself.
         QCOMPARE(plan.outputSize, QSize(400, 400));
         QVERIFY(plan.reason.isEmpty());
     }
 
-    // The rectangle comes from a live QML transform and is clamped, never
-    // trusted: an edge rounding error must not read outside the buffer.
     void aRectangleRunningOffTheImageIsClampedNotTrusted()
     {
         const CropPlan plan = planCrop(QSize(200, 200), QRectF(-50, -50, 400, 400), 0);
@@ -156,7 +140,6 @@ private Q_SLOTS:
         QCOMPARE(plan.reason, QStringLiteral("empty_rect"));
     }
 
-    // The cap stops a 4000px photograph becoming a 4000px avatar.
     void theCapBringsTheLongEdgeDownAndKeepsTheAspect()
     {
         const CropPlan square = planCrop(QSize(4000, 3000), QRectF(0, 0, 3000, 3000), 512);
@@ -166,11 +149,9 @@ private Q_SLOTS:
 
         const CropPlan wide = planCrop(QSize(4000, 3000), QRectF(0, 0, 3000, 1000), 1920);
         QVERIFY(wide.ok);
-        QCOMPARE(wide.outputSize, QSize(1920, 640));   // 3:1 preserved
+        QCOMPARE(wide.outputSize, QSize(1920, 640));
     }
 
-    // A crop smaller than the cap is never upscaled; that costs bytes and
-    // blurs the picture.
     void aCropSmallerThanTheCapIsNeverUpscaled()
     {
         const CropPlan plan = planCrop(QSize(300, 300), QRectF(0, 0, 120, 120), 512);
@@ -192,8 +173,6 @@ private Q_SLOTS:
         QCOMPARE(plan.outputSize, QSize(4000, 4000));
     }
 
-    // QSize::scaled floors, so an extreme ratio could reach a zero short edge
-    // (an unencodable image).
     void anExtremeAspectRatioKeepsAtLeastOnePixelOnEachEdge()
     {
         const CropPlan plan = planCrop(QSize(4000, 4000), QRectF(0, 0, 4000, 3), 512);
@@ -203,16 +182,12 @@ private Q_SLOTS:
         QCOMPARE(plan.outputSize.width(), 512);
     }
 
-    // Each edge is rounded independently, unlike QRectF::toRect(), which
-    // rounds the origin and then the size relative to it.
     void fractionalCoordinatesRoundPerEdge()
     {
         const CropPlan plan = planCrop(QSize(100, 100), QRectF(0.5, 0.5, 10.4, 10.4), 0);
         QVERIFY(plan.ok);
         QCOMPARE(plan.sourceRect, QRect(1, 1, 10, 10));
     }
-
-    // ---- the gate ----
 
     void theFiveAcceptedFormatsAreIdentifiedFromTheirBytes()
     {
@@ -228,9 +203,6 @@ private Q_SLOTS:
                  QStringLiteral("image/webp"));
     }
 
-    // JPEG XL has two on-disk shapes and both must sniff. Verified against
-    // cjxl 0.12.0: lossy and lossless codestreams begin ff0a, and
-    // `--container=1` begins 0000000c4a584c200d0a870a.
     void jpegXlSniffsInBothItsContainerAndBareForms()
     {
         const QByteArray container =
@@ -240,16 +212,11 @@ private Q_SLOTS:
         QCOMPARE(sniffRasterMime(container), QStringLiteral("image/jxl"));
         QCOMPARE(sniffRasterMime(bare), QStringLiteral("image/jxl"));
 
-        // Order matters: a container's payload begins with the bare codestream
-        // signature, so the 2-byte form must be tested second. Pinned by a
-        // container whose 13th byte onward is a codestream.
         QCOMPARE(sniffRasterMime(container + QByteArray("\xff\x0a", 2)),
                  QStringLiteral("image/jxl"));
 
-        // Truncated magic must not read past the end of the buffer.
         QVERIFY(sniffRasterMime(QByteArray("\x00\x00\x00\x0CJXL", 7)).isEmpty());
         QVERIFY(sniffRasterMime(QByteArray("\xff", 1)).isEmpty());
-        // A neighbouring byte must not alias into it.
         QVERIFY(sniffRasterMime(QByteArray("\xff\x0b", 2) + QByteArray(24, 'x'))
                     .isEmpty());
     }
@@ -266,12 +233,9 @@ private Q_SLOTS:
         QVERIFY(sniffRasterMime(QByteArray("<!DOCTYPE html><html>")).isEmpty());
         QVERIFY(sniffRasterMime(QByteArray("\0\0\0\x18""ftypmp42", 12)).isEmpty());
         QVERIFY(sniffRasterMime(QByteArray()).isEmpty());
-        // Truncated magic must not be read past the end of the buffer.
         QVERIFY(sniffRasterMime(QByteArray("\x89PN", 3)).isEmpty());
         QVERIFY(sniffRasterMime(QByteArray("RIFF", 4)).isEmpty());
     }
-
-    // ---- format honesty ----
 
     void theEncoderMimeAndSuffixAlwaysAgree()
     {
@@ -298,16 +262,12 @@ private Q_SLOTS:
 
     void transparencyForcesPngEvenFromAJpegSource()
     {
-        // JPEG has no alpha; flattening a cut-out avatar onto black is wrong.
         QCOMPARE(chooseOutputFormat(QStringLiteral("image/jpeg"), true).mime,
                  QStringLiteral("image/png"));
         QCOMPARE(chooseOutputFormat(QStringLiteral("image/jpeg"), false).mime,
                  QStringLiteral("image/jpeg"));
     }
 
-    // One frame of an animation is not the animation, and WebP writing lives
-    // in qtimageformats, which DEB/RPM/AppImage builds may lack. Both become
-    // PNG and are declared as PNG.
     void gifAndWebpSourcesBecomePngAndSaySo()
     {
         QCOMPARE(chooseOutputFormat(QStringLiteral("image/gif"), false).mime,
@@ -327,8 +287,6 @@ private Q_SLOTS:
         QCOMPARE(unknown, 512);
     }
 
-    // ---- end to end, against real files ----
-
     void aCroppedFileIsWrittenAndItsBytesAreTheFormatItIsNamed()
     {
         QTemporaryDir dir;
@@ -347,8 +305,6 @@ private Q_SLOTS:
         QCOMPARE(info.value(QStringLiteral("height")).toInt(), 600);
         QCOMPARE(info.value(QStringLiteral("mime")).toString(),
                  QStringLiteral("image/png"));
-        // QML gets a staged token, never the user's path, which would let an
-        // Image render an SVG.
         const QString preview = info.value(QStringLiteral("previewUrl")).toString();
         QVERIFY(preview.startsWith(QStringLiteral("image://lightning-staged/")));
         QVERIFY(!preview.contains(png));
@@ -363,21 +319,16 @@ private Q_SLOTS:
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QByteArray bytes = file.readAll();
         file.close();
-        // The name and the bytes agree with each other and with the plan.
         QCOMPARE(sniffRasterMime(bytes), QStringLiteral("image/png"));
         QVERIFY(out.toLocalFile().endsWith(QStringLiteral(".png")));
 
         const QImage decoded = QImage::fromData(bytes);
         QVERIFY(!decoded.isNull());
-        // 600x400 capped to 512 on the long edge.
         QCOMPARE(decoded.size(), QSize(512, 341));
 
-        // Closing the dialog releases the staged preview.
         cropper.discard();
         QCOMPARE(staged.count(), 0);
 
-        // The written file outlives the dialog: the sink uploads it on its own
-        // schedule.
         QVERIFY(QFile::exists(out.toLocalFile()));
         cropper.clearSession();
         QVERIFY(!QFile::exists(out.toLocalFile()));
@@ -425,10 +376,6 @@ private Q_SLOTS:
         cropper.clearSession();
     }
 
-    // An SVG, whatever it is named, is never staged or previewed AS SVG: it is
-    // converted to a PNG in the background and only that PNG is staged, so the
-    // preview Image and the crop see a raster. The call itself answers
-    // "pending" and stages nothing.
     void anSvgNamedPngIsConvertedAndOnlyThePngIsStaged()
     {
         if (!lightning::svgraster::available())
@@ -452,7 +399,6 @@ private Q_SLOTS:
         QVERIFY(info.value(QStringLiteral("pending")).toBool());
         QCOMPARE(staged.count(), 0);
         QVERIFY(info.value(QStringLiteral("previewUrl")).toString().isEmpty());
-        // Until it lands there is no source to crop.
         QVERIFY(cropper.crop(0, 0, 10, 10, 512).isEmpty());
         QCOMPARE(cropper.lastError(), QStringLiteral("no_source"));
 
@@ -461,7 +407,6 @@ private Q_SLOTS:
         QVERIFY(done.value(QStringLiteral("ok")).toBool());
         QCOMPARE(done.value(QStringLiteral("mime")).toString(),
                  QStringLiteral("image/png"));
-        // 64x48 is below the 1024 floor: drawn at 1024x768, not upscaled.
         QCOMPARE(done.value(QStringLiteral("width")).toInt(), 1024);
         QCOMPARE(done.value(QStringLiteral("height")).toInt(), 768);
         QCOMPARE(staged.count(), 1);
@@ -471,7 +416,6 @@ private Q_SLOTS:
                      QStringLiteral("image://lightning-staged/").size()))),
                  QStringLiteral("image/png"));
 
-        // And the crop that follows is a PNG, never SVG.
         const QUrl out = cropper.crop(0, 0, 1024, 768, 512);
         QVERIFY(!out.isEmpty());
         QVERIFY(out.toLocalFile().endsWith(QStringLiteral(".png")));
@@ -480,7 +424,6 @@ private Q_SLOTS:
         cropper.clearSession();
     }
 
-    // A refused SVG says why, stages nothing, and leaves nothing to crop.
     void aRefusedSvgReportsItsReasonAndStagesNothing()
     {
         lightning::svgraster::hooks().inProcess = true;
@@ -507,9 +450,6 @@ private Q_SLOTS:
         QVERIFY(cropper.crop(0, 0, 10, 10, 512).isEmpty());
     }
 
-    // Closing the dialog (discard) or choosing another file while a conversion
-    // runs drops its answer: it must never stage a picture for a dialog that is
-    // gone.
     void aSupersededSvgConversionIsDropped()
     {
         if (!lightning::svgraster::available())
@@ -533,8 +473,6 @@ private Q_SLOTS:
         QCOMPARE(staged.count(), 0);
     }
 
-    // A refused file releases the previously accepted one, or "Use" would
-    // silently upload the earlier picture.
     void aRefusedFileReleasesTheOneBefore()
     {
         QTemporaryDir dir;
@@ -576,7 +514,6 @@ private Q_SLOTS:
                  QStringLiteral("unreadable"));
     }
 
-    // The ring bounds disk use without removing the crop just handed out.
     void onlyTheLastFewWrittenCropsAreKept()
     {
         QTemporaryDir dir;
@@ -595,7 +532,6 @@ private Q_SLOTS:
             const QUrl out = cropper.crop(0, 0, 100 + i, 100 + i, 512);
             QVERIFY(!out.isEmpty());
             written.append(out.toLocalFile());
-            // Whatever else has gone, the one just returned is present.
             QVERIFY(QFile::exists(out.toLocalFile()));
         }
         QVERIFY(!QFile::exists(written.first()));
@@ -603,11 +539,6 @@ private Q_SLOTS:
         cropper.clearSession();
     }
 
-    // ---- animated sources ----
-
-    // Qt cannot encode an animation, so a crop flattens it. The original is
-    // kept instead: offered for an animated GIF, uploaded byte for byte, and
-    // written 0600.
     void anAnimatedGifIsKeptByteForByte()
     {
         QTemporaryDir dir;
@@ -624,7 +555,6 @@ private Q_SLOTS:
         QVERIFY(info.value(QStringLiteral("animated")).toBool());
         const QUrl preview(info.value(QStringLiteral("animatedUrl")).toString());
         QVERIFY(preview.isLocalFile());
-        // A copy the cropper sniffed, never the chosen file.
         QVERIFY(preview.toLocalFile() != gif);
         QVERIFY(cropper.canKeepAnimation(QStringLiteral("avatar")));
         QVERIFY(cropper.canKeepAnimation(QStringLiteral("banner")));
@@ -639,14 +569,12 @@ private Q_SLOTS:
                      & (QFileDevice::ReadGroup | QFileDevice::ReadOther),
                  QFileDevice::Permissions());
         file.close();
-        // It outlives the dialog, like a crop.
         cropper.discard();
         QVERIFY(QFile::exists(kept.toLocalFile()));
         cropper.clearSession();
         QVERIFY(!QFile::exists(kept.toLocalFile()));
     }
 
-    // One frame is a still picture: the ordinary crop, nothing kept.
     void aSingleFrameGifIsNotAnAnimation()
     {
         QTemporaryDir dir;
@@ -664,13 +592,11 @@ private Q_SLOTS:
         QCOMPARE(cropper.lastError(), QStringLiteral("animation_too_large"));
     }
 
-    // The bounds are the ones display applies, per role: what is uploaded as
-    // an animation is what Lightning will animate.
     void theAnimationBoundsFollowTheRole()
     {
         QTemporaryDir dir;
         const QString gif = dir.filePath(QStringLiteral("wide.gif"));
-        QVERIFY(writeFile(gif, makeGif(2048, 1024, 2))); // 2 MP
+        QVERIFY(writeFile(gif, makeGif(2048, 1024, 2)));
         StagedImageStore staged;
         ImageCropper cropper;
         cropper.setStagedImages(&staged);
@@ -684,9 +610,6 @@ private Q_SLOTS:
         cropper.clearSession();
     }
 
-    // Over the upload cap there is no copy at all, and the still crop remains.
-    // The cap applies to what would be uploaded, after stripping: a comment
-    // alone cannot push a small animation over it, and frames can.
     void anAnimationOverTheUploadCapIsNotCopied()
     {
         QTemporaryDir dir;
@@ -702,7 +625,6 @@ private Q_SLOTS:
                          .isEmpty());
             cropper.clearSession();
         }
-        // ~23 bytes a frame: enough frames to pass 8 MiB of animation.
         const int frames =
             int(ImageCropper::kMaxAnimatedUploadBytes / 23) + 1000;
         const QString gif = dir.filePath(QStringLiteral("huge.gif"));
@@ -725,7 +647,6 @@ private Q_SLOTS:
     {
         const QByteArray secret("GPS 54.6872N 25.2797E, Rokas's phone");
         QByteArray dirty = makeGif(128, 128, 3);
-        // After header (13), colour table (6) and the looping extension (19).
         QByteArray meta("\x21\xfe", 2);
         meta.append(char(secret.size()));
         meta.append(secret);
@@ -753,7 +674,6 @@ private Q_SLOTS:
         QVERIFY(!uploaded.contains(secret));
         QVERIFY(!uploaded.contains("XMP DataXMP"));
         QVERIFY(uploaded.contains("NETSCAPE2.0"));
-        // Still the same animation.
         QCOMPARE(uploaded, makeGif(128, 128, 3));
         QBuffer buffer;
         buffer.setData(uploaded);
@@ -763,12 +683,9 @@ private Q_SLOTS:
         cropper.clearSession();
     }
 
-    // An animation the stripper cannot walk is never kept: the still crop is
-    // what remains.
     void aMalformedAnimationIsNotKept()
     {
         QByteArray bad = makeGif(64, 64, 2);
-        // An application extension whose identifier block is the wrong size.
         bad.insert(38, QByteArray("\x21\xff\x05short\x00", 9));
         QTemporaryDir dir;
         const QString gif = dir.filePath(QStringLiteral("bad.gif"));
@@ -778,14 +695,13 @@ private Q_SLOTS:
         cropper.setStagedImages(&staged);
         const QVariantMap info = cropper.load(QUrl::fromLocalFile(gif));
         if (!info.value(QStringLiteral("ok")).toBool())
-            return; // Qt refused it outright: nothing is uploaded either way
+            return;
         QVERIFY(info.value(QStringLiteral("animatedUrl")).toString().isEmpty());
         QVERIFY(!cropper.canKeepAnimation(QStringLiteral("banner")));
         QVERIFY(cropper.useAnimation(QStringLiteral("banner")).isEmpty());
         cropper.clearSession();
     }
 
-    // A preview copy nobody uploaded goes with the dialog.
     void anUnusedAnimationCopyIsRemovedOnDiscard()
     {
         QTemporaryDir dir;

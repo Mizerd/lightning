@@ -1,21 +1,3 @@
-// Settings → Privacy & security → Export room keys: RoomKeyExportController
-// against a scripted client. Pins:
-//   * a weak passphrase (below Element's bar, rung 3 of the scale) is
-//     refused, not just warned about, as Element refuses below zxcvbn 3;
-//   * an empty passphrase, a mismatched confirmation and a too-short one are
-//     refused before anything reaches the backend, and the length counts
-//     characters, not UTF-16 units;
-//   * only a local file that is not a directory is a destination;
-//   * the backend receives exactly the passphrase and path given;
-//   * progress follows only the live export, and only forwards;
-//   * every backend category has its own sentence, an unknown one falls back
-//     to the generic failure, and "ok with a category" is not a success;
-//   * one export at a time; a foreign answer is ignored, and an answer that
-//     arrives after sign-out or an account switch is dropped;
-//   * no property, signal or log line ever carries the passphrase or path.
-//
-// Policy and wiring only. The export itself, its file format and the round
-// trip into a fresh store are rust/src/keyexport.rs's tests.
 
 #include "app/RoomKeyExportController.h"
 #include "matrix/MatrixClient.h"
@@ -65,7 +47,6 @@ public:
         Q_EMIT roomKeyExportFinished(opId, ok, exported, category);
     }
 
-    // Pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -96,7 +77,6 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-// Distinctive, so the retention scans cannot trip on ordinary text.
 const QString kPass = QStringLiteral("pass-SECRET-5c1e-horse");
 const QString kPathMarker = QStringLiteral("PATHMARK-a77d");
 
@@ -111,7 +91,6 @@ const QStringList kCategories = {
     QStringLiteral("failed"),
 };
 
-// Every message logged while a test runs.
 QStringList *g_log = nullptr;
 QtMessageHandler g_previous = nullptr;
 
@@ -124,7 +103,7 @@ void capture(QtMsgType type, const QMessageLogContext &ctx, const QString &msg)
         g_previous(type, ctx, msg);
 }
 
-} // namespace
+}
 
 class RoomKeyExportControllerTest : public QObject
 {
@@ -139,7 +118,6 @@ class RoomKeyExportControllerTest : public QObject
             m_dir.filePath(kPathMarker + QStringLiteral("-keys.txt")));
     }
 
-    // Every property value and every captured signal argument, as text.
     static QStringList everythingVisible(const RoomKeyExportController &ctl,
                                          const QSignalSpy &finished)
     {
@@ -168,8 +146,6 @@ private Q_SLOTS:
     void initTestCase()
     {
         QVERIFY(m_dir.isValid());
-        // Every category, so a test that exercises logging sees everything
-        // this controller can say.
         QLoggingCategory::setFilterRules(QStringLiteral("lightning.*=true"));
         g_log = &m_log;
         g_previous = qInstallMessageHandler(capture);
@@ -195,7 +171,6 @@ private Q_SLOTS:
         QVERIFY(!ctl.exportKeys(target(), kPass, kPass + QLatin1Char('x')));
         QCOMPARE(ctl.resultMessage(),
                  RoomKeyExportController::describe(QStringLiteral("mismatch"), 0));
-        // The confirmation alone is not a passphrase either.
         QVERIFY(!ctl.exportKeys(target(), QString(), kPass));
 
         QCOMPARE(client.exportCalls, 0);
@@ -213,7 +188,6 @@ private Q_SLOTS:
         QVERIFY(!ctl.exportKeys(target(), seven, seven));
         QCOMPARE(ctl.resultMessage(),
                  RoomKeyExportController::describe(QStringLiteral("too_short"), 0));
-        // Four emoji are eight UTF-16 units but four characters.
         const QString emoji = QString::fromUtf8("😀😀😀😀");
         QCOMPARE(emoji.size(), 8);
         QCOMPARE(RoomKeyExportController::localProblem(emoji, emoji),
@@ -221,16 +195,12 @@ private Q_SLOTS:
         QCOMPARE(RoomKeyExportController::strengthOf(emoji), 1);
         QCOMPARE(client.exportCalls, 0);
 
-        // Long enough is not yet strong enough: eight lower-case letters
-        // clear the length check and stop at the strength bar.
         const QString eight = QStringLiteral("abcdefgh");
         QCOMPARE(RoomKeyExportController::localProblem(eight, eight),
                  QStringLiteral("too_weak"));
         QCOMPARE(client.exportCalls, 0);
     }
 
-    // Rokas, 2026-10-13: like Element, a weak passphrase BLOCKS the export.
-    // On the old code (hint only) every case below reached the backend.
     void aWeakPassphraseBlocksTheExport()
     {
         FakeClient client;
@@ -241,10 +211,10 @@ private Q_SLOTS:
             RoomKeyExportController::describe(QStringLiteral("too_weak"), 0);
 
         for (const QString &weak :
-             { QStringLiteral("abcdefgh"),          // 8, one kind
-               QStringLiteral("Abcdefg1"),          // 8, three kinds
-               QStringLiteral("abcdefghijk"),       // 11, one kind
-               QStringLiteral("abababababababab"),  // 16, two distinct
+             { QStringLiteral("abcdefgh"),
+               QStringLiteral("Abcdefg1"),
+               QStringLiteral("abcdefghijk"),
+               QStringLiteral("abababababababab"),
                QStringLiteral("aaaa1111aaaa1111") }) {
             QVERIFY2(RoomKeyExportController::strengthOf(weak) < 3,
                      qPrintable(weak));
@@ -253,7 +223,6 @@ private Q_SLOTS:
         }
         QCOMPARE(client.exportCalls, 0);
 
-        // The bar itself: 12 characters, or 10 mixing three kinds.
         for (const QString &fair :
              { QStringLiteral("kzvxmwjqpdhr"), QStringLiteral("Kzvxmwj7!q") }) {
             QCOMPARE(RoomKeyExportController::strengthOf(fair), 3);
@@ -264,29 +233,21 @@ private Q_SLOTS:
         QCOMPARE(client.exportCalls, 1);
     }
 
-    // Rokas, 2026-10-14: "password123password123" was rated Strong. On the
-    // old code every weak line below was 4 (22 chars, 3 kinds, 16+ chars).
     void repetitionSequencesAndCommonWordsAreMarkedDown()
     {
         using C = RoomKeyExportController;
-        // A repeated block counts once, in any case.
         QVERIFY(C::strengthOf(QStringLiteral("password123password123")) < 3);
         QVERIFY(C::strengthOf(QStringLiteral("Xk9#mQ2vXk9#mQ2vXk9#mQ2v")) < 3);
         QVERIFY(C::strengthOf(QStringLiteral("xk9mq2vzXK9MQ2VZ")) < 3);
-        // Sequences, ascending or descending, letters or digits.
         QVERIFY(C::strengthOf(QStringLiteral("abcdefghijklmnopqrstuvwx")) < 3);
         QVERIFY(C::strengthOf(QStringLiteral("1234567890987654321")) < 3);
-        // Common words and passwords, however long the line gets.
         QVERIFY(C::strengthOf(QStringLiteral("qwertyuiopasdfgh")) < 3);
         QVERIFY(C::strengthOf(QStringLiteral("Welcome-Admin-Matrix")) < 3);
         QVERIFY(C::strengthOf(QStringLiteral("LETMEINiloveyou")) < 3);
         QVERIFY(C::strengthOf(QStringLiteral("lightning-lightning")) < 3);
-        // They are blocked, not merely graded.
         QCOMPARE(C::localProblem(QStringLiteral("password123password123"),
                                  QStringLiteral("password123password123")),
                  QStringLiteral("too_weak"));
-        // Genuinely strong passphrases stay strong, including one that
-        // merely contains a short common run.
         QCOMPARE(C::strengthOf(QStringLiteral("pass-SECRET-5c1e-horse")), 4);
         QCOMPARE(C::strengthOf(QStringLiteral("correct horse battery")), 4);
         QCOMPARE(C::strengthOf(QStringLiteral("Tr0ub4dor&3-purple-kettle")), 4);
@@ -302,10 +263,8 @@ private Q_SLOTS:
         QCOMPARE(RoomKeyExportController::strengthOf(QStringLiteral("Kzvxmwj7!qxy")), 4);
         QCOMPARE(RoomKeyExportController::strengthOf(
                      QStringLiteral("correct horse battery")), 4);
-        // A few characters repeated are weak at any length.
         QCOMPARE(RoomKeyExportController::strengthOf(
                      QStringLiteral("abcdabcdabcdabcdabcd")), 2);
-        // A repeated block counts once, however distinct its letters.
         QCOMPARE(RoomKeyExportController::strengthOf(
                      QStringLiteral("abcdeabcdeabcdeabcde")), 2);
         RoomKeyExportController ctl;
@@ -343,7 +302,6 @@ private Q_SLOTS:
         QCOMPARE(client.lastPath, target().toLocalFile());
         QVERIFY(ctl.busy());
         QVERIFY(state.count() > 0);
-        // One at a time.
         QVERIFY(!ctl.exportKeys(target(), kPass, kPass));
         QCOMPARE(client.exportCalls, 1);
     }
@@ -362,7 +320,7 @@ private Q_SLOTS:
         QCOMPARE(ctl.collected(), 500);
         client.progress(op, 1000);
         QCOMPARE(ctl.collected(), 1000);
-        client.progress(op, 500); // reordered: never backwards
+        client.progress(op, 500);
         QCOMPARE(ctl.collected(), 1000);
 
         client.answer(op, true, 1234);
@@ -386,7 +344,6 @@ private Q_SLOTS:
         QCOMPARE(finished.at(0).at(0).toBool(), true);
         QCOMPARE(finished.at(0).at(1).toInt(), 1234);
 
-        // Zero keys is a success that says so, not the same sentence.
         QVERIFY(ctl.exportKeys(target(), kPass, kPass));
         client.answer(client.lastOp, true, 0);
         QVERIFY(ctl.resultOk());
@@ -403,8 +360,6 @@ private Q_SLOTS:
             QVERIFY2(!seen.contains(text), qPrintable(category));
             seen.insert(text);
         }
-        // An unknown category is the generic failure, not one of the
-        // specific ones.
         QCOMPARE(RoomKeyExportController::describe(QStringLiteral("brand_new"), 0),
                  RoomKeyExportController::describe(QStringLiteral("failed"), 0));
 
@@ -421,11 +376,9 @@ private Q_SLOTS:
             QCOMPARE(ctl.resultMessage(),
                      RoomKeyExportController::describe(category, 0));
         }
-        // "ok" with a category is not a success.
         QVERIFY(ctl.exportKeys(target(), kPass, kPass));
         client.answer(client.lastOp, true, 5, QStringLiteral("write_failed"));
         QVERIFY(!ctl.resultOk());
-        // A failure without a category is still a failure, in words.
         QVERIFY(ctl.exportKeys(target(), kPass, kPass));
         client.answer(client.lastOp, false, 0);
         QCOMPARE(ctl.resultMessage(),
@@ -466,7 +419,6 @@ private Q_SLOTS:
         QVERIFY(ctl.busy());
         QCOMPARE(finished.count(), 0);
 
-        // Sign-out: the pending export belongs to the old session.
         client.logout();
         QVERIFY(!ctl.busy());
         client.progress(op, 500);
@@ -476,7 +428,6 @@ private Q_SLOTS:
         QVERIFY(ctl.resultMessage().isEmpty());
         QCOMPARE(finished.count(), 0);
 
-        // An account switch (a new login) clears the same way.
         QVERIFY(ctl.exportKeys(target(), kPass, kPass));
         const quint64 second = client.lastOp;
         Q_EMIT client.loginSucceeded(QStringLiteral("@other:example.org"));
@@ -494,7 +445,6 @@ private Q_SLOTS:
         QSignalSpy finished(&ctl, &RoomKeyExportController::finished);
         QSignalSpy progress(&client, &MatrixClient::roomKeyExportProgress);
 
-        // Refusals, a run with progress, a failure and a success.
         QVERIFY(!ctl.exportKeys(target(), kPass, kPass + QLatin1Char('!')));
         QVERIFY(ctl.exportKeys(target(), kPass, kPass));
         client.progress(client.lastOp, 500);
@@ -508,8 +458,6 @@ private Q_SLOTS:
             for (const QVariant &arg : args)
                 QVERIFY(!arg.toString().contains(QStringLiteral("SECRET")));
         }
-        // The controller did log (so the scan is not vacuous), and nothing it
-        // logged names the passphrase or the destination.
         QVERIFY2(!m_log.isEmpty(), "the controller logs its outcomes");
         bool sawExport = false;
         for (const QString &line : std::as_const(m_log)) {

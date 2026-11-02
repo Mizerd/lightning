@@ -10,8 +10,6 @@
 
 namespace lightning {
 
-// Encode UTF-8 bytes reversibly into one D-Bus object-path component.
-// Escape '_' too, so a literal '_2d' cannot collide with an encoded '-'.
 inline QString badgeObjectPath(const QString &applicationName)
 {
     QByteArray component;
@@ -62,4 +60,4 @@ inline void setApplicationBadge(QGuiApplication &app, qint64 number)
 #endif
 }
 
-} // namespace lightning
+}

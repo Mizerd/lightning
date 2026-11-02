@@ -1,7 +1,3 @@
-// StoreOwnershipRegistry is RECORD-ONLY in live accounts Phase 0: it records
-// which handle uses which store, keyed by what the store IS on disk, and
-// refuses nothing. These cases pin the bookkeeping the Phase 1 claim will
-// stand on, and that recordOpen() never refuses.
 #include "accounts/FileIdentity.h"
 #include "accounts/StoreOwnershipRegistry.h"
 
@@ -20,9 +16,6 @@ using lightning::accounts::StoreOwnershipRegistry;
 
 namespace {
 
-// A fake filesystem: the identity is the LOWER-CASED path, so two spellings
-// that differ only in case are one store, as on a case-insensitive volume.
-// Paths named in `missing` resolve invalid, as stat() on a missing path does.
 struct CaseInsensitiveFake {
     QSet<QString> missing;
     FileIdentity operator()(const QString &path) const
@@ -42,7 +35,7 @@ FileIdentity alwaysInvalid(const QString &)
     return FileIdentity{};
 }
 
-} // namespace
+}
 
 class StoreOwnershipRegistryTest : public QObject
 {
@@ -58,8 +51,6 @@ private Q_SLOTS:
     void unknownAndZeroSerialsAreIgnored();
     void concurrentNoteClosedFromAPoolIsSafe();
     void theRealResolverNamesWhatThePathIs();
-    // Live accounts Phase 1: the claims. Not enforced they are Phase 0's
-    // recordOpen() exactly; enforced (Labs) they refuse.
     void unenforcedClaimsRecordExactlyAsRecordOpen();
     void anEnforcedClaimRefusesEveryOwnerState();
     void anotherAccountsRecordOnTheSameStoreIsADuplicate();
@@ -96,7 +87,6 @@ void StoreOwnershipRegistryTest::recordReleaseCloseLifecycle()
     QVERIFY(all.first().role == StoreOwnershipRegistry::Role::Foreground);
     QVERIFY(all.first().state == StoreOwnershipRegistry::State::Live);
 
-    // Opening the same store again while it is Live is what Phase 1 refuses.
     quint64 conflict = 0;
     QVERIFY(registry.wouldRefuse(store, &conflict));
     QCOMPARE(conflict, serial);
@@ -105,7 +95,6 @@ void StoreOwnershipRegistryTest::recordReleaseCloseLifecycle()
     all = registry.records();
     QCOMPARE(all.size(), 1);
     QVERIFY(all.first().state == StoreOwnershipRegistry::State::Retiring);
-    // Retiring still owns the store: a quick switch back would meet it.
     conflict = 0;
     QVERIFY(registry.wouldRefuse(store, &conflict));
     QCOMPARE(conflict, serial);
@@ -124,7 +113,6 @@ void StoreOwnershipRegistryTest::anUnconfirmedCloseStaysRetiringAndStillOwnsTheS
     const quint64 serial =
         registry.recordOpen(store, QStringLiteral("slug-b"), StoreOwnershipRegistry::Role::Foreground);
     registry.noteReleasing(serial);
-    // store_closed=false: SQLite may still hold files open below it.
     registry.noteClosed(serial, false);
     const QList<StoreOwnershipRegistry::Record> all = registry.records();
     QCOMPARE(all.size(), 1);
@@ -132,7 +120,6 @@ void StoreOwnershipRegistryTest::anUnconfirmedCloseStaysRetiringAndStillOwnsTheS
     QVERIFY(all.first().state == StoreOwnershipRegistry::State::Retiring);
     QVERIFY(registry.wouldRefuse(store));
 
-    // An unconfirmed close without a prior noteReleasing ends Retiring too.
     const QString other = path(QStringLiteral("accounts/c/rust-sdk"));
     const quint64 second =
         registry.recordOpen(other, QStringLiteral("slug-c"), StoreOwnershipRegistry::Role::Foreground);
@@ -158,14 +145,11 @@ void StoreOwnershipRegistryTest::aCaseVariantPairIsOneStore()
         registry.recordsFor(CaseInsensitiveFake{}(canonical));
     QCOMPARE(same.size(), 1);
     QCOMPARE(same.first().serial, serial);
-    // A genuinely different store does not collide.
     QVERIFY(!registry.wouldRefuse(path(QStringLiteral("accounts/bob/rust-sdk"))));
 }
 
 void StoreOwnershipRegistryTest::invalidIdentitiesNeverCollide()
 {
-    // Default-constructed ids compare equal, which is exactly why the
-    // registry must never treat two invalid ids as one store.
     QVERIFY(FileIdentity{} == FileIdentity{});
 
     StoreOwnershipRegistry registry{alwaysInvalid};
@@ -185,7 +169,6 @@ void StoreOwnershipRegistryTest::invalidIdentitiesNeverCollide()
     QCOMPARE(registry.records().size(), 2);
     QVERIFY(registry.recordsFor(FileIdentity{}).isEmpty());
 
-    // A missing path among valid ones: invalid, and collides with nothing.
     CaseInsensitiveFake fake;
     const QString gone = path(QStringLiteral("gone"));
     fake.missing.insert(gone);
@@ -200,7 +183,6 @@ void StoreOwnershipRegistryTest::recordOpenNeverRefuses()
     const QString store = path(QStringLiteral("accounts/d/rust-sdk"));
     QList<quint64> serials;
     for (int i = 0; i < 3; ++i) {
-        // Phase 0 records the double open; it does not stop it.
         const quint64 serial = registry.recordOpen(
             store, QStringLiteral("d"), StoreOwnershipRegistry::Role::Foreground);
         QVERIFY(serial > 0);
@@ -214,7 +196,6 @@ void StoreOwnershipRegistryTest::recordOpenNeverRefuses()
     QCOMPARE(same.size(), 3);
     for (const auto &record : same)
         QVERIFY(record.state == StoreOwnershipRegistry::State::Live);
-    // The verdict names the OLDEST owner.
     quint64 conflict = 0;
     QVERIFY(registry.wouldRefuse(store, &conflict));
     QCOMPARE(conflict, serials.first());
@@ -256,18 +237,14 @@ void StoreOwnershipRegistryTest::concurrentNoteClosedFromAPoolIsSafe()
     QAtomicInt ran = 0;
     for (int i = 0; i < kRecords; ++i) {
         const quint64 serial = serials.at(i);
-        // Even: confirmed closed (removed). Odd: unconfirmed (stays Retiring).
         const bool closed = (i % 2) == 0;
         pool.start([&registry, &ran, serial, closed] {
             registry.noteClosed(serial, closed);
-            // Readers racing the writers, as the GUI thread's next
-            // ensureRustHandle would.
             (void)registry.wouldRefuse(QStringLiteral("/nowhere"));
             (void)registry.records();
             ran.fetchAndAddOrdered(1);
         });
     }
-    // Opens on this thread while the pool closes.
     for (int i = 0; i < 50; ++i)
         registry.recordOpen(path(QStringLiteral("late/%1").arg(i)), QStringLiteral("l"),
                             StoreOwnershipRegistry::Role::Foreground);
@@ -307,13 +284,11 @@ void StoreOwnershipRegistryTest::theRealResolverNamesWhatThePathIs()
     QVERIFY(!lightning::accounts::fileIdentityOf(QString()).valid);
 
 #ifndef Q_OS_WIN
-    // stat() follows a link to the store it names.
     const QString link = path(QStringLiteral("real/link-to-one"));
     QVERIFY(QFile::link(path(QStringLiteral("real/one")), link));
     QVERIFY(lightning::accounts::fileIdentityOf(link) == one);
 #endif
 
-    // The default registry uses the real resolver.
     StoreOwnershipRegistry registry;
     const quint64 serial = registry.recordOpen(path(QStringLiteral("real/one")),
                                                QStringLiteral("r"),
@@ -343,19 +318,16 @@ bool sameRecords(const QList<StoreOwnershipRegistry::Record> &a,
     }
     return true;
 }
-} // namespace
+}
 
-// Flag-off parity: with Labs off the client calls claimOpen() where Phase 0
-// called recordOpen(). Same records, same serials, double opens recorded, no
-// refusal, and every deletion Granted.
 void StoreOwnershipRegistryTest::unenforcedClaimsRecordExactlyAsRecordOpen()
 {
     StoreOwnershipRegistry recorded{CaseInsensitiveFake{}};
     StoreOwnershipRegistry claimed{CaseInsensitiveFake{}};
     QVERIFY(!claimed.enforced());
     const QStringList stores{path(QStringLiteral("accounts/p/rust-sdk")),
-                             path(QStringLiteral("accounts/P/rust-sdk")),   // case variant
-                             path(QStringLiteral("accounts/p/rust-sdk")),   // double open
+                             path(QStringLiteral("accounts/P/rust-sdk")),
+                             path(QStringLiteral("accounts/p/rust-sdk")),
                              path(QStringLiteral("accounts/q/rust-sdk"))};
     const QStringList slugs{QStringLiteral("p"), QStringLiteral("P"), QStringLiteral("p"),
                             QStringLiteral("q")};
@@ -369,7 +341,6 @@ void StoreOwnershipRegistryTest::unenforcedClaimsRecordExactlyAsRecordOpen()
                  Verdict::Granted);
         QCOMPARE(viaClaim, viaRecord);
         QCOMPARE(conflict, quint64(0));
-        // Every deletion is Granted while not enforced, owners or not.
         QCOMPARE(claimed.claimForDeletion(stores.at(i)), Verdict::Granted);
         serials << viaClaim;
     }
@@ -379,7 +350,6 @@ void StoreOwnershipRegistryTest::unenforcedClaimsRecordExactlyAsRecordOpen()
     claimed.noteClosed(serials.at(1), false);
     recorded.noteClosed(serials.at(3), true);
     claimed.noteClosed(serials.at(3), true);
-    // promote() changes the role only; recordOpen's twin gets the same edit.
     claimed.promote(serials.at(2), Role::Foreground);
     QVERIFY(sameRecords(recorded.records(), claimed.records()));
     QCOMPARE(claimed.records().size(), 3);
@@ -398,7 +368,6 @@ void StoreOwnershipRegistryTest::anEnforcedClaimRefusesEveryOwnerState()
         quint64 serial = 99;
         const Verdict v = registry.claimOpen(store, QStringLiteral("h"), Role::Foreground, &serial,
                                              conflict);
-        // A refusal records nothing and hands out no serial.
         if (v != Verdict::Granted)
             [&] { QCOMPARE(serial, quint64(0)); }();
         return v;
@@ -410,12 +379,10 @@ void StoreOwnershipRegistryTest::anEnforcedClaimRefusesEveryOwnerState()
     QCOMPARE(again(&conflict), Verdict::RefusedLive);
     registry.noteReleasing(host);
     QCOMPARE(again(&conflict), Verdict::RefusedRetiring);
-    // An unconfirmed close keeps it Retiring for the rest of the process.
     registry.noteClosed(host, false);
     QCOMPARE(again(&conflict), Verdict::RefusedRetiring);
     QCOMPARE(registry.records().size(), 1);
 
-    // Only a confirmed close frees it.
     registry.noteClosed(host, true);
     quint64 next = 0;
     QCOMPARE(registry.claimOpen(store, QStringLiteral("h"), Role::Foreground, &next),
@@ -450,16 +417,13 @@ void StoreOwnershipRegistryTest::deletionIsRefusedWhileAnotherRecordHoldsTheStor
     registry.setEnforced(true);
     QCOMPARE(registry.claimOpen(store, QStringLiteral("del"), Role::Host, &host), Verdict::Granted);
     QCOMPARE(registry.claimForDeletion(store), Verdict::RefusedLive);
-    // Spelled differently, still the same store.
     QCOMPARE(registry.claimForDeletion(path(QStringLiteral("accounts/DEL/rust-sdk"))),
              Verdict::RefusedLive);
-    // The caller's own record does not block its own deletion.
     QCOMPARE(registry.claimForDeletion(store, host), Verdict::Granted);
     registry.noteReleasing(host);
     QCOMPARE(registry.claimForDeletion(store), Verdict::RefusedRetiring);
     registry.noteClosed(host, true);
     QCOMPARE(registry.claimForDeletion(store), Verdict::Granted);
-    // Another store is never refused on this one's account.
     quint64 other = 0;
     QCOMPARE(registry.claimOpen(store, QStringLiteral("del"), Role::Host, &other), Verdict::Granted);
     QCOMPARE(registry.claimForDeletion(path(QStringLiteral("accounts/elsewhere/rust-sdk"))),
@@ -487,8 +451,6 @@ void StoreOwnershipRegistryTest::anUnreadableIdentityIsComparedByPathUnderEnforc
     const QString a = path(QStringLiteral("unreadable-enforced/a"));
     quint64 serial = 0;
     QCOMPARE(registry.claimOpen(a, QStringLiteral("a"), Role::Host, &serial), Verdict::Granted);
-    // Two invalid identities prove nothing about sharing, so the spelling
-    // decides: the same path is refused, never waved through.
     QCOMPARE(registry.claimOpen(a, QStringLiteral("a"), Role::Foreground, nullptr),
              Verdict::RefusedLive);
     QCOMPARE(registry.claimForDeletion(a), Verdict::RefusedLive);
@@ -497,10 +459,6 @@ void StoreOwnershipRegistryTest::anUnreadableIdentityIsComparedByPathUnderEnforc
              Verdict::Granted);
 }
 
-// Live accounts' pool waits for a store whose close may still come and gives
-// up only on one REPORTED unconfirmed (review M6), and never confuses the
-// foreground's own record of the same account with another account's
-// (review M7: both claim under the recorded store slug).
 void StoreOwnershipRegistryTest::holdOnTellsAPendingCloseFromAnUnconfirmedOne()
 {
     using Hold = StoreOwnershipRegistry::Hold;
@@ -509,22 +467,19 @@ void StoreOwnershipRegistryTest::holdOnTellsAPendingCloseFromAnUnconfirmedOne()
     QCOMPARE(registry.holdOn(store, QStringLiteral("h")), Hold::None);
     const quint64 live = registry.recordOpen(store, QStringLiteral("h"), Role::Foreground);
     QCOMPARE(registry.holdOn(store, QStringLiteral("h")), Hold::Held);
-    // The same store spelled in another case is the same store.
     QCOMPARE(registry.holdOn(path(QStringLiteral("accounts/H/rust-sdk")), QStringLiteral("h")),
              Hold::Held);
     registry.noteReleasing(live);
-    QCOMPARE(registry.holdOn(store, QStringLiteral("h")), Hold::Held);   // close in progress
+    QCOMPARE(registry.holdOn(store, QStringLiteral("h")), Hold::Held);
     QVERIFY(!registry.records().first().closeUnconfirmed);
     registry.noteClosed(live, false);
     QCOMPARE(registry.holdOn(store, QStringLiteral("h")), Hold::Unconfirmed);
     QVERIFY(registry.records().first().closeUnconfirmed);
     QCOMPARE(registry.records().first().state, StoreOwnershipRegistry::State::Retiring);
-    // Another account's record on this store is a duplicate, whatever its state.
     const QString other = path(QStringLiteral("accounts/o/rust-sdk"));
     registry.recordOpen(other, QStringLiteral("someone-else"), Role::Host);
     QCOMPARE(registry.holdOn(other, QStringLiteral("o")), Hold::Duplicate);
     QCOMPARE(registry.holdOn(other, QStringLiteral("someone-else")), Hold::Held);
-    // A confirmed close leaves nothing.
     const quint64 closing = registry.recordOpen(path(QStringLiteral("accounts/c/rust-sdk")),
                                                 QStringLiteral("c"), Role::Foreground);
     registry.noteReleasing(closing);

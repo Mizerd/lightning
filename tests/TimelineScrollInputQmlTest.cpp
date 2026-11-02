@@ -44,8 +44,6 @@ namespace {
 
 constexpr int kSignalTimeoutMs = 4000;
 
-// Keeps a scroll session open across an asynchronous wait, as a reader who
-// keeps scrolling does: restarts the 250 ms settle timer every 20 ms.
 class GestureHold
 {
 public:
@@ -64,7 +62,7 @@ private:
     QTimer m_ticker;
 };
 
-} // namespace
+}
 
 class TimelineScrollInputQmlTest : public QObject
 {
@@ -114,8 +112,6 @@ private:
         return events;
     }
 
-    // One page of one-line messages: short pages never carry a pinned reader
-    // past the near-top exit band, which is what spent the approach budget.
     static QList<TimelineEvent> shortChunk()
     {
         QList<TimelineEvent> chunk;
@@ -165,7 +161,6 @@ private:
         pane.root->setParentItem(pane.window.contentItem());
         pane.root->setSize(QSizeF(pane.window.width(), pane.window.height()));
         pane.window.show();
-        // Not asserted: the offscreen platform may decline.
         (void)QTest::qWaitForWindowExposed(&pane.window, 2000);
         pane.window.requestActivate();
         QCoreApplication::processEvents();
@@ -198,7 +193,6 @@ private:
     {
         return controller.timeline()->rowCount();
     }
-    // One mouse-wheel notch; positive angle is towards older on this view.
     static void wheel(Pane &pane, int angle)
     {
         const QPointF pos(380, 300);
@@ -215,14 +209,9 @@ private Q_SLOTS:
         QVERIFY(m_dataHome.isValid());
         qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
         qputenv("XDG_DATA_HOME", m_dataHome.path().toUtf8());
-        // The anchor counters asserted below count only under the trace gate,
-        // read once per controller.
         qputenv("LIGHTNING_SCROLL_TRACE", "1");
     }
 
-    // C26: a reader holding the handle at the top of the track sees older
-    // history arrive and stays at the top; nothing writes the pre-drag anchor
-    // back under the drag, and letting go settles like any gesture.
     void aHeldScrollBarIsInputAndPagesLandingUnderItNeverYankTheReader()
     {
         AppController controller(AppController::MockBackend);
@@ -234,7 +223,7 @@ private Q_SLOTS:
         Pane pane;
         QVERIFY(openPane(controller, pane, roomId,
                          textEvents(roomId, 60, QStringLiteral("sb")),
-                         /*paginationPages=*/10, /*viewportHeight=*/620));
+10,620));
         QQuickItem *timeline = pane.timeline;
         auto *bar = pane.root->findChild<QQuickItem *>(
             QStringLiteral("timelineScrollBar"));
@@ -260,7 +249,6 @@ private Q_SLOTS:
         QVERIFY2(bar->property("pressed").toBool(), "the handle was not grabbed");
         QVERIFY2(timeline->property("userScrollActive").toBool(),
                  "a held scroll bar is not user input to the timeline");
-        // Hold still while three pages land.
         QTRY_VERIFY_WITH_TIMEOUT(sourceRows(controller) >= before + 60, 12000);
         QTest::qWait(300);
         QVERIFY2(timeline->property("userScrollActive").toBool(),
@@ -299,7 +287,7 @@ private Q_SLOTS:
         Pane pane;
         QVERIFY(openPane(controller, pane, roomId,
                          textEvents(roomId, 300, QStringLiteral("au")),
-                         /*paginationPages=*/40, /*viewportHeight=*/620));
+40,620));
         QQuickItem *timeline = pane.timeline;
         auto *scroller = pane.root->findChild<QQuickItem *>(
             QStringLiteral("timelineMiddleClickScroller"));
@@ -315,7 +303,6 @@ private Q_SLOTS:
         QTest::mouseMove(&pane.window, anchor - QPoint(0, 200));
         bool spent = false;
         for (int round = 0; round < 3; ++round) {
-            // Pinned at the oldest loaded row with nothing in flight.
             QTRY_VERIFY_WITH_TIMEOUT(distanceFromTop(timeline) <= 1
                                          && !controller.pagination()->busy(),
                                      10000);
@@ -332,8 +319,6 @@ private Q_SLOTS:
         }
         QVERIFY(spent);
 
-        // The renewal is bounded per gesture: once 600 rows have been built
-        // since it began, a spent budget stays spent.
         QTRY_VERIFY_WITH_TIMEOUT(distanceFromTop(timeline) <= 1
                                      && !controller.pagination()->busy(),
                                  10000);
@@ -351,8 +336,6 @@ private Q_SLOTS:
         QTest::keyClick(&pane.window, Qt::Key_Escape);
     }
 
-    // C26: an autoscroll towards newer under a row window gives rows back at
-    // the window's newest edge, as the wheel does, and reaches the live edge.
     void anAutoscrollTowardsNewerOpensTheRowWindowsNewestEdge()
     {
         AppController controller(AppController::MockBackend);
@@ -361,7 +344,7 @@ private Q_SLOTS:
         Pane pane;
         QVERIFY(openPane(controller, pane, roomId,
                          textEvents(roomId, 420, QStringLiteral("wn")),
-                         /*paginationPages=*/0, /*viewportHeight=*/620));
+0,620));
         QQuickItem *timeline = pane.timeline;
         auto *scroller = pane.root->findChild<QQuickItem *>(
             QStringLiteral("timelineMiddleClickScroller"));
@@ -370,8 +353,6 @@ private Q_SLOTS:
             eval(timeline, QStringLiteral("app.timelineView.revealIdle()"))
                 .toBool(), 15000);
 
-        // Withhold the 120 newest rows, as a settled deep reader's window
-        // does, and park the reader at the window's synthetic newest edge.
         eval(timeline, QStringLiteral("app.timelineView.setWindow(120, 300)"));
         QTRY_COMPARE_WITH_TIMEOUT(
             timeline->property("rowWindowSkip").toInt(), 120, 2000);
@@ -395,16 +376,10 @@ private Q_SLOTS:
                                       "still withheld")
                            .arg(timeline->property("rowWindowSkip").toInt())),
             15000);
-        // The rows given back are paid for once, by the extension itself; no
-        // message arrived, so a live-insert hold here would be a second
-        // correction throwing the reader towards older history.
         QCOMPARE(timeline->property("diagLiveInsertHolds").toInt(), 0);
         QTest::keyClick(&pane.window, Qt::Key_Escape);
     }
 
-    // O3 (decided 2026-10-18: hold the reader): a reader parked at the oldest
-    // row whose scroll session is still open (the 250 ms settle tail, a glide,
-    // an autoscroll) is not moved by a message landing at the newest end.
     void aLiveMessageInTheSettleTailDoesNotMoveAReaderAtTheOldestRow()
     {
         AppController controller(AppController::MockBackend);
@@ -415,7 +390,7 @@ private Q_SLOTS:
         Pane pane;
         QVERIFY(openPane(controller, pane, roomId,
                          textEvents(roomId, 80, QStringLiteral("o3")),
-                         /*paginationPages=*/0, /*viewportHeight=*/600));
+0,600));
         QQuickItem *timeline = pane.timeline;
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
@@ -450,12 +425,6 @@ private Q_SLOTS:
                  topBefore);
     }
 
-    // Review round 1 (H1): the O3 hold translated a glide's TARGET, so a
-    // message landing during a glide to the live edge (Jump to latest, wheel
-    // notches down) stopped it one message short, with follow-latest and read
-    // receipts off. A glide heading newer is never held. The fixture needs a
-    // real wheel gesture first: without a captured anchor the active branch
-    // never runs and the case passes on any code.
     void aLiveMessageDuringAGlideToTheLatestStillLandsAtTheBottom_data()
     {
         QTest::addColumn<int>("mode");
@@ -473,7 +442,7 @@ private Q_SLOTS:
         Pane pane;
         QVERIFY(openPane(controller, pane, roomId,
                          textEvents(roomId, 120, QStringLiteral("gl")),
-                         /*paginationPages=*/0, /*viewportHeight=*/600));
+0,600));
         QQuickItem *timeline = pane.timeline;
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
@@ -512,10 +481,6 @@ private Q_SLOTS:
                                          .toBool())));
     }
 
-    // O3, the race found live: the anchor is re-captured (the wheel's settle,
-    // a near-top request) after the append but before the coalesced
-    // maintainViewAnchor() runs. The capture must settle the insertion first
-    // rather than adopt the displaced position.
     void aCaptureBetweenAnAppendAndItsCorrectionStillHoldsTheReader()
     {
         AppController controller(AppController::MockBackend);
@@ -526,7 +491,7 @@ private Q_SLOTS:
         Pane pane;
         QVERIFY(openPane(controller, pane, roomId,
                          textEvents(roomId, 80, QStringLiteral("rc")),
-                         /*paginationPages=*/0, /*viewportHeight=*/600));
+0,600));
         QQuickItem *timeline = pane.timeline;
         QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
                                  kSignalTimeoutMs);
@@ -539,8 +504,6 @@ private Q_SLOTS:
         TimelineEvent live =
             textEvents(roomId, 1, QStringLiteral("rclive"), 60).first();
         mock->appendEventForTest(roomId, live);
-        // Let the row be built and laid out, but capture before the coalesced
-        // correction (a Qt.callLater) has had its turn.
         eval(timeline, QStringLiteral("(function() { rowColumn.forceLayout();"
                                       " captureViewAnchor(); return true })()"));
         QTest::qWait(300);

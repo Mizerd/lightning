@@ -19,43 +19,25 @@ import MatrixClient
 Item {
     id: root
 
-    // The colour being edited. Assigning loads the picker; it isn't written
-    // back here: the host listens to `picked`.
     property color selectedColor: "#000000"
-    // The role's colour before this session, for the before/after swatch.
     property color originalColor: "#000000"
     property string title: ""
     property string subtitle: ""
     property bool canReset: false
-    // The reset button's words: a role that follows another goes back to
-    // following it, which "the base theme" would misdescribe.
     property string resetLabel: qsTr("Reset to the base theme")
-    // "#RRGGBB" one-click choices from the base theme's palette, since themes
-    // mostly reuse existing tones.
     property var suggestions: []
-    // Host controls shown between the heading and the picker: the theme
-    // editor puts a surface role's Fill choice (solid or gradient) here, so
-    // it is the first thing that role offers rather than something found
-    // below the swatches. Shown only while `accessoryVisible`.
     property alias accessory: accessorySlot.data
     property bool accessoryVisible: false
-    // One line naming what the picker below is changing, when that is not
-    // simply the role in the heading (a gradient's colour, say).
     property string bodyCaption: ""
 
     signal picked(color value)
     signal resetRequested()
     signal closed()
-    // One deliberate change is complete: a drag released, a swatch or the
-    // "before" half clicked, a hex value applied. The theme editor ends an
-    // undo step here, so a drag is one step rather than every sample.
     signal gestureFinished()
 
     implicitWidth: 288
     implicitHeight: layout.implicitHeight
 
-    // HSV is the source of truth while open: round-tripping through RGB loses
-    // the hue of fully desaturated or dark colours.
     property real hue: 0
     property real sat: 0
     property real val: 0
@@ -74,16 +56,11 @@ Item {
             root.load(selectedColor)
     }
 
-    // Becoming visible starts a new editing session: the "before" half and
-    // Revert go back to the colour shown NOW, not to whatever the last session
-    // started from. The selectedColor handler above cannot do this when the
-    // host re-assigns the colour the panel already holds (reopen after a drag).
     onVisibleChanged: {
         if (visible && !loading)
             originalColor = selectedColor
     }
 
-    // Moves a keyboard-operated control's value by one step.
     function nudge(dSat, dVal, dHue) {
         hue = Math.max(0, Math.min(0.9999, hue + dHue))
         sat = Math.max(0, Math.min(1, sat + dSat))
@@ -97,8 +74,6 @@ Item {
         originalColor = selectedColor
     }
 
-    // Shows a colour without making it the "before" half or emitting
-    // `picked`: for a change made elsewhere (undo) while the picker is open.
     function show(c) {
         loading = true
         var col = typeof c === "string" ? Qt.color(c) : c
@@ -111,9 +86,6 @@ Item {
         loading = false
     }
 
-    // A typed value as "#RRGGBB", or "" if it is not one. Forgiving about
-    // what people paste: no '#', lower case, surrounding spaces, and the
-    // three-digit shorthand ("#abc" is "#AABBCC").
     function normalizeHex(text) {
         var t = String(text).trim()
         if (t.charAt(0) === "#")
@@ -126,8 +98,6 @@ Item {
         return "#" + t.toUpperCase()
     }
 
-    // Set when the field is left holding something that is not a colour, so
-    // it can say so instead of silently ignoring it.
     property bool hexInvalid: false
 
     function toHex(c) {
@@ -159,7 +129,6 @@ Item {
         root.picked(c)
     }
 
-    // Back to the colour the picker opened with.
     function revert() {
         root.applyColor(root.originalColor)
         root.gestureFinished()
@@ -220,7 +189,6 @@ Item {
         }
 
         Label {
-            // Remote or externally chosen text: never markup.
             textFormat: Text.PlainText
             Layout.fillWidth: true
             visible: root.subtitle.length > 0
@@ -253,7 +221,6 @@ Item {
             font.weight: AppTheme.weightStrong
         }
 
-        // Saturation (x) against value (y), over the current hue.
         Item {
             id: field
             objectName: "colorSvField"
@@ -264,7 +231,6 @@ Item {
             Accessible.name: qsTr("Saturation and brightness")
             Accessible.onIncreaseAction: root.nudge(0.02, 0, 0)
             Accessible.onDecreaseAction: root.nudge(-0.02, 0, 0)
-            // Arrows move the thumb; Shift takes a larger step.
             Keys.onPressed: (e) => {
                 var st = (e.modifiers & Qt.ShiftModifier) ? 0.1 : 0.02
                 if (e.key === Qt.Key_Left) root.nudge(-st, 0, 0)
@@ -290,8 +256,6 @@ Item {
                 clip: true
                 color: Qt.hsva(root.hue, 1, 1, 1)
 
-                // White to the left, black toward the bottom: two gradients
-                // rather than a shader for this small static surface.
                 Rectangle {
                     anchors.fill: parent
                     gradient: Gradient {
@@ -309,7 +273,6 @@ Item {
                 }
             }
 
-            // Crosshair.
             Rectangle {
                 x: root.sat * field.width - width / 2
                 y: (1 - root.val) * field.height - height / 2
@@ -345,7 +308,6 @@ Item {
             }
         }
 
-        // Hue.
         Item {
             id: hueStrip
             objectName: "colorHueStrip"
@@ -393,7 +355,6 @@ Item {
                     GradientStop { position: 1.000; color: "#FF0000" }
                 }
             }
-            // A round handle that shows the hue it's on.
             Rectangle {
                 x: root.hue * hueStrip.width - width / 2
                 anchors.verticalCenter: parent.verticalCenter
@@ -412,8 +373,6 @@ Item {
                 }
             }
             MouseArea {
-                // Don't let a drag become a Flickable scroll when hosted inline
-                // in a scrolling page (Settings' name-colour picker).
                 preventStealing: true
                 anchors.fill: parent
                 onPositionChanged: (m) => hueStrip.pick(m)
@@ -426,12 +385,10 @@ Item {
             }
         }
 
-        // Hex + before/after.
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
 
-            // Before | after, sharing one outline so they read as one control.
             Rectangle {
                 implicitWidth: 62
                 implicitHeight: 34
@@ -442,7 +399,6 @@ Item {
                 Row {
                     anchors.fill: parent
                     anchors.margins: 1
-                    // The "before" half: click it to go back.
                     Rectangle {
                         id: beforeHalf
                         objectName: "colorBeforeSwatch"
@@ -509,11 +465,6 @@ Item {
                     maximumLength: 7
                     Accessible.role: Accessible.EditableText
                     Accessible.name: qsTr("Colour, as a hex value")
-                    // Apply typed hex only when complete and valid, so the
-                    // preview doesn't flicker through partial values.
-                    // Six digits apply as typed, with or without '#'; the
-                    // three-digit shorthand waits for Enter, since it is also
-                    // the first half of a six-digit value.
                     onTextEdited: {
                         root.hexInvalid = false
                         var t = text.trim()
@@ -540,7 +491,6 @@ Item {
                             root.applyColor(Qt.color(hex))
                             root.gestureFinished()
                         }
-                        // Shown in the form the store keeps.
                         text = hex
                     }
                 }
@@ -558,7 +508,6 @@ Item {
             font.pixelSize: AppTheme.textMeta
         }
 
-        // The base theme's own colours.
         Label {
             Layout.fillWidth: true
             Layout.topMargin: AppTheme.spacing4
@@ -586,7 +535,6 @@ Item {
                     border.color: swatchHover.containsMouse || activeFocus
                                   ? AppTheme.editorAccent
                                   : AppTheme.editorBorderStrong
-                    // Keyboard reachable, like every other control here.
                     activeFocusOnTab: true
                     Accessible.role: Accessible.Button
                     Accessible.name: qsTr("Use %1").arg(swatch.modelData)

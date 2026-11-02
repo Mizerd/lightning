@@ -1,8 +1,3 @@
-// GIF send pipeline, driven with a fake client (a MockMatrixClient subclass)
-// so download -> validate -> attachment runs without network: destination
-// capture and isolation, room vs thread routing (a real m.thread reply,
-// never a room fallback), recents only on success, failure categories,
-// cancel, and MIME enforcement.
 
 #include "gif/GifSendController.h"
 #include "gif/GifRecentModel.h"
@@ -79,8 +74,6 @@ public:
 
 QByteArray realGif() { return QByteArray("GIF89a\x10\x00\x10\x00", 10); }
 
-// A real Qt-encoded PNG (this target links Qt6::Gui), so
-// gif::validateRasterBytes' PNG parser is tested against encoder output.
 QByteArray realPng(int w, int h)
 {
     QImage img(w, h, QImage::Format_RGB32);
@@ -107,7 +100,7 @@ QVariantMap gifMap(const QString &provider, const QString &id,
     return m;
 }
 
-} // namespace
+}
 
 class GifSendControllerTest : public QObject
 {
@@ -117,8 +110,6 @@ class GifSendControllerTest : public QObject
     GifSendController *send = nullptr;
     GifRecentModel *recent = nullptr;
     QSettings *store = nullptr;
-    // Fake local-starred store keyed by content hash, standing in for
-    // GifStarredStore::readBytes without disk I/O.
     QHash<QString, QByteArray> localFiles;
 
     void setup()
@@ -165,7 +156,6 @@ private Q_SLOTS:
     void cancelAllDropsPending();
     void logoutCancels();
 
-    // Local-favorite sends skip the network: the file is read by content hash.
     void localFavoriteSendsStoredBytesWithoutDownloading();
     void localFavoriteThreadSendUsesThreadPath();
     void localFavoriteMissingBytesRefusesRatherThanSendingEmpty();
@@ -173,9 +163,6 @@ private Q_SLOTS:
     void localFavoriteNotRecordedIntoRecents();
     void localFavoriteThreadSendWithEmptyRootIdReportsUnavailable();
 
-    // A saved image may be PNG/JPEG/WebP: the local send carries the mime,
-    // extension and dimensions the bytes decided, never a hardcoded
-    // "image/gif", while GIFs send as before.
     void localFavoritePngSendCarriesTruthfulMimeAndFilename();
     void localFavoriteGifSendStillCarriesImageGifMime();
 };
@@ -190,7 +177,7 @@ QVariantMap localGifMap(const QString &hash)
     m.insert(QStringLiteral("gifHeight"), 48);
     return m;
 }
-} // namespace
+}
 
 void GifSendControllerTest::roomSendDownloadsThenSends()
 {
@@ -219,13 +206,11 @@ void GifSendControllerTest::threadSendUsesThreadPath()
     client->finishDownload(client->dlOp, true, realGif(),
                            QStringLiteral("image/gif"), 200, 150, QString());
     QCOMPARE(client->sends.size(), 1);
-    QVERIFY(client->sends.first().thread);        // thread path, not room
+    QVERIFY(client->sends.first().thread);
     QCOMPARE(client->sends.first().rootId, QStringLiteral("$root"));
     QCOMPARE(client->sends.first().roomId, QStringLiteral("!room:hs"));
 }
 
-// A GIF is an attachment send; picking one while replying used to send it as a
-// plain message. The target is captured with the destination.
 void GifSendControllerTest::aGifPickedWhileReplyingCarriesTheReply()
 {
     setup();
@@ -246,7 +231,6 @@ void GifSendControllerTest::aGifPickedWhileReplyingCarriesTheReply()
     QVERIFY(client->sends.last().thread);
     QCOMPARE(client->sends.last().replyTo, QStringLiteral("$inthread:hs"));
 
-    // No reply: plain.
     send->sendToRoom(QStringLiteral("!room:hs"),
                      gifMap("giphy", "p", "media.giphy.com"));
     client->finishDownload(client->dlOp, true, realGif(),
@@ -260,10 +244,8 @@ void GifSendControllerTest::destinationIsolationSurvivesRoomSwitch()
     send->sendToRoom(QStringLiteral("!original:hs"),
                      gifMap("giphy", "c", "media.giphy.com"));
     const quint64 op = client->dlOp;
-    // A second send to another room starts before the first completes.
     send->sendToRoom(QStringLiteral("!other:hs"),
                      gifMap("giphy", "d", "media.giphy.com"));
-    // The first download completes and goes to its originally captured room.
     client->finishDownload(op, true, realGif(), QStringLiteral("image/gif"),
                            200, 150, QString());
     QCOMPARE(client->sends.size(), 1);
@@ -274,13 +256,11 @@ void GifSendControllerTest::recentOnlyRecordedOnSuccess()
 {
     setup();
     QCOMPARE(recent->count(), 0);
-    // A failed download does not record a recent.
     send->sendToRoom(QStringLiteral("!room:hs"),
                      gifMap("giphy", "fail", "media.giphy.com"));
     client->finishDownload(client->dlOp, false, {}, {}, 0, 0,
                            QStringLiteral("network"));
     QCOMPARE(recent->count(), 0);
-    // A successful send records exactly one.
     send->sendToRoom(QStringLiteral("!room:hs"),
                      gifMap("giphy", "good", "media.giphy.com"));
     client->finishDownload(client->dlOp, true, realGif(),
@@ -312,7 +292,7 @@ void GifSendControllerTest::sendFailureReported()
     client->finishDownload(client->dlOp, true, realGif(),
                            QStringLiteral("image/gif"), 200, 150, QString());
     QCOMPARE(fail.count(), 1);
-    QCOMPARE(recent->count(), 0);         // not recorded on send failure
+    QCOMPARE(recent->count(), 0);
 }
 
 void GifSendControllerTest::nonGifMimeRejected()
@@ -321,7 +301,6 @@ void GifSendControllerTest::nonGifMimeRejected()
     QSignalSpy fail(send, &GifSendController::sendFailed);
     send->sendToRoom(QStringLiteral("!room:hs"),
                      gifMap("giphy", "x", "media.giphy.com"));
-    // A wrong mime from the bridge is refused.
     client->finishDownload(client->dlOp, true, QByteArray("RIFFxxxxWEBP"),
                            QStringLiteral("image/webp"), 200, 150, QString());
     QCOMPARE(fail.count(), 1);
@@ -332,7 +311,6 @@ void GifSendControllerTest::rejectsNonProviderHost()
 {
     setup();
     QSignalSpy fail(send, &GifSendController::sendFailed);
-    // A non-provider host never even starts a download.
     send->sendToRoom(QStringLiteral("!room:hs"),
                      gifMap("giphy", "x", "evil.example.com"));
     QCOMPARE(fail.count(), 1);
@@ -347,7 +325,6 @@ void GifSendControllerTest::cancelAllDropsPending()
     QCOMPARE(send->activeCount(), 1);
     send->cancelAll();
     QCOMPARE(send->activeCount(), 0);
-    // A late download completion for a cancelled send is ignored.
     client->finishDownload(client->dlOp, true, realGif(),
                            QStringLiteral("image/gif"), 200, 150, QString());
     QVERIFY(client->sends.isEmpty());
@@ -359,11 +336,11 @@ void GifSendControllerTest::logoutCancels()
     send->sendToRoom(QStringLiteral("!room:hs"),
                      gifMap("giphy", "x", "media.giphy.com"));
     const quint64 op = client->dlOp;
-    client->logout();                      // emits loggedOut → cancelAll
+    client->logout();
     QCOMPARE(send->activeCount(), 0);
     client->finishDownload(op, true, realGif(), QStringLiteral("image/gif"),
                            200, 150, QString());
-    QVERIFY(client->sends.isEmpty());      // stale send never routes
+    QVERIFY(client->sends.isEmpty());
 }
 
 void GifSendControllerTest::localFavoriteSendsStoredBytesWithoutDownloading()
@@ -375,14 +352,14 @@ void GifSendControllerTest::localFavoriteSendsStoredBytesWithoutDownloading()
 
     send->sendToRoom(QStringLiteral("!room:hs"), localGifMap(hash));
 
-    QVERIFY(client->lastDownloadUrl.isEmpty()); // never went through gifDownload()
+    QVERIFY(client->lastDownloadUrl.isEmpty());
     QCOMPARE(client->sends.size(), 1);
     QCOMPARE(client->sends.first().roomId, QStringLiteral("!room:hs"));
-    QCOMPARE(client->sends.first().bytes, realGif()); // the EXACT stored bytes
+    QCOMPARE(client->sends.first().bytes, realGif());
     QCOMPARE(client->sends.first().mime, QStringLiteral("image/gif"));
     QVERIFY(!client->sends.first().thread);
     QCOMPARE(ok.count(), 1);
-    QCOMPARE(send->activeCount(), 0); // synchronous — never left pending
+    QCOMPARE(send->activeCount(), 0);
 }
 
 void GifSendControllerTest::localFavoriteThreadSendUsesThreadPath()
@@ -404,7 +381,6 @@ void GifSendControllerTest::localFavoriteMissingBytesRefusesRatherThanSendingEmp
 {
     setup();
     QSignalSpy fail(send, &GifSendController::sendFailed);
-    // Never in localFiles: e.g. unstarred between activation and send.
     send->sendToRoom(QStringLiteral("!room:hs"),
                      localGifMap(QString(64, QLatin1Char('c'))));
     QCOMPARE(fail.count(), 1);
@@ -429,15 +405,11 @@ void GifSendControllerTest::localFavoriteNotRecordedIntoRecents()
     localFiles.insert(hash, realGif());
     send->sendToRoom(QStringLiteral("!room:hs"), localGifMap(hash));
     QCOMPARE(client->sends.size(), 1);
-    // Recents is a global (not account-scoped) store; a local-starred
-    // reference never enters it (see GifSendController::startLocal).
     QCOMPARE(recent->count(), 0);
 }
 
 void GifSendControllerTest::localFavoriteThreadSendWithEmptyRootIdReportsUnavailable()
 {
-    // A captured thread destination with no root id was never attempted:
-    // "unavailable", not "send_failed".
     setup();
     const QString hash = QString(64, QLatin1Char('f'));
     localFiles.insert(hash, realGif());
@@ -464,11 +436,9 @@ void GifSendControllerTest::localFavoritePngSendCarriesTruthfulMimeAndFilename()
     QCOMPARE(client->sends.first().mime, QStringLiteral("image/png"));
     QVERIFY(client->sends.first().filename.endsWith(QStringLiteral(".png")));
     QVERIFY(!client->sends.first().filename.endsWith(QStringLiteral(".gif")));
-    // The content hash is not a name: it became the body and room-list
-    // preview. (C40-F04; old code gave "local-9999...9.png".)
     QCOMPARE(client->sends.first().filename, QStringLiteral("image.png"));
     QVERIFY(!client->sends.first().filename.contains(hash.left(8)));
-    QCOMPARE(client->sends.first().bytes, png); // exact bytes, never transcoded
+    QCOMPARE(client->sends.first().bytes, png);
     QCOMPARE(client->sends.first().w, 48);
     QCOMPARE(client->sends.first().h, 32);
     QCOMPARE(ok.count(), 1);
@@ -476,8 +446,6 @@ void GifSendControllerTest::localFavoritePngSendCarriesTruthfulMimeAndFilename()
 
 void GifSendControllerTest::localFavoriteGifSendStillCarriesImageGifMime()
 {
-    // Alongside localFavoriteSendsStoredBytesWithoutDownloading: the general
-    // validator did not change GIF's outcome.
     setup();
     const QString hash = QString(64, QLatin1Char('8'));
     localFiles.insert(hash, realGif());

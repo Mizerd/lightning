@@ -37,7 +37,7 @@ bool bodyHasLink(const QString &body)
     }
     return false;
 }
-} // namespace
+}
 
 MessageSearchController::MessageSearchController(QObject *parent)
     : QAbstractListModel(parent)
@@ -45,18 +45,13 @@ MessageSearchController::MessageSearchController(QObject *parent)
     m_debounce.setSingleShot(true);
     m_debounce.setInterval(kDebounceMs);
     connect(&m_debounce, &QTimer::timeout, this,
-            [this] { dispatch(/*nextPage=*/false); });
+            [this] { dispatch(false); });
 }
 
 namespace {
 constexpr const char *kIgnoredUsersProperty = "lightningIgnoredUsers";
-// The op id of our own pending ask, cleared by a newer push.
 constexpr const char *kIgnoredAskOpProperty = "lightningIgnoredAskOp";
-// Our ask that a push overtook: its answer is dropped.
 constexpr const char *kIgnoredStaleOpProperty = "lightningIgnoredStaleOp";
-// Our latest ask's op id. Op ids rise monotonically per client, so an answer
-// to any EARLIER request (another surface's, or one still in flight from the
-// previous account across a sign-out) is no fresher than ours: dropped.
 constexpr const char *kIgnoredFloorProperty = "lightningIgnoredFloorOp";
 
 bool hasIgnoredUsers(const QObject *o)
@@ -97,8 +92,6 @@ void MessageSearchController::setClient(MatrixClient *client)
     });
     connect(m_client, &MatrixClient::searchIndexSwept, this,
             [this](quint64, int, int, qint64 messages, qint64 rooms) {
-        // The periodic sweep can index a message while results are on screen;
-        // re-run the query only when the index actually grew.
         const bool grew = messages > m_indexedMessages;
         m_indexedMessages = messages;
         m_indexedRooms = rooms;
@@ -113,15 +106,12 @@ void MessageSearchController::setClient(MatrixClient *client)
                    bool reachedStart, int written, qint64 messages,
                    const QString &) {
         if (opId != m_deepOp)
-            return;   // a deep index from a previous room or account
+            return;
         m_deepOp = 0;
         m_indexedMessages = messages;
         Q_EMIT indexingChanged();
         Q_EMIT indexStatsChanged();
         Q_EMIT roomHistoryIndexed(roomId, ok, reachedStart, written);
-        // Re-run the query against what arrived. Not gated on `written`: the
-        // user asked, and the periodic sweep may already have indexed the new
-        // message.
         if (ok && !m_query.trimmed().isEmpty()
             && effectiveSource() == QLatin1String("local")) {
             dispatch(false);
@@ -129,18 +119,12 @@ void MessageSearchController::setClient(MatrixClient *client)
     });
     connect(m_client, &MatrixClient::searchIndexAllProgress, this,
             &MessageSearchController::onIndexAllProgress);
-    // The ignored-user list (m.ignored_user_list) arrives from the same two
-    // signals ModerationController listens to. Held on the QObject as a
-    // dynamic property rather than a member only because this change may not
-    // touch the header; it is read in matchesFilters().
     setProperty(kIgnoredUsersProperty, QStringList());
     setProperty(kIgnoredAskOpProperty, QVariant());
     setProperty(kIgnoredStaleOpProperty, QVariant());
     connect(m_client, &MatrixClient::ignoredUsersChanged, this,
             [this](const QStringList &users) {
         setProperty(kIgnoredUsersProperty, users);
-        // A push is newer than any answer still in flight to our own ask:
-        // that answer must not put the older list back.
         const QVariant ask = property(kIgnoredAskOpProperty);
         if (ask.isValid())
             setProperty(kIgnoredStaleOpProperty, ask);
@@ -159,8 +143,6 @@ void MessageSearchController::setClient(MatrixClient *client)
         const QVariant ask = property(kIgnoredAskOpProperty);
         if (opId != 0 && ask.isValid() && ask.toULongLong() == opId)
             setProperty(kIgnoredAskOpProperty, QVariant());
-        // Anyone else's read (the ignore settings, a session's replay) is as
-        // fresh as a push.
         if (ok)
             setProperty(kIgnoredUsersProperty, users);
     });
@@ -190,7 +172,6 @@ void MessageSearchController::setClient(MatrixClient *client)
         setProperty(kIgnoredAskOpProperty, QVariant());
         setProperty(kIgnoredStaleOpProperty, QVariant());
     });
-    // Holds already in force carry over to a new backend.
     if (m_indexAllHold != 0)
         m_client->setIndexAllHold(m_indexAllHold);
     Q_EMIT stateChanged();
@@ -198,8 +179,6 @@ void MessageSearchController::setClient(MatrixClient *client)
 
 QString MessageSearchController::effectiveSource() const
 {
-    // "local" is preferred where it exists (works in encrypted rooms, no round
-    // trip), but a backend without an index must fall back rather than go dead.
     if (m_source == QLatin1String("local") && m_client
         && m_client->supportsLocalSearch()) {
         return QStringLiteral("local");
@@ -211,8 +190,6 @@ bool MessageSearchController::supported() const
 {
     if (!m_client)
         return false;
-    // Local search works wherever the index does, including encrypted rooms;
-    // server search only where the server can read the room.
     if (effectiveSource() == QLatin1String("local"))
         return true;
     return m_client->supportsMessageSearch();
@@ -225,8 +202,6 @@ bool MessageSearchController::localAvailable() const
 
 void MessageSearchController::setSource(const QString &source)
 {
-    // Validated against the known set: an unknown value would leave dispatch()
-    // choosing neither branch.
     const QString next = source == QLatin1String("server")
         ? QStringLiteral("server") : QStringLiteral("local");
     if (next == m_source)
@@ -255,7 +230,7 @@ void MessageSearchController::sweepIndex()
 void MessageSearchController::indexRoomHistory(const QString &roomId)
 {
     if (!m_client || roomId.isEmpty() || m_deepOp != 0)
-        return;   // one at a time: each is a bounded run of real requests
+        return;
     m_deepOp = m_client->deepenSearchIndex(roomId);
     if (m_deepOp != 0)
         Q_EMIT indexingChanged();
@@ -268,15 +243,11 @@ bool MessageSearchController::clearIndex()
     m_indexedMessages = 0;
     m_indexedRooms = 0;
     Q_EMIT indexStatsChanged();
-    // Clearing also forgets which rooms "index all" had finished and cancels
-    // a pass in flight (a running one answers "cancelled" itself).
     refreshIndexAllStatus();
     if (effectiveSource() == QLatin1String("local"))
         clear();
     return true;
 }
-
-// ── "Index all rooms" ────────────────────────────────────────────────────
 
 bool MessageSearchController::indexAllActive() const
 {
@@ -296,9 +267,7 @@ void MessageSearchController::indexAllRooms()
 {
     if (!m_client || !m_client->supportsLocalSearch())
         return;
-    // The backend owns the one-run-at-a-time rule: a second start while a
-    // pass runs withdraws a pending pause instead of starting another.
-    m_client->indexAllRooms(/*resumeOnly=*/false);
+    m_client->indexAllRooms(false);
 }
 
 void MessageSearchController::pauseIndexAll()
@@ -322,7 +291,7 @@ void MessageSearchController::refreshIndexAllStatus()
 void MessageSearchController::resumeIndexAllIfPending()
 {
     if (m_client && m_client->supportsLocalSearch())
-        m_client->indexAllRooms(/*resumeOnly=*/true);
+        m_client->indexAllRooms(true);
 }
 
 void MessageSearchController::setIndexAllHold(unsigned reason, bool held)
@@ -339,7 +308,7 @@ void MessageSearchController::setIndexAllHold(unsigned reason, bool held)
 void MessageSearchController::onIndexAllProgress(quint64 opId,
                                                  const QVariantMap &status)
 {
-    Q_UNUSED(opId);   // every answer describes the one per-account pass
+    Q_UNUSED(opId);
     const QString state = status.value(QStringLiteral("state")).toString();
     if (state.isEmpty())
         return;
@@ -349,7 +318,6 @@ void MessageSearchController::onIndexAllProgress(quint64 opId,
     m_indexAllPosition = status.value(QStringLiteral("position")).toInt();
     const QString roomId =
         status.value(QStringLiteral("currentRoomId")).toString();
-    // A display name only; a raw room id is not something to show a reader.
     m_indexAllRoomName = (roomId.isEmpty() || !m_client)
         ? QString() : m_client->roomInfo(roomId).name;
     m_indexAllWritten = status.value(QStringLiteral("written")).toLongLong();
@@ -359,7 +327,6 @@ void MessageSearchController::onIndexAllProgress(quint64 opId,
     m_indexAllFailedRooms = status.value(QStringLiteral("failedRooms")).toInt();
     m_indexAllRetryInMs =
         status.value(QStringLiteral("retryInMs")).toLongLong();
-    // From this pass's own pace: time per finished room times rooms left.
     const qint64 elapsed = status.value(QStringLiteral("elapsedMs")).toLongLong();
     const int left = m_indexAllTotal - m_indexAllPosition;
     m_indexAllEtaMs = (indexAllActive() && m_indexAllPosition > 0 && left > 0
@@ -379,15 +346,9 @@ void MessageSearchController::onIndexAllProgress(quint64 opId,
     }
     Q_EMIT indexAllChanged();
 
-    // A pass that settles always asks for the stored totals: the status above
-    // carries "messages" only on some events, and a panel reading "Nothing is
-    // indexed yet." must not outlive the pass that indexed something.
     if (wasActive && !indexAllActive())
         refreshIndexStats();
 
-    // A pass that just settled may have indexed what a local query on screen
-    // is looking for. Not on every page: that would repaint the results the
-    // reader is scrolling.
     if (wasActive && !indexAllActive() && !m_query.trimmed().isEmpty()
         && effectiveSource() == QLatin1String("local")) {
         dispatch(false);
@@ -422,9 +383,6 @@ void MessageSearchController::setIndexAllOffered(bool offered)
 void MessageSearchController::offerIndexAllAfterSignIn(const QString &userId,
                                                        bool interactiveSignIn)
 {
-    // A restored session was offered (or not) when it first signed in here.
-    // The account record must exist: it is the only place the answer can be
-    // remembered, and an offer that cannot be remembered would be repeated.
     const bool offer = interactiveSignIn && !userId.isEmpty() && m_settings
         && localAvailable() && m_settings->hasSavedAccount(userId)
         && m_settings->indexAllOfferAnswer(userId).isEmpty();
@@ -476,22 +434,16 @@ void MessageSearchController::onLocalSearchFinished(
     const QVariantList &results)
 {
     if (opId != m_pendingOp)
-        return;   // stale: the query moved on while this was in flight
+        return;
     m_pendingOp = 0;
-    // What this page asked for. Local paging re-runs the query with a bigger
-    // limit and replaces the rows, so the exhaustion test compares against
-    // this.
     const int requested = m_pendingLocalLimit > 0 ? m_pendingLocalLimit
                                                   : kLocalPage;
     m_pendingLocalLimit = 0;
-    // Raw size of this page, used for the next request's limit.
     m_lastLocalRawCount = static_cast<int>(results.size());
     if (minChars > 0 && minChars != m_minLocalChars)
         m_minLocalChars = minChars;
 
     if (!ok) {
-        // "too_short" is neither an error nor "no results": the query cannot
-        // match the tokenizer, and one more character fixes it.
         beginResetModel();
         m_rows.clear();
         endResetModel();
@@ -506,13 +458,10 @@ void MessageSearchController::onLocalSearchFinished(
     rows.reserve(results.size());
     for (const QVariant &value : results) {
         QVariantMap row = value.toMap();
-        // The index returns text only. Derive what the row's own body can
-        // answer, so the Link filter works on this source too; stickers and
-        // mentions cannot be derived (see matchesFilters).
         if (!row.contains(QStringLiteral("hasLink")))
             row.insert(QStringLiteral("hasLink"),
                        bodyHasLink(row.value(QStringLiteral("body")).toString()));
-        if (!matchesFilters(row, /*local=*/true))
+        if (!matchesFilters(row,true))
             continue;
         if (m_client) {
             const QString roomId = row.value(QStringLiteral("roomId")).toString();
@@ -557,7 +506,6 @@ void MessageSearchController::setRoomId(const QString &roomId)
         return;
     m_roomId = roomId;
     Q_EMIT roomIdChanged();
-    // A different scope answers a different question: drop the old results.
     clear();
 }
 
@@ -568,8 +516,6 @@ void MessageSearchController::setFilters(const QVariantMap &filters)
     m_filters = filters;
     rebuildFilterSets();
     Q_EMIT filtersChanged();
-    // Applied criteria define a new result set; searching explicitly keeps a
-    // multi-control Apply to one request.
     clear();
 }
 
@@ -601,8 +547,6 @@ QVariant MessageSearchController::data(const QModelIndex &index,
         if (!own.toString().isEmpty() || !m_profiles)
             return own;
         const QString sender = row.value(QStringLiteral("sender")).toString();
-        // Rows are built for visible delegates only, so this asks for what is
-        // on screen; the resolver asks once per user per session.
         const auto cached = m_profiles->profile(sender);
         if (!cached.known && !sender.isEmpty())
             m_profiles->request(sender);
@@ -637,14 +581,14 @@ void MessageSearchController::search()
     m_debounce.stop();
     if (m_query.trimmed().isEmpty())
         return;
-    dispatch(/*nextPage=*/false);
+    dispatch(false);
 }
 
 void MessageSearchController::loadMore()
 {
     if (m_pendingOp != 0 || m_nextBatch.isEmpty())
         return;
-    dispatch(/*nextPage=*/true);
+    dispatch(true);
 }
 
 void MessageSearchController::clear()
@@ -689,7 +633,6 @@ void MessageSearchController::requestPage(bool append)
             setState(QStringLiteral("error"));
             return;
         }
-        // The completion compares what came back against this request's limit.
         m_pendingLocalLimit = limit;
         m_pendingOp = opId;
         m_pendingIsNextPage = append;
@@ -705,7 +648,7 @@ void MessageSearchController::requestPage(bool append)
         setState(QStringLiteral("error"));
         return;
     }
-    m_pendingLocalLimit = 0; // server paging carries a cursor, not a limit
+    m_pendingLocalLimit = 0;
     m_pendingOp = opId;
     m_pendingIsNextPage = append;
     ++m_scanPages;
@@ -721,7 +664,7 @@ void MessageSearchController::onSearchFinished(quint64 opId, bool ok,
 {
     Q_UNUSED(category);
     if (opId == 0 || opId != m_pendingOp)
-        return; // superseded — stale pages never repaint a newer query
+        return;
     m_pendingOp = 0;
     if (!ok) {
         if (!m_pendingIsNextPage) {
@@ -733,12 +676,11 @@ void MessageSearchController::onSearchFinished(quint64 opId, bool ok,
         setState(QStringLiteral("error"));
         return;
     }
-    // Room names resolve locally; the account is in every room searched.
     QList<QVariantMap> rows;
     rows.reserve(results.size());
     for (const QVariant &value : results) {
         QVariantMap row = value.toMap();
-        if (!matchesFilters(row, /*local=*/false))
+        if (!matchesFilters(row,false))
             continue;
         const QString roomId = row.value(QStringLiteral("roomId")).toString();
         QString roomName;
@@ -759,9 +701,6 @@ void MessageSearchController::onSearchFinished(quint64 opId, bool ok,
     }
     m_nextBatch = nextBatch;
     m_totalCount = count;
-    // The Matrix search API cannot express mentions, dates, content kinds,
-    // links or pinned state. Scan a small bounded number of server pages so a
-    // filtered page is useful without walking whole histories.
     const bool hasClientFilters = hasIgnoredUsers(this)
         || !m_mentionUsers.isEmpty()
         || !m_contentTypes.isEmpty()
@@ -771,11 +710,9 @@ void MessageSearchController::onSearchFinished(quint64 opId, bool ok,
     if (hasClientFilters && m_rows.size() < m_scanTarget
         && !m_nextBatch.isEmpty()
         && m_scanPages < kMaxFilteredPagesPerAction) {
-        requestPage(/*append=*/true);
+        requestPage(true);
         return;
     }
-    // The budget ran out with history left and the filters still unsatisfied:
-    // the reader must not be told there are no matches.
     m_scanLimited = hasClientFilters && m_rows.size() < m_scanTarget
         && !m_nextBatch.isEmpty();
     setState(m_rows.isEmpty() ? QStringLiteral("no_results")
@@ -785,7 +722,7 @@ void MessageSearchController::onSearchFinished(quint64 opId, bool ok,
 void MessageSearchController::setState(const QString &state)
 {
     if (m_state == state) {
-        Q_EMIT stateChanged(); // count/canLoadMore/totalCount ride this
+        Q_EMIT stateChanged();
         return;
     }
     m_state = state;
@@ -818,9 +755,6 @@ void MessageSearchController::rebuildFilterSets()
 
 QStringList MessageSearchController::unsupportedFilters() const
 {
-    // The local index stores message text only: no m.sticker events and no
-    // m.mentions. Changing what it stores is a separate decision (CLAUDE.md
-    // section 6), so these two are declared unavailable, not guessed.
     if (effectiveSource() == QLatin1String("local"))
         return { QStringLiteral("sticker"), QStringLiteral("mentions") };
     return {};
@@ -842,17 +776,12 @@ QStringList MessageSearchController::ignoredFilters() const
 bool MessageSearchController::matchesFilters(const QVariantMap &row,
                                              bool local) const
 {
-    // An ignored user's messages are hidden everywhere, search included, and
-    // in both sources (the homeserver does not apply the ignore list to
-    // /search results).
     if (isIgnoredSender(this, row.value(QStringLiteral("sender")).toString()))
         return false;
     if (!m_fromUsers.isEmpty()
         && !m_fromUsers.contains(row.value(QStringLiteral("sender")).toString()))
         return false;
 
-    // Local rows carry no mentions: ignored there (ignoredFilters() tells the
-    // surface), never allowed to remove every row.
     if (!local && !m_mentionUsers.isEmpty()) {
         bool mentioned = false;
         const QVariantList mentions =
@@ -876,7 +805,7 @@ bool MessageSearchController::matchesFilters(const QVariantMap &row,
 
     QSet<QString> types = m_contentTypes;
     if (local)
-        types.remove(QStringLiteral("sticker")); // not indexed: ignored
+        types.remove(QStringLiteral("sticker"));
     if (!types.isEmpty()) {
         const QString msgtype =
             row.value(QStringLiteral("msgtype")).toString();

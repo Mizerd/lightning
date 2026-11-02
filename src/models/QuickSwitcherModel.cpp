@@ -22,7 +22,6 @@ void QuickSwitcherModel::setClient(MatrixClient *client)
         m_client->disconnect(this);
     m_client = client;
     if (m_client) {
-        // A logout empties the switcher so a stale result can never activate.
         connect(m_client, &MatrixClient::loggedOut, this,
                 &QuickSwitcherModel::reset);
     }
@@ -116,8 +115,6 @@ QVariantMap QuickSwitcherModel::resultAt(int row) const
     map.insert(QStringLiteral("category"), r.category);
     map.insert(QStringLiteral("isSpace"), r.isSpace);
     map.insert(QStringLiteral("isInvite"), r.isInvite);
-    // Extra fields so QML can build a filtered copy for the scope chips without
-    // a second C++ model.
     map.insert(QStringLiteral("name"), r.name);
     map.insert(QStringLiteral("subtitle"), r.subtitle);
     map.insert(QStringLiteral("avatarUrl"), r.avatarUrl);
@@ -130,29 +127,23 @@ QVariantMap QuickSwitcherModel::resultAt(int row) const
 int QuickSwitcherModel::matchScore(const QString &query, const QString &name,
                                    const QStringList &alternates)
 {
-    // Folded (accents and case), query and candidates alike: the same rule the
-    // room list filter and the local message search apply.
     const QString q = textfold::fold(query.trimmed());
     const QString lowerName = textfold::fold(name);
     if (q.isEmpty())
-        return 0;   // no query: everything matches with a neutral score.
+        return 0;
 
-    // Build the haystack (name + alternates) once.
     QString haystack = lowerName;
     for (const QString &alt : alternates) {
         haystack += QLatin1Char(' ');
         haystack += textfold::fold(alt);
     }
 
-    // Every whitespace-separated token must appear somewhere; a missing token
-    // excludes the candidate entirely.
     const auto tokens = q.split(QLatin1Char(' '), Qt::SkipEmptyParts);
     for (const QString &token : tokens) {
         if (!haystack.contains(token))
             return -1;
     }
 
-    // Relevance: a name prefix beats a name-word start beats any substring.
     int score = 100;
     if (lowerName.startsWith(q))
         score = 1000;
@@ -190,14 +181,13 @@ void QuickSwitcherModel::rebuild()
                 room.name.isEmpty() ? room.id : room.name;
             const int score = matchScore(m_query, displayName, alternates);
             if (score < 0)
-                continue;   // filtered out
+                continue;
 
             Result r;
             r.roomId = room.id;
             r.identityColorKey = identityColorKey(room);
             r.name = displayName;
             r.avatarUrl = room.avatarUrl;
-            // The one unread rule (an invite has no counters of its own).
             const int mode = (m_modeOf && !isInvite)
                 ? m_modeOf(room.id) : roomunread::kModeAllMessages;
             r.unread = roomunread::visibleUnreadCount(room, mode);
@@ -237,7 +227,7 @@ void QuickSwitcherModel::rebuild()
         if (r.category == QStringLiteral("room"))  return 0;
         if (r.category == QStringLiteral("dm"))     return 1;
         if (r.category == QStringLiteral("space"))  return 2;
-        return 3; // "invite"
+        return 3;
     };
     std::sort(next.begin(), next.end(), [](const Result &a, const Result &b) {
         const int rankA = categoryRank(a);

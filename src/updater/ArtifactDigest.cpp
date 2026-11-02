@@ -41,4 +41,4 @@ bool isSha256Hex(const QString &value)
     return true;
 }
 
-} // namespace updater
+}

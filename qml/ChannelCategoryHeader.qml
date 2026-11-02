@@ -2,18 +2,11 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// A collapsible folder header in the Channels layout: a joined Space, or a
-// non-Space group ("Invites", "Rooms"). A rotating chevron, the Space's
-// avatar, and its name as given (not upper-cased).
-//
-// A collapsed folder shows the unread and mention totals of its rooms, so
-// collapsing never silently mutes them.
 ItemDelegate {
     id: root
 
     property string headerId: ""
     property string headerName: ""
-    /// Empty for a group; a Space folder shows the Space's avatar.
     property string avatarUrl: ""
     property string identityColorKey: ""
     property bool showsAvatar: false
@@ -21,10 +14,6 @@ ItemDelegate {
     property int hiddenUnread: 0
     property int hiddenHighlight: 0
 
-    // Loaded by the Channels presenter (five row kinds); the Loader takes its
-    // height from this explicit value so rows stack instead of sitting at y=0.
-    // Follows the text scale like a Classic row: two lines of the scaled font,
-    // never under the 32 px the row has always had, so nothing clips.
     height: Math.max(AppTheme.channelRowMinHeight,
                     2 * AppTheme.scaled(AppTheme.textMeta))
     padding: 0
@@ -43,7 +32,6 @@ ItemDelegate {
         }
         return root.collapsed ? qsTr("%1, collapsed").arg(base) : qsTr("%1, expanded").arg(base);
     }
-    // Tells a screen reader the row does something.
     Accessible.description: root.collapsed ? qsTr("Activate to expand") : qsTr("Activate to collapse")
 
     background: Rectangle {
@@ -54,7 +42,6 @@ ItemDelegate {
         anchors.bottomMargin: 1
         radius: AppTheme.radiusSm
         color: root.hovered || root.activeFocus ? AppTheme.channelHover : "transparent"
-        // An open folder keeps a quiet outline, so the column reads as groups.
         border.width: root.activeFocus ? 2 : (root.collapsed ? 0 : 1)
         border.color: root.activeFocus ? AppTheme.focusRing : AppTheme.channelFolderBorder
     }
@@ -72,8 +59,6 @@ ItemDelegate {
             name: "expand_more"
             size: 14
             color: AppTheme.channelChevron
-            // Rotation rather than two glyphs, so it reads as one control
-            // changing state.
             rotation: root.collapsed ? -90 : 0
             Behavior on rotation {
                 NumberAnimation {
@@ -101,8 +86,6 @@ ItemDelegate {
             }
         }
 
-        // Behind a Loader: an unresolved Space name is empty, the
-        // ItemObservesViewport hazard.
         Loader {
             objectName: "channelCategoryName"
             active: root.headerName.length > 0
@@ -112,7 +95,6 @@ ItemDelegate {
             anchors.rightMargin: 6
             anchors.verticalCenter: parent.verticalCenter
             sourceComponent: Label {
-                // Remote or externally chosen text: never markup.
                 textFormat: Text.PlainText
                 text: root.headerName
                 elide: Text.ElideRight
@@ -123,7 +105,6 @@ ItemDelegate {
             }
         }
 
-        // Only while collapsed, and only when there is something to say.
         Loader {
             id: hiddenLoader
             active: root.collapsed && (root.hiddenHighlight > 0 || root.hiddenUnread > 0)
@@ -135,9 +116,6 @@ ItemDelegate {
                 implicitWidth: root.hiddenHighlight > 0 ? pill.implicitWidth : 8
                 implicitHeight: 18
 
-                // A mention gets the real count; plain unread gets a dot (a
-                // summed unread count would be noise and the loudest thing in
-                // the column).
                 UnreadBadge {
                     id: pill
                     anchors.centerIn: parent

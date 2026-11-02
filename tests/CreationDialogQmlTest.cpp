@@ -34,7 +34,6 @@ class FakeClient final : public MatrixClient
 public:
     using MatrixClient::MatrixClient;
 
-    // Scripted state.
     QList<RoomInfo> mirror;
     QVariantList dmRooms;
     quint64 nextOp = 1;
@@ -44,11 +43,9 @@ public:
     QString lastSearchQuery;
     QVariantMap lastRoomOptions;
     quint64 lastOpId = 0;
-    // The DM target check; off unless a case turns it on.
     bool profileLookupSupported = false;
     quint64 lastProfileOp = 0;
 
-    // MatrixClient pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -140,7 +137,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class CreationDialogQmlTest : public QObject
 {
@@ -170,8 +167,6 @@ private:
         return nullptr;
     }
 
-    // Popup contents live in the Overlay's visual tree, which findChild cannot
-    // walk.
     QQuickItem *item(const char *name) const
     {
         if (auto *hit = m_window->findChild<QQuickItem *>(QLatin1String(name)))
@@ -203,8 +198,6 @@ private:
 
     void openDialog(const char *mode)
     {
-        // openDialog(startMode, options): options are optional in QML, but
-        // meta-invocation must match the full arity.
         QVERIFY(QMetaObject::invokeMethod(
             m_dialog, "openDialog",
             Q_ARG(QVariant, QVariant(QLatin1String(mode))),
@@ -220,8 +213,6 @@ private:
         QCoreApplication::processEvents();
     }
 
-    // Picks `userId` (shown as `name`) from a scripted search, as a person
-    // would with the keyboard.
     void selectUserFromSearch(const QString &userId, const QString &name)
     {
         auto *field = item("dmUserPickerSearchField");
@@ -281,7 +272,6 @@ private slots:
         m_dialog = m_root->findChild<QObject *>(QStringLiteral("creationDialog"));
         QVERIFY(m_dialog);
 
-        // Deterministic backend for busy, search and existing-DM state.
         conversations()->setClient(m_fake);
         conversations()->userSearch()->setDebounceMs(1);
     }
@@ -298,8 +288,6 @@ private slots:
         QCOMPARE(m_warnings, QStringList{});
     }
 
-    // (a) The Space tab instantiates no encryption control; the Room tab does.
-    // Loaders guarantee non-instantiation, not just invisibility.
     void spaceTabInstantiatesNoEncryptionControl()
     {
         openDialog("space");
@@ -309,23 +297,18 @@ private slots:
         QVERIFY(!item("roomTab"));
         QVERIFY(!item("roomEncryptSwitch"));
         QVERIFY(!item("roomEncryptRow"));
-        // No switch of any kind inside the Space tab's subtree.
         QVERIFY(!subtreeHasClassName(item("spaceTab"), "AppSwitch"));
 
         auto *roomChip = item("newConversationRoomChip");
         QVERIFY(roomChip);
         QMetaObject::invokeMethod(roomChip, "click");
         QTRY_VERIFY(item("roomTab"));
-        // Loader teardown is deferred; let the event loop run it first.
         QTRY_VERIFY(!item("spaceTab"));
         QVERIFY(item("roomEncryptSwitch"));
         QVERIFY(subtreeHasClassName(item("roomTab"), "AppSwitch"));
         closeDialog();
     }
 
-    // B056: the validation hint reserves its height, so the form does not
-    // jump when the hint appears; and a tab switch drops the previous tab's
-    // scroll offset instead of drawing the new form far from the title.
     void spaceFormDoesNotJumpAndTabSwitchResetsScroll()
     {
         openDialog("space");
@@ -353,7 +336,6 @@ private slots:
                  createY);
         QCOMPARE(m_dialog->property("height").toReal(), dialogHeight);
 
-        // A stale offset from the previous tab does not follow the switch.
         auto *flick = item("creationTabFlick");
         QVERIFY(flick);
         flick->setProperty("contentY", -80.0);
@@ -365,8 +347,6 @@ private slots:
         closeDialog();
     }
 
-    // (b) A tab switch clears the shared search model and focuses the new
-    // tab's first field.
     void tabSwitchClearsSearchAndMovesFocus()
     {
         openDialog("dm");
@@ -385,16 +365,12 @@ private slots:
         QVERIFY(roomChip);
         QMetaObject::invokeMethod(roomChip, "click");
         QTRY_VERIFY(item("roomNameField"));
-        // Shared model cleared...
         QCOMPARE(conversations()->userSearch()->query(), QString());
         QCOMPARE(conversations()->userSearch()->state(), QStringLiteral("idle"));
-        // ...and focus on the Room tab's first field.
         QTRY_VERIFY(item("roomNameField")->hasActiveFocus());
         closeDialog();
     }
 
-    // (c) Create is disabled until the name is non-blank; a blank-after-edit
-    // hint appears; the one banner shows controller errors.
     void createDisabledUntilNameAndErrorBannerShows()
     {
         openDialog("room");
@@ -404,7 +380,6 @@ private slots:
         QVERIFY(!create->property("enabled").toBool());
         QVERIFY(!item("roomNameHint")->isVisible());
         const qreal createY = create->mapToScene(QPointF(0, 0)).y();
-        // Final retest N-5: no reserved slot under the field.
         auto *topic = item("roomTopicField");
         QVERIFY(topic);
         const qreal gap = topic->mapToScene(QPointF(0, 0)).y()
@@ -419,12 +394,9 @@ private slots:
         QTest::keyClick(m_window, Qt::Key_Backspace);
         QTRY_COMPARE(nameField->property("text").toString(), QString());
         QVERIFY(!create->property("enabled").toBool());
-        // Blank after an edit: inline validation hint.
         QTRY_VERIFY(item("roomNameHint")->isVisible());
-        // ...which moves nothing.
         QCOMPARE(create->mapToScene(QPointF(0, 0)).y(), createY);
 
-        // The single error banner mirrors the controller's errorMessage.
         auto *banner = item("creationErrorBanner");
         QVERIFY(banner);
         QVERIFY(!banner->isVisible());
@@ -436,8 +408,6 @@ private slots:
         closeDialog();
     }
 
-    // (d) Busy disables submit; Cancel stays enabled; a failure shows in the
-    // banner and ends busy.
     void busyDisablesSubmitButNeverCancel()
     {
         openDialog("room");
@@ -451,8 +421,6 @@ private slots:
         const int before = m_fake->createRoomCalls;
         QMetaObject::invokeMethod(create, "click");
         QCOMPARE(m_fake->createRoomCalls, before + 1);
-        // The private default submits encrypted && !public; the optional avatar
-        // never reaches the backend's create call.
         QCOMPARE(m_fake->lastRoomOptions.value(QStringLiteral("name")).toString(),
                  QStringLiteral("Test room"));
         QCOMPARE(m_fake->lastRoomOptions.value(QStringLiteral("public")).toBool(),
@@ -465,8 +433,6 @@ private slots:
         QTRY_VERIFY(!create->property("enabled").toBool());
         QVERIFY(item("creationBusyLabel")->isVisible());
         QVERIFY(item("creationBusySpinner")->isVisible());
-        // The label is static: a looping opacity pulse repainted every frame
-        // for the whole (possibly federated) create.
         QTest::qWait(300);
         QCOMPARE(item("creationBusyLabel")->opacity(), 1.0);
         QVERIFY(cancel->property("enabled").toBool());
@@ -479,10 +445,6 @@ private slots:
         closeDialog();
     }
 
-    // break-it s03: "My Room! #x:y" as the address got only "The server
-    // rejected the request as invalid." Validated here now, as the user types,
-    // and refused by the controller before /createRoom. Fails on the old
-    // dialog: there was no hint, Create stayed enabled and the call was sent.
     void anInvalidAddressIsExplainedAndNeverSent()
     {
         openDialog("room");
@@ -505,7 +467,6 @@ private slots:
                  qPrintable(hint->property("text").toString()));
         QVERIFY(!create->property("enabled").toBool());
 
-        // The controller refuses it too, whoever calls it.
         const int before = m_fake->createRoomCalls;
         conversations()->createRoom({ { QStringLiteral("name"), QStringLiteral("x") },
                                       { QStringLiteral("public"), true },
@@ -516,8 +477,6 @@ private slots:
         QVERIFY(!conversations()->errorMessage().contains(
             QStringLiteral("rejected the request")));
 
-        // Fixed: the hint goes, Create comes back, and the localpart is sent
-        // without the '#' a user types out of habit.
         aliasField->setProperty("text", QStringLiteral("#my-room"));
         QTRY_VERIFY(!hint->isVisible());
         QTRY_VERIFY(create->property("enabled").toBool());
@@ -531,10 +490,6 @@ private slots:
         closeDialog();
     }
 
-    // break-it s03: after a failed create the banner stayed up while the user
-    // corrected the address, reading as if the fix had failed too. An edit to
-    // the form drops it. Fails on the old dialog, where only the next submit
-    // replaced it.
     void editingTheFormClearsAStaleErrorBanner()
     {
         openDialog("room");
@@ -563,9 +518,6 @@ private slots:
         closeDialog();
     }
 
-    // (e)+(f) Down/Down/Return selects the second result; with an existing DM
-    // the reuse row renders before "start anyway", and the primary start
-    // button is hidden.
     void keyboardSelectsSecondResultAndReuseComesFirst()
     {
         QVariantMap dm;
@@ -600,7 +552,6 @@ private slots:
         QCOMPARE(m_dialog->property("selectedDisplayName").toString(),
                  QStringLiteral("Alice Two"));
 
-        // Reuse first, the secondary escape hatch below, no primary.
         QCOMPARE(conversations()->existingDms().size(), 1);
         auto *reuseRow = item("existingDmRow_0");
         auto *openBtn = item("existingDmOpen_0");
@@ -612,7 +563,6 @@ private slots:
                  QStringLiteral("secondary"));
         auto *primary = item("dmStartButton");
         QVERIFY(!primary || !primary->isVisible());
-        // Ordering settles with layout polish; poll.
         QTRY_VERIFY(reuseRow->mapToScene(QPointF(0, 0)).y()
                     < anyway->mapToScene(QPointF(0, 0)).y());
 
@@ -620,9 +570,6 @@ private slots:
         closeDialog();
     }
 
-    // Break-it s04: a DM the backend reported without a name read "Existing
-    // conversation" with an "EC" avatar. It is a DM with the person on the
-    // card, so it wears their name.
     void anUnnamedExistingDmIsLabelledWithThePerson()
     {
         QVariantMap dm;
@@ -647,8 +594,6 @@ private slots:
         closeDialog();
     }
 
-    // Break-it s04: the homeserver says the target does not exist (404 on the
-    // profile). The dialog says so and creates nothing until asked to.
     void anUnknownTargetIsAskedAboutBeforeAnyRoomIsMade()
     {
         m_fake->profileLookupSupported = true;
@@ -678,7 +623,6 @@ private slots:
         QVERIFY(text->property("text").toString().contains(nobody));
         QCOMPARE(text->property("textFormat").toInt(), int(Qt::PlainText));
 
-        // Cancel makes nothing and puts the ordinary action back.
         auto *cancel = item("dmUnknownTargetCancel");
         auto *anyway = item("dmUnknownTargetStartAnyway");
         QVERIFY(cancel && anyway);
@@ -687,7 +631,6 @@ private slots:
         QVERIFY(start->isVisible());
         QCOMPARE(m_fake->createDmCalls, before);
 
-        // Start anyway creates exactly one.
         QMetaObject::invokeMethod(start, "click");
         Q_EMIT m_fake->userProfileFinished(m_fake->lastProfileOp, false, nobody,
                                            QString(), QString(),
@@ -696,7 +639,6 @@ private slots:
         QMetaObject::invokeMethod(anyway, "click");
         QCOMPARE(m_fake->createDmCalls, before + 1);
 
-        // Release the create guard for the cases after this one.
         Q_EMIT m_fake->dmCreateFinished(m_fake->lastOpId, false, QString(),
                                         QStringLiteral("forbidden"));
         QTRY_VERIFY(!conversations()->busy());
@@ -704,8 +646,6 @@ private slots:
         closeDialog();
     }
 
-    // Decided 2026-10-18 (C7): their server did not answer the profile
-    // lookup. The same panel asks, with its own words, and creates nothing.
     void anUnreachableTargetIsAskedAboutWithItsOwnWords()
     {
         m_fake->profileLookupSupported = true;
@@ -743,8 +683,6 @@ private slots:
         closeDialog();
     }
 
-    // (g) The omnibox offers "Create room" for plain text and "#name" (seeding
-    // the Room tab), never for "@" text.
     void omniboxSuggestsCreatingARoomForNonAtText()
     {
         openDialog("dm");

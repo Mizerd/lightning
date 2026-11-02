@@ -1,8 +1,3 @@
-// Link-preview backend: URL extraction with a scheme allow-list,
-// punctuation/parenthesis/code-span handling, userinfo rejection,
-// MIME-validated GIF classification, encrypted-room gating with explicit
-// consent, per-URL request dedup, bounded caching, retry, sign-out
-// partitioning and settings defaults.
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
@@ -41,8 +36,6 @@ public:
     {
         Q_EMIT urlPreviewFinished(opId, false, {}, category);
     }
-    // Failure with the sanitized HTTP-status/redirect-count diagnostics a
-    // real backend supplies.
     void failWithDiagnostics(quint64 opId, const QString &category,
                              int httpStatus, int redirectCount)
     {
@@ -50,7 +43,6 @@ public:
                                   redirectCount);
     }
 
-    // Pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -81,7 +73,7 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-} // namespace
+}
 
 class LinkPreviewTest : public QObject
 {
@@ -102,8 +94,6 @@ private Q_SLOTS:
         QCoreApplication::setApplicationName(QStringLiteral("link-preview-test"));
     }
 
-    // ---- URL extraction --------------------------------------------------
-
     void extractsFirstHttpsUrl()
     {
         using matrix::link_preview::firstPreviewableUrl;
@@ -121,20 +111,15 @@ private Q_SLOTS:
     void matrixToUrlsAreNeverPreviewCandidates()
     {
         using matrix::link_preview::firstPreviewableUrl;
-        // A mention's markdown fallback never triggers a preview;
-        // classification happens before any network contact.
         QCOMPARE(firstPreviewableUrl(QStringLiteral(
                      "[@test](https://matrix.to/#/%40test%3Amatrix.example.org)")),
                  QString());
-        // Room and event permalinks are internal navigation, not previews.
         QCOMPARE(firstPreviewableUrl(QStringLiteral(
                      "join https://matrix.to/#/#room:example.org")),
                  QString());
         QCOMPARE(firstPreviewableUrl(QStringLiteral(
                      "see https://MATRIX.TO/#/!room:example.org/$event")),
                  QString());
-        // Skip and continue: a genuine external URL in the same message still
-        // previews.
         QCOMPARE(firstPreviewableUrl(QStringLiteral(
                      "[@test](https://matrix.to/#/%40test%3Ax) also "
                      "https://example.org/story")),
@@ -151,7 +136,6 @@ private Q_SLOTS:
         QCOMPARE(firstPreviewableUrl(
                      QStringLiteral("(see https://example.org/page)")),
                  QStringLiteral("https://example.org/page"));
-        // Balanced parentheses inside the URL survive.
         QCOMPARE(firstPreviewableUrl(QStringLiteral(
                      "(https://en.wikipedia.org/wiki/Foo_(bar))")),
                  QStringLiteral("https://en.wikipedia.org/wiki/Foo_(bar)"));
@@ -169,7 +153,6 @@ private Q_SLOTS:
                  QString());
         QCOMPARE(firstPreviewableUrl(QStringLiteral("blob:https://x/1")),
                  QString());
-        // An unsafe scheme first must not block a later safe URL.
         QCOMPARE(firstPreviewableUrl(QStringLiteral(
                      "javascript:x https://example.org/ok")),
                  QStringLiteral("https://example.org/ok"));
@@ -228,25 +211,18 @@ private Q_SLOTS:
         QVERIFY(!isSafeExternalUrl(QUrl(QStringLiteral("file:///tmp/x"))));
     }
 
-    // Room and Space topics (TopicText.qml): the message linkifier plus bare
-    // "www." hosts, as Element links topics. Reported: a topic's URLs were
-    // plain text in room info.
     void topicsLinkWebAndBareWwwHostsAndNothingElse()
     {
         using namespace matrix::link_preview;
         const QString html = linkifiedTopicHtml(QStringLiteral(
             "Rules: https://example.org/rules and www.example.com/faq."));
         QVERIFY(html.contains(QStringLiteral("href=\"https://example.org/rules\"")));
-        // A bare host links to https:// and keeps its text as written, without
-        // the sentence's full stop.
         QVERIFY2(html.contains(QStringLiteral(
                      "<a href=\"https://www.example.com/faq\">www.example.com/faq</a>.")),
                  qPrintable(html));
         QVERIFY(linkifiedTopicHtml(QStringLiteral("(www.example.org)"))
                     .contains(QStringLiteral("href=\"https://www.example.org\"")));
 
-        // "www." inside a host, an address or a path, or with no domain after
-        // it, is not a link.
         for (const char *text : { "foo.www.example.org", "a@www.example.org",
                                   "/www.example.org", "www.x" }) {
             QVERIFY2(!linkifiedTopicHtml(QString::fromLatin1(text))
@@ -254,37 +230,27 @@ private Q_SLOTS:
                      text);
         }
 
-        // No scheme but http(s), and markup in a topic is text.
         const QString hostile = linkifiedTopicHtml(QStringLiteral(
             "javascript:alert(1) data:text/html,x file:///etc/passwd "
             "ftp://example.org <a href=\"javascript:alert(2)\">x</a>"));
-        // Escaped markup still spells "href=" as text; a real attribute is
-        // followed by a quote.
         QVERIFY2(!hostile.contains(QStringLiteral("href=\"")), qPrintable(hostile));
         QVERIFY(hostile.contains(QStringLiteral("&lt;a href=")));
         QVERIFY(!hostile.contains(QStringLiteral("<a ")));
 
-        // Line breaks survive.
         QCOMPARE(linkifiedTopicHtml(QStringLiteral("one\ntwo")),
                  QStringLiteral("one<br>two"));
 
-        // Message bodies are unchanged: http(s) only.
         QVERIFY(!linkifiedMessageHtml(QStringLiteral("www.example.com/faq"))
                      .contains(QStringLiteral("href=")));
     }
 
-    // ---- GIF classification ----------------------------------------------
-
     void gifClassificationTrustsMimeNotSuffix()
     {
         using namespace matrix::link_preview;
-        // image.gif that really is a GIF.
         QCOMPARE(classifyGif(QStringLiteral("image/gif"), 1024, 200, 200),
                  GifClass::Gif);
-        // notgif.gif served as text/html: not a GIF.
         QCOMPARE(classifyGif(QStringLiteral("text/html"), 1024, 0, 0),
                  GifClass::NotGif);
-        // Extensionless URL served as image/gif: a GIF.
         QCOMPARE(classifyGif(QStringLiteral("IMAGE/GIF; charset=binary"),
                              1024, 10, 10),
                  GifClass::Gif);
@@ -308,18 +274,16 @@ private Q_SLOTS:
                  GifClass::Gif);
     }
 
-    // ---- Controller policy -----------------------------------------------
-
     void unencryptedRoomAutoLoads()
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
 
         const QVariantMap state = controller.previewFor(
             QStringLiteral("$1"), QStringLiteral("https://example.org/a"),
-            /*roomEncrypted=*/false);
+false);
         QCOMPARE(state.value(QStringLiteral("state")).toString(),
                  QStringLiteral("loading"));
         QCOMPARE(client.requestedUrls.size(), 1);
@@ -345,7 +309,7 @@ private Q_SLOTS:
 
         const QVariantMap state = controller.previewFor(
             QStringLiteral("$1"), QStringLiteral("https://example.org/a"),
-            /*roomEncrypted=*/false);
+false);
         QCOMPARE(state.value(QStringLiteral("state")).toString(),
                  QStringLiteral("requires_action"));
         QCOMPARE(client.requestedUrls.size(), 0);
@@ -355,7 +319,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
         controller.setAutoLoadUnencrypted(false);
 
@@ -370,18 +334,16 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
 
         const QVariantMap state = controller.previewFor(
             QStringLiteral("$1"), QStringLiteral("https://example.org/secret"),
-            /*roomEncrypted=*/true);
+true);
         QCOMPARE(state.value(QStringLiteral("state")).toString(),
                  QStringLiteral("requires_action"));
-        // The sanitized host is available for the consent UI...
         QCOMPARE(state.value(QStringLiteral("host")).toString(),
                  QStringLiteral("example.org"));
-        // ...but the homeserver was not contacted.
         QCOMPARE(client.requestedUrls.size(), 0);
     }
 
@@ -389,7 +351,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
 
         controller.previewFor(QStringLiteral("$1"),
@@ -402,7 +364,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
         controller.setAllowEncrypted(true);
 
@@ -415,7 +377,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
         QSignalSpy changed(&controller, &LinkPreviewController::previewChanged);
 
@@ -427,7 +389,6 @@ private Q_SLOTS:
         QCOMPARE(client.requestedUrls.size(), 1);
 
         client.succeed(client.lastOp, {});
-        // Both interested messages are notified.
         QCOMPARE(changed.count(), 2);
     }
 
@@ -435,7 +396,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
 
         controller.previewFor(QStringLiteral("$1"),
@@ -456,7 +417,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
         controller.previewFor(QStringLiteral("$1"),
                               QStringLiteral("https://example.org/direct.svg"), false);
@@ -472,7 +433,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
         controller.previewFor(QStringLiteral("$1"),
                               QStringLiteral("https://example.org/a"), false);
@@ -490,7 +451,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
         QSignalSpy changed(&controller, &LinkPreviewController::previewChanged);
 
@@ -509,7 +470,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
 
         const QString roomA = QStringLiteral("!a:example.org");
@@ -517,8 +478,6 @@ private Q_SLOTS:
                                    QStringLiteral("https://example.org/a"), false);
         const quint64 opA = client.lastOp;
 
-        // Prepending rows does not change stable identity: reusing a delegate
-        // for B starts from B's own state.
         const QVariantMap b = controller.previewForEvent(
             roomA, QStringLiteral("stable-b"),
             QStringLiteral("membership change"), false);
@@ -542,7 +501,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
         controller.previewForEvent(QStringLiteral("!a:example.org"),
                                    QStringLiteral("sdk-1"),
@@ -572,7 +531,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
         controller.setUrlCacheLimit(2);
 
@@ -589,7 +548,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
 
         const QVariantMap state = controller.previewFor(
@@ -603,7 +562,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
 
         controller.previewFor(QStringLiteral("$1"),
@@ -630,7 +589,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
 
         controller.previewForEvent(QStringLiteral("!room:example.org"),
@@ -660,7 +619,7 @@ private Q_SLOTS:
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
         controller.previewFor(QStringLiteral("$html"),
                               QStringLiteral("https://news.example/article"), false);
@@ -675,20 +634,18 @@ private Q_SLOTS:
         QCOMPARE(state.value(QStringLiteral("description")).toString(), QStringLiteral("Summary"));
     }
 
-    // The sanitized diagnostics are for logs only: they never reach the
-    // QML-facing state map, and retry/category behaviour is unaffected.
     void diagnosticFieldsAreNotExposedToQmlState()
     {
         FakeClient client;
         LinkPreviewController controller;
-        controller.setAutoLoadUnencrypted(true); // explicit: default is off
+        controller.setAutoLoadUnencrypted(true);
         controller.setClient(&client);
 
         controller.previewFor(QStringLiteral("$1"),
                               QStringLiteral("https://example.org/a"), false);
         client.failWithDiagnostics(client.lastOp,
                                    QStringLiteral("http_transient"),
-                                   /*httpStatus=*/503, /*redirectCount=*/2);
+503,2);
 
         const QVariantMap state = controller.previewFor(
             QStringLiteral("$1"), QStringLiteral("https://example.org/a"), false);
@@ -704,8 +661,6 @@ private Q_SLOTS:
         QCOMPARE(client.requestedUrls.size(), 2);
     }
 
-    // ---- Settings defaults -------------------------------------------------
-
     void previewSettingsDefaultsAndNotifications()
     {
         QSettings fresh;
@@ -720,11 +675,8 @@ private Q_SLOTS:
         // matching guard tied to docs/privacy.md; keep both.
         QCOMPARE(settings.autoLoadLinkPreviews(), false);
         QCOMPARE(settings.loadPreviewsInEncryptedRooms(), false);
-        // Animating media already received contacts nobody, so it stays on.
         QCOMPARE(settings.animateGifPreviews(), true);
 
-        // Toggled away from the default and back: writing the current value
-        // emits nothing, so it is driven on first.
         QSignalSpy encryptedChanged(
             &settings, &SettingsManager::loadPreviewsInEncryptedRoomsChanged);
         settings.setLoadPreviewsInEncryptedRooms(true);

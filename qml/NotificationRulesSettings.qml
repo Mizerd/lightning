@@ -3,14 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Settings -> Notifications, the account half: the push rules your homeserver
-// applies to every device (master mute, default alert levels, mention levels,
-// keywords, a few event rules) and a troubleshooter for "I got no
-// notification". Bound to app.pushRules and app.notificationTroubleshooter.
-//
-// Visibility is toggled by the host, never a Loader, so a half-typed keyword
-// survives switching categories. A level is -1 (the homeserver has no such
-// rule: the row is hidden), 0 Off, 1 Notify, 2 Loud.
 ColumnLayout {
     id: root
     objectName: "notificationRulesSection"
@@ -20,8 +12,6 @@ ColumnLayout {
 
     readonly property var rules: (typeof app !== "undefined" && app)
                                  ? app.pushRules : null
-    // Which troubleshooter button was last pressed ("", "checks", "test"), and
-    // the counts the status line beside them reports.
     property string shootNote: ""
     readonly property int shootProblems: countStatus(2)
     readonly property int shootWarnings: countStatus(1)
@@ -43,9 +33,6 @@ ColumnLayout {
     // everything "All messages", no keywords) that read as the account's state.
     readonly property bool ready: root.supported && root.rules.loaded === true
 
-    // Results shown describe the account they were run for: drop them when
-    // it goes, and re-run them (never from an optimistic write still in
-    // flight) when the rules settle or a write fails.
     Connections {
         target: root.rules
         enabled: root.rules !== null
@@ -90,15 +77,12 @@ ColumnLayout {
         font.weight: AppTheme.weightStrong
     }
 
-    // One row: a label and a three-way (or two-way) level picker.
     component LevelRow: RowLayout {
         id: levelRow
         property string title
         property var options: [qsTr("Off"), qsTr("Notify"), qsTr("Loud")]
         property int level: 0
         property string pickerName
-        // Default 180; rows whose options include 'Mentions and keywords'
-        // raise it, keyword rows lower it to give the room to the keyword text.
         property int comboWidth: 180
         signal picked(int index)
         Layout.fillWidth: true
@@ -114,8 +98,6 @@ ColumnLayout {
             storm: true
             objectName: levelRow.pickerName
             Layout.preferredWidth: levelRow.comboWidth
-            // Master mute suppresses delivery, but individual rules remain
-            // editable so they can be prepared before unmuting.
             enabled: root.ready
             model: levelRow.options
             Accessible.name: levelRow.title
@@ -166,7 +148,6 @@ ColumnLayout {
                 text: root.rules.errorText
             }
 
-            // ---- Master mute ----
             RowLayout {
                 Layout.fillWidth: true
                 spacing: AppTheme.spacing12
@@ -194,7 +175,6 @@ ColumnLayout {
         }
     }
 
-    // ---- Default alert level ----
     Label {
         text: qsTr("Default alerts")
         color: AppTheme.stormText
@@ -240,7 +220,6 @@ ColumnLayout {
         }
     }
 
-    // ---- Mentions ----
     Label {
         text: qsTr("Mentions")
         color: AppTheme.stormText
@@ -290,7 +269,6 @@ ColumnLayout {
         }
     }
 
-    // ---- Keywords ----
     Label {
         text: qsTr("Keywords")
         color: AppTheme.stormText
@@ -341,8 +319,6 @@ ColumnLayout {
                                                   keywordLevel.currentIndex))
                             keywordField.clear()
                         else
-                            // The shared error line is at the top of the card,
-                            // off screen from here: say it beside the field.
                             keywordNote.text = root.rules.errorText
                     }
                     onClicked: add()
@@ -396,7 +372,6 @@ ColumnLayout {
         }
     }
 
-    // ---- Other events ----
     Label {
         text: qsTr("Other events")
         color: AppTheme.stormText
@@ -458,7 +433,6 @@ ColumnLayout {
         }
     }
 
-    // ---- Troubleshooter ----
     Label {
         text: qsTr("Not getting notifications?")
         color: AppTheme.stormText
@@ -501,9 +475,6 @@ ColumnLayout {
                         root.shoot.sendTest()
                     }
                 }
-                // The outcome beside the buttons: the per-check list renders
-                // below them, often out of view, so a click would otherwise
-                // answer nothing the user can see.
                 Label {
                     objectName: "troubleshooterStatus"
                     Layout.fillWidth: true
@@ -544,7 +515,6 @@ ColumnLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing8
                         Label {
-                            // Words, not colour alone.
                             text: checkRow.status === 0 ? qsTr("OK")
                                 : checkRow.status === 1 ? qsTr("Check")
                                 : checkRow.status === 2 ? qsTr("Problem")
@@ -576,9 +546,6 @@ ColumnLayout {
                                     app.settings.notificationsEnabled = true
                                     root.shoot.run(app.currentRoomId)
                                 } else {
-                                    // Re-checked by the Connections above once
-                                    // the write has settled, so a refusal is
-                                    // not read as the account being unmuted.
                                     root.rules.setMasterMute(false)
                                 }
                             }
@@ -593,9 +560,6 @@ ColumnLayout {
         }
     }
 
-    // Removing a keyword stops its notifications on every device at once, so
-    // it asks first. Themed like the About page's reset confirmation and
-    // parented to the overlay so it centres on the window.
     Dialog {
         id: removeKeywordConfirm
         objectName: "pushKeywordRemoveConfirm"
@@ -659,7 +623,6 @@ ColumnLayout {
         Label {
             objectName: "pushKeywordRemoveBody"
             width: 300
-            // A keyword is user text and may have no spaces at all.
             wrapMode: Text.WrapAtWordBoundaryOrAnywhere
             maximumLineCount: 6
             elide: Text.ElideRight

@@ -1,7 +1,3 @@
-// Desktop-integration contract: the tracked launcher entry, the generated
-// hicolor icon set, the CMake install rules that ship them and the Qt-side
-// identity wiring. Source-tree checks in the style of ThemeTokensTest; real
-// desktop behaviour needs a live desktop test.
 
 #include <QFile>
 #include <QImage>
@@ -20,7 +16,7 @@ QString readAll(const QString &path)
     return QString::fromUtf8(file.readAll());
 }
 
-} // namespace
+}
 
 class DesktopIntegrationTest : public QObject
 {
@@ -55,7 +51,6 @@ private Q_SLOTS:
                                                   QStringLiteral("lightning"), -1);
         QVERIFY(!clear.arguments().at(1).toMap().value(QStringLiteral("count-visible")).toBool());
         QVERIFY(!clear.arguments().at(1).toMap().contains(QStringLiteral("count")));
-        // Validate serialization on the test's private session bus as well.
         QVERIFY(QDBusConnection::sessionBus().isConnected());
         QVERIFY(QDBusConnection::sessionBus().send(signal));
 #endif
@@ -71,30 +66,20 @@ private Q_SLOTS:
         QVERIFY2(!desktop.isEmpty(), "data/lightning.desktop missing");
         QVERIFY(desktop.contains(QStringLiteral("Type=Application")));
         QVERIFY(desktop.contains(QStringLiteral("Name=Lightning")));
-        // Icon name must match the installed hicolor icon basename.
         QVERIFY(desktop.contains(QStringLiteral("Icon=lightning")));
         QVERIFY(desktop.contains(
             QStringLiteral("Exec=lightning-matrix --backend=rust")));
-        // X11 association: Qt's xcb plugin takes the WM_CLASS instance from
-        // argv[0] ("lightning-matrix") and the class from the application name.
         QVERIFY(desktop.contains(
             QStringLiteral("StartupWMClass=lightning-matrix")));
     }
 
-    // One startup line names the scene graph backend actually in use, not
-    // only the software-fallback warning: an absent warning is otherwise
-    // indistinguishable from one never written, and setGraphicsApi() is a
-    // request, not an answer.
     void theSceneGraphBackendIsReportedWhateverItTurnsOutToBe()
     {
         const QString main = readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
         QVERIFY2(!main.isEmpty(), "src/main.cpp missing");
-        // The failure branch stays.
         QVERIFY2(main.contains(QStringLiteral("falling back to the software "
                                               "renderer")),
                  "the OpenGL probe no longer warns when it degrades");
-        // The positive line exists, runs when the scene graph comes up, and
-        // reads the renderer interface rather than the request.
         QVERIFY2(main.contains(QStringLiteral("scene graph backend=")),
                  "nothing reports which backend the scene graph got, so a "
                  "silent software fallback is unreadable from a log");
@@ -104,9 +89,6 @@ private Q_SLOTS:
         QVERIFY2(main.contains(QStringLiteral("rendererInterface()")),
                  "the backend line reads the requested API rather than the "
                  "one in use; setGraphicsApi is a request, not an answer");
-        // Every backend Qt can report is named (a new one reads "unknown").
-        // Searched after the anchor, since bare "Software"/"OpenGL" also
-        // appear in the probe earlier in the file.
         const int at = main.indexOf(QStringLiteral("sceneGraphInitialized"));
         QVERIFY2(at > 0, "no anchor to measure the backend names against");
         for (const char *api : { "QSGRendererInterface::Software",
@@ -140,13 +122,10 @@ private Q_SLOTS:
         QVERIFY(runDev.contains(QStringLiteral("./build-rust/lightning-matrix")));
         QVERIFY(!runDev.contains(QStringLiteral("build-rust/matrix-client")));
 
-        // Packaged Windows keeps Lightning.exe; the updater looks for exactly
-        // that.
         const QString updater = readAll(QStringLiteral(SOURCE_DIR "/src/updater/main.cpp"));
         QVERIFY(updater.contains(QStringLiteral(
             "kPortableExecutableName = QStringLiteral(\"Lightning.exe\")")));
 
-        // The stored identity is unchanged on purpose.
         const QString main = readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
         QVERIFY(main.contains(QStringLiteral(
             "QCoreApplication::setOrganizationName(\"MatrixClient\");")));
@@ -170,11 +149,8 @@ private Q_SLOTS:
             QCOMPARE(image.width(), size);
             QCOMPARE(image.height(), size);
         }
-        // The exact supplied artwork stays tracked as the generation source.
         QVERIFY(QFile::exists(
             QStringLiteral(SOURCE_DIR "/data/icons/lightning-source.png")));
-        // The scalable vector of the mark: a real inline SVG, never an
-        // embedded raster.
         QFile svg(QStringLiteral(SOURCE_DIR "/data/icons/lightning.svg"));
         QVERIFY(svg.open(QIODevice::ReadOnly));
         const QByteArray svgBytes = svg.readAll();
@@ -191,11 +167,8 @@ private Q_SLOTS:
         QVERIFY(cmake.contains(
             QRegularExpression(QStringLiteral(
                 "icons/hicolor/\\$\\{_icon_size\\}x\\$\\{_icon_size\\}/apps"))));
-        // The window icon is bundled into the QML module resources so a
-        // source run gets it without an installed icon theme.
         QVERIFY(cmake.contains(QStringLiteral(
             "data/icons/hicolor/256x256/apps/lightning.png")));
-        // The scalable SVG installs beside the raster sizes.
         QVERIFY(cmake.contains(QStringLiteral(
             "icons/hicolor/scalable/apps")));
     }
@@ -205,25 +178,15 @@ private Q_SLOTS:
         const QString main =
             readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
         QVERIFY(!main.isEmpty());
-        // Wayland app_id and desktop entry come from one constant (kAppId):
-        // the app id, the entry basename and its Icon= key cannot drift.
-        // Applied through resolvedAppId(), where a Flatpak's exported id
-        // overrides it (see theAppIdFollowsTheEntryAFlatpakActuallyExports).
         QVERIFY(main.contains(QStringLiteral(
             "constexpr QLatin1String kAppId(\"lightning\")")));
         QVERIFY(main.contains(QStringLiteral(
             "setDesktopFileName(resolvedAppId())")));
-        // Themed icon with the bundled fallback.
         QVERIFY(main.contains(QStringLiteral("QIcon::fromTheme")));
         QVERIFY(main.contains(QStringLiteral(
             "icons/hicolor/256x256/apps/lightning.png")));
     }
 
-    // Inside a Flatpak the app id must be $FLATPAK_ID. A Flatpak exports only
-    // app-id-prefixed files (org.lightning_matrix.Lightning.desktop), and the
-    // compositor resolves QGuiApplication::desktopFileName() against installed
-    // entries, so the built-in "lightning" gets a generic icon. $FLATPAK_ID is
-    // the exported entry's basename; elsewhere it is unset and kAppId stands.
     void theAppIdFollowsTheEntryAFlatpakActuallyExports()
     {
         const QString main =
@@ -239,14 +202,11 @@ private Q_SLOTS:
                  "build still stamps an app id the session cannot resolve. "
                  "Same variable, same reason, as the notification "
                  "desktop-entry hint in NotificationManager.cpp");
-        // ...falling back to the built-in id for every other install type.
         QVERIFY2(main.contains(QStringLiteral(
                      "flatpakId.isEmpty() ? QString(kAppId) : flatpakId")),
                  "resolvedAppId() does not fall back to kAppId: a deb, rpm, "
                  "AppImage or source run would lose its app id entirely");
 
-        // Every application of the app id goes through it: main()'s and
-        // --desktop-status's call sites are counted.
         const int sites = main.count(QStringLiteral("setDesktopFileName("));
         QVERIFY2(sites >= 2,
                  "the app-id call sites vanished, so this case would pass on "
@@ -254,8 +214,6 @@ private Q_SLOTS:
         QCOMPARE(main.count(QStringLiteral(
                      "setDesktopFileName(resolvedAppId())")), sites);
 
-        // --desktop-status (run by validate-appimage.sh on the artifact) must
-        // look for the id the application actually stamps.
         QVERIFY2(main.contains(QStringLiteral(
                      "const QString appId = resolvedAppId();")),
                  "--desktop-status does not resolve the app id, so its "
@@ -265,32 +223,21 @@ private Q_SLOTS:
                      "\"launcher entry basename: \" << appId")),
                  "--desktop-status still reports the built-in basename");
 
-        // What must not follow it:
-        //  * the AppImage's self-published lightning.desktop with
-        //    Icon=lightning (FLATPAK_ID is never set there);
-        //  * WM_CLASS, which xcb takes from argv[0], not the desktop-file name.
         QVERIFY(main.contains(QStringLiteral(
             "kept.append(QStringLiteral(\"Icon=\") + kAppId);")));
         QVERIFY(main.contains(QStringLiteral(
             "kept.append(QStringLiteral(\"StartupWMClass=\") + kWmClass);")));
     }
 
-    // Wayland window icon for an AppImage. Qt's Wayland client implements no
-    // icon protocol, so the compositor resolves the app id against installed
-    // launcher entries, and an AppImage must publish its own. Pinned: it
-    // runs, only for AppImages, and never overwrites someone else's entry.
     void anAppImageRunPublishesItsOwnLauncherEntry()
     {
         const QString main =
             readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
         QVERIFY(!main.isEmpty());
 
-        // Called on the normal startup path, not only from the status flag.
         QVERIFY2(main.contains(QStringLiteral(
                      "LauncherEntryReport publishAppImageLauncherEntry()")),
                  "publishAppImageLauncherEntry is not defined");
-        // After the last application of the app id (main()'s;
-        // --desktop-status applies it earlier in the file).
         const int appIdAt =
             main.lastIndexOf(QStringLiteral(
                 "setDesktopFileName(resolvedAppId());"));
@@ -302,31 +249,19 @@ private Q_SLOTS:
                  "nothing in the session can resolve, and the window icon "
                  "would be a generic placeholder");
 
-        // Scoped to an AppImage run by both runtime variables: other install
-        // types have real launcher entries and must not get files written
-        // into the user's data directory.
         QVERIFY(main.contains(QStringLiteral("qgetenv(\"APPIMAGE\")")));
         QVERIFY(main.contains(QStringLiteral("qgetenv(\"APPDIR\")")));
         QVERIFY(main.contains(QStringLiteral(
             "LIGHTNING_NO_DESKTOP_INTEGRATION")));
 
-        // It never overwrites an entry it did not write (the marker tells ours
-        // apart).
         QVERIFY(main.contains(QStringLiteral("X-Lightning-Generated=true")));
 
-        // It defers to an installed package's entry: a user-level
-        // lightning.desktop would shadow /usr/share's, and its TryExec would
-        // hide the package's launcher once the AppImage is deleted.
         QVERIFY(main.contains(QStringLiteral("systemLauncherEntry()")));
         QVERIFY(main.contains(QStringLiteral("TryExec=")));
 
-        // validate-appimage.sh runs this flag on the real bundle.
         QVERIFY(main.contains(QStringLiteral("--desktop-status")));
     }
 
-    // Qt routes logging to the journal when stderr is not a TTY, hiding logs
-    // from piped or offscreen harness runs; main() forces stderr for headless
-    // and self-test runs unless the user set a value explicitly.
     void headlessRunsForceStderrLogging()
     {
         const QString main =
@@ -340,19 +275,12 @@ private Q_SLOTS:
             "qputenv(\"QT_FORCE_STDERR_LOGGING\", \"1\")")));
     }
 
-    // Every preflight flag that does not exit must also be registered with
-    // QCommandLineParser, or process() rejects it as unknown and quits. main()
-    // parses flags twice: a preflight pass before QGuiApplication exists, and
-    // QCommandLineParser afterwards. The flag set is derived from the
-    // preflight source, so new flags are covered automatically.
     void parseTimeFlagsSurviveIntoTheQtParser()
     {
         const QString main =
             readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
         QVERIFY(!main.isEmpty());
 
-        // Each `if (a == QLatin1String("--x"))` / `a.startsWith(...("--x="))`
-        // branch, walked to its closing brace to see whether it exits.
         static const QRegularExpression branch(
             QStringLiteral("QLatin1String\\(\"--([a-z][a-z0-9-]*)=?\"\\)"));
         QStringList continuing;
@@ -360,7 +288,6 @@ private Q_SLOTS:
         while (it.hasNext()) {
             const auto m = it.next();
             const QString flag = m.captured(1);
-            // Walk from the match to the end of the enclosing block.
             int depth = 0;
             bool started = false;
             int i = m.capturedEnd(0);
@@ -373,17 +300,11 @@ private Q_SLOTS:
                 }
             }
             if (!started)
-                continue;   // not a branch (a help string, a comparison)
+                continue;
             const QString body = main.mid(m.capturedEnd(0),
                                           end - m.capturedEnd(0));
-        // `continue;` is the discriminator, not `r.action =`: a flag can set
-        // an error action on a bad value and fall through on a good one.
-        // Continuing branches end in `continue`, exiting ones in `return r`.
             if (!body.contains(QStringLiteral("continue;")))
                 continue;
-        // A flag can defer its exit (--rust-sdk-smoke-test sets
-        // `r.smokeTestRequested` and the action is decided later); if that
-        // field later becomes an r.action, the flag exits.
             static const QRegularExpression field(
                 QStringLiteral("r\\.([A-Za-z]\\w*)\\s*="));
             bool deferredExit = false;
@@ -404,14 +325,11 @@ private Q_SLOTS:
                 continuing << flag;
         }
 
-        // The derivation found something, or the assertions check nothing.
         QVERIFY2(continuing.contains(QStringLiteral("console")),
                  "the scan did not find --console; the derivation is broken");
         QVERIFY2(continuing.contains(QStringLiteral("log-file")),
                  "the scan did not find --log-file; the derivation is broken");
 
-        // Look after the parser is declared, for the bare quoted name: demo
-        // flags are registered from a `for (const char *name : {...})` list.
         const int parserAt =
             main.indexOf(QStringLiteral("QCommandLineParser parser;"));
         QVERIFY(parserAt > 0);
@@ -427,21 +345,12 @@ private Q_SLOTS:
         }
     }
 
-    // --log-file's message handler must never write on the calling thread.
-    // Qt calls handlers on arbitrary threads, GStreamer streaming threads
-    // among them (pad probes log the call counters), and a log file that
-    // stopped accepting writes while the handler wrote it under a global lock
-    // silenced call audio both ways. The handler and the stdout mirror only
-    // queue into AsyncLogSink, whose writer thread owns the file (that class
-    // is tested on its own, async-log-sink). A source scan, since main.cpp
-    // cannot be linked into a test; every step self-checks its needles.
     void theLogFileHandlerOnlyQueues()
     {
         const QString main =
             readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
         QVERIFY(!main.isEmpty());
 
-        // The brace-matched body of one free function.
         auto bodyOf = [&main](const QString &signature) -> QString {
             const int at = main.indexOf(signature);
             if (at < 0)
@@ -469,7 +378,6 @@ private Q_SLOTS:
                  "the scan did not find the --log-file functions; the "
                  "derivation is broken, not the code");
 
-        // Self-check: each body queues where the scan expects it to.
         QVERIFY2(handler.contains(QStringLiteral("->log(")),
                  "logFileHandler no longer queues through the sink's log()");
         QVERIFY2(handler.contains(QStringLiteral("->logFatal(")),
@@ -478,8 +386,6 @@ private Q_SLOTS:
         QVERIFY2(mirror.contains(QStringLiteral("->writeVerbatim(")),
                  "mirrorToLogFile no longer queues through the sink");
 
-        // Neither body writes, flushes or locks anything itself: that is what
-        // blocked a streaming thread behind a stalled log file.
         const QStringList forbidden = {
             QStringLiteral("QTextStream"), QStringLiteral("QMutexLocker"),
             QStringLiteral("QFile"),       QStringLiteral("->write("),
@@ -494,12 +400,7 @@ private Q_SLOTS:
                                                "must only queue").arg(needle)));
         }
 
-        // The writer owns the file; a return from main() or an exit() drains
-        // it; and the sink exists before the handler that reads it.
         const int sinkAt = install.indexOf(QStringLiteral("setProcessLogSink("));
-        // The handler is installed by ensureLogHandlerInstalled(), shared with
-        // the rolling log (whichever destination starts first installs it).
-        // installLogFile must therefore call it AFTER publishing its sink.
         const QString ensure =
             bodyOf(QStringLiteral("void ensureLogHandlerInstalled("));
         QVERIFY2(ensure.contains(
@@ -517,9 +418,6 @@ private Q_SLOTS:
                  "published");
     }
 
-    // CallSoundPlayer ends a stuck process with std::_Exit, which skips the
-    // at-exit drain; the lines queued just before it are the ones explaining
-    // why, so it drains the sink itself first.
     void anExitThatSkipsTeardownDrainsTheLogFirst()
     {
         const QString player = readAll(
@@ -536,10 +434,6 @@ private Q_SLOTS:
                  "the --log-file sink");
     }
 
-    // Every loader variable the AppRun hook overrides (saving the session
-    // value as APPIMAGE_ORIGINAL_<NAME>) must be restored by UrlLauncher for
-    // children, or a spawned browser or player looks inside a possibly
-    // unmounted AppImage. Both lists are derived from the sources.
     void everyVariableTheAppRunHookOverridesIsRestoredForChildren()
     {
         const QString hook = readAll(
@@ -556,8 +450,6 @@ private Q_SLOTS:
                 .remove(QLatin1Char('\\'))
                 .split(QRegularExpression(QStringLiteral("\\s+")),
                        Qt::SkipEmptyParts);
-        // Mutation guard: a scan that matches nothing passes vacuously. The
-        // count is a floor, not exact, so adding a name needs no edit here.
         QVERIFY2(preserved.size() >= 5,
                  qPrintable(QStringLiteral("only %1 names parsed out of the "
                                            "hook; the parse is wrong")

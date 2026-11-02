@@ -1,11 +1,3 @@
-// Dismissing a link preview gives the row its space back. Pinned:
-//   * dismissal is keyed per (room, event), never per URL: the result cache
-//     is shared by URL, so a per-URL dismissal would collapse cards above the
-//     reader and move the timeline;
-//   * it is checked before the auto-load dispatch, so it also stops fetching;
-//   * restoring grants no consent to contact the site;
-//   * at the cap the oldest dismissal is released, never the newest refused
-//     (MediaVisibilityStore's rule).
 
 #include "matrix/MatrixClient.h"
 #include "models/LinkPreviewController.h"
@@ -38,7 +30,6 @@ public:
         Q_EMIT urlPreviewFinished(opId, true, fields, QString());
     }
 
-    // Pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -78,7 +69,7 @@ QString bodyWith(const QString &url)
     return QStringLiteral("look at ") + url;
 }
 
-} // namespace
+}
 
 class LinkPreviewDismissTest : public QObject
 {
@@ -86,8 +77,6 @@ class LinkPreviewDismissTest : public QObject
 
 private Q_SLOTS:
 
-    // A loaded card is dismissed, the row reports "none" so its Loader
-    // deactivates, and the change is announced on that row's key.
     void dismissingALoadedPreviewCollapsesTheRow()
     {
         FakeClient client;
@@ -119,15 +108,11 @@ private Q_SLOTS:
         QVERIFY2(state.value(QStringLiteral("dismissed")).toBool(),
                  "a dismissed row must say so, or the undo action cannot "
                  "know it has anything to offer");
-        // url/host survive so the row can offer the preview back without
-        // re-parsing the body.
         QCOMPARE(state.value(QStringLiteral("url")).toString(), kUrlA);
         QVERIFY(!state.value(QStringLiteral("host")).toString().isEmpty());
         QVERIFY(controller.isPreviewDismissed(kRoom + QChar(0x1f) + ev));
     }
 
-    // A dismissed row never contacts the site when rebuilt, even with
-    // automatic loading on.
     void aDismissedRowNeverDispatchesAFetch()
     {
         FakeClient client;
@@ -148,8 +133,6 @@ private Q_SLOTS:
                  "dismissal check has to precede the dispatch");
     }
 
-    // Only the clicked row may change: other rows with the same URL keep
-    // their cards.
     void dismissalIsPerEventAndNeverPerUrl()
     {
         FakeClient client;
@@ -163,7 +146,7 @@ private Q_SLOTS:
 
         controller.previewForEvent(kRoom, first, body, false);
         controller.previewForEvent(kRoom, second, body, false);
-        QCOMPARE(client.requestedUrls.size(), 1); // deduplicated by URL
+        QCOMPARE(client.requestedUrls.size(), 1);
         client.succeed(client.lastOp, { { QStringLiteral("title"),
                                           QStringLiteral("A title") } });
 
@@ -181,14 +164,11 @@ private Q_SLOTS:
                  "row above the reader would move under them");
     }
 
-    // Undo is not consent: an unagreed preview comes back as the gate and
-    // nothing is fetched.
     void restoringDoesNotConsentToAFetch()
     {
         FakeClient client;
         LinkPreviewController controller;
         controller.setClient(&client);
-        // Encrypted room, opt-in off: the privacy default.
         controller.setAutoLoadUnencrypted(true);
         controller.setAllowEncrypted(false);
 
@@ -218,8 +198,6 @@ private Q_SLOTS:
         QVERIFY(!controller.isPreviewDismissed(kRoom + QChar(0x1f) + ev));
     }
 
-    // An edit that changes the URL drops the dismissal: it concerned the old
-    // URL.
     void anEditThatChangesTheUrlClearsTheDismissal()
     {
         FakeClient client;
@@ -241,8 +219,6 @@ private Q_SLOTS:
         QCOMPARE(client.requestedUrls.size(), 2);
     }
 
-    // Bounded; at the cap the oldest is released rather than the newest
-    // refused, as in MediaVisibilityStore.
     void theDismissedSetIsBoundedAndReleasesTheOldest()
     {
         LinkPreviewController controller;
@@ -258,13 +234,11 @@ private Q_SLOTS:
         QVERIFY(controller.isPreviewDismissed(
             QStringLiteral("$k%1").arg(cap + 9)));
 
-        // An empty key is never a dismissal and never grows the set.
         controller.dismissPreview(QString());
         QCOMPARE(controller.dismissedCount(), cap);
         QVERIFY(!controller.isPreviewDismissed(QString()));
     }
 
-    // Session-only, like the rest of this controller's state.
     void signingOutForgetsEveryDismissal()
     {
         FakeClient client;

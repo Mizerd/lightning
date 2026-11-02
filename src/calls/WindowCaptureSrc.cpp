@@ -8,12 +8,9 @@ Size fitInto(int srcW, int srcH, int maxW, int maxH)
 {
     if (srcW < 2 || srcH < 2 || maxW < 2 || maxH < 2)
         return {};
-    // Never above 1.0: a window smaller than the ceiling keeps its size.
     const double scale =
         (std::min)({1.0, static_cast<double>(maxW) / srcW,
                     static_cast<double>(maxH) / srcH});
-    // Truncate, then clear the low bit; both only shrink, so the result stays
-    // inside the ceiling.
     const int width = static_cast<int>(srcW * scale) & ~1;
     const int height = static_cast<int>(srcH * scale) & ~1;
     if (width < 2 || height < 2)
@@ -21,7 +18,7 @@ Size fitInto(int srcW, int srcH, int maxW, int maxH)
     return {width, height};
 }
 
-} // namespace lightning::wincap
+}
 
 #ifdef Q_OS_WIN
 
@@ -43,21 +40,13 @@ Size fitInto(int srcW, int srcH, int maxW, int maxH)
 
 namespace {
 
-// Asks the window to render its whole content even where covered. Defined
-// here because mingw guards it behind a newer _WIN32_WINNT than the build
-// uses.
 #ifndef PW_RENDERFULLCONTENT
 #define PW_RENDERFULLCONTENT 0x00000002
 #endif
 
-// Fixed capture rate. The source runs on its own clock and always produces a
-// frame, so a still window keeps streaming (no videorate first-buffer hold).
 constexpr int kFramerate = 30;
 constexpr GstClockTime kFrameDuration = GST_SECOND / kFramerate;
 
-/// A top-down 32-bit DIB we own, so a frame is a straight memcpy. The DC's
-/// original bitmap is kept because DeleteObject on a bitmap still selected
-/// into a DC silently fails and leaks it.
 struct Surface {
     HDC dc = nullptr;
     HBITMAP bitmap = nullptr;
@@ -68,7 +57,6 @@ struct Surface {
 struct LightningWindowCaptureSrc {
     GstPushSrc parent;
 
-    /// The HWND, as a plain integer property.
     guint64 hwnd;
 
     /// The negotiated frame size, learned in `set_caps`. Buffers must match
@@ -78,29 +66,16 @@ struct LightningWindowCaptureSrc {
     /// renegotiated.
     gint outWidth;
     gint outHeight;
-    Surface out;   // BGRA, top-down
+    Surface out;
 
-    /// The surface PrintWindow draws into, at the window's own bounds; rebuilt
-    /// only when the window is resized.
     gint printWidth;
     gint printHeight;
     Surface print;
 
-    /// The window's visible size at start, used during fixation.
     gint startWidth;
     gint startHeight;
 
-    /// The frame slot the next buffer fills, counted from zero at share start;
-    /// its timestamp is this times the frame duration.
-    ///
-    /// Zero-based, not pipeline running time: videorate starts at segment
-    /// start, and a first buffer stamped with the call's age would make it
-    /// emit duplicates for the whole age. Advanced from the clock rather than
-    /// incremented, so a capture slower than 30 fps drops slots instead of
-    /// making the receiver play in slow motion.
     guint64 frameIndex;
-    /// Where slot zero sits on the clock, so pacing does not need running-time
-    /// timestamps.
     GstClockTime pacingBase;
     gboolean pacingStarted;
     gboolean windowGone;
@@ -129,9 +104,6 @@ GST_DEBUG_CATEGORY_STATIC(lightning_wincap_debug);
 
 // -------------------------------------------------------------- geometry --
 
-/// DwmGetWindowAttribute resolved at runtime rather than linked, so the
-/// package gains no dwmapi import. Without it we fall back to the plain
-/// window rect.
 using DwmGetWindowAttributeFn = HRESULT(WINAPI *)(HWND, DWORD, PVOID, DWORD);
 
 DwmGetWindowAttributeFn dwmGetWindowAttribute()
@@ -146,22 +118,15 @@ DwmGetWindowAttributeFn dwmGetWindowAttribute()
     return fn;
 }
 
-constexpr DWORD kDwmwaExtendedFrameBounds = 9;   // DWMWA_EXTENDED_FRAME_BOUNDS
-constexpr DWORD kDwmwaCloaked = 14;              // DWMWA_CLOAKED
+constexpr DWORD kDwmwaExtendedFrameBounds = 9;
+constexpr DWORD kDwmwaCloaked = 14;
 
-/// Where a window is and which part of it is visible. PrintWindow renders the
-/// whole window from the window rect's origin, while DWM's
-/// DWMWA_EXTENDED_FRAME_BOUNDS is the visible frame (Windows 10/11 add an
-/// invisible resize border); the difference is the crop offset.
-///
-/// One derivation shared by the capture and the picker's list and preview,
-/// so a preview always matches what is sent.
 struct WindowGeometry {
-    int printWidth = 0;    ///< what PrintWindow will draw
+    int printWidth = 0;
     int printHeight = 0;
-    int cropX = 0;         ///< where the visible frame starts inside that
+    int cropX = 0;
     int cropY = 0;
-    int cropWidth = 0;     ///< its size, rounded down to even
+    int cropWidth = 0;
     int cropHeight = 0;
 };
 
@@ -182,7 +147,6 @@ bool windowGeometry(HWND window, WindowGeometry *out)
         && SUCCEEDED(dwmGetWindowAttribute()(window, kDwmwaExtendedFrameBounds,
                                              &frame, sizeof(frame)))
         && frame.right > frame.left && frame.bottom > frame.top) {
-        // Only ever a crop: never read outside what PrintWindow drew.
         visible.left = (std::max)(windowRect.left, frame.left);
         visible.top = (std::max)(windowRect.top, frame.top);
         visible.right = (std::min)(windowRect.right, frame.right);
@@ -207,9 +171,6 @@ bool windowGeometry(HWND window, WindowGeometry *out)
     return true;
 }
 
-// -------------------------------------------------------------- surfaces --
-
-
 bool createSurface(int width, int height, Surface *out)
 {
     HDC screen = GetDC(nullptr);
@@ -219,7 +180,6 @@ bool createSurface(int width, int height, Surface *out)
     BITMAPINFO info{};
     info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     info.bmiHeader.biWidth = width;
-        // Negative height: top-down, the row order video/x-raw expects.
     info.bmiHeader.biHeight = -height;
     info.bmiHeader.biPlanes = 1;
     info.bmiHeader.biBitCount = 32;
@@ -257,7 +217,6 @@ void fillBlack(HDC dc, int width, int height)
     FillRect(dc, &full, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
 }
 
-/// IsHungAppWindow, resolved at runtime.
 using IsHungAppWindowFn = BOOL(WINAPI *)(HWND);
 
 IsHungAppWindowFn isHungAppWindow()
@@ -299,10 +258,6 @@ void printInto(HWND window, const Surface &surface, int width, int height)
     }
 }
 
-// ---------------------------------------------------------- caps helpers --
-
-/// Whether a caps field accepts `wanted`. Absent or unfamiliar fields are
-/// treated as accepting.
 bool valueAdmits(const GValue *value, int wanted)
 {
     if (!value)
@@ -323,7 +278,6 @@ bool valueAdmits(const GValue *value, int wanted)
     return true;
 }
 
-/// The largest value a caps field permits, or `fallback`.
 int valueMax(const GValue *value, int fallback)
 {
     if (!value)
@@ -342,10 +296,6 @@ int valueMax(const GValue *value, int fallback)
     return fallback;
 }
 
-// ------------------------------------------------------------ the element --
-
-/// Draws the window into the negotiated frame. Returns false only when the
-/// window is gone.
 bool paintWindow(LightningWindowCaptureSrc *self)
 {
     auto window = reinterpret_cast<HWND>(static_cast<uintptr_t>(self->hwnd));
@@ -354,15 +304,12 @@ bool paintWindow(LightningWindowCaptureSrc *self)
 
     WindowGeometry geo;
     if (IsIconic(window) || !windowGeometry(window, &geo)) {
-        // Minimised or degenerate: a black frame, not EOS, so the share
-        // survives the user minimising the window.
         fillBlack(self->out.dc, self->outWidth, self->outHeight);
         return true;
     }
 
     if (geo.printWidth != self->printWidth
         || geo.printHeight != self->printHeight || !self->print.pixels) {
-        // The window was resized: rebuild the print surface once.
         releaseSurface(&self->print);
         if (!createSurface(geo.printWidth, geo.printHeight, &self->print)) {
             self->printWidth = 0;
@@ -381,14 +328,11 @@ bool paintWindow(LightningWindowCaptureSrc *self)
     printInto(window, self->print, self->printWidth, self->printHeight);
 
     if (geo.cropWidth == self->outWidth && geo.cropHeight == self->outHeight) {
-        // The ordinary case: a straight blit.
         BitBlt(self->out.dc, 0, 0, self->outWidth, self->outHeight,
                self->print.dc, geo.cropX, geo.cropY, SRCCOPY);
         return true;
     }
 
-    // The window no longer matches the negotiated shape: letterbox rather
-    // than stretch, keeping the agreed stream resolution.
     const lightning::wincap::Size fit = lightning::wincap::fitInto(
         geo.cropWidth, geo.cropHeight, self->outWidth, self->outHeight);
     fillBlack(self->out.dc, self->outWidth, self->outHeight);
@@ -403,9 +347,6 @@ bool paintWindow(LightningWindowCaptureSrc *self)
     return true;
 }
 
-/// Waits until this frame is due. Without pacing the capture would run as
-/// fast as PrintWindow returns, burning a core on frames videorate drops
-/// (gdiscreencapsrc paces the same way).
 void waitForFrameSlot(LightningWindowCaptureSrc *self)
 {
     GstClock *clock = gst_element_get_clock(GST_ELEMENT(self));
@@ -419,20 +360,14 @@ void waitForFrameSlot(LightningWindowCaptureSrc *self)
         return;
     }
     const GstClockTime running = now - base;
-    // Pace against `pacingBase` (slot zero on the clock) so timestamps can
-    // stay zero-based; see `frameIndex`.
     if (!self->pacingStarted) {
         self->pacingStarted = TRUE;
         self->pacingBase = running;
     }
     if (self->pacingBase > running + GST_SECOND) {
-        // The clock jumped backwards: re-pin and rebase the index, or the
-        // next wait could be minutes long on a source with no `unlock`.
         const GstClockTime span = self->frameIndex * kFrameDuration;
         self->pacingBase = running > span ? running - span : 0;
     }
-    // Skip missed slots rather than stamping late: a slow capture drops
-    // frames and never slows the stream clock.
     const guint64 elapsed =
         running > self->pacingBase ? (running - self->pacingBase) : 0;
     const guint64 dueIndex = elapsed / kFrameDuration;
@@ -453,7 +388,6 @@ gboolean startSrc(GstBaseSrc *base)
     auto *self = reinterpret_cast<LightningWindowCaptureSrc *>(base);
     auto window = reinterpret_cast<HWND>(static_cast<uintptr_t>(self->hwnd));
     if (!self->hwnd || !IsWindow(window)) {
-        // Report a named error rather than failing silently.
         GST_ELEMENT_ERROR(self, RESOURCE, NOT_FOUND,
                           ("The window to share is not available."),
                           ("no such window handle"));
@@ -466,8 +400,6 @@ gboolean startSrc(GstBaseSrc *base)
                           ("window rect is empty or minimised"));
         return FALSE;
     }
-    // Only what fixation needs. Surfaces are built when their sizes are known:
-    // output in set_caps, print on the first frame.
     self->startWidth = geo.cropWidth;
     self->startHeight = geo.cropHeight;
     self->frameIndex = 0;
@@ -515,7 +447,6 @@ GstCaps *fixateSrc(GstBaseSrc *base, GstCaps *caps)
     if (pick != 0) {
         GstCaps *reordered = gst_caps_new_empty();
         for (guint i = 0; i < count; ++i) {
-            // The chosen one first, then the rest in order.
             const guint from = i == 0 ? pick : (i <= pick ? i - 1 : i);
             GstCapsFeatures *features = gst_caps_get_features(caps, from);
             gst_caps_append_structure_full(
@@ -528,7 +459,6 @@ GstCaps *fixateSrc(GstBaseSrc *base, GstCaps *caps)
     }
 
     GstStructure *structure = gst_caps_get_structure(caps, 0);
-    // Fit, never two independent clamps, which would distort the aspect.
     const lightning::wincap::Size want = lightning::wincap::fitInto(
         self->startWidth, self->startHeight,
         valueMax(gst_structure_get_value(structure, "width"),
@@ -552,7 +482,6 @@ GstCaps *fixateSrc(GstBaseSrc *base, GstCaps *caps)
         ->fixate(base, caps);
 }
 
-/// Learns the negotiated size, so every buffer matches the caps.
 gboolean setCapsSrc(GstBaseSrc *base, GstCaps *caps)
 {
     auto *self = reinterpret_cast<LightningWindowCaptureSrc *>(base);
@@ -600,8 +529,6 @@ GstFlowReturn createFrame(GstPushSrc *push, GstBuffer **out)
     waitForFrameSlot(self);
 
     if (!paintWindow(self)) {
-        // The window closed: end the stream cleanly (EOS, not an error, which
-        // would end the whole call).
         GST_INFO_OBJECT(self, "shared window closed; ending capture");
         self->windowGone = TRUE;
         return GST_FLOW_EOS;
@@ -617,7 +544,6 @@ GstFlowReturn createFrame(GstPushSrc *push, GstBuffer **out)
         gst_buffer_unref(buffer);
         return GST_FLOW_ERROR;
     }
-    // GdiFlush before reading a DIB the GDI batch may not have written yet.
     GdiFlush();
     memcpy(map.data, self->out.pixels, size);
     gst_buffer_unmap(buffer, &map);
@@ -701,7 +627,6 @@ void lightning_window_capture_src_init(LightningWindowCaptureSrc *self)
     self->pacingBase = 0;
     self->pacingStarted = FALSE;
     self->windowGone = FALSE;
-    // Live: the pipeline must not ask for a backlog after a pause.
     gst_base_src_set_live(GST_BASE_SRC(self), TRUE);
     gst_base_src_set_format(GST_BASE_SRC(self), GST_FORMAT_TIME);
     // No do-timestamp: it would overwrite our zero-based timestamps with the
@@ -709,11 +634,6 @@ void lightning_window_capture_src_init(LightningWindowCaptureSrc *self)
     gst_base_src_set_do_timestamp(GST_BASE_SRC(self), FALSE);
 }
 
-// ------------------------------------------------- which application ------
-
-// Resolved at runtime rather than linked, so the package gains no psapi or
-// version.lib import; this also avoids declarations hidden by the
-// _WIN32_WINNT floor.
 QString fileDescriptionUncached(const QString &executable);
 
 using QueryFullProcessImageNameWFn = BOOL(WINAPI *)(HANDLE, DWORD, LPWSTR,
@@ -726,10 +646,6 @@ using VerQueryValueWFn = BOOL(WINAPI *)(LPCVOID, LPCWSTR, LPVOID *, PUINT);
 #define PROCESS_QUERY_LIMITED_INFORMATION 0x1000
 #endif
 
-/// The executable's description ("Brave Browser", "Windows Explorer"), as
-/// Task Manager shows it. Cached by path: the picker asks for every window,
-/// and parsing the same version resource repeatedly on the GUI thread is
-/// wasteful. Bounded by the number of distinct programs with windows.
 QString fileDescription(const QString &executable)
 {
     static QMutex cacheMutex;
@@ -777,8 +693,6 @@ QString fileDescriptionUncached(const QString &executable)
     if (!readFn(path.c_str(), 0, size, block.data()))
         return {};
 
-    // The description lives under the file's own language and codepage; read
-    // them from the translation table.
     struct Translation {
         WORD language;
         WORD codePage;
@@ -799,8 +713,6 @@ QString fileDescriptionUncached(const QString &executable)
         UINT textLength = 0;
         if (queryFn(block.constData(), key, &text, &textLength) && text
             && textLength > 0) {
-            // NUL-terminated overload: the reported length includes the
-            // terminator.
             const QString described =
                 QString::fromWCharArray(static_cast<const wchar_t *>(text))
                     .trimmed();
@@ -811,7 +723,6 @@ QString fileDescriptionUncached(const QString &executable)
     return {};
 }
 
-/// The full path of a process's executable, or empty.
 QString executablePathFor(DWORD pid)
 {
     static QueryFullProcessImageNameWFn imageNameFn = nullptr;
@@ -839,8 +750,6 @@ QString executablePathFor(DWORD pid)
     return QString::fromWCharArray(path, static_cast<int>(length));
 }
 
-/// Which application an executable is, best effort. Empty is a valid answer;
-/// a wrong name would be worse than none.
 QString applicationNameForExecutable(const QString &executable)
 {
     if (executable.isEmpty())
@@ -848,7 +757,6 @@ QString applicationNameForExecutable(const QString &executable)
     const QString described = fileDescription(executable);
     if (!described.isEmpty())
         return described;
-    // Fallback: the capitalised file name without extension.
     QString base = executable.section(QLatin1Char('\\'), -1);
     if (base.endsWith(QLatin1String(".exe"), Qt::CaseInsensitive))
         base.chop(4);
@@ -870,9 +778,8 @@ BOOL CALLBACK enumProc(HWND window, LPARAM param)
     if (!IsWindowVisible(window) || IsIconic(window))
         return TRUE;
     if (GetWindow(window, GW_OWNER) != nullptr)
-        return TRUE;   // an owned dialog or tool window
+        return TRUE;
 
-    // Never our own windows: sharing the call into itself.
     DWORD pid = 0;
     GetWindowThreadProcessId(window, &pid);
     if (pid == ctx->ownProcess)
@@ -880,10 +787,8 @@ BOOL CALLBACK enumProc(HWND window, LPARAM param)
 
     const LONG exStyle = GetWindowLong(window, GWL_EXSTYLE);
     if (exStyle & WS_EX_TOOLWINDOW)
-        return TRUE;   // not on the taskbar
+        return TRUE;
 
-    // Cloaked windows (UWP shells, background tabs) report visible while
-    // showing nothing.
     if (dwmGetWindowAttribute()) {
         BOOL cloaked = FALSE;
         if (SUCCEEDED(dwmGetWindowAttribute()(window, kDwmwaCloaked, &cloaked,
@@ -895,9 +800,8 @@ BOOL CALLBACK enumProc(HWND window, LPARAM param)
     wchar_t title[512];
     const int length = GetWindowTextW(window, title, 512);
     if (length <= 0)
-        return TRUE;   // untitled: nothing to show in a list
+        return TRUE;
 
-    // The same geometry the capture uses, so the row matches what is sent.
     WindowGeometry geo;
     if (!windowGeometry(window, &geo))
         return TRUE;
@@ -905,8 +809,6 @@ BOOL CALLBACK enumProc(HWND window, LPARAM param)
     lightning::wincap::WindowInfo info;
     info.handle = static_cast<quint64>(reinterpret_cast<uintptr_t>(window));
     info.title = QString::fromWCharArray(title, length);
-    // The owning process too, so the share's sound can follow the window:
-    // ShareAudioSources keys a Windows application by its executable's name.
     const QString executable = executablePathFor(pid);
     info.pid = pid;
     info.executable = executable.section(QLatin1Char('\\'), -1).toLower();
@@ -917,7 +819,7 @@ BOOL CALLBACK enumProc(HWND window, LPARAM param)
     return TRUE;
 }
 
-} // namespace
+}
 
 namespace lightning::wincap {
 
@@ -968,7 +870,6 @@ QString applicationNameForExecutablePath(const QString &path)
 
 namespace {
 
-/// Copy a device context region into a QImage, scaled to fit `maxEdge`.
 QImage grabToImage(HDC source, int x, int y, int width, int height,
                    int maxEdge)
 {
@@ -979,7 +880,6 @@ QImage grabToImage(HDC source, int x, int y, int width, int height,
         return {};
     BitBlt(surface.dc, 0, 0, width, height, source, x, y, SRCCOPY);
     GdiFlush();
-    // Copied: the DIB is freed when this function returns.
     QImage out = QImage(reinterpret_cast<const uchar *>(surface.pixels), width,
                         height, width * 4, QImage::Format_RGB32)
                      .copy();
@@ -997,7 +897,6 @@ struct MonitorHunt {
     bool found;
 };
 
-/// The same walk, looking for a monitor by the platform's own device name.
 struct NameHunt {
     const QString *wanted;
     int seen;
@@ -1012,8 +911,6 @@ BOOL CALLBACK nameProc(HMONITOR monitor, HDC, LPRECT, LPARAM param)
     const int here = hunt->seen++;
     MONITORINFOEXW info{};
     info.cbSize = sizeof(info);
-    // Cast explicitly: whether MONITORINFOEXW* converts to LPMONITORINFO
-    // implicitly differs between the Windows SDK and mingw-w64 headers.
     if (!GetMonitorInfoW(monitor, reinterpret_cast<LPMONITORINFO>(&info)))
         return TRUE;
     if (QString::fromWCharArray(info.szDevice) != *hunt->wanted)
@@ -1030,12 +927,12 @@ BOOL CALLBACK monitorProc(HMONITOR, HDC, LPRECT rect, LPARAM param)
     if (hunt->seen++ == hunt->wanted) {
         hunt->rect = *rect;
         hunt->found = true;
-        return FALSE;   // stop: found the requested monitor
+        return FALSE;
     }
     return TRUE;
 }
 
-} // namespace
+}
 
 QImage captureThumbnail(quint64 handle, int maxEdge)
 {
@@ -1049,7 +946,6 @@ QImage captureThumbnail(quint64 handle, int maxEdge)
     Surface surface;
     if (!createSurface(geo.printWidth, geo.printHeight, &surface))
         return {};
-    // The same call and crop as the capture, so the preview matches.
     printInto(window, surface, geo.printWidth, geo.printHeight);
     GdiFlush();
     const QImage full(reinterpret_cast<const uchar *>(surface.pixels),
@@ -1074,7 +970,6 @@ QImage captureScreenThumbnail(int displayIndex, int maxEdge)
     HDC screen = GetDC(nullptr);
     if (!screen)
         return {};
-    // Virtual-desktop coordinates: other monitors do not start at 0,0.
     const QImage out = grabToImage(screen, hunt.rect.left, hunt.rect.top,
                                    hunt.rect.right - hunt.rect.left,
                                    hunt.rect.bottom - hunt.rect.top, maxEdge);
@@ -1123,14 +1018,12 @@ void registerWindowCaptureSrc()
 
 const char *windowCaptureSrcName() { return "lightningwindowcapturesrc"; }
 
-} // namespace lightning::wincap
+}
 
-#else // !Q_OS_WIN
+#else
 
 namespace lightning::wincap {
 
-// Off Windows this is not the mechanism: Linux uses the xdg portal and macOS
-// captures displays through avfvideosrc.
 bool available() { return false; }
 ProcessInfo processInfo(quint64) { return {}; }
 QString applicationNameForExecutablePath(const QString &) { return {}; }
@@ -1144,6 +1037,6 @@ QImage captureScreenThumbnail(int, int) { return {}; }
 void registerWindowCaptureSrc() {}
 const char *windowCaptureSrcName() { return "lightningwindowcapturesrc"; }
 
-} // namespace lightning::wincap
+}
 
 #endif

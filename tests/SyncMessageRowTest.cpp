@@ -1,16 +1,3 @@
-// A synced media message (m.image / m.video / m.audio / m.file / m.location)
-// in a room with no open timeline must become a row of the right kind:
-// `typeFromString` in RustSdkMatrixClient.cpp must map every kind, not only
-// notice/emote. The Rust half is covered by `message_row_kind_tests` in
-// rust/src/lib.rs.
-//
-// `everyNewRowKindStillProducesAPreviewLine` checks the string each consumer
-// builds from the row, which is what the user actually reads.
-// `aSyncedMessageCarriesItsPushVerdict` covers the push-rule verdict the
-// notification policy follows (issue #15). `anEditIsNotANewMessage` keeps an
-// edit's "* " fallback out of the room list (2026-09-30), and
-// `aRedeliveredEditIsForwardedOnce` keeps a redelivered edit from notifying
-// twice.
 
 #include "app/SettingsManager.h"
 #include "matrix/EventPreview.h"
@@ -31,9 +18,6 @@ class SyncMessageRowTest : public QObject
 
 #ifdef ENABLE_RUST_SDK_BACKEND
 private:
-    /// A hand-maintained copy of the payload rust/src/lib.rs enqueues for one
-    /// synced message; it cannot see a rename on the Rust side. Every field
-    /// the handler reads is present.
     static QJsonObject syncedMessage(const QString &msgtype,
                                      const QString &body,
                                      const QString &mediaFilename,
@@ -52,7 +36,6 @@ private:
         event.insert(QStringLiteral("mentions_me"), false);
         event.insert(QStringLiteral("mentions_room"), false);
         event.insert(QStringLiteral("thread_root_id"), QString());
-        // The prep+5 compatibility field the handler still falls back to.
         event.insert(QStringLiteral("decrypted"), false);
 
         QJsonObject out;
@@ -62,14 +45,10 @@ private:
         return out;
     }
 
-    /// A direct connection rather than a QSignalSpy, so the row arrives as
-    /// itself and never has to survive a QVariant round trip.
     struct Appended {
         QList<TimelineEvent> rows;
     };
 
-    /// Takes the sink by reference and keeps its address, so callers declare
-    /// the sink before the client and the client is destroyed first.
     static void watch(RustSdkMatrixClient &client, Appended &sink)
     {
         QObject::connect(&client, &MatrixClient::eventAppended,
@@ -78,8 +57,6 @@ private:
                          });
     }
 
-    /// Drive the real dispatcher and return the row it appended. Fails when
-    /// nothing arrived, rather than returning a default-constructed row.
     static TimelineEvent rowFor(RustSdkMatrixClient &client,
                                 Appended &sink,
                                 const QString &msgtype,
@@ -91,8 +68,6 @@ private:
         client.handleRustEventForTest(
             syncedMessage(msgtype, body, mediaFilename, eventId));
         if (sink.rows.isEmpty()) {
-            // qFail rather than QVERIFY2: the macros expand to a bare
-            // `return;`, which cannot compile in a function returning a row.
             QTest::qFail(qPrintable(QStringLiteral(
                              "no row was appended for msgtype %1").arg(msgtype)),
                          __FILE__, __LINE__);
@@ -101,8 +76,6 @@ private:
         return sink.rows.constLast();
     }
 
-    /// The media kinds, with the msgtype string the bridge emits and the row
-    /// kind it must become.
     static QList<QPair<QString, TimelineEvent::Type>> mediaCases()
     {
         return {
@@ -116,8 +89,6 @@ private:
 #endif
 
 private slots:
-    /// Every media kind keeps its row type through the bridge, rather than
-    /// reading as TextMessage.
     void aMediaRowKeepsItsKindThroughTheBridge()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -130,9 +101,6 @@ private slots:
 
         int n = 0;
         for (const auto &[msgtype, expected] : mediaCases()) {
-            // A location carries no filename on the wire, so do not feed it
-            // one here either: the fixture must not compose a shape the
-            // bridge cannot send, even in a case that asserts only the type.
             const bool carriesAFile = expected != TimelineEvent::Location;
             const TimelineEvent row =
                 rowFor(client, sink, msgtype,
@@ -147,11 +115,6 @@ private slots:
 #endif
     }
 
-    /// Every kind must still produce a preview line. `oneLineSummary` reads
-    /// `mediaFilename` for image/video/audio/file and `body` for a location,
-    /// so a location's words must arrive as its body. The producer half is
-    /// pinned by `a_location_and_every_text_row_carry_no_filename` in
-    /// rust/src/lib.rs.
     void everyNewRowKindStillProducesAPreviewLine()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -162,8 +125,6 @@ private slots:
         RustSdkMatrixClient client(&settings);
         watch(client, sink);
 
-        // What the bridge really sends per kind: a location carries its words
-        // as the body and NO filename; the other four carry both.
         struct Case {
             QString msgtype;
             QString body;
@@ -193,9 +154,6 @@ private slots:
                                     .arg(c.msgtype)));
         }
 
-        // And the two that carry real information must carry it, not just a
-        // non-empty placeholder: the file's real name rather than its
-        // caption, and the location's own words.
         const TimelineEvent file =
             rowFor(client, sink, QStringLiteral("file"),
                    QStringLiteral("here you go"),
@@ -213,8 +171,6 @@ private slots:
 #endif
     }
 
-    /// The kinds that always worked must keep working, and a body must still
-    /// cross for them.
     void textLikeRowsAreUnchanged()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -243,8 +199,6 @@ private slots:
 #endif
     }
 
-    /// A kind this path has no row for stays a plain message rather than an
-    /// Unknown row (unlike the live-timeline ingest).
     void anUnknownKindIsStillAPlainMessageOnThisPath()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -264,9 +218,6 @@ private slots:
 #endif
     }
 
-    /// `"encrypted"` maps to a Notice. Asserted without the undecryptable
-    /// flag, because the placeholder branch overrides the type whenever the
-    /// flag is set.
     void theEncryptedKindMapsToANoticeOnItsOwn()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -286,8 +237,6 @@ private slots:
 #endif
     }
 
-    /// And the placeholder branch itself: an undecryptable event keeps its
-    /// honest text and its Notice row.
     void anUndecryptableEventStillReadsAsAPlaceholderNotice()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -315,10 +264,6 @@ private slots:
 #endif
     }
 
-    /// Issue #15: an unopened room's message carries the account's push-rule
-    /// verdict to the notification policy. This is the producer behind a room
-    /// set to "Mentions & keywords" on another client, which notified for
-    /// every message while the verdict was not read here.
     void aSyncedMessageCarriesItsPushVerdict()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -358,8 +303,6 @@ private slots:
                 == TimelineEvent::PushVerdict::Notify);
         QVERIFY(sink.rows.constFirst().pushHighlight);
 
-        // No verdict on the wire (no push context yet): Unknown, so the local
-        // mode decides as before.
         sendWith(QStringLiteral("$pv3"), QJsonObject{});
         QCOMPARE(sink.rows.size(), 1);
         QVERIFY(sink.rows.constFirst().pushVerdict
@@ -367,10 +310,6 @@ private slots:
 #endif
     }
 
-    /// An edit's body is the "* " fallback ("* edited: **bold words** ..." in
-    /// the room list, 2026-09-30). It must not become the preview, move the
-    /// room or enter the mirror as a row of its own, and it must still reach
-    /// eventAppended: an edit that newly mentions you notifies.
     void anEditIsNotANewMessage()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -410,18 +349,14 @@ private slots:
         QCOMPARE(sink.rows.size(), 1);
         QCOMPARE(client.roomInfo(room).lastMessagePreview, QStringLiteral("hello"));
         QCOMPARE(client.roomInfo(room).lastActivity, activity);
-        // The mirror does not aggregate relations, so an edit drops it rather
-        // than keep showing the pre-edit copy until the SDK snapshot arrives.
         QCOMPARE(client.timeline(room).size(), 0);
 
-        // The same edit while the room is open (the preview-only branch).
         client.m_timelineTracker.request(room);
         edit.insert(QStringLiteral("event_id"), QStringLiteral("$edit2"));
         out.insert(QStringLiteral("event"), edit);
         client.handleRustEventForTest(out);
         QCOMPARE(client.roomInfo(room).lastMessagePreview, QStringLiteral("hello"));
         QCOMPARE(client.roomInfo(room).lastActivity, activity);
-        // Control: that branch does write a plain message's preview.
         client.handleRustEventForTest(syncedMessage(
             QStringLiteral("text"), QStringLiteral("fresh"), QString(),
             QStringLiteral("$fresh")));
@@ -429,11 +364,6 @@ private slots:
 #endif
     }
 
-    /// An edit never enters the mirror, so the mirror's de-dup cannot see it
-    /// arrive twice (a sliding-sync reset, a room re-entering the window), and
-    /// the notification policy has no de-dup of its own: each copy would
-    /// notify. Also an edit that cannot be decrypted yet, whose m.relates_to is
-    /// readable on the encrypted event.
     void aRedeliveredEditIsForwardedOnce()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -474,14 +404,11 @@ private slots:
             QVERIFY2(sink.rows.size() == 1,
                      qPrintable(QStringLiteral("%1 was forwarded %2 times")
                                     .arg(id).arg(sink.rows.size())));
-            // An edit invalidates the mirror (see above), which is why the
-            // forwarded-id memory, not the mirror's scan, must stop the copy.
             QCOMPARE(client.timeline(room).size(), 0);
             ++checked;
         }
         QCOMPARE(checked, 2);
 
-        // Control: a different edit still gets through.
         sink.rows.clear();
         client.handleRustEventForTest(editOf(QStringLiteral("$edit-next"), false));
         QCOMPARE(sink.rows.size(), 1);

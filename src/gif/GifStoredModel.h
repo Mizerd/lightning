@@ -9,19 +9,12 @@
 
 class QSettings;
 
-// Base for the locally persisted GIF collections (Favorites, Recents). Exposes
-// the GifResultModel roles so the same delegate renders them. Persists only
-// provider, item id, safe title, preview/still/gif URLs, dimensions, rating
-// and a timestamp: never a room, thread, event or user id, search query,
-// message body, temp path or credential. Local state; not synced.
 class GifStoredModel : public QAbstractListModel
 {
     Q_OBJECT
     Q_PROPERTY(int count READ count NOTIFY countChanged)
 
 public:
-    // `settings` is owned by the caller (SettingsManager's store) and must
-    // outlive this model. `key` is the QSettings key holding the JSON array.
     GifStoredModel(QSettings *settings, QString key, int maxRows,
                    QObject *parent = nullptr);
 
@@ -42,18 +35,13 @@ public:
 
     gif::GifResult resultAt(int row) const;
 
-    // Build a safe GifResult from a QML result map (GifResultModel role names).
     static gif::GifResult fromVariantMap(const QVariantMap &map);
 
 Q_SIGNALS:
     void countChanged();
 
 protected:
-    // Insert `r` at the front (newest first), de-duplicating by (provider,id):
-    // an existing entry is moved to the front. Enforces the row cap. Persists.
     void insertFront(const gif::GifResult &r);
-    // Remove a (provider,id) entry if present. Persists. Returns true if
-    // something was removed.
     bool removeEntry(const QString &provider, const QString &id);
     int indexOf(const QString &provider, const QString &id) const;
 

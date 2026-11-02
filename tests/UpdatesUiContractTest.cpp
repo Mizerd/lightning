@@ -1,8 +1,3 @@
-// Source-contract test for the Settings -> Updates UI. It pins the required
-// wiring and the required absences: no "install anyway" affordance, no
-// self-download/install action for a package-managed install, and no install
-// action for a development/unknown install. State comparisons are pinned
-// against UpdateManager's real Q_ENUM, never strings.
 
 #include <QtTest/QtTest>
 
@@ -14,9 +9,6 @@ class UpdatesUiContractTest : public QObject
 {
     Q_OBJECT
 
-    // Comments are stripped: every scan below is a fixed-size window from an
-    // objectName anchor and measures code proximity, so added explanations
-    // must not push a target out of its window.
     static QString read(const QString &name)
     {
         QFile file(QStringLiteral(QML_DIR "/") + name);
@@ -29,9 +21,6 @@ class UpdatesUiContractTest : public QObject
         return src;
     }
 
-    // Every forbidden "proceed past a failed verification" phrase, scanned
-    // case-insensitively so a differently-capitalized reintroduction still
-    // fails this test.
     static QStringList forbiddenBypassPhrases()
     {
         return {
@@ -45,7 +34,6 @@ class UpdatesUiContractTest : public QObject
     }
 
 private Q_SLOTS:
-    // ---- Files exist and are non-empty ----
 
     void filesExist()
     {
@@ -54,8 +42,6 @@ private Q_SLOTS:
         QVERIFY(!read(QStringLiteral("SettingsScreen.qml")).isEmpty());
     }
 
-    // Every other case scans UpdateAvailableDialog.qml's own text, which
-    // passes whether or not anything creates it. Pin the instantiation.
     void updateAvailableDialogIsActuallyInstantiated()
     {
         const QString main = read(QStringLiteral("Main.qml"));
@@ -66,16 +52,12 @@ private Q_SLOTS:
                  "instantiates it the update-available prompt never appears");
     }
 
-    // The handoff state is entered as soon as the helper starts; the helper
-    // then waits for Lightning to exit, so nothing is installed yet and the
-    // install can still fail.
     void handoffStateNeverClaimsTheUpdateIsInstalled()
     {
         const QString section = read(QStringLiteral("UpdatesSettingsSection.qml"));
         QVERIFY(!section.isEmpty());
         const int idx = section.indexOf(QStringLiteral("updateRestartRequiredBlock"));
         QVERIFY(idx >= 0);
-        // Wide enough to cover both labels and their explanatory comments.
         const QString block = section.mid(idx, 2000);
         QVERIFY2(!block.contains(QStringLiteral("is installed.")),
                  "the handoff state must not assert a completed installation");
@@ -85,15 +67,12 @@ private Q_SLOTS:
                  "differently for the quit-now and apply-on-next-quit paths");
     }
 
-    // The helper runs after Lightning exits, so its result can only be shown
-    // on the next start.
     void previousUpdateOutcomeIsSurfacedAndDismissible()
     {
         const QString section = read(QStringLiteral("UpdatesSettingsSection.qml"));
         QVERIFY(!section.isEmpty());
         const int idx = section.indexOf(QStringLiteral("updateLastResultBlock"));
         QVERIFY2(idx >= 0, "the previous update's outcome must be shown");
-        // A scan window is a measurement of the file, not a contract.
         const QString block = section.mid(idx, 3200);
         QVERIFY(block.contains(QStringLiteral("lastUpdateResult")));
         QVERIFY(block.contains(QStringLiteral("UpdateManager.NoResult")));
@@ -101,8 +80,6 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("lastUpdateError")));
         QVERIFY2(block.contains(QStringLiteral("clearLastUpdateResult()")),
                  "a stale success/failure must be dismissible for good");
-        // A raw enum token is not a message. The failure line must go through
-        // the explanation, or "refused-unsafe-path" is what the user reads.
         QVERIFY2(block.contains(QStringLiteral("explainInstallError")),
                  "the failure must be explained, not shown as its enum token");
         QVERIFY2(block.contains(QStringLiteral("updateLastResultCode")),
@@ -120,23 +97,16 @@ private Q_SLOTS:
                  "that never happens");
     }
 
-    // ---- Reachable from SettingsScreen navigation ----
-
     void updatesSectionIsReachableFromSettingsNavigation()
     {
         const QString settings = read(QStringLiteral("SettingsScreen.qml"));
         QVERIFY(!settings.isEmpty());
         QVERIFY(settings.contains(QStringLiteral("sectionKey: \"updates\"")));
         QVERIFY(settings.contains(QStringLiteral("navLabel: qsTr(\"Updates\")")));
-        // The header bar's icon/title mapping also knows the section (so
-        // "Settings — Updates" renders, matching every other section).
         QVERIFY(settings.contains(QStringLiteral(
             "if (key === \"updates\") return qsTr(\"Updates\")")));
         QVERIFY(settings.contains(QStringLiteral(
             "if (key === \"updates\") return \"download\"")));
-        // The real content pane is instantiated (visibility-toggled, the
-        // file's own established convention — never Loader, so in-flight
-        // state in other panes is never destroyed by switching category).
         QVERIFY(settings.contains(QStringLiteral("UpdatesSettingsSection {")));
         QVERIFY(settings.contains(QStringLiteral(
             "visible: root.section === \"updates\"")));
@@ -144,18 +114,12 @@ private Q_SLOTS:
             "Loader { source: \"UpdatesSettingsSection.qml\"")));
     }
 
-    // ---- The reused icon codepoint is a real, already-verified glyph ----
-
     void updatesIconReusesAnExistingVerifiedCodepoint()
     {
         const QString icon = read(QStringLiteral("Icon.qml"));
         QVERIFY(!icon.isEmpty());
-        // "download" must already be a mapped codepoint in the bundled
-        // Material Symbols subset.
         QVERIFY(icon.contains(QStringLiteral("\"download\": \"\\uf090\"")));
     }
-
-    // ---- No affordance to proceed after a verification failure ----
 
     void noBypassAffordanceAfterVerificationFailure()
     {
@@ -182,23 +146,15 @@ private Q_SLOTS:
         const int start = section.indexOf(QStringLiteral("updateFailedBlock"));
         QVERIFY(start >= 0);
         const int end = section.indexOf(QStringLiteral("updateStatusCard"), start);
-        // updateStatusCard only appears once (the Pane's own objectName,
-        // before the failed block) — fall back to end-of-file bounding if
-        // that search fails, so the block is never silently empty.
         const QString block = end > start ? section.mid(start, end - start)
                                            : section.mid(start);
         QVERIFY(!block.isEmpty());
-        // state is UpdateManager's real Q_ENUM (see UpdateManager.h) —
-        // compared against the enum value, never a string literal.
         QVERIFY(block.contains(QStringLiteral("state === UpdateManager.Failed")));
         QVERIFY(block.contains(QStringLiteral("root.um.errorMessage")));
         QVERIFY(block.contains(QStringLiteral("updateRetryButton")));
         QVERIFY(block.contains(QStringLiteral("root.um.checkForUpdates()")));
         QVERIFY(block.contains(QStringLiteral("updateDismissFailureButton")));
-        // Exactly two buttons in the failed block.
         QCOMPARE(block.count(QStringLiteral("AppButton {")), 2);
-        // The dismiss button never calls into UpdateManager at all — it is
-        // a purely local banner collapse, never a state override.
         const int dismissIdx = block.indexOf(QStringLiteral("updateDismissFailureButton"));
         QVERIFY(dismissIdx >= 0);
         const QString dismissTail = block.mid(dismissIdx, 200);
@@ -206,18 +162,11 @@ private Q_SLOTS:
         QVERIFY(!dismissTail.contains(QStringLiteral("root.um.")));
     }
 
-    // ---- Flatpak/Snap never expose an install/download action ----
-
-    // "Update now" must leave the user somewhere useful: downloadUpdate()
-    // only starts a download, and progress and the Install button live in the
-    // Updates settings section (installUpdate()/installAndRestart() are valid
-    // only from the ready state and are called only there).
     void theDialogsUpdateNowLandsOnTheUpdatesSection()
     {
         const QString dialog = read(QStringLiteral("UpdateAvailableDialog.qml"));
         const int idx = dialog.indexOf(QStringLiteral("updateDialogUpdateNowButton"));
         QVERIFY2(idx > 0, "the dialog's Update now button is gone");
-        // Bounded by the end of the handler rather than a fixed window.
         const int handlerEnd = dialog.indexOf(QStringLiteral("\n            }"), idx);
         QVERIFY2(handlerEnd > idx, "could not find the end of the button's handler");
         const QString handler = dialog.mid(idx, handlerEnd - idx);
@@ -242,17 +191,14 @@ private Q_SLOTS:
         QVERIFY(!dialog.isEmpty());
 
         for (const QString &source : { section, dialog }) {
-            // The disclosure sentences exist verbatim.
             QVERIFY(source.contains(QStringLiteral(
                 "Updates for this installation are managed by Flatpak.")));
             QVERIFY(source.contains(QStringLiteral(
                 "Updates for this installation are managed by Snap.")));
-            // A COPR install (linux-rpm-repo) is dnf's.
             QVERIFY(source.contains(QStringLiteral(
                 "root.installType === \"linux-rpm-repo\"\n")));
             QVERIFY(source.contains(QStringLiteral(
                 "? qsTr(\"Updates for this installation are managed by dnf.\")")));
-            // The same COPR type on openSUSE is zypper's (repositoryRpmManager).
             QVERIFY(source.contains(QStringLiteral(
                 "root.um.packageManagerName === \"zypper\"")));
             QVERIFY(source.contains(QStringLiteral(
@@ -260,23 +206,18 @@ private Q_SLOTS:
             QVERIFY(source.contains(QStringLiteral("openManagedUpdateHelp()")));
         }
 
-        // Settings pane: the self-update action row is gated OFF whenever
-        // packageManaged is true — never merely hidden by a positive
-        // condition that could independently be satisfied.
         const int actionsIdx = section.indexOf(QStringLiteral("updateActionsRow"));
         QVERIFY(actionsIdx >= 0);
         const QString actionsTail = section.mid(actionsIdx, 400);
         QVERIFY(actionsTail.contains(QStringLiteral(
             "visible: !root.packageManaged && root.canInstallAutomatically")));
 
-        // Dialog: same gate on its "Update now" button.
         const int dialogNowIdx = dialog.indexOf(QStringLiteral("updateDialogUpdateNowButton"));
         QVERIFY(dialogNowIdx >= 0);
         const QString dialogNowBlock = dialog.mid(dialogNowIdx, 300);
         QVERIFY(dialogNowBlock.contains(QStringLiteral(
             "visible: !root.packageManaged && root.canInstallAutomatically")));
 
-        // The managed block itself never contains a download/install call.
         const int managedIdx = section.indexOf(QStringLiteral("updateManagedBlock"));
         QVERIFY(managedIdx >= 0);
         const int managedEnd = section.indexOf(QStringLiteral("updateActionsRow"), managedIdx);
@@ -286,8 +227,6 @@ private Q_SLOTS:
         QVERIFY(!managedBlock.contains(QStringLiteral("installUpdate()")));
         QVERIFY(!managedBlock.contains(QStringLiteral("installAndRestart()")));
     }
-
-    // ---- Automatic-checks control exists and is honestly worded ----
 
     void automaticChecksControlExistsAndDisclosesNoAccountData()
     {
@@ -303,8 +242,6 @@ private Q_SLOTS:
         const int captionIdx = section.indexOf(QStringLiteral("updateAutomaticChecksCaption"));
         QVERIFY(captionIdx >= 0);
         const QString captionBlock = section.mid(captionIdx, 900);
-        // Must state the real default and the way out of it, and never claim
-        // data is sent.
         QVERIFY(captionBlock.contains(QStringLiteral("On by default")));
         QVERIFY(captionBlock.contains(QStringLiteral("turn it off")));
         QVERIFY(captionBlock.contains(QStringLiteral("never includes any account")));
@@ -312,7 +249,6 @@ private Q_SLOTS:
         QVERIFY(!captionBlock.toLower().contains(QStringLiteral("room id")));
         QVERIFY(!captionBlock.toLower().contains(QStringLiteral("user id")));
 
-        // "Check for updates" is disabled exactly while Checking/Downloading.
         const int checkIdx = section.indexOf(QStringLiteral("updateCheckNowButton"));
         QVERIFY(checkIdx >= 0);
         const QString checkBlock = section.mid(checkIdx, 450);
@@ -323,19 +259,13 @@ private Q_SLOTS:
         QVERIFY(checkBlock.contains(QStringLiteral("root.um.checkForUpdates()")));
     }
 
-    // ---- lastCheckTime is handled as a QDateTime, not a string ----
-
     void lastCheckTimeIsHandledAsADateTimeNotAString()
     {
         const QString section = read(QStringLiteral("UpdatesSettingsSection.qml"));
         QVERIFY(!section.isEmpty());
-        // Validity lives in one place, `everChecked`, checked via
-        // getTime()/isNaN, never a .length check (a marshaled Date has none).
         const int propIdx = section.indexOf(QStringLiteral(
             "readonly property bool everChecked:"));
         QVERIFY2(propIdx >= 0, "everChecked is gone from UpdatesSettingsSection");
-        // Bounded to the declaration, not to a fixed character count: the end
-        // is the next line at the same indent that starts a new statement.
         const int propEnd = section.indexOf(
             QRegularExpression(QStringLiteral("\n    [A-Za-z/]")), propIdx + 1);
         QVERIFY2(propEnd > propIdx,
@@ -349,25 +279,15 @@ private Q_SLOTS:
         const QString block = section.mid(idx, 900);
         QVERIFY(block.contains(QStringLiteral("root.everChecked")));
         QVERIFY(!section.contains(QStringLiteral("lastCheckTime.length")));
-        // Formatted as a date in the UI locale (Qt.formatDateTime would
-        // ignore it and print English month names).
         QVERIFY(block.contains(QStringLiteral("Qt.locale(AppLocale.name).toString(")));
     }
 
-    // ---- Idle does not claim a check has never run ----
-
     void theIdleStatusDoesNotContradictTheLastCheckedRow()
     {
-        // Idle is the state a fresh client sits in until a check runs, while
-        // lastCheckTime persists across restarts, so the never-checked wording
-        // is only true when `everChecked` is false.
         const QString section = read(QStringLiteral("UpdatesSettingsSection.qml"));
         QVERIFY(!section.isEmpty());
         const int idx = section.indexOf(QStringLiteral("updateIdleLabel"));
         QVERIFY2(idx >= 0, "updateIdleLabel is gone from UpdatesSettingsSection");
-        // Bounded to the label's own block: ending at the next objectName
-        // rather than a blank line, so deleting a blank line cannot make this
-        // slice cover the rest of the file and pass on a broken tree.
         const int nextObj = section.indexOf(QStringLiteral("objectName:"),
                                             idx + 1);
         QVERIFY2(nextObj > idx, "could not bound the updateIdleLabel block");
@@ -380,8 +300,6 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("Updates haven't been checked yet.")));
     }
 
-    // ---- statusDetail (non-error diagnostic) is surfaced ----
-
     void statusDetailIsSurfaced()
     {
         const QString section = read(QStringLiteral("UpdatesSettingsSection.qml"));
@@ -389,8 +307,6 @@ private Q_SLOTS:
         QVERIFY(section.contains(QStringLiteral("updateStatusDetailLabel")));
         QVERIFY(section.contains(QStringLiteral("root.um.statusDetail")));
     }
-
-    // ---- installRefused is surfaced, never silently discarded ----
 
     void installRefusedIsSurfacedNotDiscarded()
     {
@@ -401,8 +317,6 @@ private Q_SLOTS:
         QVERIFY(section.contains(QStringLiteral("updateInstallRefusedBlock")));
     }
 
-    // ---- managedUpdateHelpRequested is handled, not fired-and-forgotten ---
-
     void managedUpdateHelpRequestedIsHandledInBothSurfaces()
     {
         const QString section = read(QStringLiteral("UpdatesSettingsSection.qml"));
@@ -412,24 +326,17 @@ private Q_SLOTS:
         for (const QString &source : { section, dialog }) {
             QVERIFY(source.contains(QStringLiteral(
                 "function onManagedUpdateHelpRequested(command, explanation)")));
-            // The command/explanation come ONLY from the signal payload —
-            // nothing here builds a "flatpak update ..." string itself.
             QVERIFY(source.contains(QStringLiteral("managedHelpCommand = command")));
             QVERIFY(source.contains(QStringLiteral("managedHelpExplanation = explanation")));
             QVERIFY(!source.contains(QStringLiteral("\"flatpak update")));
             QVERIFY(!source.contains(QStringLiteral("\"snap refresh")));
         }
-        // The dialog's help button no longer closes the dialog immediately
-        // (there would be nothing left to read/copy) — pin the absence of
-        // root.close() directly on that handler.
         const int dialogHelpIdx = dialog.indexOf(QStringLiteral("updateDialogManagedHelpButton"));
         QVERIFY(dialogHelpIdx >= 0);
         const QString dialogHelpBlock = dialog.mid(dialogHelpIdx, 450);
         QVERIFY(dialogHelpBlock.contains(QStringLiteral("openManagedUpdateHelp()")));
         QVERIFY(!dialogHelpBlock.contains(QStringLiteral("root.close()")));
     }
-
-    // ---- Up-to-date wording is exact ----
 
     void upToDateWordingIsExact()
     {
@@ -438,8 +345,6 @@ private Q_SLOTS:
         QVERIFY(section.contains(QStringLiteral(
             "text: qsTr(\"Lightning is up to date.\")")));
     }
-
-    // ---- Development/unknown installs never offer an install action ----
 
     void developmentInstallDoesNotOfferInstallation()
     {
@@ -453,8 +358,6 @@ private Q_SLOTS:
         QVERIFY(section.contains(QStringLiteral(
             "Automatic installation is disabled for this")));
 
-        // Both install-triggering buttons are gated on canInstallAutomatically,
-        // which is false for development/unknown installs.
         const int nowIdx = section.indexOf(QStringLiteral("updateNowButton"));
         QVERIFY(nowIdx >= 0);
         const int rowStart = section.lastIndexOf(QStringLiteral("RowLayout {"), nowIdx);
@@ -462,8 +365,6 @@ private Q_SLOTS:
         const QString nowRow = section.mid(rowStart, nowIdx - rowStart + 200);
         QVERIFY(nowRow.contains(QStringLiteral("root.canInstallAutomatically")));
 
-        // installAndRestart()/installUpdate() share one gate: the wrapping
-        // row's visible:.
         const int actionsRowIdx = section.indexOf(
             QStringLiteral("updateReadyToInstallActionsRow"));
         QVERIFY(actionsRowIdx >= 0);
@@ -473,13 +374,6 @@ private Q_SLOTS:
         QVERIFY(actionsRowBlock.contains(QStringLiteral("updateInstallAndRestartButton")));
         QVERIFY(actionsRowBlock.contains(QStringLiteral("updateInstallButton")));
     }
-
-    // ---- Restart is always an explicit, user-initiated action ----
-    //
-    // UpdateManager::startInstall guards on `m_state == ReadyToInstall`, so
-    // installAndRestart()/installUpdate() must be called only from the
-    // ReadyToInstall block; a button in the RestartRequired block calling
-    // either would silently no-op.
 
     void installAndRestartIsOnlyEverCalledFromReadyToInstall()
     {
@@ -496,8 +390,6 @@ private Q_SLOTS:
 
         const int restartIdx = section.indexOf(QStringLiteral("updateRestartRequiredBlock"));
         QVERIFY(restartIdx >= 0);
-        // End at whichever block comes next, so this window stays exactly the
-        // handoff block.
         int restartEnd = section.indexOf(QStringLiteral("updateLastResultBlock"), restartIdx);
         const int failedIdx = section.indexOf(QStringLiteral("updateFailedBlock"), restartIdx);
         if (restartEnd < 0 || (failedIdx >= 0 && failedIdx < restartEnd))
@@ -506,14 +398,9 @@ private Q_SLOTS:
         const QString restartBlock = section.mid(restartIdx, restartEnd - restartIdx);
         QVERIFY(!restartBlock.contains(QStringLiteral("installAndRestart()")));
         QVERIFY(!restartBlock.contains(QStringLiteral("installUpdate()")));
-        // No AppButton at all in this block — it is purely informational.
         QCOMPARE(restartBlock.count(QStringLiteral("AppButton {")), 0);
-        // The detail line is UpdateManager's, which words the quit-now and
-        // apply-on-next-quit paths differently instead of asserting either.
         QVERIFY(restartBlock.contains(QStringLiteral("handoffSummary")));
     }
-
-    // ---- Release notes are never rendered as RichText/StyledText ----
 
     void releaseNotesAreNeverRichOrStyledText()
     {
@@ -530,8 +417,6 @@ private Q_SLOTS:
         QVERIFY(dialog.contains(QStringLiteral("readOnly: true")));
     }
 
-    // ---- releaseNotesUrl is shown, but only as inert plain text ----
-
     void releaseNotesUrlIsPlainTextNeverALiveLink()
     {
         const QString dialog = read(QStringLiteral("UpdateAvailableDialog.qml"));
@@ -545,8 +430,6 @@ private Q_SLOTS:
         QVERIFY(!block.contains(QStringLiteral("onLinkActivated")));
         QVERIFY(!block.contains(QStringLiteral("Qt.openUrlExternally")));
     }
-
-    // ---- The dialog opens/closes off UpdateManager state, not a caller ----
 
     void dialogFollowsUpdateManagerStateExclusively()
     {

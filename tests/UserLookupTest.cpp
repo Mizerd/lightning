@@ -1,7 +1,3 @@
-// Bare-localpart user lookup: candidate derivation from the authenticated
-// account's server, exact-profile confirmation before a bare-localpart result
-// is offered, typed-full-id behaviour, merge deduplication with provenance,
-// and stale-result rejection.
 
 #include "matrix/MatrixClient.h"
 #include "models/UserLookup.h"
@@ -40,7 +36,6 @@ public:
         return lastProfileOp;
     }
 
-    // Pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
@@ -84,7 +79,7 @@ struct Rig {
     void search(const QString &query)
     {
         model.setQuery(query);
-        QTest::qWait(1); // let the zero-interval debounce fire
+        QTest::qWait(1);
     }
     void finishDirectory(const QVariantList &rows, bool ok = true)
     {
@@ -118,14 +113,13 @@ QString sourceAt(const UserSearchModel &model, int row)
         .toString();
 }
 
-} // namespace
+}
 
 class UserLookupTest : public QObject
 {
     Q_OBJECT
 
 private Q_SLOTS:
-    // Shared visible-name fallback: localpart before the full MXID.
     void localpartFallbackDerivation()
     {
         using namespace matrix::user_lookup;
@@ -133,7 +127,6 @@ private Q_SLOTS:
                  QStringLiteral("matas"));
         QCOMPARE(localpartOrUserId(QStringLiteral("@a:x:8448")),
                  QStringLiteral("a"));
-        // No localpart derivable → the original value is returned verbatim.
         QCOMPARE(localpartOrUserId(QStringLiteral("@:server")),
                  QStringLiteral("@:server"));
         QCOMPARE(localpartOrUserId(QStringLiteral("plain-name")),
@@ -156,11 +149,9 @@ private Q_SLOTS:
                  QStringLiteral("@admin:other.example"));
         QCOMPARE(exactCandidate(QStringLiteral("  admin  "), server),
                  QStringLiteral("@admin:example.org"));
-        // Port-carrying server names survive.
         QCOMPARE(exactCandidate(QStringLiteral("@a:server.example:8448"), server),
                  QStringLiteral("@a:server.example:8448"));
 
-        // Invalid localparts / servers never fabricate an id.
         QVERIFY(exactCandidate(QStringLiteral("has space"), server).isEmpty());
         QVERIFY(exactCandidate(QStringLiteral("bad!char"), server).isEmpty());
         QVERIFY(exactCandidate(QStringLiteral("@"), server).isEmpty());
@@ -181,14 +172,11 @@ private Q_SLOTS:
     {
         Rig rig;
         rig.search(QStringLiteral("admin"));
-        // The candidate server comes from the authenticated account, never
-        // from a hardcoded name.
         QCOMPARE(rig.client.lastProfileUser, QStringLiteral("@admin:example.org"));
 
         rig.finishDirectory({});
-        // Unconfirmed bare-localpart candidate: not offered.
         QCOMPARE(rig.model.rowCount(), 0);
-        QCOMPARE(rig.model.state(), QStringLiteral("loading")); // profile pending
+        QCOMPARE(rig.model.state(), QStringLiteral("loading"));
 
         rig.confirmProfile(QStringLiteral("@admin:example.org"),
                            QStringLiteral("Admin"));
@@ -214,8 +202,6 @@ private Q_SLOTS:
         Rig rig;
         rig.search(QStringLiteral("@carol:federated.example"));
         rig.finishDirectory({});
-        // Full typed ids stay usable for federated invites even before (or
-        // without) profile confirmation.
         QCOMPARE(rig.model.rowCount(), 1);
         QCOMPARE(rig.model.userIdAt(0), QStringLiteral("@carol:federated.example"));
         QCOMPARE(sourceAt(rig.model, 0), QStringLiteral("exact_mxid"));
@@ -246,8 +232,6 @@ private Q_SLOTS:
                               directoryRow(QStringLiteral("@adminson:example.org"),
                                            QStringLiteral("Adminson")) });
         QCOMPARE(rig.model.rowCount(), 2);
-        // The exact row keeps its provenance and gains the directory's
-        // display name.
         QCOMPARE(rig.model.userIdAt(0), QStringLiteral("@admin:example.org"));
         QCOMPARE(sourceAt(rig.model, 0), QStringLiteral("exact_local"));
         QCOMPARE(rig.model.displayNameAt(0), QStringLiteral("Admin From Directory"));
@@ -271,7 +255,6 @@ private Q_SLOTS:
         const quint64 firstProfileOp = rig.client.lastProfileOp;
         rig.search(QStringLiteral("bob"));
 
-        // The old lookup confirming now must not surface the old candidate.
         Q_EMIT rig.client.userProfileFinished(firstProfileOp, true,
                                               QStringLiteral("@admin:example.org"),
                                               QStringLiteral("Admin"), QString(),
@@ -288,7 +271,7 @@ private Q_SLOTS:
     void ownUserIsNeverACandidate()
     {
         Rig rig;
-        rig.search(QStringLiteral("me")); // @me:example.org == own account
+        rig.search(QStringLiteral("me"));
         QCOMPARE(rig.client.profileCalls, 0);
     }
 

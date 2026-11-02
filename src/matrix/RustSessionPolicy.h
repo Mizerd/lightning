@@ -14,30 +14,11 @@ enum class StoreBlockReason {
     DifferentAccount,
     ExistingStoreNeedsRestore,
     MissingStoreForSavedSession,
-    // The homeserver rejected the saved access token (M_UNKNOWN_TOKEN). The
-    // local store is fine; only the credential died.
     AccessTokenRevoked,
-    // The homeserver rejected the access token with soft_logout true: the
-    // device still exists on the server, so a password sign-in resumes it with
-    // this store and its keys (Synapse says this when a token has expired).
-    // Never reported for an OAuth account: its browser sign-in cannot ask for
-    // the device again, so there it counts as AccessTokenRevoked.
     AccessTokenExpired,
-    // More than one on-disk store could belong to this account, so adoption
-    // would have to guess. Never guess: report and let the user decide.
     AmbiguousStoreCandidates,
-    // A record and a store exist but the secret backend cannot be read, so
-    // whether the sign-in survives is unknown. Nothing may be destroyed on the
-    // strength of a question we could not ask.
     SecretBackendUnavailable,
-    // The saved account details cannot be parsed into a safe identity: a broken
-    // record, not a foreign one.
     InvalidSavedIdentity,
-    // The secret store answers, but no longer returns a sign-in that this
-    // install saved for the recorded device and never removed (removing it
-    // removes the record too): the store lost it (a keyring reset, a Flatpak
-    // or snap keyring that changed), the account did not sign out. The local
-    // store is intact and is never moved aside on this evidence.
     KeyringLostSession,
 };
 
@@ -51,27 +32,11 @@ StoreBlockReason passwordLoginBlockReason(
     bool targetHasSavedSession,
     const QString &targetSavedDeviceId);
 
-// The one case where a sign-in may start a new device beside an existing
-// store: the server has provably ended the device that store belongs to. That
-// means the SDK reported a hard logout (soft_logout false), in this process,
-// for exactly the account and device the record names. The store is then
-// moved aside, never deleted, and the sign-in goes on into a fresh store.
-// Anything less keeps ExistingStoreNeedsRestore. Device ids are opaque and
-// case-sensitive, so both comparisons are exact.
 bool revokedDeviceMayBeReplaced(const QString &recordUserId,
                                 const QString &recordDeviceId,
                                 const QString &revokedUserId,
                                 const QString &revokedDeviceId);
 
-// The one case where a password sign-in may open an existing store: the
-// SDK reported a soft logout (soft_logout true: the server keeps the device)
-// for exactly the account, homeserver and device the record names, and the
-// sign-in is for that same account on that same homeserver. It then asks for
-// that device id again, so the store and its keys carry on. Anything less
-// keeps ExistingStoreNeedsRestore: in particular a full user id typed with
-// another server must never carry the password and this device id there.
-// Homeservers are compared normalized (resolveAccountIdentity); device ids
-// are opaque and localparts case-sensitive, so every comparison is exact.
 bool softLoggedOutDeviceMayResume(const QString &typedUserId,
                                   const QString &typedHomeserver,
                                   const QString &recordUserId,
@@ -101,14 +66,6 @@ bool unreadableSecretBlocksLogin(bool storeExists,
                                  bool secretBackendUnavailable,
                                  bool secretMissesAreInconclusive);
 
-// For KeyringLostSession: may a password sign-in continue as the recorded
-// device, into its store, as after a soft logout? Only when typed as exactly
-// the recorded account on the recorded homeserver: the password and the
-// device id go nowhere else. Never for a session that signed in through a
-// browser (OAuth, SSO), whose sign-in here cannot ask for a device.
-// Homeservers are compared normalized (resolveAccountIdentity); user ids
-// exactly. False sends the user to the KeyringLostSession card, never to a
-// store reset.
 bool lostSignInDeviceMayResume(const QString &typedUserId,
                                const QString &typedHomeserver,
                                const QString &recordUserId,
@@ -116,14 +73,6 @@ bool lostSignInDeviceMayResume(const QString &typedUserId,
                                const QString &recordDeviceId,
                                bool recordSignedInThroughBrowser);
 
-// OAuth counterpart of passwordLoginBlockReason, applied in Phase B once the
-// server has named the canonical user id and the new device id. It cannot be
-// asked earlier, but must be asked before the store is opened: a new device
-// attaching to another device's store would inherit its Megolm and identity
-// state and diverge from what the server believes.
-//
-// Same `newDeviceId` and `targetSavedDeviceId`: a re-authorization of the
-// session owning the store, so restoring is correct. Different: refuse.
 StoreBlockReason oauthLoginBlockReason(
     const app_data::AccountIdentity &target,
     bool storeExists,
@@ -136,47 +85,16 @@ StoreBlockReason restoreBlockReason(
     bool storeExists,
     const QString &savedDeviceId);
 
-// The `m.id.user` identifier a password sign-in sends. A bare username goes
-// as typed and the server resolves it, as the spec has it: the server field
-// names where the client API lives, and its host is not the account's server
-// name whenever the two differ (an IP, a port, a separate client host).
-// Completing the username with that host asked the server for an account
-// that does not exist. A full Matrix ID goes as the resolved identity spells
-// it.
 QString passwordLoginIdentifier(const QString &typedUser,
                                 const app_data::AccountIdentity &typed);
 
-// The saved account a bare username typed against `homeserver` names, found
-// from the records (which say where each store is) rather than from an id
-// built out of the address. A record on another homeserver address is never
-// a candidate. An exact localpart wins; otherwise one case-insensitive match
-// (Qt::CaseInsensitive), as SettingsManager::canonicalUserIdForTypedIdentity
-// does for a typed full id. Several candidates set `ambiguous` and answer
-// nothing: never guess which store. Empty for a full Matrix ID, which names
-// its own server. A match only LOCATES the store: whether the sign-in may
-// continue as the record's device is asked with typedUserIdOnSavedServer().
 QString savedAccountForBareUsername(const QString &typedUser,
                                     const QString &homeserver,
                                     const QList<app_data::AccountIdentity> &saved,
                                     bool *ambiguous = nullptr);
 
-// The user id a bare username names on a saved account's server, in the
-// casing the user TYPED: "BK010" against "@bk010:localhs.test" is
-// "@BK010:localhs.test". This is what the device-resume checks
-// (softLoggedOutDeviceMayResume, lostSignInDeviceMayResume) compare with the
-// record, exactly as they compare a typed full id, so a case-folded match
-// locates a store but never continues as its device: @bk010 and @BK010 can be
-// different people. Empty for anything but a bare username and a full id.
 QString typedUserIdOnSavedServer(const QString &typedUser, const QString &savedUserId);
 
-// Whether a sign-in's server answer (`answerUserId`, the canonical id) may be
-// saved over the store this attempt opened. It may not when
-//  * the answer is an account already saved here whose recorded store is
-//    somewhere else: saving would point that account at the new store and
-//    orphan the one holding its keys; or
-//  * the opened store is recorded for a different saved account
-//    (`openedStoreOwner`): saving would give two accounts one store.
-// Paths are compared absolute and cleaned. False without an opened store.
 bool signInAnswerCollidesWithSavedStore(const QString &answerUserId,
                                         const QString &openedStorePath,
                                         const QString &openedStoreOwner,
@@ -185,23 +103,13 @@ bool signInAnswerCollidesWithSavedStore(const QString &answerUserId,
 
 QString diagnosticName(StoreBlockReason reason);
 
-// Keyed by the diagnostic token so "no destructive action for a reason a
-// reset cannot repair" is enforced in C++, not by a QML binding. Unknown
-// codes are not repairable by deletion.
 bool suggestsLocalResetForCode(const QString &reasonCode);
 
-// The message the user sees, specific to each reason; only a genuine
-// ownership mismatch may say the store belongs to another session.
 QString userMessage(StoreBlockReason reason);
 
-// Whether the destructive "Reset local Lightning session" action is a
-// legitimate remedy for this reason. A missing store has nothing to reset;
-// a revoked token needs a new sign-in, not local deletion.
 bool suggestsLocalReset(StoreBlockReason reason);
 
-// Narrow classifiers: unrelated SDK/network/auth failures must not be turned
-// into a destructive local-reset prompt.
 bool isStoreOwnershipMismatch(const QString &message);
 bool isUnknownToken(const QString &message);
 
-} // namespace matrix::rust_session
+}

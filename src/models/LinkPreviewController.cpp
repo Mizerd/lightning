@@ -34,7 +34,6 @@ QString fileNameForUrl(const QString &url)
     }
     out = out.trimmed();
     if (out.size() > 80) {
-        // Never between the halves of a surrogate pair.
         qsizetype cut = 79;
         if (out.at(cut - 1).isHighSurrogate())
             --cut;
@@ -43,7 +42,6 @@ QString fileNameForUrl(const QString &url)
     return out;
 }
 
-// What a loaded entry is: "image", "video" or "".
 QString mediaKindOf(const QVariantMap &fields)
 {
     const QString kind = fields.value(QStringLiteral("previewKind")).toString();
@@ -54,14 +52,13 @@ QString mediaKindOf(const QVariantMap &fields)
     return {};
 }
 
-// Memory a preview's image text holds (QString is UTF-16).
 qint64 heldBytesOf(const QVariantMap &fields)
 {
     const QString src = fields.value(QStringLiteral("imageSource")).toString();
     return src.startsWith(QLatin1String("data:"))
         ? static_cast<qint64>(src.size()) * 2 : 0;
 }
-} // namespace
+}
 
 LinkPreviewController::LinkPreviewController(QObject *parent)
     : QObject(parent)
@@ -70,10 +67,6 @@ LinkPreviewController::LinkPreviewController(QObject *parent)
 
 QString LinkPreviewController::linkifiedBody(const QString &body) const
 {
-    // Render path for a message without a formatted body, the counterpart of
-    // MessageHtml::sanitize(). Emoji are enlarged by the same function so both
-    // paths agree. linkifiedMessageHtml() escapes everything it does not build,
-    // so markEmoji() receives safe input.
     return MessageHtml::markEmoji(
         matrix::link_preview::linkifiedMessageHtml(body));
 }
@@ -167,7 +160,6 @@ QVariantMap LinkPreviewController::resolveLinkMedia(const QString &mediaKey) con
     if (src.startsWith(QLatin1String("mxc://")))
         return { { QStringLiteral("mxc"), src } };
     if (!src.isEmpty()) {
-        // Only the exact shape Rust builds: data:<validated mime>;base64,...
         const QString prefix = QStringLiteral("data:") + mime
             + QStringLiteral(";base64,");
         if (!mime.startsWith(QLatin1String("image/")) || !src.startsWith(prefix))
@@ -180,7 +172,6 @@ QVariantMap LinkPreviewController::resolveLinkMedia(const QString &mediaKey) con
         return { { QStringLiteral("bytes"), bytes },
                  { QStringLiteral("mime"), mime } };
     }
-    // Too large to inline: the viewer fetches it, within the cap.
     if (tooLarge)
         return {};
     return { { QStringLiteral("url"), url }, { QStringLiteral("expect"), 0 } };
@@ -224,7 +215,7 @@ QVariantMap LinkPreviewController::previewFor(const QString &itemKey,
     auto it = m_items.find(itemKey);
     if (it == m_items.end()) {
         if (m_items.size() >= kMaxTrackedItems)
-            m_items.clear(); // defensive bound; a view never tracks this many
+            m_items.clear();
         ItemEntry item;
         item.url = matrix::link_preview::firstPreviewableUrl(body);
         item.encrypted = roomEncrypted;
@@ -235,9 +226,6 @@ QVariantMap LinkPreviewController::previewFor(const QString &itemKey,
     if (item.url.isEmpty())
         return { { QStringLiteral("state"), QStringLiteral("none") } };
 
-    // Dismissed rows resolve to "none" so the card deactivates. Checked before
-    // dispatch so a rebuilt row does not re-fetch; url/host are still reported
-    // so the row can offer to restore the preview.
     if (m_dismissed.contains(itemKey)) {
         return {
             { QStringLiteral("state"), QStringLiteral("none") },
@@ -285,10 +273,6 @@ QVariantMap LinkPreviewController::previewForEvent(const QString &roomId,
         && (existing->url != canonicalUrl || existing->encrypted != roomEncrypted)) {
         m_urlItems[existing->url].removeAll(key);
         m_items.erase(existing);
-        // The row now points elsewhere (edited link or changed encryption
-        // flag). Consent and dismissal both applied to the old URL, so drop
-        // them. Silent, since previewFor() is about to return the fresh state
-        // to this caller.
         forgetDismissal(key);
     }
     return previewFor(key, body, roomEncrypted);
@@ -329,7 +313,7 @@ void LinkPreviewController::retry(const QString &itemKey)
     m_urls.remove(it->url);
     m_urlOrder.removeOne(it->url);
     m_mediaKeys.remove(mediaKeyForUrl(it->url));
-    it->consented = true; // retry is always an explicit gesture
+    it->consented = true;
     dispatch(it->url);
     Q_EMIT previewChanged(itemKey);
 }
@@ -346,8 +330,6 @@ void LinkPreviewController::dismissPreview(const QString &itemKey)
         return;
     m_dismissed.insert(itemKey);
     m_dismissedOrder.append(itemKey);
-    // At the cap the oldest dismissal is released; its card is announced so it
-    // comes back live.
     while (m_dismissedOrder.size() > kMaxDismissed) {
         const QString evicted = m_dismissedOrder.takeFirst();
         if (m_dismissed.remove(evicted))
@@ -367,8 +349,6 @@ void LinkPreviewController::restorePreview(const QString &itemKey)
     if (itemKey.isEmpty() || !m_dismissed.remove(itemKey))
         return;
     m_dismissedOrder.removeAll(itemKey);
-    // Does not set consented: undoing a dismissal is not consent to contact the
-    // site.
     Q_EMIT previewChanged(itemKey);
 }
 
@@ -392,7 +372,6 @@ void LinkPreviewController::forgetDismissal(const QString &itemKey)
 
 void LinkPreviewController::dispatch(const QString &url)
 {
-    // Deduplicate simultaneous requests for the same URL.
     for (auto it = m_inflight.constBegin(); it != m_inflight.constEnd(); ++it) {
         if (it.value() == url)
             return;
@@ -409,7 +388,7 @@ void LinkPreviewController::dispatch(const QString &url)
         qCWarning(lcPreview) << "url preview dispatch rejected host=" << host;
         return;
     }
-    m_urls.insert(url, UrlEntry{}); // state "loading"
+    m_urls.insert(url, UrlEntry{});
     m_urlOrder.append(url);
     evictIfNeeded();
     m_inflight.insert(opId, url);
@@ -423,9 +402,6 @@ void LinkPreviewController::evictIfNeeded(const QString &keep)
         const bool overBytes = m_heldBytes > m_heldBytesBudget;
         if (!overCount && !overBytes)
             break;
-        // Oldest entry not in flight; in-flight entries must stay resolvable,
-        // and the one just filled is what its rows are about to draw. Over the
-        // byte budget alone, an entry holding no image frees nothing.
         int victimIndex = -1;
         for (int i = 0; i < m_urlOrder.size(); ++i) {
             const QString &candidate = m_urlOrder.at(i);
@@ -440,7 +416,7 @@ void LinkPreviewController::evictIfNeeded(const QString &keep)
             break;
         }
         if (victimIndex < 0)
-            break; // everything is loading; the cap is exceeded briefly
+            break;
         dropUrl(m_urlOrder.takeAt(victimIndex));
     }
 }
@@ -466,8 +442,6 @@ QVariantMap LinkPreviewController::stateFor(const ItemEntry &item) const
 
     const auto urlIt = m_urls.constFind(item.url);
     if (urlIt == m_urls.constEnd()) {
-        // Not requested: awaiting consent, or auto-loading is off for this room
-        // class.
         out.insert(QStringLiteral("state"), QStringLiteral("requires_action"));
         return out;
     }
@@ -509,8 +483,6 @@ QVariantMap LinkPreviewController::stateFor(const ItemEntry &item) const
     if (!mediaKind.isEmpty()) {
         const bool video = mediaKind == QLatin1String("video");
         out.insert(QStringLiteral("mediaKey"), mediaKeyForUrl(item.url));
-        // An image already in hand (inline bytes or the server's copy) draws
-        // at once; otherwise the card offers the viewer or the player.
         out.insert(QStringLiteral("mediaHeld"),
                    !video
                        && !entry.fields.value(QStringLiteral("imageSource"))
@@ -522,7 +494,6 @@ QVariantMap LinkPreviewController::stateFor(const ItemEntry &item) const
         out.insert(QStringLiteral("mediaTooLarge"),
                    entry.fields.value(QStringLiteral("mediaTooLarge")).toBool());
         out.insert(QStringLiteral("fileName"), fileNameForUrl(item.url));
-        // Loaded is per URL; contacting the site again is per row.
         out.insert(QStringLiteral("mediaAllowed"),
                    item.consented
                        || (item.encrypted ? m_allowEncrypted
@@ -538,13 +509,13 @@ void LinkPreviewController::onPreviewFinished(quint64 opId, bool ok,
 {
     const auto it = m_inflight.find(opId);
     if (it == m_inflight.end())
-        return; // stale (cleared on sign-out) or foreign op
+        return;
     const QString url = it.value();
     m_inflight.erase(it);
 
     auto urlIt = m_urls.find(url);
     if (urlIt == m_urls.end())
-        return; // evicted or cleared meanwhile
+        return;
     if (ok) {
         urlIt->state = QStringLiteral("loaded");
         urlIt->fields = fields;
@@ -556,16 +527,12 @@ void LinkPreviewController::onPreviewFinished(quint64 opId, bool ok,
         urlIt->state = QStringLiteral("failed");
         urlIt->category = category;
     }
-    // Sanitized diagnostics: hostname, HTTP status, redirect count and failure
-    // category; never the URL path/query, body or headers. Status and redirect
-    // count are 0 on success or when no HTTP response was reached.
     qCInfo(lcPreview) << "url preview completed host="
                       << matrix::link_preview::sanitizedHost(url)
                       << "result=" << (ok ? QStringLiteral("loaded") : category)
                       << "httpStatus=" << httpStatus
                       << "redirects=" << redirectCount;
 
-    // Read before evicting: a budget eviction drops other URLs' interest.
     const QStringList interested = m_urlItems.value(url);
     evictIfNeeded(url);
     for (const QString &itemKey : interested)
@@ -581,16 +548,12 @@ void LinkPreviewController::clear()
     m_urlItems.clear();
     m_mediaKeys.clear();
     m_heldBytes = 0;
-    // Dismissals do not carry over to another account (reached from
-    // onLoggedOut() and setClient()).
     m_dismissed.clear();
     m_dismissedOrder.clear();
 }
 
 void LinkPreviewController::onLoggedOut()
 {
-    // Account partition: no URL, preview text or pending completion survives
-    // into the next session.
     clear();
     qCInfo(lcPreview) << "url previews cleared on sign-out";
 }

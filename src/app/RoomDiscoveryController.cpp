@@ -5,9 +5,8 @@
 #include <QCoreApplication>
 
 namespace {
-// After this, open a joined room by id even if sync has not listed it yet.
 constexpr int kRoomWaitTimeoutMs = 10000;
-} // namespace
+}
 
 RoomDiscoveryController::RoomDiscoveryController(QObject *parent)
     : QObject(parent)
@@ -29,7 +28,7 @@ void RoomDiscoveryController::setClient(MatrixClient *client)
         m_client->disconnect(this);
     m_client = client;
     m_directory->setClient(client);
-    onLoggedOut(); // reset every pending id and cache for the new client
+    onLoggedOut();
     if (m_client) {
         connect(m_client, &MatrixClient::roomTargetResolved, this,
                 &RoomDiscoveryController::onTargetResolved);
@@ -107,7 +106,6 @@ void RoomDiscoveryController::joinInternal(const QString &target,
     if (opId == 0) {
         const QString message = describeJoinCategory(QStringLiteral("network"));
         setError(message);
-        // A refused dispatch fails the join too: the banner waits on this.
         Q_EMIT joinFailed(target, message);
         return;
     }
@@ -151,7 +149,7 @@ void RoomDiscoveryController::refreshSpaceChildren(const QString &spaceId)
         return;
     SpaceChildrenEntry &entry = m_spaceChildren[spaceId];
     if (entry.pendingOp != 0)
-        return; // one in-flight listing per space
+        return;
     const quint64 opId = m_client->requestSpaceChildren(spaceId);
     if (opId == 0) {
         entry.state = QStringLiteral("failed");
@@ -186,7 +184,7 @@ void RoomDiscoveryController::onTargetResolved(quint64 opId,
                                                const QVariantMap &result)
 {
     if (opId == 0 || opId != m_resolveOp)
-        return; // superseded resolution
+        return;
     m_resolveOp = 0;
     m_resolved = result;
     m_resolveState = result.value(QStringLiteral("ok")).toBool()
@@ -208,8 +206,6 @@ void RoomDiscoveryController::onJoinFinished(quint64 opId, bool ok,
         const QString target = m_joinTarget;
         m_joinTarget.clear();
         const QString message = describeJoinCategory(category);
-        // A join that says the room does not exist makes the resolved card
-        // (and its Join button) a lie: drop it so only the error remains.
         if (category == QLatin1String("not_found")
             && m_resolveState == QLatin1String("resolved")) {
             m_resolveOp = 0;
@@ -269,7 +265,6 @@ void RoomDiscoveryController::onSpaceChildren(quint64 opId,
         return;
     it->pendingOp = 0;
     if (!ok) {
-        // A failed refresh keeps the previously shown rows.
         it->state = it->rows.isEmpty() ? QStringLiteral("failed")
                                        : QStringLiteral("ready");
         Q_EMIT spaceChildrenChanged(spaceId);
@@ -295,7 +290,6 @@ void RoomDiscoveryController::onRoomsChanged()
 
 void RoomDiscoveryController::onLoggedOut()
 {
-    // A signed-out session must never navigate or surface late errors.
     m_resolveOp = 0;
     m_resolveState = QStringLiteral("idle");
     m_resolved.clear();
@@ -328,7 +322,6 @@ void RoomDiscoveryController::beginWaitForRoom(const QString &roomId,
     m_awaitedIsSpace = isSpace;
     m_roomWaitTimeout.start();
     Q_EMIT busyChanged();
-    // The join may already have inserted it locally, so check now too.
     onRoomsChanged();
 }
 

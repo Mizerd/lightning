@@ -8,9 +8,6 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
-// The custom application icon import: untrusted bytes, sniffed raster
-// whitelist, bounded decode, circular 512px normalization, plus the persisted
-// enable flag and the app-data path shape.
 class CustomAppIconTest : public QObject
 {
     Q_OBJECT
@@ -78,7 +75,6 @@ private Q_SLOTS:
         QCOMPARE(result.category, QString());
         QCOMPARE(result.image.width(), appicon::kNormalizedEdge);
         QCOMPARE(result.image.height(), appicon::kNormalizedEdge);
-        // Corners transparent (outside the circle), centre opaque red.
         QCOMPARE(qAlpha(result.image.pixel(0, 0)), 0);
         QCOMPARE(qAlpha(result.image.pixel(511, 511)), 0);
         QVERIFY(qAlpha(result.image.pixel(256, 256)) == 255);
@@ -96,8 +92,6 @@ private Q_SLOTS:
 
     void nonSquareInputIsCenterCroppedNotStretched()
     {
-        // Left half green, right half blue; the 200x100 input centre-crops to
-        // x=[50,150) so both survive into the square.
         QImage wide(200, 100, QImage::Format_ARGB32);
         wide.fill(Qt::green);
         for (int y = 0; y < 100; ++y)
@@ -105,9 +99,9 @@ private Q_SLOTS:
                 wide.setPixel(x, y, qRgb(0, 0, 255));
         const auto result = appicon::normalizeIconBytes(encoded(wide, "PNG"));
         QVERIFY(result.ok);
-        QCOMPARE(qBlue(result.image.pixel(150, 256)), 0);   // left = green
+        QCOMPARE(qBlue(result.image.pixel(150, 256)), 0);
         QCOMPARE(qGreen(result.image.pixel(150, 256)), 255);
-        QCOMPARE(qBlue(result.image.pixel(360, 256)), 255); // right = blue
+        QCOMPARE(qBlue(result.image.pixel(360, 256)), 255);
     }
 
     void rejectsSvgAndMarkup()
@@ -133,7 +127,6 @@ private Q_SLOTS:
 
     void rejectsSpoofedMagicWithGarbageBody()
     {
-        // A real PNG signature followed by junk fails the decode.
         QByteArray fake("\x89PNG\r\n\x1a\n");
         fake += QByteArray(64, 'x');
         QCOMPARE(appicon::normalizeIconBytes(fake).category,
@@ -166,7 +159,7 @@ private Q_SLOTS:
         QSignalSpy spy(&settings, &SettingsManager::customAppIconEnabledChanged);
         settings.setCustomAppIconEnabled(true);
         QCOMPARE(spy.count(), 1);
-        settings.setCustomAppIconEnabled(true); // no duplicate signal
+        settings.setCustomAppIconEnabled(true);
         QCOMPARE(spy.count(), 1);
         SettingsManager reloaded;
         QCOMPARE(reloaded.customAppIconEnabled(), true);
@@ -179,18 +172,11 @@ private Q_SLOTS:
     {
         const QString path = matrix::app_data::customAppIconFile();
         QVERIFY(path.endsWith(QStringLiteral("/branding/custom-app-icon.png")));
-        // Device-global: no account slug segment between root and branding.
         QVERIFY(!path.contains(QStringLiteral("starred-gifs")));
     }
 
-    // --- shared image-format table (src/media/ImageFormatSupport.h) ---
-    // The sniffers must not accept a format the packaged decoders cannot draw
-    // (e.g. WebP without its Qt plugin).
-
     void sniffIdentifiesBothJpegXlShapes()
     {
-        // Real cjxl (libjxl 0.11) output for a 32x32 image: a bare codestream
-        // and the ISOBMFF container.
         const QByteArray codestream(
             "\xff\x0a\x47\x06\x00\x13\x88\x02\x00\xf0\x00\xb5\x9f\x20\x00\x00"
             "\x15\x2a\xa3\x8c\x1b\xbc\x9c\xeb\xf9\xf2\x43\x87\xc5\xb4\x8d\xeb"
@@ -210,12 +196,9 @@ private Q_SLOTS:
                  QStringLiteral("image/jxl"));
         QCOMPARE(lightning::imagefmt::sniffRasterMime(container),
                  QStringLiteral("image/jxl"));
-        // And the icon path sees the same thing through its own entry point.
         QCOMPARE(appicon::sniffedRasterFormat(codestream),
                  QStringLiteral("jxl"));
 
-        // A JPEG shares only its first byte with a JXL codestream and must not
-        // match the two-byte signature.
         QCOMPARE(lightning::imagefmt::sniffRasterMime(
                      encoded(solid(24, 24, Qt::red), "JPEG")),
                  QStringLiteral("image/jpeg"));
@@ -223,9 +206,6 @@ private Q_SLOTS:
 
     void iconSnifferDelegatesToTheSharedTable()
     {
-        // The icon path and the shared table agree, so an addition to one
-        // reaches the other (these signatures were once copied into five
-        // places).
         const QList<QByteArray> samples = {
             encoded(solid(24, 24, Qt::red), "PNG"),
             encoded(solid(24, 24, Qt::red), "JPEG"),
@@ -243,44 +223,34 @@ private Q_SLOTS:
     void decodabilityIsAskedOfTheDecoderNeverAssumed()
     {
         using namespace lightning::imagefmt;
-        // Only qtbase's own plugins (gif/ico/jpeg): WebP is required and
-        // missing, a real accept/decode disagreement; JPEG XL is optional and
-        // missing, a truthful platform limit.
         const QSet<QString> packaged0_8_0 = {
             QStringLiteral("png"),  QStringLiteral("jpeg"),
             QStringLiteral("gif"),  QStringLiteral("bmp"),
             QStringLiteral("ico"),  QStringLiteral("ppm"),
         };
-        QCOMPARE(undecodableWith(packaged0_8_0, /*requiredOnly=*/true),
+        QCOMPARE(undecodableWith(packaged0_8_0,true),
                  QStringList{ QStringLiteral("image/webp") });
-        QVERIFY(undecodableWith(packaged0_8_0, /*requiredOnly=*/false)
+        QVERIFY(undecodableWith(packaged0_8_0,false)
                     .contains(QStringLiteral("image/jxl")));
 
-        // A current Linux package: webp and jxl both present.
         QSet<QString> fixed = packaged0_8_0;
         fixed.insert(QStringLiteral("webp"));
         fixed.insert(QStringLiteral("jxl"));
         QVERIFY(undecodableWith(fixed, false).isEmpty());
 
-        // Windows/macOS: webp present, jxl absent.
         QSet<QString> noJxl = packaged0_8_0;
         noJxl.insert(QStringLiteral("webp"));
-        QVERIFY(undecodableWith(noJxl, /*requiredOnly=*/true).isEmpty());
-        QCOMPARE(undecodableWith(noJxl, /*requiredOnly=*/false),
+        QVERIFY(undecodableWith(noJxl,true).isEmpty());
+        QCOMPARE(undecodableWith(noJxl,false),
                  QStringList{ QStringLiteral("image/jxl") });
 
         QVERIFY(!canDecodeWith(packaged0_8_0, QStringLiteral("webp")));
         QVERIFY(canDecodeWith(packaged0_8_0, QStringLiteral("png")));
-        // An empty format name is never decodable; "no plugin" and "not
-        // identified" stay distinct.
         QVERIFY(!canDecodeWith(fixed, QString()));
     }
 
     void anUndecodableFormatIsNotReportedAsCorruption()
     {
-        // A real 32x32 JPEG XL either decodes or reports that the build lacks
-        // the plugin; it is never "unsupported" (Lightning identifies it) nor
-        // "decode failed" (the file is fine).
         const QByteArray jxl(
             "\xff\x0a\x47\x06\x00\x13\x88\x02\x00\xf0\x00\xb5\x9f\x20\x00\x00"
             "\x15\x2a\xa3\x8c\x1b\xbc\x9c\xeb\xf9\xf2\x43\x87\xc5\xb4\x8d\xeb"

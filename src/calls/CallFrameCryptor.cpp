@@ -13,7 +13,6 @@
 namespace {
 /// LiveKit's salt string; changing it breaks interoperability.
 constexpr char kSalt[] = "LKFrameEncryptionKey";
-/// AES-128-GCM: 16-byte key, 12-byte IV, 16-byte tag.
 constexpr int kKeyBytes = 16;
 // Accepted raw key lengths: element-call mints 16 bytes (matrix-js-sdk
 // RTCEncryptionManager), livekit-client 32; HKDF derives the same AES-128 key
@@ -28,14 +27,11 @@ bool isSupportedRawKeyLength(int size)
 }
 constexpr int kIvBytes = 12;
 constexpr int kTagBytes = 16;
-/// { IV length, key index }.
 constexpr int kTrailerBytes = 2;
 /// HKDF `info` is 128 zero bytes in the reference (`new ArrayBuffer(128)`),
 /// not empty; an empty info derives a different key.
 constexpr int kInfoBytes = 128;
 
-/// Best-effort zeroing before release (the allocator may already have
-/// copied).
 void scrub(QByteArray &key)
 {
     if (key.isEmpty())
@@ -52,7 +48,7 @@ void writeBigEndian32(unsigned char *out, quint32 value)
     out[2] = static_cast<unsigned char>((value >> 8) & 0xFF);
     out[3] = static_cast<unsigned char>(value & 0xFF);
 }
-} // namespace
+}
 
 int CallFrameCryptor::headerBytes(FrameKind kind)
 {
@@ -60,7 +56,7 @@ int CallFrameCryptor::headerBytes(FrameKind kind)
     case FrameKind::Audio:      return 1;
     case FrameKind::VideoKey:   return 10;
     case FrameKind::VideoDelta: return 3;
-    case FrameKind::VideoH264:  return 5; // the shortest start code + 2
+    case FrameKind::VideoH264:  return 5;
     }
     return 1;
 }
@@ -136,43 +132,31 @@ struct BitWriter {
     }
 };
 
-/// `sps` (NAL header included) with its VUI replaced by the one libwebrtc would
-/// write, or `sps` as it is when it cannot be read.
-///
-/// A receiving libwebrtc rewrites any SPS without a bitstream restriction, to
-/// stop the decoder buffering, BEFORE the frame reaches the decryptor
-/// (SpsVuiRewriter, Direction::kIncoming). The SPS is inside the authenticated
-/// header, so the rewrite fails every tag. A browser's own sender has already
-/// rewritten it (Direction::kOutgoing); this is that step. The other VUI fields
-/// are dropped rather than parsed: timing means nothing to a call, and a
-/// full-range signal would be lost, which the ladder's encoders do not send
-/// for the limited-range NV12 and RGBA input they get.
 QByteArray spsWithBitstreamRestriction(const QByteArray &sps)
 {
     if (sps.size() < 4)
         return sps;
     const QByteArray rbsp = parseRbsp(sps.sliced(1));
     BitReader in{rbsp};
-    in.bit = 24; // profile_idc, constraints, level_idc
+    in.bit = 24;
     const int profile = static_cast<unsigned char>(rbsp.at(0));
-    in.ue(); // seq_parameter_set_id
-    // Only what a Constrained Baseline encoder can produce.
+    in.ue();
     if (profile != 66 && profile != 77)
         return sps;
-    in.ue(); // log2_max_frame_num_minus4
+    in.ue();
     const unsigned pocType = in.ue();
     if (pocType == 0)
         in.ue();
     else if (pocType != 2)
         return sps;
     const unsigned maxRefFrames = in.ue();
-    in.u1(); // gaps_in_frame_num_value_allowed_flag
-    in.ue(); // pic_width_in_mbs_minus1
-    in.ue(); // pic_height_in_map_units_minus1
-    if (in.u1() == 0) // frame_mbs_only_flag
+    in.u1();
+    in.ue();
+    in.ue();
+    if (in.u1() == 0)
         in.u1();
-    in.u1(); // direct_8x8_inference_flag
-    if (in.u1()) { // frame_cropping_flag
+    in.u1();
+    if (in.u1()) {
         for (int i = 0; i < 4; ++i)
             in.ue();
     }
@@ -182,26 +166,23 @@ QByteArray spsWithBitstreamRestriction(const QByteArray &sps)
     BitReader copy{rbsp};
     for (qsizetype i = 0; i < in.bit; ++i)
         out.u1(copy.u1());
-    out.u1(1); // vui_parameters_present_flag
+    out.u1(1);
     for (int i = 0; i < 4; ++i)
-        out.u1(0); // aspect ratio, overscan, video signal, chroma location
+        out.u1(0);
     for (int i = 0; i < 4; ++i)
-        out.u1(0); // timing, NAL HRD, VCL HRD, pic_struct
-    out.u1(1);     // bitstream_restriction_flag
-    out.u1(1);     // motion_vectors_over_pic_boundaries_flag
-    out.ue(0);     // max_bytes_per_pic_denom
-    out.ue(0);     // max_bits_per_mb_denom
-    out.ue(16);    // log2_max_mv_length_horizontal
-    out.ue(16);    // log2_max_mv_length_vertical
-    out.ue(0);     // max_num_reorder_frames
-    out.ue(maxRefFrames); // max_dec_frame_buffering
-    out.u1(1);     // rbsp_stop_one_bit
+        out.u1(0);
+    out.u1(1);
+    out.u1(1);
+    out.ue(0);
+    out.ue(0);
+    out.ue(16);
+    out.ue(16);
+    out.ue(0);
+    out.ue(maxRefFrames);
+    out.u1(1);
     return sps.first(1) + writeRbsp(out.out);
 }
 
-/// The frame as a receiver will rebuild it, up to `clear`: four-byte start
-/// codes, because a depacketizer writes those, and an SPS it would not rewrite.
-/// The clear header is authenticated, so any difference fails every tag.
 QByteArray withReceiverHeader(const QByteArray &frame, int clear)
 {
     const auto byteAt = [&frame](int at) {
@@ -211,8 +192,6 @@ QByteArray withReceiverHeader(const QByteArray &frame, int clear)
     out.reserve(frame.size() + 32);
     int i = 0;
     while (i < clear) {
-        // Any run of two or more zeros before a 1 is a start code; the extra
-        // zeros are `trailing_zero_8bits`, which no packetizer carries.
         int one = i;
         while (one < clear && byteAt(one) == 0)
             ++one;
@@ -246,7 +225,6 @@ QByteArray withReceiverHeader(const QByteArray &frame, int clear)
     return out;
 }
 
-// libwebrtc's and livekit-client's writeRbsp()/parseRbsp(), byte for byte.
 QByteArray writeRbsp(const QByteArray &in)
 {
     QByteArray out;
@@ -282,15 +260,13 @@ QByteArray parseRbsp(const QByteArray &in)
     }
     return out;
 }
-} // namespace
+}
 
 bool CallFrameCryptor::looksEncrypted(const char *wire, qsizetype size,
                                       FrameKind kind)
 {
     if (!wire)
         return false;
-    // The same checks decryptFrame() makes before indexing, derived from the
-    // same constants.
     const qsizetype floorBytes =
         headerBytes(kind) + kTagBytes + kIvBytes + kTrailerBytes;
     if (size < floorBytes)
@@ -298,9 +274,6 @@ bool CallFrameCryptor::looksEncrypted(const char *wire, qsizetype size,
     const int ivLength = static_cast<unsigned char>(wire[size - 2]);
     if (ivLength != kIvBytes)
         return false;
-    // With a 256-entry ring every byte is a legal index, so the IV-length byte
-    // is effectively the whole test; kept so reader and writer share one
-    // constant.
     const int keyIndex = static_cast<unsigned char>(wire[size - 1]);
     return keyIndex >= 0 && keyIndex < kKeyRingSize;
 }
@@ -308,11 +281,8 @@ bool CallFrameCryptor::looksEncrypted(const char *wire, qsizetype size,
 bool CallFrameCryptor::endsWithServerTrailer(const char *wire, qsizetype size,
                                              const QByteArray &trailer)
 {
-    // Not armed, or armed with something no accepted SFU would send.
     if (!wire || trailer.isEmpty() || trailer.size() > kMaxServerTrailerBytes)
         return false;
-    // Strictly longer than the trailer: a frame that is only the trailer
-    // carries no payload.
     if (size <= trailer.size())
         return false;
     return std::memcmp(wire + size - trailer.size(), trailer.constData(),
@@ -365,7 +335,6 @@ QByteArray CallFrameCryptor::deriveKey(const QByteArray &rawKey)
     if (!ctx)
         return {};
 
-    // info is 128 zero bytes — see kInfoBytes.
     unsigned char info[kInfoBytes];
     std::memset(info, 0, sizeof(info));
 
@@ -399,7 +368,6 @@ CallFrameCryptor::CallFrameCryptor() = default;
 bool CallFrameCryptor::setKey(int index, const QByteArray &rawKey)
 {
     QMutexLocker lock(&m_mutex);
-    // Remote input (a received key names its index): bound it first.
     if (index < 0 || index >= kKeyRingSize)
         return false;
     // Validate the input size, not just the derived one: HKDF accepts any
@@ -410,12 +378,10 @@ bool CallFrameCryptor::setKey(int index, const QByteArray &rawKey)
     const QByteArray derived = deriveKey(rawKey);
     if (derived.size() != kKeyBytes)
         return false;
-    // Most-recent order, so the cap evicts the oldest.
     m_keyOrder.removeOne(index);
     m_keyOrder.append(index);
     m_keys.insert(index, derived);
     while (m_keys.size() > kMaxKeysPerRing) {
-        // Never evict the key our own frames use.
         int victim = -1;
         for (const int candidate : std::as_const(m_keyOrder)) {
             if (candidate != m_currentIndex) {
@@ -435,7 +401,6 @@ bool CallFrameCryptor::setKey(int index, const QByteArray &rawKey)
 bool CallFrameCryptor::hasAnyKey() const
 {
     QMutexLocker lock(&m_mutex);
-    // Only setKey() inserts, and only usable keys.
     return !m_keys.isEmpty();
 }
 
@@ -451,7 +416,6 @@ bool CallFrameCryptor::hasKey(int index) const
     QMutexLocker lock(&m_mutex);
     if (index < 0 || index >= kKeyRingSize)
         return false;
-    // constFind, never operator[]: a lookup must not insert an empty slot.
     const auto it = m_keys.constFind(index);
     return it != m_keys.cend() && it.value().size() == kKeyBytes;
 }
@@ -474,8 +438,6 @@ QByteArray CallFrameCryptor::makeIvForTest(quint32 ssrc, quint32 rtpTimestamp,
     auto *out = reinterpret_cast<unsigned char *>(iv.data());
     writeBigEndian32(out, ssrc);
     writeBigEndian32(out + 4, rtpTimestamp);
-    // The reference computes `timestamp - (sendCount % 0xffff)` in JS doubles
-    // truncated to uint32; C++ unsigned wraparound gives the same 32 bits.
     writeBigEndian32(out + 8, rtpTimestamp - (sendCount % 0xffff));
     return iv;
 }
@@ -485,7 +447,6 @@ QByteArray CallFrameCryptor::ivFor(quint32 ssrc, quint32 rtpTimestamp)
     QMutexLocker lock(&m_mutex);
     auto it = m_sendCounts.find(ssrc);
     if (it == m_sendCounts.end()) {
-        // Random initial offset, as in the reference.
         it = m_sendCounts.insert(
             ssrc, QRandomGenerator::global()->bounded(0xffff));
     }
@@ -506,24 +467,19 @@ QByteArray CallFrameCryptor::encryptFrame(const QByteArray &frame,
                                           FrameKind kind, quint32 ssrc,
                                           quint32 rtpTimestamp)
 {
-    // Held for the whole frame so the ring cannot rotate between choosing the
-    // index and using the key; nested hasKey()/ivFor() re-enter the recursive
-    // mutex.
     QMutexLocker lock(&m_mutex);
     const bool h264 = kind == FrameKind::VideoH264;
     const int clear = h264 ? h264ClearBytes(frame.constData(), frame.size())
                            : headerBytes(kind);
     if (clear < 0 || frame.size() < clear)
-        return {}; // no slice, or too short for its header: refuse
+        return {};
     const QByteArray payload = h264 ? withReceiverHeader(frame, clear) : frame;
     const int header = h264 ? h264ClearBytes(payload.constData(), payload.size())
                             : clear;
     if (!hasKey(m_currentIndex))
-        return {}; // no key: the caller drops, never sends cleartext
+        return {};
 
     const QByteArray iv = ivFor(ssrc, rtpTimestamp);
-    // A (shared) copy rather than a reference into the hash, which a later
-    // insert could invalidate.
     const QByteArray key = m_keys.value(m_currentIndex);
 
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
@@ -543,8 +499,6 @@ QByteArray CallFrameCryptor::encryptFrame(const QByteArray &frame,
             == 1;
 
     if (ok) {
-        // The cleartext header is authenticated (AAD) but not encrypted: the
-        // SFU can route on it, and tampering fails the tag.
         int aadLen = 0;
         ok = EVP_EncryptUpdate(
                  ctx, nullptr, &aadLen,
@@ -583,7 +537,6 @@ QByteArray CallFrameCryptor::encryptFrame(const QByteArray &frame,
         return {};
     cipher.resize(cipherLen + finalLen);
 
-    // [header][ciphertext][tag][iv][trailer]
     out.reserve(header + cipher.size() + kTagBytes + kIvBytes + kTrailerBytes);
     out.append(payload.constData(), header);
     if (h264) {
@@ -623,8 +576,6 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &received,
                                           FrameKind kind,
                                           DecryptDiagnosis *why)
 {
-    // Local diagnosis written to `why` on every exit; `fail` is the only
-    // non-plaintext exit.
     DecryptDiagnosis diag;
     const auto fail = [&](DecryptFailure reason) {
         diag.reason = reason;
@@ -642,15 +593,12 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &received,
         : headerBytes(kind);
     if (header < 0)
         return fail(DecryptFailure::ShortWire);
-    // Everything below reads the frame as it was before RBSP escaping.
     const QByteArray wire = h264
         ? received.first(header) + parseRbsp(received.sliced(header))
         : received;
     if (wire.size() < header + kTagBytes + kIvBytes + kTrailerBytes)
         return fail(DecryptFailure::ShortWire);
 
-    // IV length and key index come from the remote trailer; validate both
-    // before using them as offsets.
     const int ivLength =
         static_cast<unsigned char>(wire.at(wire.size() - 2));
     const int keyIndex =
@@ -659,8 +607,6 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &received,
     if (ivLength != kIvBytes)
         return fail(DecryptFailure::BadIvLength);
     if (!hasKey(keyIndex))
-        // Nothing installed at the index this frame names (not a key
-        // mismatch). Drop.
         return fail(DecryptFailure::NoKeyForIndex);
 
     const int suffix = ivLength + kTrailerBytes;
@@ -712,7 +658,6 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &received,
     }
     int finalLen = 0;
     if (ok) {
-        // Tag verification happens here; a frame that fails is discarded.
         ok = EVP_DecryptFinal_ex(
                  ctx,
                  reinterpret_cast<unsigned char *>(plain.data()) + plainLen,
@@ -721,8 +666,6 @@ QByteArray CallFrameCryptor::decryptFrame(const QByteArray &received,
     }
     EVP_CIPHER_CTX_free(ctx);
     if (!ok)
-        // In practice a tag failure: the init calls only fail if OpenSSL
-        // itself is broken.
         return fail(DecryptFailure::AuthTag);
     plain.resize(plainLen + finalLen);
 

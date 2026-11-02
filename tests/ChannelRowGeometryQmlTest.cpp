@@ -1,12 +1,3 @@
-// Channels layout rows in real instantiated geometry. The presenter's row
-// chooser once missed a row kind, so group labels rendered as unclickable
-// room rows with no menu; only instantiated rows show that. Pinned:
-//   * each row kind reports a real height inside a width-assigned Loader, and
-//     the Loader adopts it (otherwise rows stack at y=0);
-//   * a channel row is clickable across its height;
-//   * a channel row carries the shared RoomActionsMenu, the same as the
-//     Classic row.
-// The chooser itself is pinned in NavigationLayoutContractTest.
 
 #include <QtTest/QtTest>
 
@@ -49,12 +40,6 @@ private:
         }
     };
 
-    // `body` is the component the Loader loads, as the presenter writes it: the
-    // row type with a width binding and no height. `withAppStub` is opt-in;
-    // the other cases run with `app` undefined, which the delegate guards
-    // against. The stub carries only `roomList`: without `app.settings`,
-    // refreshNotificationMode() returns early, so a case's literal
-    // `notificationMode:` is not overwritten.
     bool build(Harness &h, const QString &body, bool withAppStub = false)
     {
         h.engine = std::make_unique<QQmlEngine>();
@@ -136,8 +121,6 @@ Item {
         return true;
     }
 
-    // Each row kind has a real height, the Loader adopted it, and the row
-    // fills its given width.
     void checkRowHasGeometry(const QString &body, const char *label)
     {
         Harness h;
@@ -157,16 +140,11 @@ Item {
                      qPrintable(warning));
     }
 
-
     static QQuickItem *threadBadgeOf(QQuickItem *row)
     {
         return row->findChild<QQuickItem *>(QStringLiteral("threadUnreadBadge"));
     }
 
-    // The Classic row, instantiated by a ListView from model roles exactly as
-    // the room list gives them.
-    // Fixture knobs for the next buildClassicRow: the room's name, its bridge
-    // label, the two room-list settings and the list width.
     QString fxName = QStringLiteral("Room");
     QString fxNetworkLabel;
     bool fxBadges = true;
@@ -182,8 +160,6 @@ Item {
         QQuickItem *row = nullptr;
     };
 
-    // `membership`, `direct` and `inviter` shape an invitation row; the
-    // defaults are the joined room every other case uses.
     bool buildClassicRow(ClassicRow &h, int unread, int highlight, int kind,
                          const QString &membership = QStringLiteral("joined"),
                          bool direct = false,
@@ -275,11 +251,6 @@ Item {
         return h.row != nullptr;
     }
 
-
-    // ---- Space Home lobby ----
-    // SpaceLobby.qml draws SpaceManager::lobbySections: a root "Rooms" section,
-    // then one per subspace. Loads the real component with a fixture of that
-    // shape and measures overlaps a source scan cannot see.
     struct Lobby {
         QStringList warnings;
         std::unique_ptr<QQmlEngine> engine;
@@ -343,9 +314,6 @@ Item {
                          : QString());
     }
 
-    // `extra` is QML inserted into the SpaceLobby block. With `rebuildOnFold`
-    // the harness answers a fold as TimelinePane does: a new sections array,
-    // folded and without the Voz section, so the section count changes too.
     bool buildLobby(Lobby &h, bool subspaceCollapsed, bool canManage = true,
                     int width = 600, const QString &extra = QString(),
                     bool rebuildOnFold = false)
@@ -422,8 +390,6 @@ Rectangle {
         return QTest::qWaitForWindowExposed(h.window.get());
     }
 
-    // Repeater delegates are not always findChild-reachable; walk the visual
-    // tree.
     static void collect(QQuickItem *item, const QString &name,
                         QList<QQuickItem *> &out)
     {
@@ -449,7 +415,7 @@ Rectangle {
     }
     static bool contains(const QRectF &outer, const QRectF &inner)
     {
-        const qreal e = 0.5; // sub-pixel layout rounding
+        const qreal e = 0.5;
         return inner.left() >= outer.left() - e
                && inner.right() <= outer.right() + e
                && inner.top() >= outer.top() - e
@@ -509,7 +475,6 @@ Rectangle {
         return nullptr;
     }
 
-    // Builds a SpaceMemberChip at its own width (not the Loader's) named NAME.
     QQuickItem *buildSpaceMemberChip(Harness &h, const QString &name)
     {
         const QString body = QStringLiteral(R"(
@@ -561,10 +526,6 @@ private Q_SLOTS:
                             "group header");
     }
 
-    // Break-it B116: with a text scale above 100 the Channels
-    // rows must grow with it like Classic rows, and their heights must follow
-    // the scaled font so nothing clips. Each row kind is measured on its
-    // label's real pixel size and on the row height.
     void channelRowsFollowTheTextScale()
     {
         struct Case { const char *label; QString body; QString text; };
@@ -626,8 +587,6 @@ private Q_SLOTS:
         }
     }
 
-    // Lobby and Message Search rows are navigation, a different component that
-    // must still occupy its row.
     void navigationRowsHaveRealHeightInsideAWidthAssignedLoader()
     {
         checkRowHasGeometry(QStringLiteral(R"(
@@ -646,7 +605,6 @@ private Q_SLOTS:
                             "message search row");
     }
 
-    // A navigation row is clickable across its height.
     void aNavigationRowIsClickableAcrossItsHeight()
     {
         Harness h;
@@ -669,8 +627,6 @@ private Q_SLOTS:
         QCOMPARE(row->property("clicks").toInt(), 1);
     }
 
-    // A row is created before its name resolves and must still occupy its
-    // row, or the list collapses while populating.
     void aChannelRowWithNoNameYetStillOccupiesItsRow()
     {
         checkRowHasGeometry(QStringLiteral(R"(
@@ -681,7 +637,6 @@ private Q_SLOTS:
                             "nameless channel row");
     }
 
-    // A press on the row's centre reaches the row.
     void aChannelRowIsClickableAcrossItsHeight()
     {
         Harness h;
@@ -704,9 +659,6 @@ private Q_SLOTS:
         QCOMPARE(row->property("clicks").toInt(), 1);
     }
 
-    // The row menu is the Channels layout's whole action set (favourite, mark
-    // read/unread, notification mode, copy link, leave) and must be the
-    // shared component.
     void aChannelRowCarriesTheSharedActionsMenu()
     {
         Harness h;
@@ -718,9 +670,6 @@ private Q_SLOTS:
         })")));
         QQuickItem *row = h.item();
         QVERIFY(row);
-        // The menu is built on first use (building it per row made filter
-        // changes laggy), so drive the real entry point rather than look for a
-        // child that should not exist yet.
         QVERIFY2(row->findChild<QObject *>(QStringLiteral("channelContextMenu"))
                      == nullptr,
                  "the row builds its context menu eagerly");
@@ -732,13 +681,10 @@ private Q_SLOTS:
                  "the Channels row has no context menu, so favourite / mute / "
                  "mark read / copy link / leave are unreachable in that "
                  "layout");
-        // The shared component, so both layouts' menus stay in step.
         QVERIFY(QString::fromUtf8(menu->metaObject()->className())
                     .contains(QStringLiteral("RoomActionsMenu")));
     }
 
-    // A recycled row is another room: its bound menu must not stay open and
-    // quietly change target.
     void aRecycledRowClosesItsOpenMenu()
     {
         Harness h;
@@ -747,7 +693,7 @@ private Q_SLOTS:
             width: 300
             roomId: "!room:example.org"
             channelName: "alx"
-        })"), /*withAppStub=*/true));
+        })"),true));
         QQuickItem *row = h.item();
         QVERIFY(row);
         QVERIFY(QMetaObject::invokeMethod(row, "openContextMenu"));
@@ -759,10 +705,6 @@ private Q_SLOTS:
         QTRY_VERIFY(!menu->property("opened").toBool());
     }
 
-    // GitHub #28: the menu was the only thing a Channels invitation row
-    // offered, and its "Leave room" did nothing. An invitation's menu offers
-    // Accept and Reject instead, and each reaches the row's own signal; a
-    // joined row keeps Leave and offers neither.
     void anInvitationRowMenuOffersAcceptAndReject()
     {
         for (const bool invite : { true, false }) {
@@ -774,7 +716,7 @@ private Q_SLOTS:
             channelName: "alx"
             isInvite: %1
         })").arg(invite ? QStringLiteral("true") : QStringLiteral("false")),
-                          /*withAppStub=*/true));
+true));
             QQuickItem *row = h.item();
             QVERIFY(row);
             QVERIFY(QMetaObject::invokeMethod(row, "openContextMenu"));
@@ -807,10 +749,6 @@ private Q_SLOTS:
         }
     }
 
-
-    // "Invite people…" on the room row menu: offered for a joined room, gated
-    // on the SDK permission only where it is known (the open room), absent on
-    // invitations and DMs, and it reaches the row's own signal.
     void theRoomMenuOffersInviteWhereAllowed()
     {
         struct Case { bool invite; bool direct; QString open; bool can; bool shown; };
@@ -832,7 +770,7 @@ private Q_SLOTS:
             isDirect: %2
         })").arg(c.invite ? QStringLiteral("true") : QStringLiteral("false"),
                  c.direct ? QStringLiteral("true") : QStringLiteral("false")),
-                          /*withAppStub=*/true));
+true));
             QObject *info = h.appStub->property("roomInfo").value<QObject *>();
             QVERIFY(info);
             info->setProperty("roomId", c.open);
@@ -857,12 +795,6 @@ private Q_SLOTS:
         }
     }
 
-
-    // ---- Unread that only a thread holds ----
-    // A room's badge is cleared by reading its main timeline, but a thread
-    // reply only by opening the thread, so a room can stay unread with nothing
-    // in the main timeline to explain it. Both layouts draw a thread glyph (no
-    // number) in place of the plain count.
     void aChannelRowHeldUnreadByAThreadDrawsTheThreadGlyphNotACount()
     {
         Harness h;
@@ -875,7 +807,7 @@ private Q_SLOTS:
             hasUnread: true
             threadUnreadKind: 1
         })"),
-                         /*withAppStub=*/true));
+true));
         QQuickItem *row = h.item();
         QVERIFY(row);
         QQuickItem *badge = threadBadgeOf(row);
@@ -885,14 +817,11 @@ private Q_SLOTS:
         QCOMPARE(badge->property("label").toString(),
                  QStringLiteral("Unread in a thread"));
         QVERIFY2(row->property("threadOnly").toBool(), "row ignores the kind");
-        // The plain count pill must not also be drawn: a "3" would promise
-        // messages the main timeline does not have.
         const auto labels = row->findChildren<QQuickItem *>();
         for (QQuickItem *item : labels)
             QVERIFY2(!QString::fromLatin1(item->metaObject()->className())
                           .startsWith(QStringLiteral("UnreadBadge")),
                      "the plain unread pill is drawn beside the thread glyph");
-        // Geometry: inside the row, in x and y.
         const QRectF r = badge->mapRectToItem(
             row, QRectF(0, 0, badge->width(), badge->height()));
         QVERIFY2(QRectF(0, 0, row->width(), row->height()).contains(r),
@@ -913,7 +842,7 @@ private Q_SLOTS:
             hasUnread: true
             threadUnreadKind: 2
         })"),
-                         /*withAppStub=*/true));
+true));
         QQuickItem *badge = threadBadgeOf(h.item());
         QVERIFY(badge && badge->isVisible());
         QCOMPARE(badge->property("kind").toInt(), 2);
@@ -933,7 +862,7 @@ private Q_SLOTS:
                 unreadCount: 3
                 hasUnread: true
             })"),
-                             /*withAppStub=*/true));
+true));
             QQuickItem *badge = threadBadgeOf(h.item());
             QVERIFY2(!badge || !badge->isVisible(),
                      "plain unread was labelled as a thread");
@@ -950,7 +879,7 @@ private Q_SLOTS:
                 threadUnreadKind: 1
                 notificationMode: 2
             })"),
-                             /*withAppStub=*/true));
+true));
             QQuickItem *badge = threadBadgeOf(h.item());
             QVERIFY2(!badge || !badge->isVisible(),
                      "a muted room is silent, thread unread included");
@@ -977,10 +906,6 @@ private Q_SLOTS:
             QVERIFY2(!w.contains(QStringLiteral("ReferenceError")), qPrintable(w));
     }
 
-    // Break-it s03/s04: the invitation line shared its row with Accept and
-    // Reject, so at the room list's width it kept about 80 px and read
-    // "Room invitati…"; a DM invitation never said who sent it. It has the
-    // row's width now, names the inviter first, and the buttons sit below.
     void anInvitationRowNamesItsInviterInFull()
     {
         for (const bool direct : { true, false }) {
@@ -1014,8 +939,6 @@ private Q_SLOTS:
         }
     }
 
-    // The bridge chip never hides the room name (a "Google Messages (RCS)"
-    // chip once covered a whole name at the default list width).
     void aBridgeChipNeverHidesTheRoomName()
     {
         ClassicRow h;
@@ -1077,10 +1000,6 @@ private Q_SLOTS:
         QVERIFY(!badge || !badge->isVisible());
     }
 
-    // A muted favourite's star must not be drawn over the mute bell. The
-    // right-edge marks form an anchor chain (pill, call glyph, mute glyph,
-    // star) and the bell must be part of it. Only laid-out geometry shows the
-    // relationship between two anchor chains.
     void aMutedFavouriteDrawsItsStarClearOfTheBell()
     {
         Harness h;
@@ -1092,7 +1011,7 @@ private Q_SLOTS:
             isFavourite: true
             notificationMode: 2
         })"),
-                         /*withAppStub=*/true));
+true));
         QQuickItem *row = h.item();
         QVERIFY(row);
 
@@ -1103,8 +1022,6 @@ private Q_SLOTS:
         QVERIFY2(star != nullptr, "the row has no favourite star at all");
         QVERIFY2(bell != nullptr, "the row has no mute glyph at all");
 
-        // Preconditions: both marks must be shown, or the overlap check is
-        // vacuous.
         QVERIFY2(star->property("active").toBool(),
                  "the favourite star is not shown on a favourited row, so the "
                  "overlap assertion below would prove nothing");
@@ -1130,15 +1047,10 @@ private Q_SLOTS:
                          .arg(bellRect.left())
                          .arg(bellRect.right())));
 
-        // The star is left of the bell, which owns the rightmost slot.
         QVERIFY2(starRect.right() <= bellRect.left(),
                  "the favourite star is not left of the mute glyph");
     }
 
-    // A Space Home member chip is as wide as its name: a short name is never
-    // elided, only one past the 240 px cap. The row's side margins (4 + 10)
-    // once outgrew the 12 px the chip added, so every name lost 2 px and "cfa"
-    // read "c…" (live, 2026-09-30).
     void aSpaceMemberChipShowsAShortNameWhole()
     {
         const QStringList names = { QStringLiteral("cfa"), QStringLiteral("Alice"),
@@ -1151,8 +1063,6 @@ private Q_SLOTS:
             auto *label = chip->findChild<QQuickItem *>(
                 QStringLiteral("spaceMemberChipName"));
             QVERIFY(label);
-            // Until the row lays out, the label has its implicit width and
-            // could not be elided at all: wait for the avatar to push it right.
             QTRY_VERIFY(label->x() > 20);
             QCoreApplication::processEvents();
             QVERIFY2(!label->property("truncated").toBool(),
@@ -1176,18 +1086,11 @@ private Q_SLOTS:
         QVERIFY(label->property("truncated").toBool());
     }
 
-    // Sections stack, headers sit above their rows, every row is inside its
-    // section's card, and nothing in a row overlaps anything else.
-    // C-obs2: the lobby's toolbar was a RowLayout whose minimum is the sum of
-    // "ROOMS AND SPACES", Remove and Mark as (not) suggested (~400 px), so in
-    // a 760 px window (a 332 px column) every row of the Space home was laid
-    // out that wide and its right side ran past the pane. At the width the
-    // pane offers, nothing may end past it.
     void theLobbyToolbarWrapsInsteadOfWideningTheColumn()
     {
         Lobby h;
-        QVERIFY(buildLobby(h, /*subspaceCollapsed=*/false, /*canManage=*/true,
-                           /*width=*/332));
+        QVERIFY(buildLobby(h,false,true,
+332));
         auto *remove = h.lobby->findChild<QQuickItem *>(
             QStringLiteral("spaceChildRemoveSelectedButton"));
         auto *suggest = h.lobby->findChild<QQuickItem *>(
@@ -1207,13 +1110,11 @@ private Q_SLOTS:
                  qPrintable(QString::number(filter->width())));
     }
 
-    // L10: at a normal width the toolbar keeps its old look: the actions at
-    // the right edge and the title on the buttons' centre line.
     void theLobbyToolbarKeepsItsWideLookWhenThereIsRoom()
     {
         Lobby h;
-        QVERIFY(buildLobby(h, /*subspaceCollapsed=*/false, /*canManage=*/true,
-                           /*width=*/600));
+        QVERIFY(buildLobby(h,false,true,
+600));
         auto *suggest = h.lobby->findChild<QQuickItem *>(
             QStringLiteral("spaceChildSuggestToggleButton"));
         auto *remove = h.lobby->findChild<QQuickItem *>(
@@ -1225,7 +1126,6 @@ private Q_SLOTS:
         QVERIFY2(qAbs(end.x() - 600) < 1.5,
                  qPrintable(QStringLiteral("actions end at %1, not at the right edge")
                                 .arg(end.x())));
-        // One line: the title's centre is the Remove button's centre.
         const auto kids = toolbar->childItems();
         QQuickItem *title = nullptr;
         for (QQuickItem *kid : kids)
@@ -1247,7 +1147,7 @@ private Q_SLOTS:
     void theLobbySectionsAndRowsDoNotOverlap()
     {
         Lobby h;
-        QVERIFY(buildLobby(h, /*subspaceCollapsed=*/false));
+        QVERIFY(buildLobby(h,false));
         const auto sections = all(h.lobby, "spaceLobbySection");
         QCOMPARE(sections.size(), 3);
         for (int i = 1; i < sections.size(); ++i) {
@@ -1271,7 +1171,6 @@ private Q_SLOTS:
                                     .arg(i)));
         }
         const auto rows = all(h.lobby, "spaceUnifiedChildRow");
-        // 3 root rows + 3 in Comunidade; Voz is empty.
         QCOMPARE(rows.size(), 6);
         for (int i = 0; i < rows.size(); ++i) {
             QQuickItem *card = ancestorNamed(rows[i], "spaceLobbySectionCard");
@@ -1285,7 +1184,6 @@ private Q_SLOTS:
                              <= sceneRect(rows[i]).top() + 0.5,
                          "two rows in one section overlap");
             }
-        // Name and topic lines are both inside the row, one above the other.
             QList<QQuickItem *> name, topic;
             collect(rows[i], QStringLiteral("spaceLobbyRowName"), name);
             collect(rows[i], QStringLiteral("spaceLobbyRowTopic"), topic);
@@ -1298,7 +1196,6 @@ private Q_SLOTS:
                          "a row's topic is drawn over its name");
             }
         }
-        // A long name elides before the Join/open affordances.
         QQuickItem *longRow = rowNamed(h.lobby,
             QStringLiteral("A rather long room name that should elide before "
                            "the badges"));
@@ -1316,8 +1213,6 @@ private Q_SLOTS:
                      qPrintable(w));
     }
 
-    // A topic is attacker-writable room state: rendered as plain characters on
-    // one elided line, never rich text.
     void aLobbyTopicIsPlainTextOnOneLine()
     {
         Lobby h;
@@ -1334,13 +1229,11 @@ private Q_SLOTS:
         QVERIFY(topic.first()->property("text").toString().contains(
             QStringLiteral("<a href=")));
         QCOMPARE(topic.first()->property("lineCount").toInt(), 1);
-        // A row with no topic draws no empty second line.
         QQuickItem *deep = rowNamed(h.lobby, QStringLiteral("Deep"));
         QVERIFY(deep);
         QList<QQuickItem *> none;
         collect(deep, QStringLiteral("spaceLobbyRowTopic"), none);
         QVERIFY(none.isEmpty());
-        // An unjoined room shows its topic too.
         QQuickItem *offer = rowNamed(h.lobby, QStringLiteral("Unjoined room"));
         QVERIFY(offer);
         QList<QQuickItem *> offerTopic;
@@ -1350,11 +1243,10 @@ private Q_SLOTS:
                  QStringLiteral("Visible before joining"));
     }
 
-    // Rows and headers have accessible names, including membership.
     void lobbyRowsAndHeadersHaveAccessibleNames()
     {
         Lobby h;
-        QVERIFY(buildLobby(h, /*subspaceCollapsed=*/true));
+        QVERIFY(buildLobby(h,true));
         QQuickItem *general = rowNamed(h.lobby, QStringLiteral("General"));
         QQuickItem *offer = rowNamed(h.lobby, QStringLiteral("Unjoined room"));
         QVERIFY(general && offer);
@@ -1369,19 +1261,16 @@ private Q_SLOTS:
         QVERIFY(attached(headers[1], "name").contains(QStringLiteral("Comunidade")));
         QVERIFY(attached(headers[1], "name").contains(QStringLiteral("collapsed")));
         QVERIFY(attached(headers[2], "name").contains(QStringLiteral("expanded")));
-        // The selection box names its room.
         QList<QQuickItem *> boxes;
         collect(general, QStringLiteral("spaceChildSelectBox"), boxes);
         QCOMPARE(boxes.size(), 1);
         QVERIFY(attached(boxes.first(), "name").contains(QStringLiteral("General")));
     }
 
-    // Folding is data: a folded section gets no rows, and its header still
-    // shows unread activity inside.
     void aFoldedLobbySectionBuildsNoRows()
     {
         Lobby h;
-        QVERIFY(buildLobby(h, /*subspaceCollapsed=*/true));
+        QVERIFY(buildLobby(h,true));
         const auto sections = all(h.lobby, "spaceLobbySection");
         QCOMPARE(sections.size(), 3);
         QList<QQuickItem *> rowsInFolded;
@@ -1389,16 +1278,12 @@ private Q_SLOTS:
                 rowsInFolded);
         QVERIFY(rowsInFolded.isEmpty());
         QCOMPARE(all(h.lobby, "spaceUnifiedChildRow").size(), 3);
-        // Sections below stack under the folded header.
         QVERIFY(sceneRect(sections[1]).bottom()
                 <= sceneRect(sections[2]).top() + 0.5);
-        // The folded header shows unread inside.
         QVERIFY(firstIn(sections[1], "spaceLobbyFoldedUnread"));
         QVERIFY(!firstIn(sections[2], "spaceLobbyFoldedUnread"));
     }
 
-    // Every sync hands the lobby a new array; that must not close an open
-    // section menu, which follows its section by id.
     void aRebuildKeepsTheSectionMenuOpen()
     {
         Lobby h;
@@ -1416,13 +1301,10 @@ private Q_SLOTS:
                               .toPoint());
         QTRY_VERIFY(menu->property("opened").toBool());
 
-        // Same content, new array.
         QVERIFY(runJs(h, QStringLiteral(
             "lobbyUnderTest.sections = JSON.parse(JSON.stringify(expandedData))")));
         QVERIFY2(menu->property("opened").toBool(),
                  "a rebuild closed the open section menu");
-        // A different count (Voz gone, Comunidade folded): still open, still
-        // aimed at Comunidade.
         QVERIFY(runJs(h, QStringLiteral(
             "lobbyUnderTest.sections = JSON.parse(JSON.stringify(foldedData))")));
         QVERIFY(menu->property("opened").toBool());
@@ -1437,7 +1319,6 @@ private Q_SLOTS:
                      .contains(QStringLiteral("space:!subA:x;")),
                  qPrintable(h.root->property("log").toString()));
 
-        // Its section gone: the menu closes.
         QVERIFY(runJs(h, QStringLiteral(
             "lobbyUnderTest.sections = JSON.parse(JSON.stringify(expandedData))")));
         QMetaObject::invokeMethod(menu, "open");
@@ -1447,13 +1328,11 @@ private Q_SLOTS:
         QTRY_VERIFY(!menu->property("opened").toBool());
     }
 
-    // Folding from the keyboard twice keeps focus on the header, though each
-    // fold produces a new array with a different section count.
     void keyboardFoldTwiceKeepsFocus()
     {
         Lobby h;
         QVERIFY(buildLobby(h, false, true, 600, QString(),
-                           /*rebuildOnFold=*/true));
+true));
         QVERIFY(QTest::qWaitForWindowActive(h.window.get()));
         auto header = [&] {
             return firstIn(sectionWithId(h.lobby, QStringLiteral("!subA:x")),
@@ -1472,8 +1351,6 @@ private Q_SLOTS:
                  QStringLiteral("fold:!subA:x:true;fold:!subA:x:false;"));
     }
 
-    // Until /hierarchy answers, the lobby says it is loading, not "No rooms
-    // yet".
     void aLobbyWaitingForHierarchySaysLoading()
     {
         Lobby h;
@@ -1485,11 +1362,9 @@ private Q_SLOTS:
         QVERIFY(empty);
         QCOMPARE(empty->property("text").toString(),
                  QStringLiteral("Loading rooms…"));
-        // A section that has answered still says it is empty.
         QVERIFY(runJs(h, QStringLiteral("lobbyUnderTest.loadingIds = ({})")));
         QCOMPARE(empty->property("text").toString(),
                  QStringLiteral("No rooms yet"));
-        // And the whole-lobby empty card for the Home.
         QVERIFY(runJs(h, QStringLiteral(
             "lobbyUnderTest.sections = []; lobbyUnderTest.homeLoading = true")));
         QQuickItem *title = nullptr;
@@ -1501,9 +1376,6 @@ private Q_SLOTS:
                  QStringLiteral("Loading rooms…"));
     }
 
-    // Taps: a joined row opens; its selection box selects without opening; an
-    // unjoined row acts only through Join; a header folds its section; only
-    // the Home's direct children offer a selection box.
     void lobbyTapsReachTheRightTarget()
     {
         Lobby h;
@@ -1535,14 +1407,11 @@ private Q_SLOTS:
         QVERIFY(deep);
         click(deep, QPointF(80, deep->height() / 2));
         QVERIFY(log().endsWith(QStringLiteral("space:!deep:x;")));
-        // A subspace's room is not the Home's to remove: no selection box.
         QList<QQuickItem *> deepBoxes;
         collect(deep, QStringLiteral("spaceChildSelectBox"), deepBoxes);
         QVERIFY(deepBoxes.isEmpty());
 
         const auto headers = all(h.lobby, "spaceLobbySectionHeader");
-        // The header's select box selects the subspace and its menu button
-        // opens the menu; neither folds it.
         QQuickItem *headerBox = firstIn(headers[1], "spaceChildSelectBox");
         QVERIFY(headerBox);
         click(headerBox, QPointF(headerBox->width() / 2,
@@ -1568,8 +1437,6 @@ private Q_SLOTS:
                  qPrintable(log()));
     }
 
-    // Writes the lobby as rendered offscreen for review. Opt-in via
-    // LIGHTNING_LOBBY_SHOT_DIR; a picture is not an assertion.
     void lobbySnapshotForReview()
     {
         const QString dir = qEnvironmentVariable("LIGHTNING_LOBBY_SHOT_DIR");

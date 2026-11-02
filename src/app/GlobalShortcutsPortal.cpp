@@ -34,8 +34,6 @@ constexpr auto kRequest = "org.freedesktop.portal.Request";
 constexpr auto kSession = "org.freedesktop.portal.Session";
 constexpr auto kHostRegistry = "org.freedesktop.host.portal.Registry";
 
-/// Bounded: the probe and the two calls only name a Request, so a portal that
-/// does not answer them is not one that is showing a dialog.
 constexpr int kCallTimeoutMs = 10000;
 
 QString freshToken()
@@ -44,7 +42,6 @@ QString freshToken()
         .arg(QRandomGenerator::system()->generate64(), 0, 16);
 }
 
-/// One entry of BindShortcuts' `a(sa{sv})`.
 struct PortalShortcut
 {
     QString id;
@@ -67,14 +64,12 @@ const QDBusArgument &operator>>(const QDBusArgument &arg, PortalShortcut &s)
     return arg;
 }
 #endif
-} // namespace
+}
 
 #ifdef HAVE_QT_DBUS
 Q_DECLARE_METATYPE(PortalShortcut)
 Q_DECLARE_METATYPE(QList<PortalShortcut>)
 
-/// Delivers one Request's `Response` once. Same shape as the camera portal's
-/// step, which `portal::subscribeBeforeCall` is written against.
 class GlobalShortcutsStep : public QObject
 {
     Q_OBJECT
@@ -94,7 +89,6 @@ public:
     }
 
 Q_SIGNALS:
-    /// response: 0 = granted, 1 = user declined, 2 = ended some other way.
     void answered(uint response, const QVariantMap &results);
 
 private Q_SLOTS:
@@ -117,8 +111,6 @@ QStringList GlobalShortcutsPortal::actionIds()
 }
 
 namespace {
-/// The shortcuts spec names a key by its XKB keysym name. Empty for a key
-/// it cannot express; the desktop then proposes nothing and the user picks.
 QString xkbKeyName(int key)
 {
     if (key >= Qt::Key_A && key <= Qt::Key_Z)
@@ -161,7 +153,7 @@ QString xkbKeyName(int key)
     default: return {};
     }
 }
-} // namespace
+}
 
 QString GlobalShortcutsPortal::portalTrigger(const QString &portableText)
 {
@@ -198,7 +190,6 @@ GlobalShortcutsPortal::GlobalShortcutsPortal(ShortcutRegistry *registry,
 
 GlobalShortcutsPortal::~GlobalShortcutsPortal()
 {
-    // No stateChanged: the object is going away and a receiver may be too.
     teardown();
 }
 
@@ -336,7 +327,6 @@ void GlobalShortcutsPortal::probeVersion(int generation)
                                        "GNOME 48 or newer, or Hyprland."));
                     return;
                 }
-                // Properties.Get wraps the value in a variant.
                 const QVariant value = reply.arguments().first();
                 m_version = qvariant_cast<QDBusVariant>(value)
                                 .variant().toUInt();
@@ -348,10 +338,6 @@ void GlobalShortcutsPortal::probeVersion(int generation)
 
 void GlobalShortcutsPortal::registerApp(int generation)
 {
-    // A launch outside a desktop-entry scope (a terminal, an AppImage) gives
-    // the portal no app id, and KDE and GNOME may then refuse the session.
-    // The host portal lets a client name itself; a sandbox's portal already
-    // knows who it is. Best effort: any error, or no such interface, goes on.
     QString appId = QGuiApplication::desktopFileName();
     if (appId.endsWith(QLatin1String(".desktop")))
         appId.chop(8);
@@ -384,8 +370,6 @@ void GlobalShortcutsPortal::createSession(int generation)
         const QString handle = results.value(QStringLiteral("session_handle"))
                                    .toString();
         if (generation != m_generation) {
-            // Turned off (or on again) while the portal was thinking: close
-            // what it made rather than leave a session nobody owns.
             if (response == 0 && !handle.isEmpty())
                 closeSession(handle);
             return;
@@ -453,7 +437,6 @@ void GlobalShortcutsPortal::bindShortcuts(int generation)
         if (generation != m_generation)
             return;
         if (response == 0) {
-            // A granted request can still have bound nothing.
             const QVariant bound = results.value(QStringLiteral("shortcuts"));
             const QList<PortalShortcut> list =
                 bound.canConvert<QDBusArgument>()
@@ -483,7 +466,7 @@ void GlobalShortcutsPortal::bindShortcuts(int generation)
         QLatin1String(kInterface), QStringLiteral("BindShortcuts"));
     call << QVariant::fromValue(QDBusObjectPath(m_sessionHandle))
          << QVariant::fromValue(shortcuts)
-         << QString() // parent_window: none, we have no portal window handle
+         << QString()
          << QVariantMap{ { QStringLiteral("handle_token"), token } };
     auto *watcher = new QDBusPendingCallWatcher(
         QDBusConnection::sessionBus().asyncCall(call, kCallTimeoutMs), this);
@@ -509,7 +492,6 @@ void GlobalShortcutsPortal::closeSession(const QString &handle)
     QDBusMessage close = QDBusMessage::createMethodCall(
         QLatin1String(kService), handle, QLatin1String(kSession),
         QStringLiteral("Close"));
-    // Fire and forget: the answer changes nothing we do next.
     QDBusConnection::sessionBus().asyncCall(close, kCallTimeoutMs);
 }
 
@@ -518,8 +500,6 @@ void GlobalShortcutsPortal::subscribeSession()
     if (m_subscribed)
         return;
     auto bus = QDBusConnection::sessionBus();
-    // Empty service on purpose: the portal's unique name is not the well-known
-    // one, and the session handle in each signal is what identifies ours.
     bus.connect(QString(), QLatin1String(kPath), QLatin1String(kInterface),
                 QStringLiteral("Activated"), this,
                 SLOT(onPortalActivated(QDBusObjectPath, QString, qulonglong,
@@ -557,7 +537,6 @@ void GlobalShortcutsPortal::onPortalActivated(const QDBusObjectPath &session,
                                               const QString &shortcutId,
                                               qulonglong, const QVariantMap &)
 {
-    // Another client's session sees the same broadcast signal.
     if (m_state != Active || session.path() != m_sessionHandle
         || !actionIds().contains(shortcutId))
         return;
@@ -600,8 +579,6 @@ void GlobalShortcutsPortal::onPortalOwnerChanged(const QString &,
 
 void GlobalShortcutsPortal::onSessionClosed(const QVariantMap &)
 {
-    // The desktop ended it (portal restarted, or the user revoked it in
-    // system settings). The handle is dead, so there is nothing to Close.
     qCInfo(lcGlobalShortcuts) << "portal closed the session";
     unsubscribeSession();
     m_sessionHandle.clear();

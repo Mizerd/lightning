@@ -7,9 +7,6 @@
 
 class MatrixClient;
 
-// Personal moderation: ignored users (m.ignored_user_list account data) and
-// message reporting. The account data is the only source of truth; the cached
-// set keeps isIgnored() cheap and is cleared on sign-out.
 class ModerationController : public QObject
 {
     Q_OBJECT
@@ -17,9 +14,7 @@ class ModerationController : public QObject
     Q_PROPERTY(bool reportSupported READ reportSupported NOTIFY stateChanged)
     Q_PROPERTY(QStringList ignoredUsers READ ignoredUsers NOTIFY stateChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
-    // Reference in bindings that call isIgnored(), which QML cannot track.
     Q_PROPERTY(int revision READ revision NOTIFY stateChanged)
-    // Drives the single report dialog instance.
     Q_PROPERTY(bool reportPromptActive READ reportPromptActive NOTIFY reportPromptChanged)
 
 public:
@@ -52,10 +47,8 @@ public:
 Q_SIGNALS:
     void stateChanged();
     void reportPromptChanged();
-    // Terminal outcome of an ignore/unignore write.
     void ignoreActionFinished(const QString &userId, bool ignored, bool ok,
                               const QString &message);
-    // Terminal outcome of a report submission.
     void reportFinished(bool ok, const QString &message);
 
 private Q_SLOTS:

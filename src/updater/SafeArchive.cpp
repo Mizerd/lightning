@@ -18,8 +18,6 @@
 namespace updater {
 namespace {
 
-// --- little-endian readers -------------------------------------------------
-
 quint16 readU16(const QByteArray &data, int offset)
 {
     return static_cast<quint16>(static_cast<quint8>(data.at(offset)))
@@ -33,12 +31,6 @@ quint32 readU32(const QByteArray &data, int offset)
          | (static_cast<quint32>(static_cast<quint8>(data.at(offset + 2))) << 16)
          | (static_cast<quint32>(static_cast<quint8>(data.at(offset + 3))) << 24);
 }
-
-// --- CRC-32 (IEEE), implemented locally so stored entries verify even in a
-// build without zlib. This is a checksum, not a security primitive: it proves
-// the archive is intact, never that it is authentic. Authenticity is the
-// Ed25519 manifest signature plus the SHA-256 the downloader already checked
-// before the helper ever saw this file. ------------------------------------
 
 quint32 crc32Update(quint32 crc, const char *data, qsizetype length)
 {
@@ -58,8 +50,6 @@ quint32 crc32Update(quint32 crc, const char *data, qsizetype length)
         crc = table[(crc ^ static_cast<quint8>(data[i])) & 0xFFu] ^ (crc >> 8);
     return crc ^ 0xFFFFFFFFu;
 }
-
-// --- path helpers ----------------------------------------------------------
 
 constexpr int kHardMaxNameLength = 512;
 constexpr int kHardMaxPathDepth = 32;
@@ -119,7 +109,7 @@ struct CentralEntry {
     }
     quint16 unixMode() const
     {
-        if ((versionMadeBy >> 8) != 3) // 3 == Unix
+        if ((versionMadeBy >> 8) != 3)
             return 0;
         return static_cast<quint16>((externalAttributes >> 16) & 0xFFFFu);
     }
@@ -142,11 +132,7 @@ ArchiveResult archiveFail(ArchiveError error, const QString &message,
     return result;
 }
 
-} // namespace
-
-// ---------------------------------------------------------------------------
-// Verdict names
-// ---------------------------------------------------------------------------
+}
 
 const char *archivePathVerdictName(ArchivePathVerdict verdict)
 {
@@ -199,10 +185,6 @@ const char *archiveErrorName(ArchiveError error)
     return "unknown";
 }
 
-// ---------------------------------------------------------------------------
-// checkArchivePath — the pure core
-// ---------------------------------------------------------------------------
-
 ArchivePathVerdict checkArchivePath(const QString &entryName,
                                     const QString &stagingRoot)
 {
@@ -223,7 +205,6 @@ ArchivePathVerdict checkArchivePath(const QString &entryName,
     if (entryName.size() > kHardMaxNameLength)
         return ArchivePathVerdict::TooLong;
 
-    // UNC forms, in both separator styles, before any other absolute check.
     if (entryName.startsWith(QLatin1String("//"))
         || entryName.startsWith(QLatin1String("\\\\")))
         return ArchivePathVerdict::UncPath;
@@ -240,15 +221,12 @@ ArchivePathVerdict checkArchivePath(const QString &entryName,
     if (entryName.startsWith(QLatin1Char('\\')))
         return ArchivePathVerdict::BackslashSeparator;
 
-    // ZIP names use '/' exclusively. A backslash anywhere is either a
-    // Windows-style separator smuggled past a '/'-only check, or a literal
-    // backslash in a filename — both are refused rather than interpreted.
     if (entryName.contains(QLatin1Char('\\')))
         return ArchivePathVerdict::BackslashSeparator;
 
     QString normalised = entryName;
     if (normalised.endsWith(QLatin1Char('/')))
-        normalised.chop(1); // a directory entry's trailing separator
+        normalised.chop(1);
     if (normalised.isEmpty())
         return ArchivePathVerdict::EmptyName;
 
@@ -270,10 +248,6 @@ ArchivePathVerdict checkArchivePath(const QString &entryName,
             return ArchivePathVerdict::ReservedDeviceName;
     }
 
-    // Final containment check against the (canonicalised where possible)
-    // staging root. Everything above already forbids the constructs that make
-    // this escape, so a failure here means a case we did not anticipate —
-    // which is exactly why the check stays.
     const QString root = containmentRoot(stagingRoot);
     if (root.isEmpty())
         return ArchivePathVerdict::InvalidRoot;
@@ -314,7 +288,7 @@ bool pathTraversesSymlink(const QString &root, const QString &path)
                                ? cleanRoot
                                : cleanRoot + QLatin1Char('/');
     if (!cleanPath.startsWith(prefix, pathCaseSensitivity()))
-        return true; // outside the root at all: treat as unsafe
+        return true;
 
     const QString relative = cleanPath.mid(prefix.size());
     QString walked = cleanRoot;
@@ -339,15 +313,11 @@ bool deflateSupportAvailable()
 #endif
 }
 
-// ---------------------------------------------------------------------------
-// ZIP reading
-// ---------------------------------------------------------------------------
-
 namespace {
 
 struct CentralDirectory {
     QList<CentralEntry> entries;
-    ArchiveResult failure; // ok() when parsing succeeded
+    ArchiveResult failure;
 };
 
 CentralDirectory readCentralDirectory(QFile &file, const ArchiveLimits &limits)
@@ -366,8 +336,6 @@ CentralDirectory readCentralDirectory(QFile &file, const ArchiveLimits &limits)
         return out;
     }
 
-    // The end-of-central-directory record lives in the last 22 bytes plus an
-    // optional comment of up to 65535 bytes.
     const qint64 tailSize = qMin<qint64>(fileSize, 22 + 65535);
     if (!file.seek(fileSize - tailSize)) {
         out.failure = archiveFail(ArchiveError::Truncated,
@@ -482,9 +450,6 @@ CentralDirectory readCentralDirectory(QFile &file, const ArchiveLimits &limits)
         }
 
         const QByteArray rawName = cd.mid(offset + 46, nameLen);
-        // Bit 11 of the general purpose flags declares a UTF-8 name. Anything
-        // else is decoded as Latin-1, which round-trips the ASCII names our
-        // own packaging produces without inventing a code page.
         entry.name = (entry.flags & 0x0800u) ? QString::fromUtf8(rawName)
                                              : QString::fromLatin1(rawName);
         out.entries.append(entry);
@@ -494,8 +459,6 @@ CentralDirectory readCentralDirectory(QFile &file, const ArchiveLimits &limits)
     return out;
 }
 
-// Validates one entry's declared metadata (not its path). Returns an ok()
-// result when the entry may proceed.
 ArchiveResult validateEntryMetadata(const CentralEntry &entry,
                                     const ArchiveLimits &limits,
                                     qint64 totalSoFar)
@@ -544,9 +507,6 @@ ArchiveResult validateEntryMetadata(const CentralEntry &entry,
     return ArchiveResult();
 }
 
-// Positions `file` at the start of the entry's compressed payload, using the
-// LOCAL header only to learn how many bytes of name/extra to skip. Sizes and
-// the CRC always come from the central directory.
 bool seekToEntryData(QFile &file, const CentralEntry &entry, QString *error)
 {
     if (!file.seek(entry.localHeaderOffset)) {
@@ -579,8 +539,6 @@ bool seekToEntryData(QFile &file, const CentralEntry &entry, QString *error)
 
 using SinkFn = std::function<bool(const char *, qsizetype)>;
 
-// Streams the entry payload through `sink`, enforcing the caps as it goes and
-// verifying the CRC-32 at the end.
 ArchiveResult streamEntry(QFile &file, const CentralEntry &entry,
                           const ArchiveLimits &limits, const SinkFn &sink,
                           qint64 *bytesOut)
@@ -589,8 +547,6 @@ ArchiveResult streamEntry(QFile &file, const CentralEntry &entry,
     quint32 crc = 0;
     qint64 produced = 0;
 
-    // A genuinely empty member: nothing to read, nothing to inflate. The CRC
-    // of no bytes is 0, and anything else means the entry is lying.
     if (entry.compressedSize == 0 && entry.uncompressedSize == 0) {
         if (entry.crc != 0)
             return archiveFail(ArchiveError::ChecksumMismatch,
@@ -726,7 +682,7 @@ ArchiveResult streamEntry(QFile &file, const CentralEntry &entry,
     return ArchiveResult();
 }
 
-} // namespace
+}
 
 ArchiveResult listZipEntries(const QString &zipPath, const QString &stagingRoot,
                              QStringList *outNames, const ArchiveLimits &limits)
@@ -831,9 +787,6 @@ ArchiveResult extractZipSafely(const QString &zipPath, const QString &stagingRoo
             return archiveFail(ArchiveError::WriteFailed,
                                QStringLiteral("cannot create the parent directory"),
                                entry.name);
-        // Even though symlink ENTRIES are refused, re-check the realised path:
-        // it is the only way to be sure nothing already present in the staging
-        // tree redirects the write.
         if (pathTraversesSymlink(stagingRoot, destination))
             return archiveFail(ArchiveError::SymlinkEntryRejected,
                                QStringLiteral("destination traverses a symbolic link"),
@@ -881,4 +834,4 @@ ArchiveResult extractZipSafely(const QString &zipPath, const QString &stagingRoo
     return result;
 }
 
-} // namespace updater
+}

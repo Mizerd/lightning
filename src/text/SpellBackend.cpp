@@ -29,13 +29,11 @@ QString spellTagToPosix(const QString &tag)
 
 namespace {
 
-// Tags to try in order: "en_GB", then "en", since distributions commonly ship
-// only one of the two.
 [[maybe_unused]] QStringList candidateTags(const QString &preferred)
 {
     QString wanted = spellTagToPosix(preferred);
     if (wanted.isEmpty())
-        wanted = QLocale::system().name(); // "en_GB"
+        wanted = QLocale::system().name();
 
     QStringList tags;
     if (!wanted.isEmpty() && wanted != QLatin1String("C")) {
@@ -44,8 +42,6 @@ namespace {
         if (sep > 0)
             tags << wanted.left(sep);
     }
-    // English as a last resort for the system preference only; an explicit
-    // choice is never silently checked against another language.
     if (preferred.isEmpty()) {
         if (!tags.contains(QStringLiteral("en_US")))
             tags << QStringLiteral("en_US");
@@ -61,17 +57,12 @@ namespace {
         *failure = QString::fromLatin1(reason);
 }
 
-} // namespace
+}
 
-// ---------------------------------------------------------------------------
-// Windows: the operating system's own spell checker.
-// ---------------------------------------------------------------------------
 #if defined(Q_OS_WIN)
 
 #include <windows.h>
 
-// Guarded so a toolchain without <spellcheck.h> still builds; the backend is
-// then absent and `--spell-status` reports it.
 #if defined(__has_include)
 #  if __has_include(<spellcheck.h>)
 #    define LIGHTNING_HAVE_WIN_SPELLCHECK 1
@@ -83,17 +74,11 @@ namespace {
 
 namespace {
 
-// CLSID_SpellCheckerFactory, written out (it matches mingw-w64's
-// spellcheck.h): DEFINE_GUID only declares the symbol without INITGUID, and
-// INITGUID would emit every GUID in every included header. The interface ids
-// come from the header through IID_PPV_ARGS.
 const CLSID kSpellCheckerFactoryClsid = {
     0x7ab36653, 0x1796, 0x484b,
     { 0xbd, 0xfa, 0xe7, 0x4f, 0x1d, 0xb7, 0xc1, 0xdc }
 };
 
-// ISpellChecker is apartment-threaded; it is only used on the thread that
-// created it. Per-word checks are cheap and cached by SpellChecker.
 class WindowsSpellBackend final : public SpellBackend
 {
 public:
@@ -107,8 +92,6 @@ public:
             CoUninitialize();
     }
 
-    // False when no candidate tag has a checker, which is normal without an
-    // installed proofing language.
     bool open(const QStringList &tags, SpellBackendFailure *failure)
     {
         // Initialise COM ourselves: in the app the QPA plugin already has
@@ -128,7 +111,6 @@ public:
         }
         readSupportedLanguages();
         for (const QString &tag : tags) {
-            // Windows wants a BCP-47 tag ("en-GB"), not the POSIX spelling.
             const QString bcp47 = spellTagToBcp47(tag);
             const std::wstring wide = bcp47.toStdWString();
             BOOL supported = FALSE;
@@ -156,7 +138,6 @@ public:
         if (FAILED(m_checker->Check(wide.c_str(), &errors)) || !errors)
             return true;
         ISpellingError *error = nullptr;
-        // One error is enough; release both interfaces either way.
         const bool wrong = (errors->Next(&error) == S_OK) && error != nullptr;
         if (error)
             error->Release();
@@ -180,16 +161,13 @@ public:
             out << QString::fromWCharArray(item);
             CoTaskMemFree(item);
             item = nullptr;
-            if (out.size() >= 16) // bounded: this feeds a context menu
+            if (out.size() >= 16)
                 break;
         }
         suggestions->Release();
         return out;
     }
 
-    // Windows' own autocorrect list: an error whose corrective action is
-    // REPLACE carries the one replacement Windows itself would apply
-    // ("teh" -> "the"). GET_SUGGESTIONS errors are not corrections.
     QString autoCorrection(const QString &word) const override
     {
         if (!m_checker)
@@ -204,8 +182,6 @@ public:
             CORRECTIVE_ACTION action = CORRECTIVE_ACTION_NONE;
             ULONG start = 0;
             ULONG length = 0;
-            // The error must cover the whole word, or the replacement is for
-            // a part of it.
             if (SUCCEEDED(error->get_CorrectiveAction(&action))
                 && action == CORRECTIVE_ACTION_REPLACE
                 && SUCCEEDED(error->get_StartIndex(&start))
@@ -253,7 +229,7 @@ private:
     bool m_ownsComInit = false;
 };
 
-} // namespace
+}
 
 std::unique_ptr<SpellBackend> createPlatformSpellBackend(
     const QString &preferredLanguage, SpellBackendFailure *failure,
@@ -270,7 +246,7 @@ std::unique_ptr<SpellBackend> createPlatformSpellBackend(
 
 bool platformSpellEngineCompiledIn() { return true; }
 
-#else // no <spellcheck.h>
+#else
 
 std::unique_ptr<SpellBackend> createPlatformSpellBackend(
     const QString &, SpellBackendFailure *failure, QStringList *)
@@ -281,21 +257,14 @@ std::unique_ptr<SpellBackend> createPlatformSpellBackend(
 
 bool platformSpellEngineCompiledIn() { return false; }
 
-#endif // LIGHTNING_HAVE_WIN_SPELLCHECK
+#endif
 
-// Windows autocorrects a hardware keyboard only when the user turns it on
-// (Settings > Time & language > Typing), and offers no API to read that
-// switch, so Lightning's default is off.
 bool platformAutocorrectDefault() { return false; }
 
-// ---------------------------------------------------------------------------
-// Linux / BSD: enchant-2, resolved at runtime.
-// ---------------------------------------------------------------------------
 #elif defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
 
 namespace {
 
-// Resolved at runtime through QLibrary, so enchant is not a build dependency.
 struct EnchantApi
 {
     using BrokerInit = void *(*)();
@@ -315,7 +284,7 @@ struct EnchantApi
     BrokerRequestDict requestDict = nullptr;
     BrokerFreeDict freeDict = nullptr;
     BrokerDictExists dictExists = nullptr;
-    BrokerListDicts listDicts = nullptr; // optional: the picker degrades
+    BrokerListDicts listDicts = nullptr;
     DictCheck check = nullptr;
     DictSuggest suggest = nullptr;
     DictFreeStringList freeStringList = nullptr;
@@ -336,13 +305,10 @@ public:
             m_api.freeDict(m_broker, m_dict);
         if (m_broker && m_api.brokerFree)
             m_api.brokerFree(m_broker);
-        // The QLibrary is not unloaded: enchant's providers are dlopened
-        // plugins of their own.
     }
 
     bool open(const QStringList &tags, SpellBackendFailure *failure)
     {
-        // Without a -dev package only the versioned soname exists.
         static const char *const kNames[] = {
             "libenchant-2.so.2",
             "libenchant-2.so",
@@ -406,8 +372,6 @@ public:
         if (!m_dict)
             return true;
         const QByteArray utf8 = word.toUtf8();
-        // 0 = correct, positive = misspelled, negative = provider error. An
-        // error is not a misspelling.
         return m_api.check(m_dict, utf8.constData(),
                            static_cast<ssize_t>(utf8.size())) <= 0;
     }
@@ -451,7 +415,6 @@ private:
     {
         if (!m_api.listDicts)
             return;
-        // Provider order, deduplicated by tag.
         m_api.listDicts(m_broker, &EnchantSpellBackend::describeDict,
                         &m_languages);
     }
@@ -463,13 +426,6 @@ private:
     QString m_language;
     QStringList m_languages;
 };
-
-// ---------------------------------------------------------------------------
-// Hunspell, directly. The fallback when enchant is absent (the Flatpak KDE
-// runtime, the Snap, NixOS, a minimal AppImage host) or has no dictionary for
-// the language: libhunspell is resolved at runtime like enchant, and the
-// dictionaries come from the system or from the package's own bundle.
-// ---------------------------------------------------------------------------
 
 struct HunspellApi
 {
@@ -495,19 +451,15 @@ struct HunspellApi
 
 QString applicationDir()
 {
-    // applicationDirPath() warns without an instance.
     return QCoreApplication::instance() ? QCoreApplication::applicationDirPath()
                                         : QString();
 }
 
-// Loaded once per process and never unloaded. Null when no candidate loads.
 const HunspellApi *hunspellApi()
 {
     static const HunspellApi *api = [] () -> const HunspellApi * {
         static QLibrary library;
         QStringList candidates;
-        // The package's own copy first (AppImage and Snap stage it in
-        // usr/lib next to usr/bin), so the host's version never matters.
         const QString app = applicationDir();
         if (!app.isEmpty())
             candidates << app + QStringLiteral("/../lib/libhunspell-1.7.so.0");
@@ -520,7 +472,6 @@ const HunspellApi *hunspellApi()
         static const char kHunspellLibrary[] = LIGHTNING_HUNSPELL_LIBRARY;
         candidates << QString::fromUtf8(kHunspellLibrary);
 #endif
-        // Without a -dev package only the versioned soname exists.
         candidates << QStringLiteral("libhunspell-1.7.so.0")
                    << QStringLiteral("libhunspell-1.7.so")
                    << QStringLiteral("libhunspell-1.6.so.0")
@@ -556,14 +507,12 @@ const HunspellApi *hunspellApi()
 
 struct DictionaryFile
 {
-    QString name; // file stem: "en_US", "de_DE_frami", "lt"
-    QString tag;  // BCP-47: "en-US", "de-DE", "lt"
+    QString name;
+    QString tag;
     QString aff;
     QString dic;
 };
 
-// "en_US" -> "en-US", "de_DE_frami" -> "de-DE", "en_GB-ise" -> "en-GB",
-// "lt" -> "lt"; "" for a stem that is not a language (hyph_*, th_*, ...).
 QString tagForDictionaryStem(const QString &stem)
 {
     static const QRegularExpression rx(
@@ -576,12 +525,6 @@ QString tagForDictionaryStem(const QString &stem)
                             : m.captured(1) + QLatin1Char('-') + region;
 }
 
-// Every usable .aff/.dic pair, by directory priority; the first file for a
-// stem wins. Distributions ship regional aliases as symlinks (Debian: es_AR
-// ... es_VE -> es_ES, 19 for Arabic), so within a directory real files come
-// first and a link to a dictionary already listed is dropped: the picker shows
-// each dictionary once, and "es-MX" still resolves through its language. A
-// directory of nothing but links (a Nix profile) keeps every distinct target.
 QList<DictionaryFile> scanDictionaries(const QStringList &directories)
 {
     QList<DictionaryFile> out;
@@ -615,10 +558,6 @@ QList<DictionaryFile> scanDictionaries(const QStringList &directories)
     return out;
 }
 
-// The dictionary for one candidate ("en_GB" or "en"). Exact stem first, then
-// a variant with the same tag (de_DE_frami for de_DE); for a bare language,
-// the variant whose region repeats it (lt_LT, de_DE), then en_US for "en",
-// then the first.
 const DictionaryFile *findDictionary(const QList<DictionaryFile> &dicts,
                                      const QString &posixTag)
 {
@@ -642,7 +581,6 @@ const DictionaryFile *findDictionary(const QList<DictionaryFile> &dicts,
     return nullptr;
 }
 
-// Hunspell spells encodings its own way ("ISO8859-13", "microsoft-cp1251").
 QByteArray normalizedEncodingName(QByteArray name)
 {
     name = name.trimmed();
@@ -693,8 +631,6 @@ public:
     {
         bool ok = false;
         const QByteArray bytes = encode(word, &ok);
-        // A word this dictionary's encoding cannot even represent is not
-        // its to judge.
         if (!ok)
             return true;
         return m_api->spell(m_handle, bytes.constData()) != 0;
@@ -714,7 +650,7 @@ public:
                 continue;
             const QString item = m_decoder.decode(QByteArrayView(list[i]));
             if (m_decoder.hasError())
-                m_decoder = makeDecoder(); // see encode()
+                m_decoder = makeDecoder();
             else if (!item.isEmpty())
                 out << item;
         }
@@ -785,7 +721,7 @@ QStringList languagesIn(const QList<DictionaryFile> &dicts)
     return out;
 }
 
-} // namespace
+}
 
 QStringList bundledSpellDictionaryDirectories()
 {
@@ -793,11 +729,8 @@ QStringList bundledSpellDictionaryDirectories()
     const QString app = applicationDir();
     if (!app.isEmpty())
         appendDirectory(&out, app + QStringLiteral("/../share/hunspell"));
-    // The Flatpak module installs into the app prefix.
     appendDirectory(&out, QStringLiteral("/app/share/hunspell"));
 #if defined(LIGHTNING_SPELL_DICTIONARY_DIRS)
-    // ASCII on purpose, as kHunspellLibrary: the Nix reference scanner must
-    // see the store path.
     static const char kDictionaryDirs[] = LIGHTNING_SPELL_DICTIONARY_DIRS;
     const QStringList built = QString::fromUtf8(kDictionaryDirs)
                                   .split(QLatin1Char(':'), Qt::SkipEmptyParts);
@@ -810,13 +743,10 @@ QStringList bundledSpellDictionaryDirectories()
 QStringList spellDictionaryDirectories()
 {
     QStringList out;
-    // The user's explicit choice first; Hunspell's own tools honour it too.
     const QStringList dicPath = qEnvironmentVariable("DICPATH")
                                     .split(QLatin1Char(':'), Qt::SkipEmptyParts);
     for (const QString &dir : dicPath)
         appendDirectory(&out, dir);
-    // The system's dictionaries before the bundled ones: a distribution's
-    // newer word list wins, the bundle only fills what the host lacks.
     const QString home = QDir::homePath();
     QString dataHome = qEnvironmentVariable("XDG_DATA_HOME");
     if (dataHome.isEmpty() || !QDir::isAbsolutePath(dataHome))
@@ -830,7 +760,6 @@ QStringList spellDictionaryDirectories()
         appendDirectory(&out, dir + QStringLiteral("/myspell"));
         appendDirectory(&out, dir + QStringLiteral("/myspell/dicts"));
     }
-    // NixOS: dictionaries installed system-wide or per user.
     const QString user = qEnvironmentVariable("USER");
     appendDirectory(&out, QStringLiteral("/run/current-system/sw/share/hunspell"));
     if (!user.isEmpty())
@@ -874,8 +803,6 @@ std::unique_ptr<SpellBackend> createPlatformSpellBackend(
     const QString &preferredLanguage, SpellBackendFailure *failure,
     QStringList *availableLanguages)
 {
-    // LIGHTNING_SPELL_ENGINE=enchant|hunspell pins one engine, for
-    // diagnosis; anything else means enchant, then Hunspell.
     const QString engine =
         qEnvironmentVariable("LIGHTNING_SPELL_ENGINE").trimmed().toLower();
     QStringList offered;
@@ -907,8 +834,6 @@ std::unique_ptr<SpellBackend> createPlatformSpellBackend(
     }
     if (availableLanguages)
         *availableLanguages = offered;
-    // "no-library" only when no engine loaded at all: a loaded engine without
-    // the dictionary is the more useful thing to say.
     const bool anyLoaded = (!enchantFailure.isEmpty()
                             && enchantFailure != QLatin1String("no-library"))
         || (!hunspellFailure.isEmpty()
@@ -920,9 +845,6 @@ std::unique_ptr<SpellBackend> createPlatformSpellBackend(
 bool platformSpellEngineCompiledIn() { return true; }
 bool platformAutocorrectDefault() { return false; }
 
-// ---------------------------------------------------------------------------
-// macOS is SpellBackendMac.mm (NSSpellChecker). Everything else: no backend.
-// ---------------------------------------------------------------------------
 #elif !defined(Q_OS_MACOS)
 
 std::unique_ptr<SpellBackend> createPlatformSpellBackend(

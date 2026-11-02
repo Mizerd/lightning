@@ -55,13 +55,9 @@ namespace {
 
 constexpr int kSignalTimeoutMs = 5000;
 
-// The rail's geometry, restated so assertions can say what they mean: during
-// a drag every row is its tile band tall, the 40 px tile is drawn at y = 4,
-// and the group band is the tile's middle 24 px. Every point sent to the
-// window still comes from a real delegate's mapToScene().
 constexpr int kTileTopInRow = 4;
 constexpr int kTileHeight = 40;
-constexpr int kTileCentreInRow = kTileTopInRow + kTileHeight / 2;  // 24
+constexpr int kTileCentreInRow = kTileTopInRow + kTileHeight / 2;
 constexpr int kGroupBandTopInRow = 12;
 constexpr int kGroupBandBottomInRow = 36;
 
@@ -127,7 +123,7 @@ RoomInfo joinedRoom(const QString &id, const QString &name)
     return info;
 }
 
-} // namespace
+}
 
 class RailDragQmlTest : public QObject
 {
@@ -188,8 +184,6 @@ private:
         return nullptr;
     }
 
-    // The layered group field draws one rectangle per ancestor under one
-    // objectName; collect them all.
     static void collectDescendantsNamed(QQuickItem *root, const QString &name,
                                         QList<QQuickItem *> &out)
     {
@@ -217,15 +211,12 @@ private:
         return nullptr;
     }
 
-    // Scene y of the top of the row holding `entryId`, from real geometry.
     qreal rowTopScene(const QString &entryId) const
     {
         QQuickItem *item = delegateFor(entryId);
         return item ? item->mapToScene(QPointF(0, 0)).y() : -1;
     }
 
-    // The centre of a tile: where a person aims, and the middle of the group
-    // band.
     QPoint tileCentre(const QString &entryId) const
     {
         QQuickItem *item = delegateFor(entryId);
@@ -236,8 +227,6 @@ private:
             .toPoint();
     }
 
-    // A point in the gap below `entryId`'s tile, past the group band, in the
-    // 28 px (12 + 4 spacing + 12) between adjacent tiles.
     QPoint gapBelow(const QString &entryId) const
     {
         QQuickItem *item = delegateFor(entryId);
@@ -276,9 +265,6 @@ private:
         QCoreApplication::processEvents();
     }
 
-    // `steps` interpolated moves from `from` (exclusive) to `to` (inclusive).
-    // The sequence matters: earlier rules survived one move and failed on the
-    // second sample in the same place.
     void sweep(const QPoint &from, const QPoint &to, int steps,
                const std::function<void(const QPoint &)> &afterEach = {})
     {
@@ -415,8 +401,6 @@ private slots:
                         QStringLiteral("Bravo")),
             joinedSpace(QStringLiteral("!space-charlie:example.org"),
                         QStringLiteral("Charlie")),
-            // One room in no Space, so the rail also renders the "Other rooms"
-            // row: an ineligible group target directly above the first Space.
             joinedRoom(QStringLiteral("!loose:example.org"),
                        QStringLiteral("Loose room")),
         };
@@ -429,10 +413,8 @@ private slots:
         QCOMPARE(m_spaces->spaceCount(), 3);
 
         m_controller = new AppController(AppController::MockBackend);
-        // The rail's rows come from this hierarchy; writes still go to
-        // AppController's own RailLayoutStore, which the assertions read.
         entries()->setSources(m_spaces, store());
-        QCOMPARE(entries()->rowCount(), 5);   // Home, Other rooms, 3 Spaces
+        QCOMPARE(entries()->rowCount(), 5);
 
         m_engine = new QQmlApplicationEngine;
         m_engine->rootContext()->setContextProperty(QStringLiteral("app"),
@@ -448,12 +430,6 @@ private slots:
         QVERIFY(m_rail);
 
         m_window = new QQuickWindow;
-        // Tall enough that the rows never make the ListView flickable (which
-        // would compete for the grab and arm auto-scroll). If the ListView
-        // ever steals the grab under synthesized events, cases fail on "the
-        // DragHandler never took the gesture"; under a real pointer that
-        // would be a production bug. 160 px is wider than the rail's maximum;
-        // theGutterIsWideEnoughForTheGlyphItHolds covers the narrowest width.
         m_window->resize(160, 700);
         m_rail->setParentItem(m_window->contentItem());
         m_rail->setSize(QSizeF(m_window->width(), m_window->height()));
@@ -466,8 +442,6 @@ private slots:
             QStringLiteral("spacesRailList"));
         QVERIFY(m_list);
         QTRY_COMPARE_WITH_TIMEOUT(m_list->property("count").toInt(), 5, 5000);
-        // Not scrolled: derived row tops and delegate geometry agree only at
-        // contentY 0.
         QCOMPARE(m_list->property("contentY").toReal(), 0.0);
         QVERIFY(m_list->property("contentHeight").toReal()
                 <= m_list->property("height").toReal());
@@ -475,15 +449,11 @@ private slots:
 
     void cleanupTestCase()
     {
-        // The engine owns the rail item, so delete it first while the window
-        // is still alive.
         delete m_engine;
         delete m_window;
         delete m_controller;
     }
 
-    // Every case starts with no folders, no stored order, and Alpha above
-    // Bravo above Charlie.
     void init()
     {
         const QVariantList folders = store()->folders();
@@ -500,11 +470,9 @@ private slots:
         QVERIFY(rowA > 0);
         QCOMPARE(entries()->rowForEntry(m_spaceIds.at(1)), rowA + 1);
         QCOMPARE(entries()->rowForEntry(m_spaceIds.at(2)), rowA + 2);
-        // Let the previous case's 140 ms transitions finish.
         QTest::qWait(200);
     }
 
-    // Case 1: dropping a Space on a Space creates a folder (not a swap).
     void droppingASpaceOnASpaceCreatesAFolder()
     {
         const QString a = m_spaceIds.at(0);
@@ -518,8 +486,6 @@ private slots:
         sweep(from, to, 10, [&](const QPoint &) {
             sawDragging = sawDragging || entries()->dragging();
         });
-        // Several small samples on the target, as a hand makes: the second
-        // sample is what earlier rules could not survive.
         for (int i = 0; i < 4; ++i) {
             moveTo(QPoint(to.x(), to.y() + (i % 2 ? 2 : -2)));
             sawDragging = sawDragging || entries()->dragging();
@@ -532,14 +498,11 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(store()->folders().size(), 1, 3000);
         const QString folderId = folderIdOfOnlyFolder();
         QVERIFY(!folderId.isEmpty());
-        // Target first, then the dropped Space: the folder takes the target's
-        // position (RailEntryModel::commitGrouping).
         QCOMPARE(store()->folderMembers(folderId), QStringList({ b, a }));
         QCOMPARE(store()->folderOf(a), folderId);
         QCOMPARE(store()->folderOf(b), folderId);
     }
 
-    // Case 2: the tile being aimed at never moves out from under the pointer.
     void theTargetRowNeverMovesWhileThePointerIsOnItsTile()
     {
         const QString a = m_spaceIds.at(0);
@@ -568,8 +531,6 @@ private slots:
         releaseAt(to);
         QCoreApplication::processEvents();
 
-        // Require at least two samples on the tile, or the case could pass
-        // without reaching it.
         QVERIFY2(samplesInsideTile >= 2,
                  qPrintable(QStringLiteral("only %1 pointer samples landed "
                                            "inside the target tile")
@@ -584,8 +545,6 @@ private slots:
         }
     }
 
-    // Case 3: grouping is armed and aimed at the target when the button comes
-    // up; endDrag groups on the flag, not the pointer position.
     void groupingIsArmedAndAimedAtTheTargetWhenTheButtonComesUp()
     {
         const QString a = m_spaceIds.at(0);
@@ -605,16 +564,11 @@ private slots:
 
         releaseAt(to);
         QCoreApplication::processEvents();
-        // The release clears the flags, so the rail stops drawing the ring
-        // and the drag presentation.
         QVERIFY(!entries()->dragging());
         QVERIFY(!entries()->grouping());
         QVERIFY(entries()->dropTargetId().isEmpty());
     }
 
-    // Case 4: a release in the gap below the target reorders and makes no
-    // folder, even after resting on the target. Leaving a tile must disarm
-    // grouping.
     void aReleaseInTheGapBelowReordersAndMakesNoFolder()
     {
         const QString a = m_spaceIds.at(0);
@@ -626,7 +580,7 @@ private slots:
 
         pressAt(from);
         sweep(from, onB, 10);
-        QTest::qWait(300);              // rest on Bravo: grouping arms here
+        QTest::qWait(300);
         QVERIFY(entries()->grouping());
         sweep(onB, intoGap, 4);
         QVERIFY2(!entries()->grouping(),
@@ -635,16 +589,12 @@ private slots:
         releaseAt(intoGap);
         QCoreApplication::processEvents();
 
-        QTest::qWait(200);              // past the 140 ms move transition
+        QTest::qWait(200);
         QCOMPARE(store()->folders().size(), 0);
-        // Alpha lands after Bravo; Charlie is untouched.
         QCOMPARE(store()->order(), QStringList({ b, a, c }));
         QCOMPARE(entries()->rowForEntry(b) + 1, entries()->rowForEntry(a));
     }
 
-    // Case 5: sweeping through a tile without stopping makes no folder. The
-    // geometry replaces a dwell: nothing moves on a tile and a gap is never a
-    // group target.
     void sweepingThroughATileWithoutStoppingMakesNoFolder()
     {
         const QString a = m_spaceIds.at(0);
@@ -654,7 +604,6 @@ private slots:
         const QPoint intoGap = gapBelow(b);
 
         pressAt(from);
-        // One continuous run across Bravo's tile and out the far side.
         sweep(from, intoGap, 14);
         QVERIFY(entries()->dragging());
         QVERIFY(!entries()->grouping());
@@ -666,7 +615,6 @@ private slots:
         QCOMPARE(store()->order(), QStringList({ b, a, c }));
     }
 
-    // Case 6: a release over the dragged tile's own slot changes nothing.
     void aReleaseOverTheDraggedTilesOwnSlotChangesNothing()
     {
         const QString a = m_spaceIds.at(0);
@@ -677,7 +625,6 @@ private slots:
         const qreal yABefore = rowTopScene(a);
 
         pressAt(home);
-        // 8 px: past the drag threshold, still inside this tile's group band.
         moveTo(QPoint(home.x(), home.y() + 8));
         moveTo(QPoint(home.x(), home.y() + 4));
         moveTo(home);
@@ -698,9 +645,6 @@ private slots:
         QCOMPARE(rowTopScene(a), yABefore);
     }
 
-    // Nesting moves the expander into a fixed gutter lane, not the tiles: the
-    // chevron is anchored to the gutter's right edge, a constant distance from
-    // its tile at every depth. Geometric, on real delegates.
     void nestingMovesTheTreeAndNotTheTiles()
     {
         RailFakeClient nested;
@@ -748,16 +692,10 @@ private slots:
                      "nothing");
             const QPointF glyphLeft = glyph->mapToItem(row, QPointF(0, 0));
             const QPointF tileLeft = tile->mapToItem(row, QPointF(0, 0));
-            // Both absolute in the row: the expander belongs to the gutter
-            // column, the tile to the shared tile axis.
             gaps << glyphLeft.x();
-            // The tile's centre: a nested tile is one step smaller and inset
-            // equally, so its left edge moves but its centre does not.
             tileLefts << tileLeft.x() + tile->width() / 2;
         }
 
-        // The tiles do not move with depth; a per-level step walked tiles off
-        // a shared axis in a narrow rail. Depth lives in the gutter lanes.
         for (int i = 1; i < tileLefts.size(); ++i) {
             QVERIFY2(qAbs(tileLefts.at(i) - tileLefts.at(0)) < 1.0,
                      qPrintable(QStringLiteral(
@@ -767,7 +705,6 @@ private slots:
                          .arg(i).arg(tileLefts.at(i)).arg(tileLefts.at(0))));
         }
 
-        // The expander keeps one x at every depth.
         for (int i = 0; i < gaps.size(); ++i) {
             QVERIFY2(qAbs(gaps.at(i) - gaps.at(0)) < 1.0,
                      qPrintable(QStringLiteral(
@@ -775,8 +712,6 @@ private slots:
                          "the root — it moves with the row rather than "
                          "keeping the gutter's one position")
                          .arg(gaps.at(i)).arg(i).arg(gaps.at(0))));
-            // In the gutter, left of the tile column (on the tile it clipped
-            // the avatar).
             QVERIFY2(gaps.at(i) < tileLefts.at(i),
                      qPrintable(QStringLiteral(
                          "the expander is at x=%1 and the tile's centre is at "
@@ -788,12 +723,6 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-
-    // Expanding a leaf Space (rooms, no subspaces) reveals its rooms without
-    // anything else rebuilding the rail. `revealed` must depend on the
-    // expansion state: read through a Q_INVOKABLE it records no dependency,
-    // and a leaf inserts no model rows to rebuild the delegate. Substitutes
-    // its own hierarchy and restores the shared one afterwards.
     void expandingALeafSpaceRevealsItsRoomsWithoutRebuildingTheRail()
     {
         // Production wiring: `topRoomsInSpace()` reads `app.spaces`, the
@@ -844,8 +773,6 @@ private slots:
         QCOMPARE(tile->property("expandable").toBool(), true);
         QCOMPARE(tile->property("revealed").toInt(), 0);
 
-        // The chevron's own toggle; it inserts no model row, so nothing else
-        // can rebuild the delegate.
         const int rowsBefore = entries()->rowCount();
         store()->toggleSpaceExpanded(leafId);
         QCoreApplication::processEvents();
@@ -854,7 +781,6 @@ private slots:
 
         tile = delegateFor(leafId);
         QVERIFY(tile);
-        // The role the chevron reads did update.
         QCOMPARE(tile->property("expanded").toBool(), true);
         QVERIFY2(tile->property("revealed").toInt() > 0,
                  "the chevron opened and the reveal count stayed at its "
@@ -863,10 +789,6 @@ private slots:
                  "after an unrelated toggle or an app restart");
         QCOMPARE(tile->property("revealedRooms").toList().size(), leafRooms);
 
-        // A room is actually drawn: model properties alone stayed correct
-        // while the revealed column lost its layout properties. Size is a
-        // ratio of the Space tile (a room tier is 0.7), and x is the shared
-        // axis.
         QQuickItem *roomTile = descendantNamed(
             tile, QStringLiteral("railRevealedRoomTile"));
         QVERIFY2(roomTile, "the reveal count is non-zero and NO room tile "
@@ -896,8 +818,6 @@ private slots:
                      "on x=%2 — the column has two axes")
                      .arg(roomCentre).arg(columnCentre)));
 
-        // Below the Space tile: a room tile keeps its own size and x even when
-        // its column has none, so only its y discriminates.
         const qreal bandHeight =
             tile->property("tileBandHeight").toReal();
         const qreal roomTop = roomTile->mapToItem(tile, QPointF(0, 0)).y();
@@ -907,7 +827,6 @@ private slots:
                      "tall — the rooms are drawn over the Space that owns "
                      "them").arg(roomTop).arg(bandHeight)));
 
-        // ...and closing puts them away through the same binding.
         store()->toggleSpaceExpanded(leafId);
         QCoreApplication::processEvents();
         QTest::qWait(50);
@@ -919,17 +838,8 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // Every rail tooltip sits beside the row the pointer is on, off the rail.
-    // Qt centres an attached tooltip above its attachee, which on the rail is
-    // the previous row, so the tips hang off invisible anchors. Revealed rooms
-    // need their own hover handler, or the parent Space's tip replaces the
-    // room's. Measured on the real shared ToolTip over real delegates. The
-    // window is widened because a Popup is kept inside its window, which
-    // would measure the clamp instead of the placement.
     void everyRailTooltipSitsBesideTheRowThePointerIsOn()
     {
-        // The revealed-room column needs the controller's own SpaceManager,
-        // which is empty until login; guarded so case order does not matter.
         if (!m_controller->loggedIn()) {
             QSignalSpy loginSpy(m_controller->auth(),
                                 &AuthManager::loginSucceeded);
@@ -942,8 +852,6 @@ private slots:
         entries()->setSources(m_controller->spaces(), store());
         QCoreApplication::processEvents();
         QTest::qWait(50);
-        // The bottom cluster is `visible: app.loggedIn`; without login the cog
-        // and avatar would be skipped.
         QVERIFY2(m_controller->loggedIn(),
                  "the fixture reports itself logged out, so the rail's "
                  "bottom cluster is hidden and cannot be pointed at");
@@ -1036,7 +944,6 @@ private slots:
                 QRectF(0, 0, target.item->width(), target.item->height()));
             if (hovered.center().y() < 0
                 || hovered.center().y() > m_window->height()) {
-                // Scrolled out of the window; nothing to point at.
                 skipped << what
                            + QStringLiteral(" (centre y=%1 outside the "
                                             "window)")
@@ -1044,11 +951,9 @@ private slots:
                 continue;
             }
 
-            // Park the pointer off the rail and let the previous tip close.
             moveTo(QPoint(int(railWidth) + 200, 8));
             QTest::qWait(120);
             moveTo(hovered.center().toPoint());
-            // Past the longest delay any of these carries (500 ms).
             QTRY_VERIFY_WITH_TIMEOUT(
                 visiblePopupItem(m_window->contentItem()) != nullptr, 3000);
             QQuickItem *tip = visiblePopupItem(m_window->contentItem());
@@ -1057,8 +962,6 @@ private slots:
                 tip->mapRectToScene(QRectF(0, 0, tip->width(), tip->height()));
             ++checked;
 
-            // (1) It does not paint on the rail, whose monogram is the only
-            // identity cue.
             QVERIFY2(tipRect.left() >= railWidth - 0.5,
                      qPrintable(QStringLiteral(
                          "pointing at %1: the tooltip starts at x=%2 on a "
@@ -1068,7 +971,6 @@ private slots:
                          .arg(QString::fromLatin1(target.what))
                          .arg(tipRect.left()).arg(railWidth)));
 
-            // (2) It sits beside the row being pointed at.
             QVERIFY2(tipRect.center().y() >= hovered.top()
                          && tipRect.center().y() <= hovered.bottom(),
                      qPrintable(QStringLiteral(
@@ -1092,11 +994,6 @@ private slots:
                      .arg(checked).arg(skipped.join(QStringLiteral("; ")))));
     }
 
-    // `rowTop(i)` drives every drop decision and is derived by accumulating
-    // `rowBand()` (delegate `y` animates for 140 ms), so the derivation must
-    // match real row heights. The fixture needs a nested row that is not last
-    // (a three-level chain): a nested tile is 8 px shorter and a group's last
-    // row 8 px taller, so a nested last row cancels out.
     void everyRowTopMatchesTheRowThatIsActuallyThere()
     {
         RailFakeClient mixed;
@@ -1132,7 +1029,6 @@ private slots:
                      "the rail built %1 rows, so the mixed fixture is not "
                      "there").arg(count)));
 
-        // The fixture must contain a nested row, or a constant band would pass.
         int nestedRows = 0;
         for (QQuickItem *row : content->childItems()) {
             if (row && row->isVisible()
@@ -1171,10 +1067,6 @@ private slots:
         QTest::qWait(60);
     }
 
-
-    // A folder container draws behind the hierarchy regions it holds and is
-    // wider than them; otherwise it paints over the nesting. Two numbers set
-    // in different places, so only geometry can see it.
     void aFolderDrawsBehindTheHierarchyItHolds()
     {
         RailFakeClient tree;
@@ -1219,7 +1111,6 @@ private slots:
         QVERIFY2(container && container->isVisible(),
                  "the filed row draws no folder container");
 
-        // Strictly lower z; equal z would fall back to document order.
         QVERIFY2(container->z() < layers.at(0)->z(),
                  qPrintable(QStringLiteral(
                      "the folder container is at z=%1 and the region it "
@@ -1227,7 +1118,6 @@ private slots:
                      "nesting inside it")
                      .arg(container->z()).arg(layers.at(0)->z())));
 
-        // Wider than its contents.
         QVERIFY2(container->width() > layers.at(0)->width(),
                  qPrintable(QStringLiteral(
                      "the folder container is %1px wide and the depth-1 "
@@ -1235,7 +1125,6 @@ private slots:
                      "than the thing it holds")
                      .arg(container->width()).arg(layers.at(0)->width())));
 
-        // The filed tile stays on the shared axis.
         QQuickItem *unfiled = delegateFor(QStringLiteral("!leaf:example.org"));
         auto *filedTile = subRow->findChild<QQuickItem *>(
             QStringLiteral("railSpaceTile"));
@@ -1265,11 +1154,6 @@ private slots:
         QTest::qWait(60);
     }
 
-
-    // Sibling runs of the same tint are separated by a gap (an inner run
-    // ending spends one), while their parent's region stays whole; and a deep
-    // row's chevron sits inside its own region. The left run is three deep:
-    // at two levels the chevron check passes on the old gutter.
     void siblingRunsSeparateWhileTheirParentStaysWhole()
     {
         RailFakeClient tree;
@@ -1314,7 +1198,6 @@ private slots:
             return out;
         };
 
-        // The last row of A's run, which ends it.
         QQuickItem *a1 = delegateFor(QStringLiteral("!a1a:example.org"));
         QQuickItem *bRow = delegateFor(QStringLiteral("!b:example.org"));
         QVERIFY2(a1 && bRow, "the two-sibling fixture did not build");
@@ -1335,7 +1218,6 @@ private slots:
             return layer->mapToItem(content, QPointF(0, 0)).y();
         };
 
-        // The inner runs separate.
         const qreal gap = m_rail->property("groupGap").toReal();
         QVERIFY2(gap > 0, "the rail reports no group gap at all");
         const qreal innerGap = topIn(bLayers.at(1)) - bottomIn(a1Layers.at(1));
@@ -1346,8 +1228,6 @@ private slots:
                      "read as one shape with a notch in it")
                      .arg(innerGap).arg(gap)));
 
-        // The parent's region is not split: the depth-1 region owns both runs
-        // and must cover the gap between them.
         QVERIFY2(qAbs(topIn(bLayers.at(0)) - bottomIn(a1Layers.at(0))) < 1.0,
                  qPrintable(QStringLiteral(
                      "the depth-1 region ends at y=%1 on A1 and restarts at "
@@ -1355,15 +1235,11 @@ private slots:
                      "stopped").arg(bottomIn(a1Layers.at(0)))
                      .arg(topIn(bLayers.at(0)))));
 
-        // The chevron sits inside the innermost region, checked at the
-        // minimum rail width where the gutter has the least room.
         const qreal restoreWidth = m_rail->width();
         m_rail->setWidth(m_rail->property("minRailWidth").toReal());
         QCoreApplication::processEvents();
         QTest::qWait(80);
 
-        // On the row with the most layers, where the innermost edge is
-        // furthest right.
         int chevronsChecked = 0;
         for (QQuickItem *row : { a1, bRow,
                                  delegateFor(QStringLiteral("!a:example.org")),
@@ -1378,9 +1254,6 @@ private slots:
                 continue;
             QQuickItem *innermost = layers.last();
             ++chevronsChecked;
-            // Measure the ink, not the em box: an Icon's item is the glyph's
-            // advance, about a quarter of which is empty side bearing. The
-            // rail places the mark by its ink (see `chevronGlyphX`).
             const qreal inkWidth =
                 m_rail->property("chevronInkWidth").toReal();
             QVERIFY2(inkWidth > 0, "the rail reports no chevron ink width");
@@ -1419,13 +1292,6 @@ private slots:
         QTest::qWait(60);
     }
 
-
-    // At the minimum rail width the expander is never nearer the rail's edge
-    // than it is to its own tile. Asserted as that relation, which holds at
-    // every width and text scale; every other case here runs at 160 px.
-    // Activity: a Space with unread and no mention shows the dot, one with
-    // mentions shows the count, a quiet one shows neither. Each sits on its
-    // tile's top-right corner and inside the rail at its narrowest.
     void activityIndicatorsSitOnTheTileCornerInsideTheRail()
     {
         const QString alpha = m_spaceIds.at(0);
@@ -1443,7 +1309,6 @@ private slots:
 
         RoomInfo unread = joinedRoom(QStringLiteral("!alpha-room:example.org"),
                                      QStringLiteral("Alpha room"));
-        // No notification count: the case the count badge never showed.
         unread.hasUnreadMessages = true;
         RoomInfo mentioned =
             joinedRoom(QStringLiteral("!bravo-room:example.org"),
@@ -1491,9 +1356,6 @@ private slots:
                      "a Space tile carries no activity indicators");
             QTRY_COMPARE(dot->isVisible(), e.dot);
             QCOMPARE(badge->isVisible(), e.badge);
-            // The dot keeps a 2 px gap in another colour (the rail's) from
-            // the tile it overlaps, around its own ringed dot (badges review
-            // round 3, R1).
             if (e.dot) {
                 const QList<QQuickItem *> inner = dot->childItems();
                 QVERIFY2(inner.size() == 1, "the rail dot has no inner ringed dot");
@@ -1514,19 +1376,15 @@ private slots:
                     if (t.isValid())
                         text = t.toString();
                 }
-                // The mentions, not the notifications around them.
                 QCOMPARE(text, QStringLiteral("2"));
             }
             const QRectF tileRect = tile->mapRectToItem(
                 m_rail, QRectF(0, 0, tile->width(), tile->height()));
             const QRectF mark = shown->mapRectToItem(
                 m_rail, QRectF(0, 0, shown->width(), shown->height()));
-            // The list clips, so that is the visible area.
             const QRectF listRect = m_list->mapRectToItem(
                 m_rail, QRectF(0, 0, m_list->width(), m_list->height()));
             QVERIFY2(mark.width() > 0 && mark.height() > 0, "zero-size mark");
-            // On the corner: overlapping the tile, centred in its
-            // bottom-right quadrant.
             QVERIFY(mark.intersects(tileRect));
             QVERIFY2(mark.center().x() > tileRect.center().x()
                          && mark.center().y() > tileRect.center().y(),
@@ -1535,7 +1393,6 @@ private slots:
                                     .arg(e.id)
                                     .arg(mark.center().x())
                                     .arg(mark.center().y())));
-            // Inside the rail and the list, so nothing clips it.
             QVERIFY2(mark.left() >= listRect.left()
                          && mark.right() <= listRect.right()
                          && mark.right() <= m_rail->width(),
@@ -1549,7 +1406,6 @@ private slots:
             QVERIFY(mark.bottom() <= listRect.bottom());
             ++placed;
         }
-        // Both marks were measured, not skipped.
         QCOMPARE(placed, 2);
     }
 
@@ -1590,7 +1446,6 @@ private slots:
                 QStringLiteral("railSpaceExpandGlyph"));
             if (!glyph || !glyph->isVisible() || glyph->width() <= 0)
                 continue;
-            // Measure the ink (see the sibling case).
             const qreal inkWidth =
                 m_rail->property("chevronInkWidth").toReal();
             QVERIFY2(inkWidth > 0, "the rail reports no chevron ink width");
@@ -1600,8 +1455,6 @@ private slots:
             const qreal left = inkCentre - inkWidth / 2;
             const qreal right = inkCentre + inkWidth / 2;
             ++checked;
-            // The reference is the tile's visible edge, which is the accent
-            // ring drawn outside the tile (`tileRingOutset`).
             const qreal ringOutset =
                 m_rail->property("tileRingOutset").toReal();
             QVERIFY2(ringOutset > 0, "the rail reports no ring outset");
@@ -1620,16 +1473,11 @@ private slots:
                          "at the minimum width of %1 the expander ends at "
                          "x=%2, past the rail's own right edge")
                          .arg(minWidth).arg(right)));
-            // The expander clears the ring, not just the tile: the active ring
-            // is drawn outside the tile and paints over anything in that band,
-            // only on the selected Space. Reads the real ring item.
             auto *ring = row->findChild<QQuickItem *>(
                 QStringLiteral("railSpaceActiveRing"));
             QVERIFY2(ring, "the active ring is gone, so nothing here can say "
                            "whether the expander would collide with it");
             const qreal ringLeft = ring->mapToItem(m_rail, QPointF(0, 0)).x();
-            // The plate is the control's edge, so the plate must clear the
-            // ring (the ink sits `chevronPlatePad` inside it).
             auto *plate = row->findChild<QQuickItem *>(
                 QStringLiteral("railSpaceExpandPlate"));
             QVERIFY2(plate, "the expander has no plate, so this measures a "
@@ -1643,7 +1491,6 @@ private slots:
                          "ring starts at x=%2 — on a SELECTED Space they "
                          "overlap")
                          .arg(plateRight).arg(ringLeft)));
-            // The plate stays inside its own region (`chevronSlotLeft`).
             QVERIFY2(plateLeft >= m_rail->property("chevronSlotLeft").toReal()
                                   - 0.01,
                      qPrintable(QStringLiteral(
@@ -1670,10 +1517,6 @@ private slots:
         QTest::qWait(60);
     }
 
-
-    // Depth costs the tiles no horizontal room: eight fully expanded levels,
-    // every tile on the root's axis. A shallow fixture could not tell a small
-    // per-level step from rounding.
     void depthCostsTheTilesNoHorizontalRoomAtAll()
     {
         RailFakeClient deep;
@@ -1732,8 +1575,6 @@ private slots:
                      "the deepest measured row is level %1 — the fixture did "
                      "not nest").arg(deepest)));
 
-        // A row draws one region per ancestor, capped (`maxBandLayers`) so
-        // the innermost region never becomes narrower than the tile.
         const int maxLayers = m_rail->property("maxBandLayers").toInt();
         QVERIFY2(maxLayers >= 2 && maxLayers <= 6,
                  qPrintable(QStringLiteral(
@@ -1753,14 +1594,10 @@ private slots:
             QList<QQuickItem *> layers;
             collectDescendantsNamed(row, QStringLiteral("railGroupField"),
                                     layers);
-            // One per ancestor, plus the row's own when it owns the run below
-            // it. Every row of this chain but the last owns one.
             const bool owns = row->property("ownsRegion").toBool();
             QCOMPARE(layers.size(),
                      std::min(maxLayers, level + (owns ? 1 : 0)));
 
-            // Strictly nested: each layer starts further in and is narrower
-            // than the one containing it.
             for (int i = 1; i < layers.size(); ++i) {
                 const qreal outer =
                     layers.at(i - 1)->mapToItem(row, QPointF(0, 0)).x();
@@ -1777,8 +1614,6 @@ private slots:
                              "containing it").arg(id).arg(i)));
             }
 
-            // The outermost layer has the same shape behind every depth, so it
-            // reads as one region behind its descendants.
             ++deepRowsChecked;
             const qreal x = layers.at(0)->mapToItem(row, QPointF(0, 0)).x();
             if (outerX < 0) {
@@ -1801,17 +1636,12 @@ private slots:
                      "says anything about deep nesting")
                      .arg(deepRowsChecked)));
 
-        // No two touching regions share a tint: past the layer cap the
-        // innermost layer alternates between the last two rungs, so a parent
-        // and the child drawn on it always differ.
         QColor previousInnermost;
         int alternationsChecked = 0;
         for (const QString &id : chain) {
             QQuickItem *row = delegateFor(id);
             if (!row || !row->isVisible())
                 continue;
-            // Only rows that own a region: a leaf's innermost layer is its
-            // parent's by construction.
             if (!row->property("ownsRegion").toBool())
                 continue;
             QList<QQuickItem *> rowLayers;
@@ -1837,9 +1667,6 @@ private slots:
                      "only %1 nested pairs were comparable, so nothing here "
                      "reaches past the cap").arg(alternationsChecked)));
 
-        // Nothing is drawn outside the region that contains it: the cap seam
-        // moves a child's band down, and the tile must be positioned from the
-        // band, not the row top. Checked on real delegates.
         int containmentChecks = 0;
         for (const QString &id : chain) {
             QQuickItem *row = delegateFor(id);
@@ -1892,11 +1719,6 @@ private slots:
         QTest::qWait(60);
     }
 
-
-    // The region ladder's rungs are even on every theme preset. They are
-    // derived from each theme's colours, and one alpha ladder gives smaller
-    // luminance steps on light themes than dark ones (sRGB curve). Reads the
-    // live singleton, since a text scan cannot evaluate `Qt.tint()`.
     void theRegionLadderIsEvenOnEveryTheme()
     {
         auto *theme = m_engine->singletonInstance<QObject *>(
@@ -1907,7 +1729,6 @@ private slots:
         QVERIFY2(settings, "no SettingsManager, so no theme can be selected");
         const int original = settings->property("theme").toInt();
 
-        // WCAG relative luminance: the ladder is about perceptual steps.
         const auto luminance = [](const QColor &c) {
             const auto ch = [](double v) {
                 return v <= 0.04045 ? v / 12.92
@@ -1923,9 +1744,6 @@ private slots:
         };
 
         int themesChecked = 0;
-        // Switch the palette on the singleton too: `AppTheme.mode` is driven
-        // by a Binding in Main.qml, which this suite does not load, so writing
-        // `settings.theme` alone would measure one palette eleven times.
         QSet<QString> palettesSeen;
         for (int t = 1; t <= 11; ++t) {
             settings->setProperty("theme", t);
@@ -1934,13 +1752,11 @@ private slots:
             QTest::qWait(30);
             if (settings->property("theme").toInt() != t
                 || theme->property("mode").toInt() != t)
-                continue;   // a preset this build does not carry
+                continue;
 
             const QColor rail = theme->property("rail").value<QColor>();
             const QVariantList rungs =
                 theme->property("railNestSurfaces").toList();
-            // A fingerprint per palette (rail colour plus deepest rung), so
-            // "eleven palettes" is checkable.
             palettesSeen.insert(
                 rail.name()
                 + rungs.at(rungs.size() - 1).value<QColor>().name());
@@ -1952,14 +1768,9 @@ private slots:
 
             QColor previous = rail;
             QList<double> steps;
-            // Rung 0 is a folder's container and deliberately the quietest;
-            // start at hierarchy depth 1.
             for (int i = 1; i < rungs.size(); ++i) {
                 const QColor rung = rungs.at(i).value<QColor>();
                 const double ratio = contrast(previous, rung);
-                // A low floor: the rail is chrome and must recede, so its
-                // steps are small. It catches a rung collapsing into its
-                // neighbour; the evenness check below is the real assertion.
                 QVERIFY2(ratio >= 1.05,
                          qPrintable(QStringLiteral(
                              "theme %1: region rung %2 (%3) is %4:1 against "
@@ -1970,8 +1781,6 @@ private slots:
                 steps << ratio;
                 previous = rung;
             }
-            // Even: steps differing by more than half again make one loud
-            // boundary and some whispers.
             double lo = steps.first();
             double hi = steps.first();
             for (double v : std::as_const(steps)) {
@@ -1989,7 +1798,6 @@ private slots:
                  qPrintable(QStringLiteral(
                      "only %1 presets were selectable, so this says little "
                      "about the fleet").arg(themesChecked)));
-        // They were different palettes, not one measured eleven times.
         QVERIFY2(palettesSeen.size() >= 8,
                  qPrintable(QStringLiteral(
                      "%1 presets were selected but only %2 distinct palettes "
@@ -2002,10 +1810,6 @@ private slots:
         QTest::qWait(30);
     }
 
-
-    // Every piece of rail geometry follows the interface size, asserted as
-    // ratios to the Space tile (a revealed room is 0.7 of it, the bottom chips
-    // exactly one tile), never as pixel counts.
     void everyRailChipFollowsTheInterfaceSize()
     {
         auto *theme = m_engine->singletonInstance<QObject *>(
@@ -2027,8 +1831,6 @@ private slots:
         QCoreApplication::processEvents();
         QTest::qWait(50);
 
-        // Restore 100% and the suite's own hierarchy whatever happens; other
-        // cases read geometry from both.
         const auto restore = qScopeGuard([&] {
             theme->setProperty("textScale", originalScale);
             entries()->setSources(m_spaces, store());
@@ -2056,7 +1858,6 @@ private slots:
         QCoreApplication::processEvents();
         QTest::qWait(60);
 
-        // Four chips, read from the live item tree at each size.
         const auto measure = [&](const char *when) -> QList<qreal> {
             QQuickItem *row = delegateFor(hostId);
             if (!row) {
@@ -2108,8 +1909,6 @@ private slots:
                          .arg(at100.at(i)).arg(at140.at(i))));
         }
 
-        // The ratios that make the rail read as one column, with one pixel of
-        // slack for Math.round.
         for (const QList<qreal> &m : { at100, at140 }) {
             const qreal tile = m.at(0);
             QVERIFY2(qAbs(m.at(1) - qRound(tile * 0.7)) <= 1.0,
@@ -2129,11 +1928,6 @@ private slots:
         }
     }
 
-    // The expander's plate is two rungs off the region it sits on. A region
-    // layer at index i draws depth i + 1, so `bandTint(bandLayers - 1)` named
-    // the layer outside the innermost one and the plate differed by only one
-    // rung (and by two on a collapsed Space). Asserted on the colour property,
-    // not a grab.
     void theExpanderPlateIsTwoRungsOffTheRegionItSitsOn()
     {
         RailFakeClient nested;
@@ -2158,7 +1952,6 @@ private slots:
             store()->setSpaceExpanded(id, true);
         entries()->setSources(&nestedSpaces, store());
         QCoreApplication::processEvents();
-        // Past the plate's 90 ms ColorAnimation.
         QTest::qWait(150);
 
         const auto lstar = [](const QColor &c) {
@@ -2188,7 +1981,6 @@ private slots:
                      qPrintable(QStringLiteral(
                          "row %1 draws no region, so there is nothing for "
                          "the plate to step off").arg(id)));
-            // The innermost layer is the narrowest.
             QQuickItem *inner = layers.first();
             for (QQuickItem *l : layers) {
                 if (l->width() < inner->width())
@@ -2212,17 +2004,12 @@ private slots:
                          .arg(step, 0, 'f', 2)));
             ++measured;
         }
-        // The count, not just the items.
         QCOMPARE(measured, 3);
 
         entries()->setSources(m_spaces, store());
         QCoreApplication::processEvents();
     }
 
-    // A tooltip wider than its anchor still hangs off the rail. Qt's Basic
-    // style centres an attached tooltip on its anchor, so a tip wider than the
-    // anchor spills left over the rail; the anchor must be at least as wide as
-    // the tip.
     void aTooltipWiderThanItsAnchorStillHangsOffTheRail()
     {
         const qreal railWidth = m_rail->width();
@@ -2235,8 +2022,6 @@ private slots:
             entries()->setSources(m_spaces, store());
             QCoreApplication::processEvents();
         });
-        // Wide enough that Qt's popup positioner never pulls the tip back
-        // inside the window, which would hide the defect.
         m_window->resize(900, windowSize.height());
         m_rail->setWidth(railWidth);
         QCoreApplication::processEvents();
@@ -2271,9 +2056,6 @@ private slots:
         const QRectF tipRect =
             tip->mapRectToScene(QRectF(0, 0, tip->width(), tip->height()));
 
-        // Non-vacuity: the tip must be wider than the anchor's floor, or
-        // centring cannot spill. Read from the rail (150 is the fallback when
-        // the property is absent).
         const QVariant floorProperty = m_rail->property("railTipFloor");
         const qreal floor =
             floorProperty.isValid() ? floorProperty.toReal() : 150.0;
@@ -2295,13 +2077,8 @@ private slots:
                      .arg(tipRect.left()).arg(railWidth)));
     }
 
-    // The group ring is drawn outside the avatar that fills the tile. A
-    // Rectangle's border paints inside its bounds, under a full-bleed Avatar,
-    // so a border-based ring was never visible. Asserted geometrically.
     void theGroupRingIsDrawnOutsideTheAvatarThatFillsTheTile()
     {
-        // Driven through the model: the cases above prove a real drag reaches
-        // hoverGroup(); this is about where the ring is drawn.
         const int bravoRow = entries()->rowForEntry(m_spaceIds.at(1));
         QVERIFY(bravoRow >= 0);
         QVERIFY(entries()->beginDrag(m_spaceIds.at(0)));
@@ -2311,7 +2088,6 @@ private slots:
         });
         entries()->hoverGroup(bravoRow);
         QCoreApplication::processEvents();
-        // Past the tile's 90 ms scale Behavior.
         QTest::qWait(200);
         QVERIFY2(entries()->grouping(),
                  "the model refused to offer a group, so no tile is a drop "
@@ -2334,8 +2110,6 @@ private slots:
                  "the group ring exists but is not visible on the tile a "
                  "release would file into");
 
-        // Scene rects, so the tile's 1.08 drop-target scale is included: a
-        // ring anchored to the tile's unscaled bounds would be grown through.
         const QRectF tileRect =
             tile->mapRectToScene(QRectF(0, 0, tile->width(), tile->height()));
         const QRectF ringRect =
@@ -2375,15 +2149,9 @@ private slots:
                          .arg(side.outside).arg(stroke)));
             ++measured;
         }
-        // The count of sides compared, not the loop's length.
         QCOMPARE(measured, 4);
     }
 
-    // B057 review: an unnamed folder is stored with an EMPTY name, so every
-    // reader of a folder's name must fall back to "Folder". The "Move to"
-    // menu entry read `modelData.name || ""` and showed `Move to ""`. A scan
-    // (the menu is built per right-click and the store is not reachable from
-    // here), pinned to the entry's own text.
     void theMoveToEntryNamesAnUnnamedFolder()
     {
         QFile f(QFileInfo(QStringLiteral(__FILE__)).dir().filePath(
@@ -2397,10 +2165,6 @@ private slots:
         QVERIFY2(!entry.contains(QStringLiteral("name || \"\"")), qPrintable(entry));
     }
 
-    // Every derived tile centres on the same axis at every rail width. A
-    // derived tile is placed at `tileColumnX + round((railTileSize -
-    // rowTileSize) / 2)`, exact only when both sizes have the same parity;
-    // otherwise Math.round shifts it half a pixel.
     void everyDerivedTileCentresOnTheSameAxisAtEveryRailWidth()
     {
         const qreal railWidth = m_rail->width();
@@ -2431,7 +2195,6 @@ private slots:
                   m_rail->property("railRoomTileSize").toInt() },
             };
             for (const auto &tier : tiers) {
-                // The delegate's placement, restated from SpacesRail.qml.
                 const qreal derivedX =
                     columnX + qRound((tile - tier.second) / 2.0);
                 const qreal derivedCentre = derivedX + tier.second / 2.0;
@@ -2455,8 +2218,6 @@ private slots:
                      "rounds away from centre. %3")
                      .arg(offenders.size()).arg(measured)
                      .arg(offenders.join(QStringLiteral("; ")))));
-        // The count of pairs measured (nine widths, two derived tiers), not
-        // the loop bound.
         QCOMPARE(measured, (maxWidth - minWidth + 1) * 2);
         QVERIFY2(measured >= 18,
                  qPrintable(QStringLiteral(
@@ -2465,14 +2226,11 @@ private slots:
                      .arg(measured)));
     }
 
-    // ---- C07 keyboard and menu cases ----------------------------------
-
     QObject *railMenuObject() const
     {
         return m_rail->findChild<QObject *>(QStringLiteral("railContextMenu"));
     }
 
-    // The menu's row whose objectName is `name` (first match), or nullptr.
     QObject *menuRowNamed(const QString &name) const
     {
         QObject *menu = railMenuObject();
@@ -2490,12 +2248,6 @@ private slots:
         return nullptr;
     }
 
-    // Escape abandons a drag. Before, nothing read it: the ghost stayed,
-    // release still filed the Space and the shell's own Escape went Home.
-    // Eleven Spaces at 1280x800 pushed Create a Space below the rail, reachable
-    // only by wheel-scrolling behind a fade. Once the tiles fill the rail the
-    // button is pinned above the bottom cluster; with room it follows the
-    // last tile as before.
     void createASpaceStaysReachableWhenTheTilesOutgrowTheRail()
     {
         auto *footerButton = m_rail->findChild<QQuickItem *>(
@@ -2529,7 +2281,6 @@ private slots:
         QVERIFY2(r.top() >= 0 && r.bottom() <= m_window->height()
                      && r.left() >= 0 && r.right() <= m_window->width(),
                  "the pinned button is outside the rail");
-        // It sits below the list, not over its tiles.
         QTRY_VERIFY2(
             pinnedButton->mapRectToScene(QRectF(0, 0, pinnedButton->width(),
                                                 pinnedButton->height()))
@@ -2545,11 +2296,6 @@ private slots:
         QTRY_VERIFY(footerButton->isVisible());
     }
 
-    // The pin decision must hold at EVERY rail height, not only at two: a
-    // band of heights where the button was in neither place (vanished) or in
-    // both, and a "Binding loop detected" from deciding inside the signal that
-    // the decision itself changes. One pixel at a time across the threshold,
-    // exactly one reachable Create a Space button at each.
     void exactlyOneCreateASpaceButtonAtEveryRailHeight()
     {
         auto *footerButton = m_rail->findChild<QQuickItem *>(
@@ -2575,8 +2321,6 @@ private slots:
             });
         const auto unhook = qScopeGuard([&] { qInstallMessageHandler(previous); });
 
-        // Reachable: shown, whole inside the rail's window, and for the one
-        // in the list, inside the part of the list the reader can see.
         const auto reachable = [&](QQuickItem *button, bool inList) {
             if (!button->isVisible() || button->width() <= 1)
                 return false;
@@ -2594,8 +2338,6 @@ private slots:
 
         QStringList bad;
         QVERIFY(m_rail->setProperty("railAddVisible", true));
-        // Down and then up: the decision must not remember which way the rail
-        // was going (a stale slot height made the thresholds differ).
         const auto sweepHeights = [&](int from, int to) {
             QList<bool> states;
             QList<int> heights;
@@ -2603,7 +2345,6 @@ private slots:
             for (int h = from; h != to + step; h += step) {
                 m_window->resize(160, h);
                 m_rail->setSize(QSizeF(m_window->width(), m_window->height()));
-                // Layout and the deferred decision settle over a few turns.
                 for (int i = 0; i < 4; ++i) {
                     QCoreApplication::processEvents();
                     QTest::qWait(8);
@@ -2629,15 +2370,12 @@ private slots:
         const auto [shrinking, shrinkFlips, shrinkAt] = sweepHeights(560, 230);
         QVERIFY2(bad.isEmpty(), qPrintable(bad.mid(0, 12).join(QLatin1Char('\n'))));
         QVERIFY2(loops.isEmpty(), qPrintable(loops.mid(0, 4).join(QLatin1Char('\n'))));
-        // Each sweep crosses the threshold once, pinned while short and in the
-        // list once there is room, with no flip-flopping between...
         QVERIFY2(growing.first() && !growing.last(),
                  "the growing sweep did not cross the pinning threshold");
         QVERIFY2(!shrinking.first() && shrinking.last(),
                  "the shrinking sweep did not cross the pinning threshold");
         QCOMPARE(growFlips, 1);
         QCOMPARE(shrinkFlips, 1);
-        // ... and at the same height either way.
         QVERIFY2(qAbs(growAt - shrinkAt) <= 1,
                  qPrintable(QStringLiteral("pins at %1 growing but %2 shrinking")
                                 .arg(growAt).arg(shrinkAt)));
@@ -2661,7 +2399,6 @@ private slots:
         QVERIFY2(!entries()->dragging(), "Escape did not end the drag");
         QVERIFY(entries()->draggingEntryId().isEmpty());
 
-        // More pointer travel and the release must change nothing.
         moveTo(QPoint(to.x(), to.y() + 3));
         releaseAt(to);
         QTest::qWait(300);
@@ -2670,7 +2407,6 @@ private slots:
         QVERIFY(entries()->rowForEntry(a) < entries()->rowForEntry(b));
     }
 
-    // Every tile is a Tab stop, and the context menu opens from the keyboard.
     void spaceTilesAreTabStopsAndTheMenuKeyOpensTheirMenu()
     {
         QQuickItem *tile = delegateFor(m_spaceIds.at(0));
@@ -2692,7 +2428,6 @@ private slots:
         QMetaObject::invokeMethod(menu, "close");
         QTRY_VERIFY(!menu->property("opened").toBool());
 
-        // Shift+F10 is the other conventional key.
         tile->forceActiveFocus(Qt::TabFocusReason);
         QTest::keyClick(m_window, Qt::Key_F10, Qt::ShiftModifier);
         QTRY_VERIFY(menu->property("opened").toBool());
@@ -2700,7 +2435,6 @@ private slots:
         QTRY_VERIFY(!menu->property("opened").toBool());
     }
 
-    // Return on a focused Space tile selects it, as a tap does.
     void returnOnAFocusedSpaceTileOpensThatSpace()
     {
         QQuickItem *tile = delegateFor(m_spaceIds.at(1));
@@ -2711,8 +2445,6 @@ private slots:
                      m_spaceIds.at(1));
     }
 
-    // Right-click, which old and new code both honour, so a case about the
-    // menu's contents does not depend on the keyboard route.
     void openMenuByRightClick(const QString &entryId)
     {
         QQuickItem *item = delegateFor(entryId);
@@ -2722,9 +2454,6 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // A row hidden for this entry must not take the keyboard: it used to stay
-    // enabled, so Down stopped on it unseen and Return ran "Rename folder" on
-    // a plain Space.
     void hiddenMenuRowsAreNotKeyboardStops()
     {
         QQuickItem *tile = delegateFor(m_spaceIds.at(0));
@@ -2741,7 +2470,6 @@ private slots:
         QTRY_VERIFY(!menu->property("opened").toBool());
     }
 
-    // Home has no folder to file into, so the menu must not offer "Move to".
     void homeAndOtherRoomsOfferNoMoveTo()
     {
         const QString id = store()->createFolder(QStringLiteral("Work"));
@@ -2760,7 +2488,6 @@ private slots:
         QMetaObject::invokeMethod(menu, "close");
         QTRY_VERIFY(!menu->property("opened").toBool());
 
-        // A real Space does offer it.
         openMenuByRightClick(m_spaceIds.at(0));
         QTRY_VERIFY(menu->property("opened").toBool());
         QTRY_VERIFY(menuRowNamed(QStringLiteral("railMoveToItem")));
@@ -2768,8 +2495,6 @@ private slots:
         QTRY_VERIFY(!menu->property("opened").toBool());
     }
 
-    // Choosing "Move to" files the Space and closes the menu. It stayed open,
-    // because the move rebuilds the entry's own Repeater.
     void moveToClosesTheMenuItWasChosenFrom()
     {
         const QString folder = store()->createFolder(QStringLiteral("Work"));
@@ -2786,9 +2511,6 @@ private slots:
                      "the menu stayed open after Move to");
     }
 
-    // Focus goes to the rail for the length of a drag (Escape is read there)
-    // and must go back to whoever held it: a user re-ordering a Space while
-    // the composer had focus must not have to click the composer again.
     void focusReturnsToThePreviousHolderAfterADrag()
     {
         QQuickItem *other = new QQuickItem(m_window->contentItem());
@@ -2810,7 +2532,6 @@ private slots:
         QVERIFY2(other->hasActiveFocus(),
                  "the drag took the keyboard focus and never gave it back");
 
-        // An Escape-cancelled drag restores it too.
         pressAt(from);
         sweep(from, to, 10);
         QTest::qWait(100);
@@ -2821,12 +2542,10 @@ private slots:
         delete other;
     }
 
-    // A held Return must not repeat the tile's action.
     void keyAutoRepeatDoesNotRepeatTheTileAction()
     {
         QQuickItem *tile = delegateFor(m_spaceIds.at(1));
         QVERIFY(tile);
-        // Start from a different Space, or the case could pass vacuously.
         m_controller->spaces()->setProperty("activeSpaceId", m_spaceIds.at(0));
         QCOMPARE(m_controller->spaces()->activeSpaceId(), m_spaceIds.at(0));
         tile->forceActiveFocus(Qt::TabFocusReason);
@@ -2841,8 +2560,6 @@ private slots:
                      m_spaceIds.at(1));
     }
 
-    // A held key the tile does not use (Tab) must NOT be accepted, or Qt
-    // stops repeating focus traversal.
     void heldUnrelatedKeyIsNotAccepted()
     {
         QQuickItem *tile = delegateFor(m_spaceIds.at(1));
@@ -2856,8 +2573,6 @@ private slots:
                  "a held key the tile never uses was swallowed");
     }
 
-    // The chevron's keyboard equivalent: Right opens an expandable Space,
-    // Left closes it, and neither toggles.
     void rightAndLeftOpenAndCloseAnExpandableSpace()
     {
         QSignalSpy loginSpy(m_controller->auth(),
@@ -2910,8 +2625,6 @@ private slots:
         QCoreApplication::processEvents();
     }
 
-    // "Move to" for the folder the Space is already in is a hidden row and
-    // must not be a keyboard stop.
     void moveToCurrentFolderRowIsNotAKeyboardStop()
     {
         const QString folder = store()->createFolder(QStringLiteral("Work"));
@@ -2935,7 +2648,6 @@ private slots:
 
 int main(int argc, char *argv[])
 {
-    // Qt Quick item creation needs a QGuiApplication, as in main.cpp.
     QGuiApplication app(argc, argv);
     RailDragQmlTest testObject;
     return QTest::qExec(&testObject, argc, argv);

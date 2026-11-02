@@ -1,15 +1,3 @@
-// A browser sign-in whose restore fails must leave nothing that blocks the
-// next one (D6, reported live 2026-09-29: "logged in, so it won't allow me to
-// relog in, but I also can't log out").
-//
-// adoptBrowserSession() writes the account record before the restore, and
-// opening the handle creates the store directory. A restore that then failed
-// left both behind, and the next browser sign-in (a new device) was refused as
-// "already signed in on this device" with no way out on the login screen.
-//
-// Drives the real Phase B with a stand-in restore (no network, no SDK
-// restore), and the real login_failed handler with the payload a failed
-// restore sends.
 
 #include "app/SettingsManager.h"
 #include "storage/AppDataPaths.h"
@@ -59,7 +47,6 @@ class BrowserSignInRollbackTest : public QObject
                                    QStringLiteral("oauth"), restore.fn());
     }
 
-    // What a restore that failed in the SDK sends.
     static QJsonObject restoreFailed()
     {
         QJsonObject event;
@@ -78,8 +65,6 @@ class BrowserSignInRollbackTest : public QObject
         return identity.rustStorePath;
     }
 
-    // A store moved aside earlier ("Quarantine and rebuild", or login()'s own
-    // quarantine of an unclaimed store): possibly the only copy of the keys.
     static QString seedQuarantine(const QString &store)
     {
         const QString dir = store + QStringLiteral(".orphaned-20260101-000000000");
@@ -100,7 +85,6 @@ class BrowserSignInRollbackTest : public QObject
                        QDir::Dirs | QDir::NoDotAndDotDot);
     }
 
-    // A store with a stand-in crypto database; returns the database's path.
     static QString seedStore(const QString &store)
     {
         if (!QDir().mkpath(store))
@@ -112,7 +96,6 @@ class BrowserSignInRollbackTest : public QObject
         return keys.fileName();
     }
 
-    // The same database, wherever the one quarantine of `store` put it.
     static bool keysAside(const QString &store)
     {
         const QStringList aside = quarantinesOf(store);
@@ -122,10 +105,6 @@ class BrowserSignInRollbackTest : public QObject
                                     + QStringLiteral("/matrix-sdk-crypto.sqlite3"));
     }
 
-    // What the app sees when the server ends a running session: the restore
-    // ran as `deviceId`, the SDK reported the revocation, and AppController
-    // ended the session locally (a detach: nothing deleted).
-    // `softLogout` undefined sends the event without the field.
     static void serverEnds(RustSdkMatrixClient &client, const QString &server,
                            const QString &userId, const QString &deviceId,
                            const QJsonValue &softLogout)
@@ -162,16 +141,12 @@ private slots:
         QDir(m_home.path() + QStringLiteral("/data")).removeRecursively();
     }
 
-    // The reported state: the restore fails after Phase B wrote the record
-    // and the handle created the store. The next sign-in, a new device, must
-    // go ahead.
     void aFailedRestoreLeavesNothingThatBlocksTheNextSignIn()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
         QSKIP("Browser sign-in exists on the Rust backend only.");
 #else
         SettingsManager settings;
-        // Never the real keyring.
         settings.setSecretStore(nullptr);
         RustSdkMatrixClient client(&settings);
         QSignalSpy failed(&client, &MatrixClient::loginFailed);
@@ -180,7 +155,6 @@ private slots:
         Restore restore;
         adopt(client, alice, QStringLiteral("DEVICEONE"), restore);
         QCOMPARE(restore.calls, 1);
-        // The attempt did write both before restoring.
         QVERIFY(settings.hasSavedAccount(alice));
         QVERIFY(QFileInfo::exists(storeOf(alice)));
 
@@ -191,14 +165,11 @@ private slots:
         QVERIFY2(!settings.hasSavedAccount(alice), "the failed attempt's record survived");
         QVERIFY2(!QFileInfo::exists(storeOf(alice)), "the failed attempt's store survived");
 
-        // The next browser sign-in reaches its restore instead of "already
-        // signed in on this device".
         adopt(client, alice, QStringLiteral("DEVICETWO"), restore);
         QCOMPARE(restore.calls, 2);
 #endif
     }
 
-    // The same when the restore could not even start.
     void aRestoreThatFailsAtOnceLeavesNothingEither()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -223,9 +194,6 @@ private slots:
 #endif
     }
 
-    // Only what the attempt created goes. Signing in again as the device that
-    // owns an existing store and record, a failed restore leaves both: they
-    // belong to a session that may still work.
     void aFailedReauthorisationKeepsTheExistingSession()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -254,9 +222,6 @@ private slots:
 #endif
     }
 
-    // The rollback takes back the store the attempt opened and nothing else:
-    // a quarantined store beside it survives a failed restore, asynchronous
-    // or immediate (review M1: the account-wide removal deleted it).
     void aFailedAttemptNeverTouchesAQuarantinedStore()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -285,10 +250,6 @@ private slots:
 #endif
     }
 
-    // The same on the password path, where it has been since login() learned
-    // to quarantine an unclaimed store ("moved aside, never deleted") and a
-    // wrong password then deleted that quarantine seconds later. A real login
-    // against a closed port on this machine: no network, a real failure.
     void aFailedPasswordSignInKeepsTheStoreItQuarantined()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -308,7 +269,6 @@ private slots:
 
         QSignalSpy failed(&client, &MatrixClient::loginFailed);
         client.login(server, QStringLiteral("frank"), QStringLiteral("not-a-password"));
-        // login() moved the unclaimed store aside before trying.
         QCOMPARE(quarantinesOf(store).size(), 1);
         QVERIFY(failed.wait(60000));
 
@@ -320,9 +280,6 @@ private slots:
 #endif
     }
 
-    // Slug flattening is not injective: "@a:b_example.org" and
-    // "@a_b:example.org" share a storage name. A browser sign-in as the one
-    // must not proceed onto the other's record and store (review S2).
     void aSlugCollisionIsRefusedBeforeAnythingIsWritten()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -348,7 +305,6 @@ private slots:
         QCOMPARE(failed.count(), 1);
         QVERIFY2(failed.at(0).at(0).toString().contains(QStringLiteral("collides")),
                  qPrintable(failed.at(0).at(0).toString()));
-        // No card: nothing destructive is offered against the other account.
         QCOMPARE(blocked.count(), 0);
         QCOMPARE(reset.count(), 0);
         QVERIFY(settings.hasSavedAccount(saved));
@@ -356,11 +312,6 @@ private slots:
 #endif
     }
 
-    // A store with no saved account beside it (a rollback or removal that
-    // could not finish, a crash, an older build) is moved aside as login()
-    // does, never deleted, and the sign-in goes on. On a server with its own
-    // sign-in page there is no password form, so refusing it was a dead end
-    // (review S6).
     void aStoreWithNoSavedAccountIsMovedAsideAndTheSignInGoesOn()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -392,9 +343,6 @@ private slots:
 #endif
     }
 
-    // Unless a saved account differs from this one only by case: on a
-    // case-insensitive file system that store may be theirs. Never moved,
-    // no destructive card, and the refusal says what to do.
     void aStoreACaseVariantMayOwnIsNeverMoved()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -424,8 +372,6 @@ private slots:
 #endif
     }
 
-    // A saved record with no device: the refusal carries the account, so the
-    // login screen offers its rebuild card instead of a bare "sign in again".
     void aRecordWithoutADeviceOffersTheRebuildCard()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -453,9 +399,6 @@ private slots:
 #endif
     }
 
-    // A session that really is still there blocks a sign-in as a new device,
-    // as before, but now with the account named so the login screen can offer
-    // the way out (open it, or remove it and sign in again).
     void aBlockingSessionIsReportedWithTheWayOut()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -481,18 +424,11 @@ private slots:
         QCOMPARE(blocked.at(0).at(0).toString(),
                  QStringLiteral("existing_store_requires_restore"));
         QCOMPARE(blocked.at(0).at(1).toString(), dave);
-        // Nothing was touched by the refusal.
         QVERIFY(settings.hasSavedAccount(dave));
         QVERIFY(QFileInfo::exists(storeOf(dave)));
 #endif
     }
 
-    // The loop reported 2026-09-30: once the server has ended this device
-    // (deleted, or "sign out other devices"), its store can never be restored,
-    // and a password sign-in was sent to "Open it", which restored it and met
-    // the revocation again. The only exit was "Remove this account", which
-    // deletes the keys. Now the store is moved aside and the sign-in goes on.
-    // A real login against a closed port on this machine: no network.
     void aPasswordSignInAfterTheServerEndedTheDeviceMovesItsStoreAside()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -514,14 +450,10 @@ private slots:
 
         QSignalSpy failed(&client, &MatrixClient::loginFailed);
         client.login(server, QStringLiteral("gina"), QStringLiteral("not-a-password"));
-        // Not redirected (that answer is synchronous), and the old store is
-        // aside before anything was tried.
         QCOMPARE(failed.count(), 0);
         QVERIFY2(keysAside(store), "the revoked device's store was not moved aside");
         QVERIFY(!QFileInfo::exists(keys));
 
-        // The attempt fails here (closed port) and takes back only its own
-        // fresh store; the old one stays aside.
         QVERIFY(failed.wait(60000));
         QVERIFY2(failed.last().at(0).toString()
                      != matrix::rust_session::userMessage(
@@ -529,8 +461,6 @@ private slots:
                  "sent to \"Open it\" after the store was moved");
         QVERIFY2(keysAside(store), "a failed attempt removed the store it moved aside");
 
-        // When the server accepts the next attempt, the record follows the
-        // new device; the old store is still kept.
         QJsonObject accepted;
         accepted.insert(QStringLiteral("type"), QStringLiteral("login_ok"));
         accepted.insert(QStringLiteral("homeserver"), server);
@@ -544,8 +474,6 @@ private slots:
 #endif
     }
 
-    // Short of that proof, a store with a saved session is never moved: it
-    // may still restore, so the sign-in is sent to "Open it" as before.
     void aPasswordSignInWithoutThatProofIsStillSentToOpenIt_data()
     {
         QTest::addColumn<bool>("revoke");
@@ -556,17 +484,11 @@ private slots:
         const QString hana = QStringLiteral("@hana:localhost:1");
         QTest::newRow("nothing revoked") << false << false << hana
                                          << QStringLiteral("OLDDEVICE") << false;
-        // A soft logout is a proof of its own, for resuming the device; its
-        // cases are in aPasswordSignInAfterASoftLogoutResumesTheSameDevice
-        // and aSoftLogoutResumesOnlyThatAccountAndDevice.
-        // The record names a device other than the one that was ended.
         QTest::newRow("another device") << true << false << hana
                                         << QStringLiteral("OTHERDEVICE") << false;
         QTest::newRow("another account") << true << false
                                          << QStringLiteral("@ivan:localhost:1")
                                          << QStringLiteral("OLDDEVICE") << false;
-        // Review L1: a session ran as that account again since, so the store
-        // is healthy and the proof is spent.
         QTest::newRow("signed in again since") << true << false << hana
                                                << QStringLiteral("OLDDEVICE") << true;
     }
@@ -617,9 +539,6 @@ private slots:
 #endif
     }
 
-    // The browser path, after the same proof: the old store goes aside and
-    // the new device gets a fresh one, even when the server names the same
-    // device id again (that device is gone; its store's keys are not its).
     void aBrowserSignInAfterTheServerEndedTheDeviceMovesItsStoreAside_data()
     {
         QTest::addColumn<QString>("newDevice");
@@ -651,7 +570,6 @@ private slots:
 
         QCOMPARE(restore.calls, 1);
         QVERIFY2(keysAside(storeOf(jo)), "the revoked device's store was not moved aside");
-        // A fresh store for the new session, and not the old one.
         QVERIFY(QFileInfo::exists(storeOf(jo)));
         QVERIFY(!QFileInfo::exists(keys));
         QCOMPARE(settings.accountRecord(jo).value(QStringLiteral("deviceId")).toString(),
@@ -659,10 +577,6 @@ private slots:
 #endif
     }
 
-    // And without the proof the browser path refuses as before
-    // (aBlockingSessionIsReportedWithTheWayOut covers nothing revoked). A
-    // password account's soft logout is a proof for resuming, never for
-    // moving its store.
     void aBrowserSignInAfterASoftLogoutIsStillRefused()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -691,11 +605,6 @@ private slots:
 #endif
     }
 
-    // Review MINOR 4: an OAuth session that the SDK calls soft-logged-out
-    // cannot be continued from here (the refresh was refused, and the browser
-    // sign-in never asks for this device again), so it counts as ended: the
-    // card is the "signed out remotely" one, and the browser sign-in moves
-    // the store aside for a new device instead of refusing for ever.
     void aSoftLogoutOfAnOAuthAccountEndsItsDevice()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -729,12 +638,6 @@ private slots:
 #endif
     }
 
-    // Review MAJOR 2: the device was removed on the server after the soft
-    // logout, so the resumed sign-in re-created it under the same id with no
-    // keys, and this store would never upload them again. Once the server has
-    // ANSWERED that it publishes no key (or another one) for the device, the
-    // session ends with the hard proof and the next sign-in moves the store
-    // aside for a new device. "matches" and "no answer" end nothing.
     void aResumedDeviceTheServerLostIsEndedForANewSignIn_data()
     {
         QTest::addColumn<QString>("state");
@@ -770,8 +673,6 @@ private slots:
         QCOMPARE(failed.count(), 0);
         QCOMPARE(client.m_resumeDeviceId, QStringLiteral("OLDDEVICE"));
 
-        // The server accepts the resume: the check is armed for exactly that
-        // account and device.
         QJsonObject accepted;
         accepted.insert(QStringLiteral("type"), QStringLiteral("login_ok"));
         accepted.insert(QStringLiteral("homeserver"), server);
@@ -782,7 +683,6 @@ private slots:
         QCOMPARE(client.m_resumedCheckDeviceId, QStringLiteral("OLDDEVICE"));
 
         QSignalSpy blocked(&client, &RustSdkMatrixClient::localSessionBlocked);
-        // An answer about another device is not this check's.
         QJsonObject other;
         other.insert(QStringLiteral("type"), QStringLiteral("resumed_device_key"));
         other.insert(QStringLiteral("user_id"), vic);
@@ -805,7 +705,6 @@ private slots:
         QCOMPARE(client.m_revokedDeviceId, QStringLiteral("OLDDEVICE"));
         QVERIFY(client.m_resumedCheckDeviceId.isEmpty());
 
-        // AppController ends it locally; the next sign-in is a new device.
         client.detachSession();
         const int before = failed.count();
         client.login(server, QStringLiteral("vic"), QStringLiteral("not-a-password"));
@@ -816,9 +715,6 @@ private slots:
 #endif
     }
 
-    // Review MINOR 3: a resume that the store refuses (the server did not hand
-    // the same device back) must not offer to reset a healthy store. The same
-    // message on an ordinary sign-in still arms the reset, as before.
     void aRefusedResumeOffersNoReset_data()
     {
         QTest::addColumn<bool>("resume");
@@ -869,12 +765,6 @@ private slots:
 #endif
     }
 
-    // Reported 2026-09-30: after a SOFT logout (the server keeps the device;
-    // Synapse says so when a token expires) the password sign-in was sent to
-    // "Open it", which restored the dead token and met the same answer, for
-    // ever. Now it signs in again as that device, into the same store: no
-    // redirect, nothing moved aside, and the record keeps the device.
-    // A real login against a closed port on this machine: no network.
     void aPasswordSignInAfterASoftLogoutResumesTheSameDevice()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -896,15 +786,11 @@ private slots:
 
         QSignalSpy failed(&client, &MatrixClient::loginFailed);
         client.login(server, QStringLiteral("nia"), QStringLiteral("not-a-password"));
-        // Not redirected (that answer is synchronous), asking for the saved
-        // device, and the store left exactly where it is.
         QCOMPARE(failed.count(), 0);
         QCOMPARE(client.m_resumeDeviceId, QStringLiteral("OLDDEVICE"));
         QVERIFY(quarantinesOf(store).isEmpty());
         QVERIFY(QFileInfo::exists(keys));
 
-        // A failed attempt (closed port) keeps the store and the proof: the
-        // next try resumes again.
         QVERIFY(failed.wait(60000));
         QVERIFY(failed.last().at(0).toString()
                 != matrix::rust_session::userMessage(
@@ -915,8 +801,6 @@ private slots:
         QCOMPARE(client.m_resumeDeviceId, QStringLiteral("OLDDEVICE"));
         QVERIFY(failed.wait(60000));
 
-        // The server accepts: the same device, the same store, the record
-        // unchanged, and the proof spent.
         QJsonObject accepted;
         accepted.insert(QStringLiteral("type"), QStringLiteral("login_ok"));
         accepted.insert(QStringLiteral("homeserver"), server);
@@ -938,9 +822,6 @@ private slots:
 #endif
     }
 
-    // The proof covers exactly the account and device the SDK named, and a
-    // sign-in typed as exactly that account. Anything else is sent to "Open
-    // it" as before, with nothing moved.
     void aSoftLogoutResumesOnlyThatAccountAndDevice_data()
     {
         QTest::addColumn<QString>("typedServer");
@@ -955,19 +836,13 @@ private slots:
         QTest::newRow("another account") << server << QStringLiteral("oto")
                                          << QStringLiteral("@pia:localhost:1")
                                          << QStringLiteral("OLDDEVICE") << QJsonValue(true);
-        // Localparts are case-sensitive: "Oto" may be somebody else, and the
-        // device id would then be asked for on their account.
         QTest::newRow("another casing typed") << server << QStringLiteral("Oto") << oto
                                               << QStringLiteral("OLDDEVICE")
                                               << QJsonValue(true);
-        // Review MAJOR 1: the full id typed with another server. The password
-        // and this device id must never go there, and the record must never
-        // be rewritten to it.
         QTest::newRow("another homeserver typed") << QStringLiteral("https://localhost:2")
                                                   << oto << oto
                                                   << QStringLiteral("OLDDEVICE")
                                                   << QJsonValue(true);
-        // The SDK event without the field proves nothing.
         QTest::newRow("no soft_logout field") << server << QStringLiteral("oto") << oto
                                               << QStringLiteral("OLDDEVICE")
                                               << QJsonValue(QJsonValue::Undefined);
@@ -1011,8 +886,6 @@ private slots:
 #endif
     }
 
-    // Soft first, then the device ended for good: the hard proof wins, so the
-    // store goes aside for a new device rather than being resumed.
     void aDeviceEndedAfterASoftLogoutIsNotResumed()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -1041,7 +914,6 @@ private slots:
 #endif
     }
 
-    // The card needs to know which of the two it is.
     void aSoftLogoutIsReportedAsExpiredAndAHardOneAsRevoked()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -1064,9 +936,6 @@ private slots:
 #endif
     }
 
-    // Review L1: the proof is used once. The server re-issued the same device
-    // id, so the record names X/D again; a later sign-in in this process meets
-    // the new session's healthy store and must not move it too.
     void theProofIsUsedOnce()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -1096,9 +965,6 @@ private slots:
 #endif
     }
 
-    // Review L2: moving a revoked store aside releases only a handle on THAT
-    // store. During add-account another account's session runs; when the move
-    // fails, that session is left running on its own store.
     void aFailedMoveLeavesAnotherRunningSessionIntact()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -1121,7 +987,6 @@ private slots:
         RustSdkMatrixClient client(&settings);
         serverEnds(client, server, xena, QStringLiteral("OLDDEVICE"), false);
 
-        // walt runs, on its own store.
         matrix::app_data::AccountIdentity waltIdentity;
         QVERIFY(matrix::app_data::resolveAccountIdentity(server, walt, &waltIdentity));
         QVERIFY(client.ensureRustHandleForIdentity(waltIdentity));
@@ -1133,7 +998,6 @@ private slots:
         client.handleRustEventForTest(waltOk);
         QVERIFY(client.isLoggedIn());
 
-        // xena's store cannot be moved: its account directory is read-only.
         const QString accountDir = QFileInfo(xenaStore).absolutePath();
         QVERIFY(QFile::setPermissions(accountDir, QFileDevice::ReadOwner
                                                       | QFileDevice::ExeOwner));
@@ -1165,14 +1029,6 @@ private slots:
 #endif
     }
 
-    // Reported 2026-09-30 on a Flatpak: the keyring came back without the
-    // sign-in this install had saved (a portal secret that changed, or
-    // libsecret switching between its file and Secret Service backends). The
-    // store answered "no such item", so the password sign-in was classified
-    // store_without_session_metadata and offered "Quarantine and rebuild": a
-    // new device, the old one's store moved aside. The account had not signed
-    // out. Now it continues as the recorded device, into the same store.
-    // A real login against a closed port on this machine: no network.
     void aSignInTheKeyringLostContinuesAsTheSameDevice()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND
@@ -1188,7 +1044,6 @@ private slots:
         const QString store = storeOf(kai, server);
         const QString keys = seedStore(store);
         QVERIFY(!keys.isEmpty());
-        // The keyring answers, and no longer has it.
         QVERIFY(secrets.clearAccountSecrets(kai));
         QVERIFY(settings.accessTokenFor(kai).isEmpty());
         QVERIFY(!settings.secretBackendUnavailable());
@@ -1198,14 +1053,11 @@ private slots:
         QSignalSpy failed(&client, &MatrixClient::loginFailed);
         QSignalSpy reset(&client, &RustSdkMatrixClient::localSessionResetRequired);
         client.login(server, QStringLiteral("kai"), QStringLiteral("not-a-password"));
-        // Not refused (that answer is synchronous), asking for the recorded
-        // device, and nothing moved or offered for reset.
         QCOMPARE(failed.count(), 0);
         QCOMPARE(reset.count(), 0);
         QCOMPARE(client.m_resumeDeviceId, QStringLiteral("OLDDEVICE"));
         QVERIFY(quarantinesOf(store).isEmpty());
         QVERIFY(QFileInfo::exists(keys));
-        // The closed port fails the attempt; the store stays, nothing is armed.
         QVERIFY(failed.wait(60000));
         QCOMPARE(reset.count(), 0);
         QVERIFY(quarantinesOf(store).isEmpty());
@@ -1213,10 +1065,6 @@ private slots:
 #endif
     }
 
-    // The same lost sign-in, but a sign-in that must not continue as that
-    // device: the card that says what happened, never the rebuild. A session
-    // adopted from before install scoping may be another install's device, so
-    // it keeps the old verdict.
     void aLostSignInThatCannotContinueIsExplainedNotRebuilt_data()
     {
         QTest::addColumn<QString>("typedServer");
@@ -1225,11 +1073,9 @@ private slots:
         QTest::addColumn<bool>("adopted");
         QTest::addColumn<QString>("code");
         const QString card = QStringLiteral("keyring_lost_session");
-        // The password and the device id go to no other server.
         QTest::newRow("another homeserver typed")
             << QStringLiteral("https://localhost:2") << QStringLiteral("@lia:localhost:1")
             << QStringLiteral("password") << false << card;
-        // A browser sign-in here cannot ask for a device.
         QTest::newRow("oauth session") << QStringLiteral("https://localhost:1")
                                        << QStringLiteral("lia") << QStringLiteral("oauth")
                                        << false << card;

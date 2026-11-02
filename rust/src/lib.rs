@@ -1,7 +1,3 @@
-//! matrix-client-rust — Matrix Rust SDK FFI bridge for Lightning.
-//!
-//! The C++ backend owns UI state and polls this bridge for JSON events. Rust
-//! owns the Matrix SDK client, Tokio runtime, and SDK SQLite store.
 
 use std::{
     collections::{BTreeSet, HashMap, HashSet, VecDeque},
@@ -80,8 +76,6 @@ mod bio;
 mod bridges;
 mod previewbackfill;
 mod calls;
-// DeepFilterNet microphone noise suppression (#20); C ABI in
-// rust/include/matrix_denoise.h. Stubs when the `deepfilternet` feature is off.
 mod denoise;
 mod discover;
 mod gifs;
@@ -119,7 +113,6 @@ mod stickers;
 mod uia;
 mod warm_rooms;
 mod recovery;
-// Account password change and its capability probe (FFI in the module).
 mod password;
 mod policy;
 mod presence;
@@ -138,37 +131,20 @@ mod storeclose;
 mod syncnotify;
 mod timeline;
 
-/// The single HTTP user agent, for the homeserver and any user-invoked
-/// third-party request. Derived from `rust/Cargo.toml`; the
-/// `signpath-compliance` test checks the CMake version against it.
 pub(crate) const USER_AGENT: &str = concat!("Lightning/", env!("CARGO_PKG_VERSION"));
 
-/// Shared alias for the FFI event queue reference (used by `rooms.rs`).
 pub(crate) type EventQueueRef = Arc<Mutex<VecDeque<String>>>;
 
-/// Wake-up signals for the E2EE recovery coordinator. Carries no key
-/// material; each variant only means "re-evaluate".
 #[derive(Clone, Copy, Debug)]
 enum RecoveryNudge {
-    /// A SAS flow reached `SasState::Done` locally. Re-arms the secret-request
-    /// retry ladder even when the device was already `Verified`, since a repeat
-    /// verification produces no state edge.
     VerificationDone,
-    /// The user asked to re-request the encryption secrets. Runs one attempt
-    /// immediately and re-arms the follow-up ladder.
     ManualRequest,
-    /// An `m.secret.send` to-device event was decrypted. Only the arrival is
-    /// signalled, never the name or value.
     SecretEventSeen,
 }
 
-/// Slot through which SAS flows and the manual-request FFI reach the live
-/// coordinator's nudge channel. `None` whenever no observer is running.
 type RecoveryNudgeSlot =
     Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<RecoveryNudge>>>>;
 
-/// Deliver a nudge to the live coordinator, if any. A missing channel is
-/// fine: the coordinator re-reads SDK state whenever it starts.
 fn notify_recovery_nudge(slot: &RecoveryNudgeSlot, nudge: RecoveryNudge) -> bool {
     if let Ok(guard) = slot.lock() {
         if let Some(sender) = guard.as_ref() {
@@ -180,27 +156,10 @@ fn notify_recovery_nudge(slot: &RecoveryNudgeSlot, nudge: RecoveryNudge) -> bool
 
 struct RustClient {
     store_path: PathBuf,
-    /// Monotonic per-process serial (labs.rs), never an address: the owner of
-    /// this handle's store reservation and probes while Labs is on.
     serial: u64,
-    /// What the token task observed (rotations, revocation), for
-    /// `mx_rust_take_custody`. Facts only; the tokens are read live.
     custody: Arc<labs::CustodyFacts>,
-    /// `Some` for a Background handle (`mx_rust_create_background`, Labs):
-    /// its profile, gate, sticky slot and aggregator. `None` for every
-    /// `mx_rust_create` handle, so the flag-off path never meets it.
     bg: Option<Arc<bgsession::BgState>>,
-    /// Set by the first `shutdown_managed_tasks` that clears this account's
-    /// process-wide RTC marks and remembered previews. Teardown runs twice
-    /// (the FFI, then `Drop` in the retirement pool, possibly much later), and
-    /// by the second run a NEWER handle of the same account may own those
-    /// marks: the per-account clear must run once per bridge (review
-    /// 2026-10-16, finding 7). A bridge is not restored after its shutdown
-    /// (`index_shutdown` and `verification_shutdown` never reset either).
     account_state_forgotten: AtomicBool,
-    /// Process-unique id of this bridge. Lifecycle numbers restart at every
-    /// bridge, so "already reported in this lifecycle" must name the bridge
-    /// too (`recovery::interrupted_setup_to_report`).
     bridge_id: u64,
     /// The local message index (SQLite FTS5), opened lazily inside the
     /// account's store directory so it is deleted with the account.
@@ -208,42 +167,22 @@ struct RustClient {
     /// A `std` mutex, not tokio's: every hold is a short synchronous query and
     /// must never span an `.await`.
     search_index: Arc<Mutex<Option<localsearch::SearchIndex>>>,
-    /// Cooperative stop for the background indexer, checked between rooms, so
-    /// a sweep does not keep the store open while sign-out deletes it.
     index_shutdown: Arc<AtomicBool>,
-    /// "Index all rooms": the queue, its persisted position (a file in this
-    /// store directory) and its pause/cancel/hold controls. Per bridge, so a
-    /// run can only write this account's index.
     index_all: Arc<indexall::Control>,
-    /// Per-room cursor of the independent media-history walk, so reopening
-    /// the panel continues. Holds only a `/messages` token and counters.
     media_history: Arc<Mutex<HashMap<String, mediahistory::Cursor>>>,
     session_file: Arc<Mutex<Option<PathBuf>>>,
     client: Arc<Mutex<Option<Client>>>,
     events: Arc<Mutex<VecDeque<String>>>,
     sync_task: Mutex<Option<SyncTask>>,
     sync_mode: Arc<Mutex<SyncMode>>,
-    // Shared runtime for everything that outlives one FFI call (timelines,
-    // send queue, event cache, key import). Per-call `run_async` runtimes
-    // cannot host those: their tasks die with the runtime.
     runtime: Arc<tokio::runtime::Runtime>,
     timelines: Arc<timeline::TimelineRegistry>,
     // In-flight / returned DM creates; see rooms::DmCreateRegistry.
     dm_creates: Arc<rooms::DmCreateRegistry>,
-    // Only when C++ has a media backend do inbound call handlers include the
-    // remote SDP in their payloads. Off by default.
     call_media_capable: Arc<std::sync::atomic::AtomicBool>,
-    // The live SFU signalling session and its generation. The generation is a
-    // separate Arc so teardown can invalidate the task without taking the
-    // session mutex.
     sfu: sfu::SfuState,
-    // Serialize membership writes and retain their one live delayed leave.
     rtc_membership_delays: Arc<tokio::sync::Mutex<rtc::MembershipDelayRegistry>>,
     sfu_generation: Arc<std::sync::atomic::AtomicU64>,
-    // The sliding-sync RoomListService, published by the modern sync loop and
-    // withdrawn on every exit path. Room opens use it to subscribe the active
-    // room, because subscription-only required state (`m.room.pinned_events`)
-    // never reaches the store otherwise.
     room_list_service: Arc<Mutex<Option<Arc<RoomListService>>>>,
     // The dynamic adapter that owns the room-list index space; C++ indexes its
     // registry by the positions its diffs carry. `set_filter` makes it re-emit
@@ -251,51 +190,24 @@ struct RustClient {
     // `client.rooms()` snapshot has a different order and would make the
     // rejection self-sustaining (see `enqueue_rooms_stamped`).
     room_list_entries: Arc<Mutex<Option<Arc<RoomListDynamicEntriesController>>>>,
-    // The room the user has open plus the recently opened "warm" rooms: the
-    // subscriptions the sliding sync carries (warm_rooms.rs). Kept apart from
-    // the service so a room opened before sync starts is subscribed once it
-    // appears; cleared in `stop_sync_and_wait` so it can never leak into a
-    // later account's sync.
     active_room_subscription: Arc<Mutex<warm_rooms::SubscriptionSet>>,
-    // At most one privileged operation parked between a UIA challenge and the
-    // user's answer (uia.rs). Cleared on teardown.
     uia_pending: Arc<Mutex<Option<uia::UiaPending>>>,
-    // Managed room-key import task, so sign-out can join it.
     import_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
-    // Short room-state commands (typing, receipts, invites, marked-unread),
-    // joined during shutdown.
     room_action_tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     active_typing_room: Arc<Mutex<Option<String>>>,
     receipt_targets: Arc<Mutex<HashMap<String, OwnedEventId>>>,
-    // Receipt privacy: 0 public, 1 private (m.read.private), 2 none. Stored on
-    // the bridge so all three receipt paths (room, mark-read, thread) honour it.
     receipt_privacy: Arc<AtomicI32>,
-    /// MSC4108 sign-in-another-device state: the generation, the one-shot
-    /// check-code sender and the running task. See rust/src/qrlogin.rs.
     qr_login: Arc<qrlogin::QrLoginState>,
     receipt_serial: Arc<tokio::sync::Mutex<()>>,
     invite_actions: Arc<Mutex<BTreeSet<String>>>,
-    // Per-room notification mode writes (SDK push rules). Serialized behind one
-    // async mutex because `set_room_notification_mode` is a read/modify/write,
-    // and coalesced per room to the latest requested mode. An entry lives until
-    // its reporting task consumes it, so it also marks "write in flight" for
-    // the read path (see mx_rust_get_room_notification_mode).
     notification_mode_targets: Arc<Mutex<HashMap<String, u8>>>,
     notification_mode_serial: Arc<tokio::sync::Mutex<()>>,
-    // One session-long NotificationSettings: a fresh instance per call would
-    // lose the rules the SDK applies locally after a write. Cleared on
-    // sign-out / detach.
     notification_settings: Arc<Mutex<Option<NotificationSettings>>>,
-    // The lifecycle generation a push-rules change watcher was started for
-    // (0 = none), so one watcher runs per session and a stale one ends.
     notification_watch_lifecycle: Arc<std::sync::atomic::AtomicU64>,
     // The push-rules watcher's own task. It never finishes by itself, so
     // shutdown aborts it BEFORE joining the room-action pool (like the media
     // fetches), or every sign-out would wait out the join budget.
     notification_watch_abort: Arc<Mutex<Option<tokio::task::AbortHandle>>>,
-    // SAS verification state: one active flow at a time. A second request while
-    // one is live is cancelled on the wire. Both slots are released by
-    // `FlowSlotGuard`, only for the flow that owns them.
     active_request: Arc<Mutex<Option<VerificationRequest>>>,
     // (flow_id, sas): SasVerification has no flow_id() accessor in matrix-sdk
     // 0.18.
@@ -304,57 +216,25 @@ struct RustClient {
     // sign-in can call `OAuth::abort_login(state)`. Scoped to this handle.
     // Never logged.
     oauth_state: Arc<Mutex<Option<matrix_sdk::authentication::oauth::CsrfToken>>>,
-    // Session-token persistence watcher (oauth::spawn_token_persistence), held
-    // so shutdown can abort it; it holds a strong Client.
     token_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
-    // Every rotation this handle's clients make, recorded inside matrix-sdk's
-    // own refresh (sessiontokens.rs). Outlives the Client: the retiring
-    // worker reads it after the runtime is shut down.
     token_ledger: Arc<sessiontokens::TokenLedger>,
-    // (flow_id, qr): the show-QR half of the single-flow policy. At most one of
-    // active_sas / active_qr is occupied for a request.
     active_qr: Arc<Mutex<Option<(String, QrVerification)>>>,
     // SAS driver tasks. They hold this account's Client, so one left running
     // keeps the crypto store open while sign-out deletes it. Joined by
     // shutdown_managed_tasks.
     verification_tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
-    // Cooperative stop for those drivers, checked every poll tick. Set only by
-    // teardown.
     verification_shutdown: Arc<AtomicBool>,
-    // Room-key import is serialized per client; a second attempt is rejected.
-    // C++ also reads this before sign-out to wait for a live import.
     import_active: Arc<AtomicBool>,
     // Parked media payloads for the take/free bridge, keyed by op id, between
     // `media_ready` and `mx_rust_media_take`. Cleared on shutdown so decrypted
     // media never outlives the session.
     media_results: Arc<Mutex<HashMap<u64, Vec<u8>>>>,
-    // Decrypted personal chat backgrounds (bgsync.rs) between
-    // `personal_background_bytes` and `mx_rust_personal_background_take`. Its
-    // OWN map: those op ids come from another counter, and sharing
-    // `media_results` could hand a timeline picture to the background code.
-    // Bounded (bgsync::park) and cleared on shutdown.
     personal_background_results: bgsync::ParkedPictures,
-    // The last switch GET a personal-background read made, shared by
-    // concurrent reads (bgsync::switch_after). Keyed by lifecycle.
     personal_switch_cache: bgsync::SwitchCache,
-    // Abort handles for in-flight media fetches, keyed by op id, so
-    // mx_rust_media_cancel can stop an abandoned download. Tasks remove their
-    // own entry on completion; cleared on shutdown.
     pub(crate) media_fetch_aborts: Arc<Mutex<HashMap<u64, tokio::task::AbortHandle>>>,
-    // Terminal event lane for op-id-keyed results (media, GIF), so a
-    // timeline-diff flood on the bulk queue cannot starve them. C++ drains it
-    // before every bulk batch. Bounded only as a tripwire.
     command_events: EventQueueRef,
-    // Crypto-bootstrap observer: forwards sanitized verification/recovery/backup
-    // state to C++. Lives as long as the sync session.
     bootstrap_task: Mutex<Option<SyncTask>>,
-    // Coordinator nudge channel (SAS, manual request, m.secret.send). Cleared
-    // when the observer stops so a stale sender cannot reach a later session.
     recovery_nudges: RecoveryNudgeSlot,
-    // The sync handlers' backlog clock and their undecryptable events awaiting
-    // redecryption (syncnotify.rs), shared with the sync loop that drives the
-    // clock and the crypto observer that re-emits a decrypted event. Reset at
-    // every session end.
     sync_notify: Arc<syncnotify::SyncNotify>,
 }
 
@@ -363,9 +243,6 @@ impl RustClient {
         Self::new_with(store_path, None)
     }
 
-    /// `profile`: a Background handle's (Labs). Its shared runtime is named
-    /// `lt-sdk-<slot>` with a bounded blocking pool; `None` is exactly today's
-    /// runtime.
     fn new_with(store_path: PathBuf, profile: Option<&labs::Profile>) -> Result<Self, String> {
         let events: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
         let mut builder = tokio::runtime::Builder::new_multi_thread();
@@ -452,7 +329,6 @@ impl RustClient {
         enqueue(&self.events, value);
     }
 
-    /// Where this handle's next client sends its rotations (sessiontokens.rs).
     fn token_sink(&self) -> sessiontokens::Sink {
         sessiontokens::Sink {
             ledger: Arc::clone(&self.token_ledger),
@@ -461,14 +337,10 @@ impl RustClient {
         }
     }
 
-    /// Whether this is a Background handle (Labs). False for every
-    /// `mx_rust_create` handle.
     fn is_background(&self) -> bool {
         self.bg.as_ref().is_some_and(|bg| bg.is_background())
     }
 
-    /// What this handle's store opens must enforce (labs.rs). `None` while the
-    /// store guards are off, so the open runs exactly as before.
     fn open_context(&self) -> Option<Arc<labs::OpenContext>> {
         if !labs::store_guards_active() {
             return None;
@@ -484,15 +356,10 @@ impl RustClient {
         }))
     }
 
-    /// `lt-op-<slot>` for a Background handle's own threads (restore, login,
-    /// logout), so `/proc/self/task` attributes them (contract §3.1); `None`
-    /// (today's unnamed thread) otherwise.
     fn op_thread_name(&self) -> Option<String> {
         self.bg.as_ref().map(|bg| labs::thread_name("op", &bg.profile.slot))
     }
 
-    /// Clear this account's process-wide RTC marks and remembered previews,
-    /// once per bridge (`account_state_forgotten`). Returns whether it ran.
     fn forget_account_state_once(&self, identity: Option<(String, String)>) -> bool {
         let Some((user_id, device_id)) = identity else { return false };
         if self.account_state_forgotten.swap(true, Ordering::SeqCst) {
@@ -505,7 +372,6 @@ impl RustClient {
         true
     }
 
-    /// This handle's account, from its client: (user id, device id).
     fn account_identity(&self) -> Option<(String, String)> {
         self.client.lock().ok().and_then(|guard| {
             guard.as_ref().and_then(|client| {
@@ -514,10 +380,6 @@ impl RustClient {
         })
     }
 
-    /// A UIA challenge belongs to the session that raised it: at a session
-    /// end, drop it and stop a cross-signing job still waiting for an OAuth
-    /// approval. The flag is set at once; the SDK reset handle's own cancel is
-    /// queued on the room-action pool, which teardown then joins.
     fn abandon_uia(&self) {
         if let Some(handle) = uia::abandon_on_teardown(&self.uia_pending) {
             self.spawn_room_action(async move {
@@ -527,16 +389,9 @@ impl RustClient {
     }
 
     fn stop_sync_and_wait(&self) -> bool {
-        // The active-room subscription is scoped to this session; clear it so a
-        // later account's sync cannot subscribe another account's room.
         if let Ok(mut guard) = self.active_room_subscription.lock() {
             guard.clear();
         }
-        // The UIA slot is NOT cleared here: this also runs when a finished
-        // sync thread is reaped and on a plain sync stop, while the session
-        // goes on. Session ends call `abandon_uia()` themselves.
-        // Stop the bootstrap observer first so no status event is emitted for a
-        // dying session; drop the nudge sender before it.
         if let Ok(mut nudges) = self.recovery_nudges.lock() {
             *nudges = None;
         }
@@ -555,22 +410,10 @@ impl RustClient {
         } else {
             false
         };
-        // After both loops are gone: nothing a stopped session left undecryptable
-        // may be re-emitted into the next one.
         self.sync_notify.reset();
         stopped
     }
 
-    /// Join every handle under one budget, then abort and briefly drain
-    /// whatever missed it. Returns how many missed.
-    ///
-    /// Uses a single `JoinAll` that owns the handles across both rounds.
-    /// `JoinHandle::poll` consumes the task output, so building a second
-    /// `join_all` over the same handles re-polls finished tasks and panics
-    /// with "JoinHandle polled after completion". A `JoinSet` would avoid this
-    /// too, but `spawn_media_fetch` needs its own `AbortHandle` registry.
-    ///
-    /// Budgets are in milliseconds so `SHUTDOWN_WORST_CASE_MS` can sum them.
     async fn join_or_abort(
         handles: Vec<tokio::task::JoinHandle<()>>,
         budget_ms: u64,
@@ -578,7 +421,6 @@ impl RustClient {
         if handles.is_empty() {
             return 0;
         }
-        // Collected before the handles move into join_all.
         let aborts: Vec<tokio::task::AbortHandle> = handles
             .iter()
             .map(tokio::task::JoinHandle::abort_handle)
@@ -597,7 +439,6 @@ impl RustClient {
         for a in &aborts {
             a.abort();
         }
-        // The same future, so a handle joined in round one is never polled again.
         let _ = tokio::time::timeout(
             std::time::Duration::from_millis(SHUTDOWN_ABORT_DRAIN_MS),
             all.as_mut(),
@@ -606,19 +447,9 @@ impl RustClient {
         missed
     }
 
-    // Returns (import_joined, sync_stopped, actions_missed,
-    // verifications_missed, actions_ms, verifications_ms, total_ms).
-    //
-    // Every wait here runs on the calling thread, which is the GUI thread
-    // (switchToAccount -> detachSession -> mx_rust_shutdown_tasks), so the
-    // durations are reported to attribute UI freezes. Counts and ms only.
     fn shutdown_managed_tasks(&self)
         -> (bool, bool, usize, usize, u64, u64, u64) {
         let total = std::time::Instant::now();
-        // From here nothing drains or answers: a refresh during the joins
-        // below must not hold its save callback open for the GUI thread that
-        // is blocked in them. Rotations are still recorded in the ledger,
-        // which the retiring worker reads once the runtime is gone.
         self.token_ledger.stop_waiting();
         // Stop the indexer first and close its connection: an open SQLite handle
         // in the store directory makes the deletion fail on Windows.
@@ -643,17 +474,6 @@ impl RustClient {
         if let Ok(mut guard) = self.search_index.lock() {
             *guard = None;
         }
-        // The token watcher is aborted only after sync has stopped (below), so
-        // a rotation caused by a request still in flight here is still
-        // announced. The SDK adopts a rotated pair inside `Client` either way;
-        // what was lost (2026-10-01) was the announcement: it sat in this
-        // handle's event queue, which dies with the handle when C++ releases
-        // it before the next drain, so the keyring kept the used refresh
-        // token. `final_session_tokens`, read after this shutdown, is the fix
-        // for that; the reorder only keeps announcements coming meanwhile.
-        // SAS drivers first: they hold a Client purely to poll, and one left
-        // running keeps the crypto store open while `finishSignOut` deletes it.
-        // Signal, join, then abort.
         self.verification_shutdown.store(true, Ordering::SeqCst);
         let verifications = self
             .verification_tasks
@@ -667,16 +487,10 @@ impl RustClient {
             SHUTDOWN_VERIFICATION_JOIN_MS,
         ));
         let verifications_ms = t_verifications.elapsed().as_millis() as u64;
-        // Cancel any flow still parked in the slots (including an unanswered
-        // incoming request) so the peer does not wait out the SDK's 10-minute
-        // VERIFICATION_TIMEOUT. This must live here: every teardown path runs
-        // `mx_rust_shutdown_tasks` before logout, so the slots are empty by then.
         let (pending_sas, pending_qr, pending_request) = take_pending_flows(
             &self.active_request, &self.active_sas, &self.active_qr,
         );
         if pending_sas.is_some() || pending_qr.is_some() || pending_request.is_some() {
-            // One outer cap over the whole sweep; this step is on the critical path
-            // to the store being closed.
             self.runtime.block_on(async {
                 let _ = tokio::time::timeout(
                     std::time::Duration::from_millis(SHUTDOWN_FLOW_SWEEP_MS),
@@ -693,28 +507,21 @@ impl RustClient {
 
         self.timelines.shutdown(&self.runtime);
 
-        // The push-rules watcher waits for changes for ever: abort it first.
         if let Ok(mut guard) = self.notification_watch_abort.lock() {
             if let Some(handle) = guard.take() {
                 handle.abort();
             }
         }
-        // Abort media downloads before joining the room-action pool; a large
-        // transfer would otherwise burn the whole join budget.
         if let Ok(mut guard) = self.media_fetch_aborts.lock() {
             for (_, handle) in guard.drain() {
                 handle.abort();
             }
         }
 
-        // Before the join: a cross-signing job polling an OAuth approval
-        // would otherwise run out the whole budget.
         self.abandon_uia();
         let actions = self.room_action_tasks.lock().ok()
             .map(|mut guard| std::mem::take(&mut *guard))
             .unwrap_or_default();
-        // One overall join budget for all room-action tasks; whatever misses it
-        // is aborted and briefly drained.
         let t_actions = std::time::Instant::now();
         let actions_missed = self.runtime.block_on(Self::join_or_abort(
             actions,
@@ -742,34 +549,23 @@ impl RustClient {
 
         let sync_stopped = self.stop_sync_and_wait();
 
-        // Now nothing of ours sends a request, so no rotation can follow. The
-        // watcher holds a strong Client and its broadcast sender lives inside
-        // that Client, so recv() never returns Closed and the task would keep
-        // the crypto store open. Aborted: it has no cooperative exit. An
-        // announcement it queued that C++ never drained is not needed: the
-        // Client already holds that pair, and `final_session_tokens` hands it
-        // back.
         if let Ok(mut guard) = self.token_task.lock() {
             if let Some(handle) = guard.take() {
                 handle.abort();
             }
         }
 
-        // Drop parked (possibly decrypted) media bytes with the session.
         if let Ok(mut guard) = self.media_results.lock() {
             guard.clear();
         }
         if let Ok(mut guard) = self.personal_background_results.lock() {
             guard.clear();
         }
-        // Clear abort handles registered between the drain above and sync stop.
         if let Ok(mut guard) = self.media_fetch_aborts.lock() {
             for (_, handle) in guard.drain() {
                 handle.abort();
             }
         }
-        // The cached NotificationSettings holds a Client clone and an event-handler
-        // guard; pending write markers must not leak into the next account.
         if let Ok(mut guard) = self.notification_settings.lock() {
             *guard = None;
         }
@@ -780,10 +576,6 @@ impl RustClient {
          actions_ms, verifications_ms, total.elapsed().as_millis() as u64)
     }
 
-    /// The tokens the session holds NOW, which may be newer than the last
-    /// `session_tokens_refreshed` C++ drained: a rotation that lands between
-    /// that drain and the handle being retired is otherwise lost. `None`
-    /// without a client or tokens. SENSITIVE: never log the result.
     fn final_session_tokens(&self) -> Option<matrix_sdk::SessionTokens> {
         self.client
             .lock()
@@ -815,9 +607,6 @@ impl RustClient {
         }
     }
 
-    /// Media fetches ride the tracked room-action pool and also register an
-    /// abort handle under their op id for mx_rust_media_cancel. The future
-    /// removes its own entry once resolved (see rooms::media_fetch).
     fn spawn_media_fetch<F>(&self, op_id: u64, future: F)
     where
         F: std::future::Future<Output = ()> + Send + 'static,
@@ -826,7 +615,6 @@ impl RustClient {
             tasks.retain(|task| !task.is_finished());
             let handle = self.runtime.spawn(future);
             if let Ok(mut aborts) = self.media_fetch_aborts.lock() {
-                // Drop handles of tasks that already finished.
                 aborts.retain(|_, h| !h.is_finished());
                 aborts.insert(op_id, handle.abort_handle());
             }
@@ -834,8 +622,6 @@ impl RustClient {
         }
     }
 
-    /// Run a SAS driver on the shared runtime as a joinable task, so it cannot
-    /// outlive `mx_rust_destroy` holding this account's Client.
     fn spawn_verification_task<F>(&self, future: F)
     where
         F: std::future::Future<Output = ()> + Send + 'static,
@@ -859,8 +645,6 @@ impl RustClient {
         F: std::future::Future<Output = ()> + Send + 'static,
     {
         let events = Arc::clone(&self.events);
-        // A dropped action must not be silent either: `spawn_room_action` drops
-        // the future on a poisoned mutex, so report it the same way.
         let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         let claimed = std::sync::Arc::clone(&dropped);
         let report = Arc::clone(&events);
@@ -890,13 +674,6 @@ impl RustClient {
     }
 }
 
-/// A future that catches a panic raised by the future it wraps.
-///
-/// Not `futures_util::FutureExt::catch_unwind`: that needs futures-util's
-/// `std` feature, which we take with `default-features = false`.
-///
-/// The inner future is boxed so this type is `Unpin`, and dropped as soon
-/// as it panics or completes so it is never polled again.
 struct CatchPanic<F> {
     inner: Option<std::pin::Pin<Box<F>>>,
 }
@@ -908,9 +685,6 @@ impl<F> CatchPanic<F> {
 }
 
 impl<F: std::future::Future<Output = ()>> std::future::Future for CatchPanic<F> {
-    /// `Err(())` means the wrapped future panicked. The payload is dropped, not
-    /// reported: it may contain room ids or message bodies. `install_panic_hook`
-    /// likewise keeps the payload out of stderr.
     type Output = Result<(), ()>;
 
     fn poll(
@@ -920,7 +694,6 @@ impl<F: std::future::Future<Output = ()>> std::future::Future for CatchPanic<F> 
         use std::task::Poll;
         let this = self.get_mut();
         let Some(future) = this.inner.as_mut() else {
-            // Already resolved; never poll a future that has unwound.
             return Poll::Ready(Err(()));
         };
         let polled = catch_unwind(AssertUnwindSafe(|| future.as_mut().poll(cx)));
@@ -938,9 +711,6 @@ impl<F: std::future::Future<Output = ()>> std::future::Future for CatchPanic<F> 
     }
 }
 
-/// Wait for a cancelled task's thread, but no longer than the budget.
-/// Returns false when the thread was detached instead (see
-/// SYNC_TASK_JOIN_BUDGET_MS).
 fn join_task_within_budget(task: &mut SyncTask, label: &str) -> bool {
     if let Some(cancel) = task.cancel.take() {
         let _ = cancel.send(());
@@ -949,21 +719,18 @@ fn join_task_within_budget(task: &mut SyncTask, label: &str) -> bool {
         return true;
     };
     let finished = match task.done.take() {
-        // Disconnected means the thread dropped its sender, i.e. it exited.
         Some(done) => !matches!(
             done.recv_timeout(std::time::Duration::from_millis(
                 SYNC_TASK_JOIN_BUDGET_MS
             )),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout)
         ),
-        // No completion signal: fall back to joining.
         None => true,
     };
     if finished {
         let _ = thread.join();
         return true;
     }
-    // Deliberately NOT joined: dropping the handle detaches it.
     eprintln!(
         "lightning: {label} thread did not stop within {SYNC_TASK_JOIN_BUDGET_MS}ms; \
 detaching it rather than blocking the UI"
@@ -974,92 +741,30 @@ detaching it rather than blocking the UI"
 struct SyncTask {
     cancel: Option<tokio::sync::oneshot::Sender<()>>,
     thread: Option<std::thread::JoinHandle<()>>,
-    /// Completion signal for `thread`. Nothing is sent; the thread owns the
-    /// Sender, so when it exits `recv_timeout` returns `Disconnected`.
     done: Option<std::sync::mpsc::Receiver<()>>,
 }
 
-/// How long teardown waits for a sync or bootstrap thread to notice its
-/// cancellation.
-///
-/// These threads drive `current_thread` runtimes, and dropping one waits for
-/// any running `spawn_blocking`, which includes DNS resolution; an unbounded
-/// join froze the UI for as long as a stalled resolver took. On timeout the
-/// thread is detached: it is cancelled, and the generation guards reject
-/// anything it might still emit.
 const SYNC_TASK_JOIN_BUDGET_MS: u64 = 1500;
 
-// Shutdown budget.
-//
-// `shutdown_managed_tasks` is a chain of sequential waits, and C++ waits for
-// all of it plus `mx_rust_destroy` with one flat
-// `waitForRustRetirement(kStoreCloseBudgetMs)` (15 000 ms,
-// src/matrix/RustSdkMatrixClient.h). Past that budget C++ deletes the store
-// anyway, possibly under a live SQLite writer. The budgets below therefore
-// sum, with a reserve for the runtime drop, to less than that, and
-// `SHUTDOWN_WORST_CASE_MS` asserts it at compile time.
-//
-//     | step                                  |    ms |
-//     |---------------------------------------|-------|
-//     | verification join                     |  2500 |
-//     | verification abort drain              |   250 |
-//     | verification slot-sweep cancel (cap)  |  2000 |
-//     | room-action join                      |  1500 |
-//     | room-action abort drain               |   250 |
-//     | import join                           |   500 |
-//     | stop_sync_and_wait (2 x 1500)         |  3000 |
-//     | TimelineRegistry::shutdown (2 x 250)  |   500 |
-//     | SHUTDOWN_WORST_CASE_MS                | 10500 |
-//     | reserve for mx_rust_destroy           |  3000 |
-//     |   of which retire_bridge's runtime    |       |
-//     |   shutdown (1500) + store release     |       |
-//     |   wait (1000)                         |       |
-//     | total vs kStoreCloseBudgetMs = 15000  | 13500 |
-
-/// After `abort()`, how long a cancelled task may take to reach its next
-/// await point. Only guards against a task stuck in a synchronous stretch.
 const SHUTDOWN_ABORT_DRAIN_MS: u64 = 250;
 
-/// Wire budget for one courtesy `m.key.verification.cancel` during teardown.
-/// Shorter than `VERIFICATION_CANCEL_TIMEOUT_SECS`: if it misses, the peer
-/// just waits out the SDK's 10-minute VERIFICATION_TIMEOUT.
 const SHUTDOWN_FLOW_CANCEL_MS: u64 = 1000;
 
-/// How long the SAS/QR drivers get to notice `verification_shutdown` and
-/// tell their peer. One poll tick plus two cancels (`drive_sas_flow`
-/// cancels the SAS and the request).
 const SHUTDOWN_VERIFICATION_JOIN_MS: u64 =
     VERIFICATION_POLL_MS + 2 * SHUTDOWN_FLOW_CANCEL_MS;
 
-/// One outer cap over the whole slot sweep (at most three flows), rather
-/// than a budget per flow.
 const SHUTDOWN_FLOW_SWEEP_MS: u64 = 2 * SHUTDOWN_FLOW_CANCEL_MS;
 
-/// Grace period before the room-action pool is force-aborted. Short on
-/// purpose: media downloads are already aborted, and the one long-running
-/// member (`mx_rust_backup_action`) must not be waited for here.
 pub(crate) const SHUTDOWN_ACTION_JOIN_MS: u64 = 1500;
 
-/// Grace period for the key-import task. Aborting is safe: matrix-sdk
-/// commits imported sessions in batches, so a cancelled import is partial
-/// and retryable.
 const SHUTDOWN_IMPORT_JOIN_MS: u64 = 500;
 
-/// Mirror of `RustSdkMatrixClient::kStoreCloseBudgetMs` (the source of
-/// truth), so the budget can be checked at compile time.
-/// `the_store_close_budget_mirrors_the_cpp_constant` keeps them in sync.
 const STORE_CLOSE_BUDGET_MS: u64 = 15_000;
 
-/// Time `waitForRustRetirement` must still have for `mx_rust_destroy` after
-/// `mx_rust_shutdown_tasks` returns (the runtime drop waits for in-flight
-/// `spawn_blocking` SQLite work).
 const SHUTDOWN_DESTROY_RESERVE_MS: u64 = 3_000;
 
-/// `retire_bridge`: how long the shared runtime's shutdown may wait for its
-/// blocking pool (in-flight SQLite closes; a stuck DNS lookup is left behind).
 const RETIRE_RUNTIME_SHUTDOWN_MS: u64 = 1_500;
 
-/// `retire_bridge`: how long it then waits for every store to be dropped.
 const RETIRE_STORE_RELEASE_WAIT_MS: u64 = 1_000;
 
 const _: () = assert!(
@@ -1067,8 +772,6 @@ const _: () = assert!(
     "retire_bridge's own waits must fit the reserve kept for mx_rust_destroy"
 );
 
-/// Declared worst case of every sequential wait in `shutdown_managed_tasks`,
-/// including `TimelineRegistry::shutdown`.
 const SHUTDOWN_WORST_CASE_MS: u64 = SHUTDOWN_VERIFICATION_JOIN_MS
     + SHUTDOWN_ABORT_DRAIN_MS
     + SHUTDOWN_FLOW_SWEEP_MS
@@ -1076,8 +779,6 @@ const SHUTDOWN_WORST_CASE_MS: u64 = SHUTDOWN_VERIFICATION_JOIN_MS
     + SHUTDOWN_ABORT_DRAIN_MS
     + SHUTDOWN_IMPORT_JOIN_MS
     + 2 * SYNC_TASK_JOIN_BUDGET_MS
-    // TimelineRegistry::shutdown: live and thread timelines, both already
-    // aborted.
     + 2 * timeline::SHUTDOWN_ABORTED_JOIN_MS;
 
 const _: () = assert!(
@@ -1089,9 +790,6 @@ const _: () = assert!(
      STORE_CLOSE_BUDGET_MS with it."
 );
 
-/// The selected sync path. Distinct from transient connectivity: a network
-/// loss keeps the mode and is reported through the connection state. Only a
-/// fatal authentication failure moves to `Failed`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SyncMode {
     Probing,
@@ -1113,8 +811,6 @@ impl SyncMode {
     }
 }
 
-/// Set the sync mode and announce it only when it changes, so the label
-/// does not flicker when the loop re-affirms the same mode.
 fn set_sync_mode(
     slot: &Arc<Mutex<SyncMode>>,
     events: &Arc<Mutex<VecDeque<String>>>,
@@ -1146,8 +842,6 @@ struct PersistentSessionFile {
 impl Drop for RustClient {
     fn drop(&mut self) {
         let _ = self.shutdown_managed_tasks();
-        // This handle's media-store key, and only this handle's: a handle
-        // being retired must not take its successor's.
         mediastore::forget(self as *const RustClient as usize, &self.store_path);
         route::forget(self as *const RustClient as usize, &self.store_path);
     }
@@ -1165,9 +859,6 @@ pub extern "C" fn mx_rust_status_string() -> *mut c_char {
     })
 }
 
-// Reports 1: matrix-sdk is built with `e2e-encryption`. The C++
-// CryptoManager gate remains the source of truth for the UI; this only
-// unblocks sending into encrypted rooms in RustSdkMatrixClient.
 #[no_mangle]
 pub extern "C" fn mx_rust_supports_e2ee(_client: *mut c_void) -> c_int {
     1
@@ -1178,10 +869,6 @@ pub extern "C" fn mx_rust_version() -> *mut c_char {
     ffi_string(|| Ok(env!("CARGO_PKG_VERSION").to_owned()))
 }
 
-/// Set 0700 on a store directory and 0600 on its regular files. Best
-/// effort: a filesystem without Unix modes must still open. Called before
-/// and after the client opens, since matrix-sdk creates the sqlite files
-/// itself with no mode hook.
 #[cfg(unix)]
 fn restrict_store_permissions(path: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt;
@@ -1201,12 +888,6 @@ fn restrict_store_permissions(path: &std::path::Path) {
 #[cfg(not(unix))]
 fn restrict_store_permissions(_path: &std::path::Path) {}
 
-/// The one line a panic may print, built from metadata only.
-///
-/// It takes no payload by design: Rust's default hook prints the payload,
-/// and a `str` slice panic includes the whole string being sliced, which
-/// can be a message body. The location is kept because it makes a panic
-/// actionable and cannot carry content.
 fn panic_report_line(location: Option<(&str, u32)>, thread: Option<&str>) -> String {
     let where_ = match location {
         Some((file, line)) => format!("{file}:{line}"),
@@ -1220,17 +901,10 @@ fn panic_report_line(location: Option<(&str, u32)>, thread: Option<&str>) -> Str
     )
 }
 
-/// True when the developer asked for the stock hook back. An empty value is
-/// not a request (`FOO=` is how a shell unsets a variable).
 fn panic_payload_requested(value: Option<&str>) -> bool {
     matches!(value, Some(v) if !v.trim().is_empty())
 }
 
-/// Replace the default panic hook with one that prints metadata only.
-///
-/// Idempotent, and does not chain to the previous hook (that is the one that
-/// prints the payload). `catch_unwind` is unaffected. A backtrace is still
-/// printed when `RUST_BACKTRACE` asks; it carries no payload.
 fn install_panic_hook() {
     // Not in tests: `assert_eq!` reports through the panic hook, so installing
     // it would hide every assertion message. `cfg!` keeps the body compiled in
@@ -1247,7 +921,6 @@ fn install_panic_hook() {
         }
         std::panic::set_hook(Box::new(|info| {
             let location = info.location().map(|l| (l.file(), l.line()));
-            // Bound, not inlined: the name borrows from the `current()` guard.
             let current = std::thread::current();
             eprintln!("{}", panic_report_line(location, current.name()));
             let trace = std::backtrace::Backtrace::capture();
@@ -1258,14 +931,6 @@ fn install_panic_hook() {
     });
 }
 
-/// Forward matrix-sdk's own `tracing` diagnostics to stderr, once, when
-/// asked.
-///
-/// The SDK reports to-device decryption, Olm sessions and key gossip only
-/// through `tracing`. Opt-in via `LIGHTNING_RUST_LOG` (not `RUST_LOG`):
-/// `1` selects a preset aimed at key delivery; any other value is an
-/// `EnvFilter` directive. The preset keeps crypto at `debug`, which is
-/// state and failure reporting, not key material.
 fn install_sdk_tracing() {
     use std::sync::Once;
     static ONCE: Once = Once::new();
@@ -1275,10 +940,6 @@ fn install_sdk_tracing() {
             _ => return,
         };
         let directives = if requested.trim() == "1" {
-            // Key-delivery lanes, plus matrix_sdk_ui at WARN: target directives leave
-            // unlisted targets off, and `room_send_queue_update_task` logs
-            // "missed {n} local echoes" at WARN on a lagged receiver without resyncing,
-            // which is the evidence for a stuck local echo. Info is too chatty.
             "matrix_sdk_crypto=debug,matrix_sdk_base=info,matrix_sdk=info,\
              matrix_sdk_ui=warn"
                 .replace(char::is_whitespace, "")
@@ -1296,7 +957,6 @@ fn install_sdk_tracing() {
                 return;
             }
         };
-        // `try_init`: a test may have installed one already.
         if tracing_subscriber::fmt()
             .with_env_filter(filter)
             .with_writer(std::io::stderr)
@@ -1308,10 +968,6 @@ fn install_sdk_tracing() {
     });
 }
 
-/// The HTTP transport crates, whose debug and trace output can carry a
-/// proxy's address and credentials (reqwest's `Intercepted` prints the proxy
-/// URI; hyper-util's proxy connectors trace their handshake). Never enabled
-/// by `LIGHTNING_RUST_LOG`, whatever it asks for (docs/network-profiles.md).
 const CLAMPED_TRANSPORT_TARGETS: [&str; 4] = ["reqwest", "hyper_util", "hyper", "h2"];
 
 /// `LIGHTNING_RUST_LOG`'s directives with every directive that names a
@@ -1337,7 +993,6 @@ fn clamp_transport_tracing(directives: &str) -> String {
 
 #[no_mangle]
 pub extern "C" fn mx_rust_create(store_path: *const c_char) -> *mut c_void {
-    // First, before anything that could panic.
     install_panic_hook();
     install_sdk_tracing();
     match catch_unwind(AssertUnwindSafe(|| {
@@ -1390,7 +1045,6 @@ pub unsafe extern "C" fn mx_rust_destroy(ptr: *mut c_void) {
         }
         let released = retire_bridge(unsafe { Box::from_raw(ptr as *mut RustClient) });
         if !released.closed {
-            // Names and counts only, never the path.
             eprintln!(
                 "lightning: a retired client left its store open: {}",
                 released.summary()
@@ -1399,54 +1053,19 @@ pub unsafe extern "C" fn mx_rust_destroy(ptr: *mut c_void) {
     }));
 }
 
-/// `mx_rust_destroy`, reporting whether the account store was really
-/// released: `store_closed=true|false waited_ms=N builds=N client_alive=…
-/// still_open=<store names>|none runtime_shutdown=completed|timed_out|shared`.
-/// Names and counts only, never a path.
-/// Used by the retirement worker, which logs it: "retired" was taken as
-/// "closed" before, and was not (GitHub #2).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_destroy_and_report(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
         if ptr.is_null() {
             return Ok(String::new());
         }
-        // `ffi_string` catches a panic, as `mx_rust_destroy` does.
         Ok(retire_bridge(unsafe { Box::from_raw(ptr as *mut RustClient) }).summary())
     })
 }
 
-/// Drop a bridge so that, when this returns, nothing of its account store is
-/// still open in this process (or say honestly that something is).
-///
-/// Three things made `drop(Box<RustClient>)` alone insufficient (GitHub #2):
-///
-/// * Dropping the last `Client` closes its SQLite pools through deadpool,
-///   which hands each connection to `tokio::task::spawn_blocking` and
-///   unwraps: outside a runtime that panics, during cleanup it aborts. The
-///   bridge's fields used to be dropped on the caller's thread, with no
-///   runtime, and only a reference cycle that leaked the Client hid it. So
-///   the bridge is dropped inside its own runtime's context.
-/// * The runtime is then shut down with a bound, which cancels every task
-///   still holding a Client (the SDK's E2EE tasks, the media sweep) and waits
-///   for the blocking closes those drops queued.
-/// * Then the real signal: every store this account's builds opened, and the
-///   Client itself, must fail to upgrade (storeclose.rs). Anything held
-///   elsewhere (a detached sync thread still unwinding) gets a bounded wait.
-///
-/// Only this handle's own builds are waited for (`snapshot` by owner, the
-/// address `mediastore::set_key`/`forget` use), so a handle that never built a
-/// client, such as the one the GUI thread destroys when its session file is
-/// refused, or the in-memory OAuth bootstrap handle, does not wait at all.
 fn retire_bridge(bridge: Box<RustClient>) -> storeclose::Released {
     let owner = &*bridge as *const RustClient as usize;
-    // A probe a Labs reservation converted carries this handle's serial and is
-    // waited for by it alone; every other probe keeps the owner rule.
     let probes = storeclose::snapshot_for(&bridge.store_path, owner, Some(bridge.serial));
-    // A Background handle's queues stay registered until its runtime is shut
-    // down: a task still finishing during the drop below still meets the
-    // Background gate (no token on its command lane, nothing UI-only queued),
-    // instead of the foreground path (§18 round 1, L12). Unregistered last.
     let background_queues = bridge
         .bg
         .is_some()
@@ -1463,9 +1082,6 @@ fn retire_bridge(bridge: Box<RustClient>) -> storeclose::Released {
             runtime.shutdown_timeout(budget);
             storeclose::RuntimeShutdown::from_elapsed(started.elapsed(), budget)
         }
-        // A login or restore thread still inside `run_async_on` holds it; it
-        // drops the runtime when it returns. Until then its blocking jobs can
-        // hold connections, so this is reported, never counted as closed.
         Err(shared) => {
             drop(shared);
             storeclose::RuntimeShutdown::Shared
@@ -1481,9 +1097,6 @@ fn retire_bridge(bridge: Box<RustClient>) -> storeclose::Released {
     )
 }
 
-/// `device_id` empty: the server creates a new device. Non-empty: sign in
-/// again as that device, which the store at this handle's path must already
-/// hold (C++ passes it only after the SDK reported a soft logout for it).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_login(
     ptr: *mut c_void,
@@ -1513,12 +1126,8 @@ pub unsafe extern "C" fn mx_rust_login(
         let active_sas = Arc::clone(&bridge.active_sas);
         let active_qr = Arc::clone(&bridge.active_qr);
         let sync_notify = Arc::clone(&bridge.sync_notify);
-        // Shared runtime: the SDK's post-login E2EE initialization task must
-        // outlive this call (see run_async_on).
         let shared_runtime = Arc::clone(&bridge.runtime);
         let custody = Arc::clone(&bridge.custody);
-        // Labs: this handle's reservation (and, for a Background handle, the
-        // precheck, which refuses a login outright). None with the flag off.
         let open_context = bridge.open_context();
         spawn_session_thread(bridge.op_thread_name(), move || {
             let runtime_events = Arc::clone(&events);
@@ -1526,7 +1135,6 @@ pub unsafe extern "C" fn mx_rust_login(
                 labs::scope_open(open_context, async move {
                 match build_client(&homeserver, &store_path).await {
                     Ok(client) => {
-                        // Before the login: every rotation goes through it.
                         token_sink.install_on(&client);
                         install_event_handlers(
                             &client,
@@ -1547,9 +1155,6 @@ pub unsafe extern "C" fn mx_rust_login(
                         match login {
                             Ok(response) => {
                                 let session = MatrixSession::from(&response);
-                                // Resume unsent requests on the shared runtime, so the sync lanes'
-                                // set_enabled(true) finds the queues built (it respawns tasks for rooms
-                                // with unsent requests, and those lanes run on a throwaway runtime).
                                 crate::resume_unsent_requests(&client).await;
                                 if let Some(path) = configured_session_file(&session_file) {
                                     if let Err(err) =
@@ -1566,7 +1171,6 @@ pub unsafe extern "C" fn mx_rust_login(
                                         );
                                     }
                                 }
-                                // Refreshable password sessions rotate like OAuth; persist the new pair.
                                 if let Ok(mut guard) = token_task.lock() {
                                     if let Some(previous) = guard.replace(
                                         oauth::spawn_token_persistence_custody(
@@ -1591,8 +1195,6 @@ pub unsafe extern "C" fn mx_rust_login(
                                         "user_id": response.user_id.to_string(),
                                         "device_id": response.device_id.to_string(),
                                         "access_token": response.access_token,
-                                        // Present only on servers that issue refreshable password sessions; stored
-                                        // so a restart can refresh instead of failing with M_UNKNOWN_TOKEN.
                                         "refresh_token": response.refresh_token,
                                     }),
                                 );
@@ -1658,8 +1260,6 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
         let active_sas = Arc::clone(&bridge.active_sas);
         let sync_notify = Arc::clone(&bridge.sync_notify);
         let active_qr = Arc::clone(&bridge.active_qr);
-        // Shared runtime: the SDK's post-restore E2EE initialization task
-        // must outlive this call (see run_async_on).
         let shared_runtime = Arc::clone(&bridge.runtime);
         let open_context = bridge.open_context();
         spawn_session_thread(bridge.op_thread_name(), move || {
@@ -1709,7 +1309,6 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
                     &homeserver, &store_path, stored.session.clone(), &events, None)
                     .await
                 {
-                    // The smoke-session path persists no rotations.
                     Ok((client, _changes)) => {
                         install_event_handlers(
                             &client,
@@ -1775,8 +1374,6 @@ pub unsafe extern "C" fn mx_rust_restore(
         let user_id = unsafe { cstr_arg(user_id) }?;
         let device_id = unsafe { cstr_arg(device_id) }?;
         let access_token = unsafe { cstr_arg(access_token) }?;
-        // Empty means "the account has no refresh token", which is the normal
-        // case for a password session on a server that does not issue them.
         let refresh_token = unsafe { cstr_arg(refresh_token) }?;
         let refresh_token =
             if refresh_token.is_empty() { None } else { Some(refresh_token) };
@@ -1792,17 +1389,11 @@ pub unsafe extern "C" fn mx_rust_restore(
         let sync_notify = Arc::clone(&bridge.sync_notify);
         let active_sas = Arc::clone(&bridge.active_sas);
         let active_qr = Arc::clone(&bridge.active_qr);
-        // Shared runtime: the SDK's post-restore E2EE initialization task
-        // must outlive this call (see run_async_on).
         let shared_runtime = Arc::clone(&bridge.runtime);
         let token_task = Arc::clone(&bridge.token_task);
         let token_sink = bridge.token_sink();
         let custody = Arc::clone(&bridge.custody);
-        // Labs: this handle's reservation, and for a Background handle the
-        // crypto precheck (design §3.2.6). None with the flag off.
         let open_context = bridge.open_context();
-        // A Background handle's restore is bounded (labs::bound_background_restore):
-        // a runtime Labs-off and a quit wait for it. None with the flag off.
         let background_restore = open_context
             .as_ref()
             .is_some_and(|context| context.require_account.is_some());
@@ -1835,8 +1426,6 @@ pub unsafe extern "C" fn mx_rust_restore(
                             Arc::clone(&active_qr),
                             Arc::clone(&sync_notify),
                         );
-                        // From the receiver taken before restore_session(), so a
-                        // rotation the restore itself caused is still persisted.
                         if let Ok(mut guard) = token_task.lock() {
                             if let Some(previous) = guard.replace(
                                 oauth::spawn_token_persistence_custody(
@@ -1890,8 +1479,6 @@ pub unsafe extern "C" fn mx_rust_logout(ptr: *mut c_void) {
         // The logout thread drops it inside its runtime instead.
         let client = bridge.client.lock().ok().and_then(|mut guard| guard.take());
         let events = Arc::clone(&bridge.events);
-        // Pending verifications are cancelled in `shutdown_managed_tasks`, which
-        // every teardown path runs before this FFI; the slots are empty here.
         if let Some(client) = client {
             spawn_session_thread(bridge.op_thread_name(), move || {
                 let runtime_events = Arc::clone(&events);
@@ -1927,8 +1514,6 @@ pub unsafe extern "C" fn mx_rust_logout(ptr: *mut c_void) {
                         *slot = Some(event);
                     }
                 });
-                // run_async has returned: its runtime has been dropped, which waits
-                // for every blocking close it was running.
                 let event = outcome
                     .lock()
                     .ok()
@@ -1955,7 +1540,6 @@ pub unsafe extern "C" fn mx_rust_logout(ptr: *mut c_void) {
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
-        // Switch trace: `since_start_sync_ms` counts from here. None when off.
         let switch_trace_started = switchtrace::sync_start_stamp();
         let Ok(bridge) = (unsafe { bridge(ptr) }) else {
             return;
@@ -1994,8 +1578,6 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         bridge.enqueue(json!({ "type": "status", "state": "syncing" }));
 
         let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
-        // Never sent on: its drop tells teardown the thread is gone. See
-        // SYNC_TASK_JOIN_BUDGET_MS.
         let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
         let sync_client = client.clone();
         let sync_search_index = Arc::clone(&bridge.search_index);
@@ -2007,14 +1589,9 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
             let _done = done_tx;
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "sync", async move {
-                // Sliding sync never reports an invitation rejected on another
-                // device (GitHub #28); this asks the server about pending ones
-                // and lives exactly as long as the sync session.
                 let stale_invites = invites::run_stale_invite_reconciler(
                     sync_client.clone(), Arc::clone(&events),
                 );
-                // Nor, on some servers (Continuwuity), a room left, kicked or
-                // banned from elsewhere: the list just stops naming it.
                 let lost_rooms = membership_lost::run_membership_reconciler(
                     sync_client.clone(), Arc::clone(&events), membership_list_slot,
                 );
@@ -2036,14 +1613,6 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         });
         drop(task_slot);
 
-        // A recovery-key-minting action from an earlier session that never
-        // reported (aborted at teardown, or the process died) left its marker.
-        // Say so once, through the result the action would have sent: the
-        // account may now have secret storage whose key nobody was shown.
-        // op_id 0 is no operation of this session's; BackupController accepts
-        // it for this category only.
-        // The marker stays until the user has been shown the report
-        // (mx_rust_acknowledge_interrupted_setup).
         if recovery::interrupted_setup_to_report(
             &bridge.store_path, bridge.bridge_id, bridge.timelines.lifecycle(),
         ) {
@@ -2058,10 +1627,6 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
             );
         }
 
-        // Crypto-bootstrap observer: forwards sanitized state names and counts
-        // (never key material, session ids or secrets), stamped with the lifecycle
-        // so a stale observer cannot update a later account. Stopped in
-        // stop_sync_and_wait.
         if let Ok(mut slot) = bridge.bootstrap_task.lock() {
             if slot.is_none() {
                 let observer_events = Arc::clone(&bridge.events);
@@ -2105,8 +1670,6 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
 /// runtime setting covers its blocking pool too.
 pub(crate) const SESSION_THREAD_STACK_BYTES: usize = 16 * 1024 * 1024;
 
-/// A session thread. Named `lt-<kind>-<slot>` for a Background handle (no
-/// PII; `/proc/self/task` attributes it), unnamed as before otherwise.
 pub(crate) fn spawn_session_thread<F>(name: Option<String>, body: F) -> std::thread::JoinHandle<()>
 where
     F: FnOnce() + Send + 'static,
@@ -2123,9 +1686,6 @@ where
 mod session_stack_tests {
     use super::*;
 
-    /// Roughly `depth` x 64 KiB of real stack. Each frame's buffer is read
-    /// after the recursive call returns, so the frames cannot be folded into a
-    /// loop or a tail call.
     #[inline(never)]
     fn consume_stack(depth: usize) -> u64 {
         let mut frame = [0u8; 64 * 1024];
@@ -2139,14 +1699,10 @@ mod session_stack_tests {
         below + u64::from(frame[depth % frame.len()]) + 1
     }
 
-    /// ~6 MiB: three times std's 2 MiB default, well inside the session stack.
     const DEEP: usize = 96;
 
     #[test]
     fn a_session_thread_survives_a_deep_stack() {
-        // On std's 2 MiB default this overflows the guard page and aborts the
-        // whole test binary: the same SIGSEGV the pool's Background restore
-        // hit inside aws-lc's ML-KEM keygen.
         for name in [None, Some("lt-op-test".to_owned())] {
             let total = spawn_session_thread(name, || {
                 assert!(consume_stack(DEEP) > 0);
@@ -2158,8 +1714,6 @@ mod session_stack_tests {
 
     #[test]
     fn the_shared_runtime_workers_survive_a_deep_stack() {
-        // Tasks the SDK spawns (and every FFI call that spawns on the shared
-        // runtime) are polled on these workers, not on the session thread.
         let bridge = RustClient::new(PathBuf::new()).expect("bridge");
         let task = bridge.runtime.spawn(async { consume_stack(DEEP) });
         let total = bridge.runtime.block_on(task).expect("the worker task panicked");
@@ -2222,30 +1776,6 @@ fn emit_crypto_bootstrap(
     );
 }
 
-/// Per-account E2EE recovery coordinator. Forwards the SDK's
-/// verification/recovery/backup state and received-key counts, and drives
-/// the recovery steps matrix-sdk 0.18 leaves undone:
-///
-///   * once verified, one `fetch_exists_on_server` probe reports whether a
-///     key backup exists (`backup_exists`);
-///   * when backups become usable while verified, the open room gets one
-///     deduplicated `download_room_keys_for_room` pass (the SDK's
-///     `AfterDecryptionFailure` strategy fetches one key per failing event and
-///     never a whole room);
-///   * a bounded secret-request retry ladder. The SDK sends m.secret.request
-///     once at SAS completion, and a request that reaches the peer before it
-///     finished its own completion is refused and never replayed. The ladder
-///     issues fresh requests via
-///     `OlmMachine::query_missing_secrets_from_other_sessions` (through the
-///     `testing` feature accessor, see `Cargo.toml`) and stops when nothing
-///     is missing, the own identity is unverified, or it is exhausted;
-///   * an `m.secret.send` arrival handler and nudge channel re-drive
-///     evaluation when `VerificationState` shows no edge;
-///   * received room keys retry decryption in the active room.
-///
-/// Public matrix-sdk APIs only; the SDK's GossipMachine creates and
-/// validates requests and applies its trust checks. Emits kinds, fixed
-/// state strings and counts only, never key material.
 async fn run_crypto_bootstrap_observer(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
@@ -2256,7 +1786,6 @@ async fn run_crypto_bootstrap_observer(
     mut cancel_rx: tokio::sync::oneshot::Receiver<()>,
 ) {
     let encryption = client.encryption();
-    // Verdicts for late-decrypted events (see decrypted_event_json).
     let decrypted_verdicts = push_verdict::SyncVerdicts::default();
     let mut verification = encryption.verification_state();
     let recovery = encryption.recovery();
@@ -2264,18 +1793,10 @@ async fn run_crypto_bootstrap_observer(
     let mut recovery_states = recovery.state_stream();
     let mut backup_states = backups.state_stream();
     let mut room_keys = encryption.room_keys_received_stream().await;
-    // What matrix-sdk's event-cache redecryptor did with arriving keys: how
-    // many stored undecryptable events it resolved, and whether it lagged and
-    // may have missed some. Counts only. Without it a log cannot tell "the key
-    // never arrived" from "the key arrived and nothing was redecrypted", which
-    // is the open question behind a thread reply that stayed "Waiting for
-    // keys" until a manual Retry (open-items, F4).
     let mut redecryption = Some(Box::pin(
         client.event_cache().subscribe_to_decryption_reports(),
     ));
 
-    // Nudge channel and m.secret.send observer. The handler forwards only the
-    // fact that a secret event was decrypted, never its name, value or sender.
     let (nudge_tx, mut nudge_rx) =
         tokio::sync::mpsc::unbounded_channel::<RecoveryNudge>();
     if let Ok(mut slot) = nudges.lock() {
@@ -2295,18 +1816,10 @@ async fn run_crypto_bootstrap_observer(
         verification.get(),
         matrix_sdk::encryption::VerificationState::Verified
     );
-    // Result of the one-shot backup probe; None = not yet known.
     let mut backup_exists: Option<bool> = None;
-    // Secret-request retry ladder. `attempt` indexes SECRET_RETRY_DELAYS_SECS;
-    // `retry_deadline` is the next evaluation (None = disarmed). A short
-    // `recheck_deadline` follows each m.secret.send so the imported state is
-    // re-read after the SDK processed it.
     let mut retry_attempt: usize = 0;
     let mut retry_deadline: Option<tokio::time::Instant> = None;
     let mut recheck_deadline: Option<tokio::time::Instant> = None;
-    // Cap on arrival-driven re-arms of an exhausted ladder, so a device spamming
-    // m.secret.send cannot keep it alive forever. Reset by every real arming
-    // edge.
     const MAX_ARRIVAL_REARMS: u32 = 2;
     let mut arrival_rearms: u32 = 0;
 
@@ -2323,9 +1836,6 @@ async fn run_crypto_bootstrap_observer(
         backup_state_name(backups.state()), 0,
     );
 
-    // Already verified with a usable backup at startup: the SDK will not
-    // download on its own. Arming the ladder here also heals a session left
-    // "verified but secretless" by a previous run.
     if verified {
         probe_backup_exists(&client, &events, lifecycle, &mut backup_exists)
             .await;
@@ -2362,13 +1872,9 @@ async fn run_crypto_bootstrap_observer(
                     )
                     .await;
                     if !was_verified {
-                        // Re-arm the ladder on every Verified edge.
                         retry_attempt = 0;
                         retry_deadline = secret_retry_deadline(retry_attempt);
                         arrival_rearms = 0;
-                        // Verification may complete after the backup key is already usable
-                        // (manual recovery first), in which case no later Enabled edge comes. The
-                        // pass is deduplicated per lifecycle, so repeating it is safe.
                         if matches!(
                             backups.state(),
                             matrix_sdk::encryption::backups::BackupState::Enabled
@@ -2394,7 +1900,6 @@ async fn run_crypto_bootstrap_observer(
                     SecretAttemptOutcome::Complete
                     | SecretAttemptOutcome::IdentityUnverified
                     | SecretAttemptOutcome::Unavailable => {
-                        // Terminal for this ladder; a later arming edge starts a new one.
                     }
                     SecretAttemptOutcome::Requested
                     | SecretAttemptOutcome::AlreadyPending
@@ -2406,8 +1911,6 @@ async fn run_crypto_bootstrap_observer(
                             if retry_deadline.is_some() {
                                 "waiting"
                             } else {
-                                // Exhausted with secrets still missing: the UI escalates to manual
-                                // recovery.
                                 "exhausted"
                             },
                             0,
@@ -2417,7 +1920,6 @@ async fn run_crypto_bootstrap_observer(
             }
             _ = watchdog_sleep(recheck_deadline) => {
                 recheck_deadline = None;
-                // Re-read SDK state after the secret event was processed.
                 if secret_recheck_complete(
                     &client, &events, lifecycle, backup_exists,
                 )
@@ -2428,9 +1930,6 @@ async fn run_crypto_bootstrap_observer(
                     && retry_deadline.is_none()
                     && arrival_rearms < MAX_ARRIVAL_REARMS
                 {
-                    // A secret arrived but recovery is still incomplete (refused, or a backup
-                    // key for another version). Re-arm one bounded round, capped against
-                    // unrequested m.secret.send spam.
                     arrival_rearms += 1;
                     retry_attempt = 1;
                     retry_deadline = secret_retry_deadline(retry_attempt);
@@ -2440,9 +1939,6 @@ async fn run_crypto_bootstrap_observer(
                 let Some(nudge) = nudge else { continue };
                 match nudge {
                     RecoveryNudge::VerificationDone => {
-                        // The SDK queued its own one-shot request set; give the peer a window
-                        // before supervising with fresh requests. Runs even without a
-                        // VerificationState edge.
                         probe_backup_exists(
                             &client, &events, lifecycle, &mut backup_exists,
                         )
@@ -2472,7 +1968,6 @@ async fn run_crypto_bootstrap_observer(
                             SecretAttemptOutcome::Requested
                             | SecretAttemptOutcome::AlreadyPending
                             | SecretAttemptOutcome::NoEligibleDevices => {
-                                // The manual attempt used slot 0; keep the follow-ups armed.
                                 retry_attempt = 1;
                                 retry_deadline =
                                     secret_retry_deadline(retry_attempt);
@@ -2483,7 +1978,6 @@ async fn run_crypto_bootstrap_observer(
                         }
                     }
                     RecoveryNudge::SecretEventSeen => {
-                        // Arrival only: the SDK validated and imported (or refused) the secret.
                         emit_crypto_bootstrap(
                             &events, lifecycle, "secret_response",
                             "received", 1,
@@ -2504,13 +1998,11 @@ async fn run_crypto_bootstrap_observer(
             }
             state = backup_states.next() => {
                 let Some(state) = state else { break };
-                let Ok(state) = state else { continue }; // lagged stream
+                let Ok(state) = state else { continue };
                 emit_crypto_bootstrap(
                     &events, lifecycle, "backup_state",
                     backup_state_name(state), 0,
                 );
-                // The backup key became usable: restore the open room's history in one
-                // pass (the SDK only fetches keys for events that fail from now on).
                 if verified
                     && matches!(
                         state,
@@ -2533,9 +2025,6 @@ async fn run_crypto_bootstrap_observer(
                             &events, lifecycle, "utds_resolved", "",
                             resolved.len() as u64,
                         );
-                        // A reply decrypted here that the open thread view will
-                        // never show (matrix-sdk keeps the thread's stale copy;
-                        // see the registry method). Counted for the log only.
                         let ids: Vec<String> =
                             resolved.iter().map(|id| id.to_string()).collect();
                         let missing = timelines
@@ -2583,41 +2072,33 @@ async fn run_crypto_bootstrap_observer(
                             }
                         }
                     }
-                    // The SDK's redecryptor missed room keys.
                     Some(Ok(RedecryptorReport::Lagging)) => {
                         emit_crypto_bootstrap(
                             &events, lifecycle, "redecryption_lagging", "", 0,
                         );
                     }
-                    // Our own subscriber fell behind and missed reports; the
-                    // redecryptor itself may be fine.
                     Some(Err(_)) => {
                         emit_crypto_bootstrap(
                             &events, lifecycle, "redecryption_reports_missed", "", 0,
                         );
                     }
                     Some(Ok(RedecryptorReport::BackupAvailable)) => {}
-                    // The event cache is gone; park this arm.
                     None => redecryption = None,
                 }
             }
             keys = async {
                 match room_keys.as_mut() {
                     Some(stream) => stream.next().await,
-                    // No crypto machine: park instead of spinning.
                     None => std::future::pending().await,
                 }
             } => {
                 let Some(keys) = keys else { break };
-                let Ok(infos) = keys else { continue }; // lagged stream
+                let Ok(infos) = keys else { continue };
                 if !infos.is_empty() {
-                    // Counts only.
                     emit_crypto_bootstrap(
                         &events, lifecycle, "room_keys_received", "",
                         infos.len() as u64,
                     );
-                    // Retry the active room's undecryptable rows in place (the registry
-                    // filters to the open room and deduplicates).
                     let mut by_room: HashMap<String, Vec<String>> =
                         HashMap::new();
                     for info in infos.iter() {
@@ -2642,8 +2123,6 @@ async fn run_crypto_bootstrap_observer(
     }
 }
 
-/// Probe once whether a key backup exists on the homeserver and emit
-/// `backup_exists`. A failed probe emits nothing (the UI stays "unknown").
 async fn probe_backup_exists(
     client: &Client,
     events: &Arc<Mutex<VecDeque<String>>>,
@@ -2664,12 +2143,10 @@ async fn probe_backup_exists(
                 0,
             );
         }
-        Err(_) => { /* transient network failure — stay unknown */ }
+        Err(_) => { }
     }
 }
 
-/// Sleep until the armed deadline, or forever when disarmed. Takes the
-/// deadline by value so the select! arm does not borrow coordinator state.
 async fn watchdog_sleep(deadline: Option<tokio::time::Instant>) {
     match deadline {
         Some(deadline) => tokio::time::sleep_until(deadline).await,
@@ -2677,13 +2154,8 @@ async fn watchdog_sleep(deadline: Option<tokio::time::Instant>) {
     }
 }
 
-/// Retry-ladder delays in seconds after each arming edge. The first leaves
-/// time for the SDK's own request set; later ones cover a peer that refused
-/// an early request. Past the end the coordinator emits
-/// `secrets_pending exhausted` and waits for a new arming edge.
 const SECRET_RETRY_DELAYS_SECS: [u64; 3] = [20, 90, 240];
 
-/// Delay for the given ladder attempt, or None when exhausted.
 fn next_secret_retry_delay(attempt: usize) -> Option<u64> {
     SECRET_RETRY_DELAYS_SECS.get(attempt).copied()
 }
@@ -2694,9 +2166,6 @@ fn secret_retry_deadline(attempt: usize) -> Option<tokio::time::Instant> {
     })
 }
 
-/// Is post-verification recovery still incomplete? Cross-signing private
-/// keys are always required; the backup key only when the probe said a
-/// backup exists.
 fn secret_recovery_missing(
     cross_signing_complete: bool,
     backup_exists: Option<bool>,
@@ -2706,26 +2175,15 @@ fn secret_recovery_missing(
         || (backup_exists == Some(true) && !backup_enabled)
 }
 
-/// Outcome of one secret-recovery attempt. Counts are device counts only.
 enum SecretAttemptOutcome {
-    /// Nothing is missing anymore; the ladder stops.
     Complete,
-    /// The own identity is not verified here, so the SDK would reject any
-    /// gossiped answer. A fresh verification is the remedy.
     IdentityUnverified,
-    /// New m.secret.request gossip was queued for every missing secret.
     Requested,
-    /// Requests for the missing secrets are already queued and unsent.
     AlreadyPending,
-    /// No other verified own device exists to answer a request right now.
     NoEligibleDevices,
-    /// The crypto machine was unavailable or the store query failed.
     Unavailable,
 }
 
-/// Evaluate trust/secret state and, when appropriate, queue m.secret.request
-/// through the SDK. Emits `own_identity`, `cross_signing_secrets` and
-/// `secret_request` bootstrap events (fixed strings and counts).
 async fn attempt_secret_recovery(
     client: &Client,
     events: &Arc<Mutex<VecDeque<String>>>,
@@ -2804,8 +2262,6 @@ async fn attempt_secret_recovery(
     }
 }
 
-/// Re-read after a secret arrived: emit the refreshed identity/secret state
-/// and report whether nothing is missing any more.
 async fn secret_recheck_complete(
     client: &Client,
     events: &Arc<Mutex<VecDeque<String>>>,
@@ -2828,8 +2284,6 @@ async fn secret_recheck_complete(
     !secret_recovery_missing(cross_signing_complete, backup_exists, backup_enabled)
 }
 
-/// Count this account's other verified devices (those that could answer a
-/// secret request). Device ids never leave this function.
 async fn count_eligible_verified_devices(client: &Client) -> u64 {
     let Some(uid) = client.user_id() else { return 0 };
     let own_device = client.device_id();
@@ -2844,11 +2298,6 @@ async fn count_eligible_verified_devices(client: &Client) -> u64 {
     }
 }
 
-/// Queue m.secret.request for every missing secret via
-/// `OlmMachine::query_missing_secrets_from_other_sessions`, which creates
-/// fresh request ids and deduplicates against unsent ones. The accessor
-/// needs matrix-sdk's `testing` feature (see rust/Cargo.toml). Returns
-/// whether a new request was queued.
 async fn queue_missing_secret_requests(client: &Client) -> Result<bool, ()> {
     let machine = client.olm_machine_for_testing().await;
     let Some(machine) = machine.as_ref() else {
@@ -2860,8 +2309,6 @@ async fn queue_missing_secret_requests(client: &Client) -> Result<bool, ()> {
         .map_err(|_| ())
 }
 
-/// Run the deduplicated backup download pass for the open room, if any.
-/// Rooms opened later get their own pass from `open_room_task`.
 async fn run_backup_download_pass(
     client: &Client,
     timelines: &Arc<timeline::TimelineRegistry>,
@@ -2937,19 +2384,6 @@ pub unsafe extern "C" fn mx_rust_send_typing(
     })
 }
 
-/// Build the receipts for an EXPLICIT "mark as read" (the room list's
-/// `mx_rust_mark_room_read`) under a privacy mode (0 public, 1 private
-/// `m.read.private`, 2 "do not send read receipts"). Unthreaded on purpose:
-/// marking a room read covers its threads too.
-///
-/// Mode 2 sends a PRIVATE receipt, as Element does with receipts off. It used
-/// to send none, and matrix-sdk computes this device's unread counts from the
-/// user's own `m.read` / `m.read.private` only (`ALL_RECEIPT_TYPES`), so every
-/// room stayed unread on this device after being read; only other members
-/// must not see the read position, and a private receipt shows them nothing.
-///
-/// `m.fully_read` is sent in every mode: it is private account data and
-/// carries the user's own read position across devices.
 fn receipts_for_mode(event_id: OwnedEventId, mode: i32) -> Receipts {
     match mode {
         1 | 2 => Receipts::new()
@@ -2961,28 +2395,6 @@ fn receipts_for_mode(event_id: OwnedEventId, mode: i32) -> Receipts {
     }
 }
 
-/// The receipt the AUTOMATIC in-room path sends while the user reads the live
-/// timeline: one receipt, on the MAIN thread, never `m.fully_read`.
-///
-///  * Main, not unthreaded: the live timeline hides threaded events
-///    (`hide_threaded_events: true`), and matrix-sdk-ui's own choice for that
-///    focus is `ReceiptThread::Main`. An unthreaded receipt at a later
-///    main-timeline event marked every older thread reply read on the server
-///    and on the user's other devices, without anyone opening the thread.
-///  * No `m.fully_read`: matrix-sdk-ui follows it live and drops the "New
-///    messages" marker once it reaches the newest event, so moving it with
-///    every receipt removed the divider and the "First unread" pill about a
-///    second after a room opened. It moves on `mx_rust_set_fully_read_marker`,
-///    which C++ calls when the user leaves the room.
-///  * Modes 1 and 2 send `m.read.private` (see `receipts_for_mode`).
-///  * The inline thread style is the exception, and only while the room is
-///    shown WHOLE (`unthreaded_receipts`, set by C++): its live timeline shows
-///    thread replies interleaved, so the newest row read may be a threaded
-///    event, which a main-thread receipt cannot name. The reader saw those
-///    replies, so it sends an UNTHREADED receipt, as matrix-sdk-ui does for a
-///    live focus that keeps threaded events. Narrowed to one thread C++ sends
-///    no automatic receipt; with thread replies hidden it targets a
-///    main-timeline row and this stays Main, so nothing unseen is marked.
 fn automatic_receipt(
     event_id: OwnedEventId,
     mode: i32,
@@ -3008,7 +2420,6 @@ fn automatic_receipt(
     (receipt_type, thread, event_id)
 }
 
-/// Privacy comes from `receipt_privacy` (see `automatic_receipt`).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_send_read_receipt(
     ptr: *mut c_void,
@@ -3039,22 +2450,14 @@ pub unsafe extern "C" fn mx_rust_send_read_receipt(
                 .as_ref() != Some(&event_id) {
                 return;
             }
-            // Both answers name the event the READER was shown (see below); the
-            // receipt itself may sit on a reaction after it.
             let answered = event_id.to_string();
             let event_id = in_room_receipt_target(&room, event_id).await;
             let (receipt_type, thread, event_id) = automatic_receipt(event_id, mode, unthreaded);
-            // Not retried: the serial lock is held across this call, and the next
-            // receipt supersedes this one anyway.
-            // Both answers name the event, so C++ can tell this receipt's
-            // answer from an older one's (and from mark-as-read's).
             let moved = event_id.as_str() != answered;
             let mut sent = room
                 .send_single_receipt(receipt_type.clone(), thread.clone(), event_id)
                 .await;
             if moved && sent.is_err() {
-                // The server refused the receipt on the reaction (one it cannot
-                // place): send the row the reader saw, once, as before #46.
                 if let Ok(original) = EventId::parse(&answered) {
                     sent = room.send_single_receipt(receipt_type, thread, original).await;
                 }
@@ -3076,18 +2479,6 @@ pub unsafe extern "C" fn mx_rust_send_read_receipt(
     })
 }
 
-/// Move this account's `m.fully_read` marker (its place in the room, private
-/// account data) to `event_id`, with no read receipt. The automatic receipt no
-/// longer carries it (see `automatic_receipt`); C++ calls this when the user
-/// leaves a room they have read, so the "New messages" divider stays put for
-/// the whole visit, as in Element.
-///
-/// Sent as a bare `/read_markers` request rather than through
-/// `send_multiple_receipts`, which also clears the manual "marked unread" flag
-/// and would undo a user who marks a room unread and then switches away. Not
-/// subject to the receipt privacy mode: nothing in it is visible to anyone
-/// else. Answers only on failure, as `room_action_error` with
-/// action="fully_read".
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_fully_read_marker(
     ptr: *mut c_void,
@@ -3107,10 +2498,6 @@ pub unsafe extern "C" fn mx_rust_set_fully_read_marker(
         let events = Arc::clone(&bridge.events);
         bridge.spawn_room_action(async move {
             use matrix_sdk::ruma::api::client::read_marker::set_read_marker;
-            // Never backwards: another device may already have moved the
-            // marker past what this one showed. Judged by the two events'
-            // timestamps from the local cache; when either is not cached the
-            // write goes ahead, as it always did.
             if let Some(current) = current_fully_read(&room).await {
                 if current != event_id {
                     let current_ts = cached_event_ts(&room, &current).await;
@@ -3163,13 +2550,6 @@ pub unsafe extern "C" fn mx_rust_set_marked_unread(
     })
 }
 
-/// Add or remove this room's `m.favourite` tag via `Room::set_is_favourite`,
-/// which also drops a conflicting `m.lowpriority` tag (`roomaction::set_favourite`,
-/// which retries a transport failure the SDK does not).
-///
-/// Not optimistic: the room list is re-emitted on success, so a rejected
-/// write leaves the row unchanged. A failure carries its reason (status and
-/// errcode, or the transport class) so the log can say why.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_favourite(
     ptr: *mut c_void,
@@ -3200,9 +2580,6 @@ pub unsafe extern "C" fn mx_rust_set_room_favourite(
     })
 }
 
-/// Set the SDK's `m.lowpriority` tag. Enabling it removes `m.favourite`.
-/// The confirmed tag is forwarded directly: the SDK's local room cache only
-/// learns the new tag on sync, so an immediate room snapshot has the old bit.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_low_priority(
     ptr: *mut c_void,
@@ -3237,9 +2614,6 @@ pub unsafe extern "C" fn mx_rust_set_room_low_priority(
     })
 }
 
-/// Send attachment bytes to a room whose timeline is not open (forwarding).
-/// The timeline-scoped send refuses any room but the open one. Uses
-/// `Room::send_attachment`, which encrypts for encrypted rooms.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_room_send_attachment_bytes(
     ptr: *mut c_void,
@@ -3268,10 +2642,6 @@ pub unsafe extern "C" fn mx_rust_room_send_attachment_bytes(
     })
 }
 
-/// Receipt privacy: 0 public, 1 private (`m.read.private`), 2 none.
-///
-/// Applies to every later receipt from all three paths. Receipts already
-/// sent cannot be retracted.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_receipt_privacy(
     ptr: *mut c_void,
@@ -3279,7 +2649,6 @@ pub unsafe extern "C" fn mx_rust_set_receipt_privacy(
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
-        // Labs: a Background handle's receipt privacy is fixed by its profile.
         if bridge.is_background() {
             return Ok("error: background handle receipt privacy is fixed at create".to_owned());
         }
@@ -3289,15 +2658,6 @@ pub unsafe extern "C" fn mx_rust_set_receipt_privacy(
     })
 }
 
-/// Where "mark room read" puts the receipt: the newest event we can actually
-/// name, in order of trust. `Room::latest_event()` alone is NOT enough: it is
-/// only computed for rooms in the capped `LatestEvents` watch set (large
-/// accounts and big public rooms fall outside it and read `None`), it stops
-/// moving after a lagged receive, and it has no id while a local echo is
-/// sending. Marking such a room read then cleared only the manual flag, sent
-/// no receipt, and reported success. The event cache's newest event is what
-/// sync delivered last; `latest_event` is a stale-prone fallback; a one-event
-/// `/messages` page is the last resort.
 pub(crate) fn pick_receipt_target(
     cache_newest: Option<OwnedEventId>,
     latest_event: Option<OwnedEventId>,
@@ -3306,28 +2666,13 @@ pub(crate) fn pick_receipt_target(
     cache_newest.or(latest_event).or(fetched_newest)
 }
 
-/// One cached event, as far as choosing a receipt target needs it.
 pub(crate) struct TailEvent {
     pub id: OwnedEventId,
-    /// `None` for an event the SDK could not decrypt.
     pub kind: Option<String>,
-    /// What a reaction annotates / a redaction removes.
     pub target: Option<OwnedEventId>,
-    /// Carries an `m.thread` relation: not a main-timeline event.
     pub threaded: bool,
 }
 
-/// The event an in-room receipt should name. The reader was shown `chosen`
-/// (the newest TIMELINE row), but a reaction after it is not a row and still
-/// counts for the server: reactions notify once the user turns them on, and a
-/// receipt at the older event never covers them, so the count stayed for good
-/// (GitHub #46). `tail` is the cache's events, oldest first. The receipt moves
-/// to the last event after `chosen` only when EVERY event there is skippable:
-/// a reaction whose target is a known main-timeline event (a Main receipt must
-/// not cover a thread event, section 8), or a redaction of such a reaction. A
-/// real message, an edit, a poll, an undecryptable event, a reaction to a
-/// thread event or to an unknown event, or a `chosen` the cache does not hold,
-/// leaves it alone, so nothing the reader has not seen is marked read.
 pub(crate) fn receipt_target_past_relations(
     chosen: &EventId,
     tail: &[TailEvent],
@@ -3409,11 +2754,6 @@ async fn resolve_mark_read_target(room: &Room) -> Option<OwnedEventId> {
     pick_receipt_target(None, None, fetched)
 }
 
-/// Mark a room read without opening it. The target comes from
-/// `resolve_mark_read_target` (event cache, then `latest_event()`, then a
-/// one-event `/messages`), so no timeline is needed; the public receipt and
-/// `m.fully_read` are sent together as in the room. With no latest event
-/// only the manual unread flag is cleared, as `Timeline::mark_as_read` does.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_mark_room_read(
     ptr: *mut c_void,
@@ -3431,10 +2771,8 @@ pub unsafe extern "C" fn mx_rust_mark_room_read(
         bridge.spawn_room_action(async move {
             let delays = &roomaction::ROOM_ACTION_RETRY_DELAYS;
             let latest = resolve_mark_read_target(&room).await;
-            // The first failure, with its attempt count; it is what gets reported.
             let mut failure: Option<(matrix_sdk::Error, u32)> = None;
             if let Some(event_id) = latest {
-                // Same helper as the in-room path, so this discloses no more.
                 let (result, attempts) = roomaction::with_transport_retry(delays, || {
                     let room = room.clone();
                     let receipts = receipts_for_mode(event_id.clone(), mode);
@@ -3444,8 +2782,6 @@ pub unsafe extern "C" fn mx_rust_mark_room_read(
                     failure = Some((error, attempts));
                 }
             }
-            // Unconditional: a room explicitly marked unread must not stay unread just
-            // because it had no event to receipt.
             let (result, attempts) = roomaction::set_unread_flag(&room, false, delays).await;
             if let Err(error) = result {
                 failure.get_or_insert((error, attempts));
@@ -3468,9 +2804,6 @@ pub unsafe extern "C" fn mx_rust_mark_room_read(
     })
 }
 
-/// Per-room notification-mode integers shared with C++ (SettingsManager /
-/// NotificationManager::RoomMode): 0 all messages, 1 mentions & keywords,
-/// 2 mute. Mode 0 sets an explicit AllMessages rule.
 pub(crate) fn notification_mode_to_int(mode: RoomNotificationMode) -> u8 {
     match mode {
         RoomNotificationMode::AllMessages => 0,
@@ -3488,8 +2821,6 @@ pub(crate) fn notification_mode_from_int(mode: c_int) -> Option<RoomNotification
     }
 }
 
-/// True when `mode` is still the newest requested mode for `room_id`.
-/// Checked before the server write.
 fn is_latest_notification_target(
     targets: &Arc<Mutex<HashMap<String, u8>>>,
     room_id: &str,
@@ -3498,9 +2829,6 @@ fn is_latest_notification_target(
     targets.lock().ok().and_then(|guard| guard.get(room_id).copied()) == Some(mode)
 }
 
-/// Consume the room's pending-write marker if this task's mode is still the
-/// newest after the round-trip; the task then owns the room's report. On
-/// false, a newer task queued behind the serial reports instead.
 fn take_notification_target_if_latest(
     targets: &Arc<Mutex<HashMap<String, u8>>>,
     room_id: &str,
@@ -3515,11 +2843,6 @@ fn take_notification_target_if_latest(
     false
 }
 
-/// Clears this task's pending-write marker on any exit path, including a
-/// panic, an abort, or the future being dropped unpolled (hence it is
-/// created at the FFI entry and moved in). An orphaned marker would keep
-/// `notification_write_pending()` true for the rest of the session. Only
-/// this task's exact (room, mode) pair is removed.
 struct NotificationTargetGuard {
     targets: Arc<Mutex<HashMap<String, u8>>>,
     room_id: String,
@@ -3536,7 +2859,6 @@ impl Drop for NotificationTargetGuard {
     }
 }
 
-/// True while a set for this room is queued or in flight.
 fn notification_write_pending(
     targets: &Arc<Mutex<HashMap<String, u8>>>,
     room_id: &str,
@@ -3548,12 +2870,6 @@ fn notification_write_pending(
         .unwrap_or(false)
 }
 
-/// The session's single NotificationSettings, created lazily. Clones share
-/// one rule set, so a read after a write sees the locally applied rules.
-///
-/// Known limitation: if the first call precedes the initial m.push_rules
-/// sync, the SDK's fallback rule set stays cached until a PushRulesEvent
-/// arrives.
 async fn notification_settings_handle(
     slot: &Arc<Mutex<Option<NotificationSettings>>>,
     client: &Client,
@@ -3571,11 +2887,6 @@ async fn notification_settings_handle(
     created
 }
 
-/// Set the per-room notification mode via
-/// `NotificationSettings::set_room_notification_mode`; rule construction
-/// stays inside matrix-sdk. Success enqueues `room_notification_mode`;
-/// failure enqueues `notification_mode_error` with the room id only (the
-/// SDK error text can embed rule bodies).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_notification_mode(
     ptr: *mut c_void,
@@ -3599,8 +2910,6 @@ pub unsafe extern "C" fn mx_rust_set_room_notification_mode(
         if let Ok(mut guard) = targets.lock() {
             guard.insert(room_id.clone(), my_mode);
         }
-        // Created outside the future and moved in, so it still drops if the spawn
-        // path declines and the future is never polled.
         let target_guard = NotificationTargetGuard {
             targets: Arc::clone(&targets),
             room_id: room_id.clone(),
@@ -3609,14 +2918,11 @@ pub unsafe extern "C" fn mx_rust_set_room_notification_mode(
         bridge.spawn_room_action(async move {
             let _target_guard = target_guard;
             let _serial = serial.lock().await;
-            // Superseded before running: the newest task performs the write.
             if !is_latest_notification_target(&targets, &room_id, my_mode) {
                 return;
             }
             let settings = notification_settings_handle(&settings_slot, &client).await;
             let result = settings.set_room_notification_mode(room.room_id(), mode).await;
-            // Re-check after the round-trip: if a newer choice was queued meanwhile,
-            // report nothing; the newer task reports for the room.
             if !take_notification_target_if_latest(&targets, &room_id, my_mode) {
                 return;
             }
@@ -3637,9 +2943,6 @@ pub unsafe extern "C" fn mx_rust_set_room_notification_mode(
     })
 }
 
-/// Real participants of a thread, for the summary-card facepile. Answers
-/// with a `thread_participants` event (user id, display name, avatar mxc;
-/// never content). See rooms::thread_participants.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_thread_participants(
     ptr: *mut c_void,
@@ -3655,9 +2958,6 @@ pub unsafe extern "C" fn mx_rust_thread_participants(
     })
 }
 
-/// Redact this message's own `m.replace` edits, restoring the original
-/// text. Answers with `message_edits_removed` (counts only). See
-/// rooms::remove_message_edits.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_remove_message_edits(
     ptr: *mut c_void,
@@ -3672,12 +2972,6 @@ pub unsafe extern "C" fn mx_rust_remove_message_edits(
     })
 }
 
-/// "Follow account default": remove the room's user-defined push rules
-/// (`delete_user_defined_room_rules`). Matrix has no "follow default" rule,
-/// only the absence of an override.
-///
-/// Shares the set path's serial and target marker (mode 3), so a clear and
-/// a set cannot land out of order. Success reports `user_defined: false`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_clear_room_notification_mode(
     ptr: *mut c_void,
@@ -3694,7 +2988,6 @@ pub unsafe extern "C" fn mx_rust_clear_room_notification_mode(
         let targets = Arc::clone(&bridge.notification_mode_targets);
         let serial = Arc::clone(&bridge.notification_mode_serial);
         let settings_slot = Arc::clone(&bridge.notification_settings);
-        // C++ RoomMode::FollowDefault.
         const FOLLOW_DEFAULT: u8 = 3;
         if let Ok(mut guard) = targets.lock() {
             guard.insert(room_id.clone(), FOLLOW_DEFAULT);
@@ -3735,10 +3028,6 @@ pub unsafe extern "C" fn mx_rust_clear_room_notification_mode(
     })
 }
 
-/// Report a room's notification mode: the user-defined room rule when one
-/// exists, otherwise the account default for this room's shape, flagged
-/// `user_defined: false`. A local rule-set lookup; C++ calls it when a
-/// picker opens.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_get_room_notification_mode(
     ptr: *mut c_void,
@@ -3755,8 +3044,6 @@ pub unsafe extern "C" fn mx_rust_get_room_notification_mode(
         let targets = Arc::clone(&bridge.notification_mode_targets);
         let settings_slot = Arc::clone(&bridge.notification_settings);
         bridge.spawn_room_action(async move {
-            // A write is in flight and will report; a read now could see pre-write
-            // rules and enqueue after the write's report, leaving C++ on the stale mode.
             if notification_write_pending(&targets, &room_id) {
                 return;
             }
@@ -3774,9 +3061,6 @@ pub unsafe extern "C" fn mx_rust_get_room_notification_mode(
                 }));
                 return;
             }
-            // No per-room rule: resolve the default like the SDK's helpers. Unknown
-            // encryption maps to NotEncrypted (it only picks the default rule). One-to-
-            // one counts joined members, as `.m.rule.room_one_to_one` does server-side.
             let is_encrypted = room.encryption_state().is_encrypted();
             let is_one_to_one = room.joined_members_count() == 2;
             let mode = settings
@@ -3796,12 +3080,6 @@ pub unsafe extern "C" fn mx_rust_get_room_notification_mode(
     })
 }
 
-/// Report the mode of EVERY joined room that has a user-defined rule, as
-/// `room_notification_mode` events (`user_defined: true`), so a room muted from
-/// another client (Element writes an override rule keyed by the room id with
-/// no actions) is known here without a picker ever being opened for it. The
-/// classification is the SDK's own; nothing is re-derived. A room with a
-/// write in flight is skipped, like the single-room read.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_refresh_room_notification_modes(
     ptr: *mut c_void,
@@ -3820,10 +3098,6 @@ pub unsafe extern "C" fn mx_rust_refresh_room_notification_modes(
         bridge.spawn_room_action(async move {
             let settings =
                 notification_settings_handle(&settings_slot, &client).await;
-            // One watcher per session: a push-rules change made elsewhere (a
-            // room muted in Element mid-session) asks C++ to re-read. Debounced
-            // so a burst of rule writes is one refresh, and it ends with its
-            // lifecycle, so a later account never hears an earlier one.
             let start_watcher = watch_slot
                 .swap(lifecycle, std::sync::atomic::Ordering::SeqCst) != lifecycle;
             let mut changes = start_watcher.then(|| settings.subscribe_to_changes());
@@ -3877,8 +3151,6 @@ pub unsafe extern "C" fn mx_rust_refresh_room_notification_modes(
     })
 }
 
-/// RAII cleanup for a pending invite action: removes the room id on every
-/// task exit, including abort and panic.
 struct InviteActionGuard {
     pending: Arc<Mutex<BTreeSet<String>>>,
     room_id: String,
@@ -3898,7 +3170,6 @@ fn invite_action(ptr: *mut c_void, room_id: *const c_char, accept: bool) -> *mut
         let room_id = unsafe { cstr_arg(room_id) }?;
         let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
             .ok_or_else(|| "no active Matrix session".to_owned())?;
-        // Joined (or any non-invited) rooms can never invoke accept/reject.
         let room = RoomId::parse(&room_id).ok().and_then(|id| client.get_room(&id))
             .filter(|room| room.state() == matrix_sdk::RoomState::Invited)
             .ok_or_else(|| "room is not an invitation".to_owned())?;
@@ -3917,9 +3188,6 @@ fn invite_action(ptr: *mut c_void, room_id: *const c_char, accept: bool) -> *mut
                 "type": "invite_state_update", "room_id": room_id,
                 "action": if accept { "accept" } else { "reject" }, "state": "pending"
             }));
-            // A reject the server refuses for an invitation it already
-            // dropped (rejected on another device) is retired locally once the
-            // server confirms we are out; see invites.rs.
             let result = if accept {
                 room.join().await.map_err(|err| err.to_string())
             } else {
@@ -3947,12 +3215,6 @@ pub unsafe extern "C" fn mx_rust_reject_invite(
     ptr: *mut c_void, room_id: *const c_char,
 ) -> *mut c_char { invite_action(ptr, room_id, false) }
 
-/// Room-list reset, called by C++ after it rejects a malformed diff.
-///
-/// Recovers from the dynamic adapter, which owns the index space:
-/// re-setting its filter yields a `VectorDiff::Reset`. A `client.rooms()`
-/// snapshot is ordered differently and made the rejection loop forever. The
-/// snapshot remains the fallback for classic sync, which has no adapter.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_resync_rooms(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -3965,8 +3227,6 @@ pub unsafe extern "C" fn mx_rust_resync_rooms(ptr: *mut c_void) -> *mut c_char {
             .lock()
             .ok()
             .and_then(|guard| guard.clone());
-        // `set_filter` returns false once its stream is dropped (between sync
-        // loops); the snapshot is the answer then.
         if let Some(entries) = entries {
             if entries.set_filter(Box::new(filters::new_filter_non_left())) {
                 return Ok(String::new());
@@ -3994,14 +3254,10 @@ pub unsafe extern "C" fn mx_rust_poll_event(ptr: *mut c_void) -> *mut c_char {
     })
 }
 
-/// Drain one event from the terminal command lane (media, GIF results). C++
-/// empties it before each bulk mx_rust_poll_event batch.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_poll_command_event(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
-        // The GUI thread is draining: a rotation waiting for its keyring
-        // write can expect an answer (sessiontokens::DRAIN_STALL).
         bridge.token_ledger.note_drain();
         let event = bridge
             .command_events
@@ -4056,12 +3312,6 @@ pub unsafe extern "C" fn mx_rust_send_text(
                 return;
             };
 
-            // matrix-sdk encrypts automatically for encrypted rooms; failures (missing
-            // keys, untrusted devices) come back through send_failed. C++ still
-            // refuses when CryptoManager::supportsE2ee() is false.
-            // An empty `m.mentions` says this message pings nobody, so the
-            // legacy display-name and @room body rules cannot fire on it
-            // (MSC3952; the composer's sends do the same, timeline.rs).
             let mut content = RoomMessageEventContent::text_markdown(body)
                 .add_mentions(matrix_sdk::ruma::events::Mentions::new());
             // Same strict outgoing sanitizer as the composer's lanes: raw HTML
@@ -4094,9 +3344,6 @@ pub unsafe extern "C" fn mx_rust_send_text(
     })
 }
 
-/// Encrypted-room smoke-test probe. Like mx_rust_send_text but refuses
-/// unencrypted rooms. Never sees ciphertext, keys or session material; the
-/// returned event id is safe to log.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_probe_encrypted_send(
     ptr: *mut c_void,
@@ -4182,24 +3429,6 @@ pub unsafe extern "C" fn mx_rust_probe_encrypted_send(
     })
 }
 
-/// Manual key-backup recovery via `recovery().recover(input)`, which
-/// accepts a Base58 recovery key or a recovery passphrase. Never logs the
-/// input or any imported key material. Result events:
-///   { "type": "key_backup_status", "state": "attempted" }
-///   { "type": "key_backup_status", "state": "ok" | "ok_no_backup"
-///                                         | "nothing_restored" }
-///   { "type": "key_backup_status", "state": "failed", "category": "…" }
-///
-/// `recover()` returning Ok does not mean anything was restored: a secret
-/// storage without a backup key restores no message keys, and one without
-/// cross-signing keys verifies nothing. The state says which
-/// (`recovery::recover_outcome`). On failure `category`
-/// (`recovery::classify_recover_error`) is all that crosses: C++ shows its
-/// own translated text for it.
-///
-/// After recovery the SDK does not download keys if the backup key was
-/// already stored, so a download pass for the open room runs here, with
-/// its dedup mark cleared first.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_recover_from_backup(
     ptr: *mut c_void,
@@ -4231,10 +3460,6 @@ pub unsafe extern "C" fn mx_rust_recover_from_backup(
                 Ok(_) => {
                     let backup_usable = encryption.backups().are_enabled().await;
                     let identity_held = own_session_cross_signed(&client).await;
-                    // Forced post-recover download for the open room. This is the only place
-                    // that can re-run a pass a room already had. Visible rows are re-decrypted
-                    // indirectly via `room_keys_received_stream` ->
-                    // `retry_decryption_after_import` (active room only).
                     if backup_usable {
                         if let Some(room_id) = timelines.active_room_id() {
                             timelines.clear_backup_attempt(&room_id);
@@ -4279,10 +3504,6 @@ pub unsafe extern "C" fn mx_rust_recover_from_backup(
     })
 }
 
-/// Room keys in the store and how many of them the current backup version
-/// holds. Counts only. Reached through `olm_machine_for_testing` (matrix-sdk's
-/// `testing` feature, see rust/Cargo.toml): a read-only call, like the
-/// secret-request site.
 async fn backup_room_key_counts(client: &Client) -> Option<(u64, u64)> {
     let machine = client.olm_machine_for_testing().await;
     let counts = machine.as_ref()?.backup_machine().room_key_counts().await.ok()?;
@@ -4302,9 +3523,6 @@ async fn own_session_cross_signed(client: &Client) -> bool {
         .is_some_and(|device| device.is_cross_signed_by_owner())
 }
 
-/// The user has been shown a `setup_interrupted` report (sent at sync start by
-/// `recovery::interrupted_setup_to_report`): remove the marker. Until then it
-/// stays, so a report lost on the way is made again by the next session.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_acknowledge_interrupted_setup(ptr: *mut c_void) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
@@ -4314,13 +3532,6 @@ pub unsafe extern "C" fn mx_rust_acknowledge_interrupted_setup(ptr: *mut c_void)
     }));
 }
 
-/// Reload a room's timeline via Room::messages, emitting the same
-/// `timeline_event` shape as the live handlers (C++ dedupes by event_id).
-/// Ciphertext is never forwarded; undecryptable rows emit an empty body and
-/// undecryptable=true. Summary events:
-///   { "type": "reload_timeline_done",
-///     "room_id": "...", "events": N, "decrypted": N, "undecryptable": N }
-///   { "type": "reload_timeline_failed", "room_id": "...", "message": "..." }
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_reload_room_timeline(
     ptr: *mut c_void,
@@ -4354,7 +3565,6 @@ pub unsafe extern "C" fn mx_rust_reload_room_timeline(
             };
 
             let mut opts = MessagesOptions::backward();
-            // Clamp limit to a sane range; matrix-sdk's default is 10.
             let clamped: u64 = if limit == 0 { 30 } else {
                 std::cmp::min(limit as u64, 200)
             };
@@ -4365,7 +3575,6 @@ pub unsafe extern "C" fn mx_rust_reload_room_timeline(
                     let mut total = 0u32;
                     let mut decrypted = 0u32;
                     let mut undecryptable_count = 0u32;
-                    // Backward chunks are newest-first; reverse to match live ordering.
                     for ev in messages.chunk.into_iter().rev() {
                         total += 1;
                         let event_id = ev
@@ -4414,9 +3623,6 @@ pub unsafe extern "C" fn mx_rust_reload_room_timeline(
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("")
                                     .to_owned();
-                                // A msgtype with no typed row falls back to plain text. Media rows here
-                                // are kind-only (no mxc, mimetype or size); this smoke-test path has no
-                                // callers, and anything reviving it must fill those fields.
                                 let kind = typed_message_row_kind(mt)
                                     .unwrap_or("text");
                                 let fname = media_filename_for_kind(
@@ -4432,7 +3638,6 @@ pub unsafe extern "C" fn mx_rust_reload_room_timeline(
                                 }
                                 (is_decrypted, false, kind, bd, fname)
                             } else {
-                                // Live sync handles state and other event types.
                                 continue;
                             };
 
@@ -4473,9 +3678,6 @@ pub unsafe extern "C" fn mx_rust_reload_room_timeline(
     })
 }
 
-/// Emitted once per flow when the SDK reports `SasState::Confirmed`, so the
-/// UI can acknowledge "They match" while the peer has not confirmed yet.
-/// Flow id only.
 fn verification_sas_confirmed_event(flow_id: &str) -> serde_json::Value {
     json!({
         "type": "verification_sas_confirmed",
@@ -4483,27 +3685,11 @@ fn verification_sas_confirmed_event(flow_id: &str) -> serde_json::Value {
     })
 }
 
-/// SAS poll cadence. Polls the request, which owns the flow's current
-/// `Sas`, so one code path covers both.
 const VERIFICATION_POLL_MS: u64 = 500;
-/// Bounded wait for an `m.key.verification.start` to land when neither
-/// side has produced a SAS yet (60 s).
 const SAS_HANDSHAKE_TICKS: u32 = 120;
-/// Bounded wait for a started SAS to reach the emoji screen (120 s): the
-/// start/accept/key exchange, which needs no human.
 const SAS_COMPLETION_TICKS: u32 = 240;
-/// How long the emoji screen may stay up before this driver gives up (10
-/// minutes, matrix-sdk-crypto's own VERIFICATION_TIMEOUT, so the SDK cancels
-/// first anyway). Separate from SAS_COMPLETION_TICKS because this half waits
-/// on two people comparing and confirming on two devices, each confirmation
-/// crossing a sync hop that measured 30 s on a classic-sync server: a 120 s
-/// budget counted from SAS start left about 40 s to compare, and it
-/// cancelled a good verification with `m.timeout` while the user was still
-/// reading.
 const SAS_COMPARE_TICKS: u32 = 1200;
 
-/// The SAS driver's tick budget: SAS_COMPLETION_TICKS for the machine half,
-/// re-armed ONCE to SAS_COMPARE_TICKS when the emojis are shown.
 struct SasTickBudget {
     left: u32,
     compare_armed: bool,
@@ -4514,7 +3700,6 @@ impl SasTickBudget {
         Self { left: SAS_COMPLETION_TICKS, compare_armed: false }
     }
 
-    /// Spend one tick; false once the budget is exhausted.
     fn tick(&mut self) -> bool {
         if self.left == 0 {
             return false;
@@ -4523,8 +3708,6 @@ impl SasTickBudget {
         true
     }
 
-    /// The emojis are on screen: the human half gets its own budget, counted
-    /// from now. Idempotent, so a re-derived SAS cannot extend it.
     fn emojis_shown(&mut self) {
         if !self.compare_armed {
             self.compare_armed = true;
@@ -4532,32 +3715,12 @@ impl SasTickBudget {
         }
     }
 }
-/// Bounded wait for the peer to answer our request (5 minutes), shorter
-/// than the SDK's 10-minute VERIFICATION_TIMEOUT.
 const VERIFICATION_PEER_TICKS: u32 = 600;
-/// Wire budget for a cancel sent outside teardown (`drive_qr_flow`'s
-/// completion timeout). Teardown uses `SHUTDOWN_FLOW_CANCEL_MS`.
 const VERIFICATION_CANCEL_TIMEOUT_SECS: u64 = 3;
-/// How long a displayed QR code waits to be scanned before falling back to
-/// SAS (120 s).
 const QR_DISPLAY_TICKS: u32 = 240;
-/// How long the flow may take after the peer scanned (240 s). Twice the SAS
-/// budget: the user has to read a result on another device and come back.
 const QR_COMPLETION_TICKS: u32 = 480;
-/// Sanity bound on QR module count; version 40 is 177 modules per side.
 const QR_MAX_MODULES: usize = 200;
 
-/// The verification methods advertised in both directions:
-///
-/// * `m.sas.v1`: emoji, the universal fallback.
-/// * `m.qr_code.show.v1`: we display a QR code.
-/// * `m.reciprocate.v1`: the start a scanning peer sends back; required
-///   for `show` to be answerable.
-///
-/// `m.qr_code.scan.v1` is omitted: Lightning cannot scan, and a peer
-/// displaying a code for us would wait out the SDK's 10-minute timeout.
-/// Reciprocate works only with the `qrcode` feature enabled (see
-/// rust/Cargo.toml); without it the SDK has no `ReciprocateV1` arm.
 fn advertised_verification_methods() -> Vec<VerificationMethod> {
     vec![
         VerificationMethod::SasV1,
@@ -4566,13 +3729,6 @@ fn advertised_verification_methods() -> Vec<VerificationMethod> {
     ]
 }
 
-/// Pack a QR module grid (`true` = dark) into row-major bits, MSB first,
-/// each row starting on a fresh byte (`stride = (size + 7) / 8`), base64
-/// encoded.
-///
-/// Only this geometry crosses the FFI. The payload encodes cross-signing
-/// key material and the flow secret, so decoded bytes are never logged,
-/// persisted or put in error text.
 fn pack_qr_modules(modules: &[bool], size: usize) -> Option<String> {
     if size == 0 || size > QR_MAX_MODULES || modules.len() != size * size {
         return None;
@@ -4590,12 +3746,8 @@ fn pack_qr_modules(modules: &[bool], size: usize) -> Option<String> {
     Some(base64::engine::general_purpose::STANDARD.encode(&packed))
 }
 
-/// Encode bytes as a QR code and return the (size, packed-bits) pair the UI
-/// draws. Also used for MSC4108 login codes; C++ has no QR encoder.
 pub(crate) fn render_qr_bytes(bytes: &[u8]) -> Option<(usize, String)> {
     use matrix_sdk_base::crypto::matrix_sdk_qrcode::qrcode::{EcLevel, QrCode};
-    // Lowest error correction: the payload is large and read off a nearby
-    // screen, so redundancy only makes the code denser.
     let code = QrCode::with_error_correction_level(bytes, EcLevel::L).ok()?;
     let size = code.width();
     let modules: Vec<bool> =
@@ -4603,34 +3755,20 @@ pub(crate) fn render_qr_bytes(bytes: &[u8]) -> Option<(usize, String)> {
     pack_qr_modules(&modules, size).map(|bits| (size, bits))
 }
 
-/// Render an SDK `QrVerification` to the (size, packed-bits) pair the UI
-/// needs. Returns `None` if the SDK could not encode the code at all.
 fn render_qr_payload(qr: &QrVerification) -> Option<(usize, String)> {
-    // `EncodingError` is not user-actionable and SAS still runs. It carries no
-    // payload bytes.
     let code = qr.to_qr_code().ok()?;
     let size = code.width();
-    // `Color::select` avoids naming `qrcode::Color`, which matrix-sdk does not
-    // re-export.
     let modules: Vec<bool> =
         code.to_colors().into_iter().map(|c| c.select(true, false)).collect();
     pack_qr_modules(&modules, size).map(|bits| (size, bits))
 }
 
-/// How the show-QR leg of a flow ended.
 enum QrOutcome {
-    /// Terminal for the whole flow: `verification_done`,
-    /// `verification_cancelled` or `verification_failed` has been emitted.
     Finished,
-    /// The QR leg is over but the REQUEST is still alive and must continue
-    /// on SAS.
     FallBackToSas,
-    /// The session is going away; the flow was cancelled best-effort.
     ShuttingDown,
 }
 
-/// Ask the SDK for a QR code to display and publish its module grid.
-/// `None` is a normal outcome: SAS remains available.
 async fn maybe_generate_qr(
     request: &VerificationRequest,
     flow_id: &str,
@@ -4646,8 +3784,6 @@ async fn maybe_generate_qr(
     if !matches!(request.state(), VerificationRequestState::Ready { .. }) {
         return None;
     }
-    // Only when the peer can scan. The SDK enforces this too (returns
-    // `Ok(None)`); the `Ok(None)` arm below is the real safety net.
     let peer_can_scan = request
         .their_supported_methods()
         .is_some_and(|methods| methods.contains(&VerificationMethod::QrCodeScanV1));
@@ -4656,11 +3792,7 @@ async fn maybe_generate_qr(
     }
     let qr = match request.generate_qr_code().await {
         Ok(Some(qr)) => qr,
-        // The account has no cross-signing identity or no master key. A fresh
-        // session on a cross-signed account still gets a code
-        // (`new_self_no_master`).
         Ok(None) => return None,
-        // Not user-actionable; SAS still runs.
         Err(_) => return None,
     };
     let (size, bits_b64) = render_qr_payload(&qr)?;
@@ -4673,16 +3805,6 @@ async fn maybe_generate_qr(
     Some(qr)
 }
 
-/// Drive a displayed QR code to a terminal state, or hand the request back
-/// for SAS.
-///
-/// Polls instead of consuming `qr.changes()`: when the peer answers with an
-/// SAS start, the SDK replaces the request's `Verification` and the
-/// `QrVerification` just stops changing, so a stream would hang.
-///
-/// Reports success only on `QrVerificationState::Done`, and never confirms
-/// on the user's behalf: `Scanned` waits for
-/// `mx_rust_confirm_qr_verification`.
 async fn drive_qr_flow(
     request: &VerificationRequest,
     qr: &QrVerification,
@@ -4708,18 +3830,8 @@ async fn drive_qr_flow(
         }
         tokio::time::sleep(poll).await;
 
-        // One snapshot per tick, with no await inside, so nothing SDK-owned is held
-        // across a suspend point.
         let state = qr.state();
 
-        // Request-level terminations (`Passive`, when another of our sessions
-        // answered, or a late cancel) are invisible to `qr.state()`.
-        //
-        // `request.is_done()` is deliberately not checked: the SDK writes the
-        // request's Done before the QR's Done (after an awaited signing round), so
-        // it would report a successful verification as cancelled. Cancel and
-        // passive are written into the QR synchronously, so checking the QR
-        // verdict first is race-free.
         let qr_reached_verdict = matches!(
             state,
             QrVerificationState::Done { .. } | QrVerificationState::Cancelled(_)
@@ -4763,7 +3875,6 @@ async fn drive_qr_flow(
                     }));
                 }
             }
-            // Confirmation registered; the SDK is finishing the signature exchange.
             QrVerificationState::Confirmed => {
                 if !emitted_confirmed {
                     emitted_confirmed = true;
@@ -4773,11 +3884,8 @@ async fn drive_qr_flow(
                     }));
                 }
             }
-            // Only reachable on the scanning side, which we never are.
             QrVerificationState::Reciprocated => {}
             QrVerificationState::Started => {
-                // The peer chose emoji instead. The SDK allows switching while the QR is
-                // in `Started`, and the SAS driver adopts the installed Sas.
                 if request_moved_to_sas(request) {
                     enqueue(events, json!({
                         "type": "verification_qr_dismissed",
@@ -4787,8 +3895,6 @@ async fn drive_qr_flow(
                     return QrOutcome::FallBackToSas;
                 }
                 display_ticks += 1;
-                // Bounded display: fall through to SAS so emoji verification remains the
-                // guaranteed outcome when the peer neither scans nor starts SAS.
                 if display_ticks >= QR_DISPLAY_TICKS {
                     enqueue(events, json!({
                         "type": "verification_qr_dismissed",
@@ -4801,13 +3907,8 @@ async fn drive_qr_flow(
             }
         }
 
-        // Past `Started` the spec no longer permits switching to SAS; bound the
-        // leg so an unresponsive peer fails visibly.
         progress_ticks += 1;
         if progress_ticks >= QR_COMPLETION_TICKS {
-            // Tell the peer before giving up: it already scanned our code and would
-            // otherwise wait out the SDK's 10-minute VERIFICATION_TIMEOUT.
-            // (`drive_sas_flow`'s completion timeout still returns without a cancel.)
             cancel_flow_best_effort(
                 None, Some(qr), Some(request),
                 std::time::Duration::from_secs(VERIFICATION_CANCEL_TIMEOUT_SECS),
@@ -4823,8 +3924,6 @@ async fn drive_qr_flow(
     }
 }
 
-/// Drive a request the peer has answered (`.ready` exchanged) to a terminal
-/// state, preferring show-QR with SAS as fallback. Used by both directions.
 #[allow(clippy::too_many_arguments)]
 async fn drive_ready_request(
     client: &Client,
@@ -4842,20 +3941,12 @@ async fn drive_ready_request(
         }
         match drive_qr_flow(request, &qr, flow_id, events, nudges, shutdown).await {
             QrOutcome::Finished | QrOutcome::ShuttingDown => return,
-            // Release the QR slot before SAS takes over, so a cancel during the SAS
-            // leg does not target a retired QR.
             QrOutcome::FallBackToSas => release_keyed_slot(qr_slot, flow_id),
         }
     }
     drive_sas_flow(client, request, flow_id, events, sas_slot, nudges, shutdown).await;
 }
 
-/// Best-effort, bounded cancellation of a flow, so the peer is not left
-/// waiting out the SDK's 10-minute `VERIFICATION_TIMEOUT`. Both levels are
-/// attempted; each SDK cancel is idempotent.
-///
-/// The budget is the caller's: teardown passes `SHUTDOWN_FLOW_CANCEL_MS`,
-/// other callers `VERIFICATION_CANCEL_TIMEOUT_SECS`.
 async fn cancel_flow_best_effort(
     sas: Option<&SasVerification>,
     qr: Option<&QrVerification>,
@@ -4867,7 +3958,6 @@ async fn cancel_flow_best_effort(
             let _ = tokio::time::timeout(budget, sas.cancel()).await;
         }
     }
-    // A displayed QR is a live flow too; the peer may be scanning it.
     if let Some(qr) = qr {
         if !qr.is_cancelled() && !qr.is_done() {
             let _ = tokio::time::timeout(budget, qr.cancel()).await;
@@ -4880,10 +3970,6 @@ async fn cancel_flow_best_effort(
     }
 }
 
-/// The SAS this request is currently using, from SDK state. Authoritative
-/// over any cached handle: on simultaneous starts the SDK's tie-break
-/// replaces the losing `Sas` (`receive_start` -> `replace_sas`), and a
-/// handle captured earlier never changes state again.
 fn sas_from_request(request: &VerificationRequest) -> Option<SasVerification> {
     match request.state() {
         VerificationRequestState::Transitioned { verification } => verification.sas(),
@@ -4891,27 +3977,20 @@ fn sas_from_request(request: &VerificationRequest) -> Option<SasVerification> {
     }
 }
 
-/// True once the SDK has moved this request onto SAS. The QR driver's
-/// hand-off signal: a peer SAS start while our QR is in `Started` makes
-/// `receive_start` replace the QR verification with a `Sas`.
 fn request_moved_to_sas(request: &VerificationRequest) -> bool {
     sas_from_request(request).is_some()
 }
 
-/// Can this flow still make progress? A trait only so the single-flow slot
-/// rules can be unit tested; the SDK types have crate-private constructors.
 trait FlowLiveness {
     fn is_finished(&self) -> bool;
 }
 
-/// Which flow a slot occupant belongs to, for compare-and-clear.
 trait FlowIdentity {
     fn flow_key(&self) -> &str;
 }
 
 impl FlowLiveness for VerificationRequest {
     fn is_finished(&self) -> bool {
-        // `is_passive`: another of our sessions answered this request.
         self.is_cancelled() || self.is_done() || self.is_passive()
     }
 }
@@ -4934,28 +4013,17 @@ impl FlowLiveness for QrVerification {
     }
 }
 
-/// Where an incoming request stands while it waits for the user's Accept
-/// (break-it B015).
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PendingRequest {
-    /// Still `Requested`: the dialog's Accept is live.
     Waiting,
-    /// Left `Requested` some other way (accepted here): a driver owns it now.
     Answered,
-    /// Cancelled by the requester (or answered by another of our sessions)
-    /// before anyone accepted it; the `message` for `verification_cancelled`.
     Cancelled(String),
 }
 
-/// A trait only so the watch rules can be unit tested (crate-private SDK
-/// constructors, as `FlowLiveness`).
 trait PendingRequestView: FlowIdentity {
     fn pending(&self) -> PendingRequest;
 }
 
-/// The `message` a cancelled request reports: the SDK's reason in the same
-/// `{:?}` form `drive_sas_flow` uses, or "cancelled" when another of our
-/// sessions answered it (`is_passive`), as `drive_qr_flow` reports that.
 fn request_cancel_message(request: &VerificationRequest) -> String {
     match request.state() {
         VerificationRequestState::Cancelled(info) => format!("{:?}", info.reason()),
@@ -4975,11 +4043,6 @@ impl PendingRequestView for VerificationRequest {
     }
 }
 
-/// One tick of the pending-request watch. `Some(message)` when the request
-/// in `slot` for `flow_id` was cancelled while still waiting: the slot is
-/// cleared (compare-and-clear, so a newer request is never evicted) and the
-/// caller reports it. `None` with `keep_watching` false when the slot no
-/// longer holds this flow or a driver has taken it over.
 fn pending_request_step<R: PendingRequestView>(
     slot: &Mutex<Option<R>>,
     flow_id: &str,
@@ -5002,8 +4065,6 @@ fn pending_request_step<R: PendingRequestView>(
     }
 }
 
-/// Flows the pending-request watch cancelled and released, newest last,
-/// bounded. Flow ids are random per request, so one list serves every bridge.
 fn pending_cancelled_flows() -> &'static Mutex<VecDeque<String>> {
     static FLOWS: std::sync::OnceLock<Mutex<VecDeque<String>>> = std::sync::OnceLock::new();
     FLOWS.get_or_init(Default::default)
@@ -5019,10 +4080,6 @@ fn note_pending_cancelled(flow_id: &str) {
     flows.push_back(flow_id.to_owned());
 }
 
-/// What Accept answers when the slot holds no request (break-it B015 review):
-/// nothing when the watch cancelled this very flow (its `verification_cancelled`
-/// is already queued, and an error now would put a second, misleading failure
-/// over the cancel), the old error otherwise.
 fn accept_without_request_reply(flow_id: &str) -> String {
     let flows = pending_cancelled_flows().lock().unwrap_or_else(|e| e.into_inner());
     if flows.iter().any(|flow| flow == flow_id) {
@@ -5032,15 +4089,8 @@ fn accept_without_request_reply(flow_id: &str) -> String {
     }
 }
 
-/// How long an unanswered incoming request is watched: the SDK's own
-/// `VERIFICATION_TIMEOUT` is 10 minutes.
 const PENDING_REQUEST_WATCH_SECS: u64 = 11 * 60;
 
-/// Watch an incoming request while it sits in `Requested`, so a cancel from
-/// the requester closes the responder's dialog at once instead of leaving
-/// Accept live until it fails as a handshake timeout (break-it B015).
-/// Holds no Client: it reads the request through the slot each tick, and
-/// teardown empties the slot (`take_pending_flows`), which ends it.
 async fn watch_pending_request(
     slot: Arc<Mutex<Option<VerificationRequest>>>,
     events: Arc<Mutex<VecDeque<String>>>,
@@ -5065,8 +4115,6 @@ async fn watch_pending_request(
     }
 }
 
-/// The requesting device's id and display name, from the request state;
-/// empty when the state no longer carries them.
 fn request_other_device(request: &VerificationRequest) -> (String, String) {
     match request.state() {
         VerificationRequestState::Requested { other_device_data, .. }
@@ -5078,11 +4126,8 @@ fn request_other_device(request: &VerificationRequest) -> (String, String) {
     }
 }
 
-/// A flow slot keyed by flow id, for handles with no `flow_id()` accessor.
 type KeyedFlowSlot<T> = Arc<Mutex<Option<(String, T)>>>;
 
-/// Clear a keyed slot if its occupant can no longer progress, and report
-/// whether anything live is left.
 fn keyed_slot_is_live<T: FlowLiveness>(slot: &KeyedFlowSlot<T>) -> bool {
     if let Ok(mut guard) = slot.lock() {
         if guard.as_ref().is_some_and(|(_, flow)| flow.is_finished()) {
@@ -5093,7 +4138,6 @@ fn keyed_slot_is_live<T: FlowLiveness>(slot: &KeyedFlowSlot<T>) -> bool {
     false
 }
 
-/// Clear a keyed slot only if it still holds this flow.
 fn release_keyed_slot<T>(slot: &KeyedFlowSlot<T>, flow_id: &str) {
     if let Ok(mut guard) = slot.lock() {
         if guard.as_ref().is_some_and(|(stored, _)| stored == flow_id) {
@@ -5102,9 +4146,6 @@ fn release_keyed_slot<T>(slot: &KeyedFlowSlot<T>, flow_id: &str) {
     }
 }
 
-/// True when the single-flow slots still hold a live flow. Dead occupants
-/// are cleared in passing, so an abandoned request cannot block later
-/// attempts.
 fn flow_slots_are_live<R, S, Q>(
     request_slot: &Arc<Mutex<Option<R>>>,
     sas_slot: &KeyedFlowSlot<S>,
@@ -5120,16 +4161,12 @@ where
             *guard = None;
         }
     }
-    // Evaluate both slots: each call also sweeps a dead occupant, and `||`
-    // would skip the QR sweep.
     let sas_live = keyed_slot_is_live(sas_slot);
     let qr_live = keyed_slot_is_live(qr_slot);
     let request_live = request_slot.lock().map(|g| g.is_some()).unwrap_or(false);
     request_live || sas_live || qr_live
 }
 
-/// Release the single-flow slots only where they still hold this flow, so
-/// a newer request that arrived meanwhile is not evicted.
 fn release_flow_slots<R, S, Q>(
     request_slot: &Arc<Mutex<Option<R>>>,
     sas_slot: &KeyedFlowSlot<S>,
@@ -5147,9 +4184,6 @@ fn release_flow_slots<R, S, Q>(
     }
 }
 
-/// Take whatever is parked in the single-flow slots, leaving them empty.
-/// Teardown must take before clearing: the slots are the only handle for
-/// cancelling a flow the peer is still waiting on.
 fn take_pending_flows<R, S, Q>(
     request_slot: &Arc<Mutex<Option<R>>>,
     sas_slot: &KeyedFlowSlot<S>,
@@ -5169,9 +4203,6 @@ fn take_pending_flows<R, S, Q>(
     (sas, qr, request)
 }
 
-/// Releases this flow's slots when its driver ends for any reason,
-/// including early returns and panics. Otherwise a leaked `active_request`
-/// makes `mx_rust_start_own_verification` refuse until restart.
 struct FlowSlotGuard<R: FlowIdentity, S, Q> {
     request_slot: Arc<Mutex<Option<R>>>,
     sas_slot: KeyedFlowSlot<S>,
@@ -5198,13 +4229,6 @@ impl<R: FlowIdentity, S, Q> Drop for FlowSlotGuard<R, S, Q> {
     }
 }
 
-/// Drive a ready request through SAS to a terminal state. Used by both
-/// directions.
-///
-/// Emits `verification_sas_started`, `verification_sas_ready` (emoji +
-/// decimals), `verification_sas_confirmed`, then `verification_done` /
-/// `verification_cancelled` / `verification_failed`. Success only on
-/// `SasState::Done`.
 #[allow(clippy::too_many_arguments)]
 async fn drive_sas_flow(
     client: &Client,
@@ -5232,13 +4256,10 @@ async fn drive_sas_flow(
         Some(sas) => Some(sas),
         None => match request.start_sas().await {
             Ok(Some(sas)) => Some(sas),
-            // `Ok(None)`: the peer lacks `m.sas.v1` or the request left Ready. Give an
-            // in-flight start a bounded chance to land, then fail visibly.
             Ok(None) => {
                 let mut found: Option<SasVerification> = None;
                 for _ in 0..SAS_HANDSHAKE_TICKS {
                     if shutdown.load(Ordering::SeqCst) {
-                        // No SAS yet, but the peer is waiting on the request.
                         cancel_flow_best_effort(
                             None, None, Some(request),
                             std::time::Duration::from_millis(SHUTDOWN_FLOW_CANCEL_MS),
@@ -5274,8 +4295,6 @@ async fn drive_sas_flow(
         },
     };
     let Some(mut sas) = sas else {
-        // A request the peer had already cancelled never reaches SAS; that is a
-        // cancel, not a handshake timeout (break-it B015).
         if request.is_cancelled() || request.is_passive() {
             enqueue(events, json!({
                 "type": "verification_cancelled",
@@ -5288,8 +4307,6 @@ async fn drive_sas_flow(
         return;
     };
 
-    // A peer-started SAS needs our `accept` before keys are exchanged.
-    // `Sas::accept()` is a no-op outside Started, i.e. when we started it.
     if let Err(err) = sas.accept().await {
         fail(format_matrix_error("SAS accept failed", err));
         return;
@@ -5307,8 +4324,6 @@ async fn drive_sas_flow(
     let mut budget = SasTickBudget::new();
     while budget.tick() {
         if shutdown.load(Ordering::SeqCst) {
-            // Shutting down mid-flow: cancel both levels. The teardown slot sweep only
-            // covers flows no driver owns.
             cancel_flow_best_effort(
                 Some(&sas), None, Some(request),
                 std::time::Duration::from_millis(SHUTDOWN_FLOW_CANCEL_MS),
@@ -5318,8 +4333,6 @@ async fn drive_sas_flow(
         }
         tokio::time::sleep(poll).await;
 
-        // Re-derive every tick: after a tie-break the SDK's Sas is the live one.
-        // Keeping the slot in step makes confirm/mismatch act on it.
         if let Some(current) = sas_from_request(request) {
             sas = current;
             if let Ok(mut guard) = sas_slot.lock() {
@@ -5327,10 +4340,8 @@ async fn drive_sas_flow(
             }
         }
 
-        // Drop the SasState snapshot before any await.
         let needs_accept = {
             match sas.state() {
-                // Our start lost to the peer's; accepting leaves Started, so no spin.
                 SasState::Started { .. } => true,
                 SasState::KeysExchanged { .. } if !emitted_emojis => {
                     emitted_emojis = true;
@@ -5370,8 +4381,6 @@ async fn drive_sas_flow(
                     }));
                     return;
                 }
-                // Our confirmation registered; Done still needs the peer's MAC. Surface it
-                // once so the UI can leave the emoji screen.
                 SasState::Confirmed if !emitted_confirmed => {
                     emitted_confirmed = true;
                     enqueue(events, verification_sas_confirmed_event(flow_id));
@@ -5390,10 +4399,6 @@ async fn drive_sas_flow(
     fail("Timed out waiting for SAS completion.".to_owned());
 }
 
-/// Accept an incoming SAS verification request and drive it to a terminal
-/// state. Emits `verification_ready` once `.ready` is exchanged, then hands
-/// off to `drive_sas_flow`. Slots are released by `FlowSlotGuard` on every
-/// exit path.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_accept_verification(
     ptr: *mut c_void,
@@ -5414,8 +4419,6 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
             return Ok("error: verification flow id mismatch.".to_owned());
         }
         let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
-            // Nothing can drive this flow; release the slot so it cannot refuse later
-            // attempts.
             release_flow_slots(
                 &bridge.active_request, &bridge.active_sas, &bridge.active_qr,
                 &flow_id,
@@ -5436,8 +4439,6 @@ pub unsafe extern "C" fn mx_rust_accept_verification(
                 flow_id.clone(),
             );
 
-            // Cancelled before the click landed (the watcher reports it within a
-            // tick; this closes the gap between).
             if request.is_cancelled() || request.is_passive() {
                 enqueue(&events, json!({
                     "type": "verification_cancelled",
@@ -5496,8 +4497,6 @@ fn ffi_sas_action(
             return Ok("error: SAS verification flow id mismatch.".to_owned());
         }
         let events = Arc::clone(&bridge.events);
-        // Joinable: `confirm()` uploads a signature and writes the crypto store,
-        // so it must not outlive sign-out.
         bridge.spawn_verification_task(async move {
             if let Err(err) = action(sas.clone()).await {
                 enqueue(&events, json!({
@@ -5531,10 +4530,6 @@ pub unsafe extern "C" fn mx_rust_mismatch_verification(
     }))
 }
 
-/// The user confirmed that the other device reported a successful scan.
-/// Never issued automatically: `drive_qr_flow` emits
-/// `verification_qr_scanned` and waits for this call. The SDK performs the
-/// trust change (`QrVerification::confirm`).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_confirm_qr_verification(
     ptr: *mut c_void,
@@ -5560,7 +4555,6 @@ pub unsafe extern "C" fn mx_rust_confirm_qr_verification(
             return Ok("error: the code has not been scanned yet.".to_owned());
         }
         let events = Arc::clone(&bridge.events);
-        // Joinable, like the SAS actions (see above).
         bridge.spawn_verification_task(async move {
             if let Err(err) = qr.confirm().await {
                 enqueue(&events, json!({
@@ -5579,9 +4573,6 @@ pub unsafe extern "C" fn mx_rust_cancel_verification(
     ptr: *mut c_void,
     flow_id: *const c_char,
 ) -> *mut c_char {
-    // Cancel at every level. Each SDK cancel is idempotent, and an
-    // `active_sas` from another flow must not suppress the request-level
-    // cancel. Closing the dialog over a QR code must tell the peer too.
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let flow_id = unsafe { cstr_arg(flow_id) }?;
@@ -5618,8 +4609,6 @@ pub unsafe extern "C" fn mx_rust_cancel_verification(
                     cancelled = true;
                 }
             }
-            // Report and release only if the cancel applied to this flow, so a newer
-            // request's handle is not evicted.
             if cancelled {
                 enqueue(&events, json!({
                     "type": "verification_cancelled",
@@ -5633,12 +4622,6 @@ pub unsafe extern "C" fn mx_rust_cancel_verification(
     })
 }
 
-/// Start an outbound verification of this session against another session
-/// of the same account, advertising `advertised_verification_methods`.
-///
-/// Emits `verification_request_started` once sent, `verification_ready`
-/// when the peer answers, then hands off to `drive_ready_request`, the same
-/// driver as the incoming path.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_start_own_verification(
     ptr: *mut c_void,
@@ -5648,9 +4631,6 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
         let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
             return Ok("error: Rust SDK session is not logged in.".to_owned());
         };
-        // Reject a duplicate only if a flow is actually live; a dead parked
-        // request (incoming requests occupy the slot without user action) must not
-        // block verification.
         if flow_slots_are_live(
             &bridge.active_request, &bridge.active_sas, &bridge.active_qr,
         ) {
@@ -5673,8 +4653,6 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
                 return;
             };
 
-            // Look up the own identity locally, forcing a /keys/query if missing
-            // (as Element does).
             let identity_res = client.encryption().get_user_identity(&user_id).await;
             let identity = match identity_res {
                 Ok(Some(id)) => Some(id),
@@ -5768,13 +4746,9 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
                 "is_self_verification": is_self,
             }));
 
-            // Wait up to 5 minutes for the peer. Watch the state, not `is_ready()`:
-            // that is true only while in Ready, and a `.start` arriving in the same
-            // sample window moves the request to Transitioned for good.
             let mut ready = false;
             for _ in 0..VERIFICATION_PEER_TICKS {
                 if shutdown.load(Ordering::SeqCst) {
-                    // Withdraw our pending request.
                     cancel_flow_best_effort(
                         None, None, Some(&request),
                         std::time::Duration::from_millis(SHUTDOWN_FLOW_CANCEL_MS),
@@ -5786,14 +4760,11 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
                     std::time::Duration::from_millis(VERIFICATION_POLL_MS),
                 ).await;
                 match request.state() {
-                    // Both mean the peer answered; the driver adopts the peer's SAS itself.
                     VerificationRequestState::Ready { .. }
                     | VerificationRequestState::Transitioned { .. } => {
                         ready = true;
                         break;
                     }
-                    // Passive (answered by another of our sessions) maps to
-                    // Cancelled(Accepted) in the SDK, so it ends here.
                     VerificationRequestState::Done
                     | VerificationRequestState::Cancelled(_) => break,
                     VerificationRequestState::Created { .. }
@@ -5801,7 +4772,6 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
                 }
             }
             if !ready {
-                // Distinguish a cancellation from a timeout.
                 let was_cancelled = request.is_cancelled();
                 if !was_cancelled && !request.is_done() {
                     let _ = request.cancel().await;
@@ -5833,13 +4803,6 @@ pub unsafe extern "C" fn mx_rust_start_own_verification(
     })
 }
 
-/// Report the cross-signing state of the current session. Aggregate,
-/// non-secret metadata only.
-///
-/// `device_cross_signed` drives this session's "Verified" label.
-/// `Device::is_verified()` is deliberately not reported: for our own device
-/// it is always true, because matrix-sdk marks it locally trusted on
-/// creation.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_query_own_device_status(
     ptr: *mut c_void,
@@ -5849,7 +4812,6 @@ pub unsafe extern "C" fn mx_rust_query_own_device_status(
         let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
             return Ok("error: Rust SDK session is not logged in.".to_owned());
         };
-        // A status query: run on a short-lived runtime and return synchronously.
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -5873,8 +4835,6 @@ pub unsafe extern "C" fn mx_rust_query_own_device_status(
             if let Ok(Some(device)) = client.encryption().get_own_device().await {
                 device_cross_signed = device.is_cross_signed_by_owner();
             }
-            // The identity-key check needs a /keys/query and must not block the GUI
-            // thread; it lives in mx_rust_check_own_identity_key.
             if let Some(status) = client.encryption().cross_signing_status().await {
                 has_master = status.has_master;
                 has_self_signing = status.has_self_signing;
@@ -5894,23 +4854,10 @@ pub unsafe extern "C" fn mx_rust_query_own_device_status(
     })
 }
 
-/// Does the curve25519 identity key this device publishes match the local
-/// Olm account's key?
-///
-/// If not, peers encrypt to a key we cannot read: no room keys and no call
-/// media keys ever decrypt, while sending still works. A fresh sign-in is
-/// the remedy. `curve25519_key()` is the local key, which a `/keys/query`
-/// cannot overwrite.
-///
-/// Tri-state: `None` when the question could not be answered (offline,
-/// keys not uploaded, no local account), which is not a fault. Only
-/// `Some(false)` is.
 pub(crate) fn identity_key_agreement(
     local_base64: Option<&str>,
     published: Option<&str>,
 ) -> Option<bool> {
-    // Compare without base64 padding: a server may re-pad what we uploaded,
-    // and a false mismatch would push a healthy user toward a sign-out.
     fn unpadded(value: &str) -> &str {
         value.trim_end_matches('=')
     }
@@ -5924,14 +4871,6 @@ pub(crate) fn identity_key_agreement(
     }
 }
 
-/// Ask the server what it publishes for this device and compare with the
-/// local Olm key. Every failure to get an answer is `None`.
-///
-/// The server's answer is not signature-checked on purpose: in the real
-/// fault the published ed25519 key also belongs to the lost Olm account,
-/// so a signature check would reject the true positive. The risk from a
-/// hostile server is bounded: the result only raises a card whose offered
-/// action is an ordinary, user-confirmed sign-out.
 async fn own_identity_key_agreement(client: &Client) -> Option<bool> {
     use matrix_sdk::ruma::api::client::keys::get_keys;
 
@@ -5957,18 +4896,6 @@ async fn own_identity_key_agreement(client: &Client) -> Option<bool> {
     identity_key_agreement(Some(local.as_str()), published.as_deref())
 }
 
-/// What the server says about a RESUMED device (a password sign-in that asked
-/// for the soft-logged-out device again): "matches" when it publishes this
-/// store's key, "missing" when it answered and publishes no keys for the
-/// device, "different" when it publishes another key, "unknown" when it did
-/// not answer or the answer could not be read. `answer` is None for no
-/// answer, Some(None) for "answered, nothing for this device".
-///
-/// Unlike identity_key_agreement, "answered, nothing published" is a verdict
-/// here: a resumed device's keys went up with its earlier session, and a
-/// device removed and re-created under the same id has none, which this
-/// store (keys already marked uploaded) would never send again. Pure and
-/// unit-tested.
 pub(crate) fn resumed_device_key_state(
     local_base64: Option<&str>,
     answer: Option<Option<&str>>,
@@ -5987,9 +4914,6 @@ pub(crate) fn resumed_device_key_state(
     }
 }
 
-/// The server's answer for this device's curve25519 key: None when it did
-/// not answer (or reported a failure, or the entry could not be read),
-/// Some(None) when it answered with no keys for the device.
 async fn published_curve25519_key(client: &Client) -> Option<Option<String>> {
     use matrix_sdk::ruma::api::client::keys::get_keys;
 
@@ -6009,24 +4933,12 @@ async fn published_curve25519_key(client: &Client) -> Option<Option<String>> {
         return Some(None);
     };
     let keys = raw.deserialize().ok()?;
-    // An entry without a curve25519 key is not an answer that can be read.
     keys.keys
         .iter()
         .find(|(id, _)| id.as_str().starts_with("curve25519:"))
         .map(|(_, value)| Some(value.to_owned()))
 }
 
-/// For a resumed device, after its sync has started: whether the server still
-/// publishes this store's key for it. On "missing" or "different" the session
-/// is also logged out on the server: that device is the one the resume
-/// re-created under the old id, without keys, and removing it leaves the
-/// server as the other client left it, so every later restore (a restart
-/// included) meets a hard M_UNKNOWN_TOKEN rather than a silent keyless
-/// session. The store is untouched. Answers on the poll queue as
-///   { "type": "resumed_device_key", "user_id", "device_id",
-///     "state": "matches"|"missing"|"different"|"unknown",
-///     "ended_on_server": bool }
-/// Public identifiers and the verdict only; no key material crosses the FFI.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_check_resumed_device_key(
     ptr: *mut c_void,
@@ -6067,11 +4979,6 @@ pub unsafe extern "C" fn mx_rust_check_resumed_device_key(
     })
 }
 
-/// Async form of the check above, answering on the poll queue as
-///   { "type": "own_identity_key", "matches_server": true|false|null }
-/// so the GUI thread never blocks on `/keys/query`. One check per call;
-/// rate limiting is the caller's (OwnDeviceKeyWatch). No key material
-/// crosses the FFI.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_check_own_identity_key(
     ptr: *mut c_void,
@@ -6085,7 +4992,6 @@ pub unsafe extern "C" fn mx_rust_check_own_identity_key(
         bridge.spawn_room_action(async move {
             let matches = own_identity_key_agreement(&client).await;
             if matches == Some(false) {
-                // eprintln so it is visible without LIGHTNING_RUST_LOG. No key material.
                 eprintln!(
                     "matrix.crypto: this device's published identity key does \
                      not match its local account, so nothing encrypted to it \
@@ -6102,14 +5008,6 @@ pub unsafe extern "C" fn mx_rust_check_own_identity_key(
     })
 }
 
-/// One async E2EE health snapshot from SDK state APIs, emitted as
-/// `crypto_health`:
-///   { device_id, device_cross_signed,
-///     own_identity_available, own_identity_verified,
-///     has_master, has_self_signing, has_user_signing,
-///     backup_exists_on_server, backup_state, recovery_state,
-///     secret_storage_enabled, lifecycle }
-/// Booleans, enum names and the public device id only.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_query_crypto_health(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -6145,15 +5043,6 @@ pub unsafe extern "C" fn mx_rust_query_crypto_health(ptr: *mut c_void) -> *mut c
                 has_self_signing = status.has_self_signing;
                 has_user_signing = status.has_user_signing;
             }
-            // Every private key here but our device not cross-signed: an
-            // unconfirmed setup, or a reset the server never accepted (the SDK
-            // saves the new keys before uploading). One fresh own-keys query
-            // drops local keys the server does not hold, and the snapshot is
-            // read again from what it left.
-            // Never while a cross-signing job holds the UIA slot: a reset
-            // parked at its password or OAuth approval is in exactly this
-            // state, and the query would delete the keys it is about to upload.
-            // Break-it B014: see `own_identity_refetch_wanted`.
             let seen = [
                 own_identity_available,
                 own_identity_verified,
@@ -6253,12 +5142,8 @@ pub unsafe extern "C" fn mx_rust_query_crypto_health(ptr: *mut c_void) -> *mut c
     })
 }
 
-/// Minimum spacing between the health snapshot's own-identity refetches for
-/// one account while its local state has not moved (break-it B014).
 const OWN_IDENTITY_REFETCH_MIN: std::time::Duration = std::time::Duration::from_secs(20);
 
-/// Per account: when the health snapshot last refetched our own keys, and the
-/// local state that fetch left.
 fn own_identity_refetches(
 ) -> &'static std::sync::Mutex<HashMap<OwnedUserId, (std::time::Instant, [bool; 6])>> {
     static REFETCHES: std::sync::OnceLock<
@@ -6267,9 +5152,6 @@ fn own_identity_refetches(
     REFETCHES.get_or_init(Default::default)
 }
 
-/// Whether a refetch is due: never fetched, the local state moved since the
-/// last one left it (secrets arrived, a verification finished), or the
-/// spacing has passed. Pure for tests.
 fn own_identity_refetch_due(
     last: Option<(std::time::Instant, [bool; 6])>,
     seen: [bool; 6],
@@ -6281,20 +5163,6 @@ fn own_identity_refetch_due(
     }
 }
 
-/// Whether the health snapshot refetches our own keys, from what it `seen`
-/// (`[own identity available, own identity verified, device cross-signed,
-/// has master, has self-signing, has user-signing]`). Never unless
-/// `may_realign` (a cross-signing job holding the UIA slot would lose the keys
-/// it is about to upload). All three private keys present with this device
-/// not cross-signed is an unconfirmed setup and is refetched every time, as
-/// before. Break-it B014: our identity missing or unverified, or this device
-/// not cross-signed, is also what a STALE store looks like when another
-/// session set up cross-signing or verified this one and sync's own-user
-/// device-list change never reached us; Refresh and the verification-done
-/// refresh then re-read the same store. So those refetch too, but only when
-/// `claim` (the per-account throttle) grants it, since a fresh account without
-/// cross-signing stays in that state. Only a re-read: nothing is trusted or
-/// signed here. Pure for tests.
 fn own_identity_refetch_wanted(
     seen: [bool; 6],
     may_realign: bool,
@@ -6309,8 +5177,6 @@ fn own_identity_refetch_wanted(
     unconfirmed_setup || (suspect_stale && claim())
 }
 
-/// Claims a refetch for `user` when one is due, stamping it now so that
-/// concurrent snapshots do not all fetch.
 fn own_identity_refetch_claim(user: &UserId, seen: [bool; 6]) -> bool {
     let now = std::time::Instant::now();
     let mut map = own_identity_refetches().lock().unwrap_or_else(|e| e.into_inner());
@@ -6321,16 +5187,11 @@ fn own_identity_refetch_claim(user: &UserId, seen: [bool; 6]) -> bool {
     true
 }
 
-/// Records the local state a refetch left, so the next snapshot is throttled
-/// against it rather than against what it saw before.
 fn own_identity_refetch_record(user: &UserId, left: [bool; 6]) {
     let mut map = own_identity_refetches().lock().unwrap_or_else(|e| e.into_inner());
     map.insert(user.to_owned(), (std::time::Instant::now(), left));
 }
 
-/// "Request keys again": nudge the recovery coordinator to run one
-/// secret-request attempt now and re-arm its ladder. Progress arrives as
-/// `crypto_bootstrap` events.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_request_missing_secrets(
     ptr: *mut c_void,
@@ -6351,9 +5212,6 @@ pub unsafe extern "C" fn mx_rust_request_missing_secrets(
     })
 }
 
-/// Import an encrypted Megolm key export via `Encryption::import_room_keys`.
-/// The SDK holds the passphrase in `Zeroizing`. Only counts and public room
-/// ids are returned to C++, never key material.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_import_room_keys(
     ptr: *mut c_void,
@@ -6391,13 +5249,11 @@ pub unsafe extern "C" fn mx_rust_import_room_keys(
         let events = Arc::clone(&bridge.events);
         let import_flag = Arc::clone(&bridge.import_active);
         let registry = Arc::clone(&bridge.timelines);
-        // A managed task on the shared runtime, so sign-out can join it.
         let handle = bridge.runtime.spawn(async move {
                 enqueue(&events, json!({
                     "type": "room_key_import_started",
                 }));
                 let path_buf = PathBuf::from(&file_path);
-                // Pre-flight for clearer errors (e.g. a directory was picked).
                 match std::fs::metadata(&path_buf) {
                     Ok(md) if md.is_dir() => {
                         enqueue(&events, json!({
@@ -6424,7 +5280,6 @@ pub unsafe extern "C" fn mx_rust_import_room_keys(
                     .encryption()
                     .import_room_keys(path_buf, &passphrase)
                     .await;
-                // The passphrase is never logged; matrix-sdk holds the Zeroizing copy.
                 match result {
                     Ok(import) => {
                         let mut room_ids: Vec<String> = Vec::new();
@@ -6443,8 +5298,6 @@ pub unsafe extern "C" fn mx_rust_import_room_keys(
                             "affected_rooms": room_ids.len(),
                             "room_ids": room_ids,
                         }));
-                        // Retry decryption right away; the timeline emits in-place Set diffs.
-                        // Session ids stay inside Rust; only counts and room ids cross the FFI.
                         let sessions_by_room =
                             timeline::sessions_by_room_from_import(&import.keys);
                         registry
@@ -6483,14 +5336,6 @@ pub unsafe extern "C" fn mx_rust_room_key_import_active(
     result.unwrap_or(0)
 }
 
-// ---------------------------------------------------------------------------
-// Live SDK timeline FFI. Functions return "" when accepted for async
-// execution or "error: …" synchronously. Results arrive as timeline_reset /
-// timeline_diff / timeline_pagination / timeline_send_failed /
-// timeline_retry_decryption / timeline_error events, stamped with
-// room_generation + lifecycle for stale-callback rejection.
-// ---------------------------------------------------------------------------
-
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_timeline_open(
     ptr: *mut c_void,
@@ -6521,9 +5366,6 @@ pub unsafe extern "C" fn mx_rust_timeline_open(
     })
 }
 
-/// Thread style: `on` != 0 keeps true `m.thread` replies in the live room
-/// timeline (inline, Nheko-like) instead of only in their thread. Applies to
-/// the next live timeline built; C++ reopens the current room after a change.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_timeline_set_threads_in_live(
     ptr: *mut c_void,
@@ -6536,8 +5378,6 @@ pub unsafe extern "C" fn mx_rust_timeline_set_threads_in_live(
     })
 }
 
-/// Whether the automatic read receipt is unthreaded (`on` != 0): only while
-/// the inline thread style shows the room with every thread reply visible.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_unthreaded_receipts(
     ptr: *mut c_void,
@@ -6550,10 +5390,6 @@ pub unsafe extern "C" fn mx_rust_set_unthreaded_receipts(
     })
 }
 
-/// Re-open the active room's live timeline after letting the event cache
-/// drop the paginated backlog (like Element's `jumpToLiveTimeline()`). Used
-/// only for an explicit jump to the newest message. Emits `timeline_reset`
-/// with a new room generation and a `trimmed_from` count.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_timeline_reload_at_live(
     ptr: *mut c_void,
@@ -6571,7 +5407,6 @@ pub unsafe extern "C" fn mx_rust_timeline_reload_at_live(
         bridge
             .timelines
             .reload_room_at_live(&bridge.runtime, client, room_id.clone());
-        // The room subscription is per room, so a reload leaves it as is.
         Ok(String::new())
     })
 }
@@ -6581,7 +5416,6 @@ pub unsafe extern "C" fn mx_rust_timeline_close(ptr: *mut c_void) -> *mut c_char
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         bridge.timelines.close();
-        // The room stays warm: only the active marker goes.
         if let Ok(mut guard) = bridge.active_room_subscription.lock() {
             guard.close_active();
         }
@@ -6590,9 +5424,6 @@ pub unsafe extern "C" fn mx_rust_timeline_close(ptr: *mut c_void) -> *mut c_char
     })
 }
 
-/// (Re)apply the single active-room subscription to the running sliding
-/// sync, if any. Fire-and-forget: it only affects what sync delivers.
-/// `subscribe_to_rooms` replaces the whole set, so repeated calls converge.
 fn apply_room_subscription(bridge: &RustClient) {
     let Some(service) = bridge
         .room_list_service
@@ -6600,14 +5431,13 @@ fn apply_room_subscription(bridge: &RustClient) {
         .ok()
         .and_then(|guard| guard.clone())
     else {
-        return; // No modern sync running; the sync loop applies it on start.
+        return;
     };
     let desired = bridge
         .active_room_subscription
         .lock()
         .ok()
         .and_then(|mut guard| guard.pending(false));
-    // Unchanged membership: the SDK already holds exactly this set.
     let Some(desired) = desired else { return };
     // Managed: the future holds the RoomListService and through it a strong
     // Client, which must not keep the store open past sign-out.
@@ -6678,8 +5508,6 @@ pub unsafe extern "C" fn mx_rust_timeline_send_reply(
     })
 }
 
-// ── Read-only event context view ────────────────────────────────────────
-
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_context_open(
     ptr: *mut c_void,
@@ -6727,8 +5555,6 @@ pub unsafe extern "C" fn mx_rust_context_paginate(
             .map(|_| String::new())
     })
 }
-
-// ── SDK-backed thread timelines ─────────────────────────────────────────
 
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_thread_open(
@@ -6793,8 +5619,6 @@ pub unsafe extern "C" fn mx_rust_thread_send_text(
         let room_id = unsafe { cstr_arg(room_id) }?;
         let root = unsafe { cstr_arg(root_event_id) }?;
         let body = unsafe { cstr_arg(body) }?;
-        // Optional rich-reply target within the thread; NULL/empty = plain
-        // thread message.
         let reply_to = if in_reply_to.is_null() {
             None
         } else {
@@ -6816,9 +5640,6 @@ pub unsafe extern "C" fn mx_rust_thread_send_text(
     })
 }
 
-/// Rename one of the account's devices via PUT /devices/{id} (no UIA).
-/// Answers on `device_renamed {op_id, ok, category}`; C++ refetches the
-/// list on success.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_rename_device(
     ptr: *mut c_void,
@@ -6865,20 +5686,6 @@ pub unsafe extern "C" fn mx_rust_rename_device(
     })
 }
 
-/// Key-backup management, entirely through the SDK's recovery/backup flows:
-///   * "enable": Recovery::enable(): creates secret storage and the backup,
-///     uploads room keys, returns the new recovery key;
-///   * "create_backup": Recovery::enable_backup(), when secret storage
-///     exists;
-///   * "reset_key": Recovery::reset_key(): a new recovery key replaces the
-///     old one; returns it;
-///   * "disable_and_delete": Backups::disable_and_delete(): deletes the
-///     server-side backup version (local store untouched);
-///   * "disable_recovery": Recovery::disable(): removes secret storage and
-///     the backup.
-/// The recovery key crosses the FFI once, in `backup_action_result`, for
-/// display; it is never logged or persisted here. Upload progress rides
-/// `backup_progress`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_backup_action(
     ptr: *mut c_void,
@@ -6888,9 +5695,6 @@ pub unsafe extern "C" fn mx_rust_backup_action(
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let action = unsafe { cstr_arg(action) }?;
-        // Cross-signing setup/reset take the user's explicit decision about an
-        // existing recovery key, so they have their own entry point
-        // (mx_rust_cross_signing_action) and are refused here.
         if uia::cross_signing_kind_for_action(&action).is_some() {
             return Err("cross-signing actions go through mx_rust_cross_signing_action"
                 .to_owned());
@@ -6907,28 +5711,12 @@ pub unsafe extern "C" fn mx_rust_backup_action(
         let lifecycle = bridge.timelines.lifecycle();
         let timelines = Arc::clone(&bridge.timelines);
         let store_path = bridge.store_path.clone();
-        // The key is reported as soon as it exists. `enable()` without
-        // `wait_for_backups_to_upload()` returns right after secret storage is
-        // created and only triggers the room-key upload, which carries on in the
-        // SDK's backup task and is reported through `backup_progress` (the card
-        // asks for it after every result). Waiting for the upload put minutes of
-        // teardown exposure (`SHUTDOWN_ACTION_JOIN_MS` aborts this task on an
-        // account switch or quit) between "secret storage exists" and "the user
-        // has the key", with nothing reported.
-        //
-        // No inner timeout, for the same reason. What remains of that window
-        // (the secret-storage requests themselves) is covered by the marker:
-        // a minting action that never reports leaves it behind, and the next
-        // session reports it (`recovery::interrupted_setup_to_report`). The
-        // marker is written when the task actually runs, so an action that
-        // never started (a dropped spawn) is not reported as interrupted.
         let mints_key = matches!(action.as_str(), "enable" | "reset_key");
         bridge.spawn_reported_action("backup_action", async move {
             let marker = mints_key.then(|| recovery::SetupMarker::start(&store_path));
             let encryption = client.encryption();
             let recovery = encryption.recovery();
             let backups = encryption.backups();
-            // Ok(Some(key)) when a fresh recovery key was minted.
             let result: Result<Option<String>, String> = match action.as_str() {
                 "enable" => recovery
                     .enable()
@@ -6958,8 +5746,6 @@ pub unsafe extern "C" fn mx_rust_backup_action(
                 _ => Err("unknown backup action".to_owned()),
             };
             if !timelines.lifecycle_current(lifecycle) {
-                // Nobody is left to show the outcome to: the marker stays, and
-                // the next session says the setup was interrupted.
                 return;
             }
             if let Some(marker) = marker {
@@ -6979,7 +5765,6 @@ pub unsafe extern "C" fn mx_rust_backup_action(
                     json!({
                         "type": "backup_action_result", "op_id": op_id,
                         "lifecycle": lifecycle, "action": action, "ok": false,
-                        // Category only; the message could carry account details.
                         "category": rooms::classify_room_error(&message),
                     }),
                 ),
@@ -6989,19 +5774,6 @@ pub unsafe extern "C" fn mx_rust_backup_action(
     })
 }
 
-/// Cross-signing setup ("setup_cross_signing") or last-resort reset
-/// ("reset_cross_signing"), through the UIA layer (uia.rs): the server may
-/// ask for the account password (`uia_required`) or, on an OAuth account, for
-/// a browser approval (`cross_signing_approval`). Ends in exactly one
-/// `backup_action_result`.
-///
-/// `recovery_key` (may be empty) is the user's CURRENT recovery key or
-/// passphrase: when secret storage exists the new keys are stored under it and
-/// it keeps working. `replace_recovery_key` is 1 only after the user
-/// explicitly confirmed that a new recovery key replaces one they do not
-/// have. With secret storage present and neither given, the job refuses with
-/// `recovery_key_required` before any key is created. The key is scrubbed
-/// after use and never logged.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_cross_signing_action(
     ptr: *mut c_void,
@@ -7019,7 +5791,6 @@ pub unsafe extern "C" fn mx_rust_cross_signing_action(
     })
 }
 
-/// Snapshot of the room-key upload state for the backup card. Counts only.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_request_backup_progress(
     ptr: *mut c_void,
@@ -7039,8 +5810,6 @@ pub unsafe extern "C" fn mx_rust_request_backup_progress(
             let state = format!("{:?}", backups.state()).to_lowercase();
             let steady = backups.wait_for_steady_state();
             let mut progress = steady.subscribe_to_progress();
-            // One bounded observation: the current upload state if reported promptly,
-            // otherwise the backup state alone.
             let (backed_up, total, upload) = match tokio::time::timeout(
                 std::time::Duration::from_millis(500),
                 futures_util::StreamExt::next(&mut progress),
@@ -7055,10 +5824,6 @@ pub unsafe extern "C" fn mx_rust_request_backup_progress(
                 Ok(Some(Ok(UploadState::Idle))) => (0, 0, "idle"),
                 _ => (0, 0, "unknown"),
             };
-            // Outside an upload the stream carries no counts, and right after
-            // `enable()` (which no longer waits for the upload) the upload may
-            // not have started: "idle" with every key still local. The store's
-            // own counts say what is really backed up, so sign-out still warns.
             let (backed_up, total) = if upload == "uploading" {
                 (backed_up, total)
             } else {
@@ -7081,9 +5846,6 @@ pub unsafe extern "C" fn mx_rust_request_backup_progress(
     })
 }
 
-/// List the account's devices: the server device list (name, last seen)
-/// merged with the crypto store's per-device trust. Emits `device_list`
-/// with presentation-safe fields only, never keys, signatures or tokens.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_list_devices(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -7140,7 +5902,6 @@ pub unsafe extern "C" fn mx_rust_list_devices(ptr: *mut c_void) -> *mut c_char {
                     "has_crypto_identity": has_crypto_identity,
                     "verified": verified,
                     "cross_signed": cross_signed,
-                    // The one flag every trust label on the Sessions page reads.
                     "trusted": recovery::session_row_trusted(
                         is_current, verified, cross_signed,
                     ),
@@ -7157,8 +5918,6 @@ pub unsafe extern "C" fn mx_rust_list_devices(ptr: *mut c_void) -> *mut c_char {
     })
 }
 
-/// Manual "Retry decryption" for the open room and its thread panel. One
-/// bounded pass per call.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_timeline_retry_decryption(
     ptr: *mut c_void,
@@ -7176,8 +5935,6 @@ pub unsafe extern "C" fn mx_rust_timeline_retry_decryption(
             .map(|_| String::new())
     })
 }
-
-// ── Thread list, follow state, threaded read ────────────────────────────
 
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_thread_list_open(
@@ -7241,9 +5998,6 @@ pub unsafe extern "C" fn mx_rust_thread_mark_read(
     })
 }
 
-/// Query MSC4306 thread-subscription (follow) state. Result event:
-///   thread_subscription_state { room_id, thread_root_id, supported,
-///                               subscribed, automatic }
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_thread_subscription_query(
     ptr: *mut c_void,
@@ -7286,10 +6040,6 @@ pub unsafe extern "C" fn mx_rust_thread_subscription_query(
                     "subscribed": subscription.is_some(),
                     "automatic": subscription.map(|s| s.automatic).unwrap_or(false),
                 })),
-                // The server advertises MSC4306 here (checked above), so an
-                // error is a failed read, not an absent feature. It surfaces
-                // as unsupported for now (the UI hides the control); the
-                // feature gate above is what separates a server without it.
                 Err(_) => enqueue(&events, json!({
                     "type": "thread_subscription_state",
                     "room_id": room_id,
@@ -7304,9 +6054,6 @@ pub unsafe extern "C" fn mx_rust_thread_subscription_query(
     })
 }
 
-/// Whether the homeserver advertises thread subscriptions (MSC4306) in its
-/// `/versions` unstable features. An unreadable answer counts as not
-/// advertised, as every other failure of this probe already did.
 async fn thread_subscriptions_advertised(client: &Client) -> bool {
     match client.unstable_features().await {
         Ok(features) => timeline::server_supports_thread_subscriptions(&features),
@@ -7331,8 +6078,6 @@ fn thread_subscription_reason_for_kind(
     }
 }
 
-/// Follow/unfollow a thread (MSC4306). Emits thread_subscription_result,
-/// then a fresh thread_subscription_state on success.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_thread_set_subscribed(
     ptr: *mut c_void,
@@ -7354,7 +6099,6 @@ pub unsafe extern "C" fn mx_rust_thread_set_subscribed(
         let events = Arc::clone(&bridge.events);
         bridge.spawn_room_action(async move {
             let result = if subscribe {
-                // Manual subscription (no `automatic` event id): an explicit Follow.
                 room.subscribe_thread(root_ref.to_owned(), None).await
             } else {
                 room.unsubscribe_thread(root_ref.to_owned()).await
@@ -7364,7 +6108,6 @@ pub unsafe extern "C" fn mx_rust_thread_set_subscribed(
                 "room_id": room_id,
                 "thread_root_id": root,
                 "ok": result.is_ok(),
-                // A constant category, never server text or ids.
                 "reason": match &result {
                     Ok(_) => "",
                     Err(err) => thread_subscription_failure_reason(err),
@@ -7390,8 +6133,6 @@ pub unsafe extern "C" fn mx_rust_thread_set_subscribed(
 pub unsafe extern "C" fn mx_rust_timeline_edit(
     ptr: *mut c_void,
     room_id: *const c_char,
-    // Empty for a room message, the root event id for a thread reply: the edit
-    // must be issued on the timeline that holds the event.
     thread_root_id: *const c_char,
     target_event_id: *const c_char,
     new_body: *const c_char,
@@ -7445,7 +6186,6 @@ pub unsafe extern "C" fn mx_rust_timeline_toggle_reaction(
     })
 }
 
-/// Optional string FFI argument: NULL is the empty string, not an error.
 unsafe fn cstr_opt_arg(value: *const c_char) -> Result<String, String> {
     if value.is_null() {
         return Ok(String::new());
@@ -7453,8 +6193,6 @@ unsafe fn cstr_opt_arg(value: *const c_char) -> Result<String, String> {
     unsafe { cstr_arg(value) }
 }
 
-/// Parse an optional newline-separated list argument. NULL or empty yields
-/// an empty list; entries are trimmed and blanks dropped.
 unsafe fn cstr_list_arg(value: *const c_char) -> Result<Vec<String>, String> {
     if value.is_null() {
         return Ok(Vec::new());
@@ -7468,8 +6206,6 @@ unsafe fn cstr_list_arg(value: *const c_char) -> Result<Vec<String>, String> {
         .collect())
 }
 
-/// Parse the optional thread-root FFI argument. NULL/empty means the room's
-/// live timeline; anything else targets that thread's timeline.
 unsafe fn thread_root_arg(value: *const c_char) -> Result<String, String> {
     if value.is_null() {
         return Ok(String::new());
@@ -7477,8 +6213,6 @@ unsafe fn thread_root_arg(value: *const c_char) -> Result<String, String> {
     Ok(unsafe { cstr_arg(value) }?.trim().to_owned())
 }
 
-/// Vote on an MSC3381 poll. `answer_ids` is newline-separated; an empty
-/// list retracts the vote. Empty `thread_root_id` targets the room timeline.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_timeline_poll_response(
     ptr: *mut c_void,
@@ -7505,8 +6239,6 @@ pub unsafe extern "C" fn mx_rust_timeline_poll_response(
     })
 }
 
-/// End an MSC3381 poll. The UI offers it for own polls; receivers enforce
-/// the permission rules.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_timeline_poll_end(
     ptr: *mut c_void,
@@ -7529,9 +6261,6 @@ pub unsafe extern "C" fn mx_rust_timeline_poll_end(
     })
 }
 
-/// Create an MSC3381 poll. `answers` is newline-separated (2..=20 after
-/// trimming); `undisclosed` != 0 hides tallies until the end;
-/// `max_selections` is clamped to >= 1.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_timeline_poll_create(
     ptr: *mut c_void,
@@ -7605,9 +6334,6 @@ pub unsafe extern "C" fn mx_rust_timeline_retry_send(
     })
 }
 
-/// Cancel a local echo not yet sent, via `SendHandle::abort` (also aborts a
-/// media upload). Success emits nothing; the SDK's CancelledLocalEvent
-/// removes the row through the normal diff path.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_timeline_cancel_send(
     ptr: *mut c_void,
@@ -7624,11 +6350,6 @@ pub unsafe extern "C" fn mx_rust_timeline_cancel_send(
             .map(|_| String::new())
     })
 }
-
-// ---------------------------------------------------------------------------
-// Room management, user search and the media bridge. Thin wrappers: logic
-// lives in `rooms.rs`. `op_id` values come from C++ and are echoed back.
-// ---------------------------------------------------------------------------
 
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_search_users(
@@ -7657,11 +6378,6 @@ pub unsafe extern "C" fn mx_rust_get_user_profile(
     })
 }
 
-/// Rooms this account and `user_id` are both joined to, from cached
-/// membership only (no request), so rooms with unsynced members are
-/// omitted; see profile::mutual_rooms.
-///
-/// Result event: mutual_rooms_result { op_id, lifecycle, user_id, rooms[] }.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_mutual_rooms(
     ptr: *mut c_void,
@@ -7675,9 +6391,6 @@ pub unsafe extern "C" fn mx_rust_mutual_rooms(
     })
 }
 
-/// Upload and set the account's own avatar from a local file.
-/// Result event: own_avatar_result { op_id, lifecycle, ok, error }. The path
-/// is not echoed back (it contains the user's home directory).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_own_avatar(
     ptr: *mut c_void,
@@ -7691,7 +6404,6 @@ pub unsafe extern "C" fn mx_rust_set_own_avatar(
     })
 }
 
-/// Clear the account's own avatar. Same result event as the setter.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_clear_own_avatar(
     ptr: *mut c_void,
@@ -7703,9 +6415,6 @@ pub unsafe extern "C" fn mx_rust_clear_own_avatar(
     })
 }
 
-/// Set or clear the account's display name. An empty `name` clears it
-/// (`None`; the SDK picks the MSC4133 or v3 endpoint). Result event:
-/// own_display_name_result { op_id, lifecycle, ok, error }.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_display_name(
     ptr: *mut c_void,
@@ -7719,8 +6428,6 @@ pub unsafe extern "C" fn mx_rust_set_display_name(
     })
 }
 
-/// This account's display name in one room. Empty clears the override.
-/// Answers on `room_profile_result`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_member_display_name(
     ptr: *mut c_void,
@@ -7737,7 +6444,6 @@ pub unsafe extern "C" fn mx_rust_set_room_member_display_name(
     })
 }
 
-/// This account's avatar in one room. Empty clears the override.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_member_avatar(
     ptr: *mut c_void,
@@ -7753,11 +6459,6 @@ pub unsafe extern "C" fn mx_rust_set_room_member_avatar(
     })
 }
 
-/// Read a profile banner (MSC4427 over MSC4133): `m.banner_url`, falling
-/// back to Commet's `chat.commet.profile_banner`. Result event:
-/// `profile_banner { op_id, lifecycle, user_id, mxc, supported }`;
-/// `supported: false` (no extended profile fields) renders as nothing, not
-/// as "no banner".
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_fetch_profile_banner(
     ptr: *mut c_void,
@@ -7771,9 +6472,6 @@ pub unsafe extern "C" fn mx_rust_fetch_profile_banner(
     })
 }
 
-/// Upload an image and set it as this account's banner under both the
-/// stable and Commet field names. An empty path clears both. Result event:
-/// `profile_banner_set { op_id, lifecycle, ok, mxc, category }`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_profile_banner(
     ptr: *mut c_void,
@@ -7787,10 +6485,6 @@ pub unsafe extern "C" fn mx_rust_set_profile_banner(
     })
 }
 
-/// Read a user's display-name colour (`org.lightning.name_color`, MSC4133).
-/// Result event: `name_color { op_id, lifecycle, user_id, color, supported }`
-/// with `color` as `#rrggbb` or empty. Validated here because another
-/// client wrote it and it ends up on a QML colour property.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_fetch_name_color(
     ptr: *mut c_void,
@@ -7804,8 +6498,6 @@ pub unsafe extern "C" fn mx_rust_fetch_name_color(
     })
 }
 
-/// Set this account's display-name colour; an empty value clears it.
-/// Result event: `name_color_set { op_id, lifecycle, ok, color, category }`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_name_color(
     ptr: *mut c_void,
@@ -7819,12 +6511,6 @@ pub unsafe extern "C" fn mx_rust_set_name_color(
     })
 }
 
-/// Read a profile bio (MSC4440 over MSC4133): `m.biography`, falling back
-/// to `gay.fomx.biography`. Result event: `profile_bio { op_id, lifecycle,
-/// user_id, bio, supported }`; `supported: false` renders as nothing.
-///
-/// Plain text only: rendering the optional HTML form would fetch remote
-/// media chosen by the profile owner. See `bio.rs`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_fetch_profile_bio(
     ptr: *mut c_void,
@@ -7838,9 +6524,6 @@ pub unsafe extern "C" fn mx_rust_fetch_profile_bio(
     })
 }
 
-/// Set this account's bio under both the stable and unstable field names.
-/// Empty or whitespace-only text clears both. Result event:
-/// `profile_bio_set { op_id, lifecycle, ok, bio, category }`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_profile_bio(
     ptr: *mut c_void,
@@ -7854,8 +6537,6 @@ pub unsafe extern "C" fn mx_rust_set_profile_bio(
     })
 }
 
-/// Read a room's (or Space's) banner and whether this account may change it.
-/// Result event: `room_banner { op_id, lifecycle, room_id, mxc, can_set }`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_fetch_room_banner(
     ptr: *mut c_void,
@@ -7869,9 +6550,6 @@ pub unsafe extern "C" fn mx_rust_fetch_room_banner(
     })
 }
 
-/// Upload an image and set it as the room's banner; an empty path clears
-/// it. Result event:
-/// `room_banner_set { op_id, lifecycle, room_id, ok, mxc, category }`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_banner(
     ptr: *mut c_void,
@@ -7887,9 +6565,6 @@ pub unsafe extern "C" fn mx_rust_set_room_banner(
     })
 }
 
-/// Read a room's (or Space's) shared chat background and whether this account
-/// may change it. Result event: `room_background { op_id, lifecycle, room_id,
-/// content (canonical object or null), can_set, unsupported_version }`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_fetch_room_background(
     ptr: *mut c_void,
@@ -7903,10 +6578,6 @@ pub unsafe extern "C" fn mx_rust_fetch_room_background(
     })
 }
 
-/// Set a room's shared chat background. A non-empty `local_path` is uploaded;
-/// otherwise a usable `url` inside `content_json` is re-sent (presentation
-/// change); with neither the background is cleared. Result event:
-/// `room_background_set { op_id, lifecycle, room_id, ok, content, category }`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_background(
     ptr: *mut c_void,
@@ -7925,10 +6596,6 @@ pub unsafe extern "C" fn mx_rust_set_room_background(
     })
 }
 
-/// Read one of the two standard account-data preferences (`accountprefs.rs`:
-/// `m.media_preview_config`, `m.recent_emoji`) from the state store. Any other
-/// type is refused. Result event: `account_pref { pref_type, present, content,
-/// lifecycle }`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_account_pref_read(
     ptr: *mut c_void,
@@ -7941,8 +6608,6 @@ pub unsafe extern "C" fn mx_rust_account_pref_read(
     })
 }
 
-/// Write one of the two standard preferences (a bounded JSON object). Result
-/// event: `account_pref_written { pref_type, ok, category, lifecycle }`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_account_pref_write(
     ptr: *mut c_void,
@@ -7957,9 +6622,6 @@ pub unsafe extern "C" fn mx_rust_account_pref_write(
     })
 }
 
-/// What the homeserver advertises for the incoming-invite policy
-/// (`accountprefs.rs`): result event `invite_policy_support { stable,
-/// unstable, ok, lifecycle }`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_invite_policy_support(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -7968,11 +6630,6 @@ pub unsafe extern "C" fn mx_rust_invite_policy_support(ptr: *mut c_void) -> *mut
     })
 }
 
-/// Read this account's personal backgrounds kept in account data
-/// (`bgsync.rs`). `scope` is "" (the every-room default), a room id, or "*"
-/// for the default and every joined room. Result event: `personal_backgrounds
-/// { op_id, lifecycle, scope, entries: [{scope, state, id, info, color,
-/// presentation}], failed: [scope] }`. Never carries the file key or url.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_personal_backgrounds_read(
     ptr: *mut c_void,
@@ -7986,12 +6643,6 @@ pub unsafe extern "C" fn mx_rust_personal_backgrounds_read(
     })
 }
 
-/// Download and decrypt one scope's personal background. The bytes are
-/// parked for `mx_rust_personal_background_take(op_id)` (their own map, never
-/// the timeline media map). Result event (command lane):
-/// `personal_background_bytes { op_id, lifecycle, scope, ok, entry, size,
-/// category }`. `expected_id` names the picture to fetch; another one is
-/// refused with category "changed".
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_personal_background_download(
     ptr: *mut c_void,
@@ -8007,12 +6658,6 @@ pub unsafe extern "C" fn mx_rust_personal_background_download(
     })
 }
 
-/// Write one scope's personal background. `mode` 0 encrypts and uploads
-/// `local_path`, 1 keeps the current picture with new presentation from
-/// `requested_json` (only while the server still holds its `expected_id`),
-/// 2 clears it, 3 sets the account-wide switch (`enabled`, scope "" only).
-/// Result event (command lane): `personal_background_written { op_id,
-/// lifecycle, scope, mode, ok, entry, category, stage }`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_personal_background_write(
     ptr: *mut c_void,
@@ -8031,12 +6676,6 @@ pub unsafe extern "C" fn mx_rust_personal_background_write(
     })
 }
 
-/// Remove every server copy of this account's personal backgrounds (the
-/// account data; uploaded media cannot be deleted by a user). `known_rooms`
-/// is a JSON array of room ids C++ holds synced copies for. Also turns the
-/// account-wide switch off. Result event (command lane):
-/// `personal_backgrounds_cleared { op_id, lifecycle, ok, cleared, failed,
-/// skipped }`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_personal_backgrounds_clear_all(
     ptr: *mut c_void,
@@ -8050,9 +6689,6 @@ pub unsafe extern "C" fn mx_rust_personal_backgrounds_clear_all(
     })
 }
 
-/// Read the settings blob and the account-wide switch from the SERVER
-/// (`settingsync.rs`). Result event (command lane): `settings_sync_read
-/// { op_id, lifecycle, ok, category, blob_state, blob, switch }`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_settings_sync_read(ptr: *mut c_void, op_id: u64) -> *mut c_char {
     ffi_string(|| {
@@ -8061,8 +6697,6 @@ pub unsafe extern "C" fn mx_rust_settings_sync_read(ptr: *mut c_void, op_id: u64
     })
 }
 
-/// Write the settings blob (kind 0), the switch (1) or clear the blob (2).
-/// Result event: `settings_sync_written { op_id, lifecycle, kind, ok, category }`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_settings_sync_write(
     ptr: *mut c_void,
@@ -8077,8 +6711,6 @@ pub unsafe extern "C" fn mx_rust_settings_sync_write(
     })
 }
 
-/// Move a decrypted personal background out of its own map. Returns a buffer
-/// the caller releases with `mx_rust_media_free`, or null for an unknown op.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_personal_background_take(
     ptr: *mut c_void,
@@ -8108,17 +6740,6 @@ pub unsafe extern "C" fn mx_rust_personal_background_take(
     result.unwrap_or(std::ptr::null_mut())
 }
 
-// ---------------------------------------------------------------------------
-// Stickers and image packs (MSC2545)
-// ---------------------------------------------------------------------------
-
-/// Read every image pack available to this account; answers with one
-/// `sticker_packs { op_id, lifecycle, room_id, packs[] }` snapshot.
-///
-/// When `room_id` is set, that room's own packs (stable `m.room.image_pack`
-/// and legacy `im.ponies.room_emotes`) are included: usable in that room
-/// without opt-in. `deep` allows one (cached) full `/state` read of that room,
-/// for when the user opened a pack surface; plain navigation passes false.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_stickers_fetch_packs(
     ptr: *mut c_void,
@@ -8133,10 +6754,6 @@ pub unsafe extern "C" fn mx_rust_stickers_fetch_packs(
     })
 }
 
-/// Copy the account's legacy personal pack into standard packs in its private
-/// pack-home room (created once, found again by the journal or its marker) and
-/// subscribe to them. The legacy pack is not modified. Answers on
-/// `sticker_pack_migration`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_stickers_migrate_user_pack(
     ptr: *mut c_void,
@@ -8149,9 +6766,6 @@ pub unsafe extern "C" fn mx_rust_stickers_migrate_user_pack(
     })
 }
 
-/// Upload a local image into a room pack (or, with a valid `reuse_url`, add
-/// that already-uploaded mxc). Answers on `sticker_pack_add_result` with
-/// `uploaded_url`.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn mx_rust_stickers_upload_to_room_pack(
@@ -8181,14 +6795,10 @@ pub unsafe extern "C" fn mx_rust_stickers_upload_to_room_pack(
     })
 }
 
-/// Parse an FFI namespace argument; anything but `stable`/`legacy` refuses.
 fn pack_namespace(text: &str) -> Result<stickers::Namespace, String> {
     stickers::Namespace::parse(text).ok_or_else(|| "unknown pack namespace".to_owned())
 }
 
-/// Create a new, empty stable room pack. Answers on
-/// `sticker_pack_edit_result` (`shortcode` = the state key); `pack_exists`
-/// when the key already holds a record, `forbidden` without the power level.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_stickers_create_room_pack(
     ptr: *mut c_void,
@@ -8240,11 +6850,6 @@ pub unsafe extern "C" fn mx_rust_stickers_send(
     })
 }
 
-/// Add one image to a room's `im.ponies.room_emotes` pack. Answers on
-/// `sticker_pack_add_result`, like the user-pack path.
-///
-/// Room state, so gated by the room's required power level. `category` is
-/// "forbidden", "duplicate", "pack_full", or a coarse room-error class.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn mx_rust_stickers_add_to_room_pack(
@@ -8278,10 +6883,6 @@ pub unsafe extern "C" fn mx_rust_stickers_add_to_room_pack(
     })
 }
 
-/// Toggle one room pack in `im.ponies.emote_rooms` ("use this room's
-/// stickers everywhere"). Answers with `sticker_pack_rooms_set { op_id,
-/// lifecycle, ok, category, room_id, state_key, enabled }`. Account data,
-/// so no power level applies.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_stickers_set_room_pack_enabled(
     ptr: *mut c_void,
@@ -8301,9 +6902,6 @@ pub unsafe extern "C" fn mx_rust_stickers_set_room_pack_enabled(
     })
 }
 
-/// Upload a local image and add it to this account's own sticker pack (the
-/// only way to create a pack from nothing). Same result event as the save
-/// path below.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_stickers_upload_to_user_pack(
     ptr: *mut c_void,
@@ -8324,9 +6922,6 @@ pub unsafe extern "C" fn mx_rust_stickers_upload_to_user_pack(
     })
 }
 
-/// Save a sticker into `im.ponies.user_emotes`. Answers with
-/// `sticker_pack_add_result { op_id, lifecycle, ok, category, shortcode }`;
-/// `category` is `duplicate`, `pack_full`, or a coarse room-error class.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn mx_rust_stickers_add_to_user_pack(
@@ -8356,8 +6951,6 @@ pub unsafe extern "C" fn mx_rust_stickers_add_to_user_pack(
     })
 }
 
-/// Add or remove a room widget. `content_json` is the full event content
-/// (an empty object removes). Answers with `room_widget_written`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_room_widget_write(
     ptr: *mut c_void,
@@ -8378,10 +6971,6 @@ pub unsafe extern "C" fn mx_rust_room_widget_write(
     })
 }
 
-// ── Policy lists (Mjolnir-style moderation) ────────────────────────────
-//
-// Nothing here acts on a match; see rust/src/policy.rs.
-
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_policy_fetch_rules(
     ptr: *mut c_void,
@@ -8395,7 +6984,6 @@ pub unsafe extern "C" fn mx_rust_policy_fetch_rules(
     })
 }
 
-/// An empty `recommendation` removes the rule (an empty state event).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_policy_write_rule(
     ptr: *mut c_void,
@@ -8461,12 +7049,6 @@ pub unsafe extern "C" fn mx_rust_policy_check(
     })
 }
 
-// ── MSC4108: signing another device in from this one ───────────────────
-//
-// Each returns the flow's generation (or an error), then reports through
-// `qr_login_progress` events. See rust/src/qrlogin.rs.
-
-/// Show a QR code here for a new device to scan. Returns the generation.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_qr_login_generate(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -8475,8 +7057,6 @@ pub unsafe extern "C" fn mx_rust_qr_login_generate(ptr: *mut c_void) -> *mut c_c
     })
 }
 
-/// Consume the QR a new device shows, as base64 text. Lightning bundles no
-/// camera decoder.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_qr_login_scan(
     ptr: *mut c_void,
@@ -8489,7 +7069,6 @@ pub unsafe extern "C" fn mx_rust_qr_login_scan(
     })
 }
 
-/// Answer the generate-side flow with the two digits the new device showed.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_qr_login_check_code(
     ptr: *mut c_void,
@@ -8515,17 +7094,6 @@ pub unsafe extern "C" fn mx_rust_qr_login_cancel(ptr: *mut c_void) -> *mut c_cha
     })
 }
 
-/// MSC2545 pack management: remove an image, rename its shortcode, rename
-/// the pack, or empty it.
-///
-/// Empty `room_id` selects the account's own pack (`im.ponies.user_emotes`);
-/// otherwise the room pack under `state_key`, power-level gated. `action`
-/// is "remove_image", "rename_image", "set_name" or "delete_pack", with
-/// `arg_a` / `arg_b` as its operands (shortcode; old and new shortcode; new
-/// name; nothing).
-///
-/// Answers with `sticker_pack_edit_result`. Not optimistic: the caller
-/// re-reads the pack.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_stickers_edit_pack(
     ptr: *mut c_void,
@@ -8541,7 +7109,6 @@ pub unsafe extern "C" fn mx_rust_stickers_edit_pack(
         let bridge = unsafe { bridge(ptr)? };
         let room_id = unsafe { cstr_arg(room_id) }?;
         let state_key = unsafe { cstr_arg(state_key) }?;
-        // The account's own pack (empty room) is always legacy account data.
         let namespace_text = unsafe { cstr_arg(namespace) }?;
         let namespace = if room_id.is_empty() {
             stickers::Namespace::Legacy
@@ -8551,13 +7118,7 @@ pub unsafe extern "C" fn mx_rust_stickers_edit_pack(
         let action = unsafe { cstr_arg(action) }?;
         let arg_a = unsafe { cstr_arg(arg_a) }?;
         let arg_b = unsafe { cstr_arg(arg_b) }?;
-        // Unknown actions are refused, never defaulted, so a typo cannot delete a
-        // pack.
         let edit = match action.as_str() {
-            // `arg_a` is the image's exact `images` key, which may legitimately be
-            // empty or otherwise malformed in a pack another client wrote; such an
-            // image must stay removable and renamable (Matrix v1.19 asks clients
-            // to let users repair them). The transforms report `not_found`.
             "remove_image" => stickers::PackEdit::RemoveImage { key: arg_a },
             "rename_image" => {
                 if arg_b.is_empty() {
@@ -8576,8 +7137,6 @@ pub unsafe extern "C" fn mx_rust_stickers_edit_pack(
     })
 }
 
-/// One bounded presence polling round over a JSON array of user ids (capped
-/// in presence.rs). Answers with one `presence_batch` event.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_get_presence(
     ptr: *mut c_void,
@@ -8591,10 +7150,6 @@ pub unsafe extern "C" fn mx_rust_get_presence(
     })
 }
 
-/// Publish the local user's presence (0 online, 1 unavailable, 2 offline).
-/// Success emits `presence_published`; a failure emits
-/// `presence_publish_failed` with the coarse category and, for
-/// `M_LIMIT_EXCEEDED`, the server's `retry_after_ms`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_presence(
     ptr: *mut c_void,
@@ -8603,7 +7158,6 @@ pub unsafe extern "C" fn mx_rust_set_presence(
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
-        // DECISION 2 (Labs): a Background account publishes no presence.
         if bridge.is_background() {
             return Ok("error: background handle publishes no presence".to_owned());
         }
@@ -8626,11 +7180,6 @@ pub unsafe extern "C" fn mx_rust_get_url_preview(
     })
 }
 
-/// Fetch a direct image or video link for MediaBridge key `key` ("link:" +
-/// 40 hex). `expect`: 0 image, 1 video. `timeout_class`: 0 viewer, 1 playable,
-/// 2 save. Same safe fetch as a preview, a size cap and magic validation;
-/// answers with `media_ready` (bytes via mx_rust_media_take) or
-/// `media_failed`. The URL is never logged.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_link_media_fetch(
     ptr: *mut c_void,
@@ -8665,9 +7214,6 @@ pub unsafe extern "C" fn mx_rust_gif_get(
     })
 }
 
-/// Download and validate a provider GIF, parking the bytes for
-/// mx_rust_media_take. Only https provider-CDN URLs; the bytes must be a
-/// real GIF (magic + bounded canvas). Answers with `gif_download_result`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_gif_download(
     ptr: *mut c_void,
@@ -8747,8 +7293,6 @@ pub unsafe extern "C" fn mx_rust_room_members(
     })
 }
 
-/// The open room's own posting facts (membership, may post, may redact
-/// others), from local state only; answered as `room_own_permissions`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_room_own_permissions(
     ptr: *mut c_void,
@@ -8833,9 +7377,6 @@ pub unsafe extern "C" fn mx_rust_leave_room(
     })
 }
 
-/// Moderation: kick (`op` = 0), ban (`op` = 1) or unban (`op` = 2) one
-/// user via the SDK's Room::kick_user / ban_user / unban_user. `reason`
-/// may be empty. Result event: room_moderation_result.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_moderate_user(
     ptr: *mut c_void,
@@ -8855,9 +7396,6 @@ pub unsafe extern "C" fn mx_rust_moderate_user(
     })
 }
 
-/// Moderation plan: for each room in `room_ids_json` (a JSON array), whether
-/// kick / ban / unban (`op` as above) of `user_id` would be offered there,
-/// and why not otherwise. Sends nothing. Result event: moderation_plan.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_moderation_plan(
     ptr: *mut c_void,
@@ -8875,9 +7413,6 @@ pub unsafe extern "C" fn mx_rust_moderation_plan(
     })
 }
 
-/// Closure plan: for each room in `room_ids_json` (a JSON array), whether the
-/// viewer can close it and what closing would do. Sends nothing. Result
-/// event: room_closure_plan.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_room_closure_plan(
     ptr: *mut c_void,
@@ -8893,11 +7428,6 @@ pub unsafe extern "C" fn mx_rust_room_closure_plan(
     })
 }
 
-/// Close a room: invite-only, out of the directory and of the Spaces in
-/// `unlist_from_json` (a JSON array), every member the viewer outranks
-/// removed with `reason` (may be empty), then leave when `leave` is non-zero
-/// and every step succeeded. Deletes nothing. Result events:
-/// room_closure_progress, room_closure_result.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_close_room(
     ptr: *mut c_void,
@@ -8917,8 +7447,6 @@ pub unsafe extern "C" fn mx_rust_close_room(
     })
 }
 
-/// Whether the account is a homeserver administrator (Synapse admin API).
-/// Result event: server_admin_status.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_server_admin_status(
     ptr: *mut c_void,
@@ -8930,10 +7458,6 @@ pub unsafe extern "C" fn mx_rust_server_admin_status(
     })
 }
 
-/// Delete a room from this homeserver through Synapse's admin API (server
-/// administrators only; the server enforces it). `block` non-zero stops local
-/// users joining it again. Result events: admin_room_delete_progress,
-/// admin_room_delete_result.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_admin_delete_room(
     ptr: *mut c_void,
@@ -8949,8 +7473,6 @@ pub unsafe extern "C" fn mx_rust_admin_delete_room(
     })
 }
 
-/// Set one member's power level via `Room::update_power_levels`, which
-/// preserves every other level. Result event: room_power_level_result.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_member_power_level(
     ptr: *mut c_void,
@@ -8989,8 +7511,6 @@ pub unsafe extern "C" fn mx_rust_set_room_power_level_key(
     })
 }
 
-/// Set the room's join rule ("invite", "public" or "knock"). Result event:
-/// room_edit_result, field "join_rule".
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_join_rule(
     ptr: *mut c_void,
@@ -9009,9 +7529,6 @@ pub unsafe extern "C" fn mx_rust_set_room_join_rule(
     })
 }
 
-/// Room access. Each answers on room_edit_result with the named field; the
-/// directory visibility read answers on
-/// room_directory_visibility {room_id, visibility, ok}.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_history_visibility(
     ptr: *mut c_void,
@@ -9071,8 +7588,6 @@ pub unsafe extern "C" fn mx_rust_set_room_directory_visibility(
     })
 }
 
-/// Room upgrade. The version list answers on `room_versions`; the upgrade
-/// on `room_upgrade_result` with the replacement id.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_request_room_versions(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -9096,7 +7611,6 @@ pub unsafe extern "C" fn mx_rust_upgrade_room(
     })
 }
 
-/// Scheduled send. See rooms.rs for the protocol limits.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_probe_delayed_events(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -9141,10 +7655,6 @@ pub unsafe extern "C" fn mx_rust_update_scheduled_message(
     })
 }
 
-/// Room-level send (`Room::send`) for any joined room, used by scheduled
-/// send since the timeline sends require the room to be open. Same body
-/// spec and mentions, optional reply or thread relation. Answers on
-/// `room_send_result {op_id, room_id, ok, category}`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_send_room_message(
     ptr: *mut c_void,
@@ -9178,8 +7688,6 @@ pub unsafe extern "C" fn mx_rust_send_room_message(
     })
 }
 
-/// Activity Center seed for a fresh session. See
-/// rooms::request_activity_seed.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_request_activity_seed(
     ptr: *mut c_void,
@@ -9208,8 +7716,6 @@ pub unsafe extern "C" fn mx_rust_request_activity_seed_page(
     })
 }
 
-/// Message edit history and event source. Answers on
-/// `message_edit_history` / `event_source`; see rooms.rs.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_request_edit_history(
     ptr: *mut c_void,
@@ -9224,12 +7730,6 @@ pub unsafe extern "C" fn mx_rust_request_edit_history(
     })
 }
 
-/// One page of a room's media history, walked backwards independently of
-/// the live timeline. `restart` non-zero begins at the live edge; otherwise
-/// the walk continues where it left off.
-///
-/// The page reports what it scanned as well as what matched, and whether
-/// the start of history was reached; see mediahistory.rs.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_media_history_page(
     ptr: *mut c_void,
@@ -9248,9 +7748,7 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
         let cursors = Arc::clone(&bridge.media_history);
         let timelines = Arc::clone(&bridge.timelines);
         let encrypted_room = room.encryption_state().is_encrypted();
-        // For the kept-file cache: an unknown state counts as encrypted.
         let private_room = encrypted_room || room.encryption_state().is_unknown();
-        // Clamped: an unbounded limit can stall the walk.
         let want: u64 = match limit {
             0 => 50,
             n => std::cmp::min(u64::from(n), 200),
@@ -9267,7 +7765,6 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
                 .and_then(|m| m.get(&room_id).cloned())
                 .unwrap_or_default();
             if cursor.exhausted {
-                // Nothing older exists; answer without asking the server again.
                 enqueue(&events, json!({
                     "type": "media_history_page",
                     "op_id": op_id,
@@ -9282,8 +7779,6 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
                 return;
             }
             if encrypted_room && cursor.token.is_none() {
-                // A fresh walk: one whole-room backup fetch before paging (see
-                // `prefetch_backup_keys_for_room`). Deduplicated per room per lifecycle.
                 timelines.prefetch_backup_keys_for_room(&client, &room_id).await;
             }
             let mut opts = MessagesOptions::backward();
@@ -9294,9 +7789,7 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
                     let mut entries: Vec<serde_json::Value> = Vec::new();
                     let mut scanned = 0u64;
                     let mut undecryptable = 0u64;
-                    // An edit is met before the event it replaces; it waits here.
                     let mut pending_edits = cursor.pending_edits.clone();
-                    // Backward pages are newest-first, the order the browser shows.
                     for event in messages.chunk.iter() {
                         scanned += 1;
                         let raw = event.raw();
@@ -9309,9 +7802,6 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
                         if found.undecryptable {
                             undecryptable += 1;
                         }
-                        // Register the attachment's sources under its event id, as the timeline
-                        // does, so tiles fetch and decrypt through the registry instead of asking
-                        // the server to thumbnail ciphertext.
                         if !found.entries.is_empty() {
                             if let (Some(media), Some(event_id)) = (
                                 mediahistory::stored_media_from_event(&value),
@@ -9327,7 +7817,6 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
                             entries.push(entry.to_json());
                         }
                     }
-                    // No `end`, or an empty chunk, means nothing older.
                     let exhausted =
                         messages.end.is_none() || messages.chunk.is_empty();
                     let next = mediahistory::Cursor {
@@ -9354,8 +7843,6 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
                     }));
                 }
                 Err(err) => {
-                    // Keep the category: "server refused" and "no more history" read
-                    // differently in the panel.
                     enqueue(&events, json!({
                         "type": "media_history_failed",
                         "op_id": op_id,
@@ -9370,16 +7857,6 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
     })
 }
 
-/// Start a room export's history walk (roomexport.rs): backwards from the
-/// live edge, independent of the live timeline, until the range is covered.
-/// `mode`: 0 the newest `limit` rows, 1 the whole room, 2 rows with
-/// `from_ms <= ts <= to_ms` (`to_ms` 0 = no upper bound).
-///
-/// Answers on the command lane with `room_export_page` (rows, counters,
-/// `done`, `stop_reason`) until `done`, or `room_export_failed`. Attachments
-/// are registered under opaque `export:<op>:<event>` handles for
-/// `mx_rust_media_fetch`; a row never carries an `mxc:`. The walk is aborted
-/// by `mx_rust_room_export_cancel` and by shutdown.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_room_export_start(
     ptr: *mut c_void,
@@ -9402,17 +7879,12 @@ pub unsafe extern "C" fn mx_rust_room_export_start(
         let timelines = Arc::clone(&bridge.timelines);
         let lifecycle = timelines.lifecycle();
         let encrypted_room = room.encryption_state().is_encrypted();
-        // For the kept-file cache: an unknown state counts as encrypted.
         let private_room = encrypted_room || room.encryption_state().is_unknown();
-        // Registered under the op id so cancel and shutdown can abort it.
         bridge.spawn_media_fetch(op_id, async move {
             let mut state = roomexport::WalkState::new(range);
-            // Display names from the store, once per sender.
             let mut names: HashMap<String, String> = HashMap::new();
             let mut token: Option<String> = None;
             if encrypted_room {
-                // One whole-room backup fetch first, as the media walk does, so
-                // old history decrypts instead of exporting as holes.
                 timelines.prefetch_backup_keys_for_room(&client, &room_id).await;
             }
             loop {
@@ -9435,7 +7907,6 @@ pub unsafe extern "C" fn mx_rust_room_export_start(
                     }
                 };
                 let mut rows: Vec<serde_json::Value> = Vec::new();
-                // Backward pages are newest-first; C++ reverses the whole export.
                 for event in messages.chunk.iter() {
                     let Ok(value) = serde_json::from_str::<serde_json::Value>(
                         event.raw().json().get())
@@ -9470,7 +7941,6 @@ pub unsafe extern "C" fn mx_rust_room_export_start(
                     let name = names.get(&row.sender).map(String::as_str).unwrap_or("");
                     rows.push(row.to_json(name, &media_key));
                 }
-                // No `end`, or an empty chunk, means nothing older.
                 let exhausted = messages.end.is_none() || messages.chunk.is_empty();
                 state.end_of_page(exhausted);
                 token = messages.end.clone();
@@ -9499,10 +7969,6 @@ pub unsafe extern "C" fn mx_rust_room_export_start(
     })
 }
 
-/// Stop a room export: abort its walk if still running and forget every
-/// attachment handle it registered. Idempotent; emits nothing. In-flight
-/// attachment downloads are cancelled by their own op ids
-/// (`mx_rust_media_cancel`).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_room_export_cancel(ptr: *mut c_void, op_id: u64) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
@@ -9523,9 +7989,6 @@ pub unsafe extern "C" fn mx_rust_room_export_cancel(ptr: *mut c_void, op_id: u64
     }));
 }
 
-/// A room's widgets, resolved and validated. Lightning lists and opens
-/// widgets rather than embedding them (see rust/src/widgets.rs). Answers on
-/// `room_widgets {op_id, room_id, ok, widgets:[...]}`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_room_widgets(
     ptr: *mut c_void,
@@ -9549,8 +8012,6 @@ pub unsafe extern "C" fn mx_rust_room_widgets(
         bridge.spawn_room_action(async move {
             let found = widgets::read_room_widgets(&client, &room).await;
             let can_manage = widgets::can_manage_widgets(&client, &room).await;
-            // The user's own profile from the store, for widget URL templating,
-            // instead of one request per widget.
             let display_name = match client.user_id() {
                 Some(uid) => room
                     .get_member_no_sync(uid)
@@ -9589,14 +8050,6 @@ pub unsafe extern "C" fn mx_rust_room_widgets(
     })
 }
 
-/// Which networks a room is bridged to, as the bridge advertises (MSC2346).
-/// See rust/src/bridges.rs.
-///
-/// `allow_network` (0/1) permits the `/state` fallback, which is expensive
-/// on large rooms; only surfaces the user explicitly opened should allow it.
-///
-/// Answers with `room_bridges {op_id, room_id, ok, bridges:[{protocol,
-/// protocolName, network}]}`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_room_bridges(
     ptr: *mut c_void,
@@ -9616,8 +8069,6 @@ pub unsafe extern "C" fn mx_rust_room_bridges(
         bridge.spawn_room_action(async move {
             let found =
                 bridges::read_room_bridges(&client, &room, allow_network != 0).await;
-            // A /state read can outlive an account switch; a late answer must not
-            // label the next account's rooms.
             if !timelines.lifecycle_current(lifecycle) {
                 return;
             }
@@ -9632,16 +8083,7 @@ pub unsafe extern "C" fn mx_rust_room_bridges(
     })
 }
 
-// ---------------------------------------------------------------------------
-// Local message search (SQLite FTS5). See rust/src/localsearch.rs.
-// ---------------------------------------------------------------------------
-
-/// Open the account's index if not open yet. Lazy and from one place, since
-/// the index belongs to the store directory, not to a login flow.
 fn ensure_search_index(bridge: &RustClient) -> Result<(), String> {
-    // Teardown closed the index deliberately (an open handle makes the store
-    // deletion fail on Windows). A search keystroke between shutdown and
-    // destroy must not reopen it; there is no session left to search.
     if bridge.index_shutdown.load(Ordering::Relaxed) {
         return Err("the local index is closed for this session".to_owned());
     }
@@ -9656,8 +8098,6 @@ fn ensure_search_index(bridge: &RustClient) -> Result<(), String> {
     std::fs::create_dir_all(&bridge.store_path)
         .map_err(|e| format!("cannot create the store directory: {e}"))?;
     let index = localsearch::SearchIndex::open_in(&bridge.store_path)?;
-    // `open_in` creates the file at the process umask in the key directory;
-    // correct it as in `build_client`.
     restrict_store_permissions(&bridge.store_path);
     if let Ok(mut guard) = bridge.search_index.lock() {
         *guard = Some(index);
@@ -9665,9 +8105,6 @@ fn ensure_search_index(bridge: &RustClient) -> Result<(), String> {
     Ok(())
 }
 
-/// The answer for a local search that could not run at all (the index would
-/// not open, or the query failed). It is a real `local_search_result`, so the
-/// panel leaves "loading" and says so.
 fn local_search_failure_event(op_id: u64) -> serde_json::Value {
     json!({
         "type": "local_search_result", "op_id": op_id, "ok": false,
@@ -9675,12 +8112,6 @@ fn local_search_failure_event(op_id: u64) -> serde_json::Value {
     })
 }
 
-/// Search the local index. Answers on `local_search_result`.
-///
-/// Synchronous: it is a local SQLite query, and going through the task pool
-/// would add latency and let a stale answer arrive after the next
-/// keystroke. Enqueued rather than returned so C++ reads it via the poll
-/// loop.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_local_search(
     ptr: *mut c_void,
@@ -9695,16 +8126,11 @@ pub unsafe extern "C" fn mx_rust_local_search(
         let query = unsafe { cstr_arg(query) }?;
         let room_id = unsafe { cstr_arg(room_id) }?;
         if let Err(err) = ensure_search_index(bridge) {
-            // The caller holds an op id and waits for an answer; a bare
-            // "error:" return string is discarded by the C++ side and left the
-            // panel spinning for ever.
             eprintln!("local search: index unavailable: {err}");
             enqueue(&bridge.events, local_search_failure_event(op_id));
             return Err(err);
         }
 
-        // Report a query too short for the trigram tokenizer as such, not as
-        // "no results".
         if !localsearch::query_is_long_enough(&query) {
             enqueue(&bridge.events, json!({
                 "type": "local_search_result", "op_id": op_id, "ok": false,
@@ -9752,8 +8178,6 @@ pub unsafe extern "C" fn mx_rust_local_search(
     })
 }
 
-/// How much the index holds, so the UI can say what search covers.
-/// Answers on `search_index_stats`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_search_index_stats(
     ptr: *mut c_void,
@@ -9777,9 +8201,6 @@ pub unsafe extern "C" fn mx_rust_search_index_stats(
     })
 }
 
-/// Sweep every joined room's cached events into the index. Runs on the
-/// tracked pool and checks the cooperative stop between rooms, so it never
-/// blocks store deletion.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_search_index_sweep(
     ptr: *mut c_void,
@@ -9807,8 +8228,6 @@ pub unsafe extern "C" fn mx_rust_search_index_sweep(
     })
 }
 
-/// Page one room backwards and index what arrives ("index this room's
-/// history"). Bounded; answers on `search_index_deepened`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_search_index_deep(
     ptr: *mut c_void,
@@ -9856,7 +8275,6 @@ pub unsafe extern "C" fn mx_rust_search_index_deep(
     })
 }
 
-/// Forget one event (redaction). Synchronous and cheap.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_search_index_forget_event(
     ptr: *mut c_void,
@@ -9865,7 +8283,6 @@ pub unsafe extern "C" fn mx_rust_search_index_forget_event(
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let event_id = unsafe { cstr_arg(event_id) }?;
-        // Not ensure_search_index: a redaction must not create the index file.
         if let Ok(guard) = bridge.search_index.lock() {
             if let Some(index) = guard.as_ref() {
                 index.remove_event(&event_id)?;
@@ -9875,8 +8292,6 @@ pub unsafe extern "C" fn mx_rust_search_index_forget_event(
     })
 }
 
-/// Forget one room, or the whole index ("stop indexing this room", "clear
-/// the search index").
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_search_index_forget_room(
     ptr: *mut c_void,
@@ -9890,8 +8305,6 @@ pub unsafe extern "C" fn mx_rust_search_index_forget_room(
                 index.remove_room(&room_id)?;
             }
         }
-        // Forgotten rows mean the room is no longer indexed to its bound. Not
-        // once teardown began: the store directory may be being deleted.
         if !bridge.index_shutdown.load(Ordering::Relaxed) {
             bridge.index_all.forget_room(&room_id);
         }
@@ -9904,8 +8317,6 @@ pub unsafe extern "C" fn mx_rust_search_index_clear(ptr: *mut c_void) -> *mut c_
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         ensure_search_index(bridge)?;
-        // An empty index has no complete rooms: forget the index-all record and
-        // cancel a running pass, whose late results the epoch bump discards.
         bridge.index_all.reset();
         if let Ok(guard) = bridge.search_index.lock() {
             if let Some(index) = guard.as_ref() {
@@ -9916,17 +8327,8 @@ pub unsafe extern "C" fn mx_rust_search_index_clear(ptr: *mut c_void) -> *mut c_
     })
 }
 
-// ---------------------------------------------------------------------------
-// "Index all rooms". See rust/src/indexall.rs.
-// ---------------------------------------------------------------------------
-
-/// Minimum spacing of the index totals on progress events: counting the
-/// index takes its mutex, and a search keystroke must not queue behind it
-/// every page.
 const INDEX_ALL_STATS_EVERY_MS: u64 = 5_000;
 
-/// The `search_index_all` event. Room ids and counters only, never text.
-/// `index` carries the index totals when given.
 fn index_all_event(
     op_id: u64,
     lifecycle: u64,
@@ -9955,7 +8357,6 @@ fn index_all_event(
     event
 }
 
-/// Index one room of an index-all run with the per-room walk.
 async fn index_all_walk(
     client: &Client,
     timelines: &Arc<timeline::TimelineRegistry>,
@@ -9969,15 +8370,11 @@ async fn index_all_walk(
     let Some(room) = client.get_room(&parsed) else {
         return indexall::RoomResult::Gone;
     };
-    // Recheck before fetching: only encrypted joined rooms need this background walk.
     if !matches!(room.state(), matrix_sdk::RoomState::Joined)
         || !room.encryption_state().is_encrypted()
     {
         return indexall::RoomResult::Gone;
     }
-    // One whole-room backup fetch before paging, so the walk does not make the
-    // SDK fetch (and request from our devices) each unknown key one by one.
-    // Deduplicated per room per lifecycle; a no-op without a usable backup.
     if (gate.alive)() {
         timelines.prefetch_backup_keys_for_room(client, room_id).await;
     }
@@ -9998,14 +8395,6 @@ async fn index_all_walk(
     }
 }
 
-/// Start "index all rooms", or continue the pending run. `resume_only`
-/// continues a run the last session left unfinished and unpaused, and
-/// otherwise only reports. Answers on `search_index_all`, then keeps reporting
-/// progress until the run ends.
-///
-/// One room at a time on the tracked room-action pool; sign-out, an account
-/// switch and teardown stop it through `index_shutdown` and the lifecycle
-/// generation, and it never emits into a session that is over.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_search_index_all_start(
     ptr: *mut c_void,
@@ -10057,7 +8446,6 @@ pub unsafe extern "C" fn mx_rust_search_index_all_start(
         let last_stats: Mutex<Option<std::time::Instant>> = Mutex::new(None);
         let emit: Arc<dyn Fn(indexall::Status) + Send + Sync> =
             Arc::new(move |status: indexall::Status| {
-                // Never into a session that is over.
                 if !emit_alive() {
                     return;
                 }
@@ -10096,9 +8484,6 @@ pub unsafe extern "C" fn mx_rust_search_index_all_start(
     })
 }
 
-/// Pause and cancel write the progress record in the store directory; once
-/// teardown began that directory may be being deleted, and a file created
-/// inside it would make the deletion fail.
 fn refuse_index_all_after_teardown(bridge: &RustClient) -> Result<(), String> {
     if bridge.index_shutdown.load(Ordering::Relaxed) {
         return Err("the local index is closed for this session".to_owned());
@@ -10106,8 +8491,6 @@ fn refuse_index_all_after_teardown(bridge: &RustClient) -> Result<(), String> {
     Ok(())
 }
 
-/// Pause "index all rooms". A running pass stops at its next check and then
-/// reports "paused"; an idle one reports now.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_search_index_all_pause(
     ptr: *mut c_void,
@@ -10125,8 +8508,6 @@ pub unsafe extern "C" fn mx_rust_search_index_all_pause(
     })
 }
 
-/// Cancel "index all rooms": the queue is dropped, rooms already indexed stay
-/// recorded as such. A running pass reports "cancelled" when it stops.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_search_index_all_cancel(
     ptr: *mut c_void,
@@ -10144,8 +8525,6 @@ pub unsafe extern "C" fn mx_rust_search_index_all_cancel(
     })
 }
 
-/// Automatic holds (bit 1: a call is active, bit 2: a timeline is scrolling).
-/// A held pass waits between pages and loses nothing.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_search_index_all_hold(
     ptr: *mut c_void,
@@ -10153,7 +8532,6 @@ pub unsafe extern "C" fn mx_rust_search_index_all_hold(
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
-        // Labs: a Background handle's index-all hold is fixed by its profile.
         if bridge.is_background() {
             return Ok("error: background handle index hold is fixed at create".to_owned());
         }
@@ -10162,7 +8540,6 @@ pub unsafe extern "C" fn mx_rust_search_index_all_hold(
     })
 }
 
-/// Report where "index all rooms" stands. Answers on `search_index_all`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_search_index_all_status(
     ptr: *mut c_void,
@@ -10186,9 +8563,6 @@ fn require_client_for_search(bridge: &RustClient) -> Result<Client, String> {
         .ok_or_else(|| "no active Matrix session".to_owned())
 }
 
-/// MSC3030 "jump to date": the event closest to `timestamp_ms`, searching
-/// forward so a chosen day lands on its first message. See
-/// rooms::event_at_timestamp.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_event_at_timestamp(
     ptr: *mut c_void,
@@ -10218,9 +8592,6 @@ pub unsafe extern "C" fn mx_rust_request_event_source(
     })
 }
 
-/// Replace the room's alternative-alias list (newline-separated). Aliases
-/// not yet resolving to this room are published first, like the canonical
-/// alias path; the canonical alias itself is preserved.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_alt_aliases(
     ptr: *mut c_void,
@@ -10237,8 +8608,6 @@ pub unsafe extern "C" fn mx_rust_set_room_alt_aliases(
     })
 }
 
-/// Set or clear (empty string) the room's canonical alias. Result event:
-/// room_edit_result, field "canonical_alias".
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_canonical_alias(
     ptr: *mut c_void,
@@ -10255,9 +8624,6 @@ pub unsafe extern "C" fn mx_rust_set_room_canonical_alias(
     })
 }
 
-/// Read `m.room.pinned_events` and resolve each id into a displayable row.
-/// `allow_remote` (0/1) permits the `/state` fallback, used only when the
-/// room has no pinned-events state at all. Result event: room_pinned.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_room_pinned(
     ptr: *mut c_void,
@@ -10273,8 +8639,6 @@ pub unsafe extern "C" fn mx_rust_room_pinned(
     })
 }
 
-/// Pin (`pin` = 1) or unpin (0) one event; the SDK does the
-/// read-modify-send. Result event: room_pin_result.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_pinned(
     ptr: *mut c_void,
@@ -10292,14 +8656,6 @@ pub unsafe extern "C" fn mx_rust_set_room_pinned(
     })
 }
 
-// ---------------------------------------------------------------------------
-// Room discovery / join / knock (discover.rs). One op-id per call; results
-// arrive as room_target_resolved / public_rooms_result / room_join_result /
-// room_knock_result / knock_cancel_result / space_children_result events.
-// ---------------------------------------------------------------------------
-
-/// Resolve user input (#alias, !roomid, matrix: URI, matrix.to permalink)
-/// into a normalized join target and preview it where the server allows.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_resolve_room_target(
     ptr: *mut c_void,
@@ -10313,9 +8669,6 @@ pub unsafe extern "C" fn mx_rust_resolve_room_target(
     })
 }
 
-/// One page of the public room directory. `server` optionally targets
-/// another homeserver's directory; `since` is the pagination token from the
-/// previous page's result.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_search_public_rooms(
     ptr: *mut c_void,
@@ -10335,8 +8688,6 @@ pub unsafe extern "C" fn mx_rust_search_public_rooms(
     })
 }
 
-/// Join a room by id or alias. `via` is a newline-separated server list
-/// (may be NULL/empty).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_join_room(
     ptr: *mut c_void,
@@ -10352,7 +8703,6 @@ pub unsafe extern "C" fn mx_rust_join_room(
     })
 }
 
-/// Knock on a room by id or alias with an optional reason.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_knock_room(
     ptr: *mut c_void,
@@ -10370,7 +8720,6 @@ pub unsafe extern "C" fn mx_rust_knock_room(
     })
 }
 
-/// Withdraw a pending knock (leave a Knocked room).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_cancel_knock(
     ptr: *mut c_void,
@@ -10384,14 +8733,6 @@ pub unsafe extern "C" fn mx_rust_cancel_knock(
     })
 }
 
-// ---------------------------------------------------------------------------
-// Ignored users and reporting (ignore.rs). Events: ignore_user_result /
-// ignored_users_list / ignored_users_changed (sync push) /
-// report_message_result.
-// ---------------------------------------------------------------------------
-
-/// Ignore (`ignored` = 1) or unignore (0) one user via the SDK's
-/// m.ignored_user_list read-modify-write.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_user_ignored(
     ptr: *mut c_void,
@@ -10407,8 +8748,6 @@ pub unsafe extern "C" fn mx_rust_set_user_ignored(
     })
 }
 
-/// Fetch the account's push rules as the notification settings page's
-/// snapshot (pushrules.rs). Result: `push_rules_snapshot`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_push_rules_snapshot(
     ptr: *mut c_void,
@@ -10420,8 +8759,6 @@ pub unsafe extern "C" fn mx_rust_push_rules_snapshot(
     })
 }
 
-/// Apply one notification-settings command (`kind`, `key`, `value`; see
-/// pushrules::plan). Results: `push_rules_write`, then `push_rules_snapshot`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_push_rules_write(
     ptr: *mut c_void,
@@ -10439,7 +8776,6 @@ pub unsafe extern "C" fn mx_rust_push_rules_write(
     })
 }
 
-/// Read the ignored-user list from account data.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_list_ignored_users(
     ptr: *mut c_void,
@@ -10451,8 +8787,6 @@ pub unsafe extern "C" fn mx_rust_list_ignored_users(
     })
 }
 
-/// Send `m.call.invite`. The offer SDP is required and opaque; it is never
-/// logged or echoed back. Result: call_send_result via mx_rust_poll_event.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_calls_invite(
     ptr: *mut c_void,
@@ -10483,8 +8817,6 @@ pub unsafe extern "C" fn mx_rust_calls_invite(
     })
 }
 
-/// Send `m.call.answer`. For signalling completeness; no production caller
-/// until a media backend can produce an answer SDP.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_calls_answer(
     ptr: *mut c_void,
@@ -10512,8 +8844,6 @@ pub unsafe extern "C" fn mx_rust_calls_answer(
     })
 }
 
-/// Send `m.call.negotiate` on an established call. The SDP is required and
-/// opaque; it is never logged or echoed back.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_calls_negotiate(
     ptr: *mut c_void,
@@ -10542,7 +8872,6 @@ pub unsafe extern "C" fn mx_rust_calls_negotiate(
     })
 }
 
-/// Send `m.call.sdp_stream_metadata_changed` (a camera or microphone mute).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_calls_stream_metadata(
     ptr: *mut c_void,
@@ -10565,7 +8894,6 @@ pub unsafe extern "C" fn mx_rust_calls_stream_metadata(
     })
 }
 
-/// Send `m.call.reject` for an inbound VoIP-v1 invite.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_calls_reject(
     ptr: *mut c_void,
@@ -10584,9 +8912,6 @@ pub unsafe extern "C" fn mx_rust_calls_reject(
     })
 }
 
-/// Send `m.call.hangup` with a reason from the closed outbound set
-/// (user_hangup, invite_timeout, user_busy, user_media_failed,
-/// unknown_error, replaced).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_calls_hangup(
     ptr: *mut c_void,
@@ -10607,7 +8932,6 @@ pub unsafe extern "C" fn mx_rust_calls_hangup(
     })
 }
 
-/// Send `m.call.select_answer` naming the locked answering party.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_calls_select_answer(
     ptr: *mut c_void,
@@ -10630,9 +8954,6 @@ pub unsafe extern "C" fn mx_rust_calls_select_answer(
     })
 }
 
-/// Toggle media-capable mode: whether inbound call handlers include the
-/// remote SDP in poll payloads. C++ keeps it bounded and single-shot, never
-/// logs it or exposes it to QML. Off until a media backend is registered.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_calls_set_media_capable(
     ptr: *mut c_void,
@@ -10640,7 +8961,6 @@ pub unsafe extern "C" fn mx_rust_calls_set_media_capable(
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
-        // Labs: a Background handle stays not media-capable (calls: Phase 5).
         if bridge.is_background() {
             return Ok("error: background handle is not media capable".to_owned());
         }
@@ -10651,9 +8971,6 @@ pub unsafe extern "C" fn mx_rust_calls_set_media_capable(
     })
 }
 
-/// Send `m.call.candidates` (locally gathered ICE; re-validated/bounded).
-/// `candidates_json` is a JSON array of {candidate, sdp_mid,
-/// sdp_m_line_index} objects.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_calls_candidates(
     ptr: *mut c_void,
@@ -10675,8 +8992,6 @@ pub unsafe extern "C" fn mx_rust_calls_candidates(
     })
 }
 
-/// Fetch the homeserver's TURN servers (short-lived credentials; result
-/// event call_turn_servers, consumed only by the media engine).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_calls_turn_servers(
     ptr: *mut c_void,
@@ -10688,7 +9003,6 @@ pub unsafe extern "C" fn mx_rust_calls_turn_servers(
     })
 }
 
-/// Decline an `m.rtc.notification` ring (SDK-built decline content).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_calls_rtc_decline(
     ptr: *mut c_void,
@@ -10728,8 +9042,6 @@ pub unsafe extern "C" fn mx_rust_sfu_connect(
     })
 }
 
-/// Start one publisher (id 0) and up to seven additional distinct foci.
-/// The JSON is an array of {id, url}; validation occurs in sfu::connect_many.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sfu_connect_many(
     ptr: *mut c_void, connections_json: *const c_char,
@@ -10794,8 +9106,6 @@ pub unsafe extern "C" fn mx_rust_sfu_local_candidate_for(
     })
 }
 
-/// Hand the SFU a local session description for one peer connection.
-/// `target` is "publisher" (our tracks) or "subscriber" (everyone else's).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sfu_local_description(
     ptr: *mut c_void,
@@ -10824,8 +9134,6 @@ pub unsafe extern "C" fn mx_rust_sfu_local_description(
     })
 }
 
-/// Trickle one local ICE candidate. `candidate_init` is the JSON form
-/// LiveKit expects ({candidate, sdpMid, sdpMLineIndex}).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sfu_local_candidate(
     ptr: *mut c_void,
@@ -10844,7 +9152,6 @@ pub unsafe extern "C" fn mx_rust_sfu_local_candidate(
     })
 }
 
-/// Declare a track before publishing it. `kind` is 0 audio / 1 video.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sfu_add_track(
     ptr: *mut c_void,
@@ -10896,7 +9203,6 @@ pub unsafe extern "C" fn mx_rust_sfu_add_track_for(
     })
 }
 
-/// Declare a hardware share and its native encrypted VP8 backup together.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sfu_add_share_backup_for(
     ptr: *mut c_void, generation: u64,
@@ -10922,8 +9228,6 @@ pub unsafe extern "C" fn mx_rust_sfu_add_share_backup_for(
     })
 }
 
-/// Tell the SFU a published track is muted. This is only the signal; the
-/// engine's valve already stops the bytes locally.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sfu_mute_track(
     ptr: *mut c_void,
@@ -10955,7 +9259,6 @@ pub unsafe extern "C" fn mx_rust_sfu_mute_track_for(
     })
 }
 
-/// Leave the SFU session and tear the signalling down.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sfu_disconnect(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -10965,12 +9268,6 @@ pub unsafe extern "C" fn mx_rust_sfu_disconnect(ptr: *mut c_void) -> *mut c_char
     })
 }
 
-/// Report the MatrixRTC session in one room as an `rtc_session` event
-/// (participants, selected focus, slot status). Read-only.
-///
-/// Non-zero `prefer_server` also fetches `/state` and merges it with the
-/// store. It costs a request, so use it only with evidence the store is
-/// incomplete (an SFU participant with no membership).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_rtc_session(
     ptr: *mut c_void,
@@ -10986,9 +9283,6 @@ pub unsafe extern "C" fn mx_rust_rtc_session(
     })
 }
 
-/// Discover the MatrixRTC transports available to this account. A non-empty
-/// `room_id` adds the focus the room's participants advertise, the only
-/// route on a homeserver without MSC4143.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_rtc_transports(
     ptr: *mut c_void,
@@ -11002,10 +9296,6 @@ pub unsafe extern "C" fn mx_rust_rtc_transports(
     })
 }
 
-/// Publish or refresh our MatrixRTC membership. Answers
-/// `rtc_membership_published {ok, category, event_id, delay_id,
-/// delayed_category}`. An empty `delay_id` means no MSC4140 delayed events;
-/// cleanup then relies on the membership's `expires`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_rtc_publish_membership(
     ptr: *mut c_void,
@@ -11025,7 +9315,6 @@ pub unsafe extern "C" fn mx_rust_rtc_publish_membership(
     })
 }
 
-/// Restart the server-side delayed retraction so it does not fire.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_rtc_restart_delayed_leave(
     ptr: *mut c_void,
@@ -11040,7 +9329,6 @@ pub unsafe extern "C" fn mx_rust_rtc_restart_delayed_leave(
     })
 }
 
-/// Retract our membership and cancel any pending delayed retraction.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_rtc_retract_membership(
     ptr: *mut c_void,
@@ -11057,10 +9345,6 @@ pub unsafe extern "C" fn mx_rust_rtc_retract_membership(
     })
 }
 
-/// Distribute our media key to the call's participant devices,
-/// Olm-encrypted per device. `targets_json` is `[{user_id, device_id}]`
-/// from the observed membership. Answers `rtc_key_sent {ok, category,
-/// delivered, key_index}`; the key is never echoed.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_rtc_send_media_key(
     ptr: *mut c_void,
@@ -11081,7 +9365,6 @@ pub unsafe extern "C" fn mx_rust_rtc_send_media_key(
     })
 }
 
-/// Send an `org.matrix.msc4075.rtc.notification` (the ring).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_rtc_notify(
     ptr: *mut c_void,
@@ -11111,8 +9394,6 @@ pub unsafe extern "C" fn mx_rust_rtc_notify(
     })
 }
 
-/// Send element-call's transient call reaction. The pair is validated
-/// against element-call's own table; unknown pairs are refused.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_rtc_send_call_reaction(
     ptr: *mut c_void,
@@ -11135,10 +9416,6 @@ pub unsafe extern "C" fn mx_rust_rtc_send_call_reaction(
     })
 }
 
-/// Raise or lower this device's hand in a room's call, in element-call's
-/// format: raising sends an `m.reaction` annotating our own `m.call.member`
-/// state event; lowering redacts it. Answers `rtc_hand_result {ok, raised,
-/// category, event_id}`; keep the reaction id, it is needed to lower.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_rtc_set_hand(
     ptr: *mut c_void,
@@ -11153,7 +9430,6 @@ pub unsafe extern "C" fn mx_rust_rtc_set_hand(
         let room_id = unsafe { cstr_arg(room_id) }?;
         let membership_event_id = unsafe { cstr_arg(membership_event_id) }?;
         let reaction_event_id = unsafe { cstr_arg(reaction_event_id) }?;
-        // `unsigned char` on both sides, like mx_rust_calls_set_media_capable.
         rtc::set_hand_raised(
             bridge,
             room_id,
@@ -11166,9 +9442,6 @@ pub unsafe extern "C" fn mx_rust_rtc_set_hand(
     })
 }
 
-/// Read the hands already raised in a room's call, once per join: a hand
-/// raised earlier produces no sync event for us. Bounded and cache-first;
-/// answers `rtc_hands`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_rtc_read_hands(
     ptr: *mut c_void,
@@ -11182,7 +9455,6 @@ pub unsafe extern "C" fn mx_rust_rtc_read_hands(
     })
 }
 
-/// Report one event to the homeserver administrator (stable /v3 endpoint).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_report_message(
     ptr: *mut c_void,
@@ -11201,13 +9473,6 @@ pub unsafe extern "C" fn mx_rust_report_message(
     })
 }
 
-// ---------------------------------------------------------------------------
-// UIA and device sign-out (uia.rs). Lightning parks the operation behind the
-// server's UIA challenge and answers with the password stage. Events:
-// uia_required / device_delete_result.
-// ---------------------------------------------------------------------------
-
-/// Delete own devices (newline-separated ids). May raise `uia_required`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_delete_devices(
     ptr: *mut c_void,
@@ -11221,8 +9486,6 @@ pub unsafe extern "C" fn mx_rust_delete_devices(
     })
 }
 
-/// Answer the pending UIA challenge with the account password and retry
-/// the parked operation. The transit buffer is scrubbed inside.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_uia_submit_password(
     ptr: *mut c_void,
@@ -11236,7 +9499,6 @@ pub unsafe extern "C" fn mx_rust_uia_submit_password(
     })
 }
 
-/// Abandon the pending UIA challenge (dialog cancelled).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_uia_cancel(
     ptr: *mut c_void,
@@ -11249,9 +9511,6 @@ pub unsafe extern "C" fn mx_rust_uia_cancel(
     })
 }
 
-/// Server-side message search (POST /v3/search via raw ruma; matrix-sdk has
-/// no wrapper). Unencrypted rooms only. Empty `room_id` = all rooms;
-/// `next_batch` pages. Result event: message_search_result.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_search_messages(
     ptr: *mut c_void,
@@ -11275,8 +9534,6 @@ pub unsafe extern "C" fn mx_rust_search_messages(
     })
 }
 
-/// List a Space's children (joined and unjoined) via the SDK's
-/// /hierarchy-backed SpaceRoomList. Bounded; reports `truncated`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_space_children(
     ptr: *mut c_void,
@@ -11305,7 +9562,6 @@ pub unsafe extern "C" fn mx_rust_add_room_to_space(
     })
 }
 
-/// Write a shared default order of existing children. The server checks power.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_space_child_order(
     ptr: *mut c_void,
@@ -11322,9 +9578,6 @@ pub unsafe extern "C" fn mx_rust_set_space_child_order(
     })
 }
 
-/// Toggle the MSC1772 `suggested` flag on an existing m.space.child,
-/// preserving via and order; a non-child is refused. Result event:
-/// space_child_suggested_result { op_id, space_id, room_id, suggested, ok }.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_space_child_suggested(
     ptr: *mut c_void,
@@ -11343,9 +9596,6 @@ pub unsafe extern "C" fn mx_rust_set_space_child_suggested(
     })
 }
 
-/// Remove a Space child (MSC1772 empty-via m.space.child). Never leaves or
-/// deletes the room. Result event:
-/// space_child_removed_result { op_id, space_id, room_id, ok }.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_remove_room_from_space(
     ptr: *mut c_void,
@@ -11400,12 +9650,6 @@ pub unsafe extern "C" fn mx_rust_timeline_send_attachment(
     })
 }
 
-/// Send a video with a locally extracted poster frame.
-///
-/// `thumb_*` is optional (empty sends no poster). Lengths are bounded here,
-/// and the poster is re-validated by magic sniffing in `rooms::PosterBytes`;
-/// an invalid poster is dropped and the video still sends. The SDK uploads
-/// and encrypts the poster.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn mx_rust_timeline_send_video(
@@ -11440,7 +9684,6 @@ pub unsafe extern "C" fn mx_rust_timeline_send_video(
     })
 }
 
-/// Thread twin of `mx_rust_timeline_send_video`.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn mx_rust_thread_send_video(
@@ -11477,8 +9720,6 @@ pub unsafe extern "C" fn mx_rust_thread_send_video(
     })
 }
 
-/// MSC3245 voice message. `waveform` is 0..=100 amplitudes (may be empty),
-/// bounded here. Result on attachment_send_result by op_id.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn mx_rust_timeline_send_voice(
@@ -11513,9 +9754,6 @@ pub unsafe extern "C" fn mx_rust_timeline_send_voice(
     })
 }
 
-/// Thread twin of `mx_rust_timeline_send_voice`, sent on the thread
-/// timeline so the event carries an `m.thread` relation. Result on
-/// attachment_send_result by op_id.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn mx_rust_thread_send_voice(
@@ -11576,7 +9814,6 @@ pub unsafe extern "C" fn mx_rust_timeline_send_attachment_bytes(
         if data.is_null() || len == 0 {
             return Err("attachment data is empty".to_owned());
         }
-        // One bounded copy into Rust-owned memory; C++ frees its buffer on return.
         let bytes = unsafe { std::slice::from_raw_parts(data, len) }.to_vec();
         rooms::send_attachment_bytes(
             bridge, room_id, bytes, filename, mime, width, height, in_reply_to, op_id,
@@ -11681,9 +9918,6 @@ pub unsafe extern "C" fn mx_rust_media_fetch_mxc(
     })
 }
 
-/// Cancel an in-flight media fetch by op id: aborts the task at its next
-/// await point and drops any parked bytes. Idempotent. Emits no terminal
-/// event; C++ has already released the op.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_media_cancel(ptr: *mut c_void, op_id: u64) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
@@ -11704,9 +9938,6 @@ pub unsafe extern "C" fn mx_rust_media_cancel(ptr: *mut c_void, op_id: u64) {
     }));
 }
 
-/// Move a parked media payload out of the bridge. Returns a buffer the
-/// caller must release with `mx_rust_media_free`, or null for an unknown op
-/// id. The only path media bytes take across the FFI.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_media_take(
     ptr: *mut c_void,
@@ -11736,7 +9967,6 @@ pub unsafe extern "C" fn mx_rust_media_take(
     result.unwrap_or(std::ptr::null_mut())
 }
 
-/// Release a buffer returned by `mx_rust_media_take`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_media_free(data: *mut u8, len: usize) {
     if data.is_null() {
@@ -11756,14 +9986,10 @@ pub unsafe extern "C" fn mx_rust_fetch_upload_limit(ptr: *mut c_void) -> *mut c_
     })
 }
 
-/// Deterministic shutdown of all managed async work, called by C++ before
-/// logout and store cleanup so nothing still holds the crypto store.
-/// Returns a short status string for logging.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_shutdown_tasks(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
-        // Miss counts show when the budget was exceeded. Counts only.
         let (import_joined, sync_stopped, actions_missed, verifications_missed,
              actions_ms, verifications_ms, total_ms) =
             bridge.shutdown_managed_tasks();
@@ -11776,14 +10002,6 @@ pub unsafe extern "C" fn mx_rust_shutdown_tasks(ptr: *mut c_void) -> *mut c_char
     })
 }
 
-/// The session's current tokens as `{"access_token","refresh_token"}`, or an
-/// empty string when there is no session. Called by the retiring worker after
-/// `mx_rust_shutdown_tasks`. matrix-sdk's own tasks (the send queue, backup
-/// downloads, E2EE initialization) can still refresh until the runtime is
-/// shut down, so the worker prefers the ledger's pair read AFTER
-/// `mx_rust_destroy_and_report` (`mx_rust_token_ledger_latest`).
-/// SENSITIVE: carries credentials; C++ writes them to the SecretStore and
-/// nothing logs them.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_final_session_tokens(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -11792,10 +10010,6 @@ pub unsafe extern "C" fn mx_rust_final_session_tokens(ptr: *mut c_void) -> *mut 
     })
 }
 
-/// C++'s answer for the rotation `generation` (the `session_tokens_refreshed`
-/// event's own field): `saved` non-zero when the pair is in the keyring, zero
-/// when the keyring refused it or no account owns it. Ends that rotation's
-/// wait inside matrix-sdk's refresh (sessiontokens.rs). Holds no secret.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_session_tokens_persisted(
     ptr: *mut c_void,
@@ -11809,10 +10023,6 @@ pub unsafe extern "C" fn mx_rust_session_tokens_persisted(
     }));
 }
 
-/// A reference to this handle's token ledger that outlives the handle, for
-/// the retiring worker: taken before `mx_rust_destroy_and_report`, read after
-/// it with `mx_rust_token_ledger_latest`, released with
-/// `mx_rust_token_ledger_release`. Null for a null handle.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_token_ledger_retain(ptr: *mut c_void) -> *mut c_void {
     catch_unwind(AssertUnwindSafe(|| match unsafe { bridge(ptr) } {
@@ -11822,25 +10032,17 @@ pub unsafe extern "C" fn mx_rust_token_ledger_retain(ptr: *mut c_void) -> *mut c
     .unwrap_or(std::ptr::null_mut())
 }
 
-/// The pair the handle's last client rotated to, as `final_session_tokens`
-/// formats it; "" when that client never rotated. Read after the handle was
-/// destroyed, when its runtime is shut down and nothing can rotate again.
-/// SENSITIVE: carries credentials; never log the result.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_token_ledger_latest(ledger: *mut c_void) -> *mut c_char {
     ffi_string(|| {
         if ledger.is_null() {
             return Ok(String::new());
         }
-        // Borrowed: the reference taken by `mx_rust_token_ledger_retain` stays
-        // with the caller until it releases it.
         let ledger = unsafe { &*(ledger as *const sessiontokens::TokenLedger) };
         Ok(final_session_tokens_json(ledger.latest()))
     })
 }
 
-/// Release a reference taken by `mx_rust_token_ledger_retain`. Null is a
-/// no-op.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_token_ledger_release(ledger: *mut c_void) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
@@ -11850,38 +10052,22 @@ pub unsafe extern "C" fn mx_rust_token_ledger_release(ledger: *mut c_void) {
     }));
 }
 
-// ---- Labs: concurrent live accounts (labs.rs, bgsession.rs) -----------------
-//
-// Contract la-p1 §3. Every FFI here except labs_enable / labs_active /
-// store_any_held / handle_serial / take_custody refuses a handle that is not
-// Background. None is called while Labs is off (C++ constructs nothing).
-
-/// Sets `labs::ACTIVE`. Idempotent; never cleared in this process.
 #[no_mangle]
 pub extern "C" fn mx_rust_labs_enable() {
     let _ = catch_unwind(labs::enable);
 }
 
-/// 1 when Labs was enabled in this process, else 0.
 #[no_mangle]
 pub extern "C" fn mx_rust_labs_active() -> c_int {
     c_int::from(labs::active())
 }
 
-/// The handle's monotonic serial, 0 for NULL.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_handle_serial(ptr: *mut c_void) -> u64 {
     catch_unwind(AssertUnwindSafe(|| unsafe { bridge(ptr) }.map_or(0, |b| b.serial)))
         .unwrap_or(0)
 }
 
-/// A Background handle for an existing account store. NULL when Labs is not
-/// active or the profile is invalid. Nothing is created on disk: a missing
-/// store directory is refused by the restore as `crypto_account_missing`
-/// (I5; review 2026-10-16, finding 6). The profile's receipt privacy and
-/// index-all hold apply from here; restore it with `mx_rust_restore` /
-/// `mx_rust_oauth_restore`, which run the store reservation and the crypto
-/// precheck.
 #[no_mangle]
 pub extern "C" fn mx_rust_create_background(
     store_path: *const c_char,
@@ -11900,10 +10086,6 @@ pub extern "C" fn mx_rust_create_background(
         let profile = labs::parse_profile(&unsafe { cstr_arg(profile_json) }?)?;
         let path = PathBuf::from(store_path);
         let mut client = RustClient::new_with(path.clone(), Some(&profile))?;
-        // Every rotation this handle's clients make bumps the custody
-        // generation inside the refresh, before its wait: the host takes
-        // custody, writes the pair and answers `mx_rust_session_tokens_persisted`
-        // while matrix-sdk still holds the retried request (sessiontokens.rs).
         client.token_ledger.attach_custody(Arc::clone(&client.custody));
         client.receipt_privacy.store(profile.receipt_privacy, Ordering::SeqCst);
         client.index_all.set_hold(profile.index_all_hold);
@@ -11922,7 +10104,6 @@ pub extern "C" fn mx_rust_create_background(
     }
 }
 
-/// One tick's state (`mx_rust_bg_status` in matrix_rust.h).
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct MxRustBgStatus {
@@ -11935,7 +10116,6 @@ pub struct MxRustBgStatus {
     pub revoked: c_int,
 }
 
-/// The Background state of a handle, or an error for any other handle.
 fn background_of(bridge: &RustClient) -> Result<&Arc<bgsession::BgState>, String> {
     bridge
         .bg
@@ -11944,8 +10124,6 @@ fn background_of(bridge: &RustClient) -> Result<&Arc<bgsession::BgState>, String
         .ok_or_else(|| "not a background handle".to_owned())
 }
 
-/// 0 with `*out` filled, -1 for NULL or a handle that is not Background.
-/// Atomic loads and two queue lengths; no allocation.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_bg_poll(ptr: *mut c_void, out: *mut MxRustBgStatus) -> c_int {
     catch_unwind(AssertUnwindSafe(|| {
@@ -11954,12 +10132,7 @@ pub unsafe extern "C" fn mx_rust_bg_poll(ptr: *mut c_void, out: *mut MxRustBgSta
         }
         let Ok(bridge) = (unsafe { bridge(ptr) }) else { return -1 };
         let Ok(bg) = background_of(bridge) else { return -1 };
-        // The host is draining: a rotation waiting for its keyring write can
-        // expect an answer (sessiontokens::DRAIN_STALL), as the foreground's
-        // command-lane poll says for its own handle.
         bridge.token_ledger.note_drain();
-        // A pending verification request past the SDK's timeout leaves the
-        // slot here, so the version below moves when it does.
         bg.expire_session_state(std::time::Instant::now());
         let (queued_events, queued_commands) = bg.queue_lengths();
         let status = MxRustBgStatus {
@@ -11977,7 +10150,6 @@ pub unsafe extern "C" fn mx_rust_bg_poll(ptr: *mut c_void, out: *mut MxRustBgSta
     .unwrap_or(-1)
 }
 
-/// Clears `dirty` and returns the summary JSON (contract §3.2).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_bg_take(ptr: *mut c_void, max_rows: c_uint) -> *mut c_char {
     ffi_string(|| {
@@ -11986,7 +10158,6 @@ pub unsafe extern "C" fn mx_rust_bg_take(ptr: *mut c_void, max_rows: c_uint) -> 
     })
 }
 
-/// The Session sticky slot (contract §3.3). Never carries a token or secret.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_bg_take_session_state(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -11995,7 +10166,6 @@ pub unsafe extern "C" fn mx_rust_bg_take_session_state(ptr: *mut c_void) -> *mut
     })
 }
 
-/// Replaces the local-rule room set: `["!a:x", …]`.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_bg_set_local_rules(
     ptr: *mut c_void,
@@ -12011,8 +10181,6 @@ pub unsafe extern "C" fn mx_rust_bg_set_local_rules(
     })
 }
 
-/// `send_queue().set_enabled(enabled != 0)`, spawned on the handle runtime.
-/// "" when dispatched.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_bg_set_send_queue_enabled(
     ptr: *mut c_void,
@@ -12029,22 +10197,6 @@ pub unsafe extern "C" fn mx_rust_bg_set_send_queue_enabled(
     })
 }
 
-/// Warm account adoption (master prompt Part 4 §4): turns a RUNNING Background
-/// handle into a foreground one in place, so the foreground client adopts the
-/// live session instead of retiring it and restoring a second Client into the
-/// same store. "" on success, "error: ..." with NOTHING changed when the handle
-/// is not Background or holds no session.
-///
-/// Order: the background sync loop, aggregator and crypto-bootstrap observer
-/// stop (they captured background-ness when they started); the mode flips, so
-/// every `bgsession::for_queue()` of this handle answers `None` (admission gate,
-/// command lane, UiOnly producers); the queues leave the registry; custody
-/// detaches from the token ledger (rotations ride the foreground command lane
-/// from now on); the UI-only handlers a Background install skipped are
-/// installed; the background-shaped residue in both queues is dropped; and a
-/// token-free `login_ok` (`adopted: true`) runs the ordinary foreground login
-/// path, whose `start_sync` starts a foreground sync loop on the same Client.
-/// No token, key or body is read or logged here.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_bg_promote(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -12062,9 +10214,6 @@ pub unsafe extern "C" fn mx_rust_bg_promote(ptr: *mut c_void) -> *mut c_char {
             .ok_or_else(|| "the background handle has no signed-in user".to_owned())?;
         let device_id = client.device_id().map(|device| device.to_string()).unwrap_or_default();
         bridge.stop_sync_and_wait();
-        // Before the queues are cleared: anything the background session
-        // spawned that completes from here on carries a stale lifecycle and
-        // is dropped instead of reaching the foreground (review note, wave 3).
         bridge.timelines.advance_lifecycle();
         bg.promote_to_foreground();
         bgsession::unregister(&bridge.events, &bridge.command_events);
@@ -12076,8 +10225,6 @@ pub unsafe extern "C" fn mx_rust_bg_promote(ptr: *mut c_void) -> *mut c_char {
         if let Ok(mut queue) = bridge.command_events.lock() {
             queue.clear();
         }
-        // No homeserver field: C++ keeps the identity the adoption ticket
-        // carried (the record's canonical form, not the SDK's URL spelling).
         bridge.enqueue(json!({
             "type": "login_ok",
             "user_id": user_id,
@@ -12088,8 +10235,6 @@ pub unsafe extern "C" fn mx_rust_bg_promote(ptr: *mut c_void) -> *mut c_char {
     })
 }
 
-/// SENSITIVE. Live custody (contract §3.4): the tokens the Client holds NOW
-/// plus the token task's facts. "" without a client. Never log the result.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_take_custody(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -12117,8 +10262,6 @@ pub unsafe extern "C" fn mx_rust_take_custody(ptr: *mut c_void) -> *mut c_char {
     })
 }
 
-/// 1 while a reservation, a live store probe or a client of this directory
-/// is alive in the process; 0 when free; -1 for a bad path.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_store_any_held(store_path: *const c_char) -> c_int {
     catch_unwind(AssertUnwindSafe(|| {
@@ -12154,15 +10297,8 @@ pub unsafe extern "C" fn mx_rust_free_cstring(ptr: *mut c_char) {
     }));
 }
 
-/// MSC4153 "invisible crypto": whether new clients exclude devices that are
-/// not cross-signed.
-///
-/// A process global because `build_client` serves password login, OAuth
-/// and the auth probe. Read at build time only: matrix-sdk 0.18 has no
-/// runtime setter for either half, so a change needs a new client.
 static STRICT_DEVICE_TRUST: AtomicBool = AtomicBool::new(false);
 
-/// Set before a login; applies to the next client built.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_strict_device_trust(enabled: c_int) -> *mut c_char {
     ffi_string(|| {
@@ -12224,9 +10360,6 @@ pub unsafe extern "C" fn mx_rust_set_network_route(
     })
 }
 
-/// Where this handle's media store was opened (`mediastore::active`), for
-/// Settings to say what is really kept this session. See the header for the
-/// four answers. Before a client is built nothing is opened: "memory".
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_media_store_state(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
@@ -12250,10 +10383,6 @@ pub unsafe extern "C" fn mx_rust_set_keep_media(enabled: c_int) -> *mut c_char {
     })
 }
 
-/// Remove the media this account keeps on disk: the kept-file directory and
-/// what the SDK media store may drop. Answers on
-/// `media_cache_cleared {op_id, ok, files, bytes}`, where files/bytes count
-/// the kept files only (the SDK store reports no count).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_media_cache_clear(
     ptr: *mut c_void,
@@ -12281,14 +10410,10 @@ pub unsafe extern "C" fn mx_rust_media_cache_clear(
                 Some((files, bytes)) => (true, files, bytes),
                 None => (false, 0, 0),
             };
-            // The clear's result goes out at once; compaction never delays it.
             enqueue(&events, json!({
                 "type": "media_cache_cleared", "op_id": op_id,
                 "ok": ok, "files": files, "bytes": bytes,
             }));
-            // The SDK media store deletes rows and leaves its file as big as
-            // it was; compact it so the space is really returned, as its own
-            // later report. Only after a clean that succeeded.
             if ok {
                 let result =
                     aboutinfo::compact_media_store(&client, &store_path, store_before).await;
@@ -12299,59 +10424,27 @@ pub unsafe extern "C" fn mx_rust_media_cache_clear(
     })
 }
 
-/// Resume what the last session left queued but unsent
-/// (`respawn_tasks_for_rooms_with_unsent_requests`), which the SDK
-/// recommends at startup; otherwise a room's queue only resumes when the
-/// room is reopened.
-///
-/// Where it is called matters twice over:
-/// - Not in `build_client`: it resolves rooms via `client.get_room()`, and
-///   the room map is empty until login or `restore_session` runs
-///   `load_rooms()`.
-/// - Not on the sync lanes: `for_room` spawns an infinite per-room task on
-///   the ambient runtime and memoises the queue, so a throwaway
-///   `run_async` runtime would leave a dead cached queue that never sends.
-///
-/// So it runs right after a session is established, on the shared runtime.
-/// Callers: `mx_rust_login`, `restore_client_with_session` (every restore,
-/// incl. the SSO handoff) and `mx_rust_oauth_restore`. The OAuth/SSO finish
-/// paths use an in-memory bootstrap client, and the QR paths reuse an
-/// already-restored client.
 pub(crate) async fn resume_unsent_requests(client: &Client) {
     client.send_queue().respawn_tasks_for_rooms_with_unsent_requests().await;
 }
 
-/// How a client is pointed at its homeserver.
-///
-/// `Discover` (`server_name_or_homeserver_url()`) does `/.well-known`
-/// discovery and verifies the homeserver over HTTP, so it needs the server
-/// up. `Url` (`homeserver_url()`) only parses. A typed server name can
-/// never be treated as a `Url` (`https://matrix.org` serves its client API
-/// at `matrix-client.matrix.org`); only a URL the SDK resolved is safe,
-/// which is what `build_client_with` records for `build_client_for_restore`.
 enum HomeserverInput<'a> {
     Discover(&'a str),
     Url(&'a str),
 }
 
-/// File in the account's store directory recording the homeserver URL
-/// matrix-sdk resolved. Kept in the store so it is deleted with it; written
-/// 0600 like everything else there.
 const RESOLVED_HOMESERVER_FILE: &str = "lightning-homeserver-url";
 
 fn resolved_homeserver_path(store_path: &Path) -> PathBuf {
     store_path.join(RESOLVED_HOMESERVER_FILE)
 }
 
-/// The homeserver URL a previous successful build resolved, if one was ever
-/// recorded and still parses.
 fn read_resolved_homeserver(store_path: &Path) -> Option<String> {
     if store_path.as_os_str().is_empty() {
         return None;
     }
     let text = std::fs::read_to_string(resolved_homeserver_path(store_path)).ok()?;
     let text = text.trim();
-    // Parsed, not trusted: an empty or truncated file falls back to discovery.
     let url = url::Url::parse(text).ok()?;
     if !matches!(url.scheme(), "http" | "https") || url.host().is_none() {
         return None;
@@ -12359,14 +10452,11 @@ fn read_resolved_homeserver(store_path: &Path) -> Option<String> {
     Some(url.to_string())
 }
 
-/// Record what the SDK resolved, so the next start does not need the
-/// server. Best effort.
 fn record_resolved_homeserver(store_path: &Path, url: &str) {
     if store_path.as_os_str().is_empty() {
         return;
     }
     let path = resolved_homeserver_path(store_path);
-    // Rewrite only on change; this runs on every login and restore.
     if read_resolved_homeserver(store_path).as_deref() == Some(url) {
         return;
     }
@@ -12393,31 +10483,10 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     build_client_with(HomeserverInput::Discover(homeserver), store_path).await
 }
 
-/// An in-memory client (no store: discovery, the OAuth and SSO bootstraps,
-/// the whoami probe, a refused sign-in's revocation) that follows the network
-/// route of the account whose handle asked for it (route.rs). `route_of` is
-/// that handle's store path; a first sign-in has no route there yet and
-/// builds as `build_client(homeserver, "")` always did.
 pub(crate) async fn build_memory_client(homeserver: &str, route_of: &Path) -> Result<Client, String> {
     build_client_full(HomeserverInput::Discover(homeserver), Path::new(""), route_of).await
 }
 
-/// The E2EE settings every client is built with (decided 2026-10-13, CLAUDE.md
-/// §9). `AfterDecryptionFailure` makes matrix-sdk download the one missing key
-/// from the trusted backup whenever an event fails to decrypt, in any room and
-/// on any path (sync, pagination, retry): it installs the UTD event handler
-/// and the `BackupDownloadTask` (deduplicated per session, with its own
-/// failure backoff), and does nothing while this device holds no backup
-/// decryption key. It replaces `OneShot`, which downloaded the WHOLE backup in
-/// one request when the backup key arrived and never again; the whole-room
-/// part of that now comes from Lightning's own per-room pass
-/// (`download_backup_keys_for_room`), on the backup-enabled edge for the open
-/// room and on every room open after.
-///
-/// Both automatic creations stay off: no cross-signing bootstrap and no backup
-/// version is ever made without the user asking. Keys only flow from a backup
-/// the SDK enabled after SDK-confirmed verification or an explicit
-/// recovery-key entry.
 fn encryption_settings() -> matrix_sdk::encryption::EncryptionSettings {
     matrix_sdk::encryption::EncryptionSettings {
         backup_download_strategy:
@@ -12434,8 +10503,6 @@ async fn build_client_with(
     build_client_full(homeserver, store_path, store_path).await
 }
 
-/// `route_of`: the store path whose network route this client follows; the
-/// account's own `store_path` for every stored client.
 async fn build_client_full(
     homeserver: HomeserverInput<'_>,
     store_path: &Path,
@@ -12475,15 +10542,11 @@ async fn build_client_full(
     // does discovery and verifies the result; `homeserver_url()` does neither,
     // which broke delegated servers (issue #5).
     let base = Client::builder();
-    // Switch trace (S8): only the discovering build's `build()` is discovery.
     let discovering = matches!(homeserver, HomeserverInput::Discover(_));
-    // Decides whether this build needs a live server.
     let base = match homeserver {
         HomeserverInput::Discover(value) => base.server_name_or_homeserver_url(value),
         HomeserverInput::Url(value) => base.homeserver_url(value),
     };
-    // One snapshot drives the client's crypto sync service AND the custom
-    // event-cache/media store locks; changing only StoreConfig misses crypto.
     let store_lock_config = storelocking::config();
     let mut builder = base
         .cross_process_store_config(store_lock_config.clone())
@@ -12534,20 +10597,9 @@ async fn build_client_full(
                     matrix_sdk_base::crypto::TrustRequirement::CrossSignedOrLegacy,
             });
     }
-    // The account's network route (route.rs): its own HTTP client, with the
-    // proxy, for every request this client makes. After every other builder
-    // call that touches HTTP settings: `user_agent()` or `proxy()` after
-    // `http_client()` would replace the custom client with a default one.
-    // A route that cannot be used refuses the build, before any store opens;
-    // there is no direct fallback.
     if let Some(http) = route::client_for(route_of).map_err(str::to_owned)? {
         builder = builder.http_client(http);
     }
-    // The state and crypto stores exactly as `sqlite_store(path, None)`
-    // opened them; the event cache and the media store where cachelayout.rs
-    // placed them (the account's cache directory once moved), the media store
-    // encrypted with the account's key, or in memory without one
-    // (mediastore.rs).
     let mut store_probe = None;
     if !store_path.as_os_str().is_empty() {
         let (store_config, probe) = switchtrace::timed(
@@ -12564,55 +10616,29 @@ async fn build_client_full(
     )
     .await
     .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))?;
-    // Recorded so retirement can wait for these very stores to be dropped,
-    // rather than for its handle to be (storeclose.rs, GitHub #2).
     if let Some(mut probe) = store_probe {
         probe.attach_client(&client);
         storeclose::register(store_path, probe);
     }
-    // Enable upload progress (off by default in the SDK), without which
-    // `EventSendState::NotSentYet` carries no progress and the UI's upload bar
-    // stays indeterminate.
-    //
-    // `respawn_tasks_for_rooms_with_unsent_requests()` does not belong here;
-    // see `resume_unsent_requests`.
     client.send_queue().enable_upload_progress(true);
-    // Re-enable a room's queue after a recoverable send error (sendrecovery.rs).
     sendrecovery::spawn(client.clone(), sendrecovery::RecoveryPolicy::production());
     // 0600 on the databases just created, from the one place all login paths
     // pass through: the SDK sqlite files, their -wal/-shm siblings and the
     // search index are created here at the process umask. Best effort.
     if !store_path.as_os_str().is_empty() {
         restrict_store_permissions(store_path);
-        // Record the resolved URL on every successful build, so the account can be
-        // opened again with its homeserver down. See build_client_for_restore.
         record_resolved_homeserver(store_path, client.homeserver().as_str());
     }
-    // Media-store retention policy. Without one the store grows without bound,
-    // and because it serializes all access on one write connection, a huge
-    // blob INSERT stalls every other media fetch. The per-item cap is 100 MiB
-    // of payload (rooms::MEDIA_STORE_MAX_FILE_BYTES, so a phone video from an
-    // encrypted room is kept), held by Lightning before the write
-    // (mediafetch::cache_put); the policy's own max_file_size is on the
-    // ENCODED row and is set to admit exactly that (rooms.rs). Declared-
-    // oversize fetches skip the cache, and unencrypted ones are kept as files
-    // instead. 1 GiB in total; SDK defaults otherwise.
     let policy = rooms::media_retention_policy();
     let preserve_caches = mediastore::preserve_caches_for_audit();
     let policy = if preserve_caches {
-        // Do not let a cache read trigger automatic eviction during the audit.
-        // Normal startup installs the regular policy again.
         policy.with_cleanup_frequency(None)
     } else {
         policy
     };
-    // Best effort; the error may contain the store path, so it is not logged.
     if client.media().set_media_retention_policy(policy).await.is_ok()
         && !preserve_caches
     {
-        // Sweep blobs cached before the policy existed. Runs once per client build;
-        // the SDK debounces the real work to daily. Bounded, and cancelled with the
-        // shared runtime before any store deletion.
         let media_client = client.clone();
         tokio::spawn(async move {
             let _ = tokio::time::timeout(
@@ -12639,8 +10665,6 @@ async fn restore_client(
         .map_err(|err| format!("invalid stored Matrix user id: {err}"))?
         .to_owned();
     let device_id: OwnedDeviceId = device_id.to_owned().into();
-    // Carry the refresh token: needed for refreshable password sessions and
-    // mandatory for OAuth, whose access tokens are short-lived.
     let session = MatrixSession {
         meta: SessionMeta { user_id, device_id },
         tokens: SessionTokens { access_token, refresh_token },
@@ -12648,29 +10672,8 @@ async fn restore_client(
     restore_client_with_session(homeserver, store_path, session, events, token_sink).await
 }
 
-/// How long a restore's discovering client build may take before falling
-/// back to the recorded URL.
-///
-/// Discovery is tried first on every restore so a changed `/.well-known`
-/// delegation is followed. The budget bounds how long a dead server keeps
-/// the user at a blank window. It covers the whole build, including opening
-/// and migrating the stores, so a slow disk can trip it against a healthy
-/// server; that only shows a brief, self-correcting offline label.
 const RESTORE_BUILD_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// Build the client a restore needs, with the server down as a supported
-/// case.
-///
-/// `build_client` discovers and verifies the homeserver over HTTP, but
-/// `restore_session()` only reads the store. So try discovery, and if the
-/// build fails, rebuild against the URL the last successful build recorded
-/// and let sync report offline; the room list is served from the state
-/// store meanwhile.
-///
-/// Credential rejection is unaffected: nothing here authenticates, so
-/// `M_UNKNOWN_TOKEN` still first appears on sync. Any build failure reaches
-/// the fallback, including a broken delegation; a store-level failure fails
-/// identically on the retry, and the original error is returned.
 async fn build_client_for_restore(
     homeserver: &str,
     store_path: &Path,
@@ -12690,7 +10693,6 @@ async fn build_client_for_restore(
         ),
     };
     let Some(url) = read_resolved_homeserver(store_path) else {
-        // Nothing recorded: return the original failure.
         return Err(reason);
     };
     let client = switchtrace::timed(
@@ -12698,20 +10700,12 @@ async fn build_client_for_restore(
         build_client_with(HomeserverInput::Url(&url), store_path),
     )
         .await
-        // Keep both: the original failure says why the server was not used,
-        // the fallback's says why the store could not be opened without it.
         .map_err(|fallback| format!("{reason}; restoring from the recorded homeserver URL failed too: {fallback}"))?;
-    // No URL, server name or account id: C++ only needs to know the data came
-    // off the disk.
     enqueue(events, json!({ "type": "session_restored_offline" }));
     switchtrace::note_offline_fallback();
     Ok(client)
 }
 
-/// Also returns a session-change receiver subscribed BEFORE
-/// `restore_session()`, which starts matrix-sdk's E2EE initialization task and
-/// can already rotate the tokens; hand it to
-/// `oauth::spawn_token_persistence_with` so no rotation goes unannounced.
 async fn restore_client_with_session(
     homeserver: &str,
     store_path: &Path,
@@ -12725,9 +10719,6 @@ async fn restore_client_with_session(
     .await
 }
 
-/// `restore_client_with_session` with `after_restore` run right after
-/// `restore_session()`, standing for what that call set running, so a test
-/// can rotate the tokens at exactly that point. Production passes nothing.
 pub(crate) async fn restore_client_with_session_then<F, Fut>(
     homeserver: &str,
     store_path: &Path,
@@ -12818,14 +10809,6 @@ fn save_persistent_session(
     Ok(())
 }
 
-/// The C++ row kind for one `m.room.message` msgtype. `None` means no typed
-/// row; each caller keeps its own fallback (live sync drops it, the reload
-/// path renders the plain-text body).
-///
-/// The set of kinds matters downstream: `handleTimelineEvent`'s
-/// `countsAsActivity` excludes `StateChange` and `CallEvent`, so adding
-/// `"state"`, `"call"`, `"sticker"` or `"poll"` here changes which rows
-/// raise a room's last activity. Read that predicate before extending this.
 pub(crate) fn typed_message_row_kind(msgtype: &str) -> Option<&'static str> {
     Some(match msgtype {
         "m.text" => "text",
@@ -12840,24 +10823,10 @@ pub(crate) fn typed_message_row_kind(msgtype: &str) -> Option<&'static str> {
     })
 }
 
-/// Whether an audio message is a voice message (MSC3245 `org.matrix.msc3245.voice`),
-/// so a notification for a room with no open timeline can say so instead of
-/// "an audio file". Pure and unit-tested.
 pub(crate) fn message_is_voice(msgtype: &MessageType) -> bool {
     matches!(msgtype, MessageType::Audio(content) if content.voice.is_some())
 }
 
-/// The `media_filename` for a row of `kind`, matching the live-timeline
-/// producer (`rust/src/timeline.rs`) kind for kind:
-///
-///  * `file`, `image`, `video`, `audio`: MSC2530's `filename`, falling back
-///    to the body (Element puts the caption in the body; Sable sends an empty
-///    body).
-///  * everything else, including `location`, has no file; a location's body
-///    is the sender's own words and stays the body.
-///
-/// `"sticker"` falls to the empty arm here but not in the live producer; if
-/// the sync path ever emits sticker rows, add an arm.
 pub(crate) fn media_filename_for_kind(
     kind: &str,
     body: &str,
@@ -12872,13 +10841,10 @@ pub(crate) fn media_filename_for_kind(
     }
 }
 
-/// `unsigned.age` in milliseconds, when the server sent one.
 fn unsigned_age_ms(age: Option<matrix_sdk::ruma::Int>) -> Option<u64> {
     age.map(|age| i64::from(age).max(0) as u64)
 }
 
-/// Write `backlog` on a sync-handler payload (see syncnotify::CatchupClock)
-/// and return it.
 fn mark_sync_backlog(
     notify: &syncnotify::SyncNotify,
     event: &mut serde_json::Value,
@@ -12892,10 +10858,6 @@ fn mark_sync_backlog(
     backlog
 }
 
-/// Whether a redaction by `redactor` removes an event sent by
-/// `target_sender` (`None`: not in the local cache). `can_redact_others`:
-/// the room's power levels let `redactor` redact other people's events
-/// (`None`: unknown). Only a positive refusal refuses.
 fn redaction_applies(
     target_sender: Option<&matrix_sdk::ruma::UserId>,
     redactor: &matrix_sdk::ruma::UserId,
@@ -12907,37 +10869,28 @@ fn redaction_applies(
     }
 }
 
-/// The event's `origin_server_ts` from the local event cache, with no request.
 async fn cached_event_ts(room: &Room, event_id: &EventId) -> Option<u64> {
     let (cache, _drop_handles) = room.event_cache().await.ok()?;
     let event = cache.find_event(event_id).await.ok()??;
     event.raw().get_field::<u64>("origin_server_ts").ok().flatten()
 }
 
-/// The room's current `m.fully_read` event, from the local account data.
 async fn current_fully_read(room: &Room) -> Option<OwnedEventId> {
     use matrix_sdk::ruma::events::fully_read::FullyReadEventContent;
     let raw = room.account_data_static::<FullyReadEventContent>().await.ok()??;
     raw.deserialize().ok().map(|event| event.content.event_id)
 }
 
-/// Whether moving `m.fully_read` from an event at `current_ts` to one at
-/// `new_ts` would move it backwards. Unknown on either side is not proof of
-/// that, so it never refuses.
 fn fully_read_would_move_back(current_ts: Option<u64>, new_ts: Option<u64>) -> bool {
     matches!((current_ts, new_ts), (Some(current), Some(new)) if new < current)
 }
 
-/// The sender of an event this device already holds in its event cache. Never
-/// a request: `None` when the cache does not have it.
 async fn cached_event_sender(room: &Room, event_id: &EventId) -> Option<OwnedUserId> {
     let (cache, _drop_handles) = room.event_cache().await.ok()?;
     let event = cache.find_event(event_id).await.ok()??;
     event.raw().get_field::<OwnedUserId>("sender").ok().flatten()
 }
 
-/// `(replaces_event_id, thread_root_id)` from an encrypted event's cleartext
-/// `m.relates_to`, empty when absent.
 fn encrypted_relation_ids(
     relation: Option<&matrix_sdk::ruma::events::room::encrypted::Relation>,
 ) -> (String, String) {
@@ -12951,9 +10904,6 @@ fn encrypted_relation_ids(
     }
 }
 
-/// The event a message replies to, empty when it is not a reply. A thread
-/// message counts only when its `m.in_reply_to` is real rather than the
-/// fallback every thread message carries for clients without threads.
 fn reply_target_of<C>(
     relation: Option<&matrix_sdk::ruma::events::room::message::Relation<C>>,
 ) -> String {
@@ -12969,10 +10919,6 @@ fn reply_target_of<C>(
     }
 }
 
-/// The `timeline_event` payload for one room message, before its push
-/// verdict and backlog mark. Shared by the sync handler and the late
-/// decryption path, so a message reads the same whichever way it arrived.
-/// `None` for an in-room verification request, which is not a message.
 fn room_message_event_json(
     content: &RoomMessageEventContent,
     event_id: &EventId,
@@ -12982,9 +10928,6 @@ fn room_message_event_json(
     is_encrypted: bool,
 ) -> Option<serde_json::Value> {
     use matrix_sdk::ruma::events::room::message::Relation;
-    // An MSC4274 gallery arrives as the row of its primary item, as in the
-    // live producer, captioned with the gallery caption, never Sable's
-    // generated `[name: mxc://…]` body.
     let gallery = crate::timeline::parse_gallery(&content.msgtype)
         .filter(|g| !g.items.is_empty());
     let row_msgtype = match &gallery {
@@ -12995,10 +10938,6 @@ fn room_message_event_json(
             .unwrap_or(&g.items[0]),
         None => &content.msgtype,
     };
-    // See typed_message_row_kind. A msgtype with no typed row (a server
-    // notice, a bridge's or bot's custom type) is forwarded as text with its
-    // body: the push rules notify for any m.room.message, and the open room
-    // and the reload path already show its body.
     let kind = match typed_message_row_kind(row_msgtype.msgtype()) {
         Some(kind) => kind,
         None if matches!(row_msgtype, MessageType::VerificationRequest(_)) => return None,
@@ -13006,14 +10945,11 @@ fn room_message_event_json(
     };
     let body = match &gallery {
         Some(g) => g.caption.clone(),
-        // Text-like bodies only: a media body is a filename.
         None if matches!(kind, "text" | "notice" | "emote") => {
             crate::timeline::strip_reply_fallback(content.body()).to_owned()
         }
         None => content.body().to_owned(),
     };
-    // MSC2530's `filename`, as in the live producer. A multi-item gallery has
-    // no single name.
     let explicit_filename = match row_msgtype {
         MessageType::File(content) => content.filename.as_deref(),
         MessageType::Image(content) => content.filename.as_deref(),
@@ -13026,8 +10962,6 @@ fn room_message_event_json(
         _ => media_filename_for_kind(kind, row_msgtype.body(), explicit_filename),
     };
 
-    // Notification metadata for rooms without a live timeline: m.mentions and
-    // the m.thread root, matching the live-timeline payload.
     let (mentions_me, mentions_room) = match &content.mentions {
         Some(mentions) => (mentions.user_ids.contains(own_user_id), mentions.room),
         None => (false, false),
@@ -13036,11 +10970,6 @@ fn room_message_event_json(
         Some(Relation::Thread(thread)) => thread.event_id.to_string(),
         _ => String::new(),
     };
-    // An edit is not a new message: its body is the "* " fallback, so the
-    // replacement text travels as `new_body`. C++ keeps an edit out of the
-    // room's preview, order and mirror, and still notifies (an edit that newly
-    // mentions you notifies: .m.rule.is_user_mention precedes
-    // .m.rule.suppress_edits).
     let (replaces_event_id, new_body) = match &content.relates_to {
         Some(Relation::Replacement(replacement)) => (
             replacement.event_id.to_string(),
@@ -13066,13 +10995,10 @@ fn room_message_event_json(
         "in_reply_to": reply_target_of(content.relates_to.as_ref()),
         "replaces_event_id": replaces_event_id,
         "new_body": new_body,
-        // Legacy field for C++ builds that still read `decrypted`.
         "decrypted": is_encrypted,
     }))
 }
 
-/// Opt-in correlation across sync, late decryption and the aggregated Set.
-/// Same hashed IDs as C++; never content, ciphertext or key material.
 fn trace_remote_edit(stage: &str, event_id: &str, target: &str, encrypted: bool) {
     if !target.is_empty() && std::env::var_os("LIGHTNING_EDIT_TRACE").is_some() {
         eprintln!("edit-trace stage={stage} edit={} target={} encrypted={encrypted}",
@@ -13080,14 +11006,12 @@ fn trace_remote_edit(stage: &str, event_id: &str, target: &str, encrypted: bool)
     }
 }
 
-/// What a poll-start row needs, from either the stable or the unstable type.
 struct PollStart {
     question: String,
     thread_root_id: String,
     in_reply_to: String,
 }
 
-/// `None` for a poll edit, which is not a new poll.
 fn unstable_poll_start(
     content: &matrix_sdk::ruma::events::poll::unstable_start::UnstablePollStartEventContent,
 ) -> Option<PollStart> {
@@ -13113,7 +11037,6 @@ fn unstable_poll_start(
     Some(PollStart { question: content.poll_start.question.text.clone(), thread_root_id, in_reply_to })
 }
 
-/// `None` for a poll edit, which is not a new poll.
 fn stable_poll_start(
     content: &matrix_sdk::ruma::events::poll::start::PollStartEventContent,
 ) -> Option<PollStart> {
@@ -13140,8 +11063,6 @@ fn stable_poll_start(
     })
 }
 
-/// A poll start as a `timeline_event` payload (kind `poll`, the question as
-/// its body), before its push verdict and backlog mark.
 fn poll_event_json(
     poll: &PollStart,
     event_id: &EventId,
@@ -13170,14 +11091,6 @@ fn poll_event_json(
     })
 }
 
-/// The `event_decrypted` payload's `event` for an event the sync handler
-/// forwarded as undecryptable and the event-cache redecryptor has since
-/// decrypted: the same shape as a `timeline_event`, with the push verdict
-/// computed on the DECRYPTED content (so m.mentions and keywords count, as
-/// in Element X), and the `backlog` mark the undecryptable copy carried.
-///
-/// Read from the local event cache only; `None` when the event is gone, still
-/// encrypted, or not a message or poll.
 async fn decrypted_event_json(
     room: &Room,
     event_id: &EventId,
@@ -13189,7 +11102,6 @@ async fn decrypted_event_json(
     };
     let (cache, _drop_handles) = room.event_cache().await.ok()?;
     let cached = cache.find_event(event_id).await.ok()??;
-    // Only a decryption counts: anything else is still the encrypted envelope.
     cached.encryption_info()?;
     let raw = cached.raw().clone();
     let mut event = match raw.deserialize().ok()? {
@@ -13226,17 +11138,12 @@ async fn decrypted_event_json(
     if let Some(object) = event.as_object_mut() {
         object.insert("backlog".to_owned(), backlog.into());
     }
-    // The redecryptor stores the actions it computed on the decrypted event;
-    // without a push context it had none, and the rules are asked here (with
-    // SyncVerdicts' fallback context when the SDK cannot build one).
     let verdict = match cached.push_actions() {
         Some(actions) => verdicts.verdict(room, actions, raw.json()).await,
         None => match room.push_context().await.ok().flatten() {
             Some(context) => Some(push_verdict::PushVerdict::from_actions(
                 &context.for_event(&raw).await,
             )),
-            // No context now, so no actions to read: the fallback alone, never
-            // "quiet" for a room once remembered as having our member.
             None => verdicts.without_sdk_context(room, raw.json()).await,
         },
     };
@@ -13248,14 +11155,7 @@ async fn decrypted_event_json(
     Some(event)
 }
 
-/// The handlers that feed only UI state (typing, member and power pokes,
-/// pins, DM avatars, tombstones, chat backgrounds, synced settings, account
-/// prefs, sticker packs, admin deletions). A Background handle installs none
-/// of them (design §3.2.3, R2-H4); a handle promoted to the foreground
-/// (`mx_rust_bg_promote`, warm account adoption) installs them then, once.
 fn install_ui_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>>>) {
-    // m.typing replaces the room's whole typing set each time. Bound display
-    // metadata resolution while keeping enough ids for one/two/many wording.
     let typing_events = Arc::clone(&events);
     let own_user = client.user_id().map(ToOwned::to_owned);
     client.add_event_handler(move |ev: SyncTypingEvent, room: Room| {
@@ -13278,14 +11178,6 @@ fn install_ui_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>
             }));
         }
     });
-    // Membership changes from sync: a per-room poke so an open People panel
-    // and the mention roster refetch (sync produces no members snapshot).
-    // Only the room id crosses.
-    //
-    // Rate-limited per room: m.room.member also covers profile changes, and a
-    // bridged room can sync several per second. At most one leading poke per
-    // second, plus one trailing poke per suppressed burst so the last change
-    // is not missed.
     let member_events = Arc::clone(&events);
     let member_poke_state: Arc<Mutex<HashMap<OwnedRoomId, (std::time::Instant, bool)>>> =
         Arc::new(Mutex::new(HashMap::new()));
@@ -13301,7 +11193,7 @@ fn install_ui_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>
                 match state.get_mut(&room_id) {
                     Some((last, trailing)) if now.duration_since(*last) < WINDOW => {
                         if *trailing {
-                            return; // a trailing poke is already scheduled
+                            return;
                         }
                         *trailing = true;
                         let events = Arc::clone(&events);
@@ -13336,9 +11228,6 @@ fn install_ui_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>
         }
     });
 
-    // Another client changed `m.room.pinned_events`. Only the room id crosses;
-    // C++ re-reads through the normal fetch, so remote and local pins take the
-    // same path. Not rate-limited: pinning happens at human frequency.
     let pinned_events = Arc::clone(&events);
     client.add_event_handler(move |_ev: SyncRoomPinnedEventsEvent, room: Room| {
         let events = Arc::clone(&pinned_events);
@@ -13350,10 +11239,6 @@ fn install_ui_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>
         }
     });
 
-    // A DM peer's own member event: the avatar that conversation wears now,
-    // so its row follows a changed face (DirectAvatarResolver asks the
-    // profile once per session). Only the m.direct target's own join
-    // crosses; human-paced, so not throttled like the poke above.
     let peer_avatar_events = Arc::clone(&events);
     client.add_event_handler(move |ev: SyncRoomMemberEvent, room: Room| {
         let events = Arc::clone(&peer_avatar_events);
@@ -13368,10 +11253,6 @@ fn install_ui_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>
         }
     });
 
-    // m.room.tombstone: the room was replaced, and the "continue in successor"
-    // banner must appear immediately. Not rate-limited (once per room
-    // lifetime). Carries the successor id, taken from the SDK's
-    // `successor_room()` so there is one parse path.
     let tombstone_events = Arc::clone(&events);
     client.add_event_handler(move |_ev: SyncRoomTombstoneEvent, room: Room| {
         let events = Arc::clone(&tombstone_events);
@@ -13387,37 +11268,19 @@ fn install_ui_event_handlers(client: &Client, events: Arc<Mutex<VecDeque<String>
         }
     });
 
-    // A shared chat background changed (Lightning's own state event, which
-    // sliding sync never delivers as state). Only the room id crosses; C++
-    // re-reads the scopes it shows. See backdrop::install_change_handler.
     backdrop::install_change_handler(client, Arc::clone(&events));
 
-    // This account's personal backgrounds changed in account data (another
-    // device set or removed one, or our own write came back). Only the scope
-    // crosses; C++ re-reads it. See bgsync::install_change_handlers.
     bgsync::install_change_handlers(client, Arc::clone(&events));
-    // Synced preferences (settingsync.rs): same pattern, one payload.
     settingsync::install_change_handlers(client, Arc::clone(&events));
 
-    // MSC4278 media-preview config and Element's recent emoji changed in
-    // account data. Only the type crosses; C++ re-reads it.
     accountprefs::install_change_handlers(client, Arc::clone(&events));
 
-    // Image packs or subscriptions changed (another device, another room
-    // member, or our own write's echo): only the room id (or nothing, for
-    // account data) crosses; C++ re-reads. See stickers::install_change_handlers.
     stickers::install_change_handlers(client, Arc::clone(&events));
 
-    // A room an administrator deleted from another of the user's sessions
-    // (serveradmin.rs): the server purged it, so sync never says it is gone.
     serveradmin::install_deleted_room_handler(client, Arc::clone(&events));
 
-    // Opt-in (LIGHTNING_IO_TRACE): per-thread disk-write counters, see iotrace.rs.
     iotrace::start_if_enabled(Arc::clone(&events));
 
-    // A power-level change invalidates cached permission flags now. Routed
-    // through the existing members poke, since the member snapshot carries
-    // both per-member levels and the viewer's own permissions.
     let power_level_events = Arc::clone(&events);
     client.add_event_handler(move |_ev: SyncRoomPowerLevelsEvent, room: Room| {
         let events = Arc::clone(&power_level_events);
@@ -13438,8 +11301,6 @@ fn install_event_handlers(
     active_qr: KeyedFlowSlot<QrVerification>,
     sync_notify: Arc<syncnotify::SyncNotify>,
 ) {
-    // Labs: whether this client belongs to a Background handle. Always false
-    // with the flag off (`for_queue` returns at one relaxed load).
     let background = bgsession::for_queue(&events).is_some();
     // Warm account adoption (live 2026-10-26): `EventCache::subscribe()`
     // spawns the one task that stores sync responses in the event cache, ONCE
@@ -13459,21 +11320,6 @@ fn install_event_handlers(
             }));
         }
     }
-    // A to-device handler on `m.room.encrypted` fires exactly for events the SDK
-    // could not decrypt: matrix-sdk hands those to handlers as the original
-    // envelope, while decrypted ones dispatch under their inner type. This
-    // distinguishes "the peer never sent it" from "it arrived and we cannot
-    // read it".
-    //
-    // It cannot say which cause (missing ciphertext for our key, unknown
-    // sender device keys, or STRICT_DEVICE_TRUST refusing it). The reason is on
-    // `SyncResponse.to_device`, which matrix-sdk 0.18 exposes only via the
-    // classic sync callback, not the sliding-sync path; use the SDK tracing
-    // bridge to separate them.
-    //
-    // Sanitized and rate limited: sender id and a count only (first, tenth,
-    // every hundredth). rtc.rs has a second handler on this type for peers we
-    // sent a call key to; both are intentional.
     let utd_events = Arc::clone(&events);
     let utd_counts: Arc<Mutex<HashMap<OwnedUserId, u64>>> =
         Arc::new(Mutex::new(HashMap::new()));
@@ -13483,7 +11329,6 @@ fn install_event_handlers(
         async move {
             let count = {
                 let Ok(mut guard) = counts.lock() else { return };
-                // Bounded: a diagnostic, not a ledger.
                 if guard.len() > 256 {
                     guard.clear();
                 }
@@ -13501,10 +11346,6 @@ fn install_event_handlers(
         }
     });
 
-    // Incoming verification requests. matrix-sdk 0.18 has no public request
-    // stream, so a to-device handler observes them and hydrates the request via
-    // `get_verification_request(user, flow_id)`. Only flow id, mxid, device id,
-    // is_self_verification, SAS emoji and a QR module grid ever cross the FFI.
     let verif_events = Arc::clone(&events);
     let verif_slot = Arc::clone(&active_request);
     let verif_sas_slot = Arc::clone(&active_sas);
@@ -13530,20 +11371,8 @@ fn install_event_handlers(
                     return;
                 };
 
-                // The peer's device id tells the user which session is asking. It comes
-                // from the request state; `their_supported_methods()` only lists methods.
                 let (other_device_id, other_device_name) = request_other_device(&request);
 
-                // Labs, Background (design §3.2.8, R1-M5): never parked and
-                // never auto-cancelled. The notice is the request's only
-                // trace here; the request stays pending in the SDK for the
-                // account's foreground session or another device to answer.
-                // It leaves the sticky slot on the requester's cancellation
-                // (the handler below) or after the SDK's timeout
-                // (`bgsession::PENDING_VERIFICATION_TTL`); nothing here holds
-                // the request, whose handle keeps a Client. Asked per event,
-                // not captured at install: an adopted handle is promoted to
-                // the foreground after its handlers were installed.
                 if bgsession::for_queue(&events).is_some() {
                     enqueue(
                         &events,
@@ -13560,10 +11389,6 @@ fn install_event_handlers(
                     return;
                 }
 
-                // Never evict a live flow: overwriting it orphaned the running driver,
-                // whose cleanup then cleared the newcomer's handle. A dead occupant is
-                // cleared in passing. Cancel the newcomer on the wire rather than leave
-                // the peer to the SDK's 10-minute timeout; it is not surfaced in the UI.
                 if flow_slots_are_live(&slot, &sas_slot, &qr_slot) {
                     let _ = request.cancel().await;
                     return;
@@ -13585,26 +11410,17 @@ fn install_event_handlers(
                 if let Ok(mut g) = slot.lock() {
                     *g = Some(request);
                 }
-                // Not a verification task: it holds no Client between ticks.
                 tokio::spawn(watch_pending_request(Arc::clone(&slot), Arc::clone(&events), watched_flow));
             }
         },
     );
 
-    // Labs, Background: a pending request is withdrawn from the sticky slot
-    // when its requester (or another of our devices, `m.accepted`) cancels
-    // it on the wire (review 2026-10-16, finding 4). Event-driven, so no
-    // task holds the request or a Client for its ten minutes. The sender
-    // goes along: the slot honours a cancellation only from the party that
-    // asked.
     if background {
         let cancel_events = Arc::clone(&events);
         client.add_event_handler(
             move |ev: matrix_sdk::ruma::events::key::verification::cancel::ToDeviceKeyVerificationCancelEvent| {
                 let events = Arc::clone(&cancel_events);
                 async move {
-                    // Promoted to the foreground since: its own flows report
-                    // cancellations, and this one would duplicate them.
                     if bgsession::for_queue(&events).is_none() {
                         return;
                     }
@@ -13622,21 +11438,10 @@ fn install_event_handlers(
         );
     }
 
-    // Labs: a Background handle installs none of these. Each feeds only UI
-    // state (typing, member and power pokes, pins, DM avatars, tombstones,
-    // backgrounds, synced settings, account prefs, admin deletions), and the
-    // typing one reads the member store per event: skipped at the source,
-    // not just dropped at the queue (design §3.2.3, R2-H4).
     if !background {
         install_ui_event_handlers(client, Arc::clone(&events));
     }
 
-    // Room messages, decrypted or plaintext (the SDK dispatches both here).
-    // `encryption_info` is Some only when the SDK decrypted the payload, which
-    // gives C++ its (is_encrypted, is_decrypted) pair. Ciphertext is never
-    // forwarded; the encrypted handler below sends an empty body instead.
-    // `push_actions` are the account's push rules for the event as the SDK
-    // evaluated them during this sync; see push_verdict::SyncVerdicts.
     let sync_verdicts = push_verdict::SyncVerdicts::default();
     let plaintext_events = Arc::clone(&events);
     let plaintext_verdicts = sync_verdicts.clone();
@@ -13685,10 +11490,6 @@ fn install_event_handlers(
         },
     );
 
-    // Poll starts (MSC3381, stable and unstable). `.m.rule.poll_start` and
-    // `.m.rule.poll_start_one_to_one` notify under the default rules, and the
-    // open-room path already emits a poll row; without these a poll in a room
-    // with no open timeline was never seen. An edited poll is not a new one.
     let poll_events = Arc::clone(&events);
     let poll_verdicts = sync_verdicts.clone();
     let poll_notify = Arc::clone(&sync_notify);
@@ -13768,10 +11569,6 @@ fn install_event_handlers(
         },
     );
 
-    // Redactions in every room, so C++ can withdraw a notification or an
-    // Activity row whose message (or reaction) was deleted. Ids only; the
-    // reason is never forwarded. `redacts` moved from the event into its
-    // content between room versions, so both are read (as localsearch does).
     let redaction_events = Arc::clone(&events);
     client.add_event_handler(
         move |ev: matrix_sdk::ruma::events::room::redaction::SyncRoomRedactionEvent,
@@ -13817,11 +11614,6 @@ fn install_event_handlers(
         },
     );
 
-    // Reactions from sync in any room, for the Activity Center (the timeline
-    // diff stream covers only the open room). Ids, sender and a bounded key
-    // cross. `target_is_own` comes from the local event cache only (no
-    // request): C++'s own-event set holds only what this session sent, so a
-    // reaction to an older message of ours was dropped there.
     let reaction_events = Arc::clone(&events);
     let reaction_notify = Arc::clone(&sync_notify);
     client.add_event_handler(
@@ -13856,15 +11648,6 @@ fn install_event_handlers(
         },
     );
 
-    // Encrypted messages the SDK could not decrypt. Without this they vanish
-    // and the room looks empty. Emits a placeholder row with
-    // `undecryptable = true` and no ciphertext. `error_kind` is always
-    // "no_key": this path exposes no finer reason in 0.18.
-    //
-    // Each one is remembered (bounded, per session) so that when the
-    // event-cache redecryptor resolves it, the crypto observer re-emits it
-    // ONCE as `event_decrypted` with a verdict computed on the decrypted
-    // content (see `decrypted_event_json`).
     let encrypted_events = Arc::clone(&events);
     let encrypted_notify = Arc::clone(&sync_notify);
     client.add_event_handler(
@@ -13876,17 +11659,12 @@ fn install_event_handlers(
             let verdicts = sync_verdicts.clone();
             let notify = Arc::clone(&encrypted_notify);
             async move {
-                // m.relates_to is outside the ciphertext: an edit that cannot be
-                // decrypted yet is still not a new message, and a thread reply
-                // still belongs to its thread (§8; the live producer reads the
-                // same field in timeline.rs `cleartext_thread_root`).
                 let (replaces_event_id, thread_root_id) = encrypted_relation_ids(
                     ev.content.relates_to.as_ref());
                 trace_remote_edit("undecryptable", ev.event_id.as_str(), &replaces_event_id, true);
                 let mut event = json!({
                     "event_id": ev.event_id.to_string(),
                     "sender": ev.sender.to_string(),
-                    // Empty body triggers the placeholder in C++.
                     "body": "",
                     "msgtype": "encrypted",
                     "timestamp_ms": u64::from(ev.origin_server_ts.get()),
@@ -13896,7 +11674,6 @@ fn install_event_handlers(
                     "error_kind": "no_key",
                     "replaces_event_id": replaces_event_id,
                     "thread_root_id": thread_root_id,
-                    // Legacy field for older C++ builds.
                     "decrypted": false,
                 });
                 let backlog = mark_sync_backlog(
@@ -13906,7 +11683,6 @@ fn install_event_handlers(
                     unsigned_age_ms(ev.unsigned.age),
                 );
                 notify.remember_utd(room.room_id(), &ev.event_id, backlog);
-                // Undecryptable, so the rules saw the encrypted event.
                 push_verdict::PushVerdict::write(
                     verdicts.verdict(&room, &push_actions, &raw).await,
                     &mut event,
@@ -13938,27 +11714,18 @@ async fn run_authoritative_sync(
     sync_notify: Arc<syncnotify::SyncNotify>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) {
-    // Labs: a Background handle observes no calls (incoming-call notification
-    // is Phase 5) and runs the room-summary aggregator for its life instead.
     let background = bgsession::for_queue(&events);
-    // Call-signalling handlers live as long as this sync loop; their drop
-    // guards unregister them on any exit, so none fires into a later account.
     let _call_guards = background.is_none().then(|| calls::register_handlers(
         &client, &events, &timelines, &call_media_capable, &active_subscription,
         &room_list_slot));
-    // MatrixRTC observation shares that lifetime; kept separate because it
-    // tracks who is in a call, not who is inviting whom.
     let _rtc_guards = background
         .is_none()
         .then(|| rtc::register_rtc_handlers(&client, &events, &timelines));
-    // Aborted with this loop on any exit (the guard), and by teardown.
     let _aggregator = background.as_ref().map(|bg| {
         let task = tokio::spawn(bgsession::run_aggregator(client.clone(), Arc::clone(bg)));
         bg.set_aggregator(Some(task.abort_handle()));
         AbortOnDrop(task.abort_handle())
     });
-    // Labs: Background retries are jittered so live accounts do not retry in
-    // step against one server (design §3.2.11).
     let mut jitter = background.as_ref().map(|_| labs::Jitter::seeded(0x5eed));
     let mut probe_failures = 0u32;
     // The local search index holds decrypted plaintext by exception (§6), on
@@ -13970,14 +11737,6 @@ async fn run_authoritative_sync(
 
     set_sync_mode(&sync_mode, &events, SyncMode::Probing, None);
 
-    // Probe the capability matrix-sdk's Sliding Sync v5 uses. A failed
-    // /versions request is connectivity, not incompatibility: stay `Probing`
-    // and report offline while retrying.
-    //
-    // Bounded (issue #2): matrix-sdk retries a 5xx/429 answer inside the
-    // request itself, silently, for up to 15 minutes, so an unbounded probe
-    // against a failing gateway kept the UI on "Loading rooms…" with nothing
-    // reported. A timeout is treated like any other failed probe.
     let modern_supported = loop {
         let probe = tokio::select! {
             _ = &mut cancel => return,
@@ -14018,9 +11777,6 @@ async fn run_authoritative_sync(
         set_sync_mode(
             &sync_mode, &events, SyncMode::ClassicSyncFallback, Some("unsupported")
         );
-        // Only here, not after a modern-sync fallback: that session subscribed
-        // the cache from its start, and its rooms may already be watched for
-        // previews, which a clear would blank.
         let views = Arc::clone(&timelines);
         let generation = Arc::clone(&timelines);
         repair_classic_event_cache_once(
@@ -14035,7 +11791,6 @@ async fn run_authoritative_sync(
     }
 }
 
-/// Aborts a task when dropped: ties a spawned helper to a loop's lifetime.
 struct AbortOnDrop(tokio::task::AbortHandle);
 
 impl Drop for AbortOnDrop {
@@ -14065,9 +11820,6 @@ fn authentication_error(error: &UnifiedSyncError) -> bool {
     matches!(unified_error_kind(error), Some(ErrorKind::UnknownToken { .. } | ErrorKind::Forbidden))
 }
 
-/// The `room_list_error` category for an authentication error the modern lane
-/// is retrying. Names the errcode so a log can tell the two apart; a literal,
-/// never server text.
 fn authentication_retry_category(error: &UnifiedSyncError) -> &'static str {
     match unified_error_kind(error) {
         Some(ErrorKind::Forbidden) => "authentication_retry_forbidden",
@@ -14075,21 +11827,6 @@ fn authentication_retry_category(error: &UnifiedSyncError) -> &'static str {
     }
 }
 
-/// Consecutive authentication errors the modern lane rebuilds through before it
-/// declares the session unauthorized. A Running edge resets the count.
-///
-/// Why any: a 401 from sliding sync does not prove the session is dead.
-/// Verified in matrix-sdk 0.18 (`client/futures.rs`): on a 401 it refreshes and
-/// retries ONCE, and a 401 on that retry is returned as-is, without
-/// broadcasting `SessionChange::UnknownToken`. The LIKELY cause of such a retry
-/// failing, NOT YET CAPTURED: MAS revokes the access token paired with every
-/// refresh token it consumes (`refresh_token_grant`), so a second refresh in the
-/// same burst of 401s on an expired token would revoke the token the first
-/// one's retry carries. Parking on the first such error killed the room list for
-/// the session while every other request kept working (matrix.org, 2026-10-07;
-/// intermittent, a re-run synced fine). A session that really is dead is
-/// reported by the SDK itself (`session_token_revoked`, which detaches it), and
-/// a server that keeps refusing still ends in `Failed`, after the bound.
 const MODERN_AUTH_RETRY_LIMIT: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14098,18 +11835,12 @@ pub(crate) enum ModernAuthVerdict {
     Fatal,
 }
 
-/// The modern lane's count of consecutive authentication errors. One instance
-/// lives for the whole lane, across supervisor rebuilds; `on_running` is the
-/// reset, called on the room list's Running edge, so the bound is per spell of
-/// refusals and not per session (an intermittent race recurs over a long
-/// session and must not accumulate towards `Fatal`).
 #[derive(Debug, Default)]
 pub(crate) struct AuthRetryBudget {
     consecutive: u32,
 }
 
 impl AuthRetryBudget {
-    /// Record one authentication error and say whether to rebuild or give up.
     pub(crate) fn on_auth_error(&mut self) -> ModernAuthVerdict {
         self.consecutive = self.consecutive.saturating_add(1);
         if self.consecutive > MODERN_AUTH_RETRY_LIMIT {
@@ -14119,28 +11850,17 @@ impl AuthRetryBudget {
         }
     }
 
-    /// The server answered this session: earlier refusals are behind us.
     pub(crate) fn on_running(&mut self) {
         self.consecutive = 0;
     }
 }
 
-/// What one failed classic `/sync` means for the loop that issued it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ClassicSyncFault {
-    /// The session is gone. Stop and never retry a revoked token.
     Fatal,
-    /// Everything else. Keep syncing.
     Transient,
 }
 
-/// Classify a classic-sync failure from the server's errcode. Pure over
-/// `ErrorKind` so it is testable; the caller extracts it.
-///
-/// The default is `Transient`: a dropped connection has no errcode (`None`),
-/// and matrix-sdk does not retry network failures without a `retry_limit`,
-/// so treating it as fatal turned a brief Wi-Fi drop into the end of sync.
-/// The fatal set mirrors the modern lane's `authentication_error`.
 pub(crate) fn classify_classic_sync_error(kind: Option<&ErrorKind>) -> ClassicSyncFault {
     match kind {
         Some(ErrorKind::UnknownToken { .. }) | Some(ErrorKind::Forbidden) =>
@@ -14149,22 +11869,14 @@ pub(crate) fn classify_classic_sync_error(kind: Option<&ErrorKind>) -> ClassicSy
     }
 }
 
-/// Backoff between classic-sync attempts by consecutive failures, capped at
-/// about half a minute.
 pub(crate) fn classic_sync_backoff(consecutive_failures: u32) -> std::time::Duration {
     const CEILING_SECS: u64 = 30;
     let secs = 1u64 << consecutive_failures.min(5);
     std::time::Duration::from_secs(secs.min(CEILING_SECS))
 }
 
-/// Consecutive failures before "offline" escalates to a visible error. One
-/// report per outage; a success clears it.
 const CLASSIC_SYNC_REPORT_AFTER: u32 = 5;
 
-/// Run matrix-sdk-ui's unified sync supervisor (its `EncryptionSyncPermit`
-/// keeps one encryption sliding sync). Returning `Some(cancel)` is the only
-/// way to start classic sync, and happens only for a verified
-/// unsupported-endpoint error.
 async fn run_modern_sync(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
@@ -14175,19 +11887,11 @@ async fn run_modern_sync(
     sync_notify: Arc<syncnotify::SyncNotify>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) -> Option<tokio::sync::oneshot::Receiver<()>> {
-    // Everything from before this session is history to the sync handlers;
-    // see syncnotify::CatchupClock for the edges below.
     sync_notify.catchup.begin(push_verdict::now_ms());
-    // Labs: a Background handle keeps sync, crypto and the latest-event watch
-    // maintenance, and skips every UI producer at its source (design §3.2.3):
-    // no room-list serialization, no spaces, no blank-preview looks, no
-    // response-harvested recency. Its retries are jittered. None: today.
     let background = bgsession::for_queue(&events);
     let mut jitter = background.as_ref().map(|_| labs::Jitter::seeded(0x0dd5));
     let mut rebuilds = 0u32;
     let mut watch_stamps: HashMap<OwnedRoomId, u64> = HashMap::new();
-    // Withdraws the published RoomListService on every exit path; a handle
-    // outliving the loop would accept subscriptions that go nowhere.
     struct RoomListPublication(Arc<Mutex<Option<Arc<RoomListService>>>>);
     impl RoomListPublication {
         fn set(&self, service: Option<Arc<RoomListService>>) {
@@ -14203,8 +11907,6 @@ async fn run_modern_sync(
     }
     let publication = RoomListPublication(room_list_slot);
 
-    // Same for the dynamic-entries controller, which `mx_rust_resync_rooms`
-    // uses; a dropped stream would accept the call and emit nothing.
     struct EntriesPublication(
         Arc<Mutex<Option<Arc<RoomListDynamicEntriesController>>>>,
     );
@@ -14222,10 +11924,6 @@ async fn run_modern_sync(
     }
     let entries_publication = EntriesPublication(entries_slot);
 
-    // One first-response watchdog across every supervisor rebuild, so a silent
-    // sliding lane ("Loading rooms…" forever) is reported. It never cancels
-    // anything: after the last escalation it parks, so it cannot end a
-    // select! and stop a working sync.
     let first_response = Arc::new(AtomicBool::new(true));
     let watchdog_events = Arc::clone(&events);
     let watchdog_first = Arc::clone(&first_response);
@@ -14236,12 +11934,8 @@ async fn run_modern_sync(
     };
     tokio::pin!(watchdog);
 
-    // Consecutive authentication errors; see MODERN_AUTH_RETRY_LIMIT.
     let mut auth_budget = AuthRetryBudget::default();
-    // Rooms that have had their one blank-preview look, for the whole run.
     let mut preview_backfill = previewbackfill::Backfill::default();
-    // Owned by this run and keyed by its account: a run detached after overrunning
-    // its budget cannot clear or write into its successor's results.
     let backfill_results = client
         .user_id()
         .filter(|_| background.is_none())
@@ -14280,9 +11974,6 @@ async fn run_modern_sync(
         let room_list = match room_list_service.all_rooms().await {
             Ok(list) => list,
             Err(_) => {
-                // Not fatal and not parked: take the same bounded rebuild backoff as the
-                // supervisor's own errors. Parking here left a live sync thread doing
-                // nothing and a room list that never arrived.
                 enqueue(&events, json!({ "type": "room_list_error", "category": "setup" }));
                 enqueue(&events, json!({
                     "type": "room_list_sync_state", "state": "offline"
@@ -14301,41 +11992,23 @@ async fn run_modern_sync(
         let (entries, controller) = room_list.entries_with_dynamic_adapters(10_000);
         controller.set_filter(Box::new(filters::new_filter_non_left()));
         tokio::pin!(entries);
-        // Published only now: before `set_filter` there is no stream to reset.
         entries_publication.set(Some(Arc::new(controller)));
-        // The ordered ids forwarded so far, mirroring the emitted diffs. Removals
-        // and pops carry no room in `VectorDiff`, so this lets the producer name
-        // the room instead of C++ deleting `order[index]` unchecked.
         let mut forwarded_order: Vec<OwnedRoomId> = Vec::new();
-        // Background: the same mirror for the watch maintenance alone.
         let mut watch_order: Vec<OwnedRoomId> = Vec::new();
 
         let space_service = SpaceService::new(client.clone()).await;
         let mut unified_state = service.state();
         let mut list_state = room_list_service.state();
-        // Whether the list is currently Running. `list_state` re-emits Running on
-        // every response, so this turns it into an edge; offline/error clear it so
-        // a reconnect is a new edge.
         let mut list_running = false;
-        // The SDK publishes only real m.ignored_user_list changes, local or remote;
-        // forward them directly.
         let mut ignore_list_sub = client.subscribe_to_ignore_user_list_changes();
-        // Bounded latest-event registration state for this sync session.
         let latest_events = client.latest_events().await;
         let mut watched_latest: BTreeSet<OwnedRoomId> = BTreeSet::new();
-        // Response-harvested recency (see harvest_room_activity). Owned by this
-        // loop only.
         let mut room_updates_sub = client.subscribe_to_all_room_updates();
-        // Recency is room-list UI: a Background handle does not harvest it.
         let mut room_updates_live = background.is_none();
         let mut activity_stamps: HashMap<OwnedRoomId, u64> = HashMap::new();
 
-        // Publish the service and apply the room that is already open: on a
-        // restored session it opens before this point, and its subscription-only
-        // state (m.room.pinned_events) would otherwise wait for the next switch.
         publication.set(Some(Arc::clone(&room_list_service)));
         let resubscribe = |service: Arc<RoomListService>| {
-            // Forced: a new or expired session holds no subscription at all.
             let desired = active_subscription
                 .lock()
                 .ok()
@@ -14355,8 +12028,6 @@ async fn run_modern_sync(
         enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
         service.start().await;
         let mut first_sync = true;
-        // Dropped with this iteration, which aborts looks still in flight: a
-        // rebuilt sync session never receives a previous one's result.
         let mut backfill_tasks: tokio::task::JoinSet<(OwnedRoomId, previewbackfill::Outcome)> =
             tokio::task::JoinSet::new();
         let mut last_backfill_scan: Option<std::time::Instant> = None;
@@ -14366,12 +12037,9 @@ async fn run_modern_sync(
                     service.stop().await;
                     return None;
                 }
-                // Never resolves after escalating; polled so the silence is reported.
                 _ = &mut watchdog => {}
                 batch = entries.next() => {
                     let Some(batch) = batch else { break; };
-                    // Background: the watch maintenance alone, split out of the
-                    // serialization (R2-H5), and none of the UI work below.
                     if let Some(bg) = &background {
                         watch_room_list_diffs(batch, latest_events, &mut watched_latest,
                                               &mut watch_stamps, &mut watch_order,
@@ -14383,10 +12051,6 @@ async fn run_modern_sync(
                                             &mut watched_latest,
                                             &mut forwarded_order).await;
                     enqueue_spaces(&events, &space_service, &client).await;
-                    // A blank row (newest event filtered churn, nothing to
-                    // preview) gets one bounded back-page, never before the
-                    // first sync has settled and never more than a few rooms
-                    // per pass.
                     let now_ms = preview_backfill.now_ms();
                     while let Some(done) = backfill_tasks.try_join_next() {
                         if let Ok((room_id, outcome)) = done {
@@ -14400,9 +12064,6 @@ async fn run_modern_sync(
                                 _ => None,
                             };
                             if let (Some(what), Some(results)) = (remembered, &backfill_results) {
-                                // C++ fills a blank row at once; room_payload serves
-                                // the same result on every later payload. An
-                                // undecryptable result carries a flag, never text.
                                 let (preview, ts, utd) = match &what {
                                     previewbackfill::Remembered::Message(p, t) => (p.clone(), *t, false),
                                     previewbackfill::Remembered::Undecryptable(t, _) => (String::new(), *t, true),
@@ -14425,15 +12086,11 @@ async fn run_modern_sync(
                     if backfill_tasks.is_empty() {
                         preview_backfill.clear_in_flight();
                     }
-                    // Scanned at most every few seconds: nothing here needs to
-                    // walk every joined room on every batch.
                     if !first_sync
                         && last_backfill_scan
                             .map_or(true, |at| at.elapsed() >= std::time::Duration::from_secs(3))
                     {
                         last_backfill_scan = Some(std::time::Instant::now());
-                        // Only a room with NO latest event qualifies: not one
-                        // with a local echo or a remote event.
                         let candidates: Vec<OwnedRoomId> = client
                             .joined_rooms()
                             .into_iter()
@@ -14471,10 +12128,6 @@ async fn run_modern_sync(
                                 let rooms: Vec<serde_json::Value> = moved
                                     .into_iter()
                                     .map(|(room_id, ts, undecryptable, event_id)| {
-                                        // Remembered so every later room_payload says
-                                        // so too (merge_remembered), rather than the
-                                        // older message the latest event still holds,
-                                        // until `settle` finds it decrypted by its id.
                                         if let (true, Some(results)) = (undecryptable, &backfill_results) {
                                             results.remember(
                                                 &room_id,
@@ -14493,13 +12146,7 @@ async fn run_modern_sync(
                                 }));
                             }
                         }
-                        // A lagged receiver is a gap, not an end. matrix-sdk's own latest_events
-                        // listener treats `Lagged` as closed and stops for good; that is the
-                        // defect this backstop survives. Stamps are a high-water mark, so a
-                        // dropped batch costs at most one response of recency.
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                        // Cannot happen while we hold the owning Client, but a closed receiver
-                        // returns immediately and would spin this select at 100% CPU.
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                             room_updates_live = false;
                         }
@@ -14514,11 +12161,6 @@ async fn run_modern_sync(
                     }
                 }
                 state = list_state.next() => {
-                    // Any state but Running (Recovering, Error, Terminated) ends a
-                    // running spell: the SDK clears every room subscription when a
-                    // session expires (M_UNKNOWN_POS), so the next Running must
-                    // send the warm set again. The very first Running does not:
-                    // the set went out before the service started.
                     if state.is_some() && !matches!(
                         state, Some(matrix_sdk_ui::room_list_service::State::Running))
                     {
@@ -14532,17 +12174,9 @@ async fn run_modern_sync(
                         enqueue(&events, json!({
                             "type": "room_list_sync_state", "state": "running"
                         }));
-                        // Gated on the edge: the room-list loop sets its state on every response
-                        // and eyeball's `set()` always notifies, so this arm fires per response.
-                        // `set_enabled(true)` walks every room and runs an SQLite query, too
-                        // costly to repeat per response.
                         if !list_running {
                             list_running = true;
                             rebuilds = 0;
-                            // From here an event is news only if it reached the server
-                            // after this edge. Covers the first load too: Running is set
-                            // after rooms 0..99, and the growing list then delivers
-                            // every further room's (old) latest event.
                             sync_notify.catchup.running_edge(push_verdict::now_ms());
                             auth_budget.on_running();
                             client.send_queue().set_enabled(true).await;
@@ -14556,8 +12190,6 @@ async fn run_modern_sync(
                 }
                 state = unified_state.next() => {
                     match state {
-                        // Transient loss keeps the mode; only the connection indicator reports
-                        // offline. The supervisor reconnects itself.
                         Some(UnifiedSyncState::Offline) => {
                             list_running = false;
                             sync_notify.catchup.connection_lost();
@@ -14569,11 +12201,7 @@ async fn run_modern_sync(
                             list_running = false;
                             sync_notify.catchup.connection_lost();
                             service.stop().await;
-                            // The only path to classic sync: a positively classified unsupported
-                            // endpoint.
                             if unsupported_modern_error(&error) { return Some(cancel); }
-                            // Authentication failure: never a downgrade, and fatal only
-                            // past a bounded number of rebuilds (MODERN_AUTH_RETRY_LIMIT).
                             if authentication_error(&error) {
                                 if auth_budget.on_auth_error() == ModernAuthVerdict::Fatal {
                                     set_sync_mode(&sync_mode, &events, SyncMode::Failed, None);
@@ -14583,13 +12211,11 @@ async fn run_modern_sync(
                                     let _ = (&mut cancel).await;
                                     return None;
                                 }
-                                // Logged by C++ as a retrying error; not shown as one.
                                 enqueue(&events, json!({
                                     "type": "room_list_error",
                                     "category": authentication_retry_category(&error)
                                 }));
                             }
-                            // Otherwise (or a retried auth error): keep the mode, report offline, rebuild.
                             enqueue(&events, json!({
                                 "type": "room_list_sync_state", "state": "offline"
                             }));
@@ -14603,9 +12229,7 @@ async fn run_modern_sync(
         }
 
         service.stop().await;
-        // This iteration's stream is gone, so withdraw its controller.
         entries_publication.set(None);
-        // Bounded backoff before rebuilding; cancellation exits immediately.
         tokio::select! {
             _ = &mut cancel => return None,
             _ = tokio::time::sleep(retry_pause(&mut jitter, &mut rebuilds)) => {
@@ -14617,16 +12241,12 @@ async fn run_modern_sync(
     }
 }
 
-/// Escalation points for a missing first classic-sync response. Generous:
-/// the first request is full-state and heavy on large accounts.
 const FIRST_SYNC_STALL_STEPS: &[std::time::Duration] = &[
     std::time::Duration::from_secs(60),
     std::time::Duration::from_secs(180),
     std::time::Duration::from_secs(600),
 ];
 
-/// Report at each step that no first sync response has arrived. Returns as
-/// soon as one lands. Separate so it can be tested with short steps.
 async fn watch_first_sync_response(
     events: &Arc<Mutex<VecDeque<String>>>,
     first_response: &Arc<AtomicBool>,
@@ -14637,7 +12257,7 @@ async fn watch_first_sync_response(
         tokio::time::sleep(step.saturating_sub(waited)).await;
         waited = *step;
         if !first_response.load(Ordering::SeqCst) {
-            return; // the response landed; nothing to report
+            return;
         }
         enqueue(events, json!({
             "type": "sync_stalled",
@@ -14647,35 +12267,12 @@ async fn watch_first_sync_response(
     }
 }
 
-/// How long the sync-lane `/versions` probe may take. One attempt is capped
-/// by the client's 30 s request timeout; past that the SDK is retrying a
-/// 5xx/429 internally, which it does silently for up to 15 minutes.
 const SYNC_PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(45);
 
-/// How long a classic sync loop may go without delivering a single callback
-/// (success or failure) before it is reported, and then restarted (issue #2).
-///
-/// One `/sync` attempt cannot legitimately be this quiet: the client's request
-/// timeout is 30 s and the long-poll adds 30 s, and a failed attempt reaches
-/// the callback. What is this quiet is matrix-sdk retrying a 5xx/429 answer
-/// INSIDE the request (backoff 0.5-60 s, up to 15 minutes in total, invisible
-/// to the callback, no socket open between tries), the same retry inside the
-/// E2EE requests `sync_once` sends first, or a lock wait. Processing a large
-/// first response is the one legitimate quiet phase, which is why the restart
-/// bound is generous.
 #[derive(Debug, Clone, Copy)]
 struct ClassicSilenceBudget {
-    /// Report the loop as offline and log `sync_stalled`.
     report_after: std::time::Duration,
-    /// Drop the SDK loop (cancelling its retry sleep or lock wait), raise
-    /// `sync_error`, and start a new one.
     restart_after: std::time::Duration,
-    /// A gap between two supervisor ticks longer than this is a suspend and
-    /// resume, not silence. The supervisor ticks at most a second apart, but on
-    /// Windows `Instant` keeps counting through sleep (QueryPerformanceCounter),
-    /// so a laptop that slept for an hour would otherwise wake to a loop that
-    /// looks an hour silent and get a false `sync_error`. On a resume the
-    /// silence clock restarts.
     resume_gap: std::time::Duration,
 }
 
@@ -14685,13 +12282,9 @@ const CLASSIC_SYNC_SILENCE: ClassicSilenceBudget = ClassicSilenceBudget {
     resume_gap: std::time::Duration::from_secs(15),
 };
 
-/// The `sync_error` text for a loop restarted for silence. Fixed text, never
-/// server detail.
 const CLASSIC_SYNC_WEDGED_MESSAGE: &str =
     "Sync stopped hearing from the server and was restarted.";
 
-/// When the classic sync loop last showed any sign of life. Shared between
-/// the SDK callback (which touches it) and the silence supervisor.
 #[derive(Clone)]
 struct SyncProgress {
     base: tokio::time::Instant,
@@ -14717,10 +12310,6 @@ impl SyncProgress {
     }
 }
 
-/// Resolves once the loop has been silent for `budget.restart_after`. On the
-/// way it reports the silence once per quiet spell: `offline`, so the UI
-/// leaves "Loading rooms…", and `sync_stalled` for the log. Never resolves
-/// while callbacks keep arriving.
 async fn supervise_classic_silence(
     events: &Arc<Mutex<VecDeque<String>>>,
     progress: &SyncProgress,
@@ -14731,8 +12320,6 @@ async fn supervise_classic_silence(
     loop {
         let now = tokio::time::Instant::now();
         if now.saturating_duration_since(last_tick) > budget.resume_gap {
-            // Woken from a suspend (see `resume_gap`): the time asleep is not
-            // the SDK's silence.
             progress.touch();
             reported = false;
         }
@@ -14754,7 +12341,6 @@ async fn supervise_classic_silence(
                 }));
             }
         } else {
-            // A callback arrived: the next quiet spell is reported again.
             reported = false;
         }
         let next = if quiet < budget.report_after {
@@ -14762,28 +12348,13 @@ async fn supervise_classic_silence(
         } else {
             budget.restart_after - quiet
         };
-        // Re-read at least every second so a callback that lands meanwhile
-        // re-arms the report promptly.
         tokio::time::sleep(next.min(std::time::Duration::from_secs(1))).await;
     }
 }
 
-/// Classic /sync long-poll timeout: the SDK's own default.
 const CLASSIC_SYNC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-/// Classic /sync long-poll timeout while a verification flow is live.
-///
-/// Measured on a Beeper account (which takes the classic fallback): every
-/// verification hop — request to ready, start to emojis, each confirmation —
-/// took exactly the long-poll timeout. That server does not wake a pending
-/// long-poll for a to-device event; it delivers it when the poll expires. A
-/// short poll only while a flow is live turns 30 s hops into ~3 s ones and
-/// costs nothing the rest of the time. Synapse wakes the poll anyway, so
-/// there it changes nothing.
 const CLASSIC_SYNC_TIMEOUT_VERIFYING: std::time::Duration = std::time::Duration::from_secs(3);
 
-/// "Is a verification flow live right now?" Asked before every classic
-/// /sync request. A closure rather than the three slots so the sync loop
-/// needs no verification types, and so tests can drive it.
 type VerificationLive = Arc<dyn Fn() -> bool + Send + Sync>;
 
 /// The long-poll timeout for one classic /sync request.
@@ -14805,11 +12376,6 @@ fn classic_sync_request_timeout(first: bool, verifying: bool) -> std::time::Dura
     }
 }
 
-/// The settings for one classic /sync request. No `full_state`: it would ask
-/// for every room's full state on every request and adds nothing to an
-/// initial sync. The token is the SDK default, `ReusePrevious`, i.e. the
-/// stored `next_batch` — exactly what the SDK's own stream sends, since a
-/// processed response updates that token and a failed one leaves it.
 fn classic_sync_settings(timeout: std::time::Duration) -> SyncSettings {
     SyncSettings::default().timeout(timeout)
 }
@@ -14835,7 +12401,6 @@ fn subscribe_event_cache_before_classic_sync(
     events: &Arc<Mutex<VecDeque<String>>>,
 ) {
     if let Err(err) = client.event_cache().subscribe() {
-        // In practice only "the client is gone"; the loop fails on its own then.
         let kind = match err {
             matrix_sdk::event_cache::EventCacheError::ClientDropped => "client_dropped",
             _ => "other",
@@ -14847,21 +12412,12 @@ fn subscribe_event_cache_before_classic_sync(
     }
 }
 
-/// The account's own state store remembers that the classic-sync repair is
-/// finished, and how far an unfinished one got. In the state store so both are
-/// deleted with the account, and never in the crypto store, which the repair
-/// does not touch.
 const CLASSIC_CACHE_REPAIR_KEY: &[u8] = b"lightning.event_cache.classic_gap_repair.v1";
 const CLASSIC_CACHE_REPAIR_PROGRESS_KEY: &[u8] =
     b"lightning.event_cache.classic_gap_repair.progress.v1";
-/// A repair waiting on unread mentions finishes unconditionally on this start,
-/// or once this long has passed since its first, whichever comes first, so it
-/// always converges.
 const CLASSIC_CACHE_REPAIR_MAX_STARTS: u32 = 5;
 const CLASSIC_CACHE_REPAIR_MAX_AGE_MS: u64 = 14 * 24 * 60 * 60 * 1000;
 
-/// How far an unfinished repair got: the starts it has seen (deferred ones
-/// included), when the first was, and the rooms already cleared.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ClassicRepairProgress {
     starts: u32,
@@ -14869,39 +12425,20 @@ struct ClassicRepairProgress {
     done: BTreeSet<String>,
 }
 
-/// What `repair_classic_event_cache_once` did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ClassicCacheRepair {
-    /// Every room is cleared and that is recorded. `forced` when the start or
-    /// age cap cleared rooms that were still waiting.
     Done { cleared: usize, forced: bool },
-    /// Some rooms cleared, `waiting` left for a later start because clearing
-    /// them now would lose an unread badge.
     Partial { cleared: usize, waiting: usize },
-    /// Finished on an earlier start: nothing done.
     AlreadyDone,
-    /// A timeline view was open; the start is counted, nothing cleared.
     Deferred,
-    /// The store could not be read or written, or a clear failed; what was
-    /// recorded so far stands and the next start goes on from it.
     Failed,
 }
 
-/// Whether the cap says this start must finish whatever is waiting.
 fn classic_repair_must_finish(progress: &ClassicRepairProgress, now_ms: u64) -> bool {
     progress.starts >= CLASSIC_CACHE_REPAIR_MAX_STARTS
         || now_ms.saturating_sub(progress.first_ms) >= CLASSIC_CACHE_REPAIR_MAX_AGE_MS
 }
 
-/// Whether clearing a room's cache now could lose an unread badge. A mention
-/// or highlight always counts (the client's mention count is computed from the
-/// cached events, and an unencrypted room's server highlight count is shown
-/// beside it). So does the unread DOT: `num_unread_messages` is computed from
-/// the cache alone and the room list's dot reads it by itself
-/// (`hasUnreadMessages`, RoomUnreadRule.h `rawUnread`), whatever the
-/// notification count says. In an ENCRYPTED room the unread count itself is
-/// computed from the cache alone (`unread_and_highlight_counts`), so any unread
-/// counts there too.
 fn room_unread_would_be_lost(
     encrypted: bool,
     client_messages: u64,
@@ -14915,41 +12452,6 @@ fn room_unread_would_be_lost(
         || (encrypted && client_notifications > 0)
 }
 
-/// GitHub #30/#48, the repair half: once per account on classic sync, empty
-/// the event cache (the rebuildable cache of room history) before the first
-/// `/sync`, room by room.
-///
-/// Builds before `subscribe_event_cache_before_classic_sync` left permanent
-/// gaps in it (see there), and a gap cannot be found locally: the cache does
-/// not know it is missing anything. Emptying a room's cache is what Settings ->
-/// About -> "Reset local cache" does for every room; the room then refills from
-/// the server, gap included, as it is opened. Done before the first request so
-/// no timeline is built on the old contents.
-///
-/// Rooms whose unread badge the cache carries (`room_unread_would_be_lost`)
-/// are LEFT for a later start, when they have been read; the rooms already
-/// cleared are recorded, so each start only looks at what is left, and the
-/// finished flag is written only when no room is left. After
-/// `CLASSIC_CACHE_REPAIR_MAX_STARTS` starts or `CLASSIC_CACHE_REPAIR_MAX_AGE_MS`
-/// it finishes regardless, and says so. Each start is counted BEFORE anything is
-/// cleared, so a start that dies mid-way still counts toward the caps. An open
-/// view defers a start (a cleared open room would sit empty until reopened); if
-/// one opens DURING the clear, `event_cache_repaired` asks C++ to reopen it, as
-/// About's reset does, stamped with the session `lifecycle` it ran under and
-/// not sent at all once that session has ended.
-///
-/// What it does NOT touch: the crypto store, the state store beyond its own
-/// two values (rooms, sync token, send queue stay), the media caches, and the
-/// local search index, whose rows are only ever removed by a redaction, a
-/// forgotten room, the user's "Clear index" or the row cap
-/// (`localsearch::SearchIndex::prune`); a sweep only adds, so search keeps
-/// everything already indexed. Room-list previews are not recomputed: the
-/// latest-event values are stored in each room's info and only an event-cache
-/// update for a WATCHED room recomputes one, and nothing is watched before the
-/// first response. The event cache FILE is not compacted: a VACUUM would hold
-/// the store's only write connection through the startup catch-up, SQLite
-/// reuses the freed pages anyway, and About -> "Reset local cache" still
-/// compacts on demand.
 async fn repair_classic_event_cache_once(
     client: &Client,
     events: &Arc<Mutex<VecDeque<String>>>,
@@ -14965,7 +12467,6 @@ async fn repair_classic_event_cache_once(
     match store.get_custom_value(CLASSIC_CACHE_REPAIR_KEY).await {
         Ok(Some(_)) => return ClassicCacheRepair::AlreadyDone,
         Ok(None) => {}
-        // Unknown is not "not done": never clear on a guess.
         Err(_) => {
             line("classic sync: event cache repair skipped (state store unreadable)".into());
             return ClassicCacheRepair::Failed;
@@ -14973,7 +12474,6 @@ async fn repair_classic_event_cache_once(
     }
     let mut progress: ClassicRepairProgress =
         match store.get_custom_value(CLASSIC_CACHE_REPAIR_PROGRESS_KEY).await {
-            // An unreadable record only costs re-clearing rooms already done.
             Ok(Some(bytes)) => serde_json::from_slice(&bytes).unwrap_or_default(),
             Ok(None) => ClassicRepairProgress::default(),
             Err(_) => {
@@ -14989,8 +12489,6 @@ async fn repair_classic_event_cache_once(
         let bytes = serde_json::to_vec(&progress).unwrap_or_default();
         store.set_custom_value(CLASSIC_CACHE_REPAIR_PROGRESS_KEY, bytes).await.is_ok()
     };
-    // Counted before anything else happens: a start that dies mid-way (a
-    // crash, a quit, a failed clear) still moves the caps on.
     if !save(progress.clone()).await {
         line("classic sync: event cache repair skipped (progress could not be recorded)".into());
         return ClassicCacheRepair::Failed;
@@ -15005,8 +12503,6 @@ async fn repair_classic_event_cache_once(
         return ClassicCacheRepair::Deferred;
     }
 
-    // Subscribed first so each room's in-memory cache is emptied with its
-    // stored copy.
     let _ = client.event_cache().subscribe();
     let mut cleared = 0usize;
     let mut waiting = 0usize;
@@ -15040,10 +12536,6 @@ async fn repair_classic_event_cache_once(
         progress.done.insert(id);
         cleared += 1;
     }
-    // A view opened while the rooms were cleared: reopen it, as About's reset
-    // does, or it shows an emptied room until the user leaves and comes back.
-    // Never into a later session: a sign-out meanwhile ends it here, and C++
-    // rejects one that arrives from a session it is no longer running (§9).
     if cleared > 0 && !views_idle() && lifecycle() == started_lifecycle {
         enqueue(events, json!({
             "type": "event_cache_repaired", "lifecycle": started_lifecycle,
@@ -15067,8 +12559,6 @@ async fn repair_classic_event_cache_once(
         return ClassicCacheRepair::Partial { cleared, waiting };
     }
     if store.set_custom_value(CLASSIC_CACHE_REPAIR_KEY, b"1".to_vec()).await.is_err() {
-        // Cleared but not recorded: the next start clears once more, which
-        // costs a refetch and nothing else.
         save(progress).await;
         line("classic sync: event cache repair ran but could not be recorded".into());
         return ClassicCacheRepair::Failed;
@@ -15106,13 +12596,7 @@ async fn run_classic_sync_with(
 ) {
     enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
     subscribe_event_cache_before_classic_sync(&client, &events);
-    // See syncnotify::CatchupClock. The SDK runs the event handlers inside
-    // `sync_once`, BEFORE the callback below, so a catch-up response is judged
-    // while the clock still says "catching up".
     sync_notify.catchup.begin(push_verdict::now_ms());
-    // Labs: a Background handle keeps the watch maintenance under its own cap
-    // and skips the per-response room snapshot, spaces build and watch report
-    // BEFORE they run (design §3.2.3, R2-H4). None: today.
     let background = bgsession::for_queue(&events);
     let watch_cap = background
         .as_ref()
@@ -15120,36 +12604,14 @@ async fn run_classic_sync_with(
     let mut jitter = background.as_ref().map(|_| labs::Jitter::seeded(0xc1a5));
 
     let first_response = Arc::new(AtomicBool::new(true));
-    // Any callback, success or failure, is a sign of life; see
-    // ClassicSilenceBudget.
     let progress = SyncProgress::new();
-    // Consecutive failures, shared with the callback: drives the backoff and
-    // the escalation. Reset by any success.
     let failure_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
-    // Set by the callback on a dead session, so the loop parks instead of
-    // restarting into the same refusal.
     let session_gone = Arc::new(AtomicBool::new(false));
-    // Classic sync provides no recency: the SDK's recency_stamp comes only
-    // from sliding-sync responses, and LatestEventValue only for rooms
-    // registered with the Latest Events API. Two mechanisms fill the gap:
-    //
-    //  * Ordering is harvested from the responses: each carries updated rooms'
-    //    new events, and an initial sync (no `since`) carries a recent window
-    //    for every room. The newest origin_server_ts per room overrides the
-    //    payload's last_activity_ms when newer.
-    //  * Previews come from the Latest Events API under the shared cap. Rooms
-    //    with unread activity claim it first, and when full a waking room
-    //    evicts the stalest watched room, so the set does not freeze.
     let shared_watched: Arc<tokio::sync::Mutex<BTreeSet<OwnedRoomId>>> =
         Arc::new(tokio::sync::Mutex::new(BTreeSet::new()));
     let shared_stamps: Arc<tokio::sync::Mutex<HashMap<OwnedRoomId, u64>>> =
         Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
-    // First-response watchdog: logs how long the FIRST response has been
-    // outstanding, across every attempt. It never resolves and is pinned
-    // outside the restart loop so it spans every attempt. It cancels nothing;
-    // the per-attempt `supervise_classic_silence` is what bounds a wedged loop
-    // (issue #2: silent for 13+ minutes with no connections).
     let watchdog_events = Arc::clone(&events);
     let watchdog_first = Arc::clone(&first_response);
     let watchdog = async move {
@@ -15158,7 +12620,6 @@ async fn run_classic_sync_with(
         std::future::pending::<()>().await
     };
     tokio::pin!(watchdog);
-    // Whether a silence restart has already raised `sync_error`; see below.
     let mut wedge_reported = false;
 
     loop {
@@ -15172,16 +12633,7 @@ async fn run_classic_sync_with(
         let callback_progress = progress.clone();
         let callback_notify = Arc::clone(&sync_notify);
         let callback_background = background.clone();
-        // A new attempt starts its silence clock now, not at the last callback
-        // of the attempt before it.
         progress.touch();
-        // The callback sees failed requests as well as responses and returns
-        // `Ok(LoopCtrl::Continue)` for a transient one, keeping the loop and its
-        // token alive across an outage.
-        //
-        // Scoped in this block so the loop (and whatever request, retry sleep or
-        // lock it holds) is dropped when the block ends, BEFORE the backoff
-        // below, not at the end of the loop iteration.
         let wedged = {
         let callback = move |result: Result<matrix_sdk::sync::SyncResponse, matrix_sdk::Error>| {
             let client = callback_client.clone();
@@ -15195,11 +12647,7 @@ async fn run_classic_sync_with(
             let notify = Arc::clone(&callback_notify);
             let background = callback_background.clone();
             async move {
-                // Touched on entry and again on the way out, so neither a slow
-                // callback nor its own backoff sleep counts as SDK silence.
                 progress.touch();
-                // The edge time for the catch-up clock: when the response was in
-                // hand, not after this callback's own (possibly long) work.
                 let answered_ms = push_verdict::now_ms();
                 let response = match result {
                     Ok(response) => response,
@@ -15207,9 +12655,6 @@ async fn run_classic_sync_with(
                         if classify_classic_sync_error(error.client_api_error_kind())
                             == ClassicSyncFault::Fatal
                         {
-                            // Stop and report, never retry. (The modern lane now rebuilds
-                            // through a bounded number first, MODERN_AUTH_RETRY_LIMIT;
-                            // doing the same here is an open follow-up.)
                             session_gone.store(true, Ordering::SeqCst);
                             enqueue(&events, json!({
                                 "type": "room_list_error", "category": "authentication"
@@ -15221,10 +12666,7 @@ async fn run_classic_sync_with(
                         enqueue(&events, json!({
                             "type": "room_list_sync_state", "state": "offline"
                         }));
-                        // Report once per outage; a success resets the counter and a later
-                        // "running" clears the state in C++.
                         if seen == CLASSIC_SYNC_REPORT_AFTER {
-                            // Labs, Background: the rate-limit facts, from the error.
                             let rate = background.as_ref().map(|_| sync_rate_facts(&error));
                             enqueue(&events, sync_error_event(
                                 format_matrix_error("Matrix Rust SDK sync failed", error),
@@ -15232,7 +12674,6 @@ async fn run_classic_sync_with(
                             ));
                         }
                         let pause = if background.is_some() {
-                            // Labs: jittered, so live accounts do not retry in step.
                             labs::Jitter::seeded(u64::from(seen)).backoff(seen - 1)
                         } else {
                             classic_sync_backoff(seen - 1)
@@ -15250,9 +12691,6 @@ async fn run_classic_sync_with(
                 if recovered {
                     client.send_queue().set_enabled(true).await;
                 }
-                // The first response and the first after an outage are the edges
-                // (syncnotify::CatchupClock). Not every response: the floor would
-                // then trail each callback's own processing time.
                 if recovered || first_response.load(Ordering::SeqCst) {
                     notify.catchup.running_edge(answered_ms);
                 }
@@ -15285,9 +12723,6 @@ async fn run_classic_sync_with(
                         .filter(|room| matches!(room.state(), matrix_sdk::RoomState::Joined))
                         .collect();
 
-                    // The preview cap is one pool across the account. Allocated by recency
-                    // alone, one busy bridged network starves the others, so the watch set is
-                    // a round-robin over per-network buckets, most recent first in each.
                     let mut buckets: HashMap<String, Vec<(&Room, u64)>> =
                         HashMap::new();
                     for room in &joined {
@@ -15325,8 +12760,6 @@ async fn run_classic_sync_with(
                         depth += 1;
                     }
 
-                    // Reconcile rather than accumulate, so the watch set follows the desired
-                    // set and quiet buckets release their slots.
                     let stale: Vec<OwnedRoomId> =
                         watched.difference(&desired).cloned().collect();
                     let forgot = stale.len();
@@ -15343,7 +12776,6 @@ async fn run_classic_sync_with(
                         }
                     }
 
-                    // Counts and timing only, for tuning the cap.
                     if background.is_none() {
                         enqueue(&events, json!({
                             "type": "latest_event_watch_report",
@@ -15357,7 +12789,6 @@ async fn run_classic_sync_with(
                     }
                 }
                 if let Some(bg) = &background {
-                    // The O(rooms) snapshot and the spaces build are UI work.
                     bg.note_skipped();
                 } else {
                     {
@@ -15375,17 +12806,6 @@ async fn run_classic_sync_with(
                 Ok::<LoopCtrl, matrix_sdk::Error>(LoopCtrl::Continue)
             }
         };
-        // The loop itself, rather than `sync_with_result_callback`, because the
-        // long-poll timeout must be able to CHANGE between requests (see
-        // CLASSIC_SYNC_TIMEOUT_VERIFYING) and the SDK's stream fixes it once.
-        // Everything else is the SDK's `sync_with_result_callback` as 0.18 writes
-        // it: `sync_once` per request with the stored token, every result handed
-        // to the callback, an `Err` from the callback ends the loop, and a server
-        // that ignores the timeout is held to one request per second.
-        //
-        // The silence budget is unaffected: a shorter poll only makes callbacks
-        // more frequent, and the longest request is still the 30 s poll plus the
-        // client's request timeout it was sized against.
         let loop_client = client.clone();
         let loop_verification_live = Arc::clone(&verification_live);
         let sync = async move {
@@ -15408,14 +12828,9 @@ async fn run_classic_sync_with(
         };
         tokio::pin!(sync);
         let mut wedged = false;
-        // Biased, SDK loop first: a loop that finished in the same poll as the
-        // supervisor's deadline (e.g. right after a resume from sleep) is a loop
-        // that finished, not a wedge.
         tokio::select! {
             biased;
             result = &mut sync => if let Err(err) = result {
-                // The callback absorbs transient failures; reaching here means the SDK
-                // loop ended for another reason.
                 let rate = background.as_ref().map(|_| sync_rate_facts(&err));
                 enqueue(&events, sync_error_event(
                     format_matrix_error("Matrix Rust SDK sync failed", err),
@@ -15423,19 +12838,7 @@ async fn run_classic_sync_with(
                 ));
             },
             _ = &mut cancel => return,
-            // Never resolves; see its construction above.
             _ = &mut watchdog => {},
-            // Resolves only after `restart_after` without a single callback. The
-            // SDK loop is dropped when this block ends, which cancels whatever it
-            // was waiting on.
-            //
-            // KNOWN RESIDUAL RISK: the callback runs only after matrix-sdk has
-            // PROCESSED a response, and 0.18 exposes no hook between the response
-            // arriving and its processing. A first response so large that
-            // processing it takes longer than `restart_after` would be cancelled
-            // and fetched again, every time. 300 s is far beyond any processing
-            // measured here, but it is a bound on processing too, not only on the
-            // network.
             _ = supervise_classic_silence(&events, &progress, silence) => {
                 wedged = true;
             },
@@ -15443,10 +12846,7 @@ async fn run_classic_sync_with(
         wedged
         };
 
-        // The SDK loop returned; restart it unless the session is gone (`startSync()`
-        // runs only once, at login).
         if session_gone.load(Ordering::SeqCst) {
-            // A revoked session: C++ has been told; wait for an explicit stop.
             let _ = (&mut cancel).await;
             return;
         }
@@ -15454,11 +12854,6 @@ async fn run_classic_sync_with(
         enqueue(&events, json!({
             "type": "room_list_sync_state", "state": "offline"
         }));
-        // Surfaced, not just logged: C++ shows the sync error until a response
-        // arrives ("running"). No "retrying" below for the same reason, since it
-        // would put the UI back on "Loading rooms…" over a loop that has already
-        // failed once. Once per outage: a success resets the failure count, so
-        // `seen == 1` is the first failure since one.
         if wedged && (!wedge_reported || seen == 1) {
             wedge_reported = true;
             enqueue(&events, sync_error_event(
@@ -15483,10 +12878,6 @@ async fn run_classic_sync_with(
     }
 }
 
-/// Forward one batch of room-list diffs, keeping `order` (this lane's
-/// mirror of the index space) in step. `order` lets `Remove`/`PopFront`/
-/// `PopBack`, which carry no room in `VectorDiff`, name the room they mean;
-/// C++ rejects and requests a Reset if its own copy disagrees.
 async fn forward_room_list_diffs(
     events: &Arc<Mutex<VecDeque<String>>>,
     batches: Vec<VectorDiff<RoomListItem>>,
@@ -15494,8 +12885,6 @@ async fn forward_room_list_diffs(
     watched: &mut BTreeSet<OwnedRoomId>,
     order: &mut Vec<OwnedRoomId>,
 ) {
-    // Serialize the room and register it with the Latest Events API so its
-    // preview keeps updating without the room being opened.
     async fn payload(
         room: Room,
         latest_events: &matrix_sdk::latest_events::LatestEvents,
@@ -15505,8 +12894,6 @@ async fn forward_room_list_diffs(
         room_payload(&room).await
     }
 
-    // The id a positional diff refers to, or empty when the mirror lacks that
-    // position; C++ then rejects rather than deleting on trust.
     fn id_at(order: &[OwnedRoomId], index: usize) -> String {
         order.get(index).map(|id| id.to_string()).unwrap_or_default()
     }
@@ -15514,7 +12901,6 @@ async fn forward_room_list_diffs(
     for diff in batches {
         let value = match diff {
             VectorDiff::Reset { values } => {
-                // Switch trace: Some only for the first Reset of a traced sync.
                 let trace_started = switchtrace::first_reset_serialize_start();
                 let mut rooms = Vec::with_capacity(values.len());
                 order.clear();
@@ -15611,8 +12997,6 @@ async fn forward_room_list_diffs(
     }
 }
 
-/// The pause before a sync rebuild: today's fixed 3 s, or for a Background
-/// handle (Labs) the jittered backoff for the `attempt`th consecutive one.
 fn retry_pause(jitter: &mut Option<labs::Jitter>, attempt: &mut u32) -> std::time::Duration {
     match jitter {
         Some(jitter) => {
@@ -15624,13 +13008,6 @@ fn retry_pause(jitter: &mut Option<labs::Jitter>, attempt: &mut u32) -> std::tim
     }
 }
 
-/// Labs, Background: the latest-event watch maintenance of one batch of
-/// room-list diffs, without serializing anything (design §3.2.3, R2-H5). The
-/// watched set is capped at `cap` by bump stamp: a room more recent than the
-/// least recent watched one takes its place, so previews keep following
-/// activity instead of freezing on the first rooms delivered.
-/// A `sync_error` event. `rate`: Background only (contract §3.3), from
-/// [`sync_rate_facts`]; `None` writes exactly today's payload.
 fn sync_error_event(message: String, rate: Option<(bool, Option<u64>)>) -> serde_json::Value {
     let value = json!({ "type": "sync_error", "message": message });
     match rate {
@@ -15639,8 +13016,6 @@ fn sync_error_event(message: String, rate: Option<(bool, Option<u64>)>) -> serde
     }
 }
 
-/// A sync failure's rate-limit facts, from the error's kind and HTTP status,
-/// never its text (review 2026-10-16, finding 5).
 fn sync_rate_facts(error: &matrix_sdk::Error) -> (bool, Option<u64>) {
     bgsession::rate_limit_facts(
         error.client_api_error_kind(),
@@ -15659,8 +13034,6 @@ async fn watch_room_list_diffs(
     let mut left: Vec<OwnedRoomId> = Vec::new();
     for diff in batches {
         let diff = diff.map(|item| item.into_inner());
-        // The id mirror: a room that leaves the list gives its slot back
-        // (review 2026-10-16, finding 12). Today's forward path keeps them.
         left.extend(
             bgsession::apply_order_diff(order, diff.clone().map(|room| room.room_id().to_owned()))
                 .into_iter()
@@ -15701,8 +13074,6 @@ async fn watch_room_list_diffs(
         }
     }
     if !left.is_empty() {
-        // Only watched ids were kept, so this set is built rarely and the
-        // presence check is O(1) per id.
         let present: HashSet<&OwnedRoomId> = order.iter().collect();
         let gone: Vec<OwnedRoomId> =
             left.into_iter().filter(|id| !present.contains(id)).collect();
@@ -15712,18 +13083,9 @@ async fn watch_room_list_diffs(
             }
         }
     }
-    // Stamps are kept for watched rooms only, so the map stays bounded.
     stamps.retain(|id, _| watched.contains(id));
 }
 
-/// One Space's direct children, in the order its `m.space.child` state
-/// declares. (The payload's `descendants` is transitive.)
-///
-/// Spec order: `order` keys lexicographically, keyless children last, then
-/// the `m.space.child` event's `origin_server_ts`, then room id (the spec's
-/// and Element's order). An empty `via` is MSC1772 removal and is skipped.
-/// Reads the local state store only; unsynced Spaces return nothing and the
-/// caller falls back to the SDK graph.
 async fn direct_children_of(room: &Room) -> Vec<String> {
     let Ok(events) = room
         .get_state_events_static::<SpaceChildEventContent>()
@@ -15745,17 +13107,12 @@ async fn direct_children_of(room: &Room) -> Vec<String> {
 
 fn space_child_entry(mut value: serde_json::Value) -> Option<(Option<String>, u64, String)> {
     let order = valid_space_order(value.get("content").and_then(|c| c.get("order")));
-    // Normalise only order: malformed routing still fails Ruma's checks.
     value.get_mut("content")?.as_object_mut()?.remove("order");
     let SyncStateEvent::Original(event) = serde_json::from_value::<SyncStateEvent<SpaceChildEventContent>>(value).ok()? else { return None };
     if event.content.via.is_empty() { return None; }
     Some((order, u64::from(event.origin_server_ts.get()), event.state_key.to_string()))
 }
 
-/// The ordering `direct_children_of` applies, apart so it can be tested:
-/// (order key, `origin_server_ts`, room id). Without the timestamp, keyless
-/// children fell back to ROOM-ID order, so rooms added Alpha, Beta, Delta
-/// listed as Beta, Alpha, Delta.
 fn valid_space_order(value: Option<&serde_json::Value>) -> Option<String> {
     let key = value?.as_str()?;
     (key.len() <= 50 && key.bytes().all(|b| (0x20..=0x7e).contains(&b)))
@@ -15775,10 +13132,6 @@ fn sort_space_children(mut entries: Vec<(Option<String>, u64, String)>) -> Vec<S
     entries.into_iter().map(|(_, _, id)| id).collect()
 }
 
-/// Children the Space's own state unlinked: an `m.space.child` with an
-/// empty or missing `via` (matrix-sdk-ui's remove_child sends `{}`), or a
-/// redacted one. matrix-sdk-ui's graph still links such children, via the
-/// child's `m.space.parent` or outright for `via: []`.
 async fn unlinked_children_of(room: &Room) -> BTreeSet<String> {
     use matrix_sdk::deserialized_responses::RawSyncOrStrippedState;
     let Ok(events) = room
@@ -15795,8 +13148,6 @@ async fn unlinked_children_of(room: &Room) -> BTreeSet<String> {
                 original.content.via.is_empty().then(|| original.state_key.to_string())
             }
             Ok(SyncStateEvent::Redacted(redacted)) => Some(redacted.state_key.to_string()),
-            // Unparsable for another reason (bad `suggested`, a bad server name) is not
-            // a removal; only a missing, non-array or empty `via` is.
             Err(_) => {
                 let via = raw
                     .get_field::<serde_json::Value>("content")
@@ -15832,8 +13183,6 @@ async fn enqueue_spaces(
         .map(|room| room.room_id().to_string()).collect();
     let mut parents_by_child = HashMap::<String, Vec<String>>::new();
     let mut children_by_parent = HashMap::<String, BTreeSet<String>>::new();
-    // Strictly direct children, kept apart from the map below, which is widened
-    // with `filter.descendants` (recursive for a level-1 filter).
     let mut direct_by_parent = HashMap::<String, BTreeSet<String>>::new();
     let mut unlinked = HashMap::<String, BTreeSet<String>>::new();
     for space in &joined_spaces {
@@ -15843,9 +13192,6 @@ async fn enqueue_spaces(
         }
     }
 
-    // Ask SpaceService's cycle-pruned graph for every known joined room's
-    // parents. This extends its two presentation-level filters into a full
-    // selectable hierarchy without reparsing raw state in Lightning.
     for room in client.joined_rooms() {
         let child_id = room.room_id().to_string();
         let parents: Vec<String> = service.joined_parents_of_child(room.room_id()).await
@@ -15860,8 +13206,6 @@ async fn enqueue_spaces(
         }
         parents_by_child.insert(child_id, parents);
     }
-    // Preserve inaccessible/unjoined identifiers exposed by the pinned
-    // SpaceFilter even though they cannot become visible room rows.
     for filter in &filters {
         let parent = filter.space_room.room_id.to_string();
         let gone = unlinked.get(&parent);
@@ -15893,12 +13237,7 @@ async fn enqueue_spaces(
                 pending.extend(nested.iter().cloned().map(|value| (value, depth + 1)));
             }
         }
-        // Direct children in admin order, then any link the SDK parent graph knows
-        // that the state read lacks (the m.space.child may not have synced yet).
-        // Uses `direct_by_parent`, not the recursively widened map.
         let mut children = direct_children_of(room).await;
-        // Only these have a real m.space.child event, so only these can carry
-        // an order; a parent-only link cannot be written by the editor.
         let ordered_children = children.clone();
         if let Some(known) = direct_by_parent.get(&id) {
             for child in known {
@@ -15926,20 +13265,6 @@ async fn enqueue_spaces(
     enqueue(events, json!({ "type": "space_list_reset", "spaces": spaces }));
 }
 
-/// The room-list ordering stamp in ms, from the SDK's LatestEvent (the
-/// preview event). Ordering by any event would make rooms jump on member
-/// joins or topic edits. `Local*` variants count, so a room rises as soon
-/// as the user sends.
-///
-/// There is no fallback here: `Room::latest_event_timestamp()` reads the
-/// same value. 0 means unknown and crosses as an invalid QDateTime that
-/// `RoomInfo::raiseActivity` ignores. The real backstop is
-/// `harvest_room_activity`.
-///
-/// An edit never moves a room. When the latest message was edited, the SDK's
-/// latest event is the EDIT (latest_events builder), stamped with when it was
-/// edited; the stamp is then `edited_ts`, the edited event's own, or 0 (the
-/// room stays where it is) when that is not known. Pure for tests.
 fn room_ordering_timestamp_ms(
     latest: &matrix_sdk_base::latest_event::LatestEventValue,
     edited_ts: Option<u64>,
@@ -15956,9 +13281,6 @@ fn room_ordering_timestamp_ms(
         .unwrap_or(0)
 }
 
-/// The event an `m.replace` edit replaces, or `None` when `raw` is not an
-/// edit. `m.relates_to` is outside the ciphertext, so this reads encrypted
-/// events too.
 fn replaced_event_id(
     raw: &matrix_sdk::ruma::serde::Raw<matrix_sdk::ruma::events::AnySyncTimelineEvent>,
 ) -> Option<OwnedEventId> {
@@ -15973,8 +13295,6 @@ fn replaced_event_id(
     EventId::parse(relation.get("event_id")?.as_str()?).ok()
 }
 
-/// When the edited event was sent, from the event cache (memory, then the
-/// store; never a request). The SDK found it there to accept the edit.
 async fn edited_event_timestamp_ms(room: &Room, event_id: &EventId) -> Option<u64> {
     let (cache, _drop_handles) = room.event_cache().await.ok()?;
     let event = cache.find_event(event_id).await.ok()??;
@@ -15982,15 +13302,6 @@ async fn edited_event_timestamp_ms(room: &Room, event_id: &EventId) -> Option<u6
     if ts == 0 { None } else { Some(ts) }
 }
 
-/// Event types whose arrival means somebody said something. An allow-list,
-/// so new event types do not reorder rooms by default.
-///
-/// Mirrors matrix-sdk's `filter_any_message_like_event_content`, except:
-///  * `m.room.encrypted` is included: unsuitable for a preview, but it is
-///    still a message for ordering purposes.
-///  * `m.call.invite` / `m.rtc.notification` are excluded, because C++
-///    already refuses to let call rows raise activity
-///    (`TimelineEvent::CallEvent` in `handleTimelineEvent`).
 pub(crate) const CONVERSATION_EVENT_TYPES: &[&str] = &[
     "m.room.message",
     "m.room.encrypted",
@@ -15999,15 +13310,11 @@ pub(crate) const CONVERSATION_EVENT_TYPES: &[&str] = &[
     "org.matrix.msc3381.poll.start",
 ];
 
-/// When a conversation happened, for one raw sync timeline event, or `None`
-/// when it is not something somebody said. Pure for testing.
 pub(crate) fn conversation_timestamp_ms(
     raw: &matrix_sdk::ruma::serde::Raw<
         matrix_sdk::ruma::events::AnySyncTimelineEvent,
     >,
 ) -> Option<u64> {
-    // A state event is never a conversation, whatever its type; checked first,
-    // by the presence of the field.
     if raw
         .get_field::<serde_json::Value>("state_key")
         .ok()
@@ -16020,14 +13327,9 @@ pub(crate) fn conversation_timestamp_ms(
     if !CONVERSATION_EVENT_TYPES.contains(&kind.as_str()) {
         return None;
     }
-    // An edit is not something new said; it must not move the room.
     if replaced_event_id(raw).is_some() {
         return None;
     }
-    // Nor is an undecrypted reaction or reference (a poll vote): decrypted
-    // they are `m.reaction` / a response type, which never count, and an
-    // `m.room.encrypted` wrapper must not make them a "last message".
-    // `m.relates_to` is outside the ciphertext.
     if kind == "m.room.encrypted" {
         let rel_type = raw
             .get_field::<serde_json::Value>("content")
@@ -16045,14 +13347,6 @@ pub(crate) fn conversation_timestamp_ms(
     if ts == 0 { None } else { Some(ts) }
 }
 
-/// A conversation event's ordering stamp on the clock the room list orders by:
-/// `None` when `conversation_timestamp_ms` refuses it, otherwise the event's
-/// own `TimelineEvent::timestamp`, which the SDK clamps to the local clock when
-/// it builds the event (`extract_timestamp`) and which the latest event, the
-/// event cache and redecryption all keep. The raw `origin_server_ts` is used
-/// only when the event carries none, and never above it. Reading the raw field
-/// instead put a sender whose clock runs ahead on a different clock from the
-/// latest event (break-it B084 review).
 pub(crate) fn event_ordering_stamp_ms(
     event: &matrix_sdk::deserialized_responses::TimelineEvent,
 ) -> Option<u64> {
@@ -16061,18 +13355,6 @@ pub(crate) fn event_ordering_stamp_ms(
     Some(own.map_or(raw_ts, |ts| ts.min(raw_ts)))
 }
 
-/// Response-harvested recency for the sliding lane.
-///
-/// `Room::latest_event()` can stop moving while messages arrive: its
-/// listener ends on one lagged receive, it skips recomputation while a
-/// local echo is unsent, and it ignores undecrypted events. The payload then
-/// resends a stale stamp until the room is opened. This reads the events in
-/// the response instead. `stamps` is a per-room high-water mark; only rooms
-/// whose mark moved are returned. Timestamps (`event_ordering_stamp_ms`, the
-/// latest event's clock), whether that newest event is still undecryptable
-/// (`m.room.encrypted` after the SDK's own attempt), and its id: the latest
-/// event skips such an event, so the room's preview would otherwise stay on an
-/// OLDER message while this stamp moves its time to the new one.
 fn harvest_room_activity(
     updates: &matrix_sdk::sync::RoomUpdates,
     stamps: &mut HashMap<OwnedRoomId, u64>,
@@ -16092,9 +13374,6 @@ fn harvest_room_activity(
     moved
 }
 
-/// The newest conversation stamp among `events` (oldest first, as a sync
-/// timeline is), whether that event is undecryptable, and its id. On a tie the
-/// later event wins. Pure for tests.
 fn newest_conversation<'a>(
     events: impl IntoIterator<Item = &'a matrix_sdk::deserialized_responses::TimelineEvent>,
 ) -> Option<(u64, bool, Option<OwnedEventId>)> {
@@ -16112,8 +13391,6 @@ fn newest_conversation<'a>(
     })
 }
 
-/// What the event cache says now of an event remembered as undecryptable
-/// (memory, then the store; never a request), for `previewbackfill::settle`.
 async fn undecryptable_now(room: &Room, event_id: &EventId) -> previewbackfill::UndecryptableNow {
     use previewbackfill::UndecryptableNow;
     let Ok((cache, _drop_handles)) = room.event_cache().await else {
@@ -16126,11 +13403,6 @@ async fn undecryptable_now(room: &Room, event_id: &EventId) -> previewbackfill::
     }
 }
 
-/// What a DM peer's member event says about the face of that conversation,
-/// as the `direct_peer_avatar` event: only a join by one of the room's
-/// m.direct targets (a leave or a ban carries no profile), never anyone
-/// else's. The avatar is empty when the event names none. Pure and
-/// unit-tested.
 fn direct_peer_avatar_payload(
     room_id: &str,
     event: &SyncRoomMemberEvent,
@@ -16158,28 +13430,6 @@ fn direct_peer_avatar_payload(
     }))
 }
 
-/// Combine the client's own event-cache counts (`num_unread_notifications`,
-/// `num_unread_mentions`) with the ones the server sent this sync
-/// (`UnreadNotificationsCount`).
-///
-/// For an UNENCRYPTED room the server evaluates every push rule, including
-/// content and `m.mentions` conditions, so its count is at least as
-/// trustworthy as our own and the higher of the two only protects against
-/// either side under-counting while the other catches up.
-///
-/// For a definitely ENCRYPTED room that trade is backwards. matrix-sdk-base's
-/// own doc comment on `Room::unread_notification_counts()` says outright:
-/// "these might be incorrect for encrypted rooms, since the server doesn't
-/// know which events are relevant standalone messages or not, nor can it
-/// inspect mentions... consider using the client-side computed counts". A
-/// room set to "Mentions & keywords only" writes a `room`-kind push rule with
-/// no actions; the client's own counters apply that SAME ruleset to the
-/// DECRYPTED body, so an ordinary message correctly does not raise them. The
-/// server-reported count has no such guarantee for ciphertext it cannot
-/// evaluate content conditions against, and `.max()` with it is exactly what
-/// let a plain, non-mention message in a Mentions-only encrypted room paint a
-/// numbered badge instead of the dot the room list means to show. Trust the
-/// client-computed counts alone once encryption is definitely known.
 fn unread_and_highlight_counts(
     is_encrypted: bool,
     client_notifications: u64,
@@ -16197,29 +13447,6 @@ fn unread_and_highlight_counts(
     }
 }
 
-/// Whether the room's remaining unread comes from THREADS only, and whether
-/// that includes a mention.
-///
-/// With `ThreadingSupport::Enabled` the SDK's own event-cache counts
-/// (`num_unread_notifications` / `num_unread_mentions`) deliberately SKIP
-/// events that belong to a thread (`read_receipts.rs`, `extract_thread_root`),
-/// while the counts the server sends in `unread_notifications` are not split by
-/// thread unless the client asks for MSC3773 `unread_thread_notifications`,
-/// which Lightning does not. So for an UNENCRYPTED room, a server count above a
-/// client count that has reached zero is unread the main timeline cannot
-/// contain: it cleared the receipt, and a thread still holds the badge.
-/// Conservative on purpose: both client counts must be zero (a room with
-/// plain main-timeline unread is just unread), and an encrypted room reports
-/// nothing, because its server counts are not used at all (see
-/// `unread_and_highlight_counts`) and the client counts exclude threads, so
-/// there is no honest signal. Never an exact per-thread count.
-///
-/// `counted_from_receipt`: the client counts are evidence only when they were
-/// counted FROM our own read receipt (`RoomReadReceipts::latest_active`). A
-/// room joined this session and never read has no receipt, and its counts are
-/// zero because nothing was counted, not because the main timeline was read:
-/// classifying that as thread-only drew the thread glyph, with no number, over
-/// plain main-timeline unread. Without a receipt, report ordinary unread.
 fn unread_in_threads_only(
     is_encrypted: bool,
     counted_from_receipt: bool,
@@ -16239,9 +13466,6 @@ fn unread_in_threads_only(
     (true, server_highlight_count > 0)
 }
 
-/// A Matrix id as the C++ logs print it (`matrix::e2ee::redactId`): the sigil
-/// kept, then the first 8 hex characters of SHA-256 of the rest. Stable for
-/// correlation, not reversible.
 pub(crate) fn redact_matrix_id(id: &str) -> String {
     use sha2::{Digest, Sha256};
     if id.is_empty() {
@@ -16265,10 +13489,6 @@ async fn room_payload(room: &Room) -> serde_json::Value {
     };
     let direct_targets: Vec<String> = room.direct_targets().iter().map(ToString::to_string).collect();
     let notifications = room.unread_notification_counts();
-    // `encryption_state()` is tri-state; only a definite "encrypted" answer
-    // takes the client-only path. Unknown falls back to the unencrypted
-    // (max-of-both) behaviour, the existing, safer default for a room whose
-    // state has not settled yet.
     let (unread_count, highlight_count) = unread_and_highlight_counts(
         room.encryption_state().is_encrypted(),
         room.num_unread_notifications(),
@@ -16276,9 +13496,6 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         notifications.notification_count,
         notifications.highlight_count,
     );
-    // Opt-in (LIGHTNING_UNREAD_TRACE=1): which counts produced this room's
-    // number and by which path. Counts only; the room is a short hash so lines
-    // correlate without naming it. See the 2026-10-15 rooms notes for the steps.
     if std::env::var_os("LIGHTNING_UNREAD_TRACE").is_some() {
         let state = room.encryption_state();
         eprintln!(
@@ -16312,10 +13529,7 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         }
     } else { (String::new(), String::new()) };
 
-    // Read once: the preview text and the ordering stamp must describe the
-    // same event.
     let latest_event = room.latest_event();
-    // An edit must not move the room: order by the edited event's own time.
     let edited_ts = match &latest_event {
         matrix_sdk_base::latest_event::LatestEventValue::Remote(event) => {
             match replaced_event_id(event.raw()) {
@@ -16325,11 +13539,6 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         }
         _ => None,
     };
-    // A room whose own latest event gives no preview (newest event filtered
-    // churn) shows what the blank-preview look found, if it has run. A
-    // remembered undecryptable event is first checked by its ID against the
-    // latest event and the event cache (`settle`): once it has decrypted, it
-    // must not keep the placeholder up, whatever the stamps say.
     let remembered = previewbackfill::remembered(room.own_user_id(), room.room_id());
     let latest_event_id = latest_event.event_id();
     let utd_now = match &remembered {
@@ -16349,15 +13558,11 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         room_ordering_timestamp_ms(&latest_event, edited_ts),
         settled,
     );
-    // Our own join as the latest event (a room just joined): a flag, worded by
-    // C++ (see `previewbackfill::is_own_join`).
     let own_join_latest = own_preview.is_empty()
         && matches!(&latest_event,
             matrix_sdk_base::latest_event::LatestEventValue::Remote(event)
                 if previewbackfill::is_own_join(event.raw(), room.own_user_id()));
-    // An invitation has no m.direct yet; see `rooms::payload_is_direct`.
     let is_direct = rooms::payload_is_direct(room, !direct_targets.is_empty()).await;
-    // A kind line crosses as its kind (worded by C++) plus English words.
     let (preview_text, preview_kind, preview_arg) = preview_wire(&own_preview);
 
     json!({
@@ -16368,58 +13573,32 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "topic": room.topic().unwrap_or_default(),
         "avatar_url": room.avatar_url().map(|url| url.to_string()).unwrap_or_default(),
         "last_message_preview": preview_text,
-        // Set when the preview is words rather than the sender's text ("image",
-        // "poll_question", …): C++ words it in the UI language, again on every
-        // language switch. `last_message_preview` is then only a fallback.
         "last_message_preview_kind": preview_kind,
         "last_message_preview_arg": preview_arg,
-        // True when the last message could not be decrypted: C++ renders the
-        // placeholder (no text crosses, so no real body can imitate it).
         "last_message_undecryptable": own_undecryptable,
-        // True when the latest event is our own join and there is no message
-        // yet: C++ shows its own words, so a newly accepted DM is not blank.
         "last_message_own_join": own_join_latest,
         "last_activity_ms": own_activity,
         "unread_count": unread_count,
         "highlight_count": highlight_count,
         "marked_unread": room.is_marked_unread(),
-        // Unread that only threads can explain; see `unread_in_threads_only`.
         "unread_threads_only": unread_threads_only,
         "mention_in_threads": mention_in_threads,
-        // The `m.favourite` tag itself, via the SDK's notable-tag bit, so favourites
-        // set in other clients show here.
         "is_favourite": room.is_favourite(),
-        // m.lowpriority, set on any client. Forwarded only; ordering is C++'s.
         "is_low_priority": room.is_low_priority(),
         "has_unread_messages": room.num_unread_messages() > 0,
         "encrypted": room.encryption_state().is_encrypted(),
-        // EncryptionState is tri-state; Unknown must not read as unencrypted (draft
-        // persistence and server search fail closed on it).
         "encryption_known": !room.encryption_state().is_unknown(),
         "is_space": room.is_space(),
         "is_direct": is_direct,
         "direct_user_id": direct_targets.first().cloned().unwrap_or_default(),
         "direct_user_ids": direct_targets,
         "member_count": room.joined_members_count(),
-        // Joined plus invited: matrix-sdk's DmRoomDefinition::TwoMembers
-        // counts these ("at most two active members"), so a DM someone else
-        // was invited into is not 1:1 for ringing (src/calls/OneToOneDm.h).
         "active_member_count": room.active_members_count(),
-        // The room's join rule, "" while unknown: with the joined count it lets
-        // the room list's Leave say whether the room would be left empty and
-        // closed (LeaveRoomConfirmDialog).
         "join_rule": rooms::join_rule_str(room.join_rule().as_ref()),
         "room_type": room.room_type().map(|kind| kind.to_string()).unwrap_or_default(),
         "prev_batch": room.last_prev_batch().unwrap_or_default(),
         "inviter_user_id": inviter_user_id,
         "inviter_display_name": inviter_display_name,
-        // Successor and predecessor from the SDK's typed accessors, which parse to
-        // an OwnedRoomId. Empty means none. A non-empty successor is the tombstone
-        // flag.
-        //
-        // The tombstone's free-text `body`/`reason` is deliberately not forwarded:
-        // it would appear on a banner users are invited to click, so Lightning shows
-        // fixed wording instead.
         "successor_room_id": room
             .successor_room()
             .map(|successor| successor.room_id.to_string())
@@ -16435,16 +13614,6 @@ async fn enqueue_rooms(events: &Arc<Mutex<VecDeque<String>>>, client: &Client) {
     enqueue_rooms_stamped(events, client, None).await;
 }
 
-/// A snapshot of the state store, not an index base.
-///
-/// `client.rooms()` differs from the dynamic adapter's paged, filtered and
-/// sorted vector in length, membership and order, so it is emitted as
-/// `room_snapshot`, which C++ applies to the id-keyed room map only.
-/// Emitting it as a reset made C++ rebuild its index from it and reject the
-/// adapter's next diffs, in a self-sustaining loop.
-///
-/// `stamps`: response-harvested recency (classic sync only). It overrides
-/// last_activity_ms only when newer.
 async fn enqueue_rooms_stamped(
     events: &Arc<Mutex<VecDeque<String>>>,
     client: &Client,
@@ -16471,14 +13640,6 @@ async fn enqueue_rooms_stamped(
     enqueue(events, json!({ "type": "room_snapshot", "rooms": out }));
 }
 
-/// Room-list preview text for a room's cached latest event. Pure for tests.
-///
-/// Text messages give their body (decrypted bodies stay in memory; C++ never
-/// persists encrypted-room previews), media their filename-style body.
-/// Anything else (undecrypted, state, invites, unsent echoes) yields "" so
-/// C++ keeps its placeholder.
-// The English a preview line reads as. Test-only: production sends lines
-// (`latest_event_preview_line`) and C++ words them.
 #[cfg(test)]
 pub(crate) fn latest_event_preview_text(
     value: &matrix_sdk_base::latest_event::LatestEventValue,
@@ -16486,7 +13647,6 @@ pub(crate) fn latest_event_preview_text(
     preview_english(&latest_event_preview_line(value))
 }
 
-/// `latest_event_preview_text` as a preview line (see `PREVIEW_KIND_MARK`).
 pub(crate) fn latest_event_preview_line(
     value: &matrix_sdk_base::latest_event::LatestEventValue,
 ) -> String {
@@ -16498,28 +13658,16 @@ pub(crate) fn latest_event_preview_line(
     }
 }
 
-/// Opens a preview line that C++ words itself rather than one carrying text:
-/// `MARK kind MARK arg`. A preview Rust would have to word ("Image", "Poll:
-/// …", "3 images") stayed English in every UI language, and words kept as
-/// text could not follow a language switch; C++ renders the kind in the
-/// current language (`matrix/PreviewToken.h`, `kindFromWire`). In-band so the
-/// backfill's remembered results carry it unchanged. `one_line` removes the
-/// mark from every body, so no message can pose as a kind.
 pub(crate) const PREVIEW_KIND_MARK: char = '\u{1}';
 
-/// A preview line for `kind` (a `kindFromWire` name) and its argument.
 pub(crate) fn kind_preview(kind: &str, arg: &str) -> String {
     format!("{PREVIEW_KIND_MARK}{kind}{PREVIEW_KIND_MARK}{arg}")
 }
 
-/// The kind and argument of a kind line, `None` for a text line.
 pub(crate) fn split_kind_preview(line: &str) -> Option<(&str, &str)> {
     line.strip_prefix(PREVIEW_KIND_MARK)?.split_once(PREVIEW_KIND_MARK)
 }
 
-/// The English words for a preview line, exactly what the bridge sent before
-/// kinds existed: the fallback `last_message_preview` for a C++ that does not
-/// know the kind.
 pub(crate) fn preview_english(line: &str) -> String {
     let Some((kind, arg)) = split_kind_preview(line) else {
         return line.to_owned();
@@ -16538,8 +13686,6 @@ pub(crate) fn preview_english(line: &str) -> String {
     }
 }
 
-/// What a preview line sends to C++: the English text, the kind ("" for a
-/// text line) and the kind's argument.
 pub(crate) fn preview_wire(line: &str) -> (String, String, String) {
     match split_kind_preview(line) {
         Some((kind, arg)) => (preview_english(line), kind.to_owned(), arg.to_owned()),
@@ -16547,11 +13693,6 @@ pub(crate) fn preview_wire(line: &str) -> (String, String, String) {
     }
 }
 
-/// The room-list preview line for one raw timeline event, empty when it has
-/// none: its text, or a kind line (`PREVIEW_KIND_MARK`) where the preview is
-/// words rather than the sender's text. Shared by the latest-event preview
-/// and the blank-preview backfill (`previewbackfill`), so both read an event
-/// identically.
 pub(crate) fn raw_event_preview_line(
     raw: &matrix_sdk::ruma::serde::Raw<matrix_sdk::ruma::events::AnySyncTimelineEvent>,
 ) -> String {
@@ -16564,8 +13705,6 @@ pub(crate) fn raw_event_preview_line(
         if body.is_empty() { kind_preview(kind, "") } else { body }
     }
 
-    // Previews are one visual line and must not define row geometry. The
-    // kind mark never survives: a body cannot pose as a kind line.
     fn one_line(text: &str) -> String {
         text.replace(PREVIEW_KIND_MARK, " ")
             .split_whitespace()
@@ -16581,9 +13720,6 @@ pub(crate) fn raw_event_preview_line(
     };
     match message_like {
         AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(message)) => {
-            // When the latest message was edited, the SDK's latest event IS the
-            // edit (latest_events builder), whose own body is the "* " fallback.
-            // Preview its m.new_content, as a plain message would read.
             let msgtype = match message.content.relates_to {
                 Some(Relation::Replacement(replacement)) => replacement.new_content.msgtype,
                 _ => message.content.msgtype,
@@ -16601,14 +13737,10 @@ pub(crate) fn raw_event_preview_line(
                 MessageType::Image(content) => body_or(one_line(&content.body), "image"),
                 MessageType::File(content) => body_or(one_line(&content.body), "file"),
                 MessageType::Video(content) => body_or(one_line(&content.body), "video"),
-                // A voice message's body is a file name; it is named as one
-                // (`timeline::voice_message_label`, the same rule).
                 MessageType::Audio(content) => match crate::timeline::voice_message_label(&content) {
                     Some(_) => kind_preview("voice", ""),
                     None => body_or(one_line(&content.body), "audio"),
                 },
-                // MSC4274 gallery: caption, else a summary. Never the body (Sable fills it
-                // with `[name: mxc://…]` lines).
                 other => match crate::timeline::parse_gallery(&other)
                     .filter(|g| !g.items.is_empty())
                 {
@@ -16627,8 +13759,6 @@ pub(crate) fn raw_event_preview_line(
         AnySyncMessageLikeEvent::Sticker(SyncMessageLikeEvent::Original(_)) => {
             kind_preview("sticker", "")
         }
-        // MSC3381 poll start: preview the question rather than the multi-line
-        // MSC1767 fallback.
         AnySyncMessageLikeEvent::UnstablePollStart(SyncMessageLikeEvent::Original(poll)) => {
             let question = one_line(&poll.content.poll_start().question.text);
             if question.is_empty() {
@@ -16641,16 +13771,8 @@ pub(crate) fn raw_event_preview_line(
     }
 }
 
-/// Maximum rooms whose latest event the SDK computes. The Latest Events API
-/// is lazy: without `listen_to_room` a room gets no preview or activity
-/// stamp until opened. Bounded for accounts with thousands of rooms; the
-/// list is recency-sorted, so the first rooms delivered are those on screen.
 const LATEST_EVENT_WATCH_CAP: usize = 200;
 
-/// Coarse per-network bucket, used only for preview-slot fairness. A DM
-/// whose partner localpart reads "<prefix>_<rest>" buckets by prefix;
-/// everything else shares one bucket. Not the C++ BridgeNetwork table: a
-/// wrong bucket only shifts the fairness split slightly.
 fn preview_bucket(room: &Room) -> String {
     let targets = room.direct_targets();
     if targets.len() == 1 {
@@ -16677,8 +13799,6 @@ async fn watch_latest_event(
     if watched.contains(room_id) || watched.len() >= LATEST_EVENT_WATCH_CAP {
         return;
     }
-    // Non-fatal: the room keeps an empty preview until an event or open
-    // provides one.
     if latest_events.listen_to_room(room_id).await.unwrap_or(false) {
         watched.insert(room_id.to_owned());
     }
@@ -16691,9 +13811,6 @@ async fn room_name(room: &Room) -> String {
         }
     }
 
-    // Name a 1:1 DM after the person. The SDK's hero algorithm counts every
-    // member, so a bridged DM (ghost plus bridge bot) reads "Sim, and 2
-    // others". When m.direct names one partner with a stored profile, use it.
     let direct_targets = room.direct_targets();
     if direct_targets.len() == 1 {
         if let Some(target) = direct_targets.iter().next() {
@@ -16709,8 +13826,6 @@ async fn room_name(room: &Room) -> String {
         }
     }
 
-    // Use the SDK's Display impl (the full Matrix naming algorithm, including
-    // "Empty Room"); fall back to the raw id only if it yields nothing.
     match room.display_name().await {
         Ok(display_name) => {
             let rendered = display_name.to_string();
@@ -16724,18 +13839,10 @@ async fn room_name(room: &Room) -> String {
     }
 }
 
-/// Bound on the FFI event queue in case the C++ poll timer stalls. On
-/// overflow the oldest events are dropped and one `queue_overflow` notice is
-/// injected. Well above an initial sync's burst on a real account.
 const EVENT_QUEUE_CAP: usize = 4096;
 
-/// Capacity of the terminal-event lane. C++ limits its in-flight commands
-/// (8 media slots and a few others), so this is a tripwire.
 pub(crate) const COMMAND_QUEUE_CAP: usize = 512;
 
-/// Enqueue an op-id-terminal result on the command lane. On overflow the
-/// oldest event is dropped and its parked media payload freed first, so no
-/// decrypted bytes are left in `media_results`.
 pub(crate) fn enqueue_terminal(
     queue: &EventQueueRef,
     parked: &Arc<Mutex<HashMap<u64, Vec<u8>>>>,
@@ -16744,19 +13851,12 @@ pub(crate) fn enqueue_terminal(
     enqueue_terminal_routed(queue, Some(parked), None, value);
 }
 
-/// `enqueue_terminal`, freeing a dropped event's parked payload in the map
-/// that event's TYPE owns: personal chat backgrounds (bgsync.rs) park in
-/// their own map under op ids from another counter, so a dropped background
-/// event must never free a timeline payload with the same number, nor the
-/// reverse. A map that is not given is left alone.
 pub(crate) fn enqueue_terminal_routed(
     queue: &EventQueueRef,
     media: Option<&Arc<Mutex<HashMap<u64, Vec<u8>>>>>,
     personal: Option<&Arc<Mutex<HashMap<u64, Vec<u8>>>>>,
     value: serde_json::Value,
 ) {
-    // Labs: no command result reaches a Background handle in Phase 1. Its
-    // parked payload (if any) goes with it, so no decrypted bytes linger.
     if labs::active() && bgsession::refuses_command(queue) {
         if let Some(op) = value.get("op_id").and_then(|o| o.as_u64()) {
             for map in [media, personal].into_iter().flatten() {
@@ -16789,11 +13889,6 @@ pub(crate) fn enqueue_terminal_routed(
     guard.push_back(value.to_string());
 }
 
-/// Wall-clock ms for sync-latency tracing, or None when off.
-///
-/// Uses LIGHTNING_SYNC_TRACE, the same switch as the C++ tracer
-/// (src/app/SyncLatencyTracer.*). Wall clock because it is compared with
-/// QDateTime::currentMSecsSinceEpoch() in C++. A relaxed load when off.
 pub(crate) fn sync_trace_stamp_ms() -> Option<u64> {
     use std::sync::OnceLock;
     static ENABLED: OnceLock<bool> = OnceLock::new();
@@ -16814,23 +13909,6 @@ pub(crate) fn sync_trace_stamp_ms() -> Option<u64> {
         .map(|d| d.as_millis() as u64)
 }
 
-/// LIGHTNING_SWITCH_TRACE: the Rust half of the account-switch trace.
-///
-/// C++ `switchtrace` (src/app/SwitchTrace.*) writes one line per switch; the
-/// steps it cannot see from the GUI thread are timed here and handed over as a
-/// `"trace"` object on three events: `login_ok` / `login_failed` from
-/// `mx_rust_restore` and `mx_rust_restore_from_file` (never from password or
-/// OAuth login), and the first `room_list_reset` after each
-/// `mx_rust_start_sync` (modern lane only).
-///
-/// Off, nothing changes: no scope is entered, every recorder below is a no-op
-/// outside one, and an event without a trace is byte-identical to today's.
-/// Numbers only; no ids, names or paths reach a trace object (CLAUDE.md §6).
-///
-/// The recorders reach the trace through tokio task-locals scoped around the
-/// restore future and the sync future, so the shared build and restore helpers
-/// keep their signatures and the login paths that also use them, which run
-/// outside any scope, record nothing.
 pub(crate) mod switchtrace {
     use std::cell::RefCell;
     use std::future::{Future, IntoFuture};
@@ -16843,9 +13921,6 @@ pub(crate) mod switchtrace {
         static SYNC_TRACE: RefCell<SyncTrace>;
     }
 
-    /// The Phase 0 contract's switch rule, shared with C++ and with
-    /// LIGHTNING_SYNC_TRACE: on when set and, trimmed and lowercased, not one
-    /// of "", "0", "false", "off", "no".
     pub(crate) fn switch_trace_enabled_from(value: Option<&str>) -> bool {
         value
             .map(|v| {
@@ -16855,7 +13930,6 @@ pub(crate) mod switchtrace {
             .unwrap_or(false)
     }
 
-    /// LIGHTNING_SWITCH_TRACE, read once per process.
     pub(crate) fn switch_trace_enabled() -> bool {
         use std::sync::OnceLock;
         static ENABLED: OnceLock<bool> = OnceLock::new();
@@ -16864,8 +13938,6 @@ pub(crate) mod switchtrace {
         })
     }
 
-    /// Wall-clock UNIX-epoch milliseconds, computed as `sync_trace_stamp_ms`
-    /// computes them (C++ compares with QDateTime::currentMSecsSinceEpoch()).
     pub(crate) fn unix_epoch_ms() -> u64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -16877,13 +13949,10 @@ pub(crate) mod switchtrace {
         later.saturating_duration_since(earlier).as_millis() as u64
     }
 
-    /// Something that can be attached as an event's `"trace"` object.
     pub(crate) trait TraceObject {
         fn to_json(&self) -> Value;
     }
 
-    /// Add `"trace"` to an event object. `None` (the trace is off, or this is
-    /// not the event being traced) leaves the event exactly as it was.
     pub(crate) fn attach_trace<T: TraceObject>(event: &mut Value, trace: Option<&T>) {
         let (Some(trace), Some(map)) = (trace, event.as_object_mut()) else {
             return;
@@ -16891,23 +13960,15 @@ pub(crate) mod switchtrace {
         map.insert("trace".to_owned(), trace.to_json());
     }
 
-    /// The restore steps timed for S8. Durations ACCUMULATE per step.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(crate) enum RestoreStep {
-        /// `builder.build()` of the discovering attempt: well-known, /versions
-        /// and client construction (the stores are already open).
         Discovery,
-        /// One `mediastore::open_account_stores`; also counts the opens.
         StoreOpen,
-        /// The whole recorded-URL fallback `build_client_with`.
         FallbackBuild,
-        /// `matrix_auth().restore_session`.
         Restore,
-        /// `resume_unsent_requests`.
         ResumeUnsent,
     }
 
-    /// What one restore cost, from scope entry to the event it is attached to.
     #[derive(Debug, Clone)]
     pub(crate) struct RestoreTrace {
         started: Instant,
@@ -16955,7 +14016,6 @@ pub(crate) mod switchtrace {
             self.offline_fallback = true;
         }
 
-        /// The object at a given enqueue instant and wall clock. Pure.
         pub(crate) fn to_json_at(&self, now: Instant, wall_ms: u64) -> Value {
             json!({
                 "v": 1,
@@ -16978,8 +14038,6 @@ pub(crate) mod switchtrace {
         }
     }
 
-    /// Run a restore future inside a trace scope when `enabled`, otherwise
-    /// exactly as it is. Callers pass `switch_trace_enabled()`.
     pub(crate) async fn restore_scope<F>(enabled: bool, future: F)
     where
         F: Future<Output = ()>,
@@ -16991,8 +14049,6 @@ pub(crate) mod switchtrace {
         }
     }
 
-    /// `event` with the current restore trace attached, or unchanged outside a
-    /// restore scope.
     pub(crate) fn with_restore_trace(mut event: Value) -> Value {
         let trace = RESTORE_TRACE
             .try_with(|cell| cell.try_borrow().ok().map(|trace| trace.clone()))
@@ -17002,7 +14058,6 @@ pub(crate) mod switchtrace {
         event
     }
 
-    /// Mark the current restore as served from the recorded URL.
     pub(crate) fn note_offline_fallback() {
         let _ = RESTORE_TRACE.try_with(|cell| {
             if let Ok(mut trace) = cell.try_borrow_mut() {
@@ -17011,8 +14066,6 @@ pub(crate) mod switchtrace {
         });
     }
 
-    /// Records on DROP, so a step cut off by a timeout (the discovering build
-    /// under RESTORE_BUILD_BUDGET) still reports the time it took.
     struct RestoreStepTimer {
         step: RestoreStep,
         started: Instant,
@@ -17030,8 +14083,6 @@ pub(crate) mod switchtrace {
         }
     }
 
-    /// Await `future`, timing it as `step` when one is given and a restore
-    /// scope is open. Otherwise exactly `future.await`.
     pub(crate) async fn timed<F: IntoFuture>(step: Option<RestoreStep>, future: F) -> F::Output {
         let _timer = step
             .filter(|_| RESTORE_TRACE.try_with(|_| ()).is_ok())
@@ -17039,7 +14090,6 @@ pub(crate) mod switchtrace {
         future.await
     }
 
-    /// The `"trace"` object of the first `room_list_reset` after a start.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(crate) struct ResetTrace {
         pub(crate) since_start_sync_ms: u64,
@@ -17062,12 +14112,9 @@ pub(crate) mod switchtrace {
         }
     }
 
-    /// One sync session's trace state, scoped around the sync future.
     #[derive(Debug, Clone)]
     pub(crate) struct SyncTrace {
         started: Instant,
-        /// The most recent `SyncService` build: the one whose list produced
-        /// the first Reset, across supervisor rebuilds.
         sync_service_build_ms: u64,
         reset_reported: bool,
     }
@@ -17081,7 +14128,6 @@ pub(crate) mod switchtrace {
             self.sync_service_build_ms = ms;
         }
 
-        /// The first Reset's trace, once; `None` for every later Reset. Pure.
         pub(crate) fn take_first_reset(
             &mut self,
             serialize_started: Instant,
@@ -17103,13 +14149,10 @@ pub(crate) mod switchtrace {
         }
     }
 
-    /// Taken at `mx_rust_start_sync` entry: `Some` only while the trace is on.
     pub(crate) fn sync_start_stamp() -> Option<Instant> {
         switch_trace_enabled().then(Instant::now)
     }
 
-    /// Run the sync future inside a trace scope when a start stamp was taken,
-    /// otherwise exactly as it is.
     pub(crate) async fn sync_scope<F>(started: Option<Instant>, future: F) -> F::Output
     where
         F: Future,
@@ -17120,7 +14163,6 @@ pub(crate) mod switchtrace {
         }
     }
 
-    /// Await the `SyncService` build, recording its duration in a sync scope.
     pub(crate) async fn timed_sync_service_build<F: IntoFuture>(future: F) -> F::Output {
         let started = SYNC_TRACE.try_with(|_| ()).is_ok().then(Instant::now);
         let output = future.await;
@@ -17135,8 +14177,6 @@ pub(crate) mod switchtrace {
         output
     }
 
-    /// Called at the top of the Reset arm: when the first Reset of this sync
-    /// session is still unreported, the instant serializing began.
     pub(crate) fn first_reset_serialize_start() -> Option<Instant> {
         SYNC_TRACE
             .try_with(|cell| cell.try_borrow().map(|t| !t.reset_reported).unwrap_or(false))
@@ -17144,8 +14184,6 @@ pub(crate) mod switchtrace {
             .then(Instant::now)
     }
 
-    /// The first Reset's trace, given the instant from
-    /// `first_reset_serialize_start`; `None` outside a scope or after it.
     pub(crate) fn take_first_reset_trace(
         serialize_started: Option<Instant>,
         rooms: usize,
@@ -17175,8 +14213,6 @@ pub(crate) mod switchtrace {
             list.iter().map(|k| (*k).to_owned()).collect()
         }
 
-        /// Written out from the Phase 0 contract §6.2, not from the code: C++
-        /// WP0-C reads exactly these keys.
         const RESTORE_KEYS: [&str; 10] = [
             "v", "discovery_ms", "store_open_ms", "store_opens", "fallback_build_ms",
             "offline_fallback", "restore_ms", "resume_unsent_ms", "restore_total_ms",
@@ -17222,7 +14258,6 @@ pub(crate) mod switchtrace {
             assert_eq!(value["resume_unsent_ms"], 2);
             assert_eq!(value["restore_total_ms"], 40);
             assert_eq!(value["enq_wall_ms"], 1_700_000_000_123u64);
-            // The production path stamps the clocks itself; same keys.
             assert_eq!(keys(&TraceObject::to_json(&trace)), set(&RESTORE_KEYS));
         }
 
@@ -17290,14 +14325,11 @@ pub(crate) mod switchtrace {
                 assert_eq!(event[&key], original[&key], "{key} changed");
             }
             assert_eq!(keys(&event["trace"]), set(&RESTORE_KEYS));
-            // A non-object event is left alone rather than replaced.
             let mut scalar = json!("text");
             attach_trace(&mut scalar, Some(&RestoreTrace::new(Instant::now())));
             assert_eq!(scalar, json!("text"));
         }
 
-        /// Off: the restore future runs unscoped, every recorder is a no-op,
-        /// and the events it emits are byte-identical to today's.
         #[tokio::test]
         async fn a_restore_with_the_trace_off_emits_identical_events() {
             let emitted = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
@@ -17314,15 +14346,11 @@ pub(crate) mod switchtrace {
             assert_eq!(emitted.as_slice(), [serde_json::to_string(&login_ok()).unwrap()]);
         }
 
-        /// On: the steps recorded inside the scope reach the event, a step cut
-        /// off by a timeout still reports its time, and nothing outside the
-        /// scope is touched.
         #[tokio::test]
         async fn a_restore_with_the_trace_on_attaches_what_its_steps_recorded() {
             let emitted = std::sync::Arc::new(std::sync::Mutex::new(None::<Value>));
             let sink = std::sync::Arc::clone(&emitted);
             restore_scope(true, async move {
-                // A discovering build that never answers, cut off by its budget.
                 let cut = tokio::time::timeout(
                     Duration::from_millis(30),
                     timed(Some(RestoreStep::Discovery), std::future::pending::<()>()),
@@ -17331,7 +14359,6 @@ pub(crate) mod switchtrace {
                 assert!(cut.is_err());
                 timed(Some(RestoreStep::StoreOpen), async {}).await;
                 timed(Some(RestoreStep::StoreOpen), async {}).await;
-                // No step: untimed, as for a non-discovering build.
                 timed(None, async {}).await;
                 note_offline_fallback();
                 *sink.lock().unwrap() = Some(with_restore_trace(login_ok()));
@@ -17346,7 +14373,6 @@ pub(crate) mod switchtrace {
             assert_eq!(trace["offline_fallback"], true);
             assert_eq!(trace["fallback_build_ms"], 0);
             assert!(trace["restore_total_ms"].as_u64().unwrap() >= 25);
-            // Outside the scope: identical event, and recorders do not panic.
             note_offline_fallback();
             timed(Some(RestoreStep::Restore), async {}).await;
             assert_eq!(with_restore_trace(login_ok()), login_ok());
@@ -17354,7 +14380,6 @@ pub(crate) mod switchtrace {
 
         #[tokio::test]
         async fn a_sync_session_traces_its_first_reset_only_and_only_when_on() {
-            // Off: no stamp, no scope, nothing recorded or returned.
             let off = sync_scope(None, async {
                 timed_sync_service_build(async {}).await;
                 let started = first_reset_serialize_start();
@@ -17384,9 +14409,6 @@ pub(crate) mod switchtrace {
 }
 
 pub(crate) fn enqueue(events: &Arc<Mutex<VecDeque<String>>>, value: serde_json::Value) {
-    // Labs: a Background handle's queue takes only what its allow-list admits
-    // (bgsession.rs). One relaxed load and nothing else while Labs is off, so
-    // the stream is byte-identical (T-OFF-4).
     let value = if labs::active() {
         match bgsession::admit(events, value) {
             Some(value) => value,
@@ -17400,14 +14422,12 @@ pub(crate) fn enqueue(events: &Arc<Mutex<VecDeque<String>>>, value: serde_json::
     };
     if let Ok(mut guard) = events.lock() {
         if guard.len() >= EVENT_QUEUE_CAP {
-            // Drop the oldest; don't add another marker if we just dropped one.
             let dropped_marker = matches!(
                 guard.front().map(|s| s.contains("\"queue_overflow\"")),
                 Some(true),
             );
             guard.pop_front();
             if !dropped_marker {
-                // Reserve one slot for the marker + the new event.
                 if guard.len() >= EVENT_QUEUE_CAP {
                     guard.pop_front();
                 }
@@ -17427,9 +14447,6 @@ fn run_async<F>(events: Arc<Mutex<VecDeque<String>>>, label: &'static str, futur
 where
     F: std::future::Future<Output = ()>,
 {
-    // Labs: a Background handle's runtimes are named `lt-{sync,boot,op}-<slot>`
-    // with a bounded blocking pool, where `deadpool-sync` runs its SQLite I/O
-    // (design §3.2.11, R2-M2). Today's runtime otherwise.
     let profile = bgsession::for_queue(&events).map(|bg| bg.profile.clone());
     let result = catch_unwind(AssertUnwindSafe(|| {
         let mut builder = tokio::runtime::Builder::new_current_thread();
@@ -17503,26 +14520,12 @@ unsafe fn cstr_arg(ptr: *const c_char) -> Result<String, String> {
         .map_err(|err| format!("invalid UTF-8 string passed to Rust SDK FFI: {err}"))
 }
 
-/// The event a send replies to, or `None` for an empty string. A malformed id
-/// is an error, never a silently plain send.
-///
-/// # Safety
-/// `ptr` must be a valid NUL-terminated string (null is refused by `cstr_arg`).
 unsafe fn reply_target_arg(
     ptr: *const c_char,
 ) -> Result<Option<matrix_sdk::ruma::OwnedEventId>, String> {
     timeline::parse_reply_target(&unsafe { cstr_arg(ptr) }?)
 }
 
-/// Copy an optional send-side poster out of C++ memory.
-///
-/// Absent and oversized posters yield `None`; the video then sends without
-/// one. The bound only prevents unbounded allocation; `PosterBytes` applies
-/// the real policy and magic check. C++ frees its buffer on return, so the
-/// copy is required.
-///
-/// # Safety
-/// `data` must either be null or point to at least `len` readable bytes.
 unsafe fn poster_arg(
     data: *const u8,
     len: usize,
@@ -17561,8 +14564,6 @@ fn format_matrix_error(context: &str, err: impl std::fmt::Display) -> String {
     format!("{context}: {err}")
 }
 
-/// Map an `import_room_keys` error message to a UI code using coarse
-/// substrings. The raw message is passed through separately.
 fn classify_import_error(message: &str) -> &'static str {
     let lc = message.to_lowercase();
     if lc.contains("mac")
@@ -17604,29 +14605,21 @@ mod tests {
     #[test]
     fn mark_read_target_does_not_depend_on_latest_event() {
         let id = |s: &str| super::EventId::parse(s).unwrap();
-        // Unwatched room: latest_event() is None, the event cache has the newest.
         assert_eq!(
             super::pick_receipt_target(Some(id("$new:x")), None, None),
             Some(id("$new:x")));
-        // Stale latest_event must lose to what sync delivered last.
         assert_eq!(
             super::pick_receipt_target(Some(id("$new:x")), Some(id("$old:x")), None),
             Some(id("$new:x")));
         assert_eq!(
             super::pick_receipt_target(None, Some(id("$old:x")), Some(id("$f:x"))),
             Some(id("$old:x")));
-        // Nothing local: the fetched page is used rather than sending no receipt.
         assert_eq!(
             super::pick_receipt_target(None, None, Some(id("$f:x"))),
             Some(id("$f:x")));
         assert_eq!(super::pick_receipt_target(None, None, None), None);
     }
 
-
-    // ── Read-receipt privacy ────────────────────────────────────────────
-    //
-    // What other room members can observe in each mode, and that the
-    // fully-read marker is sent in every mode.
     #[test]
     fn receipt_privacy_decides_what_other_members_can_see() {
         use super::receipts_for_mode;
@@ -17634,14 +14627,11 @@ mod tests {
 
         let id = EventId::parse("$abc:example.org").unwrap();
 
-        // 0: public.
         let public = receipts_for_mode(id.clone(), 0);
         assert_eq!(public.public_read_receipt.as_deref(), Some(&*id));
         assert!(public.private_read_receipt.is_none());
         assert_eq!(public.fully_read.as_deref(), Some(&*id));
 
-        // 1: private. The server records it, so this account's other devices still
-        // clear their badge; no other member sees it.
         let private = receipts_for_mode(id.clone(), 1);
         assert!(
             private.public_read_receipt.is_none(),
@@ -17650,10 +14640,6 @@ mod tests {
         assert_eq!(private.private_read_receipt.as_deref(), Some(&*id));
         assert_eq!(private.fully_read.as_deref(), Some(&*id));
 
-        // 2: "do not send read receipts". Nothing other members can see, but a
-        // PRIVATE receipt, as Element does: matrix-sdk counts this device's unread
-        // from the user's own m.read / m.read.private only, so sending none left
-        // every room unread here after it was read (finding 66).
         let off = receipts_for_mode(id.clone(), 2);
         assert!(off.public_read_receipt.is_none(), "never visible to other members");
         assert_eq!(
@@ -17668,8 +14654,6 @@ mod tests {
              survive every mode"
         );
 
-        // An out-of-range value falls back to public rather than silently
-        // stopping receipts.
         let bogus = receipts_for_mode(id.clone(), 77);
         assert_eq!(bogus.public_read_receipt.as_deref(), Some(&*id));
     }
@@ -17679,12 +14663,9 @@ mod tests {
         use matrix_sdk::ruma::user_id;
         let alice = user_id!("@alice:example.org");
         let mallory = user_id!("@mallory:example.org");
-        // Your own message: always.
         assert!(super::redaction_applies(Some(alice), alice, Some(false)));
-        // Someone else's: only with the power to redact others.
         assert!(!super::redaction_applies(Some(alice), mallory, Some(false)));
         assert!(super::redaction_applies(Some(alice), mallory, Some(true)));
-        // Unknown power levels or an uncached target: forwarded, as before.
         assert!(super::redaction_applies(Some(alice), mallory, None));
         assert!(super::redaction_applies(None, mallory, Some(false)));
     }
@@ -17713,26 +14694,19 @@ mod tests {
             ev("$d1:x", "m.room.redaction", Some("$r1:x"), false),
         ];
         assert_eq!(pick("$m2:x", &tail), id("$d1:x"));
-        // A message after the chosen row is unseen: never marked read.
         assert_eq!(pick("$m1:x", &tail), id("$m1:x"));
-        // Nothing after it and an unknown id stay put.
         assert_eq!(pick("$d1:x", &tail), id("$d1:x"));
         assert_eq!(pick("$zz:x", &tail), id("$zz:x"));
-        // An undecryptable tail stays put.
         let utd = vec![
             msg("$m2:x"),
             TailEvent { id: id("$u:x"), kind: None, target: None, threaded: false },
         ];
         assert_eq!(pick("$m2:x", &utd), id("$m2:x"));
 
-        // A reaction to a THREAD reply, which sits before the row the reader
-        // saw, must not carry the Main receipt onto the reaction.
         let thread = vec![thread_reply("$t1:x"), msg("$m2:x"), react("$r1:x", "$t1:x")];
         assert_eq!(pick("$m2:x", &thread), id("$m2:x"));
-        // Nor one to an event the cache does not hold.
         let unknown = vec![msg("$m2:x"), react("$r1:x", "$gone:x")];
         assert_eq!(pick("$m2:x", &unknown), id("$m2:x"));
-        // One thread-annotating reaction among main ones blocks the move.
         let mixed = vec![
             thread_reply("$t1:x"),
             msg("$m2:x"),
@@ -17741,7 +14715,6 @@ mod tests {
         ];
         assert_eq!(pick("$m2:x", &mixed), id("$m2:x"));
 
-        // An edit and a poll answer in the tail are content, not relations.
         let edit = vec![msg("$m2:x"), ev("$e1:x", "m.room.message", Some("$m2:x"), false)];
         assert_eq!(pick("$m2:x", &edit), id("$m2:x"));
         let poll = vec![
@@ -17750,29 +14723,20 @@ mod tests {
             react("$r1:x", "$m2:x"),
         ];
         assert_eq!(pick("$m2:x", &poll), id("$m2:x"));
-        // A redaction of something that is not a reaction does not skip either.
         let redact_msg = vec![msg("$m1:x"), msg("$m2:x"), ev("$d:x", "m.room.redaction", Some("$m1:x"), false)];
         assert_eq!(pick("$m2:x", &redact_msg), id("$m2:x"));
     }
 
     #[test]
     fn the_fully_read_marker_never_moves_backwards() {
-        // Another device read further: refuse.
         assert!(super::fully_read_would_move_back(Some(2_000), Some(1_000)));
-        // Forward, or the same instant: write.
         assert!(!super::fully_read_would_move_back(Some(1_000), Some(2_000)));
         assert!(!super::fully_read_would_move_back(Some(1_000), Some(1_000)));
-        // Not cached on either side: no evidence, write as before.
         assert!(!super::fully_read_would_move_back(None, Some(1_000)));
         assert!(!super::fully_read_would_move_back(Some(1_000), None));
         assert!(!super::fully_read_would_move_back(None, None));
     }
 
-    // The automatic receipt while reading the live timeline: one receipt on the
-    // MAIN thread (an unthreaded one marked older thread replies read on the
-    // server, finding 72), never m.fully_read (moving it with every receipt
-    // removed the "New messages" divider a second after a room opened, finding
-    // 67), and private in modes 1 and 2 (finding 66).
     #[test]
     fn the_automatic_receipt_is_main_thread_and_never_fully_read() {
         use super::automatic_receipt;
@@ -17794,8 +14758,6 @@ mod tests {
             assert_ne!(receipt_type, ReceiptType::FullyRead, "mode {mode}");
             assert_eq!(thread, ReceiptThread::Main, "mode {mode}");
             assert_eq!(event, id);
-            // Inline thread style: thread replies are on screen, so the
-            // receipt is unthreaded and still never m.fully_read.
             let (receipt_type, thread, event) =
                 automatic_receipt(id.clone(), mode, true);
             assert_eq!(receipt_type, expected, "inline mode {mode}");
@@ -17804,33 +14766,25 @@ mod tests {
         }
     }
 
-    // Only two real keys that disagree may answer `Some(false)`; every way of
-    // not knowing is None.
     #[test]
     fn identity_key_agreement_is_tri_state() {
-        // Agreement: the healthy device.
         assert_eq!(
             super::identity_key_agreement(Some("AAAA"), Some("AAAA")),
             Some(true)
         );
-        // Disagreement: peers encrypt to the published key, which we do not hold.
         assert_eq!(
             super::identity_key_agreement(Some("AAAA"), Some("BBBB")),
             Some(false)
         );
-        // Every way of not knowing is None, never Some(false).
         assert_eq!(super::identity_key_agreement(None, Some("AAAA")), None,
                    "no local Olm key is 'unknown', not 'broken'");
         assert_eq!(super::identity_key_agreement(Some("AAAA"), None), None,
                    "the server publishing nothing for us is 'unknown'");
         assert_eq!(super::identity_key_agreement(None, None), None);
-        // An empty string is not an answer either.
         assert_eq!(super::identity_key_agreement(Some(""), Some("AAAA")), None);
         assert_eq!(super::identity_key_agreement(Some("AAAA"), Some("")), None);
     }
 
-    // A cancelled thread that will not stop must not hold the UI: a runtime
-    // drop can block on a slow DNS resolution. On unfixed code this hangs.
     #[test]
     fn a_task_that_will_not_stop_is_detached_rather_than_waited_for() {
         use super::{join_task_within_budget, SyncTask, SYNC_TASK_JOIN_BUDGET_MS};
@@ -17838,7 +14792,6 @@ mod tests {
         let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
         let thread = std::thread::spawn(move || {
             let _done = done_tx;
-            // Stands in for a runtime drop blocked on getaddrinfo.
             let _ = park_rx.recv();
         });
         let (cancel, _cancel_rx) = tokio::sync::oneshot::channel::<()>();
@@ -17853,16 +14806,13 @@ mod tests {
         let waited = started.elapsed();
 
         assert!(!joined, "a parked thread must report as detached, not joined");
-        // Bounded by the budget, with generous slack for a loaded CI box.
         assert!(
             waited < std::time::Duration::from_millis(SYNC_TASK_JOIN_BUDGET_MS + 2000),
             "waited {waited:?}, which is past the budget"
         );
-        // Let the parked thread go so the test process can exit cleanly.
         let _ = park_tx.send(());
     }
 
-    // A finished task joins promptly without spending the budget.
     #[test]
     fn a_task_that_has_already_stopped_is_joined_immediately() {
         use super::{join_task_within_budget, SyncTask};
@@ -17882,25 +14832,12 @@ mod tests {
     }
     use super::classify_import_error;
 
-    // ── join_or_abort double poll ────────────────────────────────────────
-    //
-    // Joining the same handles with a second `join_all` after the budget
-    // re-polls tasks that already finished and panics with
-    // "JoinHandle polled after completion". It needs one task to miss the
-    // budget and another to finish inside it.
-    //
-    // `panic_is_catchable_in_the_test_profile` asserts panics unwind here,
-    // which every should_panic case below relies on.
-
     #[test]
     #[should_panic(expected = "deliberate")]
     fn panic_is_catchable_in_the_test_profile() {
-        // If this fails, every should_panic case below is vacuous.
         panic!("deliberate");
     }
 
-    /// The old two-round shape, kept so the test can fail on it. Not used in
-    /// production.
     async fn join_or_abort_the_old_broken_way(
         mut handles: Vec<tokio::task::JoinHandle<()>>,
         budget_ms: u64,
@@ -17913,7 +14850,6 @@ mod tests {
             for handle in &handles {
                 handle.abort();
             }
-            // The second join_all over the same handles: the defect.
             let _ = tokio::time::timeout(
                 std::time::Duration::from_millis(200),
                 futures_util::future::join_all(handles.iter_mut()),
@@ -17925,8 +14861,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "polled after completion")]
     fn the_old_two_round_join_panics_when_one_task_beat_the_budget() {
-        // One task finishes immediately, one outlives the budget: the mix an
-        // account switch produces.
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
@@ -17943,8 +14877,6 @@ mod tests {
 
     #[test]
     fn join_or_abort_survives_the_same_mix_and_reports_the_miss() {
-        // On the unfixed code this aborts the process rather than failing, hence
-        // the case above.
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
@@ -17955,7 +14887,6 @@ mod tests {
             let slow = tokio::spawn(async {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             });
-            // A zero budget: the slow task cannot make it, the quick one has.
             super::RustClient::join_or_abort(vec![quick, slow], 0).await
         });
         assert_eq!(missed, 1, "the task that outlived the budget was not counted");
@@ -17971,7 +14902,6 @@ mod tests {
         let missed = rt.block_on(async {
             let a = tokio::spawn(async {});
             let b = tokio::spawn(async {});
-            // Milliseconds; generous so a loaded machine does not flake.
             super::RustClient::join_or_abort(vec![a, b], 2000).await
         });
         assert_eq!(missed, 0);
@@ -17986,8 +14916,6 @@ mod tests {
         assert_eq!(rt.block_on(super::RustClient::join_or_abort(vec![], 0)), 0);
     }
 
-    // The two orderings that never panicked. Both pass on the broken code;
-    // they document the window, not the fix.
     #[test]
     fn the_old_shape_is_harmless_when_nothing_misses_the_budget() {
         let rt = tokio::runtime::Builder::new_multi_thread()
@@ -17998,7 +14926,6 @@ mod tests {
         rt.block_on(async {
             let a = tokio::spawn(async {});
             let b = tokio::spawn(async {});
-            // Round two never runs, so nothing is re-polled.
             join_or_abort_the_old_broken_way(vec![a, b], 5_000).await;
         });
     }
@@ -18017,28 +14944,17 @@ mod tests {
             let b = tokio::spawn(async {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             });
-            // Round two polls only still-pending handles, which is legal.
             join_or_abort_the_old_broken_way(vec![a, b], 50).await;
         });
     }
 
-    // ── Tracked FFI actions ──────────────────────────────────────────────
-    //
-    // "A recover() import cannot outlive mx_rust_destroy" needs a logged-in
-    // Client and is not tested here. These assert the mechanism: a reported
-    // action is registered in the pool `shutdown_managed_tasks` drains,
-    // shutdown waits for it, and the panic report survives.
-
     fn test_bridge() -> super::RustClient {
-        // `RustClient::new` only builds the runtime and empty registries.
         super::RustClient::new(
             std::env::temp_dir().join("lightning-spawn-reported-action-test"),
         )
         .expect("bridge")
     }
 
-    /// Released when the owning future is dropped; stands in for the Client
-    /// clone each action holds.
     struct ReleaseFlag(std::sync::Arc<std::sync::atomic::AtomicBool>);
 
     impl Drop for ReleaseFlag {
@@ -18074,8 +14990,6 @@ mod tests {
             let _flag = flag;
             let _ = hold.await;
         });
-        // Start the releaser's wait right before shutdown, so scheduling noise
-        // cannot satisfy the elapsed assertion.
         let releaser = std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(300));
             let _ = release.send(());
@@ -18097,8 +15011,6 @@ mod tests {
 
     #[test]
     fn a_panicking_action_still_reports_itself_the_way_run_async_did() {
-        // A panicking action must still enqueue `{"type":"error"}` (shown as a
-        // banner); a bare spawn would lose the panic in `join_or_abort`.
         let bridge = test_bridge();
         bridge.spawn_reported_action("test_action", async {
             panic!("deliberate test panic");
@@ -18128,8 +15040,6 @@ mod tests {
 
     #[test]
     fn catch_panic_never_polls_a_future_that_has_already_unwound() {
-        // The future is dropped when it panics, so the second await takes the
-        // "already resolved" branch.
         let polls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counter = std::sync::Arc::clone(&polls);
         let mut caught = super::CatchPanic::new(async move {
@@ -18149,16 +15059,8 @@ mod tests {
         );
     }
 
-    // ── Teardown budget vs the C++ store-close wait ──────────────────────
-    //
-    // C++ covers the whole shutdown chain plus `mx_rust_destroy` with one
-    // `waitForRustRetirement(kStoreCloseBudgetMs)`, then deletes the store
-    // regardless.
-
     #[test]
     fn the_shutdown_budget_leaves_the_cpp_store_close_wait_room_to_finish() {
-        // The compile-time assertion is the real gate; this prints the numbers
-        // when broken and pins the reserve.
         assert_eq!(
             super::SHUTDOWN_WORST_CASE_MS,
             10_500,
@@ -18175,8 +15077,6 @@ mod tests {
             super::SHUTDOWN_DESTROY_RESERVE_MS,
             super::STORE_CLOSE_BUDGET_MS
         );
-        // The verification join must cover one poll tick plus two flow cancels,
-        // or a driver is aborted mid-cancel.
         assert!(
             super::SHUTDOWN_VERIFICATION_JOIN_MS
                 >= super::VERIFICATION_POLL_MS + 2 * super::SHUTDOWN_FLOW_CANCEL_MS,
@@ -18187,29 +15087,20 @@ mod tests {
 
     #[test]
     fn the_timeline_shutdown_legs_are_bounded_like_an_abort_drain() {
-        // The timeline legs abort before awaiting, so they are bounded like an
-        // abort drain. If this fails, re-derive SHUTDOWN_WORST_CASE_MS.
         assert_eq!(crate::timeline::SHUTDOWN_ABORTED_JOIN_MS, 250);
-        // Nothing else: SHUTDOWN_WORST_CASE_MS is defined as a sum including these
-        // legs, so a comparison here could not fail. The compile-time assert can.
     }
 
-    // A panic line may say where, never what: the payload can contain a message
-    // body. `panic_report_line` takes no payload; assert it is still actionable.
     #[test]
     fn a_panic_report_names_where_it_happened_and_nothing_else() {
         let line = super::panic_report_line(Some(("rust/src/timeline.rs", 412)), Some("tokio-1"));
         assert!(line.contains("rust/src/timeline.rs:412"), "{line}");
         assert!(line.contains("tokio-1"), "{line}");
-        // The escape hatch must be discoverable from the line itself.
         assert!(line.contains("LIGHTNING_PANIC_PAYLOAD"), "{line}");
-        // Metadata this crate cannot supply must degrade, never panic.
         let bare = super::panic_report_line(None, None);
         assert!(bare.contains("<unknown location>"), "{bare}");
         assert!(bare.contains("<unnamed>"), "{bare}");
     }
 
-    // An empty value is not a request (`VAR=` unsets in place).
     #[test]
     fn only_a_non_empty_override_asks_for_the_stock_panic_hook() {
         assert!(super::panic_payload_requested(Some("1")));
@@ -18219,9 +15110,6 @@ mod tests {
         assert!(!super::panic_payload_requested(Some("   ")));
     }
 
-    /// `STORE_CLOSE_BUDGET_MS` mirrors the C++ `kStoreCloseBudgetMs`. If C++
-    /// lowered it alone, the compile-time budget check would silently permit a
-    /// chain that outlasts the C++ wait.
     #[test]
     fn the_store_close_budget_mirrors_the_cpp_constant() {
         let header = include_str!("../../src/matrix/RustSdkMatrixClient.h");
@@ -18248,8 +15136,6 @@ mod tests {
 
     #[test]
     fn no_ffi_entry_point_falls_back_to_an_untracked_thread_plus_a_throwaway_runtime() {
-        // Source scan: each label must be on the tracked pool and absent from the
-        // old raw shape, so neither a rename nor a deletion passes vacuously.
         let source = include_str!("lib.rs");
         assert!(
             source.contains("fn spawn_reported_action"),
@@ -18275,7 +15161,6 @@ mod tests {
         }
     }
 
-    // The user agent must be `Lightning/X.Y.Z` from the crate version.
     #[test]
     fn user_agent_is_derived_from_the_crate_version() {
         let ua = super::USER_AGENT;
@@ -18293,9 +15178,6 @@ mod tests {
         }
     }
 
-    // The FFI notification-mode integers are a contract with C++
-    // (SettingsManager, NotificationManager::RoomMode); round-trip both ways
-    // and reject anything outside 0..=2.
     #[test]
     fn notification_mode_ints_round_trip_label_faithfully() {
         use matrix_sdk::notification_settings::RoomNotificationMode;
@@ -18309,12 +15191,6 @@ mod tests {
         }
     }
 
-    // How each way of muting a room that other clients use reads through the
-    // SDK's own classification (the one Lightning reports). Element Web writes
-    // an enabled OVERRIDE rule keyed by the room id with an `event_match`
-    // `room_id` condition and NO actions; Element X goes through this same
-    // SDK. A ROOM rule without `notify` is "Mentions & keywords" in Element
-    // (not Mute), and a disabled rule counts for nothing.
     #[tokio::test]
     async fn every_standard_muted_room_push_rule_form_reads_as_the_right_mode() {
         use matrix_sdk::notification_settings::RoomNotificationMode as M;
@@ -18371,15 +15247,8 @@ mod tests {
         assert_eq!(super::notification_mode_from_int(i32::MAX), None);
     }
 
-    // Regression for a Mentions-only encrypted room showing a numbered badge:
-    // the server's own count cannot evaluate content/mention conditions on
-    // ciphertext, and `.max()`-ing it with the client's correct, decrypted-
-    // content count let its number win.
     #[test]
     fn an_encrypted_room_trusts_only_the_client_computed_counts() {
-        // The client's own ruleset evaluation (against the decrypted body)
-        // found nothing but the one real mention; the server's raw count
-        // disagrees. Only the client's answer may reach the badge.
         assert_eq!(
             super::unread_and_highlight_counts(true, 0, 1, 12, 3),
             (0, 1)
@@ -18388,9 +15257,6 @@ mod tests {
 
     #[test]
     fn an_unencrypted_room_still_takes_the_larger_of_the_two_counts() {
-        // Unchanged behaviour: the server can evaluate every rule for a
-        // plaintext room, so a count it has seen that the client's own cache
-        // has not caught up to yet must not be thrown away.
         assert_eq!(
             super::unread_and_highlight_counts(false, 0, 0, 5, 1),
             (5, 1)
@@ -18399,29 +15265,20 @@ mod tests {
 
     #[test]
     fn unread_only_a_thread_can_explain_is_reported_for_a_plaintext_room() {
-        // Main timeline read (client counts 0), server still counts 4 and one
-        // highlight: the remainder is a thread.
         assert_eq!(super::unread_in_threads_only(false, true, 0, 0, 4, 1), (true, true));
         assert_eq!(super::unread_in_threads_only(false, true, 0, 0, 4, 0), (true, false));
     }
 
     #[test]
     fn thread_only_unread_is_not_claimed_when_it_cannot_be_known() {
-        // Nothing unread at all.
         assert_eq!(super::unread_in_threads_only(false, true, 0, 0, 0, 0), (false, false));
-        // Plain main-timeline unread is just unread, even if threads add to it.
         assert_eq!(super::unread_in_threads_only(false, true, 2, 0, 9, 0), (false, false));
         assert_eq!(super::unread_in_threads_only(false, true, 0, 1, 9, 1), (false, false));
-        // Encrypted: client counts exclude threads and server counts are unused,
-        // so there is no honest signal.
         assert_eq!(super::unread_in_threads_only(true, true, 0, 0, 9, 3), (false, false));
     }
 
     #[test]
     fn the_own_identity_refetch_is_throttled_unless_local_state_moved() {
-        // Break-it B014: a stale own identity is refetched, but a state that
-        // stays put (an account with no cross-signing at all) is not fetched on
-        // every snapshot.
         use super::{own_identity_refetch_due, OWN_IDENTITY_REFETCH_MIN};
         let t0 = std::time::Instant::now();
         let stuck = [false, false, false, false, false, false];
@@ -18433,38 +15290,28 @@ mod tests {
             t0 + OWN_IDENTITY_REFETCH_MIN / 2
         ));
         assert!(own_identity_refetch_due(Some((t0, stuck)), stuck, t0 + OWN_IDENTITY_REFETCH_MIN));
-        // Secrets arrived (a verification finished): due at once.
         let moved = [true, false, false, true, true, true];
         assert!(own_identity_refetch_due(Some((t0, stuck)), moved, t0));
     }
 
     #[test]
     fn the_own_identity_is_refetched_when_it_looks_stale_and_never_against_the_uia_guard() {
-        // Break-it B014 review: the decision itself, not only its throttle.
         use super::own_identity_refetch_wanted as wanted;
         let granted = || true;
         let throttled = || false;
-        // Nothing known locally (another session set cross-signing up and the
-        // device-list change never reached us): refetched when the throttle allows.
         let stale = [false; 6];
         assert!(wanted(stale, true, granted));
         assert!(!wanted(stale, true, throttled));
-        // Identity there but unverified, or this device not cross-signed.
         assert!(wanted([true, false, true, true, true, true], true, granted));
         assert!(wanted([true, true, false, false, false, false], true, granted));
-        // A cross-signing job holds the UIA slot: never, whatever the state.
         assert!(!wanted(stale, false, granted));
         assert!(!wanted([true, true, false, true, true, true], false, granted));
-        // Fully verified and cross-signed: never, and the throttle is not even
-        // consulted (a claim would stamp the account for nothing).
         let asked = std::cell::Cell::new(false);
         assert!(!wanted([true; 6], true, || {
             asked.set(true);
             true
         }));
         assert!(!asked.get());
-        // All three private keys present, this device not cross-signed: the
-        // unconfirmed-setup case, refetched unthrottled as before.
         assert!(wanted([true, true, false, true, true, true], true, throttled));
     }
 
@@ -18488,8 +15335,6 @@ mod tests {
 
     #[test]
     fn space_children_without_an_order_key_follow_their_add_time() {
-        // Break-it B051: added Alpha, Beta, Delta in that order; room ids
-        // sort Beta < Alpha < Delta. Keyless children follow origin_server_ts.
         let keyless = vec![
             (None, 1_000, "!zzalpha:x".to_owned()),
             (None, 2_000, "!aabeta:x".to_owned()),
@@ -18499,8 +15344,6 @@ mod tests {
             super::sort_space_children(keyless),
             vec!["!zzalpha:x", "!aabeta:x", "!mmdelta:x"]
         );
-        // An order key still wins, an equal key falls to the timestamp, and
-        // the room id breaks a timestamp tie.
         let mixed = vec![
             (None, 1, "!keyless:x".to_owned()),
             (Some("b".to_owned()), 5, "!b5:x".to_owned()),
@@ -18516,26 +15359,16 @@ mod tests {
 
     #[test]
     fn a_room_never_read_is_not_thread_only_on_zero_client_counts() {
-        // Break-it B012: joined live, never opened, no receipt. The client
-        // counted nothing, so its zeros say nothing about the main timeline;
-        // the server's 3 (and its highlight) are ordinary unread, not a thread.
         assert_eq!(super::unread_in_threads_only(false, false, 0, 0, 3, 0), (false, false));
         assert_eq!(super::unread_in_threads_only(false, false, 0, 0, 1, 1), (false, false));
-        // The same counts once a receipt anchors the client's count still are.
         assert_eq!(super::unread_in_threads_only(false, true, 0, 0, 3, 0), (true, false));
     }
 
     #[test]
     fn an_encrypted_room_with_a_real_mention_still_shows_it() {
-        // The fix must not silence a genuine mention just because it is
-        // encrypted; the client-computed mention count is exactly what
-        // should reach the badge.
         assert_eq!(super::unread_and_highlight_counts(true, 3, 2, 3, 0), (3, 2));
     }
 
-    // Marker discipline for notification-mode writes: a superseded task
-    // neither writes nor reports, the winner consumes the marker once, and the
-    // read path pends only while a write is unreported.
     #[test]
     fn notification_targets_supersede_consume_and_pend_correctly() {
         use std::collections::HashMap;
@@ -18544,30 +15377,23 @@ mod tests {
             Arc::new(Mutex::new(HashMap::new()));
         let room = "!room:example.org";
 
-        // set(2) queued: marker present, latest, read path pends.
         targets.lock().unwrap().insert(room.to_owned(), 2);
         assert!(super::is_latest_notification_target(&targets, room, 2));
         assert!(super::notification_write_pending(&targets, room));
 
-        // set(1) arrives while set(2) is in flight: set(2) must skip its report and
-        // leave the marker.
         targets.lock().unwrap().insert(room.to_owned(), 1);
         assert!(!super::is_latest_notification_target(&targets, room, 2));
         assert!(!super::take_notification_target_if_latest(&targets, room, 2));
         assert!(super::notification_write_pending(&targets, room));
 
-        // set(1)'s task reports: it is latest, consumes the marker once.
         assert!(super::take_notification_target_if_latest(&targets, room, 1));
         assert!(!super::notification_write_pending(&targets, room));
-        // A second consume attempt (double report) finds nothing.
         assert!(!super::take_notification_target_if_latest(&targets, room, 1));
 
-        // Duplicate sets of the same mode: the first reporter consumes the marker.
         targets.lock().unwrap().insert(room.to_owned(), 0);
         assert!(super::take_notification_target_if_latest(&targets, room, 0));
         assert!(!super::is_latest_notification_target(&targets, room, 0));
 
-        // Other rooms are independent.
         targets.lock().unwrap().insert("!other:example.org".to_owned(), 2);
         assert!(!super::notification_write_pending(&targets, room));
         assert!(super::notification_write_pending(&targets, "!other:example.org"));
@@ -18581,7 +15407,6 @@ mod tests {
             Arc::new(Mutex::new(HashMap::new()));
         let room = "!room:example.org";
 
-        // Orphan path (panic, abort, never polled): the guard clears the marker.
         targets.lock().unwrap().insert(room.to_owned(), 2);
         drop(super::NotificationTargetGuard {
             targets: Arc::clone(&targets),
@@ -18590,7 +15415,6 @@ mod tests {
         });
         assert!(!super::notification_write_pending(&targets, room));
 
-        // Superseded path: a newer task's marker is never touched.
         targets.lock().unwrap().insert(room.to_owned(), 1);
         drop(super::NotificationTargetGuard {
             targets: Arc::clone(&targets),
@@ -18599,7 +15423,6 @@ mod tests {
         });
         assert!(super::is_latest_notification_target(&targets, room, 1));
 
-        // Normal path: the report consume got there first; guard no-ops.
         assert!(super::take_notification_target_if_latest(&targets, room, 1));
         drop(super::NotificationTargetGuard {
             targets: Arc::clone(&targets),
@@ -18609,7 +15432,6 @@ mod tests {
         assert!(!super::notification_write_pending(&targets, room));
     }
 
-    // Overflow of the terminal lane frees the dropped event's parked payload.
     #[test]
     fn terminal_queue_overflow_frees_parked_bytes() {
         use std::collections::{HashMap, VecDeque};
@@ -18618,7 +15440,6 @@ mod tests {
         let parked: Arc<Mutex<HashMap<u64, Vec<u8>>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
-        // Park a payload for the op whose terminal event will be dropped.
         parked.lock().unwrap().insert(1, vec![0u8; 64]);
         parked.lock().unwrap().insert(2, vec![0u8; 64]);
 
@@ -18629,11 +15450,9 @@ mod tests {
                 serde_json::json!({ "type": "media_ready", "op_id": op }),
             );
         }
-        // Queue is at cap; both payloads still parked.
         assert_eq!(queue.lock().unwrap().len(), super::COMMAND_QUEUE_CAP);
         assert_eq!(parked.lock().unwrap().len(), 2);
 
-        // One more drops the oldest (op 1) and frees its bytes; op 2 survives.
         super::enqueue_terminal(
             &queue,
             &parked,
@@ -18642,7 +15461,6 @@ mod tests {
         assert_eq!(queue.lock().unwrap().len(), super::COMMAND_QUEUE_CAP);
         assert!(!parked.lock().unwrap().contains_key(&1));
         assert!(parked.lock().unwrap().contains_key(&2));
-        // FIFO order is preserved for the survivors.
         let front = queue.lock().unwrap().front().cloned().unwrap();
         assert!(front.contains("\"op_id\":2"));
     }
@@ -18671,7 +15489,6 @@ mod tests {
         assert_eq!(classify_import_error("crypto store unavailable"), "import_failed");
     }
 
-    // The local-confirmation event carries the flow id only.
     #[test]
     fn sas_confirmed_event_shape_is_flow_id_only() {
         let event = super::verification_sas_confirmed_event("flow-abc123");
@@ -18681,11 +15498,6 @@ mod tests {
         assert_eq!(obj["flow_id"], "flow-abc123");
     }
 
-    // ── Single-flow slot discipline ────────────────────────────────────
-    //
-    // A slot left occupied refused every later attempt, and an unconditional
-    // clear evicted a newer request. The SDK types cannot be constructed
-    // here, so the rules run through the FlowLiveness/FlowIdentity traits.
     mod flow_slots {
         use std::sync::{Arc, Mutex};
 
@@ -18719,7 +15531,6 @@ mod tests {
         }
 
         type RequestSlot = Arc<Mutex<Option<FakeFlow>>>;
-        // SAS and show-QR slots are both keyed by flow id, so one fake covers both.
         type MethodSlot = Arc<Mutex<Option<(String, FakeFlow)>>>;
 
         fn slots() -> (RequestSlot, MethodSlot, MethodSlot) {
@@ -18749,13 +15560,9 @@ mod tests {
             let (request, sas, qr) = slots();
             *request.lock().unwrap() = Some(FakeFlow::live("flow-a"));
             assert!(crate::flow_slots_are_live(&request, &sas, &qr));
-            // A live flow must not be evicted.
             assert_eq!(request_flow(&request).as_deref(), Some("flow-a"));
         }
 
-        // Break-it B015: an incoming request cancelled by its requester while it
-        // still waits for Accept is reported and released at once; one that was
-        // accepted, or replaced by a newer flow, is left to its owner.
         #[test]
         fn a_request_cancelled_while_waiting_is_reported_and_released() {
             use crate::{pending_request_step, PendingRequest, PendingRequestView};
@@ -18789,20 +15596,16 @@ mod tests {
                 (false, Some("\"The user cancelled the verification.\"".to_owned()))
             );
             assert!(cancelled.lock().unwrap().is_none(), "a cancelled request keeps the slot");
-            // Break-it B015 review: an Accept landing after that release answers
-            // nothing (the cancel is already queued), not "no active request".
             assert_eq!(crate::accept_without_request_reply("flow-a"), "");
             assert_eq!(
                 crate::accept_without_request_reply("flow-never-seen"),
                 "error: no active verification request."
             );
 
-            // Accepted: the driver reports its own outcome; the watch just ends.
             let answered = slot(PendingRequest::Answered);
             assert_eq!(pending_request_step(&answered, "flow-a"), (false, None));
             assert!(answered.lock().unwrap().is_some());
 
-            // A newer flow in the slot is never touched, even if it is cancelled.
             let newer = slot(PendingRequest::Cancelled("x".to_owned()));
             assert_eq!(pending_request_step(&newer, "flow-old"), (false, None));
             assert!(newer.lock().unwrap().is_some());
@@ -18811,8 +15614,6 @@ mod tests {
             assert_eq!(pending_request_step(&empty, "flow-a"), (false, None));
         }
 
-        // An incoming request occupies the slot with no user action; once dead it
-        // must not refuse later attempts.
         #[test]
         fn a_finished_occupant_is_cleared_and_does_not_block() {
             let (request, sas, qr) = slots();
@@ -18837,7 +15638,6 @@ mod tests {
             assert_eq!(sas_flow(&sas).as_deref(), Some("flow-b"));
         }
 
-        // A displayed QR code is a live flow: a second start must be refused.
         #[test]
         fn a_live_qr_alone_still_counts_as_live() {
             let (request, sas, qr) = slots();
@@ -18847,7 +15647,6 @@ mod tests {
             assert_eq!(sas_flow(&qr).as_deref(), Some("flow-qr"));
         }
 
-        // The dead-occupant sweep must run for both method slots.
         #[test]
         fn a_dead_qr_is_swept_even_while_a_sas_is_live() {
             let (request, sas, qr) = slots();
@@ -18876,7 +15675,6 @@ mod tests {
             assert_eq!(sas_flow(&qr), None);
         }
 
-        // A terminating driver must not clear a newer request's slot.
         #[test]
         fn releasing_never_evicts_a_newer_flow() {
             let (request, sas, qr) = slots();
@@ -18886,7 +15684,6 @@ mod tests {
             *qr.lock().unwrap() =
                 Some(("flow-new".to_owned(), FakeFlow::live("flow-new")));
 
-            // The OLD flow terminates and releases.
             crate::release_flow_slots(&request, &sas, &qr, "flow-old");
 
             assert_eq!(request_flow(&request).as_deref(), Some("flow-new"));
@@ -18894,8 +15691,6 @@ mod tests {
             assert_eq!(sas_flow(&qr).as_deref(), Some("flow-new"));
         }
 
-        // QR-to-SAS hand-off: `drive_ready_request` retires only the QR slot and
-        // lets the SAS driver keep the request.
         #[test]
         fn retiring_a_qr_leaves_the_request_for_the_sas_driver() {
             let (request, sas, qr) = slots();
@@ -18925,11 +15720,9 @@ mod tests {
                 );
             }
             assert_eq!(request_flow(&request), None);
-            // A QR displayed when the driver exits must not stay parked.
             assert_eq!(sas_flow(&qr), None);
         }
 
-        // A panicking driver must not leak the slots.
         #[test]
         fn the_guard_releases_on_a_panic() {
             let (request, sas, qr) = slots();
@@ -18951,8 +15744,6 @@ mod tests {
             assert_eq!(sas_flow(&qr), None);
         }
 
-        // Teardown can only cancel a flow still in the slots, so take and clear
-        // are one step. Whether the cancel reaches the peer is not testable here.
         #[test]
         fn teardown_takes_the_parked_flow_instead_of_discarding_it() {
             let (request, sas, qr) = slots();
@@ -18963,7 +15754,6 @@ mod tests {
             let (taken_sas, taken_qr, taken_request) =
                 crate::take_pending_flows(&request, &sas, &qr);
 
-            // Handed to the caller so it can still cancel it...
             assert_eq!(
                 taken_request.as_ref().map(|f| f.flow_id.as_str()),
                 Some("flow-teardown")
@@ -18973,13 +15763,10 @@ mod tests {
                 Some("flow-teardown")
             );
             assert!(taken_qr.is_none());
-            // ...and the slots are empty, so nothing can act on it again.
             assert_eq!(request_flow(&request), None);
             assert_eq!(sas_flow(&sas), None);
         }
 
-        // Sign-out with a code on screen: teardown must take the QR handle, the
-        // only thing that can cancel that peer's flow.
         #[test]
         fn teardown_takes_a_displayed_qr_so_the_peer_can_be_told() {
             let (request, sas, qr) = slots();
@@ -19015,8 +15802,6 @@ mod tests {
             assert!(taken_request.is_none());
         }
 
-        // An unanswered incoming request has no driver, so only the slot sweep can
-        // tell that peer we are gone.
         #[test]
         fn teardown_takes_a_request_that_never_had_a_driver() {
             let (request, sas, qr) = slots();
@@ -19048,7 +15833,6 @@ mod tests {
                     Arc::clone(&qrc),
                     "flow-old".to_owned(),
                 );
-                // A newer request claims the slot before we die.
                 *req.lock().unwrap() = Some(FakeFlow::live("flow-new"));
                 panic!("driver blew up");
             });
@@ -19058,24 +15842,15 @@ mod tests {
         }
     }
 
-    // ── QR verification: advertisement and module packing ──────────────
-    //
-    // The SDK types have crate-private constructors, so the handshake itself
-    // (generate_qr_code, reciprocate, confirm, QR-to-SAS) is validated live
-    // only. Covered here: the advertised methods and the grid-to-bits packing.
     mod qr_verification {
         use matrix_sdk::ruma::events::key::verification::VerificationMethod;
 
-        // Claiming `m.qr_code.scan.v1` would make a peer display a code for a
-        // client with no camera and wait out the SDK's 10-minute timeout.
         #[test]
         fn we_never_advertise_a_scanner_we_do_not_have() {
             let methods = crate::advertised_verification_methods();
             assert!(!methods.contains(&VerificationMethod::QrCodeScanV1));
         }
 
-        // Showing a code needs `m.reciprocate.v1`, the start method a scanning
-        // peer answers with.
         #[test]
         fn showing_a_qr_is_advertised_together_with_reciprocate() {
             let methods = crate::advertised_verification_methods();
@@ -19083,7 +15858,6 @@ mod tests {
             assert!(methods.contains(&VerificationMethod::ReciprocateV1));
         }
 
-        // SAS remains the fallback for peers that can neither show nor scan.
         #[test]
         fn sas_remains_advertised_as_the_fallback() {
             let methods = crate::advertised_verification_methods();
@@ -19091,7 +15865,6 @@ mod tests {
             assert_eq!(methods.len(), 3);
         }
 
-        // The inbound and outbound advertisement sites must offer the same set.
         #[test]
         fn the_advertised_set_is_stable_across_calls() {
             assert_eq!(
@@ -19105,11 +15878,8 @@ mod tests {
             base64::engine::general_purpose::STANDARD.decode(bits).expect("base64")
         }
 
-        // Row-major, MSB-first, a fresh byte per row: the C++ renderer addresses
-        // rows at `y * stride`, so shared bytes would shear the image.
         #[test]
         fn modules_pack_row_major_msb_first_with_a_fresh_byte_per_row() {
-            // 3x3: only the top-left and bottom-right modules are dark.
             let modules = vec![
                 true, false, false,
                 false, false, false,
@@ -19117,27 +15887,24 @@ mod tests {
             ];
             let bits = crate::pack_qr_modules(&modules, 3).expect("packed");
             let bytes = decode(&bits);
-            // stride = 1 byte per row, 3 rows.
             assert_eq!(bytes.len(), 3);
-            assert_eq!(bytes[0], 0b1000_0000); // x=0 dark
+            assert_eq!(bytes[0], 0b1000_0000);
             assert_eq!(bytes[1], 0b0000_0000);
-            assert_eq!(bytes[2], 0b0010_0000); // x=2 dark
+            assert_eq!(bytes[2], 0b0010_0000);
         }
 
-        // A row wider than one byte must start the next row on a new byte.
         #[test]
         fn a_row_wider_than_one_byte_still_starts_the_next_row_fresh() {
             let size = 9;
             let mut modules = vec![false; size * size];
-            modules[0] = true;                 // row 0, x = 0
-            modules[size + 8] = true;          // row 1, x = 8
+            modules[0] = true;
+            modules[size + 8] = true;
             let bytes = decode(&crate::pack_qr_modules(&modules, size).expect("packed"));
-            // stride = 2 bytes per row, 9 rows.
             assert_eq!(bytes.len(), 2 * 9);
             assert_eq!(bytes[0], 0b1000_0000);
             assert_eq!(bytes[1], 0);
             assert_eq!(bytes[2], 0);
-            assert_eq!(bytes[3], 0b1000_0000); // row 1 byte 1, bit for x=8
+            assert_eq!(bytes[3], 0b1000_0000);
         }
 
         #[test]
@@ -19146,14 +15913,11 @@ mod tests {
             let bytes =
                 decode(&crate::pack_qr_modules(&vec![true; size * size], size).expect("packed"));
             assert_eq!(bytes.len(), 3);
-            // Padding bits must stay clear, or the renderer draws past the code edge.
             for byte in bytes {
                 assert_eq!(byte, 0b1110_0000);
             }
         }
 
-        // Malformed geometry is refused: a short slice would index out of bounds
-        // and an absurd size would allocate without bound.
         #[test]
         fn malformed_grids_are_refused_rather_than_rendered() {
             assert!(crate::pack_qr_modules(&[], 0).is_none());
@@ -19163,11 +15927,9 @@ mod tests {
             assert!(crate::pack_qr_modules(&vec![false; 4], oversized).is_none());
         }
 
-        // The payload is pure geometry: it round-trips to the same grid, so
-        // nothing else rides along.
         #[test]
         fn packing_round_trips_to_the_same_grid() {
-            let size = 21; // the smallest real QR version.
+            let size = 21;
             let modules: Vec<bool> = (0..size * size).map(|i| i % 7 == 0).collect();
             let bytes = decode(&crate::pack_qr_modules(&modules, size).expect("packed"));
             let stride = size.div_ceil(8);
@@ -19180,8 +15942,6 @@ mod tests {
         }
     }
 
-    // The sanitized event matches the crypto_bootstrap shape exactly (kind,
-    // fixed state string, zero count, lifecycle), with no extra fields.
     #[test]
     fn secrets_pending_event_shape_matches_bootstrap_events() {
         use std::collections::VecDeque;
@@ -19200,7 +15960,6 @@ mod tests {
         assert_eq!(obj["lifecycle"], 7);
     }
 
-    // Retry ladder: bounded, ordered delays; exhausted past the end.
     #[test]
     fn secret_retry_ladder_is_bounded_and_ordered() {
         let d0 = super::next_secret_retry_delay(0).expect("first attempt");
@@ -19211,27 +15970,18 @@ mod tests {
         assert_eq!(super::next_secret_retry_delay(usize::MAX), None);
     }
 
-    // Cross-signing keys are always required; the backup key only when the
-    // probe said a backup exists.
     #[test]
     fn secret_recovery_missing_decision_table() {
         let missing = super::secret_recovery_missing;
-        // Nothing arrived yet.
         assert!(missing(false, Some(true), false));
-        // Cross-signing incomplete alone is enough, whatever the backup.
         assert!(missing(false, Some(false), false));
         assert!(missing(false, None, true));
-        // Cross-signing complete but a server-side backup is not usable.
         assert!(missing(true, Some(true), false));
-        // Fully recovered.
         assert!(!missing(true, Some(true), true));
-        // No backup on the server (or unknown): cross-signing decides alone.
         assert!(!missing(true, Some(false), false));
         assert!(!missing(true, None, false));
     }
 
-    // Every coordinator emission uses the crypto_bootstrap shape, with no
-    // extra fields or identifiers.
     #[test]
     fn secret_request_event_shape_matches_bootstrap_events() {
         use std::collections::VecDeque;
@@ -19280,8 +16030,6 @@ mod latest_event_preview_tests {
         assert_eq!(latest_event_preview_text(&LatestEventValue::None), "");
     }
 
-    // The raw body of a reply opens with the quoted original (2026-10-13:
-    // "> <@moosix:cutefunny.art> You kno..." in the room list).
     #[test]
     fn reply_fallback_is_not_the_preview() {
         let value = remote(
@@ -19304,8 +16052,6 @@ mod latest_event_preview_tests {
         );
     }
 
-    // Break-it B108: a voice message's body is a file name; the room list
-    // said "t12.ogg" where a loaded row said "Voice message".
     #[test]
     fn a_voice_message_previews_as_a_voice_message() {
         let voice = remote(
@@ -19319,7 +16065,6 @@ mod latest_event_preview_tests {
             "m.room.message",
         );
         assert_eq!(latest_event_preview_text(&voice), "Voice message");
-        // Ordinary audio keeps its name.
         let audio = remote(
             json!({ "msgtype": "m.audio", "body": "song.ogg", "url": "mxc://example.org/a" }),
             "m.room.message",
@@ -19336,9 +16081,6 @@ mod latest_event_preview_tests {
         assert_eq!(latest_event_preview_text(&value), "hello rooms");
     }
 
-    // When the latest message was edited, the SDK's latest event is the edit,
-    // whose own body is the "* " fallback (a Sable edit read
-    // "* edited: **bold words** ..." in the room list, 2026-09-30).
     #[test]
     fn an_edit_previews_its_new_content_not_the_fallback() {
         let new_body = "edited: **bold words** and `inline code`";
@@ -19362,10 +16104,6 @@ mod latest_event_preview_tests {
         );
     }
 
-    // An edit never moves a room: an edited latest message is stamped with
-    // the edited event's time, never the edit's (`remote` stamps 42). Editing
-    // the latest message in a room lower in the list moved it to the top
-    // (live, 2026-09-30).
     #[test]
     fn an_edited_latest_message_keeps_the_edited_events_stamp() {
         let edit = remote(
@@ -19378,9 +16116,7 @@ mod latest_event_preview_tests {
             "m.room.message",
         );
         assert_eq!(room_ordering_timestamp_ms(&edit, Some(7)), 7);
-        // Not known: 0, which C++ ignores, so the room stays where it is.
         assert_eq!(room_ordering_timestamp_ms(&edit, None), 0);
-        // Control: a message that is not an edit keeps its own stamp.
         let plain = remote(
             json!({ "msgtype": "m.text", "body": "new words" }),
             "m.room.message",
@@ -19390,7 +16126,6 @@ mod latest_event_preview_tests {
 
     #[test]
     fn redact_matrix_id_matches_the_cpp_logs() {
-        // sha256("abc") starts ba7816bf; sigil kept, empty is <none>.
         assert_eq!(super::redact_matrix_id("!abc"), "!ba7816bf");
         assert_eq!(super::redact_matrix_id("abc"), "ba7816bf");
         assert_eq!(super::redact_matrix_id(""), "<none>");
@@ -19436,8 +16171,6 @@ mod latest_event_preview_tests {
         assert_eq!(latest_event_preview_text(&unnamed), "File");
     }
 
-    // An MSC4274 gallery as Sable sends it (body is a generated `[name: mxc]`
-    // list): preview the caption or the contents, never the list.
     #[test]
     fn a_gallery_previews_as_its_caption_or_its_count() {
         let item = |name: &str, itemtype: &str| {
@@ -19506,8 +16239,6 @@ mod latest_event_preview_tests {
 
     #[test]
     fn still_encrypted_event_yields_empty_preview() {
-        // An undecryptable latest event yields no preview text; C++ shows its
-        // placeholder.
         let value = remote(
             json!({
                 "algorithm": "m.megolm.v1.aes-sha2",
@@ -19540,10 +16271,6 @@ mod latest_event_preview_tests {
         assert_eq!(latest_event_preview_text(&value), "");
     }
 
-    // 2026-10-18 live runs (every platform, German UI): room-list previews
-    // the bridge words ("Image", "Poll: …", "2 images") were English in every
-    // language. They cross as a kind now, which C++ words; the English text
-    // beside it is only the fallback.
     #[test]
     fn previews_made_of_words_cross_as_a_kind_and_text_does_not() {
         use super::{latest_event_preview_line, preview_wire};
@@ -19557,7 +16284,6 @@ mod latest_event_preview_tests {
             wire(json!({ "msgtype": "m.image", "body": "", "url": "mxc://e.org/i" }), "m.room.message"),
             triple("Image", "image", "")
         );
-        // A named attachment is the sender's text, not a kind.
         assert_eq!(
             wire(json!({ "msgtype": "m.image", "body": "cat.png", "url": "mxc://e.org/c" }), "m.room.message"),
             triple("cat.png", "", "")
@@ -19607,8 +16333,6 @@ mod latest_event_preview_tests {
         );
     }
 
-    // The kind travels in-band, so a body must never be able to open with the
-    // mark and pose as a kind (it would be worded as "Image" or "File: …").
     #[test]
     fn a_body_cannot_pose_as_a_kind() {
         use super::{latest_event_preview_line, preview_wire, split_kind_preview, PREVIEW_KIND_MARK};
@@ -19622,8 +16346,6 @@ mod latest_event_preview_tests {
             assert_eq!(split_kind_preview(&line), None);
             assert_eq!(preview_wire(&line).1, "");
         }
-        // Every other place the sender's text reaches a line: a gallery
-        // caption, a poll question and an edit's new content.
         let item = json!({ "itemtype": "m.image", "body": "a.png", "filename": "a.png",
                            "url": "mxc://e.org/a" });
         let others = [
@@ -19661,15 +16383,12 @@ mod latest_event_preview_tests {
             assert_eq!(split_kind_preview(&line), None, "case {n}");
             assert_eq!(preview_wire(&line).1, "", "case {n}");
         }
-        // A poll is a kind line of its own; the forged question becomes its
-        // plain argument and cannot choose the kind.
         let (_, kind, arg) = preview_wire(&latest_event_preview_line(&others[1]));
         assert_eq!(kind, "poll_question");
         assert_eq!(arg, "image x");
     }
 }
 
-/// Local-only live regression for shared Space order. Never reads a real account.
 #[cfg(test)]
 mod live_space_order_tests {
     use super::*;
@@ -19706,8 +16425,6 @@ mod live_space_order_tests {
                 json!({"via": ["localhs.test"], "order": 7})).await.expect("invalid-order child");
             client.sync_once(matrix_sdk::config::SyncSettings::default()).await.expect("sync children");
             assert_eq!(direct_children_of(&space).await, vec![a.clone(), b.clone()]);
-            // A third room linked only by its own m.space.parent: no m.space.child
-            // event exists, so it cannot be ordered and must never be written.
             let third = client.create_room(Request::new()).await.expect("parent-only room");
             let c = third.room_id().to_string();
             third.send_state_event_raw("m.space.parent", space.room_id().as_str(),
@@ -19741,20 +16458,6 @@ mod live_space_order_tests {
     }
 }
 
-/// Live two-device E2EE interoperability harness.
-///
-/// Runs only with `--ignored` and LIGHTNING_LIVE_E2EE=1, against a real
-/// homeserver and dedicated test account (LIGHTNING_TEST_HOMESERVER /
-/// LIGHTNING_TEST_USER / LIGHTNING_TEST_PASSWORD).
-///
-/// Device A is a plain matrix-sdk client that bootstraps cross-signing and
-/// backup, seeds encrypted history, and answers SAS and secret requests.
-/// Device B is the real Lightning bridge. A's sync is paused after its SAS
-/// confirmation, so the recovery coordinator must recover once A resumes
-/// (ladder, secret acceptance, backup, per-room restore, restart
-/// persistence).
-///
-/// Never prints payloads, tokens, keys or identifiers.
 #[cfg(test)]
 mod live_e2ee_interop_tests {
     use std::ffi::{c_void, CStr, CString};
@@ -19787,8 +16490,6 @@ mod live_e2ee_interop_tests {
         out
     }
 
-    /// Drain bridge events until `pred` matches or the timeout elapses.
-    /// Never logs payloads.
     unsafe fn wait_for(
         handle: *mut c_void,
         what: &str,
@@ -19822,7 +16523,6 @@ mod live_e2ee_interop_tests {
             eprintln!("[live] gate off; skipping");
             return;
         }
-        // The SDK's sanitized crypto tracing, off unless RUST_LOG is set.
         let _ = tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .with_writer(std::io::stderr)
@@ -19838,7 +16538,6 @@ mod live_e2ee_interop_tests {
         let bridge_dir = tempfile_dir("lightning-live-bridge");
         let session_file = bridge_dir.join("session.json");
 
-        // ── Peer (device A): trusted session with recovery + history. ──
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
@@ -19862,7 +16561,6 @@ mod live_e2ee_interop_tests {
         });
         eprintln!("[live] peer: logged in");
 
-        // Pauseable peer sync loop.
         let (pause_tx, pause_rx) = tokio::sync::watch::channel(false);
         {
             let client = peer.clone();
@@ -19887,7 +16585,6 @@ mod live_e2ee_interop_tests {
             });
         }
 
-        // Cross-signing bootstrap and recovery/backup for the test account.
         runtime.block_on(async {
             use matrix_sdk::ruma::api::client::uiaa;
             let encryption = peer.encryption();
@@ -19921,8 +16618,6 @@ mod live_e2ee_interop_tests {
             match encryption.recovery().state() {
                 matrix_sdk::encryption::recovery::RecoveryState::Enabled => {}
                 _ => {
-                    // Creates 4S and key backup. The recovery key is dropped immediately. A
-                    // stale backup from an earlier run is deleted and recreated.
                     let recovery = encryption.recovery();
                     if let Err(err) = recovery.enable().await {
                         use matrix_sdk::encryption::recovery::RecoveryError;
@@ -19946,8 +16641,6 @@ mod live_e2ee_interop_tests {
             eprintln!("[live] peer: recovery enabled");
         });
 
-        // Seed encrypted history and wait for its keys to reach backup. The room
-        // has a recognizable name and run marker and is removed at the end.
         let test_room_id = runtime.block_on(async {
             use matrix_sdk::ruma::events::room::message::RoomMessageEventContent;
             let mut request =
@@ -19974,7 +16667,6 @@ mod live_e2ee_interop_tests {
             room.room_id().to_owned()
         });
 
-        // ── Lightning (device B): the real bridge under test. ──
         let store = CString::new(bridge_dir.to_string_lossy().as_bytes())
             .unwrap();
         let handle = super::mx_rust_create(store.as_ptr());
@@ -19987,7 +16679,6 @@ mod live_e2ee_interop_tests {
             let hs = CString::new(homeserver.as_bytes()).unwrap();
             let us = CString::new(user.as_bytes()).unwrap();
             let pw = CString::new(password.as_bytes()).unwrap();
-            // A new device.
             let device = CString::new("").unwrap();
             let r = take(super::mx_rust_login(
                 handle, hs.as_ptr(), us.as_ptr(), pw.as_ptr(), device.as_ptr(),
@@ -20002,7 +16693,6 @@ mod live_e2ee_interop_tests {
             });
             super::mx_rust_start_sync(handle);
 
-            // ── SAS verification; the peer pauses after its own confirmation. ──
             let r = take(super::mx_rust_start_own_verification(handle));
             assert!(r.is_empty(), "start verification dispatch");
             let started = wait_for(
@@ -20013,7 +16703,6 @@ mod live_e2ee_interop_tests {
             );
             let flow_id = started["flow_id"].as_str().unwrap().to_owned();
 
-            // The peer accepts and drives SAS to its own confirmation.
             let peer_confirm = {
                 let client = peer.clone();
                 let flow = flow_id.clone();
@@ -20064,8 +16753,6 @@ mod live_e2ee_interop_tests {
             runtime
                 .block_on(async { peer_confirm.await })
                 .expect("peer confirmation task");
-            // Pause the peer now: its MAC is out, but it will not see ours, sign the
-            // new device or answer secret requests until resumed.
             pause_tx.send(true).ok();
             eprintln!("[live] peer: paused after confirmation");
 
@@ -20081,13 +16768,10 @@ mod live_e2ee_interop_tests {
                 |ev| ev["type"] == "verification_done",
             );
 
-            // Let the first ladder window run against the paused peer, then resume.
             std::thread::sleep(Duration::from_secs(30));
             pause_tx.send(false).ok();
             eprintln!("[live] peer: resumed");
 
-            // The coordinator must reach the recovered state: cross-signing secrets
-            // present and backup enabled.
             wait_for(
                 handle,
                 "secret answer observed",
@@ -20107,7 +16791,6 @@ mod live_e2ee_interop_tests {
                     "crypto health snapshot",
                     Duration::from_secs(20),
                     |ev| {
-                        // Print coordinator progress (fixed kind/state tokens only).
                         if ev["type"] == "crypto_bootstrap" {
                             eprintln!(
                                 "[live] bootstrap {} {} {}",
@@ -20119,7 +16802,6 @@ mod live_e2ee_interop_tests {
                         ev["type"] == "crypto_health"
                     },
                 );
-                // Sanitized booleans and enum names only.
                 eprintln!(
                     "[live] health master={} self={} user={} backup={} \
                      xdev={} ownid={} recovery={}",
@@ -20147,7 +16829,6 @@ mod live_e2ee_interop_tests {
             assert_eq!(health["recovery_state"], "enabled");
             eprintln!("[live] bridge: secrets + backup recovered");
 
-            // A manual re-request after completion reports nothing missing.
             let r = take(super::mx_rust_request_missing_secrets(handle));
             assert!(r.is_empty(), "manual request dispatch");
             wait_for(
@@ -20160,12 +16841,9 @@ mod live_e2ee_interop_tests {
                 },
             );
 
-            // ── Restart persistence: same store, restored session. ──
             let stopped = super::mx_rust_stop_sync(handle);
             assert!(stopped >= 0);
             {
-                // The sqlite pool releases connections via spawn_blocking, so the drop
-                // needs an ambient runtime (harness only).
                 let _guard = runtime.enter();
                 super::mx_rust_destroy(handle);
             }
@@ -20215,7 +16893,6 @@ mod live_e2ee_interop_tests {
             }
             eprintln!("[live] bridge: restart kept secrets and backup");
 
-            // Sign the test device out and wait for the round trip.
             super::mx_rust_logout(handle2);
             let deadline = Instant::now() + Duration::from_secs(20);
             'logout: while Instant::now() < deadline {
@@ -20232,9 +16909,6 @@ mod live_e2ee_interop_tests {
             }
         }
 
-        // Remove the test room this run created (by id, as the peer), so repeated
-        // runs do not accumulate rooms. Failure is reported but does not change the
-        // result. LIGHTNING_LIVE_E2EE_KEEP_ROOMS=1 keeps it.
         if env_nonempty("LIGHTNING_LIVE_E2EE_KEEP_ROOMS").is_none() {
             runtime.block_on(async {
                 match peer.get_room(&test_room_id) {
@@ -20265,11 +16939,6 @@ mod live_e2ee_interop_tests {
         runtime.shutdown_timeout(Duration::from_secs(5));
     }
 
-    // ── Local search against a real homeserver ──────────────────────────
-    //
-    // Proves the path into the index (login, sync, decrypted events in the
-    // event cache, sweep, FTS5 query). Gated like the other live tests; reads
-    // rooms the fixture account is already in.
     #[test]
     #[ignore = "live homeserver local search; set LIGHTNING_LIVE_SEARCH=1 and credentials env"]
     fn live_local_search_finds_messages_including_in_encrypted_rooms() {
@@ -20294,7 +16963,6 @@ mod live_e2ee_interop_tests {
             let hs = CString::new(homeserver.clone()).unwrap();
             let u = CString::new(user.clone()).unwrap();
             let p = CString::new(password).unwrap();
-            // A new device.
             let device = CString::new("").unwrap();
             let err = take(super::mx_rust_login(
                 handle, hs.as_ptr(), u.as_ptr(), p.as_ptr(), device.as_ptr()));
@@ -20303,7 +16971,6 @@ mod live_e2ee_interop_tests {
                 ev["type"] == "login_ok"
             });
             super::mx_rust_start_sync(handle);
-            // Room ids come from the sync's own events; no FFI enumerates them.
             let mut room_ids: Vec<String> = Vec::new();
             let mut seen: std::collections::BTreeSet<String> =
                 std::collections::BTreeSet::new();
@@ -20317,8 +16984,6 @@ mod live_e2ee_interop_tests {
                     if ev["type"] == "room_list_sync_state" && ev["state"] == "running" {
                         running = true;
                     }
-                    // Sliding sync delivers the list as diffs, so collect ids from every event
-                    // kind, not only the reset.
                     let mut note = |id: Option<&str>| {
                         if let Some(id) = id {
                             if !id.is_empty() && !room_ids.iter().any(|k| k == id) {
@@ -20345,11 +17010,8 @@ mod live_e2ee_interop_tests {
             }
             eprintln!("[live] sync running, {} room(s) known", room_ids.len());
 
-            // Let the event cache receive some timeline first; sweeping an empty cache
-            // would pass on a broken indexer.
             std::thread::sleep(Duration::from_secs(12));
 
-            // Sweep, then deepen every joined room so older history is indexed.
             let err = take(super::mx_rust_search_index_sweep(handle, 9001));
             assert!(err.is_empty(), "sweep dispatch: {err}");
             let swept = wait_for(handle, "sweep", Duration::from_secs(120), |ev| {
@@ -20393,7 +17055,6 @@ mod live_e2ee_interop_tests {
             );
             assert!(indexed > 0, "the index is empty after a sweep and a deep index");
 
-            // The actual claim.
             let q = CString::new(needle.clone()).unwrap();
             let empty = CString::new("").unwrap();
             let err = take(super::mx_rust_local_search(
@@ -20407,9 +17068,6 @@ mod live_e2ee_interop_tests {
             eprintln!("[live] '{needle}' -> {} hit(s)", hits.len());
             assert!(!hits.is_empty(), "the needle was not found");
 
-            // Search in an encrypted room, asserted separately: a needle found only in
-            // a public room would pass the check above. The message is sent here
-            // because only a client holding the keys can produce it.
             if let Some(encrypted_room) = env_nonempty("LIGHTNING_TEST_ENCRYPTED_ROOM") {
                 let secret = format!(
                     "zephyrine-{}", std::process::id());
@@ -20419,7 +17077,6 @@ mod live_e2ee_interop_tests {
                 let err = take(super::mx_rust_send_text(
                     handle, rid.as_ptr(), body.as_ptr(), txn.as_ptr()));
                 assert!(err.is_empty(), "encrypted send dispatch: {err}");
-                // Let the send and sync land the event in the cache, decrypted.
                 std::thread::sleep(Duration::from_secs(15));
 
                 let op = 9310u64;
@@ -20470,8 +17127,6 @@ mod live_e2ee_interop_tests {
                 );
             }
 
-            // A redacted message must not be findable by its text. Asserts the
-            // outcome, not the mechanism.
             if let Some(gone) = env_nonempty("LIGHTNING_TEST_REDACTED_NEEDLE") {
                 let q = CString::new(gone.clone()).unwrap();
                 let _ = take(super::mx_rust_local_search(
@@ -20489,11 +17144,6 @@ mod live_e2ee_interop_tests {
                 );
             }
 
-            // ── Jump to date (MSC3030) against the real server ───────
-            //
-            // Whether `timestamp_to_event` exists depends on the homeserver. Asking
-            // for the event at a known event's timestamp, searching forward, must
-            // return that event. A 404 M_UNRECOGNIZED is reported, not failed.
             {
                 let first = &hits[0];
                 let room = first["room_id"].as_str().unwrap_or_default().to_owned();
@@ -20528,7 +17178,6 @@ mod live_e2ee_interop_tests {
                 }
             }
 
-            // A query below the tokenizer minimum is reported as too short.
             let short = CString::new("ab").unwrap();
             let _ = take(super::mx_rust_local_search(
                 handle, short.as_ptr(), empty.as_ptr(), 10, 0, 9302));
@@ -20539,11 +17188,6 @@ mod live_e2ee_interop_tests {
             assert_eq!(tooshort["ok"], false);
             assert_eq!(tooshort["category"], "too_short");
 
-            // ── Widgets, against the same live account ──────────────
-            //
-            // Unit tests cover parsing and refusals; this shows the state read finds
-            // real widgets, that a tombstone is not a widget, and that hostile shapes
-            // are refused with the right reason.
             if let Some(widget_room) = env_nonempty("LIGHTNING_TEST_WIDGET_ROOM") {
                 let rid = CString::new(widget_room.clone()).unwrap();
                 let theme = CString::new("storm").unwrap();
@@ -20566,16 +17210,12 @@ mod live_e2ee_interop_tests {
                 let by_id = |id: &str| -> Option<&serde_json::Value> {
                     list.iter().find(|w| w["id"] == id)
                 };
-                // A tombstone (`{}`) is not a widget.
                 assert!(by_id("dead").is_none(), "a tombstone came back as a widget");
 
                 let jitsi = by_id("jitsi").expect("the real widget was not found");
                 let url = jitsi["url"].as_str().unwrap_or("");
                 assert!(url.starts_with("https://meet.example.org/"), "{url}");
                 assert!(!url.contains('$'), "a variable was left in: {url}");
-                // Room and user ids are percent-encoded so they cannot restructure the URL.
-                // `!` stays literal, as in encodeURIComponent (matrix-widget-api and
-                // matrix-sdk do the same).
                 assert!(url.contains("%3A"), "the colon was not encoded: {url}");
                 assert!(url.contains("%40"), "the @ was not encoded: {url}");
                 let after_authority = url.split_once("meet.example.org").unwrap().1;
@@ -20605,9 +17245,6 @@ mod live_e2ee_interop_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A search during sign-out must not reopen the index (an open handle makes
-    /// the store deletion fail on Windows). Offline: the search path needs no
-    /// server. The control search before shutdown proves search worked.
     #[test]
     fn a_search_after_shutdown_refuses_instead_of_reopening_the_index() {
         let dir = tempfile_dir("lightning-search-shutdown");
@@ -20629,8 +17266,6 @@ mod live_e2ee_interop_tests {
                     "the control search did not open an index, so the                      assertion below would pass on any code");
 
             let _ = take(super::mx_rust_shutdown_tasks(handle));
-            // Stand in for sign-out deleting the store, so a recreated file proves a
-            // reopen.
             let _ = std::fs::remove_file(&index_path);
 
             let err = take(super::mx_rust_local_search(
@@ -20645,10 +17280,6 @@ mod live_e2ee_interop_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// An index that cannot open must still ANSWER the search. The C++ side
-    /// discards the returned "error:" string and waits for a
-    /// `local_search_result` for its op id, so without one the panel spins for
-    /// ever and nothing says why.
     #[test]
     fn a_search_whose_index_cannot_open_still_answers_its_op_id() {
         let dir = tempfile_dir("lightning-search-unopenable");
@@ -20657,7 +17288,6 @@ mod live_e2ee_interop_tests {
         let store = CString::new(dir.to_string_lossy().as_ref()).unwrap();
         let handle = super::mx_rust_create(store.as_ptr());
         assert!(!handle.is_null(), "bridge handle");
-        // Then the "directory" the index would live in becomes a regular file.
         std::fs::remove_dir_all(&dir).expect("remove store");
         std::fs::write(&dir, b"x").expect("blocker");
         unsafe {
@@ -20694,12 +17324,6 @@ mod live_e2ee_interop_tests {
     }
 }
 
-// ── Matrix delegation via /.well-known/matrix/client (issue #5) ──────────
-//
-// A server name delegating elsewhere must be followed:
-// `server_name_or_homeserver_url()` does discovery, `homeserver_url()` does
-// not. These build a real SDK client over loopback HTTP, where plain
-// TcpListeners play the delegating host and the real homeserver.
 #[cfg(test)]
 mod delegation_tests {
     use super::{build_client, build_client_for_restore, read_resolved_homeserver};
@@ -20715,7 +17339,6 @@ mod delegation_tests {
         let mut buf = [0u8; 2048];
         let read = stream.read(&mut buf).unwrap_or(0);
         let request = String::from_utf8_lossy(&buf[..read]).to_string();
-        // 404 for anything else, like an apex web server.
         let (status, payload) = if request.starts_with("GET /.well-known/matrix/client")
             || request.starts_with("GET /_matrix/client/versions")
         {
@@ -20733,8 +17356,6 @@ mod delegation_tests {
         let _ = stream.flush();
     }
 
-    /// A server that answers every request with `body`, until the test drops.
-    /// Returns its `host:port`.
     fn serve(body: String) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");
@@ -20755,8 +17376,6 @@ mod delegation_tests {
         format!("{}:{}", addr.ip(), addr.port())
     }
 
-    /// The subset of `/_matrix/client/versions` the SDK needs to accept a host
-    /// as a homeserver.
     fn versions_body() -> String {
         r#"{"versions":["v1.1","v1.11"],"unstable_features":{}}"#.to_owned()
     }
@@ -20770,10 +17389,7 @@ mod delegation_tests {
 
     #[test]
     fn login_follows_well_known_delegation_to_another_host() {
-        // The REAL homeserver, on its own host and port.
         let homeserver = serve(versions_body());
-        // The server name the user types: serves a well-known pointing at the
-        // homeserver above and 404s every Matrix API path.
         let delegating = serve(format!(
             r#"{{"m.homeserver":{{"base_url":"http://{homeserver}"}}}}"#
         ));
@@ -20782,7 +17398,6 @@ mod delegation_tests {
             .block_on(build_client(&format!("http://{delegating}"), &PathBuf::new()))
             .expect("delegated login must build a client");
 
-        // The client must point at the delegated host, not the typed one.
         assert_eq!(
             client.homeserver().host_str(),
             Some("127.0.0.1"),
@@ -20797,8 +17412,6 @@ mod delegation_tests {
 
     #[test]
     fn a_direct_homeserver_url_still_works_without_any_well_known() {
-        // Typing the homeserver directly: no well-known, so the builder must fall
-        // back to the URL.
         let homeserver = serve(versions_body());
 
         let client = runtime()
@@ -20811,8 +17424,6 @@ mod delegation_tests {
         );
     }
 
-    /// A `serve()` that can be shut down, so a test can see a homeserver go
-    /// away.
     fn serve_stoppable(body: String) -> (String, Arc<AtomicBool>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");
@@ -20823,7 +17434,6 @@ mod delegation_tests {
             let _ = ready_tx.send(());
             for stream in listener.incoming() {
                 if thread_stop.load(Ordering::SeqCst) {
-                    // Dropping the listener makes the port refuse rather than hang.
                     break;
                 }
                 match stream {
@@ -20839,7 +17449,6 @@ mod delegation_tests {
         (format!("{}:{}", addr.ip(), addr.port()), stop)
     }
 
-    /// A per-test store directory, removed on drop (no `tempfile` dependency).
     struct StoreDir(PathBuf);
     impl StoreDir {
         fn new(name: &str) -> Self {
@@ -20865,9 +17474,7 @@ mod delegation_tests {
 
     fn stop_serving(addr: &str, stop: &Arc<AtomicBool>) {
         stop.store(true, Ordering::SeqCst);
-        // One connection to break `incoming()` out of its blocking accept.
         let _ = TcpStream::connect(addr);
-        // The listener is dropped on the next loop iteration; give it one.
         for _ in 0..200 {
             if TcpStream::connect(addr).is_err() {
                 return;
@@ -20877,9 +17484,6 @@ mod delegation_tests {
         panic!("the test homeserver would not stop listening");
     }
 
-    // A homeserver that is down must not send the user back to the login page:
-    // `build_client` cannot build without a server, `build_client_for_restore`
-    // must.
     #[test]
     fn a_restore_survives_the_homeserver_going_away() {
         let (homeserver, stop) = serve_stoppable(versions_body());
@@ -20888,10 +17492,7 @@ mod delegation_tests {
         let events: Arc<Mutex<VecDeque<String>>> =
             Arc::new(Mutex::new(VecDeque::new()));
 
-        // Everything inside one `block_on`: a Client with a sqlite store closes its
-        // pool on drop, and deadpool aborts outside a runtime.
         runtime().block_on(async {
-            // One online build, which records what the SDK resolved.
             let resolved = {
                 let online = build_client(&typed, store.path())
                     .await
@@ -20904,16 +17505,13 @@ mod delegation_tests {
                 "a successful build did not record the homeserver it resolved"
             );
 
-            // The server dies.
             stop_serving(&homeserver, &stop);
 
-            // The plain build fails with the server down.
             assert!(
                 build_client(&typed, store.path()).await.is_err(),
                 "the test server is still answering; the rest proves nothing"
             );
 
-            // The restore path does, from what it recorded.
             let offline = build_client_for_restore(&typed, store.path(), &events)
                 .await
                 .expect("a restore must survive an unreachable homeserver");
@@ -20931,10 +17529,6 @@ mod delegation_tests {
         });
     }
 
-    // LIGHTNING_SWITCH_TRACE: the real restore helpers record into a traced
-    // restore, so the steps the C++ trace reports are the ones that ran. An
-    // online restore opens the stores once; an offline one opens them twice
-    // (the discovering attempt, then the recorded-URL fallback) and says so.
     #[test]
     fn a_traced_restore_records_what_the_build_actually_did() {
         use crate::switchtrace;
@@ -20962,33 +17556,27 @@ mod delegation_tests {
             event["trace"].clone()
         };
 
-        // Online: discovery succeeds, one store open, no fallback.
         let trace = traced(true);
         assert_eq!(trace["store_opens"], 1, "{trace}");
         assert_eq!(trace["offline_fallback"], false, "{trace}");
         assert_eq!(trace["fallback_build_ms"], 0, "{trace}");
 
-        // Offline: the discovering attempt and the recorded-URL fallback.
         stop_serving(&homeserver, &stop);
         let trace = traced(false);
         assert_eq!(trace["store_opens"], 2, "{trace}");
         assert_eq!(trace["offline_fallback"], true, "{trace}");
     }
 
-    // A recorded URL must never skip discovery while the server is up, or a
-    // changed `/.well-known` delegation would never be followed.
     #[test]
     fn a_reachable_homeserver_is_still_rediscovered_on_every_restore() {
         let store = StoreDir::new("rediscover");
         let events: Arc<Mutex<VecDeque<String>>> =
             Arc::new(Mutex::new(VecDeque::new()));
 
-        // Where the account lives today.
         let first = serve(versions_body());
         let delegating_first = serve(format!(
             r#"{{"m.homeserver":{{"base_url":"http://{first}"}}}}"#
         ));
-        // The admin moves the client API somewhere else.
         let second = serve(versions_body());
         let delegating_second = serve(format!(
             r#"{{"m.homeserver":{{"base_url":"http://{second}"}}}}"#
@@ -21004,7 +17592,6 @@ mod delegation_tests {
                 first.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()));
             drop(client);
 
-            // A stale record is now on disk. Discovery must still win.
             let client = build_client_for_restore(
                 &format!("http://{delegating_second}"), store.path(), &events)
                 .await
@@ -21039,8 +17626,6 @@ mod delegation_tests {
 
     #[test]
     fn a_host_that_is_no_homeserver_fails_to_build_instead_of_404ing_later() {
-        // No well-known and no versions endpoint: the build must fail here with a
-        // real error, rather than a 404 at login.
         let bogus = serve("irrelevant".to_owned());
         let result = runtime()
             .block_on(build_client(&format!("http://{bogus}/nope"), &PathBuf::new()));
@@ -21048,12 +17633,6 @@ mod delegation_tests {
     }
 }
 
-// ── Classic-sync fault classification, backoff and watchdog ──────────────
-//
-// A dropped connection must not stop sync for the session; pure functions
-// make that testable without a real outage. The first-response watchdog
-// (issue #2: a silent wedge of 13+ minutes) is instrumentation, driven here
-// with millisecond steps.
 #[cfg(test)]
 mod classic_sync_fault_tests {
     use super::{
@@ -21064,8 +17643,6 @@ mod classic_sync_fault_tests {
 
     #[test]
     fn a_dropped_connection_carries_no_errcode_and_is_transient() {
-        // A request with no reply has no errcode, and matrix-sdk does not retry
-        // network failures without a `retry_limit`.
         assert_eq!(classify_classic_sync_error(None), ClassicSyncFault::Transient);
     }
 
@@ -21087,7 +17664,6 @@ mod classic_sync_fault_tests {
 
     #[test]
     fn only_a_dead_session_is_fatal() {
-        // The same set the modern lane treats as an authentication error.
         assert_eq!(
             classify_classic_sync_error(Some(&ErrorKind::Forbidden)),
             ClassicSyncFault::Fatal
@@ -21097,7 +17673,6 @@ mod classic_sync_fault_tests {
             classify_classic_sync_error(Some(&ErrorKind::UnknownToken(revoked.clone()))),
             ClassicSyncFault::Fatal
         );
-        // A soft logout is still a session this client cannot use.
         revoked.soft_logout = true;
         assert_eq!(
             classify_classic_sync_error(Some(&ErrorKind::UnknownToken(revoked))),
@@ -21110,7 +17685,6 @@ mod classic_sync_fault_tests {
         assert_eq!(classic_sync_backoff(0).as_secs(), 1);
         assert_eq!(classic_sync_backoff(1).as_secs(), 2);
         assert_eq!(classic_sync_backoff(4).as_secs(), 16);
-        // Capped, and never grows without bound.
         for failures in [5u32, 6, 50, u32::MAX] {
             assert_eq!(classic_sync_backoff(failures).as_secs(), 30,
                        "backoff at {failures} failures");
@@ -21119,16 +17693,12 @@ mod classic_sync_fault_tests {
 
     #[test]
     fn the_silence_is_escalated_before_the_backoff_is_at_its_ceiling() {
-        // Report offline before the retries slow to their slowest.
         assert!(classic_sync_backoff(CLASSIC_SYNC_REPORT_AFTER - 1).as_secs() <= 30);
         assert!(CLASSIC_SYNC_REPORT_AFTER >= 2,
                 "one flaky request must not raise an error banner");
     }
 }
 
-/// Classic sync settings must not carry `full_state`: settings apply to
-/// every request, so it must not be set at all. `SyncSettings` has no
-/// getters, so this asserts on its `Debug` output.
 #[cfg(test)]
 mod classic_sync_settings_tests {
     use std::time::Duration;
@@ -21139,19 +17709,14 @@ mod classic_sync_settings_tests {
         classic_sync_request_timeout, CLASSIC_SYNC_TIMEOUT, CLASSIC_SYNC_TIMEOUT_VERIFYING,
     };
 
-    /// The exact expression `run_classic_sync` builds for each request.
     fn classic_settings() -> SyncSettings {
         super::classic_sync_settings(CLASSIC_SYNC_TIMEOUT)
     }
 
     #[test]
     fn the_first_request_says_zero_and_never_omits_the_timeout() {
-        // Omitted is NOT zero on every server (Beeper long-polls it), so the
-        // first request must carry an explicit zero, verifying or not.
         assert_eq!(classic_sync_request_timeout(true, false), Duration::ZERO);
         assert_eq!(classic_sync_request_timeout(true, true), Duration::ZERO);
-        // `SyncSettings`' Debug omits a `None` timeout, so this is the
-        // explicit zero being present, not merely a zero-ish default.
         let printed = format!("{:?}", super::classic_sync_settings(Duration::ZERO));
         assert!(printed.contains("timeout: 0ns"), "{printed}");
         assert!(printed.contains("ignore_timeout_on_first_sync: false"), "{printed}");
@@ -21169,14 +17734,11 @@ mod classic_sync_settings_tests {
         let printed = format!("{:?}", classic_settings());
         assert!(printed.contains("full_state: false"),
                 "classic sync still asks the server to serialise the complete                  state of every joined room on every incremental sync: {printed}");
-        // The one value it sets, so this cannot pass on settings that lost
-        // everything.
         assert!(printed.contains("timeout: 30s"), "{printed}");
     }
 
     #[test]
     fn full_state_would_be_visible_if_it_were_set() {
-        // Proves the assertion above can fail.
         let printed = format!("{:?}", classic_settings().full_state(true));
         assert!(printed.contains("full_state: true"), "{printed}");
     }
@@ -21194,8 +17756,6 @@ mod sas_tick_budget_tests {
             if Some(spent) == emojis_at {
                 budget.emojis_shown();
             }
-            // A re-derived SAS reports KeysExchanged again; it must not
-            // extend the compare budget.
             if emojis_at.is_some_and(|at| spent == at + 10) {
                 budget.emojis_shown();
             }
@@ -21210,8 +17770,6 @@ mod sas_tick_budget_tests {
 
     #[test]
     fn the_compare_half_is_counted_from_the_emojis_not_from_sas_start() {
-        // Emojis late in the machine half (30 s hops): the whole compare
-        // budget is still there. Counted from SAS start, this left ~40 s.
         let late = SAS_COMPLETION_TICKS - 1;
         assert_eq!(run(Some(late)), late + SAS_COMPARE_TICKS);
         assert_eq!(run(Some(1)), 1 + SAS_COMPARE_TICKS);
@@ -21238,7 +17796,6 @@ mod first_sync_watchdog_tests {
     #[tokio::test]
     async fn silence_is_reported_at_every_step() {
         let events = Arc::new(Mutex::new(VecDeque::new()));
-        // Never flipped: no response ever arrives.
         let first = Arc::new(AtomicBool::new(true));
         watch_first_sync_response(&events, &first, &steps()).await;
 
@@ -21248,14 +17805,12 @@ mod first_sync_watchdog_tests {
             assert_eq!(value["type"], "sync_stalled");
             assert_eq!(value["phase"], "first_response");
         }
-        // Each report states the cumulative wait.
         assert!(seen[0]["waited_secs"].is_number());
     }
 
     #[tokio::test]
     async fn a_response_ends_the_watch_and_reports_nothing() {
         let events = Arc::new(Mutex::new(VecDeque::new()));
-        // Already answered: an ordinary sync stays silent.
         let first = Arc::new(AtomicBool::new(false));
         watch_first_sync_response(&events, &first, &steps()).await;
         assert!(events.lock().unwrap().is_empty(),
@@ -21267,9 +17822,6 @@ mod first_sync_watchdog_tests {
         let events = Arc::new(Mutex::new(VecDeque::new()));
         let first = Arc::new(AtomicBool::new(true));
         let flip = Arc::clone(&first);
-        // The response lands between the first and second step, separating "report
-        // once" from "report forever". Keyed on the first report rather than a
-        // sleep, which flaked under load.
         let seen_by = Arc::clone(&events);
         tokio::spawn(async move {
             while seen_by.lock().unwrap().is_empty() {
@@ -21287,9 +17839,6 @@ mod first_sync_watchdog_tests {
     }
 }
 
-/// The classic loop's silence supervisor (issue #2). matrix-sdk retries a
-/// 5xx/429 answer inside the request for up to 15 minutes without reaching
-/// the sync callback, so "no callback at all" is what a wedge looks like.
 #[cfg(test)]
 mod classic_sync_silence_tests {
     use super::{supervise_classic_silence, ClassicSilenceBudget, SyncProgress};
@@ -21301,17 +17850,12 @@ mod classic_sync_silence_tests {
         ClassicSilenceBudget {
             report_after: Duration::from_millis(report_ms),
             restart_after: Duration::from_millis(restart_ms),
-            // Far above any tick gap these tests produce.
             resume_gap: Duration::from_secs(3600),
         }
     }
 
     #[tokio::test]
     async fn time_spent_suspended_is_not_counted_as_silence() {
-        // A resume cannot be staged in a test, so the gap is shrunk instead:
-        // every tick (at least 60 ms apart) now looks like a wake from suspend.
-        // On Windows `Instant` counts through sleep, and without this every
-        // resume after a long sleep raised a false sync error.
         let events = Arc::new(Mutex::new(VecDeque::new()));
         let progress = SyncProgress::new();
         progress.touch();
@@ -21344,14 +17888,10 @@ mod classic_sync_silence_tests {
         )
         .await
         .expect("a loop that never calls back must be given up on");
-        // 190, not 200: the clock stores whole milliseconds, so the measured
-        // quiet can run up to one ahead of this instant.
         assert!(started.elapsed() >= Duration::from_millis(190),
                 "given up on before the restart bound");
 
         let seen = drain(&events);
-        // Exactly one report for one quiet spell: the UI leaves "Loading rooms…"
-        // (offline) and the log says why.
         assert_eq!(seen.len(), 2, "{seen:?}");
         assert_eq!(seen[0]["type"], "room_list_sync_state");
         assert_eq!(seen[0]["state"], "offline");
@@ -21371,7 +17911,6 @@ mod classic_sync_silence_tests {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         });
-        // Twice the restart bound, with a callback every 10 ms throughout.
         let outcome = tokio::time::timeout(
             Duration::from_millis(1200),
             supervise_classic_silence(&events, &progress, budget(300, 600)),
@@ -21383,10 +17922,6 @@ mod classic_sync_silence_tests {
     }
 }
 
-/// Issue #2 end to end, against a loopback homeserver that answers every
-/// request but `/versions` with 503. matrix-sdk treats that as transient and
-/// retries it inside the request, so the sync callback never runs: before the
-/// supervisor this loop said "starting" and nothing else for 15 minutes.
 #[cfg(test)]
 mod classic_sync_wedge_tests {
     use super::{
@@ -21411,7 +17946,6 @@ mod classic_sync_wedge_tests {
         SessionMeta, SessionTokens,
     };
 
-    /// Reads one request (head and body) and returns its request line.
     fn read_request(stream: &mut TcpStream) -> String {
         let mut buf = Vec::new();
         let mut chunk = [0u8; 4096];
@@ -21455,9 +17989,6 @@ mod classic_sync_wedge_tests {
         let _ = stream.flush();
     }
 
-    /// A homeserver behind a gateway that fails every API call with 503.
-    /// Counts the failed requests, so the test can prove the SDK really was
-    /// sending (and silently retrying) them.
     fn serve_503(failed: Arc<AtomicUsize>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");
@@ -21499,10 +18030,6 @@ mod classic_sync_wedge_tests {
         Arc::new(|| false)
     }
 
-    /// A homeserver that answers `/sync` AT ONCE whatever its `timeout`, and
-    /// records the `timeout` each request carried ("absent" when there was
-    /// none). Everything else but `/versions` gets a 404, which the SDK does
-    /// not retry, so the E2EE requests `sync_once` sends first fail fast.
     fn serve_recording_sync(seen: Arc<Mutex<Vec<String>>>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");
@@ -21543,10 +18070,6 @@ mod classic_sync_wedge_tests {
         format!("{}:{}", addr.ip(), addr.port())
     }
 
-    /// A homeserver whose first two `/sync` answers each carry one plain
-    /// `m.text` in a joined room, neither `limited` and both with a
-    /// `prev_batch` (a catch-up after a restart, then the next live message),
-    /// and every later answer nothing. Counts the syncs.
     fn serve_message_syncs(syncs: Arc<AtomicUsize>, room_id: &'static str,
                            event_ids: [&'static str; 2]) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
@@ -21598,20 +18121,6 @@ mod classic_sync_wedge_tests {
         format!("{}:{}", addr.ip(), addr.port())
     }
 
-    /// GitHub #30/#48. A message delivered by the classic loop before any room
-    /// was opened must be in the room's event cache: that is where every
-    /// timeline is built from, and a response the cache never saw leaves a gap
-    /// nothing fills (see `subscribe_event_cache_before_classic_sync`).
-    ///
-    /// Before the fix nothing subscribed the event cache on this path until the
-    /// first timeline build, so the cache below (subscribed only AFTER the loop,
-    /// as a room open would) held nothing.
-    ///
-    /// The second response is the one that made the hole permanent in the
-    /// field: not `limited`, so the cache drops its `prev_batch` once the room
-    /// holds events, and nothing ever paginates back past it. It must land
-    /// directly after the first. (The permanent case also needs history cached
-    /// in an EARLIER session, which one in-memory client cannot stage.)
     #[test]
     fn a_classic_response_before_any_room_opens_reaches_the_event_cache() {
         const ROOM: &str = "!room:example.org";
@@ -21649,12 +18158,10 @@ mod classic_sync_wedge_tests {
                 watcher
             );
 
-            // What a room open does first (TimelineBuilder::build).
             client.event_cache().subscribe().expect("subscribe");
             let room_id = matrix_sdk::ruma::RoomId::parse(ROOM).expect("room id");
             let room = client.get_room(&room_id).expect("the sync created the room");
             let (cache, _handles) = room.event_cache().await.expect("room event cache");
-            // The cache stores a response on its own task; give it time.
             let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
             loop {
                 let ids: Vec<String> = cache
@@ -21682,8 +18189,6 @@ mod classic_sync_wedge_tests {
                     one left, with nothing between them");
     }
 
-    /// `restored_client` on an on-disk store, so a second "start" sees what the
-    /// first one wrote.
     async fn restored_client_at(addr: &str, store: &std::path::Path) -> matrix_sdk::Client {
         let client = matrix_sdk::Client::builder()
             .homeserver_url(format!("http://{addr}"))
@@ -21709,7 +18214,6 @@ mod classic_sync_wedge_tests {
         client
     }
 
-    /// The room's linked chunk, once it holds `wanted` (or after a bound).
     async fn cached_ids(client: &matrix_sdk::Client, room: &str, wanted: Option<&str>) -> Vec<String> {
         client.event_cache().subscribe().expect("subscribe");
         let room_id = matrix_sdk::ruma::RoomId::parse(room).expect("room id");
@@ -21735,7 +18239,6 @@ mod classic_sync_wedge_tests {
         }
     }
 
-    /// A homeserver answering `/sync` with `bodies` in order, then nothing.
     fn serve_scripted_syncs(bodies: Vec<serde_json::Value>) -> String {
         let bodies = Arc::new(bodies);
         let served = Arc::new(AtomicUsize::new(0));
@@ -21783,7 +18286,6 @@ mod classic_sync_wedge_tests {
         })
     }
 
-    /// Our own public read receipt on `event_id`.
     fn read_receipt(event_id: &str) -> serde_json::Value {
         serde_json::json!({
             "type": "m.receipt",
@@ -21812,13 +18314,6 @@ mod classic_sync_wedge_tests {
             .collect()
     }
 
-    /// GitHub #48, the repair: on classic sync each room's event cache is
-    /// emptied once per account (gaps older builds left cannot be found, only
-    /// refetched); a room whose unread MENTION the cache carries keeps its
-    /// cache, and its badge, until a later start finds it read; completion is
-    /// recorded in the account's own state store and never repeated; the
-    /// crypto store and the rest of the state store are untouched; an open view
-    /// defers a start, and a view opened during the clear is asked to reload.
     #[test]
     fn the_classic_cache_repair_spares_unread_mentions_and_finishes_once() {
         const MENTIONED: &str = "!mentioned:example.org";
@@ -21827,9 +18322,6 @@ mod classic_sync_wedge_tests {
         const IN_QUIET: &str = "$in-quiet:example.org";
         const LATER: &str = "$later:example.org";
         let addr = serve_scripted_syncs(vec![
-            // The older build's session: history in both rooms, an unread
-            // mention in one (the server's highlight count, as a bot's
-            // "@you" leaves it).
             serde_json::json!({ "next_batch": "s1", "rooms": { "join": {
                 MENTIONED: {
                     "timeline": { "limited": false, "prev_batch": "p0",
@@ -21839,19 +18331,15 @@ mod classic_sync_wedge_tests {
                 QUIET: {
                     "timeline": { "limited": false, "prev_batch": "q0",
                                   "events": [message(IN_QUIET)] },
-                    // Read here: no dot, nothing to lose.
                     "ephemeral": { "events": [read_receipt(IN_QUIET)] },
                 },
             }}}),
-            // Read on another device: the counts drop to zero and our receipt
-            // moves onto the message.
             serde_json::json!({ "next_batch": "s2", "rooms": { "join": {
                 MENTIONED: {
                     "unread_notifications": { "highlight_count": 0, "notification_count": 0 },
                     "ephemeral": { "events": [read_receipt(IN_MENTIONED)] },
                 },
             }}}),
-            // New history after the repair finished.
             serde_json::json!({ "next_batch": "s3", "rooms": { "join": {
                 QUIET: {
                     "timeline": { "limited": false, "prev_batch": "q1",
@@ -21871,7 +18359,6 @@ mod classic_sync_wedge_tests {
             let quick = || SyncSettings::default().timeout(Duration::ZERO);
             let t0 = 1_760_000_000_000u64;
 
-            // Start 0, an older build.
             let identity = {
                 let client = restored_client_at(&addr, &store).await;
                 client.event_cache().subscribe().expect("subscribe");
@@ -21888,16 +18375,11 @@ mod classic_sync_wedge_tests {
                 client.encryption().ed25519_key().await.expect("device key")
             };
 
-            // Start 1: a view is open, so it defers, clears nothing, finishes
-            // nothing.
             {
                 let client = restored_client_at(&addr, &store).await;
                 assert_eq!(repair_classic_event_cache_once(&client, &events, || false, || 1, t0).await,
                            ClassicCacheRepair::Deferred);
                 assert_eq!(cached_ids(&client, QUIET, None).await, vec![IN_QUIET.to_owned()]);
-                // The start is counted at its beginning, so one that ends
-                // early (deferred here; a crash or a failed clear alike) still
-                // moves the caps on.
                 let recorded: ClassicRepairProgress = serde_json::from_slice(
                     &client.state_store()
                         .get_custom_value(CLASSIC_CACHE_REPAIR_PROGRESS_KEY)
@@ -21906,8 +18388,6 @@ mod classic_sync_wedge_tests {
                 assert_eq!((recorded.starts, recorded.first_ms), (1, t0));
             }
 
-            // Start 2: the quiet room is cleared; the mentioned room keeps its
-            // cache AND its badge; nothing is recorded as finished.
             {
                 let client = restored_client_at(&addr, &store).await;
                 assert_eq!(repair_classic_event_cache_once(&client, &events, || true, || 1, t0 + 1).await,
@@ -21923,18 +18403,14 @@ mod classic_sync_wedge_tests {
                            "the fixture's quiet room must be READ, or it proves nothing");
                 assert!(client.state_store().get_custom_value(CLASSIC_CACHE_REPAIR_KEY)
                     .await.expect("read").is_none());
-                // The room is read meanwhile (on another device).
                 let _ = client.sync_once(quick()).await;
                 assert_eq!(mentioned.unread_notification_counts().highlight_count, 0);
             }
 
-            // Start 3: now read, so it is cleared and the repair finishes. A
-            // view that opened during the clear is asked to reload.
             {
                 let client = restored_client_at(&addr, &store).await;
                 let asked = Arc::new(AtomicUsize::new(0));
                 let probe = Arc::clone(&asked);
-                // Idle when asked before the clear, busy when asked after.
                 let views_idle = move || probe.fetch_add(1, Ordering::SeqCst) == 0;
                 assert_eq!(repair_classic_event_cache_once(&client, &events, views_idle, || 1, t0 + 2).await,
                            ClassicCacheRepair::Done { cleared: 1, forced: false });
@@ -21953,7 +18429,6 @@ mod classic_sync_wedge_tests {
                         "the view opened during the clear was not asked to reload");
             }
 
-            // Start 4: finished, so new history stays.
             {
                 let client = restored_client_at(&addr, &store).await;
                 client.event_cache().subscribe().expect("subscribe");
@@ -21972,8 +18447,6 @@ mod classic_sync_wedge_tests {
         assert_eq!(lines.iter().filter(|l| l.contains("finished")).count(), 1, "{lines:?}");
     }
 
-    /// The cap: a room whose mention is never read cannot hold the repair open
-    /// for ever. Five starts, or fourteen days, finish it.
     #[test]
     fn a_repair_waiting_on_unread_mentions_finishes_at_the_cap() {
         let at = |starts: u32, first_ms: u64| ClassicRepairProgress {
@@ -21986,22 +18459,17 @@ mod classic_sync_wedge_tests {
         assert!(classic_repair_must_finish(&at(5, 0), day));
         assert!(!classic_repair_must_finish(&at(1, 0), 13 * day));
         assert!(classic_repair_must_finish(&at(1, 0), 14 * day));
-        // A clock that went backwards is not "old".
         assert!(!classic_repair_must_finish(&at(1, 10 * day), day));
 
-        // (encrypted, messages, notifications, mentions, server highlights)
         assert!(room_unread_would_be_lost(false, 0, 0, 1, 0), "client mention");
         assert!(room_unread_would_be_lost(false, 0, 0, 0, 1), "server highlight");
         assert!(room_unread_would_be_lost(true, 0, 3, 0, 0), "notifying unread, encrypted");
-        // Review round 3 MEDIUM-1: the unread DOT alone (a message in a room
-        // whose rules do not notify) is client-computed and lost on a clear.
         assert!(room_unread_would_be_lost(false, 2, 0, 0, 0), "unread dot, unencrypted");
         assert!(room_unread_would_be_lost(true, 2, 0, 0, 0), "unread dot, encrypted");
         assert!(!room_unread_would_be_lost(false, 0, 0, 0, 0));
         assert!(!room_unread_would_be_lost(true, 0, 0, 0, 0));
     }
 
-    /// At the cap the waiting room is cleared too, and the log says why.
     #[test]
     fn at_the_cap_the_repair_clears_a_still_mentioned_room_and_says_so() {
         const MENTIONED: &str = "!mentioned:example.org";
@@ -22031,9 +18499,6 @@ mod classic_sync_wedge_tests {
                     "start {start}"
                 );
             }
-            // The forced start runs with a view open (the cap overrides the
-            // deferral), and the session ends while it clears: the reload
-            // request must not reach the next session.
             let session = Arc::new(AtomicUsize::new(1));
             let ending = Arc::clone(&session);
             let lifecycle = move || ending.fetch_add(1, Ordering::SeqCst) as u64;
@@ -22074,10 +18539,6 @@ mod classic_sync_wedge_tests {
         client
     }
 
-    /// The two classic-sync cadence fixes, end to end through the real loop
-    /// and a real HTTP request: the first request carries an explicit
-    /// `timeout=0` (an omitted timeout is a 30 s long-poll on Beeper), and a
-    /// verification going live shortens the very next poll to 3 s.
     #[test]
     fn the_first_poll_says_zero_and_a_live_verification_shortens_the_next() {
         let seen = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -22097,9 +18558,6 @@ mod classic_sync_wedge_tests {
             let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
             let watched = Arc::clone(&seen);
             let flag = Arc::clone(&verifying);
-            // Flip "verifying" once two polls have gone out (the loop then
-            // sleeps ~1 s before the next, so the flip lands before it), and
-            // stop after four, or at a bound.
             let watcher = async move {
                 let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
                 while tokio::time::Instant::now() < deadline {
@@ -22132,7 +18590,6 @@ mod classic_sync_wedge_tests {
         assert_eq!(seen[1], "30000", "an idle poll keeps the SDK's 30 s: {seen:?}");
         assert_eq!(seen[2], "3000", "a live verification did not shorten the poll: {seen:?}");
         assert_eq!(seen[3], "3000", "{seen:?}");
-        // The responses really were processed, so this is the loop the UI sees.
         assert!(drain(&events).iter().any(|v| v["state"] == "running"));
     }
 
@@ -22169,8 +18626,6 @@ mod classic_sync_wedge_tests {
 
             let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
             let watched = Arc::clone(&events);
-            // Stops the loop once the restart was reported, or after a bound far
-            // below the SDK's own 15-minute retry window.
             let watcher = async move {
                 let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
                 while tokio::time::Instant::now() < deadline && !reported_wedge(&watched) {
@@ -22194,11 +18649,7 @@ mod classic_sync_wedge_tests {
         let seen = drain(&events);
         assert!(failed.load(Ordering::SeqCst) > 0,
                 "the server never saw a request; this test proved nothing: {seen:?}");
-        // The wedge itself: no callback ever ran, so no response ("running")
-        // reached the UI.
         assert!(!seen.iter().any(|v| v["state"] == "running"), "{seen:?}");
-        // What issue #2 asked for: the silence is reported, then surfaced as an
-        // error the UI shows, instead of "starting" for ever.
         assert!(seen.iter().any(|v| v["type"] == "sync_stalled"
                                     && v["phase"] == "no_progress"), "{seen:?}");
         assert!(seen.iter().any(|v| v["type"] == "room_list_sync_state"
@@ -22207,8 +18658,6 @@ mod classic_sync_wedge_tests {
     }
 }
 
-/// Which raw sync events count as somebody saying something for room
-/// ordering, and which must never move a room.
 #[cfg(test)]
 mod conversation_recency_tests {
     use matrix_sdk::ruma::events::AnySyncTimelineEvent;
@@ -22222,9 +18671,6 @@ mod conversation_recency_tests {
         Raw::from_json_string(value.to_string()).expect("valid raw event")
     }
 
-    // An edit, plain or still encrypted (m.relates_to is outside the
-    // ciphertext), is not something new said and must not raise a room. A
-    // reply still is.
     #[test]
     fn an_edit_is_not_a_conversation() {
         let relates = json!({ "rel_type": "m.replace", "event_id": "$original" });
@@ -22282,7 +18728,6 @@ mod conversation_recency_tests {
         assert_eq!(conversation_timestamp_ms(&event), Some(1_700_000_000_000));
     }
 
-    // Msgtype-blind: an image must raise activity like text does.
     #[test]
     fn an_image_counts_exactly_like_text() {
         let event = raw(json!({
@@ -22295,7 +18740,6 @@ mod conversation_recency_tests {
         assert_eq!(conversation_timestamp_ms(&event), Some(1_700_000_000_001));
     }
 
-    // An undecrypted event is unsuitable as a preview but still moves the room.
     #[test]
     fn an_encrypted_event_counts_even_though_it_cannot_be_previewed() {
         let event = raw(json!({
@@ -22308,7 +18752,6 @@ mod conversation_recency_tests {
         assert_eq!(conversation_timestamp_ms(&event), Some(1_700_000_000_002));
     }
 
-    // A member joining must not raise a silent room.
     #[test]
     fn a_membership_change_is_not_a_conversation() {
         let event = raw(json!({
@@ -22322,8 +18765,6 @@ mod conversation_recency_tests {
         assert_eq!(conversation_timestamp_ms(&event), None);
     }
 
-    // MatrixRTC membership churn (one per participant per minute) is filtered
-    // from timelines and must not return through the ordering stamp.
     #[test]
     fn matrixrtc_membership_churn_is_not_a_conversation() {
         for kind in ["m.call.member", "org.matrix.msc3401.call.member"] {
@@ -22339,7 +18780,6 @@ mod conversation_recency_tests {
         }
     }
 
-    // Reactions and redactions are not something said.
     #[test]
     fn reactions_and_redactions_are_not_conversations() {
         for kind in ["m.reaction", "m.room.redaction"] {
@@ -22354,8 +18794,6 @@ mod conversation_recency_tests {
         }
     }
 
-    // Call rows do not raise activity on the C++ side
-    // (TimelineEvent::CallEvent); both producers must agree.
     #[test]
     fn a_call_row_does_not_raise_activity_here_either() {
         for kind in ["m.call.invite", "m.rtc.notification"] {
@@ -22370,8 +18808,6 @@ mod conversation_recency_tests {
         }
     }
 
-    // Break-it B084: an undecrypted reaction or poll vote is not a message
-    // (decrypted, neither counts), but an undecrypted message or thread reply is.
     #[test]
     fn an_undecrypted_reaction_or_reference_is_not_a_conversation() {
         for rel_type in ["m.annotation", "m.reference"] {
@@ -22400,9 +18836,6 @@ mod conversation_recency_tests {
         assert_eq!(conversation_timestamp_ms(&thread_reply), Some(1_700_000_000_009));
     }
 
-    // Break-it B084: the harvest says whether the newest conversation event is
-    // still undecryptable, and which event it is, so the room's preview can
-    // follow its stamp until that event decrypts.
     #[test]
     fn the_harvest_flags_a_newest_event_that_is_undecryptable() {
         use super::newest_conversation;
@@ -22428,15 +18861,10 @@ mod conversation_recency_tests {
         assert_eq!(newest_conversation([&message, &encrypted]), Some((200, true, e.clone())));
         assert_eq!(newest_conversation([&encrypted, &message]), Some((200, true, e)));
         assert_eq!(newest_conversation([&message]), Some((100, false, m.clone())));
-        // A later undecrypted reaction neither moves the stamp nor flags it.
         assert_eq!(newest_conversation([&message, &reaction]), Some((100, false, m)));
         assert_eq!(newest_conversation([&reaction]), None);
     }
 
-    // Break-it B084 review: the harvest stamps an event on the clock the SDK's
-    // latest event uses. A sender whose clock runs ahead of ours is clamped to
-    // ours when the SDK builds the event; the harvest must read that, not the
-    // raw `origin_server_ts`, or the two disagree about the same event.
     #[test]
     fn the_harvest_stamp_is_the_clamped_one_the_latest_event_carries() {
         use super::{event_ordering_stamp_ms, newest_conversation};
@@ -22458,7 +18886,6 @@ mod conversation_recency_tests {
         );
     }
 
-    // A state event wearing a message's type name is still a state event.
     #[test]
     fn a_state_key_refuses_the_event_whatever_its_type_says() {
         let event = raw(json!({
@@ -22472,8 +18899,6 @@ mod conversation_recency_tests {
         assert_eq!(conversation_timestamp_ms(&event), None);
     }
 
-    // 0 crosses the FFI as an invalid QDateTime that raiseActivity ignores, so
-    // "no timestamp" and "the epoch" must not differ.
     #[test]
     fn a_missing_or_zero_timestamp_is_no_answer_at_all() {
         let missing = raw(json!({
@@ -22494,8 +18919,6 @@ mod conversation_recency_tests {
     }
 }
 
-/// The msgtype-to-row-kind mapping and its filename rule. Media rows must
-/// map, so media sent to a room with no open timeline still notifies.
 #[cfg(test)]
 mod message_row_kind_tests {
     use super::{media_filename_for_kind, typed_message_row_kind};
@@ -22509,7 +18932,6 @@ mod message_row_kind_tests {
         }
     }
 
-    // Each of these used to be dropped.
     #[test]
     fn every_media_msgtype_has_a_row_of_its_own() {
         for (wire, kind) in [
@@ -22523,8 +18945,6 @@ mod message_row_kind_tests {
         }
     }
 
-    // A verification request is not a message; `None` leaves the fallback to
-    // each caller.
     #[test]
     fn a_msgtype_with_no_row_answers_none() {
         for wire in [
@@ -22537,8 +18957,6 @@ mod message_row_kind_tests {
         }
     }
 
-    // Element puts the caption in the body and the name in `filename`
-    // (MSC2530); reading the body alone would rename the attachment.
     #[test]
     fn a_file_prefers_its_explicit_filename_over_the_body() {
         assert_eq!(
@@ -22551,8 +18969,6 @@ mod message_row_kind_tests {
         );
     }
 
-    // Sable sends `body: ""` (or a caption) plus `filename`. An empty
-    // `filename` falls back to the body.
     #[test]
     fn every_attachment_kind_prefers_its_explicit_filename() {
         for kind in ["image", "video", "audio", "file"] {
@@ -22581,8 +18997,6 @@ mod message_row_kind_tests {
         }
     }
 
-    // A location has no file; its body is the sender's words and stays the
-    // body, which previews, toasts and Activity rows read.
     #[test]
     fn a_location_and_every_text_row_carry_no_filename() {
         for kind in ["location", "text", "notice", "emote"] {
@@ -22635,7 +19049,6 @@ mod direct_peer_avatar_tests {
         assert_eq!(payload["avatar_url"], "mxc://example.org/new");
     }
 
-    // A removed avatar is news too: the row must drop the old face.
     #[test]
     fn a_join_without_an_avatar_says_none() {
         let payload = direct_peer_avatar_payload(
@@ -22649,7 +19062,6 @@ mod direct_peer_avatar_tests {
 
     #[test]
     fn only_the_direct_targets_own_join_counts() {
-        // A leave or a ban carries no profile.
         for membership in ["leave", "ban", "invite"] {
             assert!(direct_peer_avatar_payload(
                 "!dm:example.org",
@@ -22658,14 +19070,12 @@ mod direct_peer_avatar_tests {
             )
             .is_none(), "{membership}");
         }
-        // Somebody else in the room (our own join included).
         assert!(direct_peer_avatar_payload(
             "!dm:example.org",
             &member("@me:example.org", "join", Some("mxc://example.org/me")),
             &targets(),
         )
         .is_none());
-        // Not a DM at all.
         assert!(direct_peer_avatar_payload(
             "!room:example.org",
             &member("@sam:example.org", "join", Some("mxc://example.org/x")),
@@ -22679,17 +19089,12 @@ mod direct_peer_avatar_tests {
 mod resumed_device_key_tests {
     use super::resumed_device_key_state as state;
 
-    // A resumed device is judged on the server's answer: its own key, none at
-    // all (removed and re-created under the same id), another key, or no
-    // answer, which proves nothing.
     #[test]
     fn a_resumed_device_is_judged_on_the_servers_answer() {
         assert_eq!(state(Some("AAAA"), Some(Some("AAAA"))), "matches");
-        // A server may re-pad what we uploaded.
         assert_eq!(state(Some("AAAA="), Some(Some("AAAA"))), "matches");
         assert_eq!(state(Some("AAAA"), Some(Some("BBBB"))), "different");
         assert_eq!(state(Some("AAAA"), Some(None)), "missing");
-        // Every way of not knowing is "unknown", never a verdict.
         assert_eq!(state(Some("AAAA"), None), "unknown");
         assert_eq!(state(None, Some(None)), "unknown");
         assert_eq!(state(Some(""), Some(None)), "unknown");
@@ -22718,7 +19123,6 @@ mod final_session_tokens_tests {
             serde_json::from_str(&final_session_tokens_json(Some(tokens))).unwrap();
         assert_eq!(value["access_token"], "fixture-a");
         assert_eq!(value["refresh_token"], "fixture-r");
-        // A session that issues no refresh token says so, rather than "".
         let value: serde_json::Value = serde_json::from_str(&final_session_tokens_json(Some(
             SessionTokens { access_token: "fixture-a".to_owned(), refresh_token: None },
         )))
@@ -22727,14 +19131,9 @@ mod final_session_tokens_tests {
     }
 }
 
-// A retired bridge must leave nothing of its account store open (GitHub #2).
 #[cfg(all(test, target_os = "linux"))]
 mod store_close_tests;
 
-/// Labs, Phase 1 (design 2026-10-15 §3.2, contract la-p1 §1 and §3): the
-/// flag-off parity gate (T-OFF-4) and the Background handle end to end
-/// through the FFI, against a loopback homeserver that answers `/versions`
-/// (and, for the classic loop, `/sync`) and refuses everything else.
 #[cfg(test)]
 mod labs_tests {
     use std::collections::VecDeque;
@@ -22750,8 +19149,6 @@ mod labs_tests {
 
     use super::{bgsession, labs, storeclose, EventQueueRef};
 
-    /// The process switch on (or off) for one test, and off again when the
-    /// test ends, a panicking one included (`labs::LabsTestGuard`).
     fn labs_on() -> labs::LabsTestGuard {
         labs::LabsTestGuard::enabled()
     }
@@ -22769,7 +19166,6 @@ mod labs_tests {
         text
     }
 
-    /// Everything queued so far.
     unsafe fn drain(handle: *mut c_void, into: &mut Vec<Value>) {
         loop {
             let raw = unsafe { take(super::mx_rust_poll_event(handle)) };
@@ -22780,7 +19176,6 @@ mod labs_tests {
         }
     }
 
-    /// Drain until `pred` matches one event; panics after `timeout`.
     unsafe fn wait_for(
         handle: *mut c_void,
         seen: &mut Vec<Value>,
@@ -22799,8 +19194,6 @@ mod labs_tests {
         }
     }
 
-    /// `/versions` answered, `/v3/sync` answered with an empty batch, every
-    /// other request a Matrix 404 (so E2EE setup fails fast).
     fn serve() -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");
@@ -22905,10 +19298,6 @@ mod labs_tests {
         unsafe { take(super::mx_rust_destroy_and_report(handle)) }
     }
 
-    // T-OFF-4, the stream half: with Labs off, `enqueue` writes exactly what it
-    // wrote before this change (the old body is `serde_json::to_string` and
-    // the push), with no `_ep` and no `bg`. With Labs on, a queue no
-    // Background handle owns (every foreground handle) is identical too.
     #[test]
     fn flag_off_enqueue_is_byte_identical_to_todays_serialization() {
         let _labs = labs_off();
@@ -22941,8 +19330,6 @@ mod labs_tests {
         labs::disable_for_test();
     }
 
-    // T-OFF-4, the store half: a flag-off restore reserves nothing, no
-    // Background handle can be made, and nothing is reported as Labs.
     #[test]
     fn flag_off_restore_reserves_nothing_and_no_background_handle_exists() {
         let _labs = labs_off();
@@ -22963,7 +19350,6 @@ mod labs_tests {
             });
             assert_eq!(storeclose::reserve_calls(), before, "a flag-off restore reserved its store");
             assert_eq!(storeclose::any_held_path(&store.0), 1, "the restored client holds it");
-            // The flag-off FFIs answer as before, with nothing refused.
             assert_eq!(
                 take(super::mx_rust_set_receipt_privacy(handle, 1)),
                 "",
@@ -22978,15 +19364,11 @@ mod labs_tests {
         assert_eq!(storeclose::reserve_calls(), before);
     }
 
-    // R1-M4 end to end: a Background restore whose store has no crypto
-    // database is refused with a store-stage reason, and creates nothing.
     #[test]
     fn a_background_restore_without_its_crypto_store_is_refused_and_creates_nothing() {
         let _labs = labs_on();
         let homeserver = serve();
         let store = StoreDir::new("missing");
-        // Review 2026-10-16, finding 6: the store DIRECTORY does not exist,
-        // and neither create nor restore may create it.
         let missing = store.0.join("account-store");
         let missing_c = CString::new(missing.to_string_lossy().as_bytes()).unwrap();
         unsafe {
@@ -23020,8 +19402,6 @@ mod labs_tests {
             let _ = retire(handle);
             assert!(!missing.exists(), "retirement created the store directory");
 
-            // The directory exists but holds no crypto database: refused the
-            // same way, and the database it checks for is not created.
             let handle =
                 super::mx_rust_create_background(store.c().as_ptr(), profile(USER, DEVICE).as_ptr());
             restore(handle, &homeserver);
@@ -23038,10 +19418,6 @@ mod labs_tests {
         }
     }
 
-    // I1 + R1-M4 + custody, end to end: while a foreground handle holds the
-    // store, a Background handle for it is refused `store_in_use`; once the
-    // store is free, the Background restore passes the precheck against the
-    // identity the foreground created, and behaves as a Background handle.
     #[test]
     fn a_background_handle_waits_for_the_foreground_store_then_restores_as_background() {
         let _labs = labs_on();
@@ -23084,21 +19460,17 @@ mod labs_tests {
             });
             assert!(ok.get("access_token").is_none() && ok.get("refresh_token").is_none());
             assert_eq!(storeclose::any_held_path(&store.0), 1);
-            // One handle, a refusal then a restore: the slot says it is running
-            // (review 2026-10-16, finding 2).
             let state: Value =
                 serde_json::from_str(&take(super::mx_rust_bg_take_session_state(background))).unwrap();
             assert!(state["state"].get("login_failed").is_none(), "a stale refusal: {state}");
             assert!(state["state"]["login_ok"]["_v"].as_u64().is_some(), "{state}");
 
-            // Custody reads the live session.
             let custody: Value =
                 serde_json::from_str(&take(super::mx_rust_take_custody(background))).unwrap();
             assert_eq!(custody["has_session"], true);
             assert_eq!(custody["access_token"], "labs-fixture-token");
             assert_eq!(custody["revoked"], false);
 
-            // DECISION 2 and the fixed profile.
             let status = CString::new("").unwrap();
             assert_eq!(
                 take(super::mx_rust_set_presence(background, 0, status.as_ptr())),
@@ -23133,19 +19505,12 @@ mod labs_tests {
         labs::disable_for_test();
     }
 
-    // Warm account adoption (master prompt Part 4 §4): a RUNNING Background
-    // handle is promoted in place. The same handle keeps the one store it
-    // opened (no second open), the queue carries a token-free adopted
-    // login_ok, the per-handle foreground controls it refused as Background
-    // now answer, and a foreground sync starts on it. A handle that is not
-    // Background, or has no session, is refused with nothing changed.
     #[test]
     fn a_running_background_handle_is_promoted_in_place_to_the_foreground() {
         let _labs = labs_on();
         let homeserver = serve();
         let store = StoreDir::new("promote");
         unsafe {
-            // A foreground sign-in creates the store, then closes it.
             let foreground = super::mx_rust_create(store.c().as_ptr());
             restore(foreground, &homeserver);
             let mut fg_seen = Vec::new();
@@ -23153,12 +19518,10 @@ mod labs_tests {
                 assert_ne!(v["type"], "login_failed", "{v}");
                 v["type"] == "login_ok"
             });
-            // A foreground handle is not Background: refused.
             assert!(take(super::mx_rust_bg_promote(foreground)).starts_with("error: "));
             let report = retire(foreground);
             assert!(report.starts_with("store_closed=true "), "{report}");
 
-            // Not yet restored: no session, refused, still Background.
             let background =
                 super::mx_rust_create_background(store.c().as_ptr(), profile(USER, DEVICE).as_ptr());
             assert!(!background.is_null());
@@ -23182,14 +19545,10 @@ mod labs_tests {
             assert_eq!(adopted["adopted"], true, "{adopted}");
             assert_eq!(adopted["user_id"], USER, "{adopted}");
             assert!(adopted.get("access_token").is_none() && adopted.get("refresh_token").is_none());
-            // The same handle, the same single store open.
             assert_eq!(storeclose::any_held_path(&store.0), 1, "a second open of the store");
             assert_eq!(super::mx_rust_bg_poll(background, &mut status), -1, "still Background");
-            // Controls a Background handle refuses now answer as foreground.
             assert_eq!(take(super::mx_rust_set_receipt_privacy(background, 1)), "");
-            // A second promotion has nothing to promote.
             assert!(take(super::mx_rust_bg_promote(background)).starts_with("error: "));
-            // A foreground sync starts on the adopted session.
             super::mx_rust_start_sync(background);
             wait_for(background, &mut promoted, "foreground syncing", |v| {
                 v["type"] == "status" && v["state"] == "syncing"
@@ -23201,10 +19560,6 @@ mod labs_tests {
         labs::disable_for_test();
     }
 
-    // Review 2026-10-16, finding 7: teardown runs twice (the FFI, then Drop
-    // in the retirement pool, possibly later), and by the second a NEWER
-    // handle of the same account may own the process-wide state. The
-    // per-account clear runs once per bridge.
     #[test]
     fn a_second_teardown_never_clears_a_newer_handles_account_state() {
         use crate::previewbackfill::{remembered, Remembered, RunGuard};
@@ -23218,23 +19573,14 @@ mod labs_tests {
         assert!(old.forget_account_state_once(identity.clone()), "the first teardown clears");
         assert_eq!(remembered(&user, room), None);
         drop(old_run);
-        // A newer handle of the same account starts its own run.
         let new_run = RunGuard::new(user.clone());
         new_run.remember(room, Remembered::Message("new session".into(), 2));
-        // The old bridge's second teardown (Drop) must leave it alone.
         assert!(!old.forget_account_state_once(identity));
         assert_eq!(remembered(&user, room), Some(Remembered::Message("new session".into(), 2)));
         drop(new_run);
         drop(old);
     }
 
-    // 24a485c5 for a Background handle (liveacc port, 2026-10-20): a rotation
-    // recorded in the token ledger moves the custody generation inside the
-    // refresh, before the save callback's wait, so the host's next drain takes
-    // custody and answers while matrix-sdk still holds the retried request.
-    // A foreground handle's ledger never touches its custody (flag-off
-    // parity). Mutation: drop `attach_custody` in mx_rust_create_background
-    // and the generation stays put.
     #[test]
     fn a_background_rotation_moves_custody_before_its_wait_and_is_answered() {
         let _labs = labs_on();
@@ -23254,17 +19600,14 @@ mod labs_tests {
         assert_eq!(bridge.token_ledger.generation(), generation);
         assert_eq!(unsafe { super::mx_rust_bg_poll(handle, &mut status) }, 0);
         assert_eq!(status.token_generation, before + 1, "custody did not move with the rotation");
-        // The host's answer releases that rotation's wait at once.
         unsafe { super::mx_rust_session_tokens_persisted(handle, generation, 1) };
         assert_eq!(
             bridge.token_ledger.wait_for_answer(generation),
             crate::sessiontokens::WaitOutcome::Saved
         );
-        // No client: custody is "" (nothing to hand over), as before.
         assert_eq!(unsafe { take(super::mx_rust_take_custody(handle)) }, "");
         let _ = unsafe { retire(handle) };
 
-        // A foreground handle, Labs on or off: its custody never moves.
         let fg_store = StoreDir::new("ledger-fg");
         let fg_path = fg_store.c();
         let fg = super::mx_rust_create(fg_path.as_ptr());
@@ -23279,12 +19622,6 @@ mod labs_tests {
         let _ = unsafe { retire(fg) };
     }
 
-    // §18 round 1, MUST 6: a Background host's poll IS its drain. A rotation
-    // waiting on another thread for the host's answer must not be released
-    // as "drain stalled" while the host keeps polling every ~100 ms (the
-    // drainer's tick is 250 ms; DRAIN_STALL is 500 ms), and gets the answer
-    // the host sends after ~800 ms. Mutation: drop `note_drain()` from
-    // mx_rust_bg_poll and the wait ends Stalled at ~500 ms.
     #[test]
     fn a_background_poll_counts_as_a_drain_for_a_waiting_rotation() {
         let _labs = labs_on();
@@ -23316,9 +19653,6 @@ mod labs_tests {
         let _ = unsafe { retire(handle) };
     }
 
-    // ... and the rotation itself never rides a Background handle's command
-    // lane (tokens travel by custody only): the save callback's
-    // `session_tokens_refreshed` is refused there, and the lane stays empty.
     #[test]
     fn a_background_command_lane_refuses_session_tokens_refreshed() {
         let _labs = labs_on();
@@ -23344,7 +19678,6 @@ mod labs_tests {
         assert_eq!(unsafe { take(super::mx_rust_poll_command_event(handle)) }, "");
         let _ = unsafe { retire(handle) };
 
-        // A foreground handle's lane still carries it (flag-off parity).
         let fg_store = StoreDir::new("lane-fg");
         let fg_path = fg_store.c();
         let fg = super::mx_rust_create(fg_path.as_ptr());
@@ -23359,8 +19692,6 @@ mod labs_tests {
         let _ = unsafe { retire(fg) };
     }
 
-    /// Runs the classic loop until two `/sync` responses have been processed,
-    /// with `events` as its queue.
     fn run_classic_twice(homeserver: &str, events: &EventQueueRef) {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -23424,9 +19755,6 @@ mod labs_tests {
         });
     }
 
-    // R2-H4: in Background the classic loop's per-response room snapshot,
-    // spaces build and watch report are skipped BEFORE they run, not merely
-    // dropped at the queue. The foreground run of the same loop does them.
     #[test]
     fn a_background_classic_loop_skips_its_ui_work_at_the_source() {
         let _labs = labs_on();
@@ -23468,14 +19796,6 @@ mod labs_tests {
     }
 }
 
-/// The modern lane against a homeserver whose sliding sync answers
-/// `M_UNKNOWN_TOKEN` although the session is alive: the SDK refreshes, and the
-/// one retry it allows is refused too. matrix-sdk 0.18 returns that retry's 401
-/// without broadcasting `SessionChange::UnknownToken` (verified in its source);
-/// what refuses the retry on matrix.org is likely MAS revoking the token a
-/// concurrent refresh superseded, not yet captured. Seen once on matrix.org on
-/// 2026-10-07: room list "failed", "Matrix session is no longer authorized.",
-/// while pagination, media and receipts all still worked.
 #[cfg(test)]
 mod modern_sync_auth_tests {
     use super::{
@@ -23496,7 +19816,6 @@ mod modern_sync_auth_tests {
         SessionMeta, SessionTokens,
     };
 
-    /// Reads one request; returns its request line and its body.
     pub(super) fn read_request(stream: &mut TcpStream) -> (String, String) {
         let mut buf = Vec::new();
         let mut chunk = [0u8; 4096];
@@ -23541,19 +19860,12 @@ mod modern_sync_auth_tests {
         let _ = stream.flush();
     }
 
-    /// When the fake homeserver refuses a sliding-sync request.
     #[derive(Clone, Copy)]
     enum Script {
-        /// Refuse every request.
         RefuseAlways,
-        /// `rounds` times: refuse `refuse` requests, then answer until the
-        /// room-list connection has had `answered` responses (enough to reach
-        /// Running). After the last round, answer everything.
         Rounds { rounds: usize, refuse: usize, answered: usize },
     }
 
-    /// The script's position. One lock, so a refusal decision and its count
-    /// cannot interleave between two concurrent requests.
     #[derive(Default)]
     struct Progress {
         round: usize,
@@ -23568,8 +19880,6 @@ mod modern_sync_auth_tests {
         syncs_served: AtomicUsize,
     }
 
-    /// A homeserver advertising MSC4186. `/refresh` always succeeds: the
-    /// session is never dead, which is the whole point.
     fn serve(script: Script, seen: Arc<Seen>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");
@@ -23618,7 +19928,6 @@ mod modern_sync_auth_tests {
                             respond(&mut stream, "401 Unauthorized",
                                     r#"{"errcode":"M_UNKNOWN_TOKEN","error":"Token is not active","soft_logout":false}"#);
                         } else {
-                            // Not a long-poll: pace the loop instead of spinning.
                             thread::sleep(Duration::from_millis(100));
                             seen.syncs_served.fetch_add(1, Ordering::SeqCst);
                             let n = pos.fetch_add(1, Ordering::SeqCst) + 1;
@@ -23666,8 +19975,6 @@ mod modern_sync_auth_tests {
         v["type"] == "room_list_error" && v["category"] == "authentication"
     }
 
-    /// Runs the modern lane until `done` holds, `failed` is seen, or `bound`
-    /// passes, then cancels it. Returns the events and the final mode.
     fn run(script: Script, seen: Arc<Seen>, bound: Duration, done: Done)
         -> (Vec<serde_json::Value>, SyncMode)
     {
@@ -23736,7 +20043,6 @@ mod modern_sync_auth_tests {
     #[test]
     fn a_401_the_sdk_refreshed_through_does_not_end_the_room_list() {
         let seen = Arc::new(Seen::default());
-        // One round: enough refusals that the SDK's refresh-and-retry fails.
         let script = Script::Rounds { rounds: 1, refuse: 4, answered: usize::MAX };
         let (events, mode) = run(script, Arc::clone(&seen), Duration::from_secs(40),
                                  |e| e.iter().any(is_running));
@@ -23752,31 +20058,23 @@ mod modern_sync_auth_tests {
         assert!(events.iter().any(is_running), "the room list never recovered: {events:?}");
         assert!(seen.syncs_served.load(Ordering::SeqCst) >= 2, "{events:?}");
         assert_eq!(mode, SyncMode::SlidingSync);
-        // The retry is visible in the log, naming the errcode, never server text.
         assert!(events.iter().any(|v| v["type"] == "room_list_error"
                                       && v["category"] == "authentication_retry_unknown_token"),
                 "{events:?}");
     }
 
-    /// The reset, through the real loop: more refusal spells than the budget,
-    /// each followed by a Running edge, must never add up to `Failed`. An
-    /// intermittent race recurs over a long session.
     #[test]
     fn refusal_spells_separated_by_running_never_add_up_to_failed() {
         let seen = Arc::new(Seen::default());
         let rounds = MODERN_AUTH_RETRY_LIMIT as usize + 2;
         let script = Script::Rounds { rounds, refuse: 4, answered: 3 };
         let (events, mode) = run(script, Arc::clone(&seen), Duration::from_secs(90), |e| {
-            // Done once the budget would have been exhausted without the reset
-            // and the list is running again after the last spell.
             let retries = e.iter().filter(|v| is_auth_retry(v)).count();
             let last_retry = e.iter().rposition(is_auth_retry);
             retries > MODERN_AUTH_RETRY_LIMIT as usize
                 && last_retry.is_some_and(|i| e[i..].iter().any(is_running))
         });
 
-        // Checked first: without the reset the run ends in Failed after LIMIT
-        // retries, which the count below would misreport as a weak fixture.
         assert!(!events.iter().any(is_failed),
                 "separate refusal spells accumulated into Failed: {events:?}");
         let retries = events.iter().filter(|v| is_auth_retry(v)).count();
@@ -23797,28 +20095,24 @@ mod modern_sync_auth_tests {
         assert!(!events.iter().any(is_running), "{events:?}");
         assert_eq!(mode, SyncMode::Failed, "{events:?}");
         assert!(events.iter().any(told_session_gone), "{events:?}");
-        // Bounded: exactly MODERN_AUTH_RETRY_LIMIT retries were announced first.
         let retries = events.iter().filter(|v| is_auth_retry(v)).count();
         assert_eq!(retries, MODERN_AUTH_RETRY_LIMIT as usize, "{events:?}");
     }
 
     #[test]
     fn the_budget_is_consecutive_and_running_resets_it() {
-        // LIMIT + 1 in a row: the last one is fatal, none before it.
         let mut budget = AuthRetryBudget::default();
         for _ in 0..MODERN_AUTH_RETRY_LIMIT {
             assert_eq!(budget.on_auth_error(), ModernAuthVerdict::Retry);
         }
         assert_eq!(budget.on_auth_error(), ModernAuthVerdict::Fatal);
 
-        // LIMIT + 1 with a Running edge between each: never fatal.
         let mut budget = AuthRetryBudget::default();
         for _ in 0..=MODERN_AUTH_RETRY_LIMIT {
             assert_eq!(budget.on_auth_error(), ModernAuthVerdict::Retry);
             budget.on_running();
         }
 
-        // A reset in the middle restarts the count from one.
         let mut budget = AuthRetryBudget::default();
         for _ in 0..MODERN_AUTH_RETRY_LIMIT {
             budget.on_auth_error();
@@ -23830,9 +20124,6 @@ mod modern_sync_auth_tests {
         assert_eq!(budget.on_auth_error(), ModernAuthVerdict::Fatal);
     }
 
-    /// LIGHTNING_SWITCH_TRACE through the real modern loop: a traced sync's
-    /// first `room_list_reset` carries the trace and no later one does; an
-    /// untraced sync's resets carry none, exactly as before the trace existed.
     #[test]
     fn only_the_first_reset_of_a_traced_sync_carries_the_switch_trace() {
         use crate::switchtrace;
@@ -23840,7 +20131,6 @@ mod modern_sync_auth_tests {
             v["type"] == "room_list_reset"
         }
         let run_once = |traced: bool| -> Vec<serde_json::Value> {
-            // Answer everything: no refusals.
             let addr = serve(Script::Rounds { rounds: 0, refuse: 0, answered: 0 },
                              Arc::new(Seen::default()));
             let events: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
@@ -23918,9 +20208,6 @@ mod modern_sync_auth_tests {
     }
 }
 
-/// The warm rooms against a homeserver whose sliding-sync session expires.
-/// `SlidingSync::expire_session` clears every room subscription, so before the
-/// warm set was re-sent the open room silently lost its subscription too.
 #[cfg(test)]
 mod warm_room_expiry_tests {
     use super::modern_sync_auth_tests::{read_request, respond};
@@ -23939,17 +20226,12 @@ mod warm_room_expiry_tests {
         SessionMeta, SessionTokens,
     };
 
-    /// What the room-list connection asked for, request by request: the
-    /// subscribed room ids, and the index at which the server answered
-    /// M_UNKNOWN_POS.
     #[derive(Default)]
     struct Requests {
         subscribed: Mutex<Vec<Vec<String>>>,
         expired_at: AtomicUsize,
     }
 
-    /// Answers the 4th room-list request with `M_UNKNOWN_POS` (once) and every
-    /// other one with an empty, valid response.
     fn serve(requests: Arc<Requests>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("addr");
@@ -24089,11 +20371,6 @@ mod warm_room_expiry_tests {
     }
 }
 
-/// What a decryption failure sets in motion with the settings every client is
-/// built with (decided 2026-10-13, CLAUDE.md §9): matrix-sdk fetches the key
-/// from the trusted backup, and asks our own VERIFIED devices for it. Against a
-/// loopback homeserver (`MatrixMockServer`); the backup key and the second
-/// device are throwaway values made here, and nothing is ever decrypted.
 #[cfg(test)]
 mod utd_recovery_tests {
     use super::encryption_settings;
@@ -24113,12 +20390,8 @@ mod utd_recovery_tests {
     use std::collections::BTreeMap;
     use std::time::{Duration, Instant};
 
-    /// The Megolm session the event below was sent with, as it appears in a
-    /// request path (`/` percent-encoded).
     const SESSION_IN_PATH: &str = "64H7XKokIx0ASkYDHZKlT5zd%2FZccz%2FcQspPNdvnNULA";
 
-    /// matrix-sdk's own UTD fixture (tests/integration/encryption/backups.rs):
-    /// a Megolm event whose session this client has never seen.
     fn undecryptable_event() -> serde_json::Value {
         json!({
             "event_id": "$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM",
@@ -24139,8 +20412,6 @@ mod utd_recovery_tests {
         })
     }
 
-    /// A client built with Lightning's `encryption_settings()`, its E2EE
-    /// setup finished (that is where the SDK installs its UTD handler).
     async fn client_as_built(server: &MatrixMockServer) -> Client {
         let client = server
             .client_builder()
@@ -24151,8 +20422,6 @@ mod utd_recovery_tests {
         client
     }
 
-    /// Deliver the undecryptable event through the sliding-sync path the app
-    /// uses.
     async fn sync_undecryptable_event(client: &Client) {
         let mut response = v5::Response::new("pos-1".to_owned());
         let mut entry = v5::response::Room::default();
@@ -24177,7 +20446,6 @@ mod utd_recovery_tests {
             .expect("sync processed");
     }
 
-    /// GETs of this session's key from the backup the server has seen so far.
     async fn backup_key_fetches(server: &MatrixMockServer) -> usize {
         server
             .server()
@@ -24194,7 +20462,6 @@ mod utd_recovery_tests {
             .count()
     }
 
-    /// Whole-room backup GETs (`/room_keys/keys/{room}`) for the test room.
     async fn whole_room_fetches(server: &MatrixMockServer) -> usize {
         server
             .server()
@@ -24211,7 +20478,6 @@ mod utd_recovery_tests {
             .count()
     }
 
-    /// Pending `m.room_key_request`s the crypto layer wants sent.
     async fn queued_key_requests(client: &Client) -> usize {
         let machine = client.olm_machine_for_testing().await;
         let machine = machine.as_ref().expect("olm machine");
@@ -24230,8 +20496,6 @@ mod utd_recovery_tests {
             .count()
     }
 
-    /// A usable backup: its decryption key and version are on this device, as
-    /// after verification or recovery-key entry.
     async fn enable_backup(client: &Client) {
         {
             let machine = client.olm_machine_for_testing().await;
@@ -24248,8 +20512,6 @@ mod utd_recovery_tests {
         assert!(client.encryption().backups().are_enabled().await);
     }
 
-    /// Give the client a second device of its own, verified (`trusted`) or
-    /// not, the way a `/keys/query` answer would.
     async fn add_own_device(client: &Client, trusted: bool) {
         let user = client.user_id().expect("logged in").to_owned();
         let other_id = device_id!("OTHERDEVICE");
@@ -24291,11 +20553,6 @@ mod utd_recovery_tests {
         assert_eq!(device.is_verified(), trusted, "fixture: trust as asked");
     }
 
-    /// Give the client a second device of its own that is SIGNED by our
-    /// self-signing key, while this client holds none of the cross-signing
-    /// private keys, i.e. our own identity is not verified here: the shape of a
-    /// fresh, unverified session looking at an account whose other sessions
-    /// were cross-signed elsewhere.
     async fn add_own_device_signed_by_an_unverified_identity(client: &Client) {
         let user = client.user_id().expect("logged in").to_owned();
         let other_id = device_id!("SIGNEDDEVICE");
@@ -24308,9 +20565,6 @@ mod utd_recovery_tests {
             .expect("store")
             .expect("own device");
         let signed = device.verify().await.expect("signed by our self-signing key");
-        // `verify()` signs a copy with its signatures cleared, so merge the
-        // self-signing signature into the device's own self-signed keys
-        // (signatures are outside the canonical JSON both sign).
         let signed_keys = serde_json::to_value(&signed.signed_keys).unwrap();
         let ssk_signatures =
             signed_keys[user.as_str()][other_id.as_str()]["signatures"][user.as_str()].clone();
@@ -24342,19 +20596,12 @@ mod utd_recovery_tests {
             .expect("keys query answer accepted");
     }
 
-    // Review L1: the Sessions page's rule on real SDK devices, not on booleans.
-    // A device signed by an identity this session has not verified is NOT
-    // trusted (the old label, `crossSigned`, badged it green), and a device
-    // verified by SAS without cross-signing IS (the old label said "Not
-    // verified").
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_sessions_trust_rule_follows_the_sdk_on_real_devices() {
         let server = MatrixMockServer::new().await;
         let client = client_as_built(&server).await;
         let user = client.user_id().expect("logged in").to_owned();
 
-        // One fixture at a time: a /keys/query answer is the user's whole
-        // device list, so the second replaces the first.
         add_own_device_signed_by_an_unverified_identity(&client).await;
 
         let encryption = client.encryption();
@@ -24385,8 +20632,6 @@ mod utd_recovery_tests {
         ));
     }
 
-    // The policy itself, so a later edit cannot quietly drop back to OneShot
-    // or Manual, or turn on an automatic creation.
     #[test]
     fn clients_download_after_a_decryption_failure_and_create_nothing() {
         let settings = encryption_settings();
@@ -24398,10 +20643,6 @@ mod utd_recovery_tests {
         assert!(!settings.auto_enable_backups, "never create a backup version unasked");
     }
 
-    // (a) An event that fails to decrypt makes the SDK fetch exactly that
-    // session's key from the backup. With the previous `OneShot` the SDK
-    // installed no UTD handler and no download task, so this request never
-    // came: this test fails on that code.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_undecryptable_event_fetches_its_key_from_the_backup() {
         let server = MatrixMockServer::new().await;
@@ -24420,13 +20661,10 @@ mod utd_recovery_tests {
             );
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
-        // Deduplicated per session: one failure, one request.
         tokio::time::sleep(Duration::from_millis(500)).await;
         assert_eq!(backup_key_fetches(&server).await, 1);
     }
 
-    // The same event with NO usable backup on this device asks the server for
-    // nothing: the SDK's task checks `are_enabled()` first.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn without_a_backup_key_a_failure_fetches_nothing() {
         let server = MatrixMockServer::new().await;
@@ -24438,11 +20676,6 @@ mod utd_recovery_tests {
         assert_eq!(backup_key_fetches(&server).await, 0);
     }
 
-    // (b) `automatic-room-key-forwarding` is compiled in: the crypto layer
-    // starts with both halves on, and a decryption failure queues an
-    // `m.room_key_request` once one of our OTHER devices is verified. Without
-    // the feature `create_outgoing_key_request` is `#[cfg]`'d out and both
-    // flags read false, so this fails on the previous Cargo.toml.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_failure_asks_our_verified_device_for_the_key() {
         let server = MatrixMockServer::new().await;
@@ -24461,11 +20694,6 @@ mod utd_recovery_tests {
         assert_eq!(queued_key_requests(&client).await, 1, "one request per session");
     }
 
-    // A background history walk (index-all, media history) fetches the room's
-    // keys in ONE request before paging, and says nothing on the recovery
-    // status channel: the `crypto_bootstrap` events describe the user's
-    // recovery, and a walk over hundreds of rooms must not move it. The
-    // reporting pass, by contrast, does speak.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_history_walk_prefetches_a_rooms_keys_without_reporting() {
         let server = MatrixMockServer::new().await;
@@ -24484,8 +20712,6 @@ mod utd_recovery_tests {
                 .count()
         };
 
-        // No usable backup: the reporting pass says why it skipped, the
-        // prefetch is silent, and neither asks the server.
         registry.download_backup_keys_for_room(&client, room).await;
         assert_eq!(bootstrap_events(), 1, "the reporting pass reports its skip");
         registry.prefetch_backup_keys_for_room(&client, room).await;
@@ -24503,9 +20729,6 @@ mod utd_recovery_tests {
         assert_eq!(bootstrap_events(), 1, "the prefetch reports nothing");
     }
 
-    // The SDK's own gate, pinned: with no verified device of ours to answer,
-    // no request is made (an unverified device would not be trusted to send a
-    // key back, and would not be answered either).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn no_request_goes_out_without_a_verified_device_of_ours() {
         let server = MatrixMockServer::new().await;
@@ -24518,9 +20741,6 @@ mod utd_recovery_tests {
     }
 }
 
-// The sync-handler `timeline_event` payload for rooms with no open timeline:
-// what each new field carries, and what the encrypted handler reads from the
-// cleartext relation. Pure builders, so no client is needed.
 #[cfg(test)]
 mod sync_payload_tests {
     use super::{
@@ -24573,11 +20793,6 @@ mod sync_payload_tests {
         .unwrap()
     }
 
-    // Finding 130: an undecryptable thread reply in a room with no open
-    // timeline lost its thread, so C++ mirrored it as a standalone main
-    // timeline row (§8) and its notification opened the main timeline. The
-    // relation is outside the ciphertext. Before the fix the handler read only
-    // `Replacement` and `thread_root_id` was absent.
     #[test]
     fn an_undecryptable_thread_reply_keeps_its_thread_root() {
         let ev = encrypted(json!({
@@ -24597,8 +20812,6 @@ mod sync_payload_tests {
         );
     }
 
-    // Finding 8: the sync payload carried no reply metadata, so a reply in a
-    // room with no open timeline could never be a reply row.
     #[test]
     fn a_reply_names_the_event_it_answers_and_a_thread_fallback_does_not() {
         let reply = payload(json!({
@@ -24610,8 +20823,6 @@ mod sync_payload_tests {
         assert_eq!(reply["in_reply_to"], "$asked:example.org");
         assert_eq!(reply["body"], "hello", "the reply fallback is stripped");
 
-        // Every thread message carries an m.in_reply_to fallback for clients
-        // without threads; it is not a reply.
         let in_thread = payload(json!({
             "msgtype": "m.text",
             "body": "in thread",
@@ -24626,7 +20837,6 @@ mod sync_payload_tests {
         assert_eq!(in_thread["in_reply_to"], "");
         assert_eq!(in_thread["thread_root_id"], "$root:example.org");
 
-        // A real reply inside a thread is a reply.
         let threaded_reply = payload(json!({
             "msgtype": "m.text",
             "body": "answer",
@@ -24657,8 +20867,6 @@ mod sync_payload_tests {
         assert_eq!(plain["in_reply_to"], "");
     }
 
-    // Finding 53: a msgtype with no typed row was dropped, so a server notice
-    // or a bridge's custom type never notified in a room that was not open.
     #[test]
     fn an_unknown_msgtype_is_forwarded_as_text_and_a_verification_request_is_not() {
         let notice = payload(json!({
@@ -24694,7 +20902,6 @@ mod sync_payload_tests {
         assert_eq!(mention["mentions_room"], false);
     }
 
-    // Finding 53: poll starts had no sync handler at all.
     #[test]
     fn a_poll_start_becomes_a_poll_row_and_a_poll_edit_does_not() {
         let unstable: UnstablePollStartEventContent = serde_json::from_value(json!({

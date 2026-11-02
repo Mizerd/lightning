@@ -10,16 +10,10 @@ NotificationContextBuilder::build(const NotificationContextInputs &in)
     context.roomName = in.roomInfoName.isEmpty() ? in.roomId : in.roomInfoName;
     context.roomIsDirect = in.roomIsDirect;
     context.avatarMxc = in.avatarMxc;
-    // Initials colour and theme from the same row the room list uses, so the
-    // two never disagree about an identity.
     context.avatarColorKey = in.avatarColorKey;
     context.themeId = in.themeId;
     context.roomMode = static_cast<NotificationManager::RoomMode>(in.roomMode);
-    // The server does not have this device's choice (a failed write, or a
-    // device-only legacy mode); the local mode then decides alone.
     context.localModeUnsynced = in.localModeUnsynced;
-    // Encrypted rooms may withhold more; a room not listed yet resolves like
-    // unknown encryption (the stricter level).
     context.previewMode =
         static_cast<NotificationManager::PreviewMode>(in.previewMode);
     context.notificationsEnabled = in.notificationsEnabled;
@@ -39,23 +33,17 @@ NotificationContextBuilder::build(const NotificationContextInputs &in)
         context.roomVisibleAtLatest =
             in.roomId == in.currentRoomId && in.activeRoomAtLatest;
     }
-    // The open room's backlog arrives as live appends while its view is still
-    // hydrating.
     context.roomHydrating =
         in.roomId == in.currentRoomId && in.activeRoomHydrating;
-    // Initial-sync backlog is history and must not re-notify each launch.
     context.initialSyncComplete = in.initialSyncComplete;
     context.soundMode =
         static_cast<NotificationManager::SoundMode>(in.soundMode);
-    // Events from an ignored user already in flight must not notify.
     context.senderIsIgnored = in.senderIsIgnored;
-    // Names for the sender label; senderLabel() decides which one is used.
     context.senderMemberName = in.senderMemberName;
     context.senderProfileName = in.senderProfileName;
-    // Empty (the foreground account) keeps today's stamping.
     context.accountUserId = in.accountUserId;
     context.accountLabel = in.accountLabel;
     return context;
 }
 
-} // namespace lightning::notifications
+}

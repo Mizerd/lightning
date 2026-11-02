@@ -44,9 +44,6 @@ class QFileDialog;
 class FileChooser : public QObject
 {
     Q_OBJECT
-    /// "portal", "app", "qt" or "widget": the route the next request will try
-    /// first.
-    /// Changes once the portal has been probed.
     Q_PROPERTY(QString route READ routeName NOTIFY routeChanged)
 
 public:
@@ -61,40 +58,27 @@ public:
         QStringList nameFilters;
         QString selectedNameFilter;
         QUrl folder;
-        /// SaveFile: the suggested leaf name.
         QString currentName;
         QString acceptLabel;
-        /// Last-folder memory bucket ("attach", "image", "save", ...); empty
-        /// for none.
         QString purpose;
     };
 
-    /// What the route decision is made from; pure, so it is testable on any
-    /// host.
     struct Environment
     {
-        bool linuxDesktop = false; // Linux/BSD: a portal can exist
-        bool windows = false;      // Windows: native system dialog
-        bool sessionBus = false;   // a session bus is connected
-        QString override;          // LIGHTNING_FILE_DIALOG
+        bool linuxDesktop = false;
+        bool windows = false;
+        bool sessionBus = false;
+        QString override;
     };
     static Route initialRoute(const Environment &env);
-    /// Where a request goes when the portal is absent or fails: Lightning's
-    /// own chooser on Linux, the system dialog on Windows and macOS.
     static Route fallbackRoute(const Environment &env);
     static Environment hostEnvironment();
-    /// Configures the QFileDialog the Qt route shows for `request`: mode,
-    /// filters, the default suffix (so a typed name without an extension
-    /// still gets the suggested one) and the prefilled name. Public so a test
-    /// can ask the real configuration of a real dialog.
     static void configureQtDialog(QFileDialog &dialog, const Request &request,
                                   bool widgetOnly);
 
     using Completion =
         std::function<void(bool accepted, const QList<QUrl> &urls,
                             const QString &selectedNameFilter)>;
-    /// Runs one request on the Qt route. The default shows a QFileDialog;
-    /// tests replace it.
     using QtRunner =
         std::function<void(const Request &, bool widgetOnly, Completion)>;
 
@@ -103,53 +87,26 @@ public:
     ~FileChooser() override;
 
     void setQtRunner(QtRunner runner) { m_qtRunner = std::move(runner); }
-    /// Last-folder memory, per purpose. `recall` answers an empty URL when
-    /// nothing is remembered or the folder is gone.
     void setFolderMemory(std::function<QUrl(const QString &)> recall,
                          std::function<void(const QString &, const QUrl &)>
                              remember);
-    /// Where a request with no folder and no memory starts.
     void setDefaultFolder(std::function<QUrl()> folder);
 
-    /// Opens a chooser and returns its request id at once. Options:
-    ///   mode         "open" (default) | "openMany" | "save" | "folder"
-    ///   title        window title
-    ///   nameFilters  ["Images (*.png *.jpg)", "All files (*)"]
-    ///   selectedNameFilter  one of nameFilters
-    ///   folder       starting folder (url), used when `purpose` remembers
-    ///                none
-    ///   currentName  save: the suggested file name (a leaf; a url's leaf is
-    ///                taken)
-    ///   acceptLabel  the accept button's text
-    ///   purpose      last-folder memory bucket
     Q_INVOKABLE int open(const QVariantMap &options);
-    /// C++ callers: the same, with the answer delivered to `done` as well as
-    /// to finished().
     int open(const Request &request, Completion done);
 
     QString routeName() const;
     Route route() const { return m_route; }
-    /// The route the last FINISHED request actually used.
     Route lastUsedRoute() const { return m_lastUsedRoute; }
 
-    /// "Images (*.png *.jpg)" -> {"Images", {"*.png", "*.jpg"}}.
     static QPair<QString, QStringList> parseNameFilter(const QString &filter);
-    /// The part of a suggested save name to pre-select: everything before the
-    /// extension ("report" of "report.pdf", "logs" of "logs.tar.gz"), the
-    /// whole name when it has none, and the whole of a dotfile.
     static int baseNameLength(const QString &leaf);
     Q_INVOKABLE int selectionLength(const QString &leaf) const
     {
         return baseNameLength(leaf);
     }
-    /// What the in-app chooser is told about a request: {id, mode, title,
-    /// folder, currentName, selectionLength, acceptLabel, filters:
-    /// [{label, patterns, raw}], filterIndex}.
     static QVariantMap describeRequest(const Request &request);
 
-    /// The in-app chooser's answer to an inAppRequested() id. Urls may be
-    /// urls or strings; anything else, or an id that is not waiting for the
-    /// in-app chooser, is ignored.
     Q_INVOKABLE void answerInApp(int requestId, bool accepted,
                                  const QVariantList &urls,
                                  const QString &selectedNameFilter);
@@ -158,8 +115,6 @@ Q_SIGNALS:
     void finished(int requestId, bool accepted, const QList<QUrl> &urls,
                   const QString &selectedNameFilter);
     void routeChanged();
-    /// A request for Lightning's own chooser (the InApp route). The host
-    /// shows it and answers with answerInApp().
     void inAppRequested(int requestId, const QVariantMap &request);
 
 private:
@@ -168,8 +123,6 @@ private:
     void runQt(const Request &request);
     void runInApp(const Request &request);
     void runFallback(const Request &request);
-    /// The portal is gone or refused: this request and every later one take
-    /// the fallback route.
     void fallBack();
     void complete(int id, Route used, bool accepted, const QList<QUrl> &urls,
                   const QString &filter);
@@ -186,12 +139,8 @@ private:
     Probe m_probe = Probe::NotStarted;
     int m_nextId = 1;
     QList<Request> m_waitingForProbe;
-    // Every request not yet answered, by id.
     QHash<int, Request> m_requests;
-    // The ids the portal holds right now, so a portal that goes away
-    // mid-dialog can be answered instead of leaving the caller waiting.
     QSet<int> m_portalInFlight;
-    // The ids the in-app chooser holds; only these may be answered.
     QSet<int> m_inAppInFlight;
     QHash<int, Completion> m_completions;
     QtRunner m_qtRunner;

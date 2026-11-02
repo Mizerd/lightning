@@ -1,6 +1,3 @@
-// MemberProfilePopover is instantiated exactly once per view (TimelinePane,
-// ThreadPanel, RoomInfoPanel), never once per delegate row. Delegates route
-// the click through their ListView's `openSenderProfile` function instead.
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -24,8 +21,6 @@ private:
     }
 
 private Q_SLOTS:
-    // Every view that shows a member's profile owns exactly one
-    // MemberProfilePopover instance.
     void exactlyOneInstancePerView()
     {
         const QStringList views = {
@@ -40,9 +35,6 @@ private Q_SLOTS:
         }
     }
 
-    // No delegate may instantiate its own MemberProfilePopover. Scans every
-    // *Delegate*.qml under qml/, so a future delegate is covered
-    // automatically.
     void zeroInstancesInAnyDelegate()
     {
         QDir dir(QStringLiteral(QML_DIR));
@@ -61,8 +53,6 @@ private Q_SLOTS:
         }
     }
 
-    // MessageDelegate specifically must route profile clicks through its
-    // ListView's shared handler rather than reaching for a popover directly.
     void messageDelegateRoutesThroughTheViewsOpenSenderProfile()
     {
         const QString delegate = read(qmlPath(QStringLiteral("MessageDelegate.qml")));
@@ -71,9 +61,6 @@ private Q_SLOTS:
         QVERIFY(!delegate.contains(QStringLiteral("MemberProfilePopover {")));
     }
 
-    // The card is anchored: no instance is pinned to the window centre any
-    // more, and every opener hands over where the reader clicked. A caller
-    // that omits the anchor silently gets a centred card again.
     void everyOpenerPassesAnAnchorAndNoInstanceIsCentred()
     {
         for (const char *view : {"TimelinePane.qml", "ThreadPanel.qml",
@@ -87,20 +74,15 @@ private Q_SLOTS:
         }
         const QString delegate =
             read(qmlPath(QStringLiteral("MessageDelegate.qml")));
-        // Sender avatar, sender name, context menu and mention pill.
         QVERIFY(delegate.contains(QStringLiteral("openSenderProfileForRow(parent)")));
         QVERIFY(delegate.contains(QStringLiteral("root.pointerAnchor()")));
         const QString pane = read(qmlPath(QStringLiteral("TimelinePane.qml")));
-        // A receipt reader row opens that reader's profile beside the row.
         QVERIFY(pane.contains(QStringLiteral("receiptReaderRow")));
         QVERIFY(pane.contains(QStringLiteral("timeline.openSenderProfile({")));
         const QString info = read(qmlPath(QStringLiteral("RoomInfoPanel.qml")));
         QVERIFY(info.contains(QStringLiteral("memberProfile.openFor(member, parent)")));
     }
 
-    // The three owning views actually define the `openSenderProfile` function
-    // their delegates call into (TimelinePane/ThreadPanel — RoomInfoPanel's
-    // member rows use the popover directly, not a ListView-forwarded call).
     void timelineAndThreadViewsExposeOpenSenderProfile()
     {
         const QString pane = read(qmlPath(QStringLiteral("TimelinePane.qml")));

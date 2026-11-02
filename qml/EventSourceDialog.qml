@@ -3,17 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// "View event source": the event JSON as the SDK holds it (decrypted in an
-// encrypted room) in a monospaced, selectable viewer with Copy JSON / Copy
-// event ID. The encryption block shows the envelope (algorithm, sender key,
-// sender device, verification) with public identifiers only; the FFI carries
-// no key material for it.
-//
-// The JSON itself is verbatim, so for an encrypted attachment it includes
-// `content.file.key` (the per-attachment AES key, as Element's view-source
-// shows), and Copy JSON puts it on the clipboard.
-//
-// Plaintext is held in this dialog's property only while open; never logged.
 Dialog {
     id: root
     objectName: "eventSourceDialog"
@@ -51,8 +40,6 @@ Dialog {
         encryption = ({})
         eventId = ""
     }
-    // Hidden TextEdit clipboard route (as in MessageDelegate.copyToClipboard):
-    // QML has no clipboard API.
     TextEdit {
         id: clipboardHelper
         visible: false
@@ -115,7 +102,6 @@ Dialog {
             }
         }
         Label {
-            // Remote or externally chosen text: never markup.
             textFormat: Text.PlainText
             Layout.fillWidth: true
             visible: root.encryption && root.encryption.encrypted === true
@@ -143,7 +129,6 @@ Dialog {
             font.pixelSize: AppTheme.textBody
             text: qsTr("The event could not be loaded.")
         }
-        // The scroller is a sibling over the viewer, never inside it.
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -156,17 +141,12 @@ Dialog {
                 contentHeight: sourceText.paintedHeight
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: AppScrollBar { thin: true }
-                // JSON lines are wrapped, never clipped: long strings (bodies,
-                // keys, base64) would otherwise be cut at the edge with only a
-                // faded bar to find the rest.
                 TextEdit {
                     id: sourceText
                     width: parent.width
                     wrapMode: TextEdit.WrapAnywhere
                     objectName: "eventSourceText"
                     readOnly: true
-                    // Focusable, so the keyboard can move the caret and the
-                    // viewer follows it (PageUp/Down, Home/End, arrows).
                     activeFocusOnTab: true
                     Accessible.role: Accessible.StaticText
                     Accessible.name: qsTr("Event source")

@@ -8,7 +8,6 @@
 SpaceManager::SpaceManager(QObject *parent)
     : QAbstractListModel(parent)
 {
-    // A batch of room updates costs one rebuild, not one per room.
     m_rebuildCoalesce.setSingleShot(true);
     m_rebuildCoalesce.setInterval(0);
     connect(&m_rebuildCoalesce, &QTimer::timeout, this, &SpaceManager::rebuild);
@@ -34,17 +33,15 @@ void SpaceManager::setClient(MatrixClient *client)
     if (m_client)
         m_client->disconnect(this);
     m_client = client;
-    // A pending selection belongs to the account that joined.
     m_pendingJoinedSpaceId.clear();
     if (m_client) {
         connect(m_client, &MatrixClient::roomsChanged,
                 this, &SpaceManager::rebuild);
-        // Coalesced: a per-room signal can arrive in a batch.
         connect(m_client, &MatrixClient::roomUpdated, this,
                 [this](const QString &) { m_rebuildCoalesce.start(); });
         connect(m_client, &MatrixClient::loggedOut,
                 this, [this] {
-            abandonPendingChildOps(); // account isolation
+            abandonPendingChildOps();
             m_lobbyCollapsed.clear();
             dropSpaceRosters();
             rebuild();
@@ -53,7 +50,6 @@ void SpaceManager::setClient(MatrixClient *client)
                 [this](const QString &roomId) {
             if (!m_permissionTracked.contains(roomId))
                 return;
-            // A power-level change can revoke placement while the dialog is open.
             m_manageChildren.remove(roomId);
             Q_EMIT spacePermissionsChanged();
             m_rosterRequested.remove(roomId);
@@ -64,8 +60,6 @@ void SpaceManager::setClient(MatrixClient *client)
         connect(m_client, &MatrixClient::spaceChildFinished,
                 this, [this](quint64 opId, const QString &spaceId,
                              const QString &roomId, bool ok) {
-            // Only ops this manager issued; ConversationController's
-            // create-with-placement path reports through its own signal.
             const auto it = m_pendingChildAdds.constFind(opId);
             if (it == m_pendingChildAdds.constEnd())
                 return;
@@ -98,12 +92,9 @@ void SpaceManager::setClient(MatrixClient *client)
         });
     }
     abandonPendingChildOps();
-    // Folded lobby sections name one account's Spaces.
     m_lobbyCollapsed.clear();
-    // A roster describes one account; never carry it across a client swap.
     dropSpaceRosters();
     rebuild();
-    // The selection survives a client swap, so re-request its roster.
     ensureSpaceRoster(m_activeSpaceId);
 }
 
@@ -114,8 +105,6 @@ void SpaceManager::setActiveSpaceId(const QString &spaceId)
     if (m_activeSpaceId == spaceId)
         return;
     m_activeSpaceId = spaceId;
-    // Selecting a Space is when its roster is requested: once per Space per
-    // session, nothing waits for it.
     ensureSpaceRoster(m_activeSpaceId);
     Q_EMIT activeSpaceIdChanged();
     Q_EMIT spacePermissionsChanged();
@@ -130,8 +119,6 @@ void SpaceManager::selectJoinedSpace(const QString &spaceId)
 
 bool SpaceManager::isRealSpaceId(const QString &spaceId)
 {
-    // "" is All rooms and "@…" are pseudo selections; real room ids start
-    // with '!'.
     return spaceId.startsWith(QLatin1Char('!'));
 }
 
@@ -155,8 +142,6 @@ void SpaceManager::ensureSpaceRoster(const QString &spaceId)
     if (m_rosterRequested.contains(spaceId))
         return;
     const quint64 opId = m_client->requestRoomMembers(spaceId);
-    // Record only a dispatch that went out: a synchronous rejection returns
-    // 0 and never answers, and would leave the Space permanently unscoped.
     if (opId == 0)
         return;
     m_rosterRequested.insert(spaceId);
@@ -169,8 +154,6 @@ void SpaceManager::onRoomMembersReceived(quint64 opId, const QString &roomId,
 {
     const bool currentRequest =
         opId != 0 && m_permissionRequests.value(roomId) == opId;
-    // Only our current request can fail our roster. Another surface's failure
-    // or a superseded request says nothing about the current snapshot.
     if (!snapshot.value(QStringLiteral("ok")).toBool() && !currentRequest)
         return;
     if (currentRequest) {
@@ -195,7 +178,6 @@ void SpaceManager::onRoomMembersReceived(quint64 opId, const QString &roomId,
     const QString spaceId = roomId;
 
     if (!snapshot.value(QStringLiteral("ok")).toBool()) {
-        // Un-mark so selecting the Space again retries.
         m_rosterRequested.remove(spaceId);
         return;
     }
@@ -211,7 +193,6 @@ void SpaceManager::onRoomMembersReceived(quint64 opId, const QString &roomId,
         const QVariantMap entry = value.toMap();
         const QString membership =
             entry.value(QStringLiteral("membership")).toString();
-        // Joined and invited count; banned members are in the snapshot too.
         if (membership != QLatin1String("joined")
             && membership != QLatin1String("invited")) {
             continue;
@@ -245,20 +226,18 @@ int SpaceManager::directScope(const QString &spaceId,
     if (it == m_spaceMembers.constEnd())
         return -1;
     if (peerIds.isEmpty())
-        return -1;   // no peer to judge: unknown, never "not in the Space"
+        return -1;
     for (const QString &peer : peerIds) {
         if (!peer.isEmpty() && it->contains(peer))
             return 1;
     }
-    // A group DM belongs to the Space if any of its people do.
     return 0;
 }
 
 int SpaceManager::rowCount(const QModelIndex &parent) const
 {
     if (parent.isValid()) return 0;
-    // Rows: [All rooms] + [orphans if any] + real spaces.
-    int extra = 1; // All rooms is always present.
+    int extra = 1;
     if (!m_orphanRoomIds.isEmpty() && !m_spaces.isEmpty()) {
         extra += 1;
     }
@@ -270,7 +249,6 @@ QVariant SpaceManager::data(const QModelIndex &index, int role) const
     if (!index.isValid()) return {};
     const int row = index.row();
 
-    // Virtual row 0 — "All rooms".
     if (row == 0) {
         switch (role) {
         case SpaceIdRole:      return allRoomsId();
@@ -278,9 +256,6 @@ QVariant SpaceManager::data(const QModelIndex &index, int role) const
         case TopicRole:        return QString{};
         case AvatarUrlRole:    return QString{};
         case ChildCountRole:   return m_allRoomIds.size();
-        // A tile counts what its view lists. In Channels, Home lists
-        // unparented rooms and DMs but not Space rooms; in Classic, Home
-        // lists the whole account.
         case UnreadTotalRole:
             return m_directMessagesHaveOwnTile
                 ? m_unparentedUnreadTotal + m_peopleUnreadTotal
@@ -296,8 +271,6 @@ QVariant SpaceManager::data(const QModelIndex &index, int role) const
         return {};
     }
 
-    // Optional orphans row when there is at least one Space and rooms exist
-    // outside all Spaces.
     int cursor = 1;
     const bool hasOrphansRow = !m_orphanRoomIds.isEmpty() && !m_spaces.isEmpty();
     if (hasOrphansRow) {
@@ -308,7 +281,6 @@ QVariant SpaceManager::data(const QModelIndex &index, int role) const
             case TopicRole:       return tr("Rooms not in any Space");
             case AvatarUrlRole:   return QString{};
             case ChildCountRole:  return m_orphanRoomIds.size();
-            // These are the rooms this tile lists.
             case UnreadTotalRole: return m_unparentedUnreadTotal;
             case HighlightTotalRole: return m_unparentedHighlightTotal;
             case LevelRole: return 0;
@@ -361,8 +333,6 @@ QVariantList SpaceManager::allSpaces() const
 {
     QVariantList out;
     const QHash<int, QByteArray> names = roleNames();
-    // When somebody last spoke in any room of each Space, for the rail's
-    // "Recent activity" order. Read off the room list once, not per Space.
     QHash<QString, qint64> roomMs;
     if (m_client) {
         const QList<RoomInfo> all = m_client->rooms();
@@ -400,7 +370,6 @@ QStringList SpaceManager::roomsInSpace(const QString &spaceId) const
     if (spaceId == orphansId())
         return QStringList(m_orphanRoomIds.constBegin(), m_orphanRoomIds.constEnd());
     if (spaceId == peopleId()) {
-        // Read from the client: a DM is never a Space child.
         QStringList out;
         if (!m_client)
             return out;
@@ -467,7 +436,6 @@ QVariantList SpaceManager::childRoomsDetailed(const QString &spaceId) const
     for (const RoomInfo &room : rooms)
         byId.insert(room.id, room);
 
-    // m.space.child order; unjoined or unknown children are omitted.
     for (const QString &childId : space->childRoomIds) {
         const auto it = byId.constFind(childId);
         if (it == byId.constEnd() || it->membership != RoomInfo::Joined)
@@ -477,7 +445,6 @@ QVariantList SpaceManager::childRoomsDetailed(const QString &spaceId) const
             { QStringLiteral("name"),          it->name },
             { QStringLiteral("avatarUrl"),     it->avatarUrl },
             { QStringLiteral("isDirect"),      it->isDirect },
-            // Shared fallback-colour policy (see RoomInfo.h).
             { QStringLiteral("identityColorKey"), identityColorKey(*it) },
             { QStringLiteral("hasUnread"),     it->hasUnreadMessages },
             { QStringLiteral("unreadCount"),   it->unreadCount },
@@ -497,8 +464,6 @@ QStringList SpaceManager::directChildRoomIds(
     const auto parent = byId.constFind(spaceId);
     if (parent == byId.constEnd() || !parent->isSpace)
         return out;
-    // The Space's own state order. Unjoined children and child Spaces are
-    // omitted. Same rules as directChildRoomsDetailed().
     QSet<QString> seen;
     for (const QString &childId : parent->childRoomIds) {
         if (seen.contains(childId))
@@ -530,8 +495,6 @@ QVariantList SpaceManager::directChildRoomsDetailed(
     if (parent == byId.constEnd() || !parent->isSpace)
         return out;
 
-    // The Space's own state order. Unjoined children and child Spaces
-    // (categories, not channels) are omitted.
     QSet<QString> seen;
     for (const QString &childId : parent->childRoomIds) {
         if (seen.contains(childId))
@@ -542,9 +505,6 @@ QVariantList SpaceManager::directChildRoomsDetailed(
             || it->membership != RoomInfo::Joined) {
             continue;
         }
-        // The shared rule, as the Space tile above applies it: a muted room
-        // draws no dot and no red mention, a marked-unread room draws a dot,
-        // and a thread-only room carries no number (section 8).
         const int mode = m_modeOf ? m_modeOf(it->id)
                                   : roomunread::kModeAllMessages;
         out.append(QVariantMap{
@@ -552,8 +512,6 @@ QVariantList SpaceManager::directChildRoomsDetailed(
             { QStringLiteral("name"),             it->name },
             { QStringLiteral("avatarUrl"),        it->avatarUrl },
             { QStringLiteral("isDirect"),         it->isDirect },
-            // Known encryption only: the row draws a lock for it, and the
-            // hash glyph is the fallback while state is unresolved.
             { QStringLiteral("encrypted"),
               it->encrypted && it->encryptionKnown },
             { QStringLiteral("identityColorKey"), identityColorKey(*it) },
@@ -564,8 +522,6 @@ QVariantList SpaceManager::directChildRoomsDetailed(
               roomunread::visibleUnreadCount(*it, mode) },
             { QStringLiteral("highlightCount"),
               roomunread::mentionCount(*it, mode) },
-            // The rail's inline room reveal sorts on this; without it the
-            // comparator sees `undefined` and silently does nothing.
             { QStringLiteral("lastActivity"),     it->lastActivity },
         });
     }
@@ -577,8 +533,6 @@ QVariantList SpaceManager::childSpacesDetailed(const QString &spaceId) const
     QVariantList out;
     if (!m_client || spaceId.isEmpty())
         return out;
-    // The resolved hierarchy, in m.space.child order, which also works on
-    // backends that report the edge only from the parent side.
     QHash<QString, RoomInfo> byId;
     for (const RoomInfo &room : m_client->rooms())
         byId.insert(room.id, room);
@@ -618,8 +572,6 @@ QVariantList SpaceManager::addableRooms(const QString &spaceId,
     const auto member = m_membership.constFind(spaceId);
     const QString needle = filter.trimmed();
     const auto rooms = m_client->rooms();
-    // m_membership holds rooms only, so a child SPACE is known from the
-    // parent's own m.space.child list.
     QSet<QString> directChildren;
     for (const RoomInfo &room : rooms) {
         if (room.id == spaceId) {
@@ -628,10 +580,6 @@ QVariantList SpaceManager::addableRooms(const QString &spaceId,
             break;
         }
     }
-    // Ancestors of the target, computed ONCE by walking parent links upward
-    // (a per-candidate downward walk rebuilt a room hash per Space on every
-    // keystroke). A Space may nest under another (B058), but never under
-    // itself or one of its own ancestors: that closes a cycle.
     QHash<QString, QStringList> parentsOf;
     for (const RoomInfo &room : rooms) {
         if (!room.isSpace || room.membership != RoomInfo::Joined)
@@ -684,7 +632,6 @@ void SpaceManager::addRoomToSpace(const QString &spaceId,
 {
     if (!m_client || spaceId.isEmpty() || roomId.isEmpty())
         return;
-    // Adding an existing child is a no-op success.
     if (includesRoom(spaceId, roomId)) {
         Q_EMIT childAddFinished(spaceId, roomId, true);
         return;
@@ -747,7 +694,6 @@ void SpaceManager::resolveHierarchy(const QHash<QString, RoomInfo> &byId)
     for (const SpaceEntry &entry : m_spaces)
         joinedSpaceIds.insert(entry.info.id);
 
-    // Direct joined child spaces, in each Space's own m.space.child order.
     QHash<QString, QStringList> childSpacesOf;
     QHash<QString, QSet<QString>> parentsOf;
     for (const SpaceEntry &entry : m_spaces) {
@@ -770,16 +716,12 @@ void SpaceManager::resolveHierarchy(const QHash<QString, RoomInfo> &byId)
             if (parentId == entry.info.id || !joinedSpaceIds.contains(parentId))
                 continue;
             parentsOf[entry.info.id].insert(parentId);
-            // Keep the edge symmetric so a parent announced only from below
-            // can still nest this Space.
             QStringList &children = childSpacesOf[parentId];
             if (!children.contains(entry.info.id))
                 children.append(entry.info.id);
         }
     }
 
-    // Breadth-first from the roots; assign-once makes it cycle-safe and
-    // stable.
     QHash<QString, int> levelOf;
     QHash<QString, QString> primaryParentOf;
     QStringList queue;
@@ -804,7 +746,6 @@ void SpaceManager::resolveHierarchy(const QHash<QString, RoomInfo> &byId)
 
     for (SpaceEntry &entry : m_spaces) {
         const QString id = entry.info.id;
-        // A Space the walk never reached is in a parent cycle: make it a root.
         entry.level = levelOf.value(id, 0);
         entry.parentSpaceId = primaryParentOf.value(id, QString());
         entry.childSpaceIds.clear();
@@ -828,7 +769,6 @@ QStringList SpaceManager::ancestorSpaceIds(const QString &spaceId) const
 {
     QStringList out;
     QString cursor = parentSpaceIdOf(spaceId);
-    // Bounded as a backstop; resolveHierarchy() already breaks cycles.
     while (!cursor.isEmpty() && out.size() < 64 && !out.contains(cursor)) {
         out.append(cursor);
         cursor = parentSpaceIdOf(cursor);
@@ -859,8 +799,6 @@ QStringList SpaceManager::moderationScopeRoomIds(const QString &spaceId) const
         || root->membership != RoomInfo::Joined) {
         return {};
     }
-    // Depth-first so a subspace is followed by its own rooms, as a reader of
-    // the Space sees them. Same visited set and depth cap as rebuild().
     QStringList out{ spaceId };
     QSet<QString> visited{ spaceId };
     QList<QPair<QString, int>> stack;
@@ -906,7 +844,6 @@ void SpaceManager::notificationModesChanged()
 
 void SpaceManager::rebuild()
 {
-    // What a room contributes to a rollup: nothing when it is muted.
     const auto modeOf = [this](const QString &id) {
         return m_modeOf ? m_modeOf(id) : roomunread::kModeAllMessages;
     };
@@ -942,7 +879,6 @@ void SpaceManager::rebuild()
         byId.insert(r.id, r);
         if (!r.isSpace && r.membership == RoomInfo::Joined) {
             m_allRoomIds.insert(r.id);
-            // Home's total is the whole account, as Classic's Home lists it.
             m_homeUnreadTotal += unreadOf(r);
             m_homeHighlightTotal += highlightOf(r);
             if (r.isDirect) {
@@ -952,14 +888,10 @@ void SpaceManager::rebuild()
         }
     }
 
-    // Transitive descendants, walked iteratively.
     for (const auto &r : rooms) {
         if (!r.isSpace || r.membership != RoomInfo::Joined) continue;
         SpaceEntry e;
         e.info = r;
-        // childRoomIds is the direct list; the published membership is
-        // transitive, so walk it. The visited set and depth cap keep a
-        // cyclic or adversarial hierarchy from duplicating rows or looping.
         QList<QPair<QString, int>> pending;
         for (const auto &child : r.childRoomIds) pending.append({child, 1});
         QSet<QString> visited{r.id};
@@ -968,7 +900,7 @@ void SpaceManager::rebuild()
             if (depth > 64 || visited.contains(childId)) continue;
             visited.insert(childId);
             const auto it = byId.constFind(childId);
-            if (it == byId.constEnd()) continue; // inaccessible/unjoined child
+            if (it == byId.constEnd()) continue;
             if (it->isSpace) {
                 for (const auto &nested : it->childRoomIds)
                     pending.append({nested, depth + 1});
@@ -980,8 +912,6 @@ void SpaceManager::rebuild()
             e.highlightTotal += highlightOf(*it);
             m_membership[r.id].insert(childId);
         }
-        // Direct child rooms. Channels' "Rooms" group is the complement, so
-        // a room parented only by a subspace is listed under that subspace.
         for (const QString &childId : r.childRoomIds) {
             const auto it = byId.constFind(childId);
             if (it == byId.constEnd() || it->isSpace
@@ -989,17 +919,11 @@ void SpaceManager::rebuild()
                 continue;
             }
             m_spaceChildRoomIds.insert(childId);
-            // Counted here, where direct/joined/non-Space are already
-            // filtered.
             e.directChildRoomCount += 1;
         }
         m_spaces.append(std::move(e));
     }
 
-    // What Channels' Home and "Other rooms" list: joined, not a Space, not a
-    // DM, and not a direct child of any Space. Mirrors
-    // SpaceChannelModel::buildHome rather than m_orphanRoomIds (transitive,
-    // includes DMs) so the badge counts the same set the view shows.
     for (const QString &roomId : m_allRoomIds) {
         const auto it = byId.constFind(roomId);
         if (it == byId.constEnd() || it->isDirect)
@@ -1026,14 +950,10 @@ void SpaceManager::rebuild()
     const bool stillAJoinedSpace = selectionIsStillAJoinedSpace();
     if (stillAJoinedSpace)
         m_pendingJoinedSpaceId.clear();
-    // A Space joined a moment ago is listed before it is known to be a joined
-    // Space; it keeps the selection until it arrives, unless it was left.
     bool awaitingJoinedSpace = false;
     if (!m_pendingJoinedSpaceId.isEmpty()
         && m_pendingJoinedSpaceId == m_activeSpaceId) {
         const auto it = byId.constFind(m_activeSpaceId);
-        // Not listed yet: wait. Listed as a joined room that is not a Space
-        // (a banner target can be any room): nothing to wait for.
         awaitingJoinedSpace = it == byId.constEnd()
             || (it->membership == RoomInfo::Joined && it->isSpace);
         if (!awaitingJoinedSpace)
@@ -1057,7 +977,6 @@ void SpaceManager::setDirectMessagesHaveOwnTile(bool own)
     if (m_directMessagesHaveOwnTile == own)
         return;
     m_directMessagesHaveOwnTile = own;
-    // Only Home's totals change meaning; no aggregate needs recomputing.
     if (rowCount() > 0) {
         const QModelIndex home = index(0, 0);
         Q_EMIT dataChanged(home, home,
@@ -1097,7 +1016,7 @@ void SpaceManager::removeRoomFromSpace(const QString &spaceId,
         }
     }
     if (!direct) {
-        Q_EMIT childRemoveFinished(spaceId, roomId, true); // already gone
+        Q_EMIT childRemoveFinished(spaceId, roomId, true);
         return;
     }
     const quint64 opId = m_client->removeRoomFromSpace(spaceId, roomId);
@@ -1117,7 +1036,6 @@ QVariantList SpaceManager::defaultOrderChildren(const QString &spaceId) const
     for (const auto &room : rooms) {
         names.insert(room.id, room.name);
         if (room.id == spaceId && room.isSpace) {
-            // Only children with a real m.space.child event can be ordered.
             ids = room.childRoomIds;
             if (room.childOrderKnown) {
                 ids.clear();
@@ -1135,8 +1053,6 @@ QVariantList SpaceManager::defaultOrderChildren(const QString &spaceId) const
 
 void SpaceManager::setDefaultChildOrder(const QString &spaceId, const QStringList &ids)
 {
-    // The complete direct-child set, including unjoined children; never turn
-    // an omitted or nested room into a new child as an ordering side effect.
     QStringList known;
     for (const auto &row : defaultOrderChildren(spaceId))
         known.append(row.toMap().value(QStringLiteral("roomId")).toString());
@@ -1161,8 +1077,6 @@ void SpaceManager::setSpaceChildSuggested(const QString &spaceId,
 {
     if (!m_client || spaceId.isEmpty() || roomId.isEmpty())
         return;
-    // No local pre-check: the backend refuses a non-child itself, and the
-    // flag is also valid on an unjoined child that only /hierarchy lists.
     const quint64 opId =
         m_client->setSpaceChildSuggested(spaceId, roomId, suggested);
     if (opId == 0) {
@@ -1171,8 +1085,6 @@ void SpaceManager::setSpaceChildSuggested(const QString &spaceId,
     }
     m_pendingChildSuggests.insert(opId, { spaceId, roomId });
 }
-
-// ---- The Space Home lobby --------------------------------------------------
 
 namespace {
 
@@ -1188,10 +1100,6 @@ QHash<QString, QVariantMap> hierarchyIndex(const QVariantList &rows)
     return out;
 }
 
-// A parent's children in the order the lobby shows them: its own
-// m.space.child order first, then any /hierarchy row that order does not
-// know yet (a child whose state event has not synced, or a backend that
-// reports the edge only through /hierarchy), in the SDK's own order.
 QStringList lobbyChildOrder(const QString &parentId,
                             const QHash<QString, RoomInfo> &byId,
                             const QVariantList &hierarchyRows)
@@ -1225,8 +1133,6 @@ bool isJoinedSpace(const QHash<QString, RoomInfo> &byId, const QString &id)
            && it->isSpace;
 }
 
-// Joined direct non-Space children of a Space: the "N rooms" a nested Space
-// row claims. Direct, like everything else in the lobby.
 int joinedDirectRoomCount(const QString &spaceId,
                           const QHash<QString, RoomInfo> &byId)
 {
@@ -1254,21 +1160,15 @@ bool lobbyMatches(const QString &needle, const QString &name,
            || topic.contains(needle, Qt::CaseInsensitive);
 }
 
-// One row, or an invalid map when the child cannot be shown honestly: an id
-// neither sync nor /hierarchy knows anything about is never drawn as a
-// placeholder.
 QVariantMap lobbyRow(const QString &id, const QString &parentId,
                      const QString &homeId,
                      const QHash<QString, RoomInfo> &byId,
                      const QHash<QString, QVariantMap> &meta,
                      const std::function<int(const QString &)> &modeOf)
 {
-    // A muted room is silent: no unread, no count, no mention.
     const auto roomMode = [&](const QString &roomId) {
         return modeOf ? modeOf(roomId) : roomunread::kModeAllMessages;
     };
-    // Selectable only where the Home's own m.space.child names it: a row
-    // only /hierarchy knows has no event here that Remove could change.
     const auto home = byId.constFind(homeId);
     const bool selectable = parentId == homeId && home != byId.constEnd()
                             && home->childRoomIds.contains(id);
@@ -1279,16 +1179,10 @@ QVariantMap lobbyRow(const QString &id, const QString &parentId,
     const auto parent = byId.constFind(parentId);
     const bool declared = parent != byId.constEnd()
                           && parent->childRoomIds.contains(id);
-    // A joined room the parent's synced state does not list is not its
-    // child, whatever a cached /hierarchy answer says (e.g. a just-removed
-    // child).
     if (!declared && parent != byId.constEnd() && it != byId.constEnd()
         && it->membership == RoomInfo::Joined)
         return {};
     if (it != byId.constEnd() && it->membership == RoomInfo::Joined) {
-        // Sync is authoritative for a joined room; /hierarchy only fills in
-        // what sync does not carry (member count, suggested) or has not
-        // carried yet (a topic).
         const QString topic = it->topic.isEmpty()
             ? h.value(QStringLiteral("topic")).toString() : it->topic;
         return QVariantMap{
@@ -1311,7 +1205,6 @@ QVariantMap lobbyRow(const QString &id, const QString &parentId,
               it->isSpace ? joinedDirectRoomCount(id, byId) : 0 },
             { QStringLiteral("childrenCount"),
               h.value(QStringLiteral("childrenCount")).toLongLong() },
-            // ONE unread rule for the row badge and the section total.
             { QStringLiteral("hasUnread"),
               roomunread::countsAsUnread(*it, roomMode(id)) },
             { QStringLiteral("unreadCount"),
@@ -1326,8 +1219,6 @@ QVariantMap lobbyRow(const QString &id, const QString &parentId,
     }
     if (!known)
         return {};
-    // /hierarchy says joined but sync has not delivered the room yet: wait
-    // for sync rather than offer an open that fails or a second join.
     if (h.value(QStringLiteral("membership")).toString()
         == QLatin1String("joined"))
         return {};
@@ -1362,7 +1253,7 @@ QVariantMap lobbyRow(const QString &id, const QString &parentId,
     };
 }
 
-} // namespace
+}
 
 QVariantList SpaceManager::buildLobbySections(
     const QString &spaceId, const QHash<QString, RoomInfo> &byId,
@@ -1381,8 +1272,6 @@ QVariantList SpaceManager::buildLobbySections(
     const QHash<QString, QVariantMap> homeMeta = hierarchyIndex(homeRows);
     const QStringList homeOrder = lobbyChildOrder(spaceId, byId, homeRows);
 
-    // Builds one section: `sectionSpaceId`'s children, `header` being the
-    // section's own identity fields.
     const auto section = [&](const QString &sectionSpaceId, bool isRoot,
                              QVariantMap header, const QStringList &order,
                              const QHash<QString, QVariantMap> &meta)
@@ -1395,9 +1284,7 @@ QVariantList SpaceManager::buildLobbySections(
         bool anyUnread = false;
         for (const QString &id : order) {
             if (id == spaceId || id == sectionSpaceId)
-                continue; // a malformed or cyclic hierarchy
-            // On the root, a joined child Space is a section of its own and
-            // never also a row.
+                continue;
             if (isRoot && isJoinedSpace(byId, id))
                 continue;
             const QVariantMap row =
@@ -1441,7 +1328,6 @@ QVariantList SpaceManager::buildLobbySections(
         header.insert(QStringLiteral("collapsed"), collapsed);
         header.insert(QStringLiteral("rows"),
                       collapsed ? QVariantList() : shown);
-        // Whether the section is drawn at all.
         const bool visible = searching
             ? (headerMatches || !shown.isEmpty())
             : (!isRoot || !all.isEmpty());
@@ -1449,8 +1335,6 @@ QVariantList SpaceManager::buildLobbySections(
         return header;
     };
 
-    // The root: the Space's own direct rooms (and its unjoined child Spaces,
-    // which cannot be opened as a section until they are joined).
     {
         const QVariantMap root = section(
             spaceId, true,
@@ -1472,16 +1356,12 @@ QVariantList SpaceManager::buildLobbySections(
         }
     }
 
-    // One section per joined direct child Space, in the Home's order.
     const auto homeIt = byId.constFind(spaceId);
     const QStringList declared =
         homeIt != byId.constEnd() ? homeIt->childRoomIds : QStringList();
     for (const QString &childId : homeOrder) {
         if (childId == spaceId || !isJoinedSpace(byId, childId))
             continue;
-        // Only a subspace the Home's synced state still lists: a cached
-        // /hierarchy answer would keep a just-removed one as a section, with
-        // Remove offered on something that is no longer a child.
         if (!declared.contains(childId))
             continue;
         const RoomInfo &info = *byId.constFind(childId);
@@ -1503,8 +1383,6 @@ QVariantList SpaceManager::buildLobbySections(
                   h.value(QStringLiteral("suggested")).toBool() },
                 { QStringLiteral("suggestedKnown"),
                   h.contains(QStringLiteral("suggested")) },
-                // The subspace IS a direct child of the Home Space, so the
-                // Home's Remove / Mark as suggested apply to it.
                 { QStringLiteral("selectable"), true },
             },
             lobbyChildOrder(childId, byId, rows), hierarchyIndex(rows));

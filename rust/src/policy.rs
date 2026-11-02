@@ -1,16 +1,3 @@
-//! Mjolnir-style policy lists: `m.policy.rule.{user,server,room}` state
-//! events in a room, recommending entities to ban.
-//!
-//! Reads a policy room's rules, writes them where the account has the power
-//! level, and matches an entity against the lists this account subscribes
-//! to. It never acts on a match by itself: a list is someone else's
-//! judgement, so matches feed the existing ignore and kick/ban actions and
-//! the user decides.
-//!
-//! `Room::get_state_events` is store-only and these events are not in
-//! sliding sync's required state, so the store usually answers "no rules";
-//! the read falls back to a bounded raw `/state`, as for widgets and pinned
-//! events.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -24,28 +11,18 @@ pub(crate) const RULE_USER: &str = "m.policy.rule.user";
 pub(crate) const RULE_SERVER: &str = "m.policy.rule.server";
 pub(crate) const RULE_ROOM: &str = "m.policy.rule.room";
 
-/// Mjolnir's pre-spec type names, still carried by real lists.
 const RULE_USER_LEGACY: &str = "org.matrix.mjolnir.rule.user";
 const RULE_SERVER_LEGACY: &str = "org.matrix.mjolnir.rule.server";
 const RULE_ROOM_LEGACY: &str = "org.matrix.mjolnir.rule.room";
 
-/// Bound on one room's rules. Public ban lists run to thousands; this only
-/// answers questions about a handful of people.
 const MAX_RULES: usize = 2000;
-/// Longest entity glob a rule may carry (see `rule_from_state`).
 const MAX_ENTITY_CHARS: usize = 512;
-/// Bound on subscribed lists; each is a whole-room state fetch.
 const MAX_SUBSCRIPTIONS: usize = 32;
-/// Where the subscription list lives: Lightning's own account data type,
-/// since there is no spec for it.
 const SUBSCRIPTIONS_TYPE: &str = "org.lightning_matrix.policy_lists";
 
-/// One rule, flattened for the FFI.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Rule {
-    /// "user", "server" or "room".
     pub kind: String,
-    /// The glob. `*` and `?` are wildcards; everything else is literal.
     pub entity: String,
     /// The recommendation as written, not an enum: ruma's `Recommendation` has
     /// one known variant (`m.ban`) plus `_Custom`, where Mjolnir's legacy
@@ -57,14 +34,12 @@ pub(crate) struct Rule {
 }
 
 impl Rule {
-    /// Whether this rule recommends a ban, under either spelling.
     pub fn is_ban(&self) -> bool {
         self.recommendation == "m.ban"
             || self.recommendation == "org.matrix.mjolnir.ban"
     }
 }
 
-/// Which of the three kinds a type name is, legacy spellings included.
 fn kind_of(event_type: &str) -> Option<&'static str> {
     match event_type {
         RULE_USER | RULE_USER_LEGACY => Some("user"),
@@ -74,9 +49,6 @@ fn kind_of(event_type: &str) -> Option<&'static str> {
     }
 }
 
-/// Parse one state event into a rule, or reject it. No entity (including a
-/// removed rule's empty content) is not a rule; an empty entity is refused
-/// here rather than trusting the matcher to handle it.
 pub(crate) fn rule_from_state(value: &Value) -> Option<Rule> {
     let event_type = value.get("type")?.as_str()?;
     let kind = kind_of(event_type)?;
@@ -111,15 +83,10 @@ pub(crate) fn rule_from_state(value: &Value) -> Option<Rule> {
     })
 }
 
-/// Glob match per the policy-rule spec: `*` matches any run (including
-/// empty), `?` exactly one character, nothing else is special (not a regex,
-/// so `.` and `+` in ids stay literal). Iterative with backtracking, since
-/// the pattern is attacker-chosen.
 pub(crate) fn glob_matches(pattern: &str, value: &str) -> bool {
     let p: Vec<char> = pattern.chars().collect();
     let v: Vec<char> = value.chars().collect();
     let (mut pi, mut vi) = (0usize, 0usize);
-    // Where to resume if the current `*` ate too little.
     let mut star: Option<usize> = None;
     let mut star_vi = 0usize;
 
@@ -135,7 +102,6 @@ pub(crate) fn glob_matches(pattern: &str, value: &str) -> bool {
             pi += 1;
             vi += 1;
         } else if let Some(s) = star {
-            // Backtrack: let the last `*` swallow one more character.
             pi = s + 1;
             star_vi += 1;
             vi = star_vi;
@@ -143,14 +109,12 @@ pub(crate) fn glob_matches(pattern: &str, value: &str) -> bool {
             return false;
         }
     }
-    // Trailing `*`s may match nothing.
     while pi < p.len() && p[pi] == '*' {
         pi += 1;
     }
     pi == p.len()
 }
 
-/// The server part of a Matrix id, or the whole string without a colon.
 fn server_of(entity: &str) -> &str {
     match entity.split_once(':') {
         Some((_, server)) => server,
@@ -158,9 +122,6 @@ fn server_of(entity: &str) -> &str {
     }
 }
 
-/// Does any rule in `rules` cover `entity`? User rules match the id; server
-/// rules match its server, so "ban everyone from example.org" covers every
-/// user on it.
 pub(crate) fn find_match<'a>(rules: &'a [Rule], kind: &str, entity: &str)
     -> Option<&'a Rule>
 {
@@ -176,8 +137,6 @@ pub(crate) fn find_match<'a>(rules: &'a [Rule], kind: &str, entity: &str)
     })
 }
 
-/// Read one policy room's rules. Bounded, and `truncated` says so, so a
-/// partial answer does not read as complete.
 pub(crate) async fn read_rules(
     client: &matrix_sdk::Client,
     room: &matrix_sdk::room::Room,
@@ -191,8 +150,6 @@ pub(crate) async fn read_rules(
     let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
     let mut absorb = |value: &Value, out: &mut Vec<Rule>| -> bool {
         if let Some(rule) = rule_from_state(value) {
-            // One entry per (type, state key): legacy and current names, and store and
-            // network, can carry the same rule.
             let key = (rule.kind.clone(), rule.state_key.clone());
             if seen.insert(key) {
                 out.push(rule);
@@ -201,7 +158,6 @@ pub(crate) async fn read_rules(
         out.len() >= MAX_RULES
     };
 
-    // 1. The store, free when the state is there.
     for type_name in [
         RULE_USER, RULE_SERVER, RULE_ROOM,
         RULE_USER_LEGACY, RULE_SERVER_LEGACY, RULE_ROOM_LEGACY,
@@ -228,14 +184,11 @@ pub(crate) async fn read_rules(
     // The network read always runs and the results are merged.
     let store_rules = out.len();
 
-    // 2. The network, which is what actually answers (see the module docs).
     let config = RequestConfig::new()
         .disable_retry()
         .timeout(std::time::Duration::from_secs(20));
     let request = get_state_events::v3::Request::new(room.room_id().to_owned());
     let Ok(response) = client.send(request).with_request_config(config).await else {
-        // The network read failed: whatever the store gave is a fragment, so it is
-        // reported as truncated.
         return (out, store_rules > 0);
     };
     for raw in response.room_state {
@@ -258,19 +211,10 @@ fn rule_type_for(kind: &str) -> Option<&'static str> {
     }
 }
 
-/// The conventional state key for a rule, `rule:<entity>`. Not required,
-/// but matching other tools lets them see and replace the same rule.
 pub(crate) fn state_key_for(entity: &str) -> String {
     format!("rule:{entity}")
 }
 
-/// Publish or remove one rule. An empty `recommendation` removes it by
-/// writing an empty content object (Mjolnir's convention).
-///
-/// An empty `state_key` derives it from the entity (for new rules). A
-/// removal must pass the rule's own key as read from the room: rules from
-/// other tools may use a different key, and removing by the derived key
-/// would report success while the rule stayed.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn write_rule(
     bridge: &RustClient,
@@ -298,8 +242,6 @@ pub(crate) fn write_rule(
         let outcome = async {
             let room = joined_room(&client, &room_id)
                 .map_err(|_| "unknown_room".to_owned())?;
-            // The gate: the room's required level for this event type, from the SDK;
-            // false when membership cannot be read.
             let own = client.user_id().ok_or_else(|| "forbidden".to_owned())?;
             let allowed = room
                 .get_member_no_sync(own)
@@ -355,7 +297,6 @@ pub(crate) fn write_rule(
     Ok(())
 }
 
-/// Read this account's subscribed policy rooms.
 pub(crate) async fn read_subscriptions(client: &matrix_sdk::Client) -> Vec<String> {
     use matrix_sdk::ruma::events::GlobalAccountDataEventType;
     let ty = GlobalAccountDataEventType::from(SUBSCRIPTIONS_TYPE);
@@ -380,9 +321,6 @@ pub(crate) async fn read_subscriptions(client: &matrix_sdk::Client) -> Vec<Strin
         .unwrap_or_default()
 }
 
-/// Subscribe to or unsubscribe from one policy room. Read-modify-write
-/// against the server copy, so a list another device added is not dropped.
-/// Still last-write-wins: account data has no conditional write.
 pub(crate) async fn set_subscribed(
     client: &matrix_sdk::Client,
     room_id: &str,
@@ -395,7 +333,6 @@ pub(crate) async fn set_subscribed(
     let mut rooms = read_subscriptions(client).await;
     let present = rooms.iter().any(|r| r == room_id);
     if subscribed == present {
-        // Already as requested: success.
         return Ok(rooms);
     }
     if subscribed {
@@ -419,7 +356,6 @@ pub(crate) async fn set_subscribed(
     Ok(rooms)
 }
 
-/// Read one policy room and answer with its rules.
 pub(crate) fn fetch_rules(
     bridge: &RustClient,
     op_id: u64,
@@ -434,8 +370,6 @@ pub(crate) fn fetch_rules(
         let (rules, truncated, ok, can_write) = match joined_room(&client, &room_id) {
             Ok(room) => {
                 let (rules, truncated) = read_rules(&client, &room).await;
-                // Whether the account may publish here, so the UI only offers what can
-                // work. From the SDK; false when membership cannot be read.
                 let can_write = match client.user_id() {
                     Some(own) => room
                         .get_member_no_sync(own)
@@ -480,7 +414,6 @@ pub(crate) fn fetch_rules(
                 "ok": ok,
                 "room_id": room_id,
                 "can_write": can_write,
-                // Bounded reads say so.
                 "truncated": truncated,
                 "rules": rows,
             }),
@@ -489,9 +422,6 @@ pub(crate) fn fetch_rules(
     Ok(())
 }
 
-/// Read every subscribed list and answer whether any covers `entity`,
-/// together with the subscription list, so "on a list you follow" and "you
-/// follow no lists" come from one consistent answer.
 pub(crate) fn check_entity(
     bridge: &RustClient,
     op_id: u64,
@@ -540,7 +470,6 @@ pub(crate) fn check_entity(
     Ok(())
 }
 
-/// Subscribe to or unsubscribe from a policy room, and answer with the list.
 pub(crate) fn subscribe(
     bridge: &RustClient,
     op_id: u64,
@@ -576,7 +505,6 @@ pub(crate) fn subscribe(
     Ok(())
 }
 
-/// Answer with the current subscription list, without changing it.
 pub(crate) fn fetch_subscriptions(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
@@ -616,36 +544,28 @@ mod tests {
         assert!(!glob_matches("@bot?:example.org", "@bot12:example.org"));
         assert!(!glob_matches("@*:example.org", "@anyone:other.org"));
 
-        // `*` may match nothing, at either end or in the middle.
         assert!(glob_matches("*", ""));
         assert!(glob_matches("a*b", "ab"));
         assert!(glob_matches("**", "anything"));
 
-        // Regex metacharacters are literal: `.` and `+` occur in localparts.
         assert!(glob_matches("@a.b:example.org", "@a.b:example.org"));
         assert!(!glob_matches("@a.b:example.org", "@axb:example.org"));
         assert!(!glob_matches("@a+:example.org", "@aaa:example.org"));
 
-        // Backtracking, which a naive left-to-right loop gets wrong.
         assert!(glob_matches("*abc", "zzabc"));
         assert!(glob_matches("*a*b", "xaybzb"));
         assert!(!glob_matches("*abc", "zzabcd"));
     }
 
-    // A literal `*` in the value must not consume the pattern's wildcard;
-    // otherwise a rule under-matches.
     #[test]
     fn a_literal_star_in_the_value_does_not_eat_the_patterns_wildcard() {
         assert!(glob_matches("*x", "*yx"));
         assert!(glob_matches("*", "***"));
         assert!(glob_matches("a*c", "a*b*c"));
-        // A `*` in the pattern is still a wildcard.
         assert!(glob_matches("*", "@a:example.org"));
         assert!(!glob_matches("a*c", "abd"));
     }
 
-    // The entity is attacker-written and matched across up to 32 x 2000 rules,
-    // so it is bounded.
     #[test]
     fn an_absurdly_long_entity_is_not_a_rule() {
         let long: String = std::iter::repeat('*').take(MAX_ENTITY_CHARS + 1)
@@ -657,7 +577,6 @@ mod tests {
         });
         assert!(rule_from_state(&value).is_none());
 
-        // At the bound it is still a rule.
         let ok: String = std::iter::repeat('a').take(MAX_ENTITY_CHARS)
             .collect();
         let value = json!({
@@ -677,16 +596,13 @@ mod tests {
             reason: "spam".into(),
             state_key: "rule:spam.example".into(),
         }];
-        // A server rule covers everyone on that server...
         assert!(find_match(&rules, "user", "@anyone:spam.example").is_some());
         assert!(find_match(&rules, "user", "@anyone:other.example").is_none());
-        // ...and rooms on it.
         assert!(find_match(&rules, "room", "!abc:spam.example").is_some());
     }
 
     #[test]
     fn a_rule_that_does_not_recommend_a_ban_matches_nothing() {
-        // Other recommendations are not bans and must not be acted on as such.
         let rules = vec![Rule {
             kind: "user".into(),
             entity: "@a:example.org".into(),
@@ -699,8 +615,6 @@ mod tests {
 
     #[test]
     fn mjolnirs_legacy_spelling_is_read_as_a_ban() {
-        // ruma parses the legacy value as `_Custom`; comparing the enum would read a
-        // real ban list as empty, hence the string.
         let rules = vec![Rule {
             kind: "user".into(),
             entity: "@a:example.org".into(),
@@ -739,8 +653,6 @@ mod tests {
 
     #[test]
     fn a_removed_rule_is_not_a_rule() {
-        // Removal is an empty content object; reading it as a rule with an empty
-        // entity would be dangerous under a careless matcher.
         let removed = json!({
             "type": "m.policy.rule.user",
             "state_key": "rule:@a:example.org",
@@ -757,7 +669,6 @@ mod tests {
 
     #[test]
     fn the_state_key_follows_the_convention_other_tools_write() {
-        // Writing Mjolnir's key lets Mjolnir replace the same rule.
         assert_eq!(state_key_for("@a:example.org"), "rule:@a:example.org");
     }
 }

@@ -1,9 +1,3 @@
-// The shared menu components (AppMenu, AppMenuItem, AppMenuSeparator,
-// MenuKeycap, MenuSectionLabel, StatusChip) rendered offscreen: row geometry,
-// highlight and ink, keycap chips, the danger treatment, radio flyout rows
-// whose selection binding an internal toggle never destroys, and cascading
-// flyouts that close innermost-first on Escape. Expected colours are read from
-// token probes in the same scene, never hard-coded.
 
 #include <functional>
 #include <QtTest/QtTest>
@@ -37,9 +31,6 @@ QColor sampleAvg(const QImage &img, const QRect &r)
     return n ? QColor(int(red / n), int(green / n), int(blue / n)) : QColor();
 }
 
-// WCAG 2.x relative luminance and contrast, plus the source-over composite of
-// a translucent chip fill over its parent: a soft StatusChip is
-// `Qt.alpha(ink, 0.14)`, so the pixel under the label depends on the parent.
 double channelLinear(double c)
 {
     return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
@@ -373,7 +364,7 @@ ApplicationWindow {
 }
 )QML";
 
-} // namespace
+}
 
 class MenuSystemQmlTest : public QObject
 {
@@ -402,10 +393,6 @@ private:
                         : nullptr;
     }
 
-    // The Icon and Label in an AppMenuItem's content row, found structurally
-    // (first visible child with `name` = Icon; with `elide` but no `name` =
-    // Label) within the row's contentItem, so the Storm background's
-    // decorative Icon and the hidden StormNode are never mistaken for them.
     QQuickItem *leadingIcon(QQuickItem *menuItem) const
     {
         auto *content =
@@ -438,9 +425,6 @@ private:
         return nullptr;
     }
 
-    // Open a nested AppMenu as the app does, by activating the row its parent
-    // menu generated: QQuickMenu's cascade sizes and places the submenu
-    // itself, and opening it by hand sizes content differently.
     void openViaParentRow(QObject *menu, QObject *flyout,
                           QQuickWindow *window) const
     {
@@ -499,9 +483,6 @@ private slots:
         m_root = nullptr;
     }
 
-    // A menu opened by mouse takes the keys: the fixture first proves a
-    // background control really holds focus (so the keys have somewhere wrong
-    // to go), then Down/Return drive the menu and nothing behind it.
     void aMenuOpenedByMouseTakesTheKeys()
     {
         QVariant ok;
@@ -514,8 +495,6 @@ private slots:
         auto *menu = m_root->findChild<QObject *>(QStringLiteral("menu"));
         QTRY_VERIFY(menu->property("activeFocus").toBool());
 
-        // Native behaviour: nothing is pre-highlighted, and Return with no
-        // current row does nothing.
         QTest::keyClick(m_window, Qt::Key_Return);
         QCOMPARE(m_root->property("replyTriggers").toInt(), 0);
         QVERIFY(menu->property("opened").toBool());
@@ -532,7 +511,6 @@ private slots:
         auto *chip = item("keycapText");
         QVERIFY(chip);
         QCOMPARE(chip->property("radius").toInt(), 4);
-        // Resting keycaps are transparent chips with the strong storm outline.
         QCOMPARE(chip->property("color").value<QColor>().alpha(), 0);
         QCOMPARE(chip->property("border").value<QObject *>()
                      ->property("color").value<QColor>(),
@@ -546,7 +524,6 @@ private slots:
         QCOMPARE(font.pixelSize(), 10);
         QCOMPARE(chipLabel->property("color").value<QColor>(),
                  token("tokStormTextMuted"));
-        // Icon mode: glyphs the mono face lacks (↵) render as an Icon.
         auto *iconChip = item("keycapIcon");
         QVERIFY(iconChip);
         auto *glyph = rowChild(iconChip, "keycapGlyph");
@@ -557,9 +534,6 @@ private slots:
         QVERIFY(!rowChild(iconChip, "keycapLabel")->property("visible").toBool());
     }
 
-    // The section label uses the UI face at 12/600 in sentence case, in an
-    // ink that clears AA. Mono is reserved for genuinely monospaced content
-    // (keycaps, code, Matrix identifiers).
     void sectionLabelUsesAccessibleMutedInkSentenceCase()
     {
         auto *sectionLabel = item("sectionLabel");
@@ -572,7 +546,6 @@ private slots:
         QCOMPARE(int(font.weight()), int(QFont::DemiBold));
         QCOMPARE(int(font.capitalization()), int(QFont::MixedCase));
         QCOMPARE(qRound(font.letterSpacing()), 0);
-        // Muted, not faint: a readable heading at 12 px.
         QCOMPARE(sectionLabel->property("color").value<QColor>(),
                  token("tokStormTextMuted"));
     }
@@ -581,20 +554,15 @@ private slots:
     {
         auto *strip = item("keyboardStrip");
         QVERIFY(strip);
-        // Focusing the strip lands on a cell; Right moves focus; Return picks
-        // the focused emoji (the keyboard path replacing the "React" row).
         QMetaObject::invokeMethod(strip, "forceActiveFocus");
         QTRY_VERIFY(m_window->activeFocusItem() != nullptr);
         QTest::keyClick(m_window, Qt::Key_Right);
         QSignalSpy picked(strip, SIGNAL(picked(QString)));
         QTest::keyClick(m_window, Qt::Key_Return);
         QTRY_COMPARE(picked.count(), 1);
-        // Second cell of the default set after one Right from cell 0.
         QCOMPARE(picked.first().first().toString(), QStringLiteral("🔥"));
     }
 
-    // C25-F04: Tab used to leave the ring on the same cell (the root, itself
-    // a tab stop, handed focus straight back), and the cells had no tooltip.
     void quickReactionStripTabWalksCellsAndCellsNameThemselves()
     {
         auto *strip = item("keyboardStrip");
@@ -613,8 +581,6 @@ private slots:
         QTRY_COMPARE(strip->property("focusIndex").toInt(), 5);
         QTest::keyClick(m_window, Qt::Key_Home);
         QTRY_COMPARE(strip->property("focusIndex").toInt(), 0);
-        // The focused cell shows its name.
-        // Repeater delegates are Items of the strip, not QObject children.
         QList<QQuickItem *> cells;
         std::function<void(QQuickItem *)> walk = [&](QQuickItem *it) {
             for (auto *ch : it->childItems()) {
@@ -633,9 +599,6 @@ private slots:
         QVERIFY(anyVisible);
     }
 
-    // C25 review r1: Tab at the last cell and Backtab at the first must LEAVE
-    // the strip (the root, itself a tab stop, used to hand focus back), and a
-    // strip with fewer than five recents must skip its invisible cells.
     void quickReactionStripTabLeavesAtBothEnds()
     {
         auto focusName = [&]() {
@@ -646,8 +609,6 @@ private slots:
                     return i->objectName();
             return QString();
         };
-        // Which neighbour Tab lands on depends on the scene's other tab
-        // stops; what matters is that focus is OUTSIDE the strip.
         auto leftStrip = [&](const char *name) {
             auto *f = m_window->activeFocusItem();
             if (!f)
@@ -669,7 +630,6 @@ private slots:
         QTest::keyClick(m_window, Qt::Key_Backtab);
         QTRY_VERIFY(leftStrip("keyboardStrip"));
 
-        // Two recents: cells 0, 1 and the "more" cell (5) are visible.
         auto *shortStrip = item("shortStrip");
         QVERIFY(shortStrip);
         QMetaObject::invokeMethod(shortStrip, "forceActiveFocus");
@@ -684,14 +644,10 @@ private slots:
         QTRY_COMPARE(shortStrip->property("focusIndex").toInt(), 5);
         QTest::keyClick(m_window, Qt::Key_Tab);
         QTRY_VERIFY(leftStrip("shortStrip"));
-        // Leave the shared scene as found for the neighbouring cases.
         strip->setProperty("focusIndex", 0);
         shortStrip->setProperty("focusIndex", 0);
     }
 
-    // Chip fill and border resolve to the tone token; the label is that token
-    // stepped in lightness until it clears the fill (a raw badge fill as text
-    // ink failed contrast). A solid chip's fill is the token itself.
     void statusChipTonesResolveToTokens()
     {
         auto *verified = item("chipVerified");
@@ -733,7 +689,6 @@ private slots:
         QCOMPARE(icon->property("size").toInt(), 17);
         QCOMPARE(icon->property("color").value<QColor>(),
                  token("tokStormTextMuted"));
-        // The accelerator keycap renders on the row.
         auto *accel = rowChild(reply, "keycapLabel");
         QVERIFY(accel);
         QCOMPARE(accel->property("text").toString(), QStringLiteral("R"));
@@ -754,8 +709,6 @@ private slots:
         QVERIFY(channelDelta(sampleAvg(img, QRect(int(inside.x()),
                                                   int(inside.y()) - 1, 2, 3)),
                              token("tokStormSelection")) <= kTolerance);
-        // Highlighted: the label brightens to stormText and the icon inks
-        // bolt.
         QCOMPARE(label(reply)->property("color").value<QColor>(),
                  token("tokStormText"));
         QCOMPARE(leadingIcon(reply)->property("color").value<QColor>(),
@@ -784,7 +737,6 @@ private slots:
         QVERIFY(flyout);
         QCOMPARE(flyout->property("width").toInt(), 150);
 
-        // The generated parent row carries the flyout's icon and a chevron.
         QQuickItem *parentRow = nullptr;
         const int count = menu->property("count").toInt();
         for (int i = 0; i < count; ++i) {
@@ -801,8 +753,6 @@ private slots:
         QCOMPARE(parentRow->property("iconName").toString(),
                  QStringLiteral("notifications"));
 
-        // Open the flyout via its parent row, check it lands beside the parent
-        // menu, then Escape unwinds innermost-first.
         const QPointF center = parentRow->mapToScene(
             QPointF(parentRow->width() / 2, parentRow->height() / 2));
         QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
@@ -820,8 +770,6 @@ private slots:
                  qPrintable(QStringLiteral("flyout at %1, parent right %2")
                                 .arg(flyoutSceneX).arg(parentRightX)));
 
-        // Radio rows: the selected row has the bolt-filled node, the unselected
-        // row the dashed ring.
         auto *selectedFill = flyoutItem->findChild<QQuickItem *>(
             QStringLiteral("stormNodeFill"));
         QVERIFY(selectedFill);
@@ -870,8 +818,6 @@ private slots:
                           center.toPoint());
         QTRY_VERIFY(flyout->property("opened").toBool());
 
-        // Clicking a row must not flip radioSelected itself: the owner's
-        // binding stays authoritative (an internal write would destroy it).
         auto *mentions = item("radioMentions");
         QVERIFY(mentions);
         QVERIFY(!mentions->property("radioSelected").toBool());
@@ -882,7 +828,6 @@ private slots:
         QTRY_VERIFY(!menu->property("opened").toBool());
         QVERIFY(!mentions->property("radioSelected").toBool());
 
-        // The owner flipping its state re-renders both rows: binding alive.
         m_root->setProperty("allMessagesSelected", false);
         QTRY_VERIFY(mentions->property("radioSelected").toBool());
         auto *all = item("radioAll");
@@ -893,10 +838,6 @@ private slots:
 
     void themeSwitchRoutesStormMenuLanguagePerLegacyTheme()
     {
-        // The storm* namespace is theme-routed: under themes 1-10 it resolves
-        // to that theme's own tones, and only Storm (11) uses the fixed
-        // literals. Switching between legacy themes retints the keycap;
-        // switching to Storm always lands on the Storm value.
         const QColor indigoSoft = token("tokAccentSoft");
         const QColor indigoBorderStrong = token("tokStormBorderStrong");
         auto *chip = item("keycapText");
@@ -905,7 +846,7 @@ private slots:
                      ->property("color").value<QColor>(),
                  indigoBorderStrong);
 
-        m_root->setProperty("themeMode", 10); // Deep Teal
+        m_root->setProperty("themeMode", 10);
         QTRY_VERIFY(token("tokAccentSoft") != indigoSoft);
         const QColor tealBorderStrong = token("tokStormBorderStrong");
         QVERIFY2(tealBorderStrong != indigoBorderStrong,
@@ -916,9 +857,6 @@ private slots:
                      ->property("color").value<QColor>(),
                  tealBorderStrong);
 
-        // Storm resolves to one fixed value whichever theme preceded it; read
-        // from the token rather than a copied hex, and checked across a round
-        // trip.
         m_root->setProperty("themeMode", 11);
         QTRY_COMPARE(chip->property("border").value<QObject *>()
                          ->property("color").value<QColor>(),
@@ -928,7 +866,6 @@ private slots:
                      && stormBorderStrong != indigoBorderStrong,
                  "Storm must resolve to its OWN border, not a legacy theme's");
 
-        // Round trip: away to a legacy theme and back lands on the same value.
         m_root->setProperty("themeMode", 10);
         QTRY_COMPARE(token("tokStormBorderStrong"), tealBorderStrong);
         m_root->setProperty("themeMode", 11);
@@ -940,16 +877,11 @@ private slots:
         m_root->setProperty("themeMode", 9);
     }
 
-    // A menu's design width is a floor, not a clamp: it widens to its widest
-    // row instead of eliding. Asserted as the user's condition (the row is not
-    // truncated), since a slightly wider menu could still elide.
     void theFlyoutWidensToItsWidestRowInsteadOfEliding()
     {
         openMenu();
         auto *flyout = m_root->findChild<QObject *>(QStringLiteral("fitFlyout"));
         QVERIFY(flyout);
-        // Unopened it is exactly its design width: a closed popup has no
-        // measurable rows (a Layout skips items that are not visible).
         QCOMPARE(flyout->property("width").toInt(),
                  flyout->property("menuWidth").toInt());
 
@@ -961,8 +893,6 @@ private slots:
         auto *longLabel = label(longRow);
         QVERIFY(longLabel);
         QTRY_VERIFY(longLabel->width() > 0);
-        // QTRY: the menu resizes at `opened` and QQuickMenu passes the width
-        // to its rows on the next polish.
         QTRY_VERIFY2(!longLabel->property("truncated").toBool(),
                  qPrintable(QStringLiteral(
                      "'%1' is elided at %2 px inside a %3 px menu (it needs "
@@ -975,7 +905,6 @@ private slots:
                          > flyout->property("menuWidth").toInt(),
                      "the flyout did not widen past its design width at all");
 
-        // The widest row decides the width, not the short one.
         auto *shortRow = item("fitShortRow");
         QVERIFY(shortRow);
         QVERIFY(longRow->implicitWidth() > shortRow->implicitWidth());
@@ -985,8 +914,6 @@ private slots:
         closeMenu();
     }
 
-    // Menu rows carry remote text, so widening stops at a ceiling, past which
-    // the row elides.
     void theMenuFitStopsAtItsCeilingAndTheRowElidesThere()
     {
         openMenu();
@@ -1009,9 +936,6 @@ private slots:
         closeMenu();
     }
 
-    // A non-MenuItem child of a menu sizes itself: `wrapMode` alone keeps the
-    // implicitWidth of the unwrapped sentence, so the label must be given the
-    // panel's width to wrap (a wrapping Text does not elide).
     void aWrappedLabelInAMenuStaysInsideItsPanel()
     {
         openMenu();
@@ -1023,8 +947,6 @@ private slots:
         auto *disclaimer = item("fitDisclaimer");
         QVERIFY(disclaimer);
         QTRY_VERIFY(disclaimer->width() > 0);
-        // It wrapped rather than being cut: more than one line, painted no
-        // wider than its item.
         QTRY_VERIFY2(disclaimer->property("lineCount").toInt() > 1,
                      qPrintable(QStringLiteral(
                          "disclaimer drew %1 line(s) at %2 px — it is not "
@@ -1041,7 +963,6 @@ private slots:
                                 .arg(padding)));
         QVERIFY(disclaimer->property("contentWidth").toReal()
                 <= disclaimer->width() + 0.5);
-        // And vertically inside the panel.
         const qreal bottom = disclaimer->y() + disclaimer->height();
         const qreal room = flyout->property("height").toReal()
                            - flyout->property("topPadding").toReal()
@@ -1056,8 +977,6 @@ private slots:
         closeMenu();
     }
 
-    // The same properties on the real RoomActionsMenu (the compiled production
-    // file), with only the four `app` values it reads stood in for.
     void theRoomContextMenuFitsBothFavouriteLabels()
     {
         QQmlComponent fakeComponent(&m_engine);
@@ -1105,8 +1024,6 @@ ApplicationWindow {
     function openIt() { roomMenu.popup(w.contentItem, 40, 40) }
 }
 )QML" );
-        // Allow the same regression to exercise a scratch copy with a fix
-        // reverted, without changing the worktree or rebuilding the module.
         const QString copyDir = qEnvironmentVariable("LIGHTNING_REGRESSION_QML_COPY");
         if (!copyDir.isEmpty()) {
             fixture.replace("import MatrixClient", QByteArray("import MatrixClient\nimport \"")
@@ -1125,12 +1042,8 @@ ApplicationWindow {
         QMetaObject::invokeMethod(scene.data(), "openIt");
         QTRY_VERIFY(menu->property("opened").toBool());
 
-        // Both room navigation layouts use this component. Measure every
-        // action row, including the submenu delegate, in both tag states.
         for (bool favourite : {false, true, false}) {
             menu->setProperty("isFavourite", favourite);
-            // A tag update can arrive while the popup is still visible;
-            // then check the same menu after reopening it for another room.
             for (bool reopen : {false, true}) {
                 if (reopen) {
                     QMetaObject::invokeMethod(menu, "close");
@@ -1162,8 +1075,6 @@ ApplicationWindow {
             }
         }
 
-        // "Mark as read" is offered only on a room with something to read;
-        // the "Select room" and "Mark as read" rows no longer share a glyph.
         auto *markRead = scene->findChild<QQuickItem *>(QStringLiteral("roomMarkReadItem"));
         auto *select = scene->findChild<QQuickItem *>(QStringLiteral("roomSelectItem"));
         QVERIFY(markRead);
@@ -1237,13 +1148,9 @@ ApplicationWindow {
         auto *flyout =
             scene->findChild<QObject *>(QStringLiteral("roomNotificationsFlyout"));
         QVERIFY(flyout);
-        // Opened directly: a click into this second window does not reach it
-        // offscreen. The row check is about the menu's width; the disclaimer's
-        // placement is covered by ContextMenuContractTest.
         QMetaObject::invokeMethod(flyout, "open");
         QTRY_VERIFY(flyout->property("opened").toBool());
 
-        // The long notifications row.
         QQuickItem *mentionsRow = nullptr;
         const int count = flyout->property("count").toInt();
         for (int i = 0; i < count; ++i) {
@@ -1266,7 +1173,6 @@ ApplicationWindow {
                                 .arg(mentionsLabel->property("contentWidth")
                                          .toReal())));
 
-        // The notifications disclaimer.
         auto *disclaimer = scene->findChild<QQuickItem *>(
             QStringLiteral("roomNotificationDisclaimer"));
         QVERIFY(disclaimer);
@@ -1284,10 +1190,6 @@ ApplicationWindow {
                 <= disclaimer->width() + 0.5);
     }
 
-    // A soft chip's label clears its own fill: the 14% fill lifts the
-    // background towards the ink, so the label reads worse on the pill than on
-    // the surface behind it. Eleven palettes must be demonstrably distinct, not
-    // just iterated.
     void theNeutralChipInkClearsItsOwnFillOnEveryPalette()
     {
         struct Probe { const char *chip; const char *host; };
@@ -1328,11 +1230,6 @@ ApplicationWindow {
         m_root->setProperty("themeMode", 9);
     }
 
-    // Every soft chip tone clears 4.5:1 against its own fill, on each of the
-    // three surfaces chips are placed on, across all eleven palettes. Also:
-    // the fill and border still carry the raw tone at the declared alpha, and
-    // the ink stays in the tone's family (same hue and HSL saturation, only
-    // lightness moves). `legibleChoice` stops as soon as 4.5 is cleared.
     void everySoftChipToneClearsItsOwnFillOnEveryPalette()
     {
         struct Probe { const char *chip; const char *host; const char *tone; };
@@ -1384,7 +1281,6 @@ ApplicationWindow {
                                 .arg(ink.name(), fill.name(), parent.name())
                                 .arg(ratio, 0, 'f', 2)));
 
-                // The pill still is its tone: only the label moved.
                 QVERIFY2(channelDelta(QColor(fillColor.rgb()), raw) <= 1,
                          qPrintable(QStringLiteral(
                              "theme %1: %2 fill is %3, not the raw tone %4 — "
@@ -1408,8 +1304,6 @@ ApplicationWindow {
                                 .arg(QString::fromLatin1(p.chip))
                                 .arg(borderColor.name(), raw.name())));
 
-                // The ink keeps the hue and saturation; jumping to a neutral
-                // text ink would clear AA but lose the tone.
                 if (raw.hslSaturationF() >= 0.15) {
                     double hueGap = qAbs(ink.hslHueF() - raw.hslHueF());
                     if (hueGap > 0.5)
@@ -1441,22 +1335,12 @@ ApplicationWindow {
                     distinctFills.insert(fill.rgb());
             }
         }
-        // Palettes must be distinct, and the number of chips measured is
-        // asserted rather than loop iterations.
         QCOMPARE(distinctPanels.size(), 11);
-        // Five tones times eleven palettes, all different fills: a loop that
-        // read one palette eleven times would give 5.
         QCOMPARE(distinctFills.size(), 55);
         QCOMPARE(measured, 11 * int(std::size(probes)));
         m_root->setProperty("themeMode", 9);
     }
 
-    // A slash-command row's inks clear AA on the fill that row paints: the
-    // selected row paints `stormSelection` over the panel, which is where
-    // both inks had failed. Also asserted: the name stays at least 1.3x the
-    // description's contrast (a visible hierarchy), and the row's own
-    // `rowFill` matches the composite computed here. Palettes must be
-    // distinct.
     void theSlashCommandRowInksClearTheFillThatRowPaintsOnEveryPalette()
     {
         QMetaObject::invokeMethod(m_root, "openSlash");
@@ -1510,8 +1394,6 @@ ApplicationWindow {
                     const QColor fill =
                         over(row->property("color").value<QColor>(), panel);
                     distinctFills.insert(fill.rgb());
-                    // The ground the QML derives against must be the ground it
-                    // paints.
                     QCOMPARE(QColor(row->property("rowFill").value<QColor>()
                                         .rgb()),
                              QColor(fill.rgb()));
@@ -1567,8 +1449,6 @@ ApplicationWindow {
                                     .arg(descInk.name())
                                     .arg(descRatio, 0, 'f', 2)
                                     .arg(fill.name())));
-                    // The hierarchy. A disabled row uses one ink on both lines
-                    // (weight and size carry its hierarchy), so it is excluded.
                     if (rowEnabled) {
                         worstHierarchy = qMin(worstHierarchy,
                                               nameRatio / descRatio);
@@ -1590,8 +1470,6 @@ ApplicationWindow {
                     }
                     ++measured;
 
-                    // Not vacuous: the raw tokens the row used to use fail on
-                    // many of these triples, so this count must be non-zero.
                     if (i == selected) {
                         if (contrastRatio(token("tokBolt"), fill) < 4.5)
                             ++rawTokenFailures;
@@ -1602,8 +1480,6 @@ ApplicationWindow {
             }
         }
         QCOMPARE(distinctPanels.size(), 11);
-        // Eleven palettes times two fills (panel, selection); one palette read
-        // eleven times would give 2.
         QCOMPARE(distinctFills.size(), 22);
         QCOMPARE(measured, 11 * 3 * 3);
         QVERIFY2(rawTokenFailures >= 18,

@@ -74,14 +74,14 @@ bool isSteamTool(const QString &appId, const QString &name = {},
 {
     static const QStringList ids = {
         QStringLiteral("0"),
-        QStringLiteral("228980"),    // Steamworks Common Redistributables
-        QStringLiteral("1493710"),   // Proton Experimental
-        QStringLiteral("2180100"),   // Proton Hotfix
-        QStringLiteral("1070560"),   // Steam Linux Runtime 1.0 (scout)
-        QStringLiteral("1391110"),   // Steam Linux Runtime 2.0 (soldier)
-        QStringLiteral("1628350"),   // Steam Linux Runtime 3.0 (sniper)
-        QStringLiteral("1826330"),   // Proton EasyAntiCheat Runtime
-        QStringLiteral("1161040"),   // Proton BattlEye Runtime
+        QStringLiteral("228980"),
+        QStringLiteral("1493710"),
+        QStringLiteral("2180100"),
+        QStringLiteral("1070560"),
+        QStringLiteral("1391110"),
+        QStringLiteral("1628350"),
+        QStringLiteral("1826330"),
+        QStringLiteral("1161040"),
     };
     if (ids.contains(appId))
         return true;
@@ -96,7 +96,7 @@ bool isSteamTool(const QString &appId, const QString &name = {},
         || runtimeName.match(installDir).hasMatch();
 }
 
-}   // namespace
+}
 
 QString vdfFirstValue(const QByteArray &text, const QString &key)
 {
@@ -122,9 +122,6 @@ SteamApp parseAppManifest(const QByteArray &text)
 
 QStringList parseLibraryFolders(const QByteArray &text)
 {
-    // New format: "0" { "path" "/lib" ... }. Old format (before 2021): a bare
-    // "1" "/lib" pair, key all digits and value an absolute path. "ContentStatsID"
-    // and friends are digits-valued and never look like a path.
     static const QRegularExpression digits(QStringLiteral("^\\d+$"));
     static const QRegularExpression absolute(
         QStringLiteral("^(/|[A-Za-z]:[\\\\/])"));
@@ -143,8 +140,6 @@ QStringList parseLibraryFolders(const QByteArray &text)
     }
     return out;
 }
-
-// ---------------------------------------------------------------------------
 
 SteamCatalog::SteamCatalog(QStringList steamRoots) : m_roots(std::move(steamRoots)) {}
 
@@ -183,8 +178,6 @@ QStringList SteamCatalog::steamappsDirs() const
 
 void SteamCatalog::refresh()
 {
-    // Inside a batch the catalog is checked once, not once per matched
-    // process: each check re-reads libraryfolders.vdf.
     if (m_batch && m_checkedInBatch)
         return;
     m_checkedInBatch = true;
@@ -238,13 +231,8 @@ QString SteamCatalog::nameForPath(const QString &path)
     return m_nameByDir.value(dir);
 }
 
-// ---------------------------------------------------------------------------
-
 Catalog Catalog::builtIn()
 {
-    // Well-known executables whose Steam id is not always in reach (a game
-    // started outside Steam, or by Lutris/Heroic). Kept short on purpose:
-    // the user's own entries are the long tail.
     Catalog c;
     const QList<QPair<QString, QString>> list = {
         { QStringLiteral("factorio"), QStringLiteral("Factorio") },
@@ -287,8 +275,6 @@ void Catalog::addUserEntries(const QStringList &entries)
     }
 }
 
-// ---------------------------------------------------------------------------
-
 #ifndef Q_OS_WIN
 QList<ProcessInfo> scanProcRoot(const QString &procRoot, int maxProcesses)
 {
@@ -317,10 +303,6 @@ QList<ProcessInfo> scanProcRoot(const QString &procRoot, int maxProcesses)
                     p.args.append(QString::fromUtf8(part));
         }
         p.exePath = QFileInfo(dir + QStringLiteral("/exe")).symLinkTarget();
-        // The environment is the only place a game launched by a wrapper
-        // names its Steam id, but reading every process's is needless:
-        // only a process that lives in a Steam library or runs a Windows
-        // executable can be a Steam game's own.
         const QString joined = normalizedPath(p.exePath + QLatin1Char(' ') + p.args.join(QLatin1Char(' ')));
         if (joined.contains(QLatin1String("/steamapps/common/"), Qt::CaseInsensitive)
             || joined.contains(QLatin1String(".exe"), Qt::CaseInsensitive)) {
@@ -333,7 +315,7 @@ QList<ProcessInfo> scanProcRoot(const QString &procRoot, int maxProcesses)
             }
         }
         if (p.args.isEmpty() && p.exePath.isEmpty())
-            continue;   // kernel thread or unreadable: nothing to match
+            continue;
         out.append(p);
     }
     std::sort(out.begin(), out.end(),
@@ -402,8 +384,6 @@ QString foregroundFullscreenExePath()
 }
 #endif
 
-// ---------------------------------------------------------------------------
-
 QStringList detectGames(const QList<ProcessInfo> &procs, SteamCatalog &steam,
                         const Catalog &catalog)
 {
@@ -418,8 +398,6 @@ QStringList detectGames(const QList<ProcessInfo> &procs, SteamCatalog &steam,
             names.append(n);
     };
     for (const ProcessInfo &p : procs) {
-        // Steam's per-game launcher: "reaper SteamLaunch AppId=<id> -- ...".
-        // It outlives nothing: it exits with the game.
         if (p.args.contains(QLatin1String("SteamLaunch"))) {
             for (const QString &a : p.args) {
                 if (a.startsWith(QLatin1String("AppId="))) {
@@ -436,15 +414,11 @@ QStringList detectGames(const QList<ProcessInfo> &procs, SteamCatalog &steam,
                 continue;
             }
         }
-        // A binary under steamapps/common/<installdir>/ (Windows, or a
-        // native game started without the reaper).
         const QString byPath = steam.nameForPath(p.exePath);
         if (!byPath.isEmpty()) {
             add(byPath);
             continue;
         }
-        // Built-in and user entries, by executable name: argv[0], the exe
-        // symlink, and any Windows executable a wrapper (wine/proton) runs.
         QStringList candidates;
         candidates << baseName(p.exePath);
         if (!p.args.isEmpty())
@@ -523,4 +497,4 @@ bool detectionLimitedBySandbox()
 #endif
 }
 
-}   // namespace gamedetect
+}

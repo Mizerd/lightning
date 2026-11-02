@@ -1,9 +1,3 @@
-// Bounded, single-shot, memory-only store for remote session descriptions.
-// Filled by the backend bridge in media-capable mode and consumed once by
-// CallController when answering or completing an outbound handshake.
-//
-// SDP carries host IPs: never log, persist or expose it to QML. take()
-// removes on read; clear() runs on sign-out/detach.
 #pragma once
 
 #include <QHash>
@@ -15,7 +9,6 @@ namespace calls {
 class SdpStore
 {
 public:
-    // Only a handful of call events are ever live at once.
     static constexpr int kCapacity = 8;
 
     void insert(const QString &eventId, const QString &sdp)
@@ -54,4 +47,4 @@ private:
     QStringList m_order;
 };
 
-} // namespace calls
+}

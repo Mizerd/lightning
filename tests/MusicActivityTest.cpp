@@ -1,12 +1,3 @@
-// "Listening to" music activity (Labs). The Spotify rules run on plain data;
-// the policy (settle, pause grace, priority, gating, withdrawal) runs through
-// the real PresenceManager against a fake source and a client that records
-// what would be published; the Windows caption source runs against a fake
-// caption provider; and, where QtDBus exists, the real MPRIS source runs
-// against a fake Spotify on a PRIVATE dbus-daemon started by this suite.
-// Nothing here touches the user's session bus, a real Spotify, a keyring or
-// the network. Live behaviour (a real Spotify, the Flatpak proxy, Windows,
-// other clients rendering the line) is NOT covered.
 
 #include <QElapsedTimer>
 #include <QFile>
@@ -54,7 +45,6 @@ public:
     QList<QPair<int, QString>> published;
 };
 
-// Stands in for the platform layer: what it "plays" is set by the test.
 class FakeSource : public MusicSource
 {
     Q_OBJECT
@@ -103,9 +93,6 @@ QString readSource(const QString &rel)
     return QString::fromUtf8(f.readAll());
 }
 
-// A syncing presence client with no own status, Labs ON, a fake source, and
-// short settle/grace. The keep-alive stays at its real 25 s unless a case
-// shortens it, so every publish a case sees was caused by that case.
 struct Fixture {
     RecordingClient client;
     SettingsManager settings;
@@ -137,7 +124,6 @@ struct Fixture {
     }
     ~Fixture()
     {
-        // The store is shared by every case in this process.
         settings.setMusicActivityEnabled(false);
         presence.clearOwnStatus();
     }
@@ -145,15 +131,13 @@ struct Fixture {
 
 const QString kLine = QStringLiteral("Listening to Song A by Artist A");
 
-// The fake client never answers on its own: answer every PUT still in
-// flight, as the server would have long since.
 void answerAll(PresenceManager &presence, MatrixClient &client)
 {
     while (presence.publishesInFlight() > 0)
         Q_EMIT client.presencePublished();
 }
 
-}   // namespace
+}
 
 class MusicActivityTest : public QObject
 {
@@ -162,7 +146,6 @@ private Q_SLOTS:
     void initTestCase();
     void cleanupTestCase();
 
-    // Rules (pure).
     void mprisMetadataBecomesNowPlaying();
     void advertisementsAndUntitledEntriesAreNeverShown();
     void statusLineWordingAndBounds();
@@ -172,7 +155,6 @@ private Q_SLOTS:
     void qmlCopyIsPlainTextAndSendsNoArt();
     void aFlatpakListensOnlyWhenItWasGrantedSpotify();
 
-    // Policy (fake source, real PresenceManager).
     void labsIsOffByDefault();
     void offMeansNoSourceAndTurningItOffWithdrawsAtOnce();
     void aTrackIsAdoptedAfterTheSettleAndRidesTheKeepAlive();
@@ -191,7 +173,6 @@ private Q_SLOTS:
     void aLanguageChangeRecomposesTheLine();
     void noPresenceBackendMeansNothingIsWatched();
 
-    // Withdrawing the line at sign-out, account switch and quit.
     void quitWithGameAndMusicSendsExactlyOnePut();
     void aWithdrawnLineIgnoresLaterOverlaysUntilRestored();
     void theFarewellSettlesOnTheServersAnswer();
@@ -205,7 +186,6 @@ private Q_SLOTS:
     void aRestoredLineLeavesNoFarewellBehind();
     void anOutOfOrderAnswerGetsTheFarewellSentAgain();
 
-    // The MPRIS layer on a private bus.
     void mprisSourceReadsSpotifyOnAPrivateBus();
     void mprisSourceIgnoresEveryOtherPlayer();
     void aStoppedMprisSourceIsSilent();
@@ -216,10 +196,6 @@ private:
     QByteArray m_address;
 };
 
-// ---------------------------------------------------------------------------
-// A fake Spotify: the MPRIS Player interface's two properties this client
-// reads, exported through QtDBus's own org.freedesktop.DBus.Properties.
-// ---------------------------------------------------------------------------
 #ifdef HAVE_QT_DBUS
 class FakeSpotifyPlayer : public QObject
 {
@@ -257,7 +233,6 @@ public:
                << QStringList();
         m_bus.send(signal);
     }
-    // A PropertiesChanged for some OTHER interface of the same object.
     void announceOn(const QString &interfaceName, const QVariantMap &changed)
     {
         QDBusMessage signal = QDBusMessage::createSignal(
@@ -291,8 +266,6 @@ void MusicActivityTest::initTestCase()
 {
     QVERIFY(m_configHome.isValid());
     qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
-    // Not the user's data or cache either (SettingsManager counts the account
-    // stores under the data root).
     qputenv("XDG_DATA_HOME", (m_configHome.path() + QStringLiteral("/data")).toUtf8());
     qputenv("XDG_CACHE_HOME", (m_configHome.path() + QStringLiteral("/cache")).toUtf8());
     // Never the user's session bus: forget it before anything can connect,
@@ -304,9 +277,7 @@ void MusicActivityTest::initTestCase()
 #ifdef HAVE_QT_DBUS
     const QString daemon = QStandardPaths::findExecutable(QStringLiteral("dbus-daemon"));
     if (daemon.isEmpty())
-        return;   // the MPRIS cases skip
-    // The daemon's own session.conf rather than `--session`, which reads
-    // /etc/dbus-1/session.conf (absent on dbus-broker systems).
+        return;
     QStringList args { QStringLiteral("--nofork"), QStringLiteral("--print-address=1") };
     const QString packaged = QFileInfo(daemon).absolutePath()
         + QStringLiteral("/../share/dbus-1/session.conf");
@@ -335,10 +306,6 @@ void MusicActivityTest::cleanupTestCase()
 #endif
 }
 
-// ---------------------------------------------------------------------------
-// Rules
-// ---------------------------------------------------------------------------
-
 void MusicActivityTest::mprisMetadataBecomesNowPlaying()
 {
     const QVariantMap md {
@@ -360,7 +327,6 @@ void MusicActivityTest::mprisMetadataBecomesNowPlaying()
     QVERIFY(!musicdetect::fromMpris(QStringLiteral("Stopped"), md).showable());
     QVERIFY(!musicdetect::fromMpris(QString(), md).showable());
 
-    // A lone string artist is tolerated; a bidi override never survives.
     QVariantMap single = md;
     single.insert(QStringLiteral("xesam:artist"), QStringLiteral("Solo\u202EArtist"));
     np = musicdetect::fromMpris(QStringLiteral("Playing"), single);
@@ -378,7 +344,6 @@ void MusicActivityTest::advertisementsAndUntitledEntriesAreNeverShown()
 
     NowPlaying untitled = track(QString(), QStringLiteral("Somebody"));
     QVERIFY(!untitled.showable());
-    // A podcast episode (no artist) is still music activity on Spotify.
     NowPlaying episode = track(QStringLiteral("Episode 12"), QString());
     episode.trackId = QStringLiteral("/com/spotify/episode/abc");
     QVERIFY(episode.showable());
@@ -395,10 +360,8 @@ void MusicActivityTest::statusLineWordingAndBounds()
              QStringLiteral("Listening to Episode 12"));
     QCOMPARE(musicdetect::statusTextFor(paused(track(QStringLiteral("X"), QStringLiteral("Y")))),
              QString());
-    // A title that looks like a placeholder is text, not a second argument.
     QCOMPARE(musicdetect::statusTextFor(track(QStringLiteral("100%2 Pure"), QStringLiteral("DJ %1"))),
              QStringLiteral("Listening to 100%2 Pure by DJ %1"));
-    // Bounded: one status line, never a paragraph.
     const NowPlaying huge = musicdetect::fromMpris(
         QStringLiteral("Playing"),
         { { QStringLiteral("xesam:title"), QString(500, QLatin1Char('t')) },
@@ -409,7 +372,6 @@ void MusicActivityTest::statusLineWordingAndBounds()
 }
 
 namespace {
-// Stands in for a loaded catalogue: answers only the two music lines.
 class MusicLineTranslator : public QTranslator
 {
 public:
@@ -426,7 +388,7 @@ public:
     }
     bool isEmpty() const override { return false; }
 };
-}   // namespace
+}
 
 void MusicActivityTest::aFlatpakListensOnlyWhenItWasGrantedSpotify()
 {
@@ -440,15 +402,12 @@ void MusicActivityTest::aFlatpakListensOnlyWhenItWasGrantedSpotify()
         f.write(body);
         return path;
     };
-    // The stock Flatpak policy: nothing for MPRIS, so the feature is off.
     QVERIFY(!musicdetect::flatpakGrantsSpotifyMpris(write("none",
         "[Application]\nname=org.lightning_matrix.Lightning\n\n"
         "[Session Bus Policy]\norg.freedesktop.secrets=talk\n")));
-    // A user override, or the old manifest, grants the one name.
     QVERIFY(musicdetect::flatpakGrantsSpotifyMpris(write("talk",
         "[Session Bus Policy]\norg.freedesktop.secrets=talk\n"
         "org.mpris.MediaPlayer2.spotify=talk\n")));
-    // The same text in another group, or at a lower level, does not count.
     QVERIFY(!musicdetect::flatpakGrantsSpotifyMpris(write("other",
         "[Context]\norg.mpris.MediaPlayer2.spotify=talk\n")));
     QVERIFY(!musicdetect::flatpakGrantsSpotifyMpris(write("see",
@@ -459,8 +418,6 @@ void MusicActivityTest::aFlatpakListensOnlyWhenItWasGrantedSpotify()
 
 void MusicActivityTest::theLineIsInTheSendersLanguage()
 {
-    // A status line is the user's own words, written in the app's language
-    // (Matrix cannot localise it per reader); a translation may reorder.
     MusicLineTranslator lt;
     QVERIFY(QCoreApplication::installTranslator(&lt));
     const auto cleanup = qScopeGuard([&lt] { QCoreApplication::removeTranslator(&lt); });
@@ -479,24 +436,19 @@ void MusicActivityTest::windowsCaptionsAreParsedLikeSpotifyNamesThem()
     QVERIFY(np.showable());
     QCOMPARE(np.artists, QStringList { QStringLiteral("The Beatles") });
     QCOMPARE(np.title, QStringLiteral("Let It Be - Remastered 2009"));
-    QCOMPARE(np.album, QString());   // the caption has no album
+    QCOMPARE(np.album, QString());
 
-    // Paused or idle: the window is named after the app.
     for (const char *idle : { "Spotify", "Spotify Free", "Spotify Premium", "spotify premium" })
         QVERIFY2(!fromSpotifyWindowTitles({ QString::fromLatin1(idle) }).showable(), idle);
-    // Advertisements.
     QVERIFY(!fromSpotifyWindowTitles({ QStringLiteral("Advertisement") }).showable());
     QVERIFY(!fromSpotifyWindowTitles({ QStringLiteral("Spotify - Advertisement") }).showable());
     QVERIFY(!fromSpotifyWindowTitles({ QStringLiteral("Spotify - Listen to more") }).showable());
-    // No caption at all.
     QVERIFY(!fromSpotifyWindowTitles({}).showable());
     QVERIFY(!fromSpotifyWindowTitles({ QStringLiteral(" - Title only") }).showable());
 }
 
 void MusicActivityTest::windowsCaptionSourcePollsOnlyWhileStarted()
 {
-    // The Windows layer behind its interface: the caption provider is the
-    // only Win32 part (src/presence/SpotifyWindowTitles_win.cpp).
     QStringList captions { QStringLiteral("Spotify Premium") };
     int calls = 0;
     WindowTitleMusicSource source([&] {
@@ -505,11 +457,11 @@ void MusicActivityTest::windowsCaptionSourcePollsOnlyWhileStarted()
     }, 20);
     QSignalSpy changed(&source, &MusicSource::nowPlayingChanged);
     QTest::qWait(80);
-    QCOMPARE(calls, 0);   // not started: never polls
+    QCOMPARE(calls, 0);
 
     source.start();
     QVERIFY(source.running());
-    QCOMPARE(calls, 1);   // reads at once
+    QCOMPARE(calls, 1);
     QVERIFY(!source.nowPlaying().showable());
     QCOMPARE(changed.count(), 0);
 
@@ -517,9 +469,9 @@ void MusicActivityTest::windowsCaptionSourcePollsOnlyWhileStarted()
     QTRY_COMPARE(changed.count(), 1);
     QCOMPARE(source.nowPlaying().title, QStringLiteral("Song A"));
     QTest::qWait(80);
-    QCOMPARE(changed.count(), 1);   // unchanged captions emit nothing
+    QCOMPARE(changed.count(), 1);
 
-    captions = { QStringLiteral("Spotify Premium") };   // paused
+    captions = { QStringLiteral("Spotify Premium") };
     QTRY_COMPARE(changed.count(), 2);
     QVERIFY(!source.nowPlaying().playing);
 
@@ -549,8 +501,6 @@ void MusicActivityTest::qmlCopyIsPlainTextAndSendsNoArt()
                  qPrintable(QStringLiteral("Label #%1 is not PlainText").arg(i)));
     }
     QCOMPARE(labels, 11);
-    // The Private Session warning is its own line, shown while the feature
-    // is on, and the copy never promises a reliable withdrawal.
     QVERIFY(qml.contains(QLatin1String("musicActivityPrivateSessionNote")));
     QVERIFY(qml.contains(QLatin1String("Private Session is not detected")));
     QVERIFY(qml.contains(QLatin1String("closed by force")));
@@ -564,13 +514,8 @@ void MusicActivityTest::qmlCopyIsPlainTextAndSendsNoArt()
     QVERIFY(!cpp.contains(QLatin1String("mpris:artUrl")));
 }
 
-// ---------------------------------------------------------------------------
-// Policy
-// ---------------------------------------------------------------------------
-
 void MusicActivityTest::labsIsOffByDefault()
 {
-    // Sets NOTHING: the default of a store no case has left a value in.
     RecordingClient client;
     SettingsManager settings;
     QVERIFY(!settings.musicActivityEnabled());
@@ -607,8 +552,6 @@ void MusicActivityTest::offMeansNoSourceAndTurningItOffWithdrawsAtOnce()
     QTRY_COMPARE(f.presence.effectiveStatusText(), kLine);
     const int sent = f.client.published.size();
 
-    // Turning it off: no source left, and the line is withdrawn NOW, with a
-    // publish (not at the next keep-alive).
     f.settings.setMusicActivityEnabled(false);
     QCOMPARE(f.alive, 0);
     QVERIFY(!f.activity.listening());
@@ -623,18 +566,14 @@ void MusicActivityTest::aTrackIsAdoptedAfterTheSettleAndRidesTheKeepAlive()
     QSignalSpy changed(&f.activity, &MusicActivity::nowPlayingChanged);
     const int sent = f.client.published.size();
     f.source->play(track(QStringLiteral("Song A"), QStringLiteral("Artist A")));
-    // Not before the settle.
     QCOMPARE(f.presence.musicActivity(), QString());
     QTRY_COMPARE(f.presence.musicActivity(), kLine);
     QCOMPARE(changed.count(), 1);
     QCOMPARE(f.activity.title(), QStringLiteral("Song A"));
     QCOMPARE(f.activity.album(), QStringLiteral("Album"));
     QVERIFY(f.activity.shownAsStatus());
-    // A track change costs NO presence PUT of its own (rc_presence is per
-    // user, burst 1)...
     QTest::qWait(100);
     QCOMPARE(f.client.published.size(), sent);
-    // ...the keep-alive carries it.
     f.presence.setPublishIntervalForTest(40);
     QTRY_VERIFY(f.client.published.size() > sent);
     QCOMPARE(f.client.published.last().second, kLine);
@@ -651,8 +590,7 @@ void MusicActivityTest::skippingThroughSongsAdoptsOnlyTheOneKept()
         QCOMPARE(f.presence.musicActivity(), QString());
     }
     QTRY_COMPARE(f.presence.musicActivity(), QStringLiteral("Listening to Skip 5 by Artist"));
-    QCOMPARE(changed.count(), 1);   // nothing in between was adopted
-    // A repeat report of the same track does not restart anything.
+    QCOMPARE(changed.count(), 1);
     f.source->play(track(QStringLiteral("Skip 5"), QStringLiteral("Artist")));
     QTest::qWait(200);
     QCOMPARE(changed.count(), 1);
@@ -666,23 +604,20 @@ void MusicActivityTest::pauseClearsAfterTheGraceAndAQuickResumeChangesNothing()
     QTRY_COMPARE(f.presence.musicActivity(), kLine);
     QSignalSpy changed(&f.activity, &MusicActivity::nowPlayingChanged);
 
-    // A quick pause and resume: nothing changes anywhere.
     f.source->play(paused(a));
     QTest::qWait(60);
     QCOMPARE(f.presence.musicActivity(), kLine);
     f.source->play(a);
-    QTest::qWait(250);   // longer than the grace
+    QTest::qWait(250);
     QCOMPARE(f.presence.musicActivity(), kLine);
     QCOMPARE(changed.count(), 0);
 
-    // A real pause: still shown inside the grace, gone after it.
     f.source->play(paused(a));
     QTest::qWait(60);
     QCOMPARE(f.presence.musicActivity(), kLine);
     QTRY_COMPARE(f.presence.musicActivity(), QString());
     QVERIFY(!f.activity.listening());
     QCOMPARE(changed.count(), 1);
-    // A stop goes the same way, and an advertisement counts as not playing.
     f.source->play(a);
     QTRY_COMPARE(f.presence.musicActivity(), kLine);
     NowPlaying ad = track(QStringLiteral("Buy things"), QStringLiteral("Brand"));
@@ -696,7 +631,7 @@ void MusicActivityTest::spotifyQuittingClearsLikeAStop()
     Fixture f;
     f.source->play(track(QStringLiteral("Song A"), QStringLiteral("Artist A")));
     QTRY_COMPARE(f.presence.musicActivity(), kLine);
-    f.source->play(NowPlaying {});   // the source reports nothing at all
+    f.source->play(NowPlaying {});
     QTRY_COMPARE(f.presence.musicActivity(), QString());
 }
 
@@ -707,25 +642,19 @@ void MusicActivityTest::theUsersOwnStatusAndAGameBothWin()
     QTRY_COMPARE(f.presence.effectiveStatusText(), kLine);
     QVERIFY(f.activity.shownAsStatus());
 
-    // A status the user typed takes the line (Discord: a custom status
-    // overrides activity statuses) and is never replaced by music.
     f.presence.setOwnStatus(QStringLiteral("☕"), QStringLiteral("Busy"), 0);
     QCOMPARE(f.presence.effectiveStatusText(), QStringLiteral("☕ Busy"));
     QCOMPARE(f.client.published.last().second, QStringLiteral("☕ Busy"));
     QVERIFY(f.activity.listening());
     QVERIFY(!f.activity.shownAsStatus());
-    // Clearing it gives the line back to the music.
     f.presence.clearOwnStatus();
     QCOMPARE(f.presence.effectiveStatusText(), kLine);
     QCOMPARE(f.client.published.last().second, kLine);
     QVERIFY(f.activity.shownAsStatus());
 
-    // A detected game wins over music (Discord: "the game will take
-    // precedence and Spotify won't show as your status").
     f.presence.setGameActivity(QStringLiteral("Portal 2"));
     QCOMPARE(f.presence.effectiveStatusText(), QStringLiteral("Playing Portal 2"));
     QVERIFY(!f.activity.shownAsStatus());
-    // And the user's own status outranks the game too: own > game > music.
     f.presence.setOwnStatus(QStringLiteral("☕"), QStringLiteral("Busy"), 0);
     QCOMPARE(f.presence.effectiveStatusText(), QStringLiteral("☕ Busy"));
     f.presence.clearOwnStatus();
@@ -742,8 +671,6 @@ void MusicActivityTest::aWithdrawalBehindTheOwnStatusSendsNothing()
     f.source->play(track(QStringLiteral("Song A"), QStringLiteral("Artist A")));
     QTRY_COMPARE(f.presence.musicActivity(), kLine);
     const int sent = f.client.published.size();
-    // The music never held the line, so taking it away changes nothing on
-    // the wire and costs no PUT.
     f.settings.setMusicActivityEnabled(false);
     QCOMPARE(f.presence.musicActivity(), QString());
     QCOMPARE(f.client.published.size(), sent);
@@ -758,14 +685,13 @@ void MusicActivityTest::sharingOffWithdrawsAndStopsTheSource()
     QVERIFY(!f.activity.active());
     QCOMPARE(f.alive, 0);
     QCOMPARE(f.presence.musicActivity(), QString());
-    // Whatever went out last (the final offline) carries no song.
     for (const auto &p : f.client.published) {
         if (p.first == 2)
             QVERIFY(!p.second.contains(QLatin1String("Listening")));
     }
     QVERIFY(!f.client.published.last().second.contains(QLatin1String("Listening")));
     f.settings.setSharePresence(true);
-    QCOMPARE(f.alive, 1);   // a fresh source once sharing is back
+    QCOMPARE(f.alive, 1);
 }
 
 void MusicActivityTest::quitWithdrawsWhileTheClientCanStillSend()
@@ -775,13 +701,10 @@ void MusicActivityTest::quitWithdrawsWhileTheClientCanStillSend()
     QTRY_COMPARE(f.presence.musicActivity(), kLine);
     const int sent = f.client.published.size();
 
-    f.activity.shutdown();   // AppController::prepareForShutdown
+    f.activity.shutdown();
     QCOMPARE(f.alive, 0);
-    // A status_msg outlives the session on the server: the empty line is
-    // published now, not left to a keep-alive that will never come.
     QCOMPARE(f.client.published.size(), sent + 1);
     QCOMPARE(f.client.published.last().second, QString());
-    // Nothing can restart it.
     f.settings.setMusicActivityEnabled(false);
     f.settings.setMusicActivityEnabled(true);
     QCOMPARE(f.alive, 0);
@@ -798,7 +721,6 @@ void MusicActivityTest::logoutStopsTheSourceAndForgetsTheTrack()
     QCOMPARE(f.alive, 0);
     QVERIFY(!f.activity.listening());
     QCOMPARE(f.presence.musicActivity(), QString());
-    // The next session watches again, only once it is live.
     Q_EMIT f.client.connectionStateChanged(MatrixClient::Syncing);
     QCOMPARE(f.alive, 1);
 }
@@ -817,30 +739,24 @@ void MusicActivityTest::onlyTitleAndArtistLeaveThisMachine()
         QVERIFY(!p.second.contains(QLatin1String("Secret Album")));
         QVERIFY(!p.second.contains(QLatin1String("spotify")));
     }
-    QCOMPARE(f.activity.album(), QStringLiteral("Secret Album"));   // local preview only
+    QCOMPARE(f.activity.album(), QStringLiteral("Secret Album"));
 }
 
 void MusicActivityTest::cleaningKeepsHowTextIsWrittenAndDropsBidi()
 {
     using musicdetect::cleanField;
-    // An emoji ZWJ sequence (woman technologist) survives whole.
     const QString coder = QStringLiteral("\U0001F469\u200D\U0001F4BB Coder");
     QCOMPARE(cleanField(coder, 100), coder);
-    // Persian writes with ZWNJ: "می\u200Cخواهم".
     const QString persian = QStringLiteral("می\u200Cخواهم");
     QCOMPARE(cleanField(persian, 100), persian);
-    // A subdivision flag is tag characters (Cf) after a black flag.
     const QString scotland = QStringLiteral(
         "\U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F");
     QCOMPARE(cleanField(scotland, 100), scotland);
-    // Bidi controls are dropped without leaving a gap; other invisible
-    // format characters too; a tab separates words.
     QCOMPARE(cleanField(QStringLiteral("ab\u202Ecd\u2066ef\u2069\u200Fgh\u061C"), 100),
              QStringLiteral("abcdefgh"));
     QCOMPARE(cleanField(QStringLiteral("soft\u00ADhy\uFEFFphen"), 100),
              QStringLiteral("softhyphen"));
     QCOMPARE(cleanField(QStringLiteral("a\tb\nc"), 100), QStringLiteral("a b c"));
-    // The published line keeps them too.
     QCOMPARE(musicdetect::statusTextFor(track(coder, persian)),
              QStringLiteral("Listening to %1 by %2").arg(coder, persian));
 }
@@ -866,11 +782,11 @@ void MusicActivityTest::aLanguageChangeRecomposesTheLine()
     QTRY_COMPARE(f.presence.musicActivity(), kLine);
     const int sent = f.client.published.size();
     MusicLineTranslator lt;
-    QVERIFY(QCoreApplication::installTranslator(&lt));   // sends LanguageChange
+    QVERIFY(QCoreApplication::installTranslator(&lt));
     QCOMPARE(f.presence.musicActivity(), QStringLiteral("Klausosi: Artist A – Song A"));
     QCOMPARE(f.activity.statusLine(), QStringLiteral("Klausosi: Artist A – Song A"));
     QVERIFY(f.activity.shownAsStatus());
-    QCOMPARE(f.client.published.size(), sent);   // rides the keep-alive
+    QCOMPARE(f.client.published.size(), sent);
     QVERIFY(QCoreApplication::removeTranslator(&lt));
     QCOMPARE(f.presence.musicActivity(), kLine);
 }
@@ -904,21 +820,18 @@ void MusicActivityTest::noPresenceBackendMeansNothingIsWatched()
     QCOMPARE(alive, 0);
 }
 
-// --- withdrawing the line at sign-out, account switch and quit -------------
-
 void MusicActivityTest::quitWithGameAndMusicSendsExactlyOnePut()
 {
     Fixture f;
     f.source->play(track(QStringLiteral("Song A"), QStringLiteral("Artist A")));
     QTRY_COMPARE(f.presence.musicActivity(), kLine);
-    f.presence.setGameActivity(QStringLiteral("Portal 2"));   // GameActivity's push
+    f.presence.setGameActivity(QStringLiteral("Portal 2"));
     QCOMPARE(f.client.published.last().second, QStringLiteral("Playing Portal 2"));
     const int sent = f.client.published.size();
 
-    // AppController::prepareForShutdown's order.
     QVERIFY(f.presence.withdrawActivityLine());
-    f.presence.setGameActivity(QString());   // GameActivity::shutdown()
-    f.activity.shutdown();                   // MusicActivity::shutdown()
+    f.presence.setGameActivity(QString());
+    f.activity.shutdown();
     QCOMPARE(f.client.published.size(), sent + 1);
     QCOMPARE(f.client.published.last().second, QString());
     for (int i = sent; i < f.client.published.size(); ++i)
@@ -932,19 +845,16 @@ void MusicActivityTest::aWithdrawnLineIgnoresLaterOverlaysUntilRestored()
     f.source->play(track(QStringLiteral("Song A"), QStringLiteral("Artist A")));
     QTRY_COMPARE(f.presence.musicActivity(), kLine);
     QVERIFY(f.presence.withdrawActivityLine());
-    QVERIFY(!f.presence.withdrawActivityLine());   // a second call sends nothing
+    QVERIFY(!f.presence.withdrawActivityLine());
     const int sent = f.client.published.size();
-    // A game starting during the sign-out wait is remembered, not shown.
     f.presence.setGameActivity(QStringLiteral("Portal 2"));
     QCOMPARE(f.presence.effectiveStatusText(), QString());
     QCOMPARE(f.client.published.size(), sent);
-    // A refused account switch puts the LATEST overlays back in one PUT.
     f.presence.restoreActivityLine();
     QCOMPARE(f.client.published.size(), sent + 1);
     QCOMPARE(f.client.published.last().second, QStringLiteral("Playing Portal 2"));
     f.presence.setGameActivity(QString());
     QCOMPARE(f.presence.effectiveStatusText(), kLine);
-    // After a session ends, the next one starts unsuspended.
     QVERIFY(f.presence.withdrawActivityLine());
     Q_EMIT f.client.loggedOut();
     QVERIFY(!f.presence.farewellPending());
@@ -969,9 +879,8 @@ void MusicActivityTest::theFarewellSettlesOnTheServersAnswer()
                                    [&ran] { ran = true; });
     QTimer::singleShot(50, &f.client, [&f] { Q_EMIT f.client.presencePublished(); });
     QTRY_VERIFY(ran);
-    QVERIFY(clock.elapsed() < 1000);   // not the whole budget
+    QVERIFY(clock.elapsed() < 1000);
     QVERIFY(!f.presence.farewellPending());
-    // With nothing pending, `then` still runs (queued).
     bool ranAgain = false;
     f.presence.whenFarewellSettled(1000, &f.presence, [&ranAgain] { ranAgain = true; });
     QVERIFY(!ranAgain);
@@ -989,12 +898,10 @@ void MusicActivityTest::aRateLimitedFarewellIsRetriedOnceInsideTheBudget()
     bool ran = false;
     f.presence.whenFarewellSettled(PresenceManager::kFarewellBudgetMs, &f.presence,
                                    [&ran] { ran = true; });
-    // rc_presence refused it and asked for 300 ms: one retry, same line.
     Q_EMIT f.client.presencePublishFailed(QStringLiteral("rate_limited"), 300);
     QVERIFY(!ran);
     QTRY_COMPARE(f.client.published.size(), sent + 1);
     QCOMPARE(f.client.published.last().second, QString());
-    // A second refusal is not retried again: the wait ends.
     Q_EMIT f.client.presencePublishFailed(QStringLiteral("rate_limited"), 300);
     QTRY_VERIFY(ran);
     QTest::qWait(400);
@@ -1024,14 +931,12 @@ void MusicActivityTest::theFarewellWaitIsBounded()
     Fixture f;
     f.source->play(track(QStringLiteral("Song A"), QStringLiteral("Artist A")));
     QTRY_COMPARE(f.presence.musicActivity(), kLine);
-    // The quit form: a nested loop that ends at the budget with no answer.
     QVERIFY(f.presence.withdrawActivityLine());
     QElapsedTimer clock;
     clock.start();
     QVERIFY(!f.presence.settleFarewell(200));
     QVERIFY(clock.elapsed() >= 150 && clock.elapsed() < 1500);
     QVERIFY(!f.presence.farewellPending());
-    // ...and ends early on the answer.
     f.presence.restoreActivityLine();
     answerAll(f.presence, f.client);
     QVERIFY(f.presence.withdrawActivityLine());
@@ -1039,7 +944,6 @@ void MusicActivityTest::theFarewellWaitIsBounded()
     clock.restart();
     QVERIFY(f.presence.settleFarewell(PresenceManager::kFarewellBudgetMs));
     QVERIFY(clock.elapsed() < 1500);
-    // Nothing pending: returns at once.
     QVERIFY(f.presence.settleFarewell(PresenceManager::kFarewellBudgetMs));
 }
 
@@ -1047,31 +951,25 @@ void MusicActivityTest::signOutSwitchAndQuitAllWithdrawTheLine()
 {
     const QString src = readSource(QStringLiteral("src/app/AppController.cpp"));
     QVERIFY2(!src.isEmpty(), "run from the source directory");
-    // Quit: one withdrawal before both pollers stop, then the bounded wait.
     const qsizetype quitWithdraw = src.indexOf(QLatin1String(
         "const bool farewell = m_presence && m_presence->withdrawActivityLine();"));
     QVERIFY(quitWithdraw > 0);
     QVERIFY(src.indexOf(QLatin1String("m_gameActivity->shutdown()")) > quitWithdraw);
     QVERIFY(src.indexOf(QLatin1String("m_musicActivity->shutdown()")) > quitWithdraw);
     QVERIFY(src.indexOf(QLatin1String("m_presence->settleFarewell(")) > quitWithdraw);
-    // Sign-out: inside the before-logout hook, with the bounded wait.
     const qsizetype hook = src.indexOf(QLatin1String("*beforeLogout = [this"));
     QVERIFY(hook > 0);
-    // The read marker and the call leave go out in the FIRST pass, then the
-    // withdrawal, with the sign-out budget (one rate-limit retry fits).
     const qsizetype hookWithdraw = src.indexOf(QLatin1String("withdrawActivityLine()"), hook);
     QVERIFY(hookWithdraw > src.indexOf(QLatin1String("flushFullyReadMarker"), hook));
     QVERIFY(hookWithdraw > src.indexOf(QLatin1String("call->leave();"), hook));
     QVERIFY(hookWithdraw < src.indexOf(QLatin1String("membershipWritesPending()"), hook));
     QVERIFY(src.indexOf(QLatin1String("PresenceManager::kSignOutFarewellBudgetMs"), hook) > hook);
     QVERIFY(PresenceManager::kSignOutFarewellBudgetMs >= 11000);
-    // Account switch: before the client is released, and put back if refused.
     const qsizetype detach = src.indexOf(QLatin1String("!m_client->detachSession();\n    trace::stepEnd(trace::Step::S3);"));
     QVERIFY(detach > 0);
     const qsizetype switchWithdraw = src.lastIndexOf(
         QLatin1String("m_presence->withdrawActivityLine(&withdrewForSwitch);"), detach);
     QVERIFY(switchWithdraw > 0 && detach - switchWithdraw < 400);
-    // ...and restores only what it withdrew itself.
     const qsizetype restore = src.indexOf(
         QLatin1String("if (m_presence && withdrewForSwitch)\n            m_presence->restoreActivityLine();"), detach);
     QVERIFY(restore > detach && restore - detach < 300);
@@ -1082,14 +980,11 @@ void MusicActivityTest::aSwitchDuringASignOutDoesNotBringTheSongBack()
     Fixture f;
     f.source->play(track(QStringLiteral("Song A"), QStringLiteral("Artist A")));
     QTRY_COMPARE(f.presence.musicActivity(), kLine);
-    // The sign-out withdraws first and is waiting on its answer.
     bool signOutWithdrew = false;
     QVERIFY(f.presence.withdrawActivityLine(&signOutWithdrew));
     QVERIFY(signOutWithdrew);
     QVERIFY(f.presence.activityLineWithdrawn());
     const int sent = f.client.published.size();
-    // A switch now: its own call withdrew nothing, so its refusal must not
-    // restore anything (AppController's guard, mirrored here).
     bool switchWithdrew = true;
     QVERIFY(!f.presence.withdrawActivityLine(&switchWithdrew));
     QVERIFY(!switchWithdrew);
@@ -1106,7 +1001,6 @@ void MusicActivityTest::aSuccessThenA429StillRetriesTheFarewell()
     f.source->play(track(QStringLiteral("Song A"), QStringLiteral("Artist A")));
     QTRY_COMPARE(f.presence.musicActivity(), kLine);
     answerAll(f.presence, f.client);
-    // A publish still in flight when the withdrawal goes out.
     f.presence.setGameActivity(QStringLiteral("Portal 2"));
     QCOMPARE(f.presence.publishesInFlight(), 1);
     QVERIFY(f.presence.withdrawActivityLine());
@@ -1115,19 +1009,16 @@ void MusicActivityTest::aSuccessThenA429StillRetriesTheFarewell()
     bool ran = false;
     f.presence.whenFarewellSettled(PresenceManager::kFarewellBudgetMs, &f.presence,
                                    [&ran] { ran = true; });
-    // The first answer is the EARLIER publish's success: not the farewell's.
     Q_EMIT f.client.presencePublished();
     QTest::qWait(50);
     QVERIFY(!ran);
     QVERIFY(f.presence.farewellPending());
-    // Then the farewell is refused: it is retried, not given up.
     Q_EMIT f.client.presencePublishFailed(QStringLiteral("rate_limited"), 200);
     QVERIFY(!ran);
     QTRY_COMPARE(f.client.published.size(), sent + 1);
     QCOMPARE(f.client.published.last().second, QString());
     QTest::qWait(50);
     QVERIFY(!ran);
-    // The retry is accepted: now it is over.
     Q_EMIT f.client.presencePublished();
     QTRY_VERIFY(ran);
 }
@@ -1143,7 +1034,6 @@ void MusicActivityTest::theSignOutBudgetFitsARateLimitRetry()
     bool ran = false;
     f.presence.whenFarewellSettled(PresenceManager::kSignOutFarewellBudgetMs, &f.presence,
                                    [&ran] { ran = true; });
-    // 3.5 s does not fit the 3 s quit budget, and does fit the sign-out one.
     Q_EMIT f.client.presencePublishFailed(QStringLiteral("rate_limited"), 3500);
     QTest::qWait(100);
     QVERIFY(!ran);
@@ -1160,11 +1050,9 @@ void MusicActivityTest::aRestoredLineLeavesNoFarewellBehind()
     answerAll(f.presence, f.client);
     QVERIFY(f.presence.withdrawActivityLine());
     QVERIFY(f.presence.farewellPending());
-    // A refused switch puts the line back: there is no farewell any more.
     f.presence.restoreActivityLine();
     QVERIFY(!f.presence.farewellPending());
     QCOMPARE(f.client.published.last().second, kLine);
-    // So a later refusal takes the ORDINARY retry chain, not the farewell's.
     QCOMPARE(f.presence.retryChainForTest(), 0);
     Q_EMIT f.client.presencePublishFailed(QStringLiteral("rate_limited"), 300);
     QCOMPARE(f.presence.retryChainForTest(), 1);
@@ -1177,7 +1065,6 @@ void MusicActivityTest::anOutOfOrderAnswerGetsTheFarewellSentAgain()
     f.source->play(track(QStringLiteral("Song A"), QStringLiteral("Artist A")));
     QTRY_COMPARE(f.presence.musicActivity(), kLine);
     answerAll(f.presence, f.client);
-    // A PUT carrying an activity is still in flight at the withdrawal.
     f.presence.setGameActivity(QStringLiteral("Portal 2"));
     QVERIFY(f.presence.withdrawActivityLine());
     QCOMPARE(f.presence.publishesInFlight(), 2);
@@ -1185,8 +1072,6 @@ void MusicActivityTest::anOutOfOrderAnswerGetsTheFarewellSentAgain()
     bool ran = false;
     f.presence.whenFarewellSettled(PresenceManager::kSignOutFarewellBudgetMs, &f.presence,
                                    [&ran] { ran = true; });
-    // Both answered (in whatever order the server applied them): the server
-    // may have ended on the game, so the empty line is sent once more...
     Q_EMIT f.client.presencePublished();
     QCOMPARE(f.client.published.size(), sent);
     Q_EMIT f.client.presencePublished();
@@ -1194,7 +1079,6 @@ void MusicActivityTest::anOutOfOrderAnswerGetsTheFarewellSentAgain()
     QCOMPARE(f.client.published.last().second, QString());
     QTest::qWait(50);
     QVERIFY(!ran);
-    // ...and only its answer ends the wait. Exactly once.
     Q_EMIT f.client.presencePublished();
     QTRY_VERIFY(ran);
     QCOMPARE(f.client.published.size(), sent + 1);
@@ -1202,9 +1086,6 @@ void MusicActivityTest::anOutOfOrderAnswerGetsTheFarewellSentAgain()
 
 void MusicActivityTest::aTitleThatLooksLikeMarkupIsStillShownAsTheStatus()
 {
-    // PresenceManager neutralises markup-like status text, so the line it
-    // publishes is not byte-equal to the composed one. The Settings preview
-    // must still say the line is shown, and quote what is actually sent.
     Fixture f;
     f.source->play(track(QStringLiteral("Song <b>A</b>"), QStringLiteral("Artist A")));
     QTRY_VERIFY(f.activity.listening());
@@ -1214,10 +1095,6 @@ void MusicActivityTest::aTitleThatLooksLikeMarkupIsStillShownAsTheStatus()
     QVERIFY(f.activity.shownAsStatus());
     QCOMPARE(f.activity.statusLine(), sent);
 }
-
-// ---------------------------------------------------------------------------
-// MPRIS on a private bus
-// ---------------------------------------------------------------------------
 
 void MusicActivityTest::mprisSourceReadsSpotifyOnAPrivateBus()
 {
@@ -1239,18 +1116,15 @@ void MusicActivityTest::mprisSourceReadsSpotifyOnAPrivateBus()
     QVERIFY(playerBus.registerObject(QStringLiteral("/org/mpris/MediaPlayer2"), &player,
                                      QDBusConnection::ExportAllProperties));
     QVERIFY(playerBus.registerService(QString::fromLatin1(musicdetect::kSpotifyMprisService)));
-    // Leaves the private bus clean for the next case even when this one fails.
     const auto cleanup = qScopeGuard([&playerBus] {
         playerBus.unregisterService(QString::fromLatin1(musicdetect::kSpotifyMprisService));
         playerBus.unregisterObject(QStringLiteral("/org/mpris/MediaPlayer2"));
     });
 
     MprisMusicSource source(clientBus, QString::fromLatin1(musicdetect::kSpotifyMprisService));
-    source.setPollIntervalForTest(60 * 1000);   // signals only, unless a case says so
+    source.setPollIntervalForTest(60 * 1000);
     QSignalSpy changed(&source, &MusicSource::nowPlayingChanged);
     source.start();
-    // The first read is asynchronous; a blocking call to a player served on
-    // this very thread would have dead-locked until its timeout instead.
     QTRY_VERIFY(source.nowPlaying().showable());
     QCOMPARE(source.nowPlaying().title, QStringLiteral("Song A"));
     QCOMPARE(source.nowPlaying().artists,
@@ -1260,11 +1134,8 @@ void MusicActivityTest::mprisSourceReadsSpotifyOnAPrivateBus()
     QCOMPARE(musicdetect::statusTextFor(source.nowPlaying()),
              QStringLiteral("Listening to Song A by Artist A, Artist B"));
 
-    // PropertiesChanged: pause, then a skip.
     player.setStatus(QStringLiteral("Paused"));
     QTRY_VERIFY(!source.nowPlaying().playing);
-    // Only the Player interface counts: the same property names announced
-    // for another interface of the object change nothing.
     QSignalSpy beforeForeign(&source, &MusicSource::nowPlayingChanged);
     player.announceOn(QStringLiteral("org.mpris.MediaPlayer2"),
                       { { QStringLiteral("PlaybackStatus"), QStringLiteral("Playing") } });
@@ -1276,13 +1147,11 @@ void MusicActivityTest::mprisSourceReadsSpotifyOnAPrivateBus()
     QTRY_COMPARE(source.nowPlaying().title, QStringLiteral("Song B"));
     QVERIFY(source.nowPlaying().playing);
 
-    // An advertisement is read but never showable.
     player.set(QStringLiteral("Playing"), QStringLiteral("Advertisement"), {},
                QString(), QStringLiteral("/com/spotify/ad/1"));
     QTRY_COMPARE(source.nowPlaying().trackId, QStringLiteral("/com/spotify/ad/1"));
     QVERIFY(!source.nowPlaying().showable());
 
-    // Spotify quits: nothing plays. It comes back: read again.
     player.set(QStringLiteral("Playing"), QStringLiteral("Song C"), { QStringLiteral("Artist D") },
                QString(), QStringLiteral("/com/spotify/track/ccc"), false);
     QVERIFY(playerBus.unregisterService(QString::fromLatin1(musicdetect::kSpotifyMprisService)));
@@ -1322,14 +1191,12 @@ void MusicActivityTest::mprisSourceIgnoresEveryOtherPlayer()
     MprisMusicSource source(clientBus, QString::fromLatin1(musicdetect::kSpotifyMprisService));
     source.setPollIntervalForTest(30);
     source.start();
-    QTRY_VERIFY(source.requestsSent() >= 1);   // it did ask
+    QTRY_VERIFY(source.requestsSent() >= 1);
     vlc.setStatus(QStringLiteral("Playing"));
-    QTest::qWait(150);   // five poll periods
+    QTest::qWait(150);
     QVERIFY(!source.nowPlaying().showable());
     QCOMPARE(source.nowPlaying().title, QString());
-    // Nobody owns Spotify's name: the poll does not ask again...
     QCOMPARE(source.requestsSent(), 1);
-    // ...until an owner appears, which is read at once.
     QVERIFY(playerBus.registerService(QString::fromLatin1(musicdetect::kSpotifyMprisService)));
     QTRY_VERIFY(source.requestsSent() >= 2);
     source.stop();
@@ -1368,7 +1235,6 @@ void MusicActivityTest::aStoppedMprisSourceIsSilent()
     QVERIFY(!source.nowPlaying().showable());
     const int requests = source.requestsSent();
     const int emitted = changed.count();
-    // No poll, no subscription, no owner watch after stop().
     player.set(QStringLiteral("Playing"), QStringLiteral("Song B"), { QStringLiteral("Artist B") },
                QString(), QStringLiteral("/com/spotify/track/bbb"));
     QVERIFY(playerBus.unregisterService(QString::fromLatin1(musicdetect::kSpotifyMprisService)));

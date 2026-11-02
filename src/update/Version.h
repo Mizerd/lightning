@@ -28,8 +28,6 @@ class Version
 public:
     Version() = default;
 
-    // Strict parse. Returns nullopt for anything that is not exactly a
-    // semantic version — the caller reports an error instead of guessing.
     static std::optional<Version> parse(const QString &text);
 
     int majorVersion() const { return m_major; }
@@ -40,12 +38,9 @@ public:
     const QStringList &prereleaseIdentifiers() const { return m_prerelease; }
     const QStringList &buildIdentifiers() const { return m_build; }
 
-    // Canonical rendering including prerelease and build metadata.
     QString toString() const;
-    // Rendering used for ordering-relevant display (build metadata dropped).
     QString toComparableString() const;
 
-    // -1 / 0 / +1. Build metadata is ignored, per semver.
     static int compare(const Version &a, const Version &b);
 
     bool operator==(const Version &other) const { return compare(*this, other) == 0; }
@@ -63,4 +58,4 @@ private:
     QStringList m_build;
 };
 
-} // namespace lightning::update
+}

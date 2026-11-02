@@ -1,7 +1,3 @@
-// LiveKit-compatible frame encryption. A subtly wrong cryptor looks encrypted,
-// interoperates with nobody, and with a bad IV is cryptographically broken, so
-// these tests assert the format against livekit-client 2.22.0 (src/e2ee/),
-// not merely a round trip.
 #include "calls/CallFrameCryptor.h"
 
 #include <QSet>
@@ -13,20 +9,15 @@
 namespace {
 QByteArray rawKey(char fill = 'k')
 {
-    // MatrixRTC distributes 32 raw bytes.
     return QByteArray(32, fill);
 }
-} // namespace
+}
 
 class CallFrameCryptorTest : public QObject
 {
     Q_OBJECT
 
 private Q_SLOTS:
-    // element-call mints 16-byte media keys (matrix-js-sdk's
-    // RTCEncryptionManager), livekit-client's createE2EEKey() mints 32. HKDF
-    // derives the same 16-byte AES-128 key from either, so both are accepted;
-    // rejecting 16 would drop every frame from Element peers.
     void bothElementAndLivekitKeyLengthsAreAccepted()
     {
         CallFrameCryptor sixteen;
@@ -35,8 +26,6 @@ private Q_SLOTS:
         CallFrameCryptor thirtyTwo;
         QVERIFY2(thirtyTwo.setKey(0, QByteArray(32, 'k')),
                  "a 32-byte livekit-client key was refused");
-        // Still a closed set: an unused length must not derive and light up
-        // encryptionActive().
         CallFrameCryptor odd;
         QVERIFY2(!odd.setKey(0, QByteArray(7, 'k')), "a 7-byte key was accepted");
         QVERIFY2(!odd.setKey(0, QByteArray(24, 'k')), "a 24-byte key was accepted");
@@ -58,14 +47,9 @@ private Q_SLOTS:
 
     void anH264FrameKeepsItsHeadersAndHidesItsSlice()
     {
-        // livekit-client 2.22 processNALUsForEncryption(): everything up to
-        // two bytes into the first slice stays clear; writeRbsp() then keeps
-        // a start code out of what follows.
         const QByteArray sps = QByteArray::fromHex("0000000167428028");
         const QByteArray pps = QByteArray::fromHex("0000000168ce3c80");
         QByteArray slice = QByteArray::fromHex("000000016588");
-        // Zero runs are what escaping exists for: the ciphertext of a known
-        // key still has to survive them in the plaintext.
         slice += QByteArray(4000, char(0));
         const QByteArray frame = sps + pps + slice;
         const int clear = frame.indexOf(slice) + 6;
@@ -74,7 +58,6 @@ private Q_SLOTS:
 
         CallFrameCryptor cryptor;
         QVERIFY(cryptor.setKey(0, QByteArray(16, 'k')));
-        // Enough frames that the tag, IV and trailer meet zeros at the seams.
         for (int i = 0; i < 2000; ++i) {
             const QByteArray wire = cryptor.encryptFrame(
                 frame, CallFrameCryptor::FrameKind::VideoH264, 7, 1000 + i);
@@ -93,8 +76,6 @@ private Q_SLOTS:
                      frame);
         }
 
-        // A receiver rebuilds the frame with four-byte start codes, so a
-        // three-byte one in the authenticated header must not survive.
         const QByteArray shortCodes = QByteArray::fromHex("00000167428028")
             + QByteArray::fromHex("00000168ce3c80")
             + QByteArray::fromHex("00000165880102030405060708");
@@ -104,10 +85,6 @@ private Q_SLOTS:
             QByteArray::fromHex("0000000167428028" "0000000168ce3c80"
                                 "000000016588")));
 
-        // An SPS with no bitstream restriction would be rewritten by a
-        // receiving libwebrtc before the decryptor sees it. Baseline, POC 2,
-        // 1280x720; the old VUI holds `00 00 EA`, legal there and not an end
-        // of NAL unit. Expected bytes written by an independent bit writer.
         const QByteArray rewritten = cryptor.encryptFrame(
             QByteArray::fromHex("00000001" "6742c01fda014016e840" "0000ea6021"
                                 "000000000001" "68ce3c80"
@@ -117,7 +94,6 @@ private Q_SLOTS:
             "00000001" "6742c01fda014016e807844235"
             "00000001" "68ce3c80" "00000001" "6588")));
 
-        // The clear headers are authenticated.
         QByteArray wire = cryptor.encryptFrame(
             frame, CallFrameCryptor::FrameKind::VideoH264, 7, 5);
         wire[5] = char(wire.at(5) ^ 1);
@@ -125,7 +101,6 @@ private Q_SLOTS:
                     .decryptFrame(wire, CallFrameCryptor::FrameKind::VideoH264,
                                   nullptr)
                     .isEmpty());
-        // No slice, no cleartext rule: refused, never sent as it is.
         QVERIFY(cryptor
                     .encryptFrame(sps + pps,
                                   CallFrameCryptor::FrameKind::VideoH264, 7, 6)
@@ -140,29 +115,21 @@ private Q_SLOTS:
     {
         const QByteArray a = CallFrameCryptor::deriveKey(rawKey('a'));
         const QByteArray b = CallFrameCryptor::deriveKey(rawKey('b'));
-        // AES-128-GCM.
         QCOMPARE(a.size(), 16);
         QCOMPARE(b.size(), 16);
-        // Deterministic: participants deriving from one shared key must agree.
         QCOMPARE(CallFrameCryptor::deriveKey(rawKey('a')), a);
         QVERIFY(a != b);
-        // An empty key must not produce a usable one.
         QVERIFY(CallFrameCryptor::deriveKey(QByteArray()).isEmpty());
     }
 
     void keyDerivationMatchesAnIndependentHkdf()
     {
-        // Known answer from an independent RFC 5869 HKDF-SHA256: ikm = 32 * 'k',
-        // salt = "LKFrameEncryptionKey", info = 128 zero bytes, L = 16. A
-        // self round-trip would pass with the wrong salt, info or KDF.
         QCOMPARE(CallFrameCryptor::deriveKey(rawKey('k')).toHex(),
                  QByteArray("262178a9e5dabf73df9342ed5bae9fe1"));
     }
 
     void ivLayoutIsExactlyTheReferenceConstruction()
     {
-        // [0..3] ssrc, [4..7] timestamp, [8..11] timestamp - (count % 0xffff),
-        // all big endian, pinned byte by byte.
         const QByteArray iv =
             CallFrameCryptor::makeIvForTest(0x01020304u, 0x0A0B0C0Du, 5);
         QCOMPARE(iv.size(), 12);
@@ -174,7 +141,6 @@ private Q_SLOTS:
         QCOMPARE(static_cast<quint8>(iv.at(5)), quint8(0x0B));
         QCOMPARE(static_cast<quint8>(iv.at(6)), quint8(0x0C));
         QCOMPARE(static_cast<quint8>(iv.at(7)), quint8(0x0D));
-        // 0x0A0B0C0D - 5
         QCOMPARE(static_cast<quint8>(iv.at(8)), quint8(0x0A));
         QCOMPARE(static_cast<quint8>(iv.at(9)), quint8(0x0B));
         QCOMPARE(static_cast<quint8>(iv.at(10)), quint8(0x0C));
@@ -183,8 +149,6 @@ private Q_SLOTS:
 
     void ivSubtractionWrapsLikeTheReference()
     {
-        // The reference truncates through DataView.setUint32, so a counter
-        // larger than the timestamp wraps rather than clamping.
         const QByteArray iv = CallFrameCryptor::makeIvForTest(0, 1, 5);
         QCOMPARE(static_cast<quint8>(iv.at(8)), quint8(0xFF));
         QCOMPARE(static_cast<quint8>(iv.at(9)), quint8(0xFF));
@@ -194,18 +158,14 @@ private Q_SLOTS:
 
     void ivIsNeverReusedForTheSameSsrc()
     {
-        // AES-GCM IV reuse leaks the authentication key, a total break. Many
-        // frames on one SSRC at an unchanging timestamp must still get
-        // distinct IVs.
         CallFrameCryptor cryptor;
         QVERIFY(cryptor.setKey(0, rawKey()));
         QSet<QByteArray> seen;
         for (int i = 0; i < 512; ++i) {
             const QByteArray wire = cryptor.encryptFrame(
                 QByteArray("\x01payload"), CallFrameCryptor::FrameKind::Audio,
-                /*ssrc=*/42, /*rtpTimestamp=*/1000);
+42,1000);
             QVERIFY(!wire.isEmpty());
-            // IV sits just before the 2-byte trailer.
             seen.insert(wire.mid(wire.size() - 14, 12));
         }
         QCOMPARE(seen.size(), 512);
@@ -213,9 +173,6 @@ private Q_SLOTS:
 
     void twoTracksSharingOneCryptorMustNotShareAnIv()
     {
-        // Audio and video share one send cryptor on separate streaming threads,
-        // and the counter is per SSRC, so different SSRCs must never collide
-        // even at the same timestamp.
         CallFrameCryptor cryptor;
         QVERIFY(cryptor.setKey(0, rawKey()));
         QSet<QByteArray> seen;
@@ -224,25 +181,19 @@ private Q_SLOTS:
                 const QByteArray wire = cryptor.encryptFrame(
                     QByteArray("\x01payload"),
                     CallFrameCryptor::FrameKind::Audio, ssrc,
-                    /*rtpTimestamp=*/9000);
+9000);
                 QVERIFY(!wire.isEmpty());
                 seen.insert(wire.mid(wire.size() - 14, 12));
             }
         }
-        // Every one of the 768 frames got its own IV.
         QCOMPARE(seen.size(), 768);
     }
 
     void twoThreadsThroughOneCryptorStayCorrect()
     {
-        // Drives the engine's shape: audio and video probes reaching one
-        // cryptor concurrently. A smoke test only: it does not fail without the
-        // mutex (distinct QHash entries rarely race). The lock is justified by
-        // the failure mode, a silently duplicated AES-GCM IV.
         CallFrameCryptor cryptor;
         QVERIFY(cryptor.setKey(0, rawKey()));
 
-        // std::thread rather than QtConcurrent: no new Qt module needed.
         std::mutex guard;
         QSet<QByteArray> seen;
         const auto run = [&](quint32 ssrc) {
@@ -250,7 +201,7 @@ private Q_SLOTS:
                 const QByteArray wire = cryptor.encryptFrame(
                     QByteArray("\x01payload"),
                     CallFrameCryptor::FrameKind::Audio, ssrc,
-                    /*rtpTimestamp=*/7000);
+7000);
                 const std::lock_guard<std::mutex> lock(guard);
                 seen.insert(wire.mid(wire.size() - 14, 12));
             }
@@ -272,22 +223,13 @@ private Q_SLOTS:
             payload, CallFrameCryptor::FrameKind::Audio, 7, 99);
         QVERIFY(!wire.isEmpty());
 
-        // header(1) + ciphertext(payload-1) + tag(16) + iv(12) + trailer(2)
         QCOMPARE(wire.size(), payload.size() + 16 + 12 + 2);
-        // The Opus TOC byte stays in the clear so the SFU can route it.
         QCOMPARE(wire.at(0), payload.at(0));
-        // Trailer: { IV length, key index }.
         QCOMPARE(static_cast<quint8>(wire.at(wire.size() - 2)), quint8(12));
         QCOMPARE(static_cast<quint8>(wire.at(wire.size() - 1)), quint8(3));
-        // The body must NOT be the cleartext.
         QVERIFY(!wire.contains(QByteArray("hello world")));
     }
 
-    // The trailer tells ciphertext from cleartext without a key. With no key
-    // installed and encryption not required, SfuMediaEngine's receive probe
-    // passes frames through, so a peer encrypting into a call we believe is
-    // clear would feed ciphertext to the decoder unnoticed; the trailer is
-    // the only distinguishing signal. Its false-positive shape is asserted.
     void theTrailerSaysWhetherAFrameWasEncryptedWithoutDecryptingIt()
     {
         CallFrameCryptor cryptor;
@@ -298,25 +240,20 @@ private Q_SLOTS:
             payload, CallFrameCryptor::FrameKind::Audio, 7, 99);
         QVERIFY(!wire.isEmpty());
 
-        // A frame this scheme wrote is recognised without a key.
         QVERIFY2(CallFrameCryptor::looksEncrypted(
                      wire, CallFrameCryptor::FrameKind::Audio),
                  "a frame this class encrypted is not recognised as one");
         CallFrameCryptor empty;
         QVERIFY(!empty.hasAnyKey());
 
-        // Its cleartext is not.
         QVERIFY2(!CallFrameCryptor::looksEncrypted(
                      payload, CallFrameCryptor::FrameKind::Audio),
                  "an ordinary Opus-shaped payload is reported as encrypted");
-        // Too short for header + tag + IV + trailer, whatever it ends with.
         QByteArray tiny(8, '\0');
         tiny[6] = char(12);
         tiny[7] = char(3);
         QVERIFY(!CallFrameCryptor::looksEncrypted(
             tiny, CallFrameCryptor::FrameKind::Audio));
-        // A VP8 keyframe has a 10-byte cleartext header, so the floor depends
-        // on frame kind.
         QByteArray justAudio(1 + 16 + 12 + 2, 'x');
         justAudio[justAudio.size() - 2] = char(12);
         justAudio[justAudio.size() - 1] = char(0);
@@ -326,23 +263,15 @@ private Q_SLOTS:
                      justAudio, CallFrameCryptor::FrameKind::VideoKey),
                  "the length floor does not follow the frame kind's header");
 
-        // An IV length we never write is refused (decryptFrame uses it as an
-        // offset).
         QByteArray wrongIv = wire;
         wrongIv[wrongIv.size() - 2] = char(16);
         QVERIFY(!CallFrameCryptor::looksEncrypted(
             wrongIv, CallFrameCryptor::FrameKind::Audio));
-        // Key index 200 is inside the 256-slot ring (element-call's), so the
-        // frame is shaped like ours.
         QByteArray highIndex = wire;
         highIndex[highIndex.size() - 1] = char(200);
         QVERIFY(CallFrameCryptor::looksEncrypted(
             highIndex, CallFrameCryptor::FrameKind::Audio));
 
-        // A shape test, not a decryption: a long cleartext frame whose last two
-        // bytes happen to fit passes. That is why the engine takes a windowed
-        // verdict; this fails if someone adds a per-frame check that cannot be
-        // sound without the key.
         QByteArray unluckyCleartext(64, 'a');
         unluckyCleartext[unluckyCleartext.size() - 2] = char(12);
         unluckyCleartext[unluckyCleartext.size() - 1] = char(4);
@@ -375,7 +304,6 @@ private Q_SLOTS:
 
     void aTamperedFrameFailsAuthentication()
     {
-        // GCM: the SFU forwards our bytes but cannot alter them undetected.
         CallFrameCryptor sender;
         CallFrameCryptor receiver;
         QVERIFY(sender.setKey(0, rawKey()));
@@ -390,7 +318,6 @@ private Q_SLOTS:
                      flipped, CallFrameCryptor::FrameKind::Audio).isEmpty(),
                  "a flipped ciphertext byte must fail the tag");
 
-        // The cleartext header is authenticated as AAD, so tampering fails too.
         QByteArray header = wire;
         header[0] = static_cast<char>(header.at(0) ^ 0xFF);
         QVERIFY2(receiver.decryptFrame(
@@ -398,20 +325,15 @@ private Q_SLOTS:
                  "the cleartext header is authenticated and must be covered");
     }
 
-    // A ring reports whether it holds any key. An engine-wide "some key
-    // arrived" flag is true once any participant is keyed, which would
-    // mislabel a missing key as a decryption failure.
     void aRingSaysWhetherItHoldsAnyKeyAtAll()
     {
         CallFrameCryptor ring;
         QVERIFY(!ring.hasAnyKey());
         QVERIFY(ring.setKey(3, QByteArray(32, 'k')));
         QVERIFY(ring.hasAnyKey());
-        // A refused key does not make an empty ring claim to be keyed.
         CallFrameCryptor refused;
         QVERIFY(!refused.setKey(0, QByteArray(7, 'k')));
         QVERIFY(!refused.hasAnyKey());
-        // clearKeys() forgets the claim: media keys must not outlive the call.
         ring.clearKeys();
         QVERIFY(!ring.hasAnyKey());
     }
@@ -435,19 +357,16 @@ private Q_SLOTS:
         CallFrameCryptor receiver;
         QVERIFY(sender.setKey(5, rawKey()));
         sender.setCurrentKeyIndex(5);
-        // The receiver has the same key material at a different slot.
         QVERIFY(receiver.setKey(0, rawKey()));
         const QByteArray wire = sender.encryptFrame(
             QByteArray("\x01secret"), CallFrameCryptor::FrameKind::Audio, 1, 2);
         QVERIFY(!wire.isEmpty());
-        // Falling back to any held key would defeat rotation.
         QVERIFY(receiver.decryptFrame(wire, CallFrameCryptor::FrameKind::Audio)
                     .isEmpty());
     }
 
     void rotationKeepsInFlightFramesDecryptable()
     {
-        // The ring keeps frames already in flight decryptable across rotation.
         CallFrameCryptor sender;
         CallFrameCryptor receiver;
         QVERIFY(sender.setKey(0, rawKey('a')));
@@ -470,8 +389,6 @@ private Q_SLOTS:
 
     void withoutAKeyNothingIsEmittedInTheClear()
     {
-        // No key means no output, never a passthrough, which would silently
-        // un-encrypt an encrypted room's call.
         CallFrameCryptor cryptor;
         QVERIFY(cryptor.encryptFrame(QByteArray("\x01secret"),
                                      CallFrameCryptor::FrameKind::Audio, 1, 2)
@@ -483,7 +400,6 @@ private Q_SLOTS:
 
     void clearingKeysStopsEncryptionImmediately()
     {
-        // Media keys must not outlive the call that used them.
         CallFrameCryptor cryptor;
         QVERIFY(cryptor.setKey(0, rawKey()));
         QVERIFY(!cryptor.encryptFrame(QByteArray("\x01x"),
@@ -498,7 +414,6 @@ private Q_SLOTS:
 
     void malformedFramesAreRefusedNotIndexedInto()
     {
-        // Every length here is remote input used as an offset.
         CallFrameCryptor cryptor;
         QVERIFY(cryptor.setKey(0, rawKey()));
         for (int size : {0, 1, 5, 14, 20, 28}) {
@@ -508,7 +423,6 @@ private Q_SLOTS:
                      qPrintable(QStringLiteral("size %1 must be refused")
                                     .arg(size)));
         }
-        // A trailer claiming an IV length we do not implement.
         QByteArray wire = cryptor.encryptFrame(
             QByteArray("\x01payload"), CallFrameCryptor::FrameKind::Audio, 1, 2);
         QVERIFY(!wire.isEmpty());
@@ -521,7 +435,6 @@ private Q_SLOTS:
     {
         CallFrameCryptor cryptor;
         QVERIFY(cryptor.setKey(0, rawKey()));
-        // A VP8 keyframe claims 10 cleartext bytes; 4 cannot carry that.
         QVERIFY(cryptor.encryptFrame(QByteArray(4, 'x'),
                                      CallFrameCryptor::FrameKind::VideoKey,
                                      1, 2)
@@ -541,7 +454,6 @@ private Q_SLOTS:
         QVERIFY(cryptor.setKey(15, rawKey()));
         QVERIFY(cryptor.setKey(16, rawKey()));
         QVERIFY(cryptor.setKey(255, rawKey()));
-        // An out-of-ring index cannot become the one frames are stamped with.
         cryptor.setCurrentKeyIndex(255);
         cryptor.setCurrentKeyIndex(256);
         QCOMPARE(cryptor.currentKeyIndex(), 255);
@@ -549,8 +461,6 @@ private Q_SLOTS:
         QCOMPARE(cryptor.currentKeyIndex(), 255);
     }
 
-    // Key indices above 15 install and decrypt: matrix-js-sdk rotates as
-    // `(keyId + 1) % 256` and element-call's ring holds 256.
     void aKeyAtIndex200IsInstalledAndDecryptsThatSendersFrames()
     {
         CallFrameCryptor sender;
@@ -568,7 +478,6 @@ private Q_SLOTS:
         const QByteArray wire = sender.encryptFrame(
             payload, CallFrameCryptor::FrameKind::Audio, 11, 4242);
         QVERIFY(!wire.isEmpty());
-        // The trailer names the index, as livekit-client writes it.
         QCOMPARE(static_cast<unsigned char>(wire.at(wire.size() - 1)), 200);
         QCOMPARE(static_cast<unsigned char>(wire.at(wire.size() - 2)), 12);
 
@@ -578,8 +487,6 @@ private Q_SLOTS:
                  payload);
         QCOMPARE(why.reason, CallFrameCryptor::DecryptFailure::None);
 
-        // A ring keyed only at 199 reports "no key at that index" for 200,
-        // not a bad trailer.
         CallFrameCryptor neighbour;
         QVERIFY(neighbour.setKey(199, rawKey('e')));
         QVERIFY(neighbour.decryptFrame(wire, CallFrameCryptor::FrameKind::Audio,
@@ -589,8 +496,6 @@ private Q_SLOTS:
         QCOMPARE(why.keyIndex, 200);
     }
 
-    // A ring holds at most kMaxKeysPerRing keys and evicts the oldest, never
-    // the index our own frames are sent under.
     void aRingKeepsOnlyItsMostRecentKeys()
     {
         CallFrameCryptor ring;
@@ -605,21 +510,16 @@ private Q_SLOTS:
         for (int index = 0; index < CallFrameCryptor::kKeyRingSize; ++index)
             held += ring.hasKey(index) ? 1 : 0;
         QCOMPARE(held, cap);
-        // The oldest non-current indices went; the newest stayed.
         QVERIFY(!ring.hasKey(1));
         QVERIFY(!ring.hasKey(11));
         QVERIFY(ring.hasKey(12));
         QVERIFY(ring.hasKey(cap + 10));
-        // Re-installing an old index makes it the newest again.
         QVERIFY(ring.setKey(12, rawKey('z')));
         QVERIFY(ring.setKey(cap + 11, rawKey()));
         QVERIFY(ring.hasKey(12));
         QVERIFY(!ring.hasKey(13));
     }
 
-    // A lookup must not create a slot: an `operator[]` read on the hash
-    // inserts an empty value, and hasAnyKey() (asked per frame) would then be
-    // true for an unkeyed ring.
     void askingAboutAnIndexDoesNotMakeTheRingClaimAKey()
     {
         CallFrameCryptor cryptor;
@@ -636,7 +536,6 @@ private Q_SLOTS:
         QVERIFY2(!cryptor.hasAnyKey(),
                  "a lookup inserted an empty slot and the ring now claims a "
                  "key");
-        // clearKeys() really empties a keyed ring.
         QVERIFY(cryptor.setKey(200, rawKey()));
         QVERIFY(cryptor.hasAnyKey());
         cryptor.clearKeys();
@@ -644,14 +543,8 @@ private Q_SLOTS:
         QVERIFY(!cryptor.hasKey(200));
     }
 
-    // SFU-injected frames are recognised by their exact trailer only.
-    // livekit-server injects unencrypted blank frames into encrypted tracks
-    // (Opus silence on mute or close), each ending in the room's
-    // `JoinResponse.sif_trailer`. The SFU is outside the trust boundary, so a
-    // shape heuristic would misfile real frames.
     void aServerInjectedFrameIsRecognisedByItsExactTrailer()
     {
-        // livekit-server's OpusSilenceFrame: f8 ff fe + 77 zeros.
         QByteArray silence(80, '\0');
         silence[0] = char(0xf8);
         silence[1] = char(0xff);
@@ -659,7 +552,6 @@ private Q_SLOTS:
         QVERIFY(CallFrameCryptor::startsWithOpusSilenceFrame(
             silence.constData(), silence.size()));
 
-        // A livekit-shaped trailer: base62, about 43 bytes, ending in 'R' (82).
         const QByteArray trailer(
             "k3P9dQ2mZ7xW4vB8nT1cY6hJ0fL5sG2aE9rU3oKqXiR");
         QCOMPARE(trailer.back(), 'R');
@@ -668,26 +560,19 @@ private Q_SLOTS:
         QVERIFY2(CallFrameCryptor::endsWithServerTrailer(injected, trailer),
                  "a silence frame carrying the room's trailer was not "
                  "recognised");
-        // Control: not armed, nothing matches.
         QVERIFY(!CallFrameCryptor::endsWithServerTrailer(injected,
                                                          QByteArray()));
-        // One byte different anywhere in the trailer: not ours.
         QByteArray other = trailer;
         other[5] = other[5] == 'a' ? 'b' : 'a';
         QVERIFY(!CallFrameCryptor::endsWithServerTrailer(injected, other));
-        // A longer trailer that ends with the real one does not match.
         QVERIFY(!CallFrameCryptor::endsWithServerTrailer(
             injected, QByteArray("x") + trailer));
-        // A frame that is only the trailer carries no payload.
         QVERIFY(!CallFrameCryptor::endsWithServerTrailer(trailer, trailer));
-        // An over-long "trailer" never arms.
         const QByteArray huge(CallFrameCryptor::kMaxServerTrailerBytes + 1,
                               'A');
         QVERIFY(!CallFrameCryptor::endsWithServerTrailer(
             silence + huge, huge));
 
-        // Unrecognised, that frame fails as bad-iv-length with keyIndex equal
-        // to the trailer's last byte.
         CallFrameCryptor keyed;
         QVERIFY(keyed.setKey(0, rawKey()));
         CallFrameCryptor::DecryptDiagnosis why;
@@ -698,14 +583,12 @@ private Q_SLOTS:
         QCOMPARE(why.keyIndex, 82);
     }
 
-    // A real encrypted frame is never taken for an injected one, even when
-    // its tail is printable ASCII: the match is the whole trailer.
     void aRealFrameWhoseTailIsAsciiIsNotMisclassified()
     {
         CallFrameCryptor sender;
         CallFrameCryptor receiver;
         QVERIFY(sender.setKey(82, rawKey('q')));
-        sender.setCurrentKeyIndex(82);   // trailer byte 'R', as above
+        sender.setCurrentKeyIndex(82);
         QVERIFY(receiver.setKey(82, rawKey('q')));
         const QByteArray trailer(
             "k3P9dQ2mZ7xW4vB8nT1cY6hJ0fL5sG2aE9rU3oKqXiR");
@@ -718,15 +601,11 @@ private Q_SLOTS:
             QVERIFY(!wire.isEmpty());
             QVERIFY2(!CallFrameCryptor::endsWithServerTrailer(wire, trailer),
                      "a real encrypted frame was classified as injected");
-            // Same last byte as the trailer, so only an exact match separates
-            // them.
             QCOMPARE(wire.back(), trailer.back());
             QCOMPARE(receiver.decryptFrame(wire,
                                            CallFrameCryptor::FrameKind::Audio),
                      payload);
         }
-        // A cleartext frame ending in printable ASCII but not the trailer is
-        // not injected either.
         const QByteArray asciiTail = QByteArray(40, 'x') + trailer.left(20);
         QVERIFY(!CallFrameCryptor::endsWithServerTrailer(asciiTail, trailer));
     }

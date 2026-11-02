@@ -12,17 +12,12 @@ struct StreamInfoStats {
     std::atomic<quint64> bytes{0}, packets{0}, frames{0}, decrypted{0}, dropped{0};
     std::atomic<int> width{0}, height{0};
     QString source, encoder, scaling;
-    /// What the track carries, not what SDP once offered: a hardware share is
-    /// H.264 and a software fallback is not.
     QString codec = QStringLiteral("VP8");
     bool outgoing = false;
     bool screen = false;
     qint64 lastMs = -1;
     quint64 lastBytes = 0, lastFrames = 0;
     double lastFps = -1, lastKbps = -1;
-    /// Two surfaces can poll one track in the same tick (the stage and its
-    /// full-screen window). A second sample that soon would divide one frame
-    /// by two milliseconds, or nothing by nothing, and restart the window.
     static constexpr qint64 kMinSampleMs = 200;
 
     static double rate(quint64 current, quint64 previous, qint64 elapsedMs,
